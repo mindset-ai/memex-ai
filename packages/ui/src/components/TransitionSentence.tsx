@@ -24,9 +24,12 @@ import { Button } from './ui';
 //      the view to the current phase's tab. Backward moves never carry
 //      blockers (dec-5).
 //
-// The sentence renders for every viewer — it is the page's phase status line —
-// and the buttons gate on `canTransition` (editor posture, i-1). Pressing Yes
-// is the only thing that moves the phase, anywhere on the page.
+// Posture (spec-182 issue-1): the Rubicon is STATUS-ONLY for non-editors.
+// When `canTransition` is false the blocker statements still render — they are
+// the page's phase status — but the questions ("Do you wish…?", "Are you
+// sure…?", "Move anyway?") never appear without the power to act, and a
+// ready-to-advance spec renders nothing at all. Pressing Yes is the only
+// thing that moves the phase, anywhere on the page.
 
 // `draft` is treated as "before plan": its home is the Plan tab, draft → plan
 // is never gated, and the forward target of every phase is simply the next
@@ -59,8 +62,9 @@ export interface TransitionSentenceProps {
   viewedTab: SpecStatus;
   /**
    * Whether the viewer may actually move the phase (editor posture + org write
-   * access). When false the sentence still renders — it's the page's phase
-   * status line — but the Yes/No buttons are withheld.
+   * access). When false the Rubicon is status-only: blocker statements render
+   * (they're the page's phase status) but the transition questions and Yes/No
+   * buttons never appear (spec-182 issue-1).
    */
   canTransition?: boolean;
   /** Total decisions on the Spec — distinguishes "none created" from "open". */
@@ -79,15 +83,6 @@ export interface TransitionSentenceProps {
   onTransitioned?: (newPhase: SpecStatus) => void;
   /** The browse-confirm's [No]: return the view to the current phase's tab. */
   onCancelBrowse?: () => void;
-  /**
-   * spec-182 dec-6: the reviewer's door to acting. When the viewer cannot
-   * transition (`canTransition` false) but CAN switch posture — a writable
-   * reviewer — the parent passes this callback and the button slot renders
-   * "You're reviewing — switch to Editing to act." with the link wired to the
-   * same switchPosture path as the header pill. Read-only visitors get no
-   * callback and therefore no link.
-   */
-  onSwitchToEdit?: () => void;
 }
 
 /**
@@ -175,7 +170,6 @@ export function TransitionSentence({
   unverifiedAcCount = 0,
   onTransitioned,
   onCancelBrowse,
-  onSwitchToEdit,
 }: TransitionSentenceProps) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -216,12 +210,14 @@ export function TransitionSentence({
     }
   }
 
-  const yesButton = canTransition && (
+  // The question shapes below only render when canTransition is true, so the
+  // buttons need no further gate of their own.
+  const yesButton = (
     <Button type="button" size="sm" variant="primary" onClick={handleYes} disabled={submitting}>
       {submitting ? 'Moving…' : 'Yes'}
     </Button>
   );
-  const noButton = canTransition && (
+  const noButton = (
     <Button
       type="button"
       size="sm"
@@ -235,21 +231,6 @@ export function TransitionSentence({
   const errorNote = error && (
     <span className="ml-2 text-status-danger-text" role="alert">
       {error}
-    </span>
-  );
-  // spec-182 dec-6: the reviewer's slot-filler — renders exactly where the
-  // editor's [Yes] would, only when the viewer can't transition but can switch.
-  const switchLink = !canTransition && onSwitchToEdit && (
-    <span data-testid="switch-to-editing">
-      You're reviewing —{' '}
-      <button
-        type="button"
-        onClick={() => onSwitchToEdit()}
-        className="underline underline-offset-2 text-primary hover:text-heading"
-      >
-        switch to Editing
-      </button>{' '}
-      to act.
     </span>
   );
 
@@ -267,17 +248,20 @@ export function TransitionSentence({
       // buttons to press.
       return (
         <p className="text-sm text-secondary" data-testid="transition-sentence">
-          {renderBlockers(blockers)} before this spec can move to {phaseDisplayName(target)}.{' '}
-          {switchLink}
+          {renderBlockers(blockers)} before this spec can move to {phaseDisplayName(target)}.
         </p>
       );
     }
-    // Ready: the advancement offer.
+    // Ready: the advancement offer — editors only. A non-editor has nothing
+    // to act on, and the tab bar's filled pill already carries the phase
+    // (spec-182 issue-1).
+    if (!canTransition) {
+      return null;
+    }
     const verb = target === 'verify' || target === 'done' ? 'Do you want' : 'Do you wish';
     return (
       <p className="text-sm text-secondary" data-testid="transition-sentence">
         {verb} to move this spec to {phaseDisplayName(target)}? {yesButton}
-        {switchLink}
         {errorNote}
       </p>
     );
@@ -288,6 +272,19 @@ export function TransitionSentence({
   // (which already names the target) and asks "Move this spec anyway?" —
   // naming the target once, with the friction carried by "anyway".
   const showSummary = !backward && blockers.length > 0;
+  if (!canTransition) {
+    // Non-editor browsing: status only (spec-182 issue-1). Forward+blocked
+    // still states the rubric's outstanding work; otherwise there is no
+    // question to ask someone who can't press Yes.
+    if (!showSummary) {
+      return null;
+    }
+    return (
+      <p className="text-sm text-secondary" data-testid="transition-sentence">
+        {renderBlockers(blockers)} before {phaseDisplayName(target)}.
+      </p>
+    );
+  }
   const question = backward
     ? `Do you want to move this spec back to ${phaseDisplayName(target)}?`
     : showSummary
@@ -297,7 +294,6 @@ export function TransitionSentence({
     <p className="text-sm text-secondary" data-testid="transition-sentence">
       {showSummary && <>{renderBlockers(blockers)} before {phaseDisplayName(target)}. </>}
       {question} {yesButton} {noButton}
-      {switchLink}
       {errorNote}
     </p>
   );

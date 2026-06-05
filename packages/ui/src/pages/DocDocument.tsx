@@ -142,16 +142,13 @@ export function DocDocument() {
   // `canEdit` is the conjunction of org write access and an editor posture.
   const { myRole, loading: roleLoading } = useDocRole(doc?.id ?? null);
   const canEdit = canWrite && myRole === 'editor';
-  // spec-159 ac-19: a WRITABLE reviewer (org member who hasn't taken the editor
-  // posture on this Spec) gets a review-oriented phase block — a row of
-  // review-action prompts and a reviewer handoff line — in place of the
-  // editor's PhaseTabBar + TransitionSentence. Editors and read-only visitors
-  // (canWrite false) keep the existing block untouched. The posture itself
-  // (and the switch between editing/reviewing) lives in the header's
-  // PostureDropdown pill, not in this block.
-  const isWritableReviewer = canWrite && myRole === 'reviewer';
-  // The posture switch behind the header pill — promote/demote + role refetch
-  // (the role flip then swaps the phase block). Null-safe before the doc loads.
+  // spec-182 dec-1 dissolved the spec-159 ac-19 reviewer fork — every posture
+  // renders the same phase block, so no per-posture flag remains here. The
+  // posture itself (and the switch between editing/reviewing) lives in the
+  // header's PostureDropdown pill (dec-6, amended: the pill is the ONLY
+  // switch affordance — no in-page nag).
+  // The posture switch behind the header pill — promote/demote + role refetch.
+  // Null-safe before the doc loads.
   const switchPosture = useSwitchPosture(doc?.id ?? '');
   // spec-159 ac-17: Org scaffold appends for the phase handoff line's
   // PromptButton — threaded into toButtonPrompt exactly as OpeningTurn does.
@@ -1010,8 +1007,9 @@ export function DocDocument() {
           reviewers couldn't). The PhaseTabBar browses phase views without ever
           moving the Spec; the TransitionSentence beneath it is the *only* phase
           mutation — one [Yes], no modal, gated on canEdit. Reviewers reach the
-          sentence as a status-only line (dec-2) carrying the switch-to-Editing
-          link (dec-6). `done` collapses both into the DoneSummary for everyone. */}
+          sentence as a status-only line (dec-2); the header posture pill is the
+          only switch affordance (dec-6, amended 2026-06-05 — the in-slot nag
+          was removed). `done` collapses both into the DoneSummary for everyone. */}
       {doc.docType === 'spec' &&
         phase !== 'done' && (
           <div className="mb-4 space-y-2">
@@ -1039,13 +1037,6 @@ export function DocDocument() {
                 reloadDoc();
               }}
               onCancelBrowse={() => setSelectedTab(null)}
-              /* spec-182 dec-6: only a WRITABLE REVIEWER gets the in-slot
-                 "switch to Editing" door — same switchPosture path as the
-                 header pill. Read-only visitors have no posture to switch,
-                 so no callback and no link. */
-              onSwitchToEdit={
-                isWritableReviewer ? () => void switchPosture('editor') : undefined
-              }
             />
             {/* spec-182 dec-3: the review actions are a SPECIFY-phase fixture
                 for BOTH postures — review is a planning act (you review the
@@ -1087,9 +1078,13 @@ export function DocDocument() {
               </>
             )}
             {/* spec-159 ac-17: the next-action handoff line — a "Copy a prompt
-                to …" sentence keyed to the CURRENT phase. Renders for every
-                viewer (copying a prompt is read-only); absent at `done`. */}
-            {handoff && (
+                to …" sentence keyed to the CURRENT phase; absent at `done`.
+                spec-182 issue-2 amends ac-17's "renders for every viewer":
+                the prompt's CONTENT drives state changes and building, so the
+                line is an editor affordance — gated on canEdit. The review
+                handoff above stays for both postures (dec-3: reviewing is the
+                reviewer's own workflow). */}
+            {canEdit && handoff && (
               <div data-testid="phase-handoff-line">
                 <PromptButton
                   buttonId={handoff.buttonId}

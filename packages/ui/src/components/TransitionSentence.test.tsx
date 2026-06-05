@@ -239,12 +239,60 @@ describe('Rubicon line — shape 3: browsing another tab → Are-you-sure + Yes/
   });
 });
 
+// spec-182 issue-1 (2026-06-05): the Rubicon is STATUS-ONLY for non-editors.
+// Blocker statements render (they're the page's phase status); the transition
+// questions never do, and a clean rubric renders nothing at all — the tab
+// pill already carries the phase.
 describe('Rubicon line — posture (i-1) and the Yes mutation', () => {
-  it('canTransition=false renders the line but withholds Yes/No', () => {
-    tagAc(AC(3));
+  const AC182_9 = 'mindset-prod/memex-building-itself/specs/spec-182/acs/ac-9';
+
+  it('canTransition=false browsing forward with a clean rubric renders NOTHING — no question', () => {
+    tagAc(AC182_9);
     render(<TransitionSentence {...baseProps({ viewedTab: 'build', canTransition: false })} />);
-    expect(text()).toContain('Are you sure you want to move this spec to Build?');
+    expect(screen.queryByTestId('transition-sentence')).toBeNull();
     expect(screen.queryByRole('button')).toBeNull();
+  });
+
+  it('canTransition=false on the current tab with a clean rubric renders NOTHING — no offer', () => {
+    tagAc(AC182_9);
+    render(<TransitionSentence {...baseProps({ canTransition: false })} />);
+    expect(screen.queryByTestId('transition-sentence')).toBeNull();
+  });
+
+  it('canTransition=false on the current tab, blocked → the rubric condition, no buttons', () => {
+    tagAc(AC182_9);
+    render(
+      <TransitionSentence
+        {...baseProps({ openDecisionCount: 2, canTransition: false })}
+      />,
+    );
+    expect(text()).toContain('2 Decisions');
+    expect(text()).toContain('must be resolved');
+    expect(text()).not.toContain('?');
+    expect(screen.queryByRole('button')).toBeNull();
+  });
+
+  it('canTransition=false browsing forward, blocked → blocker summary only, no "Move anyway?"', () => {
+    tagAc(AC182_9);
+    render(
+      <TransitionSentence
+        {...baseProps({ viewedTab: 'build', openDecisionCount: 2, canTransition: false })}
+      />,
+    );
+    expect(text()).toContain('2 Decisions');
+    expect(text()).not.toContain('Move this spec anyway?');
+    expect(text()).not.toContain('?');
+    expect(screen.queryByRole('button')).toBeNull();
+  });
+
+  it('canTransition=false browsing backward renders NOTHING — no back-move question', () => {
+    tagAc(AC182_9);
+    render(
+      <TransitionSentence
+        {...baseProps({ currentPhase: 'verify', viewedTab: 'build', canTransition: false })}
+      />,
+    );
+    expect(screen.queryByTestId('transition-sentence')).toBeNull();
   });
 
   it('pressing Yes calls updateDocStatus(docId, target) immediately, no dialog (ac-6)', async () => {
@@ -265,55 +313,27 @@ describe('Rubicon line — posture (i-1) and the Yes mutation', () => {
   });
 });
 
-// spec-182 dec-6 — the reviewer's door: where the editor's [Yes] renders, a
-// viewer who can't transition but CAN switch posture gets the switch link.
-describe('switch-to-Editing link (spec-182 dec-6)', () => {
+// spec-182 dec-6 (amended 2026-06-05) — the in-slot "switch to Editing" nag
+// was removed at the user's call; the header posture pill is the only switch
+// affordance. This pins the absence so the nag doesn't quietly return.
+describe('no switch-to-Editing nag (spec-182 dec-6, amended)', () => {
   const AC182 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-182/acs/ac-${n}`;
 
-  it('renders the link in the button slot for a writable reviewer and fires the callback', async () => {
+  it('a non-transitioning viewer sees a clean status line — no nag in any sentence shape', () => {
     tagAc(AC182(14));
     tagAc(AC182(6));
-    const onSwitchToEdit = vi.fn();
-    const user = userEvent.setup();
-    render(
-      <TransitionSentence
-        {...baseProps()}
-        canTransition={false}
-        onSwitchToEdit={onSwitchToEdit}
-      />,
-    );
-
-    const slot = screen.getByTestId('switch-to-editing');
-    expect(slot.textContent).toContain("You're reviewing — switch to Editing to act.");
-    // No Yes/No render alongside it.
-    expect(screen.queryByRole('button', { name: 'Yes' })).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole('button', { name: 'switch to Editing' }));
-    expect(onSwitchToEdit).toHaveBeenCalledTimes(1);
-  });
-
-  it('renders the link on a BLOCKED sentence too — the slot follows the sentence, not the offer', () => {
-    tagAc(AC182(14));
-    render(
-      <TransitionSentence
-        {...baseProps({ openDecisionCount: 2 })}
-        canTransition={false}
-        onSwitchToEdit={vi.fn()}
-      />,
-    );
-    expect(screen.getByTestId('switch-to-editing')).toBeInTheDocument();
-  });
-
-  it('read-only viewers (no callback) get NO link; editors (canTransition) get Yes, no link', () => {
-    tagAc(AC182(15));
-    const { unmount } = render(
-      <TransitionSentence {...baseProps()} canTransition={false} />,
-    );
+    // Clean offer shape — renders nothing at all for a non-editor
+    // (spec-182 issue-1), so trivially no nag.
+    const { unmount } = render(<TransitionSentence {...baseProps()} canTransition={false} />);
     expect(screen.queryByTestId('switch-to-editing')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('transition-sentence')).toBeNull();
     unmount();
 
-    render(<TransitionSentence {...baseProps()} canTransition onSwitchToEdit={vi.fn()} />);
-    expect(screen.getByRole('button', { name: 'Yes' })).toBeInTheDocument();
+    // Blocked shape — the status line renders, nag-free.
+    render(
+      <TransitionSentence {...baseProps({ openDecisionCount: 2 })} canTransition={false} />,
+    );
     expect(screen.queryByTestId('switch-to-editing')).not.toBeInTheDocument();
+    expect(text()).not.toContain("You're reviewing");
   });
 });
