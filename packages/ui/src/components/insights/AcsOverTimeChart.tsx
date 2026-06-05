@@ -5,7 +5,7 @@
 
 import { ResponsiveLine } from '@nivo/line';
 import type { AcsOverTimePoint } from '../../api/client';
-import { insightsTheme, shortDate } from './theme';
+import { TOOLTIP_STYLE, insightsTheme, shortDate } from './theme';
 
 interface Props {
   points: AcsOverTimePoint[];
@@ -67,7 +67,7 @@ export function AcsOverTimeChart({ points }: Props) {
           return (
             <div
               className="text-xs rounded-lg px-3 py-2"
-              style={{ background: 'var(--color-surface, #fff)', boxShadow: '0 4px 16px rgba(0,0,0,0.12)' }}
+              style={TOOLTIP_STYLE}
             >
               <div className="font-medium mb-1">{shortDate(String(slice.points[0]?.data.x))}</div>
               <div style={{ color: CREATED_COLOR }}>{String(byId.created ?? 0)} created</div>

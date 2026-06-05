@@ -5,7 +5,7 @@
 
 import { ResponsiveBar } from '@nivo/bar';
 import type { TestRunVolumePoint } from '../../api/client';
-import { insightsTheme, shortDate } from './theme';
+import { TOOLTIP_STYLE, insightsTheme, shortDate } from './theme';
 
 interface Props {
   points: TestRunVolumePoint[];
@@ -53,7 +53,7 @@ export function TestRunVolumeChart({ points }: Props) {
         tooltip={({ id, value, data: d }) => (
           <div
             className="text-xs rounded-lg px-3 py-2"
-            style={{ background: 'var(--color-surface, #fff)', boxShadow: '0 4px 16px rgba(0,0,0,0.12)' }}
+            style={TOOLTIP_STYLE}
           >
             <div className="font-medium">{shortDate(String(d.day))}</div>
             <div>

@@ -6,7 +6,7 @@
 
 import { ResponsivePie } from '@nivo/pie';
 import type { AcVerificationSummary } from '../../api/client';
-import { insightsTheme } from './theme';
+import { TOOLTIP_STYLE, insightsTheme } from './theme';
 
 interface Props {
   summary: AcVerificationSummary;
@@ -54,12 +54,12 @@ export function AcVerificationChart({ summary }: Props) {
         enableArcLabels={false}
         arcLinkLabel={(d) => `${d.id} (${d.value})`}
         arcLinkLabelsColor={{ from: 'color' }}
-        arcLinkLabelsTextColor="var(--color-text-secondary, #64748b)"
+        arcLinkLabelsTextColor="rgb(var(--color-text-secondary, 100 116 139))"
         arcLinkLabelsThickness={1.5}
         tooltip={({ datum }) => (
           <div
             className="text-xs rounded-lg px-3 py-2"
-            style={{ background: 'var(--color-surface, #fff)', boxShadow: '0 4px 16px rgba(0,0,0,0.12)' }}
+            style={TOOLTIP_STYLE}
           >
             <span className="font-medium">{datum.value}</span> of {summary.total} ACs{' '}
             {String(datum.id)}

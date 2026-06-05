@@ -10,7 +10,7 @@
 
 import { ResponsiveLine } from '@nivo/line';
 import type { SpecsByPhasePoint } from '../../api/client';
-import { PHASE_COLORS, PHASE_ORDER, insightsTheme, phaseLabel, shortDate } from './theme';
+import { PHASE_COLORS, PHASE_ORDER, TOOLTIP_STYLE, insightsTheme, phaseLabel, shortDate } from './theme';
 
 interface Props {
   points: SpecsByPhasePoint[];
@@ -47,7 +47,7 @@ export function SpecsByPhaseChart({ points }: Props) {
         sliceTooltip={({ slice }) => (
           <div
             className="text-xs rounded-lg px-3 py-2"
-            style={{ background: 'var(--color-surface, #fff)', boxShadow: '0 4px 16px rgba(0,0,0,0.12)' }}
+            style={TOOLTIP_STYLE}
           >
             <div className="font-medium mb-1">{shortDate(String(slice.points[0]?.data.x))}</div>
             {slice.points

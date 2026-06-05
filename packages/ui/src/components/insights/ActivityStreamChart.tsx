@@ -5,7 +5,7 @@
 
 import { ResponsiveStream } from '@nivo/stream';
 import type { ActivityByActorPoint } from '../../api/client';
-import { insightsTheme, shortDate } from './theme';
+import { TOOLTIP_STYLE, insightsTheme, shortDate } from './theme';
 
 interface Props {
   points: ActivityByActorPoint[];
@@ -77,7 +77,7 @@ export function ActivityStreamChart({ points }: Props) {
         tooltip={({ layer }) => (
           <div
             className="text-xs rounded-lg px-3 py-2"
-            style={{ background: 'var(--color-surface, #fff)', boxShadow: '0 4px 16px rgba(0,0,0,0.12)' }}
+            style={TOOLTIP_STYLE}
           >
             <span
               className="inline-block w-2 h-2 rounded-full mr-1.5"

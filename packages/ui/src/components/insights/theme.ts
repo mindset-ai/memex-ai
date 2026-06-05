@@ -7,6 +7,7 @@
 // stacked chart needs distinct hues, so verify takes the family's teal end
 // and done its green core.
 
+import type { CSSProperties } from 'react';
 import type { PartialTheme } from '@nivo/theming';
 
 export const PHASE_ORDER = ['draft', 'plan', 'build', 'verify', 'done'] as const;
@@ -81,6 +82,16 @@ export const insightsTheme: PartialTheme = {
   crosshair: {
     line: { stroke: 'rgb(var(--color-text-secondary, 148 163 184))', strokeWidth: 1, strokeOpacity: 0.5 },
   },
+};
+
+// Shared inline style for the CUSTOM tooltip divs the charts render (slice /
+// part / bar tooltips replace Nivo's container entirely, so the theme.tooltip
+// block above doesn't reach them). Same rgb(var()) discipline as the theme —
+// the bare-var form silently fell back to white-on-light-text in dark mode.
+export const TOOLTIP_STYLE: CSSProperties = {
+  background: 'rgb(var(--color-surface, 255 255 255))',
+  color: 'rgb(var(--color-text-primary, 15 23 42))',
+  boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
 };
 
 /** Compact date for axis ticks: '2026-06-05' → 'Jun 5'. */

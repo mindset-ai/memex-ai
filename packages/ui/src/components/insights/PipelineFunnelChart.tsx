@@ -6,7 +6,7 @@
 
 import { ResponsiveFunnel } from '@nivo/funnel';
 import type { FunnelStage } from '../../api/client';
-import { PHASE_COLORS, insightsTheme, phaseLabel, type Phase } from './theme';
+import { PHASE_COLORS, TOOLTIP_STYLE, insightsTheme, phaseLabel, type Phase } from './theme';
 
 interface Props {
   stages: FunnelStage[];
@@ -37,7 +37,7 @@ export function PipelineFunnelChart({ stages }: Props) {
         tooltip={({ part }) => (
           <div
             className="text-xs rounded-lg px-3 py-2"
-            style={{ background: 'var(--color-surface, #fff)', boxShadow: '0 4px 16px rgba(0,0,0,0.12)' }}
+            style={TOOLTIP_STYLE}
           >
             <span className="font-medium">{part.data.value}</span> specs reached{' '}
             {phaseLabel(String(part.data.id))}
