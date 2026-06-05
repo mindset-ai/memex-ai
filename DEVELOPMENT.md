@@ -251,7 +251,7 @@ The `/api/<ns>/<mx>/llm/chat/create` endpoint handles the creation phase with no
 | `DEBUG_AGENT` | No | Set to `0` to silence agent log |
 | `MEMEX_OWN_NAMESPACE` | Prod | The namespace this server owns — `mindset-int` in int, `mindset-prod` in prod. The `POST /api/test-events` route reads this to reject events whose AC ref names a different namespace (the cross-namespace safety net per spec-90). When **unset**, the route fail-closes — every test-event POST returns 503. Local-dev devs running tests against a local Memex server must set this explicitly to opt in. Set automatically by `scripts/deploy-config.sh` per env and wired into Cloud Run via `packages/server/deploy.sh`. |
 
-### React UI (`packages/admin/.env`)
+### React UI (`packages/ui/.env`)
 
 | Variable | Required | Description |
 |----------|----------|-------------|
@@ -400,7 +400,7 @@ Two long-lived branches, distinct roles. Full rule lives in **std-21** in Memex;
 
 ## Deployment
 
-Memex ships as **two independently-deployable artefacts**: the Hono API + MCP endpoint + migrations (Cloud Run), and the React SPA (`packages/admin`, served from object storage behind a CDN). Most changes touch both, and they deploy in order — server first, then the SPA — or the browser keeps serving the old bundle against new endpoints.
+Memex ships as **two independently-deployable artefacts**: the Hono API + MCP endpoint + migrations (Cloud Run), and the React SPA (`packages/ui`, served from object storage behind a CDN). Most changes touch both, and they deploy in order — server first, then the SPA — or the browser keeps serving the old bundle against new endpoints.
 
 ```bash
 make deploy            # both halves + post-deploy smoke (std-17)
@@ -587,7 +587,7 @@ Two equivalent markers identify EE code (either qualifies — the convention is 
 |---|---|---|
 | **Filename** | `.ee.` anywhere in the filename | `packages/server/src/services/sso.ee.ts` |
 | **Dirname** | `.ee` as a literal directory name in the path | `packages/server/src/services/audit/.ee/recorder.ts` |
-| **Dirname** | `.ee` as a literal directory name in the path | `packages/admin/src/components/.ee/RbacMatrix.tsx` |
+| **Dirname** | `.ee` as a literal directory name in the path | `packages/ui/src/components/.ee/RbacMatrix.tsx` |
 
 **Rule of thumb:** single-file EE features (`sso.ee.ts`, `rbac.ee.ts`) use the filename marker; cluster EE features (multi-file audit module, full RBAC subsystem, EE-only admin UI surface) use a `.ee/` directory. The two are interchangeable — pick whichever keeps the change diff legible.
 

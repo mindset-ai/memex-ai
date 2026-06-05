@@ -89,6 +89,11 @@ fi
 #   secretmanager.secretAccessor  DB_PASS fetch in deploy.<env>.env
 #   secretmanager.viewer       the pre-flight `gcloud secrets describe` loop
 #   compute.loadBalancerAdmin  admin CDN cache invalidation
+#   cloudkms.viewer            the pre-flight `gcloud kms keys describe` for the
+#                              slack-tokens key (describe-only; the Cloud Run
+#                              runtime SA does the actual encrypt/decrypt). The
+#                              check swallows stderr, so a missing grant reads
+#                              as "key not found" — the first CI deploy hit this.
 for ROLE in \
   roles/run.admin \
   roles/iam.serviceAccountUser \
@@ -98,7 +103,8 @@ for ROLE in \
   roles/cloudsql.client \
   roles/secretmanager.secretAccessor \
   roles/secretmanager.viewer \
-  roles/compute.loadBalancerAdmin; do
+  roles/compute.loadBalancerAdmin \
+  roles/cloudkms.viewer; do
   gcloud projects add-iam-policy-binding "${GCP_PROJECT}" \
     --member "serviceAccount:${SA_EMAIL}" --role "${ROLE}" \
     --condition None --quiet >/dev/null

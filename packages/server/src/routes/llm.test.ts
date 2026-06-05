@@ -846,7 +846,7 @@ describe("spec-126 review overlay", () => {
     tagAc(AC126(1));
     const graphPath = resolve(
       dirname(fileURLToPath(import.meta.url)),
-      "../../../admin/src/agent/graph.ts",
+      "../../../ui/src/agent/graph.ts",
     );
     const src = readFileSync(graphPath, "utf8");
     expect(src).not.toContain("reviewAgent");

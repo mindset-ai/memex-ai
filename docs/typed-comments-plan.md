@@ -59,7 +59,7 @@ What kind of content the comment carries.
 - Agent prompt (in-app chat): `packages/server/src/agent/system-prompt.ts`, `packages/server/src/agent/tools.ts:225-238` (`add_comment` tool shape).
 - Agent prompt (task code-gen prompt): `packages/server/src/agent/prompt-gen.ts` (the meta-prompt).
 - Context builder: `packages/server/src/agent/context-builder.ts:67-94` (open comments rendering).
-- React UI: `packages/admin/src/components/CommentTray.tsx`, `SectionCard.tsx`, `TaskPanel.tsx`, `DecisionPanel.tsx`.
+- React UI: `packages/ui/src/components/CommentTray.tsx`, `SectionCard.tsx`, `TaskPanel.tsx`, `DecisionPanel.tsx`.
 
 ---
 
@@ -242,7 +242,7 @@ This lets the chat agent see *what kind* of follow-up is needed without rereadin
 
 ---
 
-## Web UI Changes (`packages/admin/`)
+## Web UI Changes (`packages/ui/`)
 
 ### Visual language
 
@@ -252,7 +252,7 @@ This lets the chat agent see *what kind* of follow-up is needed without rereadin
 - **Type** → small coloured pill next to the author name:
   - `plan` → indigo, `progress` → slate, `issue` → amber, `deferred` → zinc, `cross_task` → purple, `question` → red, `review` → blue, `discussion` → ghost/gray.
 
-Use status-badge utilities already in `packages/admin/src/utils/statusStyles.ts` — extend that map rather than adding styling ad hoc.
+Use status-badge utilities already in `packages/ui/src/utils/statusStyles.ts` — extend that map rather than adding styling ad hoc.
 
 ### Components
 
@@ -263,7 +263,7 @@ Use status-badge utilities already in `packages/admin/src/utils/statusStyles.ts`
 
 ### API types
 
-Extend `packages/admin/src/api/types.ts` with `source` and `commentType` on `Comment`. Update the REST client accordingly.
+Extend `packages/ui/src/api/types.ts` with `source` and `commentType` on `Comment`. Update the REST client accordingly.
 
 ### Open-questions inbox (optional, nice to have)
 

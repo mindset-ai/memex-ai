@@ -63,7 +63,7 @@ export default defineConfig({
         {
           // Same rationale for VITE_GOOGLE_CLIENT_ID on the admin side — the AuthContext
           // auto-bootstraps a dev session only when this env var is empty.
-          command: `VITE_GOOGLE_CLIENT_ID="" VITE_API_PROXY="http://localhost:${SERVER_PORT}" pnpm --filter @memex/admin dev`,
+          command: `VITE_GOOGLE_CLIENT_ID="" VITE_API_PROXY="http://localhost:${SERVER_PORT}" pnpm --filter @memex/ui dev`,
           url: `http://localhost:${ADMIN_PORT}`,
           reuseExistingServer: !process.env.CI,
           timeout: 60_000,
