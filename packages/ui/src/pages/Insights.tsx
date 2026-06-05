@@ -105,19 +105,17 @@ export function Insights() {
             <SpecsOverTimeChart points={state.data.overTime} />
           </Card>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <Card>
-              <h2 className="text-sm font-semibold">Specs by phase</h2>
-              {/* The honesty caveat — required until status_changed history
-                  (ac-5) accumulates enough to reconstruct true phase history. */}
-              <div className="text-xs text-secondary mb-2">phases shown as of today</div>
-              <SpecsByPhaseChart points={state.data.byPhase} />
-            </Card>
-            <Card>
-              <h2 className="text-sm font-semibold mb-2">Phase durations</h2>
-              <PhaseDurationsChart durations={state.data.durations} />
-            </Card>
-          </div>
+          <Card>
+            <h2 className="text-sm font-semibold">Specs by phase</h2>
+            {/* The honesty caveat — required until status_changed history
+                (ac-5) accumulates enough to reconstruct true phase history. */}
+            <div className="text-xs text-secondary mb-2">phases shown as of today</div>
+            <SpecsByPhaseChart points={state.data.byPhase} />
+          </Card>
+          <Card>
+            <h2 className="text-sm font-semibold mb-2">Phase durations</h2>
+            <PhaseDurationsChart durations={state.data.durations} />
+          </Card>
         </div>
       )}
     </div>

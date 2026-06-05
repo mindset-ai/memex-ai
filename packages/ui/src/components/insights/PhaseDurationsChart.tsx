@@ -40,7 +40,7 @@ export function PhaseDurationsChart({ durations }: Props) {
   }));
 
   return (
-    <div data-testid="phase-durations-chart" className="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <div data-testid="phase-durations-chart" className="flex flex-col gap-4">
       <div className="h-64">
         <div className="text-xs text-secondary mb-1">
           Time in current phase (active specs — still counting)
