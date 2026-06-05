@@ -103,7 +103,7 @@ describe("b-105 ac coverage: file / DB / git invariants", () => {
         reason: 'mission branch in formatters',
       },
       {
-        path: "packages/admin/e2e/helpers/db.ts",
+        path: "packages/ui/e2e/helpers/db.ts",
         mustNotMatch: /['"]mission['"]/,
         reason: "docType union still includes 'mission'",
       },
@@ -117,7 +117,7 @@ describe("b-105 ac coverage: file / DB / git invariants", () => {
     }
     // Positive check: 'spec' is in the admin db.ts docType union
     const dbTs = readFileSync(
-      resolve(REPO_ROOT, "packages/admin/e2e/helpers/db.ts"),
+      resolve(REPO_ROOT, "packages/ui/e2e/helpers/db.ts"),
       "utf8",
     );
     expect(/['"]spec['"]/.test(dbTs)).toBe(true);

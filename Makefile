@@ -10,20 +10,20 @@
 #   make test-perf           Performance/concurrency tests (needs local Postgres)
 #   make test-regression     Regression guards (URL shape, instructions cap, etc.)
 #   make test-server         All server tests
-#   make test-admin          All admin tests (placeholder)
+#   make test-ui          All UI tests (placeholder)
 #   make smoke               One-line health curl against $SMOKE_URL
 #   make smoke-int           Post-deploy smoke suite against https://int.memex.ai (pure HTTP)
 #   make smoke-prod          Post-deploy smoke suite against https://memex.ai (pure HTTP)
 #   make smoke-int-with-db   Like smoke-int + telemetry tier (cloud-sql-proxy → mcp_tool_calls)
 #   make smoke-prod-with-db  Like smoke-prod + telemetry tier
-#   make dev                 Start server + admin in parallel
+#   make dev                 Start server + UI in parallel
 #   make build               Build all packages
 #   make db-migrate          Run database migrations
 #   make typecheck           TypeScript type checking
 # ──────────────────────────────────────────────────────────────
 
 .PHONY: test test-unit test-integration test-api test-security test-perf test-regression \
-        test-server test-admin smoke smoke-int smoke-prod smoke-int-with-db smoke-prod-with-db \
+        test-server test-ui smoke smoke-int smoke-prod smoke-int-with-db smoke-prod-with-db \
         dev build db-migrate db-seed typecheck \
         check-url-shape help
 
@@ -65,8 +65,8 @@ test-server:
 	pnpm --filter @memex/server test
 
 ## Admin: all tests (placeholder — no tests yet)
-test-admin:
-	@echo "No admin tests configured yet"
+test-ui:
+	@echo "No UI tests configured yet"
 
 ## Smoke test — verify a running server responds (one-line health curl)
 smoke:
@@ -100,9 +100,9 @@ smoke-prod-with-db:
 
 # ── Dev ──────────────────────────────────────────────────────
 
-## Start server + admin dev servers
+## Start server + UI dev servers
 dev:
-	pnpm dev:server & pnpm dev:admin & wait
+	pnpm dev:server & pnpm dev:ui & wait
 
 ## Build all packages
 build:
@@ -111,7 +111,7 @@ build:
 ## TypeScript type checking (no emit)
 typecheck:
 	pnpm --filter @memex/server exec tsc --noEmit
-	pnpm --filter @memex/admin exec tsc --noEmit
+	pnpm --filter @memex/ui exec tsc --noEmit
 
 # ── Database ─────────────────────────────────────────────────
 
@@ -125,7 +125,7 @@ db-seed:
 
 # ── Deploy ────────────────────────────────────────────────────
 
-## Deploy everything (server + admin) to production
+## Deploy everything (server + UI) to production
 deploy:
 	bash deploy.sh
 
@@ -133,9 +133,9 @@ deploy:
 deploy-server:
 	cd packages/server && bash deploy.sh
 
-## Deploy admin only (build + GCS + CDN)
-deploy-admin:
-	cd packages/admin && bash deploy.sh
+## Deploy UI only (build + GCS + CDN)
+deploy-ui:
+	cd packages/ui && bash deploy.sh
 
 # ── Help ─────────────────────────────────────────────────────
 

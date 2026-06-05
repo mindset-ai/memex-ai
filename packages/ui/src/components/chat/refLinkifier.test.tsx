@@ -115,7 +115,7 @@ describe('rehypeRefLinkifier', () => {
 
   it('does NOT linkify plain paths that are not Memex refs', () => {
     const { container } = renderMd(
-      'See src/services/refs.ts and packages/admin/README.md for context.',
+      'See src/services/refs.ts and packages/ui/README.md for context.',
     );
     expect(getRefLinks(container)).toHaveLength(0);
   });
