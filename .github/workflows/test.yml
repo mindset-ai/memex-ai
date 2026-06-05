@@ -4,6 +4,20 @@ name: test
 # green before it fast-forwards into `main` (the release line). Gate both —
 # develop on every push/PR (where work actually lands), main on the release
 # fast-forward and any PR targeting it.
+#
+# Jobs run in PARALLEL — wall-clock is the slowest job, not the sum:
+#   server  full server suite under coverage. One vitest run subsumes the old
+#           unit/integration/security/regression steps (they were subsets of
+#           the same include) AND the coverage gate that used to re-run
+#           everything a second time.
+#   admin   React UI unit tests + coverage gate (jsdom, no database).
+#   cli     memex-ai installer tests (zero-dep, no database).
+#   e2e     Playwright journeys against a freshly migrated DB. Deliberately
+#           NOT `needs: server` — it boots its own stack, and serializing it
+#           behind the server job doubled the wall-clock for no extra signal.
+#   perf    nightly/manual only (see below) — not part of the PR gate.
+#
+# All four PR-gating jobs are required checks on develop + main.
 on:
   push:
     branches: [main, develop]
@@ -22,7 +36,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test:
+  # Full server suite (unit + integration + security + regression + api) with
+  # the t-17 coverage thresholds enforced in the same run.
+  server:
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -79,19 +95,7 @@ jobs:
             psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f "$f"
           done
 
-      - name: Unit tests (no DB required but runs anyway, fast)
-        run: pnpm --filter @memex/server test:unit
-
-      - name: Integration tests
-        run: pnpm --filter @memex/server test:integration
-
-      - name: Security tests
-        run: pnpm --filter @memex/server test:security
-
-      - name: Regression tests
-        run: pnpm --filter @memex/server test:regression
-
-      - name: Coverage gate (fails if services drop below threshold)
+      - name: Server suite + coverage gate (fails if services drop below threshold)
         run: pnpm --filter @memex/server test:coverage
 
       - name: Upload coverage report
@@ -103,9 +107,22 @@ jobs:
           path: packages/server/coverage/
           retention-days: 14
 
+  # React UI unit tests (jsdom) + coverage gate. No database.
+  admin:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      # No `version:` here — pnpm/action-setup@v4 reads the pinned version from
+      # the root package.json `packageManager` field and errors if both are set.
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
       - name: Admin unit tests + coverage gate
         run: pnpm --filter @memex/admin test:coverage
-
       - name: Upload admin coverage report
         if: always()
         uses: actions/upload-artifact@v4
@@ -114,9 +131,22 @@ jobs:
           path: packages/admin/coverage/
           retention-days: 14
 
+  # memex-ai is a zero-dep package; vitest is a dev dep of the cli workspace.
+  # Fast, no database.
+  cli:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      # No `version:` here — pnpm/action-setup@v4 reads the pinned version from
+      # the root package.json `packageManager` field and errors if both are set.
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
       - name: CLI installer tests
-        # memex-ai is a zero-dep package; vitest is a dev dep of the cli workspace. Fast
-        # (no DB), so piggyback on the same job rather than spinning up a new runner.
         run: pnpm --filter memex-ai test
 
   # Admin E2E (Playwright). Runs against a freshly migrated DB via the webServer block
@@ -124,7 +154,6 @@ jobs:
   e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: test
 
     services:
       postgres:
@@ -151,6 +180,11 @@ jobs:
       # greens the spec-129 ac-5 gate once configured.
       MEMEX_EMIT_KEY: ${{ secrets.MEMEX_EMIT_KEY }}
       E2E_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/memex
+      # The Playwright webServer boots the REAL server, which refuses to start
+      # without KMS_KEY_NAME unless this dev escape hatch is set (see
+      # services/.ee/slack/crypto.ts). Locally it leaks in from
+      # packages/server/.env; CI has no .env, so set it explicitly.
+      SLACK_TOKEN_ENCRYPTION: plaintext
       # Journey 8 + 9 drive a deterministic Anthropic double via /api/__test__/anthropic-queue.
       # See packages/server/src/agent/anthropic-fake.ts. playwright.config.ts sets this on
       # the webServer block too; duplicating it here covers the case where CI reuses a pre-
