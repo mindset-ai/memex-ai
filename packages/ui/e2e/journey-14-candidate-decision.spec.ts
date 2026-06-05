@@ -1,4 +1,4 @@
-import { test, expect, tenantPath } from "./helpers/index.js";
+import { test, expect, tenantPath, switchToEditing, sendChat } from "./helpers/index.js";
 import { seedOrgTenant, seedSpec } from "./helpers/retained.js";
 import {
   clearAnthropicQueue,
@@ -16,11 +16,15 @@ test("agent proposes a candidate decision, user approves, status flips to open",
 }) => {
   const slug = resources.slug("j14");
   const tenant = await seedOrgTenant({ slug });
-  const { docId } = await seedSpec({
+  const { docId, handle } = await seedSpec({
     memexId: tenant.memexId,
     title: "Candidate Spec",
     purpose: "We need to decide.",
   });
+
+  // create_decision (which replaced propose_decision) is keyed by the canonical
+  // doc REF and takes status:"candidate" for the agent-extracted candidate path.
+  const docRef = `${tenant.namespaceSlug}/${tenant.memexSlug}/specs/${handle}`;
 
   await clearAnthropicQueue();
   await queueAnthropicResponse({
@@ -30,11 +34,12 @@ test("agent proposes a candidate decision, user approves, status flips to open",
       {
         type: "tool_use",
         id: "toolu_j14_prop",
-        name: "propose_decision",
+        name: "create_decision",
         input: {
-          docId,
+          ref: docRef,
           title: "Pick database",
           context: "Two options considered.",
+          status: "candidate",
           options: [
             { label: "Postgres", trade_offs: "Familiar; SQL." },
             { label: "DynamoDB", trade_offs: "Scales; weaker queries." },
@@ -53,10 +58,10 @@ test("agent proposes a candidate decision, user approves, status flips to open",
   await page.goto(tenantPath(tenant.namespaceSlug, tenant.memexSlug, `/docs/${docId}`));
   await expect(page.getByText(/We need to decide/)).toBeVisible({ timeout: 15_000 });
 
-  const input = page.getByPlaceholder(/Ask me anything/i);
-  await expect(input).toBeVisible({ timeout: 15_000 });
-  await input.fill("postgres or dynamodb for the catalog?");
-  await input.press("Enter");
+  // create_decision is an editor-only agent tool; promote out of review posture.
+  await switchToEditing(page);
+
+  await sendChat(page, "postgres or dynamodb for the catalog?");
 
   // Two messages stream into the chat (user prompt + agent reply); the
   // assistant's reply is the last chat-markdown node.
@@ -64,8 +69,10 @@ test("agent proposes a candidate decision, user approves, status flips to open",
     timeout: 15_000,
   });
 
-  // Open the decisions tab — Tabs are rendered as <button>, not <tab> role.
-  await page.getByRole("button", { name: /^Decisions$/i }).click();
+  // Open the Decisions & ACs sub-tab (the plan/Specify phase's second sub-tab,
+  // post spec-164 phase-tab redesign — was a bare "Decisions" tab pre-rebase).
+  // Rendered as a <button> by Tabs, not the ARIA `tab` role.
+  await page.getByRole("button", { name: /^Decisions & ACs$/i }).click();
 
   // DecisionPanel's `activeTab` initialises before the SSE-driven decisions
   // refetch lands, so when the candidate arrives after the first paint the

@@ -6,6 +6,8 @@ export {
   expect,
   tenantPath,
   bareUrl,
+  switchToEditing,
+  sendChat,
   DEV_EMAIL,
   DEV_NAME,
   type TestResources,

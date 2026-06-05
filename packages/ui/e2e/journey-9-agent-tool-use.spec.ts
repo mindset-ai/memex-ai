@@ -1,4 +1,4 @@
-import { test, expect, tenantPath } from "./helpers/index.js";
+import { test, expect, tenantPath, switchToEditing, sendChat } from "./helpers/index.js";
 import { seedOrgTenant, seedSpec } from "./helpers/retained.js";
 import {
   clearAnthropicQueue,
@@ -23,11 +23,15 @@ test("agent tool_use creates a section and SSE propagates it to the open doc", a
 }) => {
   const slug = resources.slug("j9");
   const tenant = await seedOrgTenant({ slug });
-  const { docId } = await seedSpec({
+  const { docId, handle } = await seedSpec({
     memexId: tenant.memexId,
     title: "Tool-use Spec",
     purpose: "Seed purpose text",
   });
+
+  // The add_section tool is keyed by the canonical doc REF, not a raw docId
+  // (tool-specs.ts: resolveRefArg). Build it from the tenant slugs + handle.
+  const docRef = `${tenant.namespaceSlug}/${tenant.memexSlug}/specs/${handle}`;
 
   // Queue two turns in order: the tool_use turn, then the follow-up text response the
   // agent produces after the tool_result comes back.
@@ -40,7 +44,7 @@ test("agent tool_use creates a section and SSE propagates it to the open doc", a
         id: "toolu_j9_add",
         name: "add_section",
         input: {
-          docId,
+          ref: docRef,
           sectionType: "approach",
           title: "Approach",
           content:
@@ -64,10 +68,11 @@ test("agent tool_use creates a section and SSE propagates it to the open doc", a
     timeout: 15_000,
   });
 
-  const input = page.getByPlaceholder(/Ask me anything/i);
-  await expect(input).toBeVisible({ timeout: 15_000 });
-  await input.fill("add an approach section");
-  await input.press("Enter");
+  // add_section is an editor-only agent tool; the dev user opens a seeded Spec in
+  // REVIEW posture (no editor doc_members row). Promote to Editing first.
+  await switchToEditing(page);
+
+  await sendChat(page, "add an approach section");
 
   // The agent's final text lands after the tool_result round-trip completes.
   const chatMarkdown = page.getByTestId("chat-markdown");

@@ -8,20 +8,22 @@ import {
 } from "./helpers/retained.js";
 import type { Page } from "@playwright/test";
 
-// Journey 17 (spec-118): per-Spec role posture (editor/reviewer) + ticket-style
-// assignment controls on the Spec header — SpecRoleControls.
+// Journey 17 — per-Spec posture (Editing/Reviewing) + assignment.
+//
+// RE-BASE NOTE (spec-172 t-5): the original journey drove `SpecRoleControls`
+// (data-testid="spec-role-controls"), a header row removed in the spec-159
+// redesign. Its two responsibilities were split into surviving surfaces, which
+// this re-based journey exercises against the CURRENT UI:
+//   • posture switch  → PostureDropdown header pill ("You are reviewing" →
+//     menu "Editing"), promotes the viewer to editor (a doc_members editor row).
+//   • assignment      → BylineAssignees ("+ Assign" pill → "Assign me"), on the
+//     Spec byline (data-testid="byline-assignees" / "byline-assign-picker").
 //
 // A Spec seeded through createDocDraft WITHOUT a createdByUserId has NO doc_members
-// editor row, so dev@memex.ai opens it as a REVIEWER — the exact state in the bug
-// report: "Reviewer · Switch to editing · Assignees Unassigned · Assign me · Assign
-// someone", where clicking the affordances did nothing. These journeys exercise the
-// affordances end-to-end against a live server so a regression where the controls
-// render but are inert (no handler, disabled, or covered by an overlay) fails loudly.
-//
-// Re-based off the raw-SQL db-memex.ts harness (dec-2): the org tenant + Spec are
-// seeded through the test-only HTTP surface (real services → bus emissions
-// [per std-8]); role/assignee reads go through the same surface; navigation is
-// path-based [per std-2].
+// editor row, so dev@memex.ai opens it as a REVIEWER. Seeding through the org
+// tenant surface means dev is a writing org member, so the assignment affordances
+// render. All seeding goes through the test-only HTTP surface (real services → bus
+// emissions [per std-8]); navigation is path-based [per std-2].
 
 interface RoleSeed {
   tenant: SeededOrgTenant;
@@ -47,78 +49,76 @@ async function gotoSpec(page: Page, seed: RoleSeed) {
   await expect(page.getByRole("heading", { name: "Roles Spec", level: 1 })).toBeVisible({
     timeout: 15_000,
   });
-  await expect(page.getByTestId("spec-role-controls")).toBeVisible();
 }
 
-test2.describe("Spec role controls (spec-118)", () => {
-  test2("controls are interactive — buttons enabled and not covered by an overlay", async ({
-    page,
-    seed,
-  }) => {
+test2.describe("Spec posture + assignment (spec-159)", () => {
+  test2("posture pill defaults to Reviewing and is interactive", async ({ page, seed }) => {
     await gotoSpec(page, seed);
 
-    const controls = page.getByTestId("spec-role-controls");
-    const switchBtn = controls.getByRole("button", { name: "Switch to editing" });
-    const assignSomeone = controls.getByRole("button", { name: "Assign someone" });
+    const pill = page.getByRole("button", { name: /You are reviewing/i });
+    await expect(pill).toBeVisible();
+    await expect(pill).toBeEnabled();
 
-    await expect(switchBtn).toBeVisible();
-    await expect(switchBtn).toBeEnabled();
-    await expect(assignSomeone).toBeEnabled();
-
-    // Nothing is sitting on top of the button — the element at the button's
-    // centre IS the button (or a descendant), not an overlay swallowing clicks.
-    const hitIsButton = await switchBtn.evaluate((el) => {
-      const r = el.getBoundingClientRect();
-      const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-      return el === top || el.contains(top) || (top != null && top.contains(el));
-    });
-    expect(hitIsButton, "an overlay is intercepting clicks on the posture button").toBe(true);
+    // Opening the menu surfaces the two posture radios.
+    await pill.click();
+    await expect(page.getByRole("menuitemradio", { name: /Editing/i })).toBeVisible();
+    await expect(page.getByRole("menuitemradio", { name: /Reviewing/i })).toBeVisible();
   });
 
-  test2('"Assign someone" opens the people picker (pure client state)', async ({ page, seed }) => {
+  test2('"+ Assign" opens the people picker (lazy roster listbox)', async ({ page, seed }) => {
     await gotoSpec(page, seed);
 
-    const picker = page.getByTestId("spec-assign-picker");
+    const picker = page.getByTestId("byline-assign-picker");
     await expect(picker.getByRole("listbox")).toHaveCount(0);
-    await picker.getByRole("button", { name: "Assign someone" }).click();
+    await picker.getByRole("button", { name: "+ Assign" }).click();
     await expect(picker.getByRole("listbox")).toBeVisible();
   });
 
-  test2('"Switch to editing" promotes the viewer to editor and flips the posture', async ({
+  test2("Editing promotes the viewer to editor and persists across reload", async ({
     page,
     seed,
   }) => {
     await gotoSpec(page, seed);
 
-    const controls = page.getByTestId("spec-role-controls");
-    await expect(page.getByTestId("spec-role-badge")).toHaveText("Reviewer");
+    await expect(page.getByRole("button", { name: /You are reviewing/i })).toBeVisible();
 
-    await controls.getByRole("button", { name: "Switch to editing" }).click();
+    await page.getByRole("button", { name: /You are reviewing/i }).click();
+    await page.getByRole("menuitemradio", { name: /Editing/i }).click();
 
-    await expect(page.getByTestId("spec-role-badge")).toHaveText("Editor");
-    await expect(controls.getByRole("button", { name: "Switch to reviewing" })).toBeVisible();
+    await expect(page.getByRole("button", { name: /You are editing/i })).toBeVisible({
+      timeout: 10_000,
+    });
 
     // Server-backed: a doc_members editor row now exists for the dev user.
-    expect(await getDocRole(seed.tenant.memexId, seed.docId, seed.devId)).toBe("editor");
+    await expect
+      .poll(() => getDocRole(seed.tenant.memexId, seed.docId, seed.devId), {
+        timeout: 10_000,
+      })
+      .toBe("editor");
 
     // Persists across reload.
     await page.reload();
     await expect(page.getByRole("heading", { name: "Roles Spec", level: 1 })).toBeVisible({
       timeout: 15_000,
     });
-    await expect(page.getByTestId("spec-role-badge")).toHaveText("Editor");
+    await expect(page.getByRole("button", { name: /You are editing/i })).toBeVisible({
+      timeout: 10_000,
+    });
   });
 
   test2('"Assign me" adds the viewer as an assignee', async ({ page, seed }) => {
     await gotoSpec(page, seed);
 
-    const controls = page.getByTestId("spec-assign-control");
-    await expect(controls.getByText("Unassigned")).toBeVisible();
+    const picker = page.getByTestId("byline-assign-picker");
+    await picker.getByRole("button", { name: "+ Assign" }).click();
+    await picker.getByTestId("byline-assign-me").click();
 
-    await controls.getByRole("button", { name: "Assign me" }).click();
-
-    await expect(controls.getByText("Unassigned")).toHaveCount(0);
-    await expect(controls.getByText(/Dev User|dev@memex\.ai/)).toBeVisible();
-    expect(await getAssigneeCount(seed.tenant.memexId, seed.docId)).toBe(1);
+    const byline = page.getByTestId("byline-assignees");
+    await expect(byline.getByText(/Dev User|dev@memex\.ai/)).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect
+      .poll(() => getAssigneeCount(seed.tenant.memexId, seed.docId), { timeout: 10_000 })
+      .toBe(1);
   });
 });

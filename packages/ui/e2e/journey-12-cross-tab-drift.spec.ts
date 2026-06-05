@@ -62,10 +62,14 @@ test("resolving a decision in one tab lights the drift badge on a standard in an
   await expect(tabB.getByText(/Database Standard/)).toBeVisible({ timeout: 15_000 });
   await expect(tabB.getByTestId("standard-drift-count")).toHaveCount(0);
 
-  // Resolve the decision via the flat REST surface (UUID-keyed; dev user resolved
-  // server-side). resolveDecision emits the drift event on the bus.
+  // Resolve the decision via the TENANT-SCOPED REST surface (UUID-keyed; dev user
+  // resolved server-side). The flat /api/decisions mount resolves the memex from
+  // the caller's SINGLE membership — the dev user now belongs to many memexes
+  // (personal + every seeded org tenant), so flat is std-5-ambiguous and 4xxs;
+  // the path-prefixed mount scopes the memex unambiguously [per std-2, std-5].
+  // resolveDecision emits the drift event on the bus.
   const resolveResp = await tabA.request.post(
-    `${API_URL}/api/decisions/${decisionId}/resolve`,
+    `${API_URL}/api/${tenant.namespaceSlug}/${tenant.memexSlug}/decisions/${decisionId}/resolve`,
     {
       data: { resolution: "Postgres it is." },
       headers: { "Content-Type": "application/json" },

@@ -32,9 +32,11 @@ test.describe("Spec detail layout", () => {
       title: "Layout Spec",
       purpose: "Spec for layout regression testing.",
     });
-    await seedSection({ memexId: tenant.memexId, docId, title: "Design Approach", content: "Design body." });
-    await seedSection({ memexId: tenant.memexId, docId, title: "Testing Plan", content: "Testing body." });
-    await seedSection({ memexId: tenant.memexId, docId, title: "Rollout Plan", content: "Rollout body." });
+    // Distinct sectionType per call — addSection rejects a duplicate type on the
+    // same doc, and createDocDraft already seeded an overview/"context" section.
+    await seedSection({ memexId: tenant.memexId, docId, title: "Design Approach", content: "Design body.", sectionType: "design" });
+    await seedSection({ memexId: tenant.memexId, docId, title: "Testing Plan", content: "Testing body.", sectionType: "testing" });
+    await seedSection({ memexId: tenant.memexId, docId, title: "Rollout Plan", content: "Rollout body.", sectionType: "rollout" });
 
     await page.goto(tenantPath(tenant.namespaceSlug, tenant.memexSlug, `/docs/${docId}`));
     await expect(page.getByRole("heading", { name: "Layout Spec", level: 1 })).toBeVisible({
@@ -53,20 +55,25 @@ test.describe("Spec detail layout", () => {
     await expect(bodyHeader.getByRole("button", { name: "Share", exact: true })).toHaveCount(0);
     await expect(bodyHeader.getByRole("button", { name: "Download Spec" })).toHaveCount(0);
 
-    // Pill tabs — Narrative active by default, switching works.
+    // Plan-phase sub-tabs (post spec-164/159 redesign): Narrative active by
+    // default, then Decisions & ACs, then Comments. Tasks moved under the Build
+    // PHASE tab (not a sub-tab pill here), so it's no longer in this row.
     await expect(page.getByRole("button", { name: /^Narrative/ })).toBeVisible();
-    await expect(page.getByRole("button", { name: /^Decisions/ })).toBeVisible();
-    await expect(page.getByRole("button", { name: /^Tasks/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^Decisions & ACs/ })).toBeVisible();
     await expect(page.getByRole("button", { name: /^Comments/ })).toBeVisible();
 
-    await page.getByRole("button", { name: /^Decisions/ }).click();
-    await expect(page).toHaveURL(/\/docs\//);
+    await page.getByRole("button", { name: /^Decisions & ACs/ }).click();
+    // A spec opened via /docs/:id canonicalises to /specs/:id (DocDocument route).
+    // Switching sub-tabs is in-page — assert we're still on the spec, not that the
+    // path is /docs/.
+    await expect(page).toHaveURL(/\/specs\//);
     await page.getByRole("button", { name: /^Narrative/ }).click();
 
-    // Floating outline (DocOutline) — Segments label + section list visible.
-    const outline = page.locator("nav").filter({ has: page.getByRole("link", { name: /Purpose/ }) });
+    // Floating outline (DocOutline) — Segments label + section list visible. The
+    // seeded spec's first section is the createDocDraft "Overview" (not "Purpose").
+    const outline = page.locator("nav").filter({ has: page.getByRole("link", { name: /Overview/ }) });
     await expect(page.getByText("Segments", { exact: true })).toBeVisible();
-    await expect(outline.getByRole("link", { name: /Purpose/ })).toBeVisible();
+    await expect(outline.getByRole("link", { name: /Overview/ })).toBeVisible();
     await expect(outline.getByRole("link", { name: /Design Approach/ })).toBeVisible();
     await expect(outline.getByRole("link", { name: /Testing Plan/ })).toBeVisible();
     await expect(outline.getByRole("link", { name: /Rollout Plan/ })).toBeVisible();

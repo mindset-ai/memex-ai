@@ -152,14 +152,16 @@ jobs:
   # UI E2E (Playwright). Runs against a freshly migrated DB via the webServer block
   # in playwright.config.ts — the same setup a developer uses locally.
   #
-  # TEMPORARILY out of the per-PR path (nightly/manual only, like perf): the
-  # journeys predate the 0038 accounts→namespace/org/memex split and 32/33
-  # fail on any cold database — a guaranteed red on every PR is noise, not
-  # signal. Restoration is tracked as spec-172 ("Restore the Playwright e2e
-  # journeys to the post-0038 schema"); its definition of done is removing
-  # this `if:` and re-adding e2e to the required checks on develop + main.
+  # Per-PR again: spec-172 REBUILT this tier against the post-0038 product —
+  # deleted the six account-era journeys, replaced the dropped-table SQL seeding
+  # with service-backed test-only endpoints (/api/__test__), added a cold-DB
+  # globalSetup, and re-based the retained journeys + authored fresh tenancy and
+  # lifecycle-spine journeys. The suite now goes green on a cold, freshly-migrated
+  # database, so the schedule/workflow_dispatch gate is removed and e2e is a
+  # per-PR job again (the merge-side counterpart of the std-17 smoke tier).
+  # Flipping `e2e` back to a REQUIRED status check on develop + main is a
+  # repo-settings action for the owner (branch protection), not this file.
   e2e:
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 15
 

@@ -46,6 +46,7 @@ import {
   expect,
   tenantPath,
   bareUrl,
+  switchToEditing,
   DEV_EMAIL,
   getPersonalMemexByEmail,
   resolveMemexId,
@@ -94,7 +95,7 @@ test("lifecycle spine: org → memex → Spec → resolve decision → phase mov
 
   // Post-create the form navigates to the new Org's namespace home (path-based,
   // /<org-namespace>). The Manage Orgs view shows the org card with "+ Add Memex".
-  await expect(page).toHaveURL(new RegExp(`/${orgSlug}(\\?|#|$)`), { timeout: 15_000 });
+  await expect(page).toHaveURL(new RegExp(`/${orgSlug}(/|\\?|#|$)`), { timeout: 15_000 });
   await expect(page.getByRole("button", { name: /\+ Add Memex/ }).first()).toBeVisible({
     timeout: 15_000,
   });
@@ -144,6 +145,11 @@ test("lifecycle spine: org → memex → Spec → resolve decision → phase mov
   await expect(
     page.getByRole("heading", { level: 1, name: /Lifecycle Spine Spec/ })
   ).toBeVisible({ timeout: 15_000 });
+
+  // The seeded Spec has no editor doc_members row → dev opens it as a REVIEWER,
+  // and phase transitions + decision resolution are editor-gated. Promote to
+  // Editing before driving the forward-moving affordances below.
+  await switchToEditing(page);
 
   // ── 4. Phase-gated affordance #1: in DRAFT, draft→plan (Specify) is ungated ─
   // A freshly-created Spec is in `draft`. The PhaseTabBar shows the grey Draft

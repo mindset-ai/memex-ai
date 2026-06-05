@@ -43,11 +43,10 @@ test("user opens plan from task panel, approves, plan status flips to approved",
   await page.goto(tenantPath(tenant.namespaceSlug, tenant.memexSlug, `/docs/${docId}`));
   await expect(page.getByText(/We need a plan first/)).toBeVisible({ timeout: 15_000 });
 
-  // Open the Tasks tab. Tabs render as <button>, not the ARIA `tab` role. The
-  // accessible name carries the count badge (e.g. "Tasks 1"), so match the prefix
-  // and the optional count. The outline sidebar also has a "Tasks <n> ready"
-  // button — disambiguate with .first().
-  await page.getByRole("button", { name: /^Tasks( \d+)?$/i }).first().click();
+  // Tasks live under the Build phase (post spec-164 phase-tab redesign — there is
+  // no standalone "Tasks" tab anymore). Click the Build phase tab (role="tab",
+  // PhaseTabBar) to surface the TaskPanel.
+  await page.getByRole("tab", { name: "Build" }).click();
 
   // The plan trigger is rendered by TaskPanel for any task with an
   // executionPlanDocId. With a 'READY — all green' readiness comment its label

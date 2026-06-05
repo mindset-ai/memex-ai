@@ -82,9 +82,14 @@ test("admin adds a domain, verifies it via the link, then enables auto-grouping"
 
   const toggle = page.getByRole("checkbox");
   await expect(toggle).toBeEnabled();
-  await toggle.check();
+  // The checkbox is CONTROLLED (`checked={org.autoGroupingEnabled}`): the click's
+  // onChange fires the PATCH, but `checked` only flips once the org refetches, so
+  // `.check()` (which asserts the new state synchronously) sees it snap back and
+  // fails. Use a plain click and assert the post-PATCH label instead.
+  await toggle.click();
   // The label flips once the PATCH resolves and the summary refreshes.
   await expect(page.getByText("Auto-grouping enabled")).toBeVisible({ timeout: 10_000 });
+  await expect(toggle).toBeChecked({ timeout: 10_000 });
 });
 
 test("a free-mail domain blocks the auto-grouping toggle (dec-7 gating)", async ({

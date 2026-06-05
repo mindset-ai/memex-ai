@@ -6,7 +6,7 @@
 // surface (helpers/seed.ts) — no Postgres, no SQL. Navigation is PATH-based on
 // the single origin [per std-2]: `/<namespace>/<memex>/...`, never subdomains.
 
-import { test as base } from "@playwright/test";
+import { test as base, expect as pwExpect, type Page } from "@playwright/test";
 import {
   ensureUser,
   setUserName,
@@ -102,4 +102,44 @@ export function tenantPath(
 /** A bare (non-tenant) URL on the single origin — login, signup, invite-accept, etc. */
 export function bareUrl(path: string = "/"): string {
   return new URL(path, BASE_URL).toString();
+}
+
+/**
+ * Switch the viewer's posture on the open Spec from Reviewing → Editing.
+ *
+ * Post the spec-118/159/182 role redesign, opening a Spec the dev user merely
+ * has memex access to (no doc_members editor row) lands them in REVIEW posture:
+ * forward-driving controls and agent tools (add_section, etc.) are blocked. The
+ * header carries a "You are reviewing" pill (PostureDropdown) whose menu has an
+ * "Editing" radio item. Journeys that need to make edits (or drive editor-only
+ * agent tools) call this once after the doc renders. Idempotent: if already
+ * editing, it's a no-op.
+ */
+/**
+ * Type a message into the doc's Private Agent chat and submit it deterministically.
+ *
+ * Pressing Enter immediately after `fill()` can race React's controlled-input
+ * onChange (the keydown handler reads stale empty state and no-ops, leaving the
+ * message unsent). Instead we fill, wait for the Send button to enable (proof the
+ * input state committed), and click it. Use for any journey driving the chat.
+ */
+export async function sendChat(page: Page, text: string): Promise<void> {
+  const input = page.getByPlaceholder(/Ask me anything/i);
+  await input.waitFor({ state: "visible", timeout: 15_000 });
+  await input.fill(text);
+  // Wait for Send to enable (its disabled gate is `!input.trim()`), proving the
+  // controlled-input state committed, then click it — deterministic vs Enter.
+  const send = page.getByRole("button", { name: "Send", exact: true });
+  await pwExpect(send).toBeEnabled({ timeout: 10_000 });
+  await send.click();
+}
+
+export async function switchToEditing(page: Page): Promise<void> {
+  const editingPill = page.getByRole("button", { name: /You are editing/i });
+  if (await editingPill.count()) return;
+  const reviewingPill = page.getByRole("button", { name: /You are reviewing/i });
+  await reviewingPill.click();
+  await page.getByRole("menuitemradio", { name: /Editing/i }).click();
+  // The pill flips to "You are editing" once useDocRole re-resolves the promotion.
+  await editingPill.waitFor({ state: "visible", timeout: 10_000 });
 }

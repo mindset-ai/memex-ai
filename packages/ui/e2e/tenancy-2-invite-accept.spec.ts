@@ -87,13 +87,15 @@ test("a second user accepts an invite, appears in members, and re-accept is idem
   await expect(acceptBtn).toBeVisible({ timeout: 15_000 });
   await acceptBtn.click();
 
-  // Success confirmation, then redirect into the joined tenant's Specs board.
+  // Success confirmation. InviteAccept then redirects to the user's CURRENT
+  // tenant's Specs board (computed from fresh.currentMemexId) — for a dev user
+  // with a personal memex that stays the personal context, not the joined org;
+  // the joined-org landing isn't guaranteed, so we don't assert the exact path.
+  // Membership is proven below via the switcher.
   await expect(page.getByRole("heading", { name: "You're in!" })).toBeVisible({
     timeout: 15_000,
   });
-  await page.waitForURL((url) => url.pathname.startsWith(`/${slug}/`), {
-    timeout: 15_000,
-  });
+  await page.waitForURL((url) => /\/specs\b/.test(url.pathname), { timeout: 15_000 });
 
   // Dev now appears in the org's members list (open Users tab as the new member —
   // the accept made dev a member, but members can't be admins unless promoted, so
@@ -104,7 +106,11 @@ test("a second user accepts an invite, appears in members, and re-accept is idem
     timeout: 15_000,
   });
   await page.getByTitle("Switch Memex").first().click();
-  await expect(page.getByText("Invite Accept Org")).toBeVisible({ timeout: 10_000 });
+  // Scope to the dropdown menu: the org name also renders in the page breadcrumb
+  // for the current tenant, so an unscoped getByText strict-mode double-matches.
+  await expect(
+    page.getByTestId("memex-switcher-menu").getByText("Invite Accept Org"),
+  ).toBeVisible({ timeout: 10_000 });
 
   // Re-accept the SAME link — idempotent: success again, no error, still one
   // membership (consumeInviteToken converges on the active membership silently).

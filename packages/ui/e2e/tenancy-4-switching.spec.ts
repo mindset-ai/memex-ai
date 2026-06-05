@@ -56,14 +56,17 @@ test("a user in two orgs switches between them via the MemexSwitcher (path nav)"
     timeout: 15_000,
   });
 
-  // Open the switcher — both org namespaces appear under "Your orgs".
+  // Open the switcher — both orgs appear under "Your orgs". Scope assertions to
+  // the dropdown menu: the CURRENT memex's name (Alpha Memex) also renders in the
+  // switcher TRIGGER, so an unscoped getByText would strict-mode double-match.
   await page.getByTitle("Switch Memex").first().click();
-  await expect(page.getByText("Your orgs")).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByText("Switch Org A")).toBeVisible();
-  await expect(page.getByText("Switch Org B")).toBeVisible();
+  const menu = page.getByTestId("memex-switcher-menu");
+  await expect(menu.getByText("Your orgs")).toBeVisible({ timeout: 10_000 });
+  await expect(menu.getByText("Alpha Memex")).toBeVisible();
+  await expect(menu.getByText("Beta Memex")).toBeVisible();
 
   // Click into org B's Memex — React Router same-origin navigation to /specs.
-  await page.getByText("Beta Memex").click();
+  await menu.getByText("Beta Memex").click();
   await page.waitForURL(
     (url) => url.pathname === `/${slugB}/${orgB.memexSlug}/specs`,
     { timeout: 15_000 },
@@ -74,7 +77,7 @@ test("a user in two orgs switches between them via the MemexSwitcher (path nav)"
 
   // Switch back to org A the same way to prove it's bidirectional, not a one-shot.
   await page.getByTitle("Switch Memex").first().click();
-  await page.getByText("Alpha Memex").click();
+  await page.getByTestId("memex-switcher-menu").getByText("Alpha Memex").click();
   await page.waitForURL(
     (url) => url.pathname === `/${slugA}/${orgA.memexSlug}/specs`,
     { timeout: 15_000 },
