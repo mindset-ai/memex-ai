@@ -4403,12 +4403,28 @@ export const toolSpecs: ToolSpec[] = [
         ? await ctx.resolveRef(specRef).catch(() => null)
         : null;
 
-      const embedFooter = explicitSpec
-        ? {
-            text: `📄 From Spec: ${explicitSpec.doc.title}`,
-            url: `${buildTenantUrl(explicitSpec.slugs)}/specs/${explicitSpec.doc.handle}`,
-          }
-        : undefined;
+      // Auto-build the footer from the current doc when specRef is omitted.
+      // The /chat route always passes currentDocId when the agent is bound to a
+      // Spec — fall back to it so the footer is consistent without requiring the
+      // agent to remember to pass the parameter.
+      // Format mirrors the Slack context block: **Spec:** [title](url) _(handle)_  ·  Sent via Memex
+      const embedFooter = await (async () => {
+        const buildDescription = (title: string, _handle: string, url: string) =>
+          `**Spec:** [${title}](${url})`;
+
+        if (explicitSpec) {
+          const url = `${buildTenantUrl(explicitSpec.slugs)}/specs/${explicitSpec.doc.handle}`;
+          return { description: buildDescription(explicitSpec.doc.title, explicitSpec.doc.handle, url) };
+        }
+        if (!ctx.currentDocId) return undefined;
+        const [doc, slugs] = await Promise.all([
+          db.query.documents.findFirst({ where: eq(documents.id, ctx.currentDocId) }),
+          memexSlugsById(memexId),
+        ]);
+        if (!doc || !slugs) return undefined;
+        const url = `${buildTenantUrl(slugs)}/specs/${doc.handle}`;
+        return { description: buildDescription(doc.title, doc.handle, url) };
+      })();
 
       await postToDiscord(webhook.webhookUrl, text, embedFooter);
 
