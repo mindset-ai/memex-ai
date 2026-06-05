@@ -76,6 +76,14 @@ const ALLOWLIST: Record<string, string> = {
   // log with no bus entity of its own.
   "services/test-event-latest.ts":
     "tx-helper indirection (spec-162) — applyEmissionToSummary / removeSummaryForPair write test_event_latest only inside callers' mutate() callbacks (routes/test-events.ts, services/acs.ts discontinueTestEventsForAc); both public write paths return through mutate().",
+  // spec-177 issue-1 — findOrCreatePersonalMemex is a tx-helper invoked ONLY from
+  // inside ensureUserNamespace's mutate() callbacks (both the ownership-repair
+  // branch and the create branch). It race-safely find-or-creates the "personal"
+  // memex (ON CONFLICT + re-read). The callback-scoped heuristic (ac-24) cannot
+  // follow the helper indirection; ensureUserNamespace itself returns Mutated<T>
+  // and emits the user_namespace/memex keys.
+  "services/user-namespaces.ts":
+    "tx-helper indirection (spec-177 issue-1) — findOrCreatePersonalMemex inserts memexes only inside ensureUserNamespace's mutate() callbacks; the public writer returns Mutated<T> with user_namespace + memex emissions.",
   // spec-150 standards decomposition — develop-side entry ported to the
   // path-keyed scheme during the spec-156 rebase.
   "services/standards-migration.ts":
