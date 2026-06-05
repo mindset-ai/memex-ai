@@ -39,16 +39,20 @@ export async function nextSeq(
  *
  * @param fn         The allocator + insert. Must re-read MAX(seq) on each call.
  * @param constraint The constraint name to watch for (e.g. `doc_comments_doc_seq_unique`).
- * @param maxAttempts Cap on retries. 5 is more than enough — collisions
- *                   require concurrent writers competing for the same doc, and
- *                   each retry shrinks the window further. The unbounded
- *                   form would in practice still terminate, but a cap turns
- *                   an unexpected pathological pattern into a clear error.
+ * @param maxAttempts Cap on retries. Sized to the worst case, not the typical
+ *                   one: with N writers racing on the same doc, each retry
+ *                   round commits exactly one winner, so the unluckiest
+ *                   writer needs N attempts. The old cap of 5 was provably
+ *                   insufficient for 6+ concurrent creates (the concurrency
+ *                   test fires exactly 6 and flaked on slow CI runners where
+ *                   the race window is widest). 12 absorbs realistic bursts
+ *                   while still turning a pathological livelock into a clear
+ *                   error rather than an infinite loop.
  */
 export async function withSeqRetry<T>(
   fn: () => Promise<T>,
   constraint: string,
-  maxAttempts = 5,
+  maxAttempts = 12,
 ): Promise<T> {
   let lastErr: unknown;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
