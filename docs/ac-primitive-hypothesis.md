@@ -237,7 +237,7 @@ The endpoint is unauthenticated in V0.0.1 — the spike is testing the loop end-
 
 The Vitest helper is one reference implementation; other frameworks (Jest, pytest, Go's testing package) port the same beforeEach/tagAc/afterEach pattern over their equivalents. The `ac-emission` guidance topic (`packages/server/src/guidance/ac-emission.json`) tells AI coders how to wire it up per framework.
 
-## React UI (`packages/admin/src/components/AcPanel.tsx`)
+## React UI (`packages/ui/src/components/AcPanel.tsx`)
 
 A fifth tab on the Brief view (`DocDocument.tsx`). Section layout reflects the audience-mismatch insight from Part I:
 
@@ -279,9 +279,9 @@ When this graduates, the upgrade is back-end-only: route emits onto the bus, new
 | The verification state derivation | `packages/server/src/services/acs.ts` — `deriveVerificationState` |
 | The staleness threshold | `STALE_THRESHOLD_DAYS` in the same file |
 | The sparkline query | `listAcAlignmentOverTime` in the same file |
-| The tab UI | `packages/admin/src/components/AcPanel.tsx` |
-| The sparkline rendering | `packages/admin/src/components/AcSparkline.tsx` |
-| The tab registration | `packages/admin/src/pages/DocDocument.tsx` — `tabs` array |
+| The tab UI | `packages/ui/src/components/AcPanel.tsx` |
+| The sparkline rendering | `packages/ui/src/components/AcSparkline.tsx` |
+| The tab registration | `packages/ui/src/pages/DocDocument.tsx` — `tabs` array |
 | The Vitest emission helper | `packages/server/bootstrap/ac-emit-vitest.ts` |
 | The emission wire format / endpoint | `packages/server/src/routes/test-events.ts` |
 | What AI coders are told about emission | `packages/server/src/guidance/ac-emission.json` |

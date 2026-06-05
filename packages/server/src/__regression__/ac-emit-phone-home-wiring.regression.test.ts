@@ -87,7 +87,7 @@ describe("AC emit phone-home wiring — keep the setupFile wire alive", () => {
     // the workspace package, not a per-package dogfood file.
     tagAc(`${SPEC_89}/ac-1`);
     const offenders: string[] = [];
-    for (const pkg of ["server", "admin", "shared"]) {
+    for (const pkg of ["server", "ui", "shared"]) {
       const root = join(WORKTREE_ROOT, "packages", pkg, "src");
       walkDir(root, (path) => {
         if (!path.endsWith(".test.ts") && !path.endsWith(".test.tsx")) return;

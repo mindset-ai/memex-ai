@@ -7,9 +7,9 @@ and domain-conflict handling.
 ## Running
 
 ```bash
-pnpm --filter @memex/admin test:e2e              # full suite (chromium)
-pnpm --filter @memex/admin test:e2e journey-1    # single file
-pnpm --filter @memex/admin test:e2e --ui         # interactive runner
+pnpm --filter @memex/ui test:e2e              # full suite (chromium)
+pnpm --filter @memex/ui test:e2e journey-1    # single file
+pnpm --filter @memex/ui test:e2e --ui         # interactive runner
 ```
 
 Playwright boots both the server (`http://localhost:8090`) and admin (`http://localhost:5173`)

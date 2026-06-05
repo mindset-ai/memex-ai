@@ -3,7 +3,7 @@
 //
 // This file is TAGGED (tagAc) — it POSTs an AC pass/fail event to PROD memex.ai
 // on completion. Do NOT run it from an automated process; a human runs the
-// tagged suite (`pnpm --filter @memex/admin test SearchPalette`). Verify the
+// tagged suite (`pnpm --filter @memex/ui test SearchPalette`). Verify the
 // implementation with `tsc -b`, the build, and the UNTAGGED suites only.
 
 import { useEffect, useState } from 'react';

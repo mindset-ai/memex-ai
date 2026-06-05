@@ -12,7 +12,7 @@ set -euo pipefail
 
 # All env-specific values come from scripts/deploy-config.sh.
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-PKG_DIR="${REPO_ROOT}/packages/admin"
+PKG_DIR="${REPO_ROOT}/packages/ui"
 cd "${PKG_DIR}"
 source "${REPO_ROOT}/scripts/deploy-config.sh"
 
@@ -38,7 +38,7 @@ gcloud storage cp dist/index.html "${STATIC_BUCKET}/index.html" \
   --cache-control="no-cache, no-store, must-revalidate"
 
 # Other top-level static files from dist/ (favicon.svg, robots.txt, …). Vite copies anything
-# under packages/admin/public/ into the dist/ root; they don't have content-hashed names, so
+# under packages/ui/public/ into the dist/ root; they don't have content-hashed names, so
 # cache moderately (1 day) and rely on CDN invalidation for updates.
 for f in dist/*; do
   base=$(basename "$f")
