@@ -57,7 +57,7 @@ async function seed() {
         memexId: memex.id,
         handle: "doc-1",
         title: "Q3 Growth Spec",
-        docType: "document",
+        docType: "spec",
       })
       .returning();
 
