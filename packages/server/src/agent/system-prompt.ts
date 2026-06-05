@@ -11,6 +11,7 @@ import {
   type SpecPhase,
 } from "@memex/shared";
 import type { SystemBlock } from "./types.js";
+import type { IntegrationState } from "./integration-state.js";
 import { loadSkill } from "./skills.js";
 
 // ──────────────────────────────────────────────
@@ -119,6 +120,7 @@ export function buildSystemBlocks(
   readOnly = false,
   reviewer = false,
   driftMode = false,
+  integrationState?: IntegrationState,
 ): SystemBlock[] {
   const projectedPhase: SpecPhase = phase === "draft" ? "plan" : phase;
   const instructionBlocks = toPromptBlocks(BASE_SCAFFOLD, projectedPhase);
@@ -158,7 +160,33 @@ export function buildSystemBlocks(
     cache_control: { type: "ephemeral" },
   };
 
-  return [instructions, context];
+  // spec-180 (dec-2): always inject the integration state block — both integrations
+  // stated explicitly so the agent never infers availability from silence.
+  // (dec-1): separate block with no cache_control so it resolves fresh per request
+  // without busting the tool-definition cache carried by `context`.
+  const slackLine = integrationState?.slackConnected
+    ? "- Slack: connected — memex__send_slack_message is ready"
+    : "- Slack: not connected (no token) — memex__send_slack_message will fail";
+
+  let discordLine: string;
+  if (integrationState?.discordAmbiguous) {
+    discordLine =
+      "- Discord: configured in multiple orgs — pass the `memex` parameter to target the right one";
+  } else if (integrationState?.discordConnected) {
+    const channel = integrationState.discordChannelName
+      ? ` (#${integrationState.discordChannelName})`
+      : "";
+    discordLine = `- Discord: webhook configured${channel} — memex__send_discord_message is ready`;
+  } else {
+    discordLine = "- Discord: no webhook configured — memex__send_discord_message will fail";
+  }
+
+  const integration: SystemBlock = {
+    type: "text",
+    text: `## Active integrations\n${slackLine}\n${discordLine}`,
+  };
+
+  return [instructions, context, integration];
 }
 
 /**
