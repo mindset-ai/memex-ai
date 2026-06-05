@@ -79,6 +79,15 @@ export interface TransitionSentenceProps {
   onTransitioned?: (newPhase: SpecStatus) => void;
   /** The browse-confirm's [No]: return the view to the current phase's tab. */
   onCancelBrowse?: () => void;
+  /**
+   * spec-182 dec-6: the reviewer's door to acting. When the viewer cannot
+   * transition (`canTransition` false) but CAN switch posture — a writable
+   * reviewer — the parent passes this callback and the button slot renders
+   * "You're reviewing — switch to Editing to act." with the link wired to the
+   * same switchPosture path as the header pill. Read-only visitors get no
+   * callback and therefore no link.
+   */
+  onSwitchToEdit?: () => void;
 }
 
 /**
@@ -166,6 +175,7 @@ export function TransitionSentence({
   unverifiedAcCount = 0,
   onTransitioned,
   onCancelBrowse,
+  onSwitchToEdit,
 }: TransitionSentenceProps) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -227,6 +237,21 @@ export function TransitionSentence({
       {error}
     </span>
   );
+  // spec-182 dec-6: the reviewer's slot-filler — renders exactly where the
+  // editor's [Yes] would, only when the viewer can't transition but can switch.
+  const switchLink = !canTransition && onSwitchToEdit && (
+    <span data-testid="switch-to-editing">
+      You're reviewing —{' '}
+      <button
+        type="button"
+        onClick={() => onSwitchToEdit()}
+        className="underline underline-offset-2 text-primary hover:text-heading"
+      >
+        switch to Editing
+      </button>{' '}
+      to act.
+    </span>
+  );
 
   // No target at all (e.g. done with nothing further) → nothing to say; the
   // tab bar already carries the phase (and `done` collapses the whole block
@@ -242,7 +267,8 @@ export function TransitionSentence({
       // buttons to press.
       return (
         <p className="text-sm text-secondary" data-testid="transition-sentence">
-          {renderBlockers(blockers)} before this spec can move to {phaseDisplayName(target)}.
+          {renderBlockers(blockers)} before this spec can move to {phaseDisplayName(target)}.{' '}
+          {switchLink}
         </p>
       );
     }
@@ -251,6 +277,7 @@ export function TransitionSentence({
     return (
       <p className="text-sm text-secondary" data-testid="transition-sentence">
         {verb} to move this spec to {phaseDisplayName(target)}? {yesButton}
+        {switchLink}
         {errorNote}
       </p>
     );
@@ -270,6 +297,7 @@ export function TransitionSentence({
     <p className="text-sm text-secondary" data-testid="transition-sentence">
       {showSummary && <>{renderBlockers(blockers)} before {phaseDisplayName(target)}. </>}
       {question} {yesButton} {noButton}
+      {switchLink}
       {errorNote}
     </p>
   );

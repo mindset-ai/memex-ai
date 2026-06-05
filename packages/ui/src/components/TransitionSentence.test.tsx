@@ -264,3 +264,56 @@ describe('Rubicon line — posture (i-1) and the Yes mutation', () => {
     await waitFor(() => expect(onTransitioned).toHaveBeenCalledWith('verify'));
   });
 });
+
+// spec-182 dec-6 — the reviewer's door: where the editor's [Yes] renders, a
+// viewer who can't transition but CAN switch posture gets the switch link.
+describe('switch-to-Editing link (spec-182 dec-6)', () => {
+  const AC182 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-182/acs/ac-${n}`;
+
+  it('renders the link in the button slot for a writable reviewer and fires the callback', async () => {
+    tagAc(AC182(14));
+    tagAc(AC182(6));
+    const onSwitchToEdit = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <TransitionSentence
+        {...baseProps()}
+        canTransition={false}
+        onSwitchToEdit={onSwitchToEdit}
+      />,
+    );
+
+    const slot = screen.getByTestId('switch-to-editing');
+    expect(slot.textContent).toContain("You're reviewing — switch to Editing to act.");
+    // No Yes/No render alongside it.
+    expect(screen.queryByRole('button', { name: 'Yes' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'switch to Editing' }));
+    expect(onSwitchToEdit).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders the link on a BLOCKED sentence too — the slot follows the sentence, not the offer', () => {
+    tagAc(AC182(14));
+    render(
+      <TransitionSentence
+        {...baseProps({ openDecisionCount: 2 })}
+        canTransition={false}
+        onSwitchToEdit={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId('switch-to-editing')).toBeInTheDocument();
+  });
+
+  it('read-only viewers (no callback) get NO link; editors (canTransition) get Yes, no link', () => {
+    tagAc(AC182(15));
+    const { unmount } = render(
+      <TransitionSentence {...baseProps()} canTransition={false} />,
+    );
+    expect(screen.queryByTestId('switch-to-editing')).not.toBeInTheDocument();
+    unmount();
+
+    render(<TransitionSentence {...baseProps()} canTransition onSwitchToEdit={vi.fn()} />);
+    expect(screen.getByRole('button', { name: 'Yes' })).toBeInTheDocument();
+    expect(screen.queryByTestId('switch-to-editing')).not.toBeInTheDocument();
+  });
+});

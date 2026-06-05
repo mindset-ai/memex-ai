@@ -868,6 +868,9 @@ export function DocDocument() {
     <IssuePanel
       docId={doc.id}
       canWrite={canWrite}
+      /* spec-182 dec-4: dispositions (convert / won't-fix) are editor calls;
+         registering stays open to reviewers via canWrite. */
+      canEdit={canEdit}
       onUpdate={reloadDoc}
       highlightIssueHandle={initialIssueHandle}
     />
@@ -1000,57 +1003,16 @@ export function DocDocument() {
         />
       )}
 
-      {/* spec-159 ac-19: a WRITABLE REVIEWER gets a review-oriented phase block
-          in place of the editor's PhaseTabBar + TransitionSentence. It has no
-          tabs (a reviewer browses only the current phase's layout) and offers no
-          forward move — a reviewer observes. EDITORS and read-only visitors
-          (canWrite false) fall through to the existing block below, unchanged.
-          `done` collapses into the DoneSummary for everyone. */}
-      {doc.docType === 'spec' && phase !== 'done' && isWritableReviewer ? (
-        <div className="mb-4 space-y-2">
-          {/* The posture itself ("you are reviewing", switch to editing) lives
-              in the header's PostureDropdown pill — this block carries only the
-              review actions and the handoff line. */}
-          {/* Review action row — the four scaffold review prompts, sent through
-              the chat (mirrors OpeningTurn's reviewer set + chat_prompt arm). */}
-          <div
-            data-testid="review-action-row"
-            className="flex flex-wrap items-center gap-2 pt-1"
-          >
-            {REVIEW_ACTIONS.map((action) => (
-              <Button
-                key={action.buttonId}
-                type="button"
-                variant="secondary"
-                size="sm"
-                onClick={() => sendReviewPrompt(action.buttonId)}
-              >
-                {action.label}
-              </Button>
-            ))}
-          </div>
-          {/* Reviewer handoff line — copy a coding-agent prompt to conduct the
-              review from there. Same sentence form as the editor handoff. */}
-          <div data-testid="review-handoff-line">
-            <PromptButton
-              buttonId="review-handoff"
-              context={handoffContext}
-              orgBlocks={orgBlocks}
-              sentencePrefix="You can copy and paste "
-              linkText="this prompt"
-              sentence="into your coding agent if you prefer to conduct the review from there."
-              sentenceLabel="You can copy and paste this prompt into your coding agent if you prefer to conduct the review from there."
-            />
-          </div>
-        </div>
-      ) : (
-        /* spec-159 t-6/t-7: the phase control is now an in-page affordance. The
-           PhaseTabBar browses phase views (Plan / Build / Verify) without ever
-           moving the Spec; the TransitionSentence beneath it is the *only* phase
-           mutation — one [Yes], no modal. Specs only. The sentence renders for
-           every viewer (it's the page's phase status line); the Yes itself gates
-           on canEdit. `done` collapses both into the DoneSummary. */
-        doc.docType === 'spec' &&
+      {/* spec-182 dec-1: ONE shared phase block for every posture — the
+          spec-159 ac-19 reviewer fork is dissolved (a writable reviewer used to
+          get a review-action block IN PLACE of the tab bar; that inverted the
+          trust gradient — read-only strangers could browse phases, trusted
+          reviewers couldn't). The PhaseTabBar browses phase views without ever
+          moving the Spec; the TransitionSentence beneath it is the *only* phase
+          mutation — one [Yes], no modal, gated on canEdit. Reviewers reach the
+          sentence as a status-only line (dec-2) carrying the switch-to-Editing
+          link (dec-6). `done` collapses both into the DoneSummary for everyone. */}
+      {doc.docType === 'spec' &&
         phase !== 'done' && (
           <div className="mb-4 space-y-2">
             <PhaseTabBar
@@ -1077,7 +1039,53 @@ export function DocDocument() {
                 reloadDoc();
               }}
               onCancelBrowse={() => setSelectedTab(null)}
+              /* spec-182 dec-6: only a WRITABLE REVIEWER gets the in-slot
+                 "switch to Editing" door — same switchPosture path as the
+                 header pill. Read-only visitors have no posture to switch,
+                 so no callback and no link. */
+              onSwitchToEdit={
+                isWritableReviewer ? () => void switchPosture('editor') : undefined
+              }
             />
+            {/* spec-182 dec-3: the review actions are a SPECIFY-phase fixture
+                for BOTH postures — review is a planning act (you review the
+                decisions and narrative before they harden), so the row keys on
+                the Spec's phase, not the viewer's posture. No other phase
+                (draft included) shows it. The four buttons resolve their
+                prompts from the Scaffold (std-23) and send through the chat. */}
+            {phase === 'plan' && (
+              <>
+                <div
+                  data-testid="review-action-row"
+                  className="flex flex-wrap items-center gap-2 pt-1"
+                >
+                  {REVIEW_ACTIONS.map((action) => (
+                    <Button
+                      key={action.buttonId}
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => sendReviewPrompt(action.buttonId)}
+                    >
+                      {action.label}
+                    </Button>
+                  ))}
+                </div>
+                {/* Review handoff line — copy a coding-agent prompt to conduct
+                    the review from there. Specify-only, like the row (dec-3). */}
+                <div data-testid="review-handoff-line">
+                  <PromptButton
+                    buttonId="review-handoff"
+                    context={handoffContext}
+                    orgBlocks={orgBlocks}
+                    sentencePrefix="You can copy and paste "
+                    linkText="this prompt"
+                    sentence="into your coding agent if you prefer to conduct the review from there."
+                    sentenceLabel="You can copy and paste this prompt into your coding agent if you prefer to conduct the review from there."
+                  />
+                </div>
+              </>
+            )}
             {/* spec-159 ac-17: the next-action handoff line — a "Copy a prompt
                 to …" sentence keyed to the CURRENT phase. Renders for every
                 viewer (copying a prompt is read-only); absent at `done`. */}
@@ -1095,13 +1103,12 @@ export function DocDocument() {
               </div>
             )}
           </div>
-        )
-      )}
+        )}
 
       {/* Content area. `done` → the retrospective report replaces it entirely;
           every other phase renders its declarative layout. Non-Spec docs (no
-          phase layer) fall back to the Narrative view. Reviewers have no phase
-          tabs, so `viewedTab` stays pinned to the current phase's layout. */}
+          phase layer) fall back to the Narrative view. Every posture browses
+          via the tab bar above (spec-182 dec-1). */}
       {doc.docType === 'spec' && phase === 'done' ? (
         <DoneSummary
           doc={doc}
