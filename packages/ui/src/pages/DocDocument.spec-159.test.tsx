@@ -498,8 +498,38 @@ describe('spec-159 — Rubicon line + in-situ directives', () => {
     // Editors still get the PhaseTabBar (3 phase tabs) and the Rubicon line.
     expect(screen.getAllByRole('tab')).toHaveLength(3);
     expect(screen.getByTestId('transition-sentence')).toBeInTheDocument();
-    // spec-182 dec-3: at Specify the review-action row renders for editors too.
+    // spec-182 dec-3 + issue-3: at Specify the editor keeps ACCESS to the
+    // review actions, but behind a collapsed-by-default disclosure.
+    expect(screen.getByTestId('review-actions-toggle')).toBeInTheDocument();
+    expect(screen.queryByTestId('review-action-row')).not.toBeInTheDocument();
+  });
+
+  // spec-182 issue-3 — the editor's Specify view was visually dominated by the
+  // reviewer workflow (four review buttons + two handoff lines). The user's
+  // call (2026-06-05): collapse, don't remove — editors keep dec-3's access
+  // behind a "Review actions" disclosure; reviewers see it expanded, no chrome.
+  it('editor at Specify: the disclosure expands to the review row + review handoff, and collapses again (issue-3)', async () => {
+    tagAc(AC182(10));
+    tagAc(AC182(11));
+    mockRole = 'editor';
+    const user = userEvent.setup();
+    renderAt('plan');
+
+    const toggle = await screen.findByTestId('review-actions-toggle');
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByTestId('review-action-row')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('review-handoff-line')).not.toBeInTheDocument();
+    // The editor's own phase handoff is NOT behind the disclosure.
+    expect(screen.getByTestId('phase-handoff-line')).toBeInTheDocument();
+
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByTestId('review-action-row')).toBeInTheDocument();
+    expect(screen.getByTestId('review-handoff-line')).toBeInTheDocument();
+
+    await user.click(toggle);
+    expect(screen.queryByTestId('review-action-row')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('review-handoff-line')).not.toBeInTheDocument();
   });
 });
 
@@ -528,6 +558,9 @@ describe('spec-182 — unified reviewer phase block', () => {
     // The Rubicon line renders status-only: present, but no [Yes] (dec-2).
     const sentence = screen.getByTestId('transition-sentence');
     expect(within(sentence).queryByRole('button', { name: 'Yes' })).not.toBeInTheDocument();
+    // issue-3: the collapse disclosure is editor chrome — reviewers get the
+    // row expanded directly, no toggle.
+    expect(screen.queryByTestId('review-actions-toggle')).not.toBeInTheDocument();
   });
 
   it('header pill reads "You are reviewing"; picking Editing promotes to editor', async () => {
