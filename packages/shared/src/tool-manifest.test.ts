@@ -10,6 +10,7 @@
 // shared package carries no zod, so these assertions are plain data only.
 
 import { describe, it, expect } from 'vitest';
+import { tagAc } from '@memex-ai-ac/vitest';
 import { toolManifest, type ToolManifestEntry } from './tool-manifest.js';
 
 const GROUPS: ReadonlyArray<ToolManifestEntry['group']> = [
@@ -95,5 +96,19 @@ describe('toolManifest data integrity (b-67)', () => {
       const count = toolManifest.filter((e) => e.group === group).length;
       expect(count, `group "${group}" has no entries`).toBeGreaterThan(0);
     }
+  });
+});
+
+// spec-176 ac-8 + ac-9 (dec-1, dec-2): no create_spec alias introduced;
+// tool-manifest.ts is unchanged by this spec.
+describe('spec-176: no create_spec alias in tool manifest (ac-8, ac-9)', () => {
+  const AC176 = (n: number) =>
+    `mindset-prod/memex-building-itself/specs/spec-176/acs/ac-${n}`;
+
+  it('ac-8 + ac-9: toolManifest has no create_spec entry', () => {
+    tagAc(AC176(8));
+    tagAc(AC176(9));
+    const entry = toolManifest.find((e) => e.name === 'create_spec');
+    expect(entry).toBeUndefined();
   });
 });

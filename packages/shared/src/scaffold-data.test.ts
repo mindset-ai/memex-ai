@@ -148,3 +148,17 @@ describe('BASE_SCAFFOLD.baseGuidance — target category integrity', () => {
     }
   });
 });
+
+// spec-176 ac-10 (dec-3): BASE_CREATE_FROM_DOC has surface 'react_only' —
+// MCP agents never see this guidance.
+describe('spec-176 ac-10: BASE_CREATE_FROM_DOC is react_only', () => {
+  const AC176 = (n: number) =>
+    `mindset-prod/memex-building-itself/specs/spec-176/acs/ac-${n}`;
+
+  it('ac-10: the create-from-doc block has surface react_only', () => {
+    tagAc(AC176(10));
+    const block = BASE_SCAFFOLD.promptBlocks.find((b) => b.id === 'create-from-doc');
+    expect(block, 'create-from-doc block not found in BASE_SCAFFOLD.promptBlocks').toBeDefined();
+    expect(block?.surface).toBe('react_only');
+  });
+});
