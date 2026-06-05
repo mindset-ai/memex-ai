@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import { namespaces, memexes, users } from "../db/schema.js";
 import type { Memex, Namespace } from "../db/schema.js";
@@ -74,14 +74,25 @@ export async function ensureUserNamespace(
         {},
         (r) => ({ memexId: r.memex.id, userId, entity: "memex", action: "created" }),
         async () => {
-          const [memex] = await db
+          // spec-177 ac-5 — absorb the concurrent-signup race on the personal
+          // memex too: a parallel call can insert the same (namespace_id,
+          // 'personal') memex first, so the loser must fall back to SELECT
+          // rather than throw memexes_namespace_id_slug_unique.
+          const [insertedMemex] = await db
             .insert(memexes)
             .values({
               namespaceId: ns.id,
               slug: "personal",
               name: PERSONAL_MEMEX_NAME,
             })
+            .onConflictDoNothing()
             .returning();
+          const memex =
+            insertedMemex ??
+            (await db.query.memexes.findFirst({
+              where: and(eq(memexes.namespaceId, ns.id), eq(memexes.slug, "personal")),
+            }));
+          if (!memex) throw new Error(`Personal memex not found after insert for namespace ${ns.id}`);
           return { namespace: ns, memex };
         },
       );
@@ -120,14 +131,27 @@ export async function ensureUserNamespace(
       const namespace = inserted ?? await tx.query.namespaces.findFirst({ where: eq(namespaces.slug, slug) });
       if (!namespace) throw new Error(`Namespace ${slug} not found after insert`);
 
-      const [memex] = await tx
+      // spec-177 ac-5 — mirror the namespace insert above: the personal memex
+      // insert must also absorb the concurrent-signup race. Two parallel calls
+      // can resolve the same namespace (the loser via the SELECT fallback), then
+      // race to INSERT (namespace_id, 'personal'); without onConflictDoNothing the
+      // loser throws memexes_namespace_id_slug_unique. Latent until spec-178's
+      // signup seed added concurrent load that reliably widened the window.
+      const [insertedMemex] = await tx
         .insert(memexes)
         .values({
           namespaceId: namespace.id,
           slug: "personal",
           name: PERSONAL_MEMEX_NAME,
         })
+        .onConflictDoNothing()
         .returning();
+      const memex =
+        insertedMemex ??
+        (await tx.query.memexes.findFirst({
+          where: and(eq(memexes.namespaceId, namespace.id), eq(memexes.slug, "personal")),
+        }));
+      if (!memex) throw new Error(`Personal memex not found after insert for namespace ${namespace.id}`);
 
       await tx
         .update(users)
