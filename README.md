@@ -88,7 +88,7 @@ A deployed instance is configured through environment variables. The full list l
 |---|---|
 | `MEMEX_OWN_NAMESPACE` | The namespace this deployment treats as *its own* Memex (the one it writes its self-hosted Specs to). Mindset's hosted service sets `mindset-int` in int and `mindset-prod` in prod. **Required:** if it's unset the server is fail-closed — the self-emission path returns an error rather than guessing. |
 
-For Mindset's own deploys the per-env value is wired in **[`scripts/deploy-config.sh`](scripts/deploy-config.sh)** (which sources a gitignored `scripts/deploy.<env>.env`); self-hosters set it however they manage their own environment.
+For Mindset's own deploys the per-env value (and the rest of the deploy config) is resolved by **[`scripts/deploy-config.sh`](scripts/deploy-config.sh)** from a single canonical source — a Secret Manager secret `memex-<env>-deploy-env` fetched at deploy time, so every deployer ships identical config with no per-machine drift (a local `scripts/deploy.<env>.env` stays available as an opt-in override). See **[`scripts/deploy.env.example`](scripts/deploy.env.example)** for the template; self-hosters set these however they manage their own environment.
 
 ## 📖 Documentation
 
