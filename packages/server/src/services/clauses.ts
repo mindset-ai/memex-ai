@@ -23,6 +23,7 @@ import { NotFoundError, ValidationError } from "../types/errors.js";
 import { mutate, type Mutated } from "./mutate.js";
 import { composeSectionContent, splitSectionIntoClauses } from "./clause-composition.js";
 import { embedAndStoreSection } from "./memex-embeddings.js";
+import { syncClauseRefsTx } from "./clause-refs.js";
 
 const CLAUSE_SEQ_CONSTRAINT = "standard_clauses_doc_seq_unique";
 
@@ -153,6 +154,7 @@ export async function decomposeSection(
             body: bodies[i],
           })
           .returning();
+        await syncClauseRefsTx(tx, row); // spec-179: materialize handle mentions
         created.push(row);
       }
       // content is unchanged by construction; no regenerate needed.
@@ -186,6 +188,7 @@ export async function createClause(
         .insert(standardClauses)
         .values({ memexId, docId: section.docId, sectionId, seq, position: pos, body })
         .returning();
+      await syncClauseRefsTx(tx, row); // spec-179: materialize handle mentions
       await regenerateSectionContentTx(tx, section);
       return row;
     }),
@@ -235,6 +238,7 @@ export async function addClausesToSection(
           .insert(standardClauses)
           .values({ memexId, docId: section.docId, sectionId, seq, position: pos, body })
           .returning();
+        await syncClauseRefsTx(tx, row); // spec-179: materialize handle mentions
         rows.push(row);
       }
       await regenerateSectionContentTx(tx, section);
@@ -266,6 +270,7 @@ export async function updateClause(
         .set({ body, updatedAt: new Date() })
         .where(eq(standardClauses.id, clauseId))
         .returning();
+      await syncClauseRefsTx(tx, row); // spec-179: re-derive handle mentions
       await regenerateSectionContentTx(tx, section);
       return row;
     }),
@@ -302,6 +307,7 @@ export async function deleteClause(
         .set({ status: "deleted", previousStatus: clause.status, updatedAt: new Date() })
         .where(eq(standardClauses.id, clauseId))
         .returning();
+      await syncClauseRefsTx(tx, row); // spec-179: soft-deleted clause keeps zero refs
       await regenerateSectionContentTx(tx, section);
       return row;
     }),
