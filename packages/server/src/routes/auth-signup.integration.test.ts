@@ -2,7 +2,7 @@
 // Spawns a minimal Hono app with the auth router, mocks the email sender to capture
 // outgoing messages, and drives the HTTP surface with app.request().
 
-import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, afterEach, beforeEach, vi } from "vitest";
 import { eq, inArray } from "drizzle-orm";
 
 // Must run before imports so module-level googleClientId/AUTH_JWT_SECRET captures load cleanly.
@@ -28,8 +28,12 @@ import {
 } from "../services/email/sender.js";
 
 import { Hono } from "hono";
+import { tagAc } from "@memex-ai-ac/vitest";
 import { auth } from "./auth.js";
+import { waitlist } from "./waitlist.js";
 import { errorHandler } from "../middleware/error-handler.js";
+
+const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-174/acs/ac-${n}`;
 
 afterAll(() => {
   if (ORIGINAL_CLIENT_ID !== undefined) process.env.GOOGLE_CLIENT_ID = ORIGINAL_CLIENT_ID;
@@ -49,6 +53,7 @@ let sender: CapturingSender;
 const app = new Hono();
 app.onError(errorHandler);
 app.route("/api/auth", auth);
+app.route("/api/waitlist", waitlist);
 
 const createdEmails: string[] = [];
 
@@ -333,6 +338,137 @@ describe("rate limiting", () => {
       body: JSON.stringify({ email, password: "wrong" }),
     });
     expect(blocked.status).toBe(429);
+  });
+});
+
+describe("SIGNUP_DOMAIN_ALLOWLIST enforcement", () => {
+  const ORIGINAL_ALLOWLIST = process.env.SIGNUP_DOMAIN_ALLOWLIST;
+
+  beforeEach(() => {
+    process.env.SIGNUP_DOMAIN_ALLOWLIST = "mindset.ai,memex.ai";
+  });
+
+  afterEach(() => {
+    if (ORIGINAL_ALLOWLIST !== undefined) {
+      process.env.SIGNUP_DOMAIN_ALLOWLIST = ORIGINAL_ALLOWLIST;
+    } else {
+      delete process.env.SIGNUP_DOMAIN_ALLOWLIST;
+    }
+  });
+
+  it("rejects password signup from a disallowed domain and creates no user row", async () => {
+    tagAc(AC(6)); tagAc(AC(2)); tagAc(AC(4)); tagAc(AC(10));
+    const email = "blocked-signup@example.com";
+    const res = await app.request("/api/auth/signup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password: "correctbattery" }),
+    });
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.code).toBe("domain_not_allowed");
+    expect(await getUserByEmail(email)).toBeUndefined();
+    expect(sender.sent).toHaveLength(0);
+  });
+
+  it("allows password signup from an allowed domain", async () => {
+    tagAc(AC(1)); tagAc(AC(10));
+    const email = `test-allowed-${Date.now()}@mindset.ai`;
+    createdEmails.push(email);
+    const res = await app.request("/api/auth/signup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password: "correctbattery" }),
+    });
+    expect(res.status).toBe(201);
+  });
+
+  it("magic-link send always returns {ok:true} regardless of domain (no enumeration)", async () => {
+    tagAc(AC(8));
+    const res = await app.request("/api/auth/magic-link", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: "blocked-ml@example.com" }),
+    });
+    expect(res.status).toBe(200);
+    expect((await res.json()).ok).toBe(true);
+  });
+
+  it("magic-link consume rejects a new account with a disallowed domain", async () => {
+    tagAc(AC(7)); tagAc(AC(4));
+    // Send succeeds; domain gate fires at consume time.
+    await app.request("/api/auth/magic-link", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: "blocked-consume@example.com" }),
+    });
+    const token = extractLinkToken(sender.sent[0].text)!;
+    sender.sent.length = 0;
+
+    const res = await app.request("/api/auth/magic-link/consume", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token }),
+    });
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.code).toBe("domain_not_allowed");
+    expect(await getUserByEmail("blocked-consume@example.com")).toBeUndefined();
+  });
+
+  it("magic-link consume allows sign-in for an account that already exists with a disallowed domain", async () => {
+    tagAc(AC(7));
+    // Create the account before the restriction takes effect.
+    delete process.env.SIGNUP_DOMAIN_ALLOWLIST;
+    const email = uniqueEmail("existing-before-restriction");
+    await app.request("/api/auth/magic-link", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+    });
+    await app.request("/api/auth/magic-link/consume", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: extractLinkToken(sender.sent[0].text)! }),
+    });
+    sender.sent.length = 0;
+
+    // Restriction now active — existing user should still be able to sign in.
+    process.env.SIGNUP_DOMAIN_ALLOWLIST = "mindset.ai,memex.ai";
+    await app.request("/api/auth/magic-link", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+    });
+    const res = await app.request("/api/auth/magic-link/consume", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: extractLinkToken(sender.sent[0].text)! }),
+    });
+    expect(res.status).toBe(200);
+    expect((await res.json()).user.email).toBe(email);
+  });
+
+  it("imposes no restriction when SIGNUP_DOMAIN_ALLOWLIST is unset", async () => {
+    tagAc(AC(9));
+    delete process.env.SIGNUP_DOMAIN_ALLOWLIST;
+    const email = uniqueEmail("unrestricted");
+    const res = await app.request("/api/auth/signup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password: "correctbattery" }),
+    });
+    expect(res.status).toBe(201);
+  });
+
+  it("waitlist accepts any email domain even when SIGNUP_DOMAIN_ALLOWLIST is set", async () => {
+    tagAc(AC(3));
+    const res = await app.request("/api/waitlist", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: "external@anydomain.io", name: "Test User", company: "Acme" }),
+    });
+    expect(res.status).toBe(201);
   });
 });
 
