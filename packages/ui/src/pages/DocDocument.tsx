@@ -1078,9 +1078,13 @@ export function DocDocument() {
               </>
             )}
             {/* spec-159 ac-17: the next-action handoff line — a "Copy a prompt
-                to …" sentence keyed to the CURRENT phase. Renders for every
-                viewer (copying a prompt is read-only); absent at `done`. */}
-            {handoff && (
+                to …" sentence keyed to the CURRENT phase; absent at `done`.
+                spec-182 issue-2 amends ac-17's "renders for every viewer":
+                the prompt's CONTENT drives state changes and building, so the
+                line is an editor affordance — gated on canEdit. The review
+                handoff above stays for both postures (dec-3: reviewing is the
+                reviewer's own workflow). */}
+            {canEdit && handoff && (
               <div data-testid="phase-handoff-line">
                 <PromptButton
                   buttonId={handoff.buttonId}

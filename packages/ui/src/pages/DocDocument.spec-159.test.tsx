@@ -607,9 +607,27 @@ describe('spec-182 — unified reviewer phase block', () => {
       name: /^You can copy and paste this prompt/,
     });
     expect(copyButton.textContent).toBe('this prompt');
-    // spec-182 dec-1: the phase handoff renders for every viewer now — the
-    // reviewer sees BOTH lines at Specify (ac-17's "every viewer" restored).
-    expect(screen.getByTestId('phase-handoff-line')).toBeInTheDocument();
+    // spec-182 issue-2: the phase handoff is an editor affordance — its prompt
+    // drives state changes and building. A reviewer gets the review handoff
+    // ONLY (amends ac-17's "renders for every viewer").
+    expect(screen.queryByTestId('phase-handoff-line')).not.toBeInTheDocument();
+  });
+
+  it('a reviewer at Build sees NO coding-agent handoff line (issue-2)', async () => {
+    tagAc(AC182(17));
+    renderAt('build');
+
+    await screen.findByTestId('task-panel');
+    expect(screen.queryByTestId('phase-handoff-line')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('review-handoff-line')).not.toBeInTheDocument();
+  });
+
+  it('a reviewer at Verify sees NO coding-agent handoff line (issue-2)', async () => {
+    tagAc(AC182(17));
+    renderAt('verify');
+
+    await screen.findByTestId('ac-panel');
+    expect(screen.queryByTestId('phase-handoff-line')).not.toBeInTheDocument();
   });
 
   it('build: tabs render, panels render, and NO review actions outside Specify', async () => {
@@ -671,7 +689,9 @@ describe('spec-182 — unified reviewer phase block', () => {
 });
 
 // spec-159 ac-17 — the next-action handoff line beneath the Rubicon line. Keyed
-// to the Spec's CURRENT phase, renders for every viewer, absent at `done`.
+// to the Spec's CURRENT phase, absent at `done`. spec-182 issue-2 amended
+// ac-17's "renders for every viewer": the line is editor-only (canEdit) — its
+// prompt drives state changes and building, which are not reviewer powers.
 describe('spec-159 ac-17 — next-action handoff line', () => {
   it('plan: "Copy and paste this prompt into your coding agent to create Decisions and ACs." with bold entities', async () => {
     tagAc(AC(17));
@@ -724,20 +744,19 @@ describe('spec-159 ac-17 — next-action handoff line', () => {
     expect(screen.queryByTestId('phase-handoff-line')).not.toBeInTheDocument();
   });
 
-  it('a writable reviewer at Specify gets BOTH the phase handoff and the review handoff (spec-182)', async () => {
-    tagAc(AC(17));
+  it('a writable reviewer at Specify gets the review handoff ONLY — no phase handoff (spec-182 issue-2)', async () => {
+    tagAc(AC182(17));
     tagAc(AC182(11));
     mockRole = 'reviewer';
     renderAt('plan');
 
-    // spec-182 dec-1 dissolved the reviewer fork: ac-17's "renders for every
-    // viewer" now genuinely includes reviewers, and dec-3's review handoff
-    // joins it at Specify.
+    // spec-182 issue-2: the phase handoff is canEdit-gated — the reviewer
+    // keeps dec-3's review handoff at Specify and nothing else.
     const line = await screen.findByTestId('review-handoff-line');
     expect(line.textContent).toContain(
       'You can copy and paste this prompt into your coding agent if you prefer to conduct the review from there.',
     );
-    expect(screen.getByTestId('phase-handoff-line')).toBeInTheDocument();
+    expect(screen.queryByTestId('phase-handoff-line')).not.toBeInTheDocument();
   });
 });
 
