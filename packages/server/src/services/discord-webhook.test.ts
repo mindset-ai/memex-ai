@@ -54,20 +54,18 @@ describe("postToDiscord: payload shape", () => {
     expect(body.embeds).toHaveLength(1);
   });
 
-  it("embed description is a markdown hyperlink containing text and url (dec-3)", async () => {
+  it("embed description is placed as-is from the footer description field (dec-3)", async () => {
     tagAc(AC_10);
     const fetchSpy = vi.mocked(fetch);
 
     const footer = {
-      text: "📄 From Spec: Discord Integration",
-      url: "https://memex.ai/mindset-prod/memex-building-itself/specs/spec-138",
+      description: "**Spec:** [Discord Integration](https://memex.ai/mindset-prod/memex-building-itself/specs/spec-138)",
     };
     await postToDiscord("https://discord.com/api/webhooks/test", "msg", footer);
 
     const body = capturedBody(fetchSpy) as { embeds: Array<{ description: string }> };
     const embed = body.embeds[0];
-    // Discord renders description markdown as a clickable link — footer field is plain text only.
-    expect(embed.description).toBe(`[${footer.text}](${footer.url})`);
+    expect(embed.description).toBe(footer.description);
   });
 
   it("message text is passed as-is — no markdown conversion applied (dec-4)", async () => {
