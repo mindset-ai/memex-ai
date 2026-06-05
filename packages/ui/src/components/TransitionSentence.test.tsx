@@ -265,55 +265,26 @@ describe('Rubicon line — posture (i-1) and the Yes mutation', () => {
   });
 });
 
-// spec-182 dec-6 — the reviewer's door: where the editor's [Yes] renders, a
-// viewer who can't transition but CAN switch posture gets the switch link.
-describe('switch-to-Editing link (spec-182 dec-6)', () => {
+// spec-182 dec-6 (amended 2026-06-05) — the in-slot "switch to Editing" nag
+// was removed at the user's call; the header posture pill is the only switch
+// affordance. This pins the absence so the nag doesn't quietly return.
+describe('no switch-to-Editing nag (spec-182 dec-6, amended)', () => {
   const AC182 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-182/acs/ac-${n}`;
 
-  it('renders the link in the button slot for a writable reviewer and fires the callback', async () => {
+  it('a non-transitioning viewer sees a clean status line — no nag in any sentence shape', () => {
     tagAc(AC182(14));
     tagAc(AC182(6));
-    const onSwitchToEdit = vi.fn();
-    const user = userEvent.setup();
-    render(
-      <TransitionSentence
-        {...baseProps()}
-        canTransition={false}
-        onSwitchToEdit={onSwitchToEdit}
-      />,
-    );
-
-    const slot = screen.getByTestId('switch-to-editing');
-    expect(slot.textContent).toContain("You're reviewing — switch to Editing to act.");
-    // No Yes/No render alongside it.
-    expect(screen.queryByRole('button', { name: 'Yes' })).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole('button', { name: 'switch to Editing' }));
-    expect(onSwitchToEdit).toHaveBeenCalledTimes(1);
-  });
-
-  it('renders the link on a BLOCKED sentence too — the slot follows the sentence, not the offer', () => {
-    tagAc(AC182(14));
-    render(
-      <TransitionSentence
-        {...baseProps({ openDecisionCount: 2 })}
-        canTransition={false}
-        onSwitchToEdit={vi.fn()}
-      />,
-    );
-    expect(screen.getByTestId('switch-to-editing')).toBeInTheDocument();
-  });
-
-  it('read-only viewers (no callback) get NO link; editors (canTransition) get Yes, no link', () => {
-    tagAc(AC182(15));
-    const { unmount } = render(
-      <TransitionSentence {...baseProps()} canTransition={false} />,
-    );
+    // Clean offer shape.
+    const { unmount } = render(<TransitionSentence {...baseProps()} canTransition={false} />);
     expect(screen.queryByTestId('switch-to-editing')).not.toBeInTheDocument();
+    expect(text()).not.toContain("You're reviewing");
     unmount();
 
-    render(<TransitionSentence {...baseProps()} canTransition onSwitchToEdit={vi.fn()} />);
-    expect(screen.getByRole('button', { name: 'Yes' })).toBeInTheDocument();
+    // Blocked shape.
+    render(
+      <TransitionSentence {...baseProps({ openDecisionCount: 2 })} canTransition={false} />,
+    );
     expect(screen.queryByTestId('switch-to-editing')).not.toBeInTheDocument();
+    expect(text()).not.toContain("You're reviewing");
   });
 });

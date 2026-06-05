@@ -647,19 +647,14 @@ describe('spec-182 — unified reviewer phase block', () => {
     expect(updateDocStatus).not.toHaveBeenCalled();
   });
 
-  it("the reviewer's sentence slot carries the switch-to-Editing link wired to promoteToEditor", async () => {
+  it("the reviewer's sentence is a clean status line — no switch-to-Editing nag (dec-6 amended)", async () => {
     tagAc(AC182(14));
     tagAc(AC182(6));
-    const user = userEvent.setup();
     renderAt('plan');
 
     const sentence = await screen.findByTestId('transition-sentence');
-    const slot = within(sentence).getByTestId('switch-to-editing');
-    expect(slot.textContent).toContain("You're reviewing — switch to Editing to act.");
-
-    await user.click(within(slot).getByRole('button', { name: 'switch to Editing' }));
-    // Same path as the header pill: useSwitchPosture → promoteToEditor + refetch.
-    await waitFor(() => expect(promoteToEditor).toHaveBeenCalledWith('doc-uuid'));
+    expect(within(sentence).queryByTestId('switch-to-editing')).not.toBeInTheDocument();
+    expect(sentence.textContent).not.toContain("You're reviewing");
   });
 
   it('done collapses to the DoneSummary for reviewers — no review block, no Reopen', async () => {
