@@ -257,9 +257,6 @@ importers:
       postcss:
         specifier: ^8.4.49
         version: 8.5.15
-      postgres:
-        specifier: ^3.4.8
-        version: 3.4.9
       tailwindcss:
         specifier: ^3.4.17
         version: 3.4.19(tsx@4.22.4)

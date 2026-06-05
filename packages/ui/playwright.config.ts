@@ -20,6 +20,10 @@ const DATABASE_URL =
 
 export default defineConfig({
   testDir: "./e2e",
+  // spec-172 dec-3: name the dev user once per run, AFTER webServer boots (Playwright starts
+  // webServers before globalSetup), so a cold DB doesn't route every journey into Onboarding.
+  // See e2e/global-setup.ts.
+  globalSetup: "./e2e/global-setup.ts",
   timeout: 30_000,
   expect: { timeout: 5_000 },
   fullyParallel: false, // tests mutate shared DB; run serially to avoid cross-test pollution
