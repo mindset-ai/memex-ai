@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { render, screen } from '@testing-library/react';
 import { tagAc } from '@memex-ai-ac/vitest';
 import { TaskPanel } from './TaskPanel';
 import type { Task } from '../api/types';
@@ -32,16 +31,6 @@ vi.mock('./ExecutionPlanModal', () => ({
     not_ready: '',
     approved: '',
   },
-}));
-
-vi.mock('./CommentTray', () => ({
-  CommentTray: ({ targetId }: { targetId: string }) => (
-    <div data-testid="comment-tray-stub" data-target-id={targetId} />
-  ),
-}));
-
-vi.mock('./PromptModal', () => ({
-  PromptModal: () => <div data-testid="prompt-modal" />,
 }));
 
 function makeTask(overrides: Partial<Task> = {}): Task {
@@ -137,7 +126,7 @@ describe('TaskPanel', () => {
     expect(screen.queryByRole('button', { name: /Add task/i })).not.toBeInTheDocument();
   });
 
-  it('exposes no task mutation even with canWrite — only the read-only Prompt and comments remain (ac-18)', () => {
+  it('exposes no task mutation even with canWrite — no start/complete/reset/add/kick (ac-18)', () => {
     tagAc(AC(18));
     const tasks = [
       makeTask({ id: 'a', seq: 1, status: 'not_started' }),
@@ -152,17 +141,6 @@ describe('TaskPanel', () => {
     expect(screen.queryByTestId('task-reset')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Add task/i })).not.toBeInTheDocument();
     expect(screen.queryByText(/kick|to issue/i)).not.toBeInTheDocument();
-
-    // Read-only handoff survives: the Prompt button (copying a prompt is not a
-    // mutation) is rendered per task.
-    expect(screen.getAllByTestId('task-prompt').length).toBe(tasks.length);
-    // Comments survive too — they're not a task mutation, so the comment
-    // affordance rides every task card even though start/complete/reset are gone
-    // (ac-18). Opening one mounts the CommentTray.
-    const commentToggles = screen.getAllByTitle('Show comments');
-    expect(commentToggles.length).toBe(tasks.length);
-    fireEvent.click(commentToggles[0]);
-    expect(screen.getByTestId('comment-tray-stub')).toBeInTheDocument();
   });
 
   it('renders acceptance criteria with checked vs. unchecked states', () => {
@@ -180,50 +158,62 @@ describe('TaskPanel', () => {
     expect(screen.getByText('[ ]')).toBeInTheDocument();
   });
 
-  // ── spec-164 dec-6: agent chatter no longer auto-opens the tray; the
-  //    Comments badge still counts everything (ac-25).
-  describe('agent comment chatter (spec-164)', () => {
+  // ── spec-164 issue: task cards are read-only agent artifacts ──
+  // Tasks are managed by the coding agent only (created/driven through MCP);
+  // humans read. The per-task Prompt and comment affordances are gone — human
+  // feedback on a task flows through the page-level Comments view / chat. This
+  // SUPERSEDES the TaskPanel-side behaviour of spec-164 dec-6 (the tray-mount
+  // aspect of ac-24/ac-25): task cards no longer mount a CommentTray at all.
+  // The CommentTray muteAgentChatter filter itself survives for other trays and
+  // stays verified at the component level (see CommentTray.test.tsx).
+  describe('agent-tasks read-only surface (spec-164 issue)', () => {
     const AC164 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-164/acs/ac-${n}`;
 
-    const chatter = (id: string, type: string) =>
-      ({
-        id,
-        authorName: 'Agent',
-        content: `${type} body`,
-        commentType: type,
-        resolvedAt: null,
-        createdAt: new Date().toISOString(),
-      }) as unknown as Comment;
-
-    it('a task with ONLY plan/progress comments does not auto-mount the tray, but the badge counts them', () => {
-      tagAc(AC164(24));
-      tagAc(AC164(25));
-      const task = makeTask({ id: 't-chatter', seq: 1 });
-      render(
-        <TaskPanel
-          docId="doc-1"
-          tasks={[task]}
-          commentsByTask={{ 't-chatter': [chatter('c1', 'progress'), chatter('c2', 'plan')] }}
-          onUpdate={vi.fn()}
-        />,
-      );
-      expect(screen.queryByTestId('comment-tray-stub')).not.toBeInTheDocument();
-      // The badge still reflects ALL open comments — hidden chatter included.
-      expect(screen.getByTitle('Show comments')).toHaveTextContent('2');
+    it('renders the panel header as "Agent Tasks"', () => {
+      render(<TaskPanel docId="doc-1" tasks={[makeTask({ id: 't', seq: 1 })]} onUpdate={vi.fn()} />);
+      expect(screen.getByRole('heading', { name: 'Agent Tasks' })).toBeInTheDocument();
+      expect(screen.queryByRole('heading', { name: 'Tasks' })).not.toBeInTheDocument();
     });
 
-    it('a task with an open review comment still auto-mounts the tray', () => {
+    it('a task card renders NO comments toggle and NO Prompt button, even where comment data used to drive them', () => {
       tagAc(AC164(24));
-      const task = makeTask({ id: 't-review', seq: 1 });
+      tagAc(AC164(25));
+      const task = makeTask({ id: 't-1', seq: 1 });
+      // `doc` + comment-shaped data are passed the way the old card consumed
+      // them; the read-only surface ignores both — no affordances appear.
       render(
         <TaskPanel
           docId="doc-1"
+          doc={{ id: 'doc-1' } as any}
           tasks={[task]}
-          commentsByTask={{ 't-review': [chatter('c1', 'review')] }}
           onUpdate={vi.fn()}
+          canWrite
         />,
       );
-      expect(screen.getByTestId('comment-tray-stub')).toBeInTheDocument();
+      expect(screen.queryByTestId('task-prompt')).not.toBeInTheDocument();
+      expect(screen.queryByTitle('Show comments')).not.toBeInTheDocument();
+      expect(screen.queryByTitle('Hide comments')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('comment-tray-stub')).not.toBeInTheDocument();
+    });
+
+    it('still renders status badges and acceptance criteria (read stays intact)', () => {
+      const task = makeTask({
+        id: 't-2',
+        seq: 3,
+        status: 'in_progress',
+        acceptanceCriteria: [
+          { description: 'AC one', done: false },
+          { description: 'AC two', done: true },
+        ] as any,
+      });
+      render(<TaskPanel docId="doc-1" tasks={[task]} onUpdate={vi.fn()} />);
+      const card = screen.getByTestId('task-card');
+      expect(card.getAttribute('data-task-status')).toBe('in_progress');
+      expect(screen.getByText('in progress')).toBeInTheDocument();
+      expect(screen.getByText('AC one')).toBeInTheDocument();
+      expect(screen.getByText('AC two')).toBeInTheDocument();
+      expect(screen.getByText('[ ]')).toBeInTheDocument();
+      expect(screen.getByText('[x]')).toBeInTheDocument();
     });
   });
 

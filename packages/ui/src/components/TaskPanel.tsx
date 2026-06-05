@@ -1,17 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { DocWithGraph, Task, Comment, PlanReadinessEntry } from '../api/types';
+import type { DocWithGraph, Task, PlanReadinessEntry } from '../api/types';
 import { fetchPlanReadiness } from '../api/client';
 import { useChat } from './ChatContext';
-import { CommentTray } from './CommentTray';
-import { PromptModal } from './PromptModal';
 import {
   ExecutionPlanModal,
   derivePlanBadgeState,
   planStateLabel,
   PLAN_STATE_CLASSES,
 } from './ExecutionPlanModal';
-import { Badge, Button } from './ui';
-import { renderTaskInitPrompt } from '../utils/taskInitPrompt';
+import { Badge } from './ui';
 
 interface TaskPanelProps {
   /** Retained for call-site compatibility — was only consumed by the removed
@@ -19,24 +16,20 @@ interface TaskPanelProps {
   docId?: string;
   /**
    * The full spec document. Optional so legacy callers that only have docId
-   * still render — but the per-task "Spec Coding Agent" prompt needs the
-   * spec's title, decisions, and sections to give the agent the
-   * already-settled context. Without this prop, the Prompt button is hidden.
+   * still render. Currently unused for rendering — kept for call-site
+   * compatibility and any future spec-context affordance.
    */
   doc?: DocWithGraph;
   tasks: Task[];
-  commentsByTask?: Record<string, Comment[]>;
-  forceShowComments?: boolean;
-  onCommentsChange?: (targetId: string, comments: Comment[]) => void;
   onUpdate: () => void;
   /**
    * spec-159 ac-18: tasks are read-only in the UI — created and driven only by
-   * coding agents through the MCP tools. The panel renders no task-mutation
-   * control. `canWrite` now gates a single remaining write: the comment
-   * composer in each task's tray (users give feedback through comments). When
-   * false (non-member reading a public Memex), the composer is suppressed too.
-   * Task content (status, ACs, blockers, the "Prompt" affordance, the graph)
-   * stays readable. Defaults to true so member call sites are unchanged.
+   * coding agents through the MCP tools (spec-164 issue: task cards are
+   * read-only agent artifacts). The panel renders no task-mutation control and
+   * no per-task comment or Prompt affordance. Task content (status, ACs,
+   * blockers, the execution plan) stays readable; human feedback on a task
+   * flows through the page-level Comments view / chat instead. `canWrite` is
+   * retained for call-site compatibility. Defaults to true.
    */
   canWrite?: boolean;
 }
@@ -47,10 +40,8 @@ const statusLabel: Record<string, string> = {
   complete: 'complete',
 };
 
-export function TaskPanel({ docId: _docId, doc, tasks, commentsByTask = {}, forceShowComments, onCommentsChange, onUpdate, canWrite = true }: TaskPanelProps) {
+export function TaskPanel({ docId: _docId, doc: _doc, tasks, onUpdate, canWrite: _canWrite = true }: TaskPanelProps) {
   const chat = useChat();
-  const [showCommentsFor, setShowCommentsFor] = useState<string | null>(null);
-  const [promptText, setPromptText] = useState<string | null>(null);
 
   // Per-task plan readiness, keyed by task id. Populated lazily from
   // /api/execution-plans/readiness whenever the set of tasks-with-plans
@@ -88,17 +79,6 @@ export function TaskPanel({ docId: _docId, doc, tasks, commentsByTask = {}, forc
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [planTaskIdsKey]);
 
-  // The per-task prompt is built from a static template — no LLM round-trip.
-  // Mirrors the spec "Spec Coding Agent" approach (see InitPromptDialog
-  // and specInitPrompt.ts): the value is the briefing, not bespoke prose.
-  // The agent is told to call back into Memex via MCP for the live state, so
-  // the prompt only needs to give it enough context to start (spec, task,
-  // decisions, comments) plus the playbook.
-  const handleOpenPrompt = (task: Task) => {
-    if (!doc) return;
-    setPromptText(renderTaskInitPrompt(doc, task, commentsByTask[task.id] ?? []));
-  };
-
   const ready = tasks.filter((t) => !t.blocked && t.status === 'not_started');
   const blocked = tasks.filter((t) => t.blocked);
   const inProgress = tasks.filter((t) => t.status === 'in_progress');
@@ -112,8 +92,12 @@ export function TaskPanel({ docId: _docId, doc, tasks, commentsByTask = {}, forc
   return (
     <div data-testid="task-panel" className="border rounded-lg p-5 border-edge bg-panel">
       <div className="flex items-center justify-between mb-4">
+        {/* spec-159 ac-18 / spec-164: this list is managed by coding agents
+            only — tasks are created and driven through the MCP tools; humans
+            read. There is no per-task Prompt or comment affordance here;
+            feedback on a task flows through the page-level Comments view / chat. */}
         <h3 className="text-sm font-semibold text-heading uppercase tracking-wider">
-          Tasks
+          Agent Tasks
         </h3>
         <span className="text-xs text-muted">
           {ready.length} ready, {blocked.length} blocked, {inProgress.length} in progress, {complete.length} complete
@@ -129,14 +113,6 @@ export function TaskPanel({ docId: _docId, doc, tasks, commentsByTask = {}, forc
       <div className="space-y-2 mb-4">
         {tasks.map((t) => {
           const display = getDisplayStatus(t);
-          const openTaskComments = commentsByTask[t.id]?.filter((c) => !c.resolvedAt) ?? [];
-          // spec-164 dec-6: only HUMAN-LOOP comments auto-open the tray.
-          // Agent chatter (plan/progress) no longer pre-explodes the build
-          // list — it stays behind the Comments button (whose count badge
-          // still includes it, ac-25) and the tray's default-off chips.
-          const taskOpenComments = openTaskComments.some(
-            (c) => !['plan', 'progress'].includes(c.commentType ?? 'discussion'),
-          );
           return (
             <div
               key={t.id}
@@ -224,67 +200,12 @@ export function TaskPanel({ docId: _docId, doc, tasks, commentsByTask = {}, forc
                       </button>
                     );
                   })()}
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setShowCommentsFor(forceShowComments || showCommentsFor === t.id ? null : t.id);
-                    }}
-                    className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs font-medium transition-colors border
-                      ${forceShowComments || taskOpenComments || showCommentsFor === t.id
-                        ? 'bg-overlay text-primary border-edge-strong'
-                        : 'opacity-0 group-hover/task:opacity-100 bg-surface/50 text-muted border-edge hover:bg-overlay'
-                      }`}
-                    title={forceShowComments || showCommentsFor === t.id ? 'Hide comments' : 'Show comments'}
-                  >
-                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 01.865-.501 48.172 48.172 0 003.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z" />
-                    </svg>
-                    {(commentsByTask[t.id]?.filter((c) => !c.resolvedAt).length ?? 0) > 0
-                      ? commentsByTask[t.id]?.filter((c) => !c.resolvedAt).length
-                      : '+'}
-                  </button>
-                  {doc && (
-                    <Button
-                      data-testid="task-prompt"
-                      variant="ghost"
-                      size="sm"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleOpenPrompt(t);
-                      }}
-                      title="Hand this task to a coding agent"
-                    >
-                      Prompt
-                    </Button>
-                  )}
                 </div>
               </div>
-
-              {(forceShowComments || taskOpenComments || showCommentsFor === t.id) && (
-                <div className={`mt-2 pt-2 border-t border-edge ${taskOpenComments ? 'border-l-2 border-l-accent pl-2 -ml-1' : ''}`} onClick={(e) => e.stopPropagation()}>
-                  <CommentTray
-                    targetType="task"
-                    targetId={t.id}
-                    comments={commentsByTask[t.id] ?? []}
-                    onCommentsChange={onCommentsChange}
-                    canWrite={canWrite}
-                    muteAgentChatter
-                  />
-                </div>
-              )}
             </div>
           );
         })}
       </div>
-
-      {promptText !== null && (
-        <PromptModal
-          prompt={promptText}
-          loading={false}
-          title="Spec Coding Agent — Task"
-          onClose={() => setPromptText(null)}
-        />
-      )}
 
       {openPlanForTask?.executionPlanDocId && (
         <ExecutionPlanModal

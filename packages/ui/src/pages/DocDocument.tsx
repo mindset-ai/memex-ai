@@ -353,12 +353,10 @@ export function DocDocument() {
     []
   );
 
-  const handleTaskCommentsChange = useCallback(
-    (taskId: string, comments: Comment[]) => {
-      setCommentsByTask((prev) => ({ ...prev, [taskId]: comments }));
-    },
-    []
-  );
+  // spec-164: task cards are read-only agent artifacts — they no longer mount
+  // a per-task comment tray, so there is no TaskPanel-driven setter for task
+  // comments. The `commentsByTask` state is still populated from the doc load
+  // and fed to AllComments (the page-level Comments sub-tab stays readable).
 
   // spec-136 t-6: fold the picker's resolved full tag set back into the doc
   // payload so chips on the header re-render without a full reloadDoc. The
@@ -861,8 +859,6 @@ export function DocDocument() {
       docId={doc.id}
       doc={doc}
       tasks={ts}
-      commentsByTask={commentsByTask}
-      onCommentsChange={handleTaskCommentsChange}
       onUpdate={reloadDoc}
       canWrite={canWrite}
     />
