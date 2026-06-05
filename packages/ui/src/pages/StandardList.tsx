@@ -8,38 +8,7 @@ import { Spinner } from '../components/Spinner';
 import { tenantPath, getCurrentTenant } from '../utils/tenantUrl';
 import { PageHeader } from '../components/PageHeader';
 import { StandardsMap } from '../components/StandardsMap';
-
-/**
- * Build the templated "audit my codebase against the standards" prompt
- * (t-11 of doc-8). Pasted into a fresh Claude Code (or Desktop) session
- * connected to this Memex via MCP — the agent calls list_docs(docType:'standard'),
- * inspects each rule, and either flags drift via flag_drift or proposes
- * a corrected rule via propose_standard_change.
- *
- * The Memex name comes from the URL's tenant context (path-based after t-23).
- */
-function currentMemexName(): string {
-  const t = getCurrentTenant();
-  if (t) return `${t.namespace}/${t.memex}`;
-  // Fallback when not in a tenant URL (rare — StandardList lives under /:ns/:mx).
-  return window.location.hostname;
-}
-
-function buildAuditPrompt(memexName: string, baseUrl: string, count: number): string {
-  return [
-    `You are auditing the current codebase against the Standards in the Memex "${memexName}" (${baseUrl}).`,
-    '',
-    `There are ${count} standard${count === 1 ? '' : 's'} to check. For each standard:`,
-    '',
-    "1. Call `list_docs({ docType: 'standard' })` and `get_doc(standardId)` to read every rule and its `[per dec-N]` provenance.",
-    "2. Inspect the codebase to verify each rule. Use `code_search`, `list_symbols`, `list_symbols({ kind: 'endpoint' })`, etc.",
-    '3. If the codebase has drifted from the rule, call `flag_drift(standardSectionId, observation)` describing what you observed and where (file path, function name).',
-    '4. If the rule itself is wrong, ambiguous, or out of date, call `propose_standard_change(standardSectionId, proposedContent, rationale)` with the corrected text.',
-    '5. Do NOT modify production code as part of this audit — only post drift / proposal comments. The standard owner reviews them in the Drift Inbox.',
-    '',
-    'When you finish, summarise what you flagged and what you proposed.',
-  ].join('\n');
-}
+import { matchesQuery } from '../components/standards-map/model';
 
 /**
  * Standard list (per dec-25). Renders only `docType='standard'` documents.
@@ -50,7 +19,8 @@ function buildAuditPrompt(memexName: string, baseUrl: string, count: number): st
  */
 // spec-179 (ac-16): the list ⇄ map view toggle persists per user per tenant.
 // localStorage is the per-user store the UI already has client-side; the key
-// is tenant-scoped so different memexes can hold different modes.
+// is tenant-scoped so different memexes can hold different modes. The list is
+// the default view; the map is one click away.
 type StandardsView = 'list' | 'map';
 
 function viewStorageKey(): string {
@@ -71,8 +41,12 @@ export function StandardList() {
   const [docs, setDocs] = useState<DocSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
   const [view, setView] = useState<StandardsView>(loadStoredView);
+  // Shared toolbar state — the search query means the same thing in both
+  // views (filter the list / highlight map hits) and survives the switch.
+  const [query, setQuery] = useState('');
+  const [showSemantic, setShowSemantic] = useState(false);
+  const [semanticAvailable, setSemanticAvailable] = useState(false);
 
   const switchView = useCallback((next: StandardsView) => {
     setView(next);
@@ -83,24 +57,6 @@ export function StandardList() {
       // the session, it just won't persist.
     }
   }, []);
-
-  async function handleCopyAuditPrompt() {
-    const memexName = currentMemexName();
-    const t = getCurrentTenant();
-    const baseUrl = t
-      ? `${window.location.origin}/${t.namespace}/${t.memex}`
-      : window.location.origin;
-    const prompt = buildAuditPrompt(memexName, baseUrl, docs.length);
-    try {
-      await navigator.clipboard.writeText(prompt);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // clipboard API can be blocked (insecure origin, permissions). Fall back
-      // to a textarea-and-execCommand dance only if the user actually hits this.
-      setError('Could not access the clipboard. Copy the prompt manually from the page source.');
-    }
-  }
 
   const loadStandards = useCallback(() => {
     fetchDocs('standard', { include: ['driftCount'] })
@@ -122,6 +78,9 @@ export function StandardList() {
   // Keep standard counts live as the agent flags drift — same SSE channel as
   // the spec board (per-account global stream).
   useDocChangeStream(null, loadStandards);
+
+  // Same matcher the map uses for hit-highlighting (handle + title substring).
+  const visibleDocs = docs.filter((d) => matchesQuery(query, d.handle, d.title));
 
   if (loading) {
     return (
@@ -146,48 +105,74 @@ export function StandardList() {
       <PageHeader
         title="Standards"
         actions={
-          <div className="flex items-center gap-2">
-            {/* spec-179 (ac-3/ac-16): list ⇄ map segmented control. */}
-            <div
-              className="flex rounded border border-edge overflow-hidden"
-              role="group"
-              aria-label="Standards view"
-              data-testid="standards-view-toggle"
-            >
-              {(['list', 'map'] as const).map((mode) => (
-                <button
-                  key={mode}
-                  type="button"
-                  onClick={() => switchView(mode)}
-                  aria-pressed={view === mode}
-                  className={`text-xs px-3 py-1.5 transition-colors ${
-                    view === mode
-                      ? 'bg-card-hover text-heading'
-                      : 'text-secondary hover:bg-card-hover'
-                  }`}
-                  data-testid={`standards-view-${mode}`}
-                >
-                  {mode}
-                </button>
-              ))}
-            </div>
-            <button
-              type="button"
-              onClick={handleCopyAuditPrompt}
-              disabled={docs.length === 0}
-              className="text-xs px-3 py-1.5 rounded border border-edge text-secondary hover:bg-card-hover disabled:opacity-40 disabled:cursor-not-allowed"
-              title="Copy a prompt instructing a fresh agent to audit the codebase against these standards"
-              data-testid="copy-audit-prompt"
-            >
-              {copied ? 'Copied!' : 'Copy audit prompt'}
-            </button>
+          /* spec-179 (ac-3/ac-16): list ⇄ map segmented control. */
+          <div
+            className="flex rounded border border-edge overflow-hidden"
+            role="group"
+            aria-label="Standards view"
+            data-testid="standards-view-toggle"
+          >
+            {(['list', 'map'] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => switchView(mode)}
+                aria-pressed={view === mode}
+                className={`text-xs px-3 py-1.5 transition-colors ${
+                  view === mode
+                    ? 'bg-card-hover text-heading'
+                    : 'text-secondary hover:bg-card-hover'
+                }`}
+                data-testid={`standards-view-${mode}`}
+              >
+                {mode}
+              </button>
+            ))}
           </div>
         }
       />
 
+      {/* Shared toolbar — identical position in both views: search first
+          (left), then the semantic toggle (map view only). */}
+      <div className="flex items-center gap-2 pb-3">
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search standards…"
+          aria-label="Search standards"
+          className="text-xs px-3 py-1.5 w-56 rounded border border-edge bg-transparent text-primary placeholder:text-muted focus:outline-none focus:border-edge-strong"
+          data-testid="standards-search"
+        />
+        {view === 'map' && (
+          <button
+            type="button"
+            onClick={() => setShowSemantic((v) => !v)}
+            disabled={!semanticAvailable}
+            className={`text-xs px-3 py-1.5 rounded border transition-colors ${
+              showSemantic
+                ? 'border-edge bg-card-hover text-heading'
+                : 'border-edge text-secondary hover:bg-card-hover'
+            } disabled:opacity-40 disabled:cursor-not-allowed`}
+            title={
+              semanticAvailable
+                ? 'Overlay embedding-similarity edges (fuzzy — not citations)'
+                : 'No semantic edges yet — embeddings haven’t been generated for this memex'
+            }
+            data-testid="semantic-toggle"
+          >
+            {showSemantic ? '◉' : '○'} semantic neighbors
+          </button>
+        )}
+      </div>
+
       <div className="flex-1 min-h-0 overflow-y-auto">
         {view === 'map' ? (
-          <StandardsMap />
+          <StandardsMap
+            query={query}
+            showSemantic={showSemantic}
+            onSemanticAvailable={setSemanticAvailable}
+          />
         ) : docs.length === 0 ? (
           <div className="border border-edge-subtle rounded-lg p-8 text-center bg-surface/40">
             <p className="text-sm text-secondary mb-1">No standards yet.</p>
@@ -198,9 +183,16 @@ export function StandardList() {
               decisions resolve, so the rules stay honest over time.
             </p>
           </div>
+        ) : visibleDocs.length === 0 ? (
+          <div
+            className="text-sm text-secondary py-12 text-center"
+            data-testid="standards-search-empty"
+          >
+            No standards match “{query.trim()}”.
+          </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {docs.map((d) => {
+            {visibleDocs.map((d) => {
               const drift = d.driftCount ?? 0;
               return (
                 <Link
