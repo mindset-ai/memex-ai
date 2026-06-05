@@ -31,7 +31,9 @@ jobs:
     # starting until the server is ready.
     services:
       postgres:
-        image: postgres:16
+        # pgvector-bundled Postgres 16 — migration 0023 (codebase intelligence)
+        # runs CREATE EXTENSION vector, absent from the stock postgres image.
+        image: pgvector/pgvector:pg16
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -74,7 +76,7 @@ jobs:
         run: |
           for f in packages/server/drizzle/*.sql; do
             echo "Applying $f"
-            psql "$DATABASE_URL" -f "$f"
+            psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f "$f"
           done
 
       - name: Unit tests (no DB required but runs anyway, fast)
@@ -126,7 +128,9 @@ jobs:
 
     services:
       postgres:
-        image: postgres:16
+        # pgvector-bundled Postgres 16 — migration 0023 (codebase intelligence)
+        # runs CREATE EXTENSION vector, absent from the stock postgres image.
+        image: pgvector/pgvector:pg16
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -165,7 +169,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Apply migrations
         run: |
-          for f in packages/server/drizzle/*.sql; do psql "$DATABASE_URL" -f "$f"; done
+          for f in packages/server/drizzle/*.sql; do psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f "$f"; done
       - name: Install Playwright Chromium
         run: pnpm --filter @memex/admin exec playwright install --with-deps chromium
       - name: E2E journeys
@@ -188,7 +192,9 @@ jobs:
 
     services:
       postgres:
-        image: postgres:16
+        # pgvector-bundled Postgres 16 — migration 0023 (codebase intelligence)
+        # runs CREATE EXTENSION vector, absent from the stock postgres image.
+        image: pgvector/pgvector:pg16
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -221,6 +227,6 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Apply migrations
         run: |
-          for f in packages/server/drizzle/*.sql; do psql "$DATABASE_URL" -f "$f"; done
+          for f in packages/server/drizzle/*.sql; do psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f "$f"; done
       - name: Performance tests
         run: pnpm --filter @memex/server test:perf
