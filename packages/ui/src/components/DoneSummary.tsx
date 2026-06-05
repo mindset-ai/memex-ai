@@ -16,9 +16,11 @@
 // on the doc today. So the timeline renders what's actually known (start → done
 // + total elapsed) rather than fabricating intermediate plan/build/verify dates.
 
+import { useState } from 'react';
 import type { Decision, Task, Issue, DocWithGraph } from '../api/types';
 import type { AcWithVerification, DocAssigneeView } from '../api/client';
-import { Card } from './ui';
+import { Button, Card } from './ui';
+import { phaseDisplayName } from '../utils/phaseDisplay';
 
 interface DoneSummaryProps {
   /** The full Spec document — supplies title, completion timestamp, creator. */
@@ -37,6 +39,19 @@ interface DoneSummaryProps {
    * the doc's creator, so the People row always shows someone.
    */
   people?: DocAssigneeView[];
+  /**
+   * spec-164 dec-5: when true (editor posture, same gate as the transition
+   * sentence's Yes), the report carries a single "Reopen" affordance — the
+   * one deliberate door back to `verify`. Hidden for read-only viewers and
+   * writable reviewers. Defaults to false so existing call sites stay
+   * report-only.
+   */
+  canReopen?: boolean;
+  /**
+   * Confirmed-reopen callback. The PARENT performs the status write (and the
+   * refetch) — DoneSummary itself still makes no network call (ac-9).
+   */
+  onReopen?: () => void | Promise<void>;
 }
 
 // One date, spelled the way the sketch shows it ("12 June 2026").
@@ -80,7 +95,32 @@ function ReportRow({ label, children }: { label: string; children: React.ReactNo
   );
 }
 
-export function DoneSummary({ doc, decisions, tasks, acs, issues, people }: DoneSummaryProps) {
+export function DoneSummary({
+  doc,
+  decisions,
+  tasks,
+  acs,
+  issues,
+  people,
+  canReopen = false,
+  onReopen,
+}: DoneSummaryProps) {
+  // spec-164 dec-5: two-step confirm, inline (mirrors the transition
+  // sentence's no-modal posture). 'idle' → button; 'confirming' → question +
+  // Yes/Cancel; 'submitting' while the parent's status write is in flight.
+  const [reopenState, setReopenState] = useState<'idle' | 'confirming' | 'submitting'>('idle');
+
+  const handleReopenYes = async () => {
+    setReopenState('submitting');
+    try {
+      await onReopen?.();
+    } finally {
+      // If the write succeeded the parent re-renders away from `done` and
+      // this component unmounts; on failure we fall back to the button.
+      setReopenState('idle');
+    }
+  };
+
   // ── Decisions: resolved of total. There's no "reopened" signal on the
   //    Decision row, so reopened renders as 0 (honest absence, not a guess).
   const decisionsResolved = decisions.filter((d) => d.status === 'resolved').length;
@@ -157,6 +197,47 @@ export function DoneSummary({ doc, decisions, tasks, acs, issues, people }: Done
           {peopleLabels.length > 0 ? peopleLabels.join(' · ') : 'Unknown'}
         </ReportRow>
       </div>
+
+      {/* spec-164 dec-5: the one deliberate door back. Editor-gated; an
+          explicit confirm; the parent performs the verify status write. */}
+      {canReopen && (
+        <div className="mt-6 pt-4 border-t border-edge-subtle text-center text-sm text-secondary">
+          {reopenState === 'idle' ? (
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              data-testid="done-reopen"
+              onClick={() => setReopenState('confirming')}
+            >
+              Reopen
+            </Button>
+          ) : (
+            <span data-testid="done-reopen-confirm">
+              Move this spec back to {phaseDisplayName('verify')}?{' '}
+              <Button
+                type="button"
+                variant="primary"
+                size="sm"
+                data-testid="done-reopen-yes"
+                disabled={reopenState === 'submitting'}
+                onClick={() => void handleReopenYes()}
+              >
+                {reopenState === 'submitting' ? 'Reopening…' : 'Yes'}
+              </Button>{' '}
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                disabled={reopenState === 'submitting'}
+                onClick={() => setReopenState('idle')}
+              >
+                Cancel
+              </Button>
+            </span>
+          )}
+        </div>
+      )}
     </Card>
   );
 }

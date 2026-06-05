@@ -33,9 +33,26 @@ interface CommentTrayProps {
    * (read-only). Defaults to true so existing member call sites are unchanged.
    */
   canWrite?: boolean;
+  /**
+   * spec-164 dec-6: when true (the task tray), agent-generated chatter —
+   * `plan` / `progress` typed comments — is hidden from the default "All"
+   * view behind its existing type chips, which act as the default-off
+   * filter. Human-loop types (review / question / drift / plan_revision /
+   * discussion) still auto-surface. Counts keep reflecting ALL open
+   * comments so hidden chatter stays discoverable. Defaults to false so
+   * section/decision trays are unchanged.
+   */
+  muteAgentChatter?: boolean;
 }
 
 type ChipFilter = 'all' | FilterChipType;
+
+// The agent-chatter comment types dec-6 mutes by default in the task tray.
+const AGENT_CHATTER_TYPES: ReadonlyArray<string> = ['plan', 'progress'];
+
+function isAgentChatter(comment: Comment): boolean {
+  return AGENT_CHATTER_TYPES.includes(comment.commentType ?? 'discussion');
+}
 
 interface CommentFilterChipsProps {
   active: ChipFilter;
@@ -89,7 +106,7 @@ function matchesFilter(comment: Comment, filter: ChipFilter): boolean {
   return (comment.commentType ?? 'discussion') === filter;
 }
 
-export function CommentTray({ targetType, targetId, comments, onCommentsChange, canWrite = true }: CommentTrayProps) {
+export function CommentTray({ targetType, targetId, comments, onCommentsChange, canWrite = true, muteAgentChatter = false }: CommentTrayProps) {
   const { user } = useAuth();
   const [content, setContent] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -106,12 +123,21 @@ export function CommentTray({ targetType, targetId, comments, onCommentsChange, 
     return out;
   }, [comments]);
 
+  // spec-164 dec-6: on the default "All" view of a muted tray, agent chatter
+  // (plan/progress) is excluded — selecting its chip reveals it. Explicit
+  // chip selections are never muted.
+  const chatterMuted = muteAgentChatter && filter === 'all';
   const openComments = comments
     .filter((c) => !c.resolvedAt)
-    .filter((c) => matchesFilter(c, filter));
+    .filter((c) => matchesFilter(c, filter))
+    .filter((c) => !(chatterMuted && isAgentChatter(c)));
   const resolvedComments = comments
     .filter((c) => c.resolvedAt)
-    .filter((c) => matchesFilter(c, filter));
+    .filter((c) => matchesFilter(c, filter))
+    .filter((c) => !(chatterMuted && isAgentChatter(c)));
+  const hiddenChatterCount = chatterMuted
+    ? comments.filter((c) => !c.resolvedAt && isAgentChatter(c)).length
+    : 0;
 
   const updateComments = (updated: Comment[]) => {
     onCommentsChange?.(targetId, updated);
@@ -168,6 +194,15 @@ export function CommentTray({ targetType, targetId, comments, onCommentsChange, 
     <div data-testid="comment-tray" className="flex flex-col">
       {comments.some((c) => !c.resolvedAt) && (
         <CommentFilterChips active={filter} onChange={setFilter} counts={counts} />
+      )}
+
+      {/* spec-164 dec-6: discoverability line for muted agent chatter — the
+          count badge upstream already includes it; this names where it went. */}
+      {hiddenChatterCount > 0 && (
+        <p data-testid="comment-chatter-note" className="text-[11px] text-muted mb-2">
+          {hiddenChatterCount} agent update{hiddenChatterCount === 1 ? '' : 's'} hidden — use
+          the Plan / Progress chips to show {hiddenChatterCount === 1 ? 'it' : 'them'}.
+        </p>
       )}
 
       {/* Comment list */}

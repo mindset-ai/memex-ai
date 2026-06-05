@@ -19,7 +19,6 @@
     "@langchain/langgraph": "^1.2.6",
     "@memex/shared": "workspace:*",
     "@react-oauth/google": "^0.13.4",
-    "@xyflow/react": "^12.10.2",
     "cmdk": "1.1.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

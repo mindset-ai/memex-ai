@@ -132,7 +132,7 @@ describe('IssuesList — grouping under parent Spec (ac-7)', () => {
     expect(within(groups[1]).getAllByTestId('issue-row')).toHaveLength(2);
     // The Spec heading carries its title + a phase badge.
     expect(within(groups[1]).getByText('Auth flow')).toBeInTheDocument();
-    expect(within(groups[1]).getByTestId('issues-spec-phase')).toHaveTextContent('build');
+    expect(within(groups[1]).getByTestId('issues-spec-phase')).toHaveTextContent('Build');
   });
 });
 
@@ -231,15 +231,49 @@ describe('IssuesList — filters compose + round-trip through the URL', () => {
     expect(screen.getByTestId('issues-type-todo')).not.toBeChecked();
   });
 
-  it('every phase + type checkbox is checked by default on a bare /issues URL', async () => {
+  it('active phases + types are checked by default; done ships UNCHECKED (spec-164)', async () => {
     tagAc(AC_PHASE_FILTER);
+    // spec-164 scope ac-7: issues on done specs are an explicit opt-in.
+    tagAc('mindset-prod/memex-building-itself/specs/spec-164/acs/ac-7');
     renderPage();
 
-    for (const phase of ['draft', 'plan', 'build', 'verify', 'done']) {
+    for (const phase of ['draft', 'plan', 'build', 'verify']) {
       expect(await screen.findByTestId(`issues-phase-${phase}`)).toBeChecked();
     }
+    expect(screen.getByTestId('issues-phase-done')).not.toBeChecked();
     expect(screen.getByTestId('issues-type-bug')).toBeChecked();
     expect(screen.getByTestId('issues-type-todo')).toBeChecked();
+  });
+
+  it('checking done writes the explicit opt-in to the URL and round-trips (spec-164)', async () => {
+    tagAc('mindset-prod/memex-building-itself/specs/spec-164/acs/ac-7');
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={['/acme/main/issues']}>
+        <Routes>
+          <Route path="/:namespace/:memex/issues" element={<IssuesList />} />
+        </Routes>
+        <LocationProbe />
+      </MemoryRouter>,
+    );
+
+    await screen.findByTestId('issues-phase-done');
+    await user.click(screen.getByTestId('issues-phase-done'));
+
+    // The opt-in serialises all five phases explicitly…
+    await waitFor(() => {
+      const search = screen.getByTestId('probe').getAttribute('data-search') ?? '';
+      const phases = new URLSearchParams(search).get('phases');
+      expect(phases).not.toBeNull();
+      expect(phases!.split(',').sort()).toEqual(['build', 'done', 'draft', 'plan', 'verify']);
+    });
+
+    // …and unchecking done returns to the clean default URL (param dropped).
+    await user.click(screen.getByTestId('issues-phase-done'));
+    await waitFor(() => {
+      const search = screen.getByTestId('probe').getAttribute('data-search') ?? '';
+      expect(new URLSearchParams(search).get('phases')).toBeNull();
+    });
   });
 
   it('toggling a phase checkbox writes the explicit selection to the URL and refetches', async () => {
@@ -254,7 +288,8 @@ describe('IssuesList — filters compose + round-trip through the URL', () => {
       </MemoryRouter>,
     );
 
-    // Uncheck draft → the param lists the remaining four phases.
+    // Uncheck draft → the param lists the remaining phases of the default
+    // set (done is already off by default per spec-164).
     await screen.findByTestId('issues-phase-draft');
     await user.click(screen.getByTestId('issues-phase-draft'));
 
@@ -264,13 +299,13 @@ describe('IssuesList — filters compose + round-trip through the URL', () => {
       const params = new URLSearchParams(search);
       const phases = params.get('phases');
       expect(phases).not.toBeNull();
-      expect(phases!.split(',').sort()).toEqual(['build', 'done', 'plan', 'verify']);
+      expect(phases!.split(',').sort()).toEqual(['build', 'plan', 'verify']);
     });
 
-    // The fetch ran again with exactly the four remaining phases.
+    // The fetch ran again with exactly the remaining phases.
     await waitFor(() => {
       const lastCall = fetchMemexIssuesMock.mock.calls.at(-1)![0];
-      expect([...lastCall.phases].sort()).toEqual(['build', 'done', 'plan', 'verify']);
+      expect([...lastCall.phases].sort()).toEqual(['build', 'plan', 'verify']);
     });
   });
 });
@@ -506,5 +541,29 @@ describe('IssuesList — Convert to Spec opens a prefilled NewSpecModal (ac-19)'
     expect(updateIssueStatusMock).not.toHaveBeenCalled();
     await waitFor(() => expect(screen.queryByTestId('new-spec-modal')).not.toBeInTheDocument());
     expect(screen.getByTestId('issue-row')).toHaveAttribute('data-issue-handle', 'issue-7');
+  });
+});
+
+// spec-164 dec-1 / ac-13 — the Issues page routes phase names through the
+// shared display-name layer: the phase filter and the per-Spec phase badge
+// read "Specify" for the `plan` enum value (which stays the URL/param value).
+describe('IssuesList — phase display names (spec-164)', () => {
+  const AC_DISPLAY = 'mindset-prod/memex-building-itself/specs/spec-164/acs/ac-13';
+
+  it('the phase filter checkbox for `plan` is labelled "Specify" and the param stays `plan`', async () => {
+    tagAc(AC_DISPLAY);
+    renderPage();
+    await screen.findByTestId('issues-filter-bar');
+    const checkbox = screen.getByTestId('issues-phase-plan');
+    expect(checkbox.closest('label')).toHaveTextContent('Specify');
+  });
+
+  it('the parent-Spec phase badge renders the display name for a plan spec', async () => {
+    tagAc(AC_DISPLAY);
+    fetchMemexIssuesMock.mockResolvedValue([
+      issue({ spec: { docId: 'd-1', handle: 'spec-3', title: 'Auth flow', status: 'plan' } }),
+    ]);
+    renderPage();
+    expect(await screen.findByTestId('issues-spec-phase')).toHaveTextContent('Specify');
   });
 });

@@ -9,6 +9,7 @@ import {
   archiveDoc,
   pauseDoc,
   unpauseDoc,
+  updateDocStatus,
   NotFoundError,
   type AcWithVerification,
   type DocAssigneeView,
@@ -35,6 +36,7 @@ import { PostureDropdown, HEADER_PILL_CLASS } from '../components/PostureDropdow
 import { countUnresolvedDecisions, toButtonPrompt, BASE_SCAFFOLD } from '@memex/shared';
 import { useDocChangeStream } from '../hooks/useDocChangeStream';
 import { COMMENT_PARAM, parseCommentParam, commentAnchorId } from '../utils/commentDeepLink';
+import { phaseDisplayName } from '../utils/phaseDisplay';
 import { ShareModal } from '../components/ShareModal';
 import { ShareSpecDialog } from '../components/ShareSpecDialog';
 import { useHeaderSlot } from '../components/HeaderSlot';
@@ -351,12 +353,10 @@ export function DocDocument() {
     []
   );
 
-  const handleTaskCommentsChange = useCallback(
-    (taskId: string, comments: Comment[]) => {
-      setCommentsByTask((prev) => ({ ...prev, [taskId]: comments }));
-    },
-    []
-  );
+  // spec-164: task cards are read-only agent artifacts — they no longer mount
+  // a per-task comment tray, so there is no TaskPanel-driven setter for task
+  // comments. The `commentsByTask` state is still populated from the doc load
+  // and fed to AllComments (the page-level Comments sub-tab stays readable).
 
   // spec-136 t-6: fold the picker's resolved full tag set back into the doc
   // payload so chips on the header re-render without a full reloadDoc. The
@@ -600,7 +600,15 @@ export function DocDocument() {
     /** Plain-text FULL sentence for the accessible name (needed when sentence is a node). */
     sentenceLabel?: string;
   } | null =
-    phase === 'draft' || phase === 'plan'
+    // spec-164 issue-1: draft shows NO handoff line. Originally spec-159 ac-17
+    // shared the plan handoff between draft and plan (one arm,
+    // `phase === 'draft' || phase === 'plan'`). But dec-3 gates the Decisions &
+    // ACs panels in draft behind an empty-state directive ("Move this spec to
+    // Specify to start capturing Decisions and ACs.") — the draft posture is to
+    // invite the move to Specify FIRST. A coding-agent prompt to "create
+    // Decisions and ACs" while in draft contradicts that gate-the-invitation
+    // principle, so draft now yields null (no handoff); plan keeps plan-handoff.
+    phase === 'plan'
       ? {
           buttonId: 'plan-handoff',
           // "Copy and paste *this prompt* into your coding agent to create
@@ -714,7 +722,7 @@ export function DocDocument() {
               {g.rest}
             </span>
           ))}{' '}
-          before this spec can move to {target}.
+          before this spec can move to {phaseDisplayName(target)}.
         </span>
       </p>
     );
@@ -825,6 +833,7 @@ export function DocDocument() {
   const decisionPanel = (
     <DecisionPanel
       docId={doc.id}
+      specPhase={phase}
       decisions={decs}
       commentsByDecision={commentsByDecision}
       onCommentsChange={handleDecisionCommentsChange}
@@ -839,6 +848,7 @@ export function DocDocument() {
   const acPanel = (
     <AcPanel
       docId={doc.id}
+      specPhase={phase}
       focusedAcId={focusedAcId}
       onFocusConsumed={() => setFocusedAcId(null)}
     />
@@ -849,8 +859,6 @@ export function DocDocument() {
       docId={doc.id}
       doc={doc}
       tasks={ts}
-      commentsByTask={commentsByTask}
-      onCommentsChange={handleTaskCommentsChange}
       onUpdate={reloadDoc}
       canWrite={canWrite}
     />
@@ -1102,6 +1110,17 @@ export function DocDocument() {
           acs={acs}
           issues={issues}
           people={assignees}
+          /* spec-164 dec-5: the one deliberate door back from done. Gates on
+             the same editor posture as the transition sentence's Yes; the
+             status write lives here (DoneSummary stays fetch-free, ac-9).
+             After the write the view follows the move, exactly like
+             TransitionSentence's onTransitioned. */
+          canReopen={canEdit}
+          onReopen={async () => {
+            await updateDocStatus(doc.id, 'verify');
+            setSelectedTab(null);
+            reloadDoc();
+          }}
         />
       ) : doc.docType !== 'spec' ? (
         narrativeView
