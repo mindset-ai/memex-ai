@@ -124,6 +124,11 @@ export function DocDocument() {
         ? 'decisions'
         : 'narrative',
   );
+  // spec-182 issue-3: for EDITORS the Specify review affordances sit behind a
+  // collapsed-by-default "Review actions" disclosure — the reviewer workflow
+  // shouldn't visually dominate the editor's page. Reviewers see them expanded
+  // (no disclosure chrome): it's their workflow.
+  const [reviewActionsOpen, setReviewActionsOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [shareLinkOpen, setShareLinkOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
@@ -1043,38 +1048,66 @@ export function DocDocument() {
                 decisions and narrative before they harden), so the row keys on
                 the Spec's phase, not the viewer's posture. No other phase
                 (draft included) shows it. The four buttons resolve their
-                prompts from the Scaffold (std-23) and send through the chat. */}
+                prompts from the Scaffold (std-23) and send through the chat.
+                spec-182 issue-3: for EDITORS the row + review handoff sit
+                behind a collapsed-by-default disclosure — access survives,
+                but the reviewer workflow no longer dominates the editor's
+                page. Reviewers get them expanded, no chrome. */}
             {phase === 'plan' && (
               <>
-                <div
-                  data-testid="review-action-row"
-                  className="flex flex-wrap items-center gap-2 pt-1"
-                >
-                  {REVIEW_ACTIONS.map((action) => (
-                    <Button
-                      key={action.buttonId}
-                      type="button"
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => sendReviewPrompt(action.buttonId)}
+                {canEdit && (
+                  <button
+                    type="button"
+                    data-testid="review-actions-toggle"
+                    aria-expanded={reviewActionsOpen}
+                    onClick={() => setReviewActionsOpen((v) => !v)}
+                    className="flex items-center gap-1 pt-1 text-sm text-secondary hover:text-heading transition-colors"
+                  >
+                    <svg
+                      className={`w-3 h-3 transition-transform ${reviewActionsOpen ? 'rotate-90' : ''}`}
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      strokeWidth={2}
                     >
-                      {action.label}
-                    </Button>
-                  ))}
-                </div>
-                {/* Review handoff line — copy a coding-agent prompt to conduct
-                    the review from there. Specify-only, like the row (dec-3). */}
-                <div data-testid="review-handoff-line">
-                  <PromptButton
-                    buttonId="review-handoff"
-                    context={handoffContext}
-                    orgBlocks={orgBlocks}
-                    sentencePrefix="You can copy and paste "
-                    linkText="this prompt"
-                    sentence="into your coding agent if you prefer to conduct the review from there."
-                    sentenceLabel="You can copy and paste this prompt into your coding agent if you prefer to conduct the review from there."
-                  />
-                </div>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                    </svg>
+                    Review actions
+                  </button>
+                )}
+                {(!canEdit || reviewActionsOpen) && (
+                  <>
+                    <div
+                      data-testid="review-action-row"
+                      className="flex flex-wrap items-center gap-2 pt-1"
+                    >
+                      {REVIEW_ACTIONS.map((action) => (
+                        <Button
+                          key={action.buttonId}
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => sendReviewPrompt(action.buttonId)}
+                        >
+                          {action.label}
+                        </Button>
+                      ))}
+                    </div>
+                    {/* Review handoff line — copy a coding-agent prompt to conduct
+                        the review from there. Specify-only, like the row (dec-3). */}
+                    <div data-testid="review-handoff-line">
+                      <PromptButton
+                        buttonId="review-handoff"
+                        context={handoffContext}
+                        orgBlocks={orgBlocks}
+                        sentencePrefix="You can copy and paste "
+                        linkText="this prompt"
+                        sentence="into your coding agent if you prefer to conduct the review from there."
+                        sentenceLabel="You can copy and paste this prompt into your coding agent if you prefer to conduct the review from there."
+                      />
+                    </div>
+                  </>
+                )}
               </>
             )}
             {/* spec-159 ac-17: the next-action handoff line — a "Copy a prompt
