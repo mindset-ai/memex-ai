@@ -1,14 +1,9 @@
-import { test, expect, tenantUrl } from "./helpers/fixtures.js";
-import { seedAccount, seedDoc } from "./helpers/db.js";
+import { test, expect, tenantPath } from "./helpers/index.js";
+import { seedOrgTenant, seedSpec } from "./helpers/retained.js";
 import {
   clearAnthropicQueue,
   queueAnthropicResponse,
 } from "./helpers/anthropic-fake.js";
-import postgres from "postgres";
-
-const DATABASE_URL =
-  process.env.E2E_DATABASE_URL ??
-  "postgresql://postgres:postgres@localhost:5432/memex";
 
 // Journey 14 (t-19 W5): Candidate decision approve/reject (covers t-16). The
 // agent extracts a decision via propose_decision; the UI shows the candidate
@@ -19,17 +14,10 @@ test("agent proposes a candidate decision, user approves, status flips to open",
   page,
   resources,
 }) => {
-  const subdomain = resources.subdomain("j14");
-  const accountId = await seedAccount({
-    subdomain,
-    name: "Candidate Decision Test",
-  });
-  resources.accountIds.push(accountId);
-  await resources.devAsAdmin(accountId);
-
-  const { docId } = await seedDoc({
-    accountId,
-    handle: "doc-1",
+  const slug = resources.slug("j14");
+  const tenant = await seedOrgTenant({ slug });
+  const { docId } = await seedSpec({
+    memexId: tenant.memexId,
     title: "Candidate Spec",
     purpose: "We need to decide.",
   });
@@ -62,7 +50,7 @@ test("agent proposes a candidate decision, user approves, status flips to open",
     stopReason: "end_turn",
   });
 
-  await page.goto(tenantUrl(subdomain, `/docs/${docId}`));
+  await page.goto(tenantPath(tenant.namespaceSlug, tenant.memexSlug, `/docs/${docId}`));
   await expect(page.getByText(/We need to decide/)).toBeVisible({ timeout: 15_000 });
 
   const input = page.getByPlaceholder(/Ask me anything/i);
@@ -87,22 +75,17 @@ test("agent proposes a candidate decision, user approves, status flips to open",
   // Approve the candidate. Per t-16 the Approve button has data-testid="candidate-approve".
   await page.getByTestId("candidate-approve").click();
 
-  // Verify status flipped server-side.
-  const sql = postgres(DATABASE_URL);
-  try {
-    let opened = false;
-    for (let i = 0; i < 30; i++) {
-      const rows = await sql<{ status: string }[]>`
-        SELECT status FROM decisions WHERE account_id = ${accountId} AND title = 'Pick database'
-      `;
-      if (rows[0]?.status === "open") {
-        opened = true;
-        break;
-      }
-      await new Promise((r) => setTimeout(r, 200));
-    }
-    expect(opened).toBe(true);
-  } finally {
-    await sql.end();
-  }
+  // The approval flips the decision candidate → open. The DecisionPanel re-fetches
+  // on the SSE `decision updated` event and auto-switches to the Open tab; the
+  // decision now renders there. The old raw-SQL status poll is dropped (the e2e
+  // package has no Postgres dependency, dec-2) — the UI surfacing the decision
+  // under Open is the server-backed proof the status flipped (the panel reads the
+  // API, not local state).
+  await expect(page.getByRole("button", { name: /^Open 1$/i })).toBeVisible({
+    timeout: 15_000,
+  });
+  await page.getByRole("button", { name: /^Open 1$/i }).click();
+  await expect(page.getByText("Pick database").first()).toBeVisible({
+    timeout: 15_000,
+  });
 });

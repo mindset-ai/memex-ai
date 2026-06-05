@@ -1,36 +1,42 @@
-import { test, expect, tenantUrl } from "./helpers/fixtures.js";
-import { seedAccount, seedDoc, seedSection } from "./helpers/db.js";
+import { test, expect, tenantPath } from "./helpers/index.js";
+import { seedOrgTenant, seedSpec, seedSection } from "./helpers/retained.js";
 
-// Journey 15: Spec detail page layout. Locks in the structure shipped with
-// the design refresh — header actions live in the top nav (not the body), tabs
+// Journey 15: Spec detail page layout. Locks in the structure shipped with the
+// design refresh — header actions live in the top nav (not the body), tabs
 // render as pills, and the segments outline is a floating sidebar that scrolls
 // the document into view.
 //
-// Navigates straight to /docs/{docId} so the homepage layout (owned by another
-// workstream) is not on the critical path.
+// Re-based off the account-era harness (dec-2): HTTP-only seeding via the org
+// tenant surface, path-based navigation [per std-2].
+//
+// ⚠ RE-BASE / retired-UI notes (surfaced as blockers, not silently patched):
+//   • The header `aria-label="Spec status"` <select> is GONE — the spec-159
+//     redesign replaced it with the PostureDropdown (Editing/Reviewing) pill and
+//     an in-page PhaseTabBar. The original layout test's `getByLabel("Spec status")`
+//     assertions + the whole "status dropdown updates Spec status" test reference
+//     retired UI; that test is removed here and flagged.
+//   • The toolbar "Share" button no longer opens a "Coming soon." dialog — it
+//     opens ShareSpecDialog (the Spec's canonical URL + a Copy button). The Share
+//     test below asserts the CURRENT dialog; the old "Coming soon." assertion is
+//     retired and flagged.
 
 test.describe("Spec detail layout", () => {
   test("renders new layout: header slot, pill tabs, floating outline", async ({
     page,
     resources,
   }) => {
-    const subdomain = resources.subdomain("j15");
-    const accountId = await seedAccount({ subdomain, name: "Layout Test" });
-    resources.accountIds.push(accountId);
-    await resources.devAsAdmin(accountId);
-
-    const { docId } = await seedDoc({
-      accountId,
-      handle: "doc-1",
+    const slug = resources.slug("j15");
+    const tenant = await seedOrgTenant({ slug });
+    const { docId } = await seedSpec({
+      memexId: tenant.memexId,
       title: "Layout Spec",
       purpose: "Spec for layout regression testing.",
-      docType: "spec",
     });
-    await seedSection({ docId, title: "Design Approach", seq: 2, content: "Design body." });
-    await seedSection({ docId, title: "Testing Plan", seq: 3, content: "Testing body." });
-    await seedSection({ docId, title: "Rollout Plan", seq: 4, content: "Rollout body." });
+    await seedSection({ memexId: tenant.memexId, docId, title: "Design Approach", content: "Design body." });
+    await seedSection({ memexId: tenant.memexId, docId, title: "Testing Plan", content: "Testing body." });
+    await seedSection({ memexId: tenant.memexId, docId, title: "Rollout Plan", content: "Rollout body." });
 
-    await page.goto(tenantUrl(subdomain, `/docs/${docId}`));
+    await page.goto(tenantPath(tenant.namespaceSlug, tenant.memexSlug, `/docs/${docId}`));
     await expect(page.getByRole("heading", { name: "Layout Spec", level: 1 })).toBeVisible({
       timeout: 15_000,
     });
@@ -38,7 +44,6 @@ test.describe("Spec detail layout", () => {
     // Top nav (global doc header) hosts the action group. Anchor on the back
     // link so we're definitively inside the global header, not the body.
     const topNav = page.locator("header").filter({ hasText: "All specs" });
-    await expect(topNav.getByLabel("Spec status")).toBeVisible();
     await expect(topNav.getByRole("button", { name: "Share", exact: true })).toBeVisible();
     await expect(topNav.getByRole("button", { name: "Download Spec" })).toBeVisible();
     await expect(topNav.getByRole("button", { name: /Actions for Layout Spec/ })).toBeVisible();
@@ -47,7 +52,6 @@ test.describe("Spec detail layout", () => {
     const bodyHeader = page.getByRole("heading", { name: "Layout Spec", level: 1 }).locator("xpath=..");
     await expect(bodyHeader.getByRole("button", { name: "Share", exact: true })).toHaveCount(0);
     await expect(bodyHeader.getByRole("button", { name: "Download Spec" })).toHaveCount(0);
-    await expect(bodyHeader.getByLabel("Spec status")).toHaveCount(0);
 
     // Pill tabs — Narrative active by default, switching works.
     await expect(page.getByRole("button", { name: /^Narrative/ })).toBeVisible();
@@ -73,20 +77,12 @@ test.describe("Spec detail layout", () => {
     await expect(rollout).toBeInViewport();
   });
 
-  test("Share button opens coming-soon dialog", async ({ page, resources }) => {
-    const subdomain = resources.subdomain("j15s");
-    const accountId = await seedAccount({ subdomain, name: "Share Test" });
-    resources.accountIds.push(accountId);
-    await resources.devAsAdmin(accountId);
+  test("Share button opens the canonical-URL share dialog", async ({ page, resources }) => {
+    const slug = resources.slug("j15s");
+    const tenant = await seedOrgTenant({ slug });
+    const { docId } = await seedSpec({ memexId: tenant.memexId, title: "Share Test Spec" });
 
-    const { docId } = await seedDoc({
-      accountId,
-      handle: "doc-1",
-      title: "Share Test Spec",
-      docType: "spec",
-    });
-
-    await page.goto(tenantUrl(subdomain, `/docs/${docId}`));
+    await page.goto(tenantPath(tenant.namespaceSlug, tenant.memexSlug, `/docs/${docId}`));
     await expect(page.getByRole("heading", { name: "Share Test Spec", level: 1 })).toBeVisible({
       timeout: 15_000,
     });
@@ -94,25 +90,22 @@ test.describe("Spec detail layout", () => {
     const topNav = page.locator("header").filter({ hasText: "All specs" });
     await topNav.getByRole("button", { name: "Share", exact: true }).click();
 
-    await expect(page.getByText("Coming soon.")).toBeVisible();
-    await page.getByRole("button", { name: "Close" }).click();
-    await expect(page.getByText("Coming soon.")).not.toBeVisible();
+    // CURRENT behaviour (spec-159): the header Share opens ShareSpecDialog — a
+    // dialog labelled "Share this spec" with the page URL + a Copy button. The
+    // pre-redesign "Coming soon." placeholder is retired (flagged).
+    const dialog = page.getByRole("dialog", { name: "Share this spec" });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByRole("button", { name: /^Copy$/ })).toBeVisible();
+    await dialog.getByRole("button", { name: "Close" }).click();
+    await expect(dialog).not.toBeVisible();
   });
 
   test("Download button opens markdown download dialog", async ({ page, resources }) => {
-    const subdomain = resources.subdomain("j15d");
-    const accountId = await seedAccount({ subdomain, name: "Download Test" });
-    resources.accountIds.push(accountId);
-    await resources.devAsAdmin(accountId);
+    const slug = resources.slug("j15d");
+    const tenant = await seedOrgTenant({ slug });
+    const { docId } = await seedSpec({ memexId: tenant.memexId, title: "Download Test Spec" });
 
-    const { docId } = await seedDoc({
-      accountId,
-      handle: "doc-1",
-      title: "Download Test Spec",
-      docType: "spec",
-    });
-
-    await page.goto(tenantUrl(subdomain, `/docs/${docId}`));
+    await page.goto(tenantPath(tenant.namespaceSlug, tenant.memexSlug, `/docs/${docId}`));
     await expect(page.getByRole("heading", { name: "Download Test Spec", level: 1 })).toBeVisible({
       timeout: 15_000,
     });
@@ -123,36 +116,10 @@ test.describe("Spec detail layout", () => {
     await expect(page.getByRole("heading", { name: "Download as Markdown" })).toBeVisible();
   });
 
-  test("status dropdown updates Spec status", async ({ page, resources }) => {
-    const subdomain = resources.subdomain("j15st");
-    const accountId = await seedAccount({ subdomain, name: "Status Test" });
-    resources.accountIds.push(accountId);
-    await resources.devAsAdmin(accountId);
-
-    const { docId } = await seedDoc({
-      accountId,
-      handle: "doc-1",
-      title: "Status Test Spec",
-      docType: "spec",
-    });
-
-    await page.goto(tenantUrl(subdomain, `/docs/${docId}`));
-    await expect(page.getByRole("heading", { name: "Status Test Spec", level: 1 })).toBeVisible({
-      timeout: 15_000,
-    });
-
-    const topNav = page.locator("header").filter({ hasText: "All specs" });
-    const statusSelect = topNav.getByLabel("Spec status");
-    await expect(statusSelect).toHaveValue("draft");
-
-    await statusSelect.selectOption("plan");
-    await expect(statusSelect).toHaveValue("plan");
-
-    // Status persists across reload (server-backed, not just local state).
-    await page.reload();
-    await expect(page.getByRole("heading", { name: "Status Test Spec", level: 1 })).toBeVisible({
-      timeout: 15_000,
-    });
-    await expect(page.locator("header").filter({ hasText: "All specs" }).getByLabel("Spec status")).toHaveValue("plan");
-  });
+  // RETIRED: the original "status dropdown updates Spec status" test drove a
+  // header <select aria-label="Spec status">. That control no longer exists — the
+  // spec-159 redesign replaced it with the in-page PhaseTabBar + PostureDropdown.
+  // Reproducing phase-control coverage against the current UI is out of scope for
+  // a re-base (it's a different surface); surfaced as a blocker for a fresh
+  // journey rather than rewritten here.
 });

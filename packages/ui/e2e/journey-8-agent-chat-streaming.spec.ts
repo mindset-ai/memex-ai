@@ -1,5 +1,5 @@
-import { test, expect, tenantUrl } from "./helpers/fixtures.js";
-import { seedAccount, seedDoc } from "./helpers/db.js";
+import { test, expect, tenantPath } from "./helpers/index.js";
+import { seedOrgTenant, seedSpec } from "./helpers/retained.js";
 import {
   clearAnthropicQueue,
   queueAnthropicResponse,
@@ -19,14 +19,10 @@ test("agent chat streams assistant text and persists across reload", async ({
   page,
   resources,
 }) => {
-  const subdomain = resources.subdomain("j8");
-  const accountId = await seedAccount({ subdomain, name: "Streaming Test" });
-  resources.accountIds.push(accountId);
-  await resources.devAsAdmin(accountId);
-
-  const { docId } = await seedDoc({
-    accountId,
-    handle: "doc-1",
+  const slug = resources.slug("j8");
+  const tenant = await seedOrgTenant({ slug });
+  const { docId } = await seedSpec({
+    memexId: tenant.memexId,
     title: "Streaming Spec",
     purpose: "Test that the agent can talk to us.",
   });
@@ -41,7 +37,7 @@ test("agent chat streams assistant text and persists across reload", async ({
     deltaDelayMs: 30,
   });
 
-  await page.goto(tenantUrl(subdomain, `/docs/${docId}`));
+  await page.goto(tenantPath(tenant.namespaceSlug, tenant.memexSlug, `/docs/${docId}`));
 
   // Wait for the chat input to be ready — the placeholder switches from "Open a spec
   // first" to "Ask me anything..." once ChatContext has a docId.
@@ -67,9 +63,10 @@ test("agent chat streams assistant text and persists across reload", async ({
   await expect
     .poll(
       async () => {
+        // Flat conversations read — in dev mode the server resolves the dev user
+        // without any Host/subdomain (account-era subdomain routing is gone).
         const res = await page.request.get(
           `${process.env.E2E_API_URL ?? "http://localhost:8090"}/api/llm/conversations/${docId}`,
-          { headers: { Host: `${subdomain}.localhost` } }
         );
         if (!res.ok()) return 0;
         const body = await res.json();

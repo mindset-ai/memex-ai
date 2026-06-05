@@ -1,4 +1,4 @@
-import { test, expect, bareUrl } from "./helpers/fixtures.js";
+import { test, expect, bareUrl } from "./helpers/index.js";
 
 // Journey 10 (t-14): top-level navigation reorg per dec-25.
 // The header's primary nav exposes four entry points — Specs, Standards,

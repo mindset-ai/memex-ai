@@ -20,5 +20,18 @@ export {
   deleteDoc,
   clearOrgMemberships,
   cleanup,
+  markEmailVerified,
+  seedOrg,
+  addOrgMember,
+  addOrgDomain,
+  createInvite,
+  createDomainVerification,
+  verifyDomain,
+  resolveMemexId,
+  seedOpenDecision,
+  signupWithToken,
   type PersonalMemex,
+  type SeededOrg,
 } from "./seed.js";
+
+export { emitAcEvents } from "./emit-ac.js";
