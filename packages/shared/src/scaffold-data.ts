@@ -215,6 +215,27 @@ const BASE_CONTEXT_AWARENESS: PromptBlockNode = {
     'The "memex is already bound — don\'t ask, don\'t pass it" framing is React-specific — the MCP agent operates without a URL-bound memex and DOES need to call `list_memexes`. The cross-phase invariants and tone rules ride along here because they\'re part of the React UI\'s opening orientation. Mirrors `_base/context-awareness.md`.',
 };
 
+// spec-176 t-1: when the in-UI agent is viewing a doc and the user (or drift)
+// surfaces a problem that needs a new Spec, the agent should be able to create
+// it directly. react_only — MCP agents already know create_doc's purpose and
+// have their own search posture; the gap is specific to the React doc-assistant.
+const BASE_CREATE_FROM_DOC: PromptBlockNode = {
+  kind: 'prompt_block',
+  id: 'create-from-doc',
+  surface: 'react_only',
+  text:
+    '## Creating a new Spec or document from this chat\n\n' +
+    'You have `create_doc` and `search_memex` available. Use them when the user asks you to create a Spec, or when a problem surfaces that clearly needs one (e.g. drift you flagged, a "wic can fix this" moment, or the user describing work that doesn\'t have a Spec yet).\n\n' +
+    '**Workflow — always follow this order:**\n' +
+    '1. `search_memex({ query: <topic> })` — check for existing related Specs first. If hits are found, surface them: "I found spec-N which covers X — create a new one anyway, or work from that?" Never skip the search.\n' +
+    '2. Agree on a title and one-sentence purpose with the user (plain text, no tool call).\n' +
+    '3. `render_confirmation` — show the proposed title + purpose as a yes/no choice. Do not create until the user confirms.\n' +
+    '4. `create_doc({ title, purpose })` — `docType` defaults to `\'spec\'`; pass `docType: \'document\'` for free-form docs. Never pass a `memex` argument — the server uses the bound one.\n\n' +
+    '**Proactive offer:** When you identify a problem that needs a Spec — a drift item, a missing standard, an untracked piece of work — say so and offer to create one. Do not ask the user to create it themselves.',
+  rationale:
+    'spec-176 dec-1/dec-2/dec-3/dec-4: prompt-only change — create_doc and search_memex are already in getToolDefinitions(); the gap is that the in-UI agent had no instruction to use them for Spec creation from a doc-viewing session. react_only (not shared_nudge) because MCP coding agents already know create_doc\'s purpose. New dedicated block (not an amendment to BASE_CONTEXT_AWARENESS) per dec-4 — clean separation of concerns.',
+};
+
 const BASE_MUTATION_PROTOCOL: PromptBlockNode = {
   kind: 'prompt_block',
   id: 'mutation-protocol',
@@ -583,7 +604,7 @@ const PHASE_PLAN: PhaseNode = {
     ],
     blocked: ['create_task', 'execution_plans'],
   },
-  promptBlockIds: [...REACT_ONLY_BLOCK_IDS],
+  promptBlockIds: [...REACT_ONLY_BLOCK_IDS, 'create-from-doc'],
   rationale:
     'Plan is team-visible narrative shaping + decision resolution. Same allowance as draft (per `phaseAllowanceLine`): full section + decision surface, tasks blocked.',
 };
@@ -608,7 +629,7 @@ const PHASE_BUILD: PhaseNode = {
     ],
     blocked: [],
   },
-  promptBlockIds: [...REACT_ONLY_BLOCK_IDS],
+  promptBlockIds: [...REACT_ONLY_BLOCK_IDS, 'create-from-doc'],
   rationale:
     'Build opens up the full task surface. Per `phaseAllowanceLine`: tasks, execution plans, drift flags, standard-change proposals, sections, decisions. Nothing is explicitly blocked at this phase.',
 };
@@ -631,7 +652,7 @@ const PHASE_VERIFY: PhaseNode = {
     ],
     blocked: ['update_doc(status=done)'],
   },
-  promptBlockIds: [...REACT_ONLY_BLOCK_IDS],
+  promptBlockIds: [...REACT_ONLY_BLOCK_IDS, 'create-from-doc'],
   rationale:
     'Verify is validation + revision; the only hard block is the human-only `done` transition. Mirrors `phaseAllowanceLine("verify")`: "Allowed now: validation + revision. Human-only: moving to `done`."',
 };
@@ -1455,6 +1476,8 @@ const PROMPT_BLOCKS: PromptBlockNode[] = [
   BASE_MDX_COMPONENTS,
   BASE_UI_TOOLS,
   BASE_CONTEXT_AWARENESS,
+  // spec-176 t-1: create-from-doc guidance — active in plan/build/verify.
+  BASE_CREATE_FROM_DOC,
   // Conditionally-injected react_only blocks (not in any phase's promptBlockIds;
   // appended by buildSystemBlocks per-request — readOnly: spec-111 t-9 / dec-2;
   // review: spec-126 dec-4 when the resolved role is reviewer).

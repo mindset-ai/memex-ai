@@ -324,3 +324,22 @@ describe('toNudge against BASE_SCAFFOLD — drift sentinel: every (tool × phase
     }
   });
 });
+
+// spec-176 ac-14 (dec-3): react_only PromptBlockNodes never appear in the
+// toNudge output — the create-from-doc guidance is invisible to MCP agents.
+describe('spec-176 ac-14: create-from-doc block excluded from toNudge output', () => {
+  const AC176 = (n: number) =>
+    `mindset-prod/memex-building-itself/specs/spec-176/acs/ac-${n}`;
+
+  it('ac-14: toNudge output for any phase does not contain create-from-doc text', () => {
+    tagAc(AC176(14));
+    const marker = '## Creating a new Spec or document from this chat';
+    for (const phase of ALL_PHASES) {
+      const out = toNudge({ dataset: BASE_SCAFFOLD, tool: 'get_doc', phase });
+      expect(
+        out,
+        `create-from-doc react_only content leaked into toNudge for phase=${phase}`,
+      ).not.toContain(marker);
+    }
+  });
+});

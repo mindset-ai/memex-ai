@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { BASE_SCAFFOLD, type SpecPhase } from "@memex/shared";
 import { tagAc } from "@memex-ai-ac/vitest";
 import { buildSystemBlocks, buildCreationSystemBlocks } from "./system-prompt.js";
+import { getToolDefinitions } from "./tools.js";
 
 const AC = (n: number) =>
   `mindset-prod/memex-building-itself/specs/spec-68/acs/ac-${n}`;
@@ -308,6 +309,114 @@ describe("spec-180: integration state block in buildSystemBlocks", () => {
     });
     expect(blocks[2].text).toContain("multiple orgs");
     expect(blocks[2].text).toContain("memex");
+  });
+});
+
+// spec-176: Expose Spec creation + search to the document-assistant chat agent.
+// Tests for implementation ACs tied to the resolved decisions (dec-1 through dec-5).
+describe("spec-176: BASE_CREATE_FROM_DOC block — create-from-doc guidance", () => {
+  const AC176 = (n: number) =>
+    `mindset-prod/memex-building-itself/specs/spec-176/acs/ac-${n}`;
+
+  const CREATE_FROM_DOC_MARKER = "## Creating a new Spec or document from this chat";
+
+  // ac-7 (dec-1): both tools are already in getToolDefinitions() — no code change needed.
+  it("ac-7: getToolDefinitions() returns create_doc and search_memex", () => {
+    tagAc(AC176(7));
+    const tools = getToolDefinitions();
+    const names = tools.map((t) => t.name);
+    expect(names).toContain("create_doc");
+    expect(names).toContain("search_memex");
+  });
+
+  // ac-9 (dec-2): no create_spec alias in the live tool surface.
+  it("ac-9: getToolDefinitions() does not expose a create_spec tool", () => {
+    tagAc(AC176(9));
+    const tools = getToolDefinitions();
+    const names = tools.map((t) => t.name);
+    expect(names).not.toContain("create_spec");
+  });
+
+  // ac-11 (dec-4): the new block is projected into the plan phase and its text
+  // instructs the agent to call create_doc + search_memex before creating.
+  it("ac-11: plan-phase prompt contains create-from-doc guidance (create_doc + search_memex instructions)", () => {
+    tagAc(AC176(11));
+    const text = buildSystemBlocks("ctx", "plan")[0].text;
+    expect(text).toContain(CREATE_FROM_DOC_MARKER);
+    expect(text).toContain("create_doc");
+    expect(text).toContain("search_memex");
+  });
+
+  // ac-12 (dec-4): BASE_CONTEXT_AWARENESS is untouched — no create_doc instruction leaked in.
+  it("ac-12: context-awareness block does not contain create_doc (BASE_CONTEXT_AWARENESS unchanged)", () => {
+    tagAc(AC176(12));
+    const block = BASE_SCAFFOLD.promptBlocks.find((b) => b.id === "context-awareness");
+    expect(block).toBeDefined();
+    expect(block?.text).not.toContain("create_doc");
+  });
+
+  // ac-13 (dec-5): block in plan/build/verify — absent from done.
+  it("ac-13: create-from-doc guidance appears in plan, build, and verify prompts", () => {
+    tagAc(AC176(13));
+    for (const phase of ["plan", "build", "verify"] as SpecPhase[]) {
+      const text = buildSystemBlocks("ctx", phase)[0].text;
+      expect(text, `expected create-from-doc in ${phase} prompt`).toContain(CREATE_FROM_DOC_MARKER);
+    }
+  });
+
+  it("ac-13: create-from-doc guidance is absent from the done-phase prompt", () => {
+    tagAc(AC176(13));
+    const text = buildSystemBlocks("ctx", "done")[0].text;
+    expect(text).not.toContain(CREATE_FROM_DOC_MARKER);
+  });
+
+  // ── Scope ACs (ac-1 to ac-6) ─────────────────────────────────────────────
+  // These are prompt-level proxy tests: we can't run an LLM in a unit test,
+  // but we can assert the prompt contains the instructions that drive the
+  // behaviour each AC describes.
+
+  // ac-1: agent instructed to call create_doc (not ask the user to do it).
+  // ac-2: agent instructed to proactively offer Spec creation when a problem surfaces.
+  it("ac-1 + ac-2: plan prompt instructs the agent to call create_doc and to proactively offer — not defer to the user", () => {
+    tagAc(AC176(1));
+    tagAc(AC176(2));
+    const text = buildSystemBlocks("ctx", "plan")[0].text;
+    expect(text).toContain("create_doc");
+    expect(text).toContain("Do not ask the user to create it themselves");
+    expect(text).toContain("Proactive offer");
+  });
+
+  // ac-3: plan prompt contains the mandatory search-before-decision instruction
+  // (sourced from PHASE_PLAN_SEARCH, a shared_nudge block shipped via toPhaseGuidance).
+  it("ac-3: plan prompt instructs the agent to call search_memex before resolving a load-bearing decision", () => {
+    tagAc(AC176(3));
+    const text = buildSystemBlocks("ctx", "plan")[0].text;
+    expect(text).toContain("Before resolving a load-bearing decision (mandatory)");
+  });
+
+  // ac-4: plan prompt contains the search-before-authoring instruction.
+  it("ac-4: plan prompt instructs the agent to call search_memex before authoring new section content", () => {
+    tagAc(AC176(4));
+    const text = buildSystemBlocks("ctx", "plan")[0].text;
+    expect(text).toContain("Before authoring substantive new section content");
+  });
+
+  // ac-5: change is react_only — no manifest/tool-specs/regression-test changes.
+  // Proxied by ac-9 (no create_spec in tools) + ac-10 (surface is react_only).
+  it("ac-5: no new tool entries — getToolDefinitions() count is stable, no create_spec alias", () => {
+    tagAc(AC176(5));
+    const tools = getToolDefinitions();
+    expect(tools.map((t) => t.name)).not.toContain("create_spec");
+    // create_doc and search_memex are present unchanged
+    expect(tools.map((t) => t.name)).toContain("create_doc");
+  });
+
+  // ac-6: free-form docs use the same create_doc tool — the prompt block
+  // mentions docType: 'document' so the agent knows to pass it.
+  it("ac-6: plan prompt mentions docType document — no separate tool needed for free-form docs", () => {
+    tagAc(AC176(6));
+    const text = buildSystemBlocks("ctx", "plan")[0].text;
+    expect(text).toContain("docType: 'document'");
   });
 });
 
