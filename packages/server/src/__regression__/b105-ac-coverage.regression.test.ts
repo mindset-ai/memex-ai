@@ -15,7 +15,6 @@
 //   - ac-6/20: N/A (placeholder / process)
 
 import { describe, expect, it } from "vitest";
-import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -239,19 +238,12 @@ describe("b-105 ac coverage: file / DB / git invariants", () => {
     expect(rewriteBriefPathToSpec("ns/mx/specs/spec-7")).toBeNull();
   });
 
-  it("ac-23: the b-105 feature merge commit exists on main", () => {
-    tagAc(ac(23));
-    // The brief's ac-23 said "exactly one merge commit" — that was the
-    // original PR-landing assertion. Subsequent merges from origin/main
-    // legitimately mention b-105 in their message too (they're follow-ups
-    // touching b-105 code). What we actually need to verify is the original
-    // b-105 feature merge landed on main.
-    const out = execSync(
-      "git log --merges --grep='Merge b-105\\|Merge spec-105' main --oneline",
-      { cwd: REPO_ROOT, encoding: "utf8" },
-    ).trim();
-    const lines = out ? out.split("\n") : [];
-    expect(lines.length).toBeGreaterThanOrEqual(1);
-    expect(/b-105|spec-105/.test(lines[0] ?? "")).toBe(true);
-  });
+  // RETIRED (2026-06-05, owner decision): ac-23 asserted the b-105 feature
+  // merge commit exists on main (`git log --merges --grep='Merge b-105...'`).
+  // The repository migrated GitLab → GitHub with deliberately fresh history
+  // (a single root commit), so that merge commit no longer exists in ANY
+  // clone — the assertion became permanently unsatisfiable and would block
+  // every PR under branch protection. The b-105 merge is durably recorded in
+  // Memex (mindset-prod/memex-building-itself, spec-105); the file/DB/redirect
+  // invariants above remain the live guards for the rename itself.
 });

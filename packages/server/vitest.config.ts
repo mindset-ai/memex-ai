@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import dotenv from "dotenv";
 import { defineConfig } from "vitest/config";
-import { resolveTestDatabaseUrl } from "./src/db/test-db-url.js";
+import { resolveTestDatabaseUrl, TEST_MAX_WORKERS } from "./src/db/test-db-url.js";
 
 // spec-129 dec-8: surface the shared AC-emission key (MEMEX_EMIT_KEY) to the
 // test workers from the REPO-ROOT .env (the single shared-secret home). This
@@ -26,14 +26,17 @@ function readRootEnv(): Record<string, string> {
 const rootEnv = readRootEnv();
 
 // Per-worktree test-database isolation (std-9 §local development): derive the
-// isolated `<db>_test_<hash(worktree)>` URL HERE, at config-evaluation time.
-// Vitest evaluates this config inside every worker (with cwd intact), so
-// injecting DATABASE_URL via the `env` block below rewrites it before any test
-// module — db/connection.ts reads DATABASE_URL at import — connects. This is
-// why the override no longer needs a separate setupFile: keeping `setupFiles`
-// as the SOLE @memex-ai-ac/vitest/setup entry preserves AC phone-home wiring
-// (spec-89 ac-1/ac-2) without re-introducing a worker-ordering dependency.
-// Escape hatch: MEMEX_TEST_DATABASE_URL pins an exact URL.
+// isolated `<db>_test_<hash(worktree)>` URL HERE, at config-evaluation time,
+// and inject it via the `env` block below so it's in place before any test
+// module — db/connection.ts reads DATABASE_URL at import — connects.
+//
+// NOTE: this config is evaluated ONCE, in the main vitest process (an earlier
+// comment here claimed per-worker evaluation; a probe disproved that —
+// VITEST_POOL_ID is never visible at config-eval time). The per-WORKER hop
+// (`_w<poolId>` clone, enabling fileParallelism) therefore happens in
+// vitest.worker-db.setup.ts, which runs inside each worker.
+// Escape hatch: MEMEX_TEST_DATABASE_URL pins an exact URL (workers still
+// append their `_w<poolId>` suffix to it).
 const TEST_DATABASE_URL = resolveTestDatabaseUrl();
 
 export default defineConfig({
@@ -41,16 +44,23 @@ export default defineConfig({
     globals: true,
     include: ["src/**/*.test.ts"],
     // globalSetup creates + migrates the per-worktree test database once per
-    // run, in the main process, before any worker starts. Tests therefore
-    // never touch the dev database a `make dev` server is using.
+    // run, in the main process, before any worker starts — then clones it
+    // into one database per worker slot (TEMPLATE copy, milliseconds each).
+    // Tests therefore never touch the dev database a `make dev` server is
+    // using, and parallel workers never touch each other's data.
     globalSetup: ["./vitest.global-setup.ts"],
-    // AC emission helper (@memex-ai-ac/vitest per spec-89). Registers
-    // beforeEach/afterEach hooks at module load so any test calling
-    // tagAc('<canonical-ac-ref>') POSTs a pass/fail event to
-    // /api/test-events. Untagged tests are unaffected — zero impact on the
-    // existing suite. MUST remain the sole setupFiles entry: the AC
-    // phone-home regression guard pins this exact shape (spec-89 ac-1/ac-2).
-    setupFiles: ["@memex-ai-ac/vitest/setup"],
+    // Two setup entries, order matters:
+    //  1. vitest.worker-db.setup.ts — rewrites DATABASE_URL to this worker's
+    //     own database clone (see that file for why this can't live in the
+    //     `env` block). Must run before any test module imports
+    //     db/connection.ts, and before the AC helper.
+    //  2. AC emission helper (@memex-ai-ac/vitest per spec-89). Registers
+    //     beforeEach/afterEach hooks at module load so any test calling
+    //     tagAc('<canonical-ac-ref>') POSTs a pass/fail event to
+    //     /api/test-events. Untagged tests are unaffected. The AC phone-home
+    //     regression guard pins that this entry stays present (spec-89
+    //     ac-1/ac-2).
+    setupFiles: ["./vitest.worker-db.setup.ts", "@memex-ai-ac/vitest/setup"],
     // The __smoke__ suite hits a deployed live host over real HTTP (b-70). It is
     // explicitly OUT of the default run so local + CI never touch the network —
     // run it via `make smoke-int` / `make smoke-prod` (vitest.smoke.config.ts).
@@ -64,8 +74,13 @@ export default defineConfig({
       "**/{karma,rollup,webpack,vite,vitest,jest,ava,babel,nyc,cypress,tsup,build,eslint,prettier}.config.*",
       "src/__smoke__/**",
     ],
-    // Integration tests hit a real DB — run everything sequentially
-    fileParallelism: false,
+    // Test files run in parallel workers; each worker owns a private clone of
+    // the migrated test database (see vitest.worker-db.setup.ts), so DB-backed
+    // suites can't interfere across workers. Within a file, tests still run
+    // sequentially (sequence.concurrent: false) — same semantics as the old
+    // fully-serial config, minus the wall-clock cost.
+    fileParallelism: true,
+    maxWorkers: TEST_MAX_WORKERS,
     sequence: {
       concurrent: false,
     },
