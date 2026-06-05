@@ -103,14 +103,17 @@ export async function ensureUserNamespace(
         ({ memexId: r.memex.id, userId, entity: "memex" as const, action: "created" as const }),
     ],
     () => db.transaction(async (tx) => {
-      const [namespace] = await tx
+      const [inserted] = await tx
         .insert(namespaces)
         .values({
           slug,
           kind: "user",
           ownerUserId: userId,
         })
+        .onConflictDoNothing()
         .returning();
+      const namespace = inserted ?? await tx.query.namespaces.findFirst({ where: eq(namespaces.slug, slug) });
+      if (!namespace) throw new Error(`Namespace ${slug} not found after insert`);
 
       const [memex] = await tx
         .insert(memexes)

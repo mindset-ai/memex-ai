@@ -31,6 +31,13 @@ const EXPECTED_DRIFT_SERVER_TOOLS = [
   "list_comments",
   "update_section",
   "update_comment",
+  // spec-175: Standards are clause-backed (spec-150 / spec-161), so
+  // update_section hard-rejects on a Standard. The clause verbs are how the
+  // drift agent actually edits rule text; the cl-N refs they need are surfaced
+  // inline by get_doc.
+  "add_clause",
+  "edit_clause",
+  "delete_clause",
 ];
 
 describe("getToolDefinitions — drift mode subset", () => {

@@ -20,17 +20,21 @@ describe(`oauth consent Allow-button legibility smoke @ ${SMOKE_BASE_URL}`, () =
   it("deployed CSS bundle defines on-accent (both themes) + the .text-on-accent utility (spec-167 ac-6)", async () => {
     tagAc(AC6);
 
-    // 1. The SPA index references a content-hashed CSS bundle. Fetch an app
-    //    route, NOT `/` — on prod the apex root 301s to the marketing site
-    //    (std-2 topology) with an empty body. The SPA fallback serves the
-    //    shell with HTTP 404 for client-side routes on both envs, so the
-    //    assertion is on the body (the property under test is the CSS bundle,
-    //    not the route's status code).
+    // 1. The SPA index references a content-hashed CSS bundle.
+    //
+    // Fetch /login, NOT the bare apex `/`: on prod the apex root 301s to the
+    // www marketing site (std-2 topology — marketing on www, app on tenant
+    // paths), whose HTML has no Vite bundle. /login is SPA-served on every
+    // environment. Caught by the first CI prod deploy (2026-06-05): int went
+    // green, prod went red on the marketing redirect, the app itself was fine.
+    // Deep links are served via GCS's NotFound fallback — index.html body
+    // with a 404 status — on BOTH envs (the SPA does client-side routing).
+    // The status is routing trivia; the body is what this smoke cares about.
     const indexRes = await fetch(`${SMOKE_BASE_URL}/login`);
     expect([200, 404]).toContain(indexRes.status);
     const html = await indexRes.text();
     const ref = html.match(/\/assets\/index-[\w-]+\.css/);
-    expect(ref, "the SPA shell should reference a hashed CSS bundle").toBeTruthy();
+    expect(ref, "SPA index should reference a hashed CSS bundle").toBeTruthy();
 
     // 2. Fetch the actual deployed stylesheet.
     const cssRes = await fetch(`${SMOKE_BASE_URL}${ref![0]}`);
