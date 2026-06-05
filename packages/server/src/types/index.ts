@@ -56,6 +56,11 @@ export interface DocSummary {
   // honest if callers later opt into includeArchived.
   pausedAt: Date | null;
   archivedAt: Date | null;
+  // spec-178 t-1 (ac-9): demo flag — true on the five frozen spec-64 copies seeded into
+  // a personal Memex for the Handhold onboarding walkthrough. Always projected by
+  // listDocs; drives the DEMO badge client-side and the Pulse/analytics exclusion
+  // server-side. Optional on the type for other DocSummary constructors / legacy payloads.
+  isDemo?: boolean;
   // Set when ?include=driftCount is requested (t-19 W2). Open `commentType='drift'` count
   // joined via doc_sections.doc_id = this.id. Undefined when not requested so callers
   // that don't pass `include` aren't paying for the join.

@@ -61,6 +61,15 @@ interface SectionCardProps {
    * `canWrite`, so reviewers keep commenting. Defaults to true.
    */
   canEdit?: boolean;
+  /**
+   * spec-178 ac-24: when true (a frozen Handhold demo spec) the section body
+   * does NOT run rehypeRefLinkifier — `[per dec-N]` / canonical-path handle refs
+   * render as plain text instead of becoming navigable `<a>` links. The demo is a
+   * self-contained replica of spec-64; its handle refs point at the original spec's
+   * world, not the user's, so auto-linking them would send the user down a dead end.
+   * Defaults to false (real specs keep auto-linking).
+   */
+  isDemo?: boolean;
 }
 
 export const SectionCard = memo(function SectionCard({
@@ -74,6 +83,7 @@ export const SectionCard = memo(function SectionCard({
   onSelect,
   canWrite = true,
   commentsCollapsed = false,
+  isDemo = false,
 }: SectionCardProps) {
   const [revealed, setRevealed] = useState(!isNew);
 
@@ -408,7 +418,7 @@ export const SectionCard = memo(function SectionCard({
             data-testid="section-body"
             className="min-w-0 pr-8"
           >
-            <MemoizedMarkdown content={withRenderedMarkers(section.content, visibleSeqs)} />
+            <MemoizedMarkdown content={withRenderedMarkers(section.content, visibleSeqs)} isDemo={isDemo} />
           </div>
 
           {/* right-edge comment indicators, one per open comment, vertically
@@ -521,7 +531,11 @@ export const SectionCard = memo(function SectionCard({
 });
 
 const remarkPlugins = [remarkGfm];
-const rehypePlugins = [rehypeHighlight, rehypeRefLinkifier];
+// spec-178 ac-24: the demo variant drops rehypeRefLinkifier so handle refs in a
+// frozen demo spec render as plain text (no auto-linking). Pre-built once per
+// variant so the markdown renderer still gets a stable array reference.
+const rehypePluginsDefault = [rehypeHighlight, rehypeRefLinkifier];
+const rehypePluginsDemo = [rehypeHighlight];
 
 // spec-100: a `📍c-N` inline-code span (produced by withRenderedMarkers) renders
 // as an interactive marker badge — clickable + locatable from the gutter via its
@@ -562,7 +576,14 @@ const markdownComponents = {
   },
 };
 
-const MemoizedMarkdown = memo(function MemoizedMarkdown({ content }: { content: string }) {
+const MemoizedMarkdown = memo(function MemoizedMarkdown({
+  content,
+  isDemo = false,
+}: {
+  content: string;
+  isDemo?: boolean;
+}) {
+  const rehypePlugins = isDemo ? rehypePluginsDemo : rehypePluginsDefault;
   return (
     <div className="prose-dark overflow-hidden">
       <ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} components={markdownComponents}>

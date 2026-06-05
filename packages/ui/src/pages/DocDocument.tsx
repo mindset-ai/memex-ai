@@ -10,6 +10,7 @@ import {
   pauseDoc,
   unpauseDoc,
   updateDocStatus,
+  resetHandholdDemo,
   NotFoundError,
   type AcWithVerification,
   type DocAssigneeView,
@@ -49,6 +50,7 @@ import { formatDate, docSeq } from '../utils/format';
 import { tenantPath, getCurrentTenant } from '../utils/tenantUrl';
 import { PromptButton } from '../components/PromptButton';
 import { useMemexAccess } from '../hooks/useMemexAccess';
+import { useHandholdReveal, nextRevealPhase } from '../hooks/useHandholdReveal';
 import { BylineAssignees } from '../components/BylineAssignees';
 import { useDocRole } from '../hooks/useDocRole';
 import { useOrgScaffoldBlocks } from '../hooks/useOrgScaffoldBlocks';
@@ -58,9 +60,24 @@ export function DocDocument() {
   // deep-links `specs/:id/decisions/:decId` and `specs/:id/issues/:issueId` (the
   // shape the ⌘K palette navigates to). `id` is the Spec handle; `decId`/`issueId`
   // are the optional sub-targets that open the relevant tab + scroll into view.
-  const { id, decId, issueId } = useParams<{ id: string; decId?: string; issueId?: string }>();
+  const { id, decId, issueId, namespace, memex } = useParams<{
+    id: string;
+    decId?: string;
+    issueId?: string;
+    namespace?: string;
+    memex?: string;
+  }>();
   const navigate = useNavigate();
   const location = useLocation();
+  // spec-178 t-10 (dec-10): the progressive-reveal pointer, scoped to the
+  // tenant in the route. Same hook the board uses, so advancing here and the
+  // board's filter agree on which demo phase is shown. Tenant comes from the
+  // route params (router-driven, unlike window.location); the hook is null-safe.
+  const {
+    revealedPhase,
+    advance: advanceReveal,
+    reset: resetReveal,
+  } = useHandholdReveal(namespace ?? null, memex ?? null);
   // spec-111 t-8: gate every mutation surface on this doc page behind write
   // access to the current Memex. A non-member reading a public Memex sees the
   // full document, decisions, tasks, ACs, and comments — but no edit/create/
@@ -564,6 +581,40 @@ export function DocDocument() {
     url: `${window.location.origin}/${tenant?.namespace ?? ''}/${tenant?.memex ?? ''}/specs/${doc.handle}`,
   };
 
+  // ── spec-178 t-10 (dec-10): the in-page progressive-reveal advance control ──
+  // On a demo spec the page mirrors the board's advance affordance near the
+  // value banner. Advancing bumps the shared reveal pointer and navigates back
+  // to the board, where the freshly-revealed (next-phase) demo card is now the
+  // one shown — the cleaner of the two offered paths (the board is the demo's
+  // home; the spec we just walked away from is no longer revealed). At the
+  // terminal 'done' phase there is no next: the control becomes "Reset demo",
+  // firing the SAME re-seed (resetHandholdDemo) the board's Reset button does
+  // plus reset()-ing the pointer to 'draft', then returning to the board.
+  const demoNextPhase = doc.isDemo ? nextRevealPhase(revealedPhase) : null;
+  const handleDemoAdvance = () => {
+    advanceReveal();
+    navigate(tenantPath('/specs'));
+  };
+  const handleDemoResetFromDoc = async () => {
+    if (
+      !window.confirm(
+        'Reset the demo specs? This deletes the current demo specs and re-seeds a fresh set. Your real specs are untouched.',
+      )
+    ) {
+      return;
+    }
+    try {
+      // Tenant comes from the route params (same source the reveal hook keys
+      // on), so the re-seed target and the pointer key always agree.
+      if (namespace && memex) await resetHandholdDemo(namespace, memex);
+      resetReveal();
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : 'Failed to reset demo');
+      return;
+    }
+    navigate(tenantPath('/specs'));
+  };
+
   // ── spec-159 ac-19: the writable reviewer's review-action row ──────────────
   // The same four scaffold chat prompts the OpeningTurn reviewer set surfaces
   // (Summarise / Security / Design / Architecture). Each resolves its prose from
@@ -818,6 +869,8 @@ export function DocDocument() {
             canEdit={canEdit}
             commentsCollapsed={commentsCollapsed}
             onExpandComments={() => setCommentsCollapsed(false)}
+            /* spec-178 ac-24: a frozen demo spec suppresses handle auto-linking. */
+            isDemo={doc?.isDemo ?? false}
           />
         ))}
       </div>
@@ -845,6 +898,8 @@ export function DocDocument() {
       onJumpToAc={handleJumpToAc}
       canWrite={canWrite}
       canEdit={canEdit}
+      /* spec-178 ac-24: same handle auto-linking suppression for demo decisions. */
+      isDemo={doc.isDemo ?? false}
     />
   );
 
@@ -980,6 +1035,53 @@ export function DocDocument() {
             spec-159 — it's handled elsewhere; SpecRoleControls is no longer
             rendered here. */}
       </div>
+
+      {/* spec-178 ac-25/ac-26 (dec-8): the per-phase value banner atop a demo spec.
+          The server attaches `demoValueCallout` to the GET payload of an is_demo doc,
+          keyed to the doc's current phase. It is DEMO GUIDANCE — a "what this phase is
+          for" callout — NOT part of the spec content, so it renders as a distinct
+          accent panel above the document body rather than inside a section. Shown only
+          when the doc is a demo AND a callout exists for its phase; absent on real
+          specs and on demo phases that carry no callout. */}
+      {doc.isDemo && doc.demoValueCallout && (
+        <div
+          data-testid="demo-value-banner"
+          className="mb-4 flex items-start gap-2.5 rounded-lg border border-accent/40 bg-accent/10 px-4 py-3"
+        >
+          <Badge status="demo" label="DEMO" className="flex-none mt-0.5" />
+          <p className="text-sm text-primary leading-relaxed">{doc.demoValueCallout}</p>
+        </div>
+      )}
+
+      {/* spec-178 ac-33/ac-34 (dec-10): the in-page progressive-reveal advance
+          control, near the value banner and rendered ONLY on a demo spec. It
+          walks the shared reveal pointer and returns to the board (the demo's
+          home), where the next-phase demo card is now revealed. At 'done' there
+          is no next, so it becomes "Reset demo" — same re-seed + pointer reset
+          as the board's Reset button. Absent on real specs. */}
+      {doc.isDemo && (
+        <div className="mb-4">
+          {demoNextPhase ? (
+            <button
+              type="button"
+              data-testid="demo-advance-control"
+              onClick={handleDemoAdvance}
+              className="text-sm font-medium text-accent hover:text-accent-hover inline-flex items-center gap-1 px-3 py-1.5 rounded-md border border-accent/40 bg-accent/10 hover:bg-accent/20 transition-colors"
+            >
+              See it in {phaseDisplayName(demoNextPhase)} →
+            </button>
+          ) : (
+            <button
+              type="button"
+              data-testid="demo-reset-control"
+              onClick={handleDemoResetFromDoc}
+              className="text-sm font-medium text-secondary hover:text-primary inline-flex items-center gap-1 px-3 py-1.5 rounded-md border border-edge hover:bg-overlay transition-colors"
+            >
+              Reset demo
+            </button>
+          )}
+        </div>
+      )}
 
       {shareOpen && <ShareModal docId={doc.id} onClose={() => setShareOpen(false)} />}
       {/* The header Share pill — the Spec's canonical URL with a Copy button

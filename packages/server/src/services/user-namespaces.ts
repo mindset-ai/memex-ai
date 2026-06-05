@@ -1,9 +1,10 @@
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import { namespaces, memexes, users } from "../db/schema.js";
 import type { Memex, Namespace } from "../db/schema.js";
 import { ValidationError } from "../types/errors.js";
 import { mutate, type Mutated } from "./mutate.js";
+import { seedHandholdDemo } from "./handhold-demo.js";
 
 // Canonical display name for personal memexes. Per product decision, personal memexes
 // cannot be renamed — the switcher always shows "Personal Memex" so there's no ambiguity
@@ -69,28 +70,43 @@ export async function ensureUserNamespace(
         );
       }
 
-      return mutate(
+      const created = await mutate(
         {},
         (r) => ({ memexId: r.memex.id, userId, entity: "memex", action: "created" }),
         async () => {
-          const [memex] = await db
+          // spec-177 ac-5 — absorb the concurrent-signup race on the personal
+          // memex too: a parallel call can insert the same (namespace_id,
+          // 'personal') memex first, so the loser must fall back to SELECT
+          // rather than throw memexes_namespace_id_slug_unique.
+          const [insertedMemex] = await db
             .insert(memexes)
             .values({
               namespaceId: ns.id,
               slug: "personal",
               name: PERSONAL_MEMEX_NAME,
             })
+            .onConflictDoNothing()
             .returning();
+          const memex =
+            insertedMemex ??
+            (await db.query.memexes.findFirst({
+              where: and(eq(memexes.namespaceId, ns.id), eq(memexes.slug, "personal")),
+            }));
+          if (!memex) throw new Error(`Personal memex not found after insert for namespace ${ns.id}`);
           return { namespace: ns, memex };
         },
       );
+      // spec-178 t-4 — seed the handhold onboarding demo into the freshly-created
+      // personal Memex (create path only, never the idempotent fast-path above).
+      seedHandholdDemoBestEffort(created.memex.id);
+      return created;
     }
     // Dangling FK — fall through to recreate.
   }
 
   const slug = await deriveAvailableSlug(existingUser.email, userId);
 
-  return mutate(
+  const created = await mutate(
     {},
     // Composite: a new user namespace AND its default personal memex. Two
     // logical changes; subscribers filter on entity. memexId resolves to the
@@ -115,14 +131,27 @@ export async function ensureUserNamespace(
       const namespace = inserted ?? await tx.query.namespaces.findFirst({ where: eq(namespaces.slug, slug) });
       if (!namespace) throw new Error(`Namespace ${slug} not found after insert`);
 
-      const [memex] = await tx
+      // spec-177 ac-5 — mirror the namespace insert above: the personal memex
+      // insert must also absorb the concurrent-signup race. Two parallel calls
+      // can resolve the same namespace (the loser via the SELECT fallback), then
+      // race to INSERT (namespace_id, 'personal'); without onConflictDoNothing the
+      // loser throws memexes_namespace_id_slug_unique. Latent until spec-178's
+      // signup seed added concurrent load that reliably widened the window.
+      const [insertedMemex] = await tx
         .insert(memexes)
         .values({
           namespaceId: namespace.id,
           slug: "personal",
           name: PERSONAL_MEMEX_NAME,
         })
+        .onConflictDoNothing()
         .returning();
+      const memex =
+        insertedMemex ??
+        (await tx.query.memexes.findFirst({
+          where: and(eq(memexes.namespaceId, namespace.id), eq(memexes.slug, "personal")),
+        }));
+      if (!memex) throw new Error(`Personal memex not found after insert for namespace ${namespace.id}`);
 
       await tx
         .update(users)
@@ -131,6 +160,23 @@ export async function ensureUserNamespace(
 
       return { namespace, memex };
     }),
+  );
+  // spec-178 t-4 — seed the handhold onboarding demo into the brand-new personal
+  // Memex. AFTER the mutate() commits, on the create path only (the fast-path
+  // returns earlier and never reaches here). This funnels every signup flow
+  // (password / magic-link / SSO) — they all create the namespace through here.
+  seedHandholdDemoBestEffort(created.memex.id);
+  return created;
+}
+
+// Fire-and-forget the handhold demo seed for a newly-created personal Memex
+// (spec-178 t-4). Best-effort by contract: a seed failure must NEVER roll back
+// or block signup, so the promise is detached (`void`) and any rejection is
+// swallowed to a log line. The seed itself is idempotent (NO-OP if the Memex
+// already has a demo doc — ac-8), so even a duplicate fire is harmless.
+function seedHandholdDemoBestEffort(memexId: string): void {
+  void seedHandholdDemo(memexId).catch((err) =>
+    console.error("[handhold seed]", err),
   );
 }
 

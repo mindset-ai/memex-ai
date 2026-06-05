@@ -547,6 +547,17 @@ async function resolveRefForAgent(
   if (doc.memexId !== boundMemexId) {
     throw new NotFoundError(`Ref "${ref}" not found.`);
   }
+  // spec-178 t-11 / dec-11 (ac-38): the in-app agents (the server Anthropic-SDK
+  // agent per std-11, AND the React/LangGraph agent — which executes every
+  // server tool through this same resolver via /tools/execute → executeServerTool)
+  // must not read or act on a handhold demo spec. All doc-targeting agent tools
+  // resolve their ref here, so a single not-found guard makes a demo spec inert to
+  // the whole agent surface. The bound current-doc context path (buildDocumentContext
+  // → getDoc) is intentionally untouched: that's the doc the user explicitly opened,
+  // analogous to the board's getDoc, and is out of scope for this exclusion.
+  if (doc.isDemo) {
+    throw new NotFoundError(`Ref "${ref}" not found.`);
+  }
   return {
     entity,
     memexId: doc.memexId,

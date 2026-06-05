@@ -692,6 +692,7 @@ export async function findStandardsAffectedByDecision(
           archivedAt: row.docArchivedAt,
           pausedAt: row.docPausedAt,
           narrativeLastConsolidatedAt: row.docNarrativeLastConsolidatedAt,
+          isDemo: false,
         },
         matchingSections: [],
       };

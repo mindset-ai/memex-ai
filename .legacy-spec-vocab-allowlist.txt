@@ -212,3 +212,14 @@ packages/ui/src/agent/graph.test.ts:Document\|Brief\|Spec prefix
 packages/ui/src/agent/graph.test.ts:Brief created: ref
 packages/ui/src/agent/graph.test.ts:briefs/b-42
 packages/ui/src/agent/graph.test.ts:Brief Era
+
+# ============================================================
+# spec-178 Handhold demo fixture — verbatim spec-64 content
+# ============================================================
+# The Handhold onboarding demo seeds five frozen copies of spec-64, whose content
+# is reproduced VERBATIM in this fixture (spec-178 ac-2 — wording unchanged; the
+# DEMO badge is the only differentiator, so rewording the source is not an option).
+# spec-64's t-5 AC uses "vector-strategy" in the SEARCH-strategy sense (handle | FTS
+# | semantic) — the same technical usage already allowlisted for
+# services/memex-search.ts above, not the legacy product noun. Line-pinned.
+packages/server/src/db/handhold-demo.fixture.ts:vector-strategy

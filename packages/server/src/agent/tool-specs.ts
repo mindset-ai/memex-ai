@@ -901,6 +901,11 @@ export const toolSpecs: ToolSpec[] = [
         docType: docTypeArg,
         includePaused: false,
         statusIn: ["plan", "build", "verify"],
+        // spec-178 t-11 / dec-11 (ac-37): the MCP/agent enumeration must NOT
+        // surface handhold demo specs. The REST board route omits this flag so
+        // its cards still show demo specs (with the DEMO badge); only this
+        // agent-facing list path opts into the exclusion.
+        excludeDemo: true,
         ...(parsedTags ? { tags: parsedTags } : {}),
       });
 

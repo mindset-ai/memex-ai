@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useMemo, type DragEvent, type ReactNode } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { fetchDocs, updateDocStatus, archiveDoc, pauseDoc, unpauseDoc } from '../api/client';
+import { fetchDocs, updateDocStatus, archiveDoc, pauseDoc, unpauseDoc, resetHandholdDemo } from '../api/client';
 import { type DocSummary, type DocSummaryAssignee } from '../api/types';
 import { statusTextClass } from '../utils/statusStyles';
 import { phaseDisplayName } from '../utils/phaseDisplay';
@@ -15,8 +15,9 @@ import { TagFilter } from '../components/TagFilter';
 import { ShareModal } from '../components/ShareModal';
 import { RenameSpecDialog } from '../components/RenameSpecDialog';
 import { MoveSpecDialog } from '../components/MoveSpecDialog';
-import { tenantPath } from '../utils/tenantUrl';
+import { tenantPath, getCurrentTenant } from '../utils/tenantUrl';
 import { useAuth } from '../components/AuthContext';
+import { useHandholdReveal, nextRevealPhase, type RevealPhase } from '../hooks/useHandholdReveal';
 import { useIsFeatureHidden } from '../hooks/useIsFeatureHidden';
 import { useMemexAccess } from '../hooks/useMemexAccess';
 import { CreateOrgBanner } from '../components/CreateOrgBanner';
@@ -125,6 +126,14 @@ interface KanbanColumnProps {
   // Renders the "+ Add spec" pinned card at the top of the column when set.
   // Click invokes the same NewSpecModal as the page-header button.
   onAddSpec?: () => void;
+  // spec-178 t-10 (dec-10): progressive-reveal advance control. Rendered ONLY on
+  // is_demo cards. `revealNextPhase` is the phase that follows the revealed one
+  // (null at 'done' — the terminal phase, where the control becomes Reset).
+  // `onAdvanceDemo` bumps the reveal pointer; `onResetDemo` is the done-phase
+  // terminal action (re-seed + pointer reset). Absent on non-demo boards.
+  revealNextPhase?: RevealPhase | null;
+  onAdvanceDemo?: () => void;
+  onResetDemo?: () => void;
 }
 
 function KanbanColumn(props: KanbanColumnProps) {
@@ -145,6 +154,9 @@ function KanbanColumn(props: KanbanColumnProps) {
     className = '',
     headerExtra,
     onAddSpec,
+    revealNextPhase,
+    onAdvanceDemo,
+    onResetDemo,
   } = props;
   return (
     <div
@@ -208,6 +220,13 @@ function KanbanColumn(props: KanbanColumnProps) {
                     )}
                     {d.title}
                   </h3>
+                  {/* spec-178 ac-3/ac-12: the DEMO badge marks each frozen
+                      Handhold demo spec on the board. Real specs carry no
+                      `isDemo`, so they never render it (ac-11/ac-12). Mirrors the
+                      Paused badge's chrome; the two can co-exist on one card. */}
+                  {d.isDemo && (
+                    <Badge status="demo" label="DEMO" className="flex-none" />
+                  )}
                   {isPaused && (
                     <Badge
                       status="paused"
@@ -218,6 +237,14 @@ function KanbanColumn(props: KanbanColumnProps) {
                     />
                   )}
                 </div>
+                {d.isDemo && (
+                  // Hidden DOM hook for the test — mirrors the paused pill: the
+                  // visible Badge above is the user-facing surface, this lets a
+                  // test assert the DEMO pill without coupling to Badge classes.
+                  <span data-testid="spec-demo-pill" className="sr-only">
+                    DEMO
+                  </span>
+                )}
                 {isPaused && (
                   // Hidden DOM hook for the test — the visible Badge above is
                   // the user-facing surface; this lets us assert the pill
@@ -261,6 +288,36 @@ function KanbanColumn(props: KanbanColumnProps) {
                 )}
                 <SpecHealthStrip health={d.acHealth} />
               </Link>
+              {/* spec-178 ac-33/ac-34 (dec-10): the progressive-reveal advance
+                  control. Renders ONLY on is_demo cards (never on real specs),
+                  and only when the demo-management callbacks are wired (i.e. the
+                  board owns a reveal pointer). Clicking it walks the demo one
+                  phase along — the current card disappears and the next phase's
+                  demo card appears, giving the impression of one spec moving
+                  across the board. At the terminal 'done' phase there is no
+                  next: the control becomes "Reset demo", wired to the same
+                  re-seed + pointer-reset as the board header's Reset button. */}
+              {d.isDemo && onAdvanceDemo && onResetDemo && (
+                revealNextPhase ? (
+                  <button
+                    type="button"
+                    data-testid="demo-advance-control"
+                    onClick={onAdvanceDemo}
+                    className="mt-2 w-full text-xs font-medium text-accent hover:text-accent-hover inline-flex items-center justify-center gap-1 px-2 py-1.5 rounded-md border border-accent/40 bg-accent/10 hover:bg-accent/20 transition-colors"
+                  >
+                    See it in {phaseDisplayName(revealNextPhase)} →
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    data-testid="demo-reset-control"
+                    onClick={onResetDemo}
+                    className="mt-2 w-full text-xs font-medium text-secondary hover:text-primary inline-flex items-center justify-center gap-1 px-2 py-1.5 rounded-md border border-edge hover:bg-overlay transition-colors"
+                  >
+                    Reset demo
+                  </button>
+                )
+              )}
               {canWrite && (
                 <div className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
                   <SpecMenu
@@ -347,6 +404,18 @@ export function SpecList() {
     (m) => m.memexId === session?.currentMemexId,
   );
   const showPersonalBanner = currentMembership?.kind === 'personal';
+  // spec-178 t-10 (dec-10): the progressive-reveal pointer. The five demo specs
+  // are all seeded (one per phase) but only ONE is shown on the board at a time
+  // — the one whose status === revealedPhase. Advancing the pointer walks the
+  // demo across the board (draft → plan → build → verify → done). Purely a
+  // client-side affordance, keyed by the current tenant so each personal Memex
+  // tracks its own walkthrough. `getCurrentTenant()` is null on caller-scoped
+  // routes; the hook is null-safe and just collapses to a shared key there.
+  const revealTenant = getCurrentTenant();
+  const { revealedPhase, advance: advanceReveal, reset: resetReveal } = useHandholdReveal(
+    revealTenant?.namespace ?? null,
+    revealTenant?.memex ?? null,
+  );
   const [docs, setDocs] = useState<DocSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -385,6 +454,16 @@ export function SpecList() {
       // Same fallback as the reader — silent on storage failures.
     }
   }, [showPaused]);
+
+  // spec-178 t-10 (dec-10): when the demo has been walked all the way to 'done'
+  // the revealed card lives in the Done rail — which collapses by default.
+  // Auto-expand it whenever a done-phase demo is the revealed card so the
+  // walkthrough's final card (and its on-card "Reset demo" control) is visible,
+  // including on a fresh page load with the pointer already at 'done'.
+  const hasRevealedDoneDemo = docs.some((d) => d.isDemo && d.status === 'done');
+  useEffect(() => {
+    if (revealedPhase === 'done' && hasRevealedDoneDemo) setDoneExpanded(true);
+  }, [revealedPhase, hasRevealedDoneDemo]);
 
   const loadDocs = useCallback(() => {
     // b-66 t-3: ask the server for the per-Spec AC-health roll-up. The
@@ -536,6 +615,39 @@ export function SpecList() {
     }
   }, [docs]);
 
+  // spec-178 ac-18/ac-19: re-seed the personal Memex's Handhold demo. The button
+  // that calls this is shown ONLY when at least one demo spec is on the board (see
+  // hasDemoSpecs below); a window.confirm step (ac-19) gates the destructive
+  // re-seed before the endpoint is hit. The namespace/memex come from the current
+  // tenant context (the path-based router puts them in the first two URL segments).
+  // After the reset the board refetches so the re-seeded specs replace the old set.
+  const [resetting, setResetting] = useState(false);
+  const handleResetDemo = useCallback(async () => {
+    const tenant = getCurrentTenant();
+    if (!tenant) return;
+    if (
+      !window.confirm(
+        'Reset the demo specs? This deletes the current demo specs and re-seeds a fresh set. Your real specs are untouched.',
+      )
+    ) {
+      return;
+    }
+    setResetting(true);
+    try {
+      await resetHandholdDemo(tenant.namespace, tenant.memex);
+      // spec-178 ac-34 (dec-10): a board Reset restores the draft-only view —
+      // re-seed the demo specs AND snap the reveal pointer back to 'draft' so
+      // only the first demo spec shows again.
+      resetReveal();
+      loadDocs();
+    } catch (err) {
+      console.error('Failed to reset demo', err);
+      window.alert(err instanceof Error ? err.message : 'Failed to reset demo');
+    } finally {
+      setResetting(false);
+    }
+  }, [loadDocs, resetReveal]);
+
   const buildMenuItems = useCallback(
     (doc: DocSummary): SpecMenuItem[] => {
       const items: SpecMenuItem[] = [
@@ -601,6 +713,14 @@ export function SpecList() {
     // effectiveShowPaused above).
     if (d.archivedAt) continue;
     if (d.pausedAt && !effectiveShowPaused) continue;
+    // spec-178 ac-33/ac-34 (dec-10): progressive reveal. fetchDocs returns all
+    // five demo specs (one per phase), but the board shows only the one whose
+    // status matches the reveal pointer — hide the other four client-side. Real
+    // (non-demo) specs are never touched by this filter. Demo specs carry the
+    // canonical phase values (draft/plan/build/verify/done), so we compare the
+    // raw status against the pointer before the legacy review/implementation
+    // remap below (which never applies to demo rows).
+    if (d.isDemo && d.status !== revealedPhase) continue;
     // spec-118 ac-19: assignee filter (assigned to me / specific person / all).
     if (!matchesAssigneeFilter(d)) continue;
     // Specs should never carry `approved` (execution-plan terminal state, t-20 W-B);
@@ -616,6 +736,21 @@ export function SpecList() {
     if (!(remapped in docsByColumn)) continue;
     docsByColumn[remapped].push(d);
   }
+
+  // spec-178 t-10 (dec-10): the phase the revealed demo spec advances INTO. Null
+  // at the terminal 'done' phase — its advance control becomes "Reset demo".
+  const revealNextPhase = nextRevealPhase(revealedPhase);
+  // Advancing the reveal one phase along. When the next phase is 'done' the demo
+  // card lands in the Done rail (collapsed by default) — auto-expand it so the
+  // walkthrough's final card (and its "Reset demo" control) is actually visible.
+  const onAdvanceDemo = () => {
+    if (revealNextPhase === 'done') setDoneExpanded(true);
+    advanceReveal();
+  };
+  // The done-phase terminal control re-uses the SAME action as the board's
+  // header Reset button (re-seed + pointer reset). Only meaningful when at
+  // least one demo spec is on the board; the demo card render gates on isDemo.
+  const onResetDemo = handleResetDemo;
 
   return (
     <div className="h-full flex flex-col px-6 py-6">
@@ -660,6 +795,20 @@ export function SpecList() {
                 Show paused
               </label>
             )}
+            {/* spec-178 ac-18: the Reset-demo button appears on the board header
+                ONLY when at least one demo spec is present, and is absent
+                otherwise. ac-19: clicking it confirms before the re-seed runs.
+                Gated on write access alongside the other mutating board controls. */}
+            {canWrite && docs.some((d) => d.isDemo) && (
+              <Button
+                variant="secondary"
+                onClick={handleResetDemo}
+                disabled={resetting}
+                data-testid="reset-demo-button"
+              >
+                {resetting ? 'Resetting…' : 'Reset demo'}
+              </Button>
+            )}
             {canWrite && <Button onClick={() => setModalOpen(true)}>+ New Spec</Button>}
           </>
         }
@@ -697,6 +846,9 @@ export function SpecList() {
             onDrop={handleDrop}
             className="flex-1 min-w-[14rem]"
             onAddSpec={col.id === 'draft' ? () => setModalOpen(true) : undefined}
+            revealNextPhase={revealNextPhase}
+            onAdvanceDemo={onAdvanceDemo}
+            onResetDemo={onResetDemo}
           />
         ))}
         {/* Done rail (dec-5): collapsed by default, click to expand. While a
@@ -721,6 +873,9 @@ export function SpecList() {
               onDragLeave={() => setDragOverColumn((c) => (c === 'done' ? null : c))}
               onDrop={handleDrop}
               className="flex-1"
+              revealNextPhase={revealNextPhase}
+              onAdvanceDemo={onAdvanceDemo}
+              onResetDemo={onResetDemo}
               headerExtra={
                 <button
                   type="button"
