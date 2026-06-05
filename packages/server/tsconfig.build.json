@@ -1,0 +1,10 @@
+{
+  // Production build config. Extends the dev tsconfig but EXCLUDES test files so
+  // the Cloud Run image build never compiles them. Tests import the test-only
+  // `@memex-ai-ac/vitest` workspace package (spec-89), which the Docker build
+  // deliberately does not include — compiling tests there fails to resolve it.
+  // Test type-checking still happens in dev via `make typecheck` / vitest, which
+  // use the base tsconfig.json (tests included).
+  "extends": "./tsconfig.json",
+  "exclude": ["node_modules", "dist", "**/*.test.ts"]
+}

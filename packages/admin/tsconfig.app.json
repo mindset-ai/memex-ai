@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.app.tsbuildinfo",
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedSideEffectImports": true
+  },
+  "include": ["src"],
+  // Exclude test files from the production typecheck/build (mirrors the server's
+  // tsconfig.build.json). Vitest is the test gate; tsc -b must not compile tests.
+  // This browser package carries no Node types, so an introspection test that
+  // reads source via `node:fs`/`node:path`/`node:url` (e.g.
+  // DocDocument.headerActions.test.ts) would otherwise fail `tsc -b` and split
+  // the admin deploy — even though vitest runs it fine.
+  "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx"]
+}

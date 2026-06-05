@@ -1,0 +1,33 @@
+<!-- NOT IN USE — paired with doc-24 (codebase intelligence tools commented out in tool-specs.ts). Restore alongside the tools. -->
+# Skill: Codebase Drift Detection
+
+Load this skill when the user asks "is the code still matching our decisions?", "have we drifted from the plan?", or when a Memex decision gets resolved and you want to verify the code reflects it. Drift detection is the bridge between the decision graph (Memex docs/decisions/tasks) and the codebase graph (files/symbols/calls).
+
+## The tables you work with
+
+- **`decision_file_coverage`** links a decision to the files it governs. One decision, many files. When a decision is resolved, the files listed here are the surface you need to verify.
+- **`drift_signals`** records instances where the code has diverged from what a decision said. It has a severity, a signal description, and can point to a file and optionally a symbol. Resolved signals stay in the table as history.
+
+Both tables are read-only for now. Writes go through the services layer; they will be exposed via MCP tools in a later iteration.
+
+## When to reach for this skill
+
+- After a decision is resolved: verify the affected files actually match the resolution. Call `get_file` on each file in the coverage list and read the relevant sections.
+- When the user asks "what's the status of decision X?": combine the decision's resolution text with any open drift signals pointing at its files.
+- When reviewing a Spec: show the user the decisions, their status, and the drift signals against each one. If any signal is open and severity is high, the Spec is not ready to ship regardless of what the tasks say.
+
+## How to call out drift honestly
+
+When you read code and see it diverge from a decision, describe the divergence precisely. Never say "there is drift" without pointing at the specific line or call that contradicts the decision. If the drift is in a generated or legacy area, say so; not all drift is actionable.
+
+If you cannot determine whether drift exists from the code alone (e.g. the decision is about runtime behaviour that structural tools cannot see), say that. Propose running a targeted script or asking the user to verify manually. The point of this skill is to give the user *grounded* drift assessments, not guesses.
+
+## Interaction with other skills
+
+- **Orientation first**: call `get_repo` before any drift work so you know which domains exist.
+- **Impact analysis**: if a decision changes, `get_symbol({ include: ['impact'] })` on the covered files tells you where else the change echoes.
+- **Symbol search**: if the decision talks about a specific function or pattern, `list_symbols` to locate it before you read files.
+
+## Long-term: decisions as verifiable assertions
+
+This skill will grow significantly once `@memex` annotations in test files and CI telemetry are wired up. Then decisions can carry pass/fail status driven by real test runs. For now, drift detection is agent-driven reading; communicate that honestly to users who ask "is this automatic?".

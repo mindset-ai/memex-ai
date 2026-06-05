@@ -1,0 +1,29 @@
+_metadata:
+  major_version: 1
+  minor_version: 1
+
+display_information:
+  name: Memex ai
+  description: Connect Memex to your Slack workspace to send messages and notifications.
+  background_color: "#0f172a"
+
+features:
+  bot_user:
+    display_name: Memex ai
+    always_online: false
+
+oauth_config:
+  redirect_urls:
+    - https://memex.ai/api/auth/slack/callback
+  scopes:
+    bot:
+      - chat:write
+    user:
+      - chat:write
+      - users:read
+      - channels:read
+
+settings:
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false

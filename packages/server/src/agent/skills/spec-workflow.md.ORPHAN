@@ -1,0 +1,153 @@
+# Skill: Spec Workflow (plan → build → verify)
+
+**Memex is the harness; your coding loop is the legs.** This skill tells you how to wear the harness — when code should be written, what shape the work takes, how decisions and standards flow into and out of your work. It does **not** tell you how to write code itself; that is your inner loop.
+
+## What Memex owns vs. what you bring
+
+Memex owns:
+- the **why** — the Spec narrative
+- the **what** — decisions and tasks
+- the **shape of progress** — phase gates (`draft → plan → build → verify → done`)
+- the **system of record** — every change happens through MCP tools so the work stays inspectable
+
+You own:
+- reading existing code before changing it
+- making small, testable changes
+- running tests and the type checker
+- debugging when something breaks
+- backing out cleanly when an approach is dead
+
+Without Memex you sprint in random directions. Without your coding loop you can't go anywhere.
+
+## The pipeline
+
+```
+draft → plan → build → verify → done
+└──── planning ────┘   build    verify   done
+```
+
+| Status         | Your job                                                                  |
+|----------------|---------------------------------------------------------------------------|
+| draft / plan   | Resolve every decision. Propagate answers into the Spec. NO TASKS.     |
+| build          | Read code, write changes, test as you go, respect standards, tick criteria honestly. |
+| verify         | Verify in the shape of the task. Back to `build` if anything fails.       |
+| done           | Read-only. Don't write to it.                                             |
+
+`draft` and `plan` are the same job — same tools, same allowed actions. The distinction is a user signal: `draft` is private/authoring, `plan` means the team has visibility. Advance to `build` only when every decision is resolved.
+
+## The three non-negotiable rules
+
+1. **Tasks may only be created in `build`.** A task created during planning is a guess pretending to be a commitment.
+2. **In `build`, every piece of code respects standards.** Search before you write; **stay watchful as you implement** — drift often appears mid-change, not at the start. Flag it the moment you see it.
+3. **A task is `complete` only when verification actually runs.** **Plausibility is the failure mode** — vibes don't tick acceptance criteria; verification does.
+
+## Decisions vs. tasks — the load-bearing distinction
+
+A **decision** captures a choice the team needs to make. It's open until resolved; the resolution becomes a constraint.
+
+- *"Should we use Postmark or SES for transactional email?"*
+- *"Should this run synchronously in the request handler, or be queued?"*
+- *"Do we silently truncate long inputs, or reject them with a 400?"*
+
+A **task** captures a unit of execution work. It exists to be done, not debated.
+
+- *"Add the password reset endpoint."*
+- *"Wire the chosen email provider into the email sender."*
+- *"Migrate the old subscriber rows to the new schema."*
+
+If you find yourself writing a task that has the words "decide," "choose," or "figure out" in the description, stop. That's a decision in disguise.
+
+`create_decision({ status: 'open' })` lands an open decision directly — use it when the user has stated the choice that needs making. `create_decision({ status: 'candidate', options })` lands a *candidate* awaiting human approval — use it when you've extracted a decision shape from conversation and want a human to confirm it's a real choice before it blocks tasks.
+
+## Phase 1: planning (draft / plan)
+
+You are shaping the Spec. The narrative is being authored; the choices that matter are being surfaced and resolved.
+
+**Allowed:** `add_section`, `update_section`, `create_decision` (open or candidate), `update_decision` (incl. `status: 'open'` to reopen), `resolve_decision`, `get_doc`, `update_doc({ status })`, `search_memex`.
+**Forbidden:** task creation (`create_task`), execution plans.
+
+Loop: read the Spec → surface every choice as a decision → when the user picks, `resolve_decision(...)` → propagate the choice into the narrative with `update_section(...)` → when every decision is resolved, advance to `build`.
+
+**Use `search_memex` deliberately during planning.** Before resolving a load-bearing decision, call `search_memex({ query, kind: 'decision' })` (and often `kind: 'standard'`) to find prior decisions and rules in the same area. Treat any hit as a constraint, not a suggestion — contradicting a resolved decision without acknowledging it is the most common way planning loses coherence. Drop `kind` entirely to surface related Specs / Documents too when the topic might touch initiatives beyond this one.
+
+### Worked example
+
+> User: *"We need transactional email for password resets."*
+>
+> Agent reads the Spec → spots two open choices → calls `create_decision("Email provider — Postmark vs SES?")` and `create_decision("Reset flow — magic link vs token + form?")`. **Does not** create tasks for "implement password reset" yet.
+>
+> User picks Postmark + token+form. Agent calls `resolve_decision(...)` on each. Then updates the Spec's Approach section to reference Postmark and the token+form flow.
+>
+> Now the constraints are pinned. Agent calls `update_doc({ ref: specRef, status: "build" })`. Tasks come into play.
+
+### Cold start (decisions that need a prototype)
+
+A brand-new team has no decision history. One consequence to watch for:
+
+- **Some decisions can only be resolved with a prototype in hand.** That is normal, not exceptional. Capture the decision, advance to `build` with explicit **build-to-learn** intent, set a clear stopping point (*"after the first integration test, decide A or B"*), then step back to `plan` to settle it. Don't pretend the choice is settled when it isn't.
+
+## Phase 2: build
+
+In `build`, Memex's job narrows to three things:
+
+1. Tell you which task to do (`list_tasks({ readyOnly: true })`).
+2. Constrain the task with the resolved decisions (read the Spec narrative).
+3. Catch the **output** of your coding loop: progress, new decisions, completion.
+
+Everything else — reading existing code, structuring the change, running tests, debugging, deciding when an approach is dead — happens inside your coding loop, not in Memex.
+
+**Allowed:** the full task surface, execution plans, sections, decisions.
+
+Loop:
+
+1. `list_tasks({ ref: specRef, readyOnly: true })` → pick the top task.
+2. Read the Spec with `get_doc(...)`. The narrative is the constraint set — every resolved decision shapes how this task should be done.
+3. **Search standards before writing code.** `search_memex({ query, kind: 'standard' })` for the area you're about to touch. Zero results is a cold-start signal, not a skip-signal — note the gap so a standard can be created once a pattern stabilises. Then **read existing code before writing new code** — use `grep` and read source files directly. Reading is cheaper than rewriting.
+
+   When a task description points at a code location, anchor by symbol (`ComponentName.methodName`) rather than line number — lines move within the same session.
+
+4. Mark `in_progress` via `update_task({ taskId, status: 'in_progress' })`, then **execute your coding loop**: small, testable changes; check after each (type-check + tests); debug when something breaks; back out cleanly if the approach is dead.
+5. As acceptance criteria **actually pass**, tick them via `update_task(...)`. If a real choice surfaces, `create_decision` + `update_task({ addBlocker: 'dec-N' })` and consider stepping the Spec back to `plan`.
+6. Mark `complete` only when verification actually passes — see the next phase for what that means. **The system auto-promotes the Spec to `verify` when the last task completes**; you can also call `update_doc({ ref: specRef, status: "verify" })` explicitly when the user agrees.
+
+## Phase 3: verify
+
+**Verify in the shape of the task.** "Verification" is not one thing; it depends on what changed.
+
+| Task shape | What "verified" means |
+|---|---|
+| Behavior change (feature, bugfix) | Type checks pass with zero errors. Test suite passes. The new code path is exercised by a test or integration check. Downstream isn't visibly broken. |
+| Refactor (no intended behavior change) | Type checks pass. Test suite passes. Observable behavior unchanged (spot-check or run the affected end-to-end path). |
+| Docs / copy / config | Read the change in context. Run any relevant linter / formatter / build. Exercise the affected path if there's an obvious one. |
+| UX / visual | Open the affected screen. Check it renders. If it's interactive, click it. |
+
+Always: walk each acceptance criterion against the running system, not against the diff.
+
+If anything fails, move back to `build` with `update_doc({ ref: specRef, status: "build" })` and fix.
+
+If everything passes, hand off to the user explicitly:
+
+> *"Type check ✓, tests ✓, new code paths exercised, no downstream regressions found. All acceptance criteria met. Ready for you to mark this Spec `done`."*
+
+**Do not call `update_doc({ ref: specRef, status: "done" })` from agent context.** That is the user's call. Closing a Spec is the team's confirmation that the outcome was actually achieved — not the agent's claim of completion.
+
+## Phase 4: done
+
+Read-only. Don't edit; don't reopen.
+
+## When you're stuck — the ladder
+
+| Symptom | Move |
+|---|---|
+| *"I don't know which way to go."* | It's a decision in disguise. `create_decision` + `update_task({ addBlocker: 'dec-N' })` + step back to `plan`. |
+| *"I don't know how this codebase does X."* | Read more code. `grep` and read source files first; generation last. |
+| *"Knowledge gap nothing in the repo can answer."* | `add_comment({ taskId }, ...)` with a `question`-typed comment. Surface to the user. Don't grind for an hour producing plausible-looking code. |
+| *"I tried this approach and it's failing."* | Back out (revert). Re-read the Spec narrative + relevant standards — the failure usually surfaces a constraint you missed. If still unclear, capture the choice as a decision. |
+
+## When the user asks you to break a rule
+
+Push back once: name the rule and the cost. *"This Spec has 3 open decisions"*; *"there's a standard on rate-limiting that's likely relevant"*; *"we don't yet know if this works without running the suite."* If they confirm the override, do as they ask — the rule is the agent's discipline, the user can override. Never skip the push-back.
+
+---
+
+Memex gates and records. Your coding loop executes. **Decisions** are the forcing function for *thinking*; **standards** for *consistency*; **real verification** for *honesty*. Plausibility is the failure mode. The harness keeps you aimed at the team's goal; your legs do the running.

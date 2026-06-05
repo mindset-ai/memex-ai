@@ -1,0 +1,45 @@
+<!-- NOT IN USE — paired with doc-24 (codebase intelligence tools commented out in tool-specs.ts). Restore alongside the tools. -->
+# Skill: Codebase Symbol Search
+
+Load this skill when the user is looking for a specific function, class, method, interface, type, or constant by name — or when you need to locate something to run `get_symbol({ include: ['calls' | 'impact'] })` on it.
+
+## The mechanics
+
+`list_symbols` takes a case-insensitive partial name match (via the `query` param) against the symbols table, scoped to a repo. It returns rows from `symbols` joined to their file path, ordered arbitrarily, with the symbol id and signature.
+
+The key filters:
+
+- **`kind`**: `function`, `class`, `method`, `interface`, `type`, `enum`, `constant`, `field`. Use when you already know the kind — e.g. the user says "the X class" → `kind: "class"`.
+- **`exportedOnly`**: narrows to symbols whose name does not start with underscore (Python) or that appear in an `export` statement (TS). Use when the user wants to see only the public API of a module.
+- **`domain`**: business alias like `"proxy"` or `"agent v3"`. Resolves to the domain's root paths and filters accordingly. Always use when the user named a business area.
+- **`limit`**: default 25. Raise to 50–100 if the initial query under-returned and you are about to widen the name pattern anyway.
+
+## Query strategy
+
+1. **Start narrow**. Give `list_symbols` the most specific substring the user gave you. `authenticate` before `auth`, `getFirestoreDb` before `firestore`.
+2. **Widen if zero results**. Shorten the substring; drop the kind filter if you guessed it.
+3. **Narrow if too many results**. Add `exportedOnly` or `kind`. Apply `domain` if you can infer one.
+4. **Never iterate more than 3 times**. If three queries don't converge, the symbol probably does not exist with that name. Pivot to `code_search` for a concept-level search.
+
+## Disambiguation
+
+When `list_symbols` returns several symbols with the same name (common: `get`, `handle`, `process`):
+
+- Read the signatures and parent classes in the output.
+- Prefer the one whose file path aligns with the user's domain.
+- Prefer exported symbols when the user is asking "what does this do?" — they're more likely the intended target.
+- If still ambiguous, ask the user one clarifying question ("Did you mean `ProxyRouter.handle` or `ContentRouter.handle`?") rather than guessing.
+
+## The symbol id is your handle
+
+The output gives each match a UUID. That id is the only handle for `get_symbol({ include: ['calls'] })` and (eventually) other precise tools. Hold onto it; do not re-search for the same symbol later in the conversation.
+
+## Constants and fields
+
+Constants (`MAX_USER_FACTS = 10`) and Pydantic/class fields (`agent_uid: UUID`) are indexed too. When the user asks about configuration values, rate limits, reserved names, or data shapes, `list_symbols` with `kind: "constant"` or `kind: "field"` often finds the answer faster than reading source.
+
+## What list_symbols cannot do
+
+- **Control flow**: it tells you a function exists, not what it does at runtime. Follow up with `get_symbol({ include: ['calls'] })` or `get_file`.
+- **Aliased re-exports**: if `foo.ts` re-exports `bar` as `baz`, the symbol is stored as `bar` in its defining file. Search the original name.
+- **Dynamically-generated symbols**: anything created at runtime (e.g. via decorators or metaclasses beyond what tree-sitter sees) is invisible.

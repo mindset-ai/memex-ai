@@ -1,0 +1,27 @@
+{
+  "name": "@memex/shared",
+  "version": "0.0.0",
+  "license": "SEE LICENSE IN LICENSE.md",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "prepare": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@memex-ai-ac/vitest": "workspace:*",
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.1"
+  }
+}

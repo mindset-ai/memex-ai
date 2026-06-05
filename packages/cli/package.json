@@ -1,0 +1,35 @@
+{
+  "name": "memex-ai",
+  "version": "3.0.0",
+  "description": "Install the Memex AI MCP server for Claude Code and Claude Desktop",
+  "type": "module",
+  "bin": {
+    "memex-ai": "bin/cli.mjs"
+  },
+  "files": [
+    "bin/",
+    "lib/",
+    "LICENSE.md",
+    "LICENSE_EE.md"
+  ],
+  "scripts": {
+    "test": "vitest run"
+  },
+  "keywords": [
+    "memex",
+    "mcp",
+    "claude",
+    "ai"
+  ],
+  "license": "SEE LICENSE IN LICENSE.md",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mindset-ai/memex-ai.git"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.4"
+  }
+}

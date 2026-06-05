@@ -1,0 +1,42 @@
+# Skill: Codebase Domain Naming
+
+Load this skill during onboarding (just after `ingest_repo` finishes) or whenever a user refers to a part of their codebase by a business name you do not recognise. Your job is to propose good human-readable names for auto-detected domains, get the user to confirm, and then persist them with `update_repo({ domainAliases: { ... } })`.
+
+## Why this matters
+
+The extractor auto-detects domains from folder structure — it produces names like `monkee.ai_CR_proxy_service` or `agent-graph`. Those are correct but nobody talks like that. Teams say "the proxy" or "our agent." Without aliases, every future agent-driven question requires the user to remember the folder name. With aliases, the team's vocabulary becomes the query language.
+
+Aliases also scope tool calls: passing `domain: "proxy"` to `list_symbols` (incl. `kind: 'endpoint'`) or `code_search` filters to files under that domain's root paths. Good aliases make every subsequent conversation faster.
+
+## The onboarding flow
+
+1. Call `get_repo` to see the auto-detected domains, each with its root paths, file count, and tech stack.
+2. For each domain, propose a short business name based on two signals:
+   - The folder name itself, cleaned up (`monkee.ai_CR_proxy_service` → "Edge Proxy").
+   - The tech stack and endpoints you can see (FastAPI + routes named `llm`, `rag`, `session` → this is the LLM-proxy layer).
+3. Present the proposals as a short list and ask the user to confirm, edit, or add their own. One question, many domains.
+4. Once confirmed, call `update_repo({ domainAliases: { domainName, aliases, description? } })` for each.
+
+Keep the alias list for each domain small: 2–4 strings the team actually uses. `["proxy", "proxy service", "edge proxy"]` is right. `["p", "prx", "proxy", "proxy service", "edge", "edge-proxy", "pythonia proxy"]` is bloat.
+
+## What makes a good description
+
+The `description` field is a single sentence that will show up in `get_repo` and in any onboarding UI. Aim for:
+
+- The role of the domain in the system ("proxies LLM, RAG, MCP, and session calls from the client-side agent").
+- Not a list of files — the files are already visible.
+- Plain language the user would use, not framework jargon.
+
+Example:
+
+> **Edge Proxy** — aliases: `proxy`, `proxy service`, `edge proxy`. FastAPI Cloud Run service proxying LLM, RAG, MCP, and session calls from the client-side agent.
+
+## When the user disagrees
+
+If the user wants to split one detected domain into two, or merge two into one, tell them the aliases field supports that naturally: one domain row can have aliases for both names, or two domain rows can share overlapping aliases. The underlying data is fixed (the files are where they are); aliases are a convenience layer the team can tune any time.
+
+Do not attempt to re-detect domains. That is the extractor's job and it only runs during ingestion.
+
+## After aliases are set
+
+Use them in every subsequent tool call when the user names a business area. Pass `domain: "proxy"` instead of filtering by path. The tools will resolve the alias. If an alias lookup fails, propose setting the alias rather than falling through to a raw path match.

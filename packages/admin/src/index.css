@@ -1,0 +1,354 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * ═══════════════════════════════════════════
+ * Design Tokens
+ * ═══════════════════════════════════════════
+ *
+ * Token Reference (for AI agents and developers):
+ *
+ * Surfaces:  bg-page, bg-panel, bg-surface(/alpha), bg-input, bg-card-hover, bg-selected, bg-overlay
+ * Text:      text-heading, text-primary, text-secondary, text-muted
+ * Borders:   border-edge, border-edge-subtle, border-edge-strong
+ * Buttons:   bg-btn-primary, bg-btn-primary-hover, bg-btn-secondary, bg-btn-secondary-hover
+ * Accent:    text-accent, text-accent-hover, bg-accent, text-on-accent (foreground for bg-accent fills)
+ * Chips:     bg-chip, text-chip-text, border-chip-border
+ * Status:    bg-status-{warning|success|info|danger|neutral}-bg
+ *            text-status-{warning|success|info|danger|neutral}-text
+ *            border-status-{warning|success|info|danger|neutral}-border
+ *
+ * Baked tokens (panel, overlay, edge-subtle, all status *-bg, chip):
+ *   Do NOT use /alpha modifiers — opacity is built into the CSS value.
+ *
+ * Alpha tokens (page, surface, input, card-hover, selected, etc.):
+ *   You CAN use /alpha (e.g. bg-surface/50, text-primary/80).
+ */
+
+.dark {
+  /* Surfaces — Atom One Dark neutral grays, no blue tint */
+  --color-page:           33 37 43;                    /* #21252b */
+  --color-panel:          rgba(33, 37, 43, 1);         /* matches page — border defines structure */
+  --color-surface:        27 30 36;                    /* #1b1e24 — darker neutral */
+  --color-input:          40 44 52;                    /* #282c34 */
+  --color-card-hover:     40 44 52;                    /* #282c34 */
+  --color-selected:       40 44 52;                    /* #282c34 */
+  --color-overlay:        rgba(40, 44, 52, 0.6);      /* #282c34/60 */
+
+  /* Text */
+  --color-text-heading:   241 245 249;                 /* slate-100 */
+  --color-text-primary:   226 232 240;                 /* slate-200 */
+  --color-text-secondary: 148 163 184;                 /* slate-400 */
+  --color-text-muted:     100 116 139;                 /* slate-500 */
+
+  /* Borders — neutral grays */
+  --color-edge:           62 68 81;                    /* #3e4451 — Atom One Dark gutter */
+  --color-edge-subtle:    rgba(62, 68, 81, 0.5);      /* #3e4451/50 */
+  --color-edge-strong:    75 82 95;                    /* #4b525f */
+
+  /* Interactive */
+  --color-btn-primary:       62 68 81;                 /* #3e4451 */
+  --color-btn-primary-hover: 75 82 95;                 /* #4b525f */
+  --color-btn-secondary:       62 68 81;               /* #3e4451 */
+  --color-btn-secondary-hover: 75 82 95;               /* #4b525f */
+
+  /* Accent */
+  --color-accent:       96 165 250;                    /* blue-400 */
+  --color-accent-hover: 147 197 253;                   /* blue-300 */
+  --color-on-accent:    15 23 42;                       /* slate-900 — dark text reads on the light-blue accent (~7:1) */
+
+  /* Agent (Prompt Button — spec-103: the recognisable "hand off to an agent" colour) */
+  --color-agent:        139 92 246;                    /* violet-500 */
+  --color-agent-hover:  167 139 250;                   /* violet-400 */
+
+  /* Chips */
+  --color-chip:        rgba(62, 68, 81, 0.5);         /* #3e4451/50 */
+  --color-chip-text:   203 213 225;                    /* slate-300 */
+  --color-chip-border: 75 82 95;                       /* #4b525f */
+
+  /* Status: warning (draft, open) */
+  --color-status-warning-bg:     rgba(120, 53, 15, 0.5);  /* amber-900/50 */
+  --color-status-warning-text:   252 211 77;               /* amber-300 */
+  --color-status-warning-border: 180 83 9;                 /* amber-700 */
+
+  /* Status: success (active, resolved, complete) */
+  --color-status-success-bg:     rgba(6, 78, 59, 0.5);    /* emerald-900/50 */
+  --color-status-success-text:   110 231 183;              /* emerald-300 */
+  --color-status-success-border: 4 120 87;                 /* emerald-700 */
+
+  /* Status: info (in_progress) */
+  --color-status-info-bg:        rgba(30, 58, 138, 0.5);  /* blue-900/50 */
+  --color-status-info-text:      147 197 253;              /* blue-300 */
+  --color-status-info-border:    29 78 216;                /* blue-700 */
+
+  /* Status: danger (blocked, error) */
+  --color-status-danger-bg:      rgba(127, 29, 29, 0.5);  /* red-900/50 */
+  --color-status-danger-text:    252 165 165;              /* red-300 */
+  --color-status-danger-border:  185 28 28;                /* red-700 */
+
+  /* Status: neutral (not_started, archived, pending) */
+  --color-status-neutral-bg:     rgba(62, 68, 81, 0.5);   /* #3e4451/50 */
+  --color-status-neutral-text:   148 163 184;              /* slate-400 */
+  --color-status-neutral-border: 75 82 95;                 /* #4b525f */
+}
+
+.light {
+  /* Surfaces */
+  --color-page:           255 255 255;                 /* white */
+  --color-panel:          rgba(255, 255, 255, 1);      /* white */
+  --color-surface:        248 250 252;                 /* slate-50 */
+  --color-input:          255 255 255;                 /* white */
+  --color-card-hover:     248 250 252;                 /* slate-50 */
+  --color-selected:       248 250 252;                 /* slate-50 */
+  --color-overlay:        rgba(248, 250, 252, 1);      /* slate-50 */
+
+  /* Text */
+  --color-text-heading:   15 23 42;                    /* slate-900 */
+  --color-text-primary:   30 41 59;                    /* slate-800 */
+  --color-text-secondary: 100 116 139;                 /* slate-500 */
+  --color-text-muted:     148 163 184;                 /* slate-400 */
+
+  /* Borders */
+  --color-edge:           226 232 240;                 /* slate-200 */
+  --color-edge-subtle:    rgba(226, 232, 240, 1);      /* slate-200 */
+  --color-edge-strong:    203 213 225;                 /* slate-300 */
+
+  /* Interactive */
+  --color-btn-primary:       30 41 59;                 /* slate-800 */
+  --color-btn-primary-hover: 51 65 85;                 /* slate-700 */
+  --color-btn-secondary:       226 232 240;            /* slate-200 */
+  --color-btn-secondary-hover: 203 213 225;            /* slate-300 */
+
+  /* Accent */
+  --color-accent:       37 99 235;                     /* blue-600 */
+  --color-accent-hover: 29 78 216;                     /* blue-700 */
+  --color-on-accent:    255 255 255;                   /* white — reads on the darker blue-600 accent (~5:1) */
+
+  /* Agent (Prompt Button — spec-103: the recognisable "hand off to an agent" colour) */
+  --color-agent:        124 58 237;                    /* violet-600 */
+  --color-agent-hover:  109 40 217;                    /* violet-700 */
+
+  /* Chips */
+  --color-chip:        rgba(30, 41, 59, 1);            /* slate-800 */
+  --color-chip-text:   255 255 255;                    /* white */
+  --color-chip-border: 51 65 85;                       /* slate-700 */
+
+  /* Status: warning (draft, open) */
+  --color-status-warning-bg:     rgba(254, 243, 199, 1);  /* amber-100 */
+  --color-status-warning-text:   180 83 9;                 /* amber-700 */
+  --color-status-warning-border: 252 211 77;               /* amber-300 */
+
+  /* Status: success (active, resolved, complete) */
+  --color-status-success-bg:     rgba(209, 250, 229, 1);  /* emerald-100 */
+  --color-status-success-text:   4 120 87;                 /* emerald-700 */
+  --color-status-success-border: 110 231 183;              /* emerald-300 */
+
+  /* Status: info (in_progress) */
+  --color-status-info-bg:        rgba(219, 234, 254, 1);  /* blue-100 */
+  --color-status-info-text:      29 78 216;                /* blue-700 */
+  --color-status-info-border:    147 197 253;              /* blue-300 */
+
+  /* Status: danger (blocked, error) */
+  --color-status-danger-bg:      rgba(254, 226, 226, 1);  /* red-100 */
+  --color-status-danger-text:    185 28 28;                /* red-700 */
+  --color-status-danger-border:  252 165 165;              /* red-300 */
+
+  /* Status: neutral (not_started, archived, pending) */
+  --color-status-neutral-bg:     rgba(226, 232, 240, 1);  /* slate-200 */
+  --color-status-neutral-text:   71 85 105;                /* slate-600 */
+  --color-status-neutral-border: 203 213 225;              /* slate-300 */
+}
+
+@layer base {
+  body {
+    @apply antialiased;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter',
+      sans-serif;
+  }
+
+  .dark body, .dark {
+    background-color: rgb(var(--color-page));
+    color: rgb(var(--color-text-secondary));
+  }
+  .light body, .light {
+    background-color: rgb(var(--color-page));
+    color: rgb(var(--color-text-secondary));
+  }
+
+  /* Thin, subtle scrollbars */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(var(--color-edge) / 0.5) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 6px;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  *::-webkit-scrollbar-thumb {
+    background-color: rgb(var(--color-edge) / 0.5);
+    border-radius: 3px;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: rgb(var(--color-edge-strong) / 0.7);
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-semibold tracking-tight;
+    color: rgb(var(--color-text-heading));
+  }
+
+  a {
+    color: rgb(var(--color-accent));
+    @apply transition-colors;
+  }
+  a:hover {
+    color: rgb(var(--color-accent-hover));
+  }
+}
+
+/* ══════════════════════════════════════
+   Markdown content styles (token-based, works in both themes)
+   ══════════════════════════════════════ */
+.prose-content,
+.prose-dark {
+  color: rgb(var(--color-text-secondary));
+  @apply leading-relaxed;
+}
+.prose-content h1, .prose-dark h1 { color: rgb(var(--color-text-heading)); @apply text-3xl font-bold mt-8 mb-4; }
+.prose-content h2, .prose-dark h2 { color: rgb(var(--color-text-heading)); @apply text-2xl font-semibold mt-6 mb-3; }
+.prose-content h3, .prose-dark h3 { color: rgb(var(--color-text-heading)); @apply text-xl font-semibold mt-5 mb-2; }
+.prose-content h4, .prose-dark h4 { color: rgb(var(--color-text-heading)); @apply text-lg font-medium mt-4 mb-2; }
+.prose-content p, .prose-dark p { color: rgb(var(--color-text-primary)); @apply mb-4; }
+.prose-content ul, .prose-dark ul { color: rgb(var(--color-text-primary)); @apply list-disc list-inside mb-4 space-y-1; }
+.prose-content ol, .prose-dark ol { color: rgb(var(--color-text-primary)); @apply list-decimal list-inside mb-4 space-y-1; }
+.prose-content li, .prose-dark li { color: rgb(var(--color-text-primary)); }
+.prose-content blockquote, .prose-dark blockquote { border-left: 4px solid rgb(var(--color-edge-strong)); color: rgb(var(--color-text-secondary)); @apply pl-4 italic my-4; }
+.prose-content code, .prose-dark code { background: rgb(var(--color-input)); color: rgb(var(--color-status-success-text)); @apply px-1.5 py-0.5 rounded text-sm font-mono; }
+.prose-content pre, .prose-dark pre { background: rgb(var(--color-surface)); border: 1px solid rgb(var(--color-edge)); @apply rounded-lg p-4 overflow-x-auto my-4; }
+.prose-content pre code, .prose-dark pre code { @apply bg-transparent p-0; color: rgb(var(--color-text-primary)); }
+.prose-content table, .prose-dark table { @apply w-full border-collapse my-4; }
+.prose-content th, .prose-dark th { background: rgb(var(--color-input)); color: rgb(var(--color-text-primary)); border: 1px solid rgb(var(--color-edge)); @apply text-left px-4 py-2 font-medium; }
+.prose-content td, .prose-dark td { color: rgb(var(--color-text-primary)); border: 1px solid rgb(var(--color-edge)); @apply px-4 py-2; }
+.prose-content tr:nth-child(even), .prose-dark tr:nth-child(even) { background: var(--color-panel); }
+.prose-content hr, .prose-dark hr { border-color: rgb(var(--color-edge)); @apply my-6; }
+.prose-content a, .prose-dark a { color: rgb(var(--color-accent)); @apply underline; }
+.prose-content a:hover, .prose-dark a:hover { color: rgb(var(--color-accent-hover)); }
+.prose-content strong, .prose-dark strong { color: rgb(var(--color-text-heading)); @apply font-semibold; }
+.prose-content em, .prose-dark em { color: rgb(var(--color-text-primary)); }
+.prose-content img, .prose-dark img { @apply rounded-lg my-4 max-w-full; }
+
+@keyframes slide-in-right {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.animate-slide-in-right {
+  animation: slide-in-right 0.25s ease-out;
+}
+
+/* Pulse (b-60) — soft "live" heartbeat for LiveDot. A gentle opacity + scale
+   breathe, distinct from Tailwind's harder built-in `animate-pulse`. Respects
+   reduced-motion. */
+@keyframes pulse-live {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.45;
+    transform: scale(0.82);
+  }
+}
+
+.animate-pulse-live {
+  animation: pulse-live 2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-pulse-live {
+    animation: none;
+  }
+}
+
+/* Pulse (b-60) — highlight-on-arrival. A newly-prepended feed row gets a short
+   one-shot background tint that fades to transparent over ~1s. Not motion — a
+   colour fade — so it reads as "this just arrived" without sliding the layout.
+   Uses the success-text channels (space-separated, so /alpha works) at low
+   opacity so the tint matches the live dot's emerald hue in both themes. */
+@keyframes pulse-arrive {
+  from {
+    background-color: rgb(var(--color-status-success-text) / 0.22);
+  }
+  to {
+    background-color: rgb(var(--color-status-success-text) / 0);
+  }
+}
+
+.animate-pulse-arrive {
+  animation: pulse-arrive 1s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-pulse-arrive {
+    animation: none;
+  }
+}
+
+/* spec-123 (Option C): the opening-turn status indicator's three bouncing dots.
+   A subtle "live" affordance under the cycling honest status lines while the
+   agent's greeting streams. Pure CSS — no deps. Each dot is staggered so the
+   row reads as a gentle wave. Fully neutralised under reduced-motion (the dots
+   become static, and the line cycling is skipped in OpeningStatus.tsx), so the
+   indicator falls back to calm, honest text. */
+.opening-status-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.opening-status-dots > span {
+  width: 4px;
+  height: 4px;
+  border-radius: 9999px;
+  background-color: currentColor;
+  opacity: 0.55;
+  animation: opening-status-bounce 1.1s ease-in-out infinite;
+}
+.opening-status-dots > span:nth-child(2) {
+  animation-delay: 0.18s;
+}
+.opening-status-dots > span:nth-child(3) {
+  animation-delay: 0.36s;
+}
+
+@keyframes opening-status-bounce {
+  0%, 80%, 100% {
+    transform: translateY(0);
+    opacity: 0.4;
+  }
+  40% {
+    transform: translateY(-3px);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .opening-status-dots > span {
+    animation: none;
+    opacity: 0.55;
+  }
+}
+
+/* spec-100 (geo-comments): amber highlight painted over the anchored sentence
+   when a comment card or its marker is active. Uses the CSS Custom Highlight
+   API so no DOM mutation is needed inside react-markdown's output. */
+::highlight(geo-anchor) {
+  background-color: rgba(251, 191, 36, 0.45);
+  border-radius: 2px;
+}

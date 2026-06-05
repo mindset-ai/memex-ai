@@ -1,0 +1,1 @@
+Spec creation: shape the user's input into one or more Specs. Search the Memex first for collision + orientation, then `render_confirmation` with title + one-line overview, then `create_doc`. Do not scaffold body sections from this modal — the user expands the Spec from inside Memex after creation.

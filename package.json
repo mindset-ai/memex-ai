@@ -1,0 +1,23 @@
+{
+  "name": "memex-app",
+  "license": "SEE LICENSE IN LICENSE.md",
+  "private": true,
+  "packageManager": "pnpm@10.33.0",
+  "scripts": {
+    "dev:server": "pnpm --filter @memex/server dev",
+    "dev:admin": "pnpm --filter @memex/admin dev",
+    "build": "pnpm --filter @memex/server build && pnpm --filter @memex/admin build",
+    "build:server": "pnpm --filter @memex/server build",
+    "build:admin": "pnpm --filter @memex/admin build"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild", "protobufjs"],
+    "overrides": {
+      "vitest": "4.1.1",
+      "@vitest/coverage-v8": "4.1.1",
+      "@types/node": "22.19.15",
+      "react": "19.2.7",
+      "react-dom": "19.2.7"
+    }
+  }
+}

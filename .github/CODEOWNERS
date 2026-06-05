@@ -1,0 +1,11 @@
+# CODEOWNERS — files requiring specific reviewer approval.
+#
+# GitHub/GitLab will block a PR that touches one of these paths until the
+# named reviewer approves. The default for everything else is whoever owns
+# the touched package per the team's review rotation.
+
+# b-105 (Brief → Spec migration) — the legacy-vocab allowlist gates the
+# `no-legacy-spec-vocab.regression.test.ts` guard. "Just allowlist it"
+# would silently rot the migration, so additions require explicit sign-off
+# from the b-105 stakeholder group.
+/.legacy-spec-vocab-allowlist.txt @barriehadfield

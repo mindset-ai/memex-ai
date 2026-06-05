@@ -1,0 +1,17 @@
+services:
+  postgres:
+    # pgvector image is Postgres 16 + the pgvector extension preinstalled.
+    # Required by migration 0023 (codebase-intelligence embeddings table).
+    image: pgvector/pgvector:pg16
+    container_name: memex-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: memex
+    volumes:
+      - memex-pgdata:/var/lib/postgresql/data
+
+volumes:
+  memex-pgdata:

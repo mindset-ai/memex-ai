@@ -1,0 +1,35 @@
+# Files excluded from `gcloud builds submit` upload. Keeps the server build
+# context lean — admin/cli/extractor are deployed separately and aren't part
+# of the server image.
+
+.git
+.github
+.claude
+.vscode
+.idea
+.DS_Store
+
+node_modules
+**/node_modules
+
+dist
+**/dist
+**/.vitest-cache
+**/coverage
+
+.env
+.env.*
+*.log
+**/.logs
+
+# Other workspace packages aren't needed for the server image.
+packages/admin
+packages/cli
+packages/extractor
+
+# Misc
+docs
+blueprint
+*.md
+!packages/server/src/agent/skills/*.md
+!packages/server/src/agent/phases/**/*.md

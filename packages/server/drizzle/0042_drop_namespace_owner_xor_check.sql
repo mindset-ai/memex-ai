@@ -1,0 +1,28 @@
+-- t-14 follow-up: drop the namespaces_owner_xor CHECK constraint.
+--
+-- The constraint enforces "exactly one of owner_user_id / owner_org_id is
+-- set" at the row level. That's correct semantically, but it makes the
+-- creation flow impossible at the SQL layer:
+--
+--   1. INSERT INTO orgs requires namespace_id (FK); the namespace must exist
+--      first.
+--   2. INSERT INTO namespaces with kind='org' requires owner_org_id NOT NULL
+--      to satisfy the CHECK; but the org doesn't exist yet (FK fails).
+--
+-- Postgres can defer FK constraints (DEFERRABLE INITIALLY DEFERRED) but not
+-- CHECK constraints, so there's no way to bridge the cycle in a single
+-- transaction with the CHECK in place. The 0038 migration worked around
+-- this by inserting namespaces, orgs, and then the constraint at the end —
+-- but that's a one-shot trick.
+--
+-- Trade-off: we lose the row-level guarantee. Replacement: the application
+-- layer (services/accounts.ts:createOrgWithOwner) enforces the invariant
+-- inside the org-creation transaction (insert namespace → insert org → set
+-- owner_org_id, atomic). User-namespace inserts likewise set owner_user_id
+-- in the same INSERT.
+--
+-- A future, more sophisticated approach would be a pgPL trigger that
+-- enforces the invariant only at COMMIT — but for v1 single-writer (the
+-- app), the trigger overhead isn't justified.
+
+ALTER TABLE "namespaces" DROP CONSTRAINT IF EXISTS "namespaces_owner_xor";

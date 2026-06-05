@@ -1,0 +1,69 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1774436121165,
+      "tag": "0000_windy_darkstar",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1774454284659,
+      "tag": "0001_empty_proteus",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1774498139929,
+      "tag": "0002_slim_wilson_fisk",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1774785600000,
+      "tag": "0003_rename_to_docs",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1774789200000,
+      "tag": "0004_add_resolution",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1774875600000,
+      "tag": "0005_add_decisions_and_work_items",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1774962000000,
+      "tag": "0006_enhance_decisions_work_items",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1774963000000,
+      "tag": "0007_rename_work_items_to_tasks",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1775049000000,
+      "tag": "0008_add_conversations",
+      "breakpoints": true
+    }
+  ]
+}

@@ -1,0 +1,226 @@
+name: test
+
+# Branch-bound CI per std-21: `develop` is the integration line that must be
+# green before it fast-forwards into `main` (the release line). Gate both —
+# develop on every push/PR (where work actually lands), main on the release
+# fast-forward and any PR targeting it.
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  # Nightly perf run (see `perf` job below). Also triggerable manually from the Actions
+  # tab via workflow_dispatch when investigating concurrency regressions.
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+# One workflow run per ref. If a push lands while a prior run is still going, the older
+# run is cancelled — saves CI minutes and avoids merge-queue thrash.
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    # Postgres side-car. Same major version we run locally (schema.ts uses features
+    # introduced in 13+; production is Cloud SQL 16). Health check blocks `steps` from
+    # starting until the server is ready.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: memex
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/memex
+      # spec-129: authenticate AC-emission to the prod Memex. Value lives in the
+      # MEMEX_EMIT_KEY repo secret (Settings → Secrets and variables → Actions),
+      # never in this file; empty until set (harmless pre-enforcement), and what
+      # greens the spec-129 ac-5 gate once configured.
+      MEMEX_EMIT_KEY: ${{ secrets.MEMEX_EMIT_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Apply migrations
+        # Drizzle-kit journal covers 0000-0008; 0009+ are hand-written and applied
+        # directly so the journal doesn't try to re-run them. Piping each file in order
+        # mirrors what the local dev environment does (see `rake db:nuke`).
+        run: |
+          for f in packages/server/drizzle/*.sql; do
+            echo "Applying $f"
+            psql "$DATABASE_URL" -f "$f"
+          done
+
+      - name: Unit tests (no DB required but runs anyway, fast)
+        run: pnpm --filter @memex/server test:unit
+
+      - name: Integration tests
+        run: pnpm --filter @memex/server test:integration
+
+      - name: Security tests
+        run: pnpm --filter @memex/server test:security
+
+      - name: Regression tests
+        run: pnpm --filter @memex/server test:regression
+
+      - name: Coverage gate (fails if services drop below threshold)
+        run: pnpm --filter @memex/server test:coverage
+
+      - name: Upload coverage report
+        # Always upload — even on failure — so reviewers can diagnose threshold breaches.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-coverage
+          path: packages/server/coverage/
+          retention-days: 14
+
+      - name: Admin unit tests + coverage gate
+        run: pnpm --filter @memex/admin test:coverage
+
+      - name: Upload admin coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: admin-coverage
+          path: packages/admin/coverage/
+          retention-days: 14
+
+      - name: CLI installer tests
+        # memex-ai is a zero-dep package; vitest is a dev dep of the cli workspace. Fast
+        # (no DB), so piggyback on the same job rather than spinning up a new runner.
+        run: pnpm --filter memex-ai test
+
+  # Admin E2E (Playwright). Runs against a freshly migrated DB via the webServer block
+  # in playwright.config.ts — the same setup a developer uses locally.
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: test
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: memex
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/memex
+      # spec-129: authenticate AC-emission to the prod Memex. Value lives in the
+      # MEMEX_EMIT_KEY repo secret (Settings → Secrets and variables → Actions),
+      # never in this file; empty until set (harmless pre-enforcement), and what
+      # greens the spec-129 ac-5 gate once configured.
+      MEMEX_EMIT_KEY: ${{ secrets.MEMEX_EMIT_KEY }}
+      E2E_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/memex
+      # Journey 8 + 9 drive a deterministic Anthropic double via /api/__test__/anthropic-queue.
+      # See packages/server/src/agent/anthropic-fake.ts. playwright.config.ts sets this on
+      # the webServer block too; duplicating it here covers the case where CI reuses a pre-
+      # started process.
+      MEMEX_ANTHROPIC_FAKE: "1"
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Apply migrations
+        run: |
+          for f in packages/server/drizzle/*.sql; do psql "$DATABASE_URL" -f "$f"; done
+      - name: Install Playwright Chromium
+        run: pnpm --filter @memex/admin exec playwright install --with-deps chromium
+      - name: E2E journeys
+        run: pnpm --filter @memex/admin test:e2e
+      - name: Upload Playwright trace on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: packages/admin/test-results/
+          retention-days: 7
+
+  # Separate job (not part of the PR gate) — runs the slow perf suite nightly and on
+  # demand. Kept out of the per-PR path so reviewers aren't waiting on 20s of concurrent
+  # signup tests for unrelated changes.
+  perf:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: memex
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/memex
+      # spec-129: authenticate AC-emission to the prod Memex. Value lives in the
+      # MEMEX_EMIT_KEY repo secret (Settings → Secrets and variables → Actions),
+      # never in this file; empty until set (harmless pre-enforcement), and what
+      # greens the spec-129 ac-5 gate once configured.
+      MEMEX_EMIT_KEY: ${{ secrets.MEMEX_EMIT_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Apply migrations
+        run: |
+          for f in packages/server/drizzle/*.sql; do psql "$DATABASE_URL" -f "$f"; done
+      - name: Performance tests
+        run: pnpm --filter @memex/server test:perf

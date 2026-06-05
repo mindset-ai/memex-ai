@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <style>
+    .bg { fill: #21252b; }
+    .fg { fill: #ffffff; }
+    .accent { fill: #7b93b8; }
+    @media (prefers-color-scheme: light) {
+      .bg { fill: #0f172a; }
+    }
+  </style>
+  <rect class="bg" width="64" height="64" rx="14" />
+  <path class="fg" d="M14 22 h6 l6 12 l6 -12 h6 v22 h-6 v-12 l-4 8 h-4 l-4 -8 v12 h-6 z" />
+  <circle class="accent" cx="50" cy="44" r="3.5" />
+</svg>

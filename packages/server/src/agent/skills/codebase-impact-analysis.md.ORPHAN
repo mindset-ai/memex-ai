@@ -1,0 +1,49 @@
+<!-- NOT IN USE — paired with doc-24 (codebase intelligence tools commented out in tool-specs.ts). Restore alongside the tools. -->
+# Skill: Codebase Impact Analysis
+
+Load this skill when the user asks "what breaks if I change X?", "what depends on this?", or asks you to scope a proposed change. Impact analysis turns a vague idea ("refactor the auth middleware") into a concrete list of files the change would touch.
+
+## The two includes on `get_symbol`
+
+- **`get_symbol({ include: ['dependencies'], direction? })`** answers one hop: "what does this file import, and what files import it?" Call it when the user asks about direct relationships.
+- **`get_symbol({ include: ['impact'], depth? })`** answers N hops: "if this file changed, which files would transitively see the effect?" It walks the importer graph recursively up to a configurable depth. Call it when the user asks about blast radius, scope, or refactor safety.
+
+Both accept a `fileId` or a partial `path`. Prefer path when the user gave you one verbatim.
+
+## Choosing a depth
+
+`get_symbol({ include: ['impact'] })` defaults to depth 3. That is almost always the right number:
+
+- Depth 1: direct importers only. Same as `get_symbol({ include: ['dependencies'], direction: 'importers' })`.
+- Depth 2: captures most library-style fan-out where one file is imported by several files that are themselves re-exported.
+- Depth 3: the practical limit for "would I break something in an integration test?" most of the time.
+- Depth 5+: only when the user explicitly wants the full transitive closure and understands the answer might include a big chunk of the repo.
+
+Do not increase depth speculatively. The output grows quickly and harder-to-reach files become less actionable.
+
+## Grounding the answer
+
+The output lists each affected file and its distance from the subject. Use that distance as the skeleton of your answer:
+
+- Distance 1 files are the places the user actually has to edit when they change X.
+- Distance 2+ files are where they should verify behaviour, run tests, or add regressions.
+
+When the list is long, summarise by distance: "12 files at distance 1 (direct importers), 40 at distance 2, 80 at depth 3." That framing lets the user decide whether the refactor is safe to attempt in one pass or should be broken up.
+
+## What this does not capture
+
+`get_symbol({ include: ['impact'] })` follows file imports. It does not see:
+
+- **Runtime dispatch**: calls made via duck-typed interfaces, factory lookups, or message queues. A file can depend on another in practice without importing it.
+- **Config and data**: changes to a JSON schema or a Firestore document might affect code that never imports the changed file.
+- **Tests that only exercise behaviour end-to-end**: these do depend on the changed code but through the process, not through imports.
+
+When the user's question implies one of these (e.g. "what would the migration affect?"), say so plainly and complement with `code_search` for runtime string usage.
+
+## Follow-ups
+
+When you have the impact set:
+
+- If the user is about to make the change, propose creating tasks for each distance-1 file, with the original file's decision or Spec as the parent. `get_symbol({ include: ['impact'] })` → `create_task`s is the natural pipeline.
+- If the user is evaluating whether to do the change at all, translate the impact list into a risk statement: "this touches N files across M domains; the biggest cluster is in the X domain."
+- If the change is driven by a Memex decision, follow up with `flag_drift` (once wired) to mark the affected files for verification.

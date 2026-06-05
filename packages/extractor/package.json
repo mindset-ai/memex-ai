@@ -1,0 +1,28 @@
+{
+  "name": "@memex/extractor",
+  "version": "0.0.1",
+  "license": "SEE LICENSE IN LICENSE.md",
+  "private": true,
+  "type": "module",
+  "description": "Deterministic codebase distillation pipeline. Walks a repo, parses with tree-sitter, writes structured data (files, symbols, dependencies, calls, endpoints, domains, tech stack) into Memex's Postgres via @memex/server services.",
+  "scripts": {
+    "extract": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@memex/server": "workspace:*",
+    "dotenv": "^16.4.7",
+    "drizzle-orm": "^0.39.0",
+    "postgres": "^3.4.5",
+    "tree-sitter-wasms": "^0.1.12",
+    "web-tree-sitter": "^0.25.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.1"
+  }
+}

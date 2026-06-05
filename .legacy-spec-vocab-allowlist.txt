@@ -1,0 +1,214 @@
+# .legacy-spec-vocab-allowlist.txt
+#
+# Allowlist for `no-legacy-spec-vocab.regression.test.ts` (b-105 / dec-10).
+#
+# The regression test scans `packages/`, `docs/`, `scripts/`, the Makefile,
+# and repo-root `*.md` / `*.json` for `\b(brief|mission|strategy)\b`
+# (case-insensitive). Every match must either be removed from the source
+# tree (preferred for prose) or allowlisted here with a justification
+# comment.
+#
+# Line formats:
+#   path                    — entire file allowlisted
+#   path/**                 — entire directory tree allowlisted
+#   path:line-regex         — only lines (in `path`) matching `line-regex`
+#                             are allowlisted
+#
+# Modifications to this file require explicit reviewer approval (see
+# .github/CODEOWNERS). "Just allowlist it" is not the default escape
+# hatch — prefer fixing the source.
+
+# ============================================================
+# Immutable migration history
+# ============================================================
+# Every historical Drizzle migration is immutable by definition. They name
+# both ends of each rename round (strategy → mission → brief → spec) and
+# must remain readable as-is. Also covers `0063_brief_to_spec.sql`, the
+# migration that performs this rename itself.
+packages/server/drizzle/**
+
+# ============================================================
+# Archived design docs (pre-b-105 lineage)
+# ============================================================
+# mvp-001 was the original Strategy-tool MVP; start-001 was the
+# Mission-era platform doc. Both are archive material and the literal
+# token "strategy" / "mission" / "brief" is essential to their meaning.
+docs/mvp-001-strategy-tool/**
+docs/start-001-platform/**
+
+# ============================================================
+# Release + migration narrative
+# ============================================================
+# Release history must record the rename itself.
+CHANGELOG.md
+
+# The migration's own runbook.
+docs/migrations/b-105-brief-to-spec.md
+
+# ============================================================
+# These regression tests
+# ============================================================
+# The vocab guard test names the forbidden tokens in order to test for them.
+packages/server/src/__regression__/no-legacy-spec-vocab.regression.test.ts
+# The migration-allowlist guard test verifies the four allowlisted Briefs
+# (b-10/b-26/b-65/b-105) and their handle prefixes appear verbatim in the
+# 0063 migration SQL — those names are load-bearing assertions.
+packages/server/src/__regression__/spec-migration-allowlist.regression.test.ts
+
+# ============================================================
+# Wire-format compat surfaces
+# ============================================================
+# The `referenceBriefId` FK column is named after the pre-b-105 noun. It
+# corresponds to the `reference_brief_id` DB column (renamed by drizzle
+# migration 0050 from `reference_mission_id`); renaming the column to
+# `reference_spec_id` requires a separate Drizzle migration and a wire-
+# protocol bump and is OUT OF SCOPE for b-105. Both the column name and
+# the `kind: "brief"` discriminator are preserved verbatim so existing
+# clients (and existing rows) keep working.
+packages/server/src/services/comments.ts
+
+# The `Brief → Spec` redirect implementation. The whole file's purpose is
+# to translate legacy `/briefs/b-N` URLs into the new `/specs/spec-N`
+# shape — every mention of "Brief" is load-bearing.
+packages/server/src/services/redirects.ts
+
+# DB schema lineage comment on the `documents` table — the column name
+# is preserved across the rename and the comment explains why.
+packages/server/src/db/schema.ts
+
+# ============================================================
+# Specific-line allowlists (historical lineage notes)
+# ============================================================
+# These files contain prose elsewhere that legitimately uses "Spec"; only
+# the cited lines mention the legacy lineage and the line-regex pins the
+# allowlist to the lineage comment.
+packages/server/src/agent/tool-specs.ts:referenceBriefId
+packages/server/src/mcp/formatters.ts:referenceBriefId
+packages/server/src/mcp/migration-map.ts:missionId
+packages/server/src/mcp/tools.test.ts:b-105 renamed Brief
+packages/server/src/mcp/tools.test.ts:Strategy.*Mission.*Brief.*Spec
+packages/server/src/mcp/spec-tools.integration.test.ts:formerly Mission/Brief
+packages/server/src/mcp/spec-tools.integration.test.ts:b-105 Brief
+packages/server/src/services/decisions.ts:strategy.*mission.*brief.*spec
+packages/server/src/services/redirects.integration.test.ts:Brief\)
+packages/server/src/types/roles.ts:originally
+packages/server/src/types/roles.test.ts:'strategy'
+packages/server/src/types/roles.test.ts:'brief'
+
+# DecisionLink test: asserts the pre-b-105 fallback rendering when a
+# legacy `'brief'` docType row is referenced. The literal value is part
+# of the test contract.
+packages/admin/src/components/DecisionLink.test.tsx
+
+# ============================================================
+# Whitepaper lineage prose
+# ============================================================
+# The whitepapers carry an opening "Naming:" callout describing the
+# rename lineage. Sample decision titles in the v2 narrative also mention
+# legacy nouns ("Cache invalidation strategy", "Our mission is").
+docs/whitepaper.md:originally used
+docs/whitepaper_v2.md:originally used
+docs/whitepaper_v2.md:Our mission is
+docs/whitepaper_v2.md:Cache invalidation strategy
+docs/whitepaper_v3.md:originally used
+
+# ============================================================
+# Agentic interface spec — generic English "strategy" usage
+# ============================================================
+# This document is about caching strategy and uses the English word
+# "strategy" in its technical sense throughout. Not the product noun.
+docs/agentic-interface-spec.md:caching strategy
+docs/agentic-interface-spec.md:4-breakpoint strategy
+docs/agentic-interface-spec.md:Prompt Caching Strategy
+docs/agentic-interface-spec.md:3-breakpoint prompt caching strategy
+
+# ============================================================
+# Agent audit checklist — describes the forbidden tokens
+# ============================================================
+docs/agent-audit-checklist.md:should not appear
+
+# ============================================================
+# b-105 AC coverage regression test — must literally name the tokens
+# ============================================================
+# This test queries the DB and source files for legacy brief/mission/strategy
+# vocabulary as part of asserting ac-4 / ac-7 / ac-9 / ac-10 / ac-22. The
+# tokens appear in its SQL strings and regex literals, not as drift.
+packages/server/src/__regression__/b105-ac-coverage.regression.test.ts
+
+# ============================================================
+# SDD.md (repo root) — historical essay on spec-driven development
+# ============================================================
+# Pre-b-105 essay describing how agent prompts reference "the Brief's
+# Acceptance Criteria" and the brief-document skill. Names files and
+# concepts as they existed at the time of writing. Historical content,
+# preserved verbatim.
+SDD.md
+
+# ============================================================
+# AC primitive hypothesis — pre-b-105 opinion piece
+# ============================================================
+# Companion to whitepaper v3, written in the Brief era as the argument for
+# adding `ac` as a first-class primitive. Now historical rationale (the AC
+# primitive shipped via b-66/b-68/b-90/b-97). Names the noun and the DB
+# shape (`brief_id`, polymorphic `parent_kind='brief'`) as they existed at
+# the time of writing. Preserved verbatim as design lineage.
+docs/ac-primitive-hypothesis.md
+
+# ============================================================
+# Upstream b-68 AC integration tests — wire-format compat
+# ============================================================
+# These tests exercise the AC primitive (b-68 / b-90) which uses `briefId`
+# field names mirroring the `brief_id` DB column. Local helpers `seedBrief`
+# and discriminator `kind: "brief"` match the wire-format that's already
+# allowlisted in services/comments.ts and db/schema.ts. Renaming requires a
+# schema migration outside b-105's scope.
+packages/server/src/services/acs-verification.integration.test.ts
+packages/server/src/services/decisions-need-acs.integration.test.ts
+packages/server/src/services/acs-health-aggregator.integration.test.ts
+packages/server/src/services/acs-health-parity.integration.test.ts
+packages/server/src/services/acs.ts
+
+# ============================================================
+# AC parent-kind discriminator (ac_parent_links.parent_kind)
+# ============================================================
+# The `ac_parent_links` CHECK constraint is `parent_kind IN ('brief','decision')`
+# (db/schema.ts). The `'brief'` discriminator value is the DB-level parentage
+# tag for Scope ACs (parent = the doc), NOT the product noun. Renaming it to
+# 'spec' needs a separate Drizzle migration + row backfill — same posture as
+# `comments.ts`'s `kind: "brief"`. These lines build/declare that discriminator
+# in the create_ac MCP handler and the React API client type; the surrounding
+# product prose already reads "Spec".
+packages/server/src/agent/tool-specs.ts:kind: "brief"
+packages/server/src/agent/tool-specs.ts:it stays "brief"
+packages/admin/src/api/client.ts:kind: 'brief'
+packages/admin/src/api/client.ts:which stays 'brief'
+# spec-112 (Issues) asserts the wire-format discriminator survives the
+# `ac_parent_links_kind_valid` CHECK migration unchanged — a `.toContain("brief")`
+# on the constraint def. The literal is the DB value, not product prose.
+packages/server/src/db/spec-112-issues-schema.test.ts:toContain\("brief"\)
+
+# ============================================================
+# Global search (develop) — "strategy" = search strategy, not the legacy doc-type
+# ============================================================
+# spec-150 merge: develop's global-search feature uses the word "strategy" in the
+# search-strategy sense (handle | fts | semantic), unrelated to the b-105 legacy
+# doc-type token. False positives.
+packages/admin/src/api/client.ts:Which strategy surfaced
+packages/server/src/services/memex-search.ts:search strategy
+
+# ============================================================
+# React UI create-detection parser — brief-era lineage
+# ============================================================
+# The create_doc success-prefix parser (admin agent graph) must keep matching
+# the historical `Document` → `Brief` → `Spec` nouns so older/cross-env server
+# responses still trigger the New Spec modal close. The `Brief` literal in the
+# tolerant regex and its lineage comment are load-bearing, not drift; spec-155
+# ac-3/ac-5 pin this back-compat behaviour. The test cases that exercise the
+# brief-era shape carry the legacy `briefs/b-N` path + "Brief Era" fixture
+# verbatim because they assert the parser still handles it.
+packages/admin/src/agent/graph.ts:Document. → .Brief. → .Spec
+packages/admin/src/agent/graph.ts:\(?:Document\|Brief\|Spec\) created:
+packages/admin/src/agent/graph.test.ts:Document\|Brief\|Spec prefix
+packages/admin/src/agent/graph.test.ts:Brief created: ref
+packages/admin/src/agent/graph.test.ts:briefs/b-42
+packages/admin/src/agent/graph.test.ts:Brief Era

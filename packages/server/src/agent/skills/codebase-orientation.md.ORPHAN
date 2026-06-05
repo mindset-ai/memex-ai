@@ -1,0 +1,42 @@
+<!-- NOT IN USE — paired with doc-24 (codebase intelligence tools commented out in tool-specs.ts). Restore alongside the tools. -->
+# Skill: Codebase Orientation
+
+Load this skill whenever the user asks a question about a connected repo — "how does the proxy work?", "where do we handle auth?", "what does this service do?". It teaches you the disciplined way to enter a codebase you do not know.
+
+## The rule: orient, then target
+
+Never jump straight into `list_symbols` or `code_search`. Every codebase-intelligence session starts with **one call to `get_repo`**. That tool returns:
+
+- file and symbol counts (is this small enough to read linearly, or is it big and you need to be selective?)
+- tech stack by layer (FastAPI? Flask? Hono? Drizzle? LangGraph? Which frameworks do I need to remember for the rest of this conversation?)
+- detected domains with their file counts and aliases (what are the business-level parts of this codebase?)
+- structural conventions (does this repo use a `routes/` folder? a `services/` folder? where do HTTP endpoints live?)
+
+Those four pieces together are your map. You cannot make good decisions about which other tool to call until you have them.
+
+## After orient, target
+
+Pick the next tool based on the *shape* of the user's question:
+
+- **"How does X work?" / "Where is X implemented?"** → `list_symbols` (if you know the symbol name) or `code_search` (if you only know a concept).
+- **"What are all the HTTP endpoints?" / "Does this expose a /foo route?"** → `list_symbols({ kind: 'endpoint' })`, scoped by domain alias when the user names a business area.
+- **"What would break if I changed X?"** → `get_symbol({ include: ['impact'] })` on the file.
+- **"Who calls this function?" / "What does this call?"** → `get_symbol({ symbolId, include: ['calls'] })`.
+- **"What imports this file?" / "What does this file import?"** → `get_symbol({ include: ['dependencies'] })`.
+- **"Show me the actual code for X."** → `get_file`. Reserve this for when structural data is not enough; it returns the full file.
+
+## Domain aliases are the shortcut
+
+If the user says "the proxy" or "agent v3" or any business name, those are aliases stored on `repo_domains`. Passing `domain: "proxy"` to `list_symbols` or `code_search` scopes automatically to that domain's file paths. Use them. The user's vocabulary is the API.
+
+If no alias is set and the user uses a business name, the tool falls back to a substring match on the name. That usually works but is less precise — propose `update_repo({ domainAliases: { ... } })` when you notice a gap.
+
+## What you must not do
+
+- Do not call `get_file` as your first move. It dumps a whole file into context; you use context budget for data you cannot infer from structural tables.
+- Do not invent symbol names. If `list_symbols` returns nothing, widen the query (shorter substring) or fall back to `code_search`. Do not try permutations.
+- Do not skip `get_repo`. Even if you think you remember the repo — previous conversations are not context.
+
+## The shape of a good answer
+
+When you have what you need, write a direct answer grounded in what the tools returned. Reference specific paths (`cloud-functions/monkee.ai_CR_proxy_service/routes/rag.py:42`) so the user can click through. Never guess at code you have not seen; either call `get_file` or say you would need to read the file to be sure.
