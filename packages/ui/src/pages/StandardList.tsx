@@ -7,6 +7,7 @@ import { formatDate } from '../utils/format';
 import { Spinner } from '../components/Spinner';
 import { tenantPath, getCurrentTenant } from '../utils/tenantUrl';
 import { PageHeader } from '../components/PageHeader';
+import { StandardsMap } from '../components/StandardsMap';
 
 /**
  * Build the templated "audit my codebase against the standards" prompt
@@ -47,12 +48,41 @@ function buildAuditPrompt(memexName: string, baseUrl: string, count: number): st
  * call (t-19 W2 aggregate endpoint), so the list stays one round-trip regardless of
  * standard count — replaces the previous N+1 fan-out via fetchDocComments.
  */
+// spec-179 (ac-16): the list ⇄ map view toggle persists per user per tenant.
+// localStorage is the per-user store the UI already has client-side; the key
+// is tenant-scoped so different memexes can hold different modes.
+type StandardsView = 'list' | 'map';
+
+function viewStorageKey(): string {
+  const t = getCurrentTenant();
+  return `memex:standards-view:${t ? `${t.namespace}/${t.memex}` : 'default'}`;
+}
+
+function loadStoredView(): StandardsView {
+  try {
+    return localStorage.getItem(viewStorageKey()) === 'map' ? 'map' : 'list';
+  } catch {
+    return 'list';
+  }
+}
+
 export function StandardList() {
   const navigate = useNavigate();
   const [docs, setDocs] = useState<DocSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [view, setView] = useState<StandardsView>(loadStoredView);
+
+  const switchView = useCallback((next: StandardsView) => {
+    setView(next);
+    try {
+      localStorage.setItem(viewStorageKey(), next);
+    } catch {
+      // Storage can be unavailable (private mode); the toggle still works for
+      // the session, it just won't persist.
+    }
+  }, []);
 
   async function handleCopyAuditPrompt() {
     const memexName = currentMemexName();
@@ -116,21 +146,49 @@ export function StandardList() {
       <PageHeader
         title="Standards"
         actions={
-          <button
-            type="button"
-            onClick={handleCopyAuditPrompt}
-            disabled={docs.length === 0}
-            className="text-xs px-3 py-1.5 rounded border border-edge text-secondary hover:bg-card-hover disabled:opacity-40 disabled:cursor-not-allowed"
-            title="Copy a prompt instructing a fresh agent to audit the codebase against these standards"
-            data-testid="copy-audit-prompt"
-          >
-            {copied ? 'Copied!' : 'Copy audit prompt'}
-          </button>
+          <div className="flex items-center gap-2">
+            {/* spec-179 (ac-3/ac-16): list ⇄ map segmented control. */}
+            <div
+              className="flex rounded border border-edge overflow-hidden"
+              role="group"
+              aria-label="Standards view"
+              data-testid="standards-view-toggle"
+            >
+              {(['list', 'map'] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => switchView(mode)}
+                  aria-pressed={view === mode}
+                  className={`text-xs px-3 py-1.5 transition-colors ${
+                    view === mode
+                      ? 'bg-card-hover text-heading'
+                      : 'text-secondary hover:bg-card-hover'
+                  }`}
+                  data-testid={`standards-view-${mode}`}
+                >
+                  {mode}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={handleCopyAuditPrompt}
+              disabled={docs.length === 0}
+              className="text-xs px-3 py-1.5 rounded border border-edge text-secondary hover:bg-card-hover disabled:opacity-40 disabled:cursor-not-allowed"
+              title="Copy a prompt instructing a fresh agent to audit the codebase against these standards"
+              data-testid="copy-audit-prompt"
+            >
+              {copied ? 'Copied!' : 'Copy audit prompt'}
+            </button>
+          </div>
         }
       />
 
       <div className="flex-1 min-h-0 overflow-y-auto">
-        {docs.length === 0 ? (
+        {view === 'map' ? (
+          <StandardsMap />
+        ) : docs.length === 0 ? (
           <div className="border border-edge-subtle rounded-lg p-8 text-center bg-surface/40">
             <p className="text-sm text-secondary mb-1">No standards yet.</p>
             <p className="text-xs text-muted">
