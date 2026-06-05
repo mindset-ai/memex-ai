@@ -494,6 +494,60 @@ export class PgBusRelay implements BusRelay {
 // fire-and-forget statement and does not need a dedicated socket.
 
 /**
+ * The raw postgres-js listen shape: `sql.listen(channel, onNotify, onListen)`.
+ * Pulled out so the onlisten-bridging logic below is unit-testable without a
+ * real postgres client (issue-1 pins the rejected-initial-connect path).
+ */
+type RawListen = (
+  channel: string,
+  onNotify: (payload: string) => void,
+  onListen: () => void,
+) => Promise<unknown>;
+
+/**
+ * Bridge postgres-js's onlisten signal onto the relay's ListenCallbacks
+ * contract. postgres-js does NOT expose a per-channel "socket dropped"
+ * callback on the internal listen sub-client (its onclose is hardcoded to
+ * re-listen), so the only event we can observe is RECOVERY: onlisten fires on
+ * the initial connect AND on every internal reconnect. The first call is the
+ * initial connect (no gap to converge); each subsequent call means the LISTEN
+ * was just re-established after a drop — that is our reconnect signal, which
+ * fires the relay's degrade→restore + nudge path (ac-9).
+ *
+ * One wrinkle (issue-1): when the INITIAL listen() promise REJECTS (boot while
+ * the DB is restarting), postgres-js keeps the listener registered and still
+ * re-establishes it internally — so the NEXT onlisten is a RECOVERY from a
+ * failure the relay already observed, not the "initial connect". It must
+ * surface as a reconnect, or the relay strands at status "connecting" forever
+ * (connects=0, no nudge) while events flow underneath — health lying about a
+ * live relay.
+ */
+export function bridgePgListen(rawListen: RawListen): ListenDriver["listen"] {
+  return async (channel, { onNotify, onReconnect }) => {
+    let established = false;
+    let initialRejected = false;
+    const pending = rawListen(channel, onNotify, () => {
+      if (!established) {
+        established = true;
+        // The awaited establish already failed → this onlisten is postgres-js
+        // recovering from the rejected initial connect (issue-1). The relay
+        // counted the failure via onError; surface the recovery as a reconnect
+        // so markEstablished runs (status → "listening", nudge fires).
+        if (initialRejected) onReconnect?.();
+        return;
+      }
+      onReconnect?.();
+    });
+    try {
+      await pending;
+    } catch (err) {
+      initialRejected = true;
+      throw err;
+    }
+  };
+}
+
+/**
  * Build a ListenDriver backed by its OWN single-connection postgres client
  * (NOT the shared pool). The connection string is taken from DATABASE_URL by
  * default, matching db/connection.ts, with the same Cloud SQL socket handling.
@@ -520,23 +574,7 @@ export function createPgListenDriver(opts?: {
     // node_modules/postgres/src/index.js listen()). The relay must NOT also run
     // its own backoff loop, or two LISTENers would race — hence selfReconnects.
     selfReconnects: true,
-    async listen(channel, { onNotify, onReconnect }) {
-      // postgres-js does NOT expose a per-channel "socket dropped" callback on
-      // the internal listen sub-client (its onclose is hardcoded to re-listen),
-      // so the only event we can observe is RECOVERY: onlisten fires on the
-      // initial connect AND on every internal reconnect. The first call is the
-      // initial connect (no gap to converge); each subsequent call means the
-      // LISTEN was just re-established after a drop — that is our reconnect
-      // signal, which fires the relay's degrade→restore + nudge path (ac-9).
-      let established = false;
-      await sql.listen(channel, onNotify, () => {
-        if (!established) {
-          established = true;
-          return;
-        }
-        onReconnect?.();
-      });
-    },
+    listen: bridgePgListen((channel, onNotify, onListen) => sql.listen(channel, onNotify, onListen)),
     async close() {
       await sql.end({ timeout: 5 });
     },
