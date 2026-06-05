@@ -213,6 +213,7 @@ describe("doc-16 t-11 / spec-156 ac-25: endpoint coverage — every mutation ent
 
   it("ac-25: FORWARD — every mutating manifest tool (readOnlyHint=false) is covered", () => {
     tagAc(`${AC}/ac-25`);
+    tagAc(`${AC}/ac-3`); // scope ac-3: enforcement-suite-fails-on-bypass guarantee
     const catalogued = new Set(Object.keys(MUTATING_MCP_TOOLS));
     const uncovered: string[] = [];
     for (const name of manifestMutating) {
@@ -233,6 +234,7 @@ describe("doc-16 t-11 / spec-156 ac-25: endpoint coverage — every mutation ent
 
   it("ac-25: REVERSE — every catalogued tool exists in the manifest and is non-read-only there", () => {
     tagAc(`${AC}/ac-25`);
+    tagAc(`${AC}/ac-3`); // scope ac-3: enforcement-suite-fails-on-bypass guarantee
     const manifestByName = new Map(toolManifest.map((e) => [e.name, e]));
     const problems: string[] = [];
     for (const name of Object.keys(MUTATING_MCP_TOOLS)) {

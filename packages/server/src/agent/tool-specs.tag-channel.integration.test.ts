@@ -126,6 +126,7 @@ describe("spec-156 ac-19: update_doc tag-write channel follows the invoking cont
 
   it("in_app_agent ctx → tag write emits channel 'in_app_agent'", async () => {
     tagAc(AC_19);
+    tagAc("mindset-prod/memex-building-itself/specs/spec-156/acs/ac-2"); // scope ac-2: channel-attribution finding
     const received = captureTagEvents();
     await specByName("update_doc").handler(
       { ref, tags: ["agentwrote"] },

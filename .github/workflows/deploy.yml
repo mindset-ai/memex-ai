@@ -95,6 +95,11 @@ jobs:
       - name: Deploy (server + UI + smoke)
         # SMOKE_MCP_TOKEN enables the authed write tier of the smoke suite
         # (b-70 t-8); the suite skips that tier cleanly when unset.
+        # MEMEX_EMIT_KEY lets the smoke suite's tagAc() emissions land on the
+        # prod memex (spec-156 ac-12/ac-13: the live relay-health + MCP→SSE
+        # checks verify their ACs on every deploy). Without it the smoke still
+        # runs — emissions are just silently rejected 401.
         env:
           SMOKE_MCP_TOKEN: ${{ secrets.SMOKE_MCP_TOKEN }}
+          MEMEX_EMIT_KEY: ${{ secrets.MEMEX_EMIT_KEY }}
         run: bash deploy.sh

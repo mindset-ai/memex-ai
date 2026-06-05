@@ -50,6 +50,7 @@ describe(`bus-relay smoke @ ${SMOKE_BASE_URL}`, () => {
   // ── ac-12: the relay's LISTEN health is exposed on /api/health and is LIVE.
   it("GET /api/health → relay is attached and LISTENing (spec-156 ac-12)", async () => {
     tagAc(`${AC}/ac-12`);
+    tagAc(`${AC}/ac-4`); // scope ac-4: cross-instance guarantee observable on live envs
     const res = await fetch(`${SMOKE_BASE_URL}/api/health`);
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
@@ -159,6 +160,8 @@ describe.skipIf(!SMOKE_MCP_TOKEN)(
     //    stream within a bounded window — the full mutate→bus→SSE path, deployed.
     it("MCP mutation arrives as a doc_change SSE frame within a bounded window (spec-156 ac-13)", async () => {
       tagAc(`${AC}/ac-13`);
+      tagAc(`${AC}/ac-4`); // scope ac-4: live end-to-end MCP→SSE proof
+      tagAc(`${AC}/ac-1`); // scope ac-1: the exact kanban scenario, against the deployed env
       // Guard rail: only ever drive writes against an obvious throwaway namespace.
       if (!/smoke/i.test(SMOKE_NAMESPACE)) {
         throw new Error(

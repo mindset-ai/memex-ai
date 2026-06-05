@@ -71,6 +71,7 @@ function requireMutated<T>(value: Mutated<T>): T {
 describe("spec-156 ac-17: proposeStandardChange dual-emits standard_drift.created", () => {
   it("emits standard_drift.created alongside the inner comment.created, mirroring flagDrift", async () => {
     tagAc(`${AC}/ac-17`);
+    tagAc(`${AC}/ac-2`); // scope ac-2: audit-finding remediation (this finding's proof)
     const memexId = await makeTestMemex("s156-ac17");
     const bp = await createStandard(memexId, {
       title: "Drift proposal target",
@@ -125,6 +126,7 @@ describe("spec-156 ac-17: proposeStandardChange dual-emits standard_drift.create
 describe("spec-156 ac-20: composite orchestrators preserve the Mutated brand", () => {
   it("addBlocker / removeBlocker return Mutated<void>", async () => {
     tagAc(`${AC}/ac-20`);
+    tagAc(`${AC}/ac-2`); // scope ac-2: audit-finding remediation (this finding's proof)
     const memexId = await makeTestMemex("s156-ac20-b");
     const doc = await createDocDraft(memexId, "Blocker Spec", "purpose", "spec");
     createdDocIds.push(doc.id);
@@ -173,6 +175,7 @@ describe("spec-156 ac-20: composite orchestrators preserve the Mutated brand", (
 describe("spec-156 ac-26: the waitlist insert emits waitlist_entry.created", () => {
   it("fires waitlist_entry.created on signup (silent:true removed)", async () => {
     tagAc(`${AC}/ac-26`);
+    tagAc(`${AC}/ac-2`); // scope ac-2: audit-finding remediation (this finding's proof)
     const email = `s156-ac26-${Date.now().toString(36)}@example.com`;
     createdEmails.push(email);
 
@@ -193,6 +196,7 @@ describe("spec-156 ac-26: the waitlist insert emits waitlist_entry.created", () 
 describe("spec-156 ac-18: OAuth writes go through mutate({silent:true}), de-allowlisted", () => {
   it("registerClient routes through mutate({silent:true}) — write counted, row lands, NO bus emit", async () => {
     tagAc(`${AC}/ac-18`);
+    tagAc(`${AC}/ac-2`); // scope ac-2: audit-finding remediation (this finding's proof)
     // The {silent:true} contract (std-8 §6): the write IS a mutate() — so the
     // coverage scanner is satisfied and the Mutated brand is preserved — but it
     // intentionally emits NO bus event (anonymous cross-tenant OAuth registry,
