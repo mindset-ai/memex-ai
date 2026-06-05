@@ -23,7 +23,7 @@ dist
 **/.logs
 
 # Other workspace packages aren't needed for the server image.
-packages/admin
+packages/ui
 packages/cli
 packages/extractor
 

@@ -10,7 +10,7 @@ name: test
 #           unit/integration/security/regression steps (they were subsets of
 #           the same include) AND the coverage gate that used to re-run
 #           everything a second time.
-#   admin   React UI unit tests + coverage gate (jsdom, no database).
+#   ui      React UI unit tests + coverage gate (jsdom, no database).
 #   cli     memex-ai installer tests (zero-dep, no database).
 #   e2e     Playwright journeys against a freshly migrated DB. Deliberately
 #           NOT `needs: server` — it boots its own stack, and serializing it
@@ -108,7 +108,7 @@ jobs:
           retention-days: 14
 
   # React UI unit tests (jsdom) + coverage gate. No database.
-  admin:
+  ui:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -121,14 +121,14 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Admin unit tests + coverage gate
-        run: pnpm --filter @memex/admin test:coverage
-      - name: Upload admin coverage report
+      - name: UI unit tests + coverage gate
+        run: pnpm --filter @memex/ui test:coverage
+      - name: Upload UI coverage report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: admin-coverage
-          path: packages/admin/coverage/
+          name: ui-coverage
+          path: packages/ui/coverage/
           retention-days: 14
 
   # memex-ai is a zero-dep package; vitest is a dev dep of the cli workspace.
@@ -149,7 +149,7 @@ jobs:
       - name: CLI installer tests
         run: pnpm --filter memex-ai test
 
-  # Admin E2E (Playwright). Runs against a freshly migrated DB via the webServer block
+  # UI E2E (Playwright). Runs against a freshly migrated DB via the webServer block
   # in playwright.config.ts — the same setup a developer uses locally.
   #
   # TEMPORARILY out of the per-PR path (nightly/manual only, like perf): the
@@ -213,15 +213,15 @@ jobs:
         run: |
           for f in packages/server/drizzle/*.sql; do psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f "$f"; done
       - name: Install Playwright Chromium
-        run: pnpm --filter @memex/admin exec playwright install --with-deps chromium
+        run: pnpm --filter @memex/ui exec playwright install --with-deps chromium
       - name: E2E journeys
-        run: pnpm --filter @memex/admin test:e2e
+        run: pnpm --filter @memex/ui test:e2e
       - name: Upload Playwright trace on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: playwright-traces
-          path: packages/admin/test-results/
+          path: packages/ui/test-results/
           retention-days: 7
 
   # Separate job (not part of the PR gate) — runs the slow perf suite nightly and on

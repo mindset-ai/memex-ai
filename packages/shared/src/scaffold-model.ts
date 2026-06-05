@@ -187,7 +187,7 @@ export interface ScaffoldDataset {
 
 // ──────────────────────────────────────────────────────────────────────────
 // Projection output shapes. Downstream consumers in `packages/server` and
-// `packages/admin` import these directly.
+// `packages/ui` import these directly.
 // ──────────────────────────────────────────────────────────────────────────
 
 /** Anthropic system-block shape (matches the existing

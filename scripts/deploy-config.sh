@@ -1,7 +1,7 @@
 #!/bin/bash
 # scripts/deploy-config.sh — env-aware deploy configuration loader.
 #
-# Sourced by the deploy.sh scripts (root + packages/server + packages/admin)
+# Sourced by the deploy.sh scripts (root + packages/server + packages/ui)
 # to populate per-environment variables. Driven by `ENV` (defaults to `int`).
 #
 # Per-environment VALUES are NOT stored here — they live in gitignored files
@@ -13,7 +13,8 @@
 # PAM-gated access — deployers hold no standing roles on the GCP projects.
 # Request the relevant PAM entitlement before running any deploy script that
 # sources this file:
-#   - make deploy-admin  → memex-{env}-deploy-admin
+#   - make deploy-ui     → memex-{env}-deploy-admin (entitlement name is a
+#     GCP-side resource that predates the packages/admin → packages/ui rename)
 #   - make deploy-server → memex-{env}-deploy-server
 # Eligibility: domain:mindset.ai. Max duration: 2h. See README.md for the
 # `gcloud pam grants create` command.

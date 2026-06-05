@@ -20,9 +20,9 @@ namespace :mcp do
 end
 
 namespace :test do
-  desc "Run React UI (admin) vitest suite"
+  desc "Run React UI vitest suite"
   task :client do
-    exec("pnpm --filter @memex/admin test")
+    exec("pnpm --filter @memex/ui test")
   end
 
   desc "Run full server vitest suite (unit + integration + api + security + perf)"
@@ -37,7 +37,7 @@ namespace :test do
 
   desc "Run React UI Playwright e2e journeys (needs server + React UI running)"
   task :e2e do
-    exec("pnpm --filter @memex/admin test:e2e")
+    exec("pnpm --filter @memex/ui test:e2e")
   end
 end
 

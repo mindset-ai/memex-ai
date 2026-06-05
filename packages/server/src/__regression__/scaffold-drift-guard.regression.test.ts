@@ -12,7 +12,7 @@
 //       `_base/standards-protocol.md`) plus `phases/creation/system.md`
 //       are allowlisted. Any NEW `.md` under `phases/` or any new
 //       multi-line markdown-shaped string literal in `packages/server/src`
-//       or `packages/admin/src` (outside `scaffold-data.ts`) fails.
+//       or `packages/ui/src` (outside `scaffold-data.ts`) fails.
 //
 //   (b) Every (tool × phase) pair resolves to a string via `toNudge`.
 //       Empty strings are fine, but the call must never throw.
@@ -53,7 +53,7 @@ const AC_20 = "mindset-prod/memex-building-itself/briefs/b-68/acs/ac-20";
 
 const REPO_ROOT = join(__dirname, "..", "..", "..", "..");
 const SERVER_SRC = join(REPO_ROOT, "packages", "server", "src");
-const ADMIN_SRC = join(REPO_ROOT, "packages", "admin", "src");
+const ADMIN_SRC = join(REPO_ROOT, "packages", "ui", "src");
 const SHARED_SCAFFOLD_DATA = join(
   REPO_ROOT,
   "packages",
@@ -88,8 +88,8 @@ const ALLOWLISTED_PROSE_FILES = new Set(
   [
     // Init Prompt templates — rendered into a clipboard string for the human
     // to paste into a coding agent. Not consumed by Mindset's own agent.
-    "packages/admin/src/utils/specInitPrompt.ts",
-    "packages/admin/src/utils/taskInitPrompt.ts",
+    "packages/ui/src/utils/specInitPrompt.ts",
+    "packages/ui/src/utils/taskInitPrompt.ts",
     // One-shot Postgres seed for the b-3 "reviewer" persona — bootstrap
     // data, not a runtime nudge channel.
     "packages/server/src/db/seed-reviewer.ts",

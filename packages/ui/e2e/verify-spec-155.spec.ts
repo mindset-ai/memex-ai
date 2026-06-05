@@ -67,7 +67,7 @@ test.describe("spec-155 — agent-created Spec, live", () => {
     if (createdDocId) await deleteDoc(createdDocId);
     await emitAcEvents(
       testInfo.status === "passed" ? "pass" : "fail",
-      `packages/admin/e2e/verify-spec-155.spec.ts::${testInfo.title}`,
+      `packages/ui/e2e/verify-spec-155.spec.ts::${testInfo.title}`,
       testInfo.duration
     );
   });
