@@ -327,6 +327,11 @@ export function isReadOnlyTool(name: string): boolean {
 //     (resolves the section by its s-N ref, memex-scoped).
 //   - update_comment — resolve a drift / proposal comment (status='resolved' +
 //     a resolution note for accept / reject / dismiss), addressed by its c-N ref.
+//   - add_clause / edit_clause / delete_clause (spec-175) — apply a rule change
+//     at clause grain. Standards are clause-backed (spec-150 / spec-161), so
+//     update_section now hard-rejects on a Standard; these are the verbs that
+//     actually let the drift agent edit rule text. The cl-N refs they need are
+//     surfaced inline by get_doc.
 // update_section and update_comment both resolve their target memex-scoped via
 // the input ref (no bound docId needed). render_confirmation (a UI tool, always
 // included below) gates EVERY mutation — the agent proposes before it writes.
@@ -338,6 +343,9 @@ const DRIFT_SERVER_TOOLS = new Set<string>([
   "list_comments",
   "update_section",
   "update_comment",
+  "add_clause",
+  "edit_clause",
+  "delete_clause",
 ]);
 
 /** All tool definitions for the Anthropic API. Last tool has cache_control.
