@@ -55,9 +55,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # No `version:` here — pnpm/action-setup@v4 reads the pinned version from
+      # the root package.json `packageManager` field and errors if both are set.
       - uses: pnpm/action-setup@v4
-        with:
-          version: 10
 
       - uses: actions/setup-node@v4
         with:
@@ -155,9 +155,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+      # No `version:` here — pnpm/action-setup@v4 reads the pinned version from
+      # the root package.json `packageManager` field and errors if both are set.
       - uses: pnpm/action-setup@v4
-        with:
-          version: 10
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -211,9 +211,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+      # No `version:` here — pnpm/action-setup@v4 reads the pinned version from
+      # the root package.json `packageManager` field and errors if both are set.
       - uses: pnpm/action-setup@v4
-        with:
-          version: 10
       - uses: actions/setup-node@v4
         with:
           node-version: 22
