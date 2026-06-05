@@ -7,6 +7,8 @@ import {
 import type { MemexResolverEnv } from "../middleware/memex-resolver.js";
 import { resolveReadableMemexId } from "./shared.js";
 import { specsOverTime, specsByPhase, phaseDurations } from "../services/analytics.js";
+import { standardsGraph, DEFAULT_SEMANTIC_THRESHOLD } from "../services/standards-graph.js";
+import { ValidationError } from "../types/errors.js";
 
 // ── Spec analytics (spec-179) ────────────────────────────────────────────────
 //
@@ -41,6 +43,23 @@ analytics.get("/specs-by-phase", async (c) => {
 analytics.get("/phase-durations", async (c) => {
   const memexId = await resolveReadableMemexId(c);
   return c.json(await phaseDurations(memexId));
+});
+
+// GET /analytics/standards-graph — nodes + mention edges (clause_refs joins,
+// ac-11) + semantic-similarity edges from the standards-section embeddings
+// (ac-13). `semanticThreshold` (0..1, default 0.5) floors the overlay.
+analytics.get("/standards-graph", async (c) => {
+  const memexId = await resolveReadableMemexId(c);
+  const raw = c.req.query("semanticThreshold");
+  let semanticThreshold = DEFAULT_SEMANTIC_THRESHOLD;
+  if (raw !== undefined) {
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n < 0 || n > 1) {
+      throw new ValidationError("Query param 'semanticThreshold' must be a number in [0, 1]");
+    }
+    semanticThreshold = n;
+  }
+  return c.json(await standardsGraph(memexId, { semanticThreshold }));
 });
 
 export { analytics };
