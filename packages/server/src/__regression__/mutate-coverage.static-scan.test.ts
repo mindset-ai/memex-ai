@@ -59,6 +59,13 @@ const ALLOWLIST: Record<string, string> = {
   // brand test still polices every public entry point of this file.
   "services/clauses.ts":
     "tx-helper indirection — regenerateSectionContentTx writes doc_sections.content only inside callers' mutate() callbacks; all public writers return Mutated<T> (verified by mutate-coverage.service).",
+  // spec-179 clause_refs maintenance — syncClauseRefsTx is a tx-helper invoked
+  // ONLY from inside the mutate() callbacks of the clause writers in clauses.ts
+  // (same indirection as regenerateSectionContentTx above). clause_refs is a
+  // derived materialization of clause bodies with no bus entity of its own —
+  // the clause + section events the callers already emit ARE its change signal.
+  "services/clause-refs.ts":
+    "tx-helper indirection (spec-179) — syncClauseRefsTx writes clause_refs only inside the clause writers' mutate() callbacks (clauses.ts); clause_refs is a derived projection whose change signal is the callers' clause/section events.",
   // spec-162 test_event_latest summary maintenance — applyEmissionToSummary /
   // removeSummaryForPair take a `conn: Db` and write the derived summary ONLY
   // inside the mutate() callbacks of their two callers (routes/test-events.ts

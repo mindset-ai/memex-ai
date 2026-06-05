@@ -64,7 +64,7 @@ describe("document service events (via bus)", () => {
     expect(events[0].action).toBe("created");
   });
 
-  it("emits document:updated on updateDocStatus", async () => {
+  it("emits document:updated plus document:status_changed on updateDocStatus", async () => {
     const doc = await createDocDraft(memexId, "Status Event Test", "Purpose");
     createdDocIds.push(doc.id);
 
@@ -72,13 +72,24 @@ describe("document service events (via bus)", () => {
       await updateDocStatus(memexId, doc.id, "review");
     });
 
-    expect(events).toHaveLength(1);
+    // spec-179 (ac-5): a Spec status flip dual-emits — the plain `updated`
+    // (refetch signal) plus a payload-carrying `status_changed` (transition
+    // history for the activity log). One event per logical change (std-8).
+    expect(events).toHaveLength(2);
     expect(events[0]).toEqual({
       memexId: memexId,
       docId: doc.id,
       entity: "document",
       action: "updated",
       narrative: expect.any(String),
+    });
+    expect(events[1]).toEqual({
+      memexId: memexId,
+      docId: doc.id,
+      entity: "document",
+      action: "status_changed",
+      narrative: expect.stringContaining("draft → review"),
+      payload: { from: "draft", to: "review" },
     });
   });
 });

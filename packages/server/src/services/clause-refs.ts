@@ -20,8 +20,8 @@ import { db } from "../db/connection.js";
 import { clauseRefs, documents } from "../db/schema.js";
 
 // Mirrors the backfill regex in 0076: \b(std|spec|b|doc|dec|cl)-(\d+)\b.
-// `b-N` is the legacy Brief handle (preserved by the b-105 rename), so it maps
-// to kind 'spec' exactly like spec-N.
+// `b-N` is the legacy pre-rename spec handle shape (preserved by b-105), so
+// it maps to kind 'spec' exactly like spec-N.
 const PARSE = /\b(std|spec|b|doc|dec|cl)-(\d+)\b/g;
 
 const PREFIX_TO_KIND: Record<string, ClauseRefKind> = {
