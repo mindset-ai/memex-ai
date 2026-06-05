@@ -184,6 +184,7 @@ describe("GET /api/docs/:id", () => {
       archivedAt: null,
       pausedAt: null,
       narrativeLastConsolidatedAt: null,
+      isDemo: false,
       sections: [],
       creator: null,
     });
@@ -211,6 +212,7 @@ describe("GET /api/docs/:id", () => {
       archivedAt: null,
       pausedAt: null,
       narrativeLastConsolidatedAt: null,
+      isDemo: false,
       sections: [],
       creator: null,
     });
@@ -304,6 +306,7 @@ function mockDoc(id: string, handle: string) {
     archivedAt: null,
     pausedAt: null,
     narrativeLastConsolidatedAt: null,
+    isDemo: false,
     sections: [],
     creator: null,
   });

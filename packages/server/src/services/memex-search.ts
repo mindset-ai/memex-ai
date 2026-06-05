@@ -38,6 +38,16 @@
 //
 // Archived and paused content is excluded by default (per b-34 spec
 // requirement); `includeArchived: true` opts back in.
+//
+// Handhold demo specs (documents.is_demo) are excluded UNCONDITIONALLY from
+// every arm (spec-178 t-11 / dec-11, ac-36). This reverses the earlier
+// "searchable" posture (ac-20): a demo spec must be invisible AND inert to ⌘K
+// AND to the MCP `search_memex` tool (and thereby to both in-app agents, which
+// reach search only through this function). The board (SpecList) does NOT use
+// searchMemex — it renders demo specs via listDocs — so no opt-in flag is
+// needed here; the predicate is hard-wired into every query. The canonical
+// predicate is `AND d.is_demo IS NOT TRUE` (column is NOT NULL DEFAULT false,
+// but IS NOT TRUE is robust against any legacy NULL and reads as the intent).
 
 import { sql } from "drizzle-orm";
 import { db } from "../db/connection.js";
@@ -437,6 +447,7 @@ async function lookupByHandle(
     LEFT JOIN doc_sections s ON s.doc_id = d.id
     WHERE d.memex_id = ${memexId}
       ${archivedClause}
+      AND d.is_demo IS NOT TRUE
       AND d.handle = ${query.toLowerCase()}
     ORDER BY s.seq
   `)) as unknown as SectionRow[];
@@ -541,6 +552,7 @@ export async function resolveJumpTo(
       AND d.doc_type = 'spec'
       AND d.archived_at IS NULL
       AND d.paused_at IS NULL
+      AND d.is_demo IS NOT TRUE
       AND d.title ILIKE ${pattern} ESCAPE '\\'
     ORDER BY length(d.title) ASC, d.title ASC
     LIMIT ${JUMP_TITLE_LIMIT}
@@ -589,11 +601,23 @@ export async function resolveAssignedSpecs(
   const slugs = await loadMemexSlugs(memexId);
   if (!slugs) return [];
 
+  // spec-178 t-11 / dec-11 (ac-36): a demo spec must not surface in the
+  // assigned lane either. listSpecsAssignedToUser (doc-assignees.ts) excludes
+  // archived/paused but not is_demo and doesn't project the flag, so resolve the
+  // demo doc ids for this memex in one batched read and skip them below. The
+  // demo set is tiny (one per phase), so this is a cheap single round-trip.
+  const demoRows = (await db.execute(sql`
+    SELECT id FROM documents
+    WHERE memex_id = ${memexId} AND is_demo IS TRUE
+  `)) as unknown as { id: string }[];
+  const demoDocIds = new Set(demoRows.map((r) => r.id));
+
   const hits: MemexSearchHit[] = [];
   const seenDocIds = new Set<string>();
   for (const userId of userIds) {
     const rows = await listSpecsAssignedToUser(memexId, userId);
     for (const r of rows) {
+      if (demoDocIds.has(r.docId)) continue;
       if (seenDocIds.has(r.docId)) continue;
       seenDocIds.add(r.docId);
       hits.push({
@@ -648,6 +672,7 @@ async function runSectionFts(
     WHERE d.memex_id = ${memexId}
       AND d.doc_type IN ${sql.raw(`(${docTypes.map((t) => `'${t}'`).join(",")})`)}
       ${archivedClause}
+      AND d.is_demo IS NOT TRUE
       ${excludeClause}
       AND (s.status <> 'deleted' OR s.status IS NULL)
       AND s.content_tsv @@ plainto_tsquery('english', ${query})
@@ -701,6 +726,7 @@ async function runSectionVector(
     WHERE d.memex_id = ${memexId}
       AND d.doc_type IN ${sql.raw(`(${docTypes.map((t) => `'${t}'`).join(",")})`)}
       ${archivedClause}
+      AND d.is_demo IS NOT TRUE
       ${excludeClause}
       AND (s.status <> 'deleted' OR s.status IS NULL)
       AND s.embedding IS NOT NULL
@@ -752,6 +778,7 @@ async function runDecisionFts(
     INNER JOIN documents d ON d.id = dec.doc_id
     WHERE dec.memex_id = ${memexId}
       ${archivedClause}
+      AND d.is_demo IS NOT TRUE
       ${excludeClause}
       AND to_tsvector('english',
             coalesce(dec.title, '') || ' ' ||
@@ -807,6 +834,7 @@ async function runDecisionVector(
     INNER JOIN documents d ON d.id = dec.doc_id
     WHERE dec.memex_id = ${memexId}
       ${archivedClause}
+      AND d.is_demo IS NOT TRUE
       ${excludeClause}
       AND dec.embedding IS NOT NULL
       AND dec.embedding_model = ${provider.name}
@@ -859,6 +887,7 @@ async function runIssueFts(
     INNER JOIN documents d ON d.id = iss.doc_id
     WHERE iss.memex_id = ${memexId}
       ${archivedClause}
+      AND d.is_demo IS NOT TRUE
       ${excludeClause}
       AND to_tsvector('english',
             coalesce(iss.title, '') || ' ' ||
@@ -913,6 +942,7 @@ async function runIssueVector(
     INNER JOIN documents d ON d.id = iss.doc_id
     WHERE iss.memex_id = ${memexId}
       ${archivedClause}
+      AND d.is_demo IS NOT TRUE
       ${excludeClause}
       AND iss.embedding IS NOT NULL
       AND iss.embedding_model = ${provider.name}

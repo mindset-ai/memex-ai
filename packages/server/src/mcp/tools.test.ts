@@ -52,6 +52,7 @@ const DOC_ROW = {
   archivedAt: null,
   pausedAt: null,
   narrativeLastConsolidatedAt: null,
+  isDemo: false,
 };
 const SECTION_ROW = {
   id: TEST_SECTION_ID,
@@ -530,6 +531,10 @@ describe("MCP Tool handlers via HTTP", () => {
     expect(resolveWorkspaceForRead).toHaveBeenCalledWith(TEST_USER_ID, "mindset", undefined);
     expect(listDocs).toHaveBeenCalledWith(TEST_MEMEX_ID, {
       docType: "spec",
+      // spec-178 t-11 / dec-11 (ac-37): the MCP/agent enumeration path excludes
+      // is_demo specs (the REST board path leaves it unset). Asserted here so the
+      // exclusion can't silently regress off the agent surface.
+      excludeDemo: true,
       includePaused: false,
       statusIn: ["plan", "build", "verify"],
     });

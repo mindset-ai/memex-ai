@@ -99,6 +99,12 @@ export interface DocSummary {
    * future opt-in archive view.
    */
   archivedAt: string | null;
+  /**
+   * spec-178: demo flag — true on the five frozen spec-64 copies seeded into a personal
+   * Memex for the Handhold onboarding walkthrough. Drives the DEMO badge on the board
+   * card. Always returned by the server; absent/false for real specs.
+   */
+  isDemo?: boolean;
   /** Set when fetchDocs is called with `{ include: ['driftCount'] }` — open drift
    *  comment count for the doc. Undefined when not requested. (t-19 W2) */
   driftCount?: number;
@@ -165,6 +171,20 @@ export interface Doc {
   statusChangedAt: string;
   /** See DocSummary.pausedAt — same semantics. */
   pausedAt?: string | null;
+  /**
+   * spec-178: demo flag — true on the five frozen spec-64 copies. Threaded into
+   * SectionCard / DecisionPanel to suppress handle auto-linking (ac-24) and into the
+   * per-phase value banner atop the demo spec. Absent/false for real specs.
+   */
+  isDemo?: boolean;
+  /**
+   * spec-178 dec-8 (ac-25/ac-26): the per-phase value callout the server attaches to a
+   * demo spec's GET payload, sourced from HANDHOLD_PHASES.find(p=>p.phase===status).valueCallout.
+   * Rendered by DocDocument as a banner atop the demo spec, visually distinct from the
+   * spec content (it is demo guidance, not part of the spec). Absent for real specs and
+   * for demo specs whose phase has no callout.
+   */
+  demoValueCallout?: string;
   /**
    * Timestamp of the last narrative consolidation (doc-12 t-1 column). NULL =
    * never consolidated. Spec-only — non-spec docTypes leave it null.

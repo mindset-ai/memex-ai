@@ -4,6 +4,7 @@ import { namespaces, memexes, users } from "../db/schema.js";
 import type { Memex, Namespace } from "../db/schema.js";
 import { ValidationError } from "../types/errors.js";
 import { mutate, type Mutated } from "./mutate.js";
+import { seedHandholdDemo } from "./handhold-demo.js";
 
 // Canonical display name for personal memexes. Per product decision, personal memexes
 // cannot be renamed — the switcher always shows "Personal Memex" so there's no ambiguity
@@ -69,7 +70,7 @@ export async function ensureUserNamespace(
         );
       }
 
-      return mutate(
+      const created = await mutate(
         {},
         (r) => ({ memexId: r.memex.id, userId, entity: "memex", action: "created" }),
         async () => {
@@ -84,13 +85,17 @@ export async function ensureUserNamespace(
           return { namespace: ns, memex };
         },
       );
+      // spec-178 t-4 — seed the handhold onboarding demo into the freshly-created
+      // personal Memex (create path only, never the idempotent fast-path above).
+      seedHandholdDemoBestEffort(created.memex.id);
+      return created;
     }
     // Dangling FK — fall through to recreate.
   }
 
   const slug = await deriveAvailableSlug(existingUser.email, userId);
 
-  return mutate(
+  const created = await mutate(
     {},
     // Composite: a new user namespace AND its default personal memex. Two
     // logical changes; subscribers filter on entity. memexId resolves to the
@@ -131,6 +136,23 @@ export async function ensureUserNamespace(
 
       return { namespace, memex };
     }),
+  );
+  // spec-178 t-4 — seed the handhold onboarding demo into the brand-new personal
+  // Memex. AFTER the mutate() commits, on the create path only (the fast-path
+  // returns earlier and never reaches here). This funnels every signup flow
+  // (password / magic-link / SSO) — they all create the namespace through here.
+  seedHandholdDemoBestEffort(created.memex.id);
+  return created;
+}
+
+// Fire-and-forget the handhold demo seed for a newly-created personal Memex
+// (spec-178 t-4). Best-effort by contract: a seed failure must NEVER roll back
+// or block signup, so the promise is detached (`void`) and any rejection is
+// swallowed to a log line. The seed itself is idempotent (NO-OP if the Memex
+// already has a demo doc — ac-8), so even a duplicate fire is harmless.
+function seedHandholdDemoBestEffort(memexId: string): void {
+  void seedHandholdDemo(memexId).catch((err) =>
+    console.error("[handhold seed]", err),
   );
 }
 

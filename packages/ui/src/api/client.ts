@@ -365,6 +365,23 @@ export async function unpauseDoc(docId: string): Promise<void> {
   }
 }
 
+// spec-178 (UI CLIENT CONTRACT): re-seed the personal Memex's Handhold demo. POSTs
+// the route the ROUTE agent owns — POST /api/:namespace/:memex/handhold/reset — which
+// hard-deletes the existing demo specs (+ their seeded emissions) and re-seeds the five
+// frozen spec-64 copies. The namespace/memex are passed explicitly (the SpecList board's
+// Reset button supplies them from the current tenant context) rather than inferred from
+// the URL, so the call site is unambiguous. Owner-of-personal-namespace gate is enforced
+// server-side; a non-owner / non-personal target returns 404 (std-7).
+export async function resetHandholdDemo(namespace: string, memex: string): Promise<void> {
+  const res = await fetchWithRetry(`${BASE_URL}/${namespace}/${memex}/handhold/reset`, {
+    method: 'POST',
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(text || `Failed to reset demo: ${res.status}`);
+  }
+}
+
 export interface MoveDocInput {
   targetMemexId: string;
   includeDecisions: boolean;

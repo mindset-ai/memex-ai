@@ -69,6 +69,7 @@ function makeSpecDoc(overrides: Partial<Doc> = {}): Doc & { sections: DocSection
     archivedAt: null,
     pausedAt: null,
     narrativeLastConsolidatedAt: null,
+    isDemo: false,
     ...overrides,
     sections: [
       {

@@ -31,6 +31,7 @@ import { oauth, isOAuthEnabled } from "./routes/oauth/index.js";
 import { wellKnown, publicBaseUrl } from "./routes/well-known.js";
 import driftRouter from "./routes/drift.js";
 import { search } from "./routes/search.js";
+import { handhold } from "./routes/handhold.js";
 import { testEventsRouter } from "./routes/test-events.js";
 import { testOnlyRouter } from "./routes/__test__.js";
 import { hostGuard, memexResolver } from "./middleware/memex-resolver.js";
@@ -225,6 +226,11 @@ app.route("/api/:namespace/:memex/activity", activity);
 // Spec analytics for the Insights page (spec-179). Path-prefixed only — the
 // aggregates are inherently per-Memex, same reasoning as /activity above.
 app.route("/api/:namespace/:memex/analytics", analytics);
+// spec-178 t-6 — handhold onboarding demo reset. Path-prefixed only: the reset
+// is gated to the owner of a PERSONAL Memex (std-7 404 otherwise), so the memex
+// must come from the resolved /<ns>/<mx>/ path — there's no flat entity-keyed
+// mount. STRICT sessionMiddleware + the owner gate live inside the router.
+app.route("/api/:namespace/:memex/handhold", handhold);
 app.use("/api/:namespace/:memex/llm/*", sessionMiddleware);
 app.route("/api/:namespace/:memex/llm", llmRouter);
 // Tenancy-scoped membership / admin surfaces — drift fix to t-12. These were
