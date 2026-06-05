@@ -15,6 +15,7 @@ import { ThemeProvider } from '../components/ThemeContext';
 const AC_NAV = 'mindset-prod/memex-building-itself/specs/spec-179/acs/ac-14';
 const AC_PAGE = 'mindset-prod/memex-building-itself/specs/spec-179/acs/ac-15';
 const AC_OVER_TIME = 'mindset-prod/memex-building-itself/specs/spec-179/acs/ac-1';
+const AC_ROUTE = 'mindset-prod/memex-building-itself/specs/spec-179/acs/ac-17';
 
 // ── chart mocks (presentation tested visually; page owns wiring) ────────────
 vi.mock('../components/insights/SpecsOverTimeChart', () => ({
@@ -76,6 +77,10 @@ describe('Insights page (spec-179)', () => {
   it('renders the three charts from the analytics endpoints (ac-1, ac-15)', async () => {
     tagAc(AC_OVER_TIME);
     tagAc(AC_PAGE);
+    // ac-17 (route half): /:namespace/:memex/insights resolves and renders for
+    // an authorized session; the API-surface 404 half lives in the server's
+    // analytics.integration tenancy test.
+    tagAc(AC_ROUTE);
     renderInsights();
     expect(screen.getByTestId('insights-loading')).toBeInTheDocument();
 

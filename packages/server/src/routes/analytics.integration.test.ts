@@ -166,6 +166,8 @@ describe("GET /analytics/phase-durations", () => {
 
 describe("tenancy (std-7)", () => {
   it("an unknown namespace 404s", async () => {
+    // ac-17: the Insights API surface returns 404 to outsiders per std-7.
+    tagAc("mindset-prod/memex-building-itself/specs/spec-179/acs/ac-17");
     const res = await app.request("/api/no-such-ns/main/analytics/specs-over-time", withApexHost());
     expect(res.status).toBe(404);
   });
