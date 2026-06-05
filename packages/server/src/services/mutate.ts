@@ -60,6 +60,16 @@ export interface ChangeKey {
   userId?: string;
   entity: ChangeEntity;
   action: ChangeAction;
+  // spec-179 (ac-5). Optional structured detail forwarded verbatim onto the
+  // emitted ChangeEvent (and from there into activity_log.payload). Used by
+  // events whose meaning lives in data rather than prose — e.g. the
+  // document/status_changed event's `{from, to}`.
+  payload?: Record<string, unknown>;
+  // spec-179 (ac-5). Optional narrative override. When set it wins over the
+  // auto-composed line — for events like status_changed where
+  // `composeNarrative` ("status_changed document …") reads worse than a
+  // purpose-built sentence ("moved spec-7 draft → plan").
+  narrative?: string;
 }
 
 export interface MutateOpts {
@@ -199,7 +209,10 @@ export async function mutate<T>(
       // spread first so the emitted event still carries the exact key shape;
       // narrative/clientId/channel are layered on top. Each is only set when a
       // value is available so callers without context emit no empty keys.
-      const event: ChangeEvent = { ...resolved, narrative: composeNarrative(resolved, result) };
+      const event: ChangeEvent = {
+        ...resolved,
+        narrative: resolved.narrative ?? composeNarrative(resolved, result),
+      };
       if (ctx.clientId !== undefined) event.clientId = ctx.clientId;
       if (ctx.channel !== undefined) event.channel = ctx.channel;
       bus.emit(event);

@@ -85,7 +85,12 @@ export type ChangeAction =
   | "viewed"
   | "searched"
   | "assessed"
-  | "called";
+  | "called"
+  // spec-179 (ac-5) — emitted alongside the plain "updated" event whenever a
+  // Spec's status flips, carrying `payload: {from, to}`. Persisted by the
+  // activity-log sink so per-phase durations are exactly computable from
+  // transition history (documents.statusChangedAt only keeps the latest).
+  | "status_changed";
 
 export interface ChangeEvent {
   memexId: string;
