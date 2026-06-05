@@ -103,6 +103,19 @@ const PRIMARY_NAV_LINKS: ReadonlyArray<{
       </svg>
     ),
   },
+  // spec-179 (ac-14): Insights — per-memex spec analytics charts. Hidden via
+  // the same server-driven hiddenFeatures mechanism as Pulse.
+  {
+    to: '/insights',
+    label: 'Insights',
+    feature: 'insights',
+    icon: (
+      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M4 20V10m6 10V4m6 16v-7" />
+        <path strokeLinecap="round" d="M3 20h18" />
+      </svg>
+    ),
+  },
   // Decisions tab — hidden until the page is implemented. The Decisions page
   // currently shows a "Coming soon" placeholder; bring this back when the
   // cross-Spec decisions view ships.

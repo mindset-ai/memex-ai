@@ -1,0 +1,199 @@
+// spec-179 — the Insights page + nav entry.
+//
+// The Nivo chart components are mocked (jsdom has no layout, so Responsive*
+// charts render nothing measurable); these tests own the page's wiring:
+// fetch → loading/empty/ready states, per-tenant scoping, and the nav gate.
+
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { Link, MemoryRouter, Route, Routes } from 'react-router-dom';
+import { tagAc } from '@memex-ai-ac/vitest';
+import { Insights } from './Insights';
+import { AppShell } from '../components/AppShell';
+import { ThemeProvider } from '../components/ThemeContext';
+
+const AC_NAV = 'mindset-prod/memex-building-itself/specs/spec-179/acs/ac-14';
+const AC_PAGE = 'mindset-prod/memex-building-itself/specs/spec-179/acs/ac-15';
+const AC_OVER_TIME = 'mindset-prod/memex-building-itself/specs/spec-179/acs/ac-1';
+
+// ── chart mocks (presentation tested visually; page owns wiring) ────────────
+vi.mock('../components/insights/SpecsOverTimeChart', () => ({
+  SpecsOverTimeChart: ({ points }: { points: unknown[] }) => (
+    <div data-testid="mock-over-time" data-points={points.length} />
+  ),
+}));
+vi.mock('../components/insights/SpecsByPhaseChart', () => ({
+  SpecsByPhaseChart: () => <div data-testid="mock-by-phase" />,
+}));
+vi.mock('../components/insights/PhaseDurationsChart', () => ({
+  PhaseDurationsChart: () => <div data-testid="mock-durations" />,
+}));
+
+// ── api mocks ────────────────────────────────────────────────────────────────
+const fetchSpecsOverTime = vi.fn();
+const fetchSpecsByPhase = vi.fn();
+const fetchPhaseDurations = vi.fn();
+// Partial mock: AppShell's hooks (drift inbox count, …) pull other exports
+// from the client module, so everything else passes through unmocked.
+vi.mock(import('../api/client'), async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    fetchSpecsOverTime: (...a: unknown[]) => fetchSpecsOverTime(...a),
+    fetchSpecsByPhase: (...a: unknown[]) => fetchSpecsByPhase(...a),
+    fetchPhaseDurations: (...a: unknown[]) => fetchPhaseDurations(...a),
+  };
+});
+
+const POINTS = [
+  { day: '2026-06-01', created: 2, cumulative: 2 },
+  { day: '2026-06-02', created: 1, cumulative: 3 },
+  { day: '2026-06-03', created: 2, cumulative: 5 },
+];
+const BY_PHASE = [{ day: '2026-06-01', draft: 1, plan: 0, build: 0, verify: 0, done: 1 }];
+const DURATIONS = {
+  inPhase: [{ phase: 'draft', n: 1, avgDays: 2, medianDays: 2, maxDays: 2 }],
+  cycleTime: { n: 1, avgDays: 1, medianDays: 1, p25Days: 1, p75Days: 1, maxDays: 1, valuesDays: [1] },
+};
+
+beforeEach(() => {
+  fetchSpecsOverTime.mockReset().mockResolvedValue(POINTS);
+  fetchSpecsByPhase.mockReset().mockResolvedValue(BY_PHASE);
+  fetchPhaseDurations.mockReset().mockResolvedValue(DURATIONS);
+});
+
+function renderInsights(path = '/acme/team/insights') {
+  return render(
+    <MemoryRouter initialEntries={[path]}>
+      <Routes>
+        <Route path="/:namespace/:memex/insights" element={<Insights />} />
+      </Routes>
+    </MemoryRouter>,
+  );
+}
+
+describe('Insights page (spec-179)', () => {
+  it('renders the three charts from the analytics endpoints (ac-1, ac-15)', async () => {
+    tagAc(AC_OVER_TIME);
+    tagAc(AC_PAGE);
+    renderInsights();
+    expect(screen.getByTestId('insights-loading')).toBeInTheDocument();
+
+    await waitFor(() => expect(screen.getByTestId('mock-over-time')).toBeInTheDocument());
+    expect(screen.getByTestId('mock-over-time').dataset.points).toBe('3');
+    expect(screen.getByTestId('mock-by-phase')).toBeInTheDocument();
+    expect(screen.getByTestId('mock-durations')).toBeInTheDocument();
+    expect(screen.getByText('5 total')).toBeInTheDocument();
+    // The stacked chart carries its honesty caveat (Design, s-7).
+    expect(screen.getByText('phases shown as of today')).toBeInTheDocument();
+  });
+
+  it('shows the unlock empty state for young memexes instead of empty axes', async () => {
+    tagAc(AC_PAGE);
+    fetchSpecsOverTime.mockResolvedValue([{ day: '2026-06-01', created: 1, cumulative: 1 }]);
+    renderInsights();
+    await waitFor(() => expect(screen.getByTestId('insights-empty')).toBeInTheDocument());
+    expect(screen.queryByTestId('mock-over-time')).not.toBeInTheDocument();
+  });
+
+  it('surfaces fetch failures as an error state', async () => {
+    tagAc(AC_PAGE);
+    fetchSpecsByPhase.mockRejectedValue(new Error('boom'));
+    renderInsights();
+    await waitFor(() => expect(screen.getByTestId('insights-error')).toBeInTheDocument());
+  });
+
+  it('re-fetches when the tenant in the URL changes (ac-15)', async () => {
+    tagAc(AC_PAGE);
+    render(
+      <MemoryRouter initialEntries={['/acme/team/insights']}>
+        <Routes>
+          <Route
+            path="/:namespace/:memex/insights"
+            element={
+              <>
+                <Link to="/acme/other/insights" data-testid="switch-tenant">
+                  switch
+                </Link>
+                <Insights />
+              </>
+            }
+          />
+        </Routes>
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(fetchSpecsOverTime).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(screen.getByTestId('switch-tenant'));
+    await waitFor(() => expect(fetchSpecsOverTime).toHaveBeenCalledTimes(2));
+  });
+});
+
+// ── nav gating (ac-14) — mirrors the pulse hiddenFeatures pattern ────────────
+
+type Membership = {
+  memexId: string;
+  slug: string;
+  memexSlug: string;
+  name: string;
+  memexName: string;
+  kind: 'team' | 'personal';
+  role: 'administrator' | 'member';
+};
+
+const TEAM: Membership = {
+  memexId: 'm1',
+  slug: 'acme',
+  memexSlug: 'team',
+  name: 'Acme Inc',
+  memexName: 'Team',
+  kind: 'team',
+  role: 'administrator',
+};
+
+const mockSession: { user: object; memberships: Membership[]; currentMemexId: string; hiddenFeatures?: string[] } = {
+  user: { name: 'Tester', email: 't@acme.test' },
+  memberships: [TEAM],
+  currentMemexId: 'm1',
+};
+
+vi.mock('../components/AuthContext', () => ({
+  useAuth: () => ({
+    user: { name: 'Tester', email: 't@acme.test' },
+    session: mockSession,
+    logout: vi.fn(),
+  }),
+}));
+vi.mock('../components/MemexSwitcher', () => ({
+  MemexSwitcher: () => <div data-testid="memex-switcher" />,
+}));
+
+function renderShell() {
+  return render(
+    <ThemeProvider>
+      <MemoryRouter initialEntries={['/acme/team/specs']}>
+        <AppShell>
+          <div data-testid="page-content">page</div>
+        </AppShell>
+      </MemoryRouter>
+    </ThemeProvider>,
+  );
+}
+
+describe('Insights nav entry (ac-14)', () => {
+  it('appears in the primary nav after Pulse and routes to /insights', () => {
+    tagAc(AC_NAV);
+    delete mockSession.hiddenFeatures;
+    renderShell();
+    const link = screen.getByRole('link', { name: /insights/i });
+    expect(link).toHaveAttribute('href', '/acme/team/insights');
+  });
+
+  it('is hidden when the session lists the insights feature slug', () => {
+    tagAc(AC_NAV);
+    mockSession.hiddenFeatures = ['insights'];
+    renderShell();
+    expect(screen.queryByRole('link', { name: /insights/i })).not.toBeInTheDocument();
+    delete mockSession.hiddenFeatures;
+  });
+});

@@ -1,6 +1,7 @@
 import { Fragment, useState, useEffect, useRef, useCallback } from 'react';
 import { Routes, Route, useLocation, useParams, Navigate, Outlet } from 'react-router-dom';
 import { Pulse } from './pages/Pulse';
+import { Insights } from './pages/Insights';
 import { Decisions } from './pages/Decisions';
 import { SpecList } from './pages/SpecList';
 import { IssuesList } from './pages/IssuesList';
@@ -247,6 +248,11 @@ export function PostLoginRouter() {
             filter (the `feature: 'pulse'` tag on PRIMARY_NAV_LINKS). */}
         {!isFeatureHidden(session, 'pulse') && (
           <Route path="pulse" element={<Pulse />} />
+        )}
+        {/* spec-179 (ac-14): Insights — per-memex spec analytics. Same
+            server-driven gate mechanism as /pulse above. */}
+        {!isFeatureHidden(session, 'insights') && (
+          <Route path="insights" element={<Insights />} />
         )}
         <Route path="decisions" element={<Decisions />} />
         <Route path="specs" element={<SpecList />} />
