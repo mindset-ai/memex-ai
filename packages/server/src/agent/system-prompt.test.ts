@@ -13,9 +13,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const PHASES_DIR = resolve(__dirname, "phases");
 
 describe("buildSystemBlocks", () => {
-  it("returns two blocks", () => {
+  it("returns three blocks (instructions, context, integration state)", () => {
     const blocks = buildSystemBlocks("Some context", "plan");
-    expect(blocks).toHaveLength(2);
+    expect(blocks).toHaveLength(3);
   });
 
   it("first block contains the React-only role orientation", () => {
@@ -219,6 +219,95 @@ describe("buildSystemBlocks", () => {
         );
       }
     });
+  });
+});
+
+// spec-180: integration state block tests
+describe("spec-180: integration state block in buildSystemBlocks", () => {
+  const AC180 = (n: number) =>
+    `mindset-prod/memex-building-itself/specs/spec-180/acs/ac-${n}`;
+
+  // ac-4 + ac-5: the integration block is a SEPARATE third block with no cache_control,
+  // sitting after the ephemeral context block — so it never busts the tool-definition cache.
+  it("ac-4 + ac-5: integration block is a separate 3rd block with no cache_control; context block (2nd) retains its ephemeral marker", () => {
+    tagAc(AC180(4));
+    tagAc(AC180(5));
+    const blocks = buildSystemBlocks("ctx", "plan");
+    expect(blocks).toHaveLength(3);
+    // context block (index 1) carries the cache breakpoint — unchanged by spec-180
+    expect(blocks[1].cache_control).toEqual({ type: "ephemeral" });
+    // integration block (index 2) has no cache_control — always fresh
+    expect(blocks[2].cache_control).toBeUndefined();
+  });
+
+  // ac-6 + ac-8: block is always present and always states both integrations explicitly.
+  it("ac-6 + ac-8: always injects the block with both Slack and Discord lines — even with no integrationState passed", () => {
+    tagAc(AC180(6));
+    tagAc(AC180(8));
+    const blocks = buildSystemBlocks("ctx", "plan");
+    const text = blocks[2].text;
+    expect(text).toContain("## Active integrations");
+    expect(text).toContain("Slack:");
+    expect(text).toContain("Discord:");
+  });
+
+  // ac-8: both lines present regardless of configuration state.
+  it("ac-8: integration block always states both Slack and Discord regardless of what is configured", () => {
+    tagAc(AC180(8));
+    // Both unconfigured
+    const noneBlocks = buildSystemBlocks("ctx", "plan", false, false, false, {
+      slackConnected: false, discordConnected: false, discordAmbiguous: false, discordChannelName: null,
+    });
+    expect(noneBlocks[2].text).toContain("Slack:");
+    expect(noneBlocks[2].text).toContain("Discord:");
+
+    // Both configured
+    const bothBlocks = buildSystemBlocks("ctx", "plan", false, false, false, {
+      slackConnected: true, discordConnected: true, discordAmbiguous: false, discordChannelName: "general",
+    });
+    expect(bothBlocks[2].text).toContain("Slack:");
+    expect(bothBlocks[2].text).toContain("Discord:");
+  });
+
+  // ac-1: Discord-only case — block must not mislead agent into thinking Slack is the only option.
+  it("ac-1: Discord configured + Slack not connected — block says Discord is ready and Slack will fail", () => {
+    tagAc(AC180(1));
+    tagAc(AC180(7));
+    const blocks = buildSystemBlocks("ctx", "plan", false, false, false, {
+      slackConnected: false, discordConnected: true, discordAmbiguous: false, discordChannelName: "build",
+    });
+    const text = blocks[2].text;
+    expect(text).toContain("memex__send_discord_message is ready");
+    expect(text).toContain("Slack: not connected");
+    expect(text).not.toContain("Slack: connected");
+  });
+
+  // ac-2: Slack-only case — block must not mislead agent into thinking Discord is available.
+  it("ac-2: Slack connected + Discord not configured — block says Slack is ready and Discord will fail", () => {
+    tagAc(AC180(2));
+    const blocks = buildSystemBlocks("ctx", "plan", false, false, false, {
+      slackConnected: true, discordConnected: false, discordAmbiguous: false, discordChannelName: null,
+    });
+    const text = blocks[2].text;
+    expect(text).toContain("Slack: connected");
+    expect(text).toContain("Discord: no webhook configured");
+    expect(text).not.toContain("memex__send_discord_message is ready");
+  });
+
+  it("reports Discord as configured with channel name when available", () => {
+    const blocks = buildSystemBlocks("ctx", "plan", false, false, false, {
+      slackConnected: false, discordConnected: true, discordAmbiguous: false, discordChannelName: "build",
+    });
+    expect(blocks[2].text).toContain("Discord: webhook configured (#build)");
+    expect(blocks[2].text).toContain("memex__send_discord_message is ready");
+  });
+
+  it("reports Discord as ambiguous when multiple orgs have webhooks", () => {
+    const blocks = buildSystemBlocks("ctx", "plan", false, false, false, {
+      slackConnected: false, discordConnected: true, discordAmbiguous: true, discordChannelName: null,
+    });
+    expect(blocks[2].text).toContain("multiple orgs");
+    expect(blocks[2].text).toContain("memex");
   });
 });
 

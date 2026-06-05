@@ -275,3 +275,57 @@ describe('CommentTray', () => {
     expect(within(item).queryByTestId('comment-type-pill')).not.toBeInTheDocument();
   });
 });
+
+// spec-164 dec-6 — agent chatter (plan/progress) muted by default in trays
+// that opt in (the task tray); human-loop types still auto-surface; the chips
+// act as the default-off reveal.
+describe('CommentTray — muteAgentChatter (spec-164)', () => {
+  const AC164 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-164/acs/ac-${n}`;
+
+  const chatterSet = () => [
+    comment({ id: 'c-prog', commentType: 'progress', content: 'agent progress update' } as Partial<Comment>),
+    comment({ id: 'c-plan', commentType: 'plan', content: 'agent plan note' } as Partial<Comment>),
+    comment({ id: 'c-rev', commentType: 'review', content: 'human review feedback' } as Partial<Comment>),
+    comment({ id: 'c-q', commentType: 'question', content: 'human question' } as Partial<Comment>),
+  ];
+
+  it('hides plan/progress on the default All view; review/question still render', () => {
+    tagAc(AC164(24));
+    tagAc('mindset-prod/memex-building-itself/specs/spec-164/acs/ac-9');
+    render(
+      <CommentTray targetType="task" targetId="t-1" comments={chatterSet()} muteAgentChatter />,
+    );
+    expect(screen.queryByText('agent progress update')).not.toBeInTheDocument();
+    expect(screen.queryByText('agent plan note')).not.toBeInTheDocument();
+    expect(screen.getByText('human review feedback')).toBeInTheDocument();
+    expect(screen.getByText('human question')).toBeInTheDocument();
+    // The discoverability note names the hidden count.
+    expect(screen.getByTestId('comment-chatter-note')).toHaveTextContent('2 agent updates hidden');
+  });
+
+  it('selecting the Progress chip reveals the muted chatter (default-off filter)', async () => {
+    tagAc(AC164(24));
+    const user = userEvent.setup();
+    render(
+      <CommentTray targetType="task" targetId="t-1" comments={chatterSet()} muteAgentChatter />,
+    );
+    await user.click(screen.getByTestId('comment-filter-progress'));
+    expect(screen.getByText('agent progress update')).toBeInTheDocument();
+  });
+
+  it('chip counts still reflect ALL open comments, including the hidden chatter', () => {
+    tagAc(AC164(25));
+    render(
+      <CommentTray targetType="task" targetId="t-1" comments={chatterSet()} muteAgentChatter />,
+    );
+    expect(screen.getByTestId('comment-filter-all')).toHaveTextContent('All · 4');
+    expect(screen.getByTestId('comment-filter-progress')).toHaveTextContent('Progress · 1');
+  });
+
+  it('without the opt-in (section/decision trays) chatter renders as before', () => {
+    tagAc(AC164(24));
+    render(<CommentTray targetType="section" targetId="s-1" comments={chatterSet()} />);
+    expect(screen.getByText('agent progress update')).toBeInTheDocument();
+    expect(screen.getByText('agent plan note')).toBeInTheDocument();
+  });
+});

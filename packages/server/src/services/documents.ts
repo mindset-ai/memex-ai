@@ -4,7 +4,7 @@ import { documents, docSections, docComments, decisions, users, tags, documentTa
 import type { Doc, DocSection, Decision } from "../db/schema.js";
 import type { DocSummary } from "../types/index.js";
 import { NotFoundError, ValidationError } from "../types/errors.js";
-import { mutate, type Mutated } from "./mutate.js";
+import { mutate, type ChangeKey, type Mutated } from "./mutate.js";
 import { isUuid } from "./shared/identifiers.js";
 import { embedAndStoreSection, embedAndStoreDecision } from "./memex-embeddings.js";
 import { aggregateAcHealthForBriefs } from "./acs.js";
@@ -788,9 +788,26 @@ export async function updateDocStatus(
     throw new NotFoundError(`Document ${id} not found`);
   }
 
+  // spec-179 (ac-5): a Spec status flip emits a second, payload-carrying event
+  // alongside the plain "updated" one (per std-8 dec-2: one event per logical
+  // change). The activity-log sink persists it, giving an immutable {from, to}
+  // transition history — documents.statusChangedAt only ever holds the latest
+  // change, which is why phase durations were previously unrecoverable.
+  const keys: ChangeKey[] = [{ memexId, docId: id, entity: "document", action: "updated" }];
+  if (doc.docType === "spec" && doc.status !== status) {
+    keys.push({
+      memexId,
+      docId: id,
+      entity: "document",
+      action: "status_changed",
+      narrative: `moved ${doc.handle} ${doc.status} → ${status}`,
+      payload: { from: doc.status, to: status },
+    });
+  }
+
   const updated = await mutate(
     {},
-    { memexId, docId: id, entity: "document", action: "updated" },
+    keys,
     async () => {
       const [row] = await db
         .update(documents)

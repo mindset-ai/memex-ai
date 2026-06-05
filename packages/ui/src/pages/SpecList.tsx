@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { fetchDocs, updateDocStatus, archiveDoc, pauseDoc, unpauseDoc } from '../api/client';
 import { type DocSummary, type DocSummaryAssignee } from '../api/types';
 import { statusTextClass } from '../utils/statusStyles';
+import { phaseDisplayName } from '../utils/phaseDisplay';
 import { useDocChangeStream } from '../hooks/useDocChangeStream';
 import { formatDate, docSeq } from '../utils/format';
 import { Spinner } from '../components/Spinner';
@@ -38,11 +39,13 @@ const SHOW_PAUSED_KEY = 'memex.spec-list.show-paused';
 type SpecKanbanStatus = 'draft' | 'plan' | 'build' | 'verify' | 'done';
 type ActiveStatus = Exclude<SpecKanbanStatus, 'done'>;
 
+// spec-164 dec-1: column labels come from the shared phase display-name layer
+// (the `plan` column reads "Specify"); the ids stay the enum values.
 const ACTIVE_COLUMNS: { id: ActiveStatus; label: string }[] = [
-  { id: 'draft', label: 'Draft' },
-  { id: 'plan', label: 'Plan' },
-  { id: 'build', label: 'Build' },
-  { id: 'verify', label: 'Verify' },
+  { id: 'draft', label: phaseDisplayName('draft') },
+  { id: 'plan', label: phaseDisplayName('plan') },
+  { id: 'build', label: phaseDisplayName('build') },
+  { id: 'verify', label: phaseDisplayName('verify') },
 ];
 
 // spec-118: a person's display label + initials for the assignee avatar.

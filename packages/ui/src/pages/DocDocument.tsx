@@ -9,6 +9,7 @@ import {
   archiveDoc,
   pauseDoc,
   unpauseDoc,
+  updateDocStatus,
   NotFoundError,
   type AcWithVerification,
   type DocAssigneeView,
@@ -35,6 +36,7 @@ import { PostureDropdown, HEADER_PILL_CLASS } from '../components/PostureDropdow
 import { countUnresolvedDecisions, toButtonPrompt, BASE_SCAFFOLD } from '@memex/shared';
 import { useDocChangeStream } from '../hooks/useDocChangeStream';
 import { COMMENT_PARAM, parseCommentParam, commentAnchorId } from '../utils/commentDeepLink';
+import { phaseDisplayName } from '../utils/phaseDisplay';
 import { ShareModal } from '../components/ShareModal';
 import { ShareSpecDialog } from '../components/ShareSpecDialog';
 import { useHeaderSlot } from '../components/HeaderSlot';
@@ -122,6 +124,11 @@ export function DocDocument() {
         ? 'decisions'
         : 'narrative',
   );
+  // spec-182 issue-3: for EDITORS the Specify review affordances sit behind a
+  // collapsed-by-default "Review actions" disclosure — the reviewer workflow
+  // shouldn't visually dominate the editor's page. Reviewers see them expanded
+  // (no disclosure chrome): it's their workflow.
+  const [reviewActionsOpen, setReviewActionsOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [shareLinkOpen, setShareLinkOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
@@ -140,16 +147,13 @@ export function DocDocument() {
   // `canEdit` is the conjunction of org write access and an editor posture.
   const { myRole, loading: roleLoading } = useDocRole(doc?.id ?? null);
   const canEdit = canWrite && myRole === 'editor';
-  // spec-159 ac-19: a WRITABLE reviewer (org member who hasn't taken the editor
-  // posture on this Spec) gets a review-oriented phase block — a row of
-  // review-action prompts and a reviewer handoff line — in place of the
-  // editor's PhaseTabBar + TransitionSentence. Editors and read-only visitors
-  // (canWrite false) keep the existing block untouched. The posture itself
-  // (and the switch between editing/reviewing) lives in the header's
-  // PostureDropdown pill, not in this block.
-  const isWritableReviewer = canWrite && myRole === 'reviewer';
-  // The posture switch behind the header pill — promote/demote + role refetch
-  // (the role flip then swaps the phase block). Null-safe before the doc loads.
+  // spec-182 dec-1 dissolved the spec-159 ac-19 reviewer fork — every posture
+  // renders the same phase block, so no per-posture flag remains here. The
+  // posture itself (and the switch between editing/reviewing) lives in the
+  // header's PostureDropdown pill (dec-6, amended: the pill is the ONLY
+  // switch affordance — no in-page nag).
+  // The posture switch behind the header pill — promote/demote + role refetch.
+  // Null-safe before the doc loads.
   const switchPosture = useSwitchPosture(doc?.id ?? '');
   // spec-159 ac-17: Org scaffold appends for the phase handoff line's
   // PromptButton — threaded into toButtonPrompt exactly as OpeningTurn does.
@@ -351,12 +355,10 @@ export function DocDocument() {
     []
   );
 
-  const handleTaskCommentsChange = useCallback(
-    (taskId: string, comments: Comment[]) => {
-      setCommentsByTask((prev) => ({ ...prev, [taskId]: comments }));
-    },
-    []
-  );
+  // spec-164: task cards are read-only agent artifacts — they no longer mount
+  // a per-task comment tray, so there is no TaskPanel-driven setter for task
+  // comments. The `commentsByTask` state is still populated from the doc load
+  // and fed to AllComments (the page-level Comments sub-tab stays readable).
 
   // spec-136 t-6: fold the picker's resolved full tag set back into the doc
   // payload so chips on the header re-render without a full reloadDoc. The
@@ -594,21 +596,32 @@ export function DocDocument() {
   const handoff: {
     buttonId: string;
     sentence: React.ReactNode;
-    /** Prose before the link + the clickable words (default "Copy"). */
-    sentencePrefix?: React.ReactNode;
+    /** The clickable words — they lead the line and name the prompt (issue-4). */
     linkText?: string;
     /** Plain-text FULL sentence for the accessible name (needed when sentence is a node). */
     sentenceLabel?: string;
   } | null =
-    phase === 'draft' || phase === 'plan'
+    // spec-164 issue-1: draft shows NO handoff line. Originally spec-159 ac-17
+    // shared the plan handoff between draft and plan (one arm,
+    // `phase === 'draft' || phase === 'plan'`). But dec-3 gates the Decisions &
+    // ACs panels in draft behind an empty-state directive ("Move this spec to
+    // Specify to start capturing Decisions and ACs.") — the draft posture is to
+    // invite the move to Specify FIRST. A coding-agent prompt to "create
+    // Decisions and ACs" while in draft contradicts that gate-the-invitation
+    // principle, so draft now yields null (no handoff); plan keeps plan-handoff.
+    // spec-182 issue-4: the hyperlink LEADS each handoff line and NAMES its
+    // prompt ("Copy the Specify prompt …"), so adjacent handoff lines are
+    // distinguishable from the blue text alone — the old shape buried the
+    // purpose at the end of two near-identical "Copy and paste this prompt…"
+    // sentences. Link names match the tab bar's phase display names.
+    phase === 'plan'
       ? {
           buttonId: 'plan-handoff',
-          // "Copy and paste *this prompt* into your coding agent to create
-          // **Decisions** and **ACs**." — the link sits on "this prompt";
-          // entities bold. "ACs" stays abbreviated: the Rubicon line above
-          // already spells out "Acceptance Criteria (ACs)" in full.
-          sentencePrefix: 'Copy and paste ',
-          linkText: 'this prompt',
+          // "*Copy the Specify prompt* into your coding agent to create
+          // **Decisions** and **ACs**." — entities bold. "ACs" stays
+          // abbreviated: the Rubicon line above already spells out
+          // "Acceptance Criteria (ACs)" in full.
+          linkText: 'Copy the Specify prompt',
           sentence: (
             <>
               into your coding agent to create{' '}
@@ -617,15 +630,14 @@ export function DocDocument() {
             </>
           ),
           sentenceLabel:
-            'Copy and paste this prompt into your coding agent to create Decisions and ACs.',
+            'Copy the Specify prompt into your coding agent to create Decisions and ACs.',
         }
       : phase === 'build'
         ? {
             buttonId: 'opening-build-handoff',
-            // "Copy and paste *this prompt* into your coding agent to complete
+            // "*Copy the Build prompt* into your coding agent to complete
             // the **Tasks** and build this spec."
-            sentencePrefix: 'Copy and paste ',
-            linkText: 'this prompt',
+            linkText: 'Copy the Build prompt',
             sentence: (
               <>
                 into your coding agent to complete the{' '}
@@ -633,17 +645,16 @@ export function DocDocument() {
               </>
             ),
             sentenceLabel:
-              'Copy and paste this prompt into your coding agent to complete the Tasks and build this spec.',
+              'Copy the Build prompt into your coding agent to complete the Tasks and build this spec.',
           }
         : phase === 'verify'
           ? {
               buttonId: 'verify-spec',
-              // "Copy and paste *this prompt* into your coding agent to verify
+              // "*Copy the Verify prompt* into your coding agent to verify
               // this spec against its **ACs**." — "ACs" stays abbreviated: the
               // Rubicon line above already spells out "Acceptance Criteria
               // (ACs)" in full.
-              sentencePrefix: 'Copy and paste ',
-              linkText: 'this prompt',
+              linkText: 'Copy the Verify prompt',
               sentence: (
                 <>
                   into your coding agent to verify this spec against its{' '}
@@ -651,7 +662,7 @@ export function DocDocument() {
                 </>
               ),
               sentenceLabel:
-                'Copy and paste this prompt into your coding agent to verify this spec against its ACs.',
+                'Copy the Verify prompt into your coding agent to verify this spec against its ACs.',
             }
           : null; // done → no handoff line
 
@@ -714,7 +725,7 @@ export function DocDocument() {
               {g.rest}
             </span>
           ))}{' '}
-          before this spec can move to {target}.
+          before this spec can move to {phaseDisplayName(target)}.
         </span>
       </p>
     );
@@ -825,6 +836,7 @@ export function DocDocument() {
   const decisionPanel = (
     <DecisionPanel
       docId={doc.id}
+      specPhase={phase}
       decisions={decs}
       commentsByDecision={commentsByDecision}
       onCommentsChange={handleDecisionCommentsChange}
@@ -839,6 +851,7 @@ export function DocDocument() {
   const acPanel = (
     <AcPanel
       docId={doc.id}
+      specPhase={phase}
       focusedAcId={focusedAcId}
       onFocusConsumed={() => setFocusedAcId(null)}
     />
@@ -849,8 +862,6 @@ export function DocDocument() {
       docId={doc.id}
       doc={doc}
       tasks={ts}
-      commentsByTask={commentsByTask}
-      onCommentsChange={handleTaskCommentsChange}
       onUpdate={reloadDoc}
       canWrite={canWrite}
     />
@@ -860,6 +871,9 @@ export function DocDocument() {
     <IssuePanel
       docId={doc.id}
       canWrite={canWrite}
+      /* spec-182 dec-4: dispositions (convert / won't-fix) are editor calls;
+         registering stays open to reviewers via canWrite. */
+      canEdit={canEdit}
       onUpdate={reloadDoc}
       highlightIssueHandle={initialIssueHandle}
     />
@@ -992,57 +1006,17 @@ export function DocDocument() {
         />
       )}
 
-      {/* spec-159 ac-19: a WRITABLE REVIEWER gets a review-oriented phase block
-          in place of the editor's PhaseTabBar + TransitionSentence. It has no
-          tabs (a reviewer browses only the current phase's layout) and offers no
-          forward move — a reviewer observes. EDITORS and read-only visitors
-          (canWrite false) fall through to the existing block below, unchanged.
-          `done` collapses into the DoneSummary for everyone. */}
-      {doc.docType === 'spec' && phase !== 'done' && isWritableReviewer ? (
-        <div className="mb-4 space-y-2">
-          {/* The posture itself ("you are reviewing", switch to editing) lives
-              in the header's PostureDropdown pill — this block carries only the
-              review actions and the handoff line. */}
-          {/* Review action row — the four scaffold review prompts, sent through
-              the chat (mirrors OpeningTurn's reviewer set + chat_prompt arm). */}
-          <div
-            data-testid="review-action-row"
-            className="flex flex-wrap items-center gap-2 pt-1"
-          >
-            {REVIEW_ACTIONS.map((action) => (
-              <Button
-                key={action.buttonId}
-                type="button"
-                variant="secondary"
-                size="sm"
-                onClick={() => sendReviewPrompt(action.buttonId)}
-              >
-                {action.label}
-              </Button>
-            ))}
-          </div>
-          {/* Reviewer handoff line — copy a coding-agent prompt to conduct the
-              review from there. Same sentence form as the editor handoff. */}
-          <div data-testid="review-handoff-line">
-            <PromptButton
-              buttonId="review-handoff"
-              context={handoffContext}
-              orgBlocks={orgBlocks}
-              sentencePrefix="You can copy and paste "
-              linkText="this prompt"
-              sentence="into your coding agent if you prefer to conduct the review from there."
-              sentenceLabel="You can copy and paste this prompt into your coding agent if you prefer to conduct the review from there."
-            />
-          </div>
-        </div>
-      ) : (
-        /* spec-159 t-6/t-7: the phase control is now an in-page affordance. The
-           PhaseTabBar browses phase views (Plan / Build / Verify) without ever
-           moving the Spec; the TransitionSentence beneath it is the *only* phase
-           mutation — one [Yes], no modal. Specs only. The sentence renders for
-           every viewer (it's the page's phase status line); the Yes itself gates
-           on canEdit. `done` collapses both into the DoneSummary. */
-        doc.docType === 'spec' &&
+      {/* spec-182 dec-1: ONE shared phase block for every posture — the
+          spec-159 ac-19 reviewer fork is dissolved (a writable reviewer used to
+          get a review-action block IN PLACE of the tab bar; that inverted the
+          trust gradient — read-only strangers could browse phases, trusted
+          reviewers couldn't). The PhaseTabBar browses phase views without ever
+          moving the Spec; the TransitionSentence beneath it is the *only* phase
+          mutation — one [Yes], no modal, gated on canEdit. Reviewers reach the
+          sentence as a status-only line (dec-2); the header posture pill is the
+          only switch affordance (dec-6, amended 2026-06-05 — the in-slot nag
+          was removed). `done` collapses both into the DoneSummary for everyone. */}
+      {doc.docType === 'spec' &&
         phase !== 'done' && (
           <div className="mb-4 space-y-2">
             <PhaseTabBar
@@ -1070,30 +1044,99 @@ export function DocDocument() {
               }}
               onCancelBrowse={() => setSelectedTab(null)}
             />
+            {/* spec-182 dec-3: the review actions are a SPECIFY-phase fixture
+                for BOTH postures — review is a planning act (you review the
+                decisions and narrative before they harden), so the row keys on
+                the Spec's phase, not the viewer's posture. No other phase
+                (draft included) shows it. The four buttons resolve their
+                prompts from the Scaffold (std-23) and send through the chat.
+                spec-182 issue-3: for EDITORS the row + review handoff sit
+                behind a collapsed-by-default disclosure — access survives,
+                but the reviewer workflow no longer dominates the editor's
+                page. Reviewers get them expanded, no chrome. */}
+            {phase === 'plan' && (
+              <>
+                {canEdit && (
+                  <button
+                    type="button"
+                    data-testid="review-actions-toggle"
+                    aria-expanded={reviewActionsOpen}
+                    onClick={() => setReviewActionsOpen((v) => !v)}
+                    className="flex items-center gap-1 pt-1 text-sm text-secondary hover:text-heading transition-colors"
+                  >
+                    <svg
+                      className={`w-3 h-3 transition-transform ${reviewActionsOpen ? 'rotate-90' : ''}`}
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      strokeWidth={2}
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                    </svg>
+                    Review actions
+                  </button>
+                )}
+                {(!canEdit || reviewActionsOpen) && (
+                  <>
+                    <div
+                      data-testid="review-action-row"
+                      className="flex flex-wrap items-center gap-2 pt-1"
+                    >
+                      {REVIEW_ACTIONS.map((action) => (
+                        <Button
+                          key={action.buttonId}
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => sendReviewPrompt(action.buttonId)}
+                        >
+                          {action.label}
+                        </Button>
+                      ))}
+                    </div>
+                    {/* Review handoff line — copy a coding-agent prompt to conduct
+                        the review from there. Specify-only, like the row (dec-3).
+                        The link leads and names the prompt (issue-4). */}
+                    <div data-testid="review-handoff-line">
+                      <PromptButton
+                        buttonId="review-handoff"
+                        context={handoffContext}
+                        orgBlocks={orgBlocks}
+                        linkText="Copy the review prompt"
+                        sentence="into your coding agent if you prefer to conduct the review from there."
+                        sentenceLabel="Copy the review prompt into your coding agent if you prefer to conduct the review from there."
+                      />
+                    </div>
+                  </>
+                )}
+              </>
+            )}
             {/* spec-159 ac-17: the next-action handoff line — a "Copy a prompt
-                to …" sentence keyed to the CURRENT phase. Renders for every
-                viewer (copying a prompt is read-only); absent at `done`. */}
-            {handoff && (
+                to …" sentence keyed to the CURRENT phase; absent at `done`.
+                spec-182 issue-2 amends ac-17's "renders for every viewer":
+                the prompt's CONTENT drives state changes and building, so the
+                line is an editor affordance — gated on canEdit. The review
+                handoff above stays for both postures (dec-3: reviewing is the
+                reviewer's own workflow). */}
+            {canEdit && handoff && (
               <div data-testid="phase-handoff-line">
                 <PromptButton
                   buttonId={handoff.buttonId}
                   context={handoffContext}
                   orgBlocks={orgBlocks}
                   sentence={handoff.sentence}
-                  sentencePrefix={handoff.sentencePrefix}
                   linkText={handoff.linkText}
                   sentenceLabel={handoff.sentenceLabel}
                 />
               </div>
             )}
           </div>
-        )
-      )}
+        )}
 
       {/* Content area. `done` → the retrospective report replaces it entirely;
           every other phase renders its declarative layout. Non-Spec docs (no
-          phase layer) fall back to the Narrative view. Reviewers have no phase
-          tabs, so `viewedTab` stays pinned to the current phase's layout. */}
+          phase layer) fall back to the Narrative view. Every posture browses
+          via the tab bar above (spec-182 dec-1). */}
       {doc.docType === 'spec' && phase === 'done' ? (
         <DoneSummary
           doc={doc}
@@ -1102,6 +1145,17 @@ export function DocDocument() {
           acs={acs}
           issues={issues}
           people={assignees}
+          /* spec-164 dec-5: the one deliberate door back from done. Gates on
+             the same editor posture as the transition sentence's Yes; the
+             status write lives here (DoneSummary stays fetch-free, ac-9).
+             After the write the view follows the move, exactly like
+             TransitionSentence's onTransitioned. */
+          canReopen={canEdit}
+          onReopen={async () => {
+            await updateDocStatus(doc.id, 'verify');
+            setSelectedTab(null);
+            reloadDoc();
+          }}
         />
       ) : doc.docType !== 'spec' ? (
         narrativeView

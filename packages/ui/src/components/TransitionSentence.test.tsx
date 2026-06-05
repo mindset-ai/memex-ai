@@ -56,7 +56,7 @@ describe('Rubicon line — shape 1: current tab, rubric clean → offer + Yes', 
     tagAc(AC(3));
     render(<TransitionSentence {...baseProps({ currentPhase: 'build', viewedTab: 'build' })} />);
     expect(text()).not.toContain('currently in');
-    expect(text()).toContain('Do you want to move this spec to verify?');
+    expect(text()).toContain('Do you want to move this spec to Verify?');
   });
 
   it('draft → offers plan (draft is never gated)', () => {
@@ -72,32 +72,32 @@ describe('Rubicon line — shape 1: current tab, rubric clean → offer + Yes', 
         })}
       />,
     );
-    expect(text()).toContain('Do you wish to move this spec to plan?');
+    expect(text()).toContain('Do you wish to move this spec to Specify?');
     expect(screen.getByRole('button', { name: 'Yes' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'No' })).toBeNull();
   });
 
-  it('plan (clean) → "Do you wish to move this spec to build?" + Yes', () => {
+  it('plan (clean) → "Do you wish to move this spec to Build?" + Yes', () => {
     tagAc(AC(3));
     tagAc(AC(13));
     render(<TransitionSentence {...baseProps()} />);
-    expect(text()).toContain('Do you wish to move this spec to build?');
+    expect(text()).toContain('Do you wish to move this spec to Build?');
     expect(screen.getByRole('button', { name: 'Yes' })).toBeTruthy();
   });
 
-  it('build (clean) → "Do you want to move this spec to verify?" + Yes', () => {
+  it('build (clean) → "Do you want to move this spec to Verify?" + Yes', () => {
     tagAc(AC(3));
     tagAc(AC(13));
     render(<TransitionSentence {...baseProps({ currentPhase: 'build', viewedTab: 'build' })} />);
-    expect(text()).toContain('Do you want to move this spec to verify?');
+    expect(text()).toContain('Do you want to move this spec to Verify?');
     expect(screen.getByRole('button', { name: 'Yes' })).toBeTruthy();
   });
 
-  it('verify (clean) → "Do you want to move this spec to done?" + Yes', () => {
+  it('verify (clean) → "Do you want to move this spec to Done?" + Yes', () => {
     tagAc(AC(3));
     tagAc(AC(13));
     render(<TransitionSentence {...baseProps({ currentPhase: 'verify', viewedTab: 'verify' })} />);
-    expect(text()).toContain('Do you want to move this spec to done?');
+    expect(text()).toContain('Do you want to move this spec to Done?');
     expect(screen.getByRole('button', { name: 'Yes' })).toBeTruthy();
   });
 });
@@ -112,7 +112,7 @@ describe('Rubicon line — shape 2: current tab, rubric blocked → exact status
       />,
     );
     expect(text()).toContain(
-      'Decisions and Acceptance Criteria (ACs) must be created before this spec can move to build.',
+      'Decisions and Acceptance Criteria (ACs) must be created before this spec can move to Build.',
     );
     expect(screen.queryByRole('button')).toBeNull();
   });
@@ -120,35 +120,35 @@ describe('Rubicon line — shape 2: current tab, rubric blocked → exact status
   it('plan with open decisions and ACs present → decisions-only summary', () => {
     tagAc(AC(13));
     render(<TransitionSentence {...baseProps({ openDecisionCount: 4 })} />);
-    expect(text()).toContain('4 Decisions must be resolved before this spec can move to build.');
+    expect(text()).toContain('4 Decisions must be resolved before this spec can move to Build.');
     expect(screen.queryByRole('button')).toBeNull();
   });
 
   it('singular grammar: 1 open decision → "1 Decision must be resolved"', () => {
     tagAc(AC(13));
     render(<TransitionSentence {...baseProps({ openDecisionCount: 1 })} />);
-    expect(text()).toContain('1 Decision must be resolved before this spec can move to build.');
+    expect(text()).toContain('1 Decision must be resolved before this spec can move to Build.');
   });
 
-  it('build with open tasks → "{N} Tasks must be completed before this spec can move to verify."', () => {
+  it('build with open tasks → "{N} Tasks must be completed before this spec can move to Verify."', () => {
     tagAc(AC(13));
     render(
       <TransitionSentence
         {...baseProps({ currentPhase: 'build', viewedTab: 'build', openTaskCount: 2 })}
       />,
     );
-    expect(text()).toContain('2 Tasks must be completed before this spec can move to verify.');
+    expect(text()).toContain('2 Tasks must be completed before this spec can move to Verify.');
     expect(screen.queryByRole('button')).toBeNull();
   });
 
-  it('verify with unverified ACs → "{N} Acceptance Criteria (ACs) must be verified before this spec can move to done."', () => {
+  it('verify with unverified ACs → "{N} Acceptance Criteria (ACs) must be verified before this spec can move to Done."', () => {
     tagAc(AC(13));
     render(
       <TransitionSentence
         {...baseProps({ currentPhase: 'verify', viewedTab: 'verify', unverifiedAcCount: 3 })}
       />,
     );
-    expect(text()).toContain('3 Acceptance Criteria (ACs) must be verified before this spec can move to done.');
+    expect(text()).toContain('3 Acceptance Criteria (ACs) must be verified before this spec can move to Done.');
     expect(screen.queryByRole('button')).toBeNull();
   });
 
@@ -164,7 +164,7 @@ describe('Rubicon line — shape 2: current tab, rubric blocked → exact status
         })}
       />,
     );
-    expect(text()).toContain('Tasks must be created and completed before this spec can move to verify.');
+    expect(text()).toContain('Tasks must be created and completed before this spec can move to Verify.');
     expect(screen.queryByRole('button')).toBeNull();
   });
 
@@ -181,7 +181,7 @@ describe('Rubicon line — shape 2: current tab, rubric blocked → exact status
       />,
     );
     expect(text()).toContain(
-      'Acceptance Criteria (ACs) must be created and verified before this spec can move to done.',
+      'Acceptance Criteria (ACs) must be created and verified before this spec can move to Done.',
     );
     expect(screen.queryByRole('button')).toBeNull();
   });
@@ -197,7 +197,7 @@ describe('Rubicon line — shape 3: browsing another tab → Are-you-sure + Yes/
       />,
     );
     expect(text()).toContain(
-      '4 Decisions must be resolved and Acceptance Criteria (ACs) must be created before build.',
+      '4 Decisions must be resolved and Acceptance Criteria (ACs) must be created before Build.',
     );
     // The summary already names the target — the question doesn't repeat it.
     expect(text()).toContain('Move this spec anyway?');
@@ -208,7 +208,7 @@ describe('Rubicon line — shape 3: browsing another tab → Are-you-sure + Yes/
   it('forward browse while clean → "Are you sure…?" + Yes/No, no blocker text', () => {
     tagAc(AC(13));
     render(<TransitionSentence {...baseProps({ viewedTab: 'build' })} />);
-    expect(text()).toContain('Are you sure you want to move this spec to build?');
+    expect(text()).toContain('Are you sure you want to move this spec to Build?');
     expect(text()).not.toContain('must be');
     expect(screen.getByRole('button', { name: 'Yes' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'No' })).toBeTruthy();
@@ -222,7 +222,7 @@ describe('Rubicon line — shape 3: browsing another tab → Are-you-sure + Yes/
         {...baseProps({ currentPhase: 'verify', viewedTab: 'build', unverifiedAcCount: 7 })}
       />,
     );
-    expect(text()).toContain('Do you want to move this spec back to build?');
+    expect(text()).toContain('Do you want to move this spec back to Build?');
     expect(text()).not.toContain('must be verified');
     expect(screen.getByRole('button', { name: 'Yes' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'No' })).toBeTruthy();
@@ -239,12 +239,60 @@ describe('Rubicon line — shape 3: browsing another tab → Are-you-sure + Yes/
   });
 });
 
+// spec-182 issue-1 (2026-06-05): the Rubicon is STATUS-ONLY for non-editors.
+// Blocker statements render (they're the page's phase status); the transition
+// questions never do, and a clean rubric renders nothing at all — the tab
+// pill already carries the phase.
 describe('Rubicon line — posture (i-1) and the Yes mutation', () => {
-  it('canTransition=false renders the line but withholds Yes/No', () => {
-    tagAc(AC(3));
+  const AC182_9 = 'mindset-prod/memex-building-itself/specs/spec-182/acs/ac-9';
+
+  it('canTransition=false browsing forward with a clean rubric renders NOTHING — no question', () => {
+    tagAc(AC182_9);
     render(<TransitionSentence {...baseProps({ viewedTab: 'build', canTransition: false })} />);
-    expect(text()).toContain('Are you sure you want to move this spec to build?');
+    expect(screen.queryByTestId('transition-sentence')).toBeNull();
     expect(screen.queryByRole('button')).toBeNull();
+  });
+
+  it('canTransition=false on the current tab with a clean rubric renders NOTHING — no offer', () => {
+    tagAc(AC182_9);
+    render(<TransitionSentence {...baseProps({ canTransition: false })} />);
+    expect(screen.queryByTestId('transition-sentence')).toBeNull();
+  });
+
+  it('canTransition=false on the current tab, blocked → the rubric condition, no buttons', () => {
+    tagAc(AC182_9);
+    render(
+      <TransitionSentence
+        {...baseProps({ openDecisionCount: 2, canTransition: false })}
+      />,
+    );
+    expect(text()).toContain('2 Decisions');
+    expect(text()).toContain('must be resolved');
+    expect(text()).not.toContain('?');
+    expect(screen.queryByRole('button')).toBeNull();
+  });
+
+  it('canTransition=false browsing forward, blocked → blocker summary only, no "Move anyway?"', () => {
+    tagAc(AC182_9);
+    render(
+      <TransitionSentence
+        {...baseProps({ viewedTab: 'build', openDecisionCount: 2, canTransition: false })}
+      />,
+    );
+    expect(text()).toContain('2 Decisions');
+    expect(text()).not.toContain('Move this spec anyway?');
+    expect(text()).not.toContain('?');
+    expect(screen.queryByRole('button')).toBeNull();
+  });
+
+  it('canTransition=false browsing backward renders NOTHING — no back-move question', () => {
+    tagAc(AC182_9);
+    render(
+      <TransitionSentence
+        {...baseProps({ currentPhase: 'verify', viewedTab: 'build', canTransition: false })}
+      />,
+    );
+    expect(screen.queryByTestId('transition-sentence')).toBeNull();
   });
 
   it('pressing Yes calls updateDocStatus(docId, target) immediately, no dialog (ac-6)', async () => {
@@ -262,5 +310,30 @@ describe('Rubicon line — posture (i-1) and the Yes mutation', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
     await waitFor(() => expect(updateDocStatus).toHaveBeenCalledWith('doc-1', 'verify'));
     await waitFor(() => expect(onTransitioned).toHaveBeenCalledWith('verify'));
+  });
+});
+
+// spec-182 dec-6 (amended 2026-06-05) — the in-slot "switch to Editing" nag
+// was removed at the user's call; the header posture pill is the only switch
+// affordance. This pins the absence so the nag doesn't quietly return.
+describe('no switch-to-Editing nag (spec-182 dec-6, amended)', () => {
+  const AC182 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-182/acs/ac-${n}`;
+
+  it('a non-transitioning viewer sees a clean status line — no nag in any sentence shape', () => {
+    tagAc(AC182(14));
+    tagAc(AC182(6));
+    // Clean offer shape — renders nothing at all for a non-editor
+    // (spec-182 issue-1), so trivially no nag.
+    const { unmount } = render(<TransitionSentence {...baseProps()} canTransition={false} />);
+    expect(screen.queryByTestId('switch-to-editing')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('transition-sentence')).toBeNull();
+    unmount();
+
+    // Blocked shape — the status line renders, nag-free.
+    render(
+      <TransitionSentence {...baseProps({ openDecisionCount: 2 })} canTransition={false} />,
+    );
+    expect(screen.queryByTestId('switch-to-editing')).not.toBeInTheDocument();
+    expect(text()).not.toContain("You're reviewing");
   });
 });

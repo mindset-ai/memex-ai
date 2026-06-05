@@ -25,7 +25,7 @@ describe('PhaseTabBar', () => {
     expect(screen.getByRole('tablist', { name: /Spec phase view/i })).toBeInTheDocument();
     const tabs = screen.getAllByRole('tab');
     expect(tabs).toHaveLength(3);
-    expect(within(tab('plan')).getByText('Plan')).toBeInTheDocument();
+    expect(within(tab('plan')).getByText('Specify')).toBeInTheDocument();
     expect(within(tab('build')).getByText('Build')).toBeInTheDocument();
     expect(within(tab('verify')).getByText('Verify')).toBeInTheDocument();
   });
@@ -179,5 +179,22 @@ describe('PhaseTabBar', () => {
     expect(buildTab).toHaveAttribute('data-current', 'true');
     expect(buildTab).toHaveAttribute('data-selected', 'true');
     expect(buildTab.textContent).toContain('●');
+  });
+});
+
+// spec-164 (scope ac-2) — arrow separators give the bar a left-to-right
+// pipeline read without disturbing the tablist semantics.
+describe('PhaseTabBar — flow arrows (spec-164)', () => {
+  const AC_ARROWS = 'mindset-prod/memex-building-itself/specs/spec-164/acs/ac-2';
+
+  it('renders exactly two aria-hidden arrows between the three tabs', () => {
+    tagAc(AC_ARROWS);
+    render(<PhaseTabBar currentPhase="plan" selectedTab="plan" onSelect={() => {}} />);
+    const arrows = screen.getAllByTestId('phase-arrow');
+    expect(arrows).toHaveLength(2);
+    for (const a of arrows) expect(a).toHaveAttribute('aria-hidden', 'true');
+    // The tabs themselves are still the tablist's tabs, in pipeline order.
+    const tabs = screen.getAllByRole('tab');
+    expect(tabs.map((t) => t.getAttribute('data-tab'))).toEqual(['plan', 'build', 'verify']);
   });
 });

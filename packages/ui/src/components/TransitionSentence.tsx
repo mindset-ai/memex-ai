@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { updateDocStatus } from '../api/client';
 import { SPEC_STATUSES, type SpecStatus } from '../api/types';
+import { phaseDisplayName } from '../utils/phaseDisplay';
 import { Button } from './ui';
 
 // spec-159 t-3: the Rubicon line — the single sentence beneath the phase tabs
@@ -12,20 +13,23 @@ import { Button } from './ui';
 // Three shapes, keyed on what the user is viewing:
 //
 //   1. CURRENT tab, rubric clean → the advancement offer + [Yes].
-//      "Do you wish to move this spec to build?"
+//      "Do you wish to move this spec to Build?"
 //   2. CURRENT tab, rubric blocked → the outstanding work, stated plainly, NO
 //      buttons — when the work is obvious there is nothing to confirm.
 //      "**4 Decisions** must be resolved and **Acceptance Criteria (ACs)**
-//       must be created before this spec can move to build."
+//       must be created before this spec can move to Build."
 //   3. BROWSING another tab → an explicit confirm: [Yes] [No]. Forward+blocked
 //      leads with the blocker summary (which names the target) and asks "Move
 //      this spec anyway?" — the deliberate-friction escape hatch. No returns
 //      the view to the current phase's tab. Backward moves never carry
 //      blockers (dec-5).
 //
-// The sentence renders for every viewer — it is the page's phase status line —
-// and the buttons gate on `canTransition` (editor posture, i-1). Pressing Yes
-// is the only thing that moves the phase, anywhere on the page.
+// Posture (spec-182 issue-1): the Rubicon is STATUS-ONLY for non-editors.
+// When `canTransition` is false the blocker statements still render — they are
+// the page's phase status — but the questions ("Do you wish…?", "Are you
+// sure…?", "Move anyway?") never appear without the power to act, and a
+// ready-to-advance spec renders nothing at all. Pressing Yes is the only
+// thing that moves the phase, anywhere on the page.
 
 // `draft` is treated as "before plan": its home is the Plan tab, draft → plan
 // is never gated, and the forward target of every phase is simply the next
@@ -58,8 +62,9 @@ export interface TransitionSentenceProps {
   viewedTab: SpecStatus;
   /**
    * Whether the viewer may actually move the phase (editor posture + org write
-   * access). When false the sentence still renders — it's the page's phase
-   * status line — but the Yes/No buttons are withheld.
+   * access). When false the Rubicon is status-only: blocker statements render
+   * (they're the page's phase status) but the transition questions and Yes/No
+   * buttons never appear (spec-182 issue-1).
    */
   canTransition?: boolean;
   /** Total decisions on the Spec — distinguishes "none created" from "open". */
@@ -205,12 +210,14 @@ export function TransitionSentence({
     }
   }
 
-  const yesButton = canTransition && (
+  // The question shapes below only render when canTransition is true, so the
+  // buttons need no further gate of their own.
+  const yesButton = (
     <Button type="button" size="sm" variant="primary" onClick={handleYes} disabled={submitting}>
       {submitting ? 'Moving…' : 'Yes'}
     </Button>
   );
-  const noButton = canTransition && (
+  const noButton = (
     <Button
       type="button"
       size="sm"
@@ -241,15 +248,20 @@ export function TransitionSentence({
       // buttons to press.
       return (
         <p className="text-sm text-secondary" data-testid="transition-sentence">
-          {renderBlockers(blockers)} before this spec can move to {target}.
+          {renderBlockers(blockers)} before this spec can move to {phaseDisplayName(target)}.
         </p>
       );
     }
-    // Ready: the advancement offer.
+    // Ready: the advancement offer — editors only. A non-editor has nothing
+    // to act on, and the tab bar's filled pill already carries the phase
+    // (spec-182 issue-1).
+    if (!canTransition) {
+      return null;
+    }
     const verb = target === 'verify' || target === 'done' ? 'Do you want' : 'Do you wish';
     return (
       <p className="text-sm text-secondary" data-testid="transition-sentence">
-        {verb} to move this spec to {target}? {yesButton}
+        {verb} to move this spec to {phaseDisplayName(target)}? {yesButton}
         {errorNote}
       </p>
     );
@@ -260,14 +272,27 @@ export function TransitionSentence({
   // (which already names the target) and asks "Move this spec anyway?" —
   // naming the target once, with the friction carried by "anyway".
   const showSummary = !backward && blockers.length > 0;
+  if (!canTransition) {
+    // Non-editor browsing: status only (spec-182 issue-1). Forward+blocked
+    // still states the rubric's outstanding work; otherwise there is no
+    // question to ask someone who can't press Yes.
+    if (!showSummary) {
+      return null;
+    }
+    return (
+      <p className="text-sm text-secondary" data-testid="transition-sentence">
+        {renderBlockers(blockers)} before {phaseDisplayName(target)}.
+      </p>
+    );
+  }
   const question = backward
-    ? `Do you want to move this spec back to ${target}?`
+    ? `Do you want to move this spec back to ${phaseDisplayName(target)}?`
     : showSummary
       ? 'Move this spec anyway?'
-      : `Are you sure you want to move this spec to ${target}?`;
+      : `Are you sure you want to move this spec to ${phaseDisplayName(target)}?`;
   return (
     <p className="text-sm text-secondary" data-testid="transition-sentence">
-      {showSummary && <>{renderBlockers(blockers)} before {target}. </>}
+      {showSummary && <>{renderBlockers(blockers)} before {phaseDisplayName(target)}. </>}
       {question} {yesButton} {noButton}
       {errorNote}
     </p>

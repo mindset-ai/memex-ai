@@ -625,3 +625,26 @@ describe('SpecList assignees + filter (spec-118)', () => {
 
 // Placate the unused-import linter if `act` ends up unused in some refactors.
 void act;
+
+// spec-164 dec-1 / ac-13 — list views route phase names through the shared
+// display-name layer: the kanban planning column reads "Specify", never "Plan".
+describe('SpecList — phase display names (spec-164)', () => {
+  const AC_DISPLAY = 'mindset-prod/memex-building-itself/specs/spec-164/acs/ac-13';
+
+  it('the planning kanban column is headed "Specify" (no "Plan" heading remains)', async () => {
+    tagAc(AC_DISPLAY);
+    fetchDocsMock.mockResolvedValueOnce([
+      spec({ id: 's-1', title: 'Auth migration', handle: 'doc-1', status: 'plan' }),
+    ]);
+
+    render(
+      <MemoryRouter>
+        <SpecList />
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText('Auth migration')).toBeInTheDocument();
+    expect(screen.getByText('Specify')).toBeInTheDocument();
+    expect(screen.queryByText('Plan')).not.toBeInTheDocument();
+  });
+});

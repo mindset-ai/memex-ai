@@ -1,6 +1,7 @@
-import { useRef } from 'react';
+import { Fragment, useRef } from 'react';
 import type { SpecStatus } from '../api/types';
 import { statusVariant } from '../utils/statusStyles';
+import { phaseDisplayName } from '../utils/phaseDisplay';
 
 // The phase tab bar carries TWO independent visual states (spec-159 ac-2 / ac-15):
 //
@@ -27,10 +28,12 @@ import { statusVariant } from '../utils/statusStyles';
 const TABS = ['plan', 'build', 'verify'] as const;
 export type PhaseTab = (typeof TABS)[number];
 
+// spec-164 dec-1: labels come from the shared phase display-name layer — the
+// `plan` tab reads "Specify" while data-tab and the enum keep `plan`.
 const TAB_LABELS: Record<PhaseTab, string> = {
-  plan: 'Plan',
-  build: 'Build',
-  verify: 'Verify',
+  plan: phaseDisplayName('plan'),
+  build: phaseDisplayName('build'),
+  verify: phaseDisplayName('verify'),
 };
 
 // Per-tab fill, reusing the canonical statusVariant → status-* token classes
@@ -122,13 +125,27 @@ export function PhaseTabBar({ currentPhase, selectedTab, onSelect }: PhaseTabBar
           <span>Draft</span>
         </button>
       )}
-      <div role="tablist" aria-label="Spec phase view" className="flex gap-2">
+      <div role="tablist" aria-label="Spec phase view" className="flex items-center gap-2">
         {TABS.map((tab, i) => {
           const isCurrent = tab === currentTab;
           const isSelected = tab === selectedTab;
           return (
+            // spec-164 (scope ac-2): an arrow separator between consecutive
+            // tabs gives the bar a left-to-right pipeline read
+            // (Specify → Build → Verify). aria-hidden — purely visual; the
+            // Fragment keeps each tab button a direct tablist child, so the
+            // tablist semantics and roving keyboard nav are untouched.
+            <Fragment key={tab}>
+              {i > 0 && (
+                <span
+                  aria-hidden="true"
+                  data-testid="phase-arrow"
+                  className="text-muted text-xs leading-none select-none"
+                >
+                  →
+                </span>
+              )}
             <button
-              key={tab}
               ref={(el) => {
                 tabRefs.current[tab] = el;
               }}
@@ -163,6 +180,7 @@ export function PhaseTabBar({ currentPhase, selectedTab, onSelect }: PhaseTabBar
                 <span className="absolute -bottom-1 left-2 right-2 h-0.5 bg-primary rounded-full" />
               )}
             </button>
+            </Fragment>
           );
         })}
       </div>

@@ -320,3 +320,83 @@ describe('buildVerifiedSegments', () => {
     expect(segments.map((s) => s.colour)).toEqual(['green', 'rose', 'amber']);
   });
 });
+
+// spec-164 (scope ac-3 / ac-10) — the AC panel wears the same card chrome as
+// the Decision/Task/Issue panels and carries no offset wrapper, so the
+// Decisions and ACs columns start on the same line even when the unified
+// header shows coverage/verification statistics.
+describe('AcPanel — card chrome + column alignment (spec-164)', () => {
+  const AC_CONSISTENT = 'mindset-prod/memex-building-itself/specs/spec-164/acs/ac-3';
+  const AC_ALIGNED = 'mindset-prod/memex-building-itself/specs/spec-164/acs/ac-10';
+
+  it('populated panel renders flush with the shared card chrome and uppercase header', async () => {
+    tagAc(AC_CONSISTENT);
+    tagAc(AC_ALIGNED);
+    vi.mocked(fetchAcsForBrief).mockResolvedValue([
+      makeAc(1, 'scope', 'verified'),
+      makeAc(2, 'implementation', 'failing'),
+    ]);
+    vi.mocked(fetchAcAlignmentHistory).mockResolvedValue(makeHistory());
+
+    render(<AcPanel docId="spec-1" />);
+    const panel = await screen.findByTestId('ac-panel');
+    // Same card chrome family as decision-panel / task-panel / issue-panel…
+    expect(panel.className).toContain('border-edge');
+    expect(panel.className).toContain('bg-panel');
+    // …and no offset wrapper pushing the column down or inward.
+    expect(panel.className).not.toContain('py-4');
+    expect(panel.className).not.toContain('px-2');
+    expect(within(panel).getByText('Acceptance Criteria')).toBeInTheDocument();
+    // The verification statistics render INSIDE the card, below the header,
+    // so they can never push the column start out of line.
+    expect(within(panel).getByTestId('ac-unified-header')).toBeInTheDocument();
+  });
+
+  it('the zero-AC teaching card also renders flush (no offset wrapper)', async () => {
+    tagAc(AC_ALIGNED);
+    vi.mocked(fetchAcsForBrief).mockResolvedValue([]);
+    vi.mocked(fetchAcAlignmentHistory).mockResolvedValue([]);
+
+    render(<AcPanel docId="spec-1" />);
+    const panel = await screen.findByTestId('ac-panel');
+    expect(panel.className).not.toContain('py-4');
+    expect(panel.className).not.toContain('max-w-3xl');
+  });
+});
+
+// spec-164 dec-3 — the AC half of the draft gate: zero ACs in draft invites
+// the move to Specify; existing ACs always render.
+describe('AcPanel — draft-phase gating (spec-164)', () => {
+  const AC164 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-164/acs/ac-${n}`;
+
+  it('draft + zero ACs → empty-state directive instead of the teaching card', async () => {
+    tagAc(AC164(17));
+    vi.mocked(fetchAcsForBrief).mockResolvedValue([]);
+    vi.mocked(fetchAcAlignmentHistory).mockResolvedValue([]);
+    render(<AcPanel docId="spec-1" specPhase="draft" />);
+    expect(await screen.findByTestId('ac-draft-directive')).toHaveTextContent(
+      'Move this spec to Specify to start capturing Decisions and ACs.',
+    );
+    expect(screen.queryByText('No acceptance criteria on this Spec yet')).not.toBeInTheDocument();
+  });
+
+  it('draft + existing ACs → normal render, content never hidden', async () => {
+    tagAc(AC164(18));
+    vi.mocked(fetchAcsForBrief).mockResolvedValue([makeAc(1, 'scope', 'verified')]);
+    vi.mocked(fetchAcAlignmentHistory).mockResolvedValue([]);
+    render(<AcPanel docId="spec-1" specPhase="draft" />);
+    expect(await screen.findByTestId('ac-unified-header')).toBeInTheDocument();
+    expect(screen.queryByTestId('ac-draft-directive')).not.toBeInTheDocument();
+  });
+
+  it('plan + zero ACs → the teaching card renders as before (no directive)', async () => {
+    tagAc(AC164(18));
+    vi.mocked(fetchAcsForBrief).mockResolvedValue([]);
+    vi.mocked(fetchAcAlignmentHistory).mockResolvedValue([]);
+    render(<AcPanel docId="spec-1" specPhase="plan" />);
+    expect(
+      await screen.findByText('No acceptance criteria on this Spec yet'),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId('ac-draft-directive')).not.toBeInTheDocument();
+  });
+});

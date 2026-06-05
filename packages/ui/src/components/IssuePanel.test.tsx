@@ -124,9 +124,11 @@ describe('IssuePanel', () => {
     );
   });
 
-  it('click-to-focus sets a minimal {type:issue, id, label} ContextChip', async () => {
-    // c-1 (ratified): clicking an Issue row drops a minimal chip — id + a
-    // `issue-N — title` label, nothing richer (the agent fetches via get_issue).
+  it('focus-to-chat fires from the hover icon with a minimal {type:issue, id, label} ContextChip', async () => {
+    // c-1 (ratified) as amended by spec-164 dec-4: the minimal chip — id + a
+    // `issue-N — title` label, nothing richer (the agent fetches via
+    // get_issue) — now fires ONLY from the dedicated hover icon; the card
+    // click itself toggles the inline expansion instead.
     // spec-158 ac-16: the chip label uses the issue-N handle form.
     tagAc('mindset-prod/memex-building-itself/specs/spec-158/acs/ac-16');
     const user = userEvent.setup();
@@ -136,8 +138,8 @@ describe('IssuePanel', () => {
 
     render(<IssuePanel docId="doc-1" />);
 
-    const card = await screen.findByTestId('issue-card');
-    await user.click(card);
+    await screen.findByTestId('issue-card');
+    await user.click(screen.getByTestId('issue-focus'));
 
     expect(mockAddContextChip).toHaveBeenCalledTimes(1);
     expect(mockAddContextChip).toHaveBeenCalledWith({
@@ -221,5 +223,97 @@ describe('IssuePanel', () => {
     await screen.findByTestId('issue-card');
     expect(screen.queryByTestId('issue-add')).not.toBeInTheDocument();
     expect(screen.queryByTestId('issue-convert')).not.toBeInTheDocument();
+  });
+});
+
+// spec-164 dec-4 — inline expand/collapse accordion on issue cards.
+describe('IssuePanel — inline expansion (spec-164)', () => {
+  const AC164 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-164/acs/ac-${n}`;
+
+  it('clicking a card expands it in place (full body + metadata); clicking again collapses; several can be open', async () => {
+    tagAc(AC164(19));
+    tagAc('mindset-prod/memex-building-itself/specs/spec-164/acs/ac-4');
+    const user = userEvent.setup();
+    const longBody = 'line one\nline two\nline three — long enough to be clamped when collapsed.';
+    mockFetchIssues.mockResolvedValue([
+      makeIssue({ id: 'iss-1', seq: 1, title: 'First', body: longBody }),
+      makeIssue({ id: 'iss-2', seq: 2, title: 'Second', body: 'short body' }),
+    ]);
+
+    render(<IssuePanel docId="doc-1" />);
+    const cards = await screen.findAllByTestId('issue-card');
+    expect(cards).toHaveLength(2);
+    expect(screen.queryByTestId('issue-expanded')).not.toBeInTheDocument();
+
+    await user.click(cards[0]);
+    expect(cards[0]).toHaveAttribute('aria-expanded', 'true');
+    const expanded = screen.getByTestId('issue-expanded');
+    expect(expanded).toHaveTextContent('line three — long enough to be clamped when collapsed.');
+    expect(expanded).toHaveTextContent('issue-1');
+
+    // Second card opens alongside the first.
+    await user.click(cards[1]);
+    expect(screen.getAllByTestId('issue-expanded')).toHaveLength(2);
+
+    // Clicking the first again collapses only it.
+    await user.click(cards[0]);
+    expect(cards[0]).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getAllByTestId('issue-expanded')).toHaveLength(1);
+  });
+
+  it('a plain card click does NOT add the issue to the chat context', async () => {
+    tagAc(AC164(20));
+    const user = userEvent.setup();
+    mockFetchIssues.mockResolvedValue([makeIssue({ id: 'iss-1', seq: 1 })]);
+
+    render(<IssuePanel docId="doc-1" />);
+    await user.click(await screen.findByTestId('issue-card'));
+
+    expect(mockAddContextChip).not.toHaveBeenCalled();
+  });
+
+  it('a deep-linked issue lands scrolled, highlighted AND expanded', async () => {
+    tagAc(AC164(21));
+    mockFetchIssues.mockResolvedValue([
+      makeIssue({ id: 'iss-5', seq: 5, title: 'Deep target', body: 'full detail' }),
+    ]);
+
+    render(<IssuePanel docId="doc-1" highlightIssueHandle="issue-5" />);
+    const card = await screen.findByTestId('issue-card');
+    await waitFor(() => expect(card).toHaveAttribute('aria-expanded', 'true'));
+    expect(screen.getByTestId('issue-expanded')).toHaveTextContent('full detail');
+  });
+});
+
+// spec-182 dec-4 — issue powers split by posture: register stays canWrite,
+// dispositions (Convert to Task / Won't fix) move to canEdit.
+describe('IssuePanel — posture-split powers (spec-182)', () => {
+  const AC182_12 = 'mindset-prod/memex-building-itself/specs/spec-182/acs/ac-12';
+  const AC182_4 = 'mindset-prod/memex-building-itself/specs/spec-182/acs/ac-4';
+
+  it('a writable reviewer (canWrite, no canEdit) can register but sees no dispositions', async () => {
+    tagAc(AC182_12);
+    tagAc(AC182_4);
+    mockFetchIssues.mockResolvedValue([makeIssue({ id: 'iss-1', seq: 1, status: 'open' })]);
+
+    render(<IssuePanel docId="doc-1" canWrite canEdit={false} />);
+    await screen.findByTestId('issue-card');
+
+    // Register stays available…
+    expect(screen.getByTestId('issue-add')).toBeInTheDocument();
+    // …the dispositions do not.
+    expect(screen.queryByTestId('issue-convert')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('issue-wontfix')).not.toBeInTheDocument();
+  });
+
+  it('an editor (canEdit) keeps both dispositions on an open issue', async () => {
+    tagAc(AC182_12);
+    mockFetchIssues.mockResolvedValue([makeIssue({ id: 'iss-1', seq: 1, status: 'open' })]);
+
+    render(<IssuePanel docId="doc-1" canWrite canEdit />);
+    await screen.findByTestId('issue-card');
+
+    expect(screen.getByTestId('issue-convert')).toBeInTheDocument();
+    expect(screen.getByTestId('issue-wontfix')).toBeInTheDocument();
   });
 });

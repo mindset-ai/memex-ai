@@ -14,6 +14,12 @@ vi.mock('../hooks/useDocChangeStream', () => ({
   useDocChangeStream: () => {},
 }));
 
+// The map is the default view (spec-179) and would pull the WebGL renderer
+// into jsdom — stub it; these tests force list mode where they assert cards.
+vi.mock('../components/StandardsMap', () => ({
+  StandardsMap: () => <div data-testid="mock-standards-map" />,
+}));
+
 const fetchDocsMock = vi.fn();
 vi.mock('../api/client', () => ({
   fetchDocs: (...args: unknown[]) => fetchDocsMock(...args),
@@ -55,6 +61,7 @@ function standard(overrides: Partial<DocSummary> = {}): DocSummary {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  localStorage.clear();
 });
 
 describe('StandardList', () => {
@@ -130,6 +137,33 @@ describe('StandardList', () => {
     expect(badge).toHaveTextContent('2 drift');
   });
 
+  it('search box filters the list by handle and title (same matcher as the map)', async () => {
+    fetchDocsMock.mockResolvedValueOnce([
+      standard({ id: 'b-1', title: 'Caching rules', handle: 'std-100' }),
+      standard({ id: 'b-2', title: 'Routing', handle: 'std-101' }),
+    ]);
+
+    render(
+      <MemoryRouter>
+        <StandardList />
+      </MemoryRouter>
+    );
+
+    await screen.findByText('Caching rules');
+    fireEvent.change(screen.getByTestId('standards-search'), { target: { value: 'rout' } });
+    expect(screen.queryByText('Caching rules')).not.toBeInTheDocument();
+    expect(screen.getByText('Routing')).toBeInTheDocument();
+
+    // Handle matching too.
+    fireEvent.change(screen.getByTestId('standards-search'), { target: { value: 'std-100' } });
+    expect(screen.getByText('Caching rules')).toBeInTheDocument();
+    expect(screen.queryByText('Routing')).not.toBeInTheDocument();
+
+    // No hits → explicit empty state, not a silently blank grid.
+    fireEvent.change(screen.getByTestId('standards-search'), { target: { value: 'zzz' } });
+    expect(screen.getByTestId('standards-search-empty')).toBeInTheDocument();
+  });
+
   it('drift badge deep-links into the Drift Inbox filtered to this standard (b-63)', async () => {
     fetchDocsMock.mockResolvedValueOnce([
       standard({ id: 'b-1', title: 'Drifty standard', handle: 'std-100', driftCount: 2 }),
@@ -150,51 +184,4 @@ describe('StandardList', () => {
     expect(loc).toContain('doc=std-100');
   });
 
-  it('Copy audit prompt button writes a templated prompt to the clipboard (t-11)', async () => {
-    fetchDocsMock.mockResolvedValueOnce([
-      standard({ id: 'b-1', title: 'Drifty standard' }),
-      standard({ id: 'b-2', title: 'Caching rules' }),
-    ]);
-
-    const writeText = vi.fn().mockResolvedValue(undefined);
-    Object.defineProperty(navigator, 'clipboard', {
-      value: { writeText },
-      configurable: true,
-    });
-
-    render(
-      <MemoryRouter>
-        <StandardList />
-      </MemoryRouter>
-    );
-
-    const button = await screen.findByTestId('copy-audit-prompt');
-    fireEvent.click(button);
-
-    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
-    const prompt = writeText.mock.calls[0][0] as string;
-    // The prompt names the right Memex (derived from the test hostname),
-    // tells the agent how many standards to check, and references the
-    // canonical MCP tools the agent is supposed to use.
-    // doc-14: list_standards folded into list_docs({ docType: 'standard' }).
-    expect(prompt).toContain("list_docs({ docType: 'standard' })");
-    expect(prompt).toContain('flag_drift');
-    expect(prompt).toContain('propose_standard_change');
-    expect(prompt).toContain('2 standards');
-
-    // After click, the button label flips to "Copied!" so the user gets
-    // visible feedback before the 2-second reset timer fires.
-    expect(await screen.findByText('Copied!')).toBeInTheDocument();
-  });
-
-  it('disables the copy-audit-prompt button when there are no standards', async () => {
-    fetchDocsMock.mockResolvedValueOnce([]);
-    render(
-      <MemoryRouter>
-        <StandardList />
-      </MemoryRouter>
-    );
-    const button = await screen.findByTestId('copy-audit-prompt');
-    expect(button).toBeDisabled();
-  });
 });

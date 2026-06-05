@@ -19,6 +19,7 @@ import { executionPlans } from "./routes/execution-plans.js";
 import { llmRouter } from "./routes/llm.js";
 import { docEventsRouter } from "./routes/doc-events.js";
 import { activity } from "./routes/activity.js";
+import { analytics } from "./routes/analytics.js";
 import { waitlist } from "./routes/waitlist.js";
 import { auth } from "./routes/auth.js";
 import { invitesAcceptRouter, invitesAdminRouter } from "./routes/invites.js";
@@ -221,6 +222,9 @@ app.route("/api/:namespace/:memex/issues-list", issuesList);
 // per-Memex, so there's no flat entity-keyed mount (a bare /api/activity has no
 // memex to scope to).
 app.route("/api/:namespace/:memex/activity", activity);
+// Spec analytics for the Insights page (spec-179). Path-prefixed only — the
+// aggregates are inherently per-Memex, same reasoning as /activity above.
+app.route("/api/:namespace/:memex/analytics", analytics);
 app.use("/api/:namespace/:memex/llm/*", sessionMiddleware);
 app.route("/api/:namespace/:memex/llm", llmRouter);
 // Tenancy-scoped membership / admin surfaces — drift fix to t-12. These were

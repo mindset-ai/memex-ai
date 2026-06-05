@@ -208,6 +208,53 @@ export const standardClauses = pgTable(
   ],
 );
 
+// spec-179 (dec-3): materialized handle-mentions parsed out of standard-clause
+// bodies (and, via the one-time 0076 backfill, legacy section preambles). One
+// row per (source, target_kind, target_handle) — the structured form of "this
+// clause cites std-2" that the standards-graph endpoint joins instead of
+// parsing prose at request time. Maintained inside the clause mutation
+// transactions (services/clause-refs.ts syncClauseRefsTx); preamble edits do
+// NOT resync (preambles are frozen connective prose on legacy decomposed
+// sections — see services/clause-refs.ts header).
+//
+// `target_doc_id` is resolved memex-scoped for doc-level handles (std-N /
+// spec-N / legacy b-N / doc-N) and NULL for doc-relative kinds (dec-N, cl-N)
+// or unresolvable handles — a NULL target yields no graph edge (ac-12, never a
+// cross-memex one). The partial unique indexes + the one-source CHECK live in
+// the hand-written migration (drizzle/0076_add_clause_refs.sql); the index()
+// entries below keep schema.ts honest about which columns are indexed.
+export const clauseRefs = pgTable(
+  "clause_refs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    memexId: uuid("memex_id").notNull(),
+    // Exactly one of the two sources is set (CHECK in 0076): a live clause ref
+    // (write-path maintained) or a legacy preamble ref (backfill-only).
+    sourceClauseId: uuid("source_clause_id").references(() => standardClauses.id, {
+      onDelete: "cascade",
+    }),
+    sourceSectionId: uuid("source_section_id").references(() => docSections.id, {
+      onDelete: "cascade",
+    }),
+    sourceDocId: uuid("source_doc_id")
+      .notNull()
+      .references(() => documents.id, { onDelete: "cascade" }),
+    targetKind: text("target_kind").notNull(),
+    targetHandle: text("target_handle").notNull(),
+    targetDocId: uuid("target_doc_id").references(() => documents.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("clause_refs_memex_id_idx").on(table.memexId),
+    index("clause_refs_source_doc_id_idx").on(table.sourceDocId),
+    index("clause_refs_target_doc_id_idx").on(table.targetDocId),
+    check(
+      "clause_refs_kind_valid",
+      sql`${table.targetKind} IN ('standard', 'spec', 'document', 'decision', 'clause')`
+    ),
+  ]
+);
+
 export const docComments = pgTable(
   "doc_comments",
   {
@@ -2206,6 +2253,8 @@ export const symbolsRelations = relations(symbols, ({ one }) => ({
 export type Doc = InferSelectModel<typeof documents>;
 export type DocSection = InferSelectModel<typeof docSections>;
 export type StandardClause = InferSelectModel<typeof standardClauses>;
+export type ClauseRef = InferSelectModel<typeof clauseRefs>;
+export type ClauseRefInsert = InferInsertModel<typeof clauseRefs>;
 export type DocComment = InferSelectModel<typeof docComments>;
 export type Decision = InferSelectModel<typeof decisions>;
 export type Task = InferSelectModel<typeof tasks>;

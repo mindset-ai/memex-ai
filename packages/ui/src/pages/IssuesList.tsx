@@ -35,10 +35,15 @@ import { SpecMenu } from '../components/SpecMenu';
 import { ScopeToggle, type PulseScope } from '../components/pulse/ScopeToggle';
 import { TimeAgo } from '../components/pulse/TimeAgo';
 import { tenantPathFor } from '../utils/tenantUrl';
+import { phaseDisplayName } from '../utils/phaseDisplay';
 
 // The phase set the filter exposes, 1:1 with the server's SpecPhase (the
 // documents.status values the Spec rename settled on). All checked by default.
 const PHASES = ['draft', 'plan', 'build', 'verify', 'done'] as const;
+// spec-164 (scope ac-7): `done` ships UNCHECKED by default — issues on done
+// specs are usually resolved-or-moot, so surfacing them is an explicit opt-in.
+// Any other selection (including done on) serialises to the ?phases= param.
+const DEFAULT_PHASES = ['draft', 'plan', 'build', 'verify'] as const;
 type Phase = (typeof PHASES)[number];
 
 const TYPES: readonly IssueType[] = ['bug', 'todo'];
@@ -62,16 +67,17 @@ function parseScope(params: URLSearchParams): PulseScope {
   return params.get('scope') === 'everyone' ? 'everyone' : 'me';
 }
 
-// Read a CSV multi-select param against a known vocabulary. Absent ⇒ the full set
-// (default-on); present ⇒ exactly the recognised tokens it lists (so an empty
+// Read a CSV multi-select param against a known vocabulary. Absent ⇒ the given
+// DEFAULT set; present ⇒ exactly the recognised tokens it lists (so an empty
 // param means "none selected" and round-trips as such).
 function parseSet<T extends string>(
   params: URLSearchParams,
   key: string,
   all: readonly T[],
+  defaults: readonly T[] = all,
 ): Set<T> {
   const raw = params.get(key);
-  if (raw === null) return new Set(all);
+  if (raw === null) return new Set(defaults);
   const valid = new Set<string>(all);
   return new Set(
     raw
@@ -90,7 +96,10 @@ export function IssuesList() {
   // source of truth (shareable / reload-safe). Toggling a control rewrites the
   // URL, which re-derives state — no separate useState to keep in sync.
   const scope = parseScope(searchParams);
-  const phases = useMemo(() => parseSet(searchParams, 'phases', PHASES), [searchParams]);
+  const phases = useMemo(
+    () => parseSet(searchParams, 'phases', PHASES, DEFAULT_PHASES),
+    [searchParams],
+  );
   const types = useMemo(() => parseSet(searchParams, 'types', TYPES), [searchParams]);
 
   const patchParams = useCallback(
@@ -120,10 +129,13 @@ export function IssuesList() {
       const next = new Set(phases);
       if (next.has(phase)) next.delete(phase);
       else next.add(phase);
-      // The full set is the default — omit the param when everything is on so the
-      // URL stays clean; otherwise serialise the explicit selection (even empty).
+      // The DEFAULT set (done off) keeps the URL clean — omit the param when
+      // the selection matches it; otherwise serialise the explicit selection
+      // (even empty).
+      const isDefault =
+        next.size === DEFAULT_PHASES.length && DEFAULT_PHASES.every((ph) => next.has(ph));
       patchParams((p) =>
-        next.size === PHASES.length ? p.delete('phases') : p.set('phases', [...next].join(',')),
+        isDefault ? p.delete('phases') : p.set('phases', [...next].join(',')),
       );
     },
     [phases, patchParams],
@@ -303,7 +315,7 @@ export function IssuesList() {
             <FilterCheckbox
               key={phase}
               testid={`issues-phase-${phase}`}
-              label={phase}
+              label={phaseDisplayName(phase)}
               checked={phases.has(phase)}
               onChange={() => togglePhase(phase)}
             />
@@ -510,7 +522,7 @@ function SpecGroup({
             phase is just its doc status (draft/plan/build/verify/done). The Badge
             doesn't forward arbitrary props, so the test hook rides a wrapper. */}
         <span data-testid="issues-spec-phase" className="flex-none">
-          <Badge status={spec.status} />
+          <Badge status={spec.status} label={phaseDisplayName(spec.status)} />
         </span>
       </div>
       <div className="space-y-1.5">

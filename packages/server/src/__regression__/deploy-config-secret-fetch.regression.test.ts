@@ -219,7 +219,8 @@ describe("spec-168 ac-7 + ac-8: fail closed — never a silent fallback to stale
   });
 
   it("aborts when DEPLOY_CONFIG_PROJECT is unset rather than guessing a project (spec-168 dec-5 bootstrap)", () => {
-    tagAc(`${SPEC}/acs/ac-8`);
+    // ac-14 (dec-5): the bootstrap pointer is required; unset => fail-closed, never a guessed/active project.
+    tagAc(`${SPEC}/acs/ac-14`);
     const { status, stderr } = runLoader({ localFile: null, env: { DEPLOY_CONFIG_PROJECT: "" } });
     expect(status).not.toBe(0);
     expect(stderr).toContain("DEPLOY_CONFIG_PROJECT is not set");

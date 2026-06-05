@@ -53,6 +53,7 @@ mcp__memex__get_doc({ref: "mindset-prod/memex-building-itself/standards/std-N"})
 | std-21 | Branch structure — `develop` integrates work; `main` is the production line (fast-forward only, branch-bound deploy targets, main-only licence carve-out). |
 | std-22 | Everything we ship runs against arbitrary codebases — portable artifacts (prompts, scaffold prose, Prompt Buttons, Init Prompts, in-repo tools) assume no language, framework, layout, file paths, or tooling. |
 | std-24 | One version per shared library across the pnpm workspace, enforced by `pnpm.overrides` (today: vitest, `@vitest/coverage-v8`, `@types/node`). Exact pins in each package's devDependencies; new dep families added to the root overrides. |
+| std-27 | Charts & data-viz: one theme-aware palette + glass treatment — `useChartPalette()`/`insightsTheme` from `packages/ui/src/components/insights/theme.ts`, reserved hue semantics, translucent fills with crisp edges, integer count ticks, themed tooltips, noise excluded server-side. |
 
 If a Standard contradicts the code, the Standard is probably right and the code has drifted — flag it.
 

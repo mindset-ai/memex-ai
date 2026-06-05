@@ -49,7 +49,18 @@ vi.mock('../components/BylineAssignees', () => ({
   BylineAssignees: () => <div data-testid="byline-assignees" />,
 }));
 vi.mock('../components/DoneSummary', () => ({
-  DoneSummary: () => <div data-testid="done-summary" />,
+  // spec-164 dec-5: the stub surfaces the reopen wiring so the page-level
+  // tests can assert DocDocument threads canReopen (editor posture) and that
+  // onReopen performs the verify status write.
+  DoneSummary: (props: { canReopen?: boolean; onReopen?: () => void }) => (
+    <div data-testid="done-summary" data-can-reopen={props.canReopen ? 'true' : 'false'}>
+      {props.canReopen && (
+        <button data-testid="stub-reopen" onClick={() => props.onReopen?.()}>
+          reopen
+        </button>
+      )}
+    </div>
+  ),
 }));
 
 // ── Hooks: write access + a configurable posture (i-1: the sentence renders
@@ -319,7 +330,7 @@ describe('spec-159 — Rubicon line + in-situ directives', () => {
     const sentence = await screen.findByTestId('transition-sentence');
     await waitFor(() =>
       expect(sentence.textContent).toContain(
-        '2 Decisions must be resolved before this spec can move to build.',
+        '2 Decisions must be resolved before this spec can move to Build.',
       ),
     );
     expect(within(sentence).queryByRole('button')).not.toBeInTheDocument();
@@ -328,7 +339,7 @@ describe('spec-159 — Rubicon line + in-situ directives', () => {
     await user.click(screen.getByText('Decisions & ACs'));
     const directives = screen.getAllByTestId('phase-directive');
     expect(directives.map((d) => d.textContent).join(' ')).toContain(
-      '2 Decisions must be resolved before this spec can move to build.',
+      '2 Decisions must be resolved before this spec can move to Build.',
     );
   });
 
@@ -343,7 +354,7 @@ describe('spec-159 — Rubicon line + in-situ directives', () => {
     await user.click(phaseTab('build'));
     const sentence = screen.getByTestId('transition-sentence');
     expect(sentence.textContent).toContain(
-      '1 Decision must be resolved and Acceptance Criteria (ACs) must be created before build.',
+      '1 Decision must be resolved and Acceptance Criteria (ACs) must be created before Build.',
     );
     // The summary already names the target — the question doesn't repeat it.
     expect(sentence.textContent).toContain('Move this spec anyway?');
@@ -369,7 +380,7 @@ describe('spec-159 — Rubicon line + in-situ directives', () => {
     const directives = screen.getAllByTestId('phase-directive');
     expect(directives).toHaveLength(1);
     expect(directives[0]!.textContent).toContain(
-      'Decisions and Acceptance Criteria (ACs) must be created before this spec can move to build.',
+      'Decisions and Acceptance Criteria (ACs) must be created before this spec can move to Build.',
     );
   });
 
@@ -387,7 +398,7 @@ describe('spec-159 — Rubicon line + in-situ directives', () => {
       .getAllByTestId('phase-directive')
       .map((d) => d.textContent)
       .join(' ');
-    expect(text).toContain('2 Decisions must be resolved before this spec can move to build.');
+    expect(text).toContain('2 Decisions must be resolved before this spec can move to Build.');
   });
 
   it('build with open tasks: directive above Tasks; Rubicon line states it with no buttons (ac-13)', async () => {
@@ -401,12 +412,12 @@ describe('spec-159 — Rubicon line + in-situ directives', () => {
       .map((d) => d.textContent)
       .join(' ');
     expect(text).toContain(
-      '1 Task must be completed (or kicked to Issues) before this spec can move to verify.',
+      '1 Task must be completed (or kicked to Issues) before this spec can move to Verify.',
     );
     // Current tab + open task → the Rubicon line states it, no buttons.
     const sentence = screen.getByTestId('transition-sentence');
     expect(sentence.textContent).toContain(
-      '1 Task must be completed before this spec can move to verify.',
+      '1 Task must be completed before this spec can move to Verify.',
     );
     expect(within(sentence).queryByRole('button')).not.toBeInTheDocument();
   });
@@ -429,7 +440,7 @@ describe('spec-159 — Rubicon line + in-situ directives', () => {
         .map((d) => d.textContent)
         .join(' ');
       expect(text).toContain(
-        '1 Acceptance Criterion (AC) must be verified before this spec can move to done.',
+        '1 Acceptance Criterion (AC) must be verified before this spec can move to Done.',
       );
     });
   });
@@ -487,30 +498,69 @@ describe('spec-159 — Rubicon line + in-situ directives', () => {
     // Editors still get the PhaseTabBar (3 phase tabs) and the Rubicon line.
     expect(screen.getAllByRole('tab')).toHaveLength(3);
     expect(screen.getByTestId('transition-sentence')).toBeInTheDocument();
-    // …and NOT the reviewer block.
+    // spec-182 dec-3 + issue-3: at Specify the editor keeps ACCESS to the
+    // review actions, but behind a collapsed-by-default disclosure.
+    expect(screen.getByTestId('review-actions-toggle')).toBeInTheDocument();
     expect(screen.queryByTestId('review-action-row')).not.toBeInTheDocument();
+  });
+
+  // spec-182 issue-3 — the editor's Specify view was visually dominated by the
+  // reviewer workflow (four review buttons + two handoff lines). The user's
+  // call (2026-06-05): collapse, don't remove — editors keep dec-3's access
+  // behind a "Review actions" disclosure; reviewers see it expanded, no chrome.
+  it('editor at Specify: the disclosure expands to the review row + review handoff, and collapses again (issue-3)', async () => {
+    tagAc(AC182(10));
+    tagAc(AC182(11));
+    mockRole = 'editor';
+    const user = userEvent.setup();
+    renderAt('plan');
+
+    const toggle = await screen.findByTestId('review-actions-toggle');
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByTestId('review-action-row')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('review-handoff-line')).not.toBeInTheDocument();
+    // The editor's own phase handoff is NOT behind the disclosure.
+    expect(screen.getByTestId('phase-handoff-line')).toBeInTheDocument();
+
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByTestId('review-action-row')).toBeInTheDocument();
+    expect(screen.getByTestId('review-handoff-line')).toBeInTheDocument();
+
+    await user.click(toggle);
+    expect(screen.queryByTestId('review-action-row')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('review-handoff-line')).not.toBeInTheDocument();
   });
 });
 
-// spec-159 ac-19 (amended) — a writable reviewer sees the review-oriented phase
-// block in place of the editor's PhaseTabBar + TransitionSentence: the four
-// review-action prompts and a reviewer handoff line — and NO phase tabs. The
-// posture itself lives in the header's PostureDropdown pill (bidirectional:
-// reviewer → Editing promotes, editor → Reviewing demotes).
-describe('spec-159 ac-19 — writable reviewer phase block', () => {
+// spec-182 dec-1/dec-2/dec-3 — the spec-159 ac-19 reviewer block is DISSOLVED.
+// A writable reviewer gets the same page as everyone: full phase tab bar
+// (browse-only), the status-only Rubicon line, and — at Specify only, for both
+// postures — the review-action row + review handoff. The posture itself still
+// lives in the header's PostureDropdown pill (bidirectional).
+const AC182 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-182/acs/ac-${n}`;
+
+describe('spec-182 — unified reviewer phase block', () => {
   beforeEach(() => {
     mockRole = 'reviewer';
   });
 
-  it('renders NO phase tabs and NO transition sentence for a reviewer', async () => {
-    tagAc(AC(19));
+  it('a reviewer gets the full phase tab bar and the status-only transition sentence', async () => {
+    tagAc(AC182(7));
+    tagAc(AC182(9));
+    tagAc('mindset-prod/memex-building-itself/specs/spec-182/acs/ac-1');
+    tagAc('mindset-prod/memex-building-itself/specs/spec-182/acs/ac-2');
     renderAt('plan');
 
     await screen.findByTestId('review-action-row');
-    // The PhaseTabBar (role="tab") is gone — a reviewer browses only the current
-    // phase's layout. The Rubicon transition sentence is gone too.
-    expect(screen.queryAllByRole('tab')).toHaveLength(0);
-    expect(screen.queryByTestId('transition-sentence')).not.toBeInTheDocument();
+    // The PhaseTabBar renders for reviewers too (dec-1) — browse-only.
+    expect(screen.getAllByRole('tab')).toHaveLength(3);
+    // The Rubicon line renders status-only: present, but no [Yes] (dec-2).
+    const sentence = screen.getByTestId('transition-sentence');
+    expect(within(sentence).queryByRole('button', { name: 'Yes' })).not.toBeInTheDocument();
+    // issue-3: the collapse disclosure is editor chrome — reviewers get the
+    // row expanded directly, no toggle.
+    expect(screen.queryByTestId('review-actions-toggle')).not.toBeInTheDocument();
   });
 
   it('header pill reads "You are reviewing"; picking Editing promotes to editor', async () => {
@@ -555,7 +605,9 @@ describe('spec-159 ac-19 — writable reviewer phase block', () => {
   });
 
   it('renders the four review-action buttons; clicking one sends the scaffold prompt through chat', async () => {
-    tagAc(AC(19));
+    tagAc(AC182(10));
+    tagAc(AC182(11));
+    tagAc(AC182(3));
     const user = userEvent.setup();
     renderAt('plan');
 
@@ -575,97 +627,147 @@ describe('spec-159 ac-19 — writable reviewer phase block', () => {
     expect(prompt).toContain('security');
   });
 
-  it('renders the reviewer handoff line — "You can copy and paste this prompt …conduct the review from there."', async () => {
-    tagAc(AC(19));
+  it('renders the reviewer handoff line — "Copy the review prompt …conduct the review from there."', async () => {
+    tagAc(AC182(11));
     renderAt('plan');
 
     const line = await screen.findByTestId('review-handoff-line');
     expect(line.textContent).toContain(
-      'You can copy and paste this prompt into your coding agent if you prefer to conduct the review from there.',
+      'Copy the review prompt into your coding agent if you prefer to conduct the review from there.',
     );
-    // The clickable words are "this prompt", an action button.
+    // issue-4: the clickable words LEAD the line and NAME the prompt, so
+    // adjacent handoff lines are distinguishable from the link text alone.
     const copyButton = within(line).getByRole('button', {
-      name: /^You can copy and paste this prompt/,
+      name: /^Copy the review prompt/,
     });
-    expect(copyButton.textContent).toBe('this prompt');
-    // No editor-only phase handoff line for a reviewer.
+    expect(copyButton.textContent).toBe('Copy the review prompt');
+    // spec-182 issue-2: the phase handoff is an editor affordance — its prompt
+    // drives state changes and building. A reviewer gets the review handoff
+    // ONLY (amends ac-17's "renders for every viewer").
     expect(screen.queryByTestId('phase-handoff-line')).not.toBeInTheDocument();
   });
 
-  it('renders the CURRENT phase layout only (build → Tasks | Issues, no tabs)', async () => {
-    tagAc(AC(19));
+  it('a reviewer at Build sees NO coding-agent handoff line (issue-2)', async () => {
+    tagAc(AC182(17));
     renderAt('build');
 
-    // The build layout renders (current phase) with no phase tabs to browse.
     await screen.findByTestId('task-panel');
-    expect(screen.getByTestId('issue-panel')).toBeInTheDocument();
-    expect(screen.queryAllByRole('tab')).toHaveLength(0);
-    expect(screen.getByTestId('review-action-row')).toBeInTheDocument();
+    expect(screen.queryByTestId('phase-handoff-line')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('review-handoff-line')).not.toBeInTheDocument();
   });
 
-  it('done collapses to the DoneSummary — no reviewer block', async () => {
-    tagAc(AC(19));
-    renderAt('done');
+  it('a reviewer at Verify sees NO coding-agent handoff line (issue-2)', async () => {
+    tagAc(AC182(17));
+    renderAt('verify');
 
-    await screen.findByTestId('done-summary');
+    await screen.findByTestId('ac-panel');
+    expect(screen.queryByTestId('phase-handoff-line')).not.toBeInTheDocument();
+  });
+
+  it('build: tabs render, panels render, and NO review actions outside Specify', async () => {
+    tagAc(AC182(10));
+    tagAc(AC182(3));
+    renderAt('build');
+
+    await screen.findByTestId('task-panel');
+    expect(screen.getByTestId('issue-panel')).toBeInTheDocument();
+    // dec-1: the tab bar renders for reviewers; dec-3: no review row off-Specify.
+    expect(screen.getAllByRole('tab')).toHaveLength(3);
     expect(screen.queryByTestId('review-action-row')).not.toBeInTheDocument();
     expect(screen.queryByTestId('review-handoff-line')).not.toBeInTheDocument();
+  });
+
+  it('draft shows NO review actions either — the row is Specify-only (dec-3)', async () => {
+    tagAc(AC182(10));
+    tagAc(AC182(3));
+    renderAt('draft');
+
+    await screen.findByText('Narrative');
+    expect(screen.queryByTestId('review-action-row')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('review-handoff-line')).not.toBeInTheDocument();
+  });
+
+  it('a reviewer browses another phase without moving the spec (ac-8)', async () => {
+    tagAc(AC182(8));
+    const user = userEvent.setup();
+    renderAt('build');
+
+    await screen.findByTestId('task-panel');
+    // Click the Verify tab — the verify layout renders, the phase is untouched.
+    await user.click(screen.getAllByRole('tab').find((t) => t.getAttribute('data-tab') === 'verify')!);
+    await screen.findByTestId('ac-panel');
+    expect(updateDocStatus).not.toHaveBeenCalled();
+  });
+
+  it("the reviewer's sentence is a clean status line — no switch-to-Editing nag (dec-6 amended)", async () => {
+    tagAc(AC182(14));
+    tagAc(AC182(6));
+    renderAt('plan');
+
+    const sentence = await screen.findByTestId('transition-sentence');
+    expect(within(sentence).queryByTestId('switch-to-editing')).not.toBeInTheDocument();
+    expect(sentence.textContent).not.toContain("You're reviewing");
+  });
+
+  it('done collapses to the DoneSummary for reviewers — no review block, no Reopen', async () => {
+    tagAc(AC182(13));
+    tagAc(AC182(5));
+    renderAt('done');
+
+    const summary = await screen.findByTestId('done-summary');
+    expect(screen.queryByTestId('review-action-row')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('review-handoff-line')).not.toBeInTheDocument();
+    // Reopen stays canEdit-gated (spec-164 dec-5) — absent for a reviewer.
+    expect(summary).toHaveAttribute('data-can-reopen', 'false');
   });
 });
 
 // spec-159 ac-17 — the next-action handoff line beneath the Rubicon line. Keyed
-// to the Spec's CURRENT phase, renders for every viewer, absent at `done`.
+// to the Spec's CURRENT phase, absent at `done`. spec-182 issue-2 amended
+// ac-17's "renders for every viewer": the line is editor-only (canEdit) — its
+// prompt drives state changes and building, which are not reviewer powers.
 describe('spec-159 ac-17 — next-action handoff line', () => {
-  it('plan: "Copy and paste this prompt into your coding agent to create Decisions and ACs." with bold entities', async () => {
+  it('plan: "Copy the Specify prompt into your coding agent to create Decisions and ACs." with bold entities', async () => {
     tagAc(AC(17));
     renderAt('plan');
 
     const line = await screen.findByTestId('phase-handoff-line');
     expect(line.textContent).toContain(
-      'Copy and paste this prompt into your coding agent to create Decisions and ACs.',
+      'Copy the Specify prompt into your coding agent to create Decisions and ACs.',
     );
     // The entity names render bold (<strong>) — "ACs" abbreviated since the
     // Rubicon line above already spells it out in full.
     const bolded = Array.from(line.querySelectorAll('strong')).map((el) => el.textContent);
     expect(bolded).toContain('Decisions');
     expect(bolded).toContain('ACs');
-    // The clickable words are "this prompt" (mid-sentence), an action button
-    // whose accessible name carries the full sentence.
+    // issue-4: the clickable words LEAD the line and NAME the prompt (matching
+    // the tab bar's phase display name); the accessible name carries the full
+    // sentence.
     const copyButton = within(line).getByRole('button', {
-      name: /^Copy and paste this prompt/,
+      name: /^Copy the Specify prompt/,
     });
-    expect(copyButton.textContent).toBe('this prompt');
+    expect(copyButton.textContent).toBe('Copy the Specify prompt');
   });
 
-  it('draft shows the SAME plan handoff sentence', async () => {
-    tagAc(AC(17));
-    renderAt('draft');
-
-    const line = await screen.findByTestId('phase-handoff-line');
-    expect(line.textContent).toContain(
-      'Copy and paste this prompt into your coding agent to create Decisions and ACs.',
-    );
-  });
-
-  it('build: "Copy and paste this prompt into your coding agent to complete the Tasks and build this spec."', async () => {
+  it('build: "Copy the Build prompt into your coding agent to complete the Tasks and build this spec."', async () => {
     tagAc(AC(17));
     renderAt('build');
 
     await screen.findByTestId('task-panel');
     const line = screen.getByTestId('phase-handoff-line');
     expect(line.textContent).toContain(
-      'Copy and paste this prompt into your coding agent to complete the Tasks and build this spec.',
+      'Copy the Build prompt into your coding agent to complete the Tasks and build this spec.',
     );
   });
 
-  it('verify: "Copy and paste this prompt into your coding agent to verify this spec against its ACs."', async () => {
+  it('verify: "Copy the Verify prompt into your coding agent to verify this spec against its ACs."', async () => {
     tagAc(AC(17));
     renderAt('verify');
 
     await screen.findByTestId('ac-panel');
     const line = screen.getByTestId('phase-handoff-line');
     expect(line.textContent).toContain(
-      'Copy and paste this prompt into your coding agent to verify this spec against its ACs.',
+      'Copy the Verify prompt into your coding agent to verify this spec against its ACs.',
     );
   });
 
@@ -677,18 +779,70 @@ describe('spec-159 ac-17 — next-action handoff line', () => {
     expect(screen.queryByTestId('phase-handoff-line')).not.toBeInTheDocument();
   });
 
-  it('a writable reviewer gets the reviewer handoff line, not the editor phase handoff (ac-19)', async () => {
-    tagAc(AC(17));
-    tagAc(AC(19));
+  it('a writable reviewer at Specify gets the review handoff ONLY — no phase handoff (spec-182 issue-2)', async () => {
+    tagAc(AC182(17));
+    tagAc(AC182(11));
     mockRole = 'reviewer';
     renderAt('plan');
 
-    // The reviewer block replaces the editor handoff: the reviewer handoff line
-    // renders and the editor's phase-handoff-line does not.
+    // spec-182 issue-2: the phase handoff is canEdit-gated — the reviewer
+    // keeps dec-3's review handoff at Specify and nothing else.
     const line = await screen.findByTestId('review-handoff-line');
     expect(line.textContent).toContain(
-      'You can copy and paste this prompt into your coding agent if you prefer to conduct the review from there.',
+      'Copy the review prompt into your coding agent if you prefer to conduct the review from there.',
     );
     expect(screen.queryByTestId('phase-handoff-line')).not.toBeInTheDocument();
+  });
+});
+
+// spec-164 dec-5 — reopening a done Spec from the summary report.
+describe('done → verify reopen wiring (spec-164)', () => {
+  const AC164 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-164/acs/ac-${n}`;
+
+  it('threads canReopen to the DoneSummary and onReopen writes status verify', async () => {
+    tagAc(AC164(22));
+    tagAc(AC164(23));
+    tagAc('mindset-prod/memex-building-itself/specs/spec-164/acs/ac-6');
+    renderAt('done');
+
+    const summary = await screen.findByTestId('done-summary');
+    expect(summary).toHaveAttribute('data-can-reopen', 'true');
+
+    await userEvent.click(screen.getByTestId('stub-reopen'));
+    await waitFor(() => expect(updateDocStatus).toHaveBeenCalledWith('doc-uuid', 'verify'));
+  });
+});
+
+// spec-164 issue-1 — draft no longer shows the create-Decisions-and-ACs
+// handoff line. dec-3 gates the Decisions & ACs panels in draft behind an
+// empty-state directive that invites the move to Specify first; handing the
+// user a coding-agent prompt to "create Decisions and ACs" while in draft
+// contradicts that gate-the-invitation principle. The handoff is split so
+// draft yields null, while plan (Specify) onward keeps it per-phase. These
+// gating ACs are the draft-empty-state ones (ac-17 shared the original handoff;
+// ac-5 owns the Decisions & ACs panel gating).
+describe('spec-164 issue-1 — draft hides the create-Decisions-and-ACs handoff', () => {
+  const AC164 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-164/acs/ac-${n}`;
+
+  it('draft: no phase-handoff-line, but the transition sentence still renders', async () => {
+    tagAc(AC164(17));
+    tagAc(AC164(5));
+    renderAt('draft');
+
+    // The Rubicon transition sentence (the move-to-Specify invitation) is still
+    // present — only the coding-agent handoff is gated out.
+    expect(await screen.findByTestId('transition-sentence')).toBeInTheDocument();
+    expect(screen.queryByTestId('phase-handoff-line')).not.toBeInTheDocument();
+  });
+
+  it('plan: the create-Decisions-and-ACs handoff returns once out of draft', async () => {
+    tagAc(AC164(17));
+    tagAc(AC164(5));
+    renderAt('plan');
+
+    const line = await screen.findByTestId('phase-handoff-line');
+    expect(line.textContent).toContain(
+      'Copy the Specify prompt into your coding agent to create Decisions and ACs.',
+    );
   });
 });

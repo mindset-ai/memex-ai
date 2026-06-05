@@ -17,10 +17,10 @@ export interface DiscordWebhookRow {
 }
 
 // When specRef is provided, the payload gains an embeds array carrying the Spec
-// link footer. The text and url are pre-built by the caller (tool handler).
+// link footer. The description is built by the caller and placed as-is in the
+// Discord embed description field (supports Discord markdown + hyperlinks).
 export interface DiscordEmbedFooter {
-  text: string; // e.g. "📄 From Spec: Voice-to-Voice Platform Feature"
-  url: string;  // e.g. "https://memex.ai/mindset-prod/memex-building-itself/specs/spec-138"
+  description: string; // e.g. "**Spec:** [Title](url) _(handle)_  ·  Sent via Memex"
 }
 
 // ─── CRUD ────────────────────────────────────────────────────────────────────
@@ -72,9 +72,9 @@ export async function deleteDiscordWebhook(orgId: string): Promise<Mutated<void>
 
 // Builds the wire-format Discord payload and POSTs it to the webhook URL.
 //
-// Payload shapes (dec-2):
+// Payload shapes:
 //   no embedFooter → { "content": "<text>" }
-//   embedFooter    → { "content": "<text>", "embeds": [{ "footer": { "text": "..." }, "url": "..." }] }
+//   embedFooter    → { "content": "<text>", "embeds": [{ "description": "..." }] }
 //
 // Text is forwarded as-is — no markdown conversion (dec-4). Discord renders
 // **bold**, *italic*, `code`, [links](url) natively.
@@ -83,12 +83,10 @@ export async function postToDiscord(
   content: string,
   embedFooter?: DiscordEmbedFooter,
 ): Promise<void> {
-  // Discord footer fields are plain text only — links don't render there.
-  // Using embed description with a markdown hyperlink gives a clickable link.
   const payload = embedFooter
     ? {
         content,
-        embeds: [{ description: `[${embedFooter.text}](${embedFooter.url})` }],
+        embeds: [{ description: embedFooter.description }],
       }
     : { content };
 
