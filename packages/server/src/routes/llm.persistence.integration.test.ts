@@ -187,6 +187,7 @@ describe("POST /llm/conversations (save)", () => {
   // the messages landed, so the emit can't be faked without the write.
   it("emits conversation_message.created on the bus AND lands the messages (ac-14)", async () => {
     tagAc(`${AC}/ac-14`);
+    tagAc(`${AC}/ac-2`); // scope ac-2: audit-finding remediation (this finding's proof)
     const app = makeAppForUser(memexId, USER_A);
 
     const received: ChangeEvent[] = [];

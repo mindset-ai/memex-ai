@@ -15,6 +15,7 @@ import { tagAc } from "@memex-ai-ac/vitest";
 import { ChangeBus, type ChangeEvent } from "./bus.js";
 import {
   PgBusRelay,
+  bridgePgListen,
   encodeEnvelope,
   trimEvent,
   reconnectNudge,
@@ -361,6 +362,73 @@ describe("spec-156 W1: kill-and-recover reconnect + nudge (ac-9)", () => {
     await relay.stop();
   });
 
+  it("recovers from a REJECTED initial LISTEN when postgres-js later re-establishes (issue-1: status returns to listening + nudge fires exactly once)", async () => {
+    tagAc(AC(28));
+    // Issue-1, observed live on prod 2026-06-04: the instance boots while the
+    // DB is restarting → the initial sql.listen() REJECTS → the relay routes it
+    // through onConnectionError (selfReconnects: no own backoff). postgres-js
+    // keeps the listener registered internally and re-establishes it, firing
+    // onlisten — but that FIRST onlisten was swallowed as "initial connect" by
+    // the driver bridge, so the relay stranded at status "connecting" with
+    // connects=0 and no convergence nudge, while events flowed underneath
+    // (health lying about a live relay).
+    //
+    // Model the real postgres-js shape through bridgePgListen: rawListen
+    // rejects on the first call but RETAINS the onListen callback, which the
+    // test later fires to simulate the driver's internal recovery.
+    const bus = new ChangeBus();
+    let recoveredOnListen: (() => void) | null = null;
+    const rawListen = async (
+      _channel: string,
+      _onNotify: (payload: string) => void,
+      onListen: () => void,
+    ): Promise<void> => {
+      recoveredOnListen = onListen;
+      throw new Error("simulated: DB restarting during boot (53300)");
+    };
+    const driver: ListenDriver = {
+      selfReconnects: true,
+      listen: bridgePgListen(rawListen),
+      async close() {},
+    };
+    const relay = new PgBusRelay({
+      bus,
+      listenDriver: driver,
+      notifyDriver: { notify: async () => {} },
+      originId: "origin-issue-1",
+    });
+    bus.attachRelay(relay);
+
+    const nudges: ChangeEvent[] = [];
+    bus.subscribe({ memexId: "real-memex" }, (e) => {
+      if (e.payload?.__relayReconnect === true) nudges.push(e);
+    });
+
+    // Boot: initial LISTEN rejects. Non-fatal — relay degrades, no throw.
+    await relay.start();
+    expect(relay.health().listening).toBe(false);
+    expect(relay.health().connects).toBe(0);
+
+    // postgres-js internally re-establishes the LISTEN and fires onlisten.
+    expect(recoveredOnListen).not.toBeNull();
+    recoveredOnListen!();
+
+    // The relay must treat that recovery as a reconnect: restore "listening",
+    // count the connect, and fire the convergence nudge exactly once.
+    expect(relay.health().listening).toBe(true);
+    expect(relay.health().status).toBe("listening");
+    expect(relay.health().connects).toBe(1);
+    expect(nudges).toHaveLength(1);
+
+    // A subsequent ordinary recovery still behaves like a regular reconnect.
+    recoveredOnListen!();
+    expect(relay.health().status).toBe("listening");
+    expect(relay.health().connects).toBe(2);
+    expect(nudges).toHaveLength(2);
+
+    await relay.stop();
+  });
+
   it("the first connect does NOT nudge (no gap to converge)", async () => {
     tagAc(AC(9));
     const broker = new FakeBroker();
@@ -539,6 +607,7 @@ describe("spec-156 W1: health reports relay LISTEN-connection status (ac-12)", (
 describe("spec-156 W1 (dec-3): deploy.sh keeps --max-instances 3 (ac-27)", () => {
   it("deploy.sh still pins --max-instances 3 — no interim single-instance throttle", () => {
     tagAc(AC(27));
+    tagAc(AC(5)); // scope ac-5: prod runs at full scale throughout (dec-3)
     const here = dirname(fileURLToPath(import.meta.url));
     // src/services/ -> packages/server/deploy.sh
     const deployPath = join(here, "..", "..", "deploy.sh");

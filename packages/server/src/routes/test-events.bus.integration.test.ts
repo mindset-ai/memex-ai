@@ -77,6 +77,7 @@ afterEach(() => {
 describe("POST /api/test-events — bus emit on ingestion (spec-156 ac-16)", () => {
   it("emits test_event.created on the resolved memex when a run posts a result", async () => {
     tagAc(`${AC}/ac-16`);
+    tagAc(`${AC}/ac-2`); // scope ac-2: audit-finding remediation (this finding's proof)
 
     const received: ChangeEvent[] = [];
     const unsubscribe = bus.subscribe({ memexId }, (e) => received.push(e));
