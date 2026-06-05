@@ -54,6 +54,7 @@ mcp__memex__get_doc({ref: "mindset-prod/memex-building-itself/standards/std-N"})
 | std-22 | Everything we ship runs against arbitrary codebases — portable artifacts (prompts, scaffold prose, Prompt Buttons, Init Prompts, in-repo tools) assume no language, framework, layout, file paths, or tooling. |
 | std-24 | One version per shared library across the pnpm workspace, enforced by `pnpm.overrides` (today: vitest, `@vitest/coverage-v8`, `@types/node`). Exact pins in each package's devDependencies; new dep families added to the root overrides. |
 | std-27 | Charts & data-viz: one theme-aware palette + glass treatment — `useChartPalette()`/`insightsTheme` from `packages/ui/src/components/insights/theme.ts`, reserved hue semantics, translucent fills with crisp edges, integer count ticks, themed tooltips, noise excluded server-side. |
+| std-28 | PR-gate e2e journeys are mandatory — every change that adds/alters a user-facing flow adds or extends a Playwright journey in `packages/ui/e2e`; the suite runs per-PR against a cold DB and is a required check on develop + main; path-based nav, seed via the env-gated test surface (no raw SQL). The merge-side sibling of std-17's post-deploy smoke rule. |
 
 If a Standard contradicts the code, the Standard is probably right and the code has drifted — flag it.
 
