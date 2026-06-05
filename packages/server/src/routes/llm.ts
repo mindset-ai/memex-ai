@@ -146,7 +146,12 @@ llmRouter.post("/chat", async (c) => {
   c.header("Cache-Control", "no-cache, no-transform");
   c.header("X-Accel-Buffering", "no");
 
-  logRequest("chat", messages as MessageParam[]);
+  // Strip any tool_use blocks that have no matching tool_result — happens when
+  // the user types a follow-up message instead of acting on a compose widget,
+  // leaving an orphaned tool_use in history that Anthropic rejects with 400.
+  const sanitisedMessages = stripDanglingToolUses(messages as MessageParam[]);
+
+  logRequest("chat", sanitisedMessages);
 
   return streamSSE(c, async (stream) => {
     try {
@@ -155,7 +160,7 @@ llmRouter.post("/chat", async (c) => {
         max_tokens: 4096,
         system: systemBlocks,
         tools: tools as Anthropic.Tool[],
-        messages: messages as MessageParam[],
+        messages: sanitisedMessages,
       });
 
       // Event-listener pattern — mirrors `doc-events.ts`, the other SSE endpoint

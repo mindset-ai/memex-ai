@@ -280,9 +280,10 @@ const REVIEWER_WRITE_ALLOWLIST = new Set<string>([
   // Raise an Issue (spec-112) — a reviewer's sanctioned way to flag a problem
   // (dec-3). The other issue verbs (update/resolve/convert) stay editor-only.
   "register_issue",
-  // Slack message — external action, does not mutate the Spec. A reviewer may
-  // ping a teammate or send a status update without needing editor rights.
+  // Slack + Discord messages — external actions, do not mutate the Spec. A
+  // reviewer may ping a teammate or send a status update without editor rights.
   "memex__send_slack_message",
+  "memex__send_discord_message",
   // @mention (spec-79) is NOT here — the tool isn't built, so we don't permit
   // (or advertise) it. Add it when spec-79 lands.
 ]);
