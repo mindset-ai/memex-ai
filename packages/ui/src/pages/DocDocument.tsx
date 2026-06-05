@@ -596,8 +596,7 @@ export function DocDocument() {
   const handoff: {
     buttonId: string;
     sentence: React.ReactNode;
-    /** Prose before the link + the clickable words (default "Copy"). */
-    sentencePrefix?: React.ReactNode;
+    /** The clickable words — they lead the line and name the prompt (issue-4). */
     linkText?: string;
     /** Plain-text FULL sentence for the accessible name (needed when sentence is a node). */
     sentenceLabel?: string;
@@ -610,15 +609,19 @@ export function DocDocument() {
     // invite the move to Specify FIRST. A coding-agent prompt to "create
     // Decisions and ACs" while in draft contradicts that gate-the-invitation
     // principle, so draft now yields null (no handoff); plan keeps plan-handoff.
+    // spec-182 issue-4: the hyperlink LEADS each handoff line and NAMES its
+    // prompt ("Copy the Specify prompt …"), so adjacent handoff lines are
+    // distinguishable from the blue text alone — the old shape buried the
+    // purpose at the end of two near-identical "Copy and paste this prompt…"
+    // sentences. Link names match the tab bar's phase display names.
     phase === 'plan'
       ? {
           buttonId: 'plan-handoff',
-          // "Copy and paste *this prompt* into your coding agent to create
-          // **Decisions** and **ACs**." — the link sits on "this prompt";
-          // entities bold. "ACs" stays abbreviated: the Rubicon line above
-          // already spells out "Acceptance Criteria (ACs)" in full.
-          sentencePrefix: 'Copy and paste ',
-          linkText: 'this prompt',
+          // "*Copy the Specify prompt* into your coding agent to create
+          // **Decisions** and **ACs**." — entities bold. "ACs" stays
+          // abbreviated: the Rubicon line above already spells out
+          // "Acceptance Criteria (ACs)" in full.
+          linkText: 'Copy the Specify prompt',
           sentence: (
             <>
               into your coding agent to create{' '}
@@ -627,15 +630,14 @@ export function DocDocument() {
             </>
           ),
           sentenceLabel:
-            'Copy and paste this prompt into your coding agent to create Decisions and ACs.',
+            'Copy the Specify prompt into your coding agent to create Decisions and ACs.',
         }
       : phase === 'build'
         ? {
             buttonId: 'opening-build-handoff',
-            // "Copy and paste *this prompt* into your coding agent to complete
+            // "*Copy the Build prompt* into your coding agent to complete
             // the **Tasks** and build this spec."
-            sentencePrefix: 'Copy and paste ',
-            linkText: 'this prompt',
+            linkText: 'Copy the Build prompt',
             sentence: (
               <>
                 into your coding agent to complete the{' '}
@@ -643,17 +645,16 @@ export function DocDocument() {
               </>
             ),
             sentenceLabel:
-              'Copy and paste this prompt into your coding agent to complete the Tasks and build this spec.',
+              'Copy the Build prompt into your coding agent to complete the Tasks and build this spec.',
           }
         : phase === 'verify'
           ? {
               buttonId: 'verify-spec',
-              // "Copy and paste *this prompt* into your coding agent to verify
+              // "*Copy the Verify prompt* into your coding agent to verify
               // this spec against its **ACs**." — "ACs" stays abbreviated: the
               // Rubicon line above already spells out "Acceptance Criteria
               // (ACs)" in full.
-              sentencePrefix: 'Copy and paste ',
-              linkText: 'this prompt',
+              linkText: 'Copy the Verify prompt',
               sentence: (
                 <>
                   into your coding agent to verify this spec against its{' '}
@@ -661,7 +662,7 @@ export function DocDocument() {
                 </>
               ),
               sentenceLabel:
-                'Copy and paste this prompt into your coding agent to verify this spec against its ACs.',
+                'Copy the Verify prompt into your coding agent to verify this spec against its ACs.',
             }
           : null; // done → no handoff line
 
@@ -1094,16 +1095,16 @@ export function DocDocument() {
                       ))}
                     </div>
                     {/* Review handoff line — copy a coding-agent prompt to conduct
-                        the review from there. Specify-only, like the row (dec-3). */}
+                        the review from there. Specify-only, like the row (dec-3).
+                        The link leads and names the prompt (issue-4). */}
                     <div data-testid="review-handoff-line">
                       <PromptButton
                         buttonId="review-handoff"
                         context={handoffContext}
                         orgBlocks={orgBlocks}
-                        sentencePrefix="You can copy and paste "
-                        linkText="this prompt"
+                        linkText="Copy the review prompt"
                         sentence="into your coding agent if you prefer to conduct the review from there."
-                        sentenceLabel="You can copy and paste this prompt into your coding agent if you prefer to conduct the review from there."
+                        sentenceLabel="Copy the review prompt into your coding agent if you prefer to conduct the review from there."
                       />
                     </div>
                   </>
@@ -1124,7 +1125,6 @@ export function DocDocument() {
                   context={handoffContext}
                   orgBlocks={orgBlocks}
                   sentence={handoff.sentence}
-                  sentencePrefix={handoff.sentencePrefix}
                   linkText={handoff.linkText}
                   sentenceLabel={handoff.sentenceLabel}
                 />

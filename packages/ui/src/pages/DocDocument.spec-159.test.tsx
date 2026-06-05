@@ -627,19 +627,20 @@ describe('spec-182 — unified reviewer phase block', () => {
     expect(prompt).toContain('security');
   });
 
-  it('renders the reviewer handoff line — "You can copy and paste this prompt …conduct the review from there."', async () => {
+  it('renders the reviewer handoff line — "Copy the review prompt …conduct the review from there."', async () => {
     tagAc(AC182(11));
     renderAt('plan');
 
     const line = await screen.findByTestId('review-handoff-line');
     expect(line.textContent).toContain(
-      'You can copy and paste this prompt into your coding agent if you prefer to conduct the review from there.',
+      'Copy the review prompt into your coding agent if you prefer to conduct the review from there.',
     );
-    // The clickable words are "this prompt", an action button.
+    // issue-4: the clickable words LEAD the line and NAME the prompt, so
+    // adjacent handoff lines are distinguishable from the link text alone.
     const copyButton = within(line).getByRole('button', {
-      name: /^You can copy and paste this prompt/,
+      name: /^Copy the review prompt/,
     });
-    expect(copyButton.textContent).toBe('this prompt');
+    expect(copyButton.textContent).toBe('Copy the review prompt');
     // spec-182 issue-2: the phase handoff is an editor affordance — its prompt
     // drives state changes and building. A reviewer gets the review handoff
     // ONLY (amends ac-17's "renders for every viewer").
@@ -726,46 +727,47 @@ describe('spec-182 — unified reviewer phase block', () => {
 // ac-17's "renders for every viewer": the line is editor-only (canEdit) — its
 // prompt drives state changes and building, which are not reviewer powers.
 describe('spec-159 ac-17 — next-action handoff line', () => {
-  it('plan: "Copy and paste this prompt into your coding agent to create Decisions and ACs." with bold entities', async () => {
+  it('plan: "Copy the Specify prompt into your coding agent to create Decisions and ACs." with bold entities', async () => {
     tagAc(AC(17));
     renderAt('plan');
 
     const line = await screen.findByTestId('phase-handoff-line');
     expect(line.textContent).toContain(
-      'Copy and paste this prompt into your coding agent to create Decisions and ACs.',
+      'Copy the Specify prompt into your coding agent to create Decisions and ACs.',
     );
     // The entity names render bold (<strong>) — "ACs" abbreviated since the
     // Rubicon line above already spells it out in full.
     const bolded = Array.from(line.querySelectorAll('strong')).map((el) => el.textContent);
     expect(bolded).toContain('Decisions');
     expect(bolded).toContain('ACs');
-    // The clickable words are "this prompt" (mid-sentence), an action button
-    // whose accessible name carries the full sentence.
+    // issue-4: the clickable words LEAD the line and NAME the prompt (matching
+    // the tab bar's phase display name); the accessible name carries the full
+    // sentence.
     const copyButton = within(line).getByRole('button', {
-      name: /^Copy and paste this prompt/,
+      name: /^Copy the Specify prompt/,
     });
-    expect(copyButton.textContent).toBe('this prompt');
+    expect(copyButton.textContent).toBe('Copy the Specify prompt');
   });
 
-  it('build: "Copy and paste this prompt into your coding agent to complete the Tasks and build this spec."', async () => {
+  it('build: "Copy the Build prompt into your coding agent to complete the Tasks and build this spec."', async () => {
     tagAc(AC(17));
     renderAt('build');
 
     await screen.findByTestId('task-panel');
     const line = screen.getByTestId('phase-handoff-line');
     expect(line.textContent).toContain(
-      'Copy and paste this prompt into your coding agent to complete the Tasks and build this spec.',
+      'Copy the Build prompt into your coding agent to complete the Tasks and build this spec.',
     );
   });
 
-  it('verify: "Copy and paste this prompt into your coding agent to verify this spec against its ACs."', async () => {
+  it('verify: "Copy the Verify prompt into your coding agent to verify this spec against its ACs."', async () => {
     tagAc(AC(17));
     renderAt('verify');
 
     await screen.findByTestId('ac-panel');
     const line = screen.getByTestId('phase-handoff-line');
     expect(line.textContent).toContain(
-      'Copy and paste this prompt into your coding agent to verify this spec against its ACs.',
+      'Copy the Verify prompt into your coding agent to verify this spec against its ACs.',
     );
   });
 
@@ -787,7 +789,7 @@ describe('spec-159 ac-17 — next-action handoff line', () => {
     // keeps dec-3's review handoff at Specify and nothing else.
     const line = await screen.findByTestId('review-handoff-line');
     expect(line.textContent).toContain(
-      'You can copy and paste this prompt into your coding agent if you prefer to conduct the review from there.',
+      'Copy the review prompt into your coding agent if you prefer to conduct the review from there.',
     );
     expect(screen.queryByTestId('phase-handoff-line')).not.toBeInTheDocument();
   });
@@ -840,7 +842,7 @@ describe('spec-164 issue-1 — draft hides the create-Decisions-and-ACs handoff'
 
     const line = await screen.findByTestId('phase-handoff-line');
     expect(line.textContent).toContain(
-      'Copy and paste this prompt into your coding agent to create Decisions and ACs.',
+      'Copy the Specify prompt into your coding agent to create Decisions and ACs.',
     );
   });
 });
