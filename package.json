@@ -5,10 +5,10 @@
   "packageManager": "pnpm@10.33.0",
   "scripts": {
     "dev:server": "pnpm --filter @memex/server dev",
-    "dev:admin": "pnpm --filter @memex/admin dev",
-    "build": "pnpm --filter @memex/server build && pnpm --filter @memex/admin build",
+    "dev:ui": "pnpm --filter @memex/ui dev",
+    "build": "pnpm --filter @memex/server build && pnpm --filter @memex/ui build",
     "build:server": "pnpm --filter @memex/server build",
-    "build:admin": "pnpm --filter @memex/admin build"
+    "build:ui": "pnpm --filter @memex/ui build"
   },
   "pnpm": {
     "onlyBuiltDependencies": ["esbuild", "protobufjs"],

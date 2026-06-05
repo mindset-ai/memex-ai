@@ -347,7 +347,7 @@ describe("naming-convention [std-1] [t-6]", () => {
       const path = resolve(
         process.cwd(),
         "..",
-        "admin",
+        "ui",
         "src",
         "components",
         "MoveSpecDialog.tsx",
@@ -367,7 +367,7 @@ describe("naming-convention [std-1] [t-6]", () => {
     // Personal / namespace — never "account" or "team" as a tenancy concept.
     //
     // This is a static file walk: we scan every .tsx / .ts file under
-    // packages/admin/src/ (excluding tests) plus the server-side email-template
+    // packages/ui/src/ (excluding tests) plus the server-side email-template
     // file, extract user-facing string contexts (JSX text nodes, JSX string
     // attributes for UI-text props like placeholder/aria-label/title), and
     // flag any word-boundary match for /\baccount(s)?\b/i or /\bteam(s)?\b/i
@@ -550,11 +550,11 @@ describe("naming-convention [std-1] [t-6]", () => {
       );
     }
 
-    // The admin source root, relative to packages/server (the test cwd).
+    // The UI source root, relative to packages/server (the test cwd).
     const adminSrcRoot = resolve(
       process.cwd(),
       "..",
-      "admin",
+      "ui",
       "src",
     );
 
@@ -617,7 +617,7 @@ describe("naming-convention [std-1] [t-6]", () => {
     // they never reach a UI string. The three files below were the three
     // surviving drift items at the close of doc-15:
     //
-    //  - packages/admin/src/api/client.ts — REST surface for the React UI.
+    //  - packages/ui/src/api/client.ts — REST surface for the React UI.
     //    Exported names (function / interface / type / const) are part of the
     //    contract every component imports. Any `Account*` export here is a
     //    std-1 violation regardless of whether a UI string reads it.
@@ -625,7 +625,7 @@ describe("naming-convention [std-1] [t-6]", () => {
     //    prompt body. Every English word in here ships to Claude and shapes
     //    model output. Tenancy nouns must use the namespace/org/memex
     //    vocabulary.
-    //  - packages/admin/src/utils/{missionInitPrompt,taskInitPrompt}.ts —
+    //  - packages/ui/src/utils/{missionInitPrompt,taskInitPrompt}.ts —
     //    the "Spec Coding Agent" clipboard payloads. The text is pasted into
     //    a fresh coding-agent session as the LLM's first user-message; the
     //    same vocabulary rules apply.
@@ -652,11 +652,11 @@ describe("naming-convention [std-1] [t-6]", () => {
     // (matched by /\bteam\b/i etc, not /\bAccount\w*\b/). Keep the list
     // narrow and load-bearing.
 
-    it("packages/admin/src/api/client.ts exports no `Account*` identifiers", () => {
+    it("packages/ui/src/api/client.ts exports no `Account*` identifiers", () => {
       const clientPath = resolve(
         process.cwd(),
         "..",
-        "admin",
+        "ui",
         "src",
         "api",
         "client.ts",
@@ -762,11 +762,11 @@ describe("naming-convention [std-1] [t-6]", () => {
       expect(offenders).toEqual([]);
     });
 
-    it("packages/admin/src/utils/specInitPrompt.ts uses memex/org vocabulary in prose", () => {
+    it("packages/ui/src/utils/specInitPrompt.ts uses memex/org vocabulary in prose", () => {
       const path = resolve(
         process.cwd(),
         "..",
-        "admin",
+        "ui",
         "src",
         "utils",
         "specInitPrompt.ts",
@@ -775,11 +775,11 @@ describe("naming-convention [std-1] [t-6]", () => {
       expect(offenders).toEqual([]);
     });
 
-    it("packages/admin/src/utils/taskInitPrompt.ts uses memex/org vocabulary in prose", () => {
+    it("packages/ui/src/utils/taskInitPrompt.ts uses memex/org vocabulary in prose", () => {
       const path = resolve(
         process.cwd(),
         "..",
-        "admin",
+        "ui",
         "src",
         "utils",
         "taskInitPrompt.ts",
