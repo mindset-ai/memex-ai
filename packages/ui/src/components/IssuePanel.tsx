@@ -38,6 +38,13 @@ interface IssuePanelProps {
   /** spec-111-style read gate: when false (non-member reading a public Memex),
    *  every mutation control is suppressed; the list stays readable. */
   canWrite?: boolean;
+  /**
+   * spec-182 dec-4: the posture gate for issue DISPOSITIONS. Registering an
+   * issue stays on canWrite (raising concerns is the reviewer's job); the two
+   * dispositions — Convert to Task and Won't fix — are editor calls and gate
+   * here. Defaults to true so legacy call sites keep today's behaviour.
+   */
+  canEdit?: boolean;
   /** Bubble up after a mutation so the rest of the spec view (counts, etc.)
    *  picks up related changes. */
   onUpdate?: () => void;
@@ -75,6 +82,7 @@ function chipLabel(issue: Issue): string {
 export function IssuePanel({
   docId,
   canWrite = true,
+  canEdit = true,
   onUpdate,
   highlightIssueHandle,
 }: IssuePanelProps) {
@@ -296,7 +304,9 @@ export function IssuePanel({
                   </div>
                 )}
               </div>
-              {canWrite && issue.status === 'open' && (
+              {/* spec-182 dec-4: dispositions are editor calls — canEdit on top
+                  of the spec-111 read gate (canWrite false suppresses everything). */}
+              {canWrite && canEdit && issue.status === 'open' && (
                 <div className="flex-none flex items-center gap-2">
                   <Button
                     data-testid="issue-convert"

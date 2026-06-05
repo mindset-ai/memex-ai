@@ -284,3 +284,36 @@ describe('IssuePanel — inline expansion (spec-164)', () => {
     expect(screen.getByTestId('issue-expanded')).toHaveTextContent('full detail');
   });
 });
+
+// spec-182 dec-4 — issue powers split by posture: register stays canWrite,
+// dispositions (Convert to Task / Won't fix) move to canEdit.
+describe('IssuePanel — posture-split powers (spec-182)', () => {
+  const AC182_12 = 'mindset-prod/memex-building-itself/specs/spec-182/acs/ac-12';
+  const AC182_4 = 'mindset-prod/memex-building-itself/specs/spec-182/acs/ac-4';
+
+  it('a writable reviewer (canWrite, no canEdit) can register but sees no dispositions', async () => {
+    tagAc(AC182_12);
+    tagAc(AC182_4);
+    mockFetchIssues.mockResolvedValue([makeIssue({ id: 'iss-1', seq: 1, status: 'open' })]);
+
+    render(<IssuePanel docId="doc-1" canWrite canEdit={false} />);
+    await screen.findByTestId('issue-card');
+
+    // Register stays available…
+    expect(screen.getByTestId('issue-add')).toBeInTheDocument();
+    // …the dispositions do not.
+    expect(screen.queryByTestId('issue-convert')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('issue-wontfix')).not.toBeInTheDocument();
+  });
+
+  it('an editor (canEdit) keeps both dispositions on an open issue', async () => {
+    tagAc(AC182_12);
+    mockFetchIssues.mockResolvedValue([makeIssue({ id: 'iss-1', seq: 1, status: 'open' })]);
+
+    render(<IssuePanel docId="doc-1" canWrite canEdit />);
+    await screen.findByTestId('issue-card');
+
+    expect(screen.getByTestId('issue-convert')).toBeInTheDocument();
+    expect(screen.getByTestId('issue-wontfix')).toBeInTheDocument();
+  });
+});
