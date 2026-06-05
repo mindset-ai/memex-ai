@@ -16,6 +16,7 @@ import type { MemexResolverEnv } from "../middleware/memex-resolver.js";
 import { requireMemexId } from "./shared.js";
 import { canWriteMemex, READ_ONLY_PUBLIC_MESSAGE } from "../mcp/auth.js";
 import { resolveRole } from "../services/doc-members.js";
+import { resolveIntegrationState } from "../agent/integration-state.js";
 
 const MODEL = "claude-sonnet-4-5-20250929";
 
@@ -99,24 +100,34 @@ llmRouter.post("/chat", async (c) => {
   // canWriteMemex against the resolved memex. Members → false (default), so the
   // member prompt is unchanged. Server-side enforcement still lives in the MCP
   // read/write gate (t-4); this is the prompt-level counterpart.
+  // spec-180: all three pre-LLM lookups (write-access, role, integration state)
+  // are independent — run them in parallel to eliminate sequential DB round trips.
   const currentUserId = c.get("currentUserId");
-  const readOnly = currentUserId
-    ? !(await canWriteMemex(currentUserId, memexId).catch(() => true))
-    : false;
-
-  // spec-126 (dec-1/dec-2): the review overlay, mirroring readOnly. The viewer's
-  // per-doc role is derived SERVER-side from doc_members (`resolveRole`) — never
-  // client-passed (ac-3), so it can't be spoofed. Only a doc-bound chat has a
-  // role; the no-doc creation fallback is never review mode. A non-member / no
-  // editor row resolves to `reviewer` by default (ac-4). On a transient lookup
-  // error we fall back to editor for the PROMPT overlay only — the /tools/execute
-  // gate independently re-derives role and is the authoritative enforcement, so a
-  // prompt fail-open never permits a mutation.
-  const reviewer =
+  const [readOnly, reviewer, integrationState] = await Promise.all([
+    // spec-111 t-9 (dec-2): a signed-in NON-member chatting on a public Memex
+    // gets the read-only agent posture — it can answer/search but must explain it
+    // cannot mutate. Members → false (default). Server-side enforcement still lives
+    // in the MCP read/write gate (t-4); this is the prompt-level counterpart.
+    currentUserId
+      ? canWriteMemex(currentUserId, memexId).then(can => !can).catch(() => false)
+      : Promise.resolve(false),
+    // spec-126 (dec-1/dec-2): the review overlay. Role derived SERVER-side from
+    // doc_members — never client-passed (ac-3). Only doc-bound chats have a role;
+    // creation fallback is never review mode. Fail-open to editor for PROMPT overlay
+    // only — /tools/execute re-derives role authoritatively.
     docId && currentUserId
-      ? (await resolveRole(memexId, docId, currentUserId).catch(() => "editor")) ===
-        "reviewer"
-      : false;
+      ? resolveRole(memexId, docId, currentUserId).then(r => r === "reviewer").catch(() => false)
+      : Promise.resolve(false),
+    // spec-180: inject accurate Slack/Discord state so the agent never hallucinates
+    // about tool availability. Fail-open (both not configured) on any DB error so a
+    // lookup failure never hangs the route.
+    resolveIntegrationState(memexId, currentUserId ?? undefined).catch(() => ({
+      slackConnected: false,
+      discordConnected: false,
+      discordAmbiguous: false,
+      discordChannelName: null,
+    })),
+  ]);
 
   const systemBlocks = buildSystemBlocks(
     documentContext.context,
@@ -124,6 +135,7 @@ llmRouter.post("/chat", async (c) => {
     readOnly,
     reviewer,
     driftMode,
+    integrationState,
   );
   // dec-3 definition filter: a reviewer's model never sees the blocked mutations.
   // spec-143 t-4 (dec-6): in drift mode the model sees only the focused drift

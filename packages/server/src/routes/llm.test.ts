@@ -69,6 +69,18 @@ vi.mock("../services/doc-members.js", () => ({
   resolveRole: vi.fn().mockResolvedValue("editor"),
 }));
 
+// spec-180: mock resolveIntegrationState so /chat tests don't need DB access.
+// vi.hoisted so the value is available inside the hoisted vi.mock factory.
+const mockIntegrationState = vi.hoisted(() => ({
+  slackConnected: false,
+  discordConnected: false,
+  discordAmbiguous: false,
+  discordChannelName: null,
+}));
+vi.mock("../agent/integration-state.js", () => ({
+  resolveIntegrationState: vi.fn().mockResolvedValue(mockIntegrationState),
+}));
+
 vi.mock("../services/conversations.js", () => ({
   getOrCreateConversation: vi.fn().mockResolvedValue({ id: "conv-1" }),
   getMessages: vi.fn().mockResolvedValue([]),
@@ -117,6 +129,7 @@ import { tagAc } from "@memex-ai-ac/vitest";
 import { executeServerTool } from "../agent/tools.js";
 import { buildDocumentContext, buildDriftContext } from "../agent/context-builder.js";
 import { buildSystemBlocks, buildCreationSystemBlocks } from "../agent/system-prompt.js";
+import { resolveIntegrationState } from "../agent/integration-state.js";
 import { getCreationToolDefinitions, getToolDefinitions, isToolAllowedForReviewer, isReadOnlyTool, isDriftModeTool } from "../agent/tools.js";
 import { resolveRole } from "../services/doc-members.js";
 import { getOrCreateConversation, getMessages, clearConversation, replaceMessages } from "../services/conversations.js";
@@ -272,7 +285,8 @@ describe("POST /llm/chat", () => {
     // false here because the mocked resolveRole returns "editor". Mock returns
     // { context: "Mock document context", phase: "plan" }.
     // spec-143 t-4 (dec-6) adds a 5th `driftMode` arg — false here (not drift).
-    expect(buildSystemBlocks).toHaveBeenCalledWith("Mock document context", "plan", false, false, false);
+    // spec-180 adds a 6th `integrationState` arg — the resolved integration status.
+    expect(buildSystemBlocks).toHaveBeenCalledWith("Mock document context", "plan", false, false, false, mockIntegrationState);
   });
 
   it("uses fallback context when no docId", async () => {
@@ -294,6 +308,8 @@ describe("POST /llm/chat", () => {
       false,
       // spec-143 t-4 (dec-6): the 5th driftMode arg — false here (not drift).
       false,
+      // spec-180: the 6th integrationState arg — the resolved integration status.
+      mockIntegrationState,
     );
   });
 
@@ -314,7 +330,7 @@ describe("POST /llm/chat", () => {
     await res.text();
 
     expect(canWriteMemex).toHaveBeenCalledWith("test-user-id", "test-account-id");
-    expect(buildSystemBlocks).toHaveBeenCalledWith("Mock document context", "plan", true, false, false);
+    expect(buildSystemBlocks).toHaveBeenCalledWith("Mock document context", "plan", true, false, false, mockIntegrationState);
   });
 
   it("passes readOnly=false to buildSystemBlocks for a writing member (ac-13)", async () => {
@@ -329,7 +345,7 @@ describe("POST /llm/chat", () => {
     });
     await res.text();
 
-    expect(buildSystemBlocks).toHaveBeenCalledWith("Mock document context", "plan", false, false, false);
+    expect(buildSystemBlocks).toHaveBeenCalledWith("Mock document context", "plan", false, false, false, mockIntegrationState);
   });
 
   // spec-143 t-4 (dec-6): drift mode — the in-UI drift agent runs against the
@@ -362,8 +378,24 @@ describe("POST /llm/chat", () => {
       false,
       false,
       true,
+      mockIntegrationState,
     );
     expect(getToolDefinitions).toHaveBeenCalledWith({ reviewer: false, mode: "drift" });
+  });
+
+  // spec-180 ac-3: integration state resolved server-side per request — not cached.
+  it("ac-3: resolveIntegrationState is called on every /chat request with the current memexId and userId", async () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-180/acs/ac-3");
+    const docId = "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d";
+
+    const res = await app.request("/llm/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ docId, messages: [{ role: "user", content: "Hello" }] }),
+    });
+    await res.text();
+
+    expect(resolveIntegrationState).toHaveBeenCalledWith("test-account-id", "test-user-id");
   });
 });
 
@@ -688,7 +720,7 @@ describe("spec-126 review overlay", () => {
     // ac-1: the overlay threads reviewer into the server-built prompt + tool list.
     // spec-143 t-4 (dec-6): the 5th driftMode arg is false here; getToolDefinitions
     // now also receives `mode` (undefined when not in drift mode).
-    expect(buildSystemBlocks).toHaveBeenCalledWith("Mock document context", "plan", false, true, false);
+    expect(buildSystemBlocks).toHaveBeenCalledWith("Mock document context", "plan", false, true, false, mockIntegrationState);
     expect(getToolDefinitions).toHaveBeenCalledWith({ reviewer: true, mode: undefined });
   });
 
