@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { rehypeRefLinkifier } from './chat/refLinkifier';
+import { phaseDisplayName } from '../utils/phaseDisplay';
 import type { Decision, Comment } from '../api/types';
 import {
   approveDecisionApi,
@@ -50,11 +51,19 @@ interface DecisionPanelProps {
    * sites are unchanged.
    */
   canEdit?: boolean;
+  /**
+   * spec-164 dec-3: the Spec's current phase. While the Spec is still in
+   * `draft` AND no decisions exist, the panel gates the *invitation* — an
+   * empty-state directive pointing at the move to Specify — instead of empty
+   * list scaffolding. Decisions that already exist always render (agents may
+   * legitimately create them in draft, spec-12 dec-1).
+   */
+  specPhase?: string;
 }
 
 type TabId = 'candidates' | 'open' | 'resolved';
 
-export function DecisionPanel({ docId, decisions, commentsByDecision = {}, forceShowComments: _forceShowComments, onCommentsChange, onUpdate, highlightDecisionHandle, onJumpToAc, canWrite = true, canEdit = true }: DecisionPanelProps) {
+export function DecisionPanel({ docId, decisions, commentsByDecision = {}, forceShowComments: _forceShowComments, onCommentsChange, onUpdate, highlightDecisionHandle, onJumpToAc, canWrite = true, canEdit = true, specPhase }: DecisionPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const chat = useChat();
@@ -275,6 +284,30 @@ export function DecisionPanel({ docId, decisions, commentsByDecision = {}, force
     { id: 'open', label: 'Open', count: open.length, countVariant: 'warning' },
     { id: 'resolved', label: 'Resolved', count: resolved.length },
   ];
+
+  // spec-164 dec-3: gate the invitation, never the content — a draft Spec
+  // with zero decisions invites the move to Specify instead of presenting
+  // empty tabs. Any existing decisions fall through to the normal render.
+  if (specPhase === 'draft' && decisions.length === 0) {
+    return (
+      <div
+        ref={panelRef}
+        data-testid="decision-panel"
+        className="border rounded-lg p-5 border-edge bg-panel"
+      >
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-sm font-semibold text-heading uppercase tracking-wider">
+            Decisions
+          </h3>
+          <span className="text-xs text-muted">0 decisions</span>
+        </div>
+        <p data-testid="decision-draft-directive" className="text-sm text-muted">
+          Move this spec to {phaseDisplayName('plan')} to start capturing
+          Decisions and ACs.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div ref={panelRef} data-testid="decision-panel" className="border rounded-lg p-5 border-edge bg-panel">

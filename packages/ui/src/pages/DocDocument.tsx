@@ -9,6 +9,7 @@ import {
   archiveDoc,
   pauseDoc,
   unpauseDoc,
+  updateDocStatus,
   NotFoundError,
   type AcWithVerification,
   type DocAssigneeView,
@@ -35,6 +36,7 @@ import { PostureDropdown, HEADER_PILL_CLASS } from '../components/PostureDropdow
 import { countUnresolvedDecisions, toButtonPrompt, BASE_SCAFFOLD } from '@memex/shared';
 import { useDocChangeStream } from '../hooks/useDocChangeStream';
 import { COMMENT_PARAM, parseCommentParam, commentAnchorId } from '../utils/commentDeepLink';
+import { phaseDisplayName } from '../utils/phaseDisplay';
 import { ShareModal } from '../components/ShareModal';
 import { ShareSpecDialog } from '../components/ShareSpecDialog';
 import { useHeaderSlot } from '../components/HeaderSlot';
@@ -714,7 +716,7 @@ export function DocDocument() {
               {g.rest}
             </span>
           ))}{' '}
-          before this spec can move to {target}.
+          before this spec can move to {phaseDisplayName(target)}.
         </span>
       </p>
     );
@@ -825,6 +827,7 @@ export function DocDocument() {
   const decisionPanel = (
     <DecisionPanel
       docId={doc.id}
+      specPhase={phase}
       decisions={decs}
       commentsByDecision={commentsByDecision}
       onCommentsChange={handleDecisionCommentsChange}
@@ -839,6 +842,7 @@ export function DocDocument() {
   const acPanel = (
     <AcPanel
       docId={doc.id}
+      specPhase={phase}
       focusedAcId={focusedAcId}
       onFocusConsumed={() => setFocusedAcId(null)}
     />
@@ -1102,6 +1106,17 @@ export function DocDocument() {
           acs={acs}
           issues={issues}
           people={assignees}
+          /* spec-164 dec-5: the one deliberate door back from done. Gates on
+             the same editor posture as the transition sentence's Yes; the
+             status write lives here (DoneSummary stays fetch-free, ac-9).
+             After the write the view follows the move, exactly like
+             TransitionSentence's onTransitioned. */
+          canReopen={canEdit}
+          onReopen={async () => {
+            await updateDocStatus(doc.id, 'verify');
+            setSelectedTab(null);
+            reloadDoc();
+          }}
         />
       ) : doc.docType !== 'spec' ? (
         narrativeView

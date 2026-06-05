@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { updateDocStatus } from '../api/client';
 import { SPEC_STATUSES, type SpecStatus } from '../api/types';
+import { phaseDisplayName } from '../utils/phaseDisplay';
 import { Button } from './ui';
 
 // spec-159 t-3: the Rubicon line — the single sentence beneath the phase tabs
@@ -12,11 +13,11 @@ import { Button } from './ui';
 // Three shapes, keyed on what the user is viewing:
 //
 //   1. CURRENT tab, rubric clean → the advancement offer + [Yes].
-//      "Do you wish to move this spec to build?"
+//      "Do you wish to move this spec to Build?"
 //   2. CURRENT tab, rubric blocked → the outstanding work, stated plainly, NO
 //      buttons — when the work is obvious there is nothing to confirm.
 //      "**4 Decisions** must be resolved and **Acceptance Criteria (ACs)**
-//       must be created before this spec can move to build."
+//       must be created before this spec can move to Build."
 //   3. BROWSING another tab → an explicit confirm: [Yes] [No]. Forward+blocked
 //      leads with the blocker summary (which names the target) and asks "Move
 //      this spec anyway?" — the deliberate-friction escape hatch. No returns
@@ -241,7 +242,7 @@ export function TransitionSentence({
       // buttons to press.
       return (
         <p className="text-sm text-secondary" data-testid="transition-sentence">
-          {renderBlockers(blockers)} before this spec can move to {target}.
+          {renderBlockers(blockers)} before this spec can move to {phaseDisplayName(target)}.
         </p>
       );
     }
@@ -249,7 +250,7 @@ export function TransitionSentence({
     const verb = target === 'verify' || target === 'done' ? 'Do you want' : 'Do you wish';
     return (
       <p className="text-sm text-secondary" data-testid="transition-sentence">
-        {verb} to move this spec to {target}? {yesButton}
+        {verb} to move this spec to {phaseDisplayName(target)}? {yesButton}
         {errorNote}
       </p>
     );
@@ -261,13 +262,13 @@ export function TransitionSentence({
   // naming the target once, with the friction carried by "anyway".
   const showSummary = !backward && blockers.length > 0;
   const question = backward
-    ? `Do you want to move this spec back to ${target}?`
+    ? `Do you want to move this spec back to ${phaseDisplayName(target)}?`
     : showSummary
       ? 'Move this spec anyway?'
-      : `Are you sure you want to move this spec to ${target}?`;
+      : `Are you sure you want to move this spec to ${phaseDisplayName(target)}?`;
   return (
     <p className="text-sm text-secondary" data-testid="transition-sentence">
-      {showSummary && <>{renderBlockers(blockers)} before {target}. </>}
+      {showSummary && <>{renderBlockers(blockers)} before {phaseDisplayName(target)}. </>}
       {question} {yesButton} {noButton}
       {errorNote}
     </p>

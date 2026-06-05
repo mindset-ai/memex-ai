@@ -389,3 +389,45 @@ describe('DecisionPanel', () => {
     expect(screen.getByText(/^JWT$/)).toBeInTheDocument();
   });
 });
+
+// spec-164 dec-3 — gate the invitation, never the content. A draft Spec with
+// zero decisions invites the move to Specify; existing decisions always render;
+// plan-and-later behaviour is unchanged.
+describe('DecisionPanel — draft-phase gating (spec-164)', () => {
+  const AC164 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-164/acs/ac-${n}`;
+
+  it('draft + zero decisions → empty-state directive instead of the tabs scaffolding', () => {
+    tagAc(AC164(17));
+    tagAc('mindset-prod/memex-building-itself/specs/spec-164/acs/ac-5');
+    render(
+      <DecisionPanel docId="doc-1" decisions={[]} onUpdate={vi.fn()} specPhase="draft" />,
+    );
+    expect(screen.getByTestId('decision-draft-directive')).toHaveTextContent(
+      'Move this spec to Specify to start capturing Decisions and ACs.',
+    );
+    expect(screen.queryByRole('tab')).not.toBeInTheDocument();
+  });
+
+  it('draft + an existing decision → normal render, content never hidden', () => {
+    tagAc(AC164(18));
+    render(
+      <DecisionPanel
+        docId="doc-1"
+        decisions={[makeDecision({ id: 'd-1', seq: 1, title: 'Which DB?', status: 'open' })]}
+        onUpdate={vi.fn()}
+        specPhase="draft"
+      />,
+    );
+    expect(screen.queryByTestId('decision-draft-directive')).not.toBeInTheDocument();
+    expect(screen.getByText('Which DB?')).toBeInTheDocument();
+  });
+
+  it('plan + zero decisions → behaviour unchanged (tabs scaffolding, no directive)', () => {
+    tagAc(AC164(18));
+    render(
+      <DecisionPanel docId="doc-1" decisions={[]} onUpdate={vi.fn()} specPhase="plan" />,
+    );
+    expect(screen.queryByTestId('decision-draft-directive')).not.toBeInTheDocument();
+    expect(screen.getByText('No open decisions.')).toBeInTheDocument();
+  });
+});

@@ -11,7 +11,8 @@
 // so no ChatProvider / router wrapping is needed and nothing is mocked except a
 // global fetch spy that asserts the no-network contract.
 
-import { render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
+
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { tagAc } from '@memex-ai-ac/vitest';
 import { DoneSummary } from './DoneSummary';
@@ -233,6 +234,60 @@ describe('DoneSummary', () => {
     const report = screen.getByTestId('done-summary');
     expect(within(report).getByText('Decisions').parentElement!.textContent).toContain('0 resolved');
     expect(within(report).getByText('Acceptance').parentElement!.textContent).toContain('0 ACs');
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+// spec-164 dec-5 — the Reopen affordance: editor-gated, explicit confirm,
+// parent performs the write (the component stays fetch-free).
+describe('DoneSummary — Reopen (spec-164)', () => {
+  const AC164 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-164/acs/ac-${n}`;
+
+  it('hidden by default and for non-editors (canReopen false/absent)', () => {
+    tagAc(AC164(22));
+    render(
+      <DoneSummary doc={makeDoc()} decisions={[]} tasks={[]} acs={[]} issues={[]} />,
+    );
+    expect(screen.queryByTestId('done-reopen')).not.toBeInTheDocument();
+  });
+
+  it('editor sees Reopen; confirming calls onReopen exactly once; Cancel backs out', async () => {
+    tagAc(AC164(22));
+    // fireEvent (not userEvent) — the suite runs under fake timers for the
+    // relative-date headline, and userEvent's internal waits would stall.
+    const onReopen = vi.fn().mockResolvedValue(undefined);
+    render(
+      <DoneSummary
+        doc={makeDoc()}
+        decisions={[]}
+        tasks={[]}
+        acs={[]}
+        issues={[]}
+        canReopen
+        onReopen={onReopen}
+      />,
+    );
+
+    // Step 1: the affordance, idle.
+    fireEvent.click(screen.getByTestId('done-reopen'));
+    // Step 2: explicit confirm naming the target phase by display name.
+    expect(screen.getByTestId('done-reopen-confirm')).toHaveTextContent(
+      'Move this spec back to Verify?',
+    );
+
+    // Cancel backs out without firing.
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(onReopen).not.toHaveBeenCalled();
+    expect(screen.getByTestId('done-reopen')).toBeInTheDocument();
+
+    // Confirm fires exactly once. (act flushes the microtask queue without
+    // waitFor's real-timer polling, which the suite's fake timers would stall.)
+    fireEvent.click(screen.getByTestId('done-reopen'));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('done-reopen-yes'));
+    });
+    expect(onReopen).toHaveBeenCalledTimes(1);
+    // Still no fetch from inside the component (ac-9 preserved).
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

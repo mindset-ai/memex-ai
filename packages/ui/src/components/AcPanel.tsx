@@ -39,6 +39,7 @@ import { useChat } from './ChatContext';
 import { AcSparkline } from './AcSparkline';
 import { AcAboutDialog } from './AcAboutDialog';
 import { AcMatrixCollapsible } from './AcMatrixCollapsible';
+import { phaseDisplayName } from '../utils/phaseDisplay';
 
 interface AcPanelProps {
   docId: string;
@@ -48,6 +49,13 @@ interface AcPanelProps {
    *  doesn't re-trigger the highlight. */
   focusedAcId?: string | null;
   onFocusConsumed?: () => void;
+  /**
+   * spec-164 dec-3: the Spec's current phase. While the Spec is still in
+   * `draft` AND no ACs exist, the panel gates the *invitation* — an
+   * empty-state directive pointing at the move to Specify — instead of the
+   * zero-AC teaching card. ACs that already exist always render.
+   */
+  specPhase?: string;
 }
 
 const POLL_INTERVAL_MS = 3_000;
@@ -504,7 +512,7 @@ function AcRowMeta({
   );
 }
 
-export function AcPanel({ docId, focusedAcId, onFocusConsumed }: AcPanelProps) {
+export function AcPanel({ docId, focusedAcId, onFocusConsumed, specPhase }: AcPanelProps) {
   const [rows, setRows] = useState<AcWithVerification[] | null>(null);
   const [history, setHistory] = useState<AcAlignmentDay[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -636,9 +644,32 @@ export function AcPanel({ docId, focusedAcId, onFocusConsumed }: AcPanelProps) {
   // a free-floating grey box next to a proper card. The teaching copy is the
   // card body; the chrome is copied from DecisionPanel (border-edge, bg-panel,
   // text-heading uppercase header, text-muted counts line).
+  // spec-164 dec-3: gate the invitation, never the content — a draft Spec
+  // with zero ACs invites the move to Specify instead of the teaching card.
+  if (specPhase === 'draft' && rows.length === 0) {
+    return (
+      <div data-testid="ac-panel">
+        <div className="border rounded-lg p-5 border-edge bg-panel">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-sm font-semibold text-heading uppercase tracking-wider">
+              Acceptance Criteria
+            </h3>
+            <span className="text-xs text-muted">0 criteria</span>
+          </div>
+          <p data-testid="ac-draft-directive" className="text-sm text-muted">
+            Move this spec to {phaseDisplayName('plan')} to start capturing
+            Decisions and ACs.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // spec-164 (ac-10): no offset wrapper — the card renders flush so the AC
+  // column starts on the same line as the Decisions column beside it.
   if (rows.length === 0) {
     return (
-      <div className="px-2 py-4 max-w-3xl">
+      <div data-testid="ac-panel">
         <div className="border rounded-lg p-5 border-edge bg-panel relative">
           <button
             onClick={() => setAboutOpen(true)}
@@ -691,8 +722,21 @@ export function AcPanel({ docId, focusedAcId, onFocusConsumed }: AcPanelProps) {
     );
   }
 
+  // spec-164 (ac-3 / ac-10): the populated panel wears the same card chrome
+  // as DecisionPanel / TaskPanel / IssuePanel (border-edge, bg-panel,
+  // uppercase header + counts line) and carries no offset wrapper, so the
+  // Decisions and ACs columns start on the same line — including when the
+  // unified header below shows coverage/verification statistics.
   return (
-    <div className="px-2 py-4 max-w-5xl">
+    <div data-testid="ac-panel" className="border rounded-lg p-5 border-edge bg-panel">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-sm font-semibold text-heading uppercase tracking-wider">
+          Acceptance Criteria
+        </h3>
+        <span className="text-xs text-muted">
+          {rows.length} criteri{rows.length === 1 ? 'on' : 'a'}
+        </span>
+      </div>
       {/* Framing line — anchors the novel mental model. Permanent header,
           not a dismissable tutorial banner. The info button next to it opens
           the AcAboutDialog for the longer explanation. */}

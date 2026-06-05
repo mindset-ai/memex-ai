@@ -7,10 +7,12 @@
 // same doc-change bus every other panel uses, so a create/update/delete from
 // any source (React UI, MCP, the agent, REST) re-renders the list (ac-2).
 //
-// Click-to-focus (c-1, ratified): clicking a row drops a MINIMAL
-// {type:'issue', id, label:'issue-N — title'} ContextChip into the shared chat
-// store — the agent fetches detail via get_issue, nothing richer travels in
-// the chip. Reuses the [Focus: …] prefix machinery in useAgentGraph.
+// Card interaction (spec-164 dec-4): clicking a card toggles an INLINE
+// expansion — full body + metadata in place, click again to collapse, several
+// cards may be open at once (the spec-96 dec-16 accordion pattern). The
+// click-to-focus chip (c-1) now fires ONLY from the dedicated hover icon:
+// it drops a MINIMAL {type:'issue', id, label:'issue-N — title'} ContextChip
+// into the shared chat store — the agent fetches detail via get_issue.
 //
 // Bidirectional bridge affordances (s-5): "Convert to Task" (Issue → Task,
 // down-bridge ac-20) surfaces on every open Issue. The Task → Issue up-bridge
@@ -81,6 +83,19 @@ export function IssuePanel({
   const [error, setError] = useState<string | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
+  // spec-164 dec-4: inline accordion — ids of the cards currently expanded.
+  // A Set so several issues can be read side by side (mirrors DecisionPanel's
+  // collapse state, inverted: cards start collapsed).
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+
+  const toggleExpanded = useCallback((id: string) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
 
   const [showForm, setShowForm] = useState(false);
   const [newTitle, setNewTitle] = useState('');
@@ -127,6 +142,8 @@ export function IssuePanel({
       );
       if (card) card.scrollIntoView({ behavior: 'smooth', block: 'center' });
       setHighlightedId(target.id);
+      // spec-164 ac-21: a deep-linked issue lands already expanded.
+      setExpandedIds((prev) => (prev.has(target.id) ? prev : new Set(prev).add(target.id)));
       window.setTimeout(() => setHighlightedId(null), 2000);
     }, 0);
     return () => window.clearTimeout(handle);
@@ -214,14 +231,18 @@ export function IssuePanel({
       )}
 
       <div className="space-y-2 mb-4">
-        {[...open, ...other].map((issue) => (
+        {[...open, ...other].map((issue) => {
+          const isExpanded = expandedIds.has(issue.id);
+          return (
           <div
             key={issue.id}
             data-testid="issue-card"
             data-issue-seq={`issue-${issue.seq}`}
             data-issue-type={issue.type}
             data-issue-status={issue.status}
-            onClick={() => handleFocus(issue)}
+            data-expanded={isExpanded || undefined}
+            aria-expanded={isExpanded}
+            onClick={() => toggleExpanded(issue.id)}
             className={`group/issue px-3 py-2.5 rounded-md border cursor-pointer transition-colors bg-surface/50 hover:bg-card-hover ${
               highlightedId === issue.id ? 'ring-2 ring-accent border-accent' : 'border-edge-subtle'
             }`}
@@ -255,8 +276,24 @@ export function IssuePanel({
                   )}
                   <span className="text-sm truncate text-primary">{issue.title}</span>
                 </div>
-                {issue.body && (
+                {issue.body && !isExpanded && (
                   <p className="text-xs text-muted mt-1 line-clamp-2">{issue.body}</p>
+                )}
+                {isExpanded && (
+                  // spec-164 dec-4: the inline expansion — full body (no
+                  // clamp) + the metadata line. Read in place; click the
+                  // card again to collapse.
+                  <div data-testid="issue-expanded" className="mt-2 space-y-2">
+                    {issue.body && (
+                      <p className="text-xs text-body whitespace-pre-wrap">{issue.body}</p>
+                    )}
+                    <p className="text-[11px] text-muted">
+                      issue-{issue.seq} · {TYPE_LABEL[issue.type]} ·{' '}
+                      {STATUS_LABEL[issue.status]}
+                      {issue.severity ? <> · severity {issue.severity}</> : null} · raised{' '}
+                      {new Date(issue.createdAt).toLocaleDateString()}
+                    </p>
+                  </div>
                 )}
               </div>
               {canWrite && issue.status === 'open' && (
@@ -288,7 +325,8 @@ export function IssuePanel({
               )}
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
 
       {canWrite && (showForm ? (

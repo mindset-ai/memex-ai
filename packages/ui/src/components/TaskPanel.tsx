@@ -4,7 +4,6 @@ import { fetchPlanReadiness } from '../api/client';
 import { useChat } from './ChatContext';
 import { CommentTray } from './CommentTray';
 import { PromptModal } from './PromptModal';
-import { TaskGraph } from './TaskGraph';
 import {
   ExecutionPlanModal,
   derivePlanBadgeState,
@@ -14,32 +13,10 @@ import {
 import { Badge, Button } from './ui';
 import { renderTaskInitPrompt } from '../utils/taskInitPrompt';
 
-type TaskView = 'list' | 'graph';
-
-const VIEW_STORAGE_PREFIX = 'taskpanel-view:';
-
-// Read the persisted view per-spec. localStorage is intentionally per-doc
-// rather than global so different specs can keep different default views
-// (a small graph is fine; a 30-item spec probably wants the list back).
-function readPersistedView(docId: string): TaskView | null {
-  try {
-    const raw = localStorage.getItem(VIEW_STORAGE_PREFIX + docId);
-    return raw === 'graph' || raw === 'list' ? raw : null;
-  } catch {
-    return null;
-  }
-}
-
-function writePersistedView(docId: string, view: TaskView): void {
-  try {
-    localStorage.setItem(VIEW_STORAGE_PREFIX + docId, view);
-  } catch {
-    /* no-op — private browsing / quota; the toggle still works in-memory */
-  }
-}
-
 interface TaskPanelProps {
-  docId: string;
+  /** Retained for call-site compatibility — was only consumed by the removed
+   *  t-19 graph-view persistence (spec-164 dec-2). */
+  docId?: string;
   /**
    * The full spec document. Optional so legacy callers that only have docId
    * still render — but the per-task "Spec Coding Agent" prompt needs the
@@ -70,7 +47,7 @@ const statusLabel: Record<string, string> = {
   complete: 'complete',
 };
 
-export function TaskPanel({ docId, doc, tasks, commentsByTask = {}, forceShowComments, onCommentsChange, onUpdate, canWrite = true }: TaskPanelProps) {
+export function TaskPanel({ docId: _docId, doc, tasks, commentsByTask = {}, forceShowComments, onCommentsChange, onUpdate, canWrite = true }: TaskPanelProps) {
   const chat = useChat();
   const [showCommentsFor, setShowCommentsFor] = useState<string | null>(null);
   const [promptText, setPromptText] = useState<string | null>(null);
@@ -111,22 +88,6 @@ export function TaskPanel({ docId, doc, tasks, commentsByTask = {}, forceShowCom
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [planTaskIdsKey]);
 
-  // t-19 W4: List/Graph toggle, persisted per-spec via localStorage so
-  // different specs remember their preferred view independently.
-  const [view, setView] = useState<TaskView>(() => readPersistedView(docId) ?? 'list');
-  // If the docId changes (rare — usually the panel is re-mounted), re-read the
-  // persisted preference for the new spec rather than carrying state over.
-  useEffect(() => {
-    const stored = readPersistedView(docId);
-    if (stored && stored !== view) setView(stored);
-    // Intentionally read-only: react to docId changes, don't loop on view changes.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [docId]);
-  const switchView = (next: TaskView) => {
-    setView(next);
-    writePersistedView(docId, next);
-  };
-
   // The per-task prompt is built from a static template — no LLM round-trip.
   // Mirrors the spec "Spec Coding Agent" approach (see InitPromptDialog
   // and specInitPrompt.ts): the value is the briefing, not bespoke prose.
@@ -154,58 +115,28 @@ export function TaskPanel({ docId, doc, tasks, commentsByTask = {}, forceShowCom
         <h3 className="text-sm font-semibold text-heading uppercase tracking-wider">
           Tasks
         </h3>
-        <div className="flex items-center gap-3">
-          <span className="text-xs text-muted">
-            {ready.length} ready, {blocked.length} blocked, {inProgress.length} in progress, {complete.length} complete
-          </span>
-          <div role="tablist" data-testid="task-view-toggle" className="inline-flex rounded-md border border-edge overflow-hidden">
-            <button
-              role="tab"
-              aria-selected={view === 'list'}
-              data-testid="task-view-list"
-              data-active={view === 'list' ? 'true' : 'false'}
-              onClick={() => switchView('list')}
-              className={`text-xs px-2 py-0.5 transition-colors ${
-                view === 'list' ? 'bg-accent text-white' : 'bg-overlay text-secondary hover:bg-card-hover'
-              }`}
-            >
-              List
-            </button>
-            <button
-              role="tab"
-              aria-selected={view === 'graph'}
-              data-testid="task-view-graph"
-              data-active={view === 'graph' ? 'true' : 'false'}
-              onClick={() => switchView('graph')}
-              className={`text-xs px-2 py-0.5 transition-colors border-l border-edge ${
-                view === 'graph' ? 'bg-accent text-white' : 'bg-overlay text-secondary hover:bg-card-hover'
-              }`}
-            >
-              Graph
-            </button>
-          </div>
-        </div>
+        <span className="text-xs text-muted">
+          {ready.length} ready, {blocked.length} blocked, {inProgress.length} in progress, {complete.length} complete
+        </span>
       </div>
 
-      {view === 'graph' && (
-        <div className="mb-4">
-          {tasks.length === 0 ? (
-            <p className="text-sm text-muted">No tasks to graph yet.</p>
-          ) : (
-            <TaskGraph tasks={tasks} />
-          )}
-        </div>
-      )}
-
-      {tasks.length === 0 && view === 'list' && (
+      {/* spec-164 dec-2: the t-19 graph view is removed — the build tab is
+          list-only. A future task graph should arrive via its own spec. */}
+      {tasks.length === 0 && (
         <p className="text-sm text-muted mb-4">No tasks yet. Ask the agent in chat to scope work for this Spec.</p>
       )}
 
-      {view === 'list' && (
       <div className="space-y-2 mb-4">
         {tasks.map((t) => {
           const display = getDisplayStatus(t);
-          const taskOpenComments = (commentsByTask[t.id]?.filter((c) => !c.resolvedAt).length ?? 0) > 0;
+          const openTaskComments = commentsByTask[t.id]?.filter((c) => !c.resolvedAt) ?? [];
+          // spec-164 dec-6: only HUMAN-LOOP comments auto-open the tray.
+          // Agent chatter (plan/progress) no longer pre-explodes the build
+          // list — it stays behind the Comments button (whose count badge
+          // still includes it, ac-25) and the tray's default-off chips.
+          const taskOpenComments = openTaskComments.some(
+            (c) => !['plan', 'progress'].includes(c.commentType ?? 'discussion'),
+          );
           return (
             <div
               key={t.id}
@@ -337,6 +268,7 @@ export function TaskPanel({ docId, doc, tasks, commentsByTask = {}, forceShowCom
                     comments={commentsByTask[t.id] ?? []}
                     onCommentsChange={onCommentsChange}
                     canWrite={canWrite}
+                    muteAgentChatter
                   />
                 </div>
               )}
@@ -344,7 +276,6 @@ export function TaskPanel({ docId, doc, tasks, commentsByTask = {}, forceShowCom
           );
         })}
       </div>
-      )}
 
       {promptText !== null && (
         <PromptModal

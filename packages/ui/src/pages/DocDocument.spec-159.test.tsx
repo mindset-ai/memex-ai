@@ -49,7 +49,18 @@ vi.mock('../components/BylineAssignees', () => ({
   BylineAssignees: () => <div data-testid="byline-assignees" />,
 }));
 vi.mock('../components/DoneSummary', () => ({
-  DoneSummary: () => <div data-testid="done-summary" />,
+  // spec-164 dec-5: the stub surfaces the reopen wiring so the page-level
+  // tests can assert DocDocument threads canReopen (editor posture) and that
+  // onReopen performs the verify status write.
+  DoneSummary: (props: { canReopen?: boolean; onReopen?: () => void }) => (
+    <div data-testid="done-summary" data-can-reopen={props.canReopen ? 'true' : 'false'}>
+      {props.canReopen && (
+        <button data-testid="stub-reopen" onClick={() => props.onReopen?.()}>
+          reopen
+        </button>
+      )}
+    </div>
+  ),
 }));
 
 // ── Hooks: write access + a configurable posture (i-1: the sentence renders
@@ -319,7 +330,7 @@ describe('spec-159 — Rubicon line + in-situ directives', () => {
     const sentence = await screen.findByTestId('transition-sentence');
     await waitFor(() =>
       expect(sentence.textContent).toContain(
-        '2 Decisions must be resolved before this spec can move to build.',
+        '2 Decisions must be resolved before this spec can move to Build.',
       ),
     );
     expect(within(sentence).queryByRole('button')).not.toBeInTheDocument();
@@ -328,7 +339,7 @@ describe('spec-159 — Rubicon line + in-situ directives', () => {
     await user.click(screen.getByText('Decisions & ACs'));
     const directives = screen.getAllByTestId('phase-directive');
     expect(directives.map((d) => d.textContent).join(' ')).toContain(
-      '2 Decisions must be resolved before this spec can move to build.',
+      '2 Decisions must be resolved before this spec can move to Build.',
     );
   });
 
@@ -343,7 +354,7 @@ describe('spec-159 — Rubicon line + in-situ directives', () => {
     await user.click(phaseTab('build'));
     const sentence = screen.getByTestId('transition-sentence');
     expect(sentence.textContent).toContain(
-      '1 Decision must be resolved and Acceptance Criteria (ACs) must be created before build.',
+      '1 Decision must be resolved and Acceptance Criteria (ACs) must be created before Build.',
     );
     // The summary already names the target — the question doesn't repeat it.
     expect(sentence.textContent).toContain('Move this spec anyway?');
@@ -369,7 +380,7 @@ describe('spec-159 — Rubicon line + in-situ directives', () => {
     const directives = screen.getAllByTestId('phase-directive');
     expect(directives).toHaveLength(1);
     expect(directives[0]!.textContent).toContain(
-      'Decisions and Acceptance Criteria (ACs) must be created before this spec can move to build.',
+      'Decisions and Acceptance Criteria (ACs) must be created before this spec can move to Build.',
     );
   });
 
@@ -387,7 +398,7 @@ describe('spec-159 — Rubicon line + in-situ directives', () => {
       .getAllByTestId('phase-directive')
       .map((d) => d.textContent)
       .join(' ');
-    expect(text).toContain('2 Decisions must be resolved before this spec can move to build.');
+    expect(text).toContain('2 Decisions must be resolved before this spec can move to Build.');
   });
 
   it('build with open tasks: directive above Tasks; Rubicon line states it with no buttons (ac-13)', async () => {
@@ -401,12 +412,12 @@ describe('spec-159 — Rubicon line + in-situ directives', () => {
       .map((d) => d.textContent)
       .join(' ');
     expect(text).toContain(
-      '1 Task must be completed (or kicked to Issues) before this spec can move to verify.',
+      '1 Task must be completed (or kicked to Issues) before this spec can move to Verify.',
     );
     // Current tab + open task → the Rubicon line states it, no buttons.
     const sentence = screen.getByTestId('transition-sentence');
     expect(sentence.textContent).toContain(
-      '1 Task must be completed before this spec can move to verify.',
+      '1 Task must be completed before this spec can move to Verify.',
     );
     expect(within(sentence).queryByRole('button')).not.toBeInTheDocument();
   });
@@ -429,7 +440,7 @@ describe('spec-159 — Rubicon line + in-situ directives', () => {
         .map((d) => d.textContent)
         .join(' ');
       expect(text).toContain(
-        '1 Acceptance Criterion (AC) must be verified before this spec can move to done.',
+        '1 Acceptance Criterion (AC) must be verified before this spec can move to Done.',
       );
     });
   });
@@ -690,5 +701,23 @@ describe('spec-159 ac-17 — next-action handoff line', () => {
       'You can copy and paste this prompt into your coding agent if you prefer to conduct the review from there.',
     );
     expect(screen.queryByTestId('phase-handoff-line')).not.toBeInTheDocument();
+  });
+});
+
+// spec-164 dec-5 — reopening a done Spec from the summary report.
+describe('done → verify reopen wiring (spec-164)', () => {
+  const AC164 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-164/acs/ac-${n}`;
+
+  it('threads canReopen to the DoneSummary and onReopen writes status verify', async () => {
+    tagAc(AC164(22));
+    tagAc(AC164(23));
+    tagAc('mindset-prod/memex-building-itself/specs/spec-164/acs/ac-6');
+    renderAt('done');
+
+    const summary = await screen.findByTestId('done-summary');
+    expect(summary).toHaveAttribute('data-can-reopen', 'true');
+
+    await userEvent.click(screen.getByTestId('stub-reopen'));
+    await waitFor(() => expect(updateDocStatus).toHaveBeenCalledWith('doc-uuid', 'verify'));
   });
 });

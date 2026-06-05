@@ -139,13 +139,13 @@ describe('spec-159 — zero-state holes block at the page level (ac-3, ac-13)', 
     // The in-situ directive sits above the Tasks column.
     await waitFor(() =>
       expect(directiveText()).toContain(
-        'Tasks must be created and completed before this spec can move to verify.',
+        'Tasks must be created and completed before this spec can move to Verify.',
       ),
     );
     // The Rubicon line states the same hole and offers nothing to press.
     const sentence = screen.getByTestId('transition-sentence');
     expect(sentence.textContent).toContain(
-      'Tasks must be created and completed before this spec can move to verify.',
+      'Tasks must be created and completed before this spec can move to Verify.',
     );
     expect(within(sentence).queryByRole('button')).not.toBeInTheDocument();
   });
@@ -160,12 +160,12 @@ describe('spec-159 — zero-state holes block at the page level (ac-3, ac-13)', 
     await screen.findByTestId('ac-panel');
     await waitFor(() =>
       expect(directiveText()).toContain(
-        'Acceptance Criteria (ACs) must be created and verified before this spec can move to done.',
+        'Acceptance Criteria (ACs) must be created and verified before this spec can move to Done.',
       ),
     );
     const sentence = screen.getByTestId('transition-sentence');
     expect(sentence.textContent).toContain(
-      'Acceptance Criteria (ACs) must be created and verified before this spec can move to done.',
+      'Acceptance Criteria (ACs) must be created and verified before this spec can move to Done.',
     );
     expect(within(sentence).queryByRole('button')).not.toBeInTheDocument();
   });
@@ -180,7 +180,7 @@ describe('spec-159 — zero-state holes block at the page level (ac-3, ac-13)', 
     await screen.findByTestId('ac-panel');
     await waitFor(() =>
       expect(directiveText()).toContain(
-        'Acceptance Criteria (ACs) must be created and verified before this spec can move to done.',
+        'Acceptance Criteria (ACs) must be created and verified before this spec can move to Done.',
       ),
     );
   });
@@ -213,7 +213,7 @@ describe('spec-159 — blocked current phase withholds Yes for an editor (ac-3)'
     // current tab shows the condition, never a Yes.
     await waitFor(() =>
       expect(sentence.textContent).toContain(
-        '1 Decision must be resolved before this spec can move to build.',
+        '1 Decision must be resolved before this spec can move to Build.',
       ),
     );
     expect(within(sentence).queryByRole('button')).not.toBeInTheDocument();

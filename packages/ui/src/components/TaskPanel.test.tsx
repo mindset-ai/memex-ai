@@ -44,14 +44,6 @@ vi.mock('./PromptModal', () => ({
   PromptModal: () => <div data-testid="prompt-modal" />,
 }));
 
-// Stub TaskGraph so the toggle tests don't pull reactflow into jsdom (it
-// expects DOM measurement APIs that jsdom doesn't fully implement).
-vi.mock('./TaskGraph', () => ({
-  TaskGraph: ({ tasks }: { tasks: { id: string }[] }) => (
-    <div data-testid="task-graph-stub" data-task-count={tasks.length} />
-  ),
-}));
-
 function makeTask(overrides: Partial<Task> = {}): Task {
   return {
     id: `t-${Math.random().toString(36).slice(2, 6)}`,
@@ -188,66 +180,78 @@ describe('TaskPanel', () => {
     expect(screen.getByText('[ ]')).toBeInTheDocument();
   });
 
-  // ── List/Graph toggle (t-19 W4) ──
+  // ── spec-164 dec-6: agent chatter no longer auto-opens the tray; the
+  //    Comments badge still counts everything (ac-25).
+  describe('agent comment chatter (spec-164)', () => {
+    const AC164 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-164/acs/ac-${n}`;
 
-  describe('view toggle (List | Graph)', () => {
-    beforeEach(() => {
-      try {
-        localStorage.clear();
-      } catch {
-        /* jsdom may not have localStorage in some envs */
-      }
+    const chatter = (id: string, type: string) =>
+      ({
+        id,
+        authorName: 'Agent',
+        content: `${type} body`,
+        commentType: type,
+        resolvedAt: null,
+        createdAt: new Date().toISOString(),
+      }) as unknown as Comment;
+
+    it('a task with ONLY plan/progress comments does not auto-mount the tray, but the badge counts them', () => {
+      tagAc(AC164(24));
+      tagAc(AC164(25));
+      const task = makeTask({ id: 't-chatter', seq: 1 });
+      render(
+        <TaskPanel
+          docId="doc-1"
+          tasks={[task]}
+          commentsByTask={{ 't-chatter': [chatter('c1', 'progress'), chatter('c2', 'plan')] }}
+          onUpdate={vi.fn()}
+        />,
+      );
+      expect(screen.queryByTestId('comment-tray-stub')).not.toBeInTheDocument();
+      // The badge still reflects ALL open comments — hidden chatter included.
+      expect(screen.getByTitle('Show comments')).toHaveTextContent('2');
     });
 
-    it('defaults to list view when nothing is persisted', () => {
+    it('a task with an open review comment still auto-mounts the tray', () => {
+      tagAc(AC164(24));
+      const task = makeTask({ id: 't-review', seq: 1 });
+      render(
+        <TaskPanel
+          docId="doc-1"
+          tasks={[task]}
+          commentsByTask={{ 't-review': [chatter('c1', 'review')] }}
+          onUpdate={vi.fn()}
+        />,
+      );
+      expect(screen.getByTestId('comment-tray-stub')).toBeInTheDocument();
+    });
+  });
+
+  // ── spec-164 dec-2: the t-19 List/Graph toggle is REMOVED — build is
+  //    list-only. These pin the removal (ac-15).
+  describe('graph view removed (spec-164)', () => {
+    const AC_REMOVED = 'mindset-prod/memex-building-itself/specs/spec-164/acs/ac-15';
+
+    it('renders the task list unconditionally with no view toggle', () => {
+      tagAc(AC_REMOVED);
+      tagAc('mindset-prod/memex-building-itself/specs/spec-164/acs/ac-8');
       const tasks = [makeTask({ id: 't', seq: 1 })];
-      render(<TaskPanel docId="default-doc" tasks={tasks} onUpdate={vi.fn()} />);
-      expect(screen.getByTestId('task-view-list')).toHaveAttribute('data-active', 'true');
-      expect(screen.getByTestId('task-view-graph')).toHaveAttribute('data-active', 'false');
-      expect(screen.queryByTestId('task-graph-stub')).not.toBeInTheDocument();
+      render(<TaskPanel docId="doc-1" tasks={tasks} onUpdate={vi.fn()} />);
       expect(screen.getByTestId('task-card')).toBeInTheDocument();
+      expect(screen.queryByTestId('task-view-toggle')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('task-view-graph')).not.toBeInTheDocument();
     });
 
-    it('switching to graph hides the list and renders the graph', async () => {
-      const user = userEvent.setup();
+    it('ignores any stale persisted graph preference from the removed toggle', () => {
+      tagAc(AC_REMOVED);
+      try {
+        localStorage.setItem('taskpanel-view:doc-1', 'graph');
+      } catch {
+        /* jsdom without localStorage */
+      }
       const tasks = [makeTask({ id: 't', seq: 1 })];
-      render(<TaskPanel docId="switch-doc" tasks={tasks} onUpdate={vi.fn()} />);
-
-      await user.click(screen.getByTestId('task-view-graph'));
-      expect(screen.getByTestId('task-view-graph')).toHaveAttribute('data-active', 'true');
-      expect(screen.getByTestId('task-graph-stub')).toBeInTheDocument();
-      expect(screen.queryByTestId('task-card')).not.toBeInTheDocument();
-    });
-
-    it('persists the chosen view to localStorage keyed by docId', async () => {
-      const user = userEvent.setup();
-      const tasks = [makeTask({ id: 't', seq: 1 })];
-      const { unmount } = render(
-        <TaskPanel docId="persist-doc" tasks={tasks} onUpdate={vi.fn()} />,
-      );
-      await user.click(screen.getByTestId('task-view-graph'));
-      expect(localStorage.getItem('taskpanel-view:persist-doc')).toBe('graph');
-
-      unmount();
-
-      // Re-render — defaults read from localStorage.
-      render(<TaskPanel docId="persist-doc" tasks={tasks} onUpdate={vi.fn()} />);
-      expect(screen.getByTestId('task-view-graph')).toHaveAttribute('data-active', 'true');
-    });
-
-    it('persistence is per-spec (different docIds get independent defaults)', async () => {
-      const user = userEvent.setup();
-      const tasks = [makeTask({ id: 't', seq: 1 })];
-
-      const { unmount } = render(
-        <TaskPanel docId="spec-A" tasks={tasks} onUpdate={vi.fn()} />,
-      );
-      await user.click(screen.getByTestId('task-view-graph'));
-      unmount();
-
-      // spec-B has nothing persisted → defaults to list.
-      render(<TaskPanel docId="spec-B" tasks={tasks} onUpdate={vi.fn()} />);
-      expect(screen.getByTestId('task-view-list')).toHaveAttribute('data-active', 'true');
+      render(<TaskPanel docId="doc-1" tasks={tasks} onUpdate={vi.fn()} />);
+      expect(screen.getByTestId('task-card')).toBeInTheDocument();
     });
   });
 });
