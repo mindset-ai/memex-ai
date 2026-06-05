@@ -98,7 +98,7 @@ packages/server/src/types/roles.test.ts:'brief'
 # DecisionLink test: asserts the pre-b-105 fallback rendering when a
 # legacy `'brief'` docType row is referenced. The literal value is part
 # of the test contract.
-packages/admin/src/components/DecisionLink.test.tsx
+packages/ui/src/components/DecisionLink.test.tsx
 
 # ============================================================
 # Whitepaper lineage prose
@@ -180,8 +180,8 @@ packages/server/src/services/acs.ts
 # product prose already reads "Spec".
 packages/server/src/agent/tool-specs.ts:kind: "brief"
 packages/server/src/agent/tool-specs.ts:it stays "brief"
-packages/admin/src/api/client.ts:kind: 'brief'
-packages/admin/src/api/client.ts:which stays 'brief'
+packages/ui/src/api/client.ts:kind: 'brief'
+packages/ui/src/api/client.ts:which stays 'brief'
 # spec-112 (Issues) asserts the wire-format discriminator survives the
 # `ac_parent_links_kind_valid` CHECK migration unchanged — a `.toContain("brief")`
 # on the constraint def. The literal is the DB value, not product prose.
@@ -193,7 +193,7 @@ packages/server/src/db/spec-112-issues-schema.test.ts:toContain\("brief"\)
 # spec-150 merge: develop's global-search feature uses the word "strategy" in the
 # search-strategy sense (handle | fts | semantic), unrelated to the b-105 legacy
 # doc-type token. False positives.
-packages/admin/src/api/client.ts:Which strategy surfaced
+packages/ui/src/api/client.ts:Which strategy surfaced
 packages/server/src/services/memex-search.ts:search strategy
 
 # ============================================================
@@ -206,9 +206,9 @@ packages/server/src/services/memex-search.ts:search strategy
 # ac-3/ac-5 pin this back-compat behaviour. The test cases that exercise the
 # brief-era shape carry the legacy `briefs/b-N` path + "Brief Era" fixture
 # verbatim because they assert the parser still handles it.
-packages/admin/src/agent/graph.ts:Document. → .Brief. → .Spec
-packages/admin/src/agent/graph.ts:\(?:Document\|Brief\|Spec\) created:
-packages/admin/src/agent/graph.test.ts:Document\|Brief\|Spec prefix
-packages/admin/src/agent/graph.test.ts:Brief created: ref
-packages/admin/src/agent/graph.test.ts:briefs/b-42
-packages/admin/src/agent/graph.test.ts:Brief Era
+packages/ui/src/agent/graph.ts:Document. → .Brief. → .Spec
+packages/ui/src/agent/graph.ts:\(?:Document\|Brief\|Spec\) created:
+packages/ui/src/agent/graph.test.ts:Document\|Brief\|Spec prefix
+packages/ui/src/agent/graph.test.ts:Brief created: ref
+packages/ui/src/agent/graph.test.ts:briefs/b-42
+packages/ui/src/agent/graph.test.ts:Brief Era

@@ -9,7 +9,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${REPO_ROOT}/scripts/deploy-config.sh"
 
 echo "═══════════════════════════════════════════════"
-echo "  Memex — Full Deploy (Server + Admin)"
+echo "  Memex — Full Deploy (Server + UI)"
 echo "  ENV=${ENV}  project=${GCP_PROJECT}  host=${PUBLIC_HOST}"
 echo "═══════════════════════════════════════════════"
 echo ""
@@ -24,17 +24,17 @@ echo ""
 echo "═══════════════════════════════════════════════"
 echo ""
 
-# Admin (build + GCS + CDN)
-echo "▶ Deploying admin..."
+# UI (build + GCS + CDN)
+echo "▶ Deploying UI..."
 echo ""
-cd "${REPO_ROOT}/packages/admin"
+cd "${REPO_ROOT}/packages/ui"
 bash deploy.sh
 
 echo ""
 echo "═══════════════════════════════════════════════"
 echo "  Deploy complete (ENV=${ENV})"
 echo "  API:   ${API_BASE_URL}"
-echo "  Admin: ${APP_BASE_URL}"
+echo "  UI:    ${APP_BASE_URL}"
 echo "═══════════════════════════════════════════════"
 
 # Post-deploy smoke (b-70 dec-4). Runs AFTER server + admin land — traffic is

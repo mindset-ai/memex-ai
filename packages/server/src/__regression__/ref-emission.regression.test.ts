@@ -151,6 +151,8 @@ const SKIPS = new Map<string, string>([
   ["list_memexes", "memex-list output, not entity-acting"],
   // send_slack_message returns { ts, channel } — a Slack delivery receipt, not an entity ref.
   ["memex__send_slack_message", "Slack delivery tool — returns ts/channel, not a memex entity ref"],
+  // send_discord_message (spec-138) is the same shape via the org's webhook.
+  ["memex__send_discord_message", "Discord delivery tool — returns a webhook delivery receipt, not a memex entity ref"],
   // get_information returns prose (topic index or topic body), never an entity ref.
   ["get_information", "Read-only guidance tool — returns markdown prose, not a memex entity ref"],
   // export_doc (spec-100) returns a lossless full-document markdown export (every

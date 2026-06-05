@@ -1,0 +1,100 @@
+name: deploy
+
+# Branch-bound CD per std-21: merge to `develop` deploys int; merge to `main`
+# deploys prod. Both protected branches only take merges from PRs whose `test`
+# + `e2e` checks are green, so a push event here is by construction a reviewed,
+# CI-passing change. The prod job additionally pauses on the GitHub `prod`
+# environment's required-reviewer gate — merge is the decision to ship, the
+# approval click is the moment of shipping.
+#
+# The deploy itself is the SAME ./deploy.sh a human runs locally (server
+# migrations + Cloud Run, UI build + GCS + CDN, then the std-17 smoke tail
+# against the live host — a red smoke fails the job loudly).
+#
+# Auth is keyless: google-github-actions/auth mints short-lived GCP credentials
+# via Workload Identity Federation (see scripts/setup-github-deployer.sh). The
+# `github-deployer` service account holds standing deploy roles — a recorded
+# exception to the humans-use-PAM posture in scripts/deploy-config.sh.
+#
+# Per-env config: the gitignored scripts/deploy.<env>.env is injected from the
+# environment-scoped DEPLOY_ENV_FILE secret and written to disk before the
+# deploy runs — CI and laptops share one config mechanism, zero drift.
+
+on:
+  push:
+    branches: [develop, main]
+  # Manual redeploy of either env from the Actions tab (e.g. after a config
+  # change or to roll the same SHA again). Uses the same branch→env mapping.
+  workflow_dispatch:
+
+# One deploy at a time per branch; never cancel a mid-flight deploy (a killed
+# deploy can leave migrations applied with the old revision still serving).
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write # OIDC token for Workload Identity Federation
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: ${{ github.ref_name == 'main' && 'prod' || 'int' }}
+      url: ${{ github.ref_name == 'main' && 'https://memex.ai' || 'https://int.memex.ai' }}
+
+    env:
+      ENV: ${{ github.ref_name == 'main' && 'prod' || 'int' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # No `version:` here — pnpm/action-setup@v4 reads the pinned version from
+      # the root package.json `packageManager` field and errors if both are set.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Authenticate to GCP (Workload Identity Federation)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOYER_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Install cloud-sql-proxy
+        # packages/server/deploy.sh runs migrations through a local proxy
+        # (PROXY_PORT=15432) before cutting Cloud Run traffic over.
+        run: |
+          curl -fsSL -o /usr/local/bin/cloud-sql-proxy \
+            https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.14.2/cloud-sql-proxy.linux.amd64
+          chmod +x /usr/local/bin/cloud-sql-proxy
+
+      - name: Write per-env deploy config
+        # The gitignored scripts/deploy.<env>.env, exactly as a deployer's
+        # laptop has it (DB_PASS is fetched from Secret Manager at source
+        # time, so the secret holds coordinates, not credentials).
+        env:
+          DEPLOY_ENV_FILE: ${{ secrets.DEPLOY_ENV_FILE }}
+        run: |
+          if [ -z "$DEPLOY_ENV_FILE" ]; then
+            echo "::error::DEPLOY_ENV_FILE secret is not set on the '${ENV}' environment"
+            exit 1
+          fi
+          printf '%s\n' "$DEPLOY_ENV_FILE" > "scripts/deploy.${ENV}.env"
+
+      - name: Deploy (server + UI + smoke)
+        # SMOKE_MCP_TOKEN enables the authed write tier of the smoke suite
+        # (b-70 t-8); the suite skips that tier cleanly when unset.
+        env:
+          SMOKE_MCP_TOKEN: ${{ secrets.SMOKE_MCP_TOKEN }}
+        run: bash deploy.sh

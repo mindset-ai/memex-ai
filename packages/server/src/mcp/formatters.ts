@@ -84,7 +84,7 @@ function formatDate(date: Date | null): string {
 // Per doc-30 dec-4 + b-105 dec-6: typed top-level routes for typed top-level
 // docs. Specs route at /specs/<handle>, standards at /standards/<handle>, and
 // everything else (free-form documents, execution-plans) at /docs/<handle>.
-// Matches the React Router config in packages/admin/src/App.tsx.
+// Matches the React Router config in packages/ui/src/App.tsx.
 export function docUrl(appBaseUrl: string, docType: string, handle: string): string {
   if (docType === "standard") return `${appBaseUrl}/standards/${handle}`;
   if (docType === "spec") return `${appBaseUrl}/specs/${handle}`;

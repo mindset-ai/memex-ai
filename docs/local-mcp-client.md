@@ -59,7 +59,7 @@ pnpm install
 pnpm --filter @memex/shared build
 ```
 
-The `@memex/shared` build is required because both `packages/server` and `packages/admin` import from it as a workspace dependency; the TypeScript needs to be compiled before either consumer can resolve it.
+The `@memex/shared` build is required because both `packages/server` and `packages/ui` import from it as a workspace dependency; the TypeScript needs to be compiled before either consumer can resolve it.
 
 ## Step 4: Run all migrations
 

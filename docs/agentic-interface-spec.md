@@ -10,7 +10,7 @@ Technical specification for adding an AI agent to the Memex web interface that i
 
 The agent integrates with the existing Memex platform:
 - **Server:** Hono API on Cloud Run with Drizzle ORM (`packages/server/`) — agent endpoint added here
-- **Admin:** React 19 + TailwindCSS three-panel layout (`packages/admin/`) — chat panel replaces right column
+- **Admin:** React 19 + TailwindCSS three-panel layout (`packages/ui/`) — chat panel replaces right column
 - **Database:** PostgreSQL 16 with existing schema for documents, sections, decisions, tasks, comments
 - **LLM:** Direct Anthropic API via `@anthropic-ai/sdk` (JS) — no framework layer, full prompt caching control
 
@@ -78,7 +78,7 @@ The existing Memex server already uses TypeScript/Node.js (Hono + Drizzle), so `
 
 ### Stack
 
-- **Frontend:** React 19 + TailwindCSS (`packages/admin/`) — existing three-panel `AppShell.tsx`, new chat panel component
+- **Frontend:** React 19 + TailwindCSS (`packages/ui/`) — existing three-panel `AppShell.tsx`, new chat panel component
 - **Backend:** Hono API on Cloud Run (`packages/server/`) — new SSE endpoint at `POST /api/agent/chat`
 - **LLM:** `@anthropic-ai/sdk` (JavaScript) — direct API, no framework layer (dec-1, dec-2)
 - **Auth:** Google OAuth 2.0 — `@react-oauth/google` on frontend, `google-auth-library` on backend (dec-8)
@@ -124,7 +124,7 @@ Model is configured per-request in the Hono route handler — no architectural c
 ### Request Flow
 
 ```
-React Frontend (packages/admin/ — ChatPanel component)
+React Frontend (packages/ui/ — ChatPanel component)
     |  POST /api/agent/chat + Authorization: Bearer {googleIdToken}
     |  -> SSE stream response
     v

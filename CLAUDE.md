@@ -72,7 +72,7 @@ Local Postgres connection string: `postgresql://postgres:postgres@localhost:5432
 
 ```
 packages/server/    Hono API, Drizzle ORM, auth, email, AI agent, MCP endpoint
-packages/admin/     React 19 UI (Vite, TailwindCSS) — the "React UI"
+packages/ui/     React 19 UI (Vite, TailwindCSS) — the "React UI"
 packages/cli/       memex-ai npm package (MCP installer, zero-dep)
 packages/extractor/ Code intelligence ingestion
 packages/shared/    Shared types/utilities
@@ -94,7 +94,7 @@ Memex is [**fair-code**](https://faircode.io/) (open core). Two licenses, and **
 ```
 packages/server/src/services/sso.ee.ts              # filename marker
 packages/server/src/services/audit/.ee/recorder.ts  # dirname marker
-packages/admin/src/components/.ee/RbacMatrix.tsx     # dirname marker
+packages/ui/src/components/.ee/RbacMatrix.tsx     # dirname marker
 ```
 
 Rules to respect when working in this repo:

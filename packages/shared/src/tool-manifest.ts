@@ -8,7 +8,7 @@
 // agent-only `render_*` UI tools are NOT on MCP, so they are excluded here.
 // Both surfaces consume THIS list:
 //   - the server tool catalogue (tool-specs.ts) — the live MCP/agent specs.
-//   - the React UI Init Prompt (packages/admin/src/utils/specInitPrompt.ts)
+//   - the React UI Init Prompt (packages/ui/src/utils/specInitPrompt.ts)
 //     — the `MEMEX_MCP_TOOLS_REFERENCE` block pasted into coding agents.
 //
 // Keeping the reference here means the two surfaces can't drift apart: a
@@ -462,7 +462,8 @@ export const toolManifest: ToolManifestEntry[] = [
     name: 'memex__send_discord_message',
     summary:
       "Send a message to the org's configured Discord webhook channel — for AI→human handoffs.",
-    args: 'memex__send_discord_message(memex?, text, specRef?)',
+    args: 'memex__send_discord_message(memex?, channelOrUser?, text, specRef?)',
     group: 'comments',
+    readOnlyHint: false,
   },
 ];

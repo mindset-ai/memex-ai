@@ -531,6 +531,9 @@ describe("audit: field names referenced in descriptions exist in the schema", ()
     "question", "drift", "plan_revision", "progress", "review",
     "task_notes", "default", "phase", "narrative", "comments",
     "consolidate", "endpoint",
+    // Markdown formatting tokens (spec-138: the discord description lists
+    // `code` among the Markdown styles Discord renders — not a schema field)
+    "code",
     // Doc types
     "spec", "standard", "document", "execution_plan",
     // Other tool names referenced cross-tool (we test those separately)
@@ -708,6 +711,10 @@ const REF_PROBE_SKIP = new Map<string, string>([
   // `sent: ts=... channel=...` — no memex entity ref. Requires a live Slack
   // token — cannot be exercised in the integration suite.
   ["memex__send_slack_message", "external-action tool — output confirms delivery (ts/channel), not a memex entity ref; requires live Slack token"],
+  // memex__send_discord_message (spec-138) is the same shape: delivery to an
+  // external system via the org's webhook — no memex entity ref in the output,
+  // and a live webhook URL would be required to exercise it here.
+  ["memex__send_discord_message", "external-action tool — output confirms webhook delivery, not a memex entity ref; requires live Discord webhook"],
   // get_information returns prose (topic index or topic body), never an entity ref.
   ["get_information", "Read-only guidance tool — returns markdown prose, not a memex entity ref"],
   // export_doc (spec-100) returns a lossless full-document markdown export (every
