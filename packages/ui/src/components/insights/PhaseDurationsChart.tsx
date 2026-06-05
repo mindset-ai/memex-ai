@@ -7,7 +7,7 @@
 
 import { ResponsiveBar } from '@nivo/bar';
 import type { PhaseDurations } from '../../api/client';
-import { ACCENT, PHASE_COLORS, insightsTheme, phaseLabel, type Phase } from './theme';
+import { insightsTheme, integerTicks, phaseLabel, useChartPalette, type Phase } from './theme';
 
 interface Props {
   durations: PhaseDurations;
@@ -24,6 +24,7 @@ const BINS: Array<{ label: string; lo: number; hi: number }> = [
 ];
 
 export function PhaseDurationsChart({ durations }: Props) {
+  const palette = useChartPalette();
   const { inPhase, cycleTime } = durations;
 
   // In-flight phases only — `done` is terminal, its "age" is just time since
@@ -38,6 +39,7 @@ export function PhaseDurationsChart({ durations }: Props) {
     bin: b.label,
     count: cycleTime.valuesDays.filter((v) => v >= b.lo && v < b.hi).length,
   }));
+  const histTicks = integerTicks(Math.max(...histogram.map((h) => h.count), 1));
 
   return (
     <div data-testid="phase-durations-chart" className="flex flex-col gap-4">
@@ -52,13 +54,16 @@ export function PhaseDurationsChart({ durations }: Props) {
           layout="horizontal"
           margin={{ top: 4, right: 48, bottom: 40, left: 56 }}
           padding={0.35}
-          colors={(bar) => PHASE_COLORS[bar.data.phase as Phase]}
+          colors={(bar) => palette.phase[bar.data.phase as Phase]}
           borderRadius={3}
           theme={insightsTheme}
           enableGridY={false}
           enableGridX
           label={(d) => `${d.value}d`}
           labelSkipWidth={28}
+          // Dark text on the 400-level fills — the theme's secondary grey
+          // disappears against amber/cyan bars.
+          labelTextColor="#0f172a"
           axisBottom={{ tickSize: 0, tickPadding: 6, legend: 'avg days', legendOffset: 30 }}
           axisLeft={{ tickSize: 0, tickPadding: 8, format: (v) => phaseLabel(String(v)) }}
           tooltip={({ data: d }) => (
@@ -70,11 +75,17 @@ export function PhaseDurationsChart({ durations }: Props) {
           animate
         />
       </div>
+      {/* An all-zero histogram renders as a confusing void of floating axis
+          ticks — show an honest empty note instead until a spec completes. */}
+      {cycleTime.n === 0 && (
+        <div className="h-24 flex items-center justify-center text-sm text-secondary">
+          Draft → done cycle time unlocks when the first spec completes.
+        </div>
+      )}
+      {cycleTime.n > 0 && (
       <div className="h-64">
         <div className="text-xs text-secondary mb-1">
-          {cycleTime.n > 0
-            ? `Draft → done cycle time (n=${cycleTime.n}, median ${cycleTime.medianDays}d, avg ${cycleTime.avgDays}d)`
-            : 'Draft → done cycle time — no completed specs yet'}
+          {`Draft → done cycle time (n=${cycleTime.n}, median ${cycleTime.medianDays}d, avg ${cycleTime.avgDays}d)`}
         </div>
         <ResponsiveBar
           data={histogram}
@@ -82,12 +93,13 @@ export function PhaseDurationsChart({ durations }: Props) {
           indexBy="bin"
           margin={{ top: 4, right: 8, bottom: 40, left: 36 }}
           padding={0.15}
-          colors={[`${ACCENT}cc`]}
+          colors={[`${palette.accent}cc`]}
           borderRadius={3}
           theme={insightsTheme}
           enableLabel={false}
           axisBottom={{ tickSize: 0, tickPadding: 6, legend: 'days to done', legendOffset: 30 }}
-          axisLeft={{ tickSize: 0, tickPadding: 6 }}
+          axisLeft={{ tickSize: 0, tickPadding: 6, tickValues: histTicks }}
+          gridYValues={histTicks}
           tooltip={({ indexValue, value }) => (
             <div className="text-xs">
               <span className="font-medium">{String(value)}</span> specs finished in {String(indexValue)}
@@ -96,6 +108,7 @@ export function PhaseDurationsChart({ durations }: Props) {
           animate
         />
       </div>
+      )}
     </div>
   );
 }

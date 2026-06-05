@@ -5,30 +5,31 @@
 
 import { ResponsiveLine } from '@nivo/line';
 import type { AcsOverTimePoint } from '../../api/client';
-import { TOOLTIP_STYLE, insightsTheme, shortDate } from './theme';
+import { TOOLTIP_STYLE, insightsTheme, integerTicks, shortDate, useChartPalette } from './theme';
 
 interface Props {
   points: AcsOverTimePoint[];
 }
 
-const CREATED_COLOR = '#6366f1'; // indigo — intent
-const VERIFIED_COLOR = '#22c55e'; // green — proof
-
 export function AcsOverTimeChart({ points }: Props) {
+  const palette = useChartPalette();
+  const createdColor = palette.accent; // intent
+  const verifiedColor = palette.verification.verified; // proof
   const data = [
     {
       id: 'created',
-      color: CREATED_COLOR,
+      color: createdColor,
       data: points.map((p) => ({ x: p.day, y: p.created })),
     },
     {
       id: 'verified',
-      color: VERIFIED_COLOR,
+      color: verifiedColor,
       data: points.map((p) => ({ x: p.day, y: p.verified })),
     },
   ];
   const every = Math.max(1, Math.ceil(points.length / 8));
   const tickValues = points.filter((_, i) => i % every === 0).map((p) => p.day);
+  const yTicks = integerTicks(Math.max(...points.map((p) => p.created), 1));
   const last = points[points.length - 1];
   const debt = last ? last.created - last.verified : 0;
 
@@ -50,7 +51,8 @@ export function AcsOverTimeChart({ points }: Props) {
         areaOpacity={0.12}
         lineWidth={2.5}
         axisBottom={{ tickSize: 0, tickPadding: 8, tickValues, format: (v) => shortDate(String(v)) }}
-        axisLeft={{ tickSize: 0, tickPadding: 8 }}
+        axisLeft={{ tickSize: 0, tickPadding: 8, tickValues: yTicks }}
+        gridYValues={yTicks}
         enableGridX={false}
         enableSlices="x"
         legends={[
@@ -73,8 +75,8 @@ export function AcsOverTimeChart({ points }: Props) {
               style={TOOLTIP_STYLE}
             >
               <div className="font-medium mb-1">{shortDate(String(slice.points[0]?.data.x))}</div>
-              <div style={{ color: CREATED_COLOR }}>{String(byId.created ?? 0)} created</div>
-              <div style={{ color: VERIFIED_COLOR }}>{String(byId.verified ?? 0)} verified</div>
+              <div style={{ color: createdColor }}>{String(byId.created ?? 0)} created</div>
+              <div style={{ color: verifiedColor }}>{String(byId.verified ?? 0)} verified</div>
               <div className="text-secondary">{gap} unproven</div>
             </div>
           );

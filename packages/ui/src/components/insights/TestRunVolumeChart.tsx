@@ -5,23 +5,19 @@
 
 import { ResponsiveBar } from '@nivo/bar';
 import type { TestRunVolumePoint } from '../../api/client';
-import { TOOLTIP_STYLE, insightsTheme, shortDate } from './theme';
+import { TOOLTIP_STYLE, insightsTheme, integerTicks, shortDate, useChartPalette } from './theme';
 
 interface Props {
   points: TestRunVolumePoint[];
 }
 
-const STATUS_COLORS: Record<string, string> = {
-  pass: '#22c55e', // green
-  fail: '#ef4444', // red
-  error: '#f59e0b', // amber — infrastructure, not assertion
-};
-
 export function TestRunVolumeChart({ points }: Props) {
+  const { testRun: statusColors } = useChartPalette();
   const data = points.map((p) => ({ ...p }));
   const every = Math.max(1, Math.ceil(points.length / 10));
   const tickValues = points.filter((_, i) => i % every === 0).map((p) => p.day);
   const total = points.reduce((s, p) => s + p.pass + p.fail + p.error, 0);
+  const yTicks = integerTicks(Math.max(...points.map((p) => p.pass + p.fail + p.error), 1));
 
   return (
     // `relative` anchors the sr-only span (see AcsOverTimeChart).
@@ -32,13 +28,14 @@ export function TestRunVolumeChart({ points }: Props) {
         indexBy="day"
         margin={{ top: 24, right: 16, bottom: 36, left: 48 }}
         padding={0.25}
-        colors={(bar) => STATUS_COLORS[bar.id as string]}
+        colors={(bar) => statusColors[bar.id as keyof typeof statusColors]}
         borderRadius={2}
         theme={insightsTheme}
         enableLabel={false}
         axisBottom={{ tickSize: 0, tickPadding: 8, tickValues, format: shortDate }}
-        axisLeft={{ tickSize: 0, tickPadding: 8 }}
+        axisLeft={{ tickSize: 0, tickPadding: 8, tickValues: yTicks }}
         enableGridY
+        gridYValues={yTicks}
         legends={[
           {
             dataFrom: 'keys',
@@ -58,7 +55,7 @@ export function TestRunVolumeChart({ points }: Props) {
           >
             <div className="font-medium">{shortDate(String(d.day))}</div>
             <div>
-              <span className="font-medium" style={{ color: STATUS_COLORS[String(id)] }}>
+              <span className="font-medium" style={{ color: statusColors[id as keyof typeof statusColors] }}>
                 {value}
               </span>{' '}
               {String(id)} · {d.pass + d.fail + d.error} runs total

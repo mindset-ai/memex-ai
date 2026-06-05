@@ -6,19 +6,14 @@
 
 import { ResponsivePie } from '@nivo/pie';
 import type { AcVerificationSummary } from '../../api/client';
-import { TOOLTIP_STYLE, insightsTheme } from './theme';
+import { TOOLTIP_STYLE, insightsTheme, useChartPalette } from './theme';
 
 interface Props {
   summary: AcVerificationSummary;
 }
 
-const SLICE_COLORS: Record<string, string> = {
-  verified: '#22c55e', // green — proven
-  failing: '#ef4444', // red — broken proof
-  untested: '#94a3b8', // slate — invisible to verification
-};
-
 export function AcVerificationChart({ summary }: Props) {
+  const { verification: sliceColors } = useChartPalette();
   const data = (
     [
       { id: 'verified', value: summary.verified },
@@ -45,7 +40,7 @@ export function AcVerificationChart({ summary }: Props) {
       <ResponsivePie
         data={[...data]}
         margin={{ top: 24, right: 96, bottom: 24, left: 96 }}
-        colors={(d) => SLICE_COLORS[String(d.id)]}
+        colors={(d) => sliceColors[d.id as keyof typeof sliceColors]}
         theme={insightsTheme}
         innerRadius={0.7}
         padAngle={1.5}

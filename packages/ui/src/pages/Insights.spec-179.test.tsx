@@ -89,7 +89,7 @@ const FUNNEL = [
   { phase: 'verify', count: 1 },
   { phase: 'done', count: 1 },
 ];
-const ACTIVITY = [{ day: '2026-06-01', human: 3, mcp_agent: 8, in_app_agent: 1, system: 0 }];
+const ACTIVITY = [{ day: '2026-06-01', human: 3, mcp_agent: 8, in_app_agent: 1 }];
 const VERIFICATION = { total: 10, verified: 6, failing: 1, untested: 3 };
 
 beforeEach(() => {

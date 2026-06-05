@@ -225,7 +225,7 @@ export async function pipelineFunnel(memexId: string): Promise<FunnelStage[]> {
 
 // ── Activity by actor kind (spec-179 follow-on charts) ──────────────────────
 
-export const ACTOR_KINDS = ["human", "mcp_agent", "in_app_agent", "system"] as const;
+export const ACTOR_KINDS = ["human", "mcp_agent", "in_app_agent"] as const;
 export type ActorKind = (typeof ACTOR_KINDS)[number];
 
 export interface ActivityByActorPoint {
@@ -233,15 +233,16 @@ export interface ActivityByActorPoint {
   human: number;
   mcp_agent: number;
   in_app_agent: number;
-  system: number;
 }
 
 /**
  * "Who is doing the work?" — per-day activity_log rows split by actor kind,
- * gapless from the first row to today. Two exclusions keep this a measure of
- * WORK rather than noise: `viewed` rows (reads, dominated by page loads) and
+ * gapless from the first row to today. Three exclusions keep this a measure of
+ * WORK rather than noise: `viewed` rows (reads, dominated by page loads),
  * `test_event` rows (one per test invocation — a single CI run would dwarf a
- * week of authoring).
+ * week of authoring), and `system` actors (TTL sweeps and unattributed server
+ * writes — plumbing, not anyone's work; it routinely dwarfs the human/agent
+ * signal this chart exists to show).
  */
 export async function activityByActor(memexId: string): Promise<ActivityByActorPoint[]> {
   const rows = (await db.execute(sql`
@@ -251,6 +252,7 @@ export async function activityByActor(memexId: string): Promise<ActivityByActorP
       WHERE memex_id = ${memexId}
         AND action <> 'viewed'
         AND entity <> 'test_event'
+        AND actor_kind <> 'system'
       GROUP BY 1, 2
     ),
     days AS (
@@ -264,8 +266,7 @@ export async function activityByActor(memexId: string): Promise<ActivityByActorP
       to_char(days.day, 'YYYY-MM-DD') AS day,
       COALESCE(sum(per_day.n) FILTER (WHERE per_day.actor_kind = 'human'), 0)::int AS human,
       COALESCE(sum(per_day.n) FILTER (WHERE per_day.actor_kind = 'mcp_agent'), 0)::int AS mcp_agent,
-      COALESCE(sum(per_day.n) FILTER (WHERE per_day.actor_kind = 'in_app_agent'), 0)::int AS in_app_agent,
-      COALESCE(sum(per_day.n) FILTER (WHERE per_day.actor_kind = 'system'), 0)::int AS system
+      COALESCE(sum(per_day.n) FILTER (WHERE per_day.actor_kind = 'in_app_agent'), 0)::int AS in_app_agent
     FROM days
     LEFT JOIN per_day ON per_day.day = days.day
     GROUP BY days.day

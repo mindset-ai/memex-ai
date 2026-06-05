@@ -197,7 +197,7 @@ export function Insights() {
             <Card>
               <h2 className="text-sm font-semibold">Who's doing the work</h2>
               <div className="text-xs text-secondary mb-2">
-                daily activity by actor — humans vs agents (reads and test-event noise excluded)
+                daily activity by actor — humans vs agents (reads, test-event and system noise excluded)
               </div>
               <ActivityStreamChart points={state.data.activity} />
             </Card>

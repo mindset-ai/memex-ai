@@ -6,13 +6,14 @@
 
 import { ResponsiveFunnel } from '@nivo/funnel';
 import type { FunnelStage } from '../../api/client';
-import { PHASE_COLORS, TOOLTIP_STYLE, insightsTheme, phaseLabel, type Phase } from './theme';
+import { TOOLTIP_STYLE, insightsTheme, phaseLabel, useChartPalette, type Phase } from './theme';
 
 interface Props {
   stages: FunnelStage[];
 }
 
 export function PipelineFunnelChart({ stages }: Props) {
+  const palette = useChartPalette();
   const data = stages.map((s) => ({
     id: s.phase,
     label: phaseLabel(s.phase),
@@ -24,7 +25,7 @@ export function PipelineFunnelChart({ stages }: Props) {
       <ResponsiveFunnel
         data={data}
         margin={{ top: 16, right: 120, bottom: 16, left: 120 }}
-        colors={(d) => PHASE_COLORS[d.id as Phase]}
+        colors={(d) => palette.phase[d.id as Phase]}
         theme={insightsTheme}
         shapeBlending={0.66}
         valueFormat=">-.0f"

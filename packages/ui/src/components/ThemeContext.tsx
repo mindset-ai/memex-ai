@@ -37,3 +37,12 @@ export function useTheme() {
   if (!ctx) throw new Error('useTheme must be used within ThemeProvider');
   return ctx;
 }
+
+/**
+ * Like useTheme but tolerant of a missing provider, defaulting to 'dark'
+ * (the app default). For leaf components — charts, maps — that unit tests
+ * render without the provider tree; inside the app the provider always exists.
+ */
+export function useThemeName(): Theme {
+  return useContext(ThemeContext)?.theme ?? 'dark';
+}

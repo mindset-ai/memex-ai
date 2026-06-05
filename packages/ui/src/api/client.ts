@@ -2496,7 +2496,6 @@ export interface ActivityByActorPoint {
   human: number;
   mcp_agent: number;
   in_app_agent: number;
-  system: number;
 }
 
 export async function fetchActivityByActor(): Promise<ActivityByActorPoint[]> {

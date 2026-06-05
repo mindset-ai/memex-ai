@@ -204,7 +204,7 @@ describe("GET /analytics/activity-by-actor", () => {
       db.insert(activityLog).values({
         memexId: memexA,
         actorKind: over.actorKind,
-        channel: over.actorKind === "human" ? "rest_ui" : "mcp",
+        channel: over.actorKind === "human" ? "rest_ui" : over.actorKind === "system" ? "server" : "mcp",
         entity: over.entity ?? "document",
         action: over.action ?? "updated",
         narrative: "seeded",
@@ -217,14 +217,18 @@ describe("GET /analytics/activity-by-actor", () => {
     // Noise — must be excluded:
     await seed({ actorKind: "human", day: "2026-06-02", action: "viewed" });
     await seed({ actorKind: "system", day: "2026-06-02", entity: "test_event", action: "created" });
+    // System plumbing (sweeps, unattributed server writes) is excluded even
+    // when it's a normal mutation — the chart measures people and agents.
+    await seed({ actorKind: "system", day: "2026-06-02" });
 
     const res = await app.request(`${pathA}/analytics/activity-by-actor`, withApexHost());
     expect(res.status).toBe(200);
     const { points } = (await res.json()) as {
-      points: Array<{ day: string; human: number; mcp_agent: number; in_app_agent: number; system: number }>;
+      points: Array<{ day: string; human: number; mcp_agent: number; in_app_agent: number }>;
     };
     const jun2 = points.find((p) => p.day === "2026-06-02")!;
-    expect(jun2).toMatchObject({ human: 2, mcp_agent: 1, in_app_agent: 0, system: 0 });
+    expect(jun2).toMatchObject({ human: 2, mcp_agent: 1, in_app_agent: 0 });
+    expect(jun2).not.toHaveProperty("system");
     const jun3 = points.find((p) => p.day === "2026-06-03")!;
     expect(jun3).toMatchObject({ human: 0, mcp_agent: 1 });
     // Gapless between the two days regardless of how far today extends.
