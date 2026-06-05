@@ -648,16 +648,6 @@ describe('spec-159 ac-17 — next-action handoff line', () => {
     expect(copyButton.textContent).toBe('this prompt');
   });
 
-  it('draft shows the SAME plan handoff sentence', async () => {
-    tagAc(AC(17));
-    renderAt('draft');
-
-    const line = await screen.findByTestId('phase-handoff-line');
-    expect(line.textContent).toContain(
-      'Copy and paste this prompt into your coding agent to create Decisions and ACs.',
-    );
-  });
-
   it('build: "Copy and paste this prompt into your coding agent to complete the Tasks and build this spec."', async () => {
     tagAc(AC(17));
     renderAt('build');
@@ -719,5 +709,39 @@ describe('done → verify reopen wiring (spec-164)', () => {
 
     await userEvent.click(screen.getByTestId('stub-reopen'));
     await waitFor(() => expect(updateDocStatus).toHaveBeenCalledWith('doc-uuid', 'verify'));
+  });
+});
+
+// spec-164 issue-1 — draft no longer shows the create-Decisions-and-ACs
+// handoff line. dec-3 gates the Decisions & ACs panels in draft behind an
+// empty-state directive that invites the move to Specify first; handing the
+// user a coding-agent prompt to "create Decisions and ACs" while in draft
+// contradicts that gate-the-invitation principle. The handoff is split so
+// draft yields null, while plan (Specify) onward keeps it per-phase. These
+// gating ACs are the draft-empty-state ones (ac-17 shared the original handoff;
+// ac-5 owns the Decisions & ACs panel gating).
+describe('spec-164 issue-1 — draft hides the create-Decisions-and-ACs handoff', () => {
+  const AC164 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-164/acs/ac-${n}`;
+
+  it('draft: no phase-handoff-line, but the transition sentence still renders', async () => {
+    tagAc(AC164(17));
+    tagAc(AC164(5));
+    renderAt('draft');
+
+    // The Rubicon transition sentence (the move-to-Specify invitation) is still
+    // present — only the coding-agent handoff is gated out.
+    expect(await screen.findByTestId('transition-sentence')).toBeInTheDocument();
+    expect(screen.queryByTestId('phase-handoff-line')).not.toBeInTheDocument();
+  });
+
+  it('plan: the create-Decisions-and-ACs handoff returns once out of draft', async () => {
+    tagAc(AC164(17));
+    tagAc(AC164(5));
+    renderAt('plan');
+
+    const line = await screen.findByTestId('phase-handoff-line');
+    expect(line.textContent).toContain(
+      'Copy and paste this prompt into your coding agent to create Decisions and ACs.',
+    );
   });
 });

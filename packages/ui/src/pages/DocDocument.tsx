@@ -602,7 +602,15 @@ export function DocDocument() {
     /** Plain-text FULL sentence for the accessible name (needed when sentence is a node). */
     sentenceLabel?: string;
   } | null =
-    phase === 'draft' || phase === 'plan'
+    // spec-164 issue-1: draft shows NO handoff line. Originally spec-159 ac-17
+    // shared the plan handoff between draft and plan (one arm,
+    // `phase === 'draft' || phase === 'plan'`). But dec-3 gates the Decisions &
+    // ACs panels in draft behind an empty-state directive ("Move this spec to
+    // Specify to start capturing Decisions and ACs.") — the draft posture is to
+    // invite the move to Specify FIRST. A coding-agent prompt to "create
+    // Decisions and ACs" while in draft contradicts that gate-the-invitation
+    // principle, so draft now yields null (no handoff); plan keeps plan-handoff.
+    phase === 'plan'
       ? {
           buttonId: 'plan-handoff',
           // "Copy and paste *this prompt* into your coding agent to create
