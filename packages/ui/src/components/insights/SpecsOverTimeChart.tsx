@@ -47,7 +47,8 @@ export function SpecsOverTimeChart({ points }: Props) {
   const tickValues = points.filter((_, i) => i % every === 0).map((p) => p.day);
 
   return (
-    <div data-testid="specs-over-time-chart" className="h-72">
+    // `relative` anchors the sr-only span (see AcsOverTimeChart).
+    <div data-testid="specs-over-time-chart" className="relative h-72">
       <ResponsiveBar<Datum>
         data={data}
         keys={['created']}

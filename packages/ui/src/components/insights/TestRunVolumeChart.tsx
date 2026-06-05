@@ -24,7 +24,8 @@ export function TestRunVolumeChart({ points }: Props) {
   const total = points.reduce((s, p) => s + p.pass + p.fail + p.error, 0);
 
   return (
-    <div data-testid="test-run-volume-chart" className="h-72">
+    // `relative` anchors the sr-only span (see AcsOverTimeChart).
+    <div data-testid="test-run-volume-chart" className="relative h-72">
       <ResponsiveBar
         data={data}
         keys={['pass', 'fail', 'error']}

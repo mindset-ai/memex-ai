@@ -33,7 +33,10 @@ export function AcsOverTimeChart({ points }: Props) {
   const debt = last ? last.created - last.verified : 0;
 
   return (
-    <div data-testid="acs-over-time-chart" className="h-72">
+    // `relative` anchors the absolutely-positioned sr-only span — without a
+    // positioned ancestor it resolves against the document and silently
+    // stretches the page scroll height past the app shell.
+    <div data-testid="acs-over-time-chart" className="relative h-72">
       <ResponsiveLine
         data={data}
         xScale={{ type: 'point' }}
