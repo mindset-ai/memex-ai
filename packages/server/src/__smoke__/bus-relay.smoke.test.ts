@@ -29,6 +29,7 @@ import { tagAc } from "@memex-ai-ac/vitest";
 import {
   SMOKE_BASE_URL,
   SMOKE_MCP_TOKEN,
+  SMOKE_SESSION_TOKEN,
   SMOKE_NAMESPACE,
   callMcpTool,
   mcpTextPayload,
@@ -75,7 +76,9 @@ describe(`bus-relay smoke @ ${SMOKE_BASE_URL}`, () => {
 
 /** Pull the first `ref: <ref>` token out of an MCP text payload. */
 function parseRef(text: string): string | null {
-  const m = text.match(/ref:\s*([^\s"]+)/i);
+  // Exclude closing punctuation: tool replies often parenthesise the ref —
+  // a captured `).` makes the next tool call fail on an invalid ref.
+  const m = text.match(/ref:\s*([^\s")]+)/i);
   return m ? m[1] : null;
 }
 
@@ -89,9 +92,11 @@ interface SSEStream {
  *  stream and read forward until the server's `ready` frame, so the bus listener
  *  is guaranteed attached before we fire the mutation (no fixed-sleep race). */
 async function openMemexStream(memexPath: string, timeoutMs = 10_000): Promise<SSEStream> {
+  // Session JWT, NOT the mxt_ token: the SSE routes sit behind
+  // sessionMiddleware, which only resolves session JWTs (mxt_ is /mcp-only).
   const res = await fetch(`${SMOKE_BASE_URL}${memexPath}/docs/events`, {
     headers: {
-      Authorization: `Bearer ${SMOKE_MCP_TOKEN}`,
+      Authorization: `Bearer ${SMOKE_SESSION_TOKEN}`,
       Accept: "text/event-stream",
     },
   });
@@ -153,7 +158,7 @@ async function readDocChange(
   }
 }
 
-describe.skipIf(!SMOKE_MCP_TOKEN)(
+describe.skipIf(!SMOKE_MCP_TOKEN || !SMOKE_SESSION_TOKEN)(
   `bus-relay e2e SSE smoke @ ${SMOKE_BASE_URL} (ns=${SMOKE_NAMESPACE})`,
   () => {
     // ── ac-13: a live /mcp mutation lands as a doc_change frame on an open SSE
@@ -199,10 +204,11 @@ describe.skipIf(!SMOKE_MCP_TOKEN)(
       // is the observed event so we don't race the create we already consumed.
       const stream = await openMemexStream(memexPath);
       try {
-        const marker = `relay-sse-marker-${stamp}`;
+        // update_doc accepts status/title/tags — a title rename is the least
+        // intrusive mutation that still emits document.updated.
         const updated = await callMcpTool("update_doc", {
           ref: createdRef!,
-          purpose: `${purpose} ${marker}`,
+          title: `${title} (relay-sse-marker)`,
         });
         expect(updated.body.result?.isError).toBeFalsy();
 
@@ -223,6 +229,76 @@ describe.skipIf(!SMOKE_MCP_TOKEN)(
           /* best-effort */
         }
       }
+    });
+
+    // ── ac-1 (scope): repeated MCP mutations ALL arrive on one long-lived SSE
+    //    stream. On prod (--max-instances 3, no session affinity) the /mcp
+    //    request and the SSE stream routinely land on DIFFERENT instances, so a
+    //    multi-round loop exercises the relay's cross-instance hop with high
+    //    probability — the single-round test above can get lucky on one warm
+    //    instance. Health samples between rounds record the distinct relay
+    //    originIds observed, evidencing how many instances served the run.
+    it("N consecutive MCP mutations each arrive on the same open SSE stream (spec-156 ac-1 cross-instance)", async () => {
+      tagAc(`${AC}/ac-1`);
+      if (!/smoke/i.test(SMOKE_NAMESPACE)) {
+        throw new Error(
+          `Refusing to run bus-relay e2e smoke against namespace "${SMOKE_NAMESPACE}" — ` +
+            `it must be an obvious throwaway (contain "smoke"). Set SMOKE_NAMESPACE.`,
+        );
+      }
+      const ROUNDS = 4;
+      const stamp = new Date().toISOString();
+
+      const created = await callMcpTool("create_doc", {
+        memex: SMOKE_NAMESPACE,
+        title: `[smoke] relay-sse-multi ${stamp}`,
+        purpose: "Bus-relay multi-round SSE smoke (spec-156 ac-1) — safe to delete.",
+      });
+      expect(created.status).toBe(200);
+      expect(created.body.result?.isError).toBeFalsy();
+      const ref = parseRef(mcpTextPayload(created.body));
+      expect(ref, "create_doc should return a canonical ref").toBeTruthy();
+      const parts = ref!.split("/");
+      const memexPath = `/api/${parts[0]}/${parts[1]}`;
+
+      const origins = new Set<string>();
+      const sampleOrigin = async () => {
+        try {
+          const res = await fetch(`${SMOKE_BASE_URL}/api/health`);
+          const body = (await res.json()) as { relay?: RelayHealthShape | null };
+          if (body.relay?.originId) origins.add(body.relay.originId);
+        } catch {
+          /* sampling is best-effort */
+        }
+      };
+
+      const stream = await openMemexStream(memexPath);
+      try {
+        for (let round = 1; round <= ROUNDS; round++) {
+          await sampleOrigin();
+          const updated = await callMcpTool("update_doc", {
+            ref: ref!,
+            title: `[smoke] relay-sse-multi ${stamp} r${round}/${ROUNDS}`,
+          });
+          expect(updated.body.result?.isError, `round ${round}: update_doc should succeed`).toBeFalsy();
+          // One update_doc → one document event (origin dedup is pinned by the
+          // unit/integration tiers, so frame-per-round matching is sound here).
+          const event = await readDocChange(stream, (data) => data.entity === "document");
+          expect(event, `round ${round}/${ROUNDS}: expected a doc_change SSE frame`).not.toBeNull();
+        }
+      } finally {
+        try {
+          await stream.reader.cancel();
+        } catch {
+          /* best-effort */
+        }
+      }
+      await sampleOrigin();
+      // Purely informational — int may legitimately run a single instance.
+      // eslint-disable-next-line no-console
+      console.log(
+        `[bus-relay smoke] ${ROUNDS}/${ROUNDS} rounds delivered; distinct relay originIds observed: ${origins.size}`,
+      );
     });
   },
 );

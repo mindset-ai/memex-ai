@@ -93,13 +93,19 @@ jobs:
           printf '%s\n' "$DEPLOY_ENV_FILE" > "scripts/deploy.${ENV}.env"
 
       - name: Deploy (server + UI + smoke)
-        # SMOKE_MCP_TOKEN enables the authed write tier of the smoke suite
-        # (b-70 t-8); the suite skips that tier cleanly when unset.
+        # SMOKE_MCP_TOKEN + SMOKE_SESSION_TOKEN enable the authed write tier of
+        # the smoke suite (b-70 t-8 / spec-156 ac-13): mxt_ drives /mcp writes,
+        # the session JWT holds the SSE stream open (sessionMiddleware is
+        # JWT-only). Both are environment secrets minted by
+        # `tsx src/db/seed-smoke.ts`; the suite skips that tier cleanly when
+        # either is unset. The session token expires (~180d) — re-run the seed
+        # script to rotate.
         # MEMEX_EMIT_KEY lets the smoke suite's tagAc() emissions land on the
         # prod memex (spec-156 ac-12/ac-13: the live relay-health + MCP→SSE
         # checks verify their ACs on every deploy). Without it the smoke still
         # runs — emissions are just silently rejected 401.
         env:
           SMOKE_MCP_TOKEN: ${{ secrets.SMOKE_MCP_TOKEN }}
+          SMOKE_SESSION_TOKEN: ${{ secrets.SMOKE_SESSION_TOKEN }}
           MEMEX_EMIT_KEY: ${{ secrets.MEMEX_EMIT_KEY }}
         run: bash deploy.sh

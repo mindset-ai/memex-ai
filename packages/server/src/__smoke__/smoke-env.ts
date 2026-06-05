@@ -39,6 +39,16 @@ export const SMOKE_MCP_URL = `${SMOKE_BASE_URL}/mcp`;
 export const SMOKE_MCP_TOKEN = process.env.SMOKE_MCP_TOKEN ?? "";
 
 /**
+ * Session JWT for the smoke user (spec-156 ac-13). The SSE routes sit behind
+ * sessionMiddleware, which resolves session JWTs ONLY — mxt_ tokens are an
+ * /mcp-side credential (app.ts → verifyMcpToken) and never reach the session
+ * path. So the e2e SSE tier needs BOTH: SMOKE_MCP_TOKEN to drive /mcp writes
+ * and SMOKE_SESSION_TOKEN to hold the stream open. Minted alongside the PAT by
+ * `tsx src/db/seed-smoke.ts` (expires — see the script for rotation).
+ */
+export const SMOKE_SESSION_TOKEN = process.env.SMOKE_SESSION_TOKEN ?? "";
+
+/**
  * Optional Postgres URL the telemetry-smoke tier connects to. Absent in the
  * pure-HTTP smoke setup; populated by callers that have spun up a
  * cloud-sql-proxy to the target env's Cloud SQL instance (see the
@@ -52,7 +62,7 @@ export const SMOKE_DATABASE_URL = process.env.SMOKE_DATABASE_URL ?? "";
  * (dec-2). Reserved as an obvious non-production slug. The authed tier MUST
  * NEVER touch any other namespace/memex on the shared host.
  */
-export const SMOKE_NAMESPACE = process.env.SMOKE_NAMESPACE ?? "zzz-smoke";
+export const SMOKE_NAMESPACE = process.env.SMOKE_NAMESPACE ?? "zzz-smoke/main";
 
 /**
  * Per-env default canonical ref for the folded-in canonical-refs check (the

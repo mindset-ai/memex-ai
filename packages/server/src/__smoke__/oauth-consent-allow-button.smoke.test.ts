@@ -20,12 +20,17 @@ describe(`oauth consent Allow-button legibility smoke @ ${SMOKE_BASE_URL}`, () =
   it("deployed CSS bundle defines on-accent (both themes) + the .text-on-accent utility (spec-167 ac-6)", async () => {
     tagAc(AC6);
 
-    // 1. The SPA index references a content-hashed CSS bundle.
-    const indexRes = await fetch(`${SMOKE_BASE_URL}/`);
-    expect(indexRes.status).toBe(200);
+    // 1. The SPA index references a content-hashed CSS bundle. Fetch an app
+    //    route, NOT `/` — on prod the apex root 301s to the marketing site
+    //    (std-2 topology) with an empty body. The SPA fallback serves the
+    //    shell with HTTP 404 for client-side routes on both envs, so the
+    //    assertion is on the body (the property under test is the CSS bundle,
+    //    not the route's status code).
+    const indexRes = await fetch(`${SMOKE_BASE_URL}/login`);
+    expect([200, 404]).toContain(indexRes.status);
     const html = await indexRes.text();
     const ref = html.match(/\/assets\/index-[\w-]+\.css/);
-    expect(ref, "index.html should reference a hashed CSS bundle").toBeTruthy();
+    expect(ref, "the SPA shell should reference a hashed CSS bundle").toBeTruthy();
 
     // 2. Fetch the actual deployed stylesheet.
     const cssRes = await fetch(`${SMOKE_BASE_URL}${ref![0]}`);
