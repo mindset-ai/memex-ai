@@ -17,7 +17,7 @@ vi.hoisted(() => {
 });
 
 import { db } from "../db/connection.js";
-import { acs, activityLog, documents, memexes, namespaces, testEventLatest } from "../db/schema.js";
+import { acs, activityLog, documents, memexes, namespaces, testEventLatest, testEvents } from "../db/schema.js";
 import { app } from "../app.js";
 import { makeTestMemexWithDevAdmin } from "../services/test-helpers.js";
 
@@ -278,5 +278,72 @@ describe("GET /analytics/ac-verification", () => {
     const res = await app.request(`${pathA}/analytics/ac-verification`, withApexHost());
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ total: 4, verified: 1, failing: 1, untested: 2 });
+  });
+});
+
+// ── Verification momentum (ac-19): ACs over time + test-run volume ──────────
+
+const AC_MOMENTUM = "mindset-prod/memex-building-itself/specs/spec-179/acs/ac-19";
+
+describe("GET /analytics/acs-over-time and /analytics/test-run-volume", () => {
+  it("tracks cumulative created vs first-verified ACs and per-day run volume", async () => {
+    tagAc(AC_MOMENTUM);
+    const m = await makeTestMemexWithDevAdmin("analyt-acs");
+    memexIds.push(m.memexId);
+    const path = `/api/${m.slug}/main`;
+
+    const [spec] = await db
+      .insert(documents)
+      .values({ memexId: m.memexId, handle: "spec-mom", title: "momentum fixture", docType: "spec" })
+      .returning();
+    const mkAc = (seqN: number, createdAt: string) =>
+      db.insert(acs).values({
+        memexId: m.memexId,
+        briefId: spec.id,
+        seq: seqN,
+        kind: "implementation",
+        statement: `ac ${seqN}`,
+        createdAt: new Date(createdAt),
+      });
+    await mkAc(1, "2026-06-01T00:00:00Z");
+    await mkAc(2, "2026-06-01T12:00:00Z");
+    await mkAc(3, "2026-06-02T00:00:00Z");
+
+    const prefix = `${m.slug}/main/specs/spec-mom/acs`;
+    const emit = (acN: number, status: string, at: string, hidden = false) =>
+      db.insert(testEvents).values({
+        acUid: `${prefix}/ac-${acN}`,
+        status,
+        testIdentifier: `t-${acN}`,
+        hidden,
+        createdAt: new Date(at),
+      });
+    // ac-1: fails Jun 1, first PASSES Jun 2 (verified counts on Jun 2).
+    await emit(1, "fail", "2026-06-01T10:00:00Z");
+    await emit(1, "pass", "2026-06-02T10:00:00Z");
+    await emit(1, "pass", "2026-06-03T10:00:00Z"); // later pass — not a new verification
+    // ac-2: hidden pass only — never counts as verified, still counts as volume.
+    await emit(2, "pass", "2026-06-02T11:00:00Z", true);
+    // ac-3: error run — volume only.
+    await emit(3, "error", "2026-06-02T12:00:00Z");
+
+    const otRes = await app.request(`${path}/analytics/acs-over-time`, withApexHost());
+    expect(otRes.status).toBe(200);
+    const { points: ot } = (await otRes.json()) as {
+      points: Array<{ day: string; created: number; verified: number }>;
+    };
+    expect(ot.find((p) => p.day === "2026-06-01")).toMatchObject({ created: 2, verified: 0 });
+    expect(ot.find((p) => p.day === "2026-06-02")).toMatchObject({ created: 3, verified: 1 });
+    expect(ot.at(-1)).toMatchObject({ created: 3, verified: 1 }); // hidden pass never verifies
+
+    const volRes = await app.request(`${path}/analytics/test-run-volume`, withApexHost());
+    expect(volRes.status).toBe(200);
+    const { points: vol } = (await volRes.json()) as {
+      points: Array<{ day: string; pass: number; fail: number; error: number }>;
+    };
+    expect(vol.find((p) => p.day === "2026-06-01")).toMatchObject({ pass: 0, fail: 1, error: 0 });
+    // Jun 2: visible pass + hidden pass + error — hidden runs ARE volume.
+    expect(vol.find((p) => p.day === "2026-06-02")).toMatchObject({ pass: 2, fail: 0, error: 1 });
+    expect(vol.find((p) => p.day === "2026-06-03")).toMatchObject({ pass: 1, fail: 0, error: 0 });
   });
 });

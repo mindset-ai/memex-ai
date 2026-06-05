@@ -2517,3 +2517,32 @@ export interface AcVerificationSummary {
 export async function fetchAcVerification(): Promise<AcVerificationSummary> {
   return fetchJsonRaw<AcVerificationSummary>(fetchWithRetry, `${tBase()}/analytics/ac-verification`);
 }
+
+export interface AcsOverTimePoint {
+  day: string;
+  created: number;
+  verified: number;
+}
+
+export async function fetchAcsOverTime(): Promise<AcsOverTimePoint[]> {
+  const { points } = await fetchJsonRaw<{ points: AcsOverTimePoint[] }>(
+    fetchWithRetry,
+    `${tBase()}/analytics/acs-over-time`,
+  );
+  return points;
+}
+
+export interface TestRunVolumePoint {
+  day: string;
+  pass: number;
+  fail: number;
+  error: number;
+}
+
+export async function fetchTestRunVolume(): Promise<TestRunVolumePoint[]> {
+  const { points } = await fetchJsonRaw<{ points: TestRunVolumePoint[] }>(
+    fetchWithRetry,
+    `${tBase()}/analytics/test-run-volume`,
+  );
+  return points;
+}

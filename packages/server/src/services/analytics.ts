@@ -331,3 +331,120 @@ export async function acVerification(memexId: string): Promise<AcVerificationSum
     untested: Math.max(0, total - verified - failing),
   };
 }
+
+// ── ACs created vs verified over time (spec-179 follow-on charts) ───────────
+
+export interface AcsOverTimePoint {
+  day: string;
+  /** Cumulative active ACs created by end of this day. */
+  created: number;
+  /** Cumulative ACs whose FIRST passing emission landed by end of this day. */
+  verified: number;
+}
+
+/**
+ * "Is verification keeping up with intent?" — two cumulative lines: ACs
+ * created (the commitments) vs ACs first-verified by a passing test emission
+ * (the proof). The vertical gap is the verification debt. Verified counts come
+ * from test_events (first non-hidden pass per ac_uid, prefix-scoped to this
+ * memex); they can lag created by design and can never exceed reality —
+ * emissions for since-deleted ACs are a tolerable over-count noted here.
+ */
+export async function acsOverTime(memexId: string): Promise<AcsOverTimePoint[]> {
+  const [slugs] = (await db.execute(sql`
+    SELECT n.slug AS ns, m.slug AS mx
+    FROM memexes m JOIN namespaces n ON n.id = m.namespace_id
+    WHERE m.id = ${memexId}
+  `)) as unknown as Array<{ ns: string; mx: string }>;
+  if (!slugs) return [];
+  const prefix = `${slugs.ns}/${slugs.mx}/`;
+
+  const rows = (await db.execute(sql`
+    WITH created_per_day AS (
+      SELECT created_at::date AS day, count(*)::int AS n
+      FROM acs
+      WHERE memex_id = ${memexId} AND status = 'active'
+      GROUP BY 1
+    ),
+    first_pass AS (
+      SELECT ac_uid, min(created_at)::date AS day
+      FROM test_events
+      WHERE ac_uid LIKE ${prefix + "%"} AND status = 'pass' AND hidden = false
+      GROUP BY ac_uid
+    ),
+    verified_per_day AS (
+      SELECT day, count(*)::int AS n FROM first_pass GROUP BY 1
+    ),
+    days AS (
+      SELECT generate_series(
+        LEAST(
+          (SELECT min(day) FROM created_per_day),
+          (SELECT coalesce(min(day), CURRENT_DATE) FROM verified_per_day)
+        ),
+        CURRENT_DATE,
+        interval '1 day'
+      )::date AS day
+    )
+    SELECT
+      to_char(days.day, 'YYYY-MM-DD') AS day,
+      (sum(COALESCE(c.n, 0)) OVER w)::int AS created,
+      (sum(COALESCE(v.n, 0)) OVER w)::int AS verified
+    FROM days
+    LEFT JOIN created_per_day c ON c.day = days.day
+    LEFT JOIN verified_per_day v ON v.day = days.day
+    WINDOW w AS (ORDER BY days.day)
+    ORDER BY days.day
+  `)) as unknown as AcsOverTimePoint[];
+  return rows;
+}
+
+// ── Test-run volume (spec-179 follow-on charts) ──────────────────────────────
+
+export interface TestRunVolumePoint {
+  day: string;
+  pass: number;
+  fail: number;
+  error: number;
+}
+
+/**
+ * "How hard is the verification loop running?" — raw test emissions per day
+ * split by status, prefix-scoped to this memex's ac_uids. Hidden emissions
+ * count: they're real runs (volume), they're only excluded from the
+ * verification badge. Gapless from the first emission to today.
+ */
+export async function testRunVolume(memexId: string): Promise<TestRunVolumePoint[]> {
+  const [slugs] = (await db.execute(sql`
+    SELECT n.slug AS ns, m.slug AS mx
+    FROM memexes m JOIN namespaces n ON n.id = m.namespace_id
+    WHERE m.id = ${memexId}
+  `)) as unknown as Array<{ ns: string; mx: string }>;
+  if (!slugs) return [];
+  const prefix = `${slugs.ns}/${slugs.mx}/`;
+
+  const rows = (await db.execute(sql`
+    WITH per_day AS (
+      SELECT created_at::date AS day, status, count(*)::int AS n
+      FROM test_events
+      WHERE ac_uid LIKE ${prefix + "%"}
+      GROUP BY 1, 2
+    ),
+    days AS (
+      SELECT generate_series(
+        (SELECT min(day) FROM per_day),
+        CURRENT_DATE,
+        interval '1 day'
+      )::date AS day
+    )
+    SELECT
+      to_char(days.day, 'YYYY-MM-DD') AS day,
+      COALESCE(sum(per_day.n) FILTER (WHERE per_day.status = 'pass'), 0)::int AS pass,
+      COALESCE(sum(per_day.n) FILTER (WHERE per_day.status = 'fail'), 0)::int AS fail,
+      COALESCE(sum(per_day.n) FILTER (WHERE per_day.status = 'error'), 0)::int AS error
+    FROM days
+    LEFT JOIN per_day ON per_day.day = days.day
+    GROUP BY days.day
+    ORDER BY days.day
+  `)) as unknown as TestRunVolumePoint[];
+  return rows;
+}

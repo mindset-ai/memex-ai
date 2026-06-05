@@ -13,6 +13,8 @@ import {
   pipelineFunnel,
   activityByActor,
   acVerification,
+  acsOverTime,
+  testRunVolume,
 } from "../services/analytics.js";
 import { standardsGraph, DEFAULT_SEMANTIC_THRESHOLD } from "../services/standards-graph.js";
 import { ValidationError } from "../types/errors.js";
@@ -69,6 +71,18 @@ analytics.get("/activity-by-actor", async (c) => {
 analytics.get("/ac-verification", async (c) => {
   const memexId = await resolveReadableMemexId(c);
   return c.json(await acVerification(memexId));
+});
+
+// GET /analytics/acs-over-time — cumulative ACs created vs first-verified.
+analytics.get("/acs-over-time", async (c) => {
+  const memexId = await resolveReadableMemexId(c);
+  return c.json({ points: await acsOverTime(memexId) });
+});
+
+// GET /analytics/test-run-volume — per-day test emissions by status.
+analytics.get("/test-run-volume", async (c) => {
+  const memexId = await resolveReadableMemexId(c);
+  return c.json({ points: await testRunVolume(memexId) });
 });
 
 // GET /analytics/standards-graph — nodes + mention edges (clause_refs joins,

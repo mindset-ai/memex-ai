@@ -17,12 +17,16 @@ import {
   fetchPipelineFunnel,
   fetchActivityByActor,
   fetchAcVerification,
+  fetchAcsOverTime,
+  fetchTestRunVolume,
   type SpecsOverTimePoint,
   type SpecsByPhasePoint,
   type PhaseDurations,
   type FunnelStage,
   type ActivityByActorPoint,
   type AcVerificationSummary,
+  type AcsOverTimePoint,
+  type TestRunVolumePoint,
 } from '../api/client';
 import { PageHeader } from '../components/PageHeader';
 import { Card } from '../components/ui';
@@ -32,6 +36,8 @@ import { PhaseDurationsChart } from '../components/insights/PhaseDurationsChart'
 import { PipelineFunnelChart } from '../components/insights/PipelineFunnelChart';
 import { ActivityStreamChart } from '../components/insights/ActivityStreamChart';
 import { AcVerificationChart } from '../components/insights/AcVerificationChart';
+import { AcsOverTimeChart } from '../components/insights/AcsOverTimeChart';
+import { TestRunVolumeChart } from '../components/insights/TestRunVolumeChart';
 
 // Below this many specs the charts are noise — show the unlock note instead.
 const MIN_SPECS_FOR_CHARTS = 3;
@@ -43,6 +49,8 @@ interface InsightsData {
   funnel: FunnelStage[];
   activity: ActivityByActorPoint[];
   verification: AcVerificationSummary;
+  acsOverTime: AcsOverTimePoint[];
+  testRuns: TestRunVolumePoint[];
 }
 
 type LoadState =
@@ -66,12 +74,23 @@ export function Insights() {
       fetchPipelineFunnel(),
       fetchActivityByActor(),
       fetchAcVerification(),
+      fetchAcsOverTime(),
+      fetchTestRunVolume(),
     ])
-      .then(([overTime, byPhase, durations, funnel, activity, verification]) => {
+      .then(([overTime, byPhase, durations, funnel, activity, verification, acsOT, testRuns]) => {
         if (cancelled) return;
         setState({
           kind: 'ready',
-          data: { overTime, byPhase, durations, funnel, activity, verification },
+          data: {
+            overTime,
+            byPhase,
+            durations,
+            funnel,
+            activity,
+            verification,
+            acsOverTime: acsOT,
+            testRuns,
+          },
         });
       })
       .catch((err: unknown) => {
@@ -152,6 +171,24 @@ export function Insights() {
             </div>
             <AcVerificationChart summary={state.data.verification} />
           </Card>
+          {state.data.acsOverTime.length > 0 && (
+            <Card>
+              <h2 className="text-sm font-semibold">ACs created vs verified</h2>
+              <div className="text-xs text-secondary mb-2">
+                the gap between the lines is unproven commitment
+              </div>
+              <AcsOverTimeChart points={state.data.acsOverTime} />
+            </Card>
+          )}
+          {state.data.testRuns.length > 0 && (
+            <Card>
+              <h2 className="text-sm font-semibold">Test-run volume</h2>
+              <div className="text-xs text-secondary mb-2">
+                test emissions per day by outcome
+              </div>
+              <TestRunVolumeChart points={state.data.testRuns} />
+            </Card>
+          )}
           {state.data.activity.length > 0 && (
             <Card>
               <h2 className="text-sm font-semibold">Who's doing the work</h2>

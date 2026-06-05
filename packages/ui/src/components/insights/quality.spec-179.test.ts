@@ -30,6 +30,8 @@ const CHART_FILES = [
   'PipelineFunnelChart.tsx',
   'ActivityStreamChart.tsx',
   'AcVerificationChart.tsx',
+  'AcsOverTimeChart.tsx',
+  'TestRunVolumeChart.tsx',
 ];
 
 function chartSource(file: string): string {

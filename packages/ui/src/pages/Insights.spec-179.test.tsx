@@ -38,6 +38,12 @@ vi.mock('../components/insights/ActivityStreamChart', () => ({
 vi.mock('../components/insights/AcVerificationChart', () => ({
   AcVerificationChart: () => <div data-testid="mock-verification" />,
 }));
+vi.mock('../components/insights/AcsOverTimeChart', () => ({
+  AcsOverTimeChart: () => <div data-testid="mock-acs-over-time" />,
+}));
+vi.mock('../components/insights/TestRunVolumeChart', () => ({
+  TestRunVolumeChart: () => <div data-testid="mock-test-runs" />,
+}));
 
 // ── api mocks ────────────────────────────────────────────────────────────────
 const fetchSpecsOverTime = vi.fn();
@@ -46,6 +52,8 @@ const fetchPhaseDurations = vi.fn();
 const fetchPipelineFunnel = vi.fn();
 const fetchActivityByActor = vi.fn();
 const fetchAcVerification = vi.fn();
+const fetchAcsOverTime = vi.fn();
+const fetchTestRunVolume = vi.fn();
 // Partial mock: AppShell's hooks (drift inbox count, …) pull other exports
 // from the client module, so everything else passes through unmocked.
 vi.mock(import('../api/client'), async (importOriginal) => {
@@ -58,6 +66,8 @@ vi.mock(import('../api/client'), async (importOriginal) => {
     fetchPipelineFunnel: (...a: unknown[]) => fetchPipelineFunnel(...a),
     fetchActivityByActor: (...a: unknown[]) => fetchActivityByActor(...a),
     fetchAcVerification: (...a: unknown[]) => fetchAcVerification(...a),
+    fetchAcsOverTime: (...a: unknown[]) => fetchAcsOverTime(...a),
+    fetchTestRunVolume: (...a: unknown[]) => fetchTestRunVolume(...a),
   };
 });
 
@@ -89,6 +99,8 @@ beforeEach(() => {
   fetchPipelineFunnel.mockReset().mockResolvedValue(FUNNEL);
   fetchActivityByActor.mockReset().mockResolvedValue(ACTIVITY);
   fetchAcVerification.mockReset().mockResolvedValue(VERIFICATION);
+  fetchAcsOverTime.mockReset().mockResolvedValue([{ day: '2026-06-01', created: 5, verified: 3 }]);
+  fetchTestRunVolume.mockReset().mockResolvedValue([{ day: '2026-06-01', pass: 40, fail: 2, error: 0 }]);
 });
 
 function renderInsights(path = '/acme/team/insights') {
@@ -121,6 +133,10 @@ describe('Insights page (spec-179)', () => {
     expect(screen.getByTestId('mock-funnel')).toBeInTheDocument();
     expect(screen.getByTestId('mock-activity')).toBeInTheDocument();
     expect(screen.getByTestId('mock-verification')).toBeInTheDocument();
+    // ac-19: ACs created-vs-verified + test-run volume.
+    tagAc('mindset-prod/memex-building-itself/specs/spec-179/acs/ac-19');
+    expect(screen.getByTestId('mock-acs-over-time')).toBeInTheDocument();
+    expect(screen.getByTestId('mock-test-runs')).toBeInTheDocument();
     expect(screen.getByText('5 total')).toBeInTheDocument();
     // The stacked chart carries its honesty caveat (Design, s-7).
     expect(screen.getByText('phases shown as of today')).toBeInTheDocument();
