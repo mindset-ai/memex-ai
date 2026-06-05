@@ -47,6 +47,8 @@ function renderHiddenEntry(value: string | undefined): string {
 describe("spec-168 ac-11: an UNSET HIDDEN_FEATURES is omitted (live value preserved)", () => {
   it("renders nothing when HIDDEN_FEATURES is unset — and is safe under `set -u`", () => {
     tagAc(`${SPEC}/acs/ac-11`);
+    // ac-2 (scope): unset => omitted => a deploy can't silently clear/regress the live shared HIDDEN_FEATURES.
+    tagAc(`${SPEC}/acs/ac-2`);
     // No throw under bash -u proves the ${var+...} form is unbound-safe; the
     // empty result means the entry is omitted from --update-env-vars, so the
     // Cloud Run merge leaves whatever is already live untouched.
