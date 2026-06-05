@@ -21,10 +21,12 @@
   "types": "dist/index.d.ts",
   "exports": {
     ".": {
+      "development": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
     "./setup": {
+      "development": "./src/setup.ts",
       "types": "./dist/setup.d.ts",
       "default": "./dist/setup.js"
     }
@@ -54,6 +56,16 @@
     "node": ">=20"
   },
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "./setup": {
+        "types": "./dist/setup.d.ts",
+        "default": "./dist/setup.js"
+      }
+    }
   }
 }

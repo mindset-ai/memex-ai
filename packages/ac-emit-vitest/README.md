@@ -132,6 +132,22 @@ The AC ref's namespace IS the routing instruction:
 
 For other namespaces, set `MEMEX_TEST_EVENTS_URL` explicitly. The default routing is the safety mechanism that stops production-tagged events from leaking elsewhere.
 
+## Maintainers: why `exports` has a `development` condition
+
+`dist/` is gitignored and only (re)built by `prepare`/build, but Node loads the
+package via `default` → `dist/`. Inside this monorepo a `git pull` of `src`
+therefore left workspace consumers running a **stale `dist/`** until they
+reinstalled — the cause of the spec-129/issue-1 silent `401`s, where an old
+keyless `dist` dropped the `MEMEX_EMIT_KEY` → `Authorization: Bearer` transport.
+
+The fix: the package `exports` declare a `development` condition pointing at TS
+source, which vitest/Vite select, so workspace consumers always run live `src/`
+and can never hit a stale `dist`. The condition is **repo-only** —
+`publishConfig.exports` strips it at publish time so the npm tarball (which ships
+no `src/`) stays `dist`-only and unaffected. Do not remove the `development`
+condition or the `publishConfig` override; `src/package-resolution.test.ts`
+(spec-129 ac-23) locks both in place.
+
 ## Requirements
 
 - Node.js 20 or later (uses native `fetch`)
