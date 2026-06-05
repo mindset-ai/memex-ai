@@ -10,7 +10,7 @@
 
 import { ResponsiveLine } from '@nivo/line';
 import type { SpecsByPhasePoint } from '../../api/client';
-import { PHASE_COLORS, PHASE_ORDER, insightsTheme, shortDate } from './theme';
+import { PHASE_COLORS, PHASE_ORDER, insightsTheme, phaseLabel, shortDate } from './theme';
 
 interface Props {
   points: SpecsByPhasePoint[];
@@ -56,7 +56,7 @@ export function SpecsByPhaseChart({ points }: Props) {
               .map((pt) => (
                 <div key={pt.id} className="flex items-center gap-1.5">
                   <span className="inline-block w-2 h-2 rounded-full" style={{ background: pt.seriesColor }} />
-                  <span>{String(pt.seriesId)}</span>
+                  <span>{phaseLabel(String(pt.seriesId))}</span>
                   <span className="ml-auto font-medium">{String(pt.data.y)}</span>
                 </div>
               ))}

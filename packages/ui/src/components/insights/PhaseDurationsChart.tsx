@@ -7,7 +7,7 @@
 
 import { ResponsiveBar } from '@nivo/bar';
 import type { PhaseDurations } from '../../api/client';
-import { ACCENT, PHASE_COLORS, insightsTheme, type Phase } from './theme';
+import { ACCENT, PHASE_COLORS, insightsTheme, phaseLabel, type Phase } from './theme';
 
 interface Props {
   durations: PhaseDurations;
@@ -60,10 +60,10 @@ export function PhaseDurationsChart({ durations }: Props) {
           label={(d) => `${d.value}d`}
           labelSkipWidth={28}
           axisBottom={{ tickSize: 0, tickPadding: 6, legend: 'avg days', legendOffset: 30 }}
-          axisLeft={{ tickSize: 0, tickPadding: 8 }}
+          axisLeft={{ tickSize: 0, tickPadding: 8, format: (v) => phaseLabel(String(v)) }}
           tooltip={({ data: d }) => (
             <div className="text-xs">
-              <div className="font-medium">{String(d.phase)}</div>
+              <div className="font-medium">{phaseLabel(String(d.phase))}</div>
               <div>avg {d.avgDays}d · median {d.medianDays}d · n={d.n}</div>
             </div>
           )}

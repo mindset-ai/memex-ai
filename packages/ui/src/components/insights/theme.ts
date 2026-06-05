@@ -20,6 +20,22 @@ export const PHASE_COLORS: Record<Phase, string> = {
   done: '#22c55e', // green-500  — success
 };
 
+// Display labels — the `plan` phase reads as "specify" in the product, while
+// the DB status value (and every data key / API shape) stays 'plan'. Map at
+// render time only, in one place, so a future DB-level rename is a one-line
+// change here.
+export const PHASE_LABELS: Record<Phase, string> = {
+  draft: 'draft',
+  plan: 'specify',
+  build: 'build',
+  verify: 'verify',
+  done: 'done',
+};
+
+export function phaseLabel(phase: string): string {
+  return PHASE_LABELS[phase as Phase] ?? phase;
+}
+
 /** Accent for the cumulative line / single-series charts. */
 export const ACCENT = '#6366f1'; // indigo-500
 
