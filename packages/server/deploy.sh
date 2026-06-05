@@ -193,7 +193,7 @@ gcloud run deploy "${SERVICE}" \
   --project "${GCP_PROJECT}" \
   --allow-unauthenticated \
   --port 8080 \
-  --memory 256Mi \
+  --memory 512Mi \
   --min-instances 0 \
   --max-instances 3 \
   --add-cloudsql-instances "${CLOUD_SQL_INSTANCE_CONN}" \
