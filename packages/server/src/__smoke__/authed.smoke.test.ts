@@ -24,8 +24,8 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import {
   SMOKE_BASE_URL,
   SMOKE_MCP_TOKEN,
+  SMOKE_SESSION_TOKEN,
   SMOKE_NAMESPACE,
-  SMOKE_CANONICAL_REF,
   callMcpTool,
   callMcpInitialize,
   mcpTextPayload,
@@ -39,7 +39,10 @@ const UUID_RE =
 
 /** Pull the first `ref: <ref>` token out of an MCP text payload. */
 function parseRef(text: string): string | null {
-  const m = text.match(/ref:\s*([^\s"]+)/i);
+  // Exclude closing punctuation: tool replies often parenthesise the ref
+  // ("… (ref: ns/mx/specs/spec-1/sections/s-2)."), and a captured `).` makes
+  // the next tool call fail on an invalid ref.
+  const m = text.match(/ref:\s*([^\s")]+)/i);
   return m ? m[1] : null;
 }
 
@@ -135,9 +138,23 @@ describe.skipIf(!SMOKE_MCP_TOKEN)(
     });
 
     it("canonical ref call succeeds and emits `ref:` (no UUIDs leaked)", async () => {
-      const { status, body } = await callMcpTool("get_doc", {
-        ref: SMOKE_CANONICAL_REF,
-      });
+      // The smoke token is scoped to the throwaway tenant (zzz-smoke), so the
+      // per-env default SMOKE_CANONICAL_REF (a real-tenant doc) 404s under
+      // std-7. Unless a ref is explicitly provided for an ad-hoc run with a
+      // wider-scoped token, provision our own doc and assert the canonical-ref
+      // grammar on it — the b-36 property (refs in, no UUIDs out) is the same.
+      let ref = process.env.SMOKE_CANONICAL_REF ?? "";
+      if (!ref) {
+        const created = await callMcpTool("create_doc", {
+          memex: SMOKE_NAMESPACE,
+          title: `[smoke] canonical-ref probe ${new Date().toISOString()}`,
+          purpose: "Canonical-ref smoke — safe to delete.",
+        });
+        expect(created.body.result?.isError).toBeFalsy();
+        ref = parseRef(mcpTextPayload(created.body)) ?? "";
+        expect(ref, "create_doc should return a canonical ref").toBeTruthy();
+      }
+      const { status, body } = await callMcpTool("get_doc", { ref });
       expect(status).toBe(200);
       expect(body.error).toBeUndefined();
       expect(body.result?.isError).toBeFalsy();
@@ -197,21 +214,22 @@ describe.skipIf(!SMOKE_MCP_TOKEN)(
       expect(refParts.length).toBeGreaterThanOrEqual(4);
       const [refNs, refMx] = refParts;
 
-      // Resolve docId from get_doc (verbose mode includes the UUID).
-      const docFull = await callMcpTool("get_doc", {
-        ref: docRef!,
-        verbose: true,
+      // b-36 hard-cut: MCP output never carries raw UUIDs (even verbose), so
+      // resolve the docId the way the React UI does — the REST docs list,
+      // which speaks UUIDs to session-authed callers. REST sits behind
+      // sessionMiddleware (JWT-only), so these calls use SMOKE_SESSION_TOKEN.
+      const listRes = await fetch(`${SMOKE_BASE_URL}/api/${refNs}/${refMx}/docs`, {
+        headers: { Authorization: `Bearer ${SMOKE_SESSION_TOKEN}` },
       });
-      const docText = mcpTextPayload(docFull.body);
-      const docIdMatch = docText.match(
-        /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/i,
-      );
-      expect(docIdMatch, "expected a doc UUID in the get_doc payload").toBeTruthy();
-      const docId = docIdMatch![0];
+      expect(listRes.status).toBe(200);
+      const docsList = (await listRes.json()) as Array<{ id: string; title: string }>;
+      const ourDoc = docsList.find((d) => d.title === `[smoke] AC endpoint check ${stamp}`);
+      expect(ourDoc, "expected the created doc in the REST docs list").toBeDefined();
+      const docId = ourDoc!.id;
 
       const url = `${SMOKE_BASE_URL}/api/${refNs}/${refMx}/acs/doc/${docId}`;
       const res = await fetch(url, {
-        headers: { Authorization: `Bearer ${SMOKE_MCP_TOKEN}` },
+        headers: { Authorization: `Bearer ${SMOKE_SESSION_TOKEN}` },
       });
       expect(res.status).toBe(200);
       const rows = (await res.json()) as Array<{
@@ -236,7 +254,7 @@ describe.skipIf(!SMOKE_MCP_TOKEN)(
       // Sparkline endpoint — same Spec, days clamp, response shape.
       const histRes = await fetch(
         `${SMOKE_BASE_URL}/api/${refNs}/${refMx}/acs/doc/${docId}/alignment-history?days=14`,
-        { headers: { Authorization: `Bearer ${SMOKE_MCP_TOKEN}` } },
+        { headers: { Authorization: `Bearer ${SMOKE_SESSION_TOKEN}` } },
       );
       expect(histRes.status).toBe(200);
       const hist = (await histRes.json()) as Array<{
@@ -332,9 +350,10 @@ describe.skipIf(!SMOKE_MCP_TOKEN)(
       const sectionRef = parseRef(mcpTextPayload(added.body));
       expect(sectionRef, "add_section should return a section ref").toBeTruthy();
 
-      // READ — heading + marker are present.
+      // READ — heading + marker are present. Terse get_doc omits section
+      // bodies, so these lifecycle reads use verbose mode.
       let docText = mcpTextPayload(
-        (await callMcpTool("get_doc", { ref: docRef! })).body,
+        (await callMcpTool("get_doc", { ref: docRef!, verbose: true })).body,
       );
       expect(docText).toContain("Smoke Lens");
       expect(docText).toContain(marker);
@@ -346,7 +365,7 @@ describe.skipIf(!SMOKE_MCP_TOKEN)(
       });
       expect(retitled.body.result?.isError).toBeFalsy();
       docText = mcpTextPayload(
-        (await callMcpTool("get_doc", { ref: docRef! })).body,
+        (await callMcpTool("get_doc", { ref: docRef!, verbose: true })).body,
       );
       expect(docText).toContain("Smoke Lens Renamed");
       expect(docText).toContain(marker);
@@ -356,7 +375,7 @@ describe.skipIf(!SMOKE_MCP_TOKEN)(
       const deleted = await callMcpTool("delete_section", { ref: sectionRef! });
       expect(deleted.body.result?.isError).toBeFalsy();
       docText = mcpTextPayload(
-        (await callMcpTool("get_doc", { ref: docRef! })).body,
+        (await callMcpTool("get_doc", { ref: docRef!, verbose: true })).body,
       );
       expect(docText).not.toContain(marker);
       expect(docText).not.toContain("Smoke Lens Renamed");

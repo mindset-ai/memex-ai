@@ -83,6 +83,9 @@ const baseEvent = (over: Partial<ChangeEvent> = {}): ChangeEvent => ({
 describe("spec-156 W1 integration: real Postgres LISTEN/NOTIFY relay", () => {
   it("delivers an event emitted on instance A to a subscriber on instance B (ac-6)", async () => {
     tagAc(AC(6));
+    // Scope ac-1: the cross-channel/cross-instance reflection guarantee — this
+    // two-real-relay-instances-over-one-Postgres test is its broadest local proof.
+    tagAc(AC(1));
     const channel = `memex_bus_test_${randomUUID().replace(/-/g, "")}`;
     const a = await makePair(channel, "origin-A");
     const b = await makePair(channel, "origin-B");

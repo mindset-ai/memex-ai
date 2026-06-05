@@ -53,6 +53,7 @@ describe("spec-156 ac-15: emitMcpActivity (MCP read/advisory emission helper)", 
 
   it("emits a 'viewed' event with channel 'mcp' and a narrative for a read tool", () => {
     tagAc(AC_15);
+    tagAc("mindset-prod/memex-building-itself/specs/spec-156/acs/ac-2"); // scope ac-2: MCP read-emission finding
     const received: ChangeEvent[] = [];
     bus.subscribe({}, (e) => received.push(e));
 

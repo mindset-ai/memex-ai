@@ -316,6 +316,7 @@ describe("doc-21 t-4 / spec-156 W3: static scan — every mutation goes through 
   const files = SCAN_DIRS.flatMap((d) => listScannableFiles(join(SRC_DIR, d)));
 
   it(`finds files to scan across all std-8 §s-3 layers`, () => {
+    tagAc(`${AC}/ac-3`); // scope ac-3: enforcement-suite-fails-on-bypass guarantee
     expect(files.length).toBeGreaterThan(20);
     // Sanity: the scan reaches outside services/ now (ac-22 scope).
     const keys = files.map(relKey);
@@ -358,6 +359,7 @@ describe("doc-21 t-4 / spec-156 W3: static scan — every mutation goes through 
 describe("spec-156 W3: static-scan meta-tests", () => {
   it("ac-22: a seeded raw db write (as would live under routes/) fails the scan", () => {
     tagAc(`${AC}/ac-22`);
+    tagAc(`${AC}/ac-3`); // scope ac-3: enforcement-suite-fails-on-bypass guarantee
     // A route handler that writes directly to the DB without mutate() — the
     // exact shape the widened scan must now reject anywhere, not just services/.
     const routeSource = `

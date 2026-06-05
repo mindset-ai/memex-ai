@@ -37,6 +37,27 @@ const HELPER_PACKAGE_ROOT = join(
 const WORKTREE_ROOT = join(SERVER_ROOT, "..", "..");
 
 describe("AC emit phone-home wiring — keep the setupFile wire alive", () => {
+  it("tagAc through the REAL setup wiring lands an entry on the running task (dual-instance guard, spec-156)", ({ task }) => {
+    // 2026-06-05 regression: setupFiles resolved the helper through Node's
+    // `default` condition (dist/) while this file's bare import resolved the
+    // `development` condition (src/) — two module instances. The setup hooks
+    // set `currentTask` on one instance; tagAc no-opped on the other, so EVERY
+    // AC emission (local and CI) silently stopped. The helper now shares the
+    // current-task slot via globalThis; this asserts the end-to-end wire in
+    // the exact environment that broke: a packages/server test file.
+    const before = (
+      ((task as unknown as { meta: Record<string, unknown> }).meta.__memex_ac_uids as
+        | unknown[]
+        | undefined) ?? []
+    ).length;
+    tagAc(`${SPEC_89}/ac-1`);
+    const entries =
+      ((task as unknown as { meta: Record<string, unknown> }).meta.__memex_ac_uids as
+        | unknown[]
+        | undefined) ?? [];
+    expect(entries.length).toBe(before + 1);
+  });
+
   it("vitest.config.ts declares a setupFiles entry", () => {
     const src = readFileSync(VITEST_CONFIG, "utf-8");
     expect(src).toMatch(/setupFiles\s*:/);
