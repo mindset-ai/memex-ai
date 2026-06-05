@@ -138,6 +138,25 @@ DATABASE_URL="${DB_URL}" pnpm db:migrate
 echo "  1b. hand-written migrations..."
 DATABASE_URL="${DB_URL}" bash "${PKG_DIR}/scripts/apply-hand-migrations.sh"
 
+# 1c. spec-178 t-5 / ac-28 — backfill the Handhold onboarding demo into EXISTING
+# personal Memexes (namespaces.kind='user') that predate the feature. New signups
+# already get it via the post-commit hook in ensureUserNamespace; this is the
+# one-time catch-up. seedHandholdDemo is per-Memex idempotent (no-ops once a Memex
+# holds an is_demo spec), so it does zero work after the first successful pass and
+# is safe to run on every deploy. Lives in the shared deploy.sh so it covers BOTH
+# environments: INT on each develop deploy, PROD on the daily develop→main promotion.
+#
+# Bounded + non-gating (learned the hard way — an earlier unbounded version hung the
+# deploy to the 30-min job timeout): `timeout` caps the run, and `|| echo` swallows
+# BOTH a timeout (exit 124) and any error so `set -e` can never abort a live deploy.
+# If the cap is hit mid-backfill the deploy still proceeds and the next deploy resumes
+# (idempotent), so partial progress is safe. demo seeding is also off the embedding +
+# drift-scan paths now (dec-11 / ac-42), so this is pure fast inserts. `timeout` is
+# GNU coreutils — present on the CI ubuntu runner that actually runs this deploy.
+echo "  1c. handhold demo backfill (spec-178 t-5 / ac-28)..."
+DATABASE_URL="${DB_URL}" timeout 600 pnpm db:backfill-handhold \
+  || echo "  ⚠ handhold backfill timed out or failed (non-gating, exit $?) — deploy continues; next deploy resumes (idempotent)."
+
 kill $PROXY_PID 2>/dev/null
 wait $PROXY_PID 2>/dev/null || true
 
