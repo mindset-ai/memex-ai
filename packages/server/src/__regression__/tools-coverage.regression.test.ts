@@ -267,4 +267,21 @@ describe("regression: tool manifest ↔ MCP catalogue parity (b-67 t-4)", () => 
       inManifestNotSpecs: [],
     });
   });
+
+  // spec-175: Standards are clause-backed (spec-150 / spec-161), so update_section
+  // hard-rejects on a Standard. The drift agent edits rule text at clause grain,
+  // so the clause verbs MUST be in its focused surface or it cannot resolve the
+  // drift it raises. Asserted at the drift-mode surface (DRIFT_SERVER_TOOLS), which
+  // gates both the tool definitions the model sees and execution (isDriftModeTool).
+  it("the drift agent's tool surface includes the clause-editing verbs (spec-175)", () => {
+    const driftNames = new Set(
+      getToolDefinitions({ mode: "drift" }).map((t) => t.name),
+    );
+    for (const name of ["add_clause", "edit_clause", "delete_clause"]) {
+      expect(
+        driftNames.has(name),
+        `drift surface missing ${name} — agent cannot edit clause-backed Standards`,
+      ).toBe(true);
+    }
+  });
 });
