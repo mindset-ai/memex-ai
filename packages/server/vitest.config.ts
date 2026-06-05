@@ -37,7 +37,25 @@ const rootEnv = readRootEnv();
 // vitest.worker-db.setup.ts, which runs inside each worker.
 // Escape hatch: MEMEX_TEST_DATABASE_URL pins an exact URL (workers still
 // append their `_w<poolId>` suffix to it).
-const TEST_DATABASE_URL = resolveTestDatabaseUrl();
+//
+// The local packages/server/.env may contain DATABASE_URL (non-default host,
+// port, or credentials). Parse it WITHOUT mutating process.env so that the
+// same URL is used here (config time) and in vitest.global-setup.ts (which
+// uses `import "dotenv/config"` — same file). Without this, the config falls
+// back to the hardcoded default (localhost:5432/postgres) while global-setup
+// uses the local .env, and workers connect to a different host than where the
+// test databases were created.
+function readLocalEnv(): Record<string, string> {
+  try {
+    return dotenv.parse(
+      readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), ".env"), "utf8"),
+    );
+  } catch {
+    return {};
+  }
+}
+const localEnv = readLocalEnv();
+const TEST_DATABASE_URL = resolveTestDatabaseUrl({ ...process.env, ...localEnv });
 
 export default defineConfig({
   test: {
