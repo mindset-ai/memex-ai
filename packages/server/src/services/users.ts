@@ -85,9 +85,18 @@ export async function upsertUserByEmail(email: string): Promise<User> {
   // the auth service, which orchestrates user-row + namespace creation in one tx.
   // For tests that hit this directly, they must seed a namespace first. To keep
   // typecheck happy we cast.
+  // ON CONFLICT makes the insert race-safe: parallel requests on a cold DB
+  // (e.g. the dev-user bootstrap when a browser fires several API calls at
+  // once on first load) all pass the select above, then all insert — without
+  // this, every loser throws users_email_unique. With it, the loser's insert
+  // degrades to the same touch-updated_at the existing-row path does.
   const [created] = await db
     .insert(users)
     .values({ email: normalized } as typeof users.$inferInsert)
+    .onConflictDoUpdate({
+      target: users.email,
+      set: { updatedAt: new Date() },
+    })
     .returning();
   return created;
 }
