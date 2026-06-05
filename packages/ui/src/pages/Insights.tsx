@@ -108,9 +108,13 @@ export function Insights() {
       : 0;
 
   return (
-    <div className="max-w-5xl mx-auto px-4 py-6" data-testid="insights-page">
-      <PageHeader title="Insights" />
+    <div className="h-full flex flex-col px-4 py-6" data-testid="insights-page">
+      <div className="max-w-5xl mx-auto w-full">
+        <PageHeader title="Insights" />
+      </div>
 
+      <div className="flex-1 min-h-0 overflow-y-auto">
+        <div className="max-w-5xl mx-auto w-full">
       {state.kind === 'loading' && (
         <div className="text-sm text-secondary py-12 text-center" data-testid="insights-loading">
           Loading analytics…
@@ -200,6 +204,8 @@ export function Insights() {
           )}
         </div>
       )}
+        </div>
+      </div>
     </div>
   );
 }
