@@ -138,23 +138,6 @@ DATABASE_URL="${DB_URL}" pnpm db:migrate
 echo "  1b. hand-written migrations..."
 DATABASE_URL="${DB_URL}" bash "${PKG_DIR}/scripts/apply-hand-migrations.sh"
 
-# 1c. spec-178 t-5 / ac-28 — backfill the Handhold onboarding demo into EXISTING
-# personal Memexes (namespaces.kind='user') that predate the feature. New signups
-# already get the five frozen demo specs via the post-commit hook in
-# ensureUserNamespace; this is the one-time catch-up. It's idempotent
-# (seedHandholdDemo no-ops on any Memex already holding an is_demo spec), so it's
-# safe to run on EVERY deploy — once seeded it does zero work. It runs here, while
-# the cloud-sql-proxy is still up, against the same proxied DB the migrations used,
-# and because it lives in the shared deploy.sh it covers BOTH environments: INT on
-# each develop deploy, PROD on the daily develop→main promotion.
-#
-# NON-GATING (dec-7): a backfill hiccup must NEVER fail a live deploy. The `|| echo`
-# swallows a non-zero exit so `set -e` can't abort the deploy; the next deploy retries
-# (the work that did land stays, since the seed is per-Memex idempotent).
-echo "  1c. handhold demo backfill (spec-178 t-5 / ac-28)..."
-DATABASE_URL="${DB_URL}" pnpm db:backfill-handhold \
-  || echo "  ⚠ handhold backfill failed (non-gating) — existing Memexes not backfilled this run; retries next deploy."
-
 kill $PROXY_PID 2>/dev/null
 wait $PROXY_PID 2>/dev/null || true
 
