@@ -27,6 +27,9 @@ const CHART_FILES = [
   'SpecsOverTimeChart.tsx',
   'SpecsByPhaseChart.tsx',
   'PhaseDurationsChart.tsx',
+  'PipelineFunnelChart.tsx',
+  'ActivityStreamChart.tsx',
+  'AcVerificationChart.tsx',
 ];
 
 function chartSource(file: string): string {

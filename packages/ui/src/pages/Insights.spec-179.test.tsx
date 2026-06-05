@@ -29,11 +29,23 @@ vi.mock('../components/insights/SpecsByPhaseChart', () => ({
 vi.mock('../components/insights/PhaseDurationsChart', () => ({
   PhaseDurationsChart: () => <div data-testid="mock-durations" />,
 }));
+vi.mock('../components/insights/PipelineFunnelChart', () => ({
+  PipelineFunnelChart: () => <div data-testid="mock-funnel" />,
+}));
+vi.mock('../components/insights/ActivityStreamChart', () => ({
+  ActivityStreamChart: () => <div data-testid="mock-activity" />,
+}));
+vi.mock('../components/insights/AcVerificationChart', () => ({
+  AcVerificationChart: () => <div data-testid="mock-verification" />,
+}));
 
 // ── api mocks ────────────────────────────────────────────────────────────────
 const fetchSpecsOverTime = vi.fn();
 const fetchSpecsByPhase = vi.fn();
 const fetchPhaseDurations = vi.fn();
+const fetchPipelineFunnel = vi.fn();
+const fetchActivityByActor = vi.fn();
+const fetchAcVerification = vi.fn();
 // Partial mock: AppShell's hooks (drift inbox count, …) pull other exports
 // from the client module, so everything else passes through unmocked.
 vi.mock(import('../api/client'), async (importOriginal) => {
@@ -43,6 +55,9 @@ vi.mock(import('../api/client'), async (importOriginal) => {
     fetchSpecsOverTime: (...a: unknown[]) => fetchSpecsOverTime(...a),
     fetchSpecsByPhase: (...a: unknown[]) => fetchSpecsByPhase(...a),
     fetchPhaseDurations: (...a: unknown[]) => fetchPhaseDurations(...a),
+    fetchPipelineFunnel: (...a: unknown[]) => fetchPipelineFunnel(...a),
+    fetchActivityByActor: (...a: unknown[]) => fetchActivityByActor(...a),
+    fetchAcVerification: (...a: unknown[]) => fetchAcVerification(...a),
   };
 });
 
@@ -57,10 +72,23 @@ const DURATIONS = {
   cycleTime: { n: 1, avgDays: 1, medianDays: 1, p25Days: 1, p75Days: 1, maxDays: 1, valuesDays: [1] },
 };
 
+const FUNNEL = [
+  { phase: 'draft', count: 3 },
+  { phase: 'plan', count: 2 },
+  { phase: 'build', count: 1 },
+  { phase: 'verify', count: 1 },
+  { phase: 'done', count: 1 },
+];
+const ACTIVITY = [{ day: '2026-06-01', human: 3, mcp_agent: 8, in_app_agent: 1, system: 0 }];
+const VERIFICATION = { total: 10, verified: 6, failing: 1, untested: 3 };
+
 beforeEach(() => {
   fetchSpecsOverTime.mockReset().mockResolvedValue(POINTS);
   fetchSpecsByPhase.mockReset().mockResolvedValue(BY_PHASE);
   fetchPhaseDurations.mockReset().mockResolvedValue(DURATIONS);
+  fetchPipelineFunnel.mockReset().mockResolvedValue(FUNNEL);
+  fetchActivityByActor.mockReset().mockResolvedValue(ACTIVITY);
+  fetchAcVerification.mockReset().mockResolvedValue(VERIFICATION);
 });
 
 function renderInsights(path = '/acme/team/insights') {
@@ -88,6 +116,11 @@ describe('Insights page (spec-179)', () => {
     expect(screen.getByTestId('mock-over-time').dataset.points).toBe('3');
     expect(screen.getByTestId('mock-by-phase')).toBeInTheDocument();
     expect(screen.getByTestId('mock-durations')).toBeInTheDocument();
+    // ac-18: the follow-on charts render alongside the original three.
+    tagAc('mindset-prod/memex-building-itself/specs/spec-179/acs/ac-18');
+    expect(screen.getByTestId('mock-funnel')).toBeInTheDocument();
+    expect(screen.getByTestId('mock-activity')).toBeInTheDocument();
+    expect(screen.getByTestId('mock-verification')).toBeInTheDocument();
     expect(screen.getByText('5 total')).toBeInTheDocument();
     // The stacked chart carries its honesty caveat (Design, s-7).
     expect(screen.getByText('phases shown as of today')).toBeInTheDocument();

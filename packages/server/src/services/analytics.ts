@@ -193,3 +193,141 @@ export async function phaseDurations(memexId: string): Promise<PhaseDurations> {
     },
   };
 }
+
+// ── Pipeline funnel (spec-179 follow-on charts) ──────────────────────────────
+
+export interface FunnelStage {
+  phase: SpecPhase;
+  /** Specs currently at or beyond this phase. */
+  count: number;
+}
+
+/**
+ * "Where does work pile up?" — for each lifecycle phase, how many specs are
+ * currently AT or BEYOND it. draft = every spec; done = completed only.
+ * Until status_changed history (ac-5) deepens, current status is the proxy
+ * for "reached" — a spec in build has by definition reached draft/plan/build.
+ * Archived specs are excluded: an abandoned draft isn't pipeline progress.
+ */
+export async function pipelineFunnel(memexId: string): Promise<FunnelStage[]> {
+  const rows = (await db.execute(sql`
+    SELECT ${PHASE_CASE} AS phase, count(*)::int AS n
+    FROM documents
+    WHERE memex_id = ${memexId} AND doc_type = 'spec' AND archived_at IS NULL
+    GROUP BY 1
+  `)) as unknown as Array<{ phase: SpecPhase; n: number }>;
+  const byPhase = new Map(rows.map((r) => [r.phase, r.n]));
+  return SPEC_PHASES.map((phase, i) => ({
+    phase,
+    count: SPEC_PHASES.slice(i).reduce((sum, p) => sum + (byPhase.get(p) ?? 0), 0),
+  }));
+}
+
+// ── Activity by actor kind (spec-179 follow-on charts) ──────────────────────
+
+export const ACTOR_KINDS = ["human", "mcp_agent", "in_app_agent", "system"] as const;
+export type ActorKind = (typeof ACTOR_KINDS)[number];
+
+export interface ActivityByActorPoint {
+  day: string;
+  human: number;
+  mcp_agent: number;
+  in_app_agent: number;
+  system: number;
+}
+
+/**
+ * "Who is doing the work?" — per-day activity_log rows split by actor kind,
+ * gapless from the first row to today. Two exclusions keep this a measure of
+ * WORK rather than noise: `viewed` rows (reads, dominated by page loads) and
+ * `test_event` rows (one per test invocation — a single CI run would dwarf a
+ * week of authoring).
+ */
+export async function activityByActor(memexId: string): Promise<ActivityByActorPoint[]> {
+  const rows = (await db.execute(sql`
+    WITH per_day AS (
+      SELECT created_at::date AS day, actor_kind, count(*)::int AS n
+      FROM activity_log
+      WHERE memex_id = ${memexId}
+        AND action <> 'viewed'
+        AND entity <> 'test_event'
+      GROUP BY 1, 2
+    ),
+    days AS (
+      SELECT generate_series(
+        (SELECT min(day) FROM per_day),
+        CURRENT_DATE,
+        interval '1 day'
+      )::date AS day
+    )
+    SELECT
+      to_char(days.day, 'YYYY-MM-DD') AS day,
+      COALESCE(sum(per_day.n) FILTER (WHERE per_day.actor_kind = 'human'), 0)::int AS human,
+      COALESCE(sum(per_day.n) FILTER (WHERE per_day.actor_kind = 'mcp_agent'), 0)::int AS mcp_agent,
+      COALESCE(sum(per_day.n) FILTER (WHERE per_day.actor_kind = 'in_app_agent'), 0)::int AS in_app_agent,
+      COALESCE(sum(per_day.n) FILTER (WHERE per_day.actor_kind = 'system'), 0)::int AS system
+    FROM days
+    LEFT JOIN per_day ON per_day.day = days.day
+    GROUP BY days.day
+    ORDER BY days.day
+  `)) as unknown as ActivityByActorPoint[];
+  return rows;
+}
+
+// ── AC verification health (spec-179 follow-on charts) ──────────────────────
+
+export interface AcVerificationSummary {
+  /** Active ACs across the memex's specs. */
+  total: number;
+  /** ACs whose latest emissions are all green (≥1 pass, no fail/error). */
+  verified: number;
+  /** ACs with a fail/error among their latest emissions. */
+  failing: number;
+  /** ACs with no emissions at all — invisible to verification. */
+  untested: number;
+}
+
+/**
+ * "Is the work proven?" — rolls test_event_latest (latest status per (ac,
+ * test)) up to per-AC verdicts, then to one memex-wide summary. ac_uid is the
+ * canonical ref string, so the memex's rows are prefix-matched on its
+ * `<namespace>/<memex>/` slug pair.
+ */
+export async function acVerification(memexId: string): Promise<AcVerificationSummary> {
+  const [slugs] = (await db.execute(sql`
+    SELECT n.slug AS ns, m.slug AS mx
+    FROM memexes m JOIN namespaces n ON n.id = m.namespace_id
+    WHERE m.id = ${memexId}
+  `)) as unknown as Array<{ ns: string; mx: string }>;
+  if (!slugs) return { total: 0, verified: 0, failing: 0, untested: 0 };
+
+  const [{ total }] = (await db.execute(sql`
+    SELECT count(*)::int AS total
+    FROM acs
+    WHERE memex_id = ${memexId} AND status = 'active'
+  `)) as unknown as Array<{ total: number }>;
+
+  const prefix = `${slugs.ns}/${slugs.mx}/`;
+  const rollup = (await db.execute(sql`
+    SELECT
+      count(*) FILTER (WHERE has_fail)::int AS failing,
+      count(*) FILTER (WHERE NOT has_fail AND has_pass)::int AS verified
+    FROM (
+      SELECT
+        ac_uid,
+        bool_or(latest_status IN ('fail', 'error')) AS has_fail,
+        bool_or(latest_status = 'pass') AS has_pass
+      FROM test_event_latest
+      WHERE ac_uid LIKE ${prefix + "%"}
+      GROUP BY ac_uid
+    ) per_ac
+  `)) as unknown as Array<{ failing: number; verified: number }>;
+
+  const { failing, verified } = rollup[0] ?? { failing: 0, verified: 0 };
+  return {
+    total,
+    verified,
+    failing,
+    untested: Math.max(0, total - verified - failing),
+  };
+}

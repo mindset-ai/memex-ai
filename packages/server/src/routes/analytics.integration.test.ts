@@ -17,7 +17,7 @@ vi.hoisted(() => {
 });
 
 import { db } from "../db/connection.js";
-import { documents, memexes, namespaces } from "../db/schema.js";
+import { acs, activityLog, documents, memexes, namespaces, testEventLatest } from "../db/schema.js";
 import { app } from "../app.js";
 import { makeTestMemexWithDevAdmin } from "../services/test-helpers.js";
 
@@ -170,5 +170,113 @@ describe("tenancy (std-7)", () => {
     tagAc("mindset-prod/memex-building-itself/specs/spec-179/acs/ac-17");
     const res = await app.request("/api/no-such-ns/main/analytics/specs-over-time", withApexHost());
     expect(res.status).toBe(404);
+  });
+});
+
+// ── Follow-on charts (ac-18): funnel, actor activity, AC verification ────────
+
+const AC_FOLLOW_ON = "mindset-prod/memex-building-itself/specs/spec-179/acs/ac-18";
+
+describe("GET /analytics/pipeline-funnel", () => {
+  it("counts active specs at-or-beyond each phase (archived excluded)", async () => {
+    tagAc(AC_FOLLOW_ON);
+    const res = await app.request(`${pathA}/analytics/pipeline-funnel`, withApexHost());
+    expect(res.status).toBe(200);
+    const { stages } = (await res.json()) as {
+      stages: Array<{ phase: string; count: number }>;
+    };
+    // Fixture (active only): 1 draft, 1 build, 2 done. At-or-beyond:
+    // draft=4, plan=3 (build+done), build=3, verify=2, done=2.
+    expect(stages).toEqual([
+      { phase: "draft", count: 4 },
+      { phase: "plan", count: 3 },
+      { phase: "build", count: 3 },
+      { phase: "verify", count: 2 },
+      { phase: "done", count: 2 },
+    ]);
+  });
+});
+
+describe("GET /analytics/activity-by-actor", () => {
+  it("splits per-day activity by actor kind, excluding reads and test events", async () => {
+    tagAc(AC_FOLLOW_ON);
+    const seed = async (over: { actorKind: string; action?: string; entity?: string; day: string }) =>
+      db.insert(activityLog).values({
+        memexId: memexA,
+        actorKind: over.actorKind,
+        channel: over.actorKind === "human" ? "rest_ui" : "mcp",
+        entity: over.entity ?? "document",
+        action: over.action ?? "updated",
+        narrative: "seeded",
+        createdAt: new Date(`${over.day}T10:00:00Z`),
+      });
+    await seed({ actorKind: "human", day: "2026-06-02" });
+    await seed({ actorKind: "human", day: "2026-06-02" });
+    await seed({ actorKind: "mcp_agent", day: "2026-06-02" });
+    await seed({ actorKind: "mcp_agent", day: "2026-06-03" });
+    // Noise — must be excluded:
+    await seed({ actorKind: "human", day: "2026-06-02", action: "viewed" });
+    await seed({ actorKind: "system", day: "2026-06-02", entity: "test_event", action: "created" });
+
+    const res = await app.request(`${pathA}/analytics/activity-by-actor`, withApexHost());
+    expect(res.status).toBe(200);
+    const { points } = (await res.json()) as {
+      points: Array<{ day: string; human: number; mcp_agent: number; in_app_agent: number; system: number }>;
+    };
+    const jun2 = points.find((p) => p.day === "2026-06-02")!;
+    expect(jun2).toMatchObject({ human: 2, mcp_agent: 1, in_app_agent: 0, system: 0 });
+    const jun3 = points.find((p) => p.day === "2026-06-03")!;
+    expect(jun3).toMatchObject({ human: 0, mcp_agent: 1 });
+    // Gapless between the two days regardless of how far today extends.
+    expect(points.findIndex((p) => p.day === "2026-06-03")).toBe(
+      points.findIndex((p) => p.day === "2026-06-02") + 1,
+    );
+  });
+});
+
+describe("GET /analytics/ac-verification", () => {
+  it("rolls latest emissions up to verified / failing / untested per AC", async () => {
+    tagAc(AC_FOLLOW_ON);
+    // A spec carrying 4 active ACs (+1 superseded — must not count).
+    const [spec] = await db
+      .insert(documents)
+      .values({ memexId: memexA, handle: "spec-vrf", title: "verification fixture", docType: "spec" })
+      .returning();
+    const mkAc = (seq: number, status = "active") =>
+      db.insert(acs).values({
+        memexId: memexA,
+        briefId: spec.id,
+        seq,
+        kind: "implementation",
+        statement: `ac ${seq}`,
+        status,
+      });
+    await mkAc(1);
+    await mkAc(2);
+    await mkAc(3);
+    await mkAc(4);
+    await mkAc(5, "superseded");
+
+    // Latest emissions, keyed by canonical ac_uid under THIS memex's slugs:
+    // ac-1 all green (verified), ac-2 green+red (failing), ac-3/ac-4 silent.
+    const a = await db.select().from(memexes).where(inArray(memexes.id, [memexA]));
+    const ns = await db.select().from(namespaces).where(inArray(namespaces.id, [a[0].namespaceId]));
+    const prefix = `${ns[0].slug}/main/specs/spec-vrf/acs`;
+    const emit = (acN: number, test: string, status: string) =>
+      db.insert(testEventLatest).values({
+        acUid: `${prefix}/ac-${acN}`,
+        testIdentifier: test,
+        latestStatus: status,
+        latestRunAt: new Date(),
+        runCount: 1,
+      });
+    await emit(1, "t1", "pass");
+    await emit(1, "t2", "pass");
+    await emit(2, "t1", "pass");
+    await emit(2, "t2", "fail");
+
+    const res = await app.request(`${pathA}/analytics/ac-verification`, withApexHost());
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ total: 4, verified: 1, failing: 1, untested: 2 });
   });
 });

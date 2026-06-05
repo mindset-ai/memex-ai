@@ -2477,3 +2477,43 @@ export interface StandardsGraphData {
 export async function fetchStandardsGraph(): Promise<StandardsGraphData> {
   return fetchJsonRaw<StandardsGraphData>(fetchWithRetry, `${tBase()}/analytics/standards-graph`);
 }
+
+export interface FunnelStage {
+  phase: 'draft' | 'plan' | 'build' | 'verify' | 'done';
+  count: number;
+}
+
+export async function fetchPipelineFunnel(): Promise<FunnelStage[]> {
+  const { stages } = await fetchJsonRaw<{ stages: FunnelStage[] }>(
+    fetchWithRetry,
+    `${tBase()}/analytics/pipeline-funnel`,
+  );
+  return stages;
+}
+
+export interface ActivityByActorPoint {
+  day: string;
+  human: number;
+  mcp_agent: number;
+  in_app_agent: number;
+  system: number;
+}
+
+export async function fetchActivityByActor(): Promise<ActivityByActorPoint[]> {
+  const { points } = await fetchJsonRaw<{ points: ActivityByActorPoint[] }>(
+    fetchWithRetry,
+    `${tBase()}/analytics/activity-by-actor`,
+  );
+  return points;
+}
+
+export interface AcVerificationSummary {
+  total: number;
+  verified: number;
+  failing: number;
+  untested: number;
+}
+
+export async function fetchAcVerification(): Promise<AcVerificationSummary> {
+  return fetchJsonRaw<AcVerificationSummary>(fetchWithRetry, `${tBase()}/analytics/ac-verification`);
+}

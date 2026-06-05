@@ -14,15 +14,24 @@ import {
   fetchSpecsOverTime,
   fetchSpecsByPhase,
   fetchPhaseDurations,
+  fetchPipelineFunnel,
+  fetchActivityByActor,
+  fetchAcVerification,
   type SpecsOverTimePoint,
   type SpecsByPhasePoint,
   type PhaseDurations,
+  type FunnelStage,
+  type ActivityByActorPoint,
+  type AcVerificationSummary,
 } from '../api/client';
 import { PageHeader } from '../components/PageHeader';
 import { Card } from '../components/ui';
 import { SpecsOverTimeChart } from '../components/insights/SpecsOverTimeChart';
 import { SpecsByPhaseChart } from '../components/insights/SpecsByPhaseChart';
 import { PhaseDurationsChart } from '../components/insights/PhaseDurationsChart';
+import { PipelineFunnelChart } from '../components/insights/PipelineFunnelChart';
+import { ActivityStreamChart } from '../components/insights/ActivityStreamChart';
+import { AcVerificationChart } from '../components/insights/AcVerificationChart';
 
 // Below this many specs the charts are noise — show the unlock note instead.
 const MIN_SPECS_FOR_CHARTS = 3;
@@ -31,6 +40,9 @@ interface InsightsData {
   overTime: SpecsOverTimePoint[];
   byPhase: SpecsByPhasePoint[];
   durations: PhaseDurations;
+  funnel: FunnelStage[];
+  activity: ActivityByActorPoint[];
+  verification: AcVerificationSummary;
 }
 
 type LoadState =
@@ -47,10 +59,20 @@ export function Insights() {
   useEffect(() => {
     let cancelled = false;
     setState({ kind: 'loading' });
-    Promise.all([fetchSpecsOverTime(), fetchSpecsByPhase(), fetchPhaseDurations()])
-      .then(([overTime, byPhase, durations]) => {
+    Promise.all([
+      fetchSpecsOverTime(),
+      fetchSpecsByPhase(),
+      fetchPhaseDurations(),
+      fetchPipelineFunnel(),
+      fetchActivityByActor(),
+      fetchAcVerification(),
+    ])
+      .then(([overTime, byPhase, durations, funnel, activity, verification]) => {
         if (cancelled) return;
-        setState({ kind: 'ready', data: { overTime, byPhase, durations } });
+        setState({
+          kind: 'ready',
+          data: { overTime, byPhase, durations, funnel, activity, verification },
+        });
       })
       .catch((err: unknown) => {
         if (cancelled) return;
@@ -116,6 +138,29 @@ export function Insights() {
             <h2 className="text-sm font-semibold mb-2">Phase durations</h2>
             <PhaseDurationsChart durations={state.data.durations} />
           </Card>
+          <Card>
+            <h2 className="text-sm font-semibold">Pipeline funnel</h2>
+            <div className="text-xs text-secondary mb-2">
+              active specs at or beyond each phase
+            </div>
+            <PipelineFunnelChart stages={state.data.funnel} />
+          </Card>
+          <Card>
+            <h2 className="text-sm font-semibold">AC verification</h2>
+            <div className="text-xs text-secondary mb-2">
+              latest test emissions across every active acceptance criterion
+            </div>
+            <AcVerificationChart summary={state.data.verification} />
+          </Card>
+          {state.data.activity.length > 0 && (
+            <Card>
+              <h2 className="text-sm font-semibold">Who's doing the work</h2>
+              <div className="text-xs text-secondary mb-2">
+                daily activity by actor — humans vs agents (reads and test-event noise excluded)
+              </div>
+              <ActivityStreamChart points={state.data.activity} />
+            </Card>
+          )}
         </div>
       )}
     </div>

@@ -6,7 +6,14 @@ import {
 } from "../middleware/session.js";
 import type { MemexResolverEnv } from "../middleware/memex-resolver.js";
 import { resolveReadableMemexId } from "./shared.js";
-import { specsOverTime, specsByPhase, phaseDurations } from "../services/analytics.js";
+import {
+  specsOverTime,
+  specsByPhase,
+  phaseDurations,
+  pipelineFunnel,
+  activityByActor,
+  acVerification,
+} from "../services/analytics.js";
 import { standardsGraph, DEFAULT_SEMANTIC_THRESHOLD } from "../services/standards-graph.js";
 import { ValidationError } from "../types/errors.js";
 
@@ -43,6 +50,25 @@ analytics.get("/specs-by-phase", async (c) => {
 analytics.get("/phase-durations", async (c) => {
   const memexId = await resolveReadableMemexId(c);
   return c.json(await phaseDurations(memexId));
+});
+
+// GET /analytics/pipeline-funnel — specs at-or-beyond each phase.
+analytics.get("/pipeline-funnel", async (c) => {
+  const memexId = await resolveReadableMemexId(c);
+  return c.json({ stages: await pipelineFunnel(memexId) });
+});
+
+// GET /analytics/activity-by-actor — per-day Pulse activity split by actor
+// kind (reads + test-event spam excluded; see services/analytics.ts).
+analytics.get("/activity-by-actor", async (c) => {
+  const memexId = await resolveReadableMemexId(c);
+  return c.json({ points: await activityByActor(memexId) });
+});
+
+// GET /analytics/ac-verification — memex-wide AC verification rollup.
+analytics.get("/ac-verification", async (c) => {
+  const memexId = await resolveReadableMemexId(c);
+  return c.json(await acVerification(memexId));
 });
 
 // GET /analytics/standards-graph — nodes + mention edges (clause_refs joins,
