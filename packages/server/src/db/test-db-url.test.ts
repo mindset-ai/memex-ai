@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { deriveTestDatabaseUrl, resolveTestDatabaseUrl } from "./test-db-url.js";
+import {
+  deriveTestDatabaseUrl,
+  deriveWorkerDatabaseUrl,
+  resolveTestDatabaseUrl,
+  TEST_MAX_WORKERS,
+} from "./test-db-url.js";
 
 const BASE = "postgresql://postgres:postgres@localhost:5432/memex";
 
@@ -44,6 +49,54 @@ describe("deriveTestDatabaseUrl", () => {
     const name = new URL(derived).pathname.slice(1);
     expect(name).toMatch(/^[a-z0-9_]+_test_[0-9a-f]{8}$/);
     expect(name.length).toBeLessThanOrEqual(63);
+  });
+});
+
+describe("deriveWorkerDatabaseUrl", () => {
+  const TEST_URL = deriveTestDatabaseUrl(BASE, "/wt");
+
+  it("appends _w<poolId> to the test database name", () => {
+    const derived = deriveWorkerDatabaseUrl(TEST_URL, "3");
+    expect(new URL(derived).pathname).toMatch(/^\/memex_test_[0-9a-f]{8}_w3$/);
+  });
+
+  it("is idempotent — setup files re-run per test file under isolation", () => {
+    const once = deriveWorkerDatabaseUrl(TEST_URL, "3");
+    expect(deriveWorkerDatabaseUrl(once, "5")).toBe(once);
+  });
+
+  it("preserves credentials, host, port, and query params", () => {
+    const derived = new URL(
+      deriveWorkerDatabaseUrl(
+        "postgresql://user:pw@db.internal:6543/memex_test_0a1b2c3d?sslmode=disable",
+        "2",
+      ),
+    );
+    expect(derived.username).toBe("user");
+    expect(derived.password).toBe("pw");
+    expect(derived.hostname).toBe("db.internal");
+    expect(derived.port).toBe("6543");
+    expect(derived.searchParams.get("sslmode")).toBe("disable");
+    expect(derived.pathname).toBe("/memex_test_0a1b2c3d_w2");
+  });
+
+  it("stays under the 63-char identifier cap on a max-length test-db name", () => {
+    const longBase = `postgresql://localhost:5432/${"x".repeat(64)}`;
+    const testUrl = deriveTestDatabaseUrl(longBase, "/wt");
+    const worker = deriveWorkerDatabaseUrl(testUrl, String(TEST_MAX_WORKERS));
+    expect(new URL(worker).pathname.slice(1).length).toBeLessThanOrEqual(63);
+  });
+
+  it("sanitises a non-numeric pool id rather than producing an invalid name", () => {
+    const derived = deriveWorkerDatabaseUrl(TEST_URL, "weird;id");
+    expect(new URL(derived).pathname).toMatch(/_w0$/);
+  });
+});
+
+describe("TEST_MAX_WORKERS", () => {
+  it("is at least 1 and capped at 8 (connection budget, see comment in module)", () => {
+    expect(TEST_MAX_WORKERS).toBeGreaterThanOrEqual(1);
+    expect(TEST_MAX_WORKERS).toBeLessThanOrEqual(8);
   });
 });
 

@@ -276,7 +276,7 @@ list_memexes (List Memexes), list_docs (List documents), get_doc (Get document),
 ```
 
 *(23 tools. Human-readable names mirror the inventory file; "Assess
-Spec" / "Publish Spec" replace the older "Brief" wording.)*
+Spec" / "Publish Spec" reflect the b-105 rename.)*
 
 **Q35. Tool Titles & Annotations** — checkbox, required, multi.
 
@@ -374,14 +374,14 @@ view":
    `og-card.png` (the old version doesn't have the tagline) and
    redeploy memex-website.**
 2. **Screenshot — search_memex** — Claude.ai window mid-conversation
-   showing search results grouped across the Brief, decisions, and the
+   showing search results grouped across the Spec, decisions, and the
    Standard.
 3. **Screenshot — delete_task confirmation** — Claude's destructiveHint
    prompt asking the user to confirm before calling `delete_task` (the
    only destructive tool in v1 — `resolve_decision` is a reversible
    write and does NOT prompt). Create a throwaway task first, then
    delete it, so no seeded data is touched.
-4. **Screenshot — get_doc** — Claude returning the rendered Brief
+4. **Screenshot — get_doc** — Claude returning the rendered Spec
    structure (sections, decisions, tasks) inline.
 
 **TODO — capture screens 2–4 against the `memex-reviewer` Org ("Memex
@@ -398,9 +398,9 @@ Matching prompts:
   2. Screenshot 2 — "Search the Memex Reviewer Sandbox for everything
      about how reviewers exercise tools."
   3. Screenshot 3 — "Create a task 'temp — delete me' on the sample
-     Brief, then delete it."
+     Spec, then delete it."
   4. Screenshot 4 — "Open the Anthropic Connectors Directory sample
-     Brief and summarise its open decisions."
+     Spec and summarise its open decisions."
 ```
 
 ---

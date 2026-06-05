@@ -7,7 +7,14 @@
 //   2. CREATE DATABASE if it doesn't exist yet,
 //   3. run `pnpm db:migrate` against it (idempotent: drizzle journal +
 //      manual_migrations table), so the schema always matches THIS
-//      worktree's branch.
+//      worktree's branch,
+//   4. clone the migrated database into one PRIVATE database per worker slot
+//      (`<testDb>_w1` … `_wN`, N = TEST_MAX_WORKERS) via
+//      `CREATE DATABASE ... TEMPLATE` — a file-level copy, milliseconds each,
+//      no migrations re-run. Workers pick their clone by VITEST_POOL_ID in
+//      vitest.worker-db.setup.ts; this is what makes fileParallelism safe for
+//      DB-backed suites. Clones are dropped and recreated every run, so each
+//      run starts from a freshly migrated schema with no leftover rows.
 //
 // If Postgres is unreachable we warn and skip instead of failing the run —
 // `make test-unit` must keep working with no database at all; DB-backed
@@ -15,7 +22,11 @@
 import "dotenv/config";
 import { execSync } from "node:child_process";
 import postgres from "postgres";
-import { resolveTestDatabaseUrl } from "./src/db/test-db-url.js";
+import {
+  deriveWorkerDatabaseUrl,
+  resolveTestDatabaseUrl,
+  TEST_MAX_WORKERS,
+} from "./src/db/test-db-url.js";
 
 export default async function globalSetup(): Promise<void> {
   const testUrl = resolveTestDatabaseUrl();
@@ -57,4 +68,38 @@ export default async function globalSetup(): Promise<void> {
     stdio: "inherit",
     env: { ...process.env, DATABASE_URL: testUrl },
   });
+
+  // Per-worker clones. Sequential on purpose: concurrent CREATE DATABASE
+  // calls naming the same TEMPLATE race on Postgres's "no other connections
+  // to the template" rule and fail spuriously. DROP ... WITH (FORCE) (PG 13+)
+  // evicts any connection a stale worker from a previous run still holds.
+  const cloneAdmin = postgres(adminUrl.toString(), {
+    max: 1,
+    connect_timeout: 5,
+    onnotice: () => {},
+  });
+  const quote = (name: string) => `"${name.replace(/"/g, '""')}"`;
+  try {
+    for (let worker = 1; worker <= TEST_MAX_WORKERS; worker++) {
+      const workerDbName = decodeURIComponent(
+        new URL(deriveWorkerDatabaseUrl(testUrl, String(worker))).pathname.slice(1),
+      );
+      await cloneAdmin.unsafe(
+        `DROP DATABASE IF EXISTS ${quote(workerDbName)} WITH (FORCE)`,
+      );
+      await cloneAdmin.unsafe(
+        `CREATE DATABASE ${quote(workerDbName)} TEMPLATE ${quote(dbName)}`,
+      );
+    }
+    console.log(
+      `[test-db] provisioned ${TEST_MAX_WORKERS} per-worker clones ("${dbName}_w1"…"_w${TEST_MAX_WORKERS}")`,
+    );
+  } catch (err) {
+    console.warn(
+      `[test-db] per-worker clone provisioning failed (${(err as Error).message}). ` +
+        `DB-backed suites will fail loudly; unit tests are unaffected.`,
+    );
+  } finally {
+    await cloneAdmin.end({ timeout: 1 });
+  }
 }

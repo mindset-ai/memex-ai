@@ -42,12 +42,16 @@ describe("AC emit phone-home wiring — keep the setupFile wire alive", () => {
     expect(src).toMatch(/setupFiles\s*:/);
   });
 
-  it("setupFiles points at @memex-ai-ac/vitest/setup (the workspace package) [spec-89 ac-1, ac-2]", () => {
+  it("setupFiles includes @memex-ai-ac/vitest/setup (the workspace package) [spec-89 ac-1, ac-2]", () => {
     tagAc(`${SPEC_89}/ac-1`);
     tagAc(`${SPEC_89}/ac-2`);
     const src = readFileSync(VITEST_CONFIG, "utf-8");
+    // Membership, not sole-entry: the guard's intent is "the AC helper stays
+    // wired", not "nothing else may be a setup file". The per-worker DB
+    // isolation entry (vitest.worker-db.setup.ts, which precedes the helper)
+    // is legitimate; what must never happen is the helper entry disappearing.
     expect(src).toMatch(
-      /setupFiles\s*:\s*\[\s*['"]@memex-ai-ac\/vitest\/setup['"]\s*\]/,
+      /setupFiles\s*:\s*\[[^\]]*['"]@memex-ai-ac\/vitest\/setup['"][^\]]*\]/,
     );
   });
 
@@ -126,17 +130,21 @@ describe("AC emit phone-home wiring — keep the setupFile wire alive", () => {
     expect(src).toMatch(/mindset-prod/);
   });
 
-  it("smoke config does NOT load the AC emission helper (smoke suite mustn't double-emit)", () => {
+  it("smoke config loads the AC emission helper (key-gated post-deploy emission)", () => {
     tagAc(`${SPEC_89}/ac-1`);
-    // The smoke suite hits live deployments; if it also tagged ACs, every
-    // smoke run would emit a duplicate test_events row against the live
-    // workspace. Pin that the smoke config's setupFiles, if present at
-    // all, doesn't include the helper.
+    // POLICY REVERSAL (2026-06-05, owner decision): this guard used to assert
+    // the OPPOSITE — that the smoke config must never load the helper, to
+    // avoid double-emitting against the live workspace. The smoke config now
+    // wires the helper deliberately so post-deploy smoke runs can tag ACs;
+    // the double-emit concern is handled by key-gating (no MEMEX_EMIT_KEY in
+    // env → the helper no-ops every emission). What this guard now pins is
+    // the same thing it always pinned for the main config: the wire must not
+    // silently disappear.
     const smokeConfig = join(SERVER_ROOT, "vitest.smoke.config.ts");
     if (!existsSync(smokeConfig)) return;
     const src = readFileSync(smokeConfig, "utf-8");
-    expect(src).not.toMatch(
-      /setupFiles[\s\S]{0,200}@memex-ai-ac\/vitest/,
+    expect(src).toMatch(
+      /setupFiles\s*:\s*\[[^\]]*['"]@memex-ai-ac\/vitest\/setup['"][^\]]*\]/,
     );
   });
 });

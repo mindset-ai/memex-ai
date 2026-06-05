@@ -58,6 +58,8 @@ const manifestMutating = new Set(
 const NON_DB_MUTATORS: Record<string, string> = {
   memex__send_slack_message:
     "Sends a Slack message via the user's connected account — an external side-effect, not a Memex DB row. No mutate() write, so nothing to fan out on the bus.",
+  memex__send_discord_message:
+    "Sends a Discord message via the org's configured webhook (spec-138) — an external side-effect, not a Memex DB row. No mutate() write, so nothing to fan out on the bus.",
 };
 
 // Catalogue of mutation entry points by MCP tool name → the change-event shape its

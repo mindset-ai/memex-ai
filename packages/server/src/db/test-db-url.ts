@@ -11,8 +11,20 @@
 // Escape hatch: set MEMEX_TEST_DATABASE_URL to use an exact URL verbatim.
 
 import { createHash } from "node:crypto";
+import { availableParallelism } from "node:os";
 
 const DERIVED_SUFFIX = /_test_[0-9a-f]{8}$/;
+const WORKER_SUFFIX = /_w\d+$/;
+
+// Worker-count ceiling shared by vitest.config.ts (`maxWorkers`) and
+// vitest.global-setup.ts (how many per-worker clones to provision) so they
+// always agree. Capped at 8: each worker holds its own postgres-js pool
+// (DB_POOL_MAX, default 5), so 8 workers ≈ 40 connections — comfortably
+// inside a default local max_connections=100 alongside a `make dev` server.
+export const TEST_MAX_WORKERS = Math.min(
+  8,
+  Math.max(1, availableParallelism() - 1),
+);
 
 // Pure derivation: replace the database name with `<base>_test_<hash>`,
 // preserving credentials/host/port/query. Idempotent on already-derived URLs.
@@ -28,6 +40,28 @@ export function deriveTestDatabaseUrl(
     (baseName || "memex").toLowerCase().replace(/[^a-z0-9_]/g, "_").slice(0, 40);
   const hash = createHash("sha1").update(worktreeRoot).digest("hex").slice(0, 8);
   url.pathname = `/${safeBase}_test_${hash}`;
+  return url.toString();
+}
+
+// Per-WORKER derivation on top of the per-worktree URL: `<testDb>_w<poolId>`.
+// vitest runs test files in parallel workers (fileParallelism); files in
+// different workers would trample each other's rows on a shared database, so
+// each worker slot gets its own clone (created by vitest.global-setup.ts via
+// CREATE DATABASE ... TEMPLATE, picked up by vitest.worker-db.setup.ts inside
+// the worker — the only place VITEST_POOL_ID is visible). Idempotent on
+// already-suffixed URLs because setup files re-run per test file under
+// vitest's default isolation.
+export function deriveWorkerDatabaseUrl(
+  testUrl: string,
+  poolId: string,
+): string {
+  const url = new URL(testUrl);
+  const name = decodeURIComponent(url.pathname.replace(/^\//, ""));
+  if (WORKER_SUFFIX.test(name)) return testUrl;
+  const id = poolId.replace(/[^0-9]/g, "") || "0";
+  // Worktree-derived names cap at 54 chars (see deriveTestDatabaseUrl); the
+  // `_wN` suffix keeps the result inside Postgres's 63-char identifier limit.
+  url.pathname = `/${name}_w${id}`;
   return url.toString();
 }
 
