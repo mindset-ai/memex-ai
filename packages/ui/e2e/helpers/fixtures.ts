@@ -83,7 +83,15 @@ export const test = base.extend<{ resources: TestResources }>({
 
 export { expect } from "@playwright/test";
 
-const BASE_URL = process.env.E2E_BASE_URL ?? "http://localhost:5173";
+// Honour the same port override chain as playwright.config.ts: E2E_BASE_URL
+// wins, then E2E_UI_PORT (the documented escape hatch when 5173 is held by
+// another worktree's dev server), then the 5173 default. Without the middle
+// step, `E2E_UI_PORT=<free port> make e2e-cold` boots the webServers on the
+// override port while every journey silently navigates to the FOREIGN server
+// squatting on 5173 — uniform blank-page failures.
+const BASE_URL =
+  process.env.E2E_BASE_URL ??
+  `http://localhost:${process.env.E2E_UI_PORT ?? 5173}`;
 
 /**
  * Path-based tenant URL [per std-2]: resolves `/<namespace>/<memex>${path}` on

@@ -1,4 +1,4 @@
-import { test, expect, ensureUser, DEV_EMAIL, type TestResources } from "./helpers/index.js";
+import { test, expect, ensureUser, tenantPath, DEV_EMAIL, type TestResources } from "./helpers/index.js";
 import {
   seedOrgTenant,
   seedSpec,
@@ -43,9 +43,9 @@ const test2 = test.extend<{ seed: RoleSeed }>({
 });
 
 async function gotoSpec(page: Page, seed: RoleSeed) {
-  await page.goto(
-    `${process.env.E2E_BASE_URL ?? "http://localhost:5173"}/${seed.tenant.namespaceSlug}/${seed.tenant.memexSlug}/docs/${seed.docId}`,
-  );
+  // tenantPath honours the E2E_BASE_URL / E2E_UI_PORT override chain — an inline
+  // 5173 default here navigates to a foreign dev server on override-port runs.
+  await page.goto(tenantPath(seed.tenant.namespaceSlug, seed.tenant.memexSlug, `/docs/${seed.docId}`));
   await expect(page.getByRole("heading", { name: "Roles Spec", level: 1 })).toBeVisible({
     timeout: 15_000,
   });
