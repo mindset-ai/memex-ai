@@ -295,7 +295,10 @@ describe("Spec MCP tools (post-doc-14, b-105)", () => {
     const result = await callTool(actor.user.id, "get_doc", { ref });
     expect(result.isError).toBeFalsy();
     const text = result.content[0].text;
-    expect(text).toContain("# StatusOne [DRAFT]");
+    // spec-189: the decision + task traffic above auto-advanced the draft
+    // Spec (draft → specify on create_decision, specify → build on
+    // create_task) — the doc state now reports the traffic-driven phase.
+    expect(text).toContain("# StatusOne [BUILD]");
     // formatFullDocState now emits "## Decisions (1 total: …)" / "## Tasks (1 total: …)".
     expect(text).toMatch(/Decisions \(1/);
     expect(text).toMatch(/Tasks \(1/);

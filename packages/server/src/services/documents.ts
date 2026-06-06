@@ -4,7 +4,7 @@ import { documents, docSections, docComments, decisions, users, tags, documentTa
 import type { Doc, DocSection, Decision } from "../db/schema.js";
 import type { DocSummary } from "../types/index.js";
 import { NotFoundError, ValidationError } from "../types/errors.js";
-import { mutate, type ChangeKey, type Mutated } from "./mutate.js";
+import { mutate, type ChangeKey, type Mutated, type RequestCtx } from "./mutate.js";
 import { isUuid } from "./shared/identifiers.js";
 import { withSeqRetry } from "./shared/sequence.js";
 import { embedAndStoreSection, embedAndStoreDecision } from "./memex-embeddings.js";
@@ -823,12 +823,18 @@ export { DOC_STATUSES, SPEC_STATUSES, type DocStatus, type SpecStatus };
 // dec-3 warning when an agent closes a Spec without first running
 // `assess_phase_transition`. `opts.source` is preserved as a hook for future
 // per-source logging / telemetry; today nothing reads it.
+//
+// spec-189: `opts.ctx` threads the originating channel into the emitted
+// events (Pulse attribution for traffic-driven auto-advances) and
+// `opts.narrative` overrides the default status_changed prose so automatic
+// transitions read as auto-advanced rather than humanly moved. Both
+// optional — existing callers are unchanged.
 export async function updateDocStatus(
   memexId: string,
   id: string,
   status: string,
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  opts: { source?: "agent" | "rest" } = {},
+  opts: { source?: "agent" | "rest"; ctx?: RequestCtx; narrative?: string } = {},
 ): Promise<Mutated<Doc>> {
   if (!(DOC_STATUSES as readonly string[]).includes(status)) {
     throw new ValidationError(
@@ -855,13 +861,13 @@ export async function updateDocStatus(
       docId: id,
       entity: "document",
       action: "status_changed",
-      narrative: `moved ${doc.handle} ${doc.status} → ${status}`,
+      narrative: opts.narrative ?? `moved ${doc.handle} ${doc.status} → ${status}`,
       payload: { from: doc.status, to: status },
     });
   }
 
   const updated = await mutate(
-    {},
+    opts.ctx ?? {},
     keys,
     async () => {
       const [row] = await db

@@ -210,3 +210,66 @@ export function computeSpecReadiness(input: ReadinessInput): SpecReadiness {
 export function blockerLines(readiness: SpecReadiness): string[] {
   return readiness.outstandingItems.map((item) => `${item.label} — ${item.cta}`);
 }
+
+// ---------------------------------------------------------------------------
+// spec-189: traffic-driven phase advancement.
+//
+// Agent tool traffic (channels 'mcp' / 'in_app_agent') is classified by the
+// @memex/shared tool manifest into a TrafficClass; this pure function is THE
+// single place (spec-189 ac-3) that decides whether observed traffic moves a
+// Spec. The server applies the result through updateDocStatus() → mutate() →
+// bus (std-8); nothing else may re-encode these rules.
+//
+// The matrix (spec-189 dec-1, dec-2, dec-3):
+//
+//   current ↓ / traffic →   specify     build      verify
+//   draft                   → specify   → build    → verify
+//   specify                 stay        → build    stay
+//   build                   stay        stay       stay
+//   verify                  stay        stay       stay
+//   done                    → specify   → build    → verify
+//
+//   - `null` (query-class) traffic never moves a Spec.
+//   - draft is special: ANY classified traffic re-homes the Spec to the
+//     class's phase — a draft with traffic arriving is beyond sketching.
+//   - done is reopenable by activity: traffic moves it BACK to the class's
+//     phase.
+//   - between those open ends, motion is forward-only and only build-class
+//     traffic drives it (specify → build). Entering verify is never
+//     traffic-driven from specify/build; verify never regresses to build.
+//   - transitions are unconditional (dec-3) — readiness gating stays soft
+//     per spec-12 dec-6 and is not consulted here.
+
+/**
+ * How a tool's traffic reads against the Spec lifecycle. Values deliberately
+ * mirror the SpecPhase the traffic "belongs" to; `null` is query-class
+ * (read-only) traffic, which never moves a Spec and never assigns.
+ */
+export type TrafficClass = 'specify' | 'build' | 'verify' | null;
+
+/**
+ * The pure transition function: (current phase × traffic class) → next phase.
+ * Returns the unchanged phase when the traffic doesn't move the Spec. Zero
+ * I/O; exhaustively unit-tested cell-by-cell.
+ */
+export function nextPhaseForTraffic(
+  current: SpecPhase,
+  traffic: TrafficClass,
+): SpecPhase {
+  if (traffic === null) return current;
+
+  // TrafficClass values are SpecPhase names by construction — the class IS
+  // the phase the traffic re-homes a Spec to from the open ends.
+  const target: SpecPhase = traffic;
+
+  // The open ends: draft (any traffic means we're beyond sketching) and done
+  // (reopenable by activity) re-home to the class's phase.
+  if (current === 'draft' || current === 'done') return target;
+
+  // Between the ends: forward-only, and only build-class traffic drives it.
+  if (traffic === 'build' && isForwardTransition(current, 'build')) {
+    return 'build';
+  }
+
+  return current;
+}

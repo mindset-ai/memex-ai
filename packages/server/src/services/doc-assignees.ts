@@ -6,6 +6,11 @@
 // (spec-84) is subsumed by "assignee": the live responsibility pointer the board
 // shows, more prominent than the creator.
 //
+// spec-189 dec-6 carve-out: the TRAFFIC-DRIVEN path (services/spec-traffic.ts —
+// auto-assignment from mutating agent tool calls) deliberately couples the two
+// axes: it calls assign() AND promoteToEditor() together. The manual tools
+// (assign_spec / unassign_spec) keep the role-independence described above.
+//
 // A Spec supports one-or-more assignees (UNIQUE(doc_id,user_id) makes assign an
 // idempotent upsert and unassign a delete). assign/unassign flow through mutate()
 // with entity:"doc_assignee" and emit on the unified bus (std-8, ac-20) — so

@@ -222,13 +222,17 @@ describe("b-68 t-7 ac-23: mcp-descriptions.md files are retired", () => {
 
   it("toolManifest entries carry no phase-conditional summary / args content (pinning regression — manifest is phase-agnostic)", () => {
     tagAc("mindset-prod/memex-building-itself/specs/spec-68/acs/ac-23");
-    // ToolManifestEntry shape carries `{name, summary, args, group, readOnlyHint}`.
-    // None of those fields branch on Spec phase — they're authored once and
-    // shipped to every surface uniformly. This test pins that contract so a
-    // future change (e.g. adding a `summaryByPhase`) is flagged as drift
-    // from b-68 dec-6 ("one model, many projections" — phase-specific tool
-    // descriptions arrive as scaffold-data GuidanceBlocks, NOT manifest
-    // entries). (spec-156 ac-25 added the phase-agnostic `readOnlyHint`.)
+    // ToolManifestEntry shape carries `{name, summary, args, group,
+    // readOnlyHint, trafficClass, autoAssignExempt?}`. None of those fields
+    // branch on Spec phase — they're authored once and shipped to every
+    // surface uniformly. This test pins that contract so a future change
+    // (e.g. adding a `summaryByPhase`) is flagged as drift from b-68 dec-6
+    // ("one model, many projections" — phase-specific tool descriptions
+    // arrive as scaffold-data GuidanceBlocks, NOT manifest entries).
+    // (spec-156 ac-25 added the phase-agnostic `readOnlyHint`; spec-189
+    // dec-4 added the equally phase-agnostic `trafficClass` +
+    // `autoAssignExempt` — the CLASSIFICATION is static per tool; the
+    // phase-dependent behaviour lives in nextPhaseForTraffic, not here.)
     for (const entry of toolManifest) {
       expect(entry).toEqual({
         name: expect.any(String),
@@ -236,6 +240,13 @@ describe("b-68 t-7 ac-23: mcp-descriptions.md files are retired", () => {
         args: expect.any(String),
         group: expect.any(String),
         readOnlyHint: expect.any(Boolean),
+        trafficClass:
+          entry.trafficClass === null
+            ? null
+            : expect.stringMatching(/^(specify|build|verify)$/),
+        ...(entry.autoAssignExempt !== undefined
+          ? { autoAssignExempt: expect.any(Boolean) }
+          : {}),
       });
     }
   });

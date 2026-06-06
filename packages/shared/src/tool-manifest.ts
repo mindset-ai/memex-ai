@@ -24,6 +24,8 @@
 // MEMEX_MCP_TOOLS_REFERENCE: Read (any phase) → 'read', Planning phase →
 // 'planning', Build phase → 'build', Comments → 'comments'.
 
+import type { TrafficClass } from './spec-readiness.js';
+
 export interface ToolManifestEntry {
   name: string;
   summary: string;
@@ -35,6 +37,27 @@ export interface ToolManifestEntry {
   // this in the b-67 cross-check; the mutate-coverage endpoint gate derives the
   // mutating tool set from `!readOnlyHint`.
   readOnlyHint: boolean;
+  // spec-189 dec-4: how this tool's traffic reads against the Spec lifecycle,
+  // feeding nextPhaseForTraffic (spec-readiness.ts). REQUIRED so adding a tool
+  // forces a classification here — no standalone map that can drift.
+  //   'specify' — decision authoring/resolution + AC authoring (dec-1)
+  //   'build'   — task create/update/delete + issue registration/lifecycle
+  //   'verify'  — AC verification (none on MCP today: verify-class traffic
+  //               arrives via POST /api/test-events, wired server-side)
+  //   null      — traffic that never drives a phase transition: all read-only
+  //               tools, plus mutating tools that either (a) explicitly manage
+  //               the lifecycle (update_doc / publish_spec / assess_spec —
+  //               auto-advance must not fight deliberate placement, same
+  //               principle as dec-5's rest_ui exclusion), (b) shape narrative
+  //               (sections are legitimate draft-phase work and must not bump
+  //               draft → specify; dec-1 scopes specify-class to decisions +
+  //               ACs), or (c) target non-Spec entities (standards clauses).
+  trafficClass: TrafficClass;
+  // spec-189 dec-6/dec-5 corollary: mutating tools whose JOB is managing the
+  // assignment/role axis (or that only notify humans) are exempt from
+  // auto-assignment — otherwise unassign_spec(self) would instantly undo
+  // itself. Absent = false: every other mutating tool auto-assigns its caller.
+  autoAssignExempt?: boolean;
 }
 
 export const toolManifest: ToolManifestEntry[] = [
@@ -46,6 +69,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'get_information(topic?)',
     group: 'read',
     readOnlyHint: true,
+    trafficClass: null,
   },
   // ── Read (any phase) ──────────────────────────────────────
   {
@@ -55,6 +79,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'list_memexes()',
     group: 'read',
     readOnlyHint: true,
+    trafficClass: null,
   },
   {
     name: 'list_docs',
@@ -63,6 +88,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'list_docs(memex?, docType?, tags?)',
     group: 'read',
     readOnlyHint: true,
+    trafficClass: null,
   },
   {
     name: 'get_doc',
@@ -71,6 +97,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'get_doc(ref)',
     group: 'read',
     readOnlyHint: true,
+    trafficClass: null,
   },
   {
     name: 'export_doc',
@@ -79,6 +106,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'export_doc(ref)',
     group: 'read',
     readOnlyHint: true,
+    trafficClass: null,
   },
   {
     name: 'list_tasks',
@@ -87,6 +115,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'list_tasks(ref, readyOnly?)',
     group: 'read',
     readOnlyHint: true,
+    trafficClass: null,
   },
   {
     name: 'list_comments',
@@ -95,6 +124,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'list_comments(ref, types?, mode?)',
     group: 'read',
     readOnlyHint: true,
+    trafficClass: null,
   },
   {
     name: 'search_memex',
@@ -103,6 +133,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'search_memex(memex?, query, kind?, includeArchived?, includeCurrentDoc?, limit?)',
     group: 'read',
     readOnlyHint: true,
+    trafficClass: null,
   },
   {
     name: 'search_issues',
@@ -111,6 +142,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'search_issues(memex?, query, includeArchived?, limit?)',
     group: 'read',
     readOnlyHint: true,
+    trafficClass: null,
   },
 
   // ── Planning phase (draft / specify) ──────────────────────
@@ -121,6 +153,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'create_doc(memex?, title, purpose?, docType?, decisions?, promoteFromTaskRef?, promoteFromIssueRef?)',
     group: 'planning',
     readOnlyHint: false,
+    trafficClass: null,
   },
   {
     name: 'update_doc',
@@ -129,22 +162,25 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'update_doc(ref, status?, title?, tags?, removeTags?)',
     group: 'planning',
     readOnlyHint: false,
+    trafficClass: null,
   },
   {
     name: 'add_section',
     summary:
-      'Add a new section to a document; the (doc, sectionType) pair is unique. STANDARDS are authored as clauses: pass clauses[] (one aspect each), not content; other doc types pass content. The wrong field for the doc type is rejected with guidance.',
+      'Add a new section to a document; the (doc, sectionType) pair is unique. STANDARDS are authored as clauses: pass clauses[] (one aspect each), not content; other doc types pass content. Wrong field for the doc type → rejected with guidance.',
     args: 'add_section(ref, sectionType, content?, clauses?, title?, description?)',
     group: 'planning',
     readOnlyHint: false,
+    trafficClass: null,
   },
   {
     name: 'update_section',
     summary:
-      'Update the markdown content of a NON-standard document section (+ optional sectionType key / description). Blocked on standards — edit those at the clause grain via add_clause/edit_clause/delete_clause. A sectionType collision fails with a readable error.',
+      'Update the markdown content of a NON-standard document section (+ optional sectionType key / description). Blocked on standards — edit at the clause grain (add/edit/delete_clause). A sectionType collision fails with a readable error.',
     args: 'update_section(ref, content, sectionType?, description?)',
     group: 'planning',
     readOnlyHint: false,
+    trafficClass: null,
   },
   {
     name: 'add_clause',
@@ -153,6 +189,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'add_clause(ref, body, position?)',
     group: 'planning',
     readOnlyHint: false,
+    trafficClass: null,
   },
   {
     name: 'edit_clause',
@@ -161,6 +198,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'edit_clause(ref, body)',
     group: 'planning',
     readOnlyHint: false,
+    trafficClass: null,
   },
   {
     name: 'delete_clause',
@@ -169,6 +207,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'delete_clause(ref)',
     group: 'planning',
     readOnlyHint: false,
+    trafficClass: null,
   },
   {
     name: 'retitle_section',
@@ -177,6 +216,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'retitle_section(ref, title, sectionType?)',
     group: 'planning',
     readOnlyHint: false,
+    trafficClass: null,
   },
   {
     name: 'delete_section',
@@ -185,6 +225,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'delete_section(ref)',
     group: 'planning',
     readOnlyHint: false,
+    trafficClass: null,
   },
   {
     name: 'create_decision',
@@ -193,6 +234,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'create_decision(ref, title, context?, status?, options?)',
     group: 'planning',
     readOnlyHint: false,
+    trafficClass: 'specify',
   },
   {
     name: 'update_decision',
@@ -201,6 +243,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'update_decision(ref, status?, title?, context?, resolution?, chosenOptionIndex?)',
     group: 'planning',
     readOnlyHint: false,
+    trafficClass: 'specify',
   },
   {
     name: 'delete_decision',
@@ -209,6 +252,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'delete_decision(ref)',
     group: 'planning',
     readOnlyHint: false,
+    trafficClass: 'specify',
   },
   {
     name: 'resolve_decision',
@@ -217,6 +261,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'resolve_decision(ref, resolution, chosenOptionIndex?)',
     group: 'planning',
     readOnlyHint: false,
+    trafficClass: 'specify',
   },
   {
     name: 'approve_candidate',
@@ -225,6 +270,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'approve_candidate(ref)',
     group: 'planning',
     readOnlyHint: false,
+    trafficClass: 'specify',
   },
   {
     name: 'reject_candidate',
@@ -233,6 +279,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'reject_candidate(ref, reason)',
     group: 'planning',
     readOnlyHint: false,
+    trafficClass: 'specify',
   },
   {
     name: 'assess_spec',
@@ -241,6 +288,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'assess_spec(ref, mode, target?, codeGrounding?)',
     group: 'planning',
     readOnlyHint: false,
+    trafficClass: null,
   },
   {
     name: 'publish_spec',
@@ -249,6 +297,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'publish_spec(ref, status?)',
     group: 'planning',
     readOnlyHint: false,
+    trafficClass: null,
   },
 
   // ── Build phase (build) ───────────────────────────────────
@@ -259,6 +308,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'create_task(ref, title, description, acceptanceCriteria?, sectionRef?)',
     group: 'build',
     readOnlyHint: false,
+    trafficClass: 'build',
   },
   {
     name: 'update_task',
@@ -267,6 +317,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'update_task(ref, status?, title?, description?, acceptanceCriteria?, sectionRef?, addBlockerRef?, removeBlockerRef?)',
     group: 'build',
     readOnlyHint: false,
+    trafficClass: 'build',
   },
   {
     name: 'delete_task',
@@ -274,6 +325,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'delete_task(ref)',
     group: 'build',
     readOnlyHint: false,
+    trafficClass: 'build',
   },
 
   // ── Standards protocol (build) ────────────────────────────
@@ -287,6 +339,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'flag_drift(ref, observation)',
     group: 'build',
     readOnlyHint: false,
+    trafficClass: null,
   },
   {
     name: 'propose_standard_change',
@@ -295,6 +348,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'propose_standard_change(ref, proposedContent, rationale?)',
     group: 'build',
     readOnlyHint: false,
+    trafficClass: null,
   },
 
   // ── Issues (any phase) ────────────────────────────────────
@@ -305,6 +359,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'register_issue(memex?, spec_ref?, title, body, type, severity?, promote_to_spec?)',
     group: 'build',
     readOnlyHint: false,
+    trafficClass: 'build',
   },
   {
     name: 'list_issues',
@@ -312,6 +367,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'list_issues(ref, type?, status?)',
     group: 'build',
     readOnlyHint: true,
+    trafficClass: null,
   },
   {
     name: 'get_issue',
@@ -319,6 +375,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'get_issue(ref)',
     group: 'build',
     readOnlyHint: true,
+    trafficClass: null,
   },
   {
     name: 'update_issue',
@@ -326,6 +383,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'update_issue(ref, title?, body?, severity?)',
     group: 'build',
     readOnlyHint: false,
+    trafficClass: 'build',
   },
   {
     name: 'resolve_issue',
@@ -333,6 +391,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'resolve_issue(ref, resolution)',
     group: 'build',
     readOnlyHint: false,
+    trafficClass: 'build',
   },
   {
     name: 'convert_issue_to_task',
@@ -341,6 +400,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'convert_issue_to_task(ref)',
     group: 'build',
     readOnlyHint: false,
+    trafficClass: 'build',
   },
   {
     name: 'kick_task_to_issue',
@@ -349,6 +409,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'kick_task_to_issue(ref, reason)',
     group: 'build',
     readOnlyHint: false,
+    trafficClass: 'build',
   },
 
   // ── Roles + assignment (any phase) ────────────────────────
@@ -359,6 +420,8 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'set_spec_role(ref, user, role?)',
     group: 'build',
     readOnlyHint: false,
+    trafficClass: null,
+    autoAssignExempt: true,
   },
   {
     name: 'get_spec_roles',
@@ -367,6 +430,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'get_spec_roles(ref)',
     group: 'read',
     readOnlyHint: true,
+    trafficClass: null,
   },
   {
     name: 'assign_spec',
@@ -375,6 +439,8 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'assign_spec(ref, user?)',
     group: 'build',
     readOnlyHint: false,
+    trafficClass: null,
+    autoAssignExempt: true,
   },
   {
     name: 'unassign_spec',
@@ -383,6 +449,8 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'unassign_spec(ref, user)',
     group: 'build',
     readOnlyHint: false,
+    trafficClass: null,
+    autoAssignExempt: true,
   },
 
   // ── Acceptance Criteria (specify + build) ─────────────────
@@ -393,6 +461,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: "create_ac(ref, kind, statement, status?, parent_decision_ref?)",
     group: 'build',
     readOnlyHint: false,
+    trafficClass: 'specify',
   },
   {
     name: 'list_acs',
@@ -400,6 +469,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'list_acs(ref, kind?, status?)',
     group: 'build',
     readOnlyHint: true,
+    trafficClass: null,
   },
   {
     name: 'get_ac',
@@ -407,6 +477,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'get_ac(ref)',
     group: 'build',
     readOnlyHint: true,
+    trafficClass: null,
   },
   {
     name: 'update_ac',
@@ -415,6 +486,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'update_ac(ref, statement)',
     group: 'build',
     readOnlyHint: false,
+    trafficClass: 'specify',
   },
   {
     name: 'delete_ac',
@@ -423,6 +495,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'delete_ac(ref)',
     group: 'build',
     readOnlyHint: false,
+    trafficClass: 'specify',
   },
   {
     name: 'link_ac_to_decision',
@@ -431,6 +504,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'link_ac_to_decision(ac_ref, decision_ref)',
     group: 'build',
     readOnlyHint: false,
+    trafficClass: 'specify',
   },
 
   // ── Comments (any phase) ──────────────────────────────────
@@ -441,6 +515,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'add_comment(ref, authorName, content, type?, referenceRef?, anchorOffset?)',
     group: 'comments',
     readOnlyHint: false,
+    trafficClass: null,
   },
   {
     name: 'update_comment',
@@ -449,6 +524,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'update_comment(ref, status, resolution?)',
     group: 'comments',
     readOnlyHint: false,
+    trafficClass: null,
   },
   {
     name: 'memex__send_slack_message',
@@ -457,6 +533,8 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'memex__send_slack_message(memex?, channelOrUser, text, specRef?)',
     group: 'comments',
     readOnlyHint: false,
+    trafficClass: null,
+    autoAssignExempt: true,
   },
   {
     name: 'memex__send_discord_message',
@@ -465,5 +543,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'memex__send_discord_message(memex?, channelOrUser?, text, specRef?)',
     group: 'comments',
     readOnlyHint: false,
+    trafficClass: null,
+    autoAssignExempt: true,
   },
 ];
