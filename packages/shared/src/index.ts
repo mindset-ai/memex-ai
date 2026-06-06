@@ -90,3 +90,17 @@ export { DRIFT_AGENT_GUIDANCE } from './scaffold-data.js';
 // spec-143 t-4 (dec-6): the drift agent's on-mount opening-turn seed (std-15 —
 // one home). The Drift Inbox fires it once on mount.
 export { DRIFT_OPENING_TURN_SEED } from './scaffold-data.js';
+
+// spec-190 t-4 (dec-3): the screen-element registry — canonical screen keys,
+// route→screenKey mapping, and per-screen highlightable elements. Imported by the
+// guide graph (screenKey in state), the highlight/navigate tools (t-5), and the
+// server's guide-content import-time validation (t-7).
+export {
+  resolveScreenKey,
+  GUIDE_SCREENS,
+  REGISTERED_SCREEN_KEYS,
+  guideElementsForScreen,
+  isKnownGuideElement,
+  allGuideElementIds,
+} from './guide-registry.js';
+export type { GuideScreenKey, GuideElement, GuideScreen } from './guide-registry.js';
