@@ -17,6 +17,8 @@ import { docMembersRouter } from "./routes/doc-members.js";
 import { docAssigneesRouter } from "./routes/doc-assignees.js";
 import { executionPlans } from "./routes/execution-plans.js";
 import { llmRouter } from "./routes/llm.js";
+import { createNodeWebSocket } from "@hono/node-ws";
+import { createVoiceRouter } from "./routes/voice.js";
 import { docEventsRouter } from "./routes/doc-events.js";
 import { activity } from "./routes/activity.js";
 import { analytics } from "./routes/analytics.js";
@@ -62,6 +64,12 @@ import { dirname, join } from "node:path";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const app = new Hono();
+
+// spec-190 t-1 / dec-9: WebSocket support for the voice loop's audio leg.
+// createNodeWebSocket binds to THIS app instance; index.ts calls
+// injectWebSocket(server) after serve(). upgradeWebSocket registers the voice
+// WS route (mounted below). The LLM text proxy stays on SSE (dec-2).
+const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
 
 // CORS policy lives in middleware/cors-policy.ts so it can be unit-tested without
 // pulling in the DB connection. See that file for the rationale on each entry.
@@ -237,6 +245,11 @@ app.route("/api/:namespace/:memex/analytics", analytics);
 app.route("/api/:namespace/:memex/handhold", handhold);
 app.use("/api/:namespace/:memex/llm/*", sessionMiddleware);
 app.route("/api/:namespace/:memex/llm", llmRouter);
+// spec-190 t-1: voice WS proxy, tenancy-scoped. Deliberately NO sessionMiddleware
+// — the WS handshake can't carry an Authorization header, so the router
+// authenticates the connect-query token itself (routes/voice.ts). memexResolver
+// (global) has already resolved c.memex from the path.
+app.route("/api/:namespace/:memex/voice", createVoiceRouter(upgradeWebSocket));
 // Tenancy-scoped membership / admin surfaces — drift fix to t-12. These were
 // previously mounted flat at /api/team, /api/invites, and /api/orgs/current/*
 // but their handlers all read `ctx.currentMemexId`, which memexResolver only
@@ -579,4 +592,4 @@ app.all("/mcp", async (c) => {
   });
 });
 
-export { app };
+export { app, injectWebSocket };

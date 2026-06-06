@@ -1,7 +1,7 @@
 // Load .env as early as possible so downstream module-load code sees the vars.
 import "dotenv/config";
 import { serve } from "@hono/node-server";
-import { app } from "./app.js";
+import { app, injectWebSocket } from "./app.js";
 import { cleanupExpiredDomainVerificationTokens } from "./services/domain-verification.js";
 import { warnIfLlmNotConfigured } from "./agent/anthropic-client.js";
 import { startBusObservability } from "./services/bus-observability.js";
@@ -22,7 +22,7 @@ export { app } from "./app.js";
 
 const port = parseInt(process.env.PORT ?? "8080", 10);
 
-serve({ fetch: app.fetch, port }, (info) => {
+const server = serve({ fetch: app.fetch, port }, (info) => {
   console.log(`Server listening on http://localhost:${info.port}`);
   warnIfLlmNotConfigured();
   // doc-16 dec-3: passive observability for write-vs-emit divergence. The
@@ -45,6 +45,11 @@ serve({ fetch: app.fetch, port }, (info) => {
     console.error("[bus-relay] failed to start (server continues; reconnect loop active):", err);
   });
 });
+
+// spec-190 t-1 / dec-9: attach the WebSocket upgrade handler to the live server
+// so the voice route (/api/<ns>/<mx>/voice/session) can accept WS connections.
+// Must run after serve() returns the Node http.Server.
+injectWebSocket(server);
 
 // Hourly cleanup of expired domain-verification tokens (t-6).
 //
