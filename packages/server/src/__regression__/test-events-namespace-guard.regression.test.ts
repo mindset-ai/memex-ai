@@ -1,26 +1,23 @@
-// b-90 — server-side cross-namespace reject + fail-closed-on-unset behaviour.
+// spec-90 dec-7 (A1) — POST /api/test-events has NO server-owned-namespace
+// guard. The per-memex emission-key match (spec-129) is the sole identity gate.
 //
-// Covers:
-//   ac-5: POST /api/test-events rejects refs whose namespace doesn't match
-//         MEMEX_OWN_NAMESPACE, with the correct canonical destination URL
-//         in the response body.
-//   ac-7: when MEMEX_OWN_NAMESPACE is unset, every POST returns 4xx with no
-//         row inserted.
-//   ac-8: the 4xx body when unset names the missing env var + remediation.
+// Covers (reversed from the original b-90 Fix-4 commitments):
+//   ac-5: a cross-namespace ref is ACCEPTED when the emission key authorises the
+//         memex named in the ref; rejected 401 only when the key does not.
+//   ac-7: no MEMEX_OWN_NAMESPACE gate — a request never 4xx/503s because a
+//         server-owned namespace is unset or mismatched.
+//   ac-8: the server constructs no `wrong-namespace` / `missing-config` error
+//         shape for test-event ingestion.
 //
-// Built against the Hono route handler directly via Hono's testClient, with
-// MEMEX_OWN_NAMESPACE manipulated per-test via process.env. The route reads
-// the env var at request time (not module init), so changing the env per
-// test works.
+// Built against the Hono route handler directly via app.request(), with the DB
+// and emission-key auth layers mocked. The headline case is the Agent Craft
+// scenario (issue-1): a tenant on its own namespace, holding its own key, lands.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { Hono } from "hono";
 import { tagAc } from "@memex-ai-ac/vitest";
 
-// Mock the DB layer so the route's `db.insert(...)` calls don't hit a real
-// database during this test. We only care about the request-shaping logic
-// (fail-closed / cross-namespace reject); the happy-path insert is covered
-// by other test_events tests.
+// Mock the DB layer so the route's insert calls don't hit a real database.
 const insertSpy = vi.fn().mockReturnValue({
   values: vi.fn().mockReturnValue({
     returning: vi.fn().mockResolvedValue([
@@ -32,22 +29,34 @@ const insertSpy = vi.fn().mockReturnValue({
 vi.mock("../db/connection.js", () => ({
   db: {
     insert: () => insertSpy(),
-    // spec-162: the happy-path emission now writes inside db.transaction().
     transaction: (cb: (tx: { insert: () => unknown }) => unknown) =>
       cb({ insert: () => insertSpy() }),
   },
 }));
 
-// spec-162: summary maintenance is no-op'd here (covered against a real DB in
-// test-event-latest.integration.test.ts); this suite owns namespace-guard behaviour.
 vi.mock("../services/test-event-latest.js", () => ({
   applyEmissionToSummary: vi.fn().mockResolvedValue(undefined),
 }));
 
-// spec-129: the route now requires a valid emission key (checked AFTER the 503
-// server-identity gate, per ac-9). Stub the auth path so this b-90 regression suite keeps
-// exercising the fail-closed + cross-namespace behaviour it owns; the 503 tests fire
-// before auth either way, and the cross-namespace 400 sits after auth.
+// Mutate() is exercised here only as a pass-through wrapper around the insert.
+vi.mock("../services/mutate.js", () => ({
+  mutate: vi.fn(
+    async (_ctx: unknown, _key: unknown, fn: () => Promise<unknown>) => fn(),
+  ),
+}));
+
+vi.mock("../services/spec-traffic.js", () => ({
+  observeTestEventTraffic: vi.fn(),
+}));
+
+vi.mock("../services/issues.js", () => ({
+  maybeAutoResolveIssuesForAcUid: vi.fn().mockResolvedValue(undefined),
+}));
+
+// spec-129: the route requires a valid emission key whose memexId matches the
+// memex named in the ref. Default: key authorises memex-1 and resolveMemexId
+// returns memex-1 (a match). Individual tests override resolveMemexId to model
+// a key that does NOT authorise the named memex.
 vi.mock("../services/emission-keys.js", () => ({
   verifyEmissionKey: vi.fn().mockResolvedValue({ id: "key-1", memexId: "memex-1" }),
   resolveMemexId: vi.fn().mockResolvedValue("memex-1"),
@@ -55,6 +64,7 @@ vi.mock("../services/emission-keys.js", () => ({
 }));
 
 import { testEventsRouter } from "../routes/test-events.js";
+import { resolveMemexId } from "../services/emission-keys.js";
 
 const app = new Hono();
 app.route("/api/test-events", testEventsRouter);
@@ -62,8 +72,12 @@ app.route("/api/test-events", testEventsRouter);
 let priorOwn: string | undefined;
 
 beforeEach(() => {
+  // The env var must be irrelevant now; capture + clear it to prove the route
+  // ignores it entirely.
   priorOwn = process.env.MEMEX_OWN_NAMESPACE;
+  delete process.env.MEMEX_OWN_NAMESPACE;
   insertSpy.mockClear();
+  vi.mocked(resolveMemexId).mockResolvedValue("memex-1");
 });
 
 afterEach(() => {
@@ -81,93 +95,83 @@ const validBody = (acUid: string) => ({
   duration_ms: 12,
 });
 
-describe("b-90 ac-7: fail-closed when MEMEX_OWN_NAMESPACE is unset", () => {
-  it("returns 4xx for any request when the env var is unset", async () => {
+const post = (acUid: string) =>
+  app.request("/api/test-events", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: "Bearer mxk_test" },
+    body: JSON.stringify(validBody(acUid)),
+  });
+
+describe("spec-90 ac-7: no MEMEX_OWN_NAMESPACE gate (fail-closed branch removed)", () => {
+  it("accepts a request even though MEMEX_OWN_NAMESPACE is unset (no 503)", async () => {
     tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-7");
-    delete process.env.MEMEX_OWN_NAMESPACE;
-    const res = await app.request("/api/test-events", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: "Bearer mxk_test" },
-      body: JSON.stringify(validBody("mindset-prod/memex-app/briefs/b-1/acs/ac-1")),
-    });
-    expect(res.status).toBeGreaterThanOrEqual(400);
-    expect(res.status).toBeLessThan(600);
-  });
-
-  it("does NOT insert a test_events row when the env var is unset", async () => {
-    tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-7");
-    delete process.env.MEMEX_OWN_NAMESPACE;
-    await app.request("/api/test-events", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: "Bearer mxk_test" },
-      body: JSON.stringify(validBody("mindset-prod/memex-app/briefs/b-1/acs/ac-1")),
-    });
-    expect(insertSpy).not.toHaveBeenCalled();
-  });
-});
-
-describe("b-90 ac-8: the 4xx body names the missing env var + remediation", () => {
-  it("body mentions MEMEX_OWN_NAMESPACE and how to fix", async () => {
-    tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-8");
-    delete process.env.MEMEX_OWN_NAMESPACE;
-    const res = await app.request("/api/test-events", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: "Bearer mxk_test" },
-      body: JSON.stringify(validBody("mindset-prod/memex-app/briefs/b-1/acs/ac-1")),
-    });
-    const body = (await res.json()) as { error?: string; message?: string };
-    expect(JSON.stringify(body)).toMatch(/MEMEX_OWN_NAMESPACE/);
-    // The remediation should at minimum tell the developer to set it.
-    expect(JSON.stringify(body)).toMatch(/set/i);
-  });
-});
-
-describe("b-90 ac-5: cross-namespace events are rejected with the correct destination in the body", () => {
-  it("rejects when the ref names a different namespace from the server's own", async () => {
-    tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-5");
-    process.env.MEMEX_OWN_NAMESPACE = "mindset-int";
-    const res = await app.request("/api/test-events", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: "Bearer mxk_test" },
-      body: JSON.stringify(validBody("mindset-prod/memex-app/briefs/b-1/acs/ac-1")),
-    });
-    expect(res.status).toBeGreaterThanOrEqual(400);
-    expect(res.status).toBeLessThan(500);
-  });
-
-  it("the 4xx body names the correct canonical destination for the ref's namespace", async () => {
-    tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-5");
-    process.env.MEMEX_OWN_NAMESPACE = "mindset-int";
-    const res = await app.request("/api/test-events", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: "Bearer mxk_test" },
-      body: JSON.stringify(validBody("mindset-prod/memex-app/briefs/b-1/acs/ac-1")),
-    });
-    const body = (await res.json()) as { error?: string; message?: string; expectedDestination?: string };
-    expect(body.error).toBe("wrong-namespace");
-    expect(body.expectedDestination).toBe("https://memex.ai/api/test-events");
-  });
-
-  it("does NOT insert a row when the ref names a wrong namespace", async () => {
-    tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-5");
-    process.env.MEMEX_OWN_NAMESPACE = "mindset-int";
-    await app.request("/api/test-events", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: "Bearer mxk_test" },
-      body: JSON.stringify(validBody("mindset-prod/memex-app/briefs/b-1/acs/ac-1")),
-    });
-    expect(insertSpy).not.toHaveBeenCalled();
-  });
-
-  it("accepts matching-namespace events and inserts a row", async () => {
-    tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-5");
-    process.env.MEMEX_OWN_NAMESPACE = "mindset-prod";
-    const res = await app.request("/api/test-events", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: "Bearer mxk_test" },
-      body: JSON.stringify(validBody("mindset-prod/memex-app/briefs/b-1/acs/ac-1")),
-    });
+    // env var deleted in beforeEach
+    const res = await post("agent-craft/agentcraft/specs/spec-37/acs/ac-7");
     expect(res.status).toBe(201);
     expect(insertSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("never returns 503 for test-event ingestion regardless of server config", async () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-7");
+    const res = await post("mindset-prod/memex-app/specs/spec-1/acs/ac-1");
+    expect(res.status).not.toBe(503);
+  });
+});
+
+describe("spec-90 ac-8: no wrong-namespace / missing-config error shapes", () => {
+  it("a cross-namespace ref does not produce a wrong-namespace error body", async () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-8");
+    // A ref whose namespace differs from anything the server might think it
+    // 'owns'. Pre-A1 this returned 400 wrong-namespace; now it is accepted.
+    const res = await post("agent-craft/agentcraft/specs/spec-37/acs/ac-7");
+    const body = (await res.json()) as { error?: string };
+    expect(res.status).toBe(201);
+    expect(body.error).toBeUndefined();
+  });
+
+  it("the route source contains neither error shape", async () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-8");
+    const { readFileSync } = await import("node:fs");
+    const { fileURLToPath } = await import("node:url");
+    const src = readFileSync(
+      fileURLToPath(new URL("../routes/test-events.ts", import.meta.url)),
+      "utf8",
+    );
+    // Only the explanatory comment may mention the words; no JSON error literal.
+    expect(src).not.toMatch(/error:\s*["']wrong-namespace["']/);
+    expect(src).not.toMatch(/error:\s*["']missing-config["']/);
+  });
+});
+
+describe("spec-90 ac-5: cross-namespace events accepted when the key authorises the memex", () => {
+  it("accepts a tenant's own-namespace ref with a key that authorises it (the Agent Craft case)", async () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-5");
+    // ac-15 (customer outcome): the server half — a tenant on its own namespace,
+    // with a key minted in that memex, lands. No per-tenant server config.
+    tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-15");
+    // resolveMemexId -> memex-1 == key.memexId (default). agent-craft != any
+    // server namespace, yet it is accepted: no namespace-equality comparison.
+    const res = await post("agent-craft/agentcraft/specs/spec-37/acs/ac-7");
+    expect(res.status).toBe(201);
+    expect(insertSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects 401 when the key does NOT authorise the memex named in the ref", async () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-5");
+    // Key is for memex-1, but the ref's memex resolves to a different id.
+    vi.mocked(resolveMemexId).mockResolvedValue("memex-OTHER");
+    const res = await post("agent-craft/agentcraft/specs/spec-37/acs/ac-7");
+    const body = (await res.json()) as { error?: string };
+    expect(res.status).toBe(401);
+    expect(body.error).toBe("unauthorized");
+    expect(insertSpy).not.toHaveBeenCalled();
+  });
+
+  it("rejects 401 when the ref's memex does not resolve at all", async () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-5");
+    vi.mocked(resolveMemexId).mockResolvedValue(null);
+    const res = await post("agent-craft/nonexistent/specs/spec-1/acs/ac-1");
+    expect(res.status).toBe(401);
+    expect(insertSpy).not.toHaveBeenCalled();
   });
 });

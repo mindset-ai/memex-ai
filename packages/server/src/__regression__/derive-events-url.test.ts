@@ -1,7 +1,7 @@
 // b-90 — behavioural test for the helper's deriveEventsUrl function.
 //
 // Covers the runtime contract for the URL derivation:
-//   ac-2: unknown namespace + no override → warn + skip (returns null)
+//   ac-2: unknown namespace + no override → default to the SaaS host (memex.ai)
 //   ac-3: override conflicts with known namespace map → loud conflict warn
 //   ac-4: first emission per (namespace, destination) → routing log
 //   ac-12: conflict warn fires at most once per (namespace, override) tuple
@@ -31,30 +31,29 @@ afterEach(() => {
   }
 });
 
-describe("b-90 ac-2: warn + skip when no namespace match and no override", () => {
-  it("returns null for an unknown namespace with no MEMEX_TEST_EVENTS_URL set", () => {
+describe("spec-90 ac-2: unknown namespace defaults to the SaaS host (memex.ai)", () => {
+  it("returns the memex.ai destination for an unknown namespace with no override", () => {
     tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-2");
-    // A namespace that is not in NAMESPACE_TO_BASE_URL and that no other
-    // test will reuse (so the once-per-namespace warn dedupe doesn't
-    // collide with neighbours).
-    const url = deriveEventsUrl("b90-ac2-no-fallback-ns/whatever/briefs/b-1/acs/ac-1");
-    expect(url).toBeNull();
+    // ac-15 (customer outcome): the client half — a tenant's own-namespace ref
+    // routes to the SaaS host with zero config / no override.
+    tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-15");
+    // A namespace not in NAMESPACE_TO_BASE_URL: a customer tenant. dec-7/B1 —
+    // memex.ai serves every tenant, so it routes there rather than skipping.
+    const url = deriveEventsUrl("b90-ac2-customer-ns/whatever/specs/spec-1/acs/ac-1");
+    expect(url).toBe("https://memex.ai/api/test-events");
   });
 
-  it("logs a warning naming the unknown namespace", () => {
+  it("never falls through to localhost for an unknown namespace", () => {
     tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-2");
-    deriveEventsUrl("b90-ac2-warns-ns/whatever/briefs/b-1/acs/ac-1");
-    const warnArgs = warnSpy.mock.calls.flat().join(" ");
-    expect(warnArgs).toMatch(/b90-ac2-warns-ns/);
-    expect(warnArgs).toMatch(/skipping emission/i);
+    const url = deriveEventsUrl("b90-ac2-no-localhost-ns/whatever/specs/spec-1/acs/ac-1");
+    // The enduring half of b-90: localhost is never a default destination.
+    expect(url).not.toMatch(/localhost/);
+    expect(url).toBe("https://memex.ai/api/test-events");
   });
 
-  it("does NOT fall through to a hardcoded URL when both inputs are absent", () => {
+  it("returns null only for a malformed ref with no namespace", () => {
     tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-2");
-    const url = deriveEventsUrl("b90-ac2-no-localhost-ns/whatever/briefs/b-1/acs/ac-1");
-    // The whole point of b-90: no localhost:8080 default. The helper must
-    // return null rather than invent a destination.
-    expect(url).toBeNull();
+    expect(deriveEventsUrl("")).toBeNull();
   });
 });
 

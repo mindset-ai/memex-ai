@@ -18,7 +18,8 @@
 //   ac-11: unset/absent => omitted from --update-env-vars (live value intact).
 //   ac-12: explicitly set (incl. explicitly empty) => applied verbatim.
 //   ac-13: this regression test asserts the conditional wiring in deploy.sh
-//          (mirrors the MEMEX_OWN_NAMESPACE env-block regression test).
+//          (same grep-the-deploy-block approach as memex-own-namespace-config,
+//          which now guards that MEMEX_OWN_NAMESPACE stays *removed* per spec-90).
 
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";

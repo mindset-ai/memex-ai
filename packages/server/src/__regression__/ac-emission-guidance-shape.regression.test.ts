@@ -12,7 +12,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { tagAc } from "@memex-ai-ac/vitest";
+import { tagAc, deriveEventsUrl } from "@memex-ai-ac/vitest";
 
 const TOPIC = join(
   __dirname,
@@ -161,5 +161,41 @@ describe("spec-129 t-9: bootstrap daisy-chain", () => {
 
   it("bootstrap topic tells porters to prefer the official package", () => {
     expect(bootstrap.body).toMatch(/prefer.*official|official.*helper/i);
+  });
+});
+
+// spec-90 dec-7 (B1) — the guidance MUST stay in lockstep with the implemented
+// routing reality: unknown namespaces default to the SaaS host (memex.ai), they
+// are NOT skipped. The first assertion pins the actual deriveEventsUrl behaviour;
+// the rest pin the two get_information topics to that same reality. If the code
+// changes, the doc assertions force the docs to change with it, and vice-versa.
+describe("spec-90 dec-7: emission guidance is locked to the multi-tenant routing reality", () => {
+  const UNKNOWN_NS_DEST = "https://memex.ai/api/test-events";
+
+  it("deriveEventsUrl actually defaults an unknown namespace to memex.ai", () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-2");
+    expect(deriveEventsUrl("a-customer/their-mx/specs/spec-1/acs/ac-1")).toBe(
+      UNKNOWN_NS_DEST,
+    );
+  });
+
+  it("ac-emission topic documents the memex.ai default and no longer says it skips", () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-6");
+    expect(topic.body).toMatch(/defaults? to the SaaS host `?https:\/\/memex\.ai/i);
+    expect(topic.body).not.toMatch(/warns once and skips the emission/i);
+  });
+
+  it("ac-emission-bootstrap topic documents the memex.ai default for unknown namespaces", () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-6");
+    expect(bootstrap.body).toMatch(/default to the SaaS host `?https:\/\/memex\.ai/i);
+    expect(bootstrap.body).toMatch(
+      /defaults unknown namespaces to `?https:\/\/memex\.ai/i,
+    );
+  });
+
+  it("bootstrap no longer instructs skipping unmapped namespaces", () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-6");
+    expect(bootstrap.body).not.toMatch(/skip the emission/i);
+    expect(bootstrap.body).not.toMatch(/skips unknown namespaces/i);
   });
 });

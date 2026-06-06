@@ -28,7 +28,6 @@ app.route("/api/test-events", testEventsRouter);
 let memexId: string;
 let namespaceSlug: string;
 let acUid: string;
-let priorOwn: string | undefined;
 let emissionKey: string;
 let minterUserId: string;
 
@@ -57,21 +56,6 @@ beforeAll(async () => {
 afterAll(async () => {
   await db.delete(memexes).where(eq(memexes.id, memexId)).catch(() => {});
   await db.delete(users).where(eq(users.id, minterUserId)).catch(() => {});
-});
-
-beforeEach(() => {
-  // The route owns its namespace identity; point it at the test namespace so the
-  // cross-namespace safety net accepts the ref.
-  priorOwn = process.env.MEMEX_OWN_NAMESPACE;
-  process.env.MEMEX_OWN_NAMESPACE = namespaceSlug;
-});
-
-afterEach(() => {
-  if (priorOwn === undefined) {
-    delete process.env.MEMEX_OWN_NAMESPACE;
-  } else {
-    process.env.MEMEX_OWN_NAMESPACE = priorOwn;
-  }
 });
 
 describe("POST /api/test-events — bus emit on ingestion (spec-156 ac-16)", () => {

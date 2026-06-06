@@ -132,11 +132,6 @@ export DB_NAME DB_USER DB_PASS
 export SERVICE IMAGE STATIC_BUCKET URL_MAP_NAME
 export PUBLIC_HOST API_PUBLIC_HOST APP_BASE_URL API_BASE_URL
 export GOOGLE_CLIENT_ID EMAIL_FROM SLACK_CLIENT_ID
-# MEMEX_OWN_NAMESPACE — the server's own namespace identity, used by
-# POST /api/test-events to reject events for refs in other namespaces
-# (the cross-namespace safety net per b-90 dec-4 + dec-5). The route
-# fail-closes when this env var is unset; see README's deploy section.
-export MEMEX_OWN_NAMESPACE
 # HIDDEN_FEATURES — comma-separated feature slugs to hide on this environment
 # (e.g. 'scaffold,spec-pause,pulse'). Read at runtime by the server's
 # getHiddenFeatures() (packages/server/src/services/auth.ts). Hiding is
