@@ -51,6 +51,8 @@ const SCAN_DIRS = ["services", "routes", "agent", "mcp", "middleware"] as const;
 const ALLOWLIST: Record<string, string> = {
   "services/mutate.ts":
     "The wrapper itself — the legitimate single call site for all mutations.",
+  "routes/__test__.ts":
+    "spec-172 test-only e2e seed router — NEVER mounted in production (env-gated in app.ts; pinned by test-router-env-gate.regression.test.ts, ac-9). SEEDING goes through real services (and therefore mutate(), asserted by __test__-router-coverage.integration.test.ts ac-8); the raw writes here are journey CLEANUP cascades (deleting throwaway orgs/namespaces/docs — emitting teardown events would spam the SSE bus the journeys are asserting) plus two seed nudges (decision options backfill, org-membership grant) with no SSE subscriber interest.",
   // spec-161 clause service — regenerateSectionContentTx is a tx-helper invoked
   // ONLY from inside the mutate() callbacks of the clause writers (createClause /
   // updateClause / deleteClause / addClausesToSection / decomposeSection — all

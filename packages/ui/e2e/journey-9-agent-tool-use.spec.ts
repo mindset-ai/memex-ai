@@ -1,14 +1,9 @@
-import { test, expect, tenantUrl } from "./helpers/fixtures.js";
-import { seedAccount, seedDoc } from "./helpers/db.js";
+import { test, expect, tenantPath, switchToEditing, sendChat } from "./helpers/index.js";
+import { seedOrgTenant, seedSpec } from "./helpers/retained.js";
 import {
   clearAnthropicQueue,
   queueAnthropicResponse,
 } from "./helpers/anthropic-fake.js";
-import postgres from "postgres";
-
-const DATABASE_URL =
-  process.env.E2E_DATABASE_URL ??
-  "postgresql://postgres:postgres@localhost:5432/memex";
 
 // Journey 9: Agent tool execution + SSE propagation
 // Exercises the full tool-use loop through the React UI + real server-side tool handler:
@@ -26,17 +21,17 @@ test("agent tool_use creates a section and SSE propagates it to the open doc", a
   page,
   resources,
 }) => {
-  const subdomain = resources.subdomain("j9");
-  const accountId = await seedAccount({ subdomain, name: "Tool-use Test" });
-  resources.accountIds.push(accountId);
-  await resources.devAsAdmin(accountId);
-
-  const { docId } = await seedDoc({
-    accountId,
-    handle: "doc-1",
+  const slug = resources.slug("j9");
+  const tenant = await seedOrgTenant({ slug });
+  const { docId, handle } = await seedSpec({
+    memexId: tenant.memexId,
     title: "Tool-use Spec",
     purpose: "Seed purpose text",
   });
+
+  // The add_section tool is keyed by the canonical doc REF, not a raw docId
+  // (tool-specs.ts: resolveRefArg). Build it from the tenant slugs + handle.
+  const docRef = `${tenant.namespaceSlug}/${tenant.memexSlug}/specs/${handle}`;
 
   // Queue two turns in order: the tool_use turn, then the follow-up text response the
   // agent produces after the tool_result comes back.
@@ -49,7 +44,7 @@ test("agent tool_use creates a section and SSE propagates it to the open doc", a
         id: "toolu_j9_add",
         name: "add_section",
         input: {
-          docId,
+          ref: docRef,
           sectionType: "approach",
           title: "Approach",
           content:
@@ -65,7 +60,7 @@ test("agent tool_use creates a section and SSE propagates it to the open doc", a
     stopReason: "end_turn",
   });
 
-  await page.goto(tenantUrl(subdomain, `/docs/${docId}`));
+  await page.goto(tenantPath(tenant.namespaceSlug, tenant.memexSlug, `/docs/${docId}`));
 
   // Wait for the doc to render — the seeded "Purpose" section must be visible before we
   // assert the new section appears, otherwise we'd be racing the initial fetchDoc call.
@@ -73,10 +68,11 @@ test("agent tool_use creates a section and SSE propagates it to the open doc", a
     timeout: 15_000,
   });
 
-  const input = page.getByPlaceholder(/Ask me anything/i);
-  await expect(input).toBeVisible({ timeout: 15_000 });
-  await input.fill("add an approach section");
-  await input.press("Enter");
+  // add_section is an editor-only agent tool; the dev user opens a seeded Spec in
+  // REVIEW posture (no editor doc_members row). Promote to Editing first.
+  await switchToEditing(page);
+
+  await sendChat(page, "add an approach section");
 
   // The agent's final text lands after the tool_result round-trip completes.
   const chatMarkdown = page.getByTestId("chat-markdown");
@@ -91,16 +87,9 @@ test("agent tool_use creates a section and SSE propagates it to the open doc", a
     page.getByText(/discovery, build, rollout/i)
   ).toBeVisible({ timeout: 15_000 });
 
-  // And confirm against the DB that the section actually landed there (guards against a
-  // UI regression where the section renders from cached state without hitting Postgres).
-  const sql = postgres(DATABASE_URL);
-  try {
-    const rows = await sql<{ id: string; section_type: string }[]>`
-      SELECT id, section_type FROM doc_sections
-      WHERE doc_id = ${docId} AND section_type = 'approach'
-    `;
-    expect(rows).toHaveLength(1);
-  } finally {
-    await sql.end();
-  }
+  // The text only renders if the SSE doc_change event triggered a reloadDoc that
+  // re-fetched the persisted section from the server — i.e. it landed in Postgres
+  // and round-tripped back. The old raw-SQL guard is dropped (the e2e package has
+  // no Postgres dependency, dec-2); this server-backed re-fetch is the
+  // not-from-cache proof, since reloadDoc reads the API, not React state.
 });
