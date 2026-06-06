@@ -159,9 +159,18 @@ jobs:
   # lifecycle-spine journeys. The suite now goes green on a cold, freshly-migrated
   # database, so the schedule/workflow_dispatch gate is removed and e2e is a
   # per-PR job again (the merge-side counterpart of the std-17 smoke tier).
-  # Flipping `e2e` back to a REQUIRED status check on develop + main is a
-  # repo-settings action for the owner (branch protection), not this file.
+  #
+  # The suite runs serially (workers: 1 — tests share the dev user + DB), so
+  # wall-clock is cut by SHARDING across jobs instead: each shard gets its own
+  # Postgres service and runs 1/N of the files. Branch protection should require
+  # the single `e2e-result` aggregator below, NOT the matrix legs (their check
+  # names — "e2e (1)" etc. — change with the shard count). Flipping that required
+  # check on develop + main is a repo-settings action for the owner, not this file.
   e2e:
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -214,17 +223,45 @@ jobs:
       - name: Apply migrations
         run: |
           for f in packages/server/drizzle/*.sql; do psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f "$f"; done
+      # Cache the Chromium binary (~150MB download) keyed on the lockfile — the
+      # Playwright version is pinned there, so a version bump busts the cache.
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('pnpm-lock.yaml') }}
       - name: Install Playwright Chromium
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: pnpm --filter @memex/ui exec playwright install --with-deps chromium
-      - name: E2E journeys
-        run: pnpm --filter @memex/ui test:e2e
+      - name: Install Playwright OS deps (cached browser)
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: pnpm --filter @memex/ui exec playwright install-deps chromium
+      - name: E2E journeys (shard ${{ matrix.shard }}/3)
+        run: pnpm --filter @memex/ui test:e2e --shard=${{ matrix.shard }}/3
       - name: Upload Playwright trace on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-traces
+          name: playwright-traces-shard-${{ matrix.shard }}
           path: packages/ui/test-results/
           retention-days: 7
+
+  # The single stable check name for branch protection (matrix leg names shift
+  # with the shard count). Green only when every e2e shard is green.
+  e2e-result:
+    needs: e2e
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: All e2e shards green?
+        run: |
+          if [ "${{ needs.e2e.result }}" != "success" ]; then
+            echo "e2e shards result: ${{ needs.e2e.result }}"
+            exit 1
+          fi
+          echo "All e2e shards passed."
 
   # Separate job (not part of the PR gate) — runs the slow perf suite nightly and on
   # demand. Kept out of the per-PR path so reviewers aren't waiting on 20s of concurrent

@@ -78,14 +78,30 @@ e2e:
 	pnpm --filter @memex/ui test:e2e $(ARGS)
 
 ## UI: e2e against a throwaway, freshly-migrated database — exact CI parity (std-28).
-## Recreates memex_e2e from packages/server/drizzle/*.sql each run; never touches `memex`.
+## Fast path: migrations are replayed ONCE into memex_e2e_template (rebuilt only when
+## the drizzle/*.sql set changes — detected via a hash stored as the template DB's
+## COMMENT), then memex_e2e is cloned from it with `createdb -T` (near-instant).
+## Never touches the dev `memex` database.
 E2E_COLD_DB := postgresql://postgres:postgres@localhost:5432/memex_e2e
+E2E_TPL_DB  := postgresql://postgres:postgres@localhost:5432/memex_e2e_template
 e2e-cold:
+	@HASH=$$(cat packages/server/drizzle/*.sql | shasum -a 256 | cut -d' ' -f1); \
+	CUR=$$(psql -h localhost -U postgres -At -c \
+		"SELECT shobj_description(oid, 'pg_database') FROM pg_database WHERE datname = 'memex_e2e_template'" \
+		postgres 2>/dev/null); \
+	if [ "$$CUR" != "$$HASH" ]; then \
+		echo "⏳ (Re)building e2e template DB — migration set changed"; \
+		dropdb --if-exists -h localhost -U postgres memex_e2e_template || exit 1; \
+		createdb -h localhost -U postgres memex_e2e_template || exit 1; \
+		for f in packages/server/drizzle/*.sql; do \
+			psql -v ON_ERROR_STOP=1 "$(E2E_TPL_DB)" -f "$$f" > /dev/null || exit 1; \
+		done; \
+		psql -h localhost -U postgres -c "COMMENT ON DATABASE memex_e2e_template IS '$$HASH'" postgres > /dev/null || exit 1; \
+	else \
+		echo "✓ e2e template DB up to date"; \
+	fi
 	dropdb --if-exists -h localhost -U postgres memex_e2e
-	createdb -h localhost -U postgres memex_e2e
-	for f in packages/server/drizzle/*.sql; do \
-		psql -v ON_ERROR_STOP=1 "$(E2E_COLD_DB)" -f "$$f" > /dev/null || exit 1; \
-	done
+	createdb -h localhost -U postgres -T memex_e2e_template memex_e2e
 	DATABASE_URL="$(E2E_COLD_DB)" E2E_DATABASE_URL="$(E2E_COLD_DB)" \
 		pnpm --filter @memex/ui test:e2e $(ARGS)
 
