@@ -49,7 +49,7 @@ interface RuntimeFixtures {
   decisionRef: string;
   taskRef: string;
   commentRef: string;
-  standardSectionId: string;
+  standardSectionRef: string;
 }
 
 async function makeRuntimeFixtures(): Promise<RuntimeFixtures> {
@@ -83,8 +83,8 @@ async function makeRuntimeFixtures(): Promise<RuntimeFixtures> {
     description: "Coverage standard",
     sections: [{ sectionType: "rule", content: "Be excellent." }],
   });
-  // Standards put sections under doc_sections rooted at the std doc. We need
-  // a section UUID for flag_drift's target.
+  // Standards put sections under doc_sections rooted at the std doc. spec-143
+  // ac-14: flag_drift targets the section by canonical ref, not a UUID.
   const stdSection = await db.query.docSections.findFirst({
     where: (s, { eq }) => eq(s.docId, std.id),
   });
@@ -99,7 +99,7 @@ async function makeRuntimeFixtures(): Promise<RuntimeFixtures> {
     decisionRef: `${base}/decisions/dec-${decision.seq}`,
     taskRef: `${base}/tasks/t-${task.seq}`,
     commentRef: `${base}/comments/c-${comment.seq}`,
-    standardSectionId: stdSection!.id,
+    standardSectionRef: `${built.ns.slug}/main/standards/${std.handle}/sections/s-${stdSection!.seq}`,
   };
 }
 
@@ -201,7 +201,7 @@ const RUNTIME_CASES: RuntimeCase[] = [
   // {
   //   tool: "flag_drift",
   //   args: (f) => ({
-  //     standardSectionId: f.standardSectionId,
+  //     ref: f.standardSectionRef,
   //     observation: "Drift observed by runtime cov.",
   //   }),
   //   expected: { entity: "standard_drift", action: "created" },

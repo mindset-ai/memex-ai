@@ -221,8 +221,8 @@ describe("regression: every entity-acting MCP tool emits `ref:` and no raw UUID 
   // Standard fixtures (spec-143 dec-1): flag_drift + propose_standard_change
   // act on a standard SECTION (raw UUID input — no handle scheme) and emit a
   // `ref:` to the comment that lands under the standard's std-N handle.
-  let driftSectionId: string;
-  let proposeSectionId: string;
+  let driftSectionRef: string;
+  let proposeSectionRef: string;
 
   beforeAll(async () => {
     memexId = await makeTestMemex("ref-emit");
@@ -358,8 +358,10 @@ describe("regression: every entity-acting MCP tool emits `ref:` and no raw UUID 
       ],
     });
     cleanup.docs.push(std.id);
-    driftSectionId = std.sections.find((s) => s.sectionType === "rule-drift")!.id;
-    proposeSectionId = std.sections.find((s) => s.sectionType === "rule-propose")!.id;
+    // spec-143 ac-14: the drift verbs take the canonical section ref, not a UUID.
+    const stdBase = `${slugs.namespace}/${slugs.memex}/standards/${std.handle}`;
+    driftSectionRef = `${stdBase}/sections/s-${std.sections.find((s) => s.sectionType === "rule-drift")!.seq}`;
+    proposeSectionRef = `${stdBase}/sections/s-${std.sections.find((s) => s.sectionType === "rule-propose")!.seq}`;
   });
 
   // Build the per-tool case registry. One per shared spec that emits a
@@ -583,14 +585,14 @@ describe("regression: every entity-acting MCP tool emits `ref:` and no raw UUID 
       ],
       ["assign_spec", { input: () => ({ ref: refForDoc(slugs, docHandle), user: userId }) }],
       ["unassign_spec", { input: () => ({ ref: refForDoc(slugs, docHandle), user: userId }) }],
-      // ── Standards drift tools (spec-143 dec-1) ──
-      // Raw standard-section UUID in (no handle scheme), `ref:` to the comment
-      // under the standard's std-N handle out.
+      // ── Standards drift tools (spec-143 dec-1, ac-14) ──
+      // Canonical standard-section `ref` in, `ref:` to the comment under the
+      // standard's std-N handle out.
       [
         "flag_drift",
         {
           input: () => ({
-            standardSectionId: driftSectionId,
+            ref: driftSectionRef,
             observation: "RefEmit: the code no longer matches this rule.",
           }),
         },
@@ -599,7 +601,7 @@ describe("regression: every entity-acting MCP tool emits `ref:` and no raw UUID 
         "propose_standard_change",
         {
           input: () => ({
-            standardSectionId: proposeSectionId,
+            ref: proposeSectionRef,
             proposedContent: "RefEmit: corrected rule body.",
             rationale: "refemit rationale",
           }),

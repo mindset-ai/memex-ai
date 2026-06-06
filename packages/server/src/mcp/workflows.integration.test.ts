@@ -302,9 +302,12 @@ describe.skip("Workflow: Standards drift loop", () => {
     });
     expect(doSection).toBeTruthy();
 
+    // spec-143 ac-14: the standards-drift verbs take the canonical section ref.
+    const doSectionRef = refForSection(actor, std!, doSection!.seq);
+
     // 2. flag_drift on the section
     const flagRes = await callTool(actor.user.id, "flag_drift", {
-      standardSectionId: doSection!.id,
+      ref: doSectionRef,
       observation: "auth/login.ts:42 still uses bcrypt — diverges from this rule.",
     });
     expect(flagRes.isError).toBeFalsy();
@@ -316,7 +319,7 @@ describe.skip("Workflow: Standards drift loop", () => {
 
     // 3. propose_standard_change
     const proposeRes = await callTool(actor.user.id, "propose_standard_change", {
-      standardSectionId: doSection!.id,
+      ref: doSectionRef,
       proposedContent: "Always use scrypt or argon2id for password hashing.",
       rationale: "argon2id is the OWASP-recommended default for new code.",
     });

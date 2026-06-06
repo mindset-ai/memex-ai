@@ -419,7 +419,7 @@ describe("POST /llm/tools/execute — drift mode (spec-143 t-4)", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         toolName: "flag_drift",
-        input: { standardSectionId: "sec-1", observation: "X drifted" },
+        input: { ref: "ns/mx/standards/std-1/sections/s-1", observation: "X drifted" },
         mode: "drift",
       }),
     });
