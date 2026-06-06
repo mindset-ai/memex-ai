@@ -12,6 +12,10 @@ import { listDriftInbox } from "./drift-inbox.js";
 import { makeTestMemex } from "./test-helpers.js";
 
 const SPEC_143 = "mindset-prod/memex-building-itself/specs/spec-143";
+// spec-153 ac-3 (scope guarantee): removing the human comment-type picker left
+// the agent/system typed-comment channel and the Drift Inbox untouched — drift +
+// plan_revision are still emitted and consumed by the inbox exactly as before.
+const SPEC_153_AC3 = "mindset-prod/memex-building-itself/specs/spec-153/acs/ac-3";
 
 const createdDocIds: string[] = [];
 let memexId: string;
@@ -32,6 +36,9 @@ afterAll(async () => {
 // `c.memex_id` (column renamed by migration 0038). Source-fix landed; unskipping.
 describe("listDriftInbox", () => {
   it("returns open drift + plan_revision comments with parent doc/section context", async () => {
+    // spec-153 ac-3: the machine-emitted channel + Drift Inbox are unaffected by
+    // the removal of the human composer's type picker.
+    tagAc(SPEC_153_AC3);
     const std = await createStandard(memexId, {
       title: "Inbox target",
       sections: [
