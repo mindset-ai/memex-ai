@@ -262,3 +262,38 @@ export async function signupWithToken(opts: {
     opts
   );
 }
+
+// ── spec-188: verify-phase journey seeds ────────────────────────────────────
+
+/** Seed an AC on a Spec; returns the canonical acUid for test-event seeding. */
+export async function seedAc(opts: {
+  memexId: string;
+  docId: string;
+  kind?: "scope" | "implementation";
+  statement: string;
+}): Promise<{ acId: string; seq: number; acUid: string | null }> {
+  return call("POST", "/seed-ac", opts);
+}
+
+/** Seed an Issue (bug/todo) on a Spec, optionally already resolved/won't-fix. */
+export async function seedIssue(opts: {
+  memexId: string;
+  docId: string;
+  type?: "bug" | "todo";
+  title: string;
+  body?: string;
+  status?: "open" | "resolved" | "wont_fix";
+}): Promise<{ issueId: string; seq: number }> {
+  return call("POST", "/seed-issue", opts);
+}
+
+/** Seed a test-event emission for an acUid (insert + latest-summary upsert),
+ *  bypassing the emission-key gate — drives the spec-188 acceptance-precedence
+ *  path (a failing event suppresses a manual acceptance). */
+export async function seedTestEvent(opts: {
+  acUid: string;
+  status: "pass" | "fail" | "error";
+  testIdentifier?: string;
+}): Promise<void> {
+  await call("POST", "/seed-test-event", opts);
+}

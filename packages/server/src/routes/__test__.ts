@@ -34,6 +34,12 @@ import { createDomainVerificationToken } from "../services/domain-verification.j
 import { upsertVerifiedDomain } from "../services/verified-domains.js";
 // spec-172 t-5: additive seed/read surface for the retained journeys (5, 11, 12).
 import { createTask } from "../services/tasks.js";
+// spec-188 t-5: seed surface for the verify-phase journey (ACs, issues,
+// test-event emissions for the acceptance-precedence path).
+import { createAc, buildAcRef } from "../services/acs.js";
+import { createIssue } from "../services/issues.js";
+import { testEvents } from "../db/schema.js";
+import { applyEmissionToSummary } from "../services/test-event-latest.js";
 import { createExecutionPlan } from "../services/execution_plans.js";
 import { addTaskComment } from "../services/comments.js";
 import { createShareToken, listShareTokensForDoc } from "../services/share-tokens.js";
@@ -691,4 +697,103 @@ testOnlyRouter.get("/assignee-count", async (c) => {
   }
   const assignees = await listAssignees(memexId, docId);
   return c.json({ count: assignees.length });
+});
+
+// ── spec-188 t-5: verify-phase journey seeds ────────────────────────────────
+
+// Seed an AC on a Spec through the real service (emits on the bus per std-8).
+// Returns the canonical ref alongside the ids so the journey can seed test
+// events against it without rebuilding the ref grammar client-side.
+const seedAcSchema = z.object({
+  memexId: z.string().uuid(),
+  docId: z.string().uuid(),
+  kind: z.enum(["scope", "implementation"]).default("scope"),
+  statement: z.string().min(1),
+});
+testOnlyRouter.post("/seed-ac", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = seedAcSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
+  }
+  const { memexId, docId, kind, statement } = parsed.data;
+  const ac = await createAc({ memexId, briefId: docId, kind, statement });
+  const [slugRow] = await db
+    .select({
+      namespace: namespaces.slug,
+      memex: memexes.slug,
+      briefHandle: documents.handle,
+    })
+    .from(documents)
+    .innerJoin(memexes, eq(documents.memexId, memexes.id))
+    .innerJoin(namespaces, eq(memexes.namespaceId, namespaces.id))
+    .where(eq(documents.id, docId))
+    .limit(1);
+  const acUid =
+    slugRow?.briefHandle != null ? buildAcRef(slugRow, ac.seq) : null;
+  return c.json({ acId: ac.id, seq: ac.seq, acUid });
+});
+
+// Seed an Issue on a Spec through the real service (emits on the bus).
+const seedIssueSchema = z.object({
+  memexId: z.string().uuid(),
+  docId: z.string().uuid(),
+  type: z.enum(["bug", "todo"]).default("bug"),
+  title: z.string().min(1),
+  body: z.string().default(""),
+  status: z.enum(["open", "resolved", "wont_fix"]).default("open"),
+});
+testOnlyRouter.post("/seed-issue", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = seedIssueSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
+  }
+  const { memexId, docId, type, title, body: issueBody, status } = parsed.data;
+  const issue = await createIssue({
+    memexId,
+    docId,
+    type,
+    title,
+    body: issueBody,
+    source: "human",
+  });
+  if (status !== "open") {
+    const { updateIssueStatus } = await import("../services/issues.js");
+    await updateIssueStatus(memexId, issue.id, status);
+  }
+  return c.json({ issueId: issue.id, seq: issue.seq });
+});
+
+// Seed a test-event emission for an acUid — the journey-side equivalent of
+// the unit suites' seedTestEvent helper (insert + latest-summary upsert in one
+// transaction), bypassing the emission-key gate the real POST /api/test-events
+// enforces. Drives the spec-188 acceptance-precedence path (a failing event
+// suppresses a manual acceptance).
+const seedTestEventSchema = z.object({
+  acUid: z.string().min(1),
+  status: z.enum(["pass", "fail", "error"]),
+  testIdentifier: z.string().default("e2e/seeded.spec.ts::seeded emission"),
+});
+testOnlyRouter.post("/seed-test-event", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = seedTestEventSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
+  }
+  const { acUid, status, testIdentifier } = parsed.data;
+  await db.transaction(async (tx) => {
+    const [row] = await tx
+      .insert(testEvents)
+      .values({ acUid, status, testIdentifier, hidden: false })
+      .returning({ createdAt: testEvents.createdAt });
+    await applyEmissionToSummary(tx, {
+      acUid,
+      testIdentifier,
+      status,
+      latestRunAt: row.createdAt,
+      hidden: false,
+    });
+  });
+  return c.json({ ok: true });
 });
