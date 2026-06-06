@@ -150,6 +150,8 @@ const ALLOWLIST: Record<string, string> = {
     "Code-intelligence ingestion (repo_endpoints). Silent-allowed per std-8 §6 — extractor background work, no bus entity, no SSE subscriber. Same client:Db/repoId shape as services/repos.ts; mutate() wrap deferred.",
   "services/repo-meta.ts":
     "Code-intelligence ingestion (repo_structure / repo_patterns / repo_domains / repo_tech_stack). Silent-allowed per std-8 §6 — extractor background work, no bus entity, no SSE subscriber. Same client:Db/repoId shape as services/repos.ts; mutate() wrap deferred.",
+  "services/handhold-demo.ts":
+    "Handhold demo seed/reset (spec-178). Its DOCUMENT mutations all go through mutate() (createDocDraft / addSection / createDecision / createTask / createAc, the terminal phase-flip, and the per-doc delete loop). The raw writes the scan flags are NON-document log tables with no SSE doc-entity: the synthetic test_events / test_event_latest emissions seeded so verify/done demo ACs read 'verified' (dec-9 — same category as services/test-event-latest.ts), and the activity_log cleanup on reset (issue-1 / ac-39 — same category as services/activity-log.ts). These are append-only emission/activity logs, not tenant-doc content; they must not emit, exactly like the two log services already allowlisted above.",
 };
 
 function isScannableFile(path: string): boolean {

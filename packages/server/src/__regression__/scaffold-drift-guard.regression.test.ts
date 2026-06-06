@@ -101,6 +101,12 @@ const ALLOWLISTED_PROSE_FILES = new Set(
     // alongside `role`. Logged as expected residue; remove this entry once
     // the migration lands.
     "packages/server/src/mcp/tools.ts",
+    // spec-178: the Handhold demo fixture embeds spec-64's VERBATIM content as
+    // multi-line markdown template literals (HANDHOLD_SECTIONS) — by design (ac-2,
+    // wording unchanged). It is frozen DEMO CONTENT seeded into a personal Memex,
+    // not agent-prompt prose / a nudge channel, so it does not belong in
+    // scaffold-data.ts. Exempt the fixture from the prose-location guard.
+    "packages/server/src/db/handhold-demo.fixture.ts",
   ].map((p) => p.split("/").join(sep)),
 );
 

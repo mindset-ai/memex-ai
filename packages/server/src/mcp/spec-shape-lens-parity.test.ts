@@ -51,6 +51,7 @@ function makePlanSpec(): Doc & { sections: DocSection[] } {
     archivedAt: null,
     pausedAt: null,
     narrativeLastConsolidatedAt: null,
+    isDemo: false,
     sections: [
       {
         id: "section-uuid-1",

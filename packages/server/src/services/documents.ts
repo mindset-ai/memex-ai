@@ -1,4 +1,4 @@
-import { and, eq, desc, count, isNull, inArray, or, exists, sql, type SQL } from "drizzle-orm";
+import { and, eq, ne, desc, count, isNull, inArray, or, exists, sql, type SQL } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import { documents, docSections, docComments, decisions, users, tags, documentTags } from "../db/schema.js";
 import type { Doc, DocSection, Decision } from "../db/schema.js";
@@ -12,6 +12,7 @@ import { maybeAutoResolveIssuesForPromotedDoc } from "./issues.js";
 import { seedCreatorAsEditor } from "./doc-members.js";
 import { listAssigneesForDocs } from "./doc-assignees.js";
 import type { ParsedTag } from "./tags.js";
+import { HANDHOLD_PHASES } from "../db/handhold-demo.fixture.js";
 
 // Per-account handle sequence: doc-1, doc-2, ... within an account. Avoids cross-tenant
 // collisions on the (account_id, handle) unique constraint. Accepts a db OR tx client so
@@ -73,6 +74,15 @@ export interface CreateDocExtras {
   bodySections?: BodySectionInput[];
   /** Definition-of-done / acceptance criteria section, appended last when present. */
   acceptanceCriteria?: string;
+  /**
+   * spec-178 (issue-2): mark the new doc as a Handhold demo spec on the SAME insert
+   * that creates the row, so it reads is_demo=true from its first committed state.
+   * Without this the seeder created the row is_demo=false and flipped the flag only
+   * on a later terminal write — so an interrupted seed could leave a committed
+   * is_demo=false row that reads as a REAL spec (search/agent/board-visible) and
+   * survives the demo's idempotency guard + Reset. Defaults to false (real docs).
+   */
+  isDemo?: boolean;
 }
 
 export async function createDocDraft(
@@ -118,7 +128,7 @@ export async function createDocDraft(
       // tighten this.
       const [doc] = await db
         .insert(documents)
-        .values({ memexId, handle, title, docType, status: "draft", createdByUserId: createdByUserId ?? null })
+        .values({ memexId, handle, title, docType, status: "draft", createdByUserId: createdByUserId ?? null, isDemo: extras?.isDemo ?? false })
         .returning();
 
       // spec-118 dec-4: the creator becomes the Spec's first editor. On the MCP
@@ -259,6 +269,13 @@ export interface ListDocsOptions {
   // in one round-trip. Specs with no assignees leave `assignees` unset → the card
   // renders an "Unassigned" state.
   includeAssignees?: boolean;
+  // spec-178 t-11 / dec-11 (ac-37): when true, exclude is_demo docs from the
+  // result. Default falsy — the REST board route (routes/documents.ts) leaves
+  // this unset so the Specs board KEEPS rendering demo specs (with the DEMO
+  // badge). Only the MCP/agent `list_docs` path sets excludeDemo:true so a
+  // coding agent never sees a demo spec in its enumeration. Demo specs are
+  // invisible/inert to all agent surfaces but visible on the board.
+  excludeDemo?: boolean;
   // spec-136 t-3: narrow the result to docs carrying the given tags. Facet semantics
   // (dec-1): AND across different scopes, OR within a single scope; each flat (unscoped)
   // tag is its own AND clause. Resolved via an indexed (scope, value) join — no LIKE.
@@ -336,6 +353,14 @@ export async function listDocs(
   // Paused docs are included by default (React UI kanban renders them under a
   // "Show paused" toggle). MCP list_missions passes includePaused=false.
   if (opts.includePaused === false) conditions.push(isNull(documents.pausedAt));
+  // spec-178 t-11 / dec-11 (ac-37): exclude demo specs from the agent/MCP
+  // enumeration when asked. is_demo is NOT NULL DEFAULT false, but the
+  // `isNull OR ne(true)` guard is robust against any legacy NULL while still
+  // letting the board (excludeDemo falsy) keep its demo cards.
+  if (opts.excludeDemo) {
+    const notDemo = or(isNull(documents.isDemo), ne(documents.isDemo, true));
+    if (notDemo) conditions.push(notDemo);
+  }
   if (opts.statusIn && opts.statusIn.length > 0) {
     conditions.push(inArray(documents.status, opts.statusIn as string[]));
   }
@@ -359,6 +384,9 @@ export async function listDocs(
       // surface for the Specs kanban "Show paused" toggle.
       pausedAt: documents.pausedAt,
       archivedAt: documents.archivedAt,
+      // spec-178 t-1 (ac-9): is_demo rides on every DocSummary (like pausedAt/archivedAt)
+      // so the board can render the DEMO badge. Always projected — not behind an include opt.
+      isDemo: documents.isDemo,
       sectionCount: count(docSections.id),
       // LEFT JOIN — null when the doc predates migration 0036 or the creator
       // has been deleted (FK is ON DELETE SET NULL). The React UI renders
@@ -585,7 +613,16 @@ export async function getDoc(
   memexId: string,
   idOrHandle: string,
   opts: GetDocOptions = {},
-): Promise<Doc & { sections: DocSection[]; creator: { name: string | null; email: string | null } | null }> {
+): Promise<
+  Doc & {
+    sections: DocSection[];
+    creator: { name: string | null; email: string | null } | null;
+    // spec-178 dec-8 / ac-28: for is_demo docs, the per-phase value-banner copy
+    // (a fixture CONSTANT keyed by the doc's phase) the UI renders atop the demo
+    // spec. Unset for non-demo docs and for any demo phase with no callout.
+    demoValueCallout?: string;
+  }
+> {
   const idMatch = isUuid(idOrHandle)
     ? eq(documents.id, idOrHandle)
     : eq(documents.handle, idOrHandle);
@@ -624,6 +661,16 @@ export async function getDoc(
       .from(users)
       .where(eq(users.id, doc.createdByUserId));
     if (u) creator = u;
+  }
+
+  // spec-178 dec-8 / ac-28: a demo Spec carries its phase's value-banner copy from
+  // the fixture (a per-phase CONSTANT, never stored on the row). Non-demo docs are
+  // untouched — no field is attached, so the wire shape is identical for them.
+  if (doc.isDemo) {
+    const callout = HANDHOLD_PHASES.find((p) => p.phase === doc.status)?.valueCallout;
+    if (callout !== undefined) {
+      return { ...doc, sections, creator, demoValueCallout: callout };
+    }
   }
 
   return { ...doc, sections, creator };

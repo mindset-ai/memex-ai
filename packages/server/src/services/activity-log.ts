@@ -17,9 +17,9 @@
 // awaited insert reject into the synchronous dispatch path. We log + swallow so
 // the originating mutation/read is never affected by a logging failure.
 
-import { and, desc, eq, lt } from "drizzle-orm";
+import { and, desc, eq, isNull, lt, ne, or } from "drizzle-orm";
 import { db, type Db } from "../db/connection.js";
-import { activityLog } from "../db/schema.js";
+import { activityLog, documents } from "../db/schema.js";
 import type { ActivityLog, ActivityLogInsert } from "../db/schema.js";
 import { bus, type ChangeEvent, type Unsubscribe } from "./bus.js";
 
@@ -184,6 +184,15 @@ const MAX_LIMIT = 200;
  * `since` to fetch the next batch.
  *
  * Backs the later GET /api/.../activity REST endpoint (t-? downstream).
+ *
+ * Handhold demo exclusion (spec-178 t-9 / ac-21): activity attributable to an
+ * `is_demo` document is filtered out of Pulse so the seeded onboarding specs
+ * never pollute the timeline/usage analytics. We LEFT JOIN the document the row
+ * references (`brief_id`) and keep a row only when it has NO doc (`brief_id IS
+ * NULL` — memex-level activity, always kept) OR its doc is not a demo. The
+ * filter runs on the READ path (not at persist time) because demo docs may
+ * pre-exist any persisted rows, and the demo seed/reset cycle can flip a doc's
+ * lifecycle independently of the activity already written.
  */
 export async function listActivity(
   opts: ListActivityOptions,
@@ -198,9 +207,33 @@ export async function listActivity(
   if (opts.clientId !== undefined) conditions.push(eq(activityLog.clientId, opts.clientId));
   if (opts.since !== undefined) conditions.push(lt(activityLog.createdAt, opts.since));
 
+  // Demo-exclusion predicate: keep memex-level rows (brief_id IS NULL) and rows
+  // whose referenced doc is NOT a demo. `ne(isDemo, true)` resolves to FALSE for
+  // demo docs and TRUE for non-demo docs; the brief_id-NULL arm keeps the LEFT
+  // JOIN's unmatched rows. (documents.is_demo is NOT NULL, so a three-valued-
+  // logic NULL only arises from the JOIN miss, already covered by the IS NULL arm.)
+  conditions.push(or(isNull(activityLog.briefId), ne(documents.isDemo, true))!);
+
   return conn
-    .select()
+    // Project the activity_log columns explicitly so a joined SELECT still
+    // returns a flat ActivityLog[] (a bare .select() over a join nests rows
+    // under table keys).
+    .select({
+      id: activityLog.id,
+      memexId: activityLog.memexId,
+      briefId: activityLog.briefId,
+      actorUserId: activityLog.actorUserId,
+      actorKind: activityLog.actorKind,
+      channel: activityLog.channel,
+      clientId: activityLog.clientId,
+      entity: activityLog.entity,
+      action: activityLog.action,
+      narrative: activityLog.narrative,
+      payload: activityLog.payload,
+      createdAt: activityLog.createdAt,
+    })
     .from(activityLog)
+    .leftJoin(documents, eq(activityLog.briefId, documents.id))
     .where(and(...conditions))
     // id as a stable tiebreaker so pagination is deterministic when several rows
     // share a created_at (a burst of events in the same millisecond).

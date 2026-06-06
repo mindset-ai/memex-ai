@@ -39,6 +39,7 @@ function makeDoc(overrides: Partial<Doc> = {}): Doc {
     archivedAt: null,
     pausedAt: null,
     narrativeLastConsolidatedAt: null,
+    isDemo: false,
     ...overrides,
   };
 }

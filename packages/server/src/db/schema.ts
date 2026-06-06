@@ -85,6 +85,15 @@ export const documents = pgTable("documents", {
   // Last time the Spec narrative was consolidated by the agent. NULL = never
   // consolidated. Spec-only.
   narrativeLastConsolidatedAt: timestamp("narrative_last_consolidated_at", { withTimezone: true }),
+  // Handhold onboarding demo flag (spec-178). When true, this document is one of
+  // the five frozen copies of the canonical ⌘K-search Spec (spec-64) seeded into a
+  // personal Memex to walk a new user through the spec lifecycle. Demo docs render a
+  // DEMO badge + a per-phase value banner, suppress handle auto-linking, are excluded
+  // from ⌘K/search and every agent surface (dec-11; only the board REST list/get still
+  // returns them), and are excluded from Pulse/usage analytics. Reset (POST
+  // .../handhold/reset) hard-deletes all is_demo docs in the memex + their seeded
+  // test-event emissions and re-seeds from handhold-demo.fixture.ts.
+  isDemo: boolean("is_demo").notNull().default(false),
 }, (table) => [
   unique("documents_memex_id_handle_unique").on(table.memexId, table.handle),
   index("documents_memex_id_idx").on(table.memexId),

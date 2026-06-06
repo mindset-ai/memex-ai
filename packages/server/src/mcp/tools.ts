@@ -451,6 +451,16 @@ export async function resolveRefForUser(
 
   const entity = result.entity;
   const doc = "doc" in entity ? entity.doc : entity.row;
+  // spec-178 t-11 / dec-11 (ac-37): a handhold demo spec is inert to the MCP
+  // surface — a coding agent must not be able to read it (get_doc/export_doc)
+  // or mutate against it (update_doc, add_section, decision/task writes, …),
+  // and every one of those tools resolves its target ref through here. Treat a
+  // demo doc as not-found (std-7: missing, not forbidden) so the agent gets the
+  // same answer as for a ref that doesn't exist. The board's REST getDoc path
+  // is untouched — it never goes through resolveRefForUser.
+  if (doc.isDemo) {
+    throw new NotFoundError(`Ref "${ref}" not found.`);
+  }
   const memexId = doc.memexId;
   // orgFilter (b-31 dec-8) — undefined for PAT (skip), null for personal-only
   // OAuth, <orgId> for Org-scoped OAuth. The read gate enforces it (a private

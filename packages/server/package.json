@@ -31,6 +31,7 @@
     "db:seed": "tsx src/db/seed.ts",
     "db:seed-reviewer": "tsx src/db/seed-reviewer.ts",
     "db:seed-smoke": "tsx src/db/seed-smoke.ts",
+    "db:backfill-handhold": "tsx scripts/backfill-handhold-demo.ts",
     "oauth:smoke": "node scripts/oauth-smoke.mjs",
     "docker:build": "docker build -t memex-server .",
     "docker:run": "docker run -p 8080:8080 --env-file .env memex-server",

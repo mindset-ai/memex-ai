@@ -156,5 +156,12 @@ export MEMEX_OWN_NAMESPACE
 if [ -n "${HIDDEN_FEATURES+set}" ]; then
   export HIDDEN_FEATURES
 fi
+# SIGNUP_DOMAIN_ALLOWLIST — comma-separated domains allowed for new account creation
+# (spec-174). Set in int to restrict to mindset.ai,memex.ai. Unset in prod = no restriction.
+# Same set-vs-unset semantics as HIDDEN_FEATURES: a deploy from a checkout that never
+# set this value must not silently clear a live int restriction.
+if [ -n "${SIGNUP_DOMAIN_ALLOWLIST+set}" ]; then
+  export SIGNUP_DOMAIN_ALLOWLIST
+fi
 
 echo "[deploy-config] ENV=$ENV  project=$GCP_PROJECT  host=$PUBLIC_HOST  api=$API_PUBLIC_HOST"
