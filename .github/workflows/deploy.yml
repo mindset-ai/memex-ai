@@ -3,9 +3,9 @@ name: deploy
 # Branch-bound CD per std-21: merge to `develop` deploys int; merge to `main`
 # deploys prod. Both protected branches only take merges from PRs whose `test`
 # + `e2e` checks are green, so a push event here is by construction a reviewed,
-# CI-passing change. The prod job additionally pauses on the GitHub `prod`
-# environment's required-reviewer gate — merge is the decision to ship, the
-# approval click is the moment of shipping.
+# CI-passing change. Prod deploys run unattended on merge to `main` — merging
+# the develop→main PR IS the decision to ship (the prod environment's
+# required-reviewer gate was removed 2026-06-05).
 #
 # The deploy itself is the SAME ./deploy.sh a human runs locally (server
 # migrations + Cloud Run, UI build + GCS + CDN, then the std-17 smoke tail
