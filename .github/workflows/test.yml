@@ -107,6 +107,26 @@ jobs:
           path: packages/server/coverage/
           retention-days: 14
 
+  # Production build gate (std-17 §6 / cl-55): `make build` is what the deploy
+  # actually runs, and vitest does NOT typecheck — a green test matrix can hide
+  # a TS2741 that splits the deploy (exactly how PR #44's AcPill gap shipped:
+  # every per-PR job passed, then both develop deploys went red at `tsc -b`).
+  # Running `pnpm build` (= make build) per PR moves that failure from the
+  # deploy tail to the merge gate.
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Production build (tsc + vite) — the same gate the deploy runs
+        run: pnpm build
+
   # React UI unit tests (jsdom) + coverage gate. No database.
   ui:
     runs-on: ubuntu-latest
