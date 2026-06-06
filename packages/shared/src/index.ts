@@ -104,3 +104,13 @@ export {
   allGuideElementIds,
 } from './guide-registry.js';
 export type { GuideScreenKey, GuideElement, GuideScreen } from './guide-registry.js';
+
+// spec-190 t-5 (dec-4): the guide's canonical toolset (one source) + navigation
+// helpers. The load-bearing boundary lives here — NO product-data tools.
+export {
+  GUIDE_TOOLS,
+  GUIDE_TOOL_NAMES,
+  isNavigableScreen,
+  screenKeyToPath,
+} from './guide-tools.js';
+export type { GuideToolDefinition } from './guide-tools.js';
