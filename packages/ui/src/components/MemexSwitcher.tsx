@@ -160,7 +160,7 @@ export function MemexSwitcher({ variant = 'topbar' }: { variant?: 'topbar' | 'si
       </button>
 
       {open && (
-        <div className={dropdownClass}>
+        <div className={dropdownClass} data-testid="memex-switcher-menu">
             {/* Always render the personal row — every user has exactly one personal memex
                 by invariant. Showing it even when the cached session is momentarily stale
                 keeps the dropdown from looking empty on first load after hotfixes. */}

@@ -10,7 +10,9 @@
 #   make test-perf           Performance/concurrency tests (needs local Postgres)
 #   make test-regression     Regression guards (URL shape, instructions cap, etc.)
 #   make test-server         All server tests
-#   make test-ui          All UI tests (placeholder)
+#   make test-ui             UI unit/component tests (vitest)
+#   make e2e                 Playwright e2e journeys (boots server + UI itself)
+#   make e2e-cold            e2e against a throwaway freshly-migrated DB (CI parity)
 #   make smoke               One-line health curl against $SMOKE_URL
 #   make smoke-int           Post-deploy smoke suite against https://int.memex.ai (pure HTTP)
 #   make smoke-prod          Post-deploy smoke suite against https://memex.ai (pure HTTP)
@@ -23,7 +25,7 @@
 # ──────────────────────────────────────────────────────────────
 
 .PHONY: test test-unit test-integration test-api test-security test-perf test-regression \
-        test-server test-ui smoke smoke-int smoke-prod smoke-int-with-db smoke-prod-with-db \
+        test-server test-ui e2e e2e-cold smoke smoke-int smoke-prod smoke-int-with-db smoke-prod-with-db \
         dev build db-migrate db-seed typecheck \
         check-url-shape help
 
@@ -64,9 +66,44 @@ test-regression:
 test-server:
 	pnpm --filter @memex/server test
 
-## Admin: all tests (placeholder — no tests yet)
+## UI: unit/component tests (vitest)
 test-ui:
-	@echo "No UI tests configured yet"
+	pnpm --filter @memex/ui test
+
+## UI: Playwright e2e journeys — the PR-gate tier (spec-172). Boots server (8090) + UI
+## (5173) itself via the Playwright webServer block; needs local Postgres running.
+## Runs against your dev DB; use e2e-cold for the CI posture. Extra args via ARGS,
+## e.g. `make e2e ARGS="journey-18 --headed"`.
+e2e:
+	pnpm --filter @memex/ui test:e2e $(ARGS)
+
+## UI: e2e against a throwaway, freshly-migrated database — exact CI parity (std-28).
+## Fast path: migrations are replayed ONCE into memex_e2e_template (rebuilt only when
+## the drizzle/*.sql set changes — detected via a hash stored as the template DB's
+## COMMENT), then memex_e2e is cloned from it with `createdb -T` (near-instant).
+## Never touches the dev `memex` database.
+E2E_COLD_DB := postgresql://postgres:postgres@localhost:5432/memex_e2e
+E2E_TPL_DB  := postgresql://postgres:postgres@localhost:5432/memex_e2e_template
+e2e-cold:
+	@HASH=$$(cat packages/server/drizzle/*.sql | shasum -a 256 | cut -d' ' -f1); \
+	CUR=$$(psql -h localhost -U postgres -At -c \
+		"SELECT shobj_description(oid, 'pg_database') FROM pg_database WHERE datname = 'memex_e2e_template'" \
+		postgres 2>/dev/null); \
+	if [ "$$CUR" != "$$HASH" ]; then \
+		echo "⏳ (Re)building e2e template DB — migration set changed"; \
+		dropdb --if-exists -h localhost -U postgres memex_e2e_template || exit 1; \
+		createdb -h localhost -U postgres memex_e2e_template || exit 1; \
+		for f in packages/server/drizzle/*.sql; do \
+			psql -v ON_ERROR_STOP=1 "$(E2E_TPL_DB)" -f "$$f" > /dev/null || exit 1; \
+		done; \
+		psql -h localhost -U postgres -c "COMMENT ON DATABASE memex_e2e_template IS '$$HASH'" postgres > /dev/null || exit 1; \
+	else \
+		echo "✓ e2e template DB up to date"; \
+	fi
+	dropdb --if-exists -h localhost -U postgres memex_e2e
+	createdb -h localhost -U postgres -T memex_e2e_template memex_e2e
+	DATABASE_URL="$(E2E_COLD_DB)" E2E_DATABASE_URL="$(E2E_COLD_DB)" \
+		pnpm --filter @memex/ui test:e2e $(ARGS)
 
 ## Smoke test — verify a running server responds (one-line health curl)
 smoke:

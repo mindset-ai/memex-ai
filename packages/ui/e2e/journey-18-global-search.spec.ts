@@ -1,10 +1,10 @@
-import { test, expect, bareUrl } from "./helpers/fixtures.js";
+import { test, expect, bareUrl } from "./helpers/index.js";
 import {
   getPersonalMemexByEmail,
   setUserName,
   seedSpecInMemex,
   deleteDoc,
-} from "./helpers/db.js";
+} from "./helpers/index.js";
 
 // Journey 18 (spec-64 t-6): the global ⌘K search palette, end-to-end in a real
 // browser. The component test (SearchPalette.test.tsx) runs under jsdom, which
@@ -47,12 +47,11 @@ test.describe("Journey 18 — global ⌘K search palette", () => {
     // Give it a name so we land on the Specs board. (The shared account-based
     // fixture that normally does this writes to the dropped pre-0038 schema.)
     await setUserName("dev@memex.ai", "Dev User");
-    // A unique handle so reruns don't collide on the per-memex (memex_id, handle)
-    // unique constraint if a prior afterEach failed to clean up.
-    specHandle = `spec-j18-${Date.now().toString(36)}`;
-    ({ docId } = await seedSpecInMemex({
+    // The seed service mints the handle (`spec-N`) via createDocDraft and returns
+    // it — we navigate/assert against the SERVER-chosen handle rather than a
+    // self-picked one (the new HTTP seed surface owns handle allocation, dec-2).
+    ({ docId, handle: specHandle } = await seedSpecInMemex({
       memexId: memex.memexId,
-      handle: specHandle,
       title: SPEC_TITLE,
       purpose: "Zephyr Quokka Search Beacon — purpose body for the global search journey.",
     }));

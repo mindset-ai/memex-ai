@@ -5,13 +5,19 @@ import react from '@vitejs/plugin-react'
 // when another dev server is already holding 8080.
 const API_TARGET = process.env.VITE_API_PROXY ?? 'http://localhost:8080'
 
+// VITE_PORT lets an E2E run bind the UI dev server to a non-default port when 5173
+// is already held (e.g. a stale dev server from another worktree). Playwright's
+// webServer block + baseURL are wired to the same value so the suite stays
+// self-consistent. Defaults to 5173 for normal `pnpm dev`.
+const UI_PORT = Number(process.env.VITE_PORT ?? 5173)
+
 export default defineConfig({
   plugins: [react()],
   define: {
     __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
   },
   server: {
-    port: 5173,
+    port: UI_PORT,
     strictPort: true,
     // Listen on all interfaces + accept any host. With path-based routing
     // (t-23 of doc-15) the tenant context comes from the URL path, so the dev
