@@ -454,3 +454,34 @@ describe('IssuePanel — resolution progress + resolve controls (spec-188)', () 
     expect(resolvedBugBadge.className).not.toBe(openBugBadge.className);
   });
 });
+
+// spec-188 dec-4 (ac-13) — Convert-to-Task is suppressed where the human is in
+// the verify posture: allowConvert=false drops the Convert control while the
+// other dispositions stay.
+describe('IssuePanel — allowConvert gating (spec-188 dec-4)', () => {
+  const AC13 = 'mindset-prod/memex-building-itself/specs/spec-188/acs/ac-13';
+
+  it('allowConvert=false hides Convert but keeps Resolve and the won\'t-fix menu', async () => {
+    tagAc(AC13);
+    mockFetchIssues.mockResolvedValue([makeIssue({ id: 'iss-1', seq: 1, status: 'open' })]);
+
+    const user = userEvent.setup();
+    render(<IssuePanel docId="doc-1" canWrite canEdit allowConvert={false} />);
+    await screen.findByTestId('issue-card');
+
+    expect(screen.queryByTestId('issue-convert')).not.toBeInTheDocument();
+    expect(screen.getByTestId('issue-resolve')).toBeInTheDocument();
+    await user.click(screen.getByTestId('issue-menu'));
+    expect(screen.getByTestId('issue-wontfix')).toBeInTheDocument();
+  });
+
+  it('default (allowConvert omitted) keeps Convert — the Build-tab posture', async () => {
+    tagAc(AC13);
+    mockFetchIssues.mockResolvedValue([makeIssue({ id: 'iss-1', seq: 1, status: 'open' })]);
+
+    render(<IssuePanel docId="doc-1" canWrite canEdit />);
+    await screen.findByTestId('issue-card');
+
+    expect(screen.getByTestId('issue-convert')).toBeInTheDocument();
+  });
+});

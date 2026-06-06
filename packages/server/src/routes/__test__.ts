@@ -797,3 +797,27 @@ testOnlyRouter.post("/seed-test-event", async (c) => {
   });
   return c.json({ ok: true });
 });
+
+// Seed a Task on a Spec through the real service (spec-188 t-7: drives the
+// Build-tab completion Metric and the Verify-tab task echo in journeys).
+const seedTaskSchema = z.object({
+  memexId: z.string().uuid(),
+  docId: z.string().uuid(),
+  title: z.string().min(1),
+  description: z.string().default("Seeded task."),
+  status: z.enum(["not_started", "in_progress", "complete"]).default("not_started"),
+});
+testOnlyRouter.post("/seed-task", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = seedTaskSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
+  }
+  const { memexId, docId, title, description, status } = parsed.data;
+  const task = await createTask(memexId, docId, title, description);
+  if (status !== "not_started") {
+    const { updateTaskStatus } = await import("../services/tasks.js");
+    await updateTaskStatus(memexId, task.id, status);
+  }
+  return c.json({ taskId: task.id, seq: task.seq });
+});

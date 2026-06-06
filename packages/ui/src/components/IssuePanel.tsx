@@ -46,6 +46,13 @@ interface IssuePanelProps {
    * here. Defaults to true so legacy call sites keep today's behaviour.
    */
   canEdit?: boolean;
+  /**
+   * spec-188 dec-4: whether the Convert-to-Task disposition renders at all.
+   * The Verify tab passes false — converting mints an incomplete task, which
+   * is build-phase work, so the human-facing Verify surface doesn't offer it
+   * (the MCP/agent path is deliberately ungated). Defaults to true.
+   */
+  allowConvert?: boolean;
   /** Bubble up after a mutation so the rest of the spec view (counts, etc.)
    *  picks up related changes. */
   onUpdate?: () => void;
@@ -158,6 +165,7 @@ export function IssuePanel({
   docId,
   canWrite = true,
   canEdit = true,
+  allowConvert = true,
   onUpdate,
   highlightIssueHandle,
 }: IssuePanelProps) {
@@ -409,18 +417,23 @@ export function IssuePanel({
                   the row; Won't fix moves into the ⋯ menu beside it. */}
               {canWrite && canEdit && issue.status === 'open' && (
                 <div className="flex-none flex items-center gap-2">
-                  <Button
-                    data-testid="issue-convert"
-                    variant="ghost"
-                    size="sm"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      void handleConvert(issue);
-                    }}
-                    title="Convert this Issue into a Task (spawns a verifying AC)"
-                  >
-                    Convert to Task
-                  </Button>
+                  {/* spec-188 dec-4: Convert is suppressed on the Verify tab —
+                      it mints build-phase work the verify posture shouldn't
+                      invite. Build keeps it; the agent/MCP path is ungated. */}
+                  {allowConvert && (
+                    <Button
+                      data-testid="issue-convert"
+                      variant="ghost"
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void handleConvert(issue);
+                      }}
+                      title="Convert this Issue into a Task (spawns a verifying AC)"
+                    >
+                      Convert to Task
+                    </Button>
+                  )}
                   <Button
                     data-testid="issue-resolve"
                     size="sm"

@@ -22,6 +22,7 @@ import {
   seedAc,
   seedIssue,
   seedTestEvent,
+  seedTask,
   emitAcEvents,
 } from "./helpers/index.js";
 import { seedOrgTenant, seedSpec } from "./helpers/retained.js";
@@ -44,6 +45,12 @@ const ACS_BY_TEST: Record<string, string[]> = {
     `${SPEC188}/acs/ac-4`,
     `${SPEC188}/acs/ac-5`,
     `${SPEC188}/acs/ac-11`,
+    `${SPEC188}/acs/ac-12`,
+    `${SPEC188}/acs/ac-13`,
+  ],
+  "Task completion: Build-tab metric and Verify-tab echo": [
+    `${SPEC188}/acs/ac-14`,
+    `${SPEC188}/acs/ac-15`,
     `${SPEC188}/acs/ac-12`,
   ],
 };
@@ -190,6 +197,11 @@ test("Issue resolution: progress bar, Resolve + won't-fix menu, resolved vocabul
   const openBugCard = panel.locator(
     '[data-issue-status="open"][data-issue-type="bug"]'
   );
+  // spec-188 dec-4 (ac-13): the VERIFY tab's issue panel offers no
+  // Convert-to-Task even in the editor posture — converting mints
+  // build-phase work. Resolve is present, Convert is not.
+  await expect(openBugCard.getByTestId("issue-resolve")).toBeVisible();
+  await expect(panel.getByTestId("issue-convert")).not.toBeVisible();
   await openBugCard.getByTestId("issue-resolve").click();
   await expect(panel.getByText("1 open, 2 resolved")).toBeVisible({
     timeout: 10_000,
@@ -210,4 +222,56 @@ test("Issue resolution: progress bar, Resolve + won't-fix menu, resolved vocabul
   // Non-open rows carry no dispositions.
   await expect(panel.getByTestId("issue-resolve")).not.toBeVisible();
   await expect(panel.getByTestId("issue-menu")).not.toBeVisible();
+});
+
+test("Task completion: Build-tab metric and Verify-tab echo", async ({
+  page,
+  resources,
+}) => {
+  const tenant = await seedOrgTenant({ slug: resources.slug("j20c") });
+
+  // Spec A: mixed completion — the Build bar reads 67%, the Verify echo warns.
+  const mixed = await seedSpec({
+    memexId: tenant.memexId,
+    title: "Task metric journey (mixed)",
+    purpose: "Exercise the task-completion metric.",
+  });
+  await seedTask({ memexId: tenant.memexId, docId: mixed.docId, title: "Done 1", status: "complete" });
+  await seedTask({ memexId: tenant.memexId, docId: mixed.docId, title: "Done 2", status: "complete" });
+  await seedTask({ memexId: tenant.memexId, docId: mixed.docId, title: "Still going", status: "in_progress" });
+
+  await page.goto(
+    tenantPath(tenant.namespaceSlug, tenant.memexSlug, `/specs/${mixed.handle}`)
+  );
+
+  // ── Build tab: the full Metric tile (ac-14) ────────────────────────────────
+  await page.locator('[data-tab="build"]').click();
+  const metric = page.getByTestId("task-completion-header");
+  await expect(metric).toBeVisible({ timeout: 15_000 });
+  await expect(metric.getByText("67%")).toBeVisible();
+  await expect(metric.getByText("2 of 3 tasks complete")).toBeVisible();
+  await expect(metric.getByTestId("metric-bar-complete")).toBeVisible();
+
+  // ── Verify tab: the amber exception echo (ac-15) ───────────────────────────
+  await page.locator('[data-tab="verify"]').click();
+  const echo = page.getByTestId("verify-task-echo");
+  await expect(echo).toBeVisible();
+  await expect(echo).toContainText("1 of 3 tasks incomplete");
+
+  // Spec B: everything built — the echo is the calm green confirmation.
+  const done = await seedSpec({
+    memexId: tenant.memexId,
+    title: "Task metric journey (complete)",
+    purpose: "Exercise the calm echo.",
+  });
+  await seedTask({ memexId: tenant.memexId, docId: done.docId, title: "Done", status: "complete" });
+  await seedTask({ memexId: tenant.memexId, docId: done.docId, title: "Also done", status: "complete" });
+
+  await page.goto(
+    tenantPath(tenant.namespaceSlug, tenant.memexSlug, `/specs/${done.handle}`)
+  );
+  await page.locator('[data-tab="verify"]').click();
+  const calmEcho = page.getByTestId("verify-task-echo");
+  await expect(calmEcho).toBeVisible({ timeout: 15_000 });
+  await expect(calmEcho).toContainText("2/2 tasks complete");
 });

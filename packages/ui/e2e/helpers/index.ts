@@ -34,6 +34,7 @@ export {
   seedAc,
   seedIssue,
   seedTestEvent,
+  seedTask,
   signupWithToken,
   type PersonalMemex,
   type SeededOrg,

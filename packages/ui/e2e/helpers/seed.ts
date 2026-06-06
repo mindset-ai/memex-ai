@@ -297,3 +297,15 @@ export async function seedTestEvent(opts: {
 }): Promise<void> {
   await call("POST", "/seed-test-event", opts);
 }
+
+/** Seed a Task on a Spec (spec-188: drives the Build-tab completion Metric
+ *  and the Verify-tab task echo). */
+export async function seedTask(opts: {
+  memexId: string;
+  docId: string;
+  title: string;
+  description?: string;
+  status?: "not_started" | "in_progress" | "complete";
+}): Promise<{ taskId: string; seq: number }> {
+  return call("POST", "/seed-task", opts);
+}
