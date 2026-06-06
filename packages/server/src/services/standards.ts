@@ -40,6 +40,7 @@ import { nextStandardHandle } from "./documents.js";
 import { addComment } from "./comments.js";
 import { DOC_TYPES, type DocType } from "../types/roles.js";
 import { embedAndStoreDoc } from "./memex-embeddings.js";
+import { withSeqRetry } from "./shared/sequence.js";
 
 // Hard-pin the docType locally so any future renames flow through one place. Keeps the
 // service decoupled from string literals scattered across callers.
@@ -263,7 +264,10 @@ export async function createStandard(
     {},
     (created) => ({ memexId, docId: created.id, entity: "document", action: "created" }),
     async () => {
-      const result = await db.transaction(async (tx) => {
+      // spec-187: the std-N handle mint is the racy MAX+1 read — concurrent
+      // standard creates in the same memex can collide on
+      // `documents_memex_id_handle_unique`. Pure-DB tx → retry it wholesale.
+      const result = await withSeqRetry(() => db.transaction(async (tx) => {
     const handle = await nextStandardHandle(memexId, tx);
     const [doc] = await tx
       .insert(documents)
@@ -307,7 +311,7 @@ export async function createStandard(
       .returning();
 
     return { doc, sections };
-  });
+  }), "documents_memex_id_handle_unique");
 
       // Fire-and-forget: embed every section in one provider batch. Failure is logged
       // inside the helper and does not surface to the caller — the standard is already

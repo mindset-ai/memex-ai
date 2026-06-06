@@ -59,16 +59,18 @@ test it tears down tracked namespaces (via `resources.slug(...)`) and loose docs
 per suite, after the webServer boots** (Playwright starts webServers before globalSetup).
 It ensures `dev@memex.ai` exists **with a display name** before any journey runs, so a
 cold, freshly-migrated CI database doesn't route every journey into Onboarding. The
-onboarding flow keeps its own explicit journey that clears the name and walks the screen
-— see `verify-spec-172-setup.spec.ts` for the complementary "named by default" check
-(ac-10).
+onboarding screen keeps explicit coverage via the lifecycle-spine signup leg — a freshly
+signed-up user is nameless, so the name step renders for real — with
+`verify-spec-172-setup.spec.ts` as the complementary "named by default" check (ac-10).
 
 ## How tests authenticate
 
-The suite runs against **dev mode** — `GOOGLE_CLIENT_ID` is unset, so the server accepts
-the dev user `dev@memex.ai` without a real Google token, and `AuthContext` bootstraps a
-real dev session. The lifecycle-spine journey (t-7) signs up a *new* user via native auth
-[per std-13] instead of the dev bypass.
+The suite runs against **dev mode** — `GOOGLE_CLIENT_ID` is unset, so token-less requests
+resolve to the dev user `dev@memex.ai` without a real Google token, and `AuthContext`
+bootstraps a real dev session. A presented **valid session JWT wins over the dev bypass**
+(spec-172 issue-1 fix in `session.ts#resolveBearerUser`), which is what lets the
+lifecycle-spine journey (t-7) sign up a *new* user via native auth [per std-13] and drive
+the browser as that user.
 
 ## Environment
 

@@ -6,6 +6,7 @@ import type { DocSummary } from "../types/index.js";
 import { NotFoundError, ValidationError } from "../types/errors.js";
 import { mutate, type ChangeKey, type Mutated } from "./mutate.js";
 import { isUuid } from "./shared/identifiers.js";
+import { withSeqRetry } from "./shared/sequence.js";
 import { embedAndStoreSection, embedAndStoreDecision } from "./memex-embeddings.js";
 import { aggregateAcHealthForBriefs } from "./acs.js";
 import { maybeAutoResolveIssuesForPromotedDoc } from "./issues.js";
@@ -109,27 +110,34 @@ export async function createDocDraft(
   // `resolveRef`). Standards created through the dedicated React-UI flow
   // (`createStandard → nextStandardHandle`) were unaffected; MCP creates
   // route through this function and need the explicit branch.
-  const handle =
-    docType === "spec"
-      ? await nextSpecHandle(memexId)
-      : docType === "standard"
-        ? await nextStandardHandle(memexId)
-        : await nextDocHandle(memexId);
-
   return mutate(
     {},
     // The new doc's id isn't known until the insert returns, so use a key
     // factory that reads it off the resolved result.
     (created) => ({ memexId, docId: created.id, entity: "document", action: "created" }),
     async () => {
-      // Handle collisions across accounts (same `doc-N` in two tenants) are possible because
-      // the handle column has a global unique constraint. Catch and retry with a higher seq if
-      // a race produces a dup. For dev workloads the bare insert is fine; future hardening can
-      // tighten this.
-      const [doc] = await db
-        .insert(documents)
-        .values({ memexId, handle, title, docType, status: "draft", createdByUserId: createdByUserId ?? null, isDemo: extras?.isDemo ?? false })
-        .returning();
+      // spec-187 (b-38 F-3 finally reaching documents): the handle mint is a
+      // racy COALESCE(MAX(...))+1 read — two concurrent creates in the same
+      // memex can both read N and both insert handle N+1, and Postgres 23505s
+      // the loser on `documents_memex_id_handle_unique`. Mirror the
+      // decisions/comments/acs hardening: allocator + insert inside
+      // withSeqRetry, re-minting the handle on each collision.
+      const doc = await withSeqRetry(
+        async () => {
+          const handle =
+            docType === "spec"
+              ? await nextSpecHandle(memexId)
+              : docType === "standard"
+                ? await nextStandardHandle(memexId)
+                : await nextDocHandle(memexId);
+          const [row] = await db
+            .insert(documents)
+            .values({ memexId, handle, title, docType, status: "draft", createdByUserId: createdByUserId ?? null, isDemo: extras?.isDemo ?? false })
+            .returning();
+          return row;
+        },
+        "documents_memex_id_handle_unique",
+      );
 
       // spec-118 dec-4: the creator becomes the Spec's first editor. On the MCP
       // path createdByUserId is always the HUMAN token owner (no separate agent

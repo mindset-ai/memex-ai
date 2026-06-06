@@ -5,6 +5,7 @@ import type { Doc, DocSection } from "../db/schema.js";
 import { NotFoundError, ValidationError } from "../types/errors.js";
 import { mutate, type Mutated } from "./mutate.js";
 import { nextDocHandle } from "./documents.js";
+import { withSeqRetry } from "./shared/sequence.js";
 
 // Standardised section types for execution plans, per dec-13. Order is the order they get
 // inserted (and thus the order they render). `readiness_assessment` is intentionally NOT
@@ -93,7 +94,10 @@ export async function createExecutionPlan(
       { memexId, docId: item.docId, entity: "task", action: "updated" },
     ],
     async () => {
-      const result = await db.transaction(async (tx) => {
+      // spec-187: the doc-N handle mint is the racy MAX+1 read — a concurrent
+      // doc/plan create in the same memex can collide on
+      // `documents_memex_id_handle_unique`. Pure-DB tx → retry it wholesale.
+      const result = await withSeqRetry(() => db.transaction(async (tx) => {
         const handle = await nextDocHandle(memexId, tx);
         const [doc] = await tx
           .insert(documents)
@@ -123,7 +127,7 @@ export async function createExecutionPlan(
           .where(and(eq(tasks.id, taskId), eq(tasks.memexId, memexId)));
 
         return { doc, sections };
-      });
+      }), "documents_memex_id_handle_unique");
 
       return { ...result.doc, sections: result.sections };
     },

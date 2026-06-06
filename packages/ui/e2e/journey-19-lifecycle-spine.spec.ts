@@ -16,30 +16,23 @@
 //     drives only the RESOLVE half (open-option → Resolve → rationale → Save),
 //     the half journey-14 stops short of.
 //
-// ── BLOCKER: the signup-as-new-user leg cannot run (ac-13 criterion 2) ────────
+// ── The signup-as-new-user leg (ac-13 criterion 2) ───────────────────────────
 // ac-13 wants "a new user … signing up via native auth … landing in their
-// personal memex … each step asserted in the UI … not the dev bypass". That leg
-// is authored below as `test.fixme` because it is UNRUNNABLE in the e2e stack
-// without a server change:
+// personal memex … each step asserted in the UI … not the dev bypass". This was
+// originally BLOCKED (spec-172 issue-1): resolveBearerUser() short-circuited to
+// dev@memex.ai before reading the Authorization header in dev mode, so the
+// browser could never BE the signed-up user. The server now honours a presented
+// valid session JWT over the dev fallback (session.ts — the dev bypass applies
+// only to token-less requests), so the leg runs for real: signup via the
+// /signup-with-token seam (raw email-verification token, Postmark never
+// contacted) → /verify-email consumes it and stores the new user's JWT →
+// Onboarding name step (the explicit onboarding-screen coverage ac-10 promises)
+// → personal-memex Specs board, asserted as the NEW user, not dev@memex.ai.
 //
-//   In dev mode (GOOGLE_CLIENT_ID unset, the e2e posture — see the e2e README
-//   "How tests authenticate"), packages/server/src/middleware/session.ts's
-//   resolveBearerUser() checks isDevMode() FIRST (session.ts:147) and returns
-//   dev@memex.ai UNCONDITIONALLY (session.ts:147-152) — it never reads the
-//   Authorization header (session.ts:154). So every authenticated API request
-//   the browser makes resolves to the dev user, and a native-auth JWT the
-//   signed-up user holds in localStorage is shadowed completely. The signup
-//   API itself works (/api/auth/signup → /api/auth/verify-email, raw token via
-//   the /signup-with-token test seam), but the browser session can never BE the
-//   new user. Honouring a presented session JWT even in dev mode (so a real
-//   token wins over the dev fallback) is the server change required — out of
-//   scope for this test-authoring task, surfaced on the Spec instead of coded
-//   around.
-//
-// Until that lands, the spine's post-authentication arc — the bulk of the
-// lifecycle — runs as the (named) dev user, which still exercises org → memex →
-// Spec → decision resolve → phase transitions end-to-end in the real UI on a
-// cold DB. That is the running test below; the signup leg is the fixme.
+// The post-authentication arc — org → memex → Spec → decision resolve → phase
+// transitions — runs as the (named) dev user in the first test below; the
+// signup leg runs as its own test with a fresh browser context so the two
+// identities never share storage.
 
 import {
   test,
@@ -230,13 +223,14 @@ test("lifecycle spine: org → memex → Spec → resolve decision → phase mov
   ).toHaveCount(0);
 });
 
-// ── The signup-as-new-user leg — BLOCKED (see file header) ───────────────────
-// Authored so the intent is recorded and the criterion is visible, marked
-// `fixme` so it is reported as skipped (never a false pass) until the server
-// honours a presented session JWT in dev mode. The signup + verify API calls
-// are real; the assertion that the BROWSER is the new user is what cannot hold.
-test.fixme(
-  "new user signs up via native auth, verifies email, onboards, lands in personal memex (BLOCKED: dev-mode session shadows native-auth JWT — session.ts#resolveBearerUser)",
+// ── The signup-as-new-user leg (see file header) ─────────────────────────────
+// Runs as the NEW user end-to-end: the server honours the presented session JWT
+// over the dev-mode fallback (spec-172 issue-1 fix), so every assertion below is
+// made as `email`, not dev@memex.ai. Also the suite's explicit walk of the
+// Onboarding profile screen (ac-10's second clause): a freshly signed-up user is
+// nameless, so the name step renders for real — no clearUserName crutch needed.
+test(
+  "new user signs up via native auth, verifies email, onboards, lands in personal memex",
   async ({ page, resources }) => {
     const email = resources.email("spine-newuser");
     const { verificationToken } = await signupWithToken({
@@ -245,22 +239,39 @@ test.fixme(
     });
     resources.emails.push(email);
 
-    // Real verification — consumes the token, stamps email_verified_at. Postmark
+    // Real verification — consumes the token, stamps email_verified_at, and the
+    // page stores the returned session JWT client-side (acceptSession). Postmark
     // never contacted (token came from the /signup-with-token seam).
     await page.goto(
       bareUrl(`/verify-email?token=${encodeURIComponent(verificationToken)}`),
       { waitUntil: "commit" }
     );
+    await expect(
+      page.getByRole("heading", { name: /You're all set!/ })
+    ).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText(email)).toBeVisible();
 
-    // From here the journey would: complete Onboarding (the name step in
-    // Onboarding.tsx — fill "Your display name", press Continue), then assert it
-    // lands on the new user's personal-memex Specs board. BLOCKED: in dev mode
-    // the browser's session is dev@memex.ai regardless of the JWT acceptSession
-    // stored, so /api/auth/me + every memex read resolve as the dev user, not
-    // `email`. The onboarding screen + personal-memex landing can't be asserted
-    // for the NEW user. Unblock = server honours a presented JWT over the dev
-    // fallback; then this body fills in and the running test's post-auth spine
-    // moves under it.
-    await expect(page.getByText("What's your name?")).toBeVisible();
+    // Continue → the personal-memex landing. The new user is NAMELESS, so the
+    // session carries needsOnboarding and the Onboarding profile screen renders
+    // in place of the tenant page (App.tsx gates on session.needsOnboarding).
+    await page.getByRole("button", { name: /Continue to your Memex/ }).click();
+    await expect(page.getByText("What's your name?")).toBeVisible({
+      timeout: 15_000,
+    });
+
+    // Complete onboarding: set the display name. updateProfileApi runs AS the
+    // signed-up user (Bearer JWT) — possible only because a presented valid
+    // token now wins over the dev bypass.
+    const displayName = `Spine Newuser ${resources.uniq}`;
+    await page.getByPlaceholder("Your display name").fill(displayName);
+    await page.getByRole("button", { name: /^Continue$/ }).click();
+
+    // The session refreshes and the personal-memex Specs board renders — as the
+    // NEW user (sidebar identity shows `email`), never dev@memex.ai.
+    await expect(page.getByRole("heading", { name: "Specs" })).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(page.getByText(email)).toBeVisible();
+    await expect(page.getByText(DEV_EMAIL)).toHaveCount(0);
   }
 );

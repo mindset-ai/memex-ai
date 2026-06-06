@@ -15,6 +15,7 @@ import type { Doc } from "../db/schema.js";
 import { NotFoundError, ValidationError } from "../types/errors.js";
 import { mutate, type Mutated } from "./mutate.js";
 import { nextSpecHandle, nextDocHandle } from "./documents.js";
+import { withSeqRetry } from "./shared/sequence.js";
 
 // Error surfaced when the caller isn't a member of the target memex.
 export class ForbiddenError extends Error {
@@ -79,7 +80,11 @@ export async function moveDoc(
       { memexId: toMemexId, docId, entity: "document", action: "updated" },
     ],
     async () => {
-  const result = await db.transaction(async (tx) => {
+  // spec-187: the handle re-mint inside this tx is the racy MAX+1 read — a
+  // concurrent create/move into the target memex can collide on
+  // `documents_memex_id_handle_unique`. The tx is pure-DB, so retrying it
+  // wholesale re-mints cleanly (same shape as createDocDraft's wrap).
+  const result = await withSeqRetry(() => db.transaction(async (tx) => {
     // Lock the row so concurrent writes (agent/MCP/REST) serialize against the move.
     const [doc] = await tx
       .select()
@@ -221,7 +226,7 @@ export async function moveDoc(
       removedTaskDeps: taskDepResult.length,
       revokedShareTokens: revokeResult.length,
     };
-  });
+  }), "documents_memex_id_handle_unique");
 
   return {
     doc: result.doc,

@@ -14,7 +14,7 @@ import { seedOrgTenant, seedSpec, seedDoc, seedOpenDecision } from "./helpers/re
 // exemption), keeping the test focused on the SSE round-trip rather than the
 // resolution dialog.
 
-const API_URL = process.env.E2E_API_URL ?? "http://localhost:8090";
+const API_URL = process.env.E2E_API_URL ?? `http://localhost:${process.env.E2E_SERVER_PORT ?? 8090}`;
 
 test("resolving a decision in one tab lights the drift badge on a standard in another", async ({
   browser,
