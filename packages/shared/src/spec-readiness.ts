@@ -4,11 +4,11 @@
 // phase transition" so both surfaces (React UI affordances + server's
 // MCP/agent tool nudges) speak with one voice. Pure — no I/O, no globals.
 
-export type SpecPhase = 'draft' | 'plan' | 'build' | 'verify' | 'done';
+export type SpecPhase = 'draft' | 'specify' | 'build' | 'verify' | 'done';
 
 const PHASE_ORDER: Record<SpecPhase, number> = {
   draft: 0,
-  plan: 1,
+  specify: 1,
   build: 2,
   verify: 3,
   done: 4,
@@ -182,7 +182,7 @@ export function computeSpecReadiness(input: ReadinessInput): SpecReadiness {
   // satisfying Task hasn't proven green) means there's in-flight work the Spec
   // claims to be done about. We surface it ONLY when the Spec is sitting in
   // `verify` — the phase you transition to `done` FROM — so it never noises up
-  // the earlier plan→build / build→verify gates. SOFT: it adds a warning item
+  // the earlier specify→build / build→verify gates. SOFT: it adds a warning item
   // but `done` is never blocked on it (ac-17 / ac-18). `resolved` / `wont_fix`
   // Issues are settled and were already excluded by the caller's count.
   const openIssueCount = input.openIssueCount ?? 0;

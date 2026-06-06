@@ -251,7 +251,7 @@ export interface ListDocsOptions {
   includePaused?: boolean;
   // Optional status whitelist. When provided, only docs whose `status` is in the
   // list are returned. Used by `list_briefs` (doc-12 t-15) to scope to the
-  // active Spec phases (plan / build / verify) and exclude draft / done.
+  // active Spec phases (specify / build / verify) and exclude draft / done.
   statusIn?: readonly string[];
   // Per t-19 W2: when set, attach an open `commentType='drift'` count per doc so the
   // StandardList sidebar can render the drift badge in one round-trip instead of

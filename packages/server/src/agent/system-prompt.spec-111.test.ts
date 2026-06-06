@@ -19,25 +19,25 @@ const READ_ONLY_SENTENCE =
 describe("buildSystemBlocks — read-only mode (spec-111 t-9)", () => {
   it("includes the read-only block when readOnly=true", () => {
     tagAc(AC(13));
-    const blocks = buildSystemBlocks("ctx", "plan", true);
+    const blocks = buildSystemBlocks("ctx", "specify", true);
     expect(blocks[0].text).toContain(READ_ONLY_SENTENCE);
   });
 
   it("omits the read-only block when readOnly=false", () => {
     tagAc(AC(13));
-    const blocks = buildSystemBlocks("ctx", "plan", false);
+    const blocks = buildSystemBlocks("ctx", "specify", false);
     expect(blocks[0].text).not.toContain(READ_ONLY_SENTENCE);
   });
 
   it("omits the read-only block when readOnly is not passed (org-member default)", () => {
     tagAc(AC(13));
-    const blocks = buildSystemBlocks("ctx", "plan");
+    const blocks = buildSystemBlocks("ctx", "specify");
     expect(blocks[0].text).not.toContain(READ_ONLY_SENTENCE);
   });
 
   it("injects the block across every phase when readOnly=true", () => {
     tagAc(AC(13));
-    const phases = ["draft", "plan", "build", "verify", "done"] as const;
+    const phases = ["draft", "specify", "build", "verify", "done"] as const;
     for (const phase of phases) {
       const text = buildSystemBlocks("ctx", phase, true)[0].text;
       expect(text, `phase=${phase} missing read-only block`).toContain(
@@ -48,7 +48,7 @@ describe("buildSystemBlocks — read-only mode (spec-111 t-9)", () => {
 
   it("keeps the read-only block in the instruction block, not the document-context block", () => {
     tagAc(AC(13));
-    const blocks = buildSystemBlocks("DOC BODY", "plan", true);
+    const blocks = buildSystemBlocks("DOC BODY", "specify", true);
     // block[1] is the cache-broken Document Context block; the read-only
     // guidance must ride the instruction block (block[0]) alongside the role.
     expect(blocks[0].text).toContain(READ_ONLY_SENTENCE);

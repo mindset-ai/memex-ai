@@ -67,7 +67,7 @@ describe("updateDocStatus — document/status_changed emission (spec-179 ac-5)",
     tagAc(AC_STATUS_CHANGED);
     const spec = await makeDoc("spec", "draft");
 
-    await updateDocStatus(memexId, spec.id, "plan");
+    await updateDocStatus(memexId, spec.id, "specify");
 
     const { statusRows } = await waitForStatusRows(1);
     expect(statusRows).toHaveLength(1);
@@ -76,20 +76,20 @@ describe("updateDocStatus — document/status_changed emission (spec-179 ac-5)",
       briefId: spec.id,
       entity: "document",
       action: "status_changed",
-      narrative: `moved ${spec.handle} draft → plan`,
-      payload: { from: "draft", to: "plan" },
+      narrative: `moved ${spec.handle} draft → specify`,
+      payload: { from: "draft", to: "specify" },
     });
   });
 
   it("the plain updated event still fires alongside status_changed (one event per logical change)", async () => {
     tagAc(AC_STATUS_CHANGED);
-    const spec = await makeDoc("spec", "plan");
+    const spec = await makeDoc("spec", "specify");
 
     await updateDocStatus(memexId, spec.id, "build");
 
     const { rows, statusRows } = await waitForStatusRows(1);
     expect(statusRows).toHaveLength(1);
-    expect(statusRows[0].payload).toEqual({ from: "plan", to: "build" });
+    expect(statusRows[0].payload).toEqual({ from: "specify", to: "build" });
     expect(rows.filter((r) => r.action === "updated")).toHaveLength(1);
   });
 

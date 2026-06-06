@@ -216,8 +216,8 @@ describe("best-Spec suggestion — vector ranking, excludes done/archived (ac-27
 
     // Two active Specs (a strong topical match + a weak one) and two that MUST be
     // excluded: one `done`, one archived — both with the strong topical match.
-    const active = await makeSpec("Login authentication redesign", "plan");
-    const weak = await makeSpec("Kitchen tidy backlog", "plan");
+    const active = await makeSpec("Login authentication redesign", "specify");
+    const weak = await makeSpec("Kitchen tidy backlog", "specify");
     const doneSpec = await makeSpec("Login flow legacy (closed)", "done");
     const archived = await makeSpec("Login archived effort");
     await archiveDoc(memexId, archived.id);

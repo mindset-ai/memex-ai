@@ -33,14 +33,14 @@ const dec = (overrides: Partial<DecisionForReadiness> = {}): DecisionForReadines
 
 describe('isForwardTransition / isBackwardTransition', () => {
   const cases: [SpecPhase, SpecPhase, 'forward' | 'backward' | 'same'][] = [
-    ['draft', 'plan', 'forward'],
-    ['plan', 'build', 'forward'],
+    ['draft', 'specify', 'forward'],
+    ['specify', 'build', 'forward'],
     ['build', 'verify', 'forward'],
     ['verify', 'done', 'forward'],
     ['draft', 'done', 'forward'],
-    ['plan', 'draft', 'backward'],
+    ['specify', 'draft', 'backward'],
     ['done', 'verify', 'backward'],
-    ['build', 'plan', 'backward'],
+    ['build', 'specify', 'backward'],
     ['build', 'build', 'same'],
     ['draft', 'draft', 'same'],
   ];
@@ -151,7 +151,7 @@ describe('countUnresolvedDecisions', () => {
 });
 
 describe('computeSpecReadiness — phase transition gate respects decision status', () => {
-  // Bug repro (May 2026): plan→build dialog must not surface "unresolved
+  // Bug repro (May 2026): specify→build dialog must not surface "unresolved
   // decisions" when every decision has been resolved. Earlier the gate read
   // `!resolvedAt` and would flag candidates / data-drifted rows.
 
@@ -159,7 +159,7 @@ describe('computeSpecReadiness — phase transition gate respects decision statu
 
   it('does not flag unresolved_decisions when every decision is resolved', () => {
     const r = computeSpecReadiness({
-      currentPhase: 'plan',
+      currentPhase: 'specify',
       decisions: [
         dec({
           id: 'a',
@@ -184,7 +184,7 @@ describe('computeSpecReadiness — phase transition gate respects decision statu
 
   it('does not flag unresolved_decisions when every decision is a candidate', () => {
     const r = computeSpecReadiness({
-      currentPhase: 'plan',
+      currentPhase: 'specify',
       decisions: [
         dec({ id: 'a', status: 'candidate', resolvedAt: null }),
         dec({ id: 'b', status: 'candidate', resolvedAt: null }),
@@ -199,7 +199,7 @@ describe('computeSpecReadiness — phase transition gate respects decision statu
 
   it('flags unresolved_decisions only for the open ones in a mixed bag', () => {
     const r = computeSpecReadiness({
-      currentPhase: 'plan',
+      currentPhase: 'specify',
       decisions: [
         dec({ id: 'a', status: 'open', resolvedAt: null }),
         dec({ id: 'b', status: 'candidate', resolvedAt: null }),
@@ -212,9 +212,9 @@ describe('computeSpecReadiness — phase transition gate respects decision statu
     expect(item).toMatchObject({ kind: 'unresolved_decisions', count: 1 });
   });
 
-  it('does not block plan→build forward transition when only resolved decisions exist', () => {
+  it('does not block specify→build forward transition when only resolved decisions exist', () => {
     const r = computeSpecReadiness({
-      currentPhase: 'plan',
+      currentPhase: 'specify',
       decisions: [
         dec({
           id: 'a',
@@ -229,7 +229,7 @@ describe('computeSpecReadiness — phase transition gate respects decision statu
       narrativeLastConsolidatedAt: '2026-05-03T00:00:00Z',
     });
     expect(r.isClean).toBe(true);
-    expect(shouldBlockForwardTransition(r, 'plan', 'build')).toBe(false);
+    expect(shouldBlockForwardTransition(r, 'specify', 'build')).toBe(false);
   });
 });
 
@@ -238,7 +238,7 @@ describe('computeSpecReadiness', () => {
 
   it('returns clean state for empty inputs', () => {
     const r = computeSpecReadiness({
-      currentPhase: 'plan',
+      currentPhase: 'specify',
       decisions: [],
       openCommentCount: 0,
       narrativeLastConsolidatedAt: consolidated,
@@ -308,7 +308,7 @@ describe('computeSpecReadiness', () => {
 
   it('flags unresolved decisions before stale narrative and comments', () => {
     const r = computeSpecReadiness({
-      currentPhase: 'plan',
+      currentPhase: 'specify',
       decisions: [
         dec({ id: 'a', createdAt: '2026-07-01T00:00:00Z', resolvedAt: null }),
         dec({ id: 'b', createdAt: '2026-06-01T00:00:00Z', resolvedAt: '2026-06-02T00:00:00Z' }),
@@ -333,7 +333,7 @@ describe('computeSpecReadiness', () => {
 
   it('uses plural "unresolved decisions" when more than one is open', () => {
     const r = computeSpecReadiness({
-      currentPhase: 'plan',
+      currentPhase: 'specify',
       decisions: [
         dec({ id: 'a', resolvedAt: null }),
         dec({ id: 'b', resolvedAt: null }),
@@ -363,7 +363,7 @@ describe('computeSpecReadiness', () => {
 
   it('treats never-consolidated Spec as stale when it has decisions (and unresolved if not yet resolved)', () => {
     const r = computeSpecReadiness({
-      currentPhase: 'plan',
+      currentPhase: 'specify',
       decisions: [dec()],
       openCommentCount: 0,
       narrativeLastConsolidatedAt: null,
@@ -428,7 +428,7 @@ describe('computeSpecReadiness — open/converted Issues at the verify→done ga
 
   it('does not fire outside verify — earlier gates never carry the issue item (ac-17)', () => {
     tagAc(AC(17));
-    for (const phase of ['draft', 'plan', 'build'] as SpecPhase[]) {
+    for (const phase of ['draft', 'specify', 'build'] as SpecPhase[]) {
       const r = computeSpecReadiness({
         currentPhase: phase,
         decisions: [],
@@ -457,22 +457,22 @@ describe('shouldBlockForwardTransition', () => {
 
   it('blocks forward + dirty', () => {
     const r = computeSpecReadiness({
-      currentPhase: 'plan',
+      currentPhase: 'specify',
       decisions: [],
       openCommentCount: 2,
       narrativeLastConsolidatedAt: consolidated,
     });
-    expect(shouldBlockForwardTransition(r, 'plan', 'build')).toBe(true);
+    expect(shouldBlockForwardTransition(r, 'specify', 'build')).toBe(true);
   });
 
   it('does not block forward + clean', () => {
     const r = computeSpecReadiness({
-      currentPhase: 'plan',
+      currentPhase: 'specify',
       decisions: [],
       openCommentCount: 0,
       narrativeLastConsolidatedAt: consolidated,
     });
-    expect(shouldBlockForwardTransition(r, 'plan', 'build')).toBe(false);
+    expect(shouldBlockForwardTransition(r, 'specify', 'build')).toBe(false);
   });
 
   it('does not block backward transitions even when dirty', () => {
@@ -482,7 +482,7 @@ describe('shouldBlockForwardTransition', () => {
       openCommentCount: 5,
       narrativeLastConsolidatedAt: consolidated,
     });
-    expect(shouldBlockForwardTransition(r, 'build', 'plan')).toBe(false);
+    expect(shouldBlockForwardTransition(r, 'build', 'specify')).toBe(false);
   });
 
   it('does not block same-phase no-op even when dirty', () => {
@@ -501,7 +501,7 @@ describe('blockerLines', () => {
     expect(
       blockerLines(
         computeSpecReadiness({
-          currentPhase: 'plan',
+          currentPhase: 'specify',
           decisions: [],
           openCommentCount: 0,
           narrativeLastConsolidatedAt: null,
@@ -530,7 +530,7 @@ describe('blockerLines', () => {
 
   it('includes unresolved-decision line when decisions are still open', () => {
     const r = computeSpecReadiness({
-      currentPhase: 'plan',
+      currentPhase: 'specify',
       decisions: [dec({ id: 'a', resolvedAt: null }), dec({ id: 'b', resolvedAt: null })],
       openCommentCount: 0,
       narrativeLastConsolidatedAt: '2099-01-01T00:00:00Z',

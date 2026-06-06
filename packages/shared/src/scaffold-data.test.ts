@@ -19,7 +19,7 @@ describe('BASE_SCAFFOLD — structural integrity', () => {
     tagAc(AC(15));
 
     const phaseNames = BASE_SCAFFOLD.phases.map((p) => p.phase).sort();
-    expect(phaseNames).toEqual(['build', 'done', 'draft', 'plan', 'verify']);
+    expect(phaseNames).toEqual(['build', 'done', 'draft', 'specify', 'verify']);
   });
 
   it('every base ScaffoldNode carries a non-empty rationale', () => {
@@ -68,11 +68,11 @@ describe('BASE_SCAFFOLD — structural integrity', () => {
 });
 
 describe('BASE_SCAFFOLD.transitions — one rubric per forward transition (ac-32)', () => {
-  it('contains exactly the four forward transitions plan | build | verify | done', () => {
+  it('contains exactly the four forward transitions specify | build | verify | done', () => {
     tagAc(AC(32));
 
     const transitions = BASE_SCAFFOLD.transitions.map((t) => t.transition).sort();
-    expect(transitions).toEqual(['build', 'done', 'plan', 'verify']);
+    expect(transitions).toEqual(['build', 'done', 'specify', 'verify']);
     expect(BASE_SCAFFOLD.transitions).toHaveLength(4);
   });
 

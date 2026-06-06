@@ -76,7 +76,7 @@ llmRouter.post("/chat", async (c) => {
 
   // Build system prompt + tools server-side (keeps caching & context assembly here).
   // The doc's BriefPhase picks which `phases/<phase>/system.md` shard to load.
-  // No-doc branch (creation-style fallback into /chat) defaults to `plan` —
+  // No-doc branch (creation-style fallback into /chat) defaults to `specify` —
   // the prompt is generic enough and /chat/create is the primary creation
   // route anyway.
   const memexId = requireMemexId(c);
@@ -90,7 +90,7 @@ llmRouter.post("/chat", async (c) => {
     : {
         context:
           "No document loaded. The user wants to create a new document. Ask for the document title, type (e.g. spec, guide, plan), and purpose. Then use the create_doc tool to create it.",
-        phase: "plan" as const,
+        phase: "specify" as const,
       };
 
   // spec-111 t-9 (dec-2): a signed-in NON-member chatting on a public Memex

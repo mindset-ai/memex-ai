@@ -159,7 +159,7 @@ describe("seedHandholdDemo — the five frozen demo Specs", () => {
     expect(byPhase.size).toBe(5);
   });
 
-  it("composes phase-appropriate content: draft is overview-only; plan resolves decisions; build adds tasks", async () => {
+  it("composes phase-appropriate content: draft is overview-only; specify resolves decisions; build adds tasks", async () => {
     tagAc(`${SPEC}/acs/ac-13`);
     const docs = await demoDocs(memexId);
     const byPhase = new Map(docs.map((d) => [d.status, d.id]));
@@ -177,16 +177,16 @@ describe("seedHandholdDemo — the five frozen demo Specs", () => {
     ).toHaveLength(0);
     expect(await db.select().from(tasks).where(eq(tasks.docId, draftId))).toHaveLength(0);
 
-    // plan → all sections + all decisions RESOLVED, but still no tasks.
-    const planId = byPhase.get("plan")!;
-    const planDecisions = await db
+    // specify → all sections + all decisions RESOLVED, but still no tasks.
+    const specifyId = byPhase.get("specify")!;
+    const specifyDecisions = await db
       .select()
       .from(decisions)
-      .where(eq(decisions.docId, planId));
-    expect(planDecisions).toHaveLength(HANDHOLD_DECISIONS.length);
-    expect(planDecisions.every((d) => d.status === "resolved")).toBe(true);
-    expect(planDecisions.every((d) => !!d.resolution)).toBe(true);
-    expect(await db.select().from(tasks).where(eq(tasks.docId, planId))).toHaveLength(0);
+      .where(eq(decisions.docId, specifyId));
+    expect(specifyDecisions).toHaveLength(HANDHOLD_DECISIONS.length);
+    expect(specifyDecisions.every((d) => d.status === "resolved")).toBe(true);
+    expect(specifyDecisions.every((d) => !!d.resolution)).toBe(true);
+    expect(await db.select().from(tasks).where(eq(tasks.docId, specifyId))).toHaveLength(0);
 
     // build → tasks present (not complete), decisions still resolved, no ACs yet.
     const buildId = byPhase.get("build")!;
@@ -364,12 +364,12 @@ describe("seedHandholdDemo — atomicity / self-healing guard (ac-40)", () => {
     const full = await demoDocs(mx);
     expect(full).toHaveLength(5);
 
-    // Simulate an interrupted seed: drop the draft + plan demo docs (neither carries
+    // Simulate an interrupted seed: drop the draft + specify demo docs (neither carries
     // ACs/emissions), leaving 3 of 5 behind.
     const byPhase = new Map(full.map((d) => [d.status, d.id]));
     await db
       .delete(documents)
-      .where(inArray(documents.id, [byPhase.get("draft")!, byPhase.get("plan")!]));
+      .where(inArray(documents.id, [byPhase.get("draft")!, byPhase.get("specify")!]));
     expect(await demoDocs(mx)).toHaveLength(3);
 
     // The old guard ("any is_demo doc exists → skip") would leave this wedged at 3
@@ -378,7 +378,7 @@ describe("seedHandholdDemo — atomicity / self-healing guard (ac-40)", () => {
     const healed = await demoDocs(mx);
     expect(healed).toHaveLength(5);
     expect(new Set(healed.map((d) => d.status))).toEqual(
-      new Set(["draft", "plan", "build", "verify", "done"]),
+      new Set(["draft", "specify", "build", "verify", "done"]),
     );
   });
 

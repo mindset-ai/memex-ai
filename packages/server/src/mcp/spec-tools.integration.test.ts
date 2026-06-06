@@ -26,6 +26,7 @@ import { createMcpServer } from "./tools.js";
 import { createDocDraft, updateDocStatus } from "../services/documents.js";
 import { createTask } from "../services/tasks.js";
 import { _clearRecentAssessments } from "../services/phase-assessment.js";
+import { tagAc } from "@memex-ai-ac/vitest";
 
 const created = {
   users: [] as string[],
@@ -170,7 +171,7 @@ describe("Spec MCP tools (post-doc-14, b-105)", () => {
     // hides per doc-12 dec-1.)
     const active = await createDocDraft(actor.account.id, "Active Spec Vis", "P", "spec");
     created.docs.push(active.id);
-    await updateDocStatus(actor.account.id, active.id, "plan");
+    await updateDocStatus(actor.account.id, active.id, "specify");
 
     const result = await callTool(actor.user.id, "list_docs", {
       memex: `${actor.account.slug}/main`,
@@ -249,21 +250,23 @@ describe("Spec MCP tools (post-doc-14, b-105)", () => {
     expect(items).toHaveLength(1);
   });
 
-  it("publish_spec moves a draft Spec to plan (default)", async () => {
-    // Per dec-3 / dec-1 of doc-10 the default target for `publish_spec` flipped
-    // from `review` to `plan` when the Spec lifecycle was renamed.
+  it("publish_spec moves a draft Spec to specify (default)", async () => {
+    // spec-181 ac-10: publish_spec lands a draft Spec on status='specify' by
+    // default. Per dec-3 / dec-1 of doc-10 the default target flipped from
+    // `review` to `plan`, then spec-181 renamed that phase plan→specify.
+    tagAc("mindset-prod/memex-building-itself/specs/spec-181/acs/ac-10");
     const doc = await createDocDraft(actor.account.id, "PublishMe", "P", "spec");
     created.docs.push(doc.id);
     const result = await callTool(actor.user.id, "publish_spec", {
       ref: `${actor.account.slug}/main/specs/${doc.handle}`,
     });
     expect(result.isError).toBeFalsy();
-    expect(result.content[0].text).toContain("[PLAN]");
+    expect(result.content[0].text).toContain("[SPECIFY]");
 
     const reload = await db.query.documents.findFirst({
       where: eq(documents.id, doc.id),
     });
-    expect(reload!.status).toBe("plan");
+    expect(reload!.status).toBe("specify");
   });
 
   it("publish_spec refuses already-published Specs", async () => {
@@ -416,17 +419,17 @@ describe("MCP lifecycle nudges (doc-12 t-6)", () => {
     });
     expect(result.isError).toBeFalsy();
     // draft→done is forward but isn't one of the rubric'd transitions
-    // (plan→build, build→verify, verify→done). The nudge fires only on those.
+    // (specify→build, build→verify, verify→done). The nudge fires only on those.
     // Confirm the publish succeeded without a hard block — that's the t-6 lift.
     const reload = await db.query.documents.findFirst({ where: eq(documents.id, m.id) });
     expect(reload!.status).toBe("done");
   });
 
-  it("forward plan→build without recent assess gets the softer tip", async () => {
+  it("forward specify→build without recent assess gets the softer tip", async () => {
     _clearRecentAssessments();
     const m = await createDocDraft(actor.account.id, "PlanBuildNudge", "P", "spec");
     created.docs.push(m.id);
-    await updateDocStatus(actor.account.id, m.id, "plan");
+    await updateDocStatus(actor.account.id, m.id, "specify");
 
     const result = await callTool(actor.user.id, "update_doc", {
       ref: refFor(m),
@@ -437,7 +440,7 @@ describe("MCP lifecycle nudges (doc-12 t-6)", () => {
     expect(result.content[0].text).not.toContain("Strongly recommend");
   });
 
-  it("backward transitions (build→plan) get NO nudge", async () => {
+  it("backward transitions (build→specify) get NO nudge", async () => {
     _clearRecentAssessments();
     const m = await createDocDraft(actor.account.id, "Backward", "P", "spec");
     created.docs.push(m.id);
@@ -445,7 +448,7 @@ describe("MCP lifecycle nudges (doc-12 t-6)", () => {
 
     const result = await callTool(actor.user.id, "update_doc", {
       ref: refFor(m),
-      status: "plan",
+      status: "specify",
     });
     expect(result.isError).toBeFalsy();
     expect(result.content[0].text).not.toContain("ℹ Tip");
@@ -476,7 +479,7 @@ describe("MCP lifecycle nudges (doc-12 t-6)", () => {
 // ──────────────────────────────────────────────────────────────────────────────
 
 describe("list_specs active-only filter (doc-12 t-15)", () => {
-  it("excludes draft / done / paused / archived Specs; keeps plan / build / verify", async () => {
+  it("excludes draft / done / paused / archived Specs; keeps specify / build / verify", async () => {
     const sub = `t15-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`.slice(0, 39);
     const [u] = await db
       .insert(users)
@@ -502,7 +505,7 @@ describe("list_specs active-only filter (doc-12 t-15)", () => {
 
     const planM = await createDocDraft(a.id, "PlanSpec", "P", "spec");
     created.docs.push(planM.id);
-    await updateDocStatus(a.id, planM.id, "plan");
+    await updateDocStatus(a.id, planM.id, "specify");
 
     const buildM = await createDocDraft(a.id, "BuildSpec", "P", "spec");
     created.docs.push(buildM.id);

@@ -204,7 +204,7 @@ describe("Assessment MCP tools (post-doc-14)", () => {
       expect(result.isError).toBe(true);
     });
 
-    // ── doc-27 t-3: code-grounding self-classification at plan→build ─────
+    // ── doc-27 t-3: code-grounding self-classification at specify→build ─────
     describe("codeGrounding (doc-27 t-3)", () => {
       it("renders the ## Code grounding prompt when codeGrounding is undefined and target='build'", async () => {
         const m = await createDocDraft(actor.account.id, "CGPrompt", "P", "spec");
@@ -276,10 +276,10 @@ describe("Assessment MCP tools (post-doc-14)", () => {
       it("update_doc({status:'build'}) succeeds even when codeGrounding='not_verified' (build transition is never blocked)", async () => {
         const m = await createDocDraft(actor.account.id, "CGNeverBlocks", "P", "spec");
         created.docs.push(m.id);
-        // Move from draft → plan first so plan → build is a legal forward move.
+        // Move from draft → specify first so specify → build is a legal forward move.
         const planResult = await callTool(actor.user.id, "update_doc", {
           ref: refFor(actor, m),
-          status: "plan",
+          status: "specify",
         });
         expect(planResult.isError).toBeFalsy();
 
@@ -300,13 +300,13 @@ describe("Assessment MCP tools (post-doc-14)", () => {
         expect(fresh!.status).toBe("build");
       });
 
-      it("IGNORES codeGrounding when target='plan' (no prompt, no nudge)", async () => {
+      it("IGNORES codeGrounding when target='specify' (no prompt, no nudge)", async () => {
         const m = await createDocDraft(actor.account.id, "CGPlanIgnored", "P", "spec");
         created.docs.push(m.id);
         const result = await callTool(actor.user.id, "assess_spec", {
           ref: refFor(actor, m),
           mode: "phase",
-          target: "plan",
+          target: "specify",
           codeGrounding: "verified",
         });
         expect(result.isError).toBeFalsy();
@@ -450,7 +450,7 @@ describe("Assessment MCP tools (post-doc-14)", () => {
   // ──────────────────────────────────────────────────────────────────────
   describe("b-68 t-5: composed rubric prose (toRubric)", () => {
     const FORWARD_TRANSITIONS: readonly Transition[] = [
-      "plan",
+      "specify",
       "build",
       "verify",
       "done",
@@ -589,9 +589,9 @@ describe("Assessment MCP tools (post-doc-14)", () => {
       // Pull that slice and assert the rubric-prose markers do NOT bleed in
       // — that's the "never interleaved" contract.
       const factSheetSection = text.slice(factsIdx, proseIdx);
-      // The base build rubric leads with `# Plan-to-build readiness review`;
+      // The base build rubric leads with `# Specify-to-build readiness review`;
       // it must not appear inside the fact-sheet slice.
-      expect(factSheetSection).not.toContain("Plan-to-build readiness review");
+      expect(factSheetSection).not.toContain("Specify-to-build readiness review");
       expect(factSheetSection).not.toContain("## Rubric prose");
 
       // A horizontal-rule boundary between the deterministic block and the

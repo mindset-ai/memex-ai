@@ -64,7 +64,7 @@ describe("parsePhaseDescriptions", () => {
       "<!-- top-of-file comment -->",
       "",
       "## create_task",
-      "Hidden in plan; use create_decision instead.",
+      "Hidden in specify; use create_decision instead.",
       "",
       "## update_doc",
       "Multi-line body.",
@@ -74,7 +74,7 @@ describe("parsePhaseDescriptions", () => {
       "Resolve a decision with an explanation.",
     ].join("\n");
     expect(parsePhaseDescriptions(md)).toEqual({
-      create_task: "Hidden in plan; use create_decision instead.",
+      create_task: "Hidden in specify; use create_decision instead.",
       update_doc: "Multi-line body.\nSecond line of update_doc override.",
       resolve_decision: "Resolve a decision with an explanation.",
     });
@@ -169,26 +169,26 @@ describe("applyPhaseDescriptionOverrides", () => {
     // The smoke test below proves the stubs are empty, so we go behind the
     // module by injecting a known override on the live phase map. We restore
     // after to keep tests order-independent.
-    const original = { ...PHASE_DESCRIPTIONS.plan };
+    const original = { ...PHASE_DESCRIPTIONS.specify };
     try {
-      PHASE_DESCRIPTIONS.plan = { alpha: "alpha PHASE-PLAN" };
-      const out = applyPhaseDescriptionOverrides(base, "plan");
-      expect(out.map((s) => s.description)).toEqual(["alpha PHASE-PLAN", "beta base"]);
+      PHASE_DESCRIPTIONS.specify = { alpha: "alpha PHASE-SPECIFY" };
+      const out = applyPhaseDescriptionOverrides(base, "specify");
+      expect(out.map((s) => s.description)).toEqual(["alpha PHASE-SPECIFY", "beta base"]);
     } finally {
-      PHASE_DESCRIPTIONS.plan = original;
+      PHASE_DESCRIPTIONS.specify = original;
     }
   });
 });
 
 describe("PHASE_DESCRIPTIONS (current empty state)", () => {
   it("every phase resolves to an empty override map (b-68 t-7: previously parsed from `phases/<p>/mcp-descriptions.md`, now sourced from BASE_SCAFFOLD)", () => {
-    for (const phase of ["draft", "plan", "build", "verify", "done"] as const) {
+    for (const phase of ["draft", "specify", "build", "verify", "done"] as const) {
       expect(PHASE_DESCRIPTIONS[phase]).toEqual({});
     }
   });
 
-  it("draft and plan share the same override map (the two phases are functionally identical for the agent)", () => {
-    expect(PHASE_DESCRIPTIONS.draft).toEqual(PHASE_DESCRIPTIONS.plan);
+  it("draft and specify share the same override map (the two phases are functionally identical for the agent)", () => {
+    expect(PHASE_DESCRIPTIONS.draft).toEqual(PHASE_DESCRIPTIONS.specify);
   });
 });
 
@@ -198,7 +198,7 @@ describe("smoke: MCP tool descriptions are unchanged with current overrides", ()
       name: s.name,
       description: s.description,
     }));
-    for (const phase of ["draft", "plan", "build", "verify", "done"] as const) {
+    for (const phase of ["draft", "specify", "build", "verify", "done"] as const) {
       const merged = applyPhaseDescriptionOverrides(toolSpecs, phase);
       expect(merged.map((s) => ({ name: s.name, description: s.description }))).toEqual(
         baseDescriptions,
@@ -214,7 +214,7 @@ describe("smoke: MCP tool descriptions are unchanged with current overrides", ()
 describe("b-68 t-7 ac-23: mcp-descriptions.md files are retired", () => {
   it("every `phases/<phase>/mcp-descriptions.md` file no longer exists on disk", async () => {
     tagAc("mindset-prod/memex-building-itself/specs/spec-68/acs/ac-23");
-    for (const folder of ["plan", "build", "verify", "done"] as const) {
+    for (const folder of ["specify", "build", "verify", "done"] as const) {
       const path = resolve(PHASES_DIR, folder, "mcp-descriptions.md");
       await expect(access(path)).rejects.toThrow();
     }

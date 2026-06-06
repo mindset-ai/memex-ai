@@ -16,15 +16,15 @@ export type DocumentContext = {
  * Map a raw doc status (legacy + canonical Spec phases) onto the
  * five-element SpecPhase enum. Mirrors `phaseFromStatus` in
  * `mcp/formatters.ts` (kept local to avoid cross-module coupling). Non-Spec
- * statuses fall back to `'plan'` — generic enough as a default prompt shape.
+ * statuses fall back to `'specify'` — generic enough as a default prompt shape.
  */
 function statusToPhase(status: string): SpecPhase {
   switch (status) {
     case "draft":
       return "draft";
-    case "plan":
+    case "specify":
     case "review":
-      return "plan";
+      return "specify";
     case "build":
     case "implementation":
       return "build";
@@ -34,7 +34,7 @@ function statusToPhase(status: string): SpecPhase {
     case "approved":
       return "done";
     default:
-      return "plan";
+      return "specify";
   }
 }
 
@@ -210,7 +210,7 @@ function truncateBody(text: string): string {
  * how to fetch exact refs (`list_comments` for the c-N comment ref, `get_doc` for
  * the s-N section ref) before it mutates.
  *
- * Returns `phase: 'plan'` — drift mode is not a Spec phase, but buildSystemBlocks
+ * Returns `phase: 'specify'` — drift mode is not a Spec phase, but buildSystemBlocks
  * still needs a base phase to project the general orientation; the drift overlay
  * is what gives the agent its actual job. Empty when there is no open drift.
  */
@@ -230,7 +230,7 @@ export async function buildDriftContext(
     return {
       context:
         "Open drift: none. There are no open drift observations or proposed Standard changes in this Memex right now. Let the user know the Standards are clear of open drift, and offer to help if they want to flag a new drift finding or review a Standard.",
-      phase: "plan",
+      phase: "specify",
     };
   }
 
@@ -332,6 +332,6 @@ export async function buildDriftContext(
 
   return {
     context: lines.join("\n"),
-    phase: "plan",
+    phase: "specify",
   };
 }

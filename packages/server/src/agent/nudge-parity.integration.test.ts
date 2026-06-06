@@ -230,7 +230,7 @@ describe("b-68 t-8 ac-31: Org GuidanceBlocks never reach the React system prompt
   // by seeding an Org row with a sentinel string and verifying the sentinel
   // is absent from `buildSystemBlocks` output for every phase.
 
-  const ALL_PHASES: SpecPhase[] = ["draft", "plan", "build", "verify", "done"];
+  const ALL_PHASES: SpecPhase[] = ["draft", "specify", "build", "verify", "done"];
 
   it("an Org-scoped GuidanceBlock sentinel does not appear in buildSystemBlocks output for ANY phase", async () => {
     tagAc(AC_31);
@@ -296,7 +296,7 @@ describe("b-68 t-8 ac-31: Org GuidanceBlocks never reach the React system prompt
       globalSharedNudgeTexts.length,
       "BASE_SCAFFOLD must carry at least one global shared_nudge block for this test to be meaningful",
     ).toBeGreaterThan(0);
-    for (const phase of ["draft", "plan", "build", "verify", "done"] as const) {
+    for (const phase of ["draft", "specify", "build", "verify", "done"] as const) {
       const joined = buildSystemBlocks("ctx", phase)
         .map((b) => b.text)
         .join("\n\n");

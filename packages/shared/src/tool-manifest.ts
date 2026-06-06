@@ -113,7 +113,7 @@ export const toolManifest: ToolManifestEntry[] = [
     readOnlyHint: true,
   },
 
-  // ── Planning phase (draft / plan) ─────────────────────────
+  // ── Planning phase (draft / specify) ──────────────────────
   {
     name: 'create_doc',
     summary:
@@ -125,7 +125,7 @@ export const toolManifest: ToolManifestEntry[] = [
   {
     name: 'update_doc',
     summary:
-      "Update a document's status, title, and/or tags; transitions a Spec through draft→plan→build→verify→done.",
+      "Update a document's status, title, and/or tags; transitions a Spec through draft→specify→build→verify→done.",
     args: 'update_doc(ref, status?, title?, tags?, removeTags?)',
     group: 'planning',
     readOnlyHint: false,
@@ -245,7 +245,7 @@ export const toolManifest: ToolManifestEntry[] = [
   {
     name: 'publish_spec',
     summary:
-      "Transition a Spec out of draft (defaults to 'plan'); refuses already-published Specs.",
+      "Transition a Spec out of draft (defaults to 'specify'); refuses already-published Specs.",
     args: 'publish_spec(ref, status?)',
     group: 'planning',
     readOnlyHint: false,
@@ -385,7 +385,7 @@ export const toolManifest: ToolManifestEntry[] = [
     readOnlyHint: false,
   },
 
-  // ── Acceptance Criteria (plan + build) ────────────────────
+  // ── Acceptance Criteria (specify + build) ─────────────────
   {
     name: 'create_ac',
     summary:

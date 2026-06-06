@@ -128,10 +128,10 @@ describe("GET /analytics/specs-by-phase", () => {
     const res = await app.request(`${pathA}/analytics/specs-by-phase`, withApexHost());
     expect(res.status).toBe(200);
     const { points } = (await res.json()) as {
-      points: Array<{ day: string; draft: number; plan: number; build: number; verify: number; done: number }>;
+      points: Array<{ day: string; draft: number; specify: number; build: number; verify: number; done: number }>;
     };
     const last = points.at(-1)!;
-    expect(last).toMatchObject({ draft: 2, plan: 0, build: 1, verify: 0, done: 2 });
+    expect(last).toMatchObject({ draft: 2, specify: 0, build: 1, verify: 0, done: 2 });
     // Day 1 snapshot: the two Jun-1 specs (one now done, one draft).
     expect(points[0]).toMatchObject({ day: "2026-06-01", draft: 1, done: 1, build: 0 });
   });
@@ -186,10 +186,10 @@ describe("GET /analytics/pipeline-funnel", () => {
       stages: Array<{ phase: string; count: number }>;
     };
     // Fixture (active only): 1 draft, 1 build, 2 done. At-or-beyond:
-    // draft=4, plan=3 (build+done), build=3, verify=2, done=2.
+    // draft=4, specify=3 (build+done), build=3, verify=2, done=2.
     expect(stages).toEqual([
       { phase: "draft", count: 4 },
-      { phase: "plan", count: 3 },
+      { phase: "specify", count: 3 },
       { phase: "build", count: 3 },
       { phase: "verify", count: 2 },
       { phase: "done", count: 2 },

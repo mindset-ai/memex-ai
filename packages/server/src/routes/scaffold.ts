@@ -99,13 +99,13 @@ interface RawTarget {
 
 const VALID_PHASES: ReadonlySet<string> = new Set([
   "draft",
-  "plan",
+  "specify",
   "build",
   "verify",
   "done",
 ]);
 const VALID_TRANSITIONS: ReadonlySet<string> = new Set([
-  "plan",
+  "specify",
   "build",
   "verify",
   "done",

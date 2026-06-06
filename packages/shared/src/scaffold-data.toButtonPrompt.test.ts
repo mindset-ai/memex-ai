@@ -28,7 +28,7 @@ function makeButton(overrides: Partial<PromptButtonNode> = {}): PromptButtonNode
     label: overrides.label ?? 'Create Tasks',
     text: overrides.text ?? 'Create tasks for ${specRef}.',
     surfaces: overrides.surfaces ?? ['spec-header'],
-    rationale: overrides.rationale ?? 'Hand a plan-phase Spec to an agent.',
+    rationale: overrides.rationale ?? 'Hand a specify-phase Spec to an agent.',
   };
 }
 
@@ -173,7 +173,7 @@ describe('toButtonPrompt placeholder syntax + shipped buttons (ac-11)', () => {
     expect(out).not.toMatch(/\{(?:namespace|memex|handle|title|url)\}/);
   });
 
-  // spec-159 ac-17: the new plan-phase handoff node — instructs a coding agent
+  // spec-159 ac-17: the new specify-phase handoff node — instructs a coding agent
   // to study the Spec and create Decisions + scope ACs, same `{token}` slots as
   // the build/verify nodes.
   it('renders the shipped plan-handoff button: Decisions + scope ACs, every placeholder filled', () => {
@@ -192,7 +192,7 @@ describe('toButtonPrompt placeholder syntax + shipped buttons (ac-11)', () => {
 
     expect(out).toContain('You are working in Memex (ns/mx)');
     expect(out).toContain('Spec spec-9 "T"');
-    expect(out).toContain('Status: plan');
+    expect(out).toContain('Status: specify');
     expect(out).toContain("ref: 'ns/mx/specs/spec-9'");
     // It directs the agent to surface/resolve Decisions and author scope ACs.
     expect(out).toMatch(/create_decision/);
@@ -203,7 +203,7 @@ describe('toButtonPrompt placeholder syntax + shipped buttons (ac-11)', () => {
     expect(out).not.toMatch(/\{(?:namespace|memex|handle|title|url)\}/);
   });
 
-  // spec-159 ac-17: the plan-handoff node makes per-decision grounding MANDATORY
+  // spec-159 ac-17: the specify-phase handoff node makes per-decision grounding MANDATORY
   // — before discussing each surfaced Decision the agent must search the Memex's
   // history along BOTH axes (prior decisions AND coding standards), once per
   // decision. This is the load-bearing instruction that stops a team from
@@ -233,7 +233,7 @@ describe('toButtonPrompt placeholder syntax + shipped buttons (ac-11)', () => {
   // ASK the user which lens(es) to review through (never assuming all four),
   // ABSORB the Spec, review through the chosen lens(es), ground claims against
   // the code, and capture findings as review comments / Issues — never
-  // mutating the Spec's shape. Same `{token}` slots as the plan node.
+  // mutating the Spec's shape. Same `{token}` slots as the specify node.
   it('renders the shipped review-handoff button: review lenses + capture, every placeholder filled', () => {
     tagAc('mindset-prod/memex-building-itself/specs/spec-159/acs/ac-19');
 

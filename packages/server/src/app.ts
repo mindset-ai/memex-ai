@@ -44,7 +44,11 @@ import { namespacesRouter } from "./routes/namespaces.js";
 import { consentRouter } from "./routes/consent.js";
 import { getBusRelay } from "./services/bus-relay.js";
 import { createMcpServer } from "./mcp/tools.js";
-import { migrationErrorMessage, argMigrationErrorMessage } from "./mcp/migration-map.js";
+import {
+  migrationErrorMessage,
+  argMigrationErrorMessage,
+  phaseValueMigrationErrorMessage,
+} from "./mcp/migration-map.js";
 import { verifyMcpToken, bumpLastUsed } from "./services/mcp-tokens.js";
 import { verifyAccessToken } from "./services/oauth/access-tokens.js";
 import { isDevMode, ensureDevMemberships } from "./middleware/session.js";
@@ -481,6 +485,26 @@ app.all("/mcp", async (c) => {
           result: {
             isError: true,
             content: [{ type: "text" as const, text: argMsg }],
+          },
+        });
+      }
+
+      // spec-181 / dec-1 — phase-VALUE migration (`plan` → `specify`): an
+      // inbound phase-sense status/target of "plan" gets a structured error
+      // naming the rename + the corrective action (re-read tools/list), rather
+      // than the generic Zod enum error the renamed enums now produce. No
+      // alias/coercion. The `plan` comment-type vocabulary is untouched (it
+      // arrives on `type`/`types`, not the phase-sense fields checked here).
+      const phaseMsg = phaseValueMigrationErrorMessage(
+        args as Record<string, unknown>,
+      );
+      if (phaseMsg) {
+        return c.json({
+          jsonrpc: "2.0",
+          id: parsed.id ?? null,
+          result: {
+            isError: true,
+            content: [{ type: "text" as const, text: phaseMsg }],
           },
         });
       }

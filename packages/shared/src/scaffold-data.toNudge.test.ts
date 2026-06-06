@@ -16,7 +16,7 @@ const AC = (n: number) =>
   `mindset-prod/memex-building-itself/specs/spec-68/acs/ac-${n}`;
 
 // Phases the BASE dataset carries. Used to drive the (tool × phase) sweeps.
-const ALL_PHASES: readonly Phase[] = ['draft', 'plan', 'build', 'verify', 'done'];
+const ALL_PHASES: readonly Phase[] = ['draft', 'specify', 'build', 'verify', 'done'];
 
 // A representative sample across tool groups — read, mutate, lifecycle, AC,
 // comment, slack. Keeps the per-phase loop tight while still covering each

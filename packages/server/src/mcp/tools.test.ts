@@ -536,7 +536,7 @@ describe("MCP Tool handlers via HTTP", () => {
       // exclusion can't silently regress off the agent surface.
       excludeDemo: true,
       includePaused: false,
-      statusIn: ["plan", "build", "verify"],
+      statusIn: ["specify", "build", "verify"],
     });
   });
 

@@ -94,13 +94,13 @@ export interface ListOrgScaffoldAdditionsFilters {
 
 const VALID_PHASES: ReadonlySet<Phase> = new Set([
   "draft",
-  "plan",
+  "specify",
   "build",
   "verify",
   "done",
 ]);
 const VALID_TRANSITIONS: ReadonlySet<Transition> = new Set([
-  "plan",
+  "specify",
   "build",
   "verify",
   "done",

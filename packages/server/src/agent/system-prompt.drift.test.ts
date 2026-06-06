@@ -22,7 +22,7 @@ const DRIFT_MARKER = DRIFT_AGENT_GUIDANCE.text.slice(0, 40);
 
 function instructionText(driftMode: boolean): string {
   // (documentContext, phase, readOnly, reviewer, driftMode)
-  const blocks = buildSystemBlocks(CTX, "plan", false, false, driftMode);
+  const blocks = buildSystemBlocks(CTX, "specify", false, false, driftMode);
   return blocks[0]!.text;
 }
 
