@@ -36,7 +36,7 @@ export const CODEBASE_LOOP_FOOTER = [
   "**Codebase loop** — when reading code as part of `build`:",
   "- Read before write. Use `list_symbols`, `code_search`, `get_symbol(include:['dependencies'])` to ground the change before generating.",
   "- `search_memex({ query, kind: 'standard' })` for the area you're about to touch — pinned team rules live there.",
-  "- If you spot a rule that's wrong or stale, `propose_standard_change(standardSectionId, proposedContent)`. If the rule is right but the code has drifted, `flag_drift(standardSectionId, observation)`. Don't route around either.",
+  "- If you spot a rule that's wrong or stale, `propose_standard_change(ref, proposedContent)` where `ref` is the section's canonical ref (e.g. `…/standards/std-N/sections/s-M`). If the rule is right but the code has drifted, `flag_drift(ref, observation)`. Don't route around either.",
   "- A task is `complete` only when verification actually runs (type checks + tests + the new path exercised). Plausibility is the failure mode.",
 ].join("\n");
 

@@ -284,7 +284,7 @@ export const toolManifest: ToolManifestEntry[] = [
     name: 'flag_drift',
     summary:
       "Flag drift on a standard section — post a typed `drift` comment (sourced 'agent') describing the gap between the rule and observed reality. Use when the rule is right but the code drifted; if the rule is wrong, use propose_standard_change.",
-    args: 'flag_drift(standardSectionId, observation)',
+    args: 'flag_drift(ref, observation)',
     group: 'build',
     readOnlyHint: false,
   },
@@ -292,7 +292,7 @@ export const toolManifest: ToolManifestEntry[] = [
     name: 'propose_standard_change',
     summary:
       'Propose a corrected version of a standard section. Lands as a typed `plan_revision` comment (sourced \'agent\') with the full proposed replacement and a rationale, for the standard owner to accept or reject in the Drift Inbox.',
-    args: 'propose_standard_change(standardSectionId, proposedContent, rationale?)',
+    args: 'propose_standard_change(ref, proposedContent, rationale?)',
     group: 'build',
     readOnlyHint: false,
   },
