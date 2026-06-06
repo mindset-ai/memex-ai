@@ -207,31 +207,32 @@ describe('AllComments', () => {
     expect(screen.getByText('task issue')).toBeInTheDocument();
   });
 
-  // ── spec-194: author-kind row removed; status filtering retained (spec-100 ac-9 status half) ──
+  // ── spec-194 (dec-2): author-kind row restored (People→Humans), one combined row, distinct colour ──
 
-  it('renders no author-kind filter row — Everyone/System/People removed (spec-194 ac-5)', () => {
+  it('renders the author-kind row with Everyone/System/Humans — People renamed to Humans (spec-194 ac-5)', () => {
     tagAc(AC194(5));
     const section = makeSection();
     render(
       <AllComments
         sections={[section]}
         commentsBySection={{
-          [section.id]: [
-            makeComment({ id: 'h', content: 'human note', source: 'human' }),
-            makeComment({ id: 's', content: 'system flag', source: 'agent' }),
-          ],
+          [section.id]: [makeComment({ id: 'h', content: 'human note', source: 'human' })],
         }}
         onNavigateToSection={vi.fn()}
       />
     );
-    expect(screen.queryByTestId('author-filter')).not.toBeInTheDocument();
+    expect(screen.getByTestId('author-filter')).toBeInTheDocument();
     for (const kind of ['all', 'system', 'human']) {
-      expect(screen.queryByTestId(`author-filter-${kind}`)).not.toBeInTheDocument();
+      expect(screen.getByTestId(`author-filter-${kind}`)).toBeInTheDocument();
     }
+    // The human option reads "Humans", not "People".
+    expect(screen.getByTestId('author-filter-human')).toHaveTextContent('Humans');
+    expect(screen.queryByText('People')).not.toBeInTheDocument();
   });
 
-  it('renders human and agent/system comments together — no author-kind narrowing (spec-194 ac-7)', () => {
+  it('author-kind filtering narrows: System → agent only, Humans → human only (spec-194 ac-7)', async () => {
     tagAc(AC194(7));
+    const user = userEvent.setup();
     const section = makeSection();
     render(
       <AllComments
@@ -245,9 +246,47 @@ describe('AllComments', () => {
         onNavigateToSection={vi.fn()}
       />
     );
-    // Both render with no way (and no need) to filter by author kind.
+    // Default (Everyone): both visible.
     expect(screen.getByText('human note')).toBeInTheDocument();
     expect(screen.getByText('system flag')).toBeInTheDocument();
+    // System → only agent-sourced.
+    await user.click(screen.getByTestId('author-filter-system'));
+    expect(screen.getByText('system flag')).toBeInTheDocument();
+    expect(screen.queryByText('human note')).not.toBeInTheDocument();
+    // Humans → only human-sourced.
+    await user.click(screen.getByTestId('author-filter-human'));
+    expect(screen.getByText('human note')).toBeInTheDocument();
+    expect(screen.queryByText('system flag')).not.toBeInTheDocument();
+  });
+
+  it('renders author-kind + status chips on one combined row (spec-194 ac-9)', () => {
+    tagAc(AC194(9));
+    const section = makeSection();
+    render(
+      <AllComments
+        sections={[section]}
+        commentsBySection={{ [section.id]: [makeComment({ id: 'h', content: 'human note' })] }}
+        onNavigateToSection={vi.fn()}
+      />
+    );
+    const author = screen.getByTestId('author-filter');
+    const statusRow = screen.getByTestId('status-filter');
+    // Same parent element → one combined row (author group, divider, status group).
+    expect(author.parentElement).toBe(statusRow.parentElement);
+  });
+
+  it('author-kind chips carry the agent tone, status chips the accent tone (spec-194 ac-10)', () => {
+    tagAc(AC194(10));
+    const section = makeSection();
+    render(
+      <AllComments
+        sections={[section]}
+        commentsBySection={{ [section.id]: [makeComment({ id: 'h', content: 'human note' })] }}
+        onNavigateToSection={vi.fn()}
+      />
+    );
+    expect(screen.getByTestId('author-filter')).toHaveAttribute('data-tone', 'agent');
+    expect(screen.getByTestId('status-filter')).toHaveAttribute('data-tone', 'accent');
   });
 
   it('surfaces resolved comments only when the Resolved status is selected', async () => {
