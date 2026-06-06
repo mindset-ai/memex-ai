@@ -1,5 +1,5 @@
 import { test, expect, tenantPath } from "./helpers/index.js";
-import { seedOrgTenant, seedSpec, seedSection } from "./helpers/retained.js";
+import { seedOrgTenant, seedSpec, seedSection, tenantApiUrl } from "./helpers/retained.js";
 
 // Journey 15: Spec detail page layout. Locks in the structure shipped with the
 // design refresh — header actions live in the top nav (not the body), tabs
@@ -27,7 +27,7 @@ test.describe("Spec detail layout", () => {
   }) => {
     const slug = resources.slug("j15");
     const tenant = await seedOrgTenant({ slug });
-    const { docId } = await seedSpec({
+    const { docId, sectionId } = await seedSpec({
       memexId: tenant.memexId,
       title: "Layout Spec",
       purpose: "Spec for layout regression testing.",
@@ -37,6 +37,19 @@ test.describe("Spec detail layout", () => {
     await seedSection({ memexId: tenant.memexId, docId, title: "Design Approach", content: "Design body.", sectionType: "design" });
     await seedSection({ memexId: tenant.memexId, docId, title: "Testing Plan", content: "Testing body.", sectionType: "testing" });
     await seedSection({ memexId: tenant.memexId, docId, title: "Rollout Plan", content: "Rollout body.", sectionType: "rollout" });
+    // spec-194: seed one comment so the Comments-tab filter rows render (they're
+    // hidden when the doc has no comments).
+    {
+      const res = await fetch(
+        tenantApiUrl(tenant.namespaceSlug, tenant.memexSlug, `comments/section/${sectionId}`),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ authorName: "Alex Rivera", content: "A note for the filter row." }),
+        },
+      );
+      expect(res.ok).toBe(true);
+    }
 
     await page.goto(tenantPath(tenant.namespaceSlug, tenant.memexSlug, `/docs/${docId}`));
     await expect(page.getByRole("heading", { name: "Layout Spec", level: 1 })).toBeVisible({
@@ -62,12 +75,14 @@ test.describe("Spec detail layout", () => {
     await expect(page.getByRole("button", { name: /^Decisions & ACs/ })).toBeVisible();
     await expect(page.getByRole("button", { name: /^Comments/ })).toBeVisible();
 
-    // spec-185 removed the comment-type chip row from the doc-wide Comments
-    // view; spec-194 then removed the author-kind (Everyone/System/People) row.
-    // Only the Open/Resolved/All status row survives.
+    // Comments filter rows: the comment-type chip row is gone (spec-185); the
+    // author-kind row is present and renamed People→Humans (spec-194), sharing
+    // one combined row with the Open/Resolved/All status row.
     await page.getByRole("button", { name: /^Comments/ }).click();
     await expect(page.getByTestId("comment-filter-chips")).toHaveCount(0);
-    await expect(page.getByTestId("author-filter")).toHaveCount(0);
+    await expect(page.getByTestId("author-filter")).toBeVisible();
+    await expect(page.getByTestId("author-filter-human")).toHaveText("Humans");
+    await expect(page.getByTestId("status-filter")).toBeVisible();
 
     await page.getByRole("button", { name: /^Decisions & ACs/ }).click();
     // A spec opened via /docs/:id canonicalises to /specs/:id (DocDocument route).
