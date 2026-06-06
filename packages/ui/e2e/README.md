@@ -7,8 +7,9 @@ smoke tier). Rebuilt under spec-172.
 ## Running
 
 ```bash
-pnpm --filter @memex/ui test:e2e              # full suite (chromium)
-pnpm --filter @memex/ui test:e2e journey-18   # single file
+make e2e                                      # full suite (chromium), against your dev DB
+make e2e ARGS="journey-18 --headed"           # single file, watching the browser
+make e2e-cold                                 # throwaway freshly-migrated DB — exact CI parity
 pnpm --filter @memex/ui test:e2e --ui         # interactive runner
 ```
 
