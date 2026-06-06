@@ -145,14 +145,14 @@ test.describe("Spec detail layout", () => {
     const statusSelect = topNav.getByLabel("Spec status");
     await expect(statusSelect).toHaveValue("draft");
 
-    await statusSelect.selectOption("plan");
-    await expect(statusSelect).toHaveValue("plan");
+    await statusSelect.selectOption("specify");
+    await expect(statusSelect).toHaveValue("specify");
 
     // Status persists across reload (server-backed, not just local state).
     await page.reload();
     await expect(page.getByRole("heading", { name: "Status Test Spec", level: 1 })).toBeVisible({
       timeout: 15_000,
     });
-    await expect(page.locator("header").filter({ hasText: "All specs" }).getByLabel("Spec status")).toHaveValue("plan");
+    await expect(page.locator("header").filter({ hasText: "All specs" }).getByLabel("Spec status")).toHaveValue("specify");
   });
 });

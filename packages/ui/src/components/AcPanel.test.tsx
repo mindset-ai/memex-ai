@@ -389,11 +389,11 @@ describe('AcPanel — draft-phase gating (spec-164)', () => {
     expect(screen.queryByTestId('ac-draft-directive')).not.toBeInTheDocument();
   });
 
-  it('plan + zero ACs → the teaching card renders as before (no directive)', async () => {
+  it('specify + zero ACs → the teaching card renders as before (no directive)', async () => {
     tagAc(AC164(18));
     vi.mocked(fetchAcsForBrief).mockResolvedValue([]);
     vi.mocked(fetchAcAlignmentHistory).mockResolvedValue([]);
-    render(<AcPanel docId="spec-1" specPhase="plan" />);
+    render(<AcPanel docId="spec-1" specPhase="specify" />);
     expect(
       await screen.findByText('No acceptance criteria on this Spec yet'),
     ).toBeInTheDocument();

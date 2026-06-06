@@ -634,7 +634,7 @@ describe('SpecList — phase display names (spec-164)', () => {
   it('the planning kanban column is headed "Specify" (no "Plan" heading remains)', async () => {
     tagAc(AC_DISPLAY);
     fetchDocsMock.mockResolvedValueOnce([
-      spec({ id: 's-1', title: 'Auth migration', handle: 'doc-1', status: 'plan' }),
+      spec({ id: 's-1', title: 'Auth migration', handle: 'doc-1', status: 'specify' }),
     ]);
 
     render(

@@ -73,7 +73,7 @@ function richEnvelope(): SearchEnvelope {
         kind: 'spec',
         path: 'mindset-prod/memex-building-itself/specs/spec-12',
         title: 'Assigned spec',
-        status: 'plan',
+        status: 'specify',
       }),
     ],
     content: [

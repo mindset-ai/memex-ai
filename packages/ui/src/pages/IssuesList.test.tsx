@@ -116,7 +116,7 @@ describe('IssuesList — grouping under parent Spec (ac-7)', () => {
     // Two specs; the server orders rows by most-recent activity (freshest first),
     // so spec-9's row leads and its group must render before spec-3's.
     fetchMemexIssuesMock.mockResolvedValueOnce([
-      issue({ id: 'i-3', seq: 3, spec: { docId: 'd-9', handle: 'spec-9', title: 'Billing', status: 'plan' } }),
+      issue({ id: 'i-3', seq: 3, spec: { docId: 'd-9', handle: 'spec-9', title: 'Billing', status: 'specify' } }),
       issue({ id: 'i-1', seq: 1, spec: { docId: 'd-3', handle: 'spec-3', title: 'Auth flow', status: 'build' } }),
       issue({ id: 'i-2', seq: 2, type: 'todo', spec: { docId: 'd-3', handle: 'spec-3', title: 'Auth flow', status: 'build' } }),
     ]);
@@ -224,7 +224,7 @@ describe('IssuesList — filters compose + round-trip through the URL', () => {
     await waitFor(() => expect(screen.getByTestId('issues-phase-build')).toBeChecked());
     expect(screen.getByTestId('issues-phase-verify')).toBeChecked();
     expect(screen.getByTestId('issues-phase-draft')).not.toBeChecked();
-    expect(screen.getByTestId('issues-phase-plan')).not.toBeChecked();
+    expect(screen.getByTestId('issues-phase-specify')).not.toBeChecked();
     expect(screen.getByTestId('issues-phase-done')).not.toBeChecked();
     // Type: only bug checked.
     expect(screen.getByTestId('issues-type-bug')).toBeChecked();
@@ -237,7 +237,7 @@ describe('IssuesList — filters compose + round-trip through the URL', () => {
     tagAc('mindset-prod/memex-building-itself/specs/spec-164/acs/ac-7');
     renderPage();
 
-    for (const phase of ['draft', 'plan', 'build', 'verify']) {
+    for (const phase of ['draft', 'specify', 'build', 'verify']) {
       expect(await screen.findByTestId(`issues-phase-${phase}`)).toBeChecked();
     }
     expect(screen.getByTestId('issues-phase-done')).not.toBeChecked();
@@ -265,7 +265,7 @@ describe('IssuesList — filters compose + round-trip through the URL', () => {
       const search = screen.getByTestId('probe').getAttribute('data-search') ?? '';
       const phases = new URLSearchParams(search).get('phases');
       expect(phases).not.toBeNull();
-      expect(phases!.split(',').sort()).toEqual(['build', 'done', 'draft', 'plan', 'verify']);
+      expect(phases!.split(',').sort()).toEqual(['build', 'done', 'draft', 'specify', 'verify']);
     });
 
     // …and unchecking done returns to the clean default URL (param dropped).
@@ -299,13 +299,13 @@ describe('IssuesList — filters compose + round-trip through the URL', () => {
       const params = new URLSearchParams(search);
       const phases = params.get('phases');
       expect(phases).not.toBeNull();
-      expect(phases!.split(',').sort()).toEqual(['build', 'plan', 'verify']);
+      expect(phases!.split(',').sort()).toEqual(['build', 'specify', 'verify']);
     });
 
     // The fetch ran again with exactly the remaining phases.
     await waitFor(() => {
       const lastCall = fetchMemexIssuesMock.mock.calls.at(-1)![0];
-      expect([...lastCall.phases].sort()).toEqual(['build', 'plan', 'verify']);
+      expect([...lastCall.phases].sort()).toEqual(['build', 'specify', 'verify']);
     });
   });
 });
@@ -546,22 +546,23 @@ describe('IssuesList — Convert to Spec opens a prefilled NewSpecModal (ac-19)'
 
 // spec-164 dec-1 / ac-13 — the Issues page routes phase names through the
 // shared display-name layer: the phase filter and the per-Spec phase badge
-// read "Specify" for the `plan` enum value (which stays the URL/param value).
+// read "Specify" for the `specify` enum value (which is also the URL/param value
+// now — spec-181 renamed the enum end-to-end).
 describe('IssuesList — phase display names (spec-164)', () => {
   const AC_DISPLAY = 'mindset-prod/memex-building-itself/specs/spec-164/acs/ac-13';
 
-  it('the phase filter checkbox for `plan` is labelled "Specify" and the param stays `plan`', async () => {
+  it('the phase filter checkbox for `specify` is labelled "Specify" and the param stays `specify`', async () => {
     tagAc(AC_DISPLAY);
     renderPage();
     await screen.findByTestId('issues-filter-bar');
-    const checkbox = screen.getByTestId('issues-phase-plan');
+    const checkbox = screen.getByTestId('issues-phase-specify');
     expect(checkbox.closest('label')).toHaveTextContent('Specify');
   });
 
-  it('the parent-Spec phase badge renders the display name for a plan spec', async () => {
+  it('the parent-Spec phase badge renders the display name for a specify spec', async () => {
     tagAc(AC_DISPLAY);
     fetchMemexIssuesMock.mockResolvedValue([
-      issue({ spec: { docId: 'd-1', handle: 'spec-3', title: 'Auth flow', status: 'plan' } }),
+      issue({ spec: { docId: 'd-1', handle: 'spec-3', title: 'Auth flow', status: 'specify' } }),
     ]);
     renderPage();
     expect(await screen.findByTestId('issues-spec-phase')).toHaveTextContent('Specify');

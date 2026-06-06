@@ -9,7 +9,7 @@ interface InitPromptDialogProps {
   onClose: () => void;
 }
 
-const MODE_ORDER: InitPromptMode[] = ['evolve', 'plan', 'execute', 'decisions', 'comments', 'freeform'];
+const MODE_ORDER: InitPromptMode[] = ['evolve', 'specify', 'execute', 'decisions', 'comments', 'freeform'];
 
 export function InitPromptDialog({ defaultMode = 'evolve', onCopy, onClose }: InitPromptDialogProps) {
   const [mode, setMode] = useState<InitPromptMode>(defaultMode);

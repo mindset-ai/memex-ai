@@ -8,7 +8,7 @@ import type { SpecStatus } from '../api/types';
  * the board shows only ONE at a time — the one whose `status` matches a
  * client-side pointer. Advancing the pointer makes the current demo card
  * disappear and the next phase's demo card appear, giving the impression of a
- * single spec walking across the board (draft → plan → build → verify → done).
+ * single spec walking across the board (draft → specify → build → verify → done).
  *
  * The pointer is purely a UI affordance for the walkthrough, so it lives in
  * localStorage (no server state — this is CLIENT-SIDE ONLY, dec-10). It is
@@ -18,7 +18,7 @@ import type { SpecStatus } from '../api/types';
 
 // dec-4 Spec lifecycle order. The demo walks these in sequence; `done` is the
 // terminal phase (no "next" — the advance control becomes Reset there).
-export const REVEAL_PHASES = ['draft', 'plan', 'build', 'verify', 'done'] as const;
+export const REVEAL_PHASES = ['draft', 'specify', 'build', 'verify', 'done'] as const;
 export type RevealPhase = (typeof REVEAL_PHASES)[number];
 
 const DEFAULT_PHASE: RevealPhase = 'draft';

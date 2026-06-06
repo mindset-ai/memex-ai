@@ -25,8 +25,8 @@ interface Props {
   label?: string;
 }
 
-const PHASES: Phase[] = ['draft', 'plan', 'build', 'verify', 'done'];
-const TRANSITIONS: Transition[] = ['plan', 'build', 'verify', 'done'];
+const PHASES: Phase[] = ['draft', 'specify', 'build', 'verify', 'done'];
+const TRANSITIONS: Transition[] = ['specify', 'build', 'verify', 'done'];
 
 export function ScaffoldAdditionEditor({ initialTarget, onSubmit, label = 'Add guidance' }: Props) {
   const [open, setOpen] = useState(false);

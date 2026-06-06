@@ -33,18 +33,19 @@ import {
 // of the box; users opt into the cluttered view per session.
 const SHOW_PAUSED_KEY = 'memex.spec-list.show-paused';
 
-// Per dec-3 / dec-4 of doc-10 the Spec lifecycle is `draft → plan → build →
+// Per dec-3 / dec-4 of doc-10 the Spec lifecycle is `draft → specify → build →
 // verify → done`. Kanban renders the four active columns; `done` lives in a
 // collapsible rail on the right (dec-5). `approved` is execution-plan-only
 // (t-20 W-B) and never appears on a spec card.
-type SpecKanbanStatus = 'draft' | 'plan' | 'build' | 'verify' | 'done';
+type SpecKanbanStatus = 'draft' | 'specify' | 'build' | 'verify' | 'done';
 type ActiveStatus = Exclude<SpecKanbanStatus, 'done'>;
 
-// spec-164 dec-1: column labels come from the shared phase display-name layer
-// (the `plan` column reads "Specify"); the ids stay the enum values.
+// spec-181: column labels come from the shared phase display-name layer (now a
+// plain capitaliser); the `specify` column reads "Specify" straight from the
+// enum value, and the ids stay the enum values.
 const ACTIVE_COLUMNS: { id: ActiveStatus; label: string }[] = [
   { id: 'draft', label: phaseDisplayName('draft') },
-  { id: 'plan', label: phaseDisplayName('plan') },
+  { id: 'specify', label: phaseDisplayName('specify') },
   { id: 'build', label: phaseDisplayName('build') },
   { id: 'verify', label: phaseDisplayName('verify') },
 ];
@@ -407,7 +408,7 @@ export function SpecList() {
   // spec-178 t-10 (dec-10): the progressive-reveal pointer. The five demo specs
   // are all seeded (one per phase) but only ONE is shown on the board at a time
   // — the one whose status === revealedPhase. Advancing the pointer walks the
-  // demo across the board (draft → plan → build → verify → done). Purely a
+  // demo across the board (draft → specify → build → verify → done). Purely a
   // client-side affordance, keyed by the current tenant so each personal Memex
   // tracks its own walkthrough. `getCurrentTenant()` is null on caller-scoped
   // routes; the hook is null-safe and just collapses to a shared key there.
@@ -695,7 +696,7 @@ export function SpecList() {
 
   const docsByColumn: Record<SpecKanbanStatus, DocSummary[]> = {
     draft: [],
-    plan: [],
+    specify: [],
     build: [],
     verify: [],
     done: [],
@@ -717,19 +718,19 @@ export function SpecList() {
     // five demo specs (one per phase), but the board shows only the one whose
     // status matches the reveal pointer — hide the other four client-side. Real
     // (non-demo) specs are never touched by this filter. Demo specs carry the
-    // canonical phase values (draft/plan/build/verify/done), so we compare the
+    // canonical phase values (draft/specify/build/verify/done), so we compare the
     // raw status against the pointer before the legacy review/implementation
     // remap below (which never applies to demo rows).
     if (d.isDemo && d.status !== revealedPhase) continue;
     // spec-118 ac-19: assignee filter (assigned to me / specific person / all).
     if (!matchesAssigneeFilter(d)) continue;
     // Specs should never carry `approved` (execution-plan terminal state, t-20 W-B);
-    // the legacy `review`/`implementation` are migrated to `plan`/`build` by the doc-10
+    // the legacy `review`/`implementation` are migrated to `specify`/`build` by the doc-10
     // backfill. Defensive remap covers any racing rows that slipped past the migration.
     if (d.status === 'approved') continue;
     const remapped: SpecKanbanStatus =
       d.status === 'review'
-        ? 'plan'
+        ? 'specify'
         : d.status === 'implementation'
         ? 'build'
         : (d.status as SpecKanbanStatus);

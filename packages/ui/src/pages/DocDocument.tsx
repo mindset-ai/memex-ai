@@ -126,7 +126,7 @@ export function DocDocument() {
   const [commentsByTask, setCommentsByTask] = useState<Record<string, Comment[]>>({});
   const [selectedSectionId, setSelectedSectionId] = useState<string | null>(null);
   // spec-159 t-6: the page is organised around the Spec's three working phases
-  // (Plan / Build / Verify) instead of the six flat content tabs. `selectedTab`
+  // (Specify / Build / Verify) instead of the six flat content tabs. `selectedTab`
   // is the phase view the user is browsing — it never drives the Spec's phase
   // (that's TransitionSentence's [Yes]); it only changes what's shown.
   // `null` defers to the doc's current phase, computed once the doc loads.
@@ -266,8 +266,8 @@ export function DocDocument() {
   // or `?issue=issue-N`) must land on a phase view that actually renders IssuePanel
   // so `highlightIssueHandle` reaches it — including on a fresh full-page load.
   // spec-159's restructure only mounts IssuePanel under the Build / Verify layouts;
-  // a Spec sitting in draft/plan/done would otherwise drop the highlight. When a
-  // deep-linked issue is present and the doc's current phase view is Plan (the one
+  // a Spec sitting in draft/specify/done would otherwise drop the highlight. When a
+  // deep-linked issue is present and the doc's current phase view is Specify (the one
   // phase tab without IssuePanel), browse to Build once. Runs a single time on the
   // first doc load; the user can still navigate away afterwards.
   const issueDeepLinkLandedRef = useRef(false);
@@ -277,7 +277,7 @@ export function DocDocument() {
     issueDeepLinkLandedRef.current = true;
     const phaseTab =
       doc.status === 'build' ? 'build' : doc.status === 'verify' ? 'verify' : null;
-    // Build / Verify already show IssuePanel; only Plan (draft/plan) and the
+    // Build / Verify already show IssuePanel; only Specify (draft/specify) and the
     // done report need redirecting to a tab that mounts it.
     if (phaseTab === null) setSelectedTab('build');
   }, [doc, initialIssueHandle]);
@@ -326,8 +326,8 @@ export function DocDocument() {
 
 
   const handleSelectSection = useCallback((sectionId: string) => {
-    // The Narrative lives under the Plan view's first sub-tab.
-    setSelectedTab('plan');
+    // The Narrative lives under the Specify view's first sub-tab.
+    setSelectedTab('specify');
     setPlanSubTab('narrative');
     setSelectedSectionId(sectionId);
     const index = sortedSections.findIndex((s) => s.id === sectionId);
@@ -339,22 +339,22 @@ export function DocDocument() {
   }, [sortedSections]);
 
   // AllComments' onTabChange hands back a section/decision/task target tab. The
-  // only navigable destinations that still exist live under the Plan view, so
+  // only navigable destinations that still exist live under the Specify view, so
   // route them there (Narrative for sections, Decisions & ACs for decisions).
   const handleTabChange = useCallback((tab: string) => {
-    setSelectedTab('plan');
+    setSelectedTab('specify');
     if (tab === 'decisions') setPlanSubTab('decisions');
     else if (tab === 'document') setPlanSubTab('narrative');
   }, []);
 
   // Cross-view nav for the DecisionAcStrip pills: when a pill is clicked in the
   // Decisions & ACs column, focus the AC and surface it. Both panels live in the
-  // same Plan sub-tab (two columns), so we just hand AcPanel the focus id; it
+  // same Specify sub-tab (two columns), so we just hand AcPanel the focus id; it
   // scrolls + highlights, then calls onFocusConsumed.
   const [focusedAcId, setFocusedAcId] = useState<string | null>(null);
   const handleJumpToAc = useCallback((acId: string) => {
     setFocusedAcId(acId);
-    setSelectedTab('plan');
+    setSelectedTab('specify');
     setPlanSubTab('decisions');
   }, []);
 
@@ -554,22 +554,22 @@ export function DocDocument() {
   // The Spec's live phase. `done` is handled separately (DoneSummary takes over
   // the content area) — every other phase routes through the PhaseTabBar.
   const phase = doc.status as SpecStatus;
-  // The tab the phase makes "current" (draft → plan; done → none). The view the
-  // user is *browsing* is `selectedTab` once they've clicked, else this.
+  // The tab the phase makes "current" (draft → specify; done → none). The view
+  // the user is *browsing* is `selectedTab` once they've clicked, else this.
   const currentTab: PhaseTab | null =
-    phase === 'draft' || phase === 'plan'
-      ? 'plan'
+    phase === 'draft' || phase === 'specify'
+      ? 'specify'
       : phase === 'build'
         ? 'build'
         : phase === 'verify'
           ? 'verify'
           : null;
-  const viewedTab: PhaseTab = selectedTab ?? currentTab ?? 'plan';
+  const viewedTab: PhaseTab = selectedTab ?? currentTab ?? 'specify';
 
   // ── spec-159 ac-17: the next-action handoff line ───────────────────────────
   // Beneath the Rubicon line, a one-sentence "Copy a prompt to …" handoff keyed
   // to the Spec's CURRENT phase (not the browsed tab). It renders for every
-  // viewer — copying a prompt is read-only. draft + plan share the plan handoff;
+  // viewer — copying a prompt is read-only. draft + specify share the specify handoff;
   // build / verify each get theirs; done shows none. Each entry names the
   // Scaffold PromptButtonNode and the sentence that trails the "Copy" link.
   const tenant = getCurrentTenant();
@@ -653,19 +653,21 @@ export function DocDocument() {
     sentenceLabel?: string;
   } | null =
     // spec-164 issue-1: draft shows NO handoff line. Originally spec-159 ac-17
-    // shared the plan handoff between draft and plan (one arm,
-    // `phase === 'draft' || phase === 'plan'`). But dec-3 gates the Decisions &
+    // shared the specify handoff between draft and specify (one arm,
+    // `phase === 'draft' || phase === 'specify'`). But dec-3 gates the Decisions &
     // ACs panels in draft behind an empty-state directive ("Move this spec to
     // Specify to start capturing Decisions and ACs.") — the draft posture is to
     // invite the move to Specify FIRST. A coding-agent prompt to "create
     // Decisions and ACs" while in draft contradicts that gate-the-invitation
-    // principle, so draft now yields null (no handoff); plan keeps plan-handoff.
+    // principle, so draft now yields null (no handoff); specify keeps the
+    // plan-handoff Scaffold node (the BASE_SCAFFOLD PromptButtonNode id is
+    // unchanged — it's a stable scaffold id, not a phase value).
     // spec-182 issue-4: the hyperlink LEADS each handoff line and NAMES its
     // prompt ("Copy the Specify prompt …"), so adjacent handoff lines are
     // distinguishable from the blue text alone — the old shape buried the
     // purpose at the end of two near-identical "Copy and paste this prompt…"
     // sentences. Link names match the tab bar's phase display names.
-    phase === 'plan'
+    phase === 'specify'
       ? {
           buttonId: 'plan-handoff',
           // "*Copy the Specify prompt* into your coding agent to create
@@ -719,7 +721,7 @@ export function DocDocument() {
 
   // Counts feeding the in-situ phase directives — derived from the page's
   // already-fetched AC / task sets plus the shared open-decision count.
-  // `hasAcceptanceCriteria` informs plan→build; `openTaskCount` build→verify;
+  // `hasAcceptanceCriteria` informs specify→build; `openTaskCount` build→verify;
   // `unverifiedAcCount` verify→done. Only active ACs count toward verification.
   const activeAcs = acs.filter((a) => a.ac.status === 'active');
   const hasAcceptanceCriteria = activeAcs.length > 0;
@@ -742,7 +744,7 @@ export function DocDocument() {
   // "Rubicon line — copy set" section: emphasised entity + "must be …",
   // consecutive same-requirement fragments merging their entities
   // ("Decisions and ACs must be created…"). Each phase's line renders only on
-  // that phase's own layout — a directive about plan→build is noise while
+  // that phase's own layout — a directive about specify→build is noise while
   // browsing the build tab from verify.
   const pluralise = (n: number, noun: string) => `${n} ${noun}${n === 1 ? '' : 's'}`;
   type DirectivePart = { em: string; rest: string };
@@ -782,7 +784,7 @@ export function DocDocument() {
     );
   };
   const planDirective = directiveLine(
-    phase === 'plan'
+    phase === 'specify'
       ? [
           ...(decs.length === 0
             ? [{ em: 'Decisions', rest: 'must be created' }]
@@ -971,10 +973,10 @@ export function DocDocument() {
   // ── The declarative phase → layout map (spec-159: explicitly a plain data
   //    structure so the per-phase composition is cheap to rearrange). `done`
   //    isn't here — DoneSummary replaces the whole content area below. `draft`
-  //    shares the `plan` layout (its home tab). Each entry says whether the
+  //    shares the `specify` layout (its home tab). Each entry says whether the
   //    phase carries a sub-tab bar and what it renders. ──────────────────────
   const PHASE_LAYOUTS: Record<PhaseTab, { hasSubTabs: boolean; render: () => React.ReactNode }> = {
-    plan: {
+    specify: {
       hasSubTabs: true,
       render: () => (
         <>
@@ -1156,7 +1158,7 @@ export function DocDocument() {
                 behind a collapsed-by-default disclosure — access survives,
                 but the reviewer workflow no longer dominates the editor's
                 page. Reviewers get them expanded, no chrome. */}
-            {phase === 'plan' && (
+            {phase === 'specify' && (
               <>
                 {canEdit && (
                   <button

@@ -14,7 +14,7 @@
 // Timeline degradation: the doc data carries only `createdAt` and the LATEST
 // `statusChangedAt` (when it became `done`) — there is no per-phase change log
 // on the doc today. So the timeline renders what's actually known (start → done
-// + total elapsed) rather than fabricating intermediate plan/build/verify dates.
+// + total elapsed) rather than fabricating intermediate specify/build/verify dates.
 
 import { useState } from 'react';
 import type { Decision, Task, Issue, DocWithGraph } from '../api/types';

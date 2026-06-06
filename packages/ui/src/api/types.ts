@@ -1,15 +1,17 @@
-// Per dec-3 of doc-10 the Spec rename (`review`→`plan`, `implementation`→`build`,
+// Per dec-3 of doc-10 the Spec rename (`review`→`specify`, `implementation`→`build`,
 // plus new `verify`) applies to docType='spec' rows only. The legacy `review` and
 // `implementation` values stay in the union because Standards / Documents / Execution
 // plans still carry them. `'approved'` continues to be the Execution-plan terminal
 // state. Use `SPEC_STATUSES` when constraining to the Spec kanban + dropdown.
+// (spec-181: the second phase value is now `specify`, not `plan` — the server
+// emits/accepts `specify` end-to-end.)
 export const DOC_STATUSES = [
   'draft',
   'review',
   'implementation',
   'done',
   'approved',
-  'plan',
+  'specify',
   'build',
   'verify',
 ] as const;
@@ -17,7 +19,7 @@ export type DocStatus = typeof DOC_STATUSES[number];
 
 // Spec-only lifecycle (dec-3, dec-4): five-step flow rendered by the Spec
 // kanban and offered by the Spec header dropdown.
-export const SPEC_STATUSES = ['draft', 'plan', 'build', 'verify', 'done'] as const;
+export const SPEC_STATUSES = ['draft', 'specify', 'build', 'verify', 'done'] as const;
 export type SpecStatus = typeof SPEC_STATUSES[number];
 
 // spec-136: a coined tag in a Memex. The wire shape mirrors the server `Tag`

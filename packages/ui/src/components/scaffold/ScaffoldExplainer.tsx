@@ -5,7 +5,7 @@
 
 const PHASES: { phase: string; one_liner: string }[] = [
   { phase: 'draft', one_liner: 'private authoring — sketch purpose and shape, no tasks yet.' },
-  { phase: 'plan', one_liner: 'team-visible decision resolution and narrative shaping.' },
+  { phase: 'specify', one_liner: 'team-visible decision resolution and narrative shaping.' },
   { phase: 'build', one_liner: 'execute against decisions; tasks are first-class.' },
   { phase: 'verify', one_liner: 'post-implementation confidence — walk acceptance criteria.' },
   { phase: 'done', one_liner: 'read-only retrospective; the Spec is closed.' },

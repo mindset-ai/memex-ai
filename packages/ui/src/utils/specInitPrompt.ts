@@ -33,7 +33,7 @@ interface SpecSummary {
   unresolvedComments: number;
 }
 
-export type InitPromptMode = 'evolve' | 'plan' | 'execute' | 'decisions' | 'comments' | 'freeform';
+export type InitPromptMode = 'evolve' | 'specify' | 'execute' | 'decisions' | 'comments' | 'freeform';
 
 export interface InitPromptModeDef {
   label: string;
@@ -89,7 +89,7 @@ A memex document is a structured, evolving artifact composed of:
 - **Tasks** — concrete tasks with acceptance criteria, optionally blocked by decisions or other tasks
 - **Comments** — discussion threads anchored to any section, decision, or task
 
-Specs move through phases: \`draft → plan → build → verify → done\`. Decisions are shaped in \`draft\`/\`plan\`; **tasks only exist from \`build\` onward**. Don't create tasks while the spec is in a planning phase — resolve the open decisions first.
+Specs move through phases: \`draft → specify → build → verify → done\`. Decisions are shaped in \`draft\`/\`specify\`; **tasks only exist from \`build\` onward**. Don't create tasks while the spec is in a specifying phase — resolve the open decisions first.
 
 Your job is to help the user advance this document. Keep the document itself as the source of truth: log decisions, create and update tasks (once in \`build\`), and record progress there rather than in chat.`;
 
@@ -114,7 +114,7 @@ const STATUS = (s: SpecSummary) => `## Current status
 // hand-maintained list while sourcing the actual tools from the scaffold model.
 const TOOL_GROUP_HEADINGS: Record<InitPromptRefEntry['group'], string> = {
   read: '### Read (any phase)',
-  planning: '### Planning phase (`draft` / `plan`)',
+  planning: '### Specify phase (`draft` / `specify`)',
   build: '### Build phase (`build`)',
   comments: '### Comments (any phase)',
 };
@@ -136,7 +136,7 @@ function renderToolReference(tools: readonly ToolNode[]): string {
 
 const TOOLS_INTRO = `## Tools available to you
 
-You have access to the \`memex\` MCP server. Memex specs move through phases — \`draft → plan → build → verify → done\` — and the tool you reach for depends on which phase the spec is in. **Tasks are only created in \`build\`. Don't create tasks while the spec is in \`draft\` or \`plan\` — that's where decisions get shaped.**
+You have access to the \`memex\` MCP server. Memex specs move through phases — \`draft → specify → build → verify → done\` — and the tool you reach for depends on which phase the spec is in. **Tasks are only created in \`build\`. Don't create tasks while the spec is in \`draft\` or \`specify\` — that's where decisions get shaped.**
 
 ### Addressing things in Memex
 
@@ -186,13 +186,13 @@ export const INIT_PROMPT_MODES: Record<InitPromptMode, InitPromptModeDef> = {
 4. Propose changes before making them — show the user the before/after or the new section content, get agreement, then apply. The document is the source of truth; keep it coherent.`,
   },
 
-  plan: {
-    label: 'Plan next work',
-    description: 'Decision-first planning. Resolve every open decision before any task is created.',
+  specify: {
+    label: 'Specify next work',
+    description: 'Decision-first specifying. Resolve every open decision before any task is created.',
     focus: (s) => `## How to start
 
 1. Call \`list_memexes()\` to confirm the workspace, then \`get_doc("<memex>/${docTypePath(s.docType)}/${s.handle}")\` to load the current state. Spec status: \`${s.status}\`. Substitute the user's \`<namespace>/<memex>\` for \`<memex>\`.
-2. **You are in the plan phase. Do not create tasks.** The work is the spec narrative and the decisions that flow from it.
+2. **You are in the specify phase. Do not create tasks.** The work is the spec narrative and the decisions that flow from it.
 3. ${s.openDecisions === 0
         ? 'There are no open decisions. Make sure the spec narrative is coherent and complete, then move to `build` so tasks can be created.'
         : `There are ${s.openDecisions} open decisions. Walk them one at a time:
@@ -212,7 +212,7 @@ export const INIT_PROMPT_MODES: Record<InitPromptMode, InitPromptModeDef> = {
       if (!isBuildOrLater) {
         return `## How to start
 
-⚠ **Wrong phase.** This Spec is in \`${s.status}\`, not \`build\`. Stop — switch to plan mode and resolve the ${s.openDecisions} open decision${s.openDecisions === 1 ? '' : 's'} first; only then is task work authorised.`;
+⚠ **Wrong phase.** This Spec is in \`${s.status}\`, not \`build\`. Stop — switch to specify mode and resolve the ${s.openDecisions} open decision${s.openDecisions === 1 ? '' : 's'} first; only then is task work authorised.`;
       }
       return `## How to start
 

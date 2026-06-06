@@ -43,8 +43,8 @@ describe('ResolveCommentsButton — visibility', () => {
     ).toBeInTheDocument();
   });
 
-  it('visible in `plan` / `build` / `verify` when comments exist', () => {
-    for (const phase of ['plan', 'build', 'verify'] as const) {
+  it('visible in `specify` / `build` / `verify` when comments exist', () => {
+    for (const phase of ['specify', 'build', 'verify'] as const) {
       const { unmount } = renderResolve(phase, 1);
       expect(
         screen.getByRole('button', { name: /Resolve comments \(1 open\)/i }),

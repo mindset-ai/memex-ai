@@ -21,11 +21,11 @@ function tab(name: string) {
 describe('PhaseTabBar', () => {
   it('renders three tabs in a tablist', () => {
     tagAc(AC(2));
-    render(<PhaseTabBar currentPhase="plan" selectedTab="plan" onSelect={onSelect} />);
+    render(<PhaseTabBar currentPhase="specify" selectedTab="specify" onSelect={onSelect} />);
     expect(screen.getByRole('tablist', { name: /Spec phase view/i })).toBeInTheDocument();
     const tabs = screen.getAllByRole('tab');
     expect(tabs).toHaveLength(3);
-    expect(within(tab('plan')).getByText('Specify')).toBeInTheDocument();
+    expect(within(tab('specify')).getByText('Specify')).toBeInTheDocument();
     expect(within(tab('build')).getByText('Build')).toBeInTheDocument();
     expect(within(tab('verify')).getByText('Verify')).toBeInTheDocument();
   });
@@ -40,14 +40,14 @@ describe('PhaseTabBar', () => {
     expect(buildTab.className).toContain('bg-status-info-bg');
     // ● current-dot present only on the current tab.
     expect(buildTab.textContent).toContain('●');
-    expect(tab('plan').textContent).not.toContain('●');
-    expect(tab('plan')).not.toHaveAttribute('data-current');
+    expect(tab('specify').textContent).not.toContain('●');
+    expect(tab('specify')).not.toHaveAttribute('data-current');
   });
 
-  it('uses the amber warning fill for the plan tab when current', () => {
+  it('uses the amber warning fill for the specify tab when current', () => {
     tagAc(AC(2));
-    render(<PhaseTabBar currentPhase="plan" selectedTab="plan" onSelect={onSelect} />);
-    expect(tab('plan').className).toContain('bg-status-warning-bg');
+    render(<PhaseTabBar currentPhase="specify" selectedTab="specify" onSelect={onSelect} />);
+    expect(tab('specify').className).toContain('bg-status-warning-bg');
   });
 
   it('uses the green success fill for the verify tab when current', () => {
@@ -56,9 +56,9 @@ describe('PhaseTabBar', () => {
     expect(tab('verify').className).toContain('bg-status-success-bg');
   });
 
-  it("renders a grey Draft pill as current for phase 'draft'; Plan is NOT current", () => {
+  it("renders a grey Draft pill as current for phase 'draft'; Specify is NOT current", () => {
     tagAc(AC(2));
-    render(<PhaseTabBar currentPhase="draft" selectedTab="plan" onSelect={onSelect} />);
+    render(<PhaseTabBar currentPhase="draft" selectedTab="specify" onSelect={onSelect} />);
     // The Draft pill carries the current treatment: grey fill + ● dot, outside
     // the browsable tablist (so it's not a 'tab' role).
     const draftPill = document.querySelector('[data-tab="draft"]')!;
@@ -68,28 +68,28 @@ describe('PhaseTabBar', () => {
     expect(draftPill.className).toContain('bg-status-neutral-bg');
     expect(draftPill.textContent).toContain('●');
     expect(draftPill.textContent).toContain('Draft');
-    // Plan no longer carries the current treatment in draft.
-    expect(tab('plan')).not.toHaveAttribute('data-current');
-    expect(tab('plan').textContent).not.toContain('●');
+    // Specify no longer carries the current treatment in draft.
+    expect(tab('specify')).not.toHaveAttribute('data-current');
+    expect(tab('specify').textContent).not.toContain('●');
     expect(tab('build')).not.toHaveAttribute('data-current');
     expect(tab('verify')).not.toHaveAttribute('data-current');
     // The Draft pill is a status indicator, not the ✓ Done marker.
     expect(screen.queryByTestId('done-marker')).not.toBeInTheDocument();
   });
 
-  it("clicking the Draft pill selects the Plan view (draft's home)", async () => {
+  it("clicking the Draft pill selects the Specify view (draft's home)", async () => {
     tagAc(AC(2));
     const user = userEvent.setup();
-    render(<PhaseTabBar currentPhase="draft" selectedTab="plan" onSelect={onSelect} />);
+    render(<PhaseTabBar currentPhase="draft" selectedTab="specify" onSelect={onSelect} />);
     await user.click(document.querySelector('[data-tab="draft"]')! as HTMLElement);
-    expect(onSelect).toHaveBeenCalledWith('plan');
+    expect(onSelect).toHaveBeenCalledWith('specify');
   });
 
   it('renders NO Draft pill for any non-draft phase', () => {
     tagAc(AC(2));
-    for (const phase of ['plan', 'build', 'verify', 'done'] as const) {
+    for (const phase of ['specify', 'build', 'verify', 'done'] as const) {
       const { unmount } = render(
-        <PhaseTabBar currentPhase={phase} selectedTab="plan" onSelect={onSelect} />,
+        <PhaseTabBar currentPhase={phase} selectedTab="specify" onSelect={onSelect} />,
       );
       expect(document.querySelector('[data-tab="draft"]')).toBeNull();
       unmount();
@@ -102,17 +102,17 @@ describe('PhaseTabBar', () => {
     const marker = screen.getByTestId('done-marker');
     expect(marker).toBeInTheDocument();
     expect(marker.textContent).toContain('Done');
-    for (const name of ['plan', 'build', 'verify']) {
+    for (const name of ['specify', 'build', 'verify']) {
       expect(tab(name)).not.toHaveAttribute('data-current');
     }
   });
 
   it('reflects the selected tab via aria-selected and the underline accent', () => {
     tagAc(AC(2));
-    render(<PhaseTabBar currentPhase="plan" selectedTab="build" onSelect={onSelect} />);
+    render(<PhaseTabBar currentPhase="specify" selectedTab="build" onSelect={onSelect} />);
     expect(tab('build')).toHaveAttribute('aria-selected', 'true');
     expect(tab('build')).toHaveAttribute('data-selected', 'true');
-    expect(tab('plan')).toHaveAttribute('aria-selected', 'false');
+    expect(tab('specify')).toHaveAttribute('aria-selected', 'false');
   });
 
   // The underline renders ONLY when the selected tab differs from the current
@@ -120,22 +120,22 @@ describe('PhaseTabBar', () => {
   // reads as clutter; Barrie 2026-06-04).
   it('hides the underline when the selected tab IS the current tab', () => {
     tagAc(AC(2));
-    render(<PhaseTabBar currentPhase="plan" selectedTab="plan" onSelect={onSelect} />);
-    expect(tab('plan')).toHaveAttribute('data-selected', 'true');
-    expect(tab('plan').querySelector('.h-0\\.5')).toBeNull();
+    render(<PhaseTabBar currentPhase="specify" selectedTab="specify" onSelect={onSelect} />);
+    expect(tab('specify')).toHaveAttribute('data-selected', 'true');
+    expect(tab('specify').querySelector('.h-0\\.5')).toBeNull();
   });
 
   it('shows the underline on a selected tab that is NOT the current tab', () => {
     tagAc(AC(2));
-    render(<PhaseTabBar currentPhase="plan" selectedTab="build" onSelect={onSelect} />);
+    render(<PhaseTabBar currentPhase="specify" selectedTab="build" onSelect={onSelect} />);
     expect(tab('build').querySelector('.h-0\\.5')).not.toBeNull();
-    expect(tab('plan').querySelector('.h-0\\.5')).toBeNull();
+    expect(tab('specify').querySelector('.h-0\\.5')).toBeNull();
   });
 
   it('calls onSelect with the clicked tab', async () => {
     tagAc(AC(2));
     const user = userEvent.setup();
-    render(<PhaseTabBar currentPhase="plan" selectedTab="plan" onSelect={onSelect} />);
+    render(<PhaseTabBar currentPhase="specify" selectedTab="specify" onSelect={onSelect} />);
     await user.click(tab('verify'));
     expect(onSelect).toHaveBeenCalledWith('verify');
   });
@@ -143,8 +143,8 @@ describe('PhaseTabBar', () => {
   it('supports ArrowRight keyboard navigation between tabs', async () => {
     tagAc(AC(2));
     const user = userEvent.setup();
-    render(<PhaseTabBar currentPhase="plan" selectedTab="plan" onSelect={onSelect} />);
-    tab('plan').focus();
+    render(<PhaseTabBar currentPhase="specify" selectedTab="specify" onSelect={onSelect} />);
+    tab('specify').focus();
     await user.keyboard('{ArrowRight}');
     expect(onSelect).toHaveBeenCalledWith('build');
   });
@@ -189,12 +189,12 @@ describe('PhaseTabBar — flow arrows (spec-164)', () => {
 
   it('renders exactly two aria-hidden arrows between the three tabs', () => {
     tagAc(AC_ARROWS);
-    render(<PhaseTabBar currentPhase="plan" selectedTab="plan" onSelect={() => {}} />);
+    render(<PhaseTabBar currentPhase="specify" selectedTab="specify" onSelect={() => {}} />);
     const arrows = screen.getAllByTestId('phase-arrow');
     expect(arrows).toHaveLength(2);
     for (const a of arrows) expect(a).toHaveAttribute('aria-hidden', 'true');
     // The tabs themselves are still the tablist's tabs, in pipeline order.
     const tabs = screen.getAllByRole('tab');
-    expect(tabs.map((t) => t.getAttribute('data-tab'))).toEqual(['plan', 'build', 'verify']);
+    expect(tabs.map((t) => t.getAttribute('data-tab'))).toEqual(['specify', 'build', 'verify']);
   });
 });

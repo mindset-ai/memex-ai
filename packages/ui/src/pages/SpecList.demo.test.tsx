@@ -99,7 +99,7 @@ beforeEach(() => {
 // spec-178 t-10 (dec-10): the five demo specs, one per phase. Shared by the
 // progressive-reveal tests below — fetchDocs returns all five, the board reveals
 // one at a time.
-const DEMO_PHASES = ['draft', 'plan', 'build', 'verify', 'done'] as const;
+const DEMO_PHASES = ['draft', 'specify', 'build', 'verify', 'done'] as const;
 function demoSet() {
   return DEMO_PHASES.map((phase, i) =>
     spec({
@@ -252,7 +252,7 @@ describe('SpecList progressive reveal (spec-178)', () => {
     tagAc(AC(34));
     fetchDocsMock.mockResolvedValue([
       ...demoSet(),
-      spec({ id: 'real-1', title: 'Real spec', handle: 'spec-99', status: 'plan' }),
+      spec({ id: 'real-1', title: 'Real spec', handle: 'spec-99', status: 'specify' }),
     ]);
 
     render(
@@ -263,7 +263,7 @@ describe('SpecList progressive reveal (spec-178)', () => {
 
     // Only the draft demo shows; the other four demo phases are hidden.
     await screen.findByText('Demo draft');
-    expect(screen.queryByText('Demo plan')).not.toBeInTheDocument();
+    expect(screen.queryByText('Demo specify')).not.toBeInTheDocument();
     expect(screen.queryByText('Demo build')).not.toBeInTheDocument();
     expect(screen.queryByText('Demo verify')).not.toBeInTheDocument();
     expect(screen.queryByText('Demo done')).not.toBeInTheDocument();
@@ -294,7 +294,7 @@ describe('SpecList progressive reveal (spec-178)', () => {
     expect(screen.getAllByTestId('demo-advance-control')).toHaveLength(1);
   });
 
-  it('ac-33/ac-34: advancing reveals ONLY the next (plan) demo and bumps the pointer', async () => {
+  it('ac-33/ac-34: advancing reveals ONLY the next (specify) demo and bumps the pointer', async () => {
     tagAc(AC(33));
     tagAc(AC(34));
     const user = userEvent.setup();
@@ -307,18 +307,18 @@ describe('SpecList progressive reveal (spec-178)', () => {
     );
 
     await screen.findByText('Demo draft');
-    // The draft card's control offers the next phase ("Specify" is plan's display name).
+    // The draft card's control offers the next phase ("Specify" is specify's display name).
     const advance = screen.getByTestId('demo-advance-control');
     expect(advance).toHaveTextContent('Specify');
 
     await user.click(advance);
 
-    // The pointer bumped to 'plan': only the plan demo shows now, draft is gone.
-    await screen.findByText('Demo plan');
+    // The pointer bumped to 'specify': only the specify demo shows now, draft is gone.
+    await screen.findByText('Demo specify');
     expect(screen.queryByText('Demo draft')).not.toBeInTheDocument();
     expect(screen.queryByText('Demo build')).not.toBeInTheDocument();
     // Persisted to localStorage under the tenant-scoped key.
-    expect(window.localStorage.getItem('handhold-reveal:alice/personal')).toBe('plan');
+    expect(window.localStorage.getItem('handhold-reveal:alice/personal')).toBe('specify');
   });
 
   it('ac-34: at the done phase the control becomes Reset, wired to the reset action', async () => {
@@ -342,7 +342,7 @@ describe('SpecList progressive reveal (spec-178)', () => {
     // done demo is the only revealed card.
     await screen.findByText('Demo done');
     expect(screen.queryByText('Demo draft')).not.toBeInTheDocument();
-    expect(screen.queryByText('Demo plan')).not.toBeInTheDocument();
+    expect(screen.queryByText('Demo specify')).not.toBeInTheDocument();
 
     // The board header's Reset button is the always-available terminal action;
     // clicking it re-seeds AND clears the reveal pointer back to 'draft'.

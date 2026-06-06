@@ -53,7 +53,7 @@ vi.mock('../components/ChatContext', () => ({
 
 let docIsDemo = false;
 let docValueCallout: string | undefined;
-let docStatus: DocWithGraph['status'] = 'plan';
+let docStatus: DocWithGraph['status'] = 'specify';
 
 function makeDoc(): DocWithGraph {
   return {
@@ -121,7 +121,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   docIsDemo = false;
   docValueCallout = undefined;
-  docStatus = 'plan';
+  docStatus = 'specify';
   // Reset the per-tenant reveal pointer between tests.
   try {
     window.localStorage.clear();
@@ -181,7 +181,7 @@ describe('DocDocument in-page reveal advance control (spec-178)', () => {
     renderDoc();
 
     // The control is present on the demo spec, offering the next phase. Default
-    // pointer is 'draft', so next is 'plan' → "Specify".
+    // pointer is 'draft', so next is 'specify' → "Specify".
     const advance = await screen.findByTestId('demo-advance-control');
     expect(advance).toHaveTextContent('Specify');
   });
@@ -200,7 +200,7 @@ describe('DocDocument in-page reveal advance control (spec-178)', () => {
     tagAc(AC(33));
     tagAc(AC(34));
     docIsDemo = true;
-    // Pointer at 'draft' (default) → advance bumps it to 'plan'.
+    // Pointer at 'draft' (default) → advance bumps it to 'specify'.
     renderDoc();
 
     // fireEvent (not userEvent): the click navigates away, unmounting the
@@ -210,7 +210,7 @@ describe('DocDocument in-page reveal advance control (spec-178)', () => {
 
     // Pointer bumped + navigated to the board.
     await screen.findByTestId('board-landing');
-    expect(window.localStorage.getItem(REVEAL_KEY)).toBe('plan');
+    expect(window.localStorage.getItem(REVEAL_KEY)).toBe('specify');
   });
 
   it('ac-34: at the done phase the control is Reset — re-seeds, clears the pointer, returns to the board', async () => {

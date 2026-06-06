@@ -17,7 +17,7 @@ import type { CSSProperties } from 'react';
 import type { PartialTheme } from '@nivo/theming';
 import { useThemeName } from '../ThemeContext';
 
-export const PHASE_ORDER = ['draft', 'plan', 'build', 'verify', 'done'] as const;
+export const PHASE_ORDER = ['draft', 'specify', 'build', 'verify', 'done'] as const;
 export type Phase = (typeof PHASE_ORDER)[number];
 
 export interface ChartPalette {
@@ -34,7 +34,7 @@ export const CHART_PALETTES: Record<'dark' | 'light', ChartPalette> = {
     // Tailwind 400s — luminous on the dark surface.
     phase: {
       draft: '#64748b', // slate-500
-      plan: '#fbbf24', // amber-400
+      specify: '#fbbf24', // amber-400
       build: '#60a5fa', // blue-400
       verify: '#22d3ee', // cyan-400
       done: '#34d399', // emerald-400
@@ -50,7 +50,7 @@ export const CHART_PALETTES: Record<'dark' | 'light', ChartPalette> = {
     // The same hues one or two stops deeper for the white surface.
     phase: {
       draft: '#94a3b8', // slate-400
-      plan: '#f59e0b', // amber-500
+      specify: '#f59e0b', // amber-500
       build: '#3b82f6', // blue-500
       verify: '#0891b2', // cyan-600
       done: '#10b981', // emerald-500
@@ -67,13 +67,14 @@ export function useChartPalette(): ChartPalette {
   return CHART_PALETTES[useThemeName()];
 }
 
-// Display labels — the `plan` phase reads as "specify" in the product, while
-// the DB status value (and every data key / API shape) stays 'plan'. Map at
-// render time only, in one place, so a future DB-level rename is a one-line
-// change here.
+// Display labels — the second phase is now `specify` end-to-end (spec-181: the
+// enum value, the DB status, the analytics data keys, and the API shape all say
+// 'specify'). The label is identical to the enum value for every phase; the map
+// is retained as the single render-time seam so a future label divergence stays
+// a one-line change here.
 export const PHASE_LABELS: Record<Phase, string> = {
   draft: 'draft',
-  plan: 'specify',
+  specify: 'specify',
   build: 'build',
   verify: 'verify',
   done: 'done',

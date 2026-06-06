@@ -1,8 +1,8 @@
 // spec-179 (ac-18): the pipeline funnel — "where does work pile up?"
 // Each stage is the count of active specs currently AT or BEYOND that phase,
 // so the narrowing from draft → done is the pipeline's real conversion shape.
-// Phase colors match the shared palette; labels use the product vocabulary
-// (plan → "specify").
+// Phase colors match the shared palette; labels come from `phaseLabel` (the
+// second phase is `specify` end-to-end now — enum value, data key, and label).
 
 import { ResponsiveFunnel } from '@nivo/funnel';
 import type { FunnelStage } from '../../api/client';
