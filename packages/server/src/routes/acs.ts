@@ -20,6 +20,12 @@
 //   DELETE /:acId/test-events            — hard-delete every emission for
 //                                          `(acUid, test_identifier)` query
 //                                          param (b-96 discontinue flow).
+//   POST   /:acId/acceptance             — record a manual verification
+//                                          acceptance (spec-188): the audited
+//                                          human override for ACs that can't
+//                                          be exercised by a digital test.
+//   DELETE /:acId/acceptance             — revoke the acceptance, restoring
+//                                          the test-derived state.
 //
 // Per std-7, non-member callers get NotFoundError → 404 from the underlying
 // service tenancy check; no 401/403 leak.
@@ -30,6 +36,8 @@ import {
   listAcAlignmentOverTime,
   listTestMatrixForAc,
   discontinueTestEventsForAc,
+  setAcAcceptance,
+  clearAcAcceptance,
 } from "../services/acs.js";
 import {
   sessionMiddleware,
@@ -73,6 +81,25 @@ acsRouter.get("/:acId/test-matrix", async (c) => {
   const acId = c.req.param("acId");
   const rows = await listTestMatrixForAc(memexId, acId);
   return c.json(rows);
+});
+
+// spec-188: manual verification acceptance. Strict sessionMiddleware applies
+// (write verb), so c.get("user") is always set here. Actor is a display
+// snapshot — name when present, else email — same posture as test_events.actor.
+acsRouter.post("/:acId/acceptance", async (c) => {
+  const memexId = requireMemexId(c);
+  const acId = c.req.param("acId");
+  const user = c.get("user");
+  const actor = user?.name?.trim() || user?.email || "";
+  const result = await setAcAcceptance(memexId, acId, actor);
+  return c.json(result);
+});
+
+acsRouter.delete("/:acId/acceptance", async (c) => {
+  const memexId = requireMemexId(c);
+  const acId = c.req.param("acId");
+  const result = await clearAcAcceptance(memexId, acId);
+  return c.json(result);
 });
 
 acsRouter.delete("/:acId/test-events", async (c) => {
