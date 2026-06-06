@@ -56,7 +56,9 @@ test2.describe("Spec posture + assignment (spec-159)", () => {
     await gotoSpec(page, seed);
 
     const pill = page.getByRole("button", { name: /You are reviewing/i });
-    await expect(pill).toBeVisible();
+    // 15s to match the suite convention — the pill renders after the doc's role
+    // data loads, and the default 5s expect timeout flakes under full-suite load.
+    await expect(pill).toBeVisible({ timeout: 15_000 });
     await expect(pill).toBeEnabled();
 
     // Opening the menu surfaces the two posture radios.
