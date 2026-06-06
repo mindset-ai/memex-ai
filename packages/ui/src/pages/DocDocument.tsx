@@ -15,7 +15,7 @@ import {
   type AcWithVerification,
   type DocAssigneeView,
 } from '../api/client';
-import type { Comment, CommentType, DocWithGraph, Issue, SpecStatus, Tag } from '../api/types';
+import type { Comment, DocWithGraph, Issue, SpecStatus, Tag } from '../api/types';
 import { TagPicker } from '../components/TagPicker';
 import { Spinner } from '../components/Spinner';
 import { SectionCard } from '../components/SectionCard';
@@ -152,10 +152,6 @@ export function DocDocument() {
   const [moveOpen, setMoveOpen] = useState(false);
   const [showDownloadDialog, setShowDownloadDialog] = useState(false);
   const [showInitPromptDialog, setShowInitPromptDialog] = useState(false);
-  // t-19 W3.3: chip filter lifted from AllComments. Driving it from here lets us
-  // pass `?type=` through to fetchDocComments (server-side filter) instead of
-  // doing a client-side pass after the fact. `null` = "All".
-  const [commentTypeFilter, setCommentTypeFilter] = useState<CommentType | null>(null);
   // spec-100: collapse the comment gutters doc-wide (leaving only inline bubbles).
   const [commentsCollapsed, setCommentsCollapsed] = useState(false);
 
@@ -209,7 +205,6 @@ export function DocDocument() {
   useEffect(() => {
     if (!id) return;
 
-    const types = commentTypeFilter ? [commentTypeFilter] : undefined;
     fetchDoc(id)
       .then((d) => {
         // Per doc-30 dec-4 (post-b-105 rename): typed top-level routes. If the
@@ -232,7 +227,7 @@ export function DocDocument() {
           return;
         }
         setDoc(d);
-        fetchDocComments(d.id, types).then(applyComments).catch(console.error);
+        fetchDocComments(d.id).then(applyComments).catch(console.error);
       })
       .catch((err) => {
         if (err instanceof NotFoundError) {
@@ -247,7 +242,7 @@ export function DocDocument() {
     // don't want to re-fetch on that change. `id` already triggers re-fetch
     // when the route param changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, applyComments, commentTypeFilter, navigate]);
+  }, [id, applyComments, navigate]);
 
   // spec-159 t-6: pull the Spec's ACs / issues / assignees alongside the doc.
   // These feed the transition-sentence counts and the done report; they refresh
@@ -386,13 +381,12 @@ export function DocDocument() {
 
   const reloadDoc = useCallback(() => {
     if (!id) return;
-    const types = commentTypeFilter ? [commentTypeFilter] : undefined;
     fetchDoc(id).then((d) => {
       setDoc(d);
-      fetchDocComments(d.id, types).then(applyComments).catch(console.error);
+      fetchDocComments(d.id).then(applyComments).catch(console.error);
       reloadAux(d.id);
     }).catch(console.error);
-  }, [id, applyComments, commentTypeFilter, reloadAux]);
+  }, [id, applyComments, reloadAux]);
 
   // Refetch when any source (agent, MCP, REST, other clients) mutates this document
   useDocChangeStream(doc?.id ?? null, reloadDoc);
@@ -974,8 +968,6 @@ export function DocDocument() {
       commentsByTask={commentsByTask}
       onNavigateToSection={handleSelectSection}
       onTabChange={handleTabChange}
-      filter={commentTypeFilter}
-      onFilterChange={setCommentTypeFilter}
     />
   );
 

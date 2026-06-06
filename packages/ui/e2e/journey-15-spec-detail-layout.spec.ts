@@ -62,6 +62,12 @@ test.describe("Spec detail layout", () => {
     await expect(page.getByRole("button", { name: /^Decisions & ACs/ })).toBeVisible();
     await expect(page.getByRole("button", { name: /^Comments/ })).toBeVisible();
 
+    // spec-185: the human comment-type filter chip row was removed from the
+    // doc-wide Comments view (and the per-target tray). The authorship/state
+    // filters stay; only the type-chip row is gone.
+    await page.getByRole("button", { name: /^Comments/ }).click();
+    await expect(page.getByTestId("comment-filter-chips")).toHaveCount(0);
+
     await page.getByRole("button", { name: /^Decisions & ACs/ }).click();
     // A spec opened via /docs/:id canonicalises to /specs/:id (DocDocument route).
     // Switching sub-tabs is in-page — assert we're still on the spec, not that the

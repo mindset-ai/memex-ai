@@ -110,22 +110,8 @@ export function commentTypeLabel(type: CommentType | undefined | null): string {
   return commentTypeStyle(type).label;
 }
 
-/**
- * Filter chips shown above CommentTray / AllComments.
- *
- * Per Section 7: All / plan / progress / question / issue / drift. Kept short so the chip
- * row fits the 30%-wide chat panel; the dropdown inside the composer offers the full list.
- */
-export const FILTER_CHIP_TYPES = [
-  'plan',
-  'progress',
-  'question',
-  'issue',
-  'drift',
-] as const satisfies ReadonlyArray<CommentType>;
-export type FilterChipType = (typeof FILTER_CHIP_TYPES)[number];
-
-// spec-153: the human composer no longer offers a comment-type picker — humans
-// write freeform `discussion` comments. The typed taxonomy below remains an
-// internal agent/system channel (drift / plan_revision / readiness_check / …) and
-// still drives the FILTER_CHIP_TYPES above plus per-type rendering of existing rows.
+// spec-153 / spec-185: the human composer no longer offers a comment-type picker
+// and the human-facing comment-type filter chips have been removed — humans write
+// and read freeform `discussion` comments. The typed taxonomy (STYLES above) remains
+// an internal agent/system channel (drift / plan_revision / readiness_check / …) and
+// drives only the per-type rendering pills of existing rows.
