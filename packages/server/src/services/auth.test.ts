@@ -14,6 +14,13 @@ describe("getHiddenFeatures (session payload hiddenFeatures)", () => {
 
   it("parses HIDDEN_FEATURES into the session payload's hiddenFeatures, fail-open when unset", () => {
     tagAc("mindset-prod/memex-building-itself/specs/spec-146/acs/ac-7");
+    // Scope ACs verified by this same env-parse contract:
+    // ac-3 — hiding is per-environment / all-or-nothing: the slug list is sourced
+    //   purely from the process environment (no per-user/role/org input), so every
+    //   session minted on an environment carries the identical value.
+    // ac-5 — fail-open default: an unset/empty value ⇒ [] ⇒ nothing hidden.
+    tagAc("mindset-prod/memex-building-itself/specs/spec-146/acs/ac-3");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-146/acs/ac-5");
 
     // (a) set → split on comma into the slug list.
     vi.stubEnv("HIDDEN_FEATURES", "scaffold,pulse");

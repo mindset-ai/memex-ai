@@ -223,6 +223,10 @@ describe('AppShell sidebar navigation', () => {
 describe('AppShell feature-hide (spec-146 t-3)', () => {
   it('hides the Scaffold nav link when its feature is in the session hiddenFeatures', () => {
     tagAc('mindset-prod/memex-building-itself/specs/spec-146/acs/ac-8');
+    // ac-1 (scope) — the Scaffold entry is absent from the left nav for any user:
+    // the filter keys off the feature slug, not role or org, and the link returns
+    // when nothing is hidden.
+    tagAc('mindset-prod/memex-building-itself/specs/spec-146/acs/ac-1');
 
     // Hidden: session lists 'scaffold' → the Scaffold link renders for no one.
     mockSession.value = sessionWith(['scaffold']);
