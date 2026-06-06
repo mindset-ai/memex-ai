@@ -1,4 +1,4 @@
-import { test, expect, ensureUser, DEV_EMAIL, type TestResources } from "./helpers/index.js";
+import { test, expect, ensureUser, tenantPath, DEV_EMAIL, type TestResources } from "./helpers/index.js";
 import {
   seedOrgTenant,
   seedSpec,
@@ -43,9 +43,9 @@ const test2 = test.extend<{ seed: RoleSeed }>({
 });
 
 async function gotoSpec(page: Page, seed: RoleSeed) {
-  await page.goto(
-    `${process.env.E2E_BASE_URL ?? `http://localhost:${process.env.E2E_UI_PORT ?? 5173}`}/${seed.tenant.namespaceSlug}/${seed.tenant.memexSlug}/docs/${seed.docId}`,
-  );
+  // tenantPath honours the E2E_BASE_URL / E2E_UI_PORT override chain — an inline
+  // 5173 default here navigates to a foreign dev server on override-port runs.
+  await page.goto(tenantPath(seed.tenant.namespaceSlug, seed.tenant.memexSlug, `/docs/${seed.docId}`));
   await expect(page.getByRole("heading", { name: "Roles Spec", level: 1 })).toBeVisible({
     timeout: 15_000,
   });
@@ -56,7 +56,9 @@ test2.describe("Spec posture + assignment (spec-159)", () => {
     await gotoSpec(page, seed);
 
     const pill = page.getByRole("button", { name: /You are reviewing/i });
-    await expect(pill).toBeVisible();
+    // 15s to match the suite convention — the pill renders after the doc's role
+    // data loads, and the default 5s expect timeout flakes under full-suite load.
+    await expect(pill).toBeVisible({ timeout: 15_000 });
     await expect(pill).toBeEnabled();
 
     // Opening the menu surfaces the two posture radios.

@@ -902,7 +902,7 @@ export interface FetchMemexIssuesOptions {
   /** 'mine' (default, server-side) restricts to issues on Specs assigned to the
    *  caller; 'all' widens to the whole Memex. Sent as `?scope=`. */
   scope?: 'mine' | 'all';
-  /** Subset of draft/plan/build/verify/done — narrows on the parent Spec's
+  /** Subset of draft/specify/build/verify/done — narrows on the parent Spec's
    *  status. Empty/absent ⇒ all phases. Sent as a CSV `?phases=`. */
   phases?: ReadonlyArray<string>;
   /** Subset of bug/todo — narrows on the issue's type. Empty/absent ⇒ all types.
@@ -2416,14 +2416,14 @@ export interface SpecsOverTimePoint {
 export interface SpecsByPhasePoint {
   day: string;
   draft: number;
-  plan: number;
+  specify: number;
   build: number;
   verify: number;
   done: number;
 }
 
 export interface InPhaseDuration {
-  phase: 'draft' | 'plan' | 'build' | 'verify' | 'done';
+  phase: 'draft' | 'specify' | 'build' | 'verify' | 'done';
   n: number;
   avgDays: number;
   medianDays: number;
@@ -2496,7 +2496,7 @@ export async function fetchStandardsGraph(): Promise<StandardsGraphData> {
 }
 
 export interface FunnelStage {
-  phase: 'draft' | 'plan' | 'build' | 'verify' | 'done';
+  phase: 'draft' | 'specify' | 'build' | 'verify' | 'done';
   count: number;
 }
 

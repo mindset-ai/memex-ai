@@ -32,7 +32,11 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   workers: 1,
-  reporter: process.env.CI ? "github" : "list",
+  reporter: [
+    [process.env.CI ? "github" : "list"],
+    // spec-181 ac-16: suite-level pass/fail emission (see the reporter header).
+    ["./e2e/spec-181-ac16-reporter.ts"],
+  ],
   use: {
     baseURL: process.env.E2E_BASE_URL ?? `http://localhost:${ADMIN_PORT}`,
     trace: "retain-on-failure",

@@ -24,12 +24,12 @@ vi.mock("../agent/anthropic-client.js", () => ({
 vi.mock("../agent/context-builder.js", () => ({
   buildDocumentContext: vi.fn().mockResolvedValue({
     context: "Mock document context",
-    phase: "plan",
+    phase: "specify",
   }),
   // spec-143 t-4 (dec-6): the drift-mode context builder.
   buildDriftContext: vi.fn().mockResolvedValue({
     context: "Open drift: 2 items across 1 standard.",
-    phase: "plan",
+    phase: "specify",
   }),
 }));
 
@@ -283,10 +283,10 @@ describe("POST /llm/chat", () => {
     // `readOnly` arg — false here because the mocked canWriteMemex returns true
     // (the caller is a writing member). spec-126 adds a 4th `reviewer` arg —
     // false here because the mocked resolveRole returns "editor". Mock returns
-    // { context: "Mock document context", phase: "plan" }.
+    // { context: "Mock document context", phase: "specify" }.
     // spec-143 t-4 (dec-6) adds a 5th `driftMode` arg — false here (not drift).
     // spec-180 adds a 6th `integrationState` arg — the resolved integration status.
-    expect(buildSystemBlocks).toHaveBeenCalledWith("Mock document context", "plan", false, false, false, mockIntegrationState);
+    expect(buildSystemBlocks).toHaveBeenCalledWith("Mock document context", "specify", false, false, false, mockIntegrationState);
   });
 
   it("uses fallback context when no docId", async () => {
@@ -303,7 +303,7 @@ describe("POST /llm/chat", () => {
     expect(buildDocumentContext).not.toHaveBeenCalled();
     expect(buildSystemBlocks).toHaveBeenCalledWith(
       expect.stringContaining("No document loaded"),
-      "plan",
+      "specify",
       false,
       false,
       // spec-143 t-4 (dec-6): the 5th driftMode arg — false here (not drift).
@@ -330,7 +330,7 @@ describe("POST /llm/chat", () => {
     await res.text();
 
     expect(canWriteMemex).toHaveBeenCalledWith("test-user-id", "test-account-id");
-    expect(buildSystemBlocks).toHaveBeenCalledWith("Mock document context", "plan", true, false, false, mockIntegrationState);
+    expect(buildSystemBlocks).toHaveBeenCalledWith("Mock document context", "specify", true, false, false, mockIntegrationState);
   });
 
   it("passes readOnly=false to buildSystemBlocks for a writing member (ac-13)", async () => {
@@ -345,7 +345,7 @@ describe("POST /llm/chat", () => {
     });
     await res.text();
 
-    expect(buildSystemBlocks).toHaveBeenCalledWith("Mock document context", "plan", false, false, false, mockIntegrationState);
+    expect(buildSystemBlocks).toHaveBeenCalledWith("Mock document context", "specify", false, false, false, mockIntegrationState);
   });
 
   // spec-143 t-4 (dec-6): drift mode — the in-UI drift agent runs against the
@@ -374,7 +374,7 @@ describe("POST /llm/chat", () => {
     // and the tool surface is the focused drift subset (mode: 'drift').
     expect(buildSystemBlocks).toHaveBeenCalledWith(
       "Open drift: 2 items across 1 standard.",
-      "plan",
+      "specify",
       false,
       false,
       true,
@@ -720,7 +720,7 @@ describe("spec-126 review overlay", () => {
     // ac-1: the overlay threads reviewer into the server-built prompt + tool list.
     // spec-143 t-4 (dec-6): the 5th driftMode arg is false here; getToolDefinitions
     // now also receives `mode` (undefined when not in drift mode).
-    expect(buildSystemBlocks).toHaveBeenCalledWith("Mock document context", "plan", false, true, false, mockIntegrationState);
+    expect(buildSystemBlocks).toHaveBeenCalledWith("Mock document context", "specify", false, true, false, mockIntegrationState);
     expect(getToolDefinitions).toHaveBeenCalledWith({ reviewer: true, mode: undefined });
   });
 

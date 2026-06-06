@@ -657,7 +657,7 @@ export function AcPanel({ docId, focusedAcId, onFocusConsumed, specPhase }: AcPa
             <span className="text-xs text-muted">0 criteria</span>
           </div>
           <p data-testid="ac-draft-directive" className="text-sm text-muted">
-            Move this spec to {phaseDisplayName('plan')} to start capturing
+            Move this spec to {phaseDisplayName('specify')} to start capturing
             Decisions and ACs.
           </p>
         </div>

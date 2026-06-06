@@ -289,7 +289,7 @@ export async function updateTaskStatus(
   // Per dec-4 of doc-10: when the last open task on a Spec flips to `complete`,
   // auto-promote the Spec's status from `build`→`verify`. Service-layer
   // placement so it fires for any caller (kanban DnD, MCP, agent). Other transitions
-  // (draft→plan, plan→build, verify→done) stay manual. updateDocStatus emits its
+  // (draft→specify, specify→build, verify→done) stay manual. updateDocStatus emits its
   // own document.updated event — independent invariant per dec-2 of doc-16.
   if (status === "complete") {
     await maybeAutoPromoteToVerify(memexId, item.docId);

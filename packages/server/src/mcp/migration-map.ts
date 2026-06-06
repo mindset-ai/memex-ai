@@ -142,7 +142,7 @@ export const MIGRATION_MAP: Record<string, MigrationEntry> = {
   // ── spec lifecycle ──
   assess_phase_transition: {
     replacement: "assess_spec",
-    note: "Use `assess_spec({ ref, mode: 'phase', target: 'plan' | 'build' | 'verify' | 'done' })` instead.",
+    note: "Use `assess_spec({ ref, mode: 'phase', target: 'specify' | 'build' | 'verify' | 'done' })` instead.",
   },
   assess_narrative_freshness: {
     replacement: "assess_spec",
@@ -275,5 +275,64 @@ export function argMigrationErrorMessage(
     `arg into a single \`ref\` field. Pass \`ref\` in canonical form ` +
     `(e.g. \`mindset/website-rewrite/briefs/b-1\` or \`mindset/website-rewrite/briefs/b-1/tasks/t-1\`).\n\n` +
     detail
+  );
+}
+
+// spec-181 / dec-1 — VALUE migration map for the `plan` → `specify` phase rename.
+//
+// The second Spec pipeline phase was renamed `plan` → `specify` (the pipeline is
+// now draft → specify → build → verify → done). The display name "Specify" is
+// unchanged. The zod enums on the relevant tool inputs (update_doc.status,
+// publish_spec.status, assess_spec.target) were renamed in lock-step, so an
+// inbound `status: "plan"` / `target: "plan"` now fails a generic Zod enum
+// error with no migration path.
+//
+// dec-1 resolved: NO coercion / aliasing. Inbound `"plan"` for a phase-sense
+// field must return a STRUCTURED error that names the rename and the corrective
+// action (re-read tools/list). This mirrors the tool-name + arg-name migration
+// pattern above — a hard cut with a sign-posted error, never a silent alias.
+//
+// Scope of fields: only PHASE-SENSE fields are checked. The `plan` COMMENT TYPE
+// (add_comment / list_comments `type`/`types`) and `plan_revision` are a
+// DIFFERENT vocabulary and are deliberately NOT in this set — they keep `plan`.
+//
+//   - status  → update_doc, publish_spec  (lifecycle status)
+//   - target  → assess_spec               (phase transition target)
+//   - statusIn → list_docs                (status filter; array-valued)
+const PHASE_VALUE_FIELDS: readonly string[] = ["status", "target", "statusIn"];
+
+/** The legacy phase value being retired, and its replacement. */
+const RENAMED_PHASE_VALUE = "plan";
+const RENAMED_PHASE_REPLACEMENT = "specify";
+
+/**
+ * Build the structured value-migration error for a tool call whose phase-sense
+ * argument carries the retired `"plan"` value. Returns null when no phase-sense
+ * field is exactly `"plan"` (and the call should proceed to normal Zod
+ * validation / the handler).
+ *
+ * Checks `status` / `target` (scalar) and `statusIn` (array). The `plan`
+ * comment-type vocabulary is intentionally untouched — those arrive on `type` /
+ * `types`, which are not in `PHASE_VALUE_FIELDS`.
+ */
+export function phaseValueMigrationErrorMessage(
+  args: Record<string, unknown>,
+): string | null {
+  const offending = PHASE_VALUE_FIELDS.filter((field) => {
+    const v = args[field];
+    if (v === RENAMED_PHASE_VALUE) return true;
+    if (Array.isArray(v) && v.includes(RENAMED_PHASE_VALUE)) return true;
+    return false;
+  });
+  if (offending.length === 0) return null;
+
+  const fieldList = offending.map((f) => `\`${f}\``).join(", ");
+  return (
+    `\`'${RENAMED_PHASE_VALUE}'\` is no longer a valid status — the phase is now ` +
+    `\`'${RENAMED_PHASE_REPLACEMENT}'\` (the pipeline is draft → specify → build → verify → done; ` +
+    `spec-181 renamed the second phase, display name "Specify" unchanged). ` +
+    `Offending field(s): ${fieldList}. ` +
+    `There is no alias — pass \`'${RENAMED_PHASE_REPLACEMENT}'\` instead, and re-read \`tools/list\` ` +
+    `to refresh the cached input schema.`
   );
 }

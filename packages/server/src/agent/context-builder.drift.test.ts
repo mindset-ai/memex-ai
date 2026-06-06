@@ -98,7 +98,7 @@ describe("buildDriftContext", () => {
 
     const result = await buildDriftContext("mx-uuid");
 
-    expect(result.phase).toBe("plan");
+    expect(result.phase).toBe("specify");
     // Headline count: 3 items across 2 standards.
     expect(result.context).toContain("Open drift: 3 items across 2 standards.");
     // Per-standard group headers (handle + title + counts).
@@ -167,7 +167,7 @@ describe("buildDriftContext", () => {
     vi.mocked(listDriftInbox).mockResolvedValueOnce(page([]));
 
     const result = await buildDriftContext("mx-uuid");
-    expect(result.phase).toBe("plan");
+    expect(result.phase).toBe("specify");
     expect(result.context).toContain("Open drift: none.");
     // Must not claim a phantom count.
     expect(result.context).not.toContain("across");

@@ -541,7 +541,7 @@ async function nudgeForTransition(
   if (beforeStatus === targetStatus) return "";
   const transition = `${beforeStatus}→${targetStatus}`;
   const isForwardWithRubric =
-    transition === "plan→build" ||
+    transition === "specify→build" ||
     transition === "build→verify" ||
     transition === "verify→done";
   if (!isForwardWithRubric) return "";
@@ -568,7 +568,7 @@ async function nudgeForTransition(
     // Best-effort.
   }
 
-  // Coverage-gap nudge on plan→build and build→verify. Build is where tagged
+  // Coverage-gap nudge on specify→build and build→verify. Build is where tagged
   // tests get written; verify is where you should not arrive with untested
   // ACs. Channel 2 of the test-coverage-discipline trio (the others live on
   // list_acs and in the test-coverage guidance topic).
@@ -586,7 +586,7 @@ async function nudgeForTransition(
  *    [transition-specific advice]"
  *
  * Phase-specific framing:
- *   - plan→build: coverage is usually 0% here; the message frames build as
+ *   - specify→build: coverage is usually 0% here; the message frames build as
  *     the phase where tagged tests get written.
  *   - build→verify: untested ACs are the audit-trail gap; the message names
  *     them as silent gaps and points at the test-coverage topic.
@@ -596,7 +596,7 @@ async function formatCoverageNudge(
   briefId: string,
   transition: string,
 ): Promise<string> {
-  if (transition !== "plan→build" && transition !== "build→verify") return "";
+  if (transition !== "specify→build" && transition !== "build→verify") return "";
   try {
     const rows = await listAcsForBriefWithVerification(memexId, briefId);
     const active = rows.filter((r) => r.ac.status === "active");
@@ -611,7 +611,7 @@ async function formatCoverageNudge(
     head += "). ";
 
     let advice = "";
-    if (transition === "plan→build") {
+    if (transition === "specify→build") {
       advice =
         "Build is where tagged tests get written — every active AC should have at least one tagged test before verify, not just the ones you happen to implement this turn. See get_information(topic='test-coverage').";
     } else if (transition === "build→verify") {
@@ -866,7 +866,7 @@ export const toolSpecs: ToolSpec[] = [
     name: "list_docs",
     annotations: { title: "List documents", readOnlyHint: true, destructiveHint: false },
     description:
-      "List active Specs in a Memex with decision/task counts and lineage. Active means status in plan/build/verify; paused/archived/draft/done are hidden. Pass `docType` to filter by document type (defaults to 'spec'). Pass `tags` to narrow to Specs carrying the given tags — facet semantics: AND across different scopes, OR within one scope.",
+      "List active Specs in a Memex with decision/task counts and lineage. Active means status in specify/build/verify; paused/archived/draft/done are hidden. Pass `docType` to filter by document type (defaults to 'spec'). Pass `tags` to narrow to Specs carrying the given tags — facet semantics: AND across different scopes, OR within one scope.",
     schema: {
       memex: z.string().optional().describe(MEMEX_DESC),
       docType: z
@@ -900,7 +900,7 @@ export const toolSpecs: ToolSpec[] = [
       const docs = await listDocs(memexId, {
         docType: docTypeArg,
         includePaused: false,
-        statusIn: ["plan", "build", "verify"],
+        statusIn: ["specify", "build", "verify"],
         // spec-178 t-11 / dec-11 (ac-37): the MCP/agent enumeration must NOT
         // surface handhold demo specs. The REST board route omits this flag so
         // its cards still show demo specs (with the DEMO badge); only this
@@ -1032,7 +1032,7 @@ export const toolSpecs: ToolSpec[] = [
     annotations: { title: "Create document", readOnlyHint: false, destructiveHint: false },
     description:
       "Create a new Spec. Pass `purpose` for the Overview narrative. Optional `decisions` seeds open decisions on creation. Optional `promoteFromTaskRef` (a canonical task ref) creates a child Spec whose parent is the task's source Spec, preserving lineage. Optional `promoteFromIssueRef` (a canonical issue ref) does the same from an Issue — the child Spec is parented to the Issue's source Spec, the Issue → converted, and it auto-resolves when the child Spec reaches done. Optional `docType` defaults to 'spec'; pass any other docType the service layer recognises ('standard', 'document', 'execution_plan'). **Run `search_memex({ query })` first** to discover whether an existing Spec, Standard, or prior Decision already covers this — surface any overlap in the confirmation before creating. " +
-      "**After creating a Spec in draft / plan, your next move is to author Scope ACs** via `create_ac({ ref: '<this-spec>', kind: 'scope', statement: '...' })`. Scope ACs are plain-English outcome commitments — they define what success looks like and anchor every downstream Decision. Walk the user through 3–5 of them before resolving any Decisions; without them the Spec has no measurable success criteria.",
+      "**After creating a Spec in draft / specify, your next move is to author Scope ACs** via `create_ac({ ref: '<this-spec>', kind: 'scope', statement: '...' })`. Scope ACs are plain-English outcome commitments — they define what success looks like and anchor every downstream Decision. Walk the user through 3–5 of them before resolving any Decisions; without them the Spec has no measurable success criteria.",
     schema: {
       memex: z
         .string()
@@ -1162,14 +1162,14 @@ export const toolSpecs: ToolSpec[] = [
       const docRef = slugs ? buildDocRef(slugs, doc) : doc.handle;
       // The next-step nudge after create_doc — activation-moment guidance,
       // delivered while the agent is reading the response and deciding what
-      // to do next. Specs in draft/plan should be authored with their
+      // to do next. Specs in draft/specify should be authored with their
       // Scope ACs together; the agent forgetting this is a real, observed
       // failure mode. Skipped for non-spec docTypes (standards, etc.)
       // where Scope ACs don't apply.
       const isSpec = docType === "spec";
       const isStandard = docType === "standard";
       const nudge = isSpec
-        ? `\n\nNext: author Scope ACs for this Spec. Scope ACs are plain-English outcome commitments that define what success looks like — they ground every downstream Decision. Walk the user through 3–5 of them now via:\n  create_ac({ ref: "${docRef}", kind: "scope", statement: "..." })\nDon't skip this in draft/plan. See get_information(topic='phases') for the full phase mechanics.`
+        ? `\n\nNext: author Scope ACs for this Spec. Scope ACs are plain-English outcome commitments that define what success looks like — they ground every downstream Decision. Walk the user through 3–5 of them now via:\n  create_ac({ ref: "${docRef}", kind: "scope", statement: "..." })\nDon't skip this in draft/specify. See get_information(topic='phases') for the full phase mechanics.`
         : isStandard
           ? `\n\nThis standard is born with no body section — standards are authored as clauses, not prose. BEFORE adding content, read get_information(topic='authoring-standards') for what makes a good standard and a good clause, plus the full add_section(clauses) / add_clause / edit_clause / delete_clause flow. Then author the first section via:\n  add_section({ ref: "${docRef}", sectionType: "rule", clauses: ["<one aspect>", "<one aspect>"] })`
           : "";
@@ -1181,7 +1181,7 @@ export const toolSpecs: ToolSpec[] = [
     annotations: { title: "Update document", readOnlyHint: false, destructiveHint: false },
     description:
       "Update a document's status, title, and/or tags. Pass only the fields you want to change. " +
-      "**status** transitions a Spec through draft → plan → build → verify → done; backward moves and pauses are supported. Run `assess_spec({mode:'phase', target:<phase>})` BEFORE any forward Spec transition past plan — it returns the rubric + a fact sheet of open decisions / incomplete work / drift. Closing to 'done' is the user's call. " +
+      "**status** transitions a Spec through draft → specify → build → verify → done; backward moves and pauses are supported. Run `assess_spec({mode:'phase', target:<phase>})` BEFORE any forward Spec transition past specify — it returns the rubric + a fact sheet of open decisions / incomplete work / drift. Closing to 'done' is the user's call. " +
       "**title** renames the document (handle stays immutable). " +
       "**tags** adds tags to the Spec — array of `scope::value` (e.g. `priority::high`) or flat (e.g. `bug`) strings; a scoped tag is mutually exclusive within its scope (applying `priority::high` drops any other `priority::*`). New tags are created on first use. " +
       "**removeTags** removes the given tags from the Spec (same string form); removing a tag the Spec doesn't carry is a no-op. " +
@@ -1703,7 +1703,7 @@ export const toolSpecs: ToolSpec[] = [
       "  1. **Edit-in-place** (no `status` arg): mutate `title`, `context`, " +
       "`resolution`, and/or `chosenOptionIndex` on a decision. Status is " +
       "unchanged. Use this to tighten resolution wording on a resolved " +
-      "decision without forcing the Spec back to plan.\n" +
+      "decision without forcing the Spec back to specify.\n" +
       "  2. **Reopen** (`status: 'open'` from a resolved decision): reopens it so it " +
       "can be re-resolved. Stash the prior resolution as 'Proposed: …'. Use " +
       "this when the choice itself is being reconsidered, not when the wording " +
@@ -1867,7 +1867,7 @@ export const toolSpecs: ToolSpec[] = [
     name: "resolve_decision",
     annotations: { title: "Resolve decision", readOnlyHint: false, destructiveHint: false },
     description:
-      "Resolve a decision with an explanation of the choice made. May unblock tasks waiting on it. Resolving the last open decision on a Spec in 'plan' unblocks the move to 'build'. If the decision has structured options, pass `chosenOptionIndex` to mark which one was selected.",
+      "Resolve a decision with an explanation of the choice made. May unblock tasks waiting on it. Resolving the last open decision on a Spec in 'specify' unblocks the move to 'build'. If the decision has structured options, pass `chosenOptionIndex` to mark which one was selected.",
     schema: {
       ref: z
         .string()
@@ -1904,10 +1904,10 @@ export const toolSpecs: ToolSpec[] = [
         return await formatState(url, state, ctx);
       }
       // Per dec-1 of doc-20: if this was the last open decision on a Spec
-      // in 'plan', surface the unblocked phase move so the agent doesn't have
+      // in 'specify', surface the unblocked phase move so the agent doesn't have
       // to call assess_spec to discover it.
       let hint = "";
-      if (doc.docType === "spec" && doc.status === "plan") {
+      if (doc.docType === "spec" && doc.status === "specify") {
         const remaining = await listDecisions(memexId, decision.docId);
         const stillOpen = remaining.filter((d) => d.status === "open");
         if (stillOpen.length === 0) {
@@ -1920,7 +1920,7 @@ export const toolSpecs: ToolSpec[] = [
       // syntax at exactly the moment the decision flips so the next move is
       // obvious. The full rationale lives in the `decisions-need-acs`
       // guidance topic — cited here so a confused agent can read once and
-      // keep the discipline going. Build-readiness will refuse plan→build
+      // keep the discipline going. Build-readiness will refuse specify→build
       // if any resolved decision is missing its implementation AC(s).
       // spec-121 mechanism 2 — if this decision ALREADY has linked
       // implementation ACs, sketch the test shape for each (with a paste-ready
@@ -1953,7 +1953,7 @@ export const toolSpecs: ToolSpec[] = [
             `\`create_ac({ ref: '<this-spec>', kind: 'implementation', parent_decision_ref: '${decRef}', statement: '...' })\`. ` +
             `One decision typically spawns 2-5 implementation ACs (one per distinct behavioural claim). ` +
             `See \`get_information(topic='decisions-need-acs')\` for the full discipline. ` +
-            `Without these, build-readiness will refuse the plan→build move.`;
+            `Without these, build-readiness will refuse the specify→build move.`;
       // spec-112 (ac-4 / ac-15): auto-surface related Issues whose semantic
       // overlap with the decision clears the relevance threshold. Reuses the
       // same searchMemex(kind:'issue') machinery; informational only, never
@@ -2266,7 +2266,7 @@ export const toolSpecs: ToolSpec[] = [
           const handles = naked.map((c) => c.decisionHandle).join(", ");
           tailParts.push(
             `${naked.length} resolved decision${naked.length === 1 ? "" : "s"} (${handles}) ${naked.length === 1 ? "has" : "have"} no implementation AC. ` +
-              `Author at least one via \`create_ac({kind:'implementation', parent_decision_ref:'<dec-ref>', ...})\` before plan→build. ` +
+              `Author at least one via \`create_ac({kind:'implementation', parent_decision_ref:'<dec-ref>', ...})\` before specify→build. ` +
               `See \`get_information(topic='decisions-need-acs')\` for the discipline.`,
           );
         }
@@ -3004,8 +3004,8 @@ export const toolSpecs: ToolSpec[] = [
     description:
       "Run a deterministic Spec assessment. Replaces assess_phase_transition / assess_narrative_freshness / assess_comments_status / mark_narrative_consolidated.\n" +
       "Modes:\n" +
-      "  - **phase**: readiness check before forward Spec transitions. Returns the rubric for `target` (plan/build/verify/done) plus a fact sheet (open decisions, incomplete tasks, ready-vs-blocked, drift, narrative coverage). Call BEFORE update_doc({status:<target>}) on any forward move.\n" +
-      "  - **narrative**: freshness check — decisions / sections changed since the last consolidation. Use at plan→build before re-walking the narrative.\n" +
+      "  - **phase**: readiness check before forward Spec transitions. Returns the rubric for `target` (specify/build/verify/done) plus a fact sheet (open decisions, incomplete tasks, ready-vs-blocked, drift, narrative coverage). Call BEFORE update_doc({status:<target>}) on any forward move.\n" +
+      "  - **narrative**: freshness check — decisions / sections changed since the last consolidation. Use at specify→build before re-walking the narrative.\n" +
       "  - **comments**: open-comments survey (oldest-first, per-type breakdown). Useful at any phase transition.\n" +
       "  - **consolidate**: stamps `narrativeLastConsolidatedAt = now()`. Call AFTER walking the narrative-freshness output with the user and updating prose inline.\n" +
       "Spec-only.",
@@ -3015,7 +3015,7 @@ export const toolSpecs: ToolSpec[] = [
         .describe("Canonical ref to the Spec, e.g. `mindset/main/specs/spec-3`."),
       mode: z.enum(["phase", "narrative", "comments", "consolidate"]).describe("Which assessment to run: 'phase' (forward-transition rubric), 'narrative' (freshness check), 'comments' (open-comments survey), or 'consolidate' (stamp narrativeLastConsolidatedAt)."),
       target: z
-        .enum(["plan", "build", "verify", "done"])
+        .enum(["specify", "build", "verify", "done"])
         .optional()
         .describe("Required for mode='phase'. The target phase being transitioned into."),
       codeGrounding: z
@@ -3051,7 +3051,7 @@ export const toolSpecs: ToolSpec[] = [
       if (mode === "phase") {
         if (!target) throw new ValidationError("assess_spec(mode='phase') requires `target`.");
         if (!isPhaseTarget(target)) {
-          throw new ValidationError(`Invalid target '${target}'. Must be plan/build/verify/done.`);
+          throw new ValidationError(`Invalid target '${target}'. Must be specify/build/verify/done.`);
         }
         const assessment = await assessPhaseTransition(
           memexId,
@@ -3111,12 +3111,12 @@ export const toolSpecs: ToolSpec[] = [
     name: "publish_spec",
     annotations: { title: "Publish Spec", readOnlyHint: false, destructiveHint: false },
     description:
-      'Transition a Spec out of draft. Defaults to "plan" status. Pass `status` to override. Run `assess_spec({mode:\'phase\'})` first for any forward move past plan. Refuses already-published Specs (use update_doc({status}) for further moves).',
+      'Transition a Spec out of draft. Defaults to "specify" status. Pass `status` to override. Run `assess_spec({mode:\'phase\'})` first for any forward move past specify. Refuses already-published Specs (use update_doc({status}) for further moves).',
     schema: {
       ref: z
         .string()
         .describe("Canonical ref to the Spec, e.g. `mindset/main/specs/spec-3`."),
-      status: z.enum(["plan", "build", "verify", "done"]).optional().describe("Target lifecycle status. Defaults to 'plan'."),
+      status: z.enum(["specify", "build", "verify", "done"]).optional().describe("Target lifecycle status. Defaults to 'specify'."),
       verbose: VERBOSE_FIELD,
     },
     async handler(input, ctx) {
@@ -3138,7 +3138,7 @@ export const toolSpecs: ToolSpec[] = [
         );
       }
       const beforeStatus = doc.status;
-      const target = status ?? "plan";
+      const target = status ?? "specify";
       await updateDocStatus(memexId, doc.id, target);
       const nudge = await nudgeForTransition(memexId, doc.id, beforeStatus, target, doc.docType);
 
@@ -3239,7 +3239,7 @@ export const toolSpecs: ToolSpec[] = [
       "Register an Issue (a bug or a todo) against a Spec. Pass `spec_ref` to home it on a " +
       "specific Spec; the Issue belongs to that Spec as a whole (it does NOT anchor to a " +
       "section/decision/task). An Issue may be raised against a Spec in ANY status — draft, " +
-      "plan, build, verify, done, paused, archived (no phase guard). " +
+      "specify, build, verify, done, paused, archived (no phase guard). " +
       "**Every Issue must be bound to a Spec — a homeless Issue is never persisted (std-5, no " +
       "silent default home).** If you OMIT `spec_ref`, this tool persists NOTHING and instead " +
       "returns a two-option assist so the caller can decide where it lives: (1) turn the issue " +

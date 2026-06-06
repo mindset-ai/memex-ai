@@ -415,12 +415,12 @@ describe("tool-specs: dec-1 / dec-4 terse-path contracts (post-b-36)", () => {
   });
 
   it("resolve_decision terse carries `ref:` and names the next phase when last open decision resolves", async () => {
-    // Fresh doc with exactly one open decision and a parent spec in 'plan'.
+    // Fresh doc with exactly one open decision and a parent spec in 'specify'.
     const fresh = await createDocDraft(memexId, "Last-dec Doc", "x", "spec");
     cleanup.docs.push(fresh.id);
     await db
       .update(documents)
-      .set({ status: "plan", statusChangedAt: new Date() })
+      .set({ status: "specify", statusChangedAt: new Date() })
       .where(eq(documents.id, fresh.id));
     const [dec] = await db
       .insert(decisions)
@@ -441,7 +441,7 @@ describe("tool-specs: dec-1 / dec-4 terse-path contracts (post-b-36)", () => {
 
   it("update_decision edit-in-place: rewrites resolution prose without changing status", async () => {
     // Fresh resolved decision; the agent wants to polish wording without
-    // reopening (which would step the Spec back to plan).
+    // reopening (which would step the Spec back to specify).
     const fresh = await createDocDraft(memexId, "Edit-in-place Doc", "x", "spec");
     cleanup.docs.push(fresh.id);
     const [dec] = await db
@@ -558,12 +558,12 @@ describe("tool-specs: dec-1 / dec-4 terse-path contracts (post-b-36)", () => {
     cleanup.docs.push(m.id);
     const spec = specByName("update_doc");
     const out = await spec.handler(
-      { ref: docRef(slugs, m.handle), status: "plan" },
+      { ref: docRef(slugs, m.handle), status: "specify" },
       ctxFor(memexId, userId, false),
     );
     expect(out).toMatch(/ref: /);
     expect(out).not.toMatch(UUID_RE);
-    expect(out).toMatch(/Phase: plan/);
+    expect(out).toMatch(/Phase: specify/);
     expect(out.toLowerCase()).toContain("allowed now");
   });
 
@@ -577,7 +577,7 @@ describe("tool-specs: dec-1 / dec-4 terse-path contracts (post-b-36)", () => {
     );
     expect(out).toMatch(/Spec ref: .* published/);
     expect(out).not.toMatch(UUID_RE);
-    expect(out).toMatch(/Phase: plan/);
+    expect(out).toMatch(/Phase: specify/);
   });
 
   it("delete_task terse carries `ref:`", async () => {

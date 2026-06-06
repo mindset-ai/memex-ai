@@ -42,7 +42,7 @@ const promptBlocks: PromptBlockNode[] = [
 const phases: PhaseNode[] = [
   {
     kind: 'phase',
-    phase: 'plan',
+    phase: 'specify',
     intent: 'shape narrative; resolve decisions',
     allowance: { allowed: ['update_section'], blocked: ['create_task'] },
     promptBlockIds: ['role'],
@@ -102,7 +102,7 @@ const tools: ToolNode[] = [
 ];
 
 const transitions: TransitionRubric[] = [
-  { kind: 'transition_rubric', transition: 'plan', text: 'PLAN GATE PROSE.', rationale: 'Plan rubric rationale.' },
+  { kind: 'transition_rubric', transition: 'specify', text: 'PLAN GATE PROSE.', rationale: 'Plan rubric rationale.' },
   { kind: 'transition_rubric', transition: 'build', text: 'BUILD GATE PROSE.', rationale: 'Build rubric rationale.' },
   { kind: 'transition_rubric', transition: 'verify', text: 'VERIFY GATE PROSE.', rationale: 'Verify rubric rationale.' },
   { kind: 'transition_rubric', transition: 'done', text: 'DONE GATE PROSE.', rationale: 'Done rubric rationale.' },
@@ -112,7 +112,7 @@ const baseGuidance: GuidanceBlock[] = [
   {
     kind: 'guidance_block',
     source: 'base',
-    target: { phase: 'plan' },
+    target: { phase: 'specify' },
     text: 'BASE PHASE PLAN BLOCK.',
     enabled: true,
     order: 0,
@@ -121,7 +121,7 @@ const baseGuidance: GuidanceBlock[] = [
   {
     kind: 'guidance_block',
     source: 'base',
-    target: { tool: 'update_section', phase: 'plan' },
+    target: { tool: 'update_section', phase: 'specify' },
     text: 'BASE TOOL+PHASE NUDGE.',
     enabled: true,
     order: 1,
@@ -141,7 +141,7 @@ const dataset: ScaffoldDataset = {
 const enabledOrgBlock: GuidanceBlock & { id: string } = {
   kind: 'guidance_block',
   source: 'org',
-  target: { phase: 'plan' },
+  target: { phase: 'specify' },
   text: 'ORG PHASE PLAN ADDITION.',
   enabled: true,
   order: 0,
@@ -222,7 +222,7 @@ describe('ScaffoldInspect — phase view (b-68 t-13)', () => {
     renderPage();
 
     const user = userEvent.setup();
-    await user.click(await screen.findByTestId('scaffold-rail-phase-plan'));
+    await user.click(await screen.findByTestId('scaffold-rail-phase-specify'));
 
     // Four sub-panels (s-7).
     expect(screen.getByTestId('scaffold-phase-system-prompt')).toBeInTheDocument();
@@ -232,7 +232,7 @@ describe('ScaffoldInspect — phase view (b-68 t-13)', () => {
     // Plus live preview, which is the same view's fifth panel.
     expect(screen.getByTestId('scaffold-phase-live-preview')).toBeInTheDocument();
 
-    // Outgoing-gate link points to →build for plan.
+    // Outgoing-gate link points to →build for specify.
     const gateLink = screen.getByTestId('scaffold-phase-gate-link');
     expect(gateLink).toHaveTextContent('→build');
   });
@@ -243,7 +243,7 @@ describe('ScaffoldInspect — phase view (b-68 t-13)', () => {
     renderPage();
 
     const user = userEvent.setup();
-    await user.click(await screen.findByTestId('scaffold-rail-phase-plan'));
+    await user.click(await screen.findByTestId('scaffold-rail-phase-specify'));
     await user.click(screen.getByTestId('scaffold-phase-gate-link'));
 
     const gateView = screen.getByTestId('scaffold-gate-view-build');
@@ -267,7 +267,7 @@ describe('ScaffoldInspect — phase view (b-68 t-13)', () => {
 
     // Cells exist for every (tool, phase) pair in the dataset.
     for (const tool of dataset.tools) {
-      for (const phase of ['draft', 'plan', 'build', 'verify', 'done']) {
+      for (const phase of ['draft', 'specify', 'build', 'verify', 'done']) {
         expect(
           screen.getByTestId(`scaffold-matrix-cell-${tool.name}-${phase}`),
         ).toBeInTheDocument();
@@ -275,7 +275,7 @@ describe('ScaffoldInspect — phase view (b-68 t-13)', () => {
     }
 
     // The plan/update_section cell shows the composed nudge text (base + org).
-    const planCell = screen.getByTestId('scaffold-matrix-cell-update_section-plan');
+    const planCell = screen.getByTestId('scaffold-matrix-cell-update_section-specify');
     expect(planCell).toHaveTextContent('BASE PHASE PLAN BLOCK.');
     expect(planCell).toHaveTextContent('BASE TOOL+PHASE NUDGE.');
     expect(planCell).toHaveTextContent('ORG PHASE PLAN ADDITION.');
@@ -287,9 +287,9 @@ describe('ScaffoldInspect — phase view (b-68 t-13)', () => {
     renderPage();
 
     const user = userEvent.setup();
-    await user.click(await screen.findByTestId('scaffold-rail-phase-plan'));
+    await user.click(await screen.findByTestId('scaffold-rail-phase-specify'));
 
-    // The select defaults to the first phase-active tool. For phase=plan the
+    // The select defaults to the first phase-active tool. For phase=specify the
     // tools are [update_section, create_task] (create_task is blocked, so only
     // update_section is active). Set explicitly to keep the assertion stable.
     const select = screen.getByTestId('scaffold-phase-preview-tool-select');
@@ -320,7 +320,7 @@ describe('ScaffoldInspect — inline authoring (b-68 t-14)', () => {
     const newAddition: GuidanceBlock & { id: string } = {
       kind: 'guidance_block',
       source: 'org',
-      target: { phase: 'plan' },
+      target: { phase: 'specify' },
       text: 'BRAND NEW ORG NUDGE.',
       enabled: true,
       order: 5,
@@ -339,7 +339,7 @@ describe('ScaffoldInspect — inline authoring (b-68 t-14)', () => {
 
     renderPage();
     const user = userEvent.setup();
-    await user.click(await screen.findByTestId('scaffold-rail-phase-plan'));
+    await user.click(await screen.findByTestId('scaffold-rail-phase-specify'));
 
     // Live preview before the addition does NOT include the new text.
     const previewBefore = screen.getByTestId('scaffold-phase-live-preview-text');
@@ -359,7 +359,7 @@ describe('ScaffoldInspect — inline authoring (b-68 t-14)', () => {
       expect(createScaffoldAdditionMock).toHaveBeenCalledWith(
         'org-uuid',
         expect.objectContaining({
-          target: { phase: 'plan' },
+          target: { phase: 'specify' },
           text: 'BRAND NEW ORG NUDGE.',
           rationale: 'Author rationale.',
         }),
@@ -379,7 +379,7 @@ describe('ScaffoldInspect — inline authoring (b-68 t-14)', () => {
     renderPage();
 
     const user = userEvent.setup();
-    await user.click(await screen.findByTestId('scaffold-rail-phase-plan'));
+    await user.click(await screen.findByTestId('scaffold-rail-phase-specify'));
 
     // Stage guidance section renders but the Add button does NOT.
     expect(screen.getByTestId('scaffold-phase-stage-guidance')).toBeInTheDocument();
@@ -448,7 +448,7 @@ describe('ScaffoldInspect — tolerates a missing Org (b-68 D-4 follow-up)', () 
     renderPage();
 
     const user = userEvent.setup();
-    await user.click(await screen.findByTestId('scaffold-rail-phase-plan'));
+    await user.click(await screen.findByTestId('scaffold-rail-phase-specify'));
 
     // Phase view renders the base content, but the Add-guidance trigger
     // (admin-only) is not present.

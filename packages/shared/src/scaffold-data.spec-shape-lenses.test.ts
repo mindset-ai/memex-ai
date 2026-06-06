@@ -1,6 +1,6 @@
 // spec-106 t-2 — the lens-shape GuidanceBlock in BASE_SCAFFOLD.
 //
-// **ac-11** — the plan-phase GuidanceBlock teaches the agent to PROPOSE the
+// **ac-11** — the specify-phase GuidanceBlock teaches the agent to PROPOSE the
 // section anatomy (Overview, Design & UX, Architecture & Security, + adaptive
 // lenses) at Spec creation.
 //
@@ -8,7 +8,7 @@
 // scope reading/writing, WITHOUT hard-coding enforcement.
 //
 // The block is authored in `scaffold-data.ts` as a `shared_nudge` PromptBlock
-// (`spec-shape-lenses`) plus two base GuidanceBlocks targeting `{ phase:'plan' }`
+// (`spec-shape-lenses`) plus two base GuidanceBlocks targeting `{ phase:'specify' }`
 // and `{ tool:'create_doc' }` (Spec birth). These assertions pin the prose
 // intent and the targeting so a future re-word can't silently drop the
 // behavioural contract.
@@ -124,14 +124,14 @@ describe("spec-106 t-2: targeting in BASE_SCAFFOLD baseGuidance (ac-11)", () => 
     (g) => g.text === LENS_BLOCK!.text,
   );
 
-  it("is targeted at phase=plan (shaping the narrative)", () => {
+  it("is targeted at phase=specify (shaping the narrative)", () => {
     tagAc(AC(11));
-    const planBlock = matching.find(
-      (g) => g.target.phase === "plan" && g.target.tool === undefined,
+    const specifyBlock = matching.find(
+      (g) => g.target.phase === "specify" && g.target.tool === undefined,
     );
-    expect(planBlock, "a base GuidanceBlock must target phase=plan").toBeDefined();
-    expect(planBlock!.source).toBe("base");
-    expect(planBlock!.enabled).toBe(true);
+    expect(specifyBlock, "a base GuidanceBlock must target phase=specify").toBeDefined();
+    expect(specifyBlock!.source).toBe("base");
+    expect(specifyBlock!.enabled).toBe(true);
   });
 
   it("is ALSO targeted at the create_doc tool so it fires at Spec birth", () => {
@@ -147,15 +147,15 @@ describe("spec-106 t-2: targeting in BASE_SCAFFOLD baseGuidance (ac-11)", () => 
     expect(birthBlock!.target.phase).toBeUndefined();
   });
 
-  it("composes into the plan-phase nudge (both surfaces) and into the create_doc nudge (Spec birth)", () => {
+  it("composes into the specify-phase nudge (both surfaces) and into the create_doc nudge (Spec birth)", () => {
     tagAc(AC(11));
-    // Plan phase, any tool → lens block present (phase-targeted).
-    const planNudge = toNudge({
+    // Specify phase, any tool → lens block present (phase-targeted).
+    const specifyNudge = toNudge({
       dataset: BASE_SCAFFOLD,
       tool: "update_section",
-      phase: "plan",
+      phase: "specify",
     });
-    expect(planNudge).toContain(LENS_BLOCK!.text);
+    expect(specifyNudge).toContain(LENS_BLOCK!.text);
 
     // Spec birth: create_doc tool, phase undefined (no Spec resolved yet) →
     // lens block present via the tool-targeted copy.
@@ -168,7 +168,7 @@ describe("spec-106 t-2: targeting in BASE_SCAFFOLD baseGuidance (ac-11)", () => 
 
   it("does NOT leak into a build-phase nudge with no matching tool (phase-scoped)", () => {
     tagAc(AC(12));
-    // The lens block is plan/create_doc only — it must not appear on an
+    // The lens block is specify/create_doc only — it must not appear on an
     // unrelated build-phase tool call. Proves the targeting is scoped, not global.
     const buildNudge = toNudge({
       dataset: BASE_SCAFFOLD,

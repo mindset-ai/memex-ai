@@ -2,7 +2,7 @@
 //
 // One end-to-end story of USING Memex: open an org → create a memex in it →
 // create a Spec at its canonical path [per std-10] → author + resolve a decision
-// → move the Spec through its phases (draft → plan → build), asserting the
+// → move the Spec through its phases (draft → specify → build), asserting the
 // phase-gated affordances change at each step. Navigation is PATH-based on the
 // single origin [per std-2]; all seeding goes over the test-only HTTP surface
 // (dec-2) — no SQL, no Postmark.
@@ -65,7 +65,7 @@ test.afterEach(async ({}, testInfo) => {
   );
 });
 
-test("lifecycle spine: org → memex → Spec → resolve decision → phase moves draft→plan→build", async ({
+test("lifecycle spine: org → memex → Spec → resolve decision → phase moves draft→specify→build", async ({
   page,
   resources,
 }) => {
@@ -144,10 +144,10 @@ test("lifecycle spine: org → memex → Spec → resolve decision → phase mov
   // Editing before driving the forward-moving affordances below.
   await switchToEditing(page);
 
-  // ── 4. Phase-gated affordance #1: in DRAFT, draft→plan (Specify) is ungated ─
+  // ── 4. Phase-gated affordance #1: in DRAFT, draft→specify (Specify) is ungated ─
   // A freshly-created Spec is in `draft`. The PhaseTabBar shows the grey Draft
   // pill (data-tab="draft", data-current="true"); the TransitionSentence offers
-  // the ungated move to Specify. draft→plan carries NO rubric blocker.
+  // the ungated move to Specify. draft→specify carries NO rubric blocker.
   await expect(page.locator('[data-tab="draft"][data-current="true"]')).toBeVisible({
     timeout: 15_000,
   });
@@ -155,11 +155,11 @@ test("lifecycle spine: org → memex → Spec → resolve decision → phase mov
   await expect(transition).toContainText(/move this spec to Specify/i);
   await transition.getByRole("button", { name: /^Yes$/ }).click();
 
-  // After the move the Spec is in `plan` → the Specify tab is current (filled
+  // After the move the Spec is in `specify` → the Specify tab is current (filled
   // pill), the Draft pill is gone, and the phase-gated affordance CHANGED: the
-  // Rubicon now states the plan→Build blockers (Decisions + ACs), not an offer.
+  // Rubicon now states the specify→Build blockers (Decisions + ACs), not an offer.
   await expect(
-    page.locator('[role="tab"][data-tab="plan"][data-current="true"]')
+    page.locator('[role="tab"][data-tab="specify"][data-current="true"]')
   ).toBeVisible({ timeout: 15_000 });
   await expect(page.locator('[data-tab="draft"]')).toHaveCount(0);
   await expect(page.getByTestId("transition-sentence")).toContainText(
@@ -198,7 +198,7 @@ test("lifecycle spine: org → memex → Spec → resolve decision → phase mov
     .fill("Postgres — it matches the rest of the stack.");
   await panel.getByTestId("open-resolve-confirm").first().click();
 
-  // Resolved: the decision moves to the Resolved tray. The plan→Build Decisions
+  // Resolved: the decision moves to the Resolved tray. The specify→Build Decisions
   // blocker is now satisfied — but ACs still aren't created, so the Rubicon
   // STILL blocks on ACs (the affordance reflects the remaining gate, proving the
   // phase-gated state is live, not static).
@@ -210,8 +210,8 @@ test("lifecycle spine: org → memex → Spec → resolve decision → phase mov
     { timeout: 15_000 }
   );
 
-  // ── 6. Phase move plan → build, gate-aware ─────────────────────────────────
-  // plan→build is gated on Decisions resolved AND ACs created. We've resolved
+  // ── 6. Phase move specify → build, gate-aware ─────────────────────────────────
+  // specify→build is gated on Decisions resolved AND ACs created. We've resolved
   // the decision but deliberately have no ACs (AC authoring is the agent/MCP
   // surface, out of this spine's scope) — so the rubric correctly REFUSES the
   // forward move: NO Yes button on the current Specify tab. That refusal IS the

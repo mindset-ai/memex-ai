@@ -131,19 +131,19 @@ describe("handhold demo exclusion — enumeration + read/act (ac-37)", () => {
     tagAc(AC(37));
     tagAc(AC(35)); // scope ac-35: no coding agent (MCP) can discover/read/exec a demo Spec
 
-    // A demo spec + an ordinary spec, both in plan so the agent list's
-    // statusIn:['plan','build','verify'] surfaces the non-demo one.
+    // A demo spec + an ordinary spec, both in specify so the agent list's
+    // statusIn:['specify','build','verify'] surfaces the non-demo one.
     const demo = await createDocDraft(memexId, "Demo spec enum", "Demo overview.", "spec");
     const real = await createDocDraft(memexId, "Real spec enum", "Real overview.", "spec");
-    await db.update(documents).set({ isDemo: true, status: "plan" }).where(eq(documents.id, demo.id));
-    await db.update(documents).set({ status: "plan" }).where(eq(documents.id, real.id));
+    await db.update(documents).set({ isDemo: true, status: "specify" }).where(eq(documents.id, demo.id));
+    await db.update(documents).set({ status: "specify" }).where(eq(documents.id, real.id));
 
     // MCP / agent enumeration: excludeDemo:true (+ the agent list's status scope)
     // drops the demo spec but keeps the real one.
     const agentList = await listDocs(memexId, {
       docType: "spec",
       includePaused: false,
-      statusIn: ["plan", "build", "verify"],
+      statusIn: ["specify", "build", "verify"],
       excludeDemo: true,
     });
     const agentIds = agentList.map((d) => d.id);

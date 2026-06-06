@@ -213,7 +213,7 @@ describe("updateDocStatus", () => {
   it("accepts all canonical statuses", async () => {
     // Per dec-3 of doc-10 the column accepts the union of legacy values (review,
     // implementation — still used by non-Spec docTypes) and the new Spec
-    // vocabulary (plan, build, verify). 'approved' stays as the execution-plan
+    // vocabulary (specify, build, verify). 'approved' stays as the execution-plan
     // terminal.
     const draft = await createDocDraft(memexId, "All Statuses", "Purpose");
     createdDocIds.push(draft.id);
@@ -223,7 +223,7 @@ describe("updateDocStatus", () => {
       "implementation",
       "done",
       "approved",
-      "plan",
+      "specify",
       "build",
       "verify",
       "draft",
@@ -251,8 +251,8 @@ describe("updateDocStatus", () => {
   it("allows agent transitions other than verify→done", async () => {
     const spec = await createDocDraft(memexId, "Spec Build", "Purpose", "spec");
     createdDocIds.push(spec.id);
-    // Agent can drive draft→plan→build→verify.
-    await updateDocStatus(memexId, spec.id, "plan", { source: "agent" });
+    // Agent can drive draft→specify→build→verify.
+    await updateDocStatus(memexId, spec.id, "specify", { source: "agent" });
     await updateDocStatus(memexId, spec.id, "build", { source: "agent" });
     const verified = await updateDocStatus(memexId, spec.id, "verify", { source: "agent" });
     expect(verified.status).toBe("verify");

@@ -35,7 +35,7 @@ const SERVER_RESULT =
   'Next: author Scope ACs for this Spec. Scope ACs are plain-English outcome commitments ' +
   'that define what success looks like — they ground every downstream Decision. Walk the ' +
   'user through 3–5 of them now via:\n  create_ac({ ref: "…", kind: "scope", statement: "..." })\n' +
-  "Don't skip this in draft/plan. See get_information(topic='phases') for the full phase mechanics.";
+  "Don't skip this in draft/specify. See get_information(topic='phases') for the full phase mechanics.";
 
 async function* fakeStream(events: unknown[]) {
   for (const event of events) {

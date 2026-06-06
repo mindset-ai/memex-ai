@@ -37,19 +37,21 @@ describe("type guards", () => {
     expect(isMembershipStatus("suspended")).toBe(false);
   });
 
-  it("isDocStatus matches the legacy + Spec-rename values (doc-10 dec-3/dec-4)", () => {
+  it("isDocStatus matches the legacy + Spec-rename values (doc-10 dec-3/dec-4; spec-181 plan→specify)", () => {
     for (const s of [
       "draft",
       "review",
       "implementation",
       "done",
       "approved",
-      "plan",
+      "specify",
       "build",
       "verify",
     ]) {
       expect(isDocStatus(s)).toBe(true);
     }
+    // spec-181: the retired 'plan' phase value is no longer a valid status.
+    expect(isDocStatus("plan")).toBe(false);
     expect(isDocStatus("DRAFT")).toBe(false);
     expect(isDocStatus("archived")).toBe(false);
   });
@@ -98,15 +100,16 @@ describe("readonly arrays mirror the union", () => {
   });
   it("DOC_STATUSES has the union of legacy and Spec-rename values (doc-10)", () => {
     // Legacy: draft, review, implementation, done, approved
-    // Spec rename (dec-3, dec-4): plan, build, verify
+    // Spec rename (dec-3, dec-4): plan→build→verify, then spec-181 renamed
+    // the second phase plan→specify.
     expect([...DOC_STATUSES].sort()).toEqual([
       "approved",
       "build",
       "done",
       "draft",
       "implementation",
-      "plan",
       "review",
+      "specify",
       "verify",
     ]);
   });

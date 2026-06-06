@@ -1,6 +1,6 @@
 // spec-106 t-3 — cross-surface parity for the lens-shape GuidanceBlock.
 //
-// **ac-13** — "The plan-phase lens GuidanceBlock appears in the `toNudge`
+// **ac-13** — "The specify-phase lens GuidanceBlock appears in the `toNudge`
 // footer for BOTH the MCP agent and the React doc-chat agent."
 //
 // The structural truth (spec-68 dec-9, documented at mcp/tools.ts:312 as a
@@ -16,8 +16,8 @@
 //
 // Both feed `{ tool: ctx.toolName, orgBlocks }` into `formatFullDocState`
 // (agent/tool-specs.ts:396-408). So "both surfaces see the block" reduces to:
-// the lens block is `target:{phase:'plan'}` (phase-scoped, tool-agnostic), and
-// `formatFullDocState` for a plan-phase spec emits it regardless of which tool
+// the lens block is `target:{phase:'specify'}` (phase-scoped, tool-agnostic), and
+// `formatFullDocState` for a specify-phase spec emits it regardless of which tool
 // name the surface supplies. We exercise the real `formatFullDocState` with
 // the NudgeContext each surface produces and assert the lens prose is present
 // in BOTH footers.
@@ -35,7 +35,7 @@ const AC_13 = "mindset-prod/memex-building-itself/specs/spec-106/acs/ac-13";
 
 const baseDate = new Date("2026-05-31T12:00:00Z");
 
-// A plan-phase Spec — the phase that carries the lens-shape GuidanceBlock.
+// A specify-phase Spec — the phase that carries the lens-shape GuidanceBlock.
 function makePlanSpec(): Doc & { sections: DocSection[] } {
   return {
     id: "spec-uuid-106",
@@ -43,7 +43,7 @@ function makePlanSpec(): Doc & { sections: DocSection[] } {
     handle: "spec-106",
     title: "Some Spec",
     docType: "spec",
-    status: "plan",
+    status: "specify",
     parentDocId: null,
     createdByUserId: null,
     createdAt: baseDate,
@@ -93,17 +93,17 @@ describe("spec-106 t-3 ac-13: lens-shape GuidanceBlock reaches both surfaces' to
     // PromptBlock that would need separate React system-prompt assembly.
     expect(LENS_BLOCK!.surface).toBe("shared_nudge");
 
-    // It is targeted at plan (and at create_doc for Spec birth) in baseGuidance.
-    const planTargeted = BASE_SCAFFOLD.baseGuidance.find(
+    // It is targeted at specify (and at create_doc for Spec birth) in baseGuidance.
+    const specifyTargeted = BASE_SCAFFOLD.baseGuidance.find(
       (g) =>
         g.source === "base" &&
-        g.target.phase === "plan" &&
+        g.target.phase === "specify" &&
         g.target.tool === undefined &&
         g.text === LENS_BLOCK!.text,
     );
     expect(
-      planTargeted,
-      "lens block must be a base GuidanceBlock targeting phase=plan",
+      specifyTargeted,
+      "lens block must be a base GuidanceBlock targeting phase=specify",
     ).toBeDefined();
   });
 
@@ -115,7 +115,7 @@ describe("spec-106 t-3 ac-13: lens-shape GuidanceBlock reaches both surfaces' to
   const SURFACES: { name: string; nudge: { tool?: string } }[] = [
     // MCP coding agent dispatching create_doc (Spec birth).
     { name: "MCP (create_doc)", nudge: { tool: "create_doc" } },
-    // MCP coding agent dispatching update_section in plan.
+    // MCP coding agent dispatching update_section in specify.
     { name: "MCP (update_section)", nudge: { tool: "update_section" } },
     // React doc-chat authoring agent — same ctx shape, different tool name.
     { name: "React (update_section)", nudge: { tool: "update_section" } },
@@ -124,7 +124,7 @@ describe("spec-106 t-3 ac-13: lens-shape GuidanceBlock reaches both surfaces' to
   ];
 
   for (const surface of SURFACES) {
-    it(`lens guidance is present in the plan-phase footer for ${surface.name}`, () => {
+    it(`lens guidance is present in the specify-phase footer for ${surface.name}`, () => {
       tagAc(AC_13);
       expect(LENS_BLOCK).toBeDefined();
 
@@ -178,7 +178,7 @@ describe("spec-106 t-3 ac-13: lens-shape GuidanceBlock reaches both surfaces' to
       { tool: "update_section" },
     );
 
-    // The lens block is `target:{phase:'plan'}` — tool-agnostic — so the SAME
+    // The lens block is `target:{phase:'specify'}` — tool-agnostic — so the SAME
     // block text appears in both, proving the spec-68 dec-9 parity guarantee
     // for this block: it reaches the MCP agent AND the React doc-chat agent
     // via the one shared toNudge composition, with no React-only wiring.

@@ -287,8 +287,8 @@ describe('GuidanceBlock.target shape (ac-6)', () => {
     expect(both).toContain('build-only');
     expect(both).toContain('create_task-only');
 
-    // (tool: 'list_docs', phase: 'plan') matches only the org-global one.
-    const neither = toNudge({ dataset, tool: 'list_docs', phase: 'plan' });
+    // (tool: 'list_docs', phase: 'specify') matches only the org-global one.
+    const neither = toNudge({ dataset, tool: 'list_docs', phase: 'specify' });
     expect(neither).toContain('global');
     expect(neither).not.toContain('build-only');
     expect(neither).not.toContain('create_task-only');

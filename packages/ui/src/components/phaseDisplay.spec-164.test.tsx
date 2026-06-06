@@ -7,9 +7,13 @@ import { TransitionSentence } from './TransitionSentence';
 import { phaseDisplayName } from '../utils/phaseDisplay';
 import type { SpecStatus } from '../api/types';
 
-// spec-164 dec-1 — the phase display-name layer. The planning phase presents
-// to users as "Specify" everywhere a phase name is printed, while the enum
-// value, the API payloads, and data-tab attributes keep `plan`.
+// spec-181 — the phase rename collapsed the spec-164 display-name shim. The
+// second phase value is now `specify` end-to-end (enum value, API payloads,
+// data-tab attributes), so "Specify" falls straight out of capitalising the
+// enum value. The spec-164 ACs still hold — the UI prints "Specify" everywhere
+// a phase name is rendered — but the value carried underneath is now `specify`,
+// not `plan`. These tests assert that NEW reality (see also the spec-181 ac-4
+// test below, which pins that the shim no longer carries a plan→"Specify" entry).
 
 const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-164/acs/ac-${n}`;
 
@@ -23,24 +27,33 @@ beforeEach(() => {
   updateDocStatus.mockResolvedValue(undefined);
 });
 
-describe('phaseDisplayName — the shared map (ac-11)', () => {
-  it('maps plan → "Specify" and the other phases to their capitalised names', () => {
+describe('phaseDisplayName — a plain capitaliser (spec-181)', () => {
+  it('renders "Specify" from the `specify` enum value and capitalises every phase', () => {
     tagAc(AC(11));
     tagAc('mindset-prod/memex-building-itself/specs/spec-164/acs/ac-1');
-    expect(phaseDisplayName('plan')).toBe('Specify');
+    // The former plan→"Specify" map entry is gone — "Specify" is just the
+    // capitalised enum value now.
+    expect(phaseDisplayName('specify')).toBe('Specify');
     expect(phaseDisplayName('draft')).toBe('Draft');
     expect(phaseDisplayName('build')).toBe('Build');
     expect(phaseDisplayName('verify')).toBe('Verify');
     expect(phaseDisplayName('done')).toBe('Done');
+    // The collapsed shim no longer special-cases `plan`; a stale `plan` value
+    // would now capitalise to "Plan", proving there is no plan→"Specify" entry.
+    expect(phaseDisplayName('plan')).toBe('Plan');
   });
 
-  it('PhaseTabBar renders "Specify" from the map while data-tab keeps `plan`', () => {
+  it('PhaseTabBar renders "Specify" and data-tab is the `specify` enum value', () => {
     tagAc(AC(11));
     render(
-      <PhaseTabBar currentPhase={'plan' as SpecStatus} selectedTab="plan" onSelect={() => {}} />,
+      <PhaseTabBar
+        currentPhase={'specify' as SpecStatus}
+        selectedTab="specify"
+        onSelect={() => {}}
+      />,
     );
-    const planTab = screen.getByRole('tab', { name: /Specify/ });
-    expect(planTab).toHaveAttribute('data-tab', 'plan');
+    const specifyTab = screen.getByRole('tab', { name: /Specify/ });
+    expect(specifyTab).toHaveAttribute('data-tab', 'specify');
     expect(screen.queryByText('Plan')).not.toBeInTheDocument();
   });
 });
@@ -52,7 +65,7 @@ describe('TransitionSentence renders display names, sends enum values (ac-12)', 
       <TransitionSentence
         doc={{ id: 'doc-1' }}
         currentPhase={'draft' as SpecStatus}
-        viewedTab={'plan' as SpecStatus}
+        viewedTab={'specify' as SpecStatus}
       />,
     );
     expect(screen.getByTestId('transition-sentence').textContent).toContain(
@@ -60,17 +73,17 @@ describe('TransitionSentence renders display names, sends enum values (ac-12)', 
     );
   });
 
-  it('pressing Yes still sends the `plan` enum value to updateDocStatus', async () => {
+  it('pressing Yes sends the `specify` enum value to updateDocStatus', async () => {
     tagAc(AC(12));
     render(
       <TransitionSentence
         doc={{ id: 'doc-1' }}
         currentPhase={'draft' as SpecStatus}
-        viewedTab={'plan' as SpecStatus}
+        viewedTab={'specify' as SpecStatus}
       />,
     );
     await userEvent.click(screen.getByRole('button', { name: 'Yes' }));
-    await waitFor(() => expect(updateDocStatus).toHaveBeenCalledWith('doc-1', 'plan'));
+    await waitFor(() => expect(updateDocStatus).toHaveBeenCalledWith('doc-1', 'specify'));
   });
 
   it('blocker lines name the display target ("…before this spec can move to Build.")', () => {
@@ -78,8 +91,8 @@ describe('TransitionSentence renders display names, sends enum values (ac-12)', 
     render(
       <TransitionSentence
         doc={{ id: 'doc-1' }}
-        currentPhase={'plan' as SpecStatus}
-        viewedTab={'plan' as SpecStatus}
+        currentPhase={'specify' as SpecStatus}
+        viewedTab={'specify' as SpecStatus}
         totalDecisionCount={1}
         openDecisionCount={1}
         hasAcceptanceCriteria

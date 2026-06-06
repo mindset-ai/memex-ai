@@ -324,7 +324,7 @@ describe('ChatContext', () => {
           'Next: author Scope ACs for this Spec. Scope ACs are plain-English outcome commitments — ' +
           'Walk the user through 3–5 of them now via:\n' +
           '  create_ac({ ref: "mindset-prod/memex-building-itself/specs/spec-200", kind: "scope", statement: "..." })\n' +
-          "Don't skip this in draft/plan. See get_information(topic='phases') for the full phase mechanics."
+          "Don't skip this in draft/specify. See get_information(topic='phases') for the full phase mechanics."
       );
 
       expect(toolMsg?.content).toBe(

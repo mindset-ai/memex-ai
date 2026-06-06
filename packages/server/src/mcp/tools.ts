@@ -59,12 +59,12 @@ This orientation is intentionally tiny. Operating depth (phase mechanics, AC emi
 
 ## Two non-negotiable rules
 
-1. **Tasks only in \`build\`.** A task in draft/plan is a guess pretending to be a commitment. Resolve decisions first.
+1. **Tasks only in \`build\`.** A task in draft/specify is a guess pretending to be a commitment. Resolve decisions first.
 2. **\`complete\` only when verification actually runs** — tests + type checks + exercising the path, not vibes. Closing a Spec (\`done\`) is the user's call, never the agent's.
 
 ## Pipeline
 
-Five phases: \`draft → plan → build → verify → done\`, plus orthogonal \`paused\`/\`archived\` flags. Tool responses are terse by default; pass \`verbose: true\` for full markdown. Call \`get_information(topic='phases')\` for the full phase mechanics including \`assess_spec\` modes.`;
+Five phases: \`draft → specify → build → verify → done\`, plus orthogonal \`paused\`/\`archived\` flags. Tool responses are terse by default; pass \`verbose: true\` for full markdown. Call \`get_information(topic='phases')\` for the full phase mechanics including \`assess_spec\` modes.`;
 
 function errorResult(message: string) {
   return {

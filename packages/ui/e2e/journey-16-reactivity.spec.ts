@@ -17,7 +17,7 @@
 // call site. The per-test fixture (helpers/index.js) resets the dev-user
 // baseline; seeded namespaces are tracked via `resources.slug(...)` for cleanup.
 
-import { test as base, expect, markEmailVerified, DEV_EMAIL } from "./helpers/index.js";
+import { test as base, expect, markEmailVerified, bareUrl, DEV_EMAIL } from "./helpers/index.js";
 import {
   seedOrgTenant,
   seedSpec as seedSpecHttp,
@@ -66,9 +66,9 @@ const test = base.extend<{ react: ReactivityResources }>({
 });
 
 function tenantPath(tenant: ReactivityTenant, suffix: string = ""): string {
-  const base = process.env.E2E_BASE_URL ?? `http://localhost:${process.env.E2E_UI_PORT ?? 5173}`;
+  // Route through the shared bareUrl so the port-override chain lives in ONE place.
   const clean = suffix.replace(/^\//, "");
-  return `${base}/${tenant.namespaceSlug}/${tenant.memexSlug}${clean ? "/" + clean : ""}`;
+  return bareUrl(`/${tenant.namespaceSlug}/${tenant.memexSlug}${clean ? "/" + clean : ""}`);
 }
 
 function tenantApiUrl(tenant: ReactivityTenant, suffix: string): string {

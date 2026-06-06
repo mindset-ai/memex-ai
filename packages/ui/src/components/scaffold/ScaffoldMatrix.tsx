@@ -7,7 +7,7 @@
 import { useMemo } from 'react';
 import { toNudge, type GuidanceBlock, type Phase, type ScaffoldDataset } from '@memex/shared';
 
-const ALL_PHASES: readonly Phase[] = ['draft', 'plan', 'build', 'verify', 'done'] as const;
+const ALL_PHASES: readonly Phase[] = ['draft', 'specify', 'build', 'verify', 'done'] as const;
 
 interface Props {
   dataset: ScaffoldDataset;

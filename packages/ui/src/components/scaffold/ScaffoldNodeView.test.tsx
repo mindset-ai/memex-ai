@@ -17,7 +17,7 @@ import type {
 
 const phase: PhaseNode = {
   kind: 'phase',
-  phase: 'plan',
+  phase: 'specify',
   intent: 'shape narrative; resolve decisions',
   allowance: { allowed: ['update_section'], blocked: ['create_task'] },
   promptBlockIds: ['role', 'mdx-components'],
@@ -44,14 +44,14 @@ const tool: ToolNode = {
 const transition: TransitionRubric = {
   kind: 'transition_rubric',
   transition: 'build',
-  text: '# plan→build rubric body',
+  text: '# specify→build rubric body',
   rationale: 'Transition rationale text',
 };
 
 const guidance: GuidanceBlock = {
   kind: 'guidance_block',
   source: 'base',
-  target: { phase: 'plan' },
+  target: { phase: 'specify' },
   text: 'Allowed now: x, y, z.',
   enabled: true,
   order: 1,
@@ -174,6 +174,6 @@ describe('ScaffoldNodeView', () => {
   it('renders TransitionRubric prose', () => {
     tagAc('mindset-prod/memex-building-itself/briefs/b-68/acs/ac-18');
     render(<ScaffoldNodeView node={transition} />);
-    expect(screen.getByText(/plan→build rubric body/)).toBeInTheDocument();
+    expect(screen.getByText(/specify→build rubric body/)).toBeInTheDocument();
   });
 });

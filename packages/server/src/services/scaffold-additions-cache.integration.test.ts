@@ -111,7 +111,7 @@ describe("scaffold-additions-cache (b-68 ac-10)", () => {
     await createOrgScaffoldAddition({
       orgId: fx.orgId,
       authorId: fx.authorId,
-      target: { phase: "plan" },
+      target: { phase: "specify" },
       text: "cache-hit-block",
       rationale: "first block",
     });
@@ -136,7 +136,7 @@ describe("scaffold-additions-cache (b-68 ac-10)", () => {
     await createOrgScaffoldAddition({
       orgId: fx.orgId,
       authorId: fx.authorId,
-      target: { phase: "plan" },
+      target: { phase: "specify" },
       text: "ttl-block",
       rationale: "ttl rationale",
     });
@@ -186,7 +186,7 @@ describe("scaffold-additions-cache (b-68 ac-10)", () => {
     await createOrgScaffoldAddition({
       orgId: fx.orgId,
       authorId: fx.authorId,
-      target: { phase: "plan" },
+      target: { phase: "specify" },
       text: "post-bus-block",
       rationale: "appears after bus event",
     });

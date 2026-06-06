@@ -184,7 +184,7 @@ export type PhaseAgentName =
 /**
  * Entry router: picks creation vs the appropriate per-phase agent.
  * `draft` is a Spec attribute / Kanban column, not a graph node — both
- * `draft` and `plan` route to `planAgent`. When the caller hasn't supplied
+ * `draft` and `specify` route to `planAgent`. When the caller hasn't supplied
  * a phase we fall through to `planAgent` as the safest default for an
  * existing doc whose phase is unknown.
  */
@@ -199,7 +199,7 @@ export function routeByPhase(
   if (!state.docId) return 'createDoc';
   switch (state.specPhase) {
     case 'draft':
-    case 'plan':
+    case 'specify':
       return 'planAgent';
     case 'build':
       return 'buildAgent';
@@ -221,7 +221,7 @@ export function routeByPhase(
 function routeBackToPhase(state: AgentStateType): PhaseAgentName {
   switch (state.specPhase) {
     case 'draft':
-    case 'plan':
+    case 'specify':
       return 'planAgent';
     case 'build':
       return 'buildAgent';

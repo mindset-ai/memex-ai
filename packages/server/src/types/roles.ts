@@ -14,7 +14,8 @@ export type MembershipStatus = "active" | "disabled";
 export type UserStatus = "active" | "disabled";
 
 // Per dec-3 of doc-10 the rename `review`→`plan`, `implementation`→`build`, plus new
-// `verify`, applies to docType='spec' rows only. The legacy `review` and
+// `verify`, applies to docType='spec' rows only (and per spec-181 the second
+// phase was renamed again, `plan`→`specify`). The legacy `review` and
 // `implementation` values stay in the union because Standards / Documents / Execution
 // plans still carry them. Use `SpecStatus` (below) when constraining to the Spec
 // kanban + dropdown surface.
@@ -24,14 +25,14 @@ export type DocStatus =
   | "implementation"
   | "done"
   | "approved"
-  | "plan"
+  | "specify"
   | "build"
   | "verify";
 
 // Spec-only lifecycle: what the kanban renders and what the Spec header
 // dropdown offers. Excludes `'approved'` (execution-plan-only) and the legacy
 // `review`/`implementation` (still valid at the column level for non-Spec docs).
-export type SpecStatus = "draft" | "plan" | "build" | "verify" | "done";
+export type SpecStatus = "draft" | "specify" | "build" | "verify" | "done";
 
 export type TaskStatus = "not_started" | "in_progress" | "complete";
 
@@ -98,11 +99,11 @@ export const DOC_STATUSES: readonly DocStatus[] = [
   "implementation",
   "done",
   "approved",
-  "plan",
+  "specify",
   "build",
   "verify",
 ] as const;
-export const SPEC_STATUSES: readonly SpecStatus[] = ["draft", "plan", "build", "verify", "done"] as const;
+export const SPEC_STATUSES: readonly SpecStatus[] = ["draft", "specify", "build", "verify", "done"] as const;
 export const TASK_STATUSES: readonly TaskStatus[] = ["not_started", "in_progress", "complete"] as const;
 export const DECISION_STATUSES: readonly DecisionStatus[] = ["open", "resolved", "candidate", "rejected"] as const;
 export const COMMENT_TYPES: readonly CommentType[] = [
@@ -153,7 +154,7 @@ export function isDocStatus(value: unknown): value is DocStatus {
     value === "implementation" ||
     value === "done" ||
     value === "approved" ||
-    value === "plan" ||
+    value === "specify" ||
     value === "build" ||
     value === "verify"
   );
@@ -162,7 +163,7 @@ export function isDocStatus(value: unknown): value is DocStatus {
 export function isSpecStatus(value: unknown): value is SpecStatus {
   return (
     value === "draft" ||
-    value === "plan" ||
+    value === "specify" ||
     value === "build" ||
     value === "verify" ||
     value === "done"

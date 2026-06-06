@@ -6,7 +6,7 @@
 // modal, no PhaseDropdown).
 //
 //   ac-5  : each phase renders the right panels / columns.
-//   ac-10 : Plan has three sub-tabs incl. the two-column Decisions & ACs.
+//   ac-10 : Specify has three sub-tabs incl. the two-column Decisions & ACs.
 //   ac-11 : Build / Verify carry no sub-tab bar.
 //   ac-15 : browsing a non-current tab doesn't change the phase; the current-
 //           phase highlight persists.
@@ -90,7 +90,7 @@ vi.mock('../components/ChatContext', () => ({ useChat: () => chat }));
 
 // ── API client: doc + the page-level AC/issue/assignee/comment fetches ──────
 const updateDocStatus = vi.fn();
-let docStatus: DocWithGraph['status'] = 'plan';
+let docStatus: DocWithGraph['status'] = 'specify';
 // Mutable graph fixtures so each test can shape the in-situ directive inputs
 // (open decisions / open tasks / unverified ACs).
 let docDecisions: unknown[] = [];
@@ -192,20 +192,20 @@ describe('spec-159 t-6 — DocDocument phase layouts', () => {
   // spec-159: assignment lives on the byline; the SpecRoleControls row left the page.
   it('renders the byline assignment for a Spec; the SpecRoleControls row is gone (ac-21)', async () => {
     tagAc(AC(21));
-    renderAt('plan');
+    renderAt('specify');
     // The byline assignment mounts for a Spec doc.
     expect(await screen.findByTestId('byline-assignees')).toBeInTheDocument();
     // The old posture/assignment row no longer renders on the page.
     expect(screen.queryByTestId('spec-role-controls')).not.toBeInTheDocument();
   });
 
-  it('Plan renders three sub-tabs; Decisions & ACs is a two-column Decision | AC layout (ac-5, ac-10)', async () => {
+  it('Specify renders three sub-tabs; Decisions & ACs is a two-column Decision | AC layout (ac-5, ac-10)', async () => {
     tagAc(AC(5));
     tagAc(AC(10));
     const user = userEvent.setup();
-    renderAt('plan');
+    renderAt('specify');
 
-    // Plan view is current → its sub-tab bar shows Narrative / Decisions & ACs / Comments.
+    // Specify view is current → its sub-tab bar shows Narrative / Decisions & ACs / Comments.
     await screen.findByText('Narrative');
     expect(screen.getByText('Decisions & ACs')).toBeInTheDocument();
     expect(screen.getByText('Comments')).toBeInTheDocument();
@@ -232,7 +232,7 @@ describe('spec-159 t-6 — DocDocument phase layouts', () => {
     expect(screen.getByTestId('issue-panel')).toBeInTheDocument();
     expect(screen.queryByTestId('ac-panel')).not.toBeInTheDocument();
 
-    // No sub-tab bar: the Plan sub-tab labels are absent.
+    // No sub-tab bar: the Specify sub-tab labels are absent.
     expect(screen.queryByText('Decisions & ACs')).not.toBeInTheDocument();
     // The only tablist on the page is the phase bar (3 tabs), not a sub-tab bar.
     expect(screen.getAllByRole('tab')).toHaveLength(3);
@@ -283,7 +283,7 @@ describe('spec-159 t-6 — DocDocument phase layouts', () => {
 
   it('mounts no PhaseDropdown and no other phase-control affordance (ac-1)', async () => {
     tagAc(AC(1));
-    renderAt('plan');
+    renderAt('specify');
     await screen.findByText('Narrative');
 
     // No listbox-style phase dropdown trigger anywhere.
@@ -317,13 +317,13 @@ describe('spec-159 t-6 — DocDocument phase layouts', () => {
 // browsing forward → summary + Are-you-sure Yes/No. The in-situ ⚠ directives
 // above the lists are unchanged.
 describe('spec-159 — Rubicon line + in-situ directives', () => {
-  it('plan with open decisions: line states the blocker with no buttons; directive sits above Decisions (ac-3, ac-13)', async () => {
+  it('specify with open decisions: line states the blocker with no buttons; directive sits above Decisions (ac-3, ac-13)', async () => {
     tagAc(AC(3));
     tagAc(AC(13));
     const user = userEvent.setup();
     docDecisions = [decision('d-1', 'open'), decision('d-2', 'open')];
     docAcs = [{ ac: { status: 'active' }, verificationState: 'untested' }];
-    renderAt('plan');
+    renderAt('specify');
 
     // Current tab + blocked rubric → the exact condition, no Yes to press.
     // (waitFor: the AC fetch resolving flips `hasAcceptanceCriteria` async.)
@@ -348,7 +348,7 @@ describe('spec-159 — Rubicon line + in-situ directives', () => {
     tagAc(AC(16));
     const user = userEvent.setup();
     docDecisions = [decision('d-1', 'open')];
-    renderAt('plan');
+    renderAt('specify');
     await screen.findByText('Narrative');
 
     await user.click(phaseTab('build'));
@@ -361,16 +361,16 @@ describe('spec-159 — Rubicon line + in-situ directives', () => {
 
     // No → back to the current phase's view, no phase mutation.
     await user.click(within(sentence).getByRole('button', { name: 'No' }));
-    expect(phaseTab('plan')).toHaveAttribute('data-selected', 'true');
+    expect(phaseTab('specify')).toHaveAttribute('data-selected', 'true');
     expect(screen.getByText('Narrative')).toBeInTheDocument();
     expect(updateDocStatus).not.toHaveBeenCalled();
   });
 
-  it('plan with no decisions and no ACs: ONE full-width directive concatenates both fragments (ac-13, ac-14)', async () => {
+  it('specify with no decisions and no ACs: ONE full-width directive concatenates both fragments (ac-13, ac-14)', async () => {
     tagAc(AC(13));
     tagAc(AC(14));
     const user = userEvent.setup();
-    renderAt('plan');
+    renderAt('specify');
     await screen.findByText('Decisions & ACs');
     await user.click(screen.getByText('Decisions & ACs'));
 
@@ -390,7 +390,7 @@ describe('spec-159 — Rubicon line + in-situ directives', () => {
     // 2 open + 1 resolved → the shared count is 2, not 3.
     docDecisions = [decision('d-1', 'open'), decision('d-2', 'open'), decision('d-3', 'resolved')];
     docAcs = [{ ac: { status: 'active' }, verificationState: 'verified' }];
-    renderAt('plan');
+    renderAt('specify');
     await screen.findByText('Decisions & ACs');
     await user.click(screen.getByText('Decisions & ACs'));
 
@@ -448,12 +448,12 @@ describe('spec-159 — Rubicon line + in-situ directives', () => {
   it('directives belong to the CURRENT phase only — browsing another layout shows none (ac-13)', async () => {
     tagAc(AC(13));
     const user = userEvent.setup();
-    // Current phase plan (with open decisions); browse the Build layout —
-    // the build directive must NOT fire (its gate is about plan→build, not
+    // Current phase specify (with open decisions); browse the Build layout —
+    // the build directive must NOT fire (its gate is about specify→build, not
     // the browsed view).
     docDecisions = [decision('d-1', 'open')];
     docTasks = [{ id: 't-1', status: 'in_progress' }];
-    renderAt('plan');
+    renderAt('specify');
     await screen.findByText('Narrative');
 
     await user.click(phaseTab('build'));
@@ -464,35 +464,35 @@ describe('spec-159 — Rubicon line + in-situ directives', () => {
   it('pressing Yes moves the view with the phase — the new phase tab becomes current AND selected (ac-15)', async () => {
     tagAc(AC(15));
     const user = userEvent.setup();
-    // Spec in build; the user browses back to the Plan tab, then accepts the
-    // backward offer. After the move the view must follow: Plan is the new
-    // current phase's home tab and the layout shows Plan's content — not the
+    // Spec in build; the user browses back to the Specify tab, then accepts the
+    // backward offer. After the move the view must follow: Specify is the new
+    // current phase's home tab and the layout shows Specify's content — not the
     // stale browsed pin.
     renderAt('build');
     await screen.findByTestId('task-panel');
 
-    await user.click(phaseTab('plan'));
+    await user.click(phaseTab('specify'));
     await screen.findByText('Narrative');
     expect(phaseTab('build')).toHaveAttribute('data-current', 'true');
 
     // The refetch after the transition returns the moved doc.
-    docStatus = 'plan';
+    docStatus = 'specify';
     const sentence = screen.getByTestId('transition-sentence');
     await user.click(within(sentence).getByRole('button', { name: 'Yes' }));
 
-    await waitFor(() => expect(updateDocStatus).toHaveBeenCalledWith('doc-uuid', 'plan'));
-    // The current-phase pill AND the selection both land on Plan.
-    await waitFor(() => expect(phaseTab('plan')).toHaveAttribute('data-current', 'true'));
-    expect(phaseTab('plan')).toHaveAttribute('data-selected', 'true');
+    await waitFor(() => expect(updateDocStatus).toHaveBeenCalledWith('doc-uuid', 'specify'));
+    // The current-phase pill AND the selection both land on Specify.
+    await waitFor(() => expect(phaseTab('specify')).toHaveAttribute('data-current', 'true'));
+    expect(phaseTab('specify')).toHaveAttribute('data-selected', 'true');
     expect(phaseTab('build')).not.toHaveAttribute('data-current');
-    // Plan's layout renders (sub-tabs visible).
+    // Specify's layout renders (sub-tabs visible).
     expect(screen.getByText('Decisions & ACs')).toBeInTheDocument();
   });
 
   it('editor keeps the phase block — tabs + the Rubicon transition sentence (ac-19)', async () => {
     tagAc(AC(19));
     mockRole = 'editor';
-    renderAt('plan');
+    renderAt('specify');
     await screen.findByText('Narrative');
 
     // Editors still get the PhaseTabBar (3 phase tabs) and the Rubicon line.
@@ -513,7 +513,7 @@ describe('spec-159 — Rubicon line + in-situ directives', () => {
     tagAc(AC182(11));
     mockRole = 'editor';
     const user = userEvent.setup();
-    renderAt('plan');
+    renderAt('specify');
 
     const toggle = await screen.findByTestId('review-actions-toggle');
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
@@ -550,7 +550,7 @@ describe('spec-182 — unified reviewer phase block', () => {
     tagAc(AC182(9));
     tagAc('mindset-prod/memex-building-itself/specs/spec-182/acs/ac-1');
     tagAc('mindset-prod/memex-building-itself/specs/spec-182/acs/ac-2');
-    renderAt('plan');
+    renderAt('specify');
 
     await screen.findByTestId('review-action-row');
     // The PhaseTabBar renders for reviewers too (dec-1) — browse-only.
@@ -566,7 +566,7 @@ describe('spec-182 — unified reviewer phase block', () => {
   it('header pill reads "You are reviewing"; picking Editing promotes to editor', async () => {
     tagAc(AC(19));
     const user = userEvent.setup();
-    renderAt('plan');
+    renderAt('specify');
     await screen.findByTestId('review-action-row');
 
     // The pill renders in the header slot, not the page body — and the old
@@ -589,7 +589,7 @@ describe('spec-182 — unified reviewer phase block', () => {
     tagAc(AC(19));
     mockRole = 'editor';
     const user = userEvent.setup();
-    renderAt('plan');
+    renderAt('specify');
     await screen.findByText('Narrative');
 
     const header = screen.getByTestId('header-slot');
@@ -609,7 +609,7 @@ describe('spec-182 — unified reviewer phase block', () => {
     tagAc(AC182(11));
     tagAc(AC182(3));
     const user = userEvent.setup();
-    renderAt('plan');
+    renderAt('specify');
 
     const row = await screen.findByTestId('review-action-row');
     for (const label of ['Summarise Spec', 'Security review', 'Design review', 'Architecture review']) {
@@ -629,7 +629,7 @@ describe('spec-182 — unified reviewer phase block', () => {
 
   it('renders the reviewer handoff line — "Copy the review prompt …conduct the review from there."', async () => {
     tagAc(AC182(11));
-    renderAt('plan');
+    renderAt('specify');
 
     const line = await screen.findByTestId('review-handoff-line');
     expect(line.textContent).toContain(
@@ -702,7 +702,7 @@ describe('spec-182 — unified reviewer phase block', () => {
   it("the reviewer's sentence is a clean status line — no switch-to-Editing nag (dec-6 amended)", async () => {
     tagAc(AC182(14));
     tagAc(AC182(6));
-    renderAt('plan');
+    renderAt('specify');
 
     const sentence = await screen.findByTestId('transition-sentence');
     expect(within(sentence).queryByTestId('switch-to-editing')).not.toBeInTheDocument();
@@ -727,9 +727,9 @@ describe('spec-182 — unified reviewer phase block', () => {
 // ac-17's "renders for every viewer": the line is editor-only (canEdit) — its
 // prompt drives state changes and building, which are not reviewer powers.
 describe('spec-159 ac-17 — next-action handoff line', () => {
-  it('plan: "Copy the Specify prompt into your coding agent to create Decisions and ACs." with bold entities', async () => {
+  it('specify: "Copy the Specify prompt into your coding agent to create Decisions and ACs." with bold entities', async () => {
     tagAc(AC(17));
-    renderAt('plan');
+    renderAt('specify');
 
     const line = await screen.findByTestId('phase-handoff-line');
     expect(line.textContent).toContain(
@@ -783,7 +783,7 @@ describe('spec-159 ac-17 — next-action handoff line', () => {
     tagAc(AC182(17));
     tagAc(AC182(11));
     mockRole = 'reviewer';
-    renderAt('plan');
+    renderAt('specify');
 
     // spec-182 issue-2: the phase handoff is canEdit-gated — the reviewer
     // keeps dec-3's review handoff at Specify and nothing else.
@@ -818,7 +818,7 @@ describe('done → verify reopen wiring (spec-164)', () => {
 // empty-state directive that invites the move to Specify first; handing the
 // user a coding-agent prompt to "create Decisions and ACs" while in draft
 // contradicts that gate-the-invitation principle. The handoff is split so
-// draft yields null, while plan (Specify) onward keeps it per-phase. These
+// draft yields null, while specify onward keeps it per-phase. These
 // gating ACs are the draft-empty-state ones (ac-17 shared the original handoff;
 // ac-5 owns the Decisions & ACs panel gating).
 describe('spec-164 issue-1 — draft hides the create-Decisions-and-ACs handoff', () => {
@@ -835,10 +835,10 @@ describe('spec-164 issue-1 — draft hides the create-Decisions-and-ACs handoff'
     expect(screen.queryByTestId('phase-handoff-line')).not.toBeInTheDocument();
   });
 
-  it('plan: the create-Decisions-and-ACs handoff returns once out of draft', async () => {
+  it('specify: the create-Decisions-and-ACs handoff returns once out of draft', async () => {
     tagAc(AC164(17));
     tagAc(AC164(5));
-    renderAt('plan');
+    renderAt('specify');
 
     const line = await screen.findByTestId('phase-handoff-line');
     expect(line.textContent).toContain(

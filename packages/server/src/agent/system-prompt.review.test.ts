@@ -16,7 +16,7 @@ const CTX = "## Document Context\nsome doc";
 // scaffold node's own text so the test tracks the source, not a copy.
 const REVIEW_MARKER = BASE_REVIEW.text.slice(0, 40);
 
-function instructionText(reviewer: boolean, phase: "plan" | "verify" = "plan"): string {
+function instructionText(reviewer: boolean, phase: "specify" | "verify" = "specify"): string {
   // (documentContext, phase, readOnly, reviewer)
   const blocks = buildSystemBlocks(CTX, phase, false, reviewer);
   return blocks[0]!.text;
@@ -54,17 +54,17 @@ describe("spec-126 reviewer prompt overlay", () => {
     expect(BASE_REVIEW.text).toContain("render_confirmation");
   });
 
-  it("the reviewer prompt is phase-composed — it differs between plan and verify (ac-9)", () => {
+  it("the reviewer prompt is phase-composed — it differs between specify and verify (ac-9)", () => {
     tagAc(AC(9));
 
-    const planReviewer = instructionText(true, "plan");
+    const specifyReviewer = instructionText(true, "specify");
     const verifyReviewer = instructionText(true, "verify");
 
     // Both carry the review posture...
-    expect(planReviewer).toContain(REVIEW_MARKER);
+    expect(specifyReviewer).toContain(REVIEW_MARKER);
     expect(verifyReviewer).toContain(REVIEW_MARKER);
     // ...but the surrounding phase orientation differs, so the assembled
     // reviewer prompt is not phase-invariant.
-    expect(planReviewer).not.toEqual(verifyReviewer);
+    expect(specifyReviewer).not.toEqual(verifyReviewer);
   });
 });

@@ -743,7 +743,7 @@ describe("formatSearchResults — b-34 D-4 spec", () => {
         kind: "spec",
         path: "mindset-int/memex-app/specs/spec-99",
         title: "Sample spec",
-        status: "plan",
+        status: "specify",
         score: 0.42,
         strategies: ["fts", "vector"],
         matchingSections: [
@@ -772,7 +772,7 @@ describe("formatSearchResults — b-34 D-4 spec", () => {
     ];
 
     const out = formatSearchResults("phase", hits);
-    expect(out).toContain(`### mindset-int/memex-app/specs/spec-99 — "Sample spec" (spec, plan)`);
+    expect(out).toContain(`### mindset-int/memex-app/specs/spec-99 — "Sample spec" (spec, specify)`);
     expect(out).toContain(`### mindset-int/memex-app/specs/spec-99/decisions/dec-3 — "Sample decision" (decision, resolved)`);
     expect(out).toContain(`- Section "Overview" (vector):`);
     expect(out).toContain(`> Some matching content goes here.`);
@@ -789,7 +789,7 @@ describe("formatSearchResults — b-34 D-4 spec", () => {
       kind: "spec",
       path: "x/y/specs/spec-1",
       title: "T",
-      status: "plan",
+      status: "specify",
       score: 0.42,
       strategies: ["fts"],
       matchingSections: [],
@@ -932,7 +932,7 @@ describe("formatSearchResults — [current doc] tag (includeCurrentDoc opt-in)",
       kind: "spec",
       path: "ns/mx/specs/spec-1",
       title: "My Spec",
-      status: "plan",
+      status: "specify",
       score: 0.5,
       strategies: ["fts"],
       matchingSections: [
@@ -981,7 +981,7 @@ describe("formatSearchResults — [current doc] tag (includeCurrentDoc opt-in)",
       kind: "spec",
       path: "ns/mx/specs/spec-2",
       title: "Other spec",
-      status: "plan",
+      status: "specify",
       score: 0.3,
       strategies: ["fts"],
       matchingSections: [],

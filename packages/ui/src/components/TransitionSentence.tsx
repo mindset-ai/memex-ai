@@ -31,9 +31,9 @@ import { Button } from './ui';
 // ready-to-advance spec renders nothing at all. Pressing Yes is the only
 // thing that moves the phase, anywhere on the page.
 
-// `draft` is treated as "before plan": its home is the Plan tab, draft → plan
-// is never gated, and the forward target of every phase is simply the next
-// entry in SPEC_STATUSES.
+// `draft` is treated as "before specify": its home is the Specify tab, draft →
+// specify is never gated, and the forward target of every phase is simply the
+// next entry in SPEC_STATUSES.
 function nextPhase(phase: SpecStatus): SpecStatus | null {
   const idx = SPEC_STATUSES.indexOf(phase);
   return idx >= 0 && idx < SPEC_STATUSES.length - 1 ? SPEC_STATUSES[idx + 1] : null;
@@ -58,7 +58,7 @@ export interface TransitionSentenceProps {
   doc: { id: string };
   /** The Spec's live phase. */
   currentPhase: SpecStatus;
-  /** The tab the user is currently looking at. draft's home tab is `plan`. */
+  /** The tab the user is currently looking at. draft's home tab is `specify`. */
   viewedTab: SpecStatus;
   /**
    * Whether the viewer may actually move the phase (editor posture + org write
@@ -71,7 +71,7 @@ export interface TransitionSentenceProps {
   totalDecisionCount?: number;
   /** Unresolved decisions (shared countUnresolvedDecisions semantics). */
   openDecisionCount?: number;
-  /** Whether any active acceptance criteria exist (plan→build AND verify→done axes). */
+  /** Whether any active acceptance criteria exist (specify→build AND verify→done axes). */
   hasAcceptanceCriteria?: boolean;
   /** Total tasks on the Spec — distinguishes "none created" from "open" (build axis). */
   totalTaskCount?: number;
@@ -100,7 +100,7 @@ function blockerFragments(p: {
   unverifiedAcCount: number;
 }): BlockerPart[] {
   const parts: BlockerPart[] = [];
-  if (p.currentPhase === 'plan') {
+  if (p.currentPhase === 'specify') {
     if (p.totalDecisionCount === 0) {
       parts.push({ em: 'Decisions', rest: 'must be created' });
     } else if (p.openDecisionCount > 0) {
@@ -129,7 +129,7 @@ function blockerFragments(p: {
       parts.push({ em, rest: 'must be verified' });
     }
   }
-  // draft → plan and done have no rubric gate.
+  // draft → specify and done have no rubric gate.
   return parts;
 }
 
@@ -176,12 +176,12 @@ export function TransitionSentence({
 
   // The target phase the sentence is about. When the viewed tab is the current
   // phase's home, the offer is the standard forward step (draft's home is the
-  // Plan tab → draft offers plan). Otherwise the offer targets the viewed tab's
-  // own phase.
+  // Specify tab → draft offers specify). Otherwise the offer targets the viewed
+  // tab's own phase.
   const viewingCurrentTab =
     viewedTab === currentPhase ||
-    // draft has no tab of its own — viewing the Plan tab while in draft is "current".
-    (currentPhase === 'draft' && viewedTab === 'plan');
+    // draft has no tab of its own — viewing the Specify tab while in draft is "current".
+    (currentPhase === 'draft' && viewedTab === 'specify');
 
   const target: SpecStatus | null = viewingCurrentTab ? nextPhase(currentPhase) : viewedTab;
   const backward = target !== null && phaseOrder(target) < phaseOrder(currentPhase);

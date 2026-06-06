@@ -100,7 +100,11 @@ export const documents = pgTable("documents", {
   // Per dec-3 of doc-10 the Spec rename (`review`→`plan`, `implementation`→`build`,
   // plus new `verify`) applies to docType='spec' rows only. Non-Spec docTypes keep
   // the legacy values, so this CHECK is the union of old + new and stays that way.
-  check("documents_status_valid", sql`${table.status} IN ('draft', 'review', 'implementation', 'done', 'approved', 'plan', 'build', 'verify')`),
+  // spec-181 (dec-2): the second phase renamed `plan`→`specify` (pipeline is now
+  // draft → specify → build → verify → done) — migration 0078 flips the rows and
+  // swaps 'specify' for 'plan' here. The legacy values (draft/review/implementation/
+  // done/approved) stay because execution-plan rows still carry them.
+  check("documents_status_valid", sql`${table.status} IN ('draft', 'review', 'implementation', 'done', 'approved', 'specify', 'build', 'verify')`),
 ]);
 
 export const docSections = pgTable(
@@ -1319,13 +1323,16 @@ export const orgScaffoldAdditions = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
+    // spec-181 (dec-2): the second pipeline phase renamed `plan`→`specify`;
+    // migration 0078 flips these target columns and swaps 'specify' for 'plan'
+    // in both CHECKs.
     check(
       "org_scaffold_additions_target_phase_valid",
-      sql`${table.targetPhase} IS NULL OR ${table.targetPhase} IN ('draft', 'plan', 'build', 'verify', 'done')`
+      sql`${table.targetPhase} IS NULL OR ${table.targetPhase} IN ('draft', 'specify', 'build', 'verify', 'done')`
     ),
     check(
       "org_scaffold_additions_target_transition_valid",
-      sql`${table.targetTransition} IS NULL OR ${table.targetTransition} IN ('plan', 'build', 'verify', 'done')`
+      sql`${table.targetTransition} IS NULL OR ${table.targetTransition} IN ('specify', 'build', 'verify', 'done')`
     ),
     check(
       "org_scaffold_additions_emphasis_valid",

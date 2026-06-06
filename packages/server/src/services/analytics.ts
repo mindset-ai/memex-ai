@@ -6,7 +6,7 @@
 // not apply. Tenancy: callers pass a memexId that memexResolver + session
 // middleware already authorized (std-7: outsiders 404 upstream).
 //
-// Phase vocabulary: spec rows carry the renamed lifecycle (draft / plan /
+// Phase vocabulary: spec rows carry the renamed lifecycle (draft / specify /
 // build / verify / done — dec-3 of doc-10). Legacy values can't appear on
 // docType='spec' rows post-rename, but the CASE normalisation below keeps the
 // aggregates correct even if a stray legacy row survives.
@@ -14,14 +14,14 @@
 import { sql } from "drizzle-orm";
 import { db } from "../db/connection.js";
 
-export const SPEC_PHASES = ["draft", "plan", "build", "verify", "done"] as const;
+export const SPEC_PHASES = ["draft", "specify", "build", "verify", "done"] as const;
 export type SpecPhase = (typeof SPEC_PHASES)[number];
 
 // Normalise a documents.status value onto the spec lifecycle. Mirrors the
-// rename mapping (review→plan, implementation→build, approved→done).
+// rename mapping (review→specify, implementation→build, approved→done).
 const PHASE_CASE = sql.raw(`
   CASE status
-    WHEN 'review' THEN 'plan'
+    WHEN 'review' THEN 'specify'
     WHEN 'implementation' THEN 'build'
     WHEN 'approved' THEN 'done'
     ELSE status
@@ -70,7 +70,7 @@ export async function specsOverTime(memexId: string): Promise<SpecsOverTimePoint
 export interface SpecsByPhasePoint {
   day: string;
   draft: number;
-  plan: number;
+  specify: number;
   build: number;
   verify: number;
   done: number;
@@ -100,7 +100,7 @@ export async function specsByPhase(memexId: string): Promise<SpecsByPhasePoint[]
     SELECT
       to_char(days.day, 'YYYY-MM-DD') AS day,
       (sum(COALESCE(CASE WHEN per_day.phase = 'draft'  THEN per_day.created END, 0)) OVER w)::int AS draft,
-      (sum(COALESCE(CASE WHEN per_day.phase = 'plan'   THEN per_day.created END, 0)) OVER w)::int AS plan,
+      (sum(COALESCE(CASE WHEN per_day.phase = 'specify'   THEN per_day.created END, 0)) OVER w)::int AS specify,
       (sum(COALESCE(CASE WHEN per_day.phase = 'build'  THEN per_day.created END, 0)) OVER w)::int AS build,
       (sum(COALESCE(CASE WHEN per_day.phase = 'verify' THEN per_day.created END, 0)) OVER w)::int AS verify,
       (sum(COALESCE(CASE WHEN per_day.phase = 'done'   THEN per_day.created END, 0)) OVER w)::int AS done
@@ -206,7 +206,7 @@ export interface FunnelStage {
  * "Where does work pile up?" — for each lifecycle phase, how many specs are
  * currently AT or BEYOND it. draft = every spec; done = completed only.
  * Until status_changed history (ac-5) deepens, current status is the proxy
- * for "reached" — a spec in build has by definition reached draft/plan/build.
+ * for "reached" — a spec in build has by definition reached draft/specify/build.
  * Archived specs are excluded: an abandoned draft isn't pipeline progress.
  */
 export async function pipelineFunnel(memexId: string): Promise<FunnelStage[]> {

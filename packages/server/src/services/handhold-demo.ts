@@ -1,7 +1,7 @@
 // Handhold onboarding demo — seed / reset / backfill (spec-178 t-2 / t-3 / t-5).
 //
 // Seeds every personal Memex with five frozen copies of spec-64 ("In-app Memex
-// search (⌘K)"), one per phase (draft / plan / build / verify / done), so a new
+// search (⌘K)"), one per phase (draft / specify / build / verify / done), so a new
 // user can walk the whole Spec lifecycle on real content. The canonical content
 // lives ONCE in db/handhold-demo.fixture.ts; this module maps it through the
 // existing service primitives (createDocDraft / addSection / createDecision /

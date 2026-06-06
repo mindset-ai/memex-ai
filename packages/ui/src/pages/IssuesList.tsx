@@ -8,7 +8,7 @@
 //
 // What this page owns:
 //   - Filter bar (ac-2 / ac-10 / ac-12 / ac-13): scope (Mine default / Everyone),
-//     phase checkboxes (draft/plan/build/verify/done, all on), type checkboxes
+//     phase checkboxes (draft/specify/build/verify/done, all on), type checkboxes
 //     (bug/todo, both on). Every control is reflected in the URL query string so
 //     a filtered view is shareable / survives reload (mirrors Pulse's `?spec=`).
 //   - Grouping: the server orders rows by most-recent issue activity, so the
@@ -39,11 +39,11 @@ import { phaseDisplayName } from '../utils/phaseDisplay';
 
 // The phase set the filter exposes, 1:1 with the server's SpecPhase (the
 // documents.status values the Spec rename settled on). All checked by default.
-const PHASES = ['draft', 'plan', 'build', 'verify', 'done'] as const;
+const PHASES = ['draft', 'specify', 'build', 'verify', 'done'] as const;
 // spec-164 (scope ac-7): `done` ships UNCHECKED by default — issues on done
 // specs are usually resolved-or-moot, so surfacing them is an explicit opt-in.
 // Any other selection (including done on) serialises to the ?phases= param.
-const DEFAULT_PHASES = ['draft', 'plan', 'build', 'verify'] as const;
+const DEFAULT_PHASES = ['draft', 'specify', 'build', 'verify'] as const;
 type Phase = (typeof PHASES)[number];
 
 const TYPES: readonly IssueType[] = ['bug', 'todo'];
@@ -519,7 +519,7 @@ function SpecGroup({
           <span className="text-sm font-medium text-heading truncate">{spec.title}</span>
         )}
         {/* Reuse the canonical status → Badge mapping (statusStyles); the Spec's
-            phase is just its doc status (draft/plan/build/verify/done). The Badge
+            phase is just its doc status (draft/specify/build/verify/done). The Badge
             doesn't forward arbitrary props, so the test hook rides a wrapper. */}
         <span data-testid="issues-spec-phase" className="flex-none">
           <Badge status={spec.status} label={phaseDisplayName(spec.status)} />

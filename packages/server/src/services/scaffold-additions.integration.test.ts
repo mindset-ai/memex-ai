@@ -224,8 +224,8 @@ describe("mutate + bus emission (ac-8)", () => {
       createOrgScaffoldAddition({
         orgId: fx.orgId,
         authorId: fx.authorId,
-        target: { phase: "plan" },
-        text: "Plan-phase: confirm scope ACs exist.",
+        target: { phase: "specify" },
+        text: "Specify-phase: confirm scope ACs exist.",
         rationale: "Catches missing scope-AC specs early.",
       }),
     );
@@ -379,7 +379,7 @@ describe("listOrgScaffoldAdditions filters", () => {
     await createOrgScaffoldAddition({
       orgId: fx.orgId,
       authorId: fx.authorId,
-      target: { phase: "plan" },
+      target: { phase: "specify" },
       text: "enabled-1",
       rationale: "r1",
       enabled: true,
@@ -388,7 +388,7 @@ describe("listOrgScaffoldAdditions filters", () => {
     await createOrgScaffoldAddition({
       orgId: fx.orgId,
       authorId: fx.authorId,
-      target: { phase: "plan" },
+      target: { phase: "specify" },
       text: "disabled-1",
       rationale: "r2",
       enabled: false,
@@ -397,7 +397,7 @@ describe("listOrgScaffoldAdditions filters", () => {
     await createOrgScaffoldAddition({
       orgId: fx.orgId,
       authorId: fx.authorId,
-      target: { phase: "plan" },
+      target: { phase: "specify" },
       text: "enabled-2",
       rationale: "r3",
       enabled: true,

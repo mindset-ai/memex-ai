@@ -60,7 +60,7 @@ vi.mock("../agent/anthropic-client.js", () => ({
 }));
 
 vi.mock("../agent/context-builder.js", () => ({
-  buildDocumentContext: vi.fn().mockResolvedValue({ context: "test ctx", phase: "plan" }),
+  buildDocumentContext: vi.fn().mockResolvedValue({ context: "test ctx", phase: "specify" }),
 }));
 
 vi.mock("../agent/system-prompt.js", () => ({

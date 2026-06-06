@@ -106,7 +106,7 @@ function makeComment(overrides: Partial<Comment> = {}): Comment {
 const EXPECTED_GROUP_ORDER: InitPromptRefEntry['group'][] = ['read', 'planning', 'build', 'comments'];
 const EXPECTED_GROUP_HEADINGS: Record<InitPromptRefEntry['group'], string> = {
   read: '### Read (any phase)',
-  planning: '### Planning phase (`draft` / `plan`)',
+  planning: '### Specify phase (`draft` / `specify`)',
   build: '### Build phase (`build`)',
   comments: '### Comments (any phase)',
 };
@@ -358,13 +358,13 @@ describe('renderSpecInitPrompt — execute mode phase gate', () => {
     }
   });
 
-  it('short-circuits to a wrong-phase warning when the spec is still planning', () => {
-    for (const status of ['draft', 'plan'] as const) {
+  it('short-circuits to a wrong-phase warning when the spec is still specifying', () => {
+    for (const status of ['draft', 'specify'] as const) {
       const out = renderSpecInitPrompt(makeDoc({ status }), 2, 'execute');
       expect(out, `status ${status} should warn`).toContain('⚠ **Wrong phase.**');
       expect(out).toContain(`This Spec is in \`${status}\``);
-      // It tells the agent to switch to plan mode rather than run tasks.
-      expect(out).toContain('switch to plan mode');
+      // It tells the agent to switch to specify mode rather than run tasks.
+      expect(out).toContain('switch to specify mode');
       // The wrong-phase FOCUS block does NOT walk the build loop (list_tasks
       // still appears in the always-present manifest reference above it).
       expect(focusBlock(out)).not.toContain('list_tasks(');
@@ -375,14 +375,14 @@ describe('renderSpecInitPrompt — execute mode phase gate', () => {
 
   it('singularises the open-decision count in the wrong-phase warning', () => {
     const one = renderSpecInitPrompt(
-      makeDoc({ status: 'plan', decisions: [{ id: 'd1', docId: 'spec-uuid', seq: 1, title: 'x', context: null, status: 'open', resolution: null, createdAt: '2026-05-01T00:00:00Z', resolvedAt: null } as never] }),
+      makeDoc({ status: 'specify', decisions: [{ id: 'd1', docId: 'spec-uuid', seq: 1, title: 'x', context: null, status: 'open', resolution: null, createdAt: '2026-05-01T00:00:00Z', resolvedAt: null } as never] }),
       0,
       'execute',
     );
     expect(one).toContain('1 open decision first');
     const many = renderSpecInitPrompt(
       makeDoc({
-        status: 'plan',
+        status: 'specify',
         decisions: [
           { id: 'd1', docId: 'spec-uuid', seq: 1, title: 'x', context: null, status: 'open', resolution: null, createdAt: '2026-05-01T00:00:00Z', resolvedAt: null } as never,
           { id: 'd2', docId: 'spec-uuid', seq: 2, title: 'y', context: null, status: 'open', resolution: null, createdAt: '2026-05-01T00:00:00Z', resolvedAt: null } as never,
@@ -491,10 +491,10 @@ describe('drift guard — disabled/removed tools never reappear as calls', () =>
       renderSpecInitPrompt(doc, 3, mode),
     );
     // Also exercise the execute wrong-phase branch and a blocked task path.
-    modes.push(renderSpecInitPrompt(makeDoc({ status: 'plan' }), 1, 'execute'));
+    modes.push(renderSpecInitPrompt(makeDoc({ status: 'specify' }), 1, 'execute'));
     const task = renderTaskInitPrompt(doc, makeTask(), [makeComment()]);
     const blockedTask = renderTaskInitPrompt(
-      makeDoc({ status: 'plan' }),
+      makeDoc({ status: 'specify' }),
       makeTask({ blocked: true }),
       [],
     );

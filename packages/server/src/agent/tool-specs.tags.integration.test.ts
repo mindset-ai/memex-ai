@@ -124,7 +124,7 @@ describe("spec-136 t-4 ac-5: tags ride the existing MCP tools", () => {
     otherHandle = other.handle;
     cleanup.docs.push(other.id);
     // createDocDraft starts docs in `draft`, but list_docs only surfaces ACTIVE Specs
-    // (status in plan/build/verify). Activate both so the tag FILTER — not the status
+    // (status in specify/build/verify). Activate both so the tag FILTER — not the status
     // filter — is what distinguishes them in the list_docs({tags}) assertion below.
     await db
       .update(documents)

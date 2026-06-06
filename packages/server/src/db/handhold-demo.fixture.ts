@@ -7,7 +7,7 @@
  * frozen copy includes (spec-178 ac-2):
  *
  *   draft  → overview only (the raw idea)
- *   plan   → overview + narrative sections + decisions (the "why", with rejected options)
+ *   specify → overview + narrative sections + decisions (the "why", with rejected options)
  *   build  → + tasks (the agent hand-off)
  *   verify → + tasks complete + acceptance criteria checked (proof it works)
  *   done   → same as verify, closed
@@ -99,7 +99,7 @@ Builds on spec-34 (unified search + the per-section embedding pipeline), spec-36
 } as const;
 
 // ---------------------------------------------------------------------------
-// Decisions (verbatim spec-64). Seeded as RESOLVED at plan and beyond.
+// Decisions (verbatim spec-64). Seeded as RESOLVED at specify and beyond.
 // ---------------------------------------------------------------------------
 
 export const HANDHOLD_DECISIONS = [
@@ -287,7 +287,7 @@ export const HANDHOLD_ACS: readonly { statement: string; kind: "implementation" 
     t.acs.map((statement) => ({ statement, kind: "implementation" as const })),
   );
 
-export type HandholdPhase = "draft" | "plan" | "build" | "verify" | "done";
+export type HandholdPhase = "draft" | "specify" | "build" | "verify" | "done";
 
 export interface HandholdPhaseSlice {
   phase: HandholdPhase;
@@ -325,7 +325,7 @@ export const HANDHOLD_PHASES: HandholdPhaseSlice[] = [
       "**Specify the *why*, in plain language.** The idea is captured as a Spec — the observed problem and the shape of the work — instead of living in a Slack thread or someone's head.",
   },
   {
-    phase: "plan",
+    phase: "specify",
     includeSections: ALL_SECTIONS,
     includeDecisions: true,
     includeTasks: false,

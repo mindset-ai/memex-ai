@@ -23,10 +23,10 @@ import type { ToolManifestEntry } from './tool-manifest.js';
 // Phase + transition vocabulary. Mirrors `SpecPhase` in spec-readiness.ts.
 // ──────────────────────────────────────────────────────────────────────────
 
-export type Phase = 'draft' | 'plan' | 'build' | 'verify' | 'done';
+export type Phase = 'draft' | 'specify' | 'build' | 'verify' | 'done';
 
 /** Forward transitions only. Backward moves don't carry rubric prose. */
-export type Transition = 'plan' | 'build' | 'verify' | 'done';
+export type Transition = 'specify' | 'build' | 'verify' | 'done';
 
 // ──────────────────────────────────────────────────────────────────────────
 // Discriminator + common shape.
@@ -69,7 +69,7 @@ export interface PhaseNode extends BaseNodeShape {
 export interface PhaseAllowance {
   /** Tool names the phase explicitly opens up (e.g. `create_task` in `build`). */
   allowed: readonly string[];
-  /** Tool names the phase explicitly blocks (e.g. `create_task` in `plan`). */
+  /** Tool names the phase explicitly blocks (e.g. `create_task` in `specify`). */
   blocked: readonly string[];
 }
 
@@ -119,7 +119,7 @@ export interface ToolAnnotations {
   destructiveHint?: boolean;
 }
 
-/** One per forward transition (→plan / →build / →verify / →done). Carries the
+/** One per forward transition (→specify / →build / →verify / →done). Carries the
  *  rubric prose the agent walks at the gate. The deterministic fact sheet
  *  (open decisions, incomplete tasks, narrative freshness…) stays in code at
  *  `spec-readiness.ts`; only the rubric *prose* is scaffold content. */

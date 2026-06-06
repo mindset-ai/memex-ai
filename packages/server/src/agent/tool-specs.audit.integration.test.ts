@@ -224,7 +224,7 @@ describe("audit: McpServer instructions reference real tools", () => {
       // Ignore obvious non-tool tokens.
       if (
         candidate === "draft" ||
-        candidate === "plan" ||
+        candidate === "specify" ||
         candidate === "build" ||
         candidate === "verify" ||
         candidate === "done" ||
@@ -278,8 +278,8 @@ describe("audit: declared defaults match runtime behaviour", () => {
     expect(doc!.docType, `terse output was: ${out}`).toBe("spec");
   });
 
-  it("publish_spec with no status defaults to 'plan'", async () => {
-    // publish_spec description: "Defaults to plan status."
+  it("publish_spec with no status defaults to 'specify'", async () => {
+    // publish_spec description: "Defaults to specify status."
     const doc = await createDocDraft(memexId, "Publish-default audit", "p", "spec");
     cleanup.docs.push(doc.id);
     const slugs = await slugsFor(memexId);
@@ -289,7 +289,7 @@ describe("audit: declared defaults match runtime behaviour", () => {
       ctxForWithResolver(memexId, userId),
     );
     const fresh = await db.query.documents.findFirst({ where: eq(documents.id, doc.id) });
-    expect(fresh!.status).toBe("plan");
+    expect(fresh!.status).toBe("specify");
   });
 });
 
@@ -526,7 +526,7 @@ describe("audit: field names referenced in descriptions exist in the schema", ()
   // a small allowlist of common false positives.
   const FALSE_POSITIVES = new Set([
     // Status enum values (claimed in descriptions, not schema fields)
-    "draft", "plan", "build", "verify", "done", "open", "candidate",
+    "draft", "specify", "build", "verify", "done", "open", "candidate",
     "resolved", "rejected", "deleted", "not_started", "in_progress", "complete", "discussion",
     "question", "drift", "plan_revision", "progress", "review",
     "task_notes", "default", "phase", "narrative", "comments",
@@ -651,8 +651,8 @@ describe("audit: Spec-phase vocabulary is consistent across tools", () => {
     const assessTarget = enumValues(specByName("assess_spec"), "target");
     expect(publishStatus, "publish_spec.status enum is missing").not.toBeNull();
     expect(assessTarget, "assess_spec.target enum is missing").not.toBeNull();
-    // Forward phase vocabulary: plan / build / verify / done.
-    const expected = ["plan", "build", "verify", "done"].sort();
+    // Forward phase vocabulary: specify / build / verify / done.
+    const expected = ["specify", "build", "verify", "done"].sort();
     expect((publishStatus ?? []).sort()).toEqual(expected);
     expect((assessTarget ?? []).sort()).toEqual(expected);
   });

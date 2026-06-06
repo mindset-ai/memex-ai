@@ -39,11 +39,11 @@ export type LlmProxyEvent =
  * Spec lifecycle phase. Mirrors the server's `SpecPhase` in
  * `packages/server/src/mcp/formatters.ts`. The React UI's LangGraph routes to
  * a per-phase agent node so future phase-specific behaviour can diverge
- * without rewiring the topology. Today `draft` and `plan` reach the same
+ * without rewiring the topology. Today `draft` and `specify` reach the same
  * server endpoint (the system prompt is identical for those two phases —
  * see dec-1 of doc-12).
  */
-export type SpecPhase = 'draft' | 'plan' | 'build' | 'verify' | 'done';
+export type SpecPhase = 'draft' | 'specify' | 'build' | 'verify' | 'done';
 
 /**
  * Tool-name regex matching mutation tools. The `doneAgent` path filters any

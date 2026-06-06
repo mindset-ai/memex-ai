@@ -5,7 +5,7 @@
 // Channel 1 — list_acs surfaces per-AC test counts + verification state, plus
 //             an aggregate "X% covered / N UNTESTED" header and a tail nudge
 //             pointing at the guidance topic when any ACs are at 0 tests.
-// Channel 2 — phase-transition advice (plan→build, build→verify) gets a
+// Channel 2 — phase-transition advice (specify→build, build→verify) gets a
 //             coverage-aware paragraph appended via formatCoverageNudge.
 //             get_doc(verbose) on a Spec gets a coverage header prepended
 //             via formatCoverageHeader.
@@ -53,13 +53,13 @@ describe("Channel 1 — list_acs surfaces coverage gap", () => {
 });
 
 describe("Channel 2 — phase-transition advice carries a coverage paragraph", () => {
-  it("defines formatCoverageNudge that targets plan→build and build→verify", () => {
+  it("defines formatCoverageNudge that targets specify→build and build→verify", () => {
     expect(toolSpecs).toMatch(/async function formatCoverageNudge/);
-    expect(toolSpecs).toMatch(/plan→build/);
+    expect(toolSpecs).toMatch(/specify→build/);
     expect(toolSpecs).toMatch(/build→verify/);
   });
 
-  it("plan→build advice tells the agent to write tagged tests for every active AC", () => {
+  it("specify→build advice tells the agent to write tagged tests for every active AC", () => {
     expect(toolSpecs).toMatch(
       /every active AC should have at least one tagged test before verify/,
     );

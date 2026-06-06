@@ -10,9 +10,9 @@ describe('spec-159 t-1: phase status colour mapping (ac-12)', () => {
     expect(statusVariant('verify')).toBe('success');
   });
 
-  it('keeps plan on the warning variant', () => {
+  it('keeps specify on the warning variant', () => {
     tagAc(AC(12));
-    expect(statusVariant('plan')).toBe('warning');
+    expect(statusVariant('specify')).toBe('warning');
   });
 
   it('keeps build, implementation, and in_progress on the info variant', () => {
