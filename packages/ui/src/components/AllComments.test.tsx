@@ -212,6 +212,7 @@ describe('AllComments', () => {
 
   it('renders the author-kind row with Everyone/System/Humans — People renamed to Humans (spec-194 ac-5)', () => {
     tagAc(AC194(5));
+    tagAc(AC194(8)); // ac-8: supersession withdrawn — the spec-100 author-filter test is re-added with the "Humans" label; restoration recorded in spec-100 + spec-185 comments
     const section = makeSection();
     render(
       <AllComments
@@ -233,6 +234,8 @@ describe('AllComments', () => {
 
   it('author-kind filtering narrows: System → agent only, Humans → human only (spec-194 ac-7)', async () => {
     tagAc(AC194(7));
+    tagAc(AC194(3)); // scope ac-3: default (Everyone) shows human + agent together; author-kind narrowing is available, not forced
+    tagAc(AC194(4)); // scope ac-4: narrowing reuses the shared filterComments predicate unchanged (System→agent, Humans→human)
     const user = userEvent.setup();
     const section = makeSection();
     render(
@@ -262,6 +265,7 @@ describe('AllComments', () => {
 
   it('renders author-kind + status chips on one combined row (spec-194 ac-9)', () => {
     tagAc(AC194(9));
+    tagAc(AC194(1)); // scope ac-1: author-kind chips + status chips render together on one combined row
     const section = makeSection();
     render(
       <AllComments
@@ -294,6 +298,7 @@ describe('AllComments', () => {
     tagAc(AC_FILTER_LOADBEARING); // spec-100 ac-9 — status half retained
     tagAc(AC194(6)); // spec-194 ac-6: status filter still renders + works
     tagAc(AC185(5)); // scope ac-5: Open/Resolved/All state filter row unchanged by the chip removal
+    tagAc(AC194(2)); // scope ac-2: Open/Resolved/All status row unchanged + still reaches resolved history
     const user = userEvent.setup();
     const section = makeSection();
     render(
