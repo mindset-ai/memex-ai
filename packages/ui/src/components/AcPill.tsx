@@ -36,6 +36,8 @@ const STATE_DOT: Record<AcVerificationState, string> = {
   failing: 'bg-rose-500',
   untested: 'bg-zinc-300',
   stale: 'bg-amber-400',
+  // spec-188: manually-accepted ACs — sky, matching AcPanel's STATE_COLOURS.
+  accepted: 'bg-sky-500',
 };
 
 const STATE_PILL: Record<AcVerificationState, string> = {
@@ -43,6 +45,7 @@ const STATE_PILL: Record<AcVerificationState, string> = {
   failing: 'bg-rose-500/15 text-rose-700 dark:text-rose-400 hover:bg-rose-500/25',
   untested: 'bg-zinc-400/10 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-400/20',
   stale: 'bg-amber-400/10 text-amber-700 dark:text-amber-400 hover:bg-amber-400/20',
+  accepted: 'bg-sky-500/10 text-sky-700 dark:text-sky-400 hover:bg-sky-500/20',
 };
 
 const STATE_LABEL: Record<AcVerificationState, string> = {
@@ -50,6 +53,7 @@ const STATE_LABEL: Record<AcVerificationState, string> = {
   failing: 'failing',
   untested: 'untested',
   stale: 'stale',
+  accepted: 'accepted',
 };
 
 function relativeTime(d: Date | null): string {
