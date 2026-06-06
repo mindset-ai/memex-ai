@@ -168,6 +168,7 @@ describe('AllComments', () => {
 
   it('renders no comment-type filter row even with open comments of mixed type (spec-185 ac-7)', () => {
     tagAc(AC185(7));
+    tagAc(AC185(2)); // scope ac-2: doc-wide half of the symmetric removal (CommentTray tags ac-2 too)
     const section = makeSection();
     const decision = makeDecision();
     const task = makeTask();
@@ -296,6 +297,7 @@ describe('AllComments', () => {
   it('surfaces resolved comments only when the Resolved status is selected', async () => {
     tagAc(AC_FILTER_LOADBEARING); // spec-100 ac-9 — status half retained
     tagAc(AC194(6)); // spec-194 ac-6: status filter still renders + works
+    tagAc(AC185(5)); // scope ac-5: Open/Resolved/All state filter row unchanged by the chip removal
     tagAc(AC194(2)); // scope ac-2: Open/Resolved/All status row unchanged + still reaches resolved history
     const user = userEvent.setup();
     const section = makeSection();

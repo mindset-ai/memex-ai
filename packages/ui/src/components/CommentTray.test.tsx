@@ -195,6 +195,8 @@ describe('CommentTray', () => {
 
   it('renders no comment-type filter row — chips removed (spec-185 ac-6)', () => {
     tagAc(AC185(6));
+    tagAc(AC185(1)); // scope ac-1: human tray renders no comment-type filter row at all
+    tagAc(AC185(2)); // scope ac-2: tray half of the symmetric removal (AllComments tags ac-2 too)
     render(
       <CommentTray
         targetType="section"
@@ -210,6 +212,7 @@ describe('CommentTray', () => {
 
   it('renders open comments of every type with no type filtering (spec-185 ac-8)', () => {
     tagAc(AC185(8));
+    tagAc(AC185(4)); // scope ac-4: render-surface-only — no client-side type filtering remains, every type renders with comment_type intact
     const comments = [
       comment({ id: 'c-disc', content: 'a discussion', commentType: 'discussion' }),
       comment({ id: 'c-plan', content: 'a plan', commentType: 'plan' }),
@@ -233,6 +236,7 @@ describe('CommentTray', () => {
     // removed the chips). spec-185 ac-9: per-type pills survive the removal.
     tagAc(AC_EXISTING_UNTOUCHED);
     tagAc(AC185(9));
+    tagAc(AC185(3)); // scope ac-3: per-type pills + agent/system comments render exactly as before
     const agentPlan = comment({
       id: 'c-agent',
       content: 'agent plan body',
@@ -288,6 +292,7 @@ describe('CommentTray — muteAgentChatter (spec-164)', () => {
     tagAc('mindset-prod/memex-building-itself/specs/spec-164/acs/ac-9');
     tagAc(AC185(10));
     tagAc(AC185(11));
+    tagAc(AC185(12)); // ac-12: this rewritten spec-164 test (no chips) is the clean resolution — ac-9/ac-24 muting kept, note de-chipped; supersession recorded in spec-164 c-12
     render(
       <CommentTray targetType="task" targetId="t-1" comments={chatterSet()} muteAgentChatter />,
     );
