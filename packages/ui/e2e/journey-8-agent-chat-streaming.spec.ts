@@ -74,7 +74,7 @@ test("agent chat streams assistant text and persists the turn", async ({
   // the dev user's PERSONAL memex, not this seeded org memex, so it would miss
   // the thread). Hit the API origin directly via the browser context so the dev
   // session cookie rides along.
-  const apiBase = process.env.E2E_API_URL ?? "http://localhost:8090";
+  const apiBase = process.env.E2E_API_URL ?? `http://localhost:${process.env.E2E_SERVER_PORT ?? 8090}`;
   const convPath = `/api/${tenant.namespaceSlug}/${tenant.memexSlug}/llm/conversations/${docId}`;
   await expect
     .poll(

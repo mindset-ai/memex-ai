@@ -266,3 +266,134 @@ describe("sessionMiddleware — production dev-mode guard (b-38 F-1)", () => {
     ),
   );
 });
+
+// spec-172 issue-1 — the dev bypass is a fallback for token-less requests, not a
+// shadow over real identities. Pre-fix, isDevMode() short-circuited BEFORE the
+// Authorization header was read, so the e2e stack (GOOGLE_CLIENT_ID unset) could
+// never authenticate as a freshly signed-up native-auth user: every Bearer JWT
+// resolved to dev@memex.ai. Post-fix, a valid presented token wins; the dev user
+// is resolved only when no usable token is presented.
+describe("sessionMiddleware — dev mode honours a presented valid JWT (spec-172 issue-1)", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  function withEnv(env: Record<string, string | undefined>, fn: () => Promise<void>) {
+    const original: Record<string, string | undefined> = {};
+    return async () => {
+      for (const key of Object.keys(env)) {
+        original[key] = process.env[key];
+        if (env[key] === undefined) delete process.env[key];
+        else process.env[key] = env[key];
+      }
+      try {
+        await fn();
+      } finally {
+        for (const key of Object.keys(original)) {
+          if (original[key] === undefined) delete process.env[key];
+          else process.env[key] = original[key];
+        }
+      }
+    };
+  }
+
+  const devUser = {
+    ...sampleUser,
+    id: "user-dev",
+    email: "dev@memex.ai",
+    namespaceId: "ns-dev",
+  };
+
+  const signedUpUser = {
+    ...sampleUser,
+    id: "user-signup",
+    email: "fresh@example.com",
+    namespaceId: "ns-signup",
+  };
+
+  it(
+    "a valid Bearer JWT resolves THAT user in dev mode, not dev@memex.ai",
+    withEnv(
+      { NODE_ENV: "development", GOOGLE_CLIENT_ID: undefined },
+      async () => {
+        // If the dev fallback were (wrongly) taken, it would succeed with
+        // user-dev — so a 200 alone can't pass; the userId must match the token.
+        upsertUserByEmail.mockResolvedValue(devUser);
+        getUserById.mockResolvedValue(signedUpUser);
+
+        const res = await app.request("/test", { headers: auth(signedUpUser.id) });
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as { userId: string };
+        expect(body.userId).toBe(signedUpUser.id);
+        // The dev-user upsert path must not have run at all.
+        expect(upsertUserByEmail).not.toHaveBeenCalled();
+      },
+    ),
+  );
+
+  it(
+    "no token in dev mode still resolves dev@memex.ai (local-dev convenience preserved)",
+    withEnv(
+      { NODE_ENV: "development", GOOGLE_CLIENT_ID: undefined },
+      async () => {
+        upsertUserByEmail.mockResolvedValue(devUser);
+        getUserById.mockResolvedValue(devUser);
+
+        const res = await app.request("/test");
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as { userId: string };
+        expect(body.userId).toBe(devUser.id);
+      },
+    ),
+  );
+
+  it(
+    "a malformed token in dev mode falls back to dev@memex.ai (stale localStorage token never bricks local dev)",
+    withEnv(
+      { NODE_ENV: "development", GOOGLE_CLIENT_ID: undefined },
+      async () => {
+        upsertUserByEmail.mockResolvedValue(devUser);
+        getUserById.mockResolvedValue(devUser);
+
+        const res = await app.request("/test", {
+          headers: { Authorization: "Bearer not-a-jwt" },
+        });
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as { userId: string };
+        expect(body.userId).toBe(devUser.id);
+      },
+    ),
+  );
+
+  it(
+    "a valid token whose subject is gone falls back to dev@memex.ai in dev mode",
+    withEnv(
+      { NODE_ENV: "development", GOOGLE_CLIENT_ID: undefined },
+      async () => {
+        upsertUserByEmail.mockResolvedValue(devUser);
+        // Token verifies but the user row is gone → dev fallback, not 401.
+        getUserById
+          .mockResolvedValueOnce(null) // claims.sub lookup misses
+          .mockResolvedValue(devUser); // any later lookups (resolveDevUser refresh)
+
+        const res = await app.request("/test", { headers: auth("deleted-user") });
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as { userId: string };
+        expect(body.userId).toBe(devUser.id);
+      },
+    ),
+  );
+
+  it(
+    "real mode (GOOGLE_CLIENT_ID set) is unchanged: valid token resolves its user",
+    withEnv(
+      { NODE_ENV: "development", GOOGLE_CLIENT_ID: "real-client-id" },
+      async () => {
+        getUserById.mockResolvedValue(signedUpUser);
+        const res = await app.request("/test", { headers: auth(signedUpUser.id) });
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as { userId: string };
+        expect(body.userId).toBe(signedUpUser.id);
+        expect(upsertUserByEmail).not.toHaveBeenCalled();
+      },
+    ),
+  );
+});

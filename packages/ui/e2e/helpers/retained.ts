@@ -7,7 +7,11 @@
 //
 // The base-URL + error handling mirror seed.ts exactly.
 
-const API_URL = process.env.E2E_API_URL ?? "http://localhost:8090";
+// Default tracks E2E_SERVER_PORT so a port override moves the helpers with the
+// server (overriding one without the other sent every request to a dead port).
+const API_URL =
+  process.env.E2E_API_URL ??
+  `http://localhost:${process.env.E2E_SERVER_PORT ?? 8090}`;
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(`${API_URL}/api/__test__${path}`, {

@@ -9,7 +9,11 @@
 // the anthropic-fake helper) rather than via the Vite proxy, so seeding is
 // independent of the browser page and any /api proxy rewrites.
 
-const API_URL = process.env.E2E_API_URL ?? "http://localhost:8090";
+// Default tracks E2E_SERVER_PORT so a port override moves the helpers with the
+// server (overriding one without the other sent every request to a dead port).
+const API_URL =
+  process.env.E2E_API_URL ??
+  `http://localhost:${process.env.E2E_SERVER_PORT ?? 8090}`;
 
 async function call<T>(
   method: string,
@@ -243,11 +247,10 @@ export async function seedOpenDecision(opts: {
  * persists only its sha256 hash, so the raw value can only be recovered through
  * this seam — Postmark is never contacted.
  *
- * ⚠ This provisions the user + token, but the e2e stack CANNOT authenticate as
- * the signed-up user: GOOGLE_CLIENT_ID is unset → isDevMode() is true →
- * session.ts#resolveBearerUser short-circuits to dev@memex.ai before reading the
- * Authorization header. The signup→verify→onboard arc is unrunnable as the new
- * user without a server change. See the lifecycle-spine journey's blocked leg.
+ * The browser CAN then authenticate as the signed-up user: since the spec-172
+ * issue-1 fix, session.ts#resolveBearerUser honours a presented valid session
+ * JWT even in dev mode (the dev@memex.ai bypass applies only to token-less
+ * requests). See the lifecycle-spine journey's signup leg.
  */
 export async function signupWithToken(opts: {
   email: string;
