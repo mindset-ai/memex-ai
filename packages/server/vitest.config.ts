@@ -127,6 +127,10 @@ export default defineConfig({
       // teardown (the EnvironmentTeardownError). Off suite-wide; the hook's own
       // suites stub it back on per-test (the gate reads env at call time).
       MEMEX_HANDHOLD_SIGNUP_SEED: "off",
+      // spec-184: same treatment for the default-Standards signup seed hook — a second
+      // detached seed on the same ensureUserNamespace path. Off suite-wide; the seed's
+      // own suites stub it back on per-test.
+      MEMEX_DEFAULT_STANDARDS_SIGNUP_SEED: "off",
     },
     typecheck: { enabled: false },
     coverage: {
