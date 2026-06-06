@@ -4,7 +4,6 @@ import userEvent from '@testing-library/user-event';
 import { tagAc } from '@memex-ai-ac/vitest';
 import { CommentTray } from './CommentTray';
 import type { Comment } from '../api/types';
-import { FILTER_CHIP_TYPES } from '../utils/commentStyles';
 
 // spec-153 — remove the human comment-type dropdown.
 const AC_NO_DROPDOWN =
@@ -13,6 +12,9 @@ const AC_POSTS_AS_DISCUSSION =
   'mindset-prod/memex-building-itself/specs/spec-153/acs/ac-2';
 const AC_EXISTING_UNTOUCHED =
   'mindset-prod/memex-building-itself/specs/spec-153/acs/ac-4';
+// spec-185 — remove the human comment-type filter chips.
+const AC185 = (n: number) =>
+  `mindset-prod/memex-building-itself/specs/spec-185/acs/ac-${n}`;
 
 const mockCreate = vi.fn();
 const mockCreateDecision = vi.fn();
@@ -165,7 +167,7 @@ describe('CommentTray', () => {
     expect(onCommentsChange).toHaveBeenCalled();
   });
 
-  // ── Composer (spec-153: no human type picker) + filter chips + visual language ──
+  // ── Composer (spec-153: no human type picker) + comment-type chips removed (spec-185) + visual language ──
 
   it('composer has no comment-type dropdown', () => {
     tagAc(AC_NO_DROPDOWN);
@@ -191,60 +193,46 @@ describe('CommentTray', () => {
     expect(mockCreate).toHaveBeenCalledWith('sec-1', 'Tester', 'Just a thought', undefined);
   });
 
-  it('renders the filter chip row with all six chip variants when comments are present', () => {
-    tagAc(AC_EXISTING_UNTOUCHED);
+  it('renders no comment-type filter row — chips removed (spec-185 ac-6)', () => {
+    tagAc(AC185(6));
     render(
       <CommentTray
         targetType="section"
         targetId="sec-1"
-        comments={[comment({ id: 'c1' })]}
+        comments={[comment({ id: 'c1', commentType: 'plan' })]}
       />
     );
-    // Reading/filtering by type is untouched by the composer change.
-    expect(screen.getByTestId('comment-filter-chips')).toBeInTheDocument();
-    expect(screen.getByTestId('comment-filter-all')).toBeInTheDocument();
-    for (const t of FILTER_CHIP_TYPES) {
-      expect(screen.getByTestId(`comment-filter-${t}`)).toBeInTheDocument();
+    expect(screen.queryByTestId('comment-filter-chips')).not.toBeInTheDocument();
+    for (const chip of ['all', 'plan', 'progress', 'question', 'issue', 'drift']) {
+      expect(screen.queryByTestId(`comment-filter-${chip}`)).not.toBeInTheDocument();
     }
   });
 
-  it('clicking a filter chip narrows the list and clicking again clears', async () => {
-    const user = userEvent.setup();
-    const planComment = comment({
-      id: 'c-plan',
-      content: 'plan body',
-      commentType: 'plan',
-    });
-    const issueComment = comment({
-      id: 'c-issue',
-      content: 'issue body',
-      commentType: 'issue',
-    });
-
+  it('renders open comments of every type with no type filtering (spec-185 ac-8)', () => {
+    tagAc(AC185(8));
+    const comments = [
+      comment({ id: 'c-disc', content: 'a discussion', commentType: 'discussion' }),
+      comment({ id: 'c-plan', content: 'a plan', commentType: 'plan' }),
+      comment({ id: 'c-prog', content: 'a progress', commentType: 'progress' }),
+      comment({ id: 'c-q', content: 'a question', commentType: 'question' }),
+      comment({ id: 'c-issue', content: 'an issue', commentType: 'issue' }),
+      comment({ id: 'c-drift', content: 'a drift', commentType: 'drift' }),
+    ];
     render(
-      <CommentTray
-        targetType="section"
-        targetId="sec-1"
-        comments={[planComment, issueComment]}
-      />
+      <CommentTray targetType="section" targetId="sec-1" comments={comments} />
     );
-
-    // Both visible at start.
-    expect(screen.getByText('plan body')).toBeInTheDocument();
-    expect(screen.getByText('issue body')).toBeInTheDocument();
-
-    // Click the "plan" chip — only plan body shows.
-    await user.click(screen.getByTestId('comment-filter-plan'));
-    expect(screen.getByText('plan body')).toBeInTheDocument();
-    expect(screen.queryByText('issue body')).not.toBeInTheDocument();
-
-    // Click again to clear.
-    await user.click(screen.getByTestId('comment-filter-plan'));
-    expect(screen.getByText('plan body')).toBeInTheDocument();
-    expect(screen.getByText('issue body')).toBeInTheDocument();
+    for (const body of ['a discussion', 'a plan', 'a progress', 'a question', 'an issue', 'a drift']) {
+      expect(screen.getByText(body)).toBeInTheDocument();
+    }
+    expect(screen.getAllByTestId('comment-item')).toHaveLength(6);
   });
 
   it('renders the type pill and source avatar with the correct data-attributes', () => {
+    // spec-153 ac-4: existing comments keep their per-type badges (the
+    // "filter chips still work" half of ac-4 is superseded by spec-185, which
+    // removed the chips). spec-185 ac-9: per-type pills survive the removal.
+    tagAc(AC_EXISTING_UNTOUCHED);
+    tagAc(AC185(9));
     const agentPlan = comment({
       id: 'c-agent',
       content: 'agent plan body',
@@ -277,8 +265,11 @@ describe('CommentTray', () => {
 });
 
 // spec-164 dec-6 — agent chatter (plan/progress) muted by default in trays
-// that opt in (the task tray); human-loop types still auto-surface; the chips
-// act as the default-off reveal.
+// that opt in (the task tray); human-loop types still auto-surface. spec-185
+// removed the comment-type chips, so the chip-based reveal is gone (dec-2):
+// muting-by-default is preserved and surfaced via the count note; spec-164
+// ac-24's chip-reveal half and ac-25 (chip counts) are superseded — see the
+// supersession comment on spec-164.
 describe('CommentTray — muteAgentChatter (spec-164)', () => {
   const AC164 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-164/acs/ac-${n}`;
 
@@ -289,9 +280,14 @@ describe('CommentTray — muteAgentChatter (spec-164)', () => {
     comment({ id: 'c-q', commentType: 'question', content: 'human question' } as Partial<Comment>),
   ];
 
-  it('hides plan/progress on the default All view; review/question still render', () => {
+  it('hides plan/progress on the default view; review/question still render (spec-164 ac-9/ac-24; spec-185 ac-10/ac-11)', () => {
+    // Muting-by-default survives the spec-185 chip removal (spec-185 ac-10);
+    // the discoverability note names the count and no longer points at the
+    // removed chips (spec-185 ac-11). spec-164 ac-24 keeps its muting half.
     tagAc(AC164(24));
     tagAc('mindset-prod/memex-building-itself/specs/spec-164/acs/ac-9');
+    tagAc(AC185(10));
+    tagAc(AC185(11));
     render(
       <CommentTray targetType="task" targetId="t-1" comments={chatterSet()} muteAgentChatter />,
     );
@@ -299,27 +295,10 @@ describe('CommentTray — muteAgentChatter (spec-164)', () => {
     expect(screen.queryByText('agent plan note')).not.toBeInTheDocument();
     expect(screen.getByText('human review feedback')).toBeInTheDocument();
     expect(screen.getByText('human question')).toBeInTheDocument();
-    // The discoverability note names the hidden count.
-    expect(screen.getByTestId('comment-chatter-note')).toHaveTextContent('2 agent updates hidden');
-  });
-
-  it('selecting the Progress chip reveals the muted chatter (default-off filter)', async () => {
-    tagAc(AC164(24));
-    const user = userEvent.setup();
-    render(
-      <CommentTray targetType="task" targetId="t-1" comments={chatterSet()} muteAgentChatter />,
-    );
-    await user.click(screen.getByTestId('comment-filter-progress'));
-    expect(screen.getByText('agent progress update')).toBeInTheDocument();
-  });
-
-  it('chip counts still reflect ALL open comments, including the hidden chatter', () => {
-    tagAc(AC164(25));
-    render(
-      <CommentTray targetType="task" targetId="t-1" comments={chatterSet()} muteAgentChatter />,
-    );
-    expect(screen.getByTestId('comment-filter-all')).toHaveTextContent('All · 4');
-    expect(screen.getByTestId('comment-filter-progress')).toHaveTextContent('Progress · 1');
+    const note = screen.getByTestId('comment-chatter-note');
+    expect(note).toHaveTextContent('2 agent updates hidden');
+    expect(note).not.toHaveTextContent(/chip/i);
+    expect(note).not.toHaveTextContent(/Plan \/ Progress/);
   });
 
   it('without the opt-in (section/decision trays) chatter renders as before', () => {

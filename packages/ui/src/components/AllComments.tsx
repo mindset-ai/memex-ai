@@ -1,15 +1,12 @@
-import { useMemo, useState } from 'react';
-import type { Comment, CommentType, DocSection, Decision, Task } from '../api/types';
-import { CommentBubble, CommentFilterChips } from './CommentTray';
-import { FILTER_CHIP_TYPES, commentTypeLabel, type FilterChipType } from '../utils/commentStyles';
+import { useState } from 'react';
+import type { Comment, DocSection, Decision, Task } from '../api/types';
+import { CommentBubble } from './CommentTray';
 import {
   filterComments,
   type AuthorKindFilter,
   type StatusFilter,
 } from '../utils/filterComments';
 import { commentAnchorId, buildCommentLink } from '../utils/commentDeepLink';
-
-type ChipFilter = 'all' | FilterChipType;
 
 // spec-100 ac-6: wrap a comment with a stable scroll anchor (`comment-c-{seq}`)
 // and a copy-link button so a viewer can be taken straight to it.
@@ -97,11 +94,6 @@ interface AllCommentsProps {
   commentsByTask?: Record<string, Comment[]>;
   onNavigateToSection: (sectionId: string) => void;
   onTabChange?: (tab: string) => void;
-  // t-19 W3.3: chip filter is owned by the parent (DocDocument) so a chip click
-  // drives a server-side `?type=` refetch via fetchDocComments instead of a
-  // client-side filter pass after the fact. `null` means "All".
-  filter?: CommentType | null;
-  onFilterChange?: (next: CommentType | null) => void;
 }
 
 export function AllComments({
@@ -113,8 +105,6 @@ export function AllComments({
   commentsByTask = {},
   onNavigateToSection,
   onTabChange,
-  filter = null,
-  onFilterChange,
 }: AllCommentsProps) {
   // spec-100 ac-9: author kind + status are the load-bearing filters, owned
   // locally (no refetch needed — both fields are already on the loaded rows).
@@ -123,32 +113,10 @@ export function AllComments({
   const [status, setStatus] = useState<StatusFilter>('open');
   const applyLocal = (list: Comment[]) =>
     filterComments(list, { authorKind, status, type: null });
-  // Doc-wide chip counts. With server-side filtering active, these counts only
-  // reflect the comments the server returned for the current filter — when the
-  // filter is "All" they represent every open comment in the doc; when a
-  // specific filter is active they show how many are in *that* set. Per the
-  // t-19 W3.3 spec we accept this as a deliberate UX trade-off: counts now
-  // describe "what's loaded" rather than "what exists across all types".
-  const counts = useMemo(() => {
-    const allOpen: Comment[] = [];
-    for (const list of Object.values(commentsBySection)) {
-      for (const c of list) if (!c.resolvedAt) allOpen.push(c);
-    }
-    for (const list of Object.values(commentsByDecision)) {
-      for (const c of list) if (!c.resolvedAt) allOpen.push(c);
-    }
-    for (const list of Object.values(commentsByTask)) {
-      for (const c of list) if (!c.resolvedAt) allOpen.push(c);
-    }
-    const out: Partial<Record<ChipFilter, number>> = { all: allOpen.length };
-    for (const t of FILTER_CHIP_TYPES) {
-      out[t] = allOpen.filter((c) => (c.commentType ?? 'discussion') === t).length;
-    }
-    return out;
-  }, [commentsBySection, commentsByDecision, commentsByTask]);
 
-  // The parent has already narrowed by type (server-side ?type=); author kind
-  // and status are applied here client-side over that slice.
+  // spec-185: the comment-type filter chips were removed, so there is no type
+  // narrowing — author kind and status are the only filters, applied here
+  // client-side over every loaded comment.
   const sectionEntries = sections
     .map((section, index) => ({
       section,
@@ -183,23 +151,6 @@ export function AllComments({
     decisionEntries.reduce((n, e) => n + e.comments.length, 0) +
     taskEntries.reduce((n, e) => n + e.comments.length, 0);
 
-  // Show the chip row whenever any open comment exists in the current view OR
-  // when a filter is active (the user can clear it). Hidden only on a doc with
-  // truly nothing to filter.
-  const hasAnyOpen = (counts.all ?? 0) > 0 || filter !== null;
-
-  // The chip row only renders the FILTER_CHIP_TYPES tuple; if the active filter
-  // is set to a type outside that set (e.g. `discussion`), the chip row shows
-  // "All" while the data is still server-filtered to the requested type.
-  const activeChip: ChipFilter =
-    filter && (FILTER_CHIP_TYPES as readonly string[]).includes(filter)
-      ? (filter as FilterChipType)
-      : 'all';
-  const handleChipChange = (next: ChipFilter) => {
-    if (!onFilterChange) return;
-    onFilterChange(next === 'all' ? null : (next as CommentType));
-  };
-
   return (
     <div className="space-y-6 ml-8">
       {hasAnyComments && (
@@ -219,23 +170,13 @@ export function AllComments({
         </div>
       )}
 
-      {hasAnyOpen && (
-        <CommentFilterChips
-          active={activeChip}
-          onChange={handleChipChange}
-          counts={counts}
-        />
-      )}
-
       {totalCount === 0 && (
         <p className="text-sm text-muted py-8">
-          {filter === null
-            ? status === 'resolved'
-              ? 'No resolved comments.'
-              : authorKind === 'system'
-                ? 'No system comments in this view.'
-                : 'No open comments.'
-            : `No ${commentTypeLabel(filter).toLowerCase()} comments.`}
+          {status === 'resolved'
+            ? 'No resolved comments.'
+            : authorKind === 'system'
+              ? 'No system comments in this view.'
+              : 'No open comments.'}
         </p>
       )}
 

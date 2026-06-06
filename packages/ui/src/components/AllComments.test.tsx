@@ -8,6 +8,9 @@ import { tagAc } from "@memex-ai-ac/vitest";
 const AC_FILTER_LOADBEARING = 'mindset-prod/memex-building-itself/specs/spec-100/acs/ac-9';
 const AC_FILTER_USABLE = 'mindset-prod/memex-building-itself/specs/spec-100/acs/ac-4';
 const AC_DEEPLINK = 'mindset-prod/memex-building-itself/specs/spec-100/acs/ac-6';
+// spec-185 — remove the human comment-type filter chips.
+const AC185 = (n: number) =>
+  `mindset-prod/memex-building-itself/specs/spec-185/acs/ac-${n}`;
 
 function makeComment(overrides: Partial<Comment> = {}): Comment {
   return {
@@ -159,11 +162,10 @@ describe('AllComments', () => {
     expect(onTabChange).toHaveBeenCalledWith('decisions');
   });
 
-  // ── Filter chips (t-15) ──
+  // ── Comment-type filter chips removed (spec-185) ──
 
-  it('chip click emits onFilterChange so the parent can refetch with ?type= (W3.3 server-side filter)', async () => {
-    const user = userEvent.setup();
-    const onFilterChange = vi.fn();
+  it('renders no comment-type filter row even with open comments of mixed type (spec-185 ac-7)', () => {
+    tagAc(AC185(7));
     const section = makeSection();
     const decision = makeDecision();
     const task = makeTask();
@@ -189,40 +191,25 @@ describe('AllComments', () => {
           ],
         }}
         onNavigateToSection={vi.fn()}
-        filter={null}
-        onFilterChange={onFilterChange}
       />
     );
 
-    // All three visible at start (parent has not yet narrowed the data).
+    // No comment-type chip row in the doc-wide view (consistent with CommentTray).
+    expect(screen.queryByTestId('comment-filter-chips')).not.toBeInTheDocument();
+    for (const chip of ['all', 'plan', 'progress', 'question', 'issue', 'drift']) {
+      expect(screen.queryByTestId(`comment-filter-${chip}`)).not.toBeInTheDocument();
+    }
+    // ...and every comment renders regardless of type (no type narrowing).
     expect(screen.getByText('plan section')).toBeInTheDocument();
     expect(screen.getByText('decision question')).toBeInTheDocument();
     expect(screen.getByText('task issue')).toBeInTheDocument();
-
-    await user.click(screen.getByTestId('comment-filter-plan'));
-    // The chip click drives the parent's filter setter — the actual narrowing
-    // happens after the parent's refetch with ?type=plan returns the smaller
-    // dataset. Asserting the callback was called (with the right type) is the
-    // contract for server-side filtering.
-    expect(onFilterChange).toHaveBeenCalledWith('plan');
-  });
-
-  it('filter chips are hidden when there are no open comments at all', () => {
-    render(
-      <AllComments
-        sections={[makeSection()]}
-        commentsBySection={{}}
-        onNavigateToSection={vi.fn()}
-      />
-    );
-    expect(screen.queryByTestId('comment-filter-chips')).not.toBeInTheDocument();
-    expect(screen.getByText('No open comments.')).toBeInTheDocument();
   });
 
   // ── spec-100 ac-9 / ac-4: author-kind + status filtering ──
 
   it('filters to system (agent) comments when the System chip is clicked', async () => {
     tagAc(AC_FILTER_LOADBEARING);
+    tagAc(AC185(9)); // spec-185 ac-9: authorship filter row unchanged by chip removal
     const user = userEvent.setup();
     const section = makeSection();
     render(
@@ -249,6 +236,7 @@ describe('AllComments', () => {
 
   it('surfaces resolved comments only when the Resolved status is selected', async () => {
     tagAc(AC_FILTER_LOADBEARING);
+    tagAc(AC185(9)); // spec-185 ac-9: state filter row unchanged by chip removal
     const user = userEvent.setup();
     const section = makeSection();
     render(

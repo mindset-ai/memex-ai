@@ -1,4 +1,4 @@
-import { useMemo, useState, useRef } from 'react';
+import { useState, useRef } from 'react';
 import type { Comment, CommentTargetType } from '../api/types';
 import { useAuth } from './AuthContext';
 import {
@@ -14,12 +14,7 @@ import { Button } from './ui';
 import { CommentTypePill } from './CommentTypePill';
 import { CommentSourceAvatar } from './CommentSourceAvatar';
 import { DecisionLink, TaskLink, parseEntityRefs } from './DecisionLink';
-import {
-  FILTER_CHIP_TYPES,
-  commentTypeAccentBorder,
-  commentTypeLabel,
-  type FilterChipType,
-} from '../utils/commentStyles';
+import { commentTypeAccentBorder } from '../utils/commentStyles';
 
 interface CommentTrayProps {
   targetType: CommentTargetType;
@@ -35,17 +30,16 @@ interface CommentTrayProps {
   canWrite?: boolean;
   /**
    * spec-164 dec-6: when true (the task tray), agent-generated chatter —
-   * `plan` / `progress` typed comments — is hidden from the default "All"
-   * view behind its existing type chips, which act as the default-off
-   * filter. Human-loop types (review / question / drift / plan_revision /
-   * discussion) still auto-surface. Counts keep reflecting ALL open
-   * comments so hidden chatter stays discoverable. Defaults to false so
-   * section/decision trays are unchanged.
+   * `plan` / `progress` typed comments — is hidden from the default view.
+   * Human-loop types (review / question / drift / plan_revision /
+   * discussion) still auto-surface, and a discoverability note names the
+   * hidden count. Defaults to false so section/decision trays are unchanged.
+   *
+   * spec-185: the comment-type filter chips were removed, so the chip-based
+   * reveal is gone — hidden chatter is surfaced via the count note only.
    */
   muteAgentChatter?: boolean;
 }
-
-type ChipFilter = 'all' | FilterChipType;
 
 // The agent-chatter comment types dec-6 mutes by default in the task tray.
 const AGENT_CHATTER_TYPES: ReadonlyArray<string> = ['plan', 'progress'];
@@ -54,86 +48,23 @@ function isAgentChatter(comment: Comment): boolean {
   return AGENT_CHATTER_TYPES.includes(comment.commentType ?? 'discussion');
 }
 
-interface CommentFilterChipsProps {
-  active: ChipFilter;
-  onChange: (next: ChipFilter) => void;
-  /**
-   * Optional per-type counts. When provided, each chip renders its count;
-   * chips with zero count are still rendered so the row stays stable as the
-   * user filters.
-   */
-  counts?: Partial<Record<ChipFilter, number>>;
-}
-
-/**
- * Filter chip row shown above CommentTray and AllComments. Per Section 7 of
- * doc-10: All / Plan / Progress / Question / Issue / Drift. The same component
- * is exported for reuse so the doc-wide view in AllComments stays visually
- * consistent with the per-target tray.
- */
-export function CommentFilterChips({ active, onChange, counts }: CommentFilterChipsProps) {
-  const chips: ChipFilter[] = ['all', ...FILTER_CHIP_TYPES];
-  return (
-    <div data-testid="comment-filter-chips" className="flex flex-wrap gap-1.5 mb-2">
-      {chips.map((chip) => {
-        const label = chip === 'all' ? 'All' : commentTypeLabel(chip);
-        const count = counts?.[chip];
-        const isActive = active === chip;
-        return (
-          <button
-            key={chip}
-            type="button"
-            data-testid={`comment-filter-${chip}`}
-            data-active={isActive ? 'true' : 'false'}
-            onClick={() => onChange(isActive ? 'all' : chip)}
-            className={`text-[11px] rounded-full px-2 py-0.5 border transition-colors ${
-              isActive
-                ? 'bg-accent text-white border-accent'
-                : 'bg-overlay text-secondary border-divider hover:border-accent/50'
-            }`}
-          >
-            {label}
-            {count !== undefined ? ` · ${count}` : ''}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-function matchesFilter(comment: Comment, filter: ChipFilter): boolean {
-  if (filter === 'all') return true;
-  return (comment.commentType ?? 'discussion') === filter;
-}
-
 export function CommentTray({ targetType, targetId, comments, onCommentsChange, canWrite = true, muteAgentChatter = false }: CommentTrayProps) {
   const { user } = useAuth();
   const [content, setContent] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [showResolved, setShowResolved] = useState(false);
-  const [filter, setFilter] = useState<ChipFilter>('all');
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  const counts = useMemo(() => {
-    const open = comments.filter((c) => !c.resolvedAt);
-    const out: Partial<Record<ChipFilter, number>> = { all: open.length };
-    for (const t of FILTER_CHIP_TYPES) {
-      out[t] = open.filter((c) => (c.commentType ?? 'discussion') === t).length;
-    }
-    return out;
-  }, [comments]);
-
-  // spec-164 dec-6: on the default "All" view of a muted tray, agent chatter
-  // (plan/progress) is excluded — selecting its chip reveals it. Explicit
-  // chip selections are never muted.
-  const chatterMuted = muteAgentChatter && filter === 'all';
+  // spec-164 dec-6: in a muted tray (the task tray) agent chatter
+  // (plan/progress) is hidden by default and a discoverability note names the
+  // hidden count. spec-185 removed the comment-type chip row, so there is no
+  // longer a chip to reveal it — muting is gated on the opt-in alone.
+  const chatterMuted = muteAgentChatter;
   const openComments = comments
     .filter((c) => !c.resolvedAt)
-    .filter((c) => matchesFilter(c, filter))
     .filter((c) => !(chatterMuted && isAgentChatter(c)));
   const resolvedComments = comments
     .filter((c) => c.resolvedAt)
-    .filter((c) => matchesFilter(c, filter))
     .filter((c) => !(chatterMuted && isAgentChatter(c)));
   const hiddenChatterCount = chatterMuted
     ? comments.filter((c) => !c.resolvedAt && isAgentChatter(c)).length
@@ -192,25 +123,16 @@ export function CommentTray({ targetType, targetId, comments, onCommentsChange, 
 
   return (
     <div data-testid="comment-tray" className="flex flex-col">
-      {comments.some((c) => !c.resolvedAt) && (
-        <CommentFilterChips active={filter} onChange={setFilter} counts={counts} />
-      )}
-
-      {/* spec-164 dec-6: discoverability line for muted agent chatter — the
-          count badge upstream already includes it; this names where it went. */}
+      {/* spec-164 dec-6: discoverability line for muted agent chatter — names
+          the hidden count. (spec-185 removed the chip-based reveal.) */}
       {hiddenChatterCount > 0 && (
         <p data-testid="comment-chatter-note" className="text-[11px] text-muted mb-2">
-          {hiddenChatterCount} agent update{hiddenChatterCount === 1 ? '' : 's'} hidden — use
-          the Plan / Progress chips to show {hiddenChatterCount === 1 ? 'it' : 'them'}.
+          {hiddenChatterCount} agent update{hiddenChatterCount === 1 ? '' : 's'} hidden.
         </p>
       )}
 
       {/* Comment list */}
       <div className="space-y-3">
-        {openComments.length === 0 && filter !== 'all' && (
-          <p className="text-xs text-muted">No {commentTypeLabel(filter).toLowerCase()} comments.</p>
-        )}
-
         {openComments.map((comment) => (
           <div key={comment.id} data-testid="comment-item" data-comment-id={comment.id}>
             <CommentBubble
