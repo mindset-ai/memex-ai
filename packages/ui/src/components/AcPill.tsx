@@ -31,11 +31,14 @@ interface AcPillProps {
 // Palette deliberately kept warm, not strident. Failing uses rose-500
 // (softer than red-500 — recognisably "broken" without the glare of
 // danger-red). Untested + stale stay quiet but distinct from each other.
+// Accepted (spec-188 dec-1) is sky-blue — distinct from test-verified green
+// so human judgement never masquerades as test evidence (mirrors AcPanel.tsx).
 const STATE_DOT: Record<AcVerificationState, string> = {
   verified: 'bg-green-500',
   failing: 'bg-rose-500',
   untested: 'bg-zinc-300',
   stale: 'bg-amber-400',
+  accepted: 'bg-sky-500',
 };
 
 const STATE_PILL: Record<AcVerificationState, string> = {
@@ -43,6 +46,7 @@ const STATE_PILL: Record<AcVerificationState, string> = {
   failing: 'bg-rose-500/15 text-rose-700 dark:text-rose-400 hover:bg-rose-500/25',
   untested: 'bg-zinc-400/10 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-400/20',
   stale: 'bg-amber-400/10 text-amber-700 dark:text-amber-400 hover:bg-amber-400/20',
+  accepted: 'bg-sky-500/15 text-sky-700 dark:text-sky-400 hover:bg-sky-500/25',
 };
 
 const STATE_LABEL: Record<AcVerificationState, string> = {
@@ -50,6 +54,7 @@ const STATE_LABEL: Record<AcVerificationState, string> = {
   failing: 'failing',
   untested: 'untested',
   stale: 'stale',
+  accepted: 'accepted',
 };
 
 function relativeTime(d: Date | null): string {
