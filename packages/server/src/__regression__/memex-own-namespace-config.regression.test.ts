@@ -38,7 +38,7 @@ describe("b-90 ac-9: MEMEX_OWN_NAMESPACE is wired per-env (externalized-config m
   const src = readFileSync(DEPLOY_CONFIG, "utf-8");
 
   it("declares MEMEX_OWN_NAMESPACE in the per-env template (scripts/deploy.env.example)", () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-90/acs/ac-9");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-9");
     // The per-env files (scripts/deploy.<env>.env) are gitignored; the template
     // is the committed artifact that tells a deployer the key must be set.
     const example = readFileSync(DEPLOY_ENV_EXAMPLE, "utf-8");
@@ -46,7 +46,7 @@ describe("b-90 ac-9: MEMEX_OWN_NAMESPACE is wired per-env (externalized-config m
   });
 
   it("sources the per-env file and exports MEMEX_OWN_NAMESPACE so child processes inherit it", () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-90/acs/ac-9");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-9");
     // deploy-config.sh sources scripts/deploy.<env>.env (which carries the value)
     // and exports the var so deploy.sh / Cloud Run wiring inherit it.
     expect(src).toMatch(/source\s+"\$\{?ENV_FILE\}?"/);
@@ -54,7 +54,7 @@ describe("b-90 ac-9: MEMEX_OWN_NAMESPACE is wired per-env (externalized-config m
   });
 
   it("documents the per-env namespace mapping (int→mindset-int, prod→mindset-prod) in the README", () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-90/acs/ac-9");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-9");
     // With the values externalized, the README is the committed record of which
     // namespace each env owns.
     const readme = readFileSync(README, "utf-8");
@@ -65,7 +65,7 @@ describe("b-90 ac-9: MEMEX_OWN_NAMESPACE is wired per-env (externalized-config m
 
 describe("b-90 ac-10: deploy.sh wires MEMEX_OWN_NAMESPACE into Cloud Run --update-env-vars", () => {
   it("includes MEMEX_OWN_NAMESPACE=${MEMEX_OWN_NAMESPACE} in the env-vars block", () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-90/acs/ac-10");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-10");
     const src = readFileSync(DEPLOY_SH, "utf-8");
     // Format-tolerant match: the variable name + a bash interpolation of
     // itself. The pipe separator (`|`) is the deploy block's delimiter.
@@ -75,7 +75,7 @@ describe("b-90 ac-10: deploy.sh wires MEMEX_OWN_NAMESPACE into Cloud Run --updat
   });
 
   it("the MEMEX_OWN_NAMESPACE entry sits inside the --update-env-vars argument", () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-90/acs/ac-10");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-10");
     const src = readFileSync(DEPLOY_SH, "utf-8");
     // Extract the --update-env-vars line and assert our entry is in it.
     const match = src.match(/--update-env-vars\s+"[^"]*"/);
@@ -88,12 +88,12 @@ describe("b-90 ac-11: server reads own-namespace EXCLUSIVELY from process.env", 
   const src = readFileSync(TEST_EVENTS_ROUTE, "utf-8");
 
   it("reads MEMEX_OWN_NAMESPACE from process.env", () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-90/acs/ac-11");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-11");
     expect(src).toMatch(/process\.env\.MEMEX_OWN_NAMESPACE/);
   });
 
   it("does NOT derive own-namespace from PUBLIC_HOST", () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-90/acs/ac-11");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-11");
     // Guard against a future "simplify" that maps PUBLIC_HOST -> namespace.
     // Allow the string to appear in `//` comments (rule documentation is
     // welcome); flag any code-shaped read like `process.env.PUBLIC_HOST` or
@@ -108,7 +108,7 @@ describe("b-90 ac-11: server reads own-namespace EXCLUSIVELY from process.env", 
   });
 
   it("does NOT derive own-namespace from APP_BASE_URL", () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-90/acs/ac-11");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-11");
     const codeOnly = src
       .split("\n")
       .map((l) => l.replace(/\/\/.*$/, ""))
@@ -118,7 +118,7 @@ describe("b-90 ac-11: server reads own-namespace EXCLUSIVELY from process.env", 
   });
 
   it("does NOT contain a host→namespace lookup table for inference", () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-90/acs/ac-11");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-11");
     // A reverse lookup like { 'int.memex.ai': 'mindset-int', ... } would
     // imply host-derivation; the test-events route uses the namespace map
     // only for forward canonical-URL lookup. Distinguish by the presence

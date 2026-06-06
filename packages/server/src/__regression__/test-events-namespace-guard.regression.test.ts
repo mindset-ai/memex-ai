@@ -83,7 +83,7 @@ const validBody = (acUid: string) => ({
 
 describe("b-90 ac-7: fail-closed when MEMEX_OWN_NAMESPACE is unset", () => {
   it("returns 4xx for any request when the env var is unset", async () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-90/acs/ac-7");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-7");
     delete process.env.MEMEX_OWN_NAMESPACE;
     const res = await app.request("/api/test-events", {
       method: "POST",
@@ -95,7 +95,7 @@ describe("b-90 ac-7: fail-closed when MEMEX_OWN_NAMESPACE is unset", () => {
   });
 
   it("does NOT insert a test_events row when the env var is unset", async () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-90/acs/ac-7");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-7");
     delete process.env.MEMEX_OWN_NAMESPACE;
     await app.request("/api/test-events", {
       method: "POST",
@@ -108,7 +108,7 @@ describe("b-90 ac-7: fail-closed when MEMEX_OWN_NAMESPACE is unset", () => {
 
 describe("b-90 ac-8: the 4xx body names the missing env var + remediation", () => {
   it("body mentions MEMEX_OWN_NAMESPACE and how to fix", async () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-90/acs/ac-8");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-8");
     delete process.env.MEMEX_OWN_NAMESPACE;
     const res = await app.request("/api/test-events", {
       method: "POST",
@@ -124,7 +124,7 @@ describe("b-90 ac-8: the 4xx body names the missing env var + remediation", () =
 
 describe("b-90 ac-5: cross-namespace events are rejected with the correct destination in the body", () => {
   it("rejects when the ref names a different namespace from the server's own", async () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-90/acs/ac-5");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-5");
     process.env.MEMEX_OWN_NAMESPACE = "mindset-int";
     const res = await app.request("/api/test-events", {
       method: "POST",
@@ -136,7 +136,7 @@ describe("b-90 ac-5: cross-namespace events are rejected with the correct destin
   });
 
   it("the 4xx body names the correct canonical destination for the ref's namespace", async () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-90/acs/ac-5");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-5");
     process.env.MEMEX_OWN_NAMESPACE = "mindset-int";
     const res = await app.request("/api/test-events", {
       method: "POST",
@@ -149,7 +149,7 @@ describe("b-90 ac-5: cross-namespace events are rejected with the correct destin
   });
 
   it("does NOT insert a row when the ref names a wrong namespace", async () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-90/acs/ac-5");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-5");
     process.env.MEMEX_OWN_NAMESPACE = "mindset-int";
     await app.request("/api/test-events", {
       method: "POST",
@@ -160,7 +160,7 @@ describe("b-90 ac-5: cross-namespace events are rejected with the correct destin
   });
 
   it("accepts matching-namespace events and inserts a row", async () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-90/acs/ac-5");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-5");
     process.env.MEMEX_OWN_NAMESPACE = "mindset-prod";
     const res = await app.request("/api/test-events", {
       method: "POST",

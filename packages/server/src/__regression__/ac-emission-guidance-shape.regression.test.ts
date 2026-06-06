@@ -31,7 +31,7 @@ const topic = JSON.parse(readFileSync(TOPIC, "utf-8")) as {
 
 describe("b-90 ac-6: ac-emission guidance topic body shape", () => {
   it("body leads with the namespace-routing mental model", () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-90/acs/ac-6");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-6");
     // The first ~500 chars should establish "the ref IS the routing
     // instruction" mental model before any mechanism / override discussion.
     const opening = topic.body.slice(0, 500);
@@ -40,14 +40,14 @@ describe("b-90 ac-6: ac-emission guidance topic body shape", () => {
   });
 
   it("body explicitly states 'the ref's namespace IS the routing instruction'", () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-90/acs/ac-6");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-6");
     expect(topic.body).toMatch(
       /namespace\s+IS\s+the\s+routing\s+instruction/i,
     );
   });
 
   it("body mentions MEMEX_TEST_EVENTS_URL AFTER the routing model is established", () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-90/acs/ac-6");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-6");
     const routingIdx = topic.body.search(/namespace\s+IS\s+the\s+routing\s+instruction/i);
     const overrideIdx = topic.body.search(/MEMEX_TEST_EVENTS_URL/);
     expect(routingIdx).toBeGreaterThanOrEqual(0);
@@ -56,12 +56,12 @@ describe("b-90 ac-6: ac-emission guidance topic body shape", () => {
   });
 
   it("body frames the override as 'almost never needed'", () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-90/acs/ac-6");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-6");
     expect(topic.body).toMatch(/almost\s+never/i);
   });
 
   it("body contains an anti-example callout naming the localhost-as-safe mistake", () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-90/acs/ac-6");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-6");
     // The literal mistake shape from b-68.
     expect(topic.body).toMatch(
       /MEMEX_TEST_EVENTS_URL=http:\/\/localhost:8080[^\n]*be\s+safe/i,
@@ -69,12 +69,12 @@ describe("b-90 ac-6: ac-emission guidance topic body shape", () => {
   });
 
   it("body explains that the override defeats the default safety", () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-90/acs/ac-6");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-6");
     expect(topic.body).toMatch(/default\s+routing\s+IS\s+the\s+safety/i);
   });
 
   it("body still describes the wire format (POST /api/test-events)", () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-90/acs/ac-6");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-6");
     expect(topic.body).toMatch(/POST.*\/api\/test-events|\/api\/test-events/);
     expect(topic.body).toMatch(/ac_uid/);
     expect(topic.body).toMatch(/status/);

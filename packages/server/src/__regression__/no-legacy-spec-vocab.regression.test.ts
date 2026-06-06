@@ -229,9 +229,9 @@ describe("regression: no legacy spec vocab outside allowlist (b-105 / dec-10)", 
 
   it("repo is free of \\b(brief|mission|strategy)\\b matches outside the allowlist", () => {
     // ac-1: zero non-allowlisted \\b(brief|mission|strategy)\\b matches
-    tagAc("mindset-prod/memex-building-itself/briefs/b-105/acs/ac-1");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-105/acs/ac-1");
     // ac-21: this regression test runs in CI and passes on green tree
-    tagAc("mindset-prod/memex-building-itself/briefs/b-105/acs/ac-21");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-105/acs/ac-21");
     const hits = scan(allowlist);
     if (hits.length > 0) {
       const lines = hits.map((h) => `  ${h.path}:${h.line}:${h.body}`);

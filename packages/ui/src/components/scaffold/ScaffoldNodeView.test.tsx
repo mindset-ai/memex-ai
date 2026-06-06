@@ -70,7 +70,7 @@ const orgGuidance: GuidanceBlock = {
 
 describe('ScaffoldNodeView', () => {
   it('renders rationale for every node kind (ac-15)', () => {
-    tagAc('mindset-prod/memex-building-itself/briefs/b-68/acs/ac-15');
+    tagAc('mindset-prod/memex-building-itself/specs/spec-68/acs/ac-15');
     const allKinds: ScaffoldNode[] = [phase, promptBlock, tool, transition, guidance, orgGuidance];
 
     const { unmount } = render(
@@ -96,7 +96,7 @@ describe('ScaffoldNodeView', () => {
   });
 
   it('renders agent-facing text distinct from rationale (ac-15)', () => {
-    tagAc('mindset-prod/memex-building-itself/briefs/b-68/acs/ac-15');
+    tagAc('mindset-prod/memex-building-itself/specs/spec-68/acs/ac-15');
     render(<ScaffoldNodeView node={promptBlock} />);
     // Agent text body present.
     expect(screen.getByText('You are an agent.')).toBeInTheDocument();
@@ -107,7 +107,7 @@ describe('ScaffoldNodeView', () => {
   });
 
   it('is one component that switches on kind — no per-kind components (ac-18)', () => {
-    tagAc('mindset-prod/memex-building-itself/briefs/b-68/acs/ac-18');
+    tagAc('mindset-prod/memex-building-itself/specs/spec-68/acs/ac-18');
     const cases: Array<{ node: ScaffoldNode; expectedKind: string }> = [
       { node: phase, expectedKind: 'phase' },
       { node: promptBlock, expectedKind: 'prompt_block' },
@@ -142,7 +142,7 @@ describe('ScaffoldNodeView', () => {
   });
 
   it('renders ToolNode fields: name, summary, args, group, rationale', () => {
-    tagAc('mindset-prod/memex-building-itself/briefs/b-68/acs/ac-18');
+    tagAc('mindset-prod/memex-building-itself/specs/spec-68/acs/ac-18');
     render(<ScaffoldNodeView node={tool} />);
     expect(screen.getByText('create_task')).toBeInTheDocument();
     expect(screen.getByText('Create a build-phase task.')).toBeInTheDocument();
@@ -157,14 +157,14 @@ describe('ScaffoldNodeView', () => {
   });
 
   it('renders org GuidanceBlock author/updatedAt metadata', () => {
-    tagAc('mindset-prod/memex-building-itself/briefs/b-68/acs/ac-18');
+    tagAc('mindset-prod/memex-building-itself/specs/spec-68/acs/ac-18');
     render(<ScaffoldNodeView node={orgGuidance} />);
     expect(screen.getByText(/user-1/)).toBeInTheDocument();
     expect(screen.getByText(/2026-05-27/)).toBeInTheDocument();
   });
 
   it('renders PhaseNode allowance and prompt-block links', () => {
-    tagAc('mindset-prod/memex-building-itself/briefs/b-68/acs/ac-18');
+    tagAc('mindset-prod/memex-building-itself/specs/spec-68/acs/ac-18');
     render(<ScaffoldNodeView node={phase} />);
     expect(screen.getByText(/update_section/)).toBeInTheDocument();
     expect(screen.getByText(/create_task/)).toBeInTheDocument();
@@ -172,7 +172,7 @@ describe('ScaffoldNodeView', () => {
   });
 
   it('renders TransitionRubric prose', () => {
-    tagAc('mindset-prod/memex-building-itself/briefs/b-68/acs/ac-18');
+    tagAc('mindset-prod/memex-building-itself/specs/spec-68/acs/ac-18');
     render(<ScaffoldNodeView node={transition} />);
     expect(screen.getByText(/specify→build rubric body/)).toBeInTheDocument();
   });

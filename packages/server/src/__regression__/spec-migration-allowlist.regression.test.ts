@@ -77,7 +77,7 @@ describe("regression: b-105 migration allowlist (ac-8)", () => {
 
   it("every allowlist CTE lists exactly the four expected handles in canonical order", () => {
     // ac-8: migration allowlist contains the four canonical handles (CTE shape)
-    tagAc("mindset-prod/memex-building-itself/briefs/b-105/acs/ac-8");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-105/acs/ac-8");
     // Each occurrence must be identical. If any drifts, the migration would
     // skip a different set of rows — and the prose sweep / preservation
     // contract breaks.

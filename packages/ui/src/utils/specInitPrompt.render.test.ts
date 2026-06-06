@@ -142,7 +142,7 @@ describe('renderToolReference (rendered tool reference block)', () => {
   const block = manifestBlock();
 
   it('renders every BASE_SCAFFOLD tool exactly once, formatted from its exact args + summary', () => {
-    tagAc('mindset-prod/memex-building-itself/briefs/b-68/acs/ac-27');
+    tagAc('mindset-prod/memex-building-itself/specs/spec-68/acs/ac-27');
     for (const e of REFERENCE_ENTRIES) {
       const line = expectedToolLine(e);
       const occurrences = block.split(line).length - 1;
@@ -151,7 +151,7 @@ describe('renderToolReference (rendered tool reference block)', () => {
   });
 
   it('the set of rendered tool names equals the set of names in BASE_SCAFFOLD.tools', () => {
-    tagAc('mindset-prod/memex-building-itself/briefs/b-68/acs/ac-27');
+    tagAc('mindset-prod/memex-building-itself/specs/spec-68/acs/ac-27');
     // Every reference line is `- \`<name>(...)\` — ...`. Pull the leading
     // identifier of each bulleted, backticked tool line out of the block.
     const lineRe = /^- `([a-z][a-z0-9_]*(?:__[a-z0-9_]+)?)\(/gm;
@@ -215,7 +215,7 @@ describe('renderToolReference (rendered tool reference block)', () => {
   // `toolManifest`; it derives from `BASE_SCAFFOLD.tools` via projection.
 
   it('the rendered block is byte-identical to a fresh projection of BASE_SCAFFOLD.tools', () => {
-    tagAc('mindset-prod/memex-building-itself/briefs/b-68/acs/ac-27');
+    tagAc('mindset-prod/memex-building-itself/specs/spec-68/acs/ac-27');
     // Re-render the reference block from the source-of-truth data using the
     // same projection the implementation uses. If anyone hand-edits the prompt
     // text without going through the model, this assertion fails.
@@ -230,7 +230,7 @@ describe('renderToolReference (rendered tool reference block)', () => {
   });
 
   it('every BASE_SCAFFOLD tool projects to a non-empty InitPromptRefEntry', () => {
-    tagAc('mindset-prod/memex-building-itself/briefs/b-68/acs/ac-27');
+    tagAc('mindset-prod/memex-building-itself/specs/spec-68/acs/ac-27');
     // The projection contract: rationale is stripped, the four reference
     // fields (name/summary/args/group) are preserved and non-empty.
     for (const tool of BASE_SCAFFOLD.tools) {
@@ -261,7 +261,7 @@ describe('renderToolReference (rendered tool reference block)', () => {
 
 describe('b-67 manifest ↔ scaffold parity (ac-26)', () => {
   it('every toolManifest entry has a 1:1 BASE_SCAFFOLD.tools mirror (name/summary/args/group)', () => {
-    tagAc('mindset-prod/memex-building-itself/briefs/b-68/acs/ac-26');
+    tagAc('mindset-prod/memex-building-itself/specs/spec-68/acs/ac-26');
     expect(BASE_SCAFFOLD.tools.length).toBe(toolManifest.length);
     const byName = new Map(BASE_SCAFFOLD.tools.map((t) => [t.name, t]));
     for (const m of toolManifest) {
@@ -275,7 +275,7 @@ describe('b-67 manifest ↔ scaffold parity (ac-26)', () => {
   });
 
   it('projecting BASE_SCAFFOLD.tools through toInitPromptRef yields the toolManifest set', () => {
-    tagAc('mindset-prod/memex-building-itself/briefs/b-68/acs/ac-26');
+    tagAc('mindset-prod/memex-building-itself/specs/spec-68/acs/ac-26');
     // The projection contract: `toInitPromptRef` produces values of type
     // `InitPromptRefEntry` (= `ToolManifestEntry`). The set of projected
     // entries must equal the manifest as a multiset on (name/summary/args/group).

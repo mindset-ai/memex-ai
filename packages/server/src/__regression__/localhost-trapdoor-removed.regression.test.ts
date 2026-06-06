@@ -44,17 +44,17 @@ describe("b-90 ac-1: no localhost:8080 mentions in agent-facing emission surface
         const src = readFileSync(path, "utf-8");
 
         it("contains no FALLBACK_URL = http://localhost:8080 constant", () => {
-          tagAc("mindset-prod/memex-building-itself/briefs/b-90/acs/ac-1");
+          tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-1");
           expect(src).not.toMatch(/FALLBACK_URL\s*=\s*['"]http:\/\/localhost/);
         });
 
         it("contains no DEFAULT_URL = http://localhost:8080 constant", () => {
-          tagAc("mindset-prod/memex-building-itself/briefs/b-90/acs/ac-1");
+          tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-1");
           expect(src).not.toMatch(/DEFAULT_URL\s*=\s*['"]http:\/\/localhost/);
         });
 
         it("does not describe localhost:8080 as a 'default' destination in comments", () => {
-          tagAc("mindset-prod/memex-building-itself/briefs/b-90/acs/ac-1");
+          tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-1");
           // The phrasing that primed the b-68 mistake: "defaults to
           // http://localhost:8080" or "default ... localhost:8080".
           expect(src).not.toMatch(/default[^.]*\bhttp:\/\/localhost:8080/i);
@@ -65,7 +65,7 @@ describe("b-90 ac-1: no localhost:8080 mentions in agent-facing emission surface
 
   describe("supporting docs", () => {
     it("docs/ac-primitive-hypothesis.md no longer names localhost:8080 as a default", () => {
-      tagAc("mindset-prod/memex-building-itself/briefs/b-90/acs/ac-1");
+      tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-1");
       const src = readFileSync(HYPOTHESIS_DOC, "utf-8");
       // The phrase "default `http://localhost:8080/api/test-events`" was the
       // misleading one. The doc may still mention localhost in dev-setup
@@ -75,7 +75,7 @@ describe("b-90 ac-1: no localhost:8080 mentions in agent-facing emission surface
     });
 
     it("packages/server/src/app.ts /install/ route comment does not claim localhost is the helper's default", () => {
-      tagAc("mindset-prod/memex-building-itself/briefs/b-90/acs/ac-1");
+      tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-1");
       const src = readFileSync(APP_TS, "utf-8");
       // The pre-b-90 comment said: "the helper's DEFAULT_URL is hardcoded to
       // localhost:8080". With FALLBACK_URL removed and namespace routing in
