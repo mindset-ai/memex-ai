@@ -144,15 +144,18 @@ type BearerResolution =
 async function resolveBearerUser(
   c: Parameters<Parameters<typeof createMiddleware<SessionEnv>>[0]>[0],
 ): Promise<BearerResolution> {
-  if (isDevMode()) {
-    // Dev mode auto-logins as dev@memex.ai — same on both strict and lax paths
-    // so local dev keeps working without a token. isDevMode() throws in prod
-    // when GOOGLE_CLIENT_ID is missing (b-38 F-1); that throw propagates.
-    return { kind: "user", user: await resolveDevUser() };
-  }
+  // Evaluate the dev flag BEFORE any token work so the b-38 F-1 prod guard
+  // (isDevMode() throws when GOOGLE_CLIENT_ID is missing in production) still
+  // fires on every request; that throw propagates.
+  const devMode = isDevMode();
 
   const authHeader = c.req.header("Authorization");
   if (!authHeader?.startsWith("Bearer ")) {
+    // No token presented: dev mode auto-logins as dev@memex.ai — same on both
+    // strict and lax paths so local dev keeps working without a token.
+    if (devMode) {
+      return { kind: "user", user: await resolveDevUser() };
+    }
     return { kind: "anonymous" };
   }
   const token = authHeader.slice(7);
@@ -163,12 +166,26 @@ async function resolveBearerUser(
     if (!user) {
       // A well-formed token whose subject no longer exists. Strict path renders
       // this as a distinct 401 ("Sign in again"); permissive path treats it as
-      // anonymous so a public read still proceeds.
+      // anonymous so a public read still proceeds. Dev mode falls back to the
+      // dev user so a stale localStorage token never bricks local dev.
+      if (devMode) {
+        return { kind: "user", user: await resolveDevUser() };
+      }
       return { kind: "userGone" };
     }
+    // A valid presented token resolves THAT user — even in dev mode (spec-172
+    // issue-1): the dev bypass is a fallback for token-less requests, not a
+    // shadow over real identities. This is what lets the e2e stack (and any
+    // local client) authenticate as a freshly signed-up native-auth user while
+    // token-less requests keep resolving dev@memex.ai.
     return { kind: "user", user };
   } catch (err) {
     if (err instanceof InvalidTokenError) {
+      // Malformed/expired token: dev mode keeps the no-token convenience
+      // (fall back to the dev user); real mode reports anonymous.
+      if (devMode) {
+        return { kind: "user", user: await resolveDevUser() };
+      }
       return { kind: "anonymous" };
     }
     throw err;

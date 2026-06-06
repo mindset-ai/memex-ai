@@ -262,6 +262,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (session) return;
     if (devLoggedOut) return;
     if (token) return; // rehydration effect will handle it
+    // Token-consuming public pages establish their OWN session (verify-email →
+    // acceptSession as the token's user). Auto-logging-in dev@memex.ai here
+    // races that flow and whichever response lands last wins — which made the
+    // signup→verify e2e leg flap between identities (spec-172 issue-1). Stand
+    // down and let the page's explicit flow own the session.
+    if (typeof window !== 'undefined' && window.location.pathname === '/verify-email') return;
     ssoLoginApi('')
       .then(acceptSession)
       .catch((err) => console.warn('Dev session bootstrap failed:', err));

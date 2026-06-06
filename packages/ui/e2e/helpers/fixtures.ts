@@ -83,7 +83,11 @@ export const test = base.extend<{ resources: TestResources }>({
 
 export { expect } from "@playwright/test";
 
-const BASE_URL = process.env.E2E_BASE_URL ?? "http://localhost:5173";
+// Default tracks E2E_UI_PORT so a port override moves the URL helpers with the
+// Vite server (overriding one without the other pointed journeys at a dead port).
+const BASE_URL =
+  process.env.E2E_BASE_URL ??
+  `http://localhost:${process.env.E2E_UI_PORT ?? 5173}`;
 
 /**
  * Path-based tenant URL [per std-2]: resolves `/<namespace>/<memex>${path}` on

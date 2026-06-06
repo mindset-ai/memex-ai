@@ -66,7 +66,7 @@ const test = base.extend<{ react: ReactivityResources }>({
 });
 
 function tenantPath(tenant: ReactivityTenant, suffix: string = ""): string {
-  const base = process.env.E2E_BASE_URL ?? "http://localhost:5173";
+  const base = process.env.E2E_BASE_URL ?? `http://localhost:${process.env.E2E_UI_PORT ?? 5173}`;
   const clean = suffix.replace(/^\//, "");
   return `${base}/${tenant.namespaceSlug}/${tenant.memexSlug}${clean ? "/" + clean : ""}`;
 }
@@ -336,16 +336,22 @@ test.describe("doc-16 Wave 1 reactivity journeys", () => {
   });
 
   // Wave 3 — MemexSwitcher reactivity. When the signed-in user creates a new
-  // org from another channel, the AuthContext receives a memex.created /
-  // org.created / org_membership.created event on /api/me/events (filtered by
-  // userId), refetches /api/auth/me, and the switcher dropdown reflects the
-  // new org without a page reload.
-  // FIXME (spec-172 issue-3): the new org is created (createResp.ok) but does NOT
-  // surface in the already-open switcher via the user-scoped /api/me/events stream
-  // in the e2e dev-session posture. The other reactivity sub-tests (doc-scoped SSE)
-  // pass cold; this user-scoped reactivity edge is time-boxed out of the gate and
-  // tracked as spec-172 issue-3 rather than blocking the suite.
-  test.fixme("memex-switcher-reactive: creating a new org adds it to the open MemexSwitcher dropdown", async ({
+  // org WITH a memex from another channel, the AuthContext receives the
+  // user-scoped memex.created event on /api/me/events (filtered by userId),
+  // refetches /api/auth/me, and the open switcher dropdown reflects the new
+  // org without a page reload.
+  //
+  // Resolved (spec-172 issue-3): the original test created a BARE org and
+  // expected it in the dropdown — but /api/me/events delivery was never the
+  // gap. Per doc-19 dec-1 org creation makes no Memex, and the session's
+  // membership list (services/users.ts#listMemberships) inner-joins memexes,
+  // so a memex-less org contributes no membership row BY DESIGN: the switcher
+  // lists places you can go (memexes), and an empty org appears in Manage
+  // Orgs, not the switcher — reload or no reload. The reactive behaviour the
+  // product actually has is asserted here: org + memex created via the real
+  // REST surface → memex.created (userId-scoped) → session refetch → the new
+  // org surfaces in the still-open dropdown.
+  test("memex-switcher-reactive: a new org+memex surfaces in the open MemexSwitcher dropdown", async ({
     browser,
     react,
   }) => {
@@ -363,23 +369,36 @@ test.describe("doc-16 Wave 1 reactivity journeys", () => {
     // Initial state: one org membership in the dropdown (the seeded tenant).
     await expect(tab.getByText("Your orgs").first()).toBeVisible();
 
-    // Create a new org via the REST surface. The session middleware in dev
-    // mode resolves the dev user automatically; createOrgWithOwner emits a
-    // composite (memex/org/user_namespace/org_membership) with userId set,
-    // which /api/me/events delivers, which refetches the session.
-    // /api/orgs (createOrgForUser) rejects an unverified owner; the dev-user
-    // bypass mints dev@memex.ai without emailVerifiedAt. Verify it through the
-    // test surface before the create (Postmark never contacted).
+    // Create a new org via the REST surface. /api/orgs (createOrgForUser)
+    // rejects an unverified owner; the dev-user bypass mints dev@memex.ai
+    // without emailVerifiedAt. Verify it through the test surface before the
+    // create (Postmark never contacted).
     await markEmailVerified(DEV_EMAIL);
     const newOrgSlug = `react-mxsw-new-${Date.now().toString(36)}-${Math.random()
       .toString(36)
       .slice(2, 6)}`.toLowerCase();
-    const apiBase = process.env.E2E_API_URL ?? "http://localhost:8090";
+    const apiBase =
+      process.env.E2E_API_URL ??
+      `http://localhost:${process.env.E2E_SERVER_PORT ?? 8090}`;
     const createResp = await tab.request.post(`${apiBase}/api/orgs`, {
       data: { slug: newOrgSlug, name: `New Org ${newOrgSlug}` },
       headers: { "Content-Type": "application/json" },
     });
     expect(createResp.ok()).toBeTruthy();
+    const { org } = (await createResp.json()) as { org: { namespaceId: string } };
+
+    // A bare org renders in Manage Orgs, not the switcher (no memex → no
+    // membership row). Create a memex inside it via the real REST surface —
+    // createMemex emits memex.created with userId set [per std-8], which is
+    // the event that wakes the user stream.
+    const memexResp = await tab.request.post(
+      `${apiBase}/api/namespaces/${org.namespaceId}/memexes`,
+      {
+        data: { slug: "main" },
+        headers: { "Content-Type": "application/json" },
+      }
+    );
+    expect(memexResp.ok()).toBeTruthy();
 
     // The new org's name should appear in the dropdown without a manual
     // reload. AuthContext refetched the session via the user-events SSE; the

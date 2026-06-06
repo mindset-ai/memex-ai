@@ -44,7 +44,7 @@ const test2 = test.extend<{ seed: RoleSeed }>({
 
 async function gotoSpec(page: Page, seed: RoleSeed) {
   await page.goto(
-    `${process.env.E2E_BASE_URL ?? "http://localhost:5173"}/${seed.tenant.namespaceSlug}/${seed.tenant.memexSlug}/docs/${seed.docId}`,
+    `${process.env.E2E_BASE_URL ?? `http://localhost:${process.env.E2E_UI_PORT ?? 5173}`}/${seed.tenant.namespaceSlug}/${seed.tenant.memexSlug}/docs/${seed.docId}`,
   );
   await expect(page.getByRole("heading", { name: "Roles Spec", level: 1 })).toBeVisible({
     timeout: 15_000,
