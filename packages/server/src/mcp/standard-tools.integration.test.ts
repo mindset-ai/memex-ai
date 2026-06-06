@@ -4,6 +4,7 @@
 // what the caller tries to pass).
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { tagAc } from "@memex-ai-ac/vitest";
 import { eq, inArray } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import {
@@ -19,6 +20,7 @@ import {
 } from "../db/schema.js";
 import { createMcpServer } from "./tools.js";
 import { createDocDraft } from "../services/documents.js";
+import { createStandard } from "../services/standards.js";
 
 const created = {
   users: [] as string[],
@@ -202,8 +204,10 @@ describe.skip("Standard MCP tools (post-doc-14)", () => {
     });
     const verify = sections.find((s) => s.sectionType === "verify")!;
 
+    // spec-143 ac-14: flag_drift takes the canonical section ref, not a UUID.
+    const ref = `${actor.account.slug}/main/standards/${doc!.handle}/sections/s-${verify.seq}`;
     const result = await callTool(actor.user.id, "flag_drift", {
-      standardSectionId: verify.id,
+      ref,
       observation: "Repo uses ArgoCD now, not kubectl.",
     });
     expect(result.isError).toBeFalsy();
@@ -240,11 +244,92 @@ describe.skip("Standard MCP tools (post-doc-14)", () => {
     const sections = await db.query.docSections.findMany({
       where: (s, { eq }) => eq(s.docId, spec.id),
     });
+    // spec-143 ac-14: a section ref on a non-standard doc is rejected.
+    const ref = `${actor.account.slug}/main/specs/${spec.handle}/sections/s-${sections[0].seq}`;
     const result = await callTool(actor.user.id, "flag_drift", {
-      standardSectionId: sections[0].id,
+      ref,
       observation: "x",
     });
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toMatch(/not a standard/);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// spec-143 ac-14: the standards-drift verbs (flag_drift / propose_standard_change)
+// must address the target section by its CANONICAL REF (the only form any read
+// surface emits — `…/standards/std-N/sections/s-M`), never a raw section UUID.
+// A raw UUID — even the section's real id — is rejected. This is its own
+// (un-skipped) block: the doc-24 describe.skip above predates the spec-143
+// restoration and stays skipped, so it can't carry this coverage.
+// ─────────────────────────────────────────────────────────────────────────
+const AC_REF_ADDRESSING =
+  "mindset-prod/memex-building-itself/specs/spec-143/acs/ac-14";
+
+describe("spec-143 ac-14: drift verbs address by canonical ref, not UUID", () => {
+  let sectionRef: string;
+  let sectionUuid: string;
+
+  beforeAll(async () => {
+    // Standards are born with no body section via create_doc — they're authored
+    // as clauses. Use the createStandard service directly (as ref-emission /
+    // audit / mutate-coverage do) to get a standard WITH a section to target.
+    const std = await createStandard(actor.account.id, {
+      title: "Ac14 RefAddressing",
+      sections: [{ sectionType: "rule", content: "Original rule body." }],
+    });
+    created.docs.push(std.id);
+    const section = std.sections.find((s) => s.sectionType === "rule")!;
+    sectionUuid = section.id;
+    sectionRef = `${actor.account.slug}/main/standards/${std.handle}/sections/s-${section.seq}`;
+  });
+
+  it("propose_standard_change accepts a canonical section ref", async () => {
+    tagAc(AC_REF_ADDRESSING);
+    const res = await callTool(actor.user.id, "propose_standard_change", {
+      ref: sectionRef,
+      proposedContent: "Corrected rule body.",
+      rationale: "ac-14 ref addressing",
+    });
+    expect(res.isError).toBeFalsy();
+    expect(res.content[0].text).toMatch(/Proposed change recorded/);
+    const comments = await db.query.docComments.findMany({
+      where: eq(docComments.sectionId, sectionUuid),
+    });
+    expect(comments.some((c) => c.commentType === "plan_revision")).toBe(true);
+  });
+
+  it("propose_standard_change rejects a raw section UUID (even the real one)", async () => {
+    tagAc(AC_REF_ADDRESSING);
+    const res = await callTool(actor.user.id, "propose_standard_change", {
+      ref: sectionUuid,
+      proposedContent: "should never land",
+    });
+    expect(res.isError).toBe(true);
+    expect(res.content[0].text).toMatch(/UUID inputs no longer accepted|pass the ref/i);
+  });
+
+  it("flag_drift accepts a canonical section ref", async () => {
+    tagAc(AC_REF_ADDRESSING);
+    const res = await callTool(actor.user.id, "flag_drift", {
+      ref: sectionRef,
+      observation: "ac-14: the code diverged from this rule.",
+    });
+    expect(res.isError).toBeFalsy();
+    expect(res.content[0].text).toMatch(/Drift flagged/);
+    const comments = await db.query.docComments.findMany({
+      where: eq(docComments.sectionId, sectionUuid),
+    });
+    expect(comments.some((c) => c.commentType === "drift")).toBe(true);
+  });
+
+  it("flag_drift rejects a raw section UUID (even the real one)", async () => {
+    tagAc(AC_REF_ADDRESSING);
+    const res = await callTool(actor.user.id, "flag_drift", {
+      ref: sectionUuid,
+      observation: "should never land",
+    });
+    expect(res.isError).toBe(true);
+    expect(res.content[0].text).toMatch(/UUID inputs no longer accepted|pass the ref/i);
   });
 });

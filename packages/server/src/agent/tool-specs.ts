@@ -432,12 +432,12 @@ interface FullDocState {
 
 /**
  * Build the canonical ref for a comment that landed on a standard SECTION
- * (flag_drift / propose_standard_change). The tools take a raw standard-section
- * UUID (standard sections have no handle scheme — see ID_PARAM_UUID_ONLY), but
- * the resulting comment lives under the standard's `std-N` handle and so has a
- * canonical ref. Returns null only if the section/standard or memex slugs can't
- * be resolved (in which case the handler omits the `ref:` line entirely rather
- * than leaking a raw UUID).
+ * (flag_drift / propose_standard_change). The tools take a canonical section
+ * ref and resolve it to the section UUID server-side (see
+ * resolveStandardSectionRef, spec-143 ac-14); the resulting comment lives under
+ * the standard's `std-N` handle and so also has a canonical ref. Returns null
+ * only if the section/standard or memex slugs can't be resolved (in which case
+ * the handler omits the `ref:` line entirely rather than leaking a raw UUID).
  */
 async function buildStandardCommentRef(
   memexId: string,
@@ -455,6 +455,38 @@ async function buildStandardCommentRef(
   const slugs = await memexSlugsById(memexId);
   if (!slugs) return null;
   return buildChildRef(slugs, standard, { type: "comments", seq: commentSeq });
+}
+
+/**
+ * Resolve a standard-section `ref` arg (e.g.
+ * `<ns>/<mx>/standards/std-N/sections/s-M`) to its owning memex + raw section
+ * UUID, for the standards-drift verbs (`flag_drift` / `propose_standard_change`).
+ *
+ * spec-143 ac-14: these verbs used to take a raw section UUID via
+ * `resolveMemexFromEntity("section", …)`, but the read surface only ever emits
+ * `s-N` section refs (see `formatStandard` — `Section #N | ref: …/sections/s-N`),
+ * never a section UUID, so the UUID-only contract made them uncallable from MCP
+ * and contradicted the "UUIDs are not accepted on the MCP boundary" invariant.
+ * They now take the canonical ref and resolve it server-side, exactly like
+ * `update_section` / `edit_clause`. `resolveRefArg` rejects a raw UUID up front
+ * via `assertRefNotUuid`.
+ */
+async function resolveStandardSectionRef(
+  ctx: ToolCtx,
+  ref: string,
+): Promise<{ memexId: string; sectionId: string }> {
+  const resolved = await resolveRefArg(ctx, ref);
+  if (resolved.entity.kind !== "section") {
+    throw new ValidationError(
+      `Expected a standard section ref (e.g. \`<ns>/<mx>/standards/std-N/sections/s-M\`); got ${resolved.entity.kind}.`,
+    );
+  }
+  if (resolved.doc.docType !== "standard") {
+    throw new ValidationError(
+      `\`${ref}\` is a section on a ${resolved.doc.docType}, not a standard. flag_drift / propose_standard_change only operate on standard sections.`,
+    );
+  }
+  return { memexId: resolved.memexId, sectionId: resolved.entity.row.id };
 }
 
 async function fullDocState(memexId: string, docIdOrHandle: string): Promise<FullDocState> {
@@ -3811,17 +3843,23 @@ export const toolSpecs: ToolSpec[] = [
     description:
       "Flag drift on a standard section — post a typed `drift` comment (sourced 'agent') describing the gap between the rule and observed reality. Drift often surfaces *mid-change*, not at the start of a task: stay watchful as you implement and flag the moment you see the gap. If the rule itself is wrong (not just out-of-sync with code), use `propose_standard_change` instead.",
     schema: {
-      standardSectionId: z.string().describe("Standard section UUID"),
+      ref: z
+        .string()
+        .describe(
+          "Canonical ref to the standard section, e.g. `<ns>/<mx>/standards/std-7/sections/s-3` — the same `ref:` form get_doc / search_memex emit. NOT a UUID.",
+        ),
       observation: z
         .string()
         .describe("What the agent observed that diverges from the standard rule"),
       verbose: VERBOSE_FIELD,
     },
     async handler(input, ctx) {
-      const sectionId = input.standardSectionId as string;
+      const ref = input.ref as string;
       const observation = input.observation as string;
 
-      const memexId = await ctx.resolveMemexFromEntity("section", sectionId);
+      // spec-143 ac-14: address the section by canonical ref, not a raw UUID
+      // (see resolveStandardSectionRef).
+      const { memexId, sectionId } = await resolveStandardSectionRef(ctx, ref);
       // spec-156 W2 (FINDING 3): thread the invoking surface so the
       // standard_drift event is attributed to the actor (mcp vs in_app_agent)
       // instead of falling back to channel 'server' / actorKind 'system'.
@@ -3830,10 +3868,9 @@ export const toolSpecs: ToolSpec[] = [
         channel: ctx.channel ?? "mcp",
       });
       // b-36 D-8: emit the affected entity as a canonical `ref:` (the drift
-      // comment on the standard), never a raw UUID. The section input is a
-      // UUID (standard sections have no handle scheme — ID_PARAM_UUID_ONLY),
-      // but the drift comment lives under the standard's std-N handle and so
-      // has a ref. Load the owning standard to build it.
+      // comment on the standard), never a raw UUID. The drift comment lives
+      // under the standard's std-N handle and so has a ref. Load the owning
+      // standard to build it.
       const commentRef = await buildStandardCommentRef(memexId, sectionId, comment.seq);
       if (ctx.verbose) {
         return commentRef
@@ -3849,7 +3886,11 @@ export const toolSpecs: ToolSpec[] = [
     description:
       "Propose a corrected version of a standard section. Lands as a typed `plan_revision` comment (sourced 'agent') containing the full proposed replacement and a rationale. The standard owner reviews + accepts in the React UI Drift Inbox.",
     schema: {
-      standardSectionId: z.string().describe("Standard section UUID"),
+      ref: z
+        .string()
+        .describe(
+          "Canonical ref to the standard section, e.g. `<ns>/<mx>/standards/std-7/sections/s-3` — the same `ref:` form get_doc / search_memex emit. NOT a UUID.",
+        ),
       proposedContent: z
         .string()
         .describe("The full replacement markdown for the section."),
@@ -3860,11 +3901,13 @@ export const toolSpecs: ToolSpec[] = [
       verbose: VERBOSE_FIELD,
     },
     async handler(input, ctx) {
-      const sectionId = input.standardSectionId as string;
+      const ref = input.ref as string;
       const proposedContent = input.proposedContent as string;
       const rationale = input.rationale as string | undefined;
 
-      const memexId = await ctx.resolveMemexFromEntity("section", sectionId);
+      // spec-143 ac-14: address the section by canonical ref, not a raw UUID
+      // (see resolveStandardSectionRef).
+      const { memexId, sectionId } = await resolveStandardSectionRef(ctx, ref);
       // spec-156 W2 (FINDING 3): thread the invoking surface so the
       // standard_drift event carries channel/user attribution (mcp vs
       // in_app_agent), not the channel 'server' / actorKind 'system' default.
