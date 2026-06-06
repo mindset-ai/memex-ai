@@ -254,7 +254,27 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 2
+    env:
+      MEMEX_EMIT_KEY: ${{ secrets.MEMEX_EMIT_KEY }}
     steps:
+      # spec-172 ac-1 self-reports from here: this aggregator IS the "full
+      # Playwright suite passed against a cold, freshly-migrated DB" signal,
+      # so it emits the AC's test event — pass AND fail alike, per the
+      # ac-emission discipline — to the canonical Memex. A missing key or a
+      # failed POST never flips the check itself (`|| true`), matching the
+      # vitest helper's warn-and-move-on semantics.
+      - name: Emit spec-172 ac-1 (full e2e suite cold)
+        run: |
+          STATUS=$([ "${{ needs.e2e.result }}" = "success" ] && echo pass || echo fail)
+          if [ -z "$MEMEX_EMIT_KEY" ]; then
+            echo "MEMEX_EMIT_KEY unset — skipping ac-1 emission (status would be: $STATUS)"
+          else
+            curl -sS -X POST "https://memex.ai/api/test-events" \
+              -H "Authorization: Bearer $MEMEX_EMIT_KEY" \
+              -H "Content-Type: application/json" \
+              -d "{\"ac_uid\":\"mindset-prod/memex-building-itself/specs/spec-172/acs/ac-1\",\"status\":\"$STATUS\",\"test_identifier\":\".github/workflows/test.yml::e2e-result\",\"actor\":\"${{ github.actor }}\",\"metadata\":{\"branch\":\"${{ github.ref_name }}\",\"commit\":\"${{ github.sha }}\",\"run_id\":\"${{ github.run_id }}\"}}" \
+              && echo "ac-1 emitted: $STATUS" || echo "ac-1 emission failed (non-blocking)"
+          fi
       - name: All e2e shards green?
         run: |
           if [ "${{ needs.e2e.result }}" != "success" ]; then

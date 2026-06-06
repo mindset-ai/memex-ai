@@ -123,6 +123,16 @@ async function makePersonalUser(prefix: string): Promise<{
   };
 }
 
+// spec-186: the vitest config disables the signup seed hook suite-wide (its
+// detached promise races other tests' cleanup). THIS suite tests the hook
+// itself, so opt back in — the gate reads process.env at call time.
+beforeAll(() => {
+  process.env.MEMEX_HANDHOLD_SIGNUP_SEED = "on";
+});
+afterAll(() => {
+  process.env.MEMEX_HANDHOLD_SIGNUP_SEED = "off";
+});
+
 afterAll(async () => {
   // Namespaces cascade to memex + documents; do those first, then the users.
   if (createdNamespaceIds.length > 0) {

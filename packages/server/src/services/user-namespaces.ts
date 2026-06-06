@@ -221,7 +221,17 @@ export async function ensureUserNamespace(
 // or block signup, so the promise is detached (`void`) and any rejection is
 // swallowed to a log line. The seed itself is idempotent (NO-OP if the Memex
 // already has a demo doc — ac-8), so even a duplicate fire is harmless.
+//
+// spec-186: MEMEX_HANDHOLD_SIGNUP_SEED=off disables the hook. The vitest config
+// sets it suite-wide — under vitest every test that creates a user spawned a
+// detached multi-insert seed that outlived the test, racing its cleanup (FK
+// violations, rotating deadlocks: share-tokens / org-access / path-routing) and
+// logging after worker teardown (the EnvironmentTeardownError rpc race). The
+// hook's OWN suites (handhold.api.test.ts, the seed-resilience test) stub the
+// var back on — the env is read at CALL time, never cached, precisely so they
+// can. Prod/dev/e2e behaviour is unchanged (var unset ⇒ hook fires).
 function seedHandholdDemoBestEffort(memexId: string): void {
+  if (process.env.MEMEX_HANDHOLD_SIGNUP_SEED === "off") return;
   void seedHandholdDemo(memexId).catch((err) =>
     console.error("[handhold seed]", err),
   );
