@@ -410,10 +410,13 @@ describe.skipIf(!SMOKE_MCP_TOKEN)(
       expect(dec.status).toBe(200);
       expect(dec.body.result?.isError).toBeFalsy();
 
+      // Terse get_doc renders `ref: <ref> "<title>" [spec, <phase>].` —
+      // verified against the live int surface (first probe run guessed
+      // `[SPECIFY]` and failed while the feature itself worked).
       let docText = mcpTextPayload(
         (await callMcpTool("get_doc", { ref: specRef! })).body,
       );
-      expect(docText).toMatch(/status:\s*specify|\[SPECIFY\]|phase:\s*specify/i);
+      expect(docText).toMatch(/\[spec,\s*specify\]|status:\s*specify|phase:\s*specify/i);
 
       // Build-class traffic: task creation (also sweeps via createdTaskRefs).
       const task = await callMcpTool("create_task", {
@@ -429,7 +432,7 @@ describe.skipIf(!SMOKE_MCP_TOKEN)(
       docText = mcpTextPayload(
         (await callMcpTool("get_doc", { ref: specRef! })).body,
       );
-      expect(docText).toMatch(/status:\s*build|\[BUILD\]|phase:\s*build/i);
+      expect(docText).toMatch(/\[spec,\s*build\]|status:\s*build|phase:\s*build/i);
     });
   },
 );
