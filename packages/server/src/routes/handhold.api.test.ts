@@ -155,6 +155,7 @@ function reset(
 describe("spec-178 t-4 — signup seed hook (ac-6 / ac-7)", () => {
   it("ensureUserNamespace seeds 5 is_demo Specs into a fresh user's personal Memex", async () => {
     tagAc(AC(6));
+    tagAc(AC(1)); // scope ac-1: a new personal Memex auto-contains 5 demo Specs, no manual setup
     const user = await makePersonalUser("h178-signup");
     const count = await waitForDemoDocs(user.memexId, HANDHOLD_PHASES.length);
     expect(count).toBe(HANDHOLD_PHASES.length);

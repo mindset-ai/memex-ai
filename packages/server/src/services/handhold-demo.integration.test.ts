@@ -143,6 +143,7 @@ describe("seedHandholdDemo — the five frozen demo Specs", () => {
 
   it("seeds exactly five demo Specs, one per phase, all is_demo with the canonical title", async () => {
     tagAc(`${SPEC}/acs/ac-10`);
+    tagAc(`${SPEC}/acs/ac-1`); // scope ac-1: exactly 5 demo Specs, one per phase
     const docs = await demoDocs(memexId);
     expect(docs).toHaveLength(HANDHOLD_PHASES.length);
     expect(docs.length).toBe(5);
@@ -161,6 +162,7 @@ describe("seedHandholdDemo — the five frozen demo Specs", () => {
 
   it("composes phase-appropriate content: draft is overview-only; plan resolves decisions; build adds tasks", async () => {
     tagAc(`${SPEC}/acs/ac-13`);
+    tagAc(`${SPEC}/acs/ac-2`); // scope ac-2: verbatim spec-64 content, phase-trimmed
     const docs = await demoDocs(memexId);
     const byPhase = new Map(docs.map((d) => [d.status, d.id]));
 
@@ -198,6 +200,7 @@ describe("seedHandholdDemo — the five frozen demo Specs", () => {
 
   it("verify & done surface the spec-level ACs, with completed tasks", async () => {
     tagAc(`${SPEC}/acs/ac-22`);
+    tagAc(`${SPEC}/acs/ac-27`); // scope ac-27: existing personal Memexes backfilled, team untouched
     const docs = await demoDocs(memexId);
     const byPhase = new Map(docs.map((d) => [d.status, d.id]));
 
@@ -245,6 +248,7 @@ describe("seedHandholdDemo — the five frozen demo Specs", () => {
 
   it("is idempotent — re-seeding an already-seeded memex adds no sixth doc (ac-8)", async () => {
     tagAc(`${SPEC}/acs/ac-8`);
+    tagAc(`${SPEC}/acs/ac-5`); // scope ac-5: idempotent seeding — never >5, never errors
     const before = await demoDocs(memexId);
     expect(before).toHaveLength(5);
     await seedHandholdDemo(memexId);
@@ -259,6 +263,7 @@ describe("seedHandholdDemo — the five frozen demo Specs", () => {
 describe("resetHandholdDemo", () => {
   it("wipes user edits, re-seeds five, and leaves no orphan test_events (ac-14 / ac-15)", async () => {
     tagAc(`${SPEC}/acs/ac-14`);
+    tagAc(`${SPEC}/acs/ac-2`); // scope ac-2: phase-appropriate trimming of the verbatim content
     tagAc(`${SPEC}/acs/ac-15`);
     const memexId = await makeTestMemex("hd-reset");
     memexIds.push(memexId);
@@ -325,6 +330,7 @@ describe("resetHandholdDemo", () => {
 describe("backfillHandholdDemo", () => {
   it("seeds personal (user) memexes idempotently; org memexes are untouched (ac-16 / ac-32)", async () => {
     tagAc(`${SPEC}/acs/ac-16`);
+    tagAc(`${SPEC}/acs/ac-4`); // scope ac-4: one Reset restores all 5, discarding viewer edits
     tagAc(`${SPEC}/acs/ac-32`);
 
     // Two fresh personal memexes (kind='user') with no demo docs yet.
