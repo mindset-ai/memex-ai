@@ -1,11 +1,7 @@
 import { useState } from 'react';
 import type { Comment, DocSection, Decision, Task } from '../api/types';
 import { CommentBubble } from './CommentTray';
-import {
-  filterComments,
-  type AuthorKindFilter,
-  type StatusFilter,
-} from '../utils/filterComments';
+import { filterComments, type StatusFilter } from '../utils/filterComments';
 import { commentAnchorId, buildCommentLink } from '../utils/commentDeepLink';
 
 // spec-100 ac-6: wrap a comment with a stable scroll anchor (`comment-c-{seq}`)
@@ -36,13 +32,9 @@ function AnchoredCommentBubble({ comment }: { comment: Comment }) {
   );
 }
 
-// spec-100 ac-9: author kind + status are the load-bearing Comments-tab
-// filters. Small segmented control mirroring the type-chip styling.
-const AUTHOR_KIND_OPTIONS: { value: AuthorKindFilter; label: string }[] = [
-  { value: 'all', label: 'Everyone' },
-  { value: 'system', label: 'System' },
-  { value: 'human', label: 'People' },
-];
+// spec-194: the author-kind row (Everyone/System/People) was removed — status
+// is the only Comments-tab filter now. (spec-100 ac-9's author-kind half + ac-4
+// are superseded; the shared filterComments predicate stays intact.)
 const STATUS_OPTIONS: { value: StatusFilter; label: string }[] = [
   { value: 'open', label: 'Open' },
   { value: 'resolved', label: 'Resolved' },
@@ -106,13 +98,13 @@ export function AllComments({
   onNavigateToSection,
   onTabChange,
 }: AllCommentsProps) {
-  // spec-100 ac-9: author kind + status are the load-bearing filters, owned
-  // locally (no refetch needed — both fields are already on the loaded rows).
+  // spec-194: author-kind filtering removed — status is the only local filter.
   // Status defaults to 'open'; resolved comments are history, shown on demand.
-  const [authorKind, setAuthorKind] = useState<AuthorKindFilter>('all');
+  // authorKind is fixed to 'all' so the shared filterComments predicate keeps
+  // its signature (it's reused by the spec-view marker dimming).
   const [status, setStatus] = useState<StatusFilter>('open');
   const applyLocal = (list: Comment[]) =>
-    filterComments(list, { authorKind, status, type: null });
+    filterComments(list, { authorKind: 'all', status, type: null });
 
   // spec-185: the comment-type filter chips were removed, so there is no type
   // narrowing — author kind and status are the only filters, applied here
@@ -154,29 +146,17 @@ export function AllComments({
   return (
     <div className="space-y-6 ml-8">
       {hasAnyComments && (
-        <div className="space-y-2">
-          <SegmentedFilter
-            group="author"
-            options={AUTHOR_KIND_OPTIONS}
-            active={authorKind}
-            onChange={setAuthorKind}
-          />
-          <SegmentedFilter
-            group="status"
-            options={STATUS_OPTIONS}
-            active={status}
-            onChange={setStatus}
-          />
-        </div>
+        <SegmentedFilter
+          group="status"
+          options={STATUS_OPTIONS}
+          active={status}
+          onChange={setStatus}
+        />
       )}
 
       {totalCount === 0 && (
         <p className="text-sm text-muted py-8">
-          {status === 'resolved'
-            ? 'No resolved comments.'
-            : authorKind === 'system'
-              ? 'No system comments in this view.'
-              : 'No open comments.'}
+          {status === 'resolved' ? 'No resolved comments.' : 'No open comments.'}
         </p>
       )}
 

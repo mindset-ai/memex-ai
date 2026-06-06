@@ -62,11 +62,12 @@ test.describe("Spec detail layout", () => {
     await expect(page.getByRole("button", { name: /^Decisions & ACs/ })).toBeVisible();
     await expect(page.getByRole("button", { name: /^Comments/ })).toBeVisible();
 
-    // spec-185: the human comment-type filter chip row was removed from the
-    // doc-wide Comments view (and the per-target tray). The authorship/state
-    // filters stay; only the type-chip row is gone.
+    // spec-185 removed the comment-type chip row from the doc-wide Comments
+    // view; spec-194 then removed the author-kind (Everyone/System/People) row.
+    // Only the Open/Resolved/All status row survives.
     await page.getByRole("button", { name: /^Comments/ }).click();
     await expect(page.getByTestId("comment-filter-chips")).toHaveCount(0);
+    await expect(page.getByTestId("author-filter")).toHaveCount(0);
 
     await page.getByRole("button", { name: /^Decisions & ACs/ }).click();
     // A spec opened via /docs/:id canonicalises to /specs/:id (DocDocument route).
