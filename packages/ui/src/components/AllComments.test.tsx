@@ -6,11 +6,13 @@ import type { DocSection, Decision, Task, Comment } from '../api/types';
 import { tagAc } from "@memex-ai-ac/vitest";
 
 const AC_FILTER_LOADBEARING = 'mindset-prod/memex-building-itself/specs/spec-100/acs/ac-9';
-const AC_FILTER_USABLE = 'mindset-prod/memex-building-itself/specs/spec-100/acs/ac-4';
 const AC_DEEPLINK = 'mindset-prod/memex-building-itself/specs/spec-100/acs/ac-6';
 // spec-185 — remove the human comment-type filter chips.
 const AC185 = (n: number) =>
   `mindset-prod/memex-building-itself/specs/spec-185/acs/ac-${n}`;
+// spec-194 — remove the author-kind (Everyone/System/People) filter row.
+const AC194 = (n: number) =>
+  `mindset-prod/memex-building-itself/specs/spec-194/acs/ac-${n}`;
 
 function makeComment(overrides: Partial<Comment> = {}): Comment {
   return {
@@ -205,12 +207,10 @@ describe('AllComments', () => {
     expect(screen.getByText('task issue')).toBeInTheDocument();
   });
 
-  // ── spec-100 ac-9 / ac-4: author-kind + status filtering ──
+  // ── spec-194: author-kind row removed; status filtering retained (spec-100 ac-9 status half) ──
 
-  it('filters to system (agent) comments when the System chip is clicked', async () => {
-    tagAc(AC_FILTER_LOADBEARING);
-    tagAc(AC185(9)); // spec-185 ac-9: authorship filter row unchanged by chip removal
-    const user = userEvent.setup();
+  it('renders no author-kind filter row — Everyone/System/People removed (spec-194 ac-5)', () => {
+    tagAc(AC194(5));
     const section = makeSection();
     render(
       <AllComments
@@ -224,19 +224,35 @@ describe('AllComments', () => {
         onNavigateToSection={vi.fn()}
       />
     );
+    expect(screen.queryByTestId('author-filter')).not.toBeInTheDocument();
+    for (const kind of ['all', 'system', 'human']) {
+      expect(screen.queryByTestId(`author-filter-${kind}`)).not.toBeInTheDocument();
+    }
+  });
 
-    // Default (Everyone): both visible.
+  it('renders human and agent/system comments together — no author-kind narrowing (spec-194 ac-7)', () => {
+    tagAc(AC194(7));
+    const section = makeSection();
+    render(
+      <AllComments
+        sections={[section]}
+        commentsBySection={{
+          [section.id]: [
+            makeComment({ id: 'h', content: 'human note', source: 'human' }),
+            makeComment({ id: 's', content: 'system flag', source: 'agent' }),
+          ],
+        }}
+        onNavigateToSection={vi.fn()}
+      />
+    );
+    // Both render with no way (and no need) to filter by author kind.
     expect(screen.getByText('human note')).toBeInTheDocument();
     expect(screen.getByText('system flag')).toBeInTheDocument();
-
-    await user.click(screen.getByTestId('author-filter-system'));
-    expect(screen.getByText('system flag')).toBeInTheDocument();
-    expect(screen.queryByText('human note')).not.toBeInTheDocument();
   });
 
   it('surfaces resolved comments only when the Resolved status is selected', async () => {
-    tagAc(AC_FILTER_LOADBEARING);
-    tagAc(AC185(9)); // spec-185 ac-9: state filter row unchanged by chip removal
+    tagAc(AC_FILTER_LOADBEARING); // spec-100 ac-9 — status half retained
+    tagAc(AC194(6)); // spec-194 ac-6: status filter still renders + works
     const user = userEvent.setup();
     const section = makeSection();
     render(
@@ -259,36 +275,6 @@ describe('AllComments', () => {
     await user.click(screen.getByTestId('status-filter-resolved'));
     expect(screen.getByText('resolved one')).toBeInTheDocument();
     expect(screen.queryByText('open one')).not.toBeInTheDocument();
-  });
-
-  it('stays usable at 20+ comments: filtering to system narrows to the seeded flags', async () => {
-    tagAc(AC_FILTER_USABLE);
-    const user = userEvent.setup();
-    const section = makeSection();
-    const many: Comment[] = [];
-    for (let i = 0; i < 22; i++) {
-      many.push(makeComment({ id: `h-${i}`, content: `human ${i}`, source: 'human' }));
-    }
-    many.push(makeComment({ id: 'sys-a', content: 'seeded weakness A', source: 'agent', commentType: 'issue' }));
-    many.push(makeComment({ id: 'sys-b', content: 'seeded weakness B', source: 'agent', commentType: 'issue' }));
-
-    render(
-      <AllComments
-        sections={[section]}
-        commentsBySection={{ [section.id]: many }}
-        onNavigateToSection={vi.fn()}
-      />
-    );
-
-    // All 24 rendered at the default view (noisy).
-    expect(screen.getByText('human 0')).toBeInTheDocument();
-
-    // Filtering to System collapses the noise to just the two seeded flags.
-    await user.click(screen.getByTestId('author-filter-system'));
-    expect(screen.getByText('seeded weakness A')).toBeInTheDocument();
-    expect(screen.getByText('seeded weakness B')).toBeInTheDocument();
-    expect(screen.queryByText('human 0')).not.toBeInTheDocument();
-    expect(screen.queryByText('human 21')).not.toBeInTheDocument();
   });
 
   // ── spec-100 ac-6: deep-link to a comment ──
