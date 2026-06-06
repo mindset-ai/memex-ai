@@ -5,6 +5,7 @@ import type { Memex, Namespace } from "../db/schema.js";
 import { ValidationError } from "../types/errors.js";
 import { mutate, type Mutated } from "./mutate.js";
 import { seedHandholdDemo } from "./handhold-demo.js";
+import { seedDefaultStandards } from "./default-standards.js";
 
 // Canonical display name for personal memexes. Per product decision, personal memexes
 // cannot be renamed — the switcher always shows "Personal Memex" so there's no ambiguity
@@ -149,7 +150,10 @@ export async function ensureUserNamespace(
     // the actual insert, but the seed is idempotent — ac-8 — so a duplicate fire
     // is harmless). The needsLink-only repair path has a pre-existing memex and
     // does NOT seed.
-    if (!existingMemex) seedHandholdDemoBestEffort(created.memex.id);
+    if (!existingMemex) {
+      seedHandholdDemoBestEffort(created.memex.id);
+      seedDefaultStandardsBestEffort(created.memex.id);
+    }
     return created;
   }
 
@@ -213,6 +217,7 @@ export async function ensureUserNamespace(
   // returns earlier and never reaches here). This funnels every signup flow
   // (password / magic-link / SSO) — they all create the namespace through here.
   seedHandholdDemoBestEffort(created.memex.id);
+  seedDefaultStandardsBestEffort(created.memex.id);
   return created;
 }
 
@@ -234,6 +239,27 @@ function seedHandholdDemoBestEffort(memexId: string): void {
   if (process.env.MEMEX_HANDHOLD_SIGNUP_SEED === "off") return;
   void seedHandholdDemo(memexId).catch((err) =>
     console.error("[handhold seed]", err),
+  );
+}
+
+// Fire-and-forget the default-Standards seed for a newly-created personal Memex
+// (spec-184 t-3 / dec-2). Best-effort by contract: a seed failure must NEVER roll
+// back or block signup, so the promise is detached (`void`) and any rejection is
+// swallowed to a log line. The seed is idempotent (NO-OP once the Memex holds any
+// standard — the zero-Standards guard), so even a duplicate fire is harmless. Only
+// reached on the personal-namespace create path (kind='user'), so seeding is
+// inherently personal-only (dec-6).
+//
+// spec-186 gate (mirrors seedHandholdDemoBestEffort): this detached multi-insert seed
+// otherwise outlives a test and races its cleanup — FK noise + a console log after
+// worker teardown (the EnvironmentTeardownError rpc race) — so vitest disables it
+// suite-wide via MEMEX_DEFAULT_STANDARDS_SIGNUP_SEED=off. The seed's OWN suites stub it
+// back on (read at CALL time, never cached). Prod/dev/e2e are unchanged (var unset ⇒
+// hook fires).
+function seedDefaultStandardsBestEffort(memexId: string): void {
+  if (process.env.MEMEX_DEFAULT_STANDARDS_SIGNUP_SEED === "off") return;
+  void seedDefaultStandards(memexId).catch((err) =>
+    console.error("[default-standards seed]", err),
   );
 }
 

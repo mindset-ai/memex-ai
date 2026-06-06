@@ -157,6 +157,18 @@ echo "  1c. handhold demo backfill (spec-178 t-5 / ac-28)..."
 DATABASE_URL="${DB_URL}" timeout 600 pnpm db:backfill-handhold \
   || echo "  ⚠ handhold backfill timed out or failed (non-gating, exit $?) — deploy continues; next deploy resumes (idempotent)."
 
+# 1d. spec-184 t-4 / ac-15 — backfill the default Standards into EXISTING personal
+# Memexes (namespaces.kind='user') whose Standards list is still empty. New signups
+# already get them via the post-commit hook in ensureUserNamespace; this is the
+# one-time catch-up. seedDefaultStandards is per-Memex idempotent (no-ops once a Memex
+# holds any standard — and so never overwrites a user's own Standards, dec-4 empty-list
+# scope), so it does zero work after the first pass and is safe to run on every deploy
+# in BOTH environments. Bounded + non-gating like 1c: `timeout` caps the run and `|| echo`
+# swallows a timeout (124) or any error so `set -e` can never abort a live deploy.
+echo "  1d. default Standards backfill (spec-184 t-4 / ac-15)..."
+DATABASE_URL="${DB_URL}" timeout 600 pnpm db:backfill-default-standards \
+  || echo "  ⚠ default-standards backfill timed out or failed (non-gating, exit $?) — deploy continues; next deploy resumes (idempotent)."
+
 kill $PROXY_PID 2>/dev/null
 wait $PROXY_PID 2>/dev/null || true
 
