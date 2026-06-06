@@ -59,6 +59,27 @@ import { listSpecsAssignedToUser } from "./doc-assignees.js";
 
 const HANDLE_REGEX = /^(spec|std|doc)-\d+$/i;
 
+// spec-191: the number-jump grammar for the ⌘K Jump-to lane (dec-2). An optional
+// type token + optional single `-`/space separator + a required integer, anchored
+// to the whole query, case-insensitive. The token+separator form ONE optional
+// group, so a lone leading separator (e.g. `-178`) does NOT parse as a bare number.
+// The alternation is ordered longest-first (`spec|std|doc|s`) so `std178` resolves
+// the Standard, and only a lone leading `s` (`s178`/`s-178`) takes the single-letter
+// Spec short form (std-1's `s-N` vocabulary). A bare integer (no token) fans out to
+// all three memex-global kinds (dec-1); a token scopes to one. `@name` assignee
+// queries never match — they carry no digit in this position. Capture groups:
+// [1] = optional type token, [2] = the integer.
+const NUMBER_JUMP_REGEX = /^(?:(spec|std|doc|s)[\s-]?)?(\d+)$/i;
+
+// Number-jump rows rank below an exact full-handle hit (score 1) and above the
+// title-substring rows (0.5); the descending per-kind scores also keep the
+// spec→std→doc order (dec-1) stable regardless of how the parallel lookups resolve.
+const NUMBER_JUMP_SCORE: Record<"spec" | "std" | "doc", number> = {
+  spec: 0.9,
+  std: 0.8,
+  doc: 0.7,
+};
+
 // Reciprocal-rank-fusion constant. 60 is the canonical default from the
 // original Cormack/Clarke 2009 paper. Lower k weights top ranks more heavily,
 // higher k flattens the curve. Keep at 60 unless we have measurements that
@@ -532,6 +553,47 @@ export async function resolveJumpTo(
       hits.push(direct);
       seenDocIds.add(direct.id);
     }
+  }
+
+  // 1b. Number / short-handle jump (spec-191). A bare integer — or a kind-scoped
+  //     short/long form — resolves to the doc(s) carrying that number across the
+  //     three memex-global kinds (spec-N / std-N / doc-N). It reuses the SAME
+  //     lookupByHandle the exact-handle arm uses, so the number jump and the
+  //     full-handle jump always agree on what a handle points at — no new SQL
+  //     pattern, just indexed equality lookups. A bare number fans out to all
+  //     three kinds, specs first (dec-1); a prefix scopes to one (s/spec → Spec,
+  //     std → Standard, doc → Document — dec-2). The semantic core (searchMemex)
+  //     is deliberately NOT taught numbers (dec-3): this arm is UI-only. A full
+  //     handle like `spec-178` is already resolved by the exact-handle arm above
+  //     and deduped here via seenDocIds, so it is never listed twice; visibility
+  //     (archived + is_demo excluded, drafts included) is inherited from
+  //     lookupByHandle unchanged.
+  const numberMatch = NUMBER_JUMP_REGEX.exec(trimmed);
+  if (numberMatch) {
+    const token = numberMatch[1]?.toLowerCase();
+    const n = Number.parseInt(numberMatch[2], 10);
+    // token → ordered candidate kinds. No token → all three, specs first (dec-1).
+    // `s` is the single-letter short form for a Spec (std-1's `s-N` vocabulary).
+    const kinds: ReadonlyArray<"spec" | "std" | "doc"> =
+      token === undefined
+        ? ["spec", "std", "doc"]
+        : token === "std"
+          ? ["std"]
+          : token === "doc"
+            ? ["doc"]
+            : ["spec"]; // "s" | "spec"
+    // Resolve the (≤3) candidate handles in parallel, then push in kind order so
+    // the spec→std→doc ranking is deterministic regardless of resolution timing.
+    const resolved = await Promise.all(
+      kinds.map((kind) => lookupByHandle(memexId, slugs, `${kind}-${n}`, false)),
+    );
+    kinds.forEach((kind, i) => {
+      const hit = resolved[i];
+      if (hit && !seenDocIds.has(hit.id)) {
+        seenDocIds.add(hit.id);
+        hits.push({ ...hit, score: NUMBER_JUMP_SCORE[kind] });
+      }
+    });
   }
 
   // 2. Spec title-substring (ac-18) — docType='spec' only ("Spec title"),
