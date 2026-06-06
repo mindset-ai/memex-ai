@@ -11,7 +11,7 @@
 // exact catch branch ac-7 protects. Runs against REAL Postgres (the namespace + memex
 // are really created); only the demo seeder is mocked.
 
-import { describe, it, expect, afterAll, vi } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { and, eq, inArray } from "drizzle-orm";
 
 // Mock the demo seeder to always reject. vi.mock is hoisted and keys on the module
@@ -37,6 +37,15 @@ const AC = (n: number) =>
 
 const createdNamespaceIds: string[] = [];
 const createdUserIds: string[] = [];
+
+// spec-186: the vitest config disables the signup seed hook suite-wide; this
+// suite tests the hook's failure resilience, so opt back in (call-time read).
+beforeAll(() => {
+  process.env.MEMEX_HANDHOLD_SIGNUP_SEED = "on";
+});
+afterAll(() => {
+  process.env.MEMEX_HANDHOLD_SIGNUP_SEED = "off";
+});
 
 afterAll(async () => {
   // Namespaces cascade to their memex; users last.
