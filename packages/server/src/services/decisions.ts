@@ -732,6 +732,19 @@ export async function resolveDecision(
   // comment insertion may fail for reasons unrelated to the decision change). The UI
   // can rediscover drift via list_doc_comments / SSE on subsequent activity.
   try {
+    // dec-11: Handhold demo (is_demo) specs are excluded from every agent surface,
+    // so resolving a demo decision must NOT trigger a standards drift scan. This is
+    // also the primary fix for the spec-178 backfill hang: scanForDecisionDrift is
+    // AWAITED here (it runs a standards FTS per resolve), so seeding 5×N demo specs
+    // put N× full drift scans on the critical path and stalled the deploy. Skip them.
+    const [docRow] = await db
+      .select({ isDemo: documents.isDemo })
+      .from(documents)
+      .where(eq(documents.id, decision.docId))
+      .limit(1);
+    if (docRow?.isDemo) {
+      return updated;
+    }
     // Lazy import to avoid any circular dependency surprises (services/standards.ts
     // imports services/comments.ts, which has no path back here, but the lazy load
     // also keeps the cost out of the hot path when no standards exist).
