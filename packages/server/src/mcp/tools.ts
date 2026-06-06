@@ -38,6 +38,7 @@ import { applyPhaseDescriptionOverrides } from "./phase-descriptions.js";
 import { resolveRef as resolveCanonicalRef } from "../services/resolver.js";
 import { parseRef } from "../services/refs.js";
 import { logToolCall } from "../services/mcp-telemetry.js";
+import { runToolWithSpecTraffic } from "../services/spec-traffic.js";
 import { bus } from "../services/bus.js";
 import { deriveActivity } from "../agent/derive-activity.js";
 import type { ToolSpec } from "../agent/tool-specs.js";
@@ -400,7 +401,13 @@ export function createMcpServer(
         // Throw on error — withTelemetry catches, captures the FULL error
         // (name + message + stack) into mcp_tool_calls.error, then calls
         // handleError to produce the redacted agent-facing envelope.
-        return await spec.handler(input, ctx);
+        //
+        // spec-189: handler execution goes through the channel-neutral
+        // traffic seam — after a SUCCESSFUL call, the Spec the call resolved
+        // to may auto-advance phase and auto-assign the caller (see
+        // services/spec-traffic.ts). Identical wiring on the in-app agent
+        // surface (agent/tools.ts → executeServerTool) per dec-5.
+        return await runToolWithSpecTraffic(spec, input, ctx);
       },
       () => resolvedMemexId,
       // spec-156 ac-15: pass the spec so the wrap emits a 'mcp'-channel

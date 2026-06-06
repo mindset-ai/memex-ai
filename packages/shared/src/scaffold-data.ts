@@ -800,13 +800,11 @@ const TOOLS: ToolNode[] = toolManifest.map(
         `Missing rationale for tool "${entry.name}" — add an entry to TOOL_RATIONALES in scaffold-data.ts.`,
       );
     }
+    // Spread the manifest entry whole so new manifest fields (e.g. spec-189's
+    // trafficClass / autoAssignExempt) ride along without a forking edit here.
     return {
+      ...entry,
       kind: 'tool',
-      name: entry.name,
-      summary: entry.summary,
-      args: entry.args,
-      group: entry.group,
-      readOnlyHint: entry.readOnlyHint,
       rationale,
     };
   },

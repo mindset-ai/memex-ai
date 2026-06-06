@@ -39,6 +39,7 @@ import {
 import { parseRef } from "../services/refs.js";
 import { resolveRef as resolveCanonicalRef } from "../services/resolver.js";
 import { emitInAppAgentActivity } from "../services/conversations.js";
+import { runToolWithSpecTraffic } from "../services/spec-traffic.js";
 import { deriveActivity } from "./derive-activity.js";
 
 // ══════════════════════════════════════
@@ -615,7 +616,13 @@ export async function executeServerTool(
     // No-op — emission must never affect the agent turn.
   }
 
-  return spec.handler(input, ctx);
+  // spec-189: handler execution goes through the channel-neutral traffic
+  // seam — after a SUCCESSFUL call, the Spec the call resolved to may
+  // auto-advance phase and auto-assign the caller (see
+  // services/spec-traffic.ts). Identical wiring on the MCP surface
+  // (mcp/tools.ts) per dec-5; ctx.channel ('in_app_agent' here) is what
+  // distinguishes the surfaces.
+  return runToolWithSpecTraffic(spec, input, ctx);
 }
 
 // Avoid unused-import warning — `and` is kept around because the lookup

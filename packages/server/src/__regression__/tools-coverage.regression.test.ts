@@ -268,3 +268,90 @@ describe("regression: tool manifest ↔ MCP catalogue parity (b-67 t-4)", () => 
     });
   });
 });
+
+// ──────────────────────────────────────────────────────────────────────────
+// Traffic-class classification (spec-189 dec-4 / ac-9)
+//
+// Every manifest entry carries `trafficClass` (required — omitting it on a
+// new tool is a type error). The transition + auto-assignment services derive
+// their behaviour EXCLUSIVELY from this classification; there is no standalone
+// tool-name map anywhere else. The exact class membership is pinned below so
+// reclassifying a tool is a deliberate, reviewed edit — not drift.
+// ──────────────────────────────────────────────────────────────────────────
+
+describe("regression: manifest traffic-class classification (spec-189 dec-4)", () => {
+  const SPEC_189 = "mindset-prod/memex-building-itself/specs/spec-189";
+
+  it("every entry carries a valid trafficClass and read-only tools are never classified", () => {
+    tagAc(`${SPEC_189}/acs/ac-9`);
+    const valid = new Set(["specify", "build", "verify", null]);
+    for (const e of toolManifest) {
+      expect(valid.has(e.trafficClass), `${e.name} has invalid trafficClass ${String(e.trafficClass)}`).toBe(true);
+      if (e.readOnlyHint) {
+        // Query-class traffic never moves a Spec — a read-only tool with a
+        // traffic class would contradict the matrix's query column.
+        expect(e.trafficClass, `${e.name} is read-only but classified '${String(e.trafficClass)}'`).toBeNull();
+        expect(e.autoAssignExempt, `${e.name} is read-only — autoAssignExempt is meaningless on it`).toBeUndefined();
+      }
+    }
+  });
+
+  it("the specify-class and build-class memberships match dec-1 exactly", () => {
+    tagAc(`${SPEC_189}/acs/ac-9`);
+    const byClass = (cls: string) =>
+      toolManifest.filter((e) => e.trafficClass === cls).map((e) => e.name).sort();
+
+    // dec-1: decision authoring/resolution + AC authoring = specify-class.
+    expect(byClass("specify")).toEqual([
+      "approve_candidate",
+      "create_ac",
+      "create_decision",
+      "delete_ac",
+      "delete_decision",
+      "link_ac_to_decision",
+      "reject_candidate",
+      "resolve_decision",
+      "update_ac",
+      "update_decision",
+    ]);
+
+    // dec-1: task lifecycle + issue registration/lifecycle = build-class.
+    expect(byClass("build")).toEqual([
+      "convert_issue_to_task",
+      "create_task",
+      "delete_task",
+      "kick_task_to_issue",
+      "register_issue",
+      "resolve_issue",
+      "update_issue",
+      "update_task",
+    ]);
+
+    // No MCP tool is verify-class today: AC verification arrives via
+    // POST /api/test-events, which the server wires to verify-class directly.
+    expect(byClass("verify")).toEqual([]);
+  });
+
+  it("auto-assignment exemptions are exactly the assignment/role managers + notify-only tools", () => {
+    tagAc(`${SPEC_189}/acs/ac-9`);
+    const exempt = toolManifest
+      .filter((e) => e.autoAssignExempt === true)
+      .map((e) => e.name)
+      .sort();
+    // Tools whose JOB is managing the assignment/role axis must not be fought
+    // by auto-assignment (unassign_spec(self) would instantly undo itself);
+    // the messaging tools mutate nothing on the Spec.
+    expect(exempt).toEqual([
+      "assign_spec",
+      "memex__send_discord_message",
+      "memex__send_slack_message",
+      "set_spec_role",
+      "unassign_spec",
+    ]);
+    for (const e of toolManifest) {
+      if (e.autoAssignExempt) {
+        expect(e.readOnlyHint, `${e.name}: exemption only applies to mutating tools`).toBe(false);
+      }
+    }
+  });
+});

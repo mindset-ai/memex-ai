@@ -13,7 +13,10 @@
 // any org member can one-click self-promote again.
 //
 // Assignment (doc_assignees) is a SEPARATE, independent relation — see
-// services/doc-assignees.ts. A row here is never implied by an assignment (dec-3).
+// services/doc-assignees.ts. A row here is never implied by a MANUAL assignment
+// (dec-3). spec-189 dec-6 carve-out: TRAFFIC-DRIVEN auto-assignment
+// (services/spec-traffic.ts) does imply one — a user actively mutating a Spec
+// through an agent is promoted to editor alongside the assignment.
 
 import { and, eq } from "drizzle-orm";
 import { db } from "../db/connection.js";
