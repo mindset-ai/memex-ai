@@ -31,6 +31,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   fetchAcsForBrief,
   fetchAcAlignmentHistory,
+  acceptAc,
+  unacceptAc,
   type AcWithVerification,
   type AcAlignmentDay,
   type AcVerificationState,
@@ -63,11 +65,14 @@ const POLL_INTERVAL_MS = 3_000;
 // Palette deliberately kept warm, not strident. Failing uses rose-500
 // (softer than red-500 — recognisably "broken" without the glare of
 // danger-red). Untested + stale stay quiet but distinct from each other.
+// Accepted (spec-188 dec-1) is sky-blue — deliberately distinct from
+// test-verified green so human judgement never masquerades as test evidence.
 const STATE_COLOURS: Record<AcVerificationState, string> = {
   verified: 'bg-green-500',
   failing: 'bg-rose-500',
   untested: 'bg-zinc-300',
   stale: 'bg-amber-400',
+  accepted: 'bg-sky-500',
 };
 
 const STATE_LABEL: Record<AcVerificationState, string> = {
@@ -75,16 +80,18 @@ const STATE_LABEL: Record<AcVerificationState, string> = {
   failing: 'failing',
   untested: 'untested',
   stale: 'stale',
+  accepted: 'accepted',
 };
 
-// Failing first, then degrees of needs-attention, then the calm verified mass.
-// Within each bucket the original seq order is preserved so rows don't shuffle
-// on every poll tick.
+// Failing first, then degrees of needs-attention, then the calm verified mass
+// (accepted sits with it — both are "honoured claims"). Within each bucket the
+// original seq order is preserved so rows don't shuffle on every poll tick.
 const STATE_ORDER: Record<AcVerificationState, number> = {
   failing: 0,
   stale: 1,
   untested: 2,
-  verified: 3,
+  accepted: 3,
+  verified: 4,
 };
 
 function lastVerifiedAt(rows: AcWithVerification[]): Date | null {
@@ -149,6 +156,7 @@ function UnifiedAcHeader({
   const failing = rows.filter((r) => r.verificationState === 'failing');
   const untested = rows.filter((r) => r.verificationState === 'untested');
   const stale = rows.filter((r) => r.verificationState === 'stale');
+  const accepted = rows.filter((r) => r.verificationState === 'accepted');
   const total = rows.length;
 
   // Two metrics, both load-bearing:
@@ -160,12 +168,21 @@ function UnifiedAcHeader({
   //                 "are we honouring our claims" headline. Denominator is
   //                 covered ACs, not total — otherwise an untested-heavy
   //                 spec reads as a failing spec, which it isn't.
+  //
+  // spec-188 dec-1: manually-accepted ACs count toward the verified headline —
+  // they join both the numerator and the denominator (an accepted AC usually
+  // has no tests, so it wouldn't otherwise appear in either). The four states
+  // verified / failing / stale / accepted partition that denominator exactly.
   const covered = rows.filter((r) => r.tests.length > 0);
   const pctCovered = total === 0 ? 0 : Math.round((covered.length / total) * 100);
+  const testDerivedCount = verified.length + failing.length + stale.length;
+  const accountable = testDerivedCount + accepted.length;
   const pctVerified =
-    covered.length === 0 ? 0 : Math.round((verified.length / covered.length) * 100);
+    accountable === 0
+      ? 0
+      : Math.round(((verified.length + accepted.length) / accountable) * 100);
   const lastVerified = lastVerifiedAt(rows);
-  const allUntested = covered.length === 0;
+  const allUntested = covered.length === 0 && accepted.length === 0;
 
   return (
     <div
@@ -218,15 +235,21 @@ function UnifiedAcHeader({
               verified.length,
               failing.length,
               stale.length,
-              covered.length,
+              testDerivedCount,
+              accepted.length,
             )}
-            caption={
-              failing.length > 0
-                ? `${verified.length} of ${covered.length} covered ACs pass · ${failing.length} failing`
-                : `${verified.length} of ${covered.length} covered ACs pass${
-                    stale.length > 0 ? ` · ${stale.length} stale` : ''
-                  }`
-            }
+            caption={[
+              `${verified.length} of ${covered.length} covered ACs pass`,
+              accepted.length > 0
+                ? `${accepted.length} accepted`
+                : null,
+              failing.length > 0 ? `${failing.length} failing` : null,
+              failing.length === 0 && stale.length > 0
+                ? `${stale.length} stale`
+                : null,
+            ]
+              .filter(Boolean)
+              .join(' · ')}
             extra={
               lastVerified ? `last verified ${relativeTime(lastVerified)}` : undefined
             }
@@ -259,13 +282,15 @@ const METRIC_NUMBER_CLASS: Record<MetricColour, string> = {
 
 // Bar segment colour key. Extends MetricColour with `rose` so the verified
 // bar can surface failing ACs as a red segment instead of hiding them in
-// the empty grey track.
-type BarColour = 'green' | 'rose' | 'amber' | 'amberWarm';
+// the empty grey track, and `sky` (spec-188) for manually-accepted ACs —
+// counted as verified but never disguised as test-verified green.
+type BarColour = 'green' | 'rose' | 'amber' | 'amberWarm' | 'sky';
 const BAR_COLOUR_CLASS: Record<BarColour, string> = {
   green: 'bg-green-500',
   rose: 'bg-rose-500',
   amber: 'bg-amber-400',
   amberWarm: 'bg-amber-500',
+  sky: 'bg-sky-500',
 };
 
 interface BarSegment {
@@ -279,28 +304,42 @@ interface BarSegment {
 }
 
 /**
- * Build the three-segment composition for the verified bar.
+ * Build the segment composition for the verified bar.
  *
- * Each covered AC sits in exactly one verification state — verified, failing,
- * or stale — so the three segments sum to 100% of the bar (no grey
- * remainder). Zero-count segments are dropped so the bar doesn't carry
- * meaningless empty divs. Percentages are raw ratios × 100 so rounding
+ * Each AC in the denominator sits in exactly one verification state —
+ * verified, failing, stale, or accepted — so the segments sum to 100% of the
+ * bar (no grey remainder). Zero-count segments are dropped so the bar doesn't
+ * carry meaningless empty divs. Percentages are raw ratios × 100 so rounding
  * doesn't push the total above 100 and visually overflow the track.
+ *
+ * `coveredCount` is the count of ACs in a TEST-derived state (verified +
+ * failing + stale). Manually-accepted ACs (spec-188) are passed separately
+ * via `acceptedCount` and extend the denominator — green leads the bar, the
+ * sky-blue accepted segment follows it, then the attention colours.
  */
 export function buildVerifiedSegments(
   verifiedCount: number,
   failingCount: number,
   staleCount: number,
   coveredCount: number,
+  acceptedCount = 0,
 ): BarSegment[] {
-  if (coveredCount === 0) return [];
-  const ratio = (n: number): number => (n / coveredCount) * 100;
+  const denominator = coveredCount + acceptedCount;
+  if (denominator === 0) return [];
+  const ratio = (n: number): number => (n / denominator) * 100;
   const segments: BarSegment[] = [];
   if (verifiedCount > 0) {
     segments.push({
       percent: ratio(verifiedCount),
       colour: 'green',
       testId: 'bar-segment-verified',
+    });
+  }
+  if (acceptedCount > 0) {
+    segments.push({
+      percent: ratio(acceptedCount),
+      colour: 'sky',
+      testId: 'bar-segment-accepted',
     });
   }
   if (failingCount > 0) {
@@ -424,9 +463,13 @@ function KindBadge({ kind }: { kind: 'scope' | 'implementation' }) {
 function UnifiedAcList({
   rows,
   onInvestigate,
+  onAcceptToggle,
 }: {
   rows: AcWithVerification[];
   onInvestigate: (row: AcWithVerification) => void;
+  /** spec-188: accept / un-accept handler. Resolves when the panel has
+   *  refreshed; rejections surface as inline errors on the toggle. */
+  onAcceptToggle: (row: AcWithVerification) => Promise<void>;
 }) {
   const sorted = sortAcsForUnifiedView(rows);
 
@@ -451,12 +494,74 @@ function UnifiedAcList({
               </div>
               <div className="text-base text-body">{r.ac.statement}</div>
               <AcRowMeta row={r} onInvestigate={onInvestigate} />
-              <AcMatrixCollapsible acId={r.ac.id} testCount={r.tests.length} />
+              {/* spec-188 (ac-1): the accept action sits alongside the
+                  test-history toggle. The collapsible keeps the full row
+                  width (flex-1) so its expanded matrix isn't squeezed. */}
+              <div className="flex items-start gap-4">
+                <div className="flex-1 min-w-0">
+                  <AcMatrixCollapsible acId={r.ac.id} testCount={r.tests.length} />
+                </div>
+                <AcAcceptToggle row={r} onToggle={onAcceptToggle} />
+              </div>
             </div>
           </div>
         </li>
       ))}
     </ul>
+  );
+}
+
+// spec-188 (ac-1 / ac-10): "Mark as accepted" / "Un-accept" — the manual
+// verification override for ACs a digital test can't exercise. The button
+// reflects whether an acceptance RECORD exists (ac.acceptedAt), not the
+// derived state — an accepted-but-suppressed AC (failing evidence) still
+// shows "Un-accept" so the override stays discoverable and revocable.
+function AcAcceptToggle({
+  row,
+  onToggle,
+}: {
+  row: AcWithVerification;
+  onToggle: (row: AcWithVerification) => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // Loose `!= null` so a payload missing the field (older fixture/cached
+  // response) reads as "no acceptance", never as an accepted AC.
+  const hasAcceptance = row.ac.acceptedAt != null;
+
+  const handleClick = async () => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await onToggle(row);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="mt-2 shrink-0 text-right">
+      <button
+        type="button"
+        onClick={() => void handleClick()}
+        disabled={busy}
+        data-testid={hasAcceptance ? 'ac-unaccept-button' : 'ac-accept-button'}
+        title={
+          hasAcceptance
+            ? 'Revoke the manual acceptance and restore the test-derived state'
+            : "Record a human acceptance for a criterion a digital test can't verify"
+        }
+        className="text-xs text-sky-600 dark:text-sky-400 hover:underline disabled:opacity-50"
+      >
+        {busy ? '…' : hasAcceptance ? 'Un-accept' : 'Mark as accepted'}
+      </button>
+      {error && (
+        <div className="mt-1 text-xs text-rose-600 dark:text-rose-400">{error}</div>
+      )}
+    </div>
   );
 }
 
@@ -500,6 +605,23 @@ function AcRowMeta({
         </>
       )}
       <span className="text-muted opacity-60">{STATE_LABEL[row.verificationState]}</span>
+      {/* spec-188 (ac-8): acceptance provenance. Shown whenever the record
+          exists — including while failing evidence suppresses the derived
+          state, where the suffix names the conflict instead of hiding it. */}
+      {row.ac.acceptedAt && (
+        <span
+          data-testid="ac-accepted-provenance"
+          className="text-sky-600 dark:text-sky-400"
+        >
+          accepted by {row.ac.acceptedBy ?? 'unknown'} ·{' '}
+          {new Date(row.ac.acceptedAt).toLocaleDateString(undefined, {
+            day: 'numeric',
+            month: 'short',
+            year: 'numeric',
+          })}
+          {row.verificationState === 'failing' && ' (suppressed by failing tests)'}
+        </span>
+      )}
       {row.verificationState === 'failing' && (
         <button
           onClick={() => onInvestigate(row)}
@@ -621,6 +743,21 @@ export function AcPanel({ docId, focusedAcId, onFocusConsumed, specPhase }: AcPa
       });
     },
     [chat],
+  );
+
+  // spec-188: accept / un-accept, then refresh immediately so the row, the
+  // header metrics and the bar all reflect the new state without waiting for
+  // the next poll tick. Errors propagate to the toggle's inline error state.
+  const handleAcceptToggle = useCallback(
+    async (row: AcWithVerification) => {
+      if (row.ac.acceptedAt != null) {
+        await unacceptAc(row.ac.id);
+      } else {
+        await acceptAc(row.ac.id);
+      }
+      await load();
+    },
+    [load],
   );
 
   if (rows === null) {
@@ -772,7 +909,11 @@ export function AcPanel({ docId, focusedAcId, onFocusConsumed, specPhase }: AcPa
       )}
 
       <UnifiedAcHeader rows={rows} history={mergeAlignmentHistory(history)} />
-      <UnifiedAcList rows={rows} onInvestigate={handleInvestigate} />
+      <UnifiedAcList
+        rows={rows}
+        onInvestigate={handleInvestigate}
+        onAcceptToggle={handleAcceptToggle}
+      />
 
       {aboutDialog}
     </div>
