@@ -102,6 +102,7 @@ afterAll(async () => {
 describe("handhold demo exclusion — search (ac-36)", () => {
   it("searchMemex omits an is_demo spec on the FTS and handle arms", async () => {
     tagAc(AC(36));
+    tagAc(AC(35)); // scope ac-35: demo Specs never appear in ⌘K (search arm)
 
     const provider = makeFakeProvider();
     const token = "handholddemoexcludexyztoken";
@@ -128,6 +129,7 @@ describe("handhold demo exclusion — search (ac-36)", () => {
 describe("handhold demo exclusion — enumeration + read/act (ac-37)", () => {
   it("MCP list path omits a demo spec; plain board listDocs still includes it; MCP resolver 404s it", async () => {
     tagAc(AC(37));
+    tagAc(AC(35)); // scope ac-35: no coding agent (MCP) can discover/read/exec a demo Spec
 
     // A demo spec + an ordinary spec, both in plan so the agent list's
     // statusIn:['plan','build','verify'] surfaces the non-demo one.
@@ -176,6 +178,7 @@ describe("handhold demo exclusion — enumeration + read/act (ac-37)", () => {
 describe("handhold demo exclusion — in-app agent read path (ac-38)", () => {
   it("the agent get_doc tool treats a demo spec as not-found", async () => {
     tagAc(AC(38));
+    tagAc(AC(35)); // scope ac-35: no in-app agent can discover/read/exec a demo Spec; board-only
 
     const demo = await createDocDraft(memexId, "Demo spec agent read", "Demo overview.", "spec");
     const real = await createDocDraft(memexId, "Real spec agent read", "Real overview.", "spec");
