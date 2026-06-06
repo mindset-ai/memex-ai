@@ -25,6 +25,11 @@ import {
 //   ac-9   typing a Spec title surfaces a result row with a kind badge.
 //   ac-10  ArrowDown moves the roving selection, Enter navigates to the hit.
 //   ac-8   Esc closes the dialog AND restores focus to the prior element.
+//
+// spec-191 extends this journey: typing the bare Spec NUMBER (the new number-jump
+// arm in resolveJumpTo) now surfaces the Spec under "Jump to" and navigates to it
+// — the real-browser proof that a bare number reaches the lane (spec-191 ac-1
+// through the human ⌘K surface; std-28 PR-gate journey).
 
 // A title unlikely to collide with anything already in the local dev memex, so
 // the query resolves to exactly our seeded Spec.
@@ -146,5 +151,52 @@ test.describe("Journey 18 — global ⌘K search palette", () => {
     await expect(reopened).not.toBeVisible();
     // ac-8: focus is restored to the element that was focused before opening.
     await expect(backLink).toBeFocused();
+  });
+
+  // spec-191: the bare-number jump. The reporter (Barrie) typed a Spec number into
+  // ⌘K and got nothing; this proves it now navigates. We type just the seeded
+  // Spec's number (parsed from its server-minted `spec-N` handle) and assert it
+  // surfaces under "Jump to" with the right path, then clicking it navigates.
+  // Presence-based (not exclusive) so demo specs / other same-numbered docs in the
+  // dev memex can't make it flaky.
+  test("typing the bare Spec number surfaces it under 'Jump to' and navigates (spec-191 ac-1)", async ({
+    page,
+  }) => {
+    await page.goto(bareUrl("/"));
+    await expect(page.getByRole("heading", { name: "Specs" })).toBeVisible({
+      timeout: 15_000,
+    });
+
+    await page.keyboard.press(HOTKEY);
+    const dialog = page.getByRole("dialog", { name: "Search this memex" });
+    await expect(dialog).toBeVisible();
+
+    // The number alone — no `spec-` prefix. This is the path that did nothing
+    // before spec-191 (it fell through to the content FTS tier, which matches body
+    // text, not handles).
+    const specNumber = specHandle.split("-")[1];
+    await page.getByPlaceholder(/Search specs/i).fill(specNumber);
+
+    const specRow = dialog
+      .locator('[data-testid="search-result"][data-kind="spec"]')
+      .filter({ hasText: SPEC_TITLE })
+      .first();
+    await expect(specRow).toBeVisible({ timeout: 10_000 });
+    // It lands in the Jump-to tier (the number arm sits there, above content).
+    await expect(dialog.getByText("Jump to", { exact: true })).toBeVisible();
+    await expect(specRow).toHaveAttribute(
+      "data-path",
+      `${nsSlug}/${mxSlug}/specs/${specHandle}`,
+    );
+
+    // Selecting the number-jump row navigates to the Spec detail page.
+    await specRow.click();
+    await expect(page).toHaveURL(
+      new RegExp(`/${nsSlug}/${mxSlug}/specs/${specHandle}$`),
+    );
+    await expect(dialog).not.toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: SPEC_TITLE, level: 1 }),
+    ).toBeVisible({ timeout: 15_000 });
   });
 });
