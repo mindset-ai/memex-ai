@@ -924,17 +924,45 @@ export function DocDocument() {
     />
   );
 
-  const issuePanel = (
+  // spec-188 dec-4: the Build tab offers Convert-to-Task; the Verify tab does
+  // NOT — converting mints an incomplete (build-phase) task, so the human
+  // verify posture doesn't invite it. Parameterised per layout below.
+  const issuePanel = (allowConvert: boolean) => (
     <IssuePanel
       docId={doc.id}
       canWrite={canWrite}
       /* spec-182 dec-4: dispositions (convert / won't-fix) are editor calls;
          registering stays open to reviewers via canWrite. */
       canEdit={canEdit}
+      allowConvert={allowConvert}
       onUpdate={reloadDoc}
       highlightIssueHandle={initialIssueHandle}
     />
   );
+
+  // spec-188 dec-5: the Verify tab's compact task-completion echo — the
+  // confirmation that everything built is built, and the amber exception
+  // signal when verification work has regressed the Spec (incomplete tasks
+  // on a verify view). Hidden when the Spec has no tasks.
+  const completedTaskCount = ts.filter((t) => t.status === 'complete').length;
+  const incompleteTaskCount = ts.length - completedTaskCount;
+  const verifyTaskEcho =
+    ts.length === 0 ? null : (
+      <div
+        data-testid="verify-task-echo"
+        className={`mb-4 text-xs ${
+          incompleteTaskCount === 0
+            ? 'text-green-600 dark:text-green-400'
+            : 'text-amber-600 dark:text-amber-400'
+        }`}
+      >
+        {incompleteTaskCount === 0
+          ? `✓ ${completedTaskCount}/${ts.length} tasks complete`
+          : `⚠ ${incompleteTaskCount} of ${ts.length} task${
+              ts.length === 1 ? '' : 's'
+            } incomplete — this Spec has unbuilt work`}
+      </div>
+    );
 
   const allCommentsView = (
     <AllComments
@@ -996,11 +1024,19 @@ export function DocDocument() {
     },
     build: {
       hasSubTabs: false,
-      render: () => twoCol(taskPanel, issuePanel, buildDirective),
+      render: () => twoCol(taskPanel, issuePanel(true), buildDirective),
     },
     verify: {
       hasSubTabs: false,
-      render: () => twoCol(acPanel, issuePanel, verifyDirective),
+      render: () =>
+        twoCol(
+          acPanel,
+          issuePanel(false),
+          <>
+            {verifyDirective}
+            {verifyTaskEcho}
+          </>,
+        ),
     },
   };
 

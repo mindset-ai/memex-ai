@@ -514,6 +514,15 @@ export const acs = pgTable(
     kind: text("kind").notNull(),
     statement: text("statement").notNull(),
     status: text("status").notNull().default("active"),
+    // spec-188 dec-1/dec-2: manual verification acceptance — the audited human
+    // override for ACs that can't be exercised by a digital test. Both NULL =
+    // no acceptance. `accepted_by` is a display snapshot (user.name ?? email),
+    // same posture as test_events.actor: attribution survives user deletion.
+    // The acceptance is an OVERLAY on the test-derived verification state —
+    // failing evidence suppresses it (derivation in services/acs.ts), it is
+    // never auto-deleted; un-accept nulls both columns.
+    acceptedBy: text("accepted_by"),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

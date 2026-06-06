@@ -245,3 +245,38 @@ describe('TaskPanel', () => {
     });
   });
 });
+// spec-188 dec-5 (ac-14) — the Build tab's task-completion Metric: same
+// MetricBar identity as the AC/issues bars, beneath the heading, above the
+// list, hidden at zero tasks.
+describe('TaskPanel — completion metric (spec-188)', () => {
+  const AC14 = 'mindset-prod/memex-building-itself/specs/spec-188/acs/ac-14';
+
+  it('renders the completion Metric with the shared bar identity', () => {
+    tagAc(AC14);
+    const tasks = [
+      makeTask({ id: 'a', seq: 1, status: 'complete' }),
+      makeTask({ id: 'b', seq: 2, status: 'complete' }),
+      makeTask({ id: 'c', seq: 3, status: 'in_progress' }),
+      makeTask({ id: 'd', seq: 4, status: 'not_started' }),
+    ];
+    render(<TaskPanel docId="doc-1" tasks={tasks} onUpdate={vi.fn()} />);
+
+    const header = screen.getByTestId('task-completion-header');
+    expect(header).toBeInTheDocument();
+    // 2 of 4 complete → 50%, rendered by the shared Metric tile.
+    expect(header.textContent).toContain('50%');
+    expect(header.textContent).toContain('2 of 4 tasks complete');
+    expect(screen.getByTestId('metric-bar-complete')).toBeInTheDocument();
+    // Position: the metric precedes the first task card in document order.
+    const firstCard = screen.getAllByTestId('task-card')[0];
+    expect(
+      header.compareDocumentPosition(firstCard) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it('is hidden when the Spec has zero tasks', () => {
+    tagAc(AC14);
+    render(<TaskPanel docId="doc-1" tasks={[]} onUpdate={vi.fn()} />);
+    expect(screen.queryByTestId('task-completion-header')).not.toBeInTheDocument();
+  });
+});

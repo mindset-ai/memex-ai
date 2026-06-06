@@ -300,7 +300,15 @@ export async function listParentLinks(acId: string): Promise<AcParentLink[]> {
  */
 export const STALE_THRESHOLD_DAYS = 7;
 
-export type VerificationState = "verified" | "failing" | "untested" | "stale";
+// spec-188 dec-1: 'accepted' is a first-class fifth state — the audited human
+// override for ACs that can't be exercised by a digital test. It counts toward
+// the verified percentage in the UI but keeps its own visual identity.
+export type VerificationState =
+  | "verified"
+  | "failing"
+  | "untested"
+  | "stale"
+  | "accepted";
 
 export interface AcTestSnapshot {
   /** file::function or whatever the emitting test passed as test_identifier. */
@@ -378,13 +386,20 @@ export function buildAcRef(slugs: BriefSlugs, acSeq: number): string {
 export function deriveVerificationState(
   tests: AcTestSnapshot[],
   daysSinceLastRun: number | null,
+  // spec-188 dec-2: true when the AC carries a manual acceptance (accepted_at
+  // set). Evidence wins — failing/erroring tests suppress the acceptance —
+  // but absent contradicting evidence the acceptance presents, including over
+  // verified/stale (passing tests "return" the AC to accepted, per dec-2).
+  accepted = false,
 ): VerificationState {
-  if (tests.length === 0) return "untested";
-  // ANY failing/erroring test wins — a partial pass is not verified.
+  // ANY failing/erroring test wins — a partial pass is not verified, and
+  // failing evidence suppresses a manual acceptance (spec-188 dec-2).
   const anyFailed = tests.some(
     (t) => t.latestStatus === "fail" || t.latestStatus === "error",
   );
   if (anyFailed) return "failing";
+  if (accepted) return "accepted";
+  if (tests.length === 0) return "untested";
   if (daysSinceLastRun !== null && daysSinceLastRun > STALE_THRESHOLD_DAYS) {
     return "stale";
   }
@@ -485,11 +500,82 @@ export async function listAcsForBriefWithVerification(
       ac,
       canonicalRef: ref,
       tests,
-      verificationState: deriveVerificationState(tests, daysSinceLastRun),
+      verificationState: deriveVerificationState(
+        tests,
+        daysSinceLastRun,
+        ac.acceptedAt !== null,
+      ),
       daysSinceLastRun,
       parents: parentsByAcId.get(ac.id) ?? [],
     };
   });
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// Manual verification acceptance (spec-188 dec-1/dec-2)
+// ══════════════════════════════════════════════════════════════════════
+//
+// The audited human override for ACs that can't be exercised by a digital
+// test. Distinct from acceptAc/rejectAc above — those transition the AC's
+// lifecycle *status* (proposed → active); these set/clear the *verification*
+// overlay (accepted_by/accepted_at on the acs row).
+//
+// Evidence wins: the overlay is suppressed by failing test evidence in
+// deriveVerificationState, never auto-deleted. Un-accept nulls both columns.
+
+/**
+ * Record a manual acceptance on an AC. `actor` is a display snapshot
+ * (user.name ?? email) — same posture as test_events.actor. Re-accepting an
+ * already-accepted AC refreshes actor + timestamp (idempotent in effect).
+ */
+export async function setAcAcceptance(
+  memexId: string,
+  acId: string,
+  actor: string,
+): Promise<Mutated<Ac>> {
+  if (!actor.trim()) {
+    throw new ValidationError("actor is required to accept an AC");
+  }
+  const ac = await getAc(memexId, acId); // tenancy check
+  return mutate(
+    {},
+    { memexId, docId: ac.briefId, entity: "ac", action: "updated" },
+    async () => {
+      const [row] = await db
+        .update(acs)
+        .set({ acceptedBy: actor.trim(), acceptedAt: new Date(), updatedAt: new Date() })
+        .where(and(eq(acs.id, acId), eq(acs.memexId, memexId)))
+        .returning();
+      return row;
+    },
+  );
+}
+
+/**
+ * Revoke a manual acceptance — nulls accepted_by/accepted_at, restoring the
+ * purely test-derived verification state. No-op-shaped if not accepted
+ * (throws ConflictError so the UI can't silently un-accept nothing).
+ */
+export async function clearAcAcceptance(
+  memexId: string,
+  acId: string,
+): Promise<Mutated<Ac>> {
+  const ac = await getAc(memexId, acId); // tenancy check
+  if (ac.acceptedAt === null) {
+    throw new ConflictError(`AC ${acId} has no acceptance to revoke`);
+  }
+  return mutate(
+    {},
+    { memexId, docId: ac.briefId, entity: "ac", action: "updated" },
+    async () => {
+      const [row] = await db
+        .update(acs)
+        .set({ acceptedBy: null, acceptedAt: null, updatedAt: new Date() })
+        .where(and(eq(acs.id, acId), eq(acs.memexId, memexId)))
+        .returning();
+      return row;
+    },
+  );
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -729,6 +815,10 @@ export interface AcHealth {
   stale: number;
   /** No tagged test events ever — the silent-no-emit case. */
   untested: number;
+  /** Manually accepted (spec-188 dec-1) with no failing evidence. Counts
+   *  toward the verified percentage in UI metrics but is tallied separately
+   *  so surfaces can keep the human-vs-test distinction visible. */
+  accepted: number;
 }
 
 const EMPTY_HEALTH: AcHealth = {
@@ -738,6 +828,7 @@ const EMPTY_HEALTH: AcHealth = {
   failing: 0,
   stale: 0,
   untested: 0,
+  accepted: 0,
 };
 
 export async function aggregateAcHealthForBriefs(
@@ -760,6 +851,7 @@ export async function aggregateAcHealthForBriefs(
       acId: acs.id,
       briefId: acs.briefId,
       seq: acs.seq,
+      acceptedAt: acs.acceptedAt,
       namespace: namespaces.slug,
       memex: memexes.slug,
       briefHandle: documents.handle,
@@ -844,7 +936,11 @@ export async function aggregateAcHealthForBriefs(
       latestRunAt === null
         ? null
         : Math.floor((now - latestRunAt.getTime()) / (1000 * 60 * 60 * 24));
-    const state = deriveVerificationState(tests, daysSinceLastRun);
+    const state = deriveVerificationState(
+      tests,
+      daysSinceLastRun,
+      row.acceptedAt !== null,
+    );
 
     const health = result.get(row.briefId);
     if (!health) continue;
@@ -862,6 +958,9 @@ export async function aggregateAcHealthForBriefs(
         break;
       case "untested":
         health.untested += 1;
+        break;
+      case "accepted":
+        health.accepted += 1;
         break;
     }
   }
@@ -926,7 +1025,9 @@ export async function listAcAlignmentOverTime(
   const acSetValues = sql.join(
     acRows.map(
       (a) =>
-        sql`(${buildAcRef(slugs, a.seq)}, ${a.kind}, ${a.createdAt.toISOString()}::timestamptz)`,
+        sql`(${buildAcRef(slugs, a.seq)}, ${a.kind}, ${a.createdAt.toISOString()}::timestamptz, ${
+          a.acceptedAt ? a.acceptedAt.toISOString() : null
+        }::timestamptz)`,
     ),
     sql`, `,
   );
@@ -934,7 +1035,7 @@ export async function listAcAlignmentOverTime(
   // For each (day × ac), find the latest event ≤ end-of-day for that ac_uid;
   // 'verified' iff that latest is 'pass'. Total = ACs that existed by then.
   const rows = (await db.execute(sql`
-    WITH ac_set(ac_uid, kind, created_at) AS (
+    WITH ac_set(ac_uid, kind, created_at, accepted_at) AS (
       VALUES ${acSetValues}
     ),
     series AS (
@@ -950,6 +1051,7 @@ export async function listAcAlignmentOverTime(
         a.kind,
         a.ac_uid,
         a.created_at,
+        a.accepted_at,
         (
           SELECT te.status
           FROM test_events te
@@ -968,9 +1070,22 @@ export async function listAcAlignmentOverTime(
       -- Gate verified on AC existence too — otherwise a test_event predating
       -- the AC's createdAt (only possible with synthetic seed data, but the
       -- contract should hold) yields verified > total, which is nonsense.
+      --
+      -- spec-188 dec-1/dec-2: a manual acceptance counts as verified from the
+      -- day it was recorded, with the same evidence-wins precedence as
+      -- deriveVerificationState — a failing/erroring latest status suppresses
+      -- it. (V0.0.1 caveat, same as status above: accepted_at is TODAY's
+      -- value, not historically reconstructed across un-accept cycles.)
       COUNT(*) FILTER (
-        WHERE latest_status = 'pass'
-          AND created_at <= day + INTERVAL '1 day'
+        WHERE created_at <= day + INTERVAL '1 day'
+          AND (
+            latest_status = 'pass'
+            OR (
+              accepted_at IS NOT NULL
+              AND accepted_at < day + INTERVAL '1 day'
+              AND (latest_status IS NULL OR latest_status = 'pass')
+            )
+          )
       ) AS verified
     FROM daily
     GROUP BY day, kind

@@ -2284,11 +2284,15 @@ export async function oauthAuthorizeDecisionApi(
 
 export type AcKind = 'scope' | 'implementation';
 export type AcStatus = 'proposed' | 'active' | 'rejected' | 'superseded';
+// spec-188 dec-1: 'accepted' is the audited human override for ACs that can't
+// be exercised by a digital test — own visual identity, counts toward the
+// verified percentage.
 export type AcVerificationState =
   | 'verified'
   | 'failing'
   | 'untested'
-  | 'stale';
+  | 'stale'
+  | 'accepted';
 
 export interface AcTestSnapshot {
   testIdentifier: string | null;
@@ -2307,6 +2311,13 @@ export interface AcWithVerification {
     kind: AcKind;
     statement: string;
     status: AcStatus;
+    /** spec-188: manual-acceptance provenance — display snapshot of who
+     *  accepted (user.name ?? email). Null when not accepted. */
+    acceptedBy: string | null;
+    /** ISO timestamp of the acceptance; null when not accepted. Note the
+     *  acceptance is an overlay — verificationState may read 'failing' while
+     *  these stay set (evidence wins, dec-2). */
+    acceptedAt: string | null;
     createdAt: string;
     updatedAt: string;
   };
@@ -2335,6 +2346,22 @@ export async function fetchAcsForBrief(
   const res = await fetchWithRetry(`${tBase()}/acs/doc/${docId}`);
   if (!res.ok) throw new Error(`Failed to fetch ACs: ${res.status}`);
   return res.json();
+}
+
+// spec-188: manual verification acceptance — POST records, DELETE revokes.
+// Server derives the actor from the session; no body needed.
+export async function acceptAc(acId: string): Promise<void> {
+  const res = await fetchWithRetry(`${tBase()}/acs/${acId}/acceptance`, {
+    method: 'POST',
+  });
+  if (!res.ok) throw new Error(`Failed to accept AC: ${res.status}`);
+}
+
+export async function unacceptAc(acId: string): Promise<void> {
+  const res = await fetchWithRetry(`${tBase()}/acs/${acId}/acceptance`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) throw new Error(`Failed to un-accept AC: ${res.status}`);
 }
 
 export async function fetchAcAlignmentHistory(
