@@ -131,7 +131,7 @@ describe.skipIf(!SMOKE_MCP_TOKEN)(
       // Phase mechanics are the largest topic and the one most likely to be
       // referenced by other tools. Body should describe the 5-phase pipeline.
       expect(text).toMatch(/draft/);
-      expect(text).toMatch(/plan/);
+      expect(text).toMatch(/specify/);
       expect(text).toMatch(/build/);
       expect(text).toMatch(/verify/);
       expect(text).toMatch(/done/);
@@ -284,7 +284,7 @@ describe.skipIf(!SMOKE_MCP_TOKEN)(
       expect(docRef, "create_doc should return a canonical ref").toBeTruthy();
 
       // Move to build so a task can be created (tasks are build-phase only).
-      await callMcpTool("update_doc", { ref: docRef!, status: "plan" });
+      await callMcpTool("update_doc", { ref: docRef!, status: "specify" });
       await callMcpTool("update_doc", { ref: docRef!, status: "build" });
 
       // CREATE the deletable entity — a task on the throwaway doc.
