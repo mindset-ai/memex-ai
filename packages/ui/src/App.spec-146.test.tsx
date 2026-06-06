@@ -119,6 +119,9 @@ describe('spec-146 t-4: /scaffold route gate', () => {
 
   it('ac-10: hidden → /scaffold does not render ScaffoldInspect and redirects to the default tenant', async () => {
     tagAc(AC(10));
+    // ac-2 (scope) — the route is gated, not merely missing from the nav: a direct
+    // /scaffold visit does not render ScaffoldInspect.
+    tagAc(AC(2));
     mockSession = makeSession(['scaffold']);
     renderAt('/alice/personal/scaffold');
 
@@ -134,6 +137,10 @@ describe('spec-146 t-4: /scaffold route gate', () => {
 
   it('ac-11: not hidden → /scaffold renders ScaffoldInspect', async () => {
     tagAc(AC(11));
+    // ac-4 (scope) — unhide is configuration-only: with nothing hidden, /scaffold
+    // renders ScaffoldInspect exactly as today, proving the code stayed fully intact
+    // while hidden and the feature returns by flipping config alone.
+    tagAc(AC(4));
     mockSession = makeSession([]);
     renderAt('/alice/personal/scaffold');
 
