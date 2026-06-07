@@ -151,6 +151,10 @@ const EL_BASE = "wss://api.elevenlabs.io";
 const DEFAULT_VOICE_ID = "21m00Tcm4TlvDq8ikWAM"; // ElevenLabs "Rachel" (documented default voice)
 const DEFAULT_TTS_MODEL = "eleven_flash_v2_5"; // lowest-latency model — the ping budget (dec-6) is tight
 const DEFAULT_TTS_FORMAT = "mp3_44100_128";
+// Realtime STT is Scribe v2 Realtime (the older scribe_v1 is batch-only). Endpoint,
+// message protocol, and model were validated against the live API via
+// scripts/smoke-elevenlabs.ts. Overridable so a model bump needs no code change.
+const DEFAULT_STT_MODEL = process.env.ELEVENLABS_STT_MODEL ?? "scribe_v2_realtime";
 
 class ElevenLabsVoiceProvider implements VoiceProvider {
   readonly name = "elevenlabs";
@@ -232,16 +236,28 @@ class ElevenLabsSttSession implements SttSession {
     const sampleRate = opts.sampleRate ?? 16000;
     this.ready = (async () => {
       const { WebSocket } = await import("ws");
+      // Scribe v2 Realtime WS contract: audio arrives as base64 `input_audio_chunk`
+      // messages, end-of-utterance is a chunk with `commit: true` (commit_strategy
+      // manual — the client owns end-of-speech via the VAD, dec-8), and transcripts
+      // come back as partial_transcript / committed_transcript messages.
       const url =
-        `${EL_BASE}/v1/speech-to-text/stream` +
-        `?model_id=scribe_v1&sample_rate=${sampleRate}` +
+        `${EL_BASE}/v1/speech-to-text/realtime` +
+        `?model_id=${DEFAULT_STT_MODEL}&audio_format=pcm_${sampleRate}&commit_strategy=manual` +
         (opts.languageCode ? `&language_code=${opts.languageCode}` : "");
       const ws = new WebSocket(url, { headers: { "xi-api-key": apiKey } });
       ws.on("message", (raw: Buffer) => {
         try {
           const msg = JSON.parse(raw.toString());
-          if (typeof msg.text === "string") {
-            this.queue.push({ text: msg.text, isFinal: Boolean(msg.is_final ?? msg.isFinal) });
+          switch (msg.message_type) {
+            case "partial_transcript":
+              if (typeof msg.text === "string") this.queue.push({ text: msg.text, isFinal: false });
+              break;
+            case "committed_transcript":
+            case "committed_transcript_with_timestamps":
+              if (typeof msg.text === "string") this.queue.push({ text: msg.text, isFinal: true });
+              break;
+            default:
+              /* ignore session_started / VAD / other control frames */
           }
         } catch {
           /* ignore non-JSON frames */
@@ -257,13 +273,21 @@ class ElevenLabsSttSession implements SttSession {
   pushAudio(chunk: Uint8Array): void {
     if (this.closed) return;
     void this.ready.then((ws) => {
-      if (ws.readyState === ws.OPEN) ws.send(chunk);
+      if (ws.readyState !== ws.OPEN) return;
+      ws.send(
+        JSON.stringify({
+          message_type: "input_audio_chunk",
+          audio_base_64: Buffer.from(chunk).toString("base64"),
+        }),
+      );
     });
   }
 
   endUtterance(): void {
     void this.ready.then((ws) => {
-      if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: "end" }));
+      if (ws.readyState !== ws.OPEN) return;
+      // Commit the current utterance: an input_audio_chunk with commit=true.
+      ws.send(JSON.stringify({ message_type: "input_audio_chunk", audio_base_64: "", commit: true }));
     });
   }
 
