@@ -42,7 +42,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "prepublishOnly": "rm -rf dist && pnpm run build"
+    "prepublishOnly": "rm -rf dist && pnpm run build && node scripts/verify-publish-artifact.mjs"
   },
   "peerDependencies": {
     "vitest": ">=2.0.0"
