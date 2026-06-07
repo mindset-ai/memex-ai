@@ -249,7 +249,6 @@ The `/api/<ns>/<mx>/llm/chat/create` endpoint handles the creation phase with no
 | `APP_BASE_URL` | No | Public base URL used by `services/shared/tenant-url.ts` (e.g. `https://memex.ai`) |
 | `CLOUD_SQL_SOCKET` | No | Cloud Run-only — Unix-socket sidecar path for Cloud SQL |
 | `DEBUG_AGENT` | No | Set to `0` to silence agent log |
-| `MEMEX_OWN_NAMESPACE` | Prod | The namespace this server owns — `mindset-int` in int, `mindset-prod` in prod. The `POST /api/test-events` route reads this to reject events whose AC ref names a different namespace (the cross-namespace safety net per spec-90). When **unset**, the route fail-closes — every test-event POST returns 503. Local-dev devs running tests against a local Memex server must set this explicitly to opt in. Set automatically by `scripts/deploy-config.sh` per env and wired into Cloud Run via `packages/server/deploy.sh`. |
 
 ### React UI (`packages/ui/.env`)
 

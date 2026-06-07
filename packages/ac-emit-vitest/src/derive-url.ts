@@ -18,8 +18,15 @@ const NAMESPACE_TO_BASE_URL: Record<string, string> = {
   "mindset-prod": "https://memex.ai",
 };
 
+// spec-90 dec-7 (B1): the multi-tenant SaaS default. memex.ai serves EVERY
+// customer namespace (agent-craft, wictesting, …), not just mindset-prod — the
+// namespace selects the workspace, the host is shared. So a ref whose namespace
+// isn't in the explicit table above routes here rather than being skipped.
+// mindset-int is the one non-SaaS host that still needs an explicit mapping;
+// self-hosted / local setups set MEMEX_TEST_EVENTS_URL explicitly.
+const SAAS_DEFAULT_BASE_URL = "https://memex.ai";
+
 const conflictWarnedFor = new Set<string>();
-const unknownWarnedFor = new Set<string>();
 const routedTuples = new Set<string>();
 
 function logRoutingOnce(namespace: string, url: string): void {
@@ -33,15 +40,18 @@ function logRoutingOnce(namespace: string, url: string): void {
 /**
  * Resolve the destination URL for an AC ref's namespace.
  *
- * Returns null when the emission should be skipped (no namespace match AND
- * no explicit override). Callers MUST guard on null and skip the POST.
+ * Returns null ONLY when the ref has no namespace at all (malformed) — there is
+ * nothing to route. A recognised-or-unrecognised namespace always resolves to a
+ * destination (spec-90 dec-7 / B1: unknown namespaces default to the SaaS host).
  *
  * Behaviour:
  * - `MEMEX_TEST_EVENTS_URL` set → use it. If it contradicts a known
  *   namespace mapping, emit a one-time conflict warning per (namespace,
  *   override-url) tuple.
  * - `NAMESPACE_TO_BASE_URL[namespace]` set → use the canonical URL.
- * - Otherwise → warn once per namespace and return null.
+ * - Namespace present but unmapped → default to the SaaS host (`memex.ai`),
+ *   which serves every customer tenant.
+ * - No namespace (malformed ref) → return null; the caller skips the POST.
  */
 export function deriveEventsUrl(acUid: string): string | null {
   const slashIdx = acUid.indexOf("/");
@@ -77,15 +87,15 @@ export function deriveEventsUrl(acUid: string): string | null {
     return canonicalUrl;
   }
 
-  if (namespace && !unknownWarnedFor.has(namespace)) {
-    unknownWarnedFor.add(namespace);
-    // eslint-disable-next-line no-console
-    console.warn(
-      `[ac-emit] namespace "${namespace}" has no known server mapping — ` +
-        `skipping emission. Add the namespace to NAMESPACE_TO_BASE_URL in ` +
-        `@memex-ai-ac/vitest, OR set MEMEX_TEST_EVENTS_URL to direct ` +
-        `emissions explicitly.`,
-    );
-  }
-  return null;
+  // A malformed ref with no namespace has nothing to route — skip it.
+  if (!namespace) return null;
+
+  // Namespace present but not in the explicit table: this is a SaaS tenant
+  // (the common case for every customer). Default to memex.ai rather than
+  // skipping — the destination server still validates the emission key against
+  // the memex named in the ref, so a wrong guess is rejected there, not lost
+  // here (spec-90 dec-7 / B1).
+  const saasDefaultUrl = `${SAAS_DEFAULT_BASE_URL}/api/test-events`;
+  logRoutingOnce(namespace, saasDefaultUrl);
+  return saasDefaultUrl;
 }

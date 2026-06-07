@@ -23,7 +23,7 @@ const SERVICES_DIR = join(__dirname, "..", "services");
 
 describe("b-97 ac-5 — no hard-delete code path for decisions", () => {
   it("no production service file calls db.delete(decisions) on the decisions table", () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-97/acs/ac-5");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-97/acs/ac-5");
 
     // Walk services/ for .ts files that are NOT tests and NOT test helpers.
     // Each is scanned as plain text for the forbidden pattern. b-97 dec-2
@@ -62,7 +62,7 @@ describe("b-97 ac-5 — no hard-delete code path for decisions", () => {
 
 describe("b-97 ac-6 — delete_decision uses the same auth gate as existing decision verbs", () => {
   it("delete_decision is registered with no extra middleware/auth flags at the spec level", () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-97/acs/ac-6");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-97/acs/ac-6");
 
     // ac-6 says: the auth bar for delete + restore must be the same as the
     // rest of the decision verbs (any active member, gated by the existing
@@ -90,7 +90,7 @@ describe("b-97 ac-6 — delete_decision uses the same auth gate as existing deci
   });
 
   it("delete_decision schema is the minimal { ref, verbose } shape — no extra auth fields", () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-97/acs/ac-6");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-97/acs/ac-6");
     const del = toolSpecs.find((s) => s.name === "delete_decision");
     expect(del).toBeDefined();
     const fieldNames = Object.keys(del!.schema).sort();
@@ -100,13 +100,13 @@ describe("b-97 ac-6 — delete_decision uses the same auth gate as existing deci
 
 describe("b-97 ac-7 — restore is via update_decision, not a dedicated restore_decision tool", () => {
   it("no restore_decision tool is registered", () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-97/acs/ac-7");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-97/acs/ac-7");
     const restoreTool = toolSpecs.find((s) => s.name === "restore_decision");
     expect(restoreTool).toBeUndefined();
   });
 
   it("update_decision schema accepts the four restorable statuses", () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-97/acs/ac-7");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-97/acs/ac-7");
     const update = toolSpecs.find((s) => s.name === "update_decision");
     expect(update).toBeDefined();
     // ZodRawShape erases the value-type at the index signature; cast to the
@@ -120,7 +120,7 @@ describe("b-97 ac-7 — restore is via update_decision, not a dedicated restore_
   });
 
   it("update_decision schema rejects status='deleted' (delete is delete_decision's job)", () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-97/acs/ac-7");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-97/acs/ac-7");
     const update = toolSpecs.find((s) => s.name === "update_decision");
     expect(update).toBeDefined();
     const statusSchema = update!.schema.status as unknown as ZodTypeAny;

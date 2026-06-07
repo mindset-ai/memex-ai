@@ -1,7 +1,7 @@
 // b-90 — behavioural test for the helper's deriveEventsUrl function.
 //
 // Covers the runtime contract for the URL derivation:
-//   ac-2: unknown namespace + no override → warn + skip (returns null)
+//   ac-2: unknown namespace + no override → default to the SaaS host (memex.ai)
 //   ac-3: override conflicts with known namespace map → loud conflict warn
 //   ac-4: first emission per (namespace, destination) → routing log
 //   ac-12: conflict warn fires at most once per (namespace, override) tuple
@@ -31,36 +31,35 @@ afterEach(() => {
   }
 });
 
-describe("b-90 ac-2: warn + skip when no namespace match and no override", () => {
-  it("returns null for an unknown namespace with no MEMEX_TEST_EVENTS_URL set", () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-90/acs/ac-2");
-    // A namespace that is not in NAMESPACE_TO_BASE_URL and that no other
-    // test will reuse (so the once-per-namespace warn dedupe doesn't
-    // collide with neighbours).
-    const url = deriveEventsUrl("b90-ac2-no-fallback-ns/whatever/briefs/b-1/acs/ac-1");
-    expect(url).toBeNull();
+describe("spec-90 ac-2: unknown namespace defaults to the SaaS host (memex.ai)", () => {
+  it("returns the memex.ai destination for an unknown namespace with no override", () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-2");
+    // ac-15 (customer outcome): the client half — a tenant's own-namespace ref
+    // routes to the SaaS host with zero config / no override.
+    tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-15");
+    // A namespace not in NAMESPACE_TO_BASE_URL: a customer tenant. dec-7/B1 —
+    // memex.ai serves every tenant, so it routes there rather than skipping.
+    const url = deriveEventsUrl("b90-ac2-customer-ns/whatever/specs/spec-1/acs/ac-1");
+    expect(url).toBe("https://memex.ai/api/test-events");
   });
 
-  it("logs a warning naming the unknown namespace", () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-90/acs/ac-2");
-    deriveEventsUrl("b90-ac2-warns-ns/whatever/briefs/b-1/acs/ac-1");
-    const warnArgs = warnSpy.mock.calls.flat().join(" ");
-    expect(warnArgs).toMatch(/b90-ac2-warns-ns/);
-    expect(warnArgs).toMatch(/skipping emission/i);
+  it("never falls through to localhost for an unknown namespace", () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-2");
+    const url = deriveEventsUrl("b90-ac2-no-localhost-ns/whatever/specs/spec-1/acs/ac-1");
+    // The enduring half of b-90: localhost is never a default destination.
+    expect(url).not.toMatch(/localhost/);
+    expect(url).toBe("https://memex.ai/api/test-events");
   });
 
-  it("does NOT fall through to a hardcoded URL when both inputs are absent", () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-90/acs/ac-2");
-    const url = deriveEventsUrl("b90-ac2-no-localhost-ns/whatever/briefs/b-1/acs/ac-1");
-    // The whole point of b-90: no localhost:8080 default. The helper must
-    // return null rather than invent a destination.
-    expect(url).toBeNull();
+  it("returns null only for a malformed ref with no namespace", () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-2");
+    expect(deriveEventsUrl("")).toBeNull();
   });
 });
 
 describe("b-90 ac-3: conflict warn when override contradicts known namespace map", () => {
   it("fires a loud warning naming both the override URL and the canonical destination", () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-90/acs/ac-3");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-3");
     process.env.MEMEX_TEST_EVENTS_URL = "http://localhost:18001/api/test-events";
     const url = deriveEventsUrl("mindset-prod/x/briefs/b-1/acs/ac-1");
     // Helper still emits to the override (that's the user's deliberate choice).
@@ -74,7 +73,7 @@ describe("b-90 ac-3: conflict warn when override contradicts known namespace map
   });
 
   it("does NOT warn when the override matches the canonical destination", () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-90/acs/ac-3");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-3");
     process.env.MEMEX_TEST_EVENTS_URL = "https://int.memex.ai/api/test-events";
     deriveEventsUrl("mindset-int/x/briefs/b-1/acs/ac-1");
     const warnArgs = warnSpy.mock.calls.flat().join(" ");
@@ -84,7 +83,7 @@ describe("b-90 ac-3: conflict warn when override contradicts known namespace map
 
 describe("b-90 ac-4: routing log fires on first emission per (namespace, destination) tuple", () => {
   it("logs a single `routing namespace=X → URL` line on the first call", () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-90/acs/ac-4");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-4");
     // Use a fresh namespace + override-URL tuple that no prior test in this
     // file has touched, so the routedTuples Set hasn't seen it.
     process.env.MEMEX_TEST_EVENTS_URL = "https://b90-ac4-routing-log.example/api/test-events";
@@ -101,7 +100,7 @@ describe("b-90 ac-4: routing log fires on first emission per (namespace, destina
 
 describe("b-90 ac-12: conflict warn fires at most once per (namespace, override-url) tuple", () => {
   it("first emission warns; second emission with the same tuple does NOT re-warn", () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-90/acs/ac-12");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-12");
     process.env.MEMEX_TEST_EVENTS_URL = "http://localhost:18012/api/test-events";
 
     // Use a fresh namespace not touched by other tests so the conflictWarnedFor
@@ -146,7 +145,7 @@ describe("b-90 ac-12: conflict warn fires at most once per (namespace, override-
 
 describe("b-90 ac-13: different (namespace, override-url) tuples each fire their own first-time warn", () => {
   it("two distinct override URLs against the same namespace each produce a separate warn", () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-90/acs/ac-13");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-13");
 
     process.env.MEMEX_TEST_EVENTS_URL = "http://localhost:18013/api/test-events";
     deriveEventsUrl("mindset-prod/b90-ac13-a/briefs/b-1/acs/ac-1");

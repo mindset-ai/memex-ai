@@ -58,20 +58,8 @@ const AC = "mindset-prod/memex-building-itself/specs/spec-115/acs";
 const app = new Hono();
 app.route("/api/test-events", testEventsRouter);
 
-let priorOwn: string | undefined;
-
 beforeEach(() => {
-  priorOwn = process.env.MEMEX_OWN_NAMESPACE;
-  process.env.MEMEX_OWN_NAMESPACE = "mindset-prod";
   insertSpy.mockClear();
-});
-
-afterEach(() => {
-  if (priorOwn === undefined) {
-    delete process.env.MEMEX_OWN_NAMESPACE;
-  } else {
-    process.env.MEMEX_OWN_NAMESPACE = priorOwn;
-  }
 });
 
 const validBody = {

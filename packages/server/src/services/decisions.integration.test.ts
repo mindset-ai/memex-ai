@@ -871,7 +871,7 @@ describe("deleteDecision / restoreDecision (b-97)", () => {
   });
 
   it("soft-deletes an open decision and captures previous_status", async () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-97/acs/ac-3");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-97/acs/ac-3");
     const dec = await createDecision(memexId, docId, "Will be deleted from open");
     const deleted = await deleteDecision(memexId, dec.id);
     expect(deleted.status).toBe("deleted");
@@ -881,7 +881,7 @@ describe("deleteDecision / restoreDecision (b-97)", () => {
   });
 
   it("soft-deletes a resolved decision and preserves resolution + options for restore", async () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-97/acs/ac-3");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-97/acs/ac-3");
     const dec = await createDecision(memexId, docId, "Will be deleted from resolved");
     await setDecisionOptions(memexId, dec.id, [
       { label: "X", trade_offs: "fast" },
@@ -901,7 +901,7 @@ describe("deleteDecision / restoreDecision (b-97)", () => {
   });
 
   it("soft-deletes a candidate decision (no resolution yet) and captures previous_status='candidate'", async () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-97/acs/ac-3");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-97/acs/ac-3");
     const dec = await proposeDecision(memexId, docId, {
       title: "Candidate to delete",
       options: [{ label: "A", trade_offs: "a" }],
@@ -912,7 +912,7 @@ describe("deleteDecision / restoreDecision (b-97)", () => {
   });
 
   it("soft-deletes a rejected decision and captures previous_status='rejected'", async () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-97/acs/ac-3");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-97/acs/ac-3");
     const dec = await proposeDecision(memexId, docId, {
       title: "Rejected to delete",
     });
@@ -923,14 +923,14 @@ describe("deleteDecision / restoreDecision (b-97)", () => {
   });
 
   it("refuses to double-delete an already-deleted decision", async () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-97/acs/ac-3");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-97/acs/ac-3");
     const dec = await createDecision(memexId, docId, "Delete me twice");
     await deleteDecision(memexId, dec.id);
     await expect(deleteDecision(memexId, dec.id)).rejects.toThrow(ValidationError);
   });
 
   it("listDecisions hides deleted rows by default", async () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-97/acs/ac-3");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-97/acs/ac-3");
     const doc = await createDocDraft(memexId, "List filter doc", "Purpose");
     createdDocIds.push(doc.id);
 
@@ -945,7 +945,7 @@ describe("deleteDecision / restoreDecision (b-97)", () => {
   });
 
   it("listDecisions returns deleted rows when includeDeleted is set", async () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-97/acs/ac-3");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-97/acs/ac-3");
     const doc = await createDocDraft(memexId, "List include-deleted doc", "Purpose");
     createdDocIds.push(doc.id);
 
@@ -960,7 +960,7 @@ describe("deleteDecision / restoreDecision (b-97)", () => {
   });
 
   it("restores a deleted decision to a target status and clears previous_status", async () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-97/acs/ac-3");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-97/acs/ac-3");
     const dec = await createDecision(memexId, docId, "Round-trip me");
     const deleted = await deleteDecision(memexId, dec.id);
     expect(deleted.previousStatus).toBe("open");
@@ -971,7 +971,7 @@ describe("deleteDecision / restoreDecision (b-97)", () => {
   });
 
   it("restore is lossless: resolution + options + chosenOptionIndex survive a delete-restore round trip", async () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-97/acs/ac-3");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-97/acs/ac-3");
     const dec = await createDecision(memexId, docId, "Lossless round trip");
     await setDecisionOptions(memexId, dec.id, [
       { label: "M", trade_offs: "mature" },
@@ -992,7 +992,7 @@ describe("deleteDecision / restoreDecision (b-97)", () => {
   });
 
   it("refuses to restore a decision that isn't deleted", async () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-97/acs/ac-3");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-97/acs/ac-3");
     const dec = await createDecision(memexId, docId, "Not deleted");
     await expect(restoreDecision(memexId, dec.id, "open")).rejects.toThrow(
       ValidationError,

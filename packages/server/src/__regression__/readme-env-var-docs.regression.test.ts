@@ -1,42 +1,25 @@
-// b-90 ac-14 — the README's deployment / env-config section documents the
-// new MEMEX_OWN_NAMESPACE env var.
-//
-// Covers: the variable name, expected values per env (mindset-int /
-// mindset-prod), the consequence of leaving it unset (fail-closed), and
-// the pointer to scripts/deploy-config.sh as the place where it's set.
+// spec-90 ac-14 (A1) — MEMEX_OWN_NAMESPACE is removed, so the docs that
+// described it are gone too. Regression guard: the README and DEVELOPMENT.md
+// carry no MEMEX_OWN_NAMESPACE documentation. (The env var, its per-env values,
+// and the fail-closed note went away with the mechanism.)
 
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tagAc } from "@memex-ai-ac/vitest";
 
-const README = join(__dirname, "..", "..", "..", "..", "README.md");
-const src = readFileSync(README, "utf-8");
+const REPO_ROOT = join(__dirname, "..", "..", "..", "..");
+const README = join(REPO_ROOT, "README.md");
+const DEVELOPMENT = join(REPO_ROOT, "DEVELOPMENT.md");
 
-describe("b-90 ac-14: README documents MEMEX_OWN_NAMESPACE", () => {
-  it("README contains a MEMEX_OWN_NAMESPACE entry in the env-vars table", () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-90/acs/ac-14");
-    expect(src).toMatch(/MEMEX_OWN_NAMESPACE/);
+describe("spec-90 ac-14: docs no longer document MEMEX_OWN_NAMESPACE", () => {
+  it("README.md contains no MEMEX_OWN_NAMESPACE reference", () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-14");
+    expect(readFileSync(README, "utf-8")).not.toMatch(/MEMEX_OWN_NAMESPACE/);
   });
 
-  it("README states the expected value mindset-int", () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-90/acs/ac-14");
-    expect(src).toMatch(/mindset-int/);
-  });
-
-  it("README states the expected value mindset-prod", () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-90/acs/ac-14");
-    expect(src).toMatch(/mindset-prod/);
-  });
-
-  it("README describes the fail-closed behaviour when the env var is unset", () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-90/acs/ac-14");
-    // Wording can vary; the load-bearing claim is "unset → fail-closed / 4xx".
-    expect(src).toMatch(/fail-closed|fail closed|returns 503|returns 4xx/i);
-  });
-
-  it("README points at scripts/deploy-config.sh as the place where it's set", () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-90/acs/ac-14");
-    expect(src).toMatch(/scripts\/deploy-config\.sh/);
+  it("DEVELOPMENT.md contains no MEMEX_OWN_NAMESPACE reference", () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-14");
+    expect(readFileSync(DEVELOPMENT, "utf-8")).not.toMatch(/MEMEX_OWN_NAMESPACE/);
   });
 });
