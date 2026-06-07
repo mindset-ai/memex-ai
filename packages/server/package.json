@@ -22,7 +22,7 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "prebuild": "pnpm --filter @memex/shared build",
-    "build": "tsc -p tsconfig.build.json && mkdir -p dist/agent/skills && cp src/agent/skills/*.md dist/agent/skills/ && mkdir -p dist/agent/phases && cp -R src/agent/phases/. dist/agent/phases/ && find dist/agent/phases -name '*.ORPHAN' -delete && mkdir -p dist/guidance && cp src/guidance/*.json dist/guidance/",
+    "build": "tsc -p tsconfig.build.json && mkdir -p dist/agent/skills && cp src/agent/skills/*.md dist/agent/skills/ && mkdir -p dist/agent/phases && cp -R src/agent/phases/. dist/agent/phases/ && find dist/agent/phases -name '*.ORPHAN' -delete && mkdir -p dist/agent/voice && cp src/agent/voice/*.md dist/agent/voice/ && mkdir -p dist/guidance && cp src/guidance/*.json dist/guidance/",
     "start": "node dist/index.js",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate && bash scripts/apply-hand-migrations.sh",

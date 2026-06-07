@@ -31,7 +31,11 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import type { WSContext } from "hono/ws";
+import { streamSSE } from "hono/streaming";
+import { z } from "zod/v4";
 import type { createNodeWebSocket } from "@hono/node-ws";
+import type Anthropic from "@anthropic-ai/sdk";
+import type { MessageParam, ContentBlockParam } from "@anthropic-ai/sdk/resources/messages.js";
 import { verifySessionToken, InvalidTokenError } from "../services/auth-jwt.js";
 import { getUserById } from "../services/users.js";
 import { canReadMemex } from "../mcp/auth.js";
@@ -40,8 +44,25 @@ import {
   resolveVoiceProvider,
   type SttSession,
 } from "../agent/elevenlabs-client.js";
+import { getAnthropicClient, LlmNotConfiguredError } from "../agent/anthropic-client.js";
+import { buildGuideSystemBlocks } from "../agent/voice/guide-prompt.js";
+import { GUIDE_TOOLS } from "@memex/shared";
 import type { MemexResolverEnv } from "../middleware/memex-resolver.js";
 import type { SessionEnv } from "../middleware/session.js";
+
+// Same model as the main agent proxy (routes/llm.ts). Voice replies are short
+// (max_tokens kept low) and TTS streams from the first token, so latency rides
+// on time-to-first-token, not total length.
+const GUIDE_MODEL = "claude-sonnet-4-5-20250929";
+
+const guideChatSchema = z.object({
+  messages: z.array(z.object({ role: z.enum(["user", "assistant"]), content: z.any() })),
+  screenKey: z.string().nullable().optional(),
+  screenRegistry: z
+    .array(z.object({ id: z.string(), description: z.string() }))
+    .optional(),
+  guideContext: z.array(z.string()).optional(),
+});
 
 type Env = MemexResolverEnv & SessionEnv;
 type UpgradeWebSocket = ReturnType<typeof createNodeWebSocket>["upgradeWebSocket"];
@@ -289,6 +310,70 @@ export function createVoiceRouter(upgradeWebSocket: UpgradeWebSocket): Hono<Env>
       };
     }),
   );
+
+  // POST /guide-chat — the guide's LLM text leg (dec-2: text stays SSE; the WS
+  // above carries only audio). Mirrors routes/llm.ts /chat but with the guide
+  // system prompt + the screen context + the GUIDE_TOOLS toolset, and NO tenant
+  // document context or memex tools — the guide teaches the product, it never
+  // reads the user's data (dec-4). The client-side LangGraph (guideGraph.ts)
+  // drives this proxy; there is no server-side graph runtime (ac-11). Auth is
+  // applied by sessionMiddleware on this path in app.ts (the WS self-auths; this
+  // HTTP route carries a Bearer token like the rest of the API).
+  router.post("/guide-chat", async (c) => {
+    const parsed = guideChatSchema.safeParse(await c.req.json());
+    if (!parsed.success) {
+      return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
+    }
+    const { messages, screenKey, screenRegistry, guideContext } = parsed.data;
+
+    let anthropic: Anthropic;
+    try {
+      anthropic = getAnthropicClient();
+    } catch (err) {
+      if (err instanceof LlmNotConfiguredError) {
+        return c.json({ error: "LLM unavailable", message: err.message }, 503);
+      }
+      throw err;
+    }
+
+    const systemBlocks = buildGuideSystemBlocks({
+      screenKey: screenKey ?? null,
+      screenRegistry: screenRegistry ?? [],
+      guideContext: guideContext ?? [],
+    });
+
+    // Defeat reverse-proxy buffering so SSE deltas flush as they arrive.
+    c.header("Cache-Control", "no-cache, no-transform");
+    c.header("X-Accel-Buffering", "no");
+
+    return streamSSE(c, async (stream) => {
+      try {
+        const anthropicStream = anthropic.messages.stream({
+          model: GUIDE_MODEL,
+          max_tokens: 1024,
+          system: systemBlocks as Anthropic.TextBlockParam[],
+          tools: GUIDE_TOOLS as unknown as Anthropic.Tool[],
+          messages: messages as MessageParam[],
+        });
+        anthropicStream.on("text", (text: string) => {
+          stream.writeSSE({ event: "text_delta", data: JSON.stringify({ text }) });
+        });
+        const final = await anthropicStream.finalMessage();
+        await stream.writeSSE({
+          event: "message_complete",
+          data: JSON.stringify({
+            content: final.content as ContentBlockParam[],
+            stopReason: final.stop_reason,
+          }),
+        });
+      } catch (err) {
+        await stream.writeSSE({
+          event: "error",
+          data: JSON.stringify({ message: err instanceof Error ? err.message : String(err) }),
+        });
+      }
+    });
+  });
 
   return router;
 }

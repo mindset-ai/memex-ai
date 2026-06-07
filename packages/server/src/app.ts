@@ -246,9 +246,13 @@ app.route("/api/:namespace/:memex/handhold", handhold);
 app.use("/api/:namespace/:memex/llm/*", sessionMiddleware);
 app.route("/api/:namespace/:memex/llm", llmRouter);
 // spec-190 t-1: voice WS proxy, tenancy-scoped. Deliberately NO sessionMiddleware
-// — the WS handshake can't carry an Authorization header, so the router
-// authenticates the connect-query token itself (routes/voice.ts). memexResolver
-// (global) has already resolved c.memex from the path.
+// on /voice/* broadly — the WS handshake (/voice/session) can't carry an
+// Authorization header, so the router authenticates the connect-query token
+// itself (routes/voice.ts). memexResolver (global) has already resolved c.memex.
+// spec-190 t-3: the guide's LLM text leg (/voice/guide-chat) IS a normal HTTP
+// POST carrying a Bearer token, so it gets sessionMiddleware — scoped to just
+// that path so the WS route stays middleware-free.
+app.use("/api/:namespace/:memex/voice/guide-chat", sessionMiddleware);
 app.route("/api/:namespace/:memex/voice", createVoiceRouter(upgradeWebSocket));
 // Tenancy-scoped membership / admin surfaces — drift fix to t-12. These were
 // previously mounted flat at /api/team, /api/invites, and /api/orgs/current/*
