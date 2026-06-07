@@ -17,17 +17,37 @@ This directory is the **canonical source of truth** for the Specky assets.
 
 ## The served copy
 
-The web app loads Specky from **`packages/ui/public/specky.svg`** (served at
-`/specky.svg`, same as `favicon.svg`). That file is a **byte-identical copy** of
-the `specky.svg` in this directory — this dir is the source of truth. When you
-change `specky.svg` here, sync the copy:
+The web app loads Specky from **`packages/ui/src/assets/specky.svg`**, imported
+as a bundler asset:
+
+```ts
+import speckyUrl from './assets/specky.svg';   // Vite emits /assets/specky-<hash>.svg
+// <img src={speckyUrl} alt="" />
+```
+
+That file is a **byte-identical copy** of the `specky.svg` in this directory —
+this dir is the source of truth. When you change `specky.svg` here, sync the
+copy:
 
 ```bash
-cp assets/specky/specky.svg packages/ui/public/specky.svg
+cp assets/specky/specky.svg packages/ui/src/assets/specky.svg
 ```
 
 A tagged test (`packages/ui/src/specky-asset.spec-197.test.ts`) fails loudly if
 the two drift apart.
+
+### Why not `packages/ui/public/specky.svg` (a web-root file)?
+
+The int/prod load-balancer url-map (`spa-matcher`) only routes an **explicit
+allowlist** of web-root paths to the static bucket (`/favicon.svg`,
+`/favicon.ico`, `/robots.txt`, plus `/assets/*`). Any other root path —
+including `/specky.svg` — falls through to the priority-100 catch-all, which
+rewrites to `/index.html` and serves the SPA shell (a 404 for the asset).
+`favicon.svg` works only because it has its *own* bespoke route, **not** because
+web-root files are generically served. Importing Specky as a bundler asset puts
+it under the already-routed `/assets/` prefix with immutable caching and **no
+url-map change** — and it works identically on int and prod (spec-197 dec-3,
+revised 2026-06-07).
 
 ## Animation
 
