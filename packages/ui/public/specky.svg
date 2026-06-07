@@ -1,0 +1,100 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 330" width="240" height="330">
+  <style>
+    .clip-root {
+      transform-box: fill-box;
+      transform-origin: 50% 90%;
+      animation: wobble 7s ease-in-out infinite;
+    }
+    .pupils {
+      animation: look 9s ease-in-out infinite;
+    }
+    .eyes {
+      transform-box: fill-box;
+      transform-origin: 50% 50%;
+      animation: blink 6.5s linear infinite;
+    }
+    .brows {
+      animation: brows 9s ease-in-out infinite;
+    }
+    @keyframes wobble {
+      0%, 68%  { transform: rotate(0deg); }
+      71%      { transform: rotate(-5deg); }
+      74%      { transform: rotate(4deg); }
+      77%      { transform: rotate(-2.5deg); }
+      80%      { transform: rotate(1.5deg); }
+      83%, 100% { transform: rotate(0deg); }
+    }
+    @keyframes look {
+      0%, 16%   { transform: translate(0px, 0px); }
+      21%, 36%  { transform: translate(-6px, 2px); }
+      41%, 56%  { transform: translate(0px, 0px); }
+      61%, 78%  { transform: translate(6px, -1px); }
+      84%, 100% { transform: translate(0px, 0px); }
+    }
+    @keyframes blink {
+      0%, 90.5% { transform: scaleY(1); }
+      92.5%     { transform: scaleY(0.06); }
+      94.5%, 100% { transform: scaleY(1); }
+    }
+    @keyframes brows {
+      0%, 16%   { transform: translate(0px, 0px); }
+      21%, 36%  { transform: translate(-2px, 1px); }
+      41%, 56%  { transform: translate(0px, 0px); }
+      61%, 78%  { transform: translate(2px, -2px); }
+      84%, 100% { transform: translate(0px, 0px); }
+    }
+
+    /* spec-197 dec-5(b) / ac-4 — honour prefers-reduced-motion by freezing
+       Specky to a neutral static frame (animation:none resets each element to
+       its base pose: clip upright, pupils centred, eyes open, brows level).
+       The character is never hidden — the affordance must stay discoverable
+       for motion-sensitive users. This rule lives inside the SVG so the asset
+       self-handles reduced motion even when embedded as a plain <img>, with
+       no consuming-component CSS required (dec-3=a drop-in img). */
+    @media (prefers-reduced-motion: reduce) {
+      .clip-root,
+      .pupils,
+      .eyes,
+      .brows {
+        animation: none;
+      }
+    }
+  </style>
+
+  <defs>
+    <linearGradient id="wire" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#c3ced9"/>
+      <stop offset="0.5" stop-color="#94a1af"/>
+      <stop offset="1" stop-color="#69778a"/>
+    </linearGradient>
+    <linearGradient id="wireHi" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#eef3f7" stop-opacity="0.9"/>
+      <stop offset="1" stop-color="#eef3f7" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <g class="clip-root">
+
+    <path d="M 78 300 L 78 122 A 42 42 0 0 1 162 122 L 162 252 A 28 28 0 0 1 106 252 L 106 152"
+          fill="none" stroke="url(#wire)" stroke-width="16" stroke-linecap="round"/>
+
+    <path d="M 74.5 300 L 74.5 122 A 45.5 45.5 0 0 1 120 76.5"
+          fill="none" stroke="url(#wireHi)" stroke-width="3.5" stroke-linecap="round"/>
+
+    <g class="brows" fill="none" stroke="#6e7a88" stroke-width="7" stroke-linecap="round">
+      <path d="M 84 46 Q 99 35 113 45"/>
+      <path d="M 127 45 Q 141 35 156 46"/>
+    </g>
+
+    <g class="eyes">
+      <ellipse cx="99" cy="86" rx="18" ry="23" fill="#ffffff" stroke="#3d4654" stroke-width="3.5"/>
+      <ellipse cx="141" cy="86" rx="18" ry="23" fill="#ffffff" stroke="#3d4654" stroke-width="3.5"/>
+      <g class="pupils" fill="#1d242e">
+        <circle cx="99" cy="89" r="7.5"/>
+        <circle cx="141" cy="89" r="7.5"/>
+        <circle cx="96.5" cy="86" r="2.2" fill="#ffffff"/>
+        <circle cx="138.5" cy="86" r="2.2" fill="#ffffff"/>
+      </g>
+    </g>
+  </g>
+</svg>
