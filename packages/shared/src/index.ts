@@ -98,7 +98,9 @@ export { DRIFT_OPENING_TURN_SEED } from './scaffold-data.js';
 export {
   resolveScreenKey,
   GUIDE_SCREENS,
+  GUIDE_SCREEN_KEYS,
   REGISTERED_SCREEN_KEYS,
+  isKnownScreenKey,
   guideElementsForScreen,
   isKnownGuideElement,
   allGuideElementIds,

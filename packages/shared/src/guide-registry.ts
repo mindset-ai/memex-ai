@@ -17,21 +17,32 @@
 // markdown frontmatter references only real screen keys and element ids.
 
 /** Canonical stable keys for the app's user-facing screens. */
-export type GuideScreenKey =
-  | 'specs-list'
-  | 'spec-detail'
-  | 'standards-list'
-  | 'standard-detail'
-  | 'drift-inbox'
-  | 'document-detail'
-  | 'decisions'
-  | 'issues-list'
-  | 'pulse'
-  | 'insights'
-  | 'memex-settings'
-  | 'memex-keys'
-  | 'org-config'
-  | 'scaffold-inspect';
+// The full set of screen keys, as a runtime value. GuideScreenKey is DERIVED
+// from it (below) so the type and the runtime list can never drift — the t-7
+// import validator (isKnownScreenKey) and any UI iteration share one source.
+export const GUIDE_SCREEN_KEYS = [
+  'specs-list',
+  'spec-detail',
+  'standards-list',
+  'standard-detail',
+  'drift-inbox',
+  'document-detail',
+  'decisions',
+  'issues-list',
+  'pulse',
+  'insights',
+  'memex-settings',
+  'memex-keys',
+  'org-config',
+  'scaffold-inspect',
+] as const;
+
+export type GuideScreenKey = (typeof GUIDE_SCREEN_KEYS)[number];
+
+/** True when `key` is a known screen key (t-7 frontmatter validation). */
+export function isKnownScreenKey(key: string): key is GuideScreenKey {
+  return (GUIDE_SCREEN_KEYS as readonly string[]).includes(key);
+}
 
 export interface GuideElement {
   /** Stable kebab-case id; the matching DOM node carries data-guide-id="<id>". */

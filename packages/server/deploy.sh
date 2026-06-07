@@ -169,6 +169,22 @@ echo "  1d. default Standards backfill (spec-184 t-4 / ac-15)..."
 DATABASE_URL="${DB_URL}" timeout 600 pnpm db:backfill-default-standards \
   || echo "  ⚠ default-standards backfill timed out or failed (non-gating, exit $?) — deploy continues; next deploy resumes (idempotent)."
 
+# 1e. spec-190 t-7 / ac-18,ac-20 — import the repo's guide-content/ markdown into
+# the guide_content table (the voice guide's knowledge store). Content is imported
+# from the SAME commit being deployed, per environment, so the guide never describes
+# UI that isn't shipped here (dec-7d). The import is idempotent — upsert by
+# source_path + content_hash, so unchanged chunks are never re-embedded — and prunes
+# rows whose source file is gone, so it's safe to run on every deploy.
+#
+# Bounded + non-gating, exactly like 1c/1d: `timeout` caps the run and `|| echo`
+# swallows a timeout (124) or any error (incl. a frontmatter validation failure) so
+# `set -e` can never abort a live deploy; the next deploy resumes. Embeddings ride on
+# resolveEmbeddingProvider() (Cohere default); with no provider rows land vectorless
+# and FTS covers (spec-64 posture), so a missing embedding key never fails the deploy.
+echo "  1e. guide-content import (spec-190 t-7 / ac-18)..."
+DATABASE_URL="${DB_URL}" timeout 600 pnpm db:import-guide-content \
+  || echo "  ⚠ guide-content import timed out or failed (non-gating, exit $?) — deploy continues; next deploy resumes (idempotent)."
+
 kill $PROXY_PID 2>/dev/null
 wait $PROXY_PID 2>/dev/null || true
 
