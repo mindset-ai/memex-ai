@@ -130,7 +130,12 @@ class VoiceGuideOrchestrator implements VoiceOrchestrator {
       {
         onReady: () => this.ws?.startListening(),
         onTranscript: (text, isFinal) => {
-          if (isFinal && text.trim()) void this.runTurn(text);
+          if (!isFinal) return;
+          if (text.trim()) void this.runTurn(text);
+          // Empty committed transcript (a throat-clear / noise tripped the VAD but
+          // STT recognized no words). onSpeechEnd already moved us to 'thinking';
+          // with no turn to run we'd hang there forever. Recover to listening.
+          else if (!this.stopped) this.hooks.setLoopState('listening');
         },
         onAudio: (_requestId, audio, alignment, isFinal) => this.onAudio(audio, alignment, isFinal),
         onError: (message) => this.hooks.onError(message),

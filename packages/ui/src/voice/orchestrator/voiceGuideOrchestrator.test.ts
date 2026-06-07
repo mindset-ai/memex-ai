@@ -204,6 +204,29 @@ describe('voice orchestrator wiring (ac-11)', () => {
     expect(h.states).toContain('thinking');
   });
 
+  it('recovers to listening on an empty committed transcript (does not hang in thinking)', async () => {
+    tagAc(AC11);
+    const sock = fakeSocket();
+    const graph = fakeGraph(() => {});
+    const h = hooks();
+    const orch = createVoiceOrchestratorFactory(react, {
+      socketFactory: sock.factory,
+      vadEngine: fakeVad().engine,
+      capture: fakeCapture(),
+      playback: fakePlayback(),
+      graph,
+      newId: () => 'id',
+    })(h);
+    await orch.start(fakeStream);
+
+    // Empty final transcript (noise/throat-clear tripped the VAD; STT found no words).
+    sock.sock.onmessage?.({ data: JSON.stringify({ type: 'transcript', text: '   ', isFinal: true }) });
+    await Promise.resolve();
+
+    expect(graph.invoke).not.toHaveBeenCalled(); // no turn to run
+    expect(h.states[h.states.length - 1]).toBe('listening'); // recovered, not stuck
+  });
+
   it('errors cleanly when the session is not authenticated', async () => {
     tagAc(AC11);
     const h = hooks();
