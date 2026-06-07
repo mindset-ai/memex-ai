@@ -10,7 +10,18 @@ import { tagAc } from "@memex-ai-ac/vitest";
 import { GUIDE_TOOLS } from "@memex/shared";
 
 const AC11 = "mindset-prod/memex-building-itself/specs/spec-190/acs/ac-11";
+const AC15 = "mindset-prod/memex-building-itself/specs/spec-190/acs/ac-15";
 const AC28 = "mindset-prod/memex-building-itself/specs/spec-190/acs/ac-28";
+
+// Mock the t-6 retrieval so we assert it's wired into the endpoint without a DB.
+const retrieval = vi.hoisted(() => ({
+  prefetch: vi.fn(),
+  search: vi.fn(),
+}));
+vi.mock("../services/guide-content.js", () => ({
+  prefetchScreenContent: retrieval.prefetch,
+  searchGuideContent: retrieval.search,
+}));
 
 // Capture what the route hands Anthropic so we can assert tools + system prompt.
 const streamArgs = vi.hoisted(() => ({ last: null as Record<string, unknown> | null }));
@@ -63,6 +74,8 @@ async function postGuideChat(body: unknown): Promise<{ status: number; text: str
 
 beforeEach(() => {
   streamArgs.last = null;
+  retrieval.prefetch.mockReset().mockResolvedValue([]);
+  retrieval.search.mockReset().mockResolvedValue([]);
 });
 
 describe("POST /voice/guide-chat — guide LLM text leg (ac-11)", () => {
@@ -98,6 +111,42 @@ describe("POST /voice/guide-chat — guide LLM text leg (ac-11)", () => {
     tagAc(AC11);
     const { status } = await postGuideChat({ not: "valid" });
     expect(status).toBe(400);
+  });
+});
+
+describe("POST /voice/guide-chat — server-side retrieval runs every turn (ac-15)", () => {
+  it("runs Layer-1 screen prefetch + Layer-2 utterance search and injects both into the prompt", async () => {
+    tagAc(AC15);
+    retrieval.prefetch.mockResolvedValue(["SCREEN: the Specs board lists specs."]);
+    retrieval.search.mockResolvedValue([{ content: "SEARCH: phases are draft→specify→build." }]);
+    await postGuideChat({
+      messages: [{ role: "user", content: "how do phases work?" }],
+      screenKey: "specs-list",
+    });
+    // Layer 1 keyed on the screen; Layer 2 on the finalized utterance.
+    expect(retrieval.prefetch).toHaveBeenCalledWith("specs-list");
+    expect(retrieval.search.mock.calls[0][0]).toBe("how do phases work?");
+    const system = JSON.stringify(streamArgs.last?.system ?? []);
+    expect(system).toContain("SCREEN: the Specs board");
+    expect(system).toContain("SEARCH: phases are draft");
+  });
+
+  it("does not depend on the agent calling search_guide — Layer 2 runs unconditionally", async () => {
+    tagAc(AC15);
+    await postGuideChat({ messages: [{ role: "user", content: "what is this?" }], screenKey: "specs-list" });
+    expect(retrieval.search).toHaveBeenCalledTimes(1); // ran without any tool call
+  });
+
+  it("degrades gracefully when retrieval throws (turn still streams)", async () => {
+    tagAc(AC15);
+    retrieval.prefetch.mockRejectedValue(new Error("db down"));
+    retrieval.search.mockRejectedValue(new Error("db down"));
+    const { status, text } = await postGuideChat({
+      messages: [{ role: "user", content: "hi" }],
+      screenKey: "specs-list",
+    });
+    expect(status).toBe(200);
+    expect(text).toContain("event: message_complete");
   });
 });
 

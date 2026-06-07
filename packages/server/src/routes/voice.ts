@@ -46,6 +46,7 @@ import {
 } from "../agent/elevenlabs-client.js";
 import { getAnthropicClient, LlmNotConfiguredError } from "../agent/anthropic-client.js";
 import { buildGuideSystemBlocks } from "../agent/voice/guide-prompt.js";
+import { prefetchScreenContent, searchGuideContent } from "../services/guide-content.js";
 import { GUIDE_TOOLS } from "@memex/shared";
 import type { MemexResolverEnv } from "../middleware/memex-resolver.js";
 import type { SessionEnv } from "../middleware/session.js";
@@ -63,6 +64,56 @@ const guideChatSchema = z.object({
     .optional(),
   guideContext: z.array(z.string()).optional(),
 });
+
+/** Pull the most recent user-turn text (the finalized utterance) out of the
+ *  Anthropic-shaped message list — string content or text blocks. Used to drive
+ *  the per-turn Layer-2 retrieval (ac-15). */
+function latestUserUtterance(messages: Array<{ role: string; content: unknown }>): string {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.role !== "user") continue;
+    if (typeof m.content === "string") return m.content;
+    if (Array.isArray(m.content)) {
+      return m.content
+        .filter((b): b is { type: string; text: string } => !!b && (b as { type?: string }).type === "text")
+        .map((b) => b.text)
+        .join(" ");
+    }
+    return "";
+  }
+  return "";
+}
+
+/**
+ * Assemble the guide context SERVER-side (dec-6): Layer 1 = the current screen's
+ * chunks (deterministic screen_key lookup) + Layer 2 = a per-turn vector/FTS
+ * search over the whole corpus on the latest utterance. Both run every turn, so
+ * answering never depends on the agent choosing to call search_guide (ac-15).
+ * Best-effort — a retrieval failure degrades to whatever else we have, never
+ * fails the turn. Deduped; client-supplied context (if any) wins ordering.
+ */
+async function assembleGuideContext(
+  screenKey: string | null,
+  utterance: string,
+  clientContext: string[] | undefined,
+): Promise<string[]> {
+  const [screenChunks, searchHits] = await Promise.all([
+    screenKey ? prefetchScreenContent(screenKey).catch(() => []) : Promise.resolve<string[]>([]),
+    utterance.trim()
+      ? searchGuideContent(utterance, { limit: 4 }).then((h) => h.map((x) => x.content)).catch(() => [])
+      : Promise.resolve<string[]>([]),
+  ]);
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const chunk of [...(clientContext ?? []), ...screenChunks, ...searchHits]) {
+    const key = chunk.trim();
+    if (key && !seen.has(key)) {
+      seen.add(key);
+      out.push(chunk);
+    }
+  }
+  return out;
+}
 
 type Env = MemexResolverEnv & SessionEnv;
 type UpgradeWebSocket = ReturnType<typeof createNodeWebSocket>["upgradeWebSocket"];
@@ -336,10 +387,18 @@ export function createVoiceRouter(upgradeWebSocket: UpgradeWebSocket): Hono<Env>
       throw err;
     }
 
+    // Layer 1 + Layer 2 retrieval, server-side, every turn (ac-15). The client
+    // plays the ack ping the instant speech ends, masking this latency (dec-6).
+    const retrievedContext = await assembleGuideContext(
+      screenKey ?? null,
+      latestUserUtterance(messages),
+      guideContext,
+    );
+
     const systemBlocks = buildGuideSystemBlocks({
       screenKey: screenKey ?? null,
       screenRegistry: screenRegistry ?? [],
-      guideContext: guideContext ?? [],
+      guideContext: retrievedContext,
     });
 
     // Defeat reverse-proxy buffering so SSE deltas flush as they arrive.
