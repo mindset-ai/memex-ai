@@ -81,7 +81,14 @@ export function openVoiceWs(
   const ws = socketFactory(url);
   ws.binaryType = 'arraybuffer';
 
-  ws.onopen = () => callbacks.onReady?.();
+  // NB: do NOT fire onReady on raw socket open. The server emits an explicit
+  // {type:"ready"} control frame only AFTER it passes the config + auth checks
+  // (routes/voice.ts open()); a denied connection is closed 1008 and never sends
+  // it. Driving start_listening off the server frame (case 'ready' below) means we
+  // (a) never push start_listening into a socket the server is about to close, and
+  // (b) open the upstream ElevenLabs STT session exactly once — onopen + the ready
+  // frame both firing would have opened-then-immediately-closed a first STT session
+  // every connect, burning the scarce STT concurrency pool (s-4).
   ws.onerror = () => callbacks.onError?.('voice socket error');
   ws.onclose = () => callbacks.onClose?.();
   ws.onmessage = (ev) => {

@@ -109,10 +109,33 @@ describe('voice orchestrator wiring (ac-11)', () => {
     })(h);
 
     await orch.start(fakeStream);
-    sock.sock.onopen?.({}); // socket connects → start_listening
+    // The server emits {type:"ready"} once auth + config pass — that, not raw
+    // socket onopen, is what drives start_listening (so the STT session opens
+    // exactly once and never on a soon-to-be-denied socket).
+    sock.sock.onmessage?.({ data: JSON.stringify({ type: 'ready' }) });
     expect(capture.start).toHaveBeenCalled();
     expect(sock.sent).toContainEqual(JSON.stringify({ type: 'start_listening' }));
     expect(h.states).toContain('listening');
+  });
+
+  it('sends start_listening exactly once (server ready frame only; not on raw onopen)', async () => {
+    tagAc(AC11);
+    const sock = fakeSocket();
+    const orch = createVoiceOrchestratorFactory(react, {
+      socketFactory: sock.factory,
+      vadEngine: fakeVad().engine,
+      capture: fakeCapture(),
+      playback: fakePlayback(),
+      graph: fakeGraph(() => {}),
+      newId: () => 'id',
+    })(hooks());
+    await orch.start(fakeStream);
+    // Raw onopen must NOT trigger start_listening (would double-open STT).
+    sock.sock.onopen?.({});
+    expect(sock.sent.filter((s) => s === JSON.stringify({ type: 'start_listening' }))).toHaveLength(0);
+    // The server ready frame triggers it exactly once.
+    sock.sock.onmessage?.({ data: JSON.stringify({ type: 'ready' }) });
+    expect(sock.sent.filter((s) => s === JSON.stringify({ type: 'start_listening' }))).toHaveLength(1);
   });
 
   it('drives a graph turn on a final transcript and speaks the assistant text', async () => {
