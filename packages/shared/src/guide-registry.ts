@@ -105,7 +105,7 @@ export const GUIDE_SCREENS: Partial<Record<GuideScreenKey, GuideScreen>> = {
       { id: 'new-spec-button', description: 'Button that creates a new Spec.' },
       { id: 'spec-card', description: 'A draggable Spec card showing title, assignees, phase, and AC health.' },
       { id: 'spec-card-health', description: 'The AC-health strip/pill on a card (green vs red acceptance criteria).' },
-      { id: 'phase-columns', description: 'The phase columns (draft / plan / build / verify) the board is organised into.' },
+      { id: 'phase-columns', description: 'The phase columns (draft / specify / build / verify) the board is organised into.' },
       { id: 'search-trigger', description: 'The ⌘K search trigger that opens the command palette to jump to any Spec.' },
     ],
   },
@@ -114,7 +114,7 @@ export const GUIDE_SCREENS: Partial<Record<GuideScreenKey, GuideScreen>> = {
     title: 'Spec detail',
     rationale: 'spec-190 dec-3 / t-4: where users spend most time — read narrative, resolve decisions, verify ACs.',
     elements: [
-      { id: 'phase-pill', description: 'Shows the Spec’s current phase (draft / plan / build / verify / done).' },
+      { id: 'phase-pill', description: 'Shows the Spec’s current phase (draft / specify / build / verify / done).' },
       { id: 'phase-transition-button', description: 'Advances the Spec to the next phase.' },
       { id: 'decisions-panel', description: 'Panel listing the Spec’s decisions (candidate / open / resolved).' },
       { id: 'tasks-panel', description: 'Panel listing tasks (first-class in the build phase).' },

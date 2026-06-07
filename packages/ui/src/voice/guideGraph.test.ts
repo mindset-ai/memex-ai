@@ -110,7 +110,7 @@ describe('guide graph (ac-11)', () => {
       ]);
     });
 
-    const executeServerTool = vi.fn(async () => 'phases: draft → plan → build → verify → done');
+    const executeServerTool = vi.fn(async () => 'phases: draft → specify → build → verify → done');
     const graph = createGuideGraph({ executeServerTool });
     await graph.invoke(
       { messages: [{ role: 'user', content: 'what are phases?' }], screenKey: 'specs-list', screenRegistry: [], guideContext: [] },

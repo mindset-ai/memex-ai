@@ -1994,6 +1994,52 @@ export const embeddings = pgTable(
   ]
 );
 
+// spec-190 t-6 (dec-6): the voice guide's knowledge store — a GLOBAL corpus of
+// product documentation (how Memex works), NOT tenant-scoped (no memex_id). The
+// guide teaches the product's shape, identical for every Memex, and never reads
+// tenant content (dec-4). Rows are heading-bounded markdown chunks imported from
+// guide-content/ by t-7's db:import-guide-content (screens/<key>.md carry a
+// screen_key; concepts/*.md leave it NULL).
+//
+// Retrieval (services/guide-content.ts) is two-layer: Layer 1 (ac-14) is a
+// deterministic screen_key lookup on route change — no embedding, no vector
+// search; Layer 2 (ac-15) is a per-turn pgvector cosine search over the whole
+// corpus, with content_tsv (GIN) as the FTS fallback. Embeddings are written
+// via the EmbeddingProvider abstraction (ac-13); embedding_model tags the
+// provider so query-time vectors filter to the same population.
+export const guideContent = pgTable(
+  "guide_content",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // NULL for cross-screen concept chunks; set for per-screen chunks.
+    screenKey: text("screen_key"),
+    sourcePath: text("source_path").notNull(),
+    chunkIndex: integer("chunk_index").notNull().default(0),
+    heading: text("heading"),
+    contentHash: text("content_hash").notNull(),
+    content: text("content").notNull(),
+    embedding: vector1536("embedding"),
+    embeddingModel: text("embedding_model"),
+    // Generated full-text-search vector, written automatically by Postgres.
+    contentTsv: tsvector("content_tsv").generatedAlwaysAs(
+      sql`to_tsvector('english'::regconfig, COALESCE(content, ''::text))`,
+    ),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // Importer upsert key — one row per (file, chunk).
+    uniqueIndex("guide_content_source_path_chunk_idx").on(table.sourcePath, table.chunkIndex),
+    // Layer-1 deterministic pre-fetch.
+    index("guide_content_screen_key_idx").on(table.screenKey),
+    // Layer-2 FTS fallback.
+    index("guide_content_content_tsv_idx").using("gin", table.contentTsv),
+    // Model-scoped filter parity (HNSW vector index lives in the migration —
+    // drizzle-kit can't express `USING hnsw (... vector_cosine_ops)`).
+    index("guide_content_embedding_model_idx").on(table.embeddingModel),
+  ]
+);
+
 export const repoEndpoints = pgTable(
   "repo_endpoints",
   {
@@ -2334,6 +2380,8 @@ export type DependencyInsert = InferInsertModel<typeof dependencies>;
 export type Call = InferSelectModel<typeof calls>;
 export type CallInsert = InferInsertModel<typeof calls>;
 export type Embedding = InferSelectModel<typeof embeddings>;
+export type GuideContent = InferSelectModel<typeof guideContent>;
+export type GuideContentInsert = InferInsertModel<typeof guideContent>;
 export type RepoEndpoint = InferSelectModel<typeof repoEndpoints>;
 export type RepoEndpointInsert = InferInsertModel<typeof repoEndpoints>;
 export type RepoStructure = InferSelectModel<typeof repoStructure>;
