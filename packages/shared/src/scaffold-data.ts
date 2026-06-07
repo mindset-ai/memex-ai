@@ -101,7 +101,7 @@ export const BASE_REVIEW: PromptBlockNode = {
   id: 'review',
   surface: 'react_only',
   text:
-    "You are reviewing this Spec, not editing it. You can read and search it, leave comments, and raise Issues — but you cannot resolve decisions, edit sections, create tasks or acceptance criteria, advance the phase, or publish. Focus your review on what matters for the Spec's current phase (above): in plan, weigh the open decisions and whether the narrative holds together; in verify, check whether the acceptance criteria actually hold. Ground your review in the team's Standards: search them first (search_memex with kind 'standard') for any that bear on the area, and when you draft a comment, cite the standard it relates to as [per std-N] where one applies. Before you add a comment or raise an Issue, confirm the exact wording with me using the confirmation tool (render_confirmation) — present it as a yes/no choice to approve, not a plain-text question. If you're asked to make a forward-driving change, explain that a reviewer can't, and offer to capture it as a comment or an Issue instead.",
+    "You are reviewing this Spec, not editing it. You can read and search it, leave comments, and raise Issues — but you cannot resolve decisions, edit sections, create tasks or acceptance criteria, advance the phase, or publish. Focus your review on what matters for the Spec's current phase (above): in specify, weigh the open decisions and whether the narrative holds together; in verify, check whether the acceptance criteria actually hold. Ground your review in the team's Standards: search them first (search_memex with kind 'standard') for any that bear on the area, and when you draft a comment, cite the standard it relates to as [per std-N] where one applies. Before you add a comment or raise an Issue, confirm the exact wording with me using the confirmation tool (render_confirmation) — present it as a yes/no choice to approve, not a plain-text question. If you're asked to make a forward-driving change, explain that a reviewer can't, and offer to capture it as a comment or an Issue instead.",
   rationale:
     'spec-126 dec-4: the reviewer-mode prompt block, appended by buildSystemBlocks only when the per-request resolved role is reviewer. Intentionally NOT in any phase promptBlockIds (conditionally injected, like BASE_READ_ONLY). Phase-composition (dec-5) is free because it follows the phase blocks/guidance. The real enforcement is the dec-3 capability allowance on the server tool gate, not this prose.',
 };
@@ -215,6 +215,27 @@ const BASE_CONTEXT_AWARENESS: PromptBlockNode = {
     'The "memex is already bound — don\'t ask, don\'t pass it" framing is React-specific — the MCP agent operates without a URL-bound memex and DOES need to call `list_memexes`. The cross-phase invariants and tone rules ride along here because they\'re part of the React UI\'s opening orientation. Mirrors `_base/context-awareness.md`.',
 };
 
+// spec-176 t-1: when the in-UI agent is viewing a doc and the user (or drift)
+// surfaces a problem that needs a new Spec, the agent should be able to create
+// it directly. react_only — MCP agents already know create_doc's purpose and
+// have their own search posture; the gap is specific to the React doc-assistant.
+const BASE_CREATE_FROM_DOC: PromptBlockNode = {
+  kind: 'prompt_block',
+  id: 'create-from-doc',
+  surface: 'react_only',
+  text:
+    '## Creating a new Spec or document from this chat\n\n' +
+    'You have `create_doc` and `search_memex` available. Use them when the user asks you to create a Spec, or when a problem surfaces that clearly needs one (e.g. drift you flagged, a "wic can fix this" moment, or the user describing work that doesn\'t have a Spec yet).\n\n' +
+    '**Workflow — always follow this order:**\n' +
+    '1. `search_memex({ query: <topic> })` — check for existing related Specs first. If hits are found, surface them: "I found spec-N which covers X — create a new one anyway, or work from that?" Never skip the search.\n' +
+    '2. Agree on a title and one-sentence purpose with the user (plain text, no tool call).\n' +
+    '3. `render_confirmation` — show the proposed title + purpose as a yes/no choice. Do not create until the user confirms.\n' +
+    '4. `create_doc({ title, purpose })` — `docType` defaults to `\'spec\'`; pass `docType: \'document\'` for free-form docs. Never pass a `memex` argument — the server uses the bound one.\n\n' +
+    '**Proactive offer:** When you identify a problem that needs a Spec — a drift item, a missing standard, an untracked piece of work — say so and offer to create one. Do not ask the user to create it themselves.',
+  rationale:
+    'spec-176 dec-1/dec-2/dec-3/dec-4: prompt-only change — create_doc and search_memex are already in getToolDefinitions(); the gap is that the in-UI agent had no instruction to use them for Spec creation from a doc-viewing session. react_only (not shared_nudge) because MCP coding agents already know create_doc\'s purpose. New dedicated block (not an amendment to BASE_CONTEXT_AWARENESS) per dec-4 — clean separation of concerns.',
+};
+
 const BASE_MUTATION_PROTOCOL: PromptBlockNode = {
   kind: 'prompt_block',
   id: 'mutation-protocol',
@@ -239,7 +260,7 @@ const BASE_CODE_GROUNDING: PromptBlockNode = {
     'Is this Spec\'s scope code-touching (does any resolved decision name code shape — files, symbols, schema, routes)? If yes, have the resolved decisions been verified against current source? Call assess_spec again with `codeGrounding` set to one of: `not_applicable`, `verified`, or `not_verified`.\n\n' +
     'If unverified: ⚠ No code-grounding on this Spec. If you\'re driving from a coding agent, walk the resolved decisions against current source before transitioning. Build transition is not blocked.',
   rationale:
-    'Code-grounding self-classification prompt for the doc-27 flow. Both agents face the same plan→build gate and should self-classify the same way. Mirrors the `prompt` + `nudge:not_verified` sections of `_base/code-grounding.md`.',
+    'Code-grounding self-classification prompt for the doc-27 flow. Both agents face the same specify→build gate and should self-classify the same way. Mirrors the `prompt` + `nudge:not_verified` sections of `_base/code-grounding.md`.',
 };
 
 const BASE_STANDARDS_PROTOCOL: PromptBlockNode = {
@@ -248,8 +269,8 @@ const BASE_STANDARDS_PROTOCOL: PromptBlockNode = {
   surface: 'shared_nudge',
   text:
     '**Standards protocol** — when working with a standard:\n' +
-    '- If the rule is wrong or out of date, call `propose_standard_change(standardId, proposed)` with the corrected text. The proposal lands as a `plan_revision` typed comment for the standard owner to accept or reject.\n' +
-    '- If the rule is correct but the codebase has drifted from it, call `flag_drift(standardSectionId, observation)`. Drift comments surface in the Standards Drift Inbox (sourced \'agent\').\n' +
+    '- If the rule is wrong or out of date, call `propose_standard_change(ref, proposed)` with the corrected text — `ref` is the section\'s canonical ref (e.g. `…/standards/std-N/sections/s-M`), not a UUID. The proposal lands as a `plan_revision` typed comment for the standard owner to accept or reject.\n' +
+    '- If the rule is correct but the codebase has drifted from it, call `flag_drift(ref, observation)` with the section\'s canonical ref. Drift comments surface in the Standards Drift Inbox (sourced \'agent\').\n' +
     '- When citing a standard in code or in another doc, use the `[per std-N]` form so the back-reference resolves automatically.\n' +
     '- Use `search_memex({ query, kind: \'standard\' })` (handle / FTS / vector) before authoring new rules — duplicate standards confuse the agent loop.',
   rationale:
@@ -263,7 +284,7 @@ const BASE_STANDARDS_PROTOCOL: PromptBlockNode = {
 // ──────────────────────────────────────────────────────────────────────────
 
 // spec-106 t-2: the lens-shape block. Teaches the agent to PROPOSE the fitting
-// section anatomy at Spec birth / in plan (ac-11) and to READ existing section
+// section anatomy at Spec birth / in specify (ac-11) and to READ existing section
 // types to scope its work without hard-coding enforcement (ac-12). `shared_nudge`
 // so it rides the `toNudge` footer to BOTH surfaces (the MCP coding agent and
 // the React doc-chat authoring agent) — no React system-prompt wiring (ac-13).
@@ -282,78 +303,78 @@ const SPEC_SHAPE_LENSES: PromptBlockNode = {
     '- **A genuinely trivial Spec may be Overview-only.** A one-file refactor or a copy fix doesn\'t need forced headings — don\'t manufacture shape the work doesn\'t have.\n' +
     '- **Read the existing section types to scope your work.** When working on an existing Spec, look at what section types it already carries and decide where new content belongs from that shape — adapt to it, don\'t impose a fixed template. Don\'t enforce a required set; the types are data you read, not a schema you police.',
   rationale:
-    'spec-106 dec-2 + dec-4: the lens taxonomy + shape-selection guidance ships as a base GuidanceBlock sourced from std-18. Teaches the agent to PROPOSE the fitting anatomy at Spec birth/plan (ac-11) and to READ existing section types without enforcing them (ac-12). `shared_nudge` per spec-68 dec-9 so it reaches both surfaces via the nudge footer (ac-13). References std-18 rather than duplicating the list (ac-5).',
+    'spec-106 dec-2 + dec-4: the lens taxonomy + shape-selection guidance ships as a base GuidanceBlock sourced from std-18. Teaches the agent to PROPOSE the fitting anatomy at Spec birth/specify (ac-11) and to READ existing section types without enforcing them (ac-12). `shared_nudge` per spec-68 dec-9 so it reaches both surfaces via the nudge footer (ac-13). References std-18 rather than duplicating the list (ac-5).',
 };
 
-// spec-106 dec-1 / t-4: plan→build missing-core-lens soft-nudge warning.
+// spec-106 dec-1 / t-4: specify→build missing-core-lens soft-nudge warning.
 //
 // Templated (`{lens}`) and CONDITIONAL — emitted by `phase-assessment.ts` only
 // when a core lens is absent — so it is a plain exported const consumed by the
 // assessment code, NOT a static `TransitionRubric` (which would emit on every
-// plan→build call) nor a `toNudge` PromptBlock. It lives here because
+// specify→build call) nor a `toNudge` PromptBlock. It lives here because
 // `scaffold-data.ts` is the single owner of scaffold prompt prose (b-68 dec-6);
 // the drift-guard (ac-20a) rejects new `phases/*.md` and inline prose in
 // server/src. dec-1: SOFT nudge — the transition is never blocked.
 export const SPEC_SHAPE_MISSING_LENS_WARNING =
   'Missing core lens: {lens}. std-18 names three core lenses every Spec should carry — Overview, Design & UX, and Architecture & Security — marking a lens "n/a" where it genuinely doesn\'t apply (e.g. "Security: n/a — no new surface") rather than dropping it silently. This Spec has no section covering the lens above. ' +
-  'This is a soft signal, not a gate. Proceed with caveats: if the work truly doesn\'t touch that lens, say so explicitly (add a short "n/a — <why>" section) and move on. If it does, fold the missing thinking into the narrative before build. The plan→build transition is NOT blocked either way — the human decides whether the gap matters.';
+  'This is a soft signal, not a gate. Proceed with caveats: if the work truly doesn\'t touch that lens, say so explicitly (add a short "n/a — <why>" section) and move on. If it does, fold the missing thinking into the narrative before build. The specify→build transition is NOT blocked either way — the human decides whether the gap matters.';
 
 const PHASE_PLAN_INTENT: PromptBlockNode = {
   kind: 'prompt_block',
-  id: 'phase-plan-intent',
+  id: 'phase-specify-intent',
   surface: 'shared_nudge',
   text:
-    '## Phase: plan (and draft)\n\n' +
-    'This Spec is in the planning phase. The work is shaping the narrative and resolving decisions before execution. `draft` and `plan` share this prompt — they are functionally identical for the agent (same tools, same job). The distinction is user-facing: `draft` is private/authoring, `plan` is team-visible.\n\n' +
+    '## Phase: specify (and draft)\n\n' +
+    'This Spec is in the specify phase. The work is shaping the narrative and resolving decisions before execution. `draft` and `specify` share this prompt — they are functionally identical for the agent (same tools, same job). The distinction is user-facing: `draft` is private/authoring, `specify` is team-visible.\n\n' +
     '- **draft** — Private authoring. The user is sketching purpose and shape. Help them clarify the overview, frame the problem, and surface what\'s still vague. Edit sections; surface decisions when choices appear. Don\'t create tasks.\n' +
-    '- **plan** — Shaping the narrative and resolving decisions before execution. Surface decisions, capture context, drive them to resolution. Edit sections to reflect resolutions. Don\'t create tasks.\n\n' +
+    '- **specify** — Shaping the narrative and resolving decisions before execution. Surface decisions, capture context, drive them to resolution. Edit sections to reflect resolutions. Don\'t create tasks.\n\n' +
     'What to do next depends on the decision state:\n' +
     '- **No decisions yet** — surface the decisions this work hinges on; capture the choices that have been hand-waved as `create_decision`.\n' +
     '- **Open decisions remain** — drive each unresolved decision to resolution: summarise its context, options and trade-offs, recommend where you can, and resolve it on the user\'s call.\n' +
-    '- **All decisions resolved** — the plan is settled. Make sure each resolution is reflected in the narrative, then point the user at a team review (share the Spec) or moving into `build`.',
+    '- **All decisions resolved** — the spec is settled. Make sure each resolution is reflected in the narrative, then point the user at a team review (share the Spec) or moving into `build`.',
   rationale:
-    'What the plan phase IS for. Tells the agent that draft+plan share semantics and the work is decision resolution + narrative shaping. Mirrors the opening "## Phase: plan (and draft)" block of `plan/system.md`.',
+    'What the specify phase IS for. Tells the agent that draft+specify share semantics and the work is decision resolution + narrative shaping. Mirrors the opening "## Phase: specify (and draft)" block of `specify/system.md`.',
 };
 
 const PHASE_PLAN_DISCIPLINE: PromptBlockNode = {
   kind: 'prompt_block',
-  id: 'phase-plan-discipline',
+  id: 'phase-specify-discipline',
   surface: 'shared_nudge',
   text:
     '## Phase discipline\n\n' +
-    '- **Tasks are NOT first-class in `plan` or `draft`.** Never call `create_task` while the Spec is in either phase. If work needs to be captured, surface it as a decision or a section update instead. Tasks belong in `build`.\n' +
+    '- **Tasks are NOT first-class in `specify` or `draft`.** Never call `create_task` while the Spec is in either phase. If work needs to be captured, surface it as a decision or a section update instead. Tasks belong in `build`.\n' +
     '- The work here is decision resolution and narrative shaping — nothing else.\n' +
-    '- Verify against current code before resolving — read the relevant source, don\'t lean on CLAUDE.md or prior knowledge. Decisions that name code (files, symbols, schema, routes) must be grounded against current source here in plan; the plan→build gate (`assess_spec`) will ask you to classify that grounding as `not_applicable`, `verified`, or `not_verified`.',
+    '- Verify against current code before resolving — read the relevant source, don\'t lean on CLAUDE.md or prior knowledge. Decisions that name code (files, symbols, schema, routes) must be grounded against current source here in specify; the specify→build gate (`assess_spec`) will ask you to classify that grounding as `not_applicable`, `verified`, or `not_verified`.',
   rationale:
-    'Plan-phase guardrails: no tasks, just decisions + narrative + code grounding. Mirrors the "## Phase discipline" block of `plan/system.md`.',
+    'Specify-phase guardrails: no tasks, just decisions + narrative + code grounding. Mirrors the "## Phase discipline" block of `specify/system.md`.',
 };
 
 const PHASE_PLAN_DOC_MANIPULATION: PromptBlockNode = {
   kind: 'prompt_block',
-  id: 'phase-plan-document-manipulation',
+  id: 'phase-specify-document-manipulation',
   surface: 'shared_nudge',
   text:
-    '## Document manipulation in plan\n\n' +
+    '## Document manipulation in specify\n\n' +
     '- Only use a mutating tool when the user explicitly asks. Don\'t proactively add sections, create tasks, or resolve decisions.\n' +
     '- When a resolved decision changes the shape of the work, reflect it in the affected sections with `update_section` before moving on. The Spec is the source of truth — if a decision isn\'t reflected in the narrative, it hasn\'t truly been made.',
   rationale:
-    'Per-phase mutation etiquette — overlays the cross-phase mutation-protocol with plan-specific restraint and the "Spec-is-source-of-truth" reminder. Mirrors the "## Document manipulation in plan" block.',
+    'Per-phase mutation etiquette — overlays the cross-phase mutation-protocol with specify-specific restraint and the "Spec-is-source-of-truth" reminder. Mirrors the "## Document manipulation in specify" block.',
 };
 
 const PHASE_PLAN_SEARCH: PromptBlockNode = {
   kind: 'prompt_block',
-  id: 'phase-plan-search',
+  id: 'phase-specify-search',
   surface: 'shared_nudge',
   text:
     '## Searching the Memex (search_memex)\n\n' +
-    'This Memex contains every Spec, Standard, free-form document, and Decision your team has authored. In `plan`, reach for `search_memex({ query, kind? })` at these moments — not on every message, just when the moment fits:\n\n' +
+    'This Memex contains every Spec, Standard, free-form document, and Decision your team has authored. In `specify`, reach for `search_memex({ query, kind? })` at these moments — not on every message, just when the moment fits:\n\n' +
     '- **Before resolving a load-bearing decision (mandatory).** `search_memex({ query: <decision topic>, kind: "decision" })` (and often `kind: "standard"`). Prior resolutions in the same area are constraints; missing them is how you contradict the team\'s own history.\n' +
     '- **The user references prior work without a handle.** *"Didn\'t we decide something about retry policy last month?"* → `search_memex({ query: "retry policy", kind: "decision" })`. Cite the hits inline so the user can confirm you found the right one.\n' +
     '- **Before authoring substantive new section content.** If you\'re about to add or significantly rewrite a section, run `search_memex({ query })` (no `kind`) first to surface related Specs / Standards / Decisions you should reference or align with.\n' +
     '- **When the user mentions a Standard by topic.** `search_memex({ query, kind: "standard" })` — the standards-only filter keeps results focused on rules.\n\n' +
     'Default `kind` omitted to search everything; narrow with `kind: "spec" | "standard" | "decision" | "document"` when you know what you\'re looking for. Results lead with the canonical ref — use it directly in your next tool call (no UUID lookup needed). Archived and paused content is excluded by default.',
   rationale:
-    'Per-phase `search_memex` triggers — plan has a heavier search posture (mandatory before resolving load-bearing decisions). Mirrors the "## Searching the Memex" block of `plan/system.md`.',
+    'Per-phase `search_memex` triggers — specify has a heavier search posture (mandatory before resolving load-bearing decisions). Mirrors the "## Searching the Memex" block of `specify/system.md`.',
 };
 
 const PHASE_BUILD_INTENT: PromptBlockNode = {
@@ -362,7 +383,7 @@ const PHASE_BUILD_INTENT: PromptBlockNode = {
   surface: 'shared_nudge',
   text:
     '## Phase: build\n\n' +
-    'This Spec is in execution. Tasks are first-class. Pick up ready tasks, run them, tick acceptance criteria as you go. If a new decision surfaces mid-build, capture it with `create_decision` and consider whether the Spec needs to step back to `plan` until the decision is settled.\n\n' +
+    'This Spec is in execution. Tasks are first-class. Pick up ready tasks, run them, tick acceptance criteria as you go. If a new decision surfaces mid-build, capture it with `create_decision` and consider whether the Spec needs to step back to `specify` until the decision is settled.\n\n' +
     'The build work itself is a coding-agent handoff against the resolved decisions and tasks — most of it happens in a separate coding session, not in this chat. Resolve open Issues as you go (`register_issue` captures them; `convert_issue_to_task` turns one into a Task). Advance to `verify` only once the tasks are complete.',
   rationale:
     'Build-phase intent header. Mirrors the opening "## Phase: build" block of `build/system.md`.',
@@ -374,7 +395,7 @@ const PHASE_BUILD_DISCIPLINE: PromptBlockNode = {
   surface: 'shared_nudge',
   text:
     '## Phase discipline\n\n' +
-    '- Tasks are first-class only in `build`. While the Spec was in `draft` or `plan`, the agent surfaced decisions instead. Now that the Spec is in `build`, full task surface is available — `create_task`, `update_task`, execution plans, drift flags, standard-change proposals, sections, decisions.\n' +
+    '- Tasks are first-class only in `build`. While the Spec was in `draft` or `specify`, the agent surfaced decisions instead. Now that the Spec is in `build`, full task surface is available — `create_task`, `update_task`, execution plans, drift flags, standard-change proposals, sections, decisions.\n' +
     '- A task is `complete` only when verification actually runs — type checks pass, tests pass, the new code path is exercised. Plausibility is the failure mode.\n' +
     '- **Before you start a task:**\n' +
     '  1. Re-read the Spec narrative with `get_doc(specHandle)` — resolved decisions are constraints on how you implement.\n' +
@@ -392,7 +413,7 @@ const PHASE_BUILD_DOC_MANIPULATION: PromptBlockNode = {
   text:
     '## Document manipulation in build\n\n' +
     '- Executing ready tasks is the job here — pick them up and run them, ticking acceptance criteria, without asking for per-action confirmation. For ad-hoc edits outside an active task, confirm first as usual.\n' +
-    '- If a mid-build decision surfaces, capture it with `create_decision` — and if the work depends on it, consider stepping back to `plan` until it is resolved.',
+    '- If a mid-build decision surfaces, capture it with `create_decision` — and if the work depends on it, consider stepping back to `specify` until it is resolved.',
   rationale:
     'Build-phase mutation etiquette — overrides the cross-phase confirm-first rule for in-task work. Mirrors the "## Document manipulation in build" block.',
 };
@@ -529,7 +550,7 @@ const PHASE_DONE_USING_AS_CONTEXT: PromptBlockNode = {
 };
 
 // ──────────────────────────────────────────────────────────────────────────
-// PhaseNodes — one per `draft | plan | build | verify | done`.
+// PhaseNodes — one per `draft | specify | build | verify | done`.
 // `promptBlockIds` lists React-only blocks in the order `buildSystemBlocks`
 // composes them (per b-68 dec-9, only `react_only` blocks appear here).
 // `intent` mirrors `phaseIntentLine` in `mcp/formatters.ts`.
@@ -551,7 +572,7 @@ const REACT_ONLY_BLOCK_IDS = [
 const PHASE_DRAFT: PhaseNode = {
   kind: 'phase',
   phase: 'draft',
-  intent: 'shape the idea and the decisions to make, then move it into plan.',
+  intent: 'shape the idea and the decisions to make, then move it into specify.',
   allowance: {
     allowed: [
       'update_section',
@@ -565,12 +586,12 @@ const PHASE_DRAFT: PhaseNode = {
   },
   promptBlockIds: [...REACT_ONLY_BLOCK_IDS],
   rationale:
-    'Draft is private authoring. Per `phaseIntentLine`/`phaseAllowanceLine` in `mcp/formatters.ts`, draft shares the plan allowance — decisions + sections only; tasks blocked. Behavioural prose comes from the plan-phase shared_nudge blocks (draft and plan share the same `plan/system.md`).',
+    'Draft is private authoring. Per `phaseIntentLine`/`phaseAllowanceLine` in `mcp/formatters.ts`, draft shares the specify allowance — decisions + sections only; tasks blocked. Behavioural prose comes from the specify-phase shared_nudge blocks (draft and specify share the same `specify/system.md`).',
 };
 
 const PHASE_PLAN: PhaseNode = {
   kind: 'phase',
-  phase: 'plan',
+  phase: 'specify',
   intent: 'surface the decisions this work hinges on and drive the open ones to resolution; once they are all settled, get a team review or move into build.',
   allowance: {
     allowed: [
@@ -583,9 +604,9 @@ const PHASE_PLAN: PhaseNode = {
     ],
     blocked: ['create_task', 'execution_plans'],
   },
-  promptBlockIds: [...REACT_ONLY_BLOCK_IDS],
+  promptBlockIds: [...REACT_ONLY_BLOCK_IDS, 'create-from-doc'],
   rationale:
-    'Plan is team-visible narrative shaping + decision resolution. Same allowance as draft (per `phaseAllowanceLine`): full section + decision surface, tasks blocked.',
+    'Specify is team-visible narrative shaping + decision resolution. Same allowance as draft (per `phaseAllowanceLine`): full section + decision surface, tasks blocked.',
 };
 
 const PHASE_BUILD: PhaseNode = {
@@ -608,7 +629,7 @@ const PHASE_BUILD: PhaseNode = {
     ],
     blocked: [],
   },
-  promptBlockIds: [...REACT_ONLY_BLOCK_IDS],
+  promptBlockIds: [...REACT_ONLY_BLOCK_IDS, 'create-from-doc'],
   rationale:
     'Build opens up the full task surface. Per `phaseAllowanceLine`: tasks, execution plans, drift flags, standard-change proposals, sections, decisions. Nothing is explicitly blocked at this phase.',
 };
@@ -631,7 +652,7 @@ const PHASE_VERIFY: PhaseNode = {
     ],
     blocked: ['update_doc(status=done)'],
   },
-  promptBlockIds: [...REACT_ONLY_BLOCK_IDS],
+  promptBlockIds: [...REACT_ONLY_BLOCK_IDS, 'create-from-doc'],
   rationale:
     'Verify is validation + revision; the only hard block is the human-only `done` transition. Mirrors `phaseAllowanceLine("verify")`: "Allowed now: validation + revision. Human-only: moving to `done`."',
 };
@@ -680,11 +701,11 @@ const TOOL_RATIONALES: Record<string, string> = {
   list_comments:
     'Inspect comments by target / by document / by type. `mode=review` shapes the output for working through open feedback.',
   search_memex:
-    'Semantic + full-text search across Specs, Standards, docs, Decisions. Used heavily in plan (mandatory before resolving load-bearing decisions) and in build (standards re-check before writing).',
+    'Semantic + full-text search across Specs, Standards, docs, Decisions. Used heavily in specify (mandatory before resolving load-bearing decisions) and in build (standards re-check before writing).',
   create_doc:
     'Create a new Spec (or other docType). The promoteFromTaskRef flag preserves lineage when a task scopes out into its own Spec.',
   update_doc:
-    'Status + title mutations. Drives Specs through the draft→plan→build→verify→done lifecycle.',
+    'Status + title mutations. Drives Specs through the draft→specify→build→verify→done lifecycle.',
   add_section:
     'Append a new typed section to a document. The (doc, sectionType) pair is unique within a doc.',
   update_section:
@@ -716,7 +737,7 @@ const TOOL_RATIONALES: Record<string, string> = {
   publish_spec:
     'Transition a Spec out of draft. Refuses already-published Specs; the user owns the phase transition in both directions.',
   create_task:
-    'Create a build-phase task. Refuses tasks in draft/plan. Acceptance criteria are part of the contract for `complete`.',
+    'Create a build-phase task. Refuses tasks in draft/specify. Acceptance criteria are part of the contract for `complete`.',
   update_task:
     'The omnibus task mutator: status, title, description, acceptanceCriteria, sectionRef, add/removeBlockerRef. One field or several per call.',
   delete_task:
@@ -779,13 +800,11 @@ const TOOLS: ToolNode[] = toolManifest.map(
         `Missing rationale for tool "${entry.name}" — add an entry to TOOL_RATIONALES in scaffold-data.ts.`,
       );
     }
+    // Spread the manifest entry whole so new manifest fields (e.g. spec-189's
+    // trafficClass / autoAssignExempt) ride along without a forking edit here.
     return {
+      ...entry,
       kind: 'tool',
-      name: entry.name,
-      summary: entry.summary,
-      args: entry.args,
-      group: entry.group,
-      readOnlyHint: entry.readOnlyHint,
       rationale,
     };
   },
@@ -793,22 +812,22 @@ const TOOLS: ToolNode[] = toolManifest.map(
 
 // ──────────────────────────────────────────────────────────────────────────
 // TransitionRubric records — one per forward transition.
-// →plan, →build, →verify mirror `<phase>/transitions.md` files.
+// →specify, →build, →verify mirror `<phase>/transitions.md` files.
 // →done has no `transitions.md` (closing is the human's call), so we author
 // a short closing-handoff rubric here.
 // ──────────────────────────────────────────────────────────────────────────
 
 const TRANSITION_PLAN: TransitionRubric = {
   kind: 'transition_rubric',
-  transition: 'plan',
+  transition: 'specify',
   text:
-    '# Draft-to-plan readiness review\n\n' +
-    'Plan is team-visible. Before publishing, the Spec should be coherent enough that a teammate reading it cold can follow the why, the shape, and the unresolved choices. Use this when the user asks whether the Spec is ready to leave draft.\n\n' +
+    '# Draft-to-specify readiness review\n\n' +
+    'Specify is team-visible. Before publishing, the Spec should be coherent enough that a teammate reading it cold can follow the why, the shape, and the unresolved choices. Use this when the user asks whether the Spec is ready to leave draft.\n\n' +
     '## What to inspect\n\n' +
     '1. **Overview.** A reader who hasn\'t seen the Spec before can understand the WHY in one read. Single-sentence stubs are a hold signal.\n' +
     '2. **Decisions surfaced.** The load-bearing choices are captured as `open` (or `candidate`) decisions, not buried in narrative or hand-waved.\n' +
-    '3. **Scope.** What\'s in / out is at least gestured at — even if it sharpens during plan.\n' +
-    '4. **No tasks.** Task creation is blocked in draft/plan; if any `t-N` exist, the Spec skipped a phase.\n\n' +
+    '3. **Scope.** What\'s in / out is at least gestured at — even if it sharpens during specify.\n' +
+    '4. **No tasks.** Task creation is blocked in draft/specify; if any `t-N` exist, the Spec skipped a phase.\n\n' +
     '## Verdict format\n\n' +
     'Return a short narrative ending with one of:\n' +
     '- **proceed** — no concerns; safe to publish.\n' +
@@ -816,14 +835,14 @@ const TRANSITION_PLAN: TransitionRubric = {
     '- **hold** — material concerns; recommend deferring until <list>.\n\n' +
     'The human decides whether to transition; you provide the read.',
   rationale:
-    'No `plan/transitions.md` exists in the codebase today — the draft→plan rubric is implied by `publish_spec` semantics + `phaseIntentLine`. Authoring a minimal rubric here keeps the projection contract complete (one rubric per forward transition) and seeds the prose the team can refine in-app.',
+    'No `specify/transitions.md` exists in the codebase today — the draft→specify rubric is implied by `publish_spec` semantics + `phaseIntentLine`. Authoring a minimal rubric here keeps the projection contract complete (one rubric per forward transition) and seeds the prose the team can refine in-app.',
 };
 
 const TRANSITION_BUILD: TransitionRubric = {
   kind: 'transition_rubric',
   transition: 'build',
   text:
-    '# Plan-to-build readiness review\n\n' +
+    '# Specify-to-build readiness review\n\n' +
     'Use this when called with `targetPhase = "build"`. The server returns this rubric verbatim plus a deterministic fact sheet about the Spec. Your job is to walk the rubric against the facts and synthesise a verdict for the human.\n\n' +
     'This is the heaviest of the three reviews: build is where commitments crystallise into tasks, so anything unresolved here becomes expensive to undo.\n\n' +
     '## What to inspect\n\n' +
@@ -856,7 +875,7 @@ const TRANSITION_BUILD: TransitionRubric = {
     'Always cite specific facts ("dec-3 still open", "dec-5 resolved but no Architecture section mentions the queue") rather than vague claims.\n\n' +
     'This rubric is advisory. The human decides whether to transition; you provide the read.',
   rationale:
-    'Plan→build is the heaviest gate. Mirrors `plan/transitions.md` verbatim — every line is load-bearing (decisions resolved, candidates closed, narrative consolidation, implementation ACs, scope ACs, standards search, open questions).',
+    'Specify→build is the heaviest gate. Mirrors `specify/transitions.md` verbatim — every line is load-bearing (decisions resolved, candidates closed, narrative consolidation, implementation ACs, scope ACs, standards search, open questions).',
 };
 
 const TRANSITION_VERIFY: TransitionRubric = {
@@ -933,7 +952,7 @@ const TRANSITION_DONE: TransitionRubric = {
 // dimension. So:
 //   - `target: {}` → applies to every (tool, phase).
 //   - `target: { phase: 'build' }` → every tool in build.
-//   - `target: { phase: 'plan', tool: 'create_task' }` → only that pair.
+//   - `target: { phase: 'specify', tool: 'create_task' }` → only that pair.
 //
 // `order` is sequential within a target shape. Order across DIFFERENT target
 // shapes does not interleave — `toNudge` filters first, then sorts the
@@ -983,7 +1002,7 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
     enabled: true,
     order: 2,
     rationale:
-      'Code-grounding self-classification for the plan→build gate. Globally targeted because both agents face the same gate.',
+      'Code-grounding self-classification for the specify→build gate. Globally targeted because both agents face the same gate.',
   },
   {
     kind: 'guidance_block',
@@ -1010,12 +1029,12 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
   {
     kind: 'guidance_block',
     source: 'base',
-    target: { phase: 'plan' },
-    text: '**Phase:** plan — surface and resolve decisions; no tasks yet.',
+    target: { phase: 'specify' },
+    text: '**Phase:** specify — surface and resolve decisions; no tasks yet.',
     enabled: true,
     order: 0,
     rationale:
-      'Phase intent header for plan. Mirrors `phaseIntentLine("plan")` + `phaseHeaderLine`.',
+      'Phase intent header for specify. Mirrors `phaseIntentLine("specify")` + `phaseHeaderLine`.',
   },
   {
     kind: 'guidance_block',
@@ -1065,13 +1084,13 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
   {
     kind: 'guidance_block',
     source: 'base',
-    target: { phase: 'plan' },
+    target: { phase: 'specify' },
     text:
       '**Allowed now:** `update_section`, `add_section`, `create_decision` (incl. status=\'candidate\'), `resolve_decision`, `search_memex`, `get_doc`. **Blocked now:** task creation (`create_task`), execution plans.',
     enabled: true,
     order: 1,
     rationale:
-      'Allowance line for plan — mirrors `phaseAllowanceLine("plan")`. Same allowance as draft.',
+      'Allowance line for specify — mirrors `phaseAllowanceLine("specify")`. Same allowance as draft.',
   },
   {
     kind: 'guidance_block',
@@ -1113,29 +1132,29 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
     source: 'base',
     target: { phase: 'draft' },
     text:
-      'This Spec is in the planning phase. The work is shaping the narrative and resolving decisions. **No tasks yet.** (`draft` and `plan` are functionally identical for the agent — same tools, same job. The distinction is user-facing: `draft` is private/authoring, `plan` is team-visible.)\n\nGround code-touching decisions against current source before resolving (the plan prompt covers this).',
+      'This Spec is in the specify phase. The work is shaping the narrative and resolving decisions. **No tasks yet.** (`draft` and `specify` are functionally identical for the agent — same tools, same job. The distinction is user-facing: `draft` is private/authoring, `specify` is team-visible.)\n\nGround code-touching decisions against current source before resolving (the specify prompt covers this).',
     enabled: true,
     order: 2,
     rationale:
-      'Plan/draft MCP footer — mirrors `plan/mcp-footer.md`. The static narrative paragraph appended to mutation responses on draft/plan Specs.',
+      'Specify/draft MCP footer — mirrors `specify/mcp-footer.md`. The static narrative paragraph appended to mutation responses on draft/specify Specs.',
   },
   {
     kind: 'guidance_block',
     source: 'base',
-    target: { phase: 'plan' },
+    target: { phase: 'specify' },
     text:
-      'This Spec is in the planning phase. The work is shaping the narrative and resolving decisions. **No tasks yet.** (`draft` and `plan` are functionally identical for the agent — same tools, same job. The distinction is user-facing: `draft` is private/authoring, `plan` is team-visible.)\n\nGround code-touching decisions against current source before resolving (the plan prompt covers this).',
+      'This Spec is in the specify phase. The work is shaping the narrative and resolving decisions. **No tasks yet.** (`draft` and `specify` are functionally identical for the agent — same tools, same job. The distinction is user-facing: `draft` is private/authoring, `specify` is team-visible.)\n\nGround code-touching decisions against current source before resolving (the specify prompt covers this).',
     enabled: true,
     order: 2,
     rationale:
-      'Plan MCP footer — mirrors `plan/mcp-footer.md`. Shares the same paragraph as draft.',
+      'Specify MCP footer — mirrors `specify/mcp-footer.md`. Shares the same paragraph as draft.',
   },
   {
     kind: 'guidance_block',
     source: 'base',
     target: { phase: 'build' },
     text:
-      'This Spec is in execution. Tasks are first-class. Pick up ready tasks, run them, and tick acceptance criteria as you go. If a new decision surfaces mid-build, capture it with `create_decision` and consider whether the Spec needs to step back to `plan` until the decision is settled.\n\n**Standards discipline applies in build:** search before you write, **stay watchful as you implement** (drift often surfaces mid-change, not at the start), flag drift when you see it, propose changes when a rule is wrong. If `search_memex({ query, kind: \'standard\' })` returns nothing for the area you\'re working in, note the gap — once the pattern stabilises, create the standard with `create_doc(title, sections, docType: \'standard\')` so the next agent inherits the rule.\n\n**AC verification nag + sketches (active in build):** while any of this Spec\'s ACs are `untested` or `failing`, every tool response carries a footer listing them — an AC clears only when a tagged test *passes* (`tagAc(...)`); a `failing` AC needs the code or the test fixed, not a new test. And when you resolve a decision, its response sketches the test shape for each linked implementation AC — write the verification then, while the decision is warm, and the nag never appears.',
+      'This Spec is in execution. Tasks are first-class. Pick up ready tasks, run them, and tick acceptance criteria as you go. If a new decision surfaces mid-build, capture it with `create_decision` and consider whether the Spec needs to step back to `specify` until the decision is settled.\n\n**Standards discipline applies in build:** search before you write, **stay watchful as you implement** (drift often surfaces mid-change, not at the start), flag drift when you see it, propose changes when a rule is wrong. If `search_memex({ query, kind: \'standard\' })` returns nothing for the area you\'re working in, note the gap — once the pattern stabilises, create the standard with `create_doc(title, sections, docType: \'standard\')` so the next agent inherits the rule.\n\n**AC verification nag + sketches (active in build):** while any of this Spec\'s ACs are `untested` or `failing`, every tool response carries a footer listing them — an AC clears only when a tagged test *passes* (`tagAc(...)`); a `failing` AC needs the code or the test fixed, not a new test. And when you resolve a decision, its response sketches the test shape for each linked implementation AC — write the verification then, while the decision is warm, and the nag never appears.',
     enabled: true,
     order: 2,
     rationale:
@@ -1169,13 +1188,13 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
   {
     kind: 'guidance_block',
     source: 'base',
-    target: { phase: 'plan' },
+    target: { phase: 'specify' },
     text:
-      '<!-- Per-phase tool description overrides for plan/draft live here once we author them. Today this is inert; the per-phase phase intent, allowance, and footer above carry the prose. -->',
+      '<!-- Per-phase tool description overrides for specify/draft live here once we author them. Today this is inert; the per-phase phase intent, allowance, and footer above carry the prose. -->',
     enabled: true,
     order: 3,
     rationale:
-      'Inert mcp-descriptions placeholder for plan — mirrors `plan/mcp-descriptions.md` which today is a stub. Reserved for future per-phase per-tool description overrides; kept as a typed record so t-6/t-7 can swap the file read for a data read.',
+      'Inert mcp-descriptions placeholder for specify — mirrors `specify/mcp-descriptions.md` which today is a stub. Reserved for future per-phase per-tool description overrides; kept as a typed record so t-6/t-7 can swap the file read for a data read.',
   },
   {
     kind: 'guidance_block',
@@ -1217,44 +1236,44 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
   {
     kind: 'guidance_block',
     source: 'base',
-    target: { phase: 'plan' },
+    target: { phase: 'specify' },
     text: PHASE_PLAN_INTENT.text,
     enabled: true,
     order: 10,
     rationale:
-      'Plan-phase intent block — the opening "## Phase: plan (and draft)" block of `plan/system.md`. Per b-68 dec-9 shared_nudge content arrives via the nudge channel on both surfaces.',
+      'Specify-phase intent block — the opening "## Phase: specify (and draft)" block of `specify/system.md`. Per b-68 dec-9 shared_nudge content arrives via the nudge channel on both surfaces.',
   },
   {
     kind: 'guidance_block',
     source: 'base',
-    target: { phase: 'plan' },
+    target: { phase: 'specify' },
     text: PHASE_PLAN_DISCIPLINE.text,
     enabled: true,
     order: 11,
     rationale:
-      'Plan-phase discipline block — "## Phase discipline" of `plan/system.md`. Tasks-not-first-class + code-grounding guardrails.',
+      'Specify-phase discipline block — "## Phase discipline" of `specify/system.md`. Tasks-not-first-class + code-grounding guardrails.',
   },
   {
     kind: 'guidance_block',
     source: 'base',
-    target: { phase: 'plan' },
+    target: { phase: 'specify' },
     text: PHASE_PLAN_DOC_MANIPULATION.text,
     enabled: true,
     order: 12,
     rationale:
-      'Plan-phase document-manipulation block — overlays the cross-phase mutation protocol with plan-specific restraint.',
+      'Specify-phase document-manipulation block — overlays the cross-phase mutation protocol with specify-specific restraint.',
   },
   {
     kind: 'guidance_block',
     source: 'base',
-    target: { phase: 'plan' },
+    target: { phase: 'specify' },
     text: PHASE_PLAN_SEARCH.text,
     enabled: true,
     order: 13,
     rationale:
-      'Plan-phase search guidance — when to call `search_memex` during plan (mandatory before resolving load-bearing decisions, etc.).',
+      'Specify-phase search guidance — when to call `search_memex` during specify (mandatory before resolving load-bearing decisions, etc.).',
   },
-  // Draft mirrors plan (one prompt, two statuses).
+  // Draft mirrors specify (one prompt, two statuses).
   {
     kind: 'guidance_block',
     source: 'base',
@@ -1263,7 +1282,7 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
     enabled: true,
     order: 10,
     rationale:
-      'Draft uses the same behavioural prose as plan — they share `plan/system.md` (b-33: draftAgent removed). Intent block duplicated under the draft phase so the nudge composes identically.',
+      'Draft uses the same behavioural prose as specify — they share `specify/system.md` (b-33: draftAgent removed). Intent block duplicated under the draft phase so the nudge composes identically.',
   },
   {
     kind: 'guidance_block',
@@ -1273,7 +1292,7 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
     enabled: true,
     order: 11,
     rationale:
-      'Draft phase discipline — identical to plan.',
+      'Draft phase discipline — identical to specify.',
   },
   {
     kind: 'guidance_block',
@@ -1283,7 +1302,7 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
     enabled: true,
     order: 12,
     rationale:
-      'Draft document-manipulation — identical to plan.',
+      'Draft document-manipulation — identical to specify.',
   },
   {
     kind: 'guidance_block',
@@ -1293,7 +1312,7 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
     enabled: true,
     order: 13,
     rationale:
-      'Draft search guidance — identical to plan.',
+      'Draft search guidance — identical to specify.',
   },
   {
     kind: 'guidance_block',
@@ -1417,11 +1436,11 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
   },
 
   // ── spec-106 t-2: lens-shape guidance. Fires at Spec birth (the
-  //    `create_doc` tool) and throughout planning (`phase: 'plan'`) so the
+  //    `create_doc` tool) and throughout planning (`phase: 'specify'`) so the
   //    agent proposes the fitting section anatomy rather than a fixed
   //    template. `target: { tool: 'create_doc' }` is phase-agnostic — at
   //    Spec creation no phase is resolved yet, so a phase-only target would
-  //    miss the birth moment. The plan-targeted copy keeps the guidance on
+  //    miss the birth moment. The specify-targeted copy keeps the guidance on
   //    the floor while the Spec is being shaped. ──────────────────────────
   {
     kind: 'guidance_block',
@@ -1436,7 +1455,7 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
   {
     kind: 'guidance_block',
     source: 'base',
-    target: { phase: 'plan' },
+    target: { phase: 'specify' },
     text: SPEC_SHAPE_LENSES.text,
     enabled: true,
     order: 20,
@@ -1455,6 +1474,8 @@ const PROMPT_BLOCKS: PromptBlockNode[] = [
   BASE_MDX_COMPONENTS,
   BASE_UI_TOOLS,
   BASE_CONTEXT_AWARENESS,
+  // spec-176 t-1: create-from-doc guidance — active in specify/build/verify.
+  BASE_CREATE_FROM_DOC,
   // Conditionally-injected react_only blocks (not in any phase's promptBlockIds;
   // appended by buildSystemBlocks per-request — readOnly: spec-111 t-9 / dec-2;
   // review: spec-126 dec-4 when the resolved role is reviewer).
@@ -1532,7 +1553,7 @@ const OPENING_TURN_PROMPT_BUTTONS: PromptButtonNode[] = [
     text: "Let's capture the decisions this Spec hinges on. Surface the choices we still need to make and propose them as decisions.",
     surfaces: ['opening-turn'],
     rationale:
-      'spec-123 dec-8: the plan "Create decisions" trigger (no decisions on the Spec yet). A short user-intent trigger only — the agent supplies the how-to from the shared plan-phase guidance.',
+      'spec-123 dec-8: the specify "Create decisions" trigger (no decisions on the Spec yet). A short user-intent trigger only — the agent supplies the how-to from the shared specify-phase guidance.',
   },
   {
     kind: 'prompt_button',
@@ -1542,7 +1563,7 @@ const OPENING_TURN_PROMPT_BUTTONS: PromptButtonNode[] = [
     text: 'Walk through the open decisions on this Spec with me. For each one, summarise the context, options and trade-offs, recommend if you can, then ask me for the call and call resolve_decision when I confirm.',
     surfaces: ['opening-turn'],
     rationale:
-      'spec-123 dec-4/ac-11: the plan "Resolve decisions (N)" trigger. Verbatim the text the top-bar ResolveDecisionsButton injects today; relocated into the Scaffold so it has one home (std-15/std-16).',
+      'spec-123 dec-4/ac-11: the specify "Resolve decisions (N)" trigger. Verbatim the text the top-bar ResolveDecisionsButton injects today; relocated into the Scaffold so it has one home (std-15/std-16).',
   },
   {
     kind: 'prompt_button',
@@ -1600,7 +1621,7 @@ This Spec has finished planning — its decisions are resolved and its narrative
 Hold narrative + decisions + scope ACs together before writing anything.
 
 ── STEP 2: ground — against the code AND the Standards ──
-CODE. For every decision that names code shape (files / symbols / schema / routes), read the actual source. Locate the construct, not the line — and when a cited anchor (line range, file, or symbol) has drifted or no longer exists, register it as a decision-vs-code mismatch (STEP 5) so the narrative gets corrected; don't silently relocate. If reality already satisfies the decision, contradicts it, or lacks a symbol it assumes, that's a mismatch too: register it and do NOT build on the stale claim. If the narrative says to mirror / reuse another Spec or an existing pattern, verify that target is actually built (get_doc its phase; grep the named primitive) — if it's unbuilt or still in \`plan\`, STOP: the Spec is mis-sequenced, recommend stepping back to \`plan\`.
+CODE. For every decision that names code shape (files / symbols / schema / routes), read the actual source. Locate the construct, not the line — and when a cited anchor (line range, file, or symbol) has drifted or no longer exists, register it as a decision-vs-code mismatch (STEP 5) so the narrative gets corrected; don't silently relocate. If reality already satisfies the decision, contradicts it, or lacks a symbol it assumes, that's a mismatch too: register it and do NOT build on the stale claim. If the narrative says to mirror / reuse another Spec or an existing pattern, verify that target is actually built (get_doc its phase; grep the named primitive) — if it's unbuilt or still in \`specify\`, STOP: the Spec is mis-sequenced, recommend stepping back to \`specify\`.
 STANDARDS. For every load-bearing concern the Spec touches (data, auth, tenancy, API, testing, prompts, licensing — whatever applies): search_memex({ query, kind: 'standard' }); read any standard cited as [per std-N]. If the search returns nothing, this Memex has no Standards for that area yet — that is normal; proceed. Where a Standard does exist and contradicts the Spec or the code you're about to write, STOP and surface it — drift is the enemy; don't quietly pick one.
 
 ── STEP 3: derive the task graph ──
@@ -1622,7 +1643,7 @@ Per-task discipline (identical whether you run serially or in parallel):
        • a docs / prose / prompt / config / data task → a contextual smoke check that actually exercises the artifact against its real use (run the doc's commands, render the config, execute the prompt against a live example), not a hollow string-match test.
      Choose the lightest check that would actually catch the failure; never manufacture a thin test just to flip a badge. If you're unsure whether a task is behaviour or prose, treat it as behaviour — test-first.
   4. Run whatever verification the project has — its tests, plus its build / type / lint checks if it has them — and exercise the changed path where one exists. COMPLETE only when that verification actually RAN clean (re-read list_acs to confirm any tagged AC went green), then update_task(... complete).
-  5. A fork the plan didn't settle → STOP, create_decision (step back to \`plan\` if load-bearing). Don't invent the answer.
+  5. A fork the plan didn't settle → STOP, create_decision (step back to \`specify\` if load-bearing). Don't invent the answer.
 
 PARALLELISE ONLY WHEN IT PAYS. If you can spawn sub-agents / run workflows AND this project's version control supports isolated working copies (e.g. git worktrees), you may fan independent tasks out across parallel sub-agents, each in its own isolated worktree, then reconcile in dependency order. Partition the parallel set by TOUCHED-FILE DISJOINTNESS, not dependency edges alone: two logically independent tasks that write the same file MUST run sequentially in one worktree — only fan out slices that are both dependency-free AND file-disjoint. Without worktree-style isolation, or below ~3 disjoint slices, work sequentially. Dependency-chained tasks always run in sequence.
 
@@ -1755,21 +1776,21 @@ Give a per-dimension verdict (pass / fail / gap) and an overall read. "Clean" = 
     kind: 'prompt_button',
     id: 'plan-handoff',
     label: 'Plan handoff',
-    // The plan-phase handoff prompt. `{token}` placeholders are interpolated
+    // The specify-phase handoff prompt. `{token}` placeholders are interpolated
     // from the rendering surface's context: namespace, memex, handle, title,
     // url — the same slots as the build/verify nodes. Portable per std-22 — it
     // makes NO assumptions about the project's language, framework, layout, or
-    // tooling. Rendered as the draft/plan handoff line on the Spec page.
+    // tooling. Rendered as the draft/specify handoff line on the Spec page.
     text: `You are working in Memex ({namespace}/{memex}), with this project checked out and the Memex MCP tools available.
 
 Spec {handle} "{title}"
-Status: plan
+Status: specify
 URL: {url}
 
 This Spec is still PLANNING — its narrative is being shaped and its decisions are not yet settled. Your job is to move it toward a buildable plan: surface and resolve the choices this work hinges on as Decisions, then pin down what "done" means as scope Acceptance Criteria (ACs). Do NOT write product code, create tasks, or start building — tasks and implementation belong to \`build\`, after the plan is settled. The Spec is the source of truth: when you find a choice the narrative has hand-waved, surface it as a Decision rather than silently picking an answer. Make NO assumptions about this project's language, framework, layout, version control, or file locations — discover them from the project itself.
 
 ── STEP 1: absorb the Spec ──
-  assess_spec({ ref: '{namespace}/{memex}/specs/{handle}', mode: 'phase', target: 'plan' })
+  assess_spec({ ref: '{namespace}/{memex}/specs/{handle}', mode: 'phase', target: 'specify' })
     // the planning rubric — what a settled plan looks like and what's still open. 0 decisions + 0 ACs is the normal plan-start state, not an error — surfacing them is your job.
   get_doc({ ref: '...' })        // every section + decision — THE NARRATIVE is what you're shaping, and its decision list shows the choices already on the Spec (resolved or open)
   list_acs({ ref: '...' })       // any scope ACs already authored
@@ -1802,12 +1823,12 @@ Author the scope ACs that define what finishing this Spec MEANS — the manager-
 Finish with a summary: the decisions you surfaced and how each resolved, the scope ACs you authored, any standards drift or decision-vs-code mismatches you found, and what (if anything) still blocks the move to build.`,
     surfaces: ['spec-header'],
     rationale:
-      'Hand a draft/plan-phase Spec to a coding agent to make it buildable: ' +
+      'Hand a draft/specify-phase Spec to a coding agent to make it buildable: ' +
       'ground the narrative against current source + Standards, surface and ' +
       'resolve the load-bearing Decisions, and pin down "done" as scope ' +
       'Acceptance Criteria — never code or create tasks (that is `build`), ' +
       'and recommend `build` (the move itself is the human\'s call). Portable ' +
-      'per std-22. Rendered as the draft/plan handoff line on the Spec page.',
+      'per std-22. Rendered as the draft/specify handoff line on the Spec page.',
   },
   {
     kind: 'prompt_button',
@@ -1815,7 +1836,7 @@ Finish with a summary: the decisions you surfaced and how each resolved, the sco
     label: 'Review handoff',
     // The reviewer handoff prompt. `{token}` placeholders are interpolated from
     // the rendering surface's context: namespace, memex, handle, title, url —
-    // the same slots as the plan/build/verify nodes. Portable per std-22 — it
+    // the same slots as the specify/build/verify nodes. Portable per std-22 — it
     // makes NO assumptions about the project's language, framework, layout, or
     // tooling. Rendered as the reviewer handoff line on the Spec page (spec-159
     // ac-19). A reviewer OBSERVES — this prompt never resolves decisions,

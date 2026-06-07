@@ -39,6 +39,7 @@ import {
 import { parseRef } from "../services/refs.js";
 import { resolveRef as resolveCanonicalRef } from "../services/resolver.js";
 import { emitInAppAgentActivity } from "../services/conversations.js";
+import { runToolWithSpecTraffic } from "../services/spec-traffic.js";
 import { deriveActivity } from "./derive-activity.js";
 
 // ══════════════════════════════════════
@@ -547,6 +548,17 @@ async function resolveRefForAgent(
   if (doc.memexId !== boundMemexId) {
     throw new NotFoundError(`Ref "${ref}" not found.`);
   }
+  // spec-178 t-11 / dec-11 (ac-38): the in-app agents (the server Anthropic-SDK
+  // agent per std-11, AND the React/LangGraph agent — which executes every
+  // server tool through this same resolver via /tools/execute → executeServerTool)
+  // must not read or act on a handhold demo spec. All doc-targeting agent tools
+  // resolve their ref here, so a single not-found guard makes a demo spec inert to
+  // the whole agent surface. The bound current-doc context path (buildDocumentContext
+  // → getDoc) is intentionally untouched: that's the doc the user explicitly opened,
+  // analogous to the board's getDoc, and is out of scope for this exclusion.
+  if (doc.isDemo) {
+    throw new NotFoundError(`Ref "${ref}" not found.`);
+  }
   return {
     entity,
     memexId: doc.memexId,
@@ -604,7 +616,13 @@ export async function executeServerTool(
     // No-op — emission must never affect the agent turn.
   }
 
-  return spec.handler(input, ctx);
+  // spec-189: handler execution goes through the channel-neutral traffic
+  // seam — after a SUCCESSFUL call, the Spec the call resolved to may
+  // auto-advance phase and auto-assign the caller (see
+  // services/spec-traffic.ts). Identical wiring on the MCP surface
+  // (mcp/tools.ts) per dec-5; ctx.channel ('in_app_agent' here) is what
+  // distinguishes the surfaces.
+  return runToolWithSpecTraffic(spec, input, ctx);
 }
 
 // Avoid unused-import warning — `and` is kept around because the lookup

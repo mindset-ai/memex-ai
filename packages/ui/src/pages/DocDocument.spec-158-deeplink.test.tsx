@@ -1,7 +1,7 @@
 // spec-158 t-4 — the issue deep-link must survive spec-159's phase-tab restructure.
 //
-// spec-159 only mounts IssuePanel under the Build / Verify layouts; the Plan view
-// (draft / plan) and the done report don't render it. A `specs/spec-N/issues/issue-N`
+// spec-159 only mounts IssuePanel under the Build / Verify layouts; the Specify view
+// (draft / specify) and the done report don't render it. A `specs/spec-N/issues/issue-N`
 // (or `?issue=issue-N`) deep-link therefore has to land the page on a phase view
 // that actually renders IssuePanel, so `highlightIssueHandle` reaches it and the
 // matching card scrolls + pulses — including on a fresh full-page navigation.
@@ -60,7 +60,7 @@ const chat = {
 };
 vi.mock('../components/ChatContext', () => ({ useChat: () => chat }));
 
-let docStatus: DocWithGraph['status'] = 'plan';
+let docStatus: DocWithGraph['status'] = 'specify';
 function makeDoc(): DocWithGraph {
   return {
     id: 'doc-uuid',
@@ -122,25 +122,25 @@ beforeEach(() => {
 });
 
 describe('spec-158 — issue deep-link survives the spec-159 phase-tab layout', () => {
-  it('a `?issue=issue-N` link on a plan-phase Spec mounts IssuePanel with the handle (ac-4, ac-11, ac-17)', async () => {
+  it('a `?issue=issue-N` link on a specify-phase Spec mounts IssuePanel with the handle (ac-4, ac-11, ac-17)', async () => {
     tagAc(AC(4));
     tagAc(AC(11));
     tagAc(AC(17));
-    // A Spec in PLAN: the current phase tab is Plan, which has no IssuePanel.
+    // A Spec in SPECIFY: the current phase tab is Specify, which has no IssuePanel.
     // The deep-link must redirect the view to a tab that mounts it.
-    renderAt('plan', '/n/m/specs/spec-158?issue=issue-4');
+    renderAt('specify', '/n/m/specs/spec-158?issue=issue-4');
 
     await waitFor(() => expect(screen.getByTestId('issue-panel')).toBeInTheDocument());
     expect(screen.getByTestId('issue-panel')).toHaveAttribute('data-handle', 'issue-4');
     expect(issuePanelHandle).toBe('issue-4');
   });
 
-  it('the canonical `/specs/spec-N/issues/issue-N` path on a plan-phase Spec mounts IssuePanel (ac-11, ac-17)', async () => {
+  it('the canonical `/specs/spec-N/issues/issue-N` path on a specify-phase Spec mounts IssuePanel (ac-11, ac-17)', async () => {
     tagAc(AC(11));
     tagAc(AC(17));
     // Fresh full-page navigation of the canonical URL — the :issueId route param
     // path, not the query param.
-    renderAt('plan', '/n/m/specs/spec-158/issues/issue-7');
+    renderAt('specify', '/n/m/specs/spec-158/issues/issue-7');
 
     await waitFor(() => expect(screen.getByTestId('issue-panel')).toBeInTheDocument());
     expect(screen.getByTestId('issue-panel')).toHaveAttribute('data-handle', 'issue-7');
@@ -157,8 +157,8 @@ describe('spec-158 — issue deep-link survives the spec-159 phase-tab layout', 
     expect(screen.getByTestId('issue-panel')).toHaveAttribute('data-handle', 'issue-2');
   });
 
-  it('with no issue deep-link a plan-phase Spec stays on Plan and does not mount IssuePanel', async () => {
-    renderAt('plan', '/n/m/specs/spec-158');
+  it('with no issue deep-link a specify-phase Spec stays on Specify and does not mount IssuePanel', async () => {
+    renderAt('specify', '/n/m/specs/spec-158');
 
     await screen.findByTestId('section-card');
     expect(screen.queryByTestId('issue-panel')).not.toBeInTheDocument();

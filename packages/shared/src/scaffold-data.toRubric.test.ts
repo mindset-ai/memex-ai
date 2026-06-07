@@ -19,7 +19,7 @@ const AC = (n: number) =>
   `mindset-prod/memex-building-itself/briefs/b-68/acs/ac-${n}`;
 
 const FORWARD_TRANSITIONS: readonly Transition[] = [
-  'plan',
+  'specify',
   'build',
   'verify',
   'done',

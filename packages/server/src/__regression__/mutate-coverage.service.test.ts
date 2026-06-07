@@ -96,7 +96,7 @@ const SERVICE_REGISTRY: RegistryEntry[] = [
   {
     name: "documents.updateDocStatus",
     expected: { entity: "document", action: "updated" },
-    invoke: (f) => documentsSvc.updateDocStatus(f.memexId, f.docId, "plan"),
+    invoke: (f) => documentsSvc.updateDocStatus(f.memexId, f.docId, "specify"),
   },
   {
     name: "documents.pauseDoc",

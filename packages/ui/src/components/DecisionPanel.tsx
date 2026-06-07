@@ -59,12 +59,23 @@ interface DecisionPanelProps {
    * legitimately create them in draft, spec-12 dec-1).
    */
   specPhase?: string;
+  /**
+   * spec-178 ac-24: when true (a frozen Handhold demo spec) the decision context /
+   * resolution markdown does NOT run rehypeRefLinkifier — handle refs render as plain
+   * text instead of navigable `<a>` links, mirroring SectionCard. The demo replicates
+   * spec-64; its refs belong to the original spec's world, not the user's, so linking
+   * them would dead-end. Defaults to false (real specs keep auto-linking).
+   */
+  isDemo?: boolean;
 }
 
 type TabId = 'candidates' | 'open' | 'resolved';
 
-export function DecisionPanel({ docId, decisions, commentsByDecision = {}, forceShowComments: _forceShowComments, onCommentsChange, onUpdate, highlightDecisionHandle, onJumpToAc, canWrite = true, canEdit = true, specPhase }: DecisionPanelProps) {
+export function DecisionPanel({ docId, decisions, commentsByDecision = {}, forceShowComments: _forceShowComments, onCommentsChange, onUpdate, highlightDecisionHandle, onJumpToAc, canWrite = true, canEdit = true, specPhase, isDemo = false }: DecisionPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null);
+  // spec-178 ac-24: suppress handle auto-linking inside a frozen demo spec's
+  // decision prose. Mirrors SectionCard's rehypePlugins switch.
+  const decisionRehypePlugins = isDemo ? [] : [rehypeRefLinkifier];
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const chat = useChat();
   const { user } = useAuth();
@@ -302,7 +313,7 @@ export function DecisionPanel({ docId, decisions, commentsByDecision = {}, force
           <span className="text-xs text-muted">0 decisions</span>
         </div>
         <p data-testid="decision-draft-directive" className="text-sm text-muted">
-          Move this spec to {phaseDisplayName('plan')} to start capturing
+          Move this spec to {phaseDisplayName('specify')} to start capturing
           Decisions and ACs.
         </p>
       </div>
@@ -356,7 +367,7 @@ export function DecisionPanel({ docId, decisions, commentsByDecision = {}, force
                   <div className="mt-2 pl-2 border-l-2 border-edge-subtle">
                     <span className="text-[10px] uppercase tracking-wider text-muted font-medium">Context</span>
                     <div className="prose-dark prose-sm mt-0.5 opacity-80 [&>*]:my-1 [&_h1]:text-sm [&_h2]:text-sm [&_h3]:text-xs [&_h1]:font-semibold [&_h2]:font-semibold [&_h3]:font-medium">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRefLinkifier]}>{dec.context}</ReactMarkdown>
+                      <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={decisionRehypePlugins}>{dec.context}</ReactMarkdown>
                     </div>
                   </div>
                 )}
@@ -581,7 +592,7 @@ export function DecisionPanel({ docId, decisions, commentsByDecision = {}, force
                       <div className="mt-2 pl-2 border-l-2 border-edge-subtle">
                         <span className="text-[10px] uppercase tracking-wider text-muted font-medium">Context</span>
                         <div className="prose-dark prose-sm mt-0.5 opacity-80 [&>*]:my-1 [&_h1]:text-sm [&_h2]:text-sm [&_h3]:text-xs [&_h1]:font-semibold [&_h2]:font-semibold [&_h3]:font-medium">
-                          <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRefLinkifier]}>{dec.context}</ReactMarkdown>
+                          <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={decisionRehypePlugins}>{dec.context}</ReactMarkdown>
                         </div>
                       </div>
                     )}
@@ -804,13 +815,13 @@ export function DecisionPanel({ docId, decisions, commentsByDecision = {}, force
                         <div className="pl-2 border-l-2 border-status-success-border/50">
                           <span className="text-[10px] uppercase tracking-wider text-status-success-text font-medium">Decision</span>
                           <div className="prose-dark prose-sm mt-0.5 [&>*]:my-1 [&_h1]:text-sm [&_h2]:text-sm [&_h3]:text-xs [&_h1]:font-semibold [&_h2]:font-semibold [&_h3]:font-medium">
-                            <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRefLinkifier]}>{dec.resolution}</ReactMarkdown>
+                            <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={decisionRehypePlugins}>{dec.resolution}</ReactMarkdown>
                           </div>
                         </div>
                       )}
                       {dec.context && (
                         <div className="prose-dark prose-sm opacity-80 [&>*]:my-1 [&_h1]:text-sm [&_h2]:text-sm [&_h3]:text-xs [&_h1]:font-semibold [&_h2]:font-semibold [&_h3]:font-medium">
-                          <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRefLinkifier]}>{dec.context}</ReactMarkdown>
+                          <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={decisionRehypePlugins}>{dec.context}</ReactMarkdown>
                         </div>
                       )}
                     </div>

@@ -82,11 +82,7 @@ Hono API + Drizzle ORM, a React 19 UI, native auth (hand-rolled JWT + scrypt), a
 
 ## ⚙️ Self-hosting configuration
 
-A deployed instance is configured through environment variables. The full list lives in **[DEVELOPMENT.md](DEVELOPMENT.md)**; the one deployment-specific knob worth calling out here:
-
-| Variable | What it does |
-|---|---|
-| `MEMEX_OWN_NAMESPACE` | The namespace this deployment treats as *its own* Memex (the one it writes its self-hosted Specs to). Mindset's hosted service sets `mindset-int` in int and `mindset-prod` in prod. **Required:** if it's unset the server is fail-closed — the self-emission path returns an error rather than guessing. |
+A deployed instance is configured through environment variables. The full list lives in **[DEVELOPMENT.md](DEVELOPMENT.md)**.
 
 For Mindset's own deploys the per-env value (and the rest of the deploy config) is resolved by **[`scripts/deploy-config.sh`](scripts/deploy-config.sh)** from a single canonical source — a Secret Manager secret `memex-<env>-deploy-env` fetched at deploy time, so every deployer ships identical config with no per-machine drift (a local `scripts/deploy.<env>.env` stays available as an opt-in override). See **[`scripts/deploy.env.example`](scripts/deploy.env.example)** for the template; self-hosters set these however they manage their own environment.
 

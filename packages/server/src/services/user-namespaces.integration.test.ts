@@ -59,19 +59,65 @@ describe("ensureUserMemex / ensureUserNamespace", () => {
     tagAc(AC_1);
     tagAc(AC_4);
     tagAc(AC_5);
-    // Two concurrent ensureUserNamespace calls with the same userId simulate the
-    // email-resend race: both see namespaceId=null, derive the same slug, and race
-    // to INSERT. The loser hits ON CONFLICT DO NOTHING and falls back to a SELECT.
+    // Concurrent ensureUserNamespace calls with the same userId simulate the
+    // email-resend race: all see namespaceId=null, derive the same slug, and race
+    // to INSERT. Losers are absorbed by ON CONFLICT DO NOTHING and resolve the
+    // winner's row BY OWNERSHIP (spec-177 issue-1 — a bare-slug re-read let the
+    // loser suffix past the winner's row and create a second namespace).
     const user = await upsertUserByEmail(uniqueEmail("race"));
     createdUserIds.push(user.id);
 
-    const [r1, r2] = await Promise.all([
-      ensureUserNamespace(user.id),
-      ensureUserNamespace(user.id),
-    ]);
+    const results = await Promise.all(
+      Array.from({ length: 5 }, () => ensureUserNamespace(user.id)),
+    );
 
-    expect(r1.namespace.id).toBe(r2.namespace.id);
-    expect(r1.namespace.slug).toBe(r2.namespace.slug);
+    const ids = new Set(results.map((r) => r.namespace.id));
+    expect(ids.size).toBe(1);
+    expect(new Set(results.map((r) => r.namespace.slug)).size).toBe(1);
+    // All calls converge on the same personal memex too — the loser path used to
+    // throw duplicate-key on a second "personal" insert (issue-1).
+    expect(new Set(results.map((r) => r.memex.id)).size).toBe(1);
+
+    // Stronger than same-id returns: the DATABASE holds exactly one namespace for
+    // this user — the issue-1 bug left an orphaned second row even when callers
+    // happened to return the winner.
+    const rows = await db.query.namespaces.findMany({
+      where: eq(namespaces.ownerUserId, user.id),
+    });
+    expect(rows).toHaveLength(1);
+  });
+
+  it("a losing call reuses the winner's namespace — never suffixes past its own row (issue-1, deterministic)", async () => {
+    tagAc(AC_2);
+    tagAc(AC_5);
+    // The race's losing interleave, recreated without timing: the winner's
+    // namespace row is committed (owned by the user, under the email-derived
+    // slug) but users.namespaceId is not yet linked from the loser's point of
+    // view. The buggy code treated that row as a FOREIGN slug collision,
+    // suffixed to `<slug>-2`, and created a second namespace for the user.
+    const email = uniqueEmail("loser");
+    const user = await upsertUserByEmail(email);
+    createdUserIds.push(user.id);
+
+    const derivedSlug = email.split("@")[0]; // uniqueEmail local-parts are already slug-shaped
+    const [winner] = await db
+      .insert(namespaces)
+      .values({ slug: derivedSlug, kind: "user", ownerUserId: user.id })
+      .returning();
+
+    const result = await ensureUserNamespace(user.id);
+
+    // Reused, not suffixed past.
+    expect(result.namespace.id).toBe(winner.id);
+    expect(result.memex.slug).toBe("personal");
+    // Exactly one namespace for the user — no orphaned second row.
+    const rows = await db.query.namespaces.findMany({
+      where: eq(namespaces.ownerUserId, user.id),
+    });
+    expect(rows).toHaveLength(1);
+    // The fast pointer is repaired.
+    const refreshed = await getUserById(user.id);
+    expect(refreshed?.namespaceId).toBe(winner.id);
   });
 
   it("creates a user-kind namespace owned by the user", async () => {

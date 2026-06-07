@@ -31,7 +31,7 @@ describe("scope-AC-after-create_doc nudges (real-agent regression)", () => {
     // The description should mention `create_ac` with `kind: 'scope'` so the
     // agent has the literal call-shape in tool-selection context.
     expect(spec!.description).toMatch(/create_ac\s*\(/);
-    expect(desc).toMatch(/scope.{0,40}draft.{0,40}plan|draft.{0,40}plan.{0,40}scope/);
+    expect(desc).toMatch(/scope.{0,40}draft.{0,40}specify|draft.{0,40}specify.{0,40}scope/);
   });
 
   it("create_doc response handler emits a Scope-AC nudge for specs", async () => {
@@ -53,13 +53,13 @@ describe("scope-AC-after-create_doc nudges (real-agent regression)", () => {
     );
   });
 
-  it("phases guidance topic carries a 'Scope ACs in draft/plan' section", () => {
+  it("phases guidance topic carries a 'Scope ACs in draft/specify' section", () => {
     const topicPath = join(__dirname, "..", "guidance", "phases.json");
     const topic = JSON.parse(readFileSync(topicPath, "utf-8")) as {
       body: string;
     };
     expect(topic.body).toMatch(/scope acs?/i);
-    expect(topic.body).toMatch(/draft\s*\/\s*plan/i);
+    expect(topic.body).toMatch(/draft\s*\/\s*specify/i);
     // Specifically the "FIRST move after create_doc" or equivalent —
     // the section's whole point is to say "do this before framing Decisions."
     expect(topic.body).toMatch(/create_doc/i);

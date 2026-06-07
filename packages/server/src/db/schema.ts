@@ -85,13 +85,26 @@ export const documents = pgTable("documents", {
   // Last time the Spec narrative was consolidated by the agent. NULL = never
   // consolidated. Spec-only.
   narrativeLastConsolidatedAt: timestamp("narrative_last_consolidated_at", { withTimezone: true }),
+  // Handhold onboarding demo flag (spec-178). When true, this document is one of
+  // the five frozen copies of the canonical ⌘K-search Spec (spec-64) seeded into a
+  // personal Memex to walk a new user through the spec lifecycle. Demo docs render a
+  // DEMO badge + a per-phase value banner, suppress handle auto-linking, are excluded
+  // from ⌘K/search and every agent surface (dec-11; only the board REST list/get still
+  // returns them), and are excluded from Pulse/usage analytics. Reset (POST
+  // .../handhold/reset) hard-deletes all is_demo docs in the memex + their seeded
+  // test-event emissions and re-seeds from handhold-demo.fixture.ts.
+  isDemo: boolean("is_demo").notNull().default(false),
 }, (table) => [
   unique("documents_memex_id_handle_unique").on(table.memexId, table.handle),
   index("documents_memex_id_idx").on(table.memexId),
   // Per dec-3 of doc-10 the Spec rename (`review`→`plan`, `implementation`→`build`,
   // plus new `verify`) applies to docType='spec' rows only. Non-Spec docTypes keep
   // the legacy values, so this CHECK is the union of old + new and stays that way.
-  check("documents_status_valid", sql`${table.status} IN ('draft', 'review', 'implementation', 'done', 'approved', 'plan', 'build', 'verify')`),
+  // spec-181 (dec-2): the second phase renamed `plan`→`specify` (pipeline is now
+  // draft → specify → build → verify → done) — migration 0078 flips the rows and
+  // swaps 'specify' for 'plan' here. The legacy values (draft/review/implementation/
+  // done/approved) stay because execution-plan rows still carry them.
+  check("documents_status_valid", sql`${table.status} IN ('draft', 'review', 'implementation', 'done', 'approved', 'specify', 'build', 'verify')`),
 ]);
 
 export const docSections = pgTable(
@@ -501,6 +514,15 @@ export const acs = pgTable(
     kind: text("kind").notNull(),
     statement: text("statement").notNull(),
     status: text("status").notNull().default("active"),
+    // spec-188 dec-1/dec-2: manual verification acceptance — the audited human
+    // override for ACs that can't be exercised by a digital test. Both NULL =
+    // no acceptance. `accepted_by` is a display snapshot (user.name ?? email),
+    // same posture as test_events.actor: attribution survives user deletion.
+    // The acceptance is an OVERLAY on the test-derived verification state —
+    // failing evidence suppresses it (derivation in services/acs.ts), it is
+    // never auto-deleted; un-accept nulls both columns.
+    acceptedBy: text("accepted_by"),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -1310,13 +1332,16 @@ export const orgScaffoldAdditions = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
+    // spec-181 (dec-2): the second pipeline phase renamed `plan`→`specify`;
+    // migration 0078 flips these target columns and swaps 'specify' for 'plan'
+    // in both CHECKs.
     check(
       "org_scaffold_additions_target_phase_valid",
-      sql`${table.targetPhase} IS NULL OR ${table.targetPhase} IN ('draft', 'plan', 'build', 'verify', 'done')`
+      sql`${table.targetPhase} IS NULL OR ${table.targetPhase} IN ('draft', 'specify', 'build', 'verify', 'done')`
     ),
     check(
       "org_scaffold_additions_target_transition_valid",
-      sql`${table.targetTransition} IS NULL OR ${table.targetTransition} IN ('plan', 'build', 'verify', 'done')`
+      sql`${table.targetTransition} IS NULL OR ${table.targetTransition} IN ('specify', 'build', 'verify', 'done')`
     ),
     check(
       "org_scaffold_additions_emphasis_valid",

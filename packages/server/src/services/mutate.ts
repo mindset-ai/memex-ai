@@ -68,7 +68,7 @@ export interface ChangeKey {
   // spec-179 (ac-5). Optional narrative override. When set it wins over the
   // auto-composed line — for events like status_changed where
   // `composeNarrative` ("status_changed document …") reads worse than a
-  // purpose-built sentence ("moved spec-7 draft → plan").
+  // purpose-built sentence ("moved spec-7 draft → specify").
   narrative?: string;
 }
 

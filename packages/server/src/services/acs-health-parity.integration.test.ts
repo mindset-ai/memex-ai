@@ -111,6 +111,7 @@ function tallyTabPayload(
     failing: 0,
     stale: 0,
     untested: 0,
+    accepted: 0,
   };
   for (let i = 0; i < states.length; i++) {
     if (hadTests[i]) tally.covered += 1;
@@ -126,6 +127,9 @@ function tallyTabPayload(
         break;
       case "untested":
         tally.untested += 1;
+        break;
+      case "accepted":
+        tally.accepted += 1;
         break;
     }
   }
@@ -189,6 +193,7 @@ describe("aggregateAcHealthForBriefs parity with listAcsForBriefWithVerification
       failing: 1,
       stale: 1,
       untested: 1,
+      accepted: 0,
     });
   });
 

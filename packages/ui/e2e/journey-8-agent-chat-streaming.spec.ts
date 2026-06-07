@@ -1,5 +1,5 @@
-import { test, expect, tenantUrl } from "./helpers/fixtures.js";
-import { seedAccount, seedDoc } from "./helpers/db.js";
+import { test, expect, tenantPath, sendChat } from "./helpers/index.js";
+import { seedOrgTenant, seedSpec } from "./helpers/retained.js";
 import {
   clearAnthropicQueue,
   queueAnthropicResponse,
@@ -9,24 +9,27 @@ import {
 // Drives the /api/llm/chat SSE flow end-to-end through the React UI using the Anthropic
 // fake. Verifies that:
 //   1. Text deltas stream into the ChatPanel message area (not batched until completion)
-//   2. The completed turn persists to the conversations + messages tables
-//   3. Reloading the page re-hydrates the thread from /api/llm/conversations/:docId
+//   2. The completed turn persists to the conversations + messages tables (tenant-scoped)
+//
+// RE-BASE NOTE (spec-172 t-5 / issue-2): the original journey also asserted that
+// "reloading re-hydrates the thread". That is RETIRED behavior — spec-159's
+// ChatContext clears the remote conversation on doc-open (clearConversationRemote)
+// and no longer calls loadConversation on mount: opening a Spec deliberately
+// starts the chat idle/empty. Surfaced as spec-172 issue-2 rather than silently
+// patched; the reload-rehydration assertion is removed here (the streaming +
+// persistence coverage above is what remains true).
 //
 // Relies on MEMEX_ANTHROPIC_FAKE=1 being set on the E2E server process (see
 // playwright.config.ts). Queue manipulation happens via POST /api/__test__/anthropic-queue.
 
-test("agent chat streams assistant text and persists across reload", async ({
+test("agent chat streams assistant text and persists the turn", async ({
   page,
   resources,
 }) => {
-  const subdomain = resources.subdomain("j8");
-  const accountId = await seedAccount({ subdomain, name: "Streaming Test" });
-  resources.accountIds.push(accountId);
-  await resources.devAsAdmin(accountId);
-
-  const { docId } = await seedDoc({
-    accountId,
-    handle: "doc-1",
+  const slug = resources.slug("j8");
+  const tenant = await seedOrgTenant({ slug });
+  const { docId } = await seedSpec({
+    memexId: tenant.memexId,
     title: "Streaming Spec",
     purpose: "Test that the agent can talk to us.",
   });
@@ -41,15 +44,17 @@ test("agent chat streams assistant text and persists across reload", async ({
     deltaDelayMs: 30,
   });
 
-  await page.goto(tenantUrl(subdomain, `/docs/${docId}`));
+  await page.goto(tenantPath(tenant.namespaceSlug, tenant.memexSlug, `/docs/${docId}`));
 
-  // Wait for the chat input to be ready — the placeholder switches from "Open a spec
-  // first" to "Ask me anything..." once ChatContext has a docId.
-  const input = page.getByPlaceholder(/Ask me anything/i);
-  await expect(input).toBeVisible({ timeout: 15_000 });
+  // Wait for the doc (and thus ChatContext's docId wiring) to be ready before
+  // chatting — sending before the agent graph is bound silently no-ops.
+  await expect(page.getByText(/Test that the agent can talk to us/)).toBeVisible({
+    timeout: 15_000,
+  });
 
-  await input.fill("What do you think?");
-  await input.press("Enter");
+  // Send the message deterministically (fill → wait for Send to enable → click;
+  // pressing Enter can race the controlled-input state and silently no-op).
+  await sendChat(page, "What do you think?");
 
   // Assert the assistant message renders the completed text. We don't try to catch every
   // intermediate delta (Playwright poll granularity is coarser than the 30ms per delta);
@@ -64,13 +69,17 @@ test("agent chat streams assistant text and persists across reload", async ({
 
   // saveConversation runs in the background after the turn — poll the API until the
   // thread is persisted. 2 messages: the user's question + the assistant's reply.
+  // The conversation is persisted under the TENANT-SCOPED llm path the UI uses
+  // (/api/<ns>/<mx>/llm/conversations/:docId — the flat /api/llm read resolves
+  // the dev user's PERSONAL memex, not this seeded org memex, so it would miss
+  // the thread). Hit the API origin directly via the browser context so the dev
+  // session cookie rides along.
+  const apiBase = process.env.E2E_API_URL ?? `http://localhost:${process.env.E2E_SERVER_PORT ?? 8090}`;
+  const convPath = `/api/${tenant.namespaceSlug}/${tenant.memexSlug}/llm/conversations/${docId}`;
   await expect
     .poll(
       async () => {
-        const res = await page.request.get(
-          `${process.env.E2E_API_URL ?? "http://localhost:8090"}/api/llm/conversations/${docId}`,
-          { headers: { Host: `${subdomain}.localhost` } }
-        );
+        const res = await page.request.get(`${apiBase}${convPath}`);
         if (!res.ok()) return 0;
         const body = await res.json();
         return Array.isArray(body.messages) ? body.messages.length : 0;
@@ -78,11 +87,4 @@ test("agent chat streams assistant text and persists across reload", async ({
       { timeout: 10_000 }
     )
     .toBeGreaterThanOrEqual(2);
-
-  // Reload — the chat should re-hydrate from the server via loadConversation().
-  await page.reload();
-  const reloadedMarkdown = page.getByTestId("chat-markdown");
-  await expect(reloadedMarkdown).toHaveText(/The plan looks good\./, {
-    timeout: 15_000,
-  });
 });

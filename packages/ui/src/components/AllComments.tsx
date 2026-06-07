@@ -1,15 +1,8 @@
-import { useMemo, useState } from 'react';
-import type { Comment, CommentType, DocSection, Decision, Task } from '../api/types';
-import { CommentBubble, CommentFilterChips } from './CommentTray';
-import { FILTER_CHIP_TYPES, commentTypeLabel, type FilterChipType } from '../utils/commentStyles';
-import {
-  filterComments,
-  type AuthorKindFilter,
-  type StatusFilter,
-} from '../utils/filterComments';
+import { useState } from 'react';
+import type { Comment, DocSection, Decision, Task } from '../api/types';
+import { CommentBubble } from './CommentTray';
+import { filterComments, type AuthorKindFilter, type StatusFilter } from '../utils/filterComments';
 import { commentAnchorId, buildCommentLink } from '../utils/commentDeepLink';
-
-type ChipFilter = 'all' | FilterChipType;
 
 // spec-100 ac-6: wrap a comment with a stable scroll anchor (`comment-c-{seq}`)
 // and a copy-link button so a viewer can be taken straight to it.
@@ -39,12 +32,15 @@ function AnchoredCommentBubble({ comment }: { comment: Comment }) {
   );
 }
 
-// spec-100 ac-9: author kind + status are the load-bearing Comments-tab
-// filters. Small segmented control mirroring the type-chip styling.
+// spec-194 (dec-2): author-kind + status filters share one combined row.
+// People → Humans (the `'human'` value is unchanged); the shared filterComments
+// predicate stays intact. The two groups are tone-coloured to read as distinct:
+// author = `agent` (violet), status = `accent` (blue) — both theme tokens with
+// light + dark values.
 const AUTHOR_KIND_OPTIONS: { value: AuthorKindFilter; label: string }[] = [
   { value: 'all', label: 'Everyone' },
   { value: 'system', label: 'System' },
-  { value: 'human', label: 'People' },
+  { value: 'human', label: 'Humans' },
 ];
 const STATUS_OPTIONS: { value: StatusFilter; label: string }[] = [
   { value: 'open', label: 'Open' },
@@ -57,14 +53,26 @@ function SegmentedFilter<T extends string>({
   options,
   active,
   onChange,
+  tone = 'accent',
 }: {
   group: string;
   options: { value: T; label: string }[];
   active: T;
   onChange: (next: T) => void;
+  /** spec-194 dec-2: which theme accent the chips use. 'accent' = blue (status),
+   *  'agent' = violet (author-kind). Both tokens carry light + dark values. */
+  tone?: 'accent' | 'agent';
 }) {
+  const activeCls =
+    tone === 'agent'
+      ? 'bg-agent text-white border-agent'
+      : 'bg-accent text-white border-accent';
+  const idleCls =
+    tone === 'agent'
+      ? 'bg-overlay text-secondary border-divider hover:border-agent/50'
+      : 'bg-overlay text-secondary border-divider hover:border-accent/50';
   return (
-    <div data-testid={`${group}-filter`} className="flex flex-wrap gap-1.5">
+    <div data-testid={`${group}-filter`} data-tone={tone} className="flex flex-wrap gap-1.5">
       {options.map((opt) => {
         const isActive = active === opt.value;
         return (
@@ -75,9 +83,7 @@ function SegmentedFilter<T extends string>({
             data-active={isActive ? 'true' : 'false'}
             onClick={() => onChange(opt.value)}
             className={`text-[11px] rounded-full px-2 py-0.5 border transition-colors ${
-              isActive
-                ? 'bg-accent text-white border-accent'
-                : 'bg-overlay text-secondary border-divider hover:border-accent/50'
+              isActive ? activeCls : idleCls
             }`}
           >
             {opt.label}
@@ -97,11 +103,6 @@ interface AllCommentsProps {
   commentsByTask?: Record<string, Comment[]>;
   onNavigateToSection: (sectionId: string) => void;
   onTabChange?: (tab: string) => void;
-  // t-19 W3.3: chip filter is owned by the parent (DocDocument) so a chip click
-  // drives a server-side `?type=` refetch via fetchDocComments instead of a
-  // client-side filter pass after the fact. `null` means "All".
-  filter?: CommentType | null;
-  onFilterChange?: (next: CommentType | null) => void;
 }
 
 export function AllComments({
@@ -113,42 +114,15 @@ export function AllComments({
   commentsByTask = {},
   onNavigateToSection,
   onTabChange,
-  filter = null,
-  onFilterChange,
 }: AllCommentsProps) {
-  // spec-100 ac-9: author kind + status are the load-bearing filters, owned
-  // locally (no refetch needed — both fields are already on the loaded rows).
-  // Status defaults to 'open'; resolved comments are history, shown on demand.
+  // spec-194 dec-2: author-kind + status are the local filters (type chips were
+  // removed by spec-185). Status defaults to 'open'; resolved comments are
+  // history, shown on demand. authorKind defaults to 'all' (Everyone).
   const [authorKind, setAuthorKind] = useState<AuthorKindFilter>('all');
   const [status, setStatus] = useState<StatusFilter>('open');
   const applyLocal = (list: Comment[]) =>
     filterComments(list, { authorKind, status, type: null });
-  // Doc-wide chip counts. With server-side filtering active, these counts only
-  // reflect the comments the server returned for the current filter — when the
-  // filter is "All" they represent every open comment in the doc; when a
-  // specific filter is active they show how many are in *that* set. Per the
-  // t-19 W3.3 spec we accept this as a deliberate UX trade-off: counts now
-  // describe "what's loaded" rather than "what exists across all types".
-  const counts = useMemo(() => {
-    const allOpen: Comment[] = [];
-    for (const list of Object.values(commentsBySection)) {
-      for (const c of list) if (!c.resolvedAt) allOpen.push(c);
-    }
-    for (const list of Object.values(commentsByDecision)) {
-      for (const c of list) if (!c.resolvedAt) allOpen.push(c);
-    }
-    for (const list of Object.values(commentsByTask)) {
-      for (const c of list) if (!c.resolvedAt) allOpen.push(c);
-    }
-    const out: Partial<Record<ChipFilter, number>> = { all: allOpen.length };
-    for (const t of FILTER_CHIP_TYPES) {
-      out[t] = allOpen.filter((c) => (c.commentType ?? 'discussion') === t).length;
-    }
-    return out;
-  }, [commentsBySection, commentsByDecision, commentsByTask]);
 
-  // The parent has already narrowed by type (server-side ?type=); author kind
-  // and status are applied here client-side over that slice.
   const sectionEntries = sections
     .map((section, index) => ({
       section,
@@ -183,33 +157,18 @@ export function AllComments({
     decisionEntries.reduce((n, e) => n + e.comments.length, 0) +
     taskEntries.reduce((n, e) => n + e.comments.length, 0);
 
-  // Show the chip row whenever any open comment exists in the current view OR
-  // when a filter is active (the user can clear it). Hidden only on a doc with
-  // truly nothing to filter.
-  const hasAnyOpen = (counts.all ?? 0) > 0 || filter !== null;
-
-  // The chip row only renders the FILTER_CHIP_TYPES tuple; if the active filter
-  // is set to a type outside that set (e.g. `discussion`), the chip row shows
-  // "All" while the data is still server-filtered to the requested type.
-  const activeChip: ChipFilter =
-    filter && (FILTER_CHIP_TYPES as readonly string[]).includes(filter)
-      ? (filter as FilterChipType)
-      : 'all';
-  const handleChipChange = (next: ChipFilter) => {
-    if (!onFilterChange) return;
-    onFilterChange(next === 'all' ? null : (next as CommentType));
-  };
-
   return (
     <div className="space-y-6 ml-8">
       {hasAnyComments && (
-        <div className="space-y-2">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
           <SegmentedFilter
             group="author"
             options={AUTHOR_KIND_OPTIONS}
             active={authorKind}
             onChange={setAuthorKind}
+            tone="agent"
           />
+          <span aria-hidden className="h-4 w-px bg-edge-subtle" />
           <SegmentedFilter
             group="status"
             options={STATUS_OPTIONS}
@@ -219,23 +178,13 @@ export function AllComments({
         </div>
       )}
 
-      {hasAnyOpen && (
-        <CommentFilterChips
-          active={activeChip}
-          onChange={handleChipChange}
-          counts={counts}
-        />
-      )}
-
       {totalCount === 0 && (
         <p className="text-sm text-muted py-8">
-          {filter === null
-            ? status === 'resolved'
-              ? 'No resolved comments.'
-              : authorKind === 'system'
-                ? 'No system comments in this view.'
-                : 'No open comments.'
-            : `No ${commentTypeLabel(filter).toLowerCase()} comments.`}
+          {status === 'resolved'
+            ? 'No resolved comments.'
+            : authorKind === 'system'
+              ? 'No system comments in this view.'
+              : 'No open comments.'}
         </p>
       )}
 

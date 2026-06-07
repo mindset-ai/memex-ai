@@ -861,22 +861,22 @@ export function formatReadyTasks(
 // ══════════════════════════════════════
 // Phase-Aware Spec Guidance
 // ══════════════════════════════════════
-// For Specs, guidance is driven off lifecycle status (draft → plan → build →
+// For Specs, guidance is driven off lifecycle status (draft → specify → build →
 // verify → done — see doc-10 / std-19 for the SDD Standard). The status-rename
 // agent is widening the enum in parallel; both legacy ("review"/"implementation")
-// and new ("plan"/"build"/"verify") values map onto the same phase so the right
+// and new ("specify"/"build"/"verify") values map onto the same phase so the right
 // copy ships regardless of which lands first. Non-Spec docs and any unrecognised
 // status fall back to data-shape inference.
 
-type SpecPhase = "draft" | "plan" | "build" | "verify" | "done";
+type SpecPhase = "draft" | "specify" | "build" | "verify" | "done";
 
 function phaseFromStatus(status: string): SpecPhase | null {
   switch (status) {
     case "draft":
       return "draft";
-    case "plan":
+    case "specify":
     case "review":
-      return "plan";
+      return "specify";
     case "build":
     case "implementation":
       return "build";
@@ -922,13 +922,13 @@ function renderAllowanceLine(phase: SpecPhase): string {
   if (phase === "build") {
     return "**Allowed now:** full task surface, execution plans, `flag_drift`, `propose_standard_change`, sections, decisions.";
   }
-  // Draft / plan share the same data-form allowance (decisions + sections,
+  // Draft / specify share the same data-form allowance (decisions + sections,
   // tasks blocked). Render the structured arrays back into the canonical line
   // shape so callers see the original wording.
   const allowedList = node.allowance.allowed
     .map((name) => {
       // Decoration parity with the legacy line: create_decision is the
-      // candidate-aware variant in plan/draft.
+      // candidate-aware variant in specify/draft.
       if (name === "create_decision") return "`create_decision` (incl. status='candidate')";
       return `\`${name}\``;
     })
@@ -1075,7 +1075,7 @@ function renderSpecPhaseGuidance(
   // current doc snapshot, not from the static scaffold.
   switch (phase) {
     case "draft":
-    case "plan": {
+    case "specify": {
       lines.push("");
       if (openDecs.length > 0) {
         lines.push(
@@ -1109,7 +1109,7 @@ function renderSpecPhaseGuidance(
       } else if (decs.length === 0) {
         lines.push(
           "No decisions yet. Either there are none to make (advance to `build`), or the Spec needs a closer read to surface choices that have been hand-waved. " +
-            "**For brand-new work** where the right choices only emerge through prototyping, advance to `build` with explicit build-to-learn intent — capture decisions when they appear and step back to `plan` to settle them.",
+            "**For brand-new work** where the right choices only emerge through prototyping, advance to `build` with explicit build-to-learn intent — capture decisions when they appear and step back to `specify` to settle them.",
         );
       }
       return lines.join("\n");
@@ -1392,7 +1392,7 @@ export function formatSpecList(
 
   lines.push("");
   lines.push(
-    "Pick one and call `get_doc({ref})` — its phase determines what's allowed: `draft`/`plan` is decisions only, `build` opens up tasks, `verify` is acceptance, `done` is read-only.",
+    "Pick one and call `get_doc({ref})` — its phase determines what's allowed: `draft`/`specify` is decisions only, `build` opens up tasks, `verify` is acceptance, `done` is read-only.",
   );
 
   return lines.join("\n").trimEnd();
@@ -1416,14 +1416,14 @@ export function formatSpecStatus(
   lines.push("");
 
   // Phase block — leads with current phase + intent + allowed/blocked tooling,
-  // plus the outstanding-decisions hint when in plan. Reinforces the gate on
+  // plus the outstanding-decisions hint when in specify. Reinforces the gate on
   // every read.
   const specPhase = phaseFromStatus(doc.status);
   if (specPhase) {
     const openDecsForPhase = decisions.filter((d) => d.status === "open");
     lines.push(renderHeaderLine(specPhase));
     lines.push(renderAllowanceLine(specPhase));
-    if (specPhase === "plan" && openDecsForPhase.length > 0) {
+    if (specPhase === "specify" && openDecsForPhase.length > 0) {
       lines.push("");
       lines.push(
         `Open decisions to resolve before \`build\`: ${openDecsForPhase.map((d) => `D-${d.seq}`).join(", ")}`,

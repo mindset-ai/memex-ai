@@ -51,6 +51,8 @@ const SCAN_DIRS = ["services", "routes", "agent", "mcp", "middleware"] as const;
 const ALLOWLIST: Record<string, string> = {
   "services/mutate.ts":
     "The wrapper itself — the legitimate single call site for all mutations.",
+  "routes/__test__.ts":
+    "spec-172 test-only e2e seed router — NEVER mounted in production (env-gated in app.ts; pinned by test-router-env-gate.regression.test.ts, ac-9). SEEDING goes through real services (and therefore mutate(), asserted by __test__-router-coverage.integration.test.ts ac-8); the raw writes here are journey CLEANUP cascades (deleting throwaway orgs/namespaces/docs — emitting teardown events would spam the SSE bus the journeys are asserting) plus two seed nudges (decision options backfill, org-membership grant) with no SSE subscriber interest.",
   // spec-161 clause service — regenerateSectionContentTx is a tx-helper invoked
   // ONLY from inside the mutate() callbacks of the clause writers (createClause /
   // updateClause / deleteClause / addClausesToSection / decomposeSection — all
@@ -76,6 +78,14 @@ const ALLOWLIST: Record<string, string> = {
   // log with no bus entity of its own.
   "services/test-event-latest.ts":
     "tx-helper indirection (spec-162) — applyEmissionToSummary / removeSummaryForPair write test_event_latest only inside callers' mutate() callbacks (routes/test-events.ts, services/acs.ts discontinueTestEventsForAc); both public write paths return through mutate().",
+  // spec-177 issue-1 — findOrCreatePersonalMemex is a tx-helper invoked ONLY from
+  // inside ensureUserNamespace's mutate() callbacks (both the ownership-repair
+  // branch and the create branch). It race-safely find-or-creates the "personal"
+  // memex (ON CONFLICT + re-read). The callback-scoped heuristic (ac-24) cannot
+  // follow the helper indirection; ensureUserNamespace itself returns Mutated<T>
+  // and emits the user_namespace/memex keys.
+  "services/user-namespaces.ts":
+    "tx-helper indirection (spec-177 issue-1) — findOrCreatePersonalMemex inserts memexes only inside ensureUserNamespace's mutate() callbacks; the public writer returns Mutated<T> with user_namespace + memex emissions.",
   // spec-150 standards decomposition — develop-side entry ported to the
   // path-keyed scheme during the spec-156 rebase.
   "services/standards-migration.ts":
@@ -142,6 +152,8 @@ const ALLOWLIST: Record<string, string> = {
     "Code-intelligence ingestion (repo_endpoints). Silent-allowed per std-8 §6 — extractor background work, no bus entity, no SSE subscriber. Same client:Db/repoId shape as services/repos.ts; mutate() wrap deferred.",
   "services/repo-meta.ts":
     "Code-intelligence ingestion (repo_structure / repo_patterns / repo_domains / repo_tech_stack). Silent-allowed per std-8 §6 — extractor background work, no bus entity, no SSE subscriber. Same client:Db/repoId shape as services/repos.ts; mutate() wrap deferred.",
+  "services/handhold-demo.ts":
+    "Handhold demo seed/reset (spec-178). Its DOCUMENT mutations all go through mutate() (createDocDraft / addSection / createDecision / createTask / createAc, the terminal phase-flip, and the per-doc delete loop). The raw writes the scan flags are NON-document log tables with no SSE doc-entity: the synthetic test_events / test_event_latest emissions seeded so verify/done demo ACs read 'verified' (dec-9 — same category as services/test-event-latest.ts), and the activity_log cleanup on reset (issue-1 / ac-39 — same category as services/activity-log.ts). These are append-only emission/activity logs, not tenant-doc content; they must not emit, exactly like the two log services already allowlisted above.",
 };
 
 function isScannableFile(path: string): boolean {

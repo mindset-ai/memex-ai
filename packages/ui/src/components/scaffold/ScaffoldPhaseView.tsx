@@ -34,8 +34,8 @@ interface Props {
 }
 
 const TRANSITION_FOR_PHASE: Record<Phase, string | null> = {
-  draft: 'plan',
-  plan: 'build',
+  draft: 'specify',
+  specify: 'build',
   build: 'verify',
   verify: 'done',
   done: null,

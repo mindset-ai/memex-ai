@@ -103,9 +103,12 @@ describe("b-105 ac coverage: file / DB / git invariants", () => {
         reason: 'mission branch in formatters',
       },
       {
-        path: "packages/ui/e2e/helpers/db.ts",
+        // spec-172 deleted the raw-SQL e2e helper (packages/ui/e2e/helpers/db.ts)
+        // this check originally targeted; the e2e seeding surface — and its
+        // docType handling — now lives in the env-gated test-only router.
+        path: "packages/server/src/routes/__test__.ts",
         mustNotMatch: /['"]mission['"]/,
-        reason: "docType union still includes 'mission'",
+        reason: "e2e seeding surface still includes legacy 'mission' docType",
       },
     ];
     for (const c of checks) {
@@ -115,12 +118,13 @@ describe("b-105 ac coverage: file / DB / git invariants", () => {
         `${c.path} still matches legacy alias (${c.reason})`,
       ).toBe(false);
     }
-    // Positive check: 'spec' is in the admin db.ts docType union
-    const dbTs = readFileSync(
-      resolve(REPO_ROOT, "packages/ui/e2e/helpers/db.ts"),
+    // Positive check: the e2e seeding surface still creates 'spec' docs
+    // (seed-spec → createDocDraft(..., "spec")).
+    const testRouter = readFileSync(
+      resolve(REPO_ROOT, "packages/server/src/routes/__test__.ts"),
       "utf8",
     );
-    expect(/['"]spec['"]/.test(dbTs)).toBe(true);
+    expect(/['"]spec['"]/.test(testRouter)).toBe(true);
   });
 
   it("ac-15: packages/cli/package.json at major version 3.x", () => {

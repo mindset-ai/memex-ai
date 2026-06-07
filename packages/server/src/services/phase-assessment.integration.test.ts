@@ -57,27 +57,27 @@ describe("assessPhaseTransition", () => {
     );
   });
 
-  it("returns rubricNote for plan target and the composed draft→plan rubric prose", async () => {
-    const spec = await createDocDraft(memexId, "Plan target", "Purpose", "spec");
+  it("returns rubricNote for specify target and the composed draft→specify rubric prose", async () => {
+    const spec = await createDocDraft(memexId, "Specify target", "Purpose", "spec");
     createdDocIds.push(spec.id);
-    const result = await assessPhaseTransition(memexId, spec.id, "plan");
-    expect(result.targetPhase).toBe("plan");
+    const result = await assessPhaseTransition(memexId, spec.id, "specify");
+    expect(result.targetPhase).toBe("specify");
     // b-68 t-5 / t-7: legacy `rubric` field removed. `rubricProse` now picks up
-    // the draft→plan TransitionRubric from BASE_SCAFFOLD.transitions, and
+    // the draft→specify TransitionRubric from BASE_SCAFFOLD.transitions, and
     // `rubricNote` keeps the original soft-rubric line.
-    expect(result.rubricProse).toMatch(/Draft-to-plan readiness review/i);
+    expect(result.rubricProse).toMatch(/Draft-to-specify readiness review/i);
     expect(result.rubricNote).toMatch(/no readiness review/i);
-    expect(result.transition).toBe("draft → plan");
+    expect(result.transition).toBe("draft → specify");
   });
 
-  it("loads plan-to-build rubric for build target", async () => {
+  it("loads specify-to-build rubric for build target", async () => {
     const spec = await createDocDraft(memexId, "Build target", "Purpose", "spec");
     createdDocIds.push(spec.id);
     const result = await assessPhaseTransition(memexId, spec.id, "build");
     // b-68 t-7: rubric prose is now sourced from BASE_SCAFFOLD.transitions via
     // `toRubric` rather than `phases/<src>/transitions.md`.
     expect(result.rubricProse.length).toBeGreaterThan(0);
-    expect(result.rubricProse).toMatch(/plan/i);
+    expect(result.rubricProse).toMatch(/specify/i);
   });
 
   it("loads build-to-verify rubric for verify target", async () => {
@@ -188,11 +188,11 @@ describe("assessPhaseTransition", () => {
   });
 });
 
-// spec-106 t-4 — plan→build missing-core-lens soft nudge (dec-1). The
+// spec-106 t-4 — specify→build missing-core-lens soft nudge (dec-1). The
 // assessment SURFACES a Spec missing a core lens (Design & UX, Architecture &
 // Security) with a warning that NAMES the lens, but the verdict stays
 // proceed-with-caveats — the transition is never blocked.
-describe("plan→build missing-core-lens soft nudge (spec-106 t-4)", () => {
+describe("specify→build missing-core-lens soft nudge (spec-106 t-4)", () => {
   it("detectMissingCoreLenses heuristic flags absent lenses and ignores present ones", () => {
     tagAc(`${SPEC}/acs/ac-7`);
     // Bare Overview-only Spec — both core lenses missing.
@@ -243,8 +243,8 @@ describe("plan→build missing-core-lens soft nudge (spec-106 t-4)", () => {
     expect(lensNudge).not.toMatch(/Missing core lens:[^.]*Design & UX/);
 
     // Verdict is proceed-with-caveats, NOT hold: the only hold-flavoured
-    // signal at plan→build is the decisions-need-ACs gate
-    // ("Plan→build is a hold until..."), which is absent here (no resolved
+    // signal at specify→build is the decisions-need-ACs gate
+    // ("Specify→build is a hold until..."), which is absent here (no resolved
     // decisions). The missing-lens warning itself never claims a hold — it
     // explicitly says the transition is NOT blocked.
     expect(result.nudges.some((n) => /is a hold/i.test(n))).toBe(false);
@@ -254,11 +254,11 @@ describe("plan→build missing-core-lens soft nudge (spec-106 t-4)", () => {
     expect(rendered).toMatch(/Missing core lens: Architecture & Security/);
   });
 
-  it("ac-8: the warning does NOT prevent the plan→build transition from succeeding", async () => {
+  it("ac-8: the warning does NOT prevent the specify→build transition from succeeding", async () => {
     tagAc(`${SPEC}/acs/ac-8`);
     const spec = await createDocDraft(memexId, "Lens warning non-blocking", "Purpose", "spec");
     createdDocIds.push(spec.id);
-    await updateDocStatus(memexId, spec.id, "plan");
+    await updateDocStatus(memexId, spec.id, "specify");
 
     // Assessment carries the missing-lens warning (both core lenses absent).
     const result = await assessPhaseTransition(memexId, spec.id, "build");
@@ -281,7 +281,7 @@ const AC112 = (n: number) => `${SPEC_112}/acs/ac-${n}`;
 async function specInVerify(title: string): Promise<string> {
   const spec = await createDocDraft(memexId, title, "Purpose", "spec");
   createdDocIds.push(spec.id);
-  await updateDocStatus(memexId, spec.id, "plan");
+  await updateDocStatus(memexId, spec.id, "specify");
   await updateDocStatus(memexId, spec.id, "build");
   await updateDocStatus(memexId, spec.id, "verify");
   return spec.id;

@@ -238,10 +238,10 @@ describe("buildDocumentContext — phase mapping (preserved)", () => {
     expect(phase).toBe("draft");
   });
 
-  it("falls back to plan for unknown statuses", async () => {
+  it("falls back to specify for unknown statuses", async () => {
     vi.mocked(getDoc).mockResolvedValue(makeDoc({ status: "wildcard" }) as never);
     const { phase } = await buildDocumentContext("mx-uuid", "doc-id");
-    expect(phase).toBe("plan");
+    expect(phase).toBe("specify");
   });
 });
 

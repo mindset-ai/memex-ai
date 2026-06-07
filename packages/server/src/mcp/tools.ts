@@ -38,6 +38,7 @@ import { applyPhaseDescriptionOverrides } from "./phase-descriptions.js";
 import { resolveRef as resolveCanonicalRef } from "../services/resolver.js";
 import { parseRef } from "../services/refs.js";
 import { logToolCall } from "../services/mcp-telemetry.js";
+import { runToolWithSpecTraffic } from "../services/spec-traffic.js";
 import { bus } from "../services/bus.js";
 import { deriveActivity } from "../agent/derive-activity.js";
 import type { ToolSpec } from "../agent/tool-specs.js";
@@ -59,12 +60,12 @@ This orientation is intentionally tiny. Operating depth (phase mechanics, AC emi
 
 ## Two non-negotiable rules
 
-1. **Tasks only in \`build\`.** A task in draft/plan is a guess pretending to be a commitment. Resolve decisions first.
+1. **Tasks only in \`build\`.** A task in draft/specify is a guess pretending to be a commitment. Resolve decisions first.
 2. **\`complete\` only when verification actually runs** — tests + type checks + exercising the path, not vibes. Closing a Spec (\`done\`) is the user's call, never the agent's.
 
 ## Pipeline
 
-Five phases: \`draft → plan → build → verify → done\`, plus orthogonal \`paused\`/\`archived\` flags. Tool responses are terse by default; pass \`verbose: true\` for full markdown. Call \`get_information(topic='phases')\` for the full phase mechanics including \`assess_spec\` modes.`;
+Five phases: \`draft → specify → build → verify → done\`, plus orthogonal \`paused\`/\`archived\` flags. Tool responses are terse by default; pass \`verbose: true\` for full markdown. Call \`get_information(topic='phases')\` for the full phase mechanics including \`assess_spec\` modes.`;
 
 function errorResult(message: string) {
   return {
@@ -400,7 +401,13 @@ export function createMcpServer(
         // Throw on error — withTelemetry catches, captures the FULL error
         // (name + message + stack) into mcp_tool_calls.error, then calls
         // handleError to produce the redacted agent-facing envelope.
-        return await spec.handler(input, ctx);
+        //
+        // spec-189: handler execution goes through the channel-neutral
+        // traffic seam — after a SUCCESSFUL call, the Spec the call resolved
+        // to may auto-advance phase and auto-assign the caller (see
+        // services/spec-traffic.ts). Identical wiring on the in-app agent
+        // surface (agent/tools.ts → executeServerTool) per dec-5.
+        return await runToolWithSpecTraffic(spec, input, ctx);
       },
       () => resolvedMemexId,
       // spec-156 ac-15: pass the spec so the wrap emits a 'mcp'-channel
@@ -451,6 +458,16 @@ export async function resolveRefForUser(
 
   const entity = result.entity;
   const doc = "doc" in entity ? entity.doc : entity.row;
+  // spec-178 t-11 / dec-11 (ac-37): a handhold demo spec is inert to the MCP
+  // surface — a coding agent must not be able to read it (get_doc/export_doc)
+  // or mutate against it (update_doc, add_section, decision/task writes, …),
+  // and every one of those tools resolves its target ref through here. Treat a
+  // demo doc as not-found (std-7: missing, not forbidden) so the agent gets the
+  // same answer as for a ref that doesn't exist. The board's REST getDoc path
+  // is untouched — it never goes through resolveRefForUser.
+  if (doc.isDemo) {
+    throw new NotFoundError(`Ref "${ref}" not found.`);
+  }
   const memexId = doc.memexId;
   // orgFilter (b-31 dec-8) — undefined for PAT (skip), null for personal-only
   // OAuth, <orgId> for Org-scoped OAuth. The read gate enforces it (a private

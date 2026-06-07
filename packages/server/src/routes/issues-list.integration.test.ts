@@ -62,14 +62,14 @@ let devUserId: string;
 
 // Specs in this Memex, seeded across phases + assignment so the filters bite.
 //   assignedBuild  — assigned to dev, status 'build', carries an open bug.
-//   assignedPlan   — assigned to dev, status 'plan', carries an open todo.
+//   assignedSpecify   — assigned to dev, status 'specify', carries an open todo.
 //   unassignedDone — NOT assigned to dev, status 'done', carries an open bug.
 let assignedBuildId: string;
-let assignedPlanId: string;
+let assignedSpecifyId: string;
 let unassignedDoneId: string;
 // The issue ids we seed, so each test can assert on membership precisely.
 let bugOnAssignedBuild: string;
-let todoOnAssignedPlan: string;
+let todoOnAssignedSpecify: string;
 let bugOnUnassignedDone: string;
 // A resolved (non-open) issue on an assigned Spec — must never appear.
 let resolvedIssueId: string;
@@ -112,20 +112,20 @@ beforeAll(async () => {
     .set({ status: "resolved" })
     .where(inArray(issues.id, [resolvedIssueId]));
 
-  // assignedPlan: assigned to dev, phase 'plan', one open todo.
-  const assignedPlan = await createDocDraft(memexId, "Assigned plan spec", "Purpose", "spec");
-  assignedPlanId = assignedPlan.id;
-  createdDocIds.push(assignedPlanId);
-  await updateDocStatus(memexId, assignedPlanId, "plan");
-  await assign(memexId, assignedPlanId, devUserId, devUserId);
+  // assignedSpecify: assigned to dev, phase 'specify', one open todo.
+  const assignedSpecify = await createDocDraft(memexId, "Assigned specify spec", "Purpose", "spec");
+  assignedSpecifyId = assignedSpecify.id;
+  createdDocIds.push(assignedSpecifyId);
+  await updateDocStatus(memexId, assignedSpecifyId, "specify");
+  await assign(memexId, assignedSpecifyId, devUserId, devUserId);
   const todo1 = await createIssue({
     memexId,
-    docId: assignedPlanId,
-    title: "Todo on assigned plan spec",
+    docId: assignedSpecifyId,
+    title: "Todo on assigned specify spec",
     body: "x",
     type: "todo",
   });
-  todoOnAssignedPlan = todo1.id;
+  todoOnAssignedSpecify = todo1.id;
 
   // unassignedDone: NOT assigned to dev, phase 'done', one open bug.
   const unassignedDone = await createDocDraft(memexId, "Unassigned done spec", "Purpose", "spec");
@@ -170,7 +170,7 @@ describe("spec-158 t-3 — scope filter (ac-12)", () => {
     const ids = body.items.map((r) => r.id);
     // Open issues on dev-assigned Specs surface…
     expect(ids).toContain(bugOnAssignedBuild);
-    expect(ids).toContain(todoOnAssignedPlan);
+    expect(ids).toContain(todoOnAssignedSpecify);
     // …the open bug on the UNASSIGNED Spec does not (scope=mine)…
     expect(ids).not.toContain(bugOnUnassignedDone);
     // …and the resolved (non-open) issue never appears.
@@ -193,7 +193,7 @@ describe("spec-158 t-3 — scope filter (ac-12)", () => {
     const body = (await res.json()) as FeedEnvelope;
     const ids = body.items.map((r) => r.id);
     expect(ids).toContain(bugOnAssignedBuild);
-    expect(ids).toContain(todoOnAssignedPlan);
+    expect(ids).toContain(todoOnAssignedSpecify);
     // The unassigned Spec's open bug NOW appears (scope=all widens the view)…
     expect(ids).toContain(bugOnUnassignedDone);
     // …but the resolved issue still doesn't (open-only list).
@@ -211,25 +211,25 @@ describe("spec-158 t-3 — parent-Spec phase filter (ac-13)", () => {
     const ids = ((await res.json()) as FeedEnvelope).items.map((r) => r.id);
     expect(ids).toContain(bugOnUnassignedDone);
     expect(ids).not.toContain(bugOnAssignedBuild); // 'build', filtered out
-    expect(ids).not.toContain(todoOnAssignedPlan); // 'plan', filtered out
+    expect(ids).not.toContain(todoOnAssignedSpecify); // 'specify', filtered out
   });
 
-  it("accepts a multi-phase subset (plan,build)", async () => {
+  it("accepts a multi-phase subset (specify,build)", async () => {
     tagAc(AC(13));
-    const res = await req(feedUrl({ scope: "all", phases: "plan,build" }));
+    const res = await req(feedUrl({ scope: "all", phases: "specify,build" }));
     const ids = ((await res.json()) as FeedEnvelope).items.map((r) => r.id);
     expect(ids).toContain(bugOnAssignedBuild); // 'build'
-    expect(ids).toContain(todoOnAssignedPlan); // 'plan'
+    expect(ids).toContain(todoOnAssignedSpecify); // 'specify'
     expect(ids).not.toContain(bugOnUnassignedDone); // 'done', excluded
   });
 
   it("composes with scope=mine: phase filter is applied on top of the assignment scope", async () => {
     tagAc(AC(13));
-    // scope=mine narrows to assigned Specs (build + plan); phases=plan then
-    // leaves only the assigned-plan Spec's todo.
-    const res = await req(feedUrl({ scope: "mine", phases: "plan" }));
+    // scope=mine narrows to assigned Specs (build + specify); phases=specify then
+    // leaves only the assigned-specify Spec's todo.
+    const res = await req(feedUrl({ scope: "mine", phases: "specify" }));
     const ids = ((await res.json()) as FeedEnvelope).items.map((r) => r.id);
-    expect(ids).toContain(todoOnAssignedPlan);
+    expect(ids).toContain(todoOnAssignedSpecify);
     expect(ids).not.toContain(bugOnAssignedBuild); // assigned but 'build'
     expect(ids).not.toContain(bugOnUnassignedDone); // 'done' AND unassigned
   });
@@ -237,13 +237,13 @@ describe("spec-158 t-3 — parent-Spec phase filter (ac-13)", () => {
   it("composes with the type filter: phase + type narrow together", async () => {
     tagAc(AC(13));
     tagAc(AC(10)); // scope AC: type filter composes with owner + phase
-    // scope=all, phases=build,plan, types=todo → only the plan-Spec todo (the
+    // scope=all, phases=build,specify, types=todo → only the specify-Spec todo (the
     // build-Spec issue is a bug, filtered out by type).
     const res = await req(
-      feedUrl({ scope: "all", phases: "build,plan", types: "todo" }),
+      feedUrl({ scope: "all", phases: "build,specify", types: "todo" }),
     );
     const ids = ((await res.json()) as FeedEnvelope).items.map((r) => r.id);
-    expect(ids).toContain(todoOnAssignedPlan);
+    expect(ids).toContain(todoOnAssignedSpecify);
     expect(ids).not.toContain(bugOnAssignedBuild); // build, but a bug
     expect(ids).not.toContain(bugOnUnassignedDone); // done phase excluded
   });
@@ -256,11 +256,11 @@ describe("spec-158 t-3 — type filter", () => {
     const bugIds = ((await bugRes.json()) as FeedEnvelope).items.map((r) => r.id);
     expect(bugIds).toContain(bugOnAssignedBuild);
     expect(bugIds).toContain(bugOnUnassignedDone);
-    expect(bugIds).not.toContain(todoOnAssignedPlan);
+    expect(bugIds).not.toContain(todoOnAssignedSpecify);
 
     const todoRes = await req(feedUrl({ scope: "all", types: "todo" }));
     const todoIds = ((await todoRes.json()) as FeedEnvelope).items.map((r) => r.id);
-    expect(todoIds).toContain(todoOnAssignedPlan);
+    expect(todoIds).toContain(todoOnAssignedSpecify);
     expect(todoIds).not.toContain(bugOnAssignedBuild);
     expect(todoIds).not.toContain(bugOnUnassignedDone);
   });

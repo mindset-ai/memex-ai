@@ -25,7 +25,6 @@ const AC_1 = "mindset-prod/memex-building-itself/specs/spec-129/acs/ac-1"; // SC
 const createdUserIds: string[] = [];
 const createdMemexIds: string[] = [];
 const createdAcUids: string[] = [];
-let priorOwn: string | undefined;
 
 afterAll(async () => {
   if (createdAcUids.length) {
@@ -40,8 +39,6 @@ afterAll(async () => {
   for (const id of createdUserIds) {
     await db.delete(users).where(eq(users.id, id)).catch(() => {});
   }
-  if (priorOwn === undefined) delete process.env.MEMEX_OWN_NAMESPACE;
-  else process.env.MEMEX_OWN_NAMESPACE = priorOwn;
 });
 
 async function seedUser(): Promise<string> {
@@ -126,10 +123,9 @@ describe("POST /api/test-events — emission-key auth (spec-129)", () => {
     otherAcUid = `${ns}/other/specs/spec-1/acs/ac-1`;
     createdAcUids.push(acUid, otherAcUid);
 
-    // The route's cross-namespace guard compares ac_uid's namespace to MEMEX_OWN_NAMESPACE.
-    priorOwn = process.env.MEMEX_OWN_NAMESPACE;
-    process.env.MEMEX_OWN_NAMESPACE = ns;
-
+    // spec-90 dec-7 (A1): the route has no server-owned-namespace guard; the
+    // per-memex emission-key match is the sole identity gate, so this e2e needs
+    // only a valid key for the target memex (no MEMEX_OWN_NAMESPACE to set).
     const minted = await mintEmissionKey(memexId, "primary", ownerUserId);
     key = minted.raw;
   });

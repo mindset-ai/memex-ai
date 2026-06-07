@@ -224,7 +224,7 @@ describe("audit: McpServer instructions reference real tools", () => {
       // Ignore obvious non-tool tokens.
       if (
         candidate === "draft" ||
-        candidate === "plan" ||
+        candidate === "specify" ||
         candidate === "build" ||
         candidate === "verify" ||
         candidate === "done" ||
@@ -278,8 +278,8 @@ describe("audit: declared defaults match runtime behaviour", () => {
     expect(doc!.docType, `terse output was: ${out}`).toBe("spec");
   });
 
-  it("publish_spec with no status defaults to 'plan'", async () => {
-    // publish_spec description: "Defaults to plan status."
+  it("publish_spec with no status defaults to 'specify'", async () => {
+    // publish_spec description: "Defaults to specify status."
     const doc = await createDocDraft(memexId, "Publish-default audit", "p", "spec");
     cleanup.docs.push(doc.id);
     const slugs = await slugsFor(memexId);
@@ -289,7 +289,7 @@ describe("audit: declared defaults match runtime behaviour", () => {
       ctxForWithResolver(memexId, userId),
     );
     const fresh = await db.query.documents.findFirst({ where: eq(documents.id, doc.id) });
-    expect(fresh!.status).toBe("plan");
+    expect(fresh!.status).toBe("specify");
   });
 });
 
@@ -526,7 +526,7 @@ describe("audit: field names referenced in descriptions exist in the schema", ()
   // a small allowlist of common false positives.
   const FALSE_POSITIVES = new Set([
     // Status enum values (claimed in descriptions, not schema fields)
-    "draft", "plan", "build", "verify", "done", "open", "candidate",
+    "draft", "specify", "build", "verify", "done", "open", "candidate",
     "resolved", "rejected", "deleted", "not_started", "in_progress", "complete", "discussion",
     "question", "drift", "plan_revision", "progress", "review",
     "task_notes", "default", "phase", "narrative", "comments",
@@ -651,8 +651,8 @@ describe("audit: Spec-phase vocabulary is consistent across tools", () => {
     const assessTarget = enumValues(specByName("assess_spec"), "target");
     expect(publishStatus, "publish_spec.status enum is missing").not.toBeNull();
     expect(assessTarget, "assess_spec.target enum is missing").not.toBeNull();
-    // Forward phase vocabulary: plan / build / verify / done.
-    const expected = ["plan", "build", "verify", "done"].sort();
+    // Forward phase vocabulary: specify / build / verify / done.
+    const expected = ["specify", "build", "verify", "done"].sort();
     expect((publishStatus ?? []).sort()).toEqual(expected);
     expect((assessTarget ?? []).sort()).toEqual(expected);
   });
@@ -766,8 +766,8 @@ describe("audit: b-36 D-8 — every terse mutation/list response emits `ref:` an
   // Standard fixtures (spec-143 dec-1): flag_drift + propose_standard_change
   // act on a standard SECTION (raw UUID input — no handle scheme), and emit a
   // `ref:` to the comment that lands under the standard's std-N handle.
-  let driftSectionId: string;
-  let proposeSectionId: string;
+  let driftSectionRef: string;
+  let proposeSectionRef: string;
 
   beforeAll(async () => {
     memexId = await makeTestMemex("probe-ref");
@@ -913,8 +913,10 @@ describe("audit: b-36 D-8 — every terse mutation/list response emits `ref:` an
       ],
     });
     cleanup.docs.push(std.id);
-    driftSectionId = std.sections.find((s) => s.sectionType === "rule-drift")!.id;
-    proposeSectionId = std.sections.find((s) => s.sectionType === "rule-propose")!.id;
+    // spec-143 ac-14: drift verbs take the canonical section ref, not a UUID.
+    const stdBase = `${slugs.namespace}/${slugs.memex}/standards/${std.handle}`;
+    driftSectionRef = `${stdBase}/sections/s-${std.sections.find((s) => s.sectionType === "rule-drift")!.seq}`;
+    proposeSectionRef = `${stdBase}/sections/s-${std.sections.find((s) => s.sectionType === "rule-propose")!.seq}`;
   });
 
   type ProbeCase = {
@@ -1201,14 +1203,14 @@ describe("audit: b-36 D-8 — every terse mutation/list response emits `ref:` an
       ],
       ["assign_spec", { input: () => ({ ref: docRef(slugs, docHandle), user: userId }) }],
       ["unassign_spec", { input: () => ({ ref: docRef(slugs, docHandle), user: userId }) }],
-      // ── Standards drift tools (spec-143 dec-1) ──
-      // Both take a raw standard-section UUID (no handle scheme) but emit a
-      // `ref:` to the comment that lands under the standard's std-N handle.
+      // ── Standards drift tools (spec-143 dec-1, ac-14) ──
+      // Both take a canonical standard-section `ref` and emit a `ref:` to the
+      // comment that lands under the standard's std-N handle.
       [
         "flag_drift",
         {
           input: () => ({
-            standardSectionId: driftSectionId,
+            ref: driftSectionRef,
             observation: "Probe: the code no longer matches this rule.",
           }),
         },
@@ -1217,7 +1219,7 @@ describe("audit: b-36 D-8 — every terse mutation/list response emits `ref:` an
         "propose_standard_change",
         {
           input: () => ({
-            standardSectionId: proposeSectionId,
+            ref: proposeSectionRef,
             proposedContent: "Probe: corrected rule body.",
             rationale: "probe rationale",
           }),
@@ -1309,8 +1311,9 @@ const ID_PARAM_UUID_ONLY = new Set<string>([
   "add_comment.sectionId",
   "list_comments.sectionId",
   "update_comment.commentId",
-  "flag_drift.standardSectionId",
-  "propose_standard_change.standardSectionId",
+  // spec-143 ac-14: flag_drift / propose_standard_change no longer take a raw
+  // section UUID — they take a canonical section `ref` resolved server-side
+  // (resolveStandardSectionRef), so they are no longer listed here.
   // Cross-reference target id is opaque (depends on referenceType), not a
   // memex-scoped handle.
   "add_comment.referenceId",

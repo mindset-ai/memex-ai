@@ -363,3 +363,44 @@ describe("spec-64 t-2 — @name returns that member's assigned Specs (ac-19)", (
     expect(body.assigned).toEqual([]);
   });
 });
+
+// spec-191: full canonical AC ref for the number-jump follow-on.
+const AC191 = (n: number) =>
+  `mindset-prod/memex-building-itself/specs/spec-191/acs/ac-${n}`;
+
+describe("spec-191 — number jump is additive to jumpTo; content tier unchanged (ac-6)", () => {
+  it("a numeric query surfaces the number jump in jumpTo while the content FTS lane is untouched", async () => {
+    tagAc(AC191(6));
+    // A dedicated Spec whose body carries no digit token, so the content FTS lane
+    // finds nothing for a bare number — proving the number jump is purely additive
+    // to the jumpTo lane and never altered searchMemex (FTS + pgvector + RRF).
+    const numSpec = await createDocDraft(
+      memexId,
+      "Number jump route target",
+      "Body without any digit token.",
+      "spec",
+    );
+    createdDocIds.push(numSpec.id);
+    const num = Number(numSpec.handle.split("-")[1]);
+
+    const res = await req(searchUrl({ q: String(num) }));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as SearchEnvelope;
+
+    // The number jump reaches the human ⌘K palette through the REST route.
+    const jumpTo = body.jumpTo as ContentHit[];
+    const jumpHit = jumpTo.find((h) => h.path.endsWith(`/specs/${numSpec.handle}`));
+    expect(jumpHit).toBeDefined();
+    expect(jumpHit?.kind).toBe("spec");
+    // Public shape preserved (no UUIDs leak through the jump lane).
+    expect(jumpHit?.id).toBeUndefined();
+
+    // The content tier is unchanged: a bare digit has no FTS lexeme match against
+    // the seeded text, so the Spec does NOT appear as a content hit — the number
+    // jump never touched the semantic core.
+    const inContent = body.content.find((h) =>
+      h.path.endsWith(`/specs/${numSpec.handle}`),
+    );
+    expect(inContent).toBeUndefined();
+  });
+});

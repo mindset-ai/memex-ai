@@ -365,6 +365,23 @@ export async function unpauseDoc(docId: string): Promise<void> {
   }
 }
 
+// spec-178 (UI CLIENT CONTRACT): re-seed the personal Memex's Handhold demo. POSTs
+// the route the ROUTE agent owns — POST /api/:namespace/:memex/handhold/reset — which
+// hard-deletes the existing demo specs (+ their seeded emissions) and re-seeds the five
+// frozen spec-64 copies. The namespace/memex are passed explicitly (the SpecList board's
+// Reset button supplies them from the current tenant context) rather than inferred from
+// the URL, so the call site is unambiguous. Owner-of-personal-namespace gate is enforced
+// server-side; a non-owner / non-personal target returns 404 (std-7).
+export async function resetHandholdDemo(namespace: string, memex: string): Promise<void> {
+  const res = await fetchWithRetry(`${BASE_URL}/${namespace}/${memex}/handhold/reset`, {
+    method: 'POST',
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(text || `Failed to reset demo: ${res.status}`);
+  }
+}
+
 export interface MoveDocInput {
   targetMemexId: string;
   includeDecisions: boolean;
@@ -885,7 +902,7 @@ export interface FetchMemexIssuesOptions {
   /** 'mine' (default, server-side) restricts to issues on Specs assigned to the
    *  caller; 'all' widens to the whole Memex. Sent as `?scope=`. */
   scope?: 'mine' | 'all';
-  /** Subset of draft/plan/build/verify/done — narrows on the parent Spec's
+  /** Subset of draft/specify/build/verify/done — narrows on the parent Spec's
    *  status. Empty/absent ⇒ all phases. Sent as a CSV `?phases=`. */
   phases?: ReadonlyArray<string>;
   /** Subset of bug/todo — narrows on the issue's type. Empty/absent ⇒ all types.
@@ -2267,11 +2284,15 @@ export async function oauthAuthorizeDecisionApi(
 
 export type AcKind = 'scope' | 'implementation';
 export type AcStatus = 'proposed' | 'active' | 'rejected' | 'superseded';
+// spec-188 dec-1: 'accepted' is the audited human override for ACs that can't
+// be exercised by a digital test — own visual identity, counts toward the
+// verified percentage.
 export type AcVerificationState =
   | 'verified'
   | 'failing'
   | 'untested'
-  | 'stale';
+  | 'stale'
+  | 'accepted';
 
 export interface AcTestSnapshot {
   testIdentifier: string | null;
@@ -2290,6 +2311,13 @@ export interface AcWithVerification {
     kind: AcKind;
     statement: string;
     status: AcStatus;
+    /** spec-188: manual-acceptance provenance — display snapshot of who
+     *  accepted (user.name ?? email). Null when not accepted. */
+    acceptedBy: string | null;
+    /** ISO timestamp of the acceptance; null when not accepted. Note the
+     *  acceptance is an overlay — verificationState may read 'failing' while
+     *  these stay set (evidence wins, dec-2). */
+    acceptedAt: string | null;
     createdAt: string;
     updatedAt: string;
   };
@@ -2318,6 +2346,22 @@ export async function fetchAcsForBrief(
   const res = await fetchWithRetry(`${tBase()}/acs/doc/${docId}`);
   if (!res.ok) throw new Error(`Failed to fetch ACs: ${res.status}`);
   return res.json();
+}
+
+// spec-188: manual verification acceptance — POST records, DELETE revokes.
+// Server derives the actor from the session; no body needed.
+export async function acceptAc(acId: string): Promise<void> {
+  const res = await fetchWithRetry(`${tBase()}/acs/${acId}/acceptance`, {
+    method: 'POST',
+  });
+  if (!res.ok) throw new Error(`Failed to accept AC: ${res.status}`);
+}
+
+export async function unacceptAc(acId: string): Promise<void> {
+  const res = await fetchWithRetry(`${tBase()}/acs/${acId}/acceptance`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) throw new Error(`Failed to un-accept AC: ${res.status}`);
 }
 
 export async function fetchAcAlignmentHistory(
@@ -2399,14 +2443,14 @@ export interface SpecsOverTimePoint {
 export interface SpecsByPhasePoint {
   day: string;
   draft: number;
-  plan: number;
+  specify: number;
   build: number;
   verify: number;
   done: number;
 }
 
 export interface InPhaseDuration {
-  phase: 'draft' | 'plan' | 'build' | 'verify' | 'done';
+  phase: 'draft' | 'specify' | 'build' | 'verify' | 'done';
   n: number;
   avgDays: number;
   medianDays: number;
@@ -2479,7 +2523,7 @@ export async function fetchStandardsGraph(): Promise<StandardsGraphData> {
 }
 
 export interface FunnelStage {
-  phase: 'draft' | 'plan' | 'build' | 'verify' | 'done';
+  phase: 'draft' | 'specify' | 'build' | 'verify' | 'done';
   count: number;
 }
 

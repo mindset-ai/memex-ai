@@ -42,7 +42,7 @@ import {
 const AC_30 = 'mindset-prod/memex-building-itself/briefs/b-68/acs/ac-30';
 
 const FORWARD_TRANSITIONS: readonly Transition[] = [
-  'plan',
+  'specify',
   'build',
   'verify',
   'done',

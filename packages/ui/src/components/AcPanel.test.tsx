@@ -12,11 +12,14 @@
 // isolation: no real network, no ChatProvider wrapping required.
 
 import { render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AcPanel, buildVerifiedSegments } from './AcPanel';
 import {
   fetchAcsForBrief,
   fetchAcAlignmentHistory,
+  acceptAc,
+  unacceptAc,
   type AcWithVerification,
   type AcVerificationState,
   type AcAlignmentDay,
@@ -25,6 +28,8 @@ import { tagAc } from "@memex-ai-ac/vitest";
 
 // b-96 traceability — the unified header + delete flow it surfaces are ac-1.
 const B96 = 'mindset-prod/memex-building-itself/briefs/b-96';
+// spec-188 — manual AC acceptance (accepted state visuals + accept/un-accept).
+const SPEC188 = 'mindset-prod/memex-building-itself/specs/spec-188';
 
 vi.mock('../api/client', async () => {
   const actual = await vi.importActual<typeof import('../api/client')>(
@@ -38,6 +43,10 @@ vi.mock('../api/client', async () => {
     // click that expanded a row wouldn't fire real HTTP. The unit tests below
     // never click into the collapsible, so this is purely defensive.
     fetchAcTestMatrix: vi.fn().mockResolvedValue([]),
+    // spec-188: the accept/un-accept mutations are stubbed so toggle clicks
+    // exercise the wiring without HTTP.
+    acceptAc: vi.fn().mockResolvedValue(undefined),
+    unacceptAc: vi.fn().mockResolvedValue(undefined),
   };
 });
 
@@ -71,9 +80,18 @@ function makeAc(
   seq: number,
   kind: 'scope' | 'implementation',
   verificationState: AcVerificationState,
-  options: { tests?: number; statement?: string } = {},
+  options: {
+    tests?: number;
+    statement?: string;
+    acceptedBy?: string | null;
+    acceptedAt?: string | null;
+  } = {},
 ): AcWithVerification {
-  const testCount = options.tests ?? (verificationState === 'untested' ? 0 : 1);
+  const testCount =
+    options.tests ??
+    (verificationState === 'untested' || verificationState === 'accepted'
+      ? 0
+      : 1);
   return {
     ac: {
       id: `ac-${kind}-${seq}`,
@@ -83,6 +101,20 @@ function makeAc(
       kind,
       statement: options.statement ?? `${kind} ac ${seq}`,
       status: 'active',
+      // spec-188: acceptance provenance defaults to "not accepted"; rows in
+      // the 'accepted' state default to a plausible record unless overridden.
+      acceptedBy:
+        options.acceptedBy !== undefined
+          ? options.acceptedBy
+          : verificationState === 'accepted'
+            ? 'Test User'
+            : null,
+      acceptedAt:
+        options.acceptedAt !== undefined
+          ? options.acceptedAt
+          : verificationState === 'accepted'
+            ? '2026-06-01T00:00:00Z'
+            : null,
       createdAt: '2026-05-01T00:00:00Z',
       updatedAt: '2026-05-01T00:00:00Z',
     },
@@ -321,6 +353,163 @@ describe('buildVerifiedSegments', () => {
   });
 });
 
+// spec-188 — manual acceptance: the fifth state's visual identity, its place
+// in the metrics, and the accept/un-accept affordances on each row.
+describe('AcPanel — manual acceptance (spec-188)', () => {
+  it('accepted ACs count toward the verified % and render a sky bar segment', async () => {
+    // ac-7: accepted has its own (sky) segment, distinct from verified green,
+    // and joins the headline percentage. 1 verified + 1 accepted + 0 others
+    // → 100%, two segments at 50% each.
+    tagAc(`${SPEC188}/acs/ac-7`);
+    vi.mocked(fetchAcsForBrief).mockResolvedValue([
+      makeAc(1, 'implementation', 'verified'),
+      makeAc(2, 'scope', 'accepted'),
+    ]);
+    vi.mocked(fetchAcAlignmentHistory).mockResolvedValue([]);
+
+    render(<AcPanel docId="doc-1" />);
+
+    const header = await screen.findByTestId('ac-unified-header');
+    expect(within(header).getByText('100%')).toBeInTheDocument();
+    const acceptedSegment = within(header).getByTestId('bar-segment-accepted');
+    expect(acceptedSegment.className).toContain('bg-sky-500');
+    expect((acceptedSegment as HTMLElement).style.width).toBe('50%');
+    const verifiedSegment = within(header).getByTestId('bar-segment-verified');
+    expect((verifiedSegment as HTMLElement).style.width).toBe('50%');
+    expect(within(header).getByText(/1 accepted/)).toBeInTheDocument();
+  });
+
+  it('an accepted-only Spec is not the "0 covered" empty band — it shows metrics', async () => {
+    tagAc(`${SPEC188}/acs/ac-7`);
+    vi.mocked(fetchAcsForBrief).mockResolvedValue([
+      makeAc(1, 'scope', 'accepted'),
+    ]);
+    vi.mocked(fetchAcAlignmentHistory).mockResolvedValue([]);
+
+    render(<AcPanel docId="doc-1" />);
+
+    const header = await screen.findByTestId('ac-unified-header');
+    expect(within(header).queryByText(/committed · 0 covered/)).not.toBeInTheDocument();
+    // verified headline = 1 accepted / 1 accountable = 100%
+    expect(within(header).getByText('100%')).toBeInTheDocument();
+  });
+
+  it('accepted rows wear the sky dot, the accepted label and the provenance line', async () => {
+    tagAc(`${SPEC188}/acs/ac-7`);
+    tagAc(`${SPEC188}/acs/ac-8`);
+    vi.mocked(fetchAcsForBrief).mockResolvedValue([
+      makeAc(1, 'scope', 'accepted', {
+        acceptedBy: 'Barrie Hadfield',
+        acceptedAt: '2026-06-01T09:00:00Z',
+      }),
+    ]);
+    vi.mocked(fetchAcAlignmentHistory).mockResolvedValue([]);
+
+    const { container } = render(<AcPanel docId="doc-1" />);
+
+    const list = await screen.findByTestId('ac-unified-list');
+    const row = within(list).getAllByRole('listitem')[0];
+    expect(row.getAttribute('data-ac-state')).toBe('accepted');
+    expect(container.querySelector('.bg-sky-500')).not.toBeNull();
+    const provenance = within(row).getByTestId('ac-accepted-provenance');
+    expect(provenance.textContent).toContain('accepted by Barrie Hadfield');
+  });
+
+  it('"Mark as accepted" sits on the row and calls the accept mutation', async () => {
+    // ac-1 (scope): the row affordance — the full journey lands in e2e (t-5);
+    // this pins the wiring from button → client mutation → refresh.
+    tagAc(`${SPEC188}/acs/ac-1`);
+    vi.mocked(fetchAcsForBrief).mockResolvedValue([
+      makeAc(1, 'scope', 'untested', { tests: 0 }),
+    ]);
+    vi.mocked(fetchAcAlignmentHistory).mockResolvedValue([]);
+
+    render(<AcPanel docId="doc-1" />);
+
+    const button = await screen.findByTestId('ac-accept-button');
+    expect(button.textContent).toBe('Mark as accepted');
+    await userEvent.click(button);
+    await waitFor(() => expect(vi.mocked(acceptAc)).toHaveBeenCalledWith('ac-scope-1'));
+    // The panel refreshes immediately after the mutation (no poll wait).
+    expect(vi.mocked(fetchAcsForBrief).mock.calls.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('an accepted row offers "Un-accept" and calls the revoke mutation', async () => {
+    // ac-10: revocation affordance restores the test-derived state.
+    tagAc(`${SPEC188}/acs/ac-10`);
+    vi.mocked(fetchAcsForBrief).mockResolvedValue([
+      makeAc(3, 'scope', 'accepted'),
+    ]);
+    vi.mocked(fetchAcAlignmentHistory).mockResolvedValue([]);
+
+    render(<AcPanel docId="doc-1" />);
+
+    const button = await screen.findByTestId('ac-unaccept-button');
+    expect(button.textContent).toBe('Un-accept');
+    await userEvent.click(button);
+    await waitFor(() =>
+      expect(vi.mocked(unacceptAc)).toHaveBeenCalledWith('ac-scope-3'),
+    );
+  });
+
+  it('a suppressed acceptance (failing evidence) still shows Un-accept + the conflict note', async () => {
+    // ac-10 + dec-2: the override stays discoverable while evidence wins.
+    tagAc(`${SPEC188}/acs/ac-10`);
+    vi.mocked(fetchAcsForBrief).mockResolvedValue([
+      makeAc(4, 'implementation', 'failing', {
+        acceptedBy: 'Barrie',
+        acceptedAt: '2026-06-01T09:00:00Z',
+      }),
+    ]);
+    vi.mocked(fetchAcAlignmentHistory).mockResolvedValue([]);
+
+    render(<AcPanel docId="doc-1" />);
+
+    expect(await screen.findByTestId('ac-unaccept-button')).toBeInTheDocument();
+    const provenance = screen.getByTestId('ac-accepted-provenance');
+    expect(provenance.textContent).toContain('suppressed by failing tests');
+  });
+
+  it('sorts accepted rows with the calm mass: failing → stale → untested → accepted → verified', async () => {
+    tagAc(`${SPEC188}/acs/ac-7`);
+    vi.mocked(fetchAcsForBrief).mockResolvedValue([
+      makeAc(1, 'scope', 'verified'),
+      makeAc(2, 'scope', 'accepted'),
+      makeAc(3, 'implementation', 'failing'),
+      makeAc(4, 'implementation', 'untested', { tests: 0 }),
+    ]);
+    vi.mocked(fetchAcAlignmentHistory).mockResolvedValue([]);
+
+    render(<AcPanel docId="doc-1" />);
+
+    const list = await screen.findByTestId('ac-unified-list');
+    const rows = within(list).getAllByRole('listitem');
+    expect(rows.map((r) => r.getAttribute('data-ac-state'))).toEqual([
+      'failing',
+      'untested',
+      'accepted',
+      'verified',
+    ]);
+  });
+});
+
+describe('buildVerifiedSegments — accepted (spec-188)', () => {
+  it('extends the denominator with acceptedCount and emits the sky segment after green', () => {
+    tagAc(`${SPEC188}/acs/ac-7`);
+    const segments = buildVerifiedSegments(1, 1, 0, 2, 2);
+    expect(segments.map((s) => s.colour)).toEqual(['green', 'sky', 'rose']);
+    expect(segments.map((s) => s.percent)).toEqual([25, 50, 25]);
+  });
+
+  it('accepted-only bar is a single full-width sky segment', () => {
+    tagAc(`${SPEC188}/acs/ac-7`);
+    const segments = buildVerifiedSegments(0, 0, 0, 0, 3);
+    expect(segments).toHaveLength(1);
+    expect(segments[0].colour).toBe('sky');
+    expect(segments[0].percent).toBe(100);
+  });
+});
+
 // spec-164 (scope ac-3 / ac-10) — the AC panel wears the same card chrome as
 // the Decision/Task/Issue panels and carries no offset wrapper, so the
 // Decisions and ACs columns start on the same line even when the unified
@@ -389,11 +578,11 @@ describe('AcPanel — draft-phase gating (spec-164)', () => {
     expect(screen.queryByTestId('ac-draft-directive')).not.toBeInTheDocument();
   });
 
-  it('plan + zero ACs → the teaching card renders as before (no directive)', async () => {
+  it('specify + zero ACs → the teaching card renders as before (no directive)', async () => {
     tagAc(AC164(18));
     vi.mocked(fetchAcsForBrief).mockResolvedValue([]);
     vi.mocked(fetchAcAlignmentHistory).mockResolvedValue([]);
-    render(<AcPanel docId="spec-1" specPhase="plan" />);
+    render(<AcPanel docId="spec-1" specPhase="specify" />);
     expect(
       await screen.findByText('No acceptance criteria on this Spec yet'),
     ).toBeInTheDocument();

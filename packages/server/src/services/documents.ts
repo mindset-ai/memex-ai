@@ -1,17 +1,19 @@
-import { and, eq, desc, count, isNull, inArray, or, exists, sql, type SQL } from "drizzle-orm";
+import { and, eq, ne, desc, count, isNull, inArray, or, exists, sql, type SQL } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import { documents, docSections, docComments, decisions, users, tags, documentTags } from "../db/schema.js";
 import type { Doc, DocSection, Decision } from "../db/schema.js";
 import type { DocSummary } from "../types/index.js";
 import { NotFoundError, ValidationError } from "../types/errors.js";
-import { mutate, type ChangeKey, type Mutated } from "./mutate.js";
+import { mutate, type ChangeKey, type Mutated, type RequestCtx } from "./mutate.js";
 import { isUuid } from "./shared/identifiers.js";
+import { withSeqRetry } from "./shared/sequence.js";
 import { embedAndStoreSection, embedAndStoreDecision } from "./memex-embeddings.js";
 import { aggregateAcHealthForBriefs } from "./acs.js";
 import { maybeAutoResolveIssuesForPromotedDoc } from "./issues.js";
 import { seedCreatorAsEditor } from "./doc-members.js";
 import { listAssigneesForDocs } from "./doc-assignees.js";
 import type { ParsedTag } from "./tags.js";
+import { HANDHOLD_PHASES } from "../db/handhold-demo.fixture.js";
 
 // Per-account handle sequence: doc-1, doc-2, ... within an account. Avoids cross-tenant
 // collisions on the (account_id, handle) unique constraint. Accepts a db OR tx client so
@@ -73,6 +75,15 @@ export interface CreateDocExtras {
   bodySections?: BodySectionInput[];
   /** Definition-of-done / acceptance criteria section, appended last when present. */
   acceptanceCriteria?: string;
+  /**
+   * spec-178 (issue-2): mark the new doc as a Handhold demo spec on the SAME insert
+   * that creates the row, so it reads is_demo=true from its first committed state.
+   * Without this the seeder created the row is_demo=false and flipped the flag only
+   * on a later terminal write — so an interrupted seed could leave a committed
+   * is_demo=false row that reads as a REAL spec (search/agent/board-visible) and
+   * survives the demo's idempotency guard + Reset. Defaults to false (real docs).
+   */
+  isDemo?: boolean;
 }
 
 export async function createDocDraft(
@@ -99,27 +110,34 @@ export async function createDocDraft(
   // `resolveRef`). Standards created through the dedicated React-UI flow
   // (`createStandard → nextStandardHandle`) were unaffected; MCP creates
   // route through this function and need the explicit branch.
-  const handle =
-    docType === "spec"
-      ? await nextSpecHandle(memexId)
-      : docType === "standard"
-        ? await nextStandardHandle(memexId)
-        : await nextDocHandle(memexId);
-
   return mutate(
     {},
     // The new doc's id isn't known until the insert returns, so use a key
     // factory that reads it off the resolved result.
     (created) => ({ memexId, docId: created.id, entity: "document", action: "created" }),
     async () => {
-      // Handle collisions across accounts (same `doc-N` in two tenants) are possible because
-      // the handle column has a global unique constraint. Catch and retry with a higher seq if
-      // a race produces a dup. For dev workloads the bare insert is fine; future hardening can
-      // tighten this.
-      const [doc] = await db
-        .insert(documents)
-        .values({ memexId, handle, title, docType, status: "draft", createdByUserId: createdByUserId ?? null })
-        .returning();
+      // spec-187 (b-38 F-3 finally reaching documents): the handle mint is a
+      // racy COALESCE(MAX(...))+1 read — two concurrent creates in the same
+      // memex can both read N and both insert handle N+1, and Postgres 23505s
+      // the loser on `documents_memex_id_handle_unique`. Mirror the
+      // decisions/comments/acs hardening: allocator + insert inside
+      // withSeqRetry, re-minting the handle on each collision.
+      const doc = await withSeqRetry(
+        async () => {
+          const handle =
+            docType === "spec"
+              ? await nextSpecHandle(memexId)
+              : docType === "standard"
+                ? await nextStandardHandle(memexId)
+                : await nextDocHandle(memexId);
+          const [row] = await db
+            .insert(documents)
+            .values({ memexId, handle, title, docType, status: "draft", createdByUserId: createdByUserId ?? null, isDemo: extras?.isDemo ?? false })
+            .returning();
+          return row;
+        },
+        "documents_memex_id_handle_unique",
+      );
 
       // spec-118 dec-4: the creator becomes the Spec's first editor. On the MCP
       // path createdByUserId is always the HUMAN token owner (no separate agent
@@ -241,7 +259,7 @@ export interface ListDocsOptions {
   includePaused?: boolean;
   // Optional status whitelist. When provided, only docs whose `status` is in the
   // list are returned. Used by `list_briefs` (doc-12 t-15) to scope to the
-  // active Spec phases (plan / build / verify) and exclude draft / done.
+  // active Spec phases (specify / build / verify) and exclude draft / done.
   statusIn?: readonly string[];
   // Per t-19 W2: when set, attach an open `commentType='drift'` count per doc so the
   // StandardList sidebar can render the drift badge in one round-trip instead of
@@ -259,6 +277,13 @@ export interface ListDocsOptions {
   // in one round-trip. Specs with no assignees leave `assignees` unset → the card
   // renders an "Unassigned" state.
   includeAssignees?: boolean;
+  // spec-178 t-11 / dec-11 (ac-37): when true, exclude is_demo docs from the
+  // result. Default falsy — the REST board route (routes/documents.ts) leaves
+  // this unset so the Specs board KEEPS rendering demo specs (with the DEMO
+  // badge). Only the MCP/agent `list_docs` path sets excludeDemo:true so a
+  // coding agent never sees a demo spec in its enumeration. Demo specs are
+  // invisible/inert to all agent surfaces but visible on the board.
+  excludeDemo?: boolean;
   // spec-136 t-3: narrow the result to docs carrying the given tags. Facet semantics
   // (dec-1): AND across different scopes, OR within a single scope; each flat (unscoped)
   // tag is its own AND clause. Resolved via an indexed (scope, value) join — no LIKE.
@@ -336,6 +361,14 @@ export async function listDocs(
   // Paused docs are included by default (React UI kanban renders them under a
   // "Show paused" toggle). MCP list_missions passes includePaused=false.
   if (opts.includePaused === false) conditions.push(isNull(documents.pausedAt));
+  // spec-178 t-11 / dec-11 (ac-37): exclude demo specs from the agent/MCP
+  // enumeration when asked. is_demo is NOT NULL DEFAULT false, but the
+  // `isNull OR ne(true)` guard is robust against any legacy NULL while still
+  // letting the board (excludeDemo falsy) keep its demo cards.
+  if (opts.excludeDemo) {
+    const notDemo = or(isNull(documents.isDemo), ne(documents.isDemo, true));
+    if (notDemo) conditions.push(notDemo);
+  }
   if (opts.statusIn && opts.statusIn.length > 0) {
     conditions.push(inArray(documents.status, opts.statusIn as string[]));
   }
@@ -359,6 +392,9 @@ export async function listDocs(
       // surface for the Specs kanban "Show paused" toggle.
       pausedAt: documents.pausedAt,
       archivedAt: documents.archivedAt,
+      // spec-178 t-1 (ac-9): is_demo rides on every DocSummary (like pausedAt/archivedAt)
+      // so the board can render the DEMO badge. Always projected — not behind an include opt.
+      isDemo: documents.isDemo,
       sectionCount: count(docSections.id),
       // LEFT JOIN — null when the doc predates migration 0036 or the creator
       // has been deleted (FK is ON DELETE SET NULL). The React UI renders
@@ -585,7 +621,16 @@ export async function getDoc(
   memexId: string,
   idOrHandle: string,
   opts: GetDocOptions = {},
-): Promise<Doc & { sections: DocSection[]; creator: { name: string | null; email: string | null } | null }> {
+): Promise<
+  Doc & {
+    sections: DocSection[];
+    creator: { name: string | null; email: string | null } | null;
+    // spec-178 dec-8 / ac-28: for is_demo docs, the per-phase value-banner copy
+    // (a fixture CONSTANT keyed by the doc's phase) the UI renders atop the demo
+    // spec. Unset for non-demo docs and for any demo phase with no callout.
+    demoValueCallout?: string;
+  }
+> {
   const idMatch = isUuid(idOrHandle)
     ? eq(documents.id, idOrHandle)
     : eq(documents.handle, idOrHandle);
@@ -624,6 +669,16 @@ export async function getDoc(
       .from(users)
       .where(eq(users.id, doc.createdByUserId));
     if (u) creator = u;
+  }
+
+  // spec-178 dec-8 / ac-28: a demo Spec carries its phase's value-banner copy from
+  // the fixture (a per-phase CONSTANT, never stored on the row). Non-demo docs are
+  // untouched — no field is attached, so the wire shape is identical for them.
+  if (doc.isDemo) {
+    const callout = HANDHOLD_PHASES.find((p) => p.phase === doc.status)?.valueCallout;
+    if (callout !== undefined) {
+      return { ...doc, sections, creator, demoValueCallout: callout };
+    }
   }
 
   return { ...doc, sections, creator };
@@ -768,12 +823,18 @@ export { DOC_STATUSES, SPEC_STATUSES, type DocStatus, type SpecStatus };
 // dec-3 warning when an agent closes a Spec without first running
 // `assess_phase_transition`. `opts.source` is preserved as a hook for future
 // per-source logging / telemetry; today nothing reads it.
+//
+// spec-189: `opts.ctx` threads the originating channel into the emitted
+// events (Pulse attribution for traffic-driven auto-advances) and
+// `opts.narrative` overrides the default status_changed prose so automatic
+// transitions read as auto-advanced rather than humanly moved. Both
+// optional — existing callers are unchanged.
 export async function updateDocStatus(
   memexId: string,
   id: string,
   status: string,
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  opts: { source?: "agent" | "rest" } = {},
+  opts: { source?: "agent" | "rest"; ctx?: RequestCtx; narrative?: string } = {},
 ): Promise<Mutated<Doc>> {
   if (!(DOC_STATUSES as readonly string[]).includes(status)) {
     throw new ValidationError(
@@ -800,13 +861,13 @@ export async function updateDocStatus(
       docId: id,
       entity: "document",
       action: "status_changed",
-      narrative: `moved ${doc.handle} ${doc.status} → ${status}`,
+      narrative: opts.narrative ?? `moved ${doc.handle} ${doc.status} → ${status}`,
       payload: { from: doc.status, to: status },
     });
   }
 
   const updated = await mutate(
-    {},
+    opts.ctx ?? {},
     keys,
     async () => {
       const [row] = await db

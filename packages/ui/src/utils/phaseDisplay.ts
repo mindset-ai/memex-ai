@@ -1,27 +1,11 @@
-// spec-164 dec-1: the phase DISPLAY-NAME layer. The planning phase presents to
-// users as "Specify" while the enum value, DB doc.status, MCP/agent vocabulary,
-// scaffold prompts, and URL grammar all keep `plan` (per the std-19 amendment
-// proposed alongside this spec). Every user-facing surface that prints a phase
-// name routes through this map — the tab bar, the transition sentence, the
-// phase directives, filters, badges, and list views.
-//
-// Deliberately NOT routed through here: agent-facing vocabulary surfaces
-// (Scaffold Inspect, Init Prompt modes) where `plan` is the true value the
-// agent sees, and non-spec doc statuses (approved etc.), which are not phases.
-
-const PHASE_DISPLAY_NAMES: Record<string, string> = {
-  draft: 'Draft',
-  plan: 'Specify',
-  build: 'Build',
-  verify: 'Verify',
-  done: 'Done',
-};
-
-/** The user-facing display name for a Spec phase. Unknown values fall back to
- * the capitalised raw string so non-phase statuses degrade gracefully. */
+// The user-facing display name for a Spec phase. spec-181 collapsed the former
+// display-name shim: the second phase value is now `specify` end-to-end (enum,
+// DB status, API payloads, data-tab attributes), so "Specify" falls straight
+// out of capitalising the enum value — there is no longer a plan→"Specify" map
+// entry, and every other phase was already pure capitalisation. A trivial
+// capitaliser covers every phase ('draft'→"Draft", 'specify'→"Specify",
+// 'build'→"Build", 'verify'→"Verify", 'done'→"Done") and degrades gracefully
+// for non-phase statuses (e.g. 'cross_reference'→"Cross reference").
 export function phaseDisplayName(phase: string): string {
-  return (
-    PHASE_DISPLAY_NAMES[phase] ??
-    phase.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase())
-  );
+  return phase.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
 }

@@ -191,7 +191,7 @@ describe("issue-N seq allocation (ac-10)", () => {
 describe("create against any Spec status (ac-12)", () => {
   it("creates an Issue for a Spec in draft, build, done, paused and archived", async () => {
     tagAc(AC(12));
-    for (const status of ["draft", "plan", "build", "verify", "done"]) {
+    for (const status of ["draft", "specify", "build", "verify", "done"]) {
       const docId = await makeSpec(`Issue Status ${status} Doc`);
       await updateDocStatus(memexId, docId, status);
       const issue = await createIssue({

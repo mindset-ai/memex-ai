@@ -664,7 +664,7 @@ describe('LangGraph agent graph', () => {
       // collapse.
       const cases = [
         ['draft', 'planAgent'],
-        ['plan', 'planAgent'],
+        ['specify', 'planAgent'],
         ['build', 'buildAgent'],
         ['verify', 'verifyAgent'],
         ['done', 'doneAgent'],
@@ -678,7 +678,7 @@ describe('LangGraph agent graph', () => {
 
     it('falls back to planAgent when specPhase is null on an existing doc', () => {
       // Safe default: existing docs without a known phase are treated as
-      // plan, which matches the old single-node behaviour.
+      // specify, which matches the old single-node behaviour.
       expect(
         routeByPhase({ ...baseState, docId: 'doc-1', specPhase: null })
       ).toBe('planAgent');
@@ -686,12 +686,12 @@ describe('LangGraph agent graph', () => {
 
     // b-33 / s-3 reconciliation — `draft` is a Spec attribute / Kanban
     // column, NOT a graph node. The collapse means switching status from
-    // `draft` to `plan` (or back) must NOT trigger a node switch — both
+    // `draft` to `specify` (or back) must NOT trigger a node switch — both
     // resolve to the same agent so the agent's behavioural surface is
     // unchanged at that transition.
-    it('returns the same agent for draft and plan (draft → plan is a no-op for routing)', () => {
+    it('returns the same agent for draft and specify (draft → specify is a no-op for routing)', () => {
       const draftTarget = routeByPhase({ ...baseState, docId: 'doc-1', specPhase: 'draft' });
-      const planTarget = routeByPhase({ ...baseState, docId: 'doc-1', specPhase: 'plan' });
+      const planTarget = routeByPhase({ ...baseState, docId: 'doc-1', specPhase: 'specify' });
       expect(draftTarget).toBe(planTarget);
       expect(draftTarget).toBe('planAgent');
     });

@@ -422,10 +422,10 @@ describe('DecisionPanel — draft-phase gating (spec-164)', () => {
     expect(screen.getByText('Which DB?')).toBeInTheDocument();
   });
 
-  it('plan + zero decisions → behaviour unchanged (tabs scaffolding, no directive)', () => {
+  it('specify + zero decisions → behaviour unchanged (tabs scaffolding, no directive)', () => {
     tagAc(AC164(18));
     render(
-      <DecisionPanel docId="doc-1" decisions={[]} onUpdate={vi.fn()} specPhase="plan" />,
+      <DecisionPanel docId="doc-1" decisions={[]} onUpdate={vi.fn()} specPhase="specify" />,
     );
     expect(screen.queryByTestId('decision-draft-directive')).not.toBeInTheDocument();
     expect(screen.getByText('No open decisions.')).toBeInTheDocument();

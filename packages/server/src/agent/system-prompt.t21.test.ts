@@ -23,7 +23,7 @@ describe("t-21 Issue 1 — system prompt routes rename to update_doc({title})", 
   // is inverted: the React system prompt MUST NOT contain it. The nudge-channel
   // coverage for the same rename guidance lives in scaffold-data.toNudge.test.ts.
   it("[updated by b-68 ac-28] React system prompt no longer carries rename guidance — moved to shared_nudge", () => {
-    const blocks = buildSystemBlocks("", "plan");
+    const blocks = buildSystemBlocks("", "specify");
     const text = blocks.map((b) => b.text).join("\n");
     // mutation-protocol is `shared_nudge` per dec-9 — `update_doc({title})`
     // rename guidance rides the nudge channel, not the React system prompt.
@@ -53,7 +53,7 @@ describe("t-21 Issue 4 — creation flow is Overview-only with clean hand-off", 
 // SKIP: doc-24 — Standard / Document doc types no longer exposed on MCP/agent surface; restore alongside the tools.
 describe.skip("t-21 Issue 7 — agent has knowledge of Spec / Standard / Document", () => {
   it("system prompt defines all three document types", () => {
-    const blocks = buildSystemBlocks("", "plan");
+    const blocks = buildSystemBlocks("", "specify");
     const text = blocks.map((b) => b.text).join("\n");
     expect(text).toMatch(/\bSpec\b/);
     expect(text).toMatch(/\bStandard\b/);

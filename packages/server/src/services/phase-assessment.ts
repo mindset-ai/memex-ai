@@ -31,9 +31,9 @@ import {
 // for the target phase; the agent walks the rubric against the facts and tells
 // the human whether to proceed.
 
-export type PhaseTarget = "plan" | "build" | "verify" | "done";
+export type PhaseTarget = "specify" | "build" | "verify" | "done";
 
-const PHASE_TARGETS: readonly PhaseTarget[] = ["plan", "build", "verify", "done"] as const;
+const PHASE_TARGETS: readonly PhaseTarget[] = ["specify", "build", "verify", "done"] as const;
 
 export function isPhaseTarget(value: unknown): value is PhaseTarget {
   return typeof value === "string" && (PHASE_TARGETS as readonly string[]).includes(value);
@@ -41,7 +41,7 @@ export function isPhaseTarget(value: unknown): value is PhaseTarget {
 
 /**
  * Agent's self-classification of code-grounding for the Spec's resolved
- * decisions, applicable only to the plan→build transition (doc-27).
+ * decisions, applicable only to the specify→build transition (doc-27).
  *
  * - `not_applicable`: Spec's scope is not code-touching.
  * - `verified`: Resolved decisions have been verified against current source.
@@ -87,7 +87,7 @@ const CODE_GROUNDING_NUDGE: Record<CodeGrounding, string> = {
   not_verified: CODE_GROUNDING_SECTIONS["nudge:not_verified"],
 };
 
-// spec-106 t-4 — plan→build missing-core-lens soft nudge (dec-1).
+// spec-106 t-4 — specify→build missing-core-lens soft nudge (dec-1).
 //
 // The warning PROSE lives in `@memex/shared`'s `scaffold-data.ts`
 // (`SPEC_SHAPE_MISSING_LENS_WARNING`) — the single owner of scaffold prompt
@@ -147,8 +147,8 @@ export function detectMissingCoreLenses(
 // rubric prose now lives as `TransitionRubric` records on
 // `BASE_SCAFFOLD.transitions`, composed alongside any Org `{transition}`-targeted
 // additions by `toRubric` and surfaced through the `rubricProse` field below.
-// Per dec-8 of doc-12, draft→plan still carries no rubric; that's encoded as
-// the absence of a `plan` `TransitionRubric` in BASE_SCAFFOLD (the projection
+// Per dec-8 of doc-12, draft→specify still carries no rubric; that's encoded as
+// the absence of a `specify` `TransitionRubric` in BASE_SCAFFOLD (the projection
 // emits an empty string when no base rubric is found).
 
 // Recent-call cache for t-7's "no recent readiness review" nudge. Keyed by
@@ -219,7 +219,7 @@ export interface PhaseAssessment {
   targetPhase: PhaseTarget;
   /** Human-readable transition descriptor, e.g. "build → verify". */
   transition: string;
-  /** When the transition has no rubric (draft→plan per dec-8), a friendly
+  /** When the transition has no rubric (draft→specify per dec-8), a friendly
    *  note explaining why. */
   rubricNote: string | null;
   /**
@@ -254,7 +254,7 @@ export interface PhaseAssessment {
     resolvedDecisionCoverage: ConsequenceCoverageFact[];
     /** Per-resolved-decision: count of `active` child implementation ACs.
      *  Drives the "every resolved decision must have ≥1 implementation AC"
-     *  rule at the plan→build gate. See guidance topic `decisions-need-acs`. */
+     *  rule at the specify→build gate. See guidance topic `decisions-need-acs`. */
     resolvedDecisionAcCoverage: DecisionAcCoverageFact[];
   };
   /**
@@ -266,7 +266,7 @@ export interface PhaseAssessment {
   nudges: string[];
   /**
    * Code-grounding self-classification provided by the agent for the
-   * plan→build transition (doc-27). `undefined` means the agent has not yet
+   * specify→build transition (doc-27). `undefined` means the agent has not yet
    * answered the prompt; `formatPhaseAssessment` renders the prompt in a
    * dedicated `## Code grounding` section in that case. Always `undefined`
    * for targets other than `build`.
@@ -497,12 +497,12 @@ export async function assessPhaseTransition(
   const openIssuesCount = await countOpenIssuesOnSpec(memexId, briefId);
 
   // b-68 t-7: the legacy per-target `.md`-sourced rubric is retired. Only the
-  // friendly note for the rubric-less draft→plan transition remains; the
+  // friendly note for the rubric-less draft→specify transition remains; the
   // composed `rubricProse` below carries the full rubric prose.
   let rubricNote: string | null = null;
-  if (targetPhase === "plan") {
+  if (targetPhase === "specify") {
     rubricNote =
-      "draft→plan has no readiness review — moving into planning is encouraged early and often. Just ensure the Overview captures the gist of the work.";
+      "draft→specify has no readiness review — moving into specify is encouraged early and often. Just ensure the Overview captures the gist of the work.";
   }
 
   // b-68 t-5: composed rubric prose. `toRubric` returns the base
@@ -524,7 +524,7 @@ export async function assessPhaseTransition(
 
   // Rule-based nudges
   const nudges: string[] = [];
-  if (openDecisions.length > 0 && targetPhase !== "plan") {
+  if (openDecisions.length > 0 && targetPhase !== "specify") {
     nudges.push(
       `There are ${openDecisions.length} open decision${openDecisions.length === 1 ? "" : "s"}. Forward transition is risky.`,
     );
@@ -554,7 +554,7 @@ export async function assessPhaseTransition(
     );
   }
 
-  // Decisions-need-ACs gate: any resolved decision on the plan→build path that
+  // Decisions-need-ACs gate: any resolved decision on the specify→build path that
   // lacks an active implementation AC is a hold-flavoured signal. Lists the
   // offending decisions inline so the agent can author the missing ACs without
   // a second tool call. Same firmness as open-decisions check above — the
@@ -567,14 +567,14 @@ export async function assessPhaseTransition(
       const handles = naked.map((c) => c.decisionHandle).join(", ");
       nudges.push(
         `Resolved decisions without implementation ACs: ${handles}. ` +
-          `Plan→build is a hold until each has ≥1 active implementation AC linked via ` +
+          `Specify→build is a hold until each has ≥1 active implementation AC linked via ` +
           `\`create_ac({ kind: 'implementation', parent_decision_ref: '<dec-ref>', ... })\`. ` +
           `See \`get_information(topic='decisions-need-acs')\`.`,
       );
     }
   }
 
-  // spec-106 t-4: missing-core-lens soft nudge (dec-1). On the plan→build
+  // spec-106 t-4: missing-core-lens soft nudge (dec-1). On the specify→build
   // transition only, inspect the Spec's section types/titles; if a CORE lens
   // (Design & UX, Architecture & Security) has no matching section, surface a
   // warning that NAMES the missing lens. This is a SOFT signal — it adds a
@@ -595,7 +595,7 @@ export async function assessPhaseTransition(
   }
 
   // Code-grounding self-classification (doc-27). Only applies on the
-  // plan→build transition (`target === 'build'`). On other targets the
+  // specify→build transition (`target === 'build'`). On other targets the
   // parameter is silently ignored — no prompt, no nudge, no behaviour change.
   let effectiveCodeGrounding: CodeGrounding | undefined;
   let codeGroundingPromptPending = false;
@@ -737,7 +737,7 @@ export function formatPhaseAssessment(assessment: PhaseAssessment): string {
   }
   lines.push("");
 
-  // Code grounding (doc-27) — only rendered on the plan→build transition
+  // Code grounding (doc-27) — only rendered on the specify→build transition
   // when the agent hasn't yet supplied a `codeGrounding` value. Once the
   // agent answers, the classification is surfaced via the `## Nudges`
   // section below instead.
@@ -749,7 +749,7 @@ export function formatPhaseAssessment(assessment: PhaseAssessment): string {
 
   // Outstanding work — same shared computation the React UI uses to gate the
   // PhaseDropdown. Only meaningful for forward transitions (the readiness rubric
-  // exists for plan→build / build→verify / verify→done).
+  // exists for specify→build / build→verify / verify→done).
   const isForward = isForwardTransition(
     assessment.currentPhase as SpecPhase,
     assessment.targetPhase as SpecPhase,
@@ -775,11 +775,11 @@ export function formatPhaseAssessment(assessment: PhaseAssessment): string {
 
   // b-68 t-5 / t-7: composed rubric prose. Sits between the deterministic
   // sections above (facts, outstanding work, nudges) and the rubric-less
-  // draft→plan note below. The `---` separator + dedicated heading make
+  // draft→specify note below. The `---` separator + dedicated heading make
   // the deterministic-data vs prose-rubric boundary unambiguous for the
   // agent and for downstream readers (ac-35). Emitted only when `toRubric`
   // returned non-empty content — keeps the section silent for transitions
-  // that have neither base rubric nor Org additions (draft→plan today).
+  // that have neither base rubric nor Org additions (draft→specify today).
   if (assessment.rubricProse.length > 0) {
     lines.push("---");
     lines.push("## Rubric prose");
@@ -787,7 +787,7 @@ export function formatPhaseAssessment(assessment: PhaseAssessment): string {
     lines.push("");
   }
 
-  // Friendly note for the rubric-less draft→plan transition.
+  // Friendly note for the rubric-less draft→specify transition.
   if (assessment.rubricProse.length === 0 && assessment.rubricNote) {
     lines.push("## Rubric");
     lines.push(assessment.rubricNote);

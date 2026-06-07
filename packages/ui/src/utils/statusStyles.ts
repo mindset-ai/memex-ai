@@ -14,9 +14,9 @@ export type StatusVariant = 'warning' | 'success' | 'info' | 'danger' | 'neutral
 export function statusVariant(status: string): StatusVariant {
   switch (status) {
     // `review` is kept for non-Spec docTypes (per dec-3 of doc-10).
-    // `plan` is the Spec rename of `review` and gets the same warning variant.
+    // `specify` is the Spec rename of `review` and gets the same warning variant.
     case 'review':
-    case 'plan':
+    case 'specify':
     case 'open':
       return 'warning';
     // `verify` is green per spec-159 dec-3 — the acceptance gate reads as a

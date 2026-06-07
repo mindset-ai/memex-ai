@@ -143,8 +143,8 @@ describe("GET /api/orgs/:orgId/scaffold — merged base + org payload (ac-1)", (
         {
           orgId: fx.orgId,
           authorId: owner.userId,
-          targetPhase: "plan",
-          text: "Plan-phase org rule.",
+          targetPhase: "specify",
+          text: "Specify-phase org rule.",
           rationale: "Internal consistency.",
           enabled: true,
           displayOrder: 0,
@@ -215,8 +215,8 @@ describe("RBAC + std-7 — access paths (ac-13)", () => {
       {
         method: "POST",
         body: JSON.stringify({
-          target: { phase: "plan" },
-          text: "Plan-phase: confirm scope ACs.",
+          target: { phase: "specify" },
+          text: "Specify-phase: confirm scope ACs.",
           rationale: "Catches missing scope ACs.",
           enabled: true,
           order: 5,

@@ -1,4 +1,5 @@
 import { describe, it, expect, afterAll, beforeAll } from "vitest";
+import { tagAc } from "@memex-ai-ac/vitest";
 import { eq } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import { documents, docSections, docComments } from "../db/schema.js";
@@ -21,6 +22,15 @@ import { createTask } from "./tasks.js";
 import { NotFoundError, ValidationError } from "../types/errors.js";
 import { COMMENT_TYPES } from "../types/roles.js";
 import { makeTestMemex } from "./test-helpers.js";
+
+// spec-153 scope guarantees (soft-launch UI-only slice): removing the human
+// comment-type picker is purely front-end. ac-5 — the add_comment write contract
+// and the comment_type column/CHECK constraint are unchanged (human → freeform
+// discussion; the full taxonomy still round-trips). ac-3 — the agent/system typed
+// channel (drift, plan_revision, readiness_check, cross_reference, progress) is
+// unaffected. These are asserted by the existing real-DB tests below.
+const SPEC_153_AC3 = "mindset-prod/memex-building-itself/specs/spec-153/acs/ac-3";
+const SPEC_153_AC5 = "mindset-prod/memex-building-itself/specs/spec-153/acs/ac-5";
 
 const createdDocIds: string[] = [];
 
@@ -330,6 +340,10 @@ describe("listCommentsForDoc with decisions and tasks", () => {
 
 describe("backfill: comment_type and source defaults (Section 7)", () => {
   it("omitted commentType + source default to discussion/human", async () => {
+    // spec-153 ac-5: the add_comment write contract is unchanged — a human comment
+    // with no type omitted lands as a freeform (discussion, human), which is exactly
+    // what removing the composer's type picker relies on.
+    tagAc(SPEC_153_AC5);
     const doc = await createDocDraft(memexId, "Backfill defaults", "Purpose");
     createdDocIds.push(doc.id);
 
@@ -380,6 +394,12 @@ describe("backfill: comment_type and source defaults (Section 7)", () => {
 
 describe("typed comments: 12-type round-trip", () => {
   it("persists every COMMENT_TYPES value end-to-end on a section comment", async () => {
+    // spec-153 ac-5: the comment_type column + its CHECK constraint are unchanged —
+    // the full 12-value taxonomy still round-trips (no schema/taxonomy migration).
+    // spec-153 ac-3: the agent/system channel (drift, plan_revision, readiness_check,
+    // cross_reference, progress) is still emitted and consumed unchanged.
+    tagAc(SPEC_153_AC5);
+    tagAc(SPEC_153_AC3);
     const doc = await createDocDraft(memexId, "All-types section doc", "Purpose");
     createdDocIds.push(doc.id);
     const sectionId = doc.sections[0].id;

@@ -82,6 +82,7 @@ interface SectionWithDoc {
   id: string;
   doc_id: string;
   content: string;
+  is_demo: boolean;
 }
 
 async function loadSection(
@@ -99,7 +100,7 @@ async function loadSection(
   // the mutation). The argument is optional so legacy / test paths that
   // already trust the caller can skip it.
   const rows = (await db.execute(sql`
-    SELECT s.id, s.doc_id, s.content
+    SELECT s.id, s.doc_id, s.content, d.is_demo
     FROM doc_sections s
     INNER JOIN documents d ON d.id = s.doc_id
     WHERE s.id = ${sectionId}
@@ -128,7 +129,7 @@ async function writeEmbedding(
 // b-34 D-2 there is no docType gate — every section flows through.
 
 export interface EmbedSectionResult {
-  status: "embedded" | "skipped-empty" | "skipped-no-provider" | "failed";
+  status: "embedded" | "skipped-empty" | "skipped-no-provider" | "skipped-demo" | "failed";
   reason?: string;
   model?: string;
 }
@@ -141,6 +142,14 @@ export async function embedAndStoreSection(
   if (!section) {
     log(`section ${sectionId} not found — nothing to embed`);
     return { status: "failed", reason: "section-not-found" };
+  }
+
+  // dec-11: Handhold demo (is_demo) content is excluded from every agent/search
+  // surface, so it must never be embedded. Skipping here also keeps demo seeding
+  // off the embedding path entirely — the spec-178 backfill seeds many Memexes at
+  // once, and an embed-per-section cascade was part of what stalled it.
+  if (section.is_demo) {
+    return { status: "skipped-demo" };
   }
 
   const provider =
@@ -364,6 +373,7 @@ interface DecisionRow {
   context: string | null;
   resolution: string | null;
   doc_id: string;
+  is_demo: boolean;
 }
 
 async function loadDecision(
@@ -371,10 +381,11 @@ async function loadDecision(
   memexId?: string,
 ): Promise<DecisionRow | null> {
   const rows = (await db.execute(sql`
-    SELECT id, title, context, resolution, doc_id
-    FROM decisions
-    WHERE id = ${decisionId}
-      ${memexId ? sql`AND memex_id = ${memexId}` : sql``}
+    SELECT dn.id, dn.title, dn.context, dn.resolution, dn.doc_id, d.is_demo
+    FROM decisions dn
+    INNER JOIN documents d ON d.id = dn.doc_id
+    WHERE dn.id = ${decisionId}
+      ${memexId ? sql`AND dn.memex_id = ${memexId}` : sql``}
     LIMIT 1
   `)) as unknown as DecisionRow[];
   return rows[0] ?? null;
@@ -410,7 +421,7 @@ async function writeDecisionEmbedding(
 }
 
 export interface EmbedDecisionResult {
-  status: "embedded" | "skipped-empty" | "skipped-no-provider" | "failed";
+  status: "embedded" | "skipped-empty" | "skipped-no-provider" | "skipped-demo" | "failed";
   reason?: string;
   model?: string;
 }
@@ -423,6 +434,13 @@ export async function embedAndStoreDecision(
   if (!decision) {
     log(`decision ${decisionId} not found — nothing to embed`);
     return { status: "failed", reason: "decision-not-found" };
+  }
+
+  // dec-11: demo (is_demo) decisions are excluded from agent/search surfaces and
+  // must never be embedded. (See embedAndStoreSection — same rule, same backfill
+  // motivation.)
+  if (decision.is_demo) {
+    return { status: "skipped-demo" };
   }
 
   const provider =

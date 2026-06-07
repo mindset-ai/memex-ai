@@ -115,8 +115,8 @@ describe('RefreshSpecButton — visibility', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('visible in `plan` / `build` / `verify` when the narrative is stale', () => {
-    for (const phase of ['plan', 'build', 'verify'] as const) {
+  it('visible in `specify` / `build` / `verify` when the narrative is stale', () => {
+    for (const phase of ['specify', 'build', 'verify'] as const) {
       const { unmount } = renderRefresh({ phase });
       expect(
         screen.getByRole('button', { name: /update Spec narrative/i }),

@@ -16,7 +16,7 @@ const AC = (n: number) =>
   `mindset-prod/memex-building-itself/specs/spec-68/acs/ac-${n}`;
 
 // Phases the BASE dataset carries. Used to drive the (tool × phase) sweeps.
-const ALL_PHASES: readonly Phase[] = ['draft', 'plan', 'build', 'verify', 'done'];
+const ALL_PHASES: readonly Phase[] = ['draft', 'specify', 'build', 'verify', 'done'];
 
 // A representative sample across tool groups — read, mutate, lifecycle, AC,
 // comment, slack. Keeps the per-phase loop tight while still covering each
@@ -321,6 +321,25 @@ describe('toNudge against BASE_SCAFFOLD — drift sentinel: every (tool × phase
           `toNudge(${toolNode.name}, ${phaseNode.phase}) returned non-string`,
         ).toBe('string');
       }
+    }
+  });
+});
+
+// spec-176 ac-14 (dec-3): react_only PromptBlockNodes never appear in the
+// toNudge output — the create-from-doc guidance is invisible to MCP agents.
+describe('spec-176 ac-14: create-from-doc block excluded from toNudge output', () => {
+  const AC176 = (n: number) =>
+    `mindset-prod/memex-building-itself/specs/spec-176/acs/ac-${n}`;
+
+  it('ac-14: toNudge output for any phase does not contain create-from-doc text', () => {
+    tagAc(AC176(14));
+    const marker = '## Creating a new Spec or document from this chat';
+    for (const phase of ALL_PHASES) {
+      const out = toNudge({ dataset: BASE_SCAFFOLD, tool: 'get_doc', phase });
+      expect(
+        out,
+        `create-from-doc react_only content leaked into toNudge for phase=${phase}`,
+      ).not.toContain(marker);
     }
   });
 });

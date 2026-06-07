@@ -63,12 +63,12 @@ describe("spec-112 t-9: build-phase issue-TDD prompt artefact (ac-8)", () => {
       "Issue-derived tasks — failing test first (red→green)",
     );
     // And it must NOT bleed into other phases (it's build-only discipline).
-    const planNudge = toNudge({
+    const specifyNudge = toNudge({
       dataset: BASE_SCAFFOLD,
       tool: "convert_issue_to_task",
-      phase: "plan",
+      phase: "specify",
     });
-    expect(planNudge).not.toContain("failing test first");
+    expect(specifyNudge).not.toContain("failing test first");
   });
 
   it("targets ISSUE-DERIVED tasks (the convert_issue_to_task lineage)", () => {

@@ -2,7 +2,11 @@
 // Requires the server to run with MEMEX_ANTHROPIC_FAKE=1 (set in playwright.config.ts).
 // See packages/server/src/agent/anthropic-fake.ts + packages/server/src/routes/__test__.ts.
 
-const API_URL = process.env.E2E_API_URL ?? "http://localhost:8090";
+// Default tracks E2E_SERVER_PORT so a port override moves the helpers with the
+// server (overriding one without the other sent every request to a dead port).
+const API_URL =
+  process.env.E2E_API_URL ??
+  `http://localhost:${process.env.E2E_SERVER_PORT ?? 8090}`;
 
 export type FakeContentBlock =
   | { type: "text"; text: string }

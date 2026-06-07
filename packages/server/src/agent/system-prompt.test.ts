@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { BASE_SCAFFOLD, type SpecPhase } from "@memex/shared";
 import { tagAc } from "@memex-ai-ac/vitest";
 import { buildSystemBlocks, buildCreationSystemBlocks } from "./system-prompt.js";
+import { getToolDefinitions } from "./tools.js";
 
 const AC = (n: number) =>
   `mindset-prod/memex-building-itself/specs/spec-68/acs/ac-${n}`;
@@ -14,12 +15,12 @@ const PHASES_DIR = resolve(__dirname, "phases");
 
 describe("buildSystemBlocks", () => {
   it("returns three blocks (instructions, context, integration state)", () => {
-    const blocks = buildSystemBlocks("Some context", "plan");
+    const blocks = buildSystemBlocks("Some context", "specify");
     expect(blocks).toHaveLength(3);
   });
 
   it("first block contains the React-only role orientation", () => {
-    const blocks = buildSystemBlocks("Some context", "plan");
+    const blocks = buildSystemBlocks("Some context", "specify");
     expect(blocks[0].type).toBe("text");
     expect(blocks[0].text).toContain("## Role");
     expect(blocks[0].text).toContain("document assistant");
@@ -27,7 +28,7 @@ describe("buildSystemBlocks", () => {
   });
 
   it("second block contains document context with cache control", () => {
-    const blocks = buildSystemBlocks("My document content here", "plan");
+    const blocks = buildSystemBlocks("My document content here", "specify");
     expect(blocks[1].type).toBe("text");
     expect(blocks[1].text).toContain("My document content here");
     expect(blocks[1].text).toContain("## Document Context");
@@ -36,16 +37,16 @@ describe("buildSystemBlocks", () => {
 
   it("preserves the document context unchanged", () => {
     const context = "# Title\n\nSection with **markdown** and `code`";
-    const blocks = buildSystemBlocks(context, "plan");
+    const blocks = buildSystemBlocks(context, "specify");
     expect(blocks[1].text).toContain(context);
   });
 
-  // b-68 t-6: `draft` projects through the `plan` PhaseNode — draft + plan
+  // b-68 t-6: `draft` projects through the `specify` PhaseNode — draft + specify
   // share the React prompt set (b-33 carry-forward: draftAgent removed).
-  it("maps `draft` onto the `plan` projection", () => {
+  it("maps `draft` onto the `specify` projection", () => {
     const draftText = buildSystemBlocks("ctx", "draft")[0].text;
-    const planText = buildSystemBlocks("ctx", "plan")[0].text;
-    expect(draftText).toBe(planText);
+    const specifyText = buildSystemBlocks("ctx", "specify")[0].text;
+    expect(draftText).toBe(specifyText);
   });
 
   // b-68 t-6: every phase carries the React-only orientation blocks. The
@@ -53,7 +54,7 @@ describe("buildSystemBlocks", () => {
   // phase-agnostic; per-phase behavioural prose moved to the shared_nudge
   // channel and no longer rides system blocks.
   it("includes the React-only orientation blocks in every phase", () => {
-    const phases: SpecPhase[] = ["draft", "plan", "build", "verify", "done"];
+    const phases: SpecPhase[] = ["draft", "specify", "build", "verify", "done"];
     for (const phase of phases) {
       const text = buildSystemBlocks("ctx", phase)[0].text;
       expect(text).toContain("## Role");
@@ -67,7 +68,7 @@ describe("buildSystemBlocks", () => {
   // the `context-awareness` PromptBlockNode (react_only), so it must remain
   // visible in every phase's assembled prompt even after the b-68 t-6 trim.
   it("includes the cross-phase invariants in every phase", () => {
-    const phases: SpecPhase[] = ["draft", "plan", "build", "verify", "done"];
+    const phases: SpecPhase[] = ["draft", "specify", "build", "verify", "done"];
     for (const phase of phases) {
       const text = buildSystemBlocks("ctx", phase)[0].text;
       expect(text).toContain(
@@ -94,13 +95,13 @@ describe("buildSystemBlocks", () => {
   //   (b) the PER-PHASE behavioural prose now DOES appear, sourced from the
   //       scaffold (asserted by spec-123 ac-26 below).
   describe("ac-28 (reconciled by spec-123 dec-8): cross-phase global shared_nudge content stays excluded", () => {
-    const phases: SpecPhase[] = ["draft", "plan", "build", "verify", "done"];
+    const phases: SpecPhase[] = ["draft", "specify", "build", "verify", "done"];
 
     it("the global cross-phase signature strings never appear in any phase", () => {
       tagAc(AC(28));
       // These are the `target: {}` global blocks — orientation that rides the
       // nudge channel exclusively. The per-phase behavioural headers (## Phase:
-      // plan / build / verify, ## Phase discipline) are NO LONGER in this list:
+      // specify / build / verify, ## Phase discipline) are NO LONGER in this list:
       // spec-123 dec-8 ships them on the React surface on purpose.
       const globalSignatures = [
         "## What a Spec is",
@@ -131,9 +132,9 @@ describe("buildSystemBlocks", () => {
 
     // Per-phase behavioural blocks ride a GuidanceBlock with `target: { phase }`.
     // For each phase, gather those base phase-targeted block texts and assert each
-    // appears in the React system prompt (draft maps onto the plan projection).
+    // appears in the React system prompt (draft maps onto the specify projection).
     const phaseGuidanceTexts = (phase: SpecPhase): string[] => {
-      const projected = phase === "draft" ? "plan" : phase;
+      const projected = phase === "draft" ? "specify" : phase;
       return BASE_SCAFFOLD.baseGuidance
         .filter(
           (b) =>
@@ -146,7 +147,7 @@ describe("buildSystemBlocks", () => {
         .map((b) => b.text);
     };
 
-    for (const phase of ["plan", "build", "verify"] as SpecPhase[]) {
+    for (const phase of ["specify", "build", "verify"] as SpecPhase[]) {
       it(`phase=${phase} — the React prompt carries the phase's shared_nudge behavioural block text`, () => {
         tagAc(SPEC_123(26));
         const text = buildSystemBlocks("ctx", phase)[0].text;
@@ -169,7 +170,7 @@ describe("buildSystemBlocks", () => {
       // buildSystemBlocks composes the phase guidance from the very same base
       // GuidanceBlocks the MCP nudge channel composes — so each phase block the
       // MCP agent sees is present verbatim in the React prompt.
-      for (const phase of ["plan", "build", "verify"] as SpecPhase[]) {
+      for (const phase of ["specify", "build", "verify"] as SpecPhase[]) {
         const reactText = buildSystemBlocks("ctx", phase)[0].text;
         for (const block of phaseGuidanceTexts(phase)) {
           expect(reactText.includes(block)).toBe(true);
@@ -186,9 +187,9 @@ describe("buildSystemBlocks", () => {
   // standards-protocol.md stay until t-7 retires their non-system-prompt
   // consumers — phase-assessment.ts and mcp/formatters.ts.)
   describe("ac-19: retired .md files are gone from disk", () => {
-    it("no <phase>/system.md remains for plan/build/verify/done", () => {
+    it("no <phase>/system.md remains for specify/build/verify/done", () => {
       tagAc(AC(19));
-      const phases = ["plan", "build", "verify", "done"] as const;
+      const phases = ["specify", "build", "verify", "done"] as const;
       for (const phase of phases) {
         const filePath = resolve(PHASES_DIR, phase, "system.md");
         expect(existsSync(filePath), `${phase}/system.md still on disk`).toBe(false);
@@ -232,7 +233,7 @@ describe("spec-180: integration state block in buildSystemBlocks", () => {
   it("ac-4 + ac-5: integration block is a separate 3rd block with no cache_control; context block (2nd) retains its ephemeral marker", () => {
     tagAc(AC180(4));
     tagAc(AC180(5));
-    const blocks = buildSystemBlocks("ctx", "plan");
+    const blocks = buildSystemBlocks("ctx", "specify");
     expect(blocks).toHaveLength(3);
     // context block (index 1) carries the cache breakpoint — unchanged by spec-180
     expect(blocks[1].cache_control).toEqual({ type: "ephemeral" });
@@ -244,7 +245,7 @@ describe("spec-180: integration state block in buildSystemBlocks", () => {
   it("ac-6 + ac-8: always injects the block with both Slack and Discord lines — even with no integrationState passed", () => {
     tagAc(AC180(6));
     tagAc(AC180(8));
-    const blocks = buildSystemBlocks("ctx", "plan");
+    const blocks = buildSystemBlocks("ctx", "specify");
     const text = blocks[2].text;
     expect(text).toContain("## Active integrations");
     expect(text).toContain("Slack:");
@@ -255,14 +256,14 @@ describe("spec-180: integration state block in buildSystemBlocks", () => {
   it("ac-8: integration block always states both Slack and Discord regardless of what is configured", () => {
     tagAc(AC180(8));
     // Both unconfigured
-    const noneBlocks = buildSystemBlocks("ctx", "plan", false, false, false, {
+    const noneBlocks = buildSystemBlocks("ctx", "specify", false, false, false, {
       slackConnected: false, discordConnected: false, discordAmbiguous: false, discordChannelName: null,
     });
     expect(noneBlocks[2].text).toContain("Slack:");
     expect(noneBlocks[2].text).toContain("Discord:");
 
     // Both configured
-    const bothBlocks = buildSystemBlocks("ctx", "plan", false, false, false, {
+    const bothBlocks = buildSystemBlocks("ctx", "specify", false, false, false, {
       slackConnected: true, discordConnected: true, discordAmbiguous: false, discordChannelName: "general",
     });
     expect(bothBlocks[2].text).toContain("Slack:");
@@ -273,7 +274,7 @@ describe("spec-180: integration state block in buildSystemBlocks", () => {
   it("ac-1: Discord configured + Slack not connected — block says Discord is ready and Slack will fail", () => {
     tagAc(AC180(1));
     tagAc(AC180(7));
-    const blocks = buildSystemBlocks("ctx", "plan", false, false, false, {
+    const blocks = buildSystemBlocks("ctx", "specify", false, false, false, {
       slackConnected: false, discordConnected: true, discordAmbiguous: false, discordChannelName: "build",
     });
     const text = blocks[2].text;
@@ -285,7 +286,7 @@ describe("spec-180: integration state block in buildSystemBlocks", () => {
   // ac-2: Slack-only case — block must not mislead agent into thinking Discord is available.
   it("ac-2: Slack connected + Discord not configured — block says Slack is ready and Discord will fail", () => {
     tagAc(AC180(2));
-    const blocks = buildSystemBlocks("ctx", "plan", false, false, false, {
+    const blocks = buildSystemBlocks("ctx", "specify", false, false, false, {
       slackConnected: true, discordConnected: false, discordAmbiguous: false, discordChannelName: null,
     });
     const text = blocks[2].text;
@@ -295,7 +296,7 @@ describe("spec-180: integration state block in buildSystemBlocks", () => {
   });
 
   it("reports Discord as configured with channel name when available", () => {
-    const blocks = buildSystemBlocks("ctx", "plan", false, false, false, {
+    const blocks = buildSystemBlocks("ctx", "specify", false, false, false, {
       slackConnected: false, discordConnected: true, discordAmbiguous: false, discordChannelName: "build",
     });
     expect(blocks[2].text).toContain("Discord: webhook configured (#build)");
@@ -303,11 +304,119 @@ describe("spec-180: integration state block in buildSystemBlocks", () => {
   });
 
   it("reports Discord as ambiguous when multiple orgs have webhooks", () => {
-    const blocks = buildSystemBlocks("ctx", "plan", false, false, false, {
+    const blocks = buildSystemBlocks("ctx", "specify", false, false, false, {
       slackConnected: false, discordConnected: true, discordAmbiguous: true, discordChannelName: null,
     });
     expect(blocks[2].text).toContain("multiple orgs");
     expect(blocks[2].text).toContain("memex");
+  });
+});
+
+// spec-176: Expose Spec creation + search to the document-assistant chat agent.
+// Tests for implementation ACs tied to the resolved decisions (dec-1 through dec-5).
+describe("spec-176: BASE_CREATE_FROM_DOC block — create-from-doc guidance", () => {
+  const AC176 = (n: number) =>
+    `mindset-prod/memex-building-itself/specs/spec-176/acs/ac-${n}`;
+
+  const CREATE_FROM_DOC_MARKER = "## Creating a new Spec or document from this chat";
+
+  // ac-7 (dec-1): both tools are already in getToolDefinitions() — no code change needed.
+  it("ac-7: getToolDefinitions() returns create_doc and search_memex", () => {
+    tagAc(AC176(7));
+    const tools = getToolDefinitions();
+    const names = tools.map((t) => t.name);
+    expect(names).toContain("create_doc");
+    expect(names).toContain("search_memex");
+  });
+
+  // ac-9 (dec-2): no create_spec alias in the live tool surface.
+  it("ac-9: getToolDefinitions() does not expose a create_spec tool", () => {
+    tagAc(AC176(9));
+    const tools = getToolDefinitions();
+    const names = tools.map((t) => t.name);
+    expect(names).not.toContain("create_spec");
+  });
+
+  // ac-11 (dec-4): the new block is projected into the specify phase and its text
+  // instructs the agent to call create_doc + search_memex before creating.
+  it("ac-11: specify-phase prompt contains create-from-doc guidance (create_doc + search_memex instructions)", () => {
+    tagAc(AC176(11));
+    const text = buildSystemBlocks("ctx", "specify")[0].text;
+    expect(text).toContain(CREATE_FROM_DOC_MARKER);
+    expect(text).toContain("create_doc");
+    expect(text).toContain("search_memex");
+  });
+
+  // ac-12 (dec-4): BASE_CONTEXT_AWARENESS is untouched — no create_doc instruction leaked in.
+  it("ac-12: context-awareness block does not contain create_doc (BASE_CONTEXT_AWARENESS unchanged)", () => {
+    tagAc(AC176(12));
+    const block = BASE_SCAFFOLD.promptBlocks.find((b) => b.id === "context-awareness");
+    expect(block).toBeDefined();
+    expect(block?.text).not.toContain("create_doc");
+  });
+
+  // ac-13 (dec-5): block in specify/build/verify — absent from done.
+  it("ac-13: create-from-doc guidance appears in specify, build, and verify prompts", () => {
+    tagAc(AC176(13));
+    for (const phase of ["specify", "build", "verify"] as SpecPhase[]) {
+      const text = buildSystemBlocks("ctx", phase)[0].text;
+      expect(text, `expected create-from-doc in ${phase} prompt`).toContain(CREATE_FROM_DOC_MARKER);
+    }
+  });
+
+  it("ac-13: create-from-doc guidance is absent from the done-phase prompt", () => {
+    tagAc(AC176(13));
+    const text = buildSystemBlocks("ctx", "done")[0].text;
+    expect(text).not.toContain(CREATE_FROM_DOC_MARKER);
+  });
+
+  // ── Scope ACs (ac-1 to ac-6) ─────────────────────────────────────────────
+  // These are prompt-level proxy tests: we can't run an LLM in a unit test,
+  // but we can assert the prompt contains the instructions that drive the
+  // behaviour each AC describes.
+
+  // ac-1: agent instructed to call create_doc (not ask the user to do it).
+  // ac-2: agent instructed to proactively offer Spec creation when a problem surfaces.
+  it("ac-1 + ac-2: specify prompt instructs the agent to call create_doc and to proactively offer — not defer to the user", () => {
+    tagAc(AC176(1));
+    tagAc(AC176(2));
+    const text = buildSystemBlocks("ctx", "specify")[0].text;
+    expect(text).toContain("create_doc");
+    expect(text).toContain("Do not ask the user to create it themselves");
+    expect(text).toContain("Proactive offer");
+  });
+
+  // ac-3: specify prompt contains the mandatory search-before-decision instruction
+  // (sourced from PHASE_PLAN_SEARCH, a shared_nudge block shipped via toPhaseGuidance).
+  it("ac-3: specify prompt instructs the agent to call search_memex before resolving a load-bearing decision", () => {
+    tagAc(AC176(3));
+    const text = buildSystemBlocks("ctx", "specify")[0].text;
+    expect(text).toContain("Before resolving a load-bearing decision (mandatory)");
+  });
+
+  // ac-4: specify prompt contains the search-before-authoring instruction.
+  it("ac-4: specify prompt instructs the agent to call search_memex before authoring new section content", () => {
+    tagAc(AC176(4));
+    const text = buildSystemBlocks("ctx", "specify")[0].text;
+    expect(text).toContain("Before authoring substantive new section content");
+  });
+
+  // ac-5: change is react_only — no manifest/tool-specs/regression-test changes.
+  // Proxied by ac-9 (no create_spec in tools) + ac-10 (surface is react_only).
+  it("ac-5: no new tool entries — getToolDefinitions() count is stable, no create_spec alias", () => {
+    tagAc(AC176(5));
+    const tools = getToolDefinitions();
+    expect(tools.map((t) => t.name)).not.toContain("create_spec");
+    // create_doc and search_memex are present unchanged
+    expect(tools.map((t) => t.name)).toContain("create_doc");
+  });
+
+  // ac-6: free-form docs use the same create_doc tool — the prompt block
+  // mentions docType: 'document' so the agent knows to pass it.
+  it("ac-6: specify prompt mentions docType document — no separate tool needed for free-form docs", () => {
+    tagAc(AC176(6));
+    const text = buildSystemBlocks("ctx", "specify")[0].text;
+    expect(text).toContain("docType: 'document'");
   });
 });
 

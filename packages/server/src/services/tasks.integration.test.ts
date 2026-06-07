@@ -178,16 +178,16 @@ describe("updateTaskStatus", () => {
   });
 
   it("does not auto-promote if Spec is not currently in build", async () => {
-    const spec = await createDocDraft(memexId, "Plan Spec", "Purpose", "spec");
+    const spec = await createDocDraft(memexId, "Specify Spec", "Purpose", "spec");
     createdDocIds.push(spec.id);
     const { updateDocStatus } = await import("./documents.js");
-    await updateDocStatus(memexId, spec.id, "plan");
+    await updateDocStatus(memexId, spec.id, "specify");
 
-    const t1 = await createTask(memexId, spec.id, "Plan Task", "Desc");
+    const t1 = await createTask(memexId, spec.id, "Specify Task", "Desc");
     await updateTaskStatus(memexId, t1.id, "complete");
 
     const row = await db.query.documents.findFirst({ where: eq(documents.id, spec.id) });
-    expect(row?.status).toBe("plan");
+    expect(row?.status).toBe("specify");
   });
 });
 

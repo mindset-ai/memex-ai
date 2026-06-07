@@ -2,7 +2,7 @@ import { eq, and, sql, asc } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import { users, orgMemberships, namespaces, orgs, memexes, userMemexAccess } from "../db/schema.js";
 import type { User } from "../db/schema.js";
-import { ValidationError } from "../types/errors.js";
+import { ForbiddenError, ValidationError } from "../types/errors.js";
 import { mutate, type Mutated } from "./mutate.js";
 
 export interface MembershipSummary {
@@ -56,6 +56,17 @@ function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
+// When SIGNUP_DOMAIN_ALLOWLIST is set (comma-separated domains), new account creation is
+// restricted to those domains. Unset = no restriction. Existing users are never blocked.
+function isSignupDomainAllowed(email: string): boolean {
+  const raw = process.env.SIGNUP_DOMAIN_ALLOWLIST;
+  if (!raw) return true;
+  const allowed = raw.split(",").map((d) => d.trim().toLowerCase()).filter(Boolean);
+  if (allowed.length === 0) return true;
+  const domain = email.split("@")[1]?.toLowerCase() ?? "";
+  return allowed.includes(domain);
+}
+
 export async function getUserByEmail(email: string): Promise<User | undefined> {
   return db.query.users.findFirst({
     where: eq(users.email, normalizeEmail(email)),
@@ -77,6 +88,10 @@ export async function upsertUserByEmail(email: string): Promise<User> {
       .where(eq(users.id, existing.id))
       .returning();
     return updated;
+  }
+
+  if (!isSignupDomainAllowed(normalized)) {
+    throw new ForbiddenError("Sign-up is not allowed for this email domain", "domain_not_allowed");
   }
 
   // Note: users.namespace_id is NOT NULL — callers must follow up with
@@ -135,6 +150,10 @@ export async function createUserWithPassword(input: {
       .where(eq(users.id, existing.id))
       .returning();
     return updated;
+  }
+
+  if (!isSignupDomainAllowed(normalized)) {
+    throw new ForbiddenError("Sign-up is not allowed for this email domain", "domain_not_allowed");
   }
 
   // namespace_id NOT NULL — see comment in upsertUserByEmail. Callers in the auth flow

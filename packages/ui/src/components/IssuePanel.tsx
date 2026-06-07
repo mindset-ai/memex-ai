@@ -32,6 +32,7 @@ import { useDocChangeStream } from '../hooks/useDocChangeStream';
 import { Badge, Button } from './ui';
 import { Input } from './ui/Input';
 import { TextArea } from './ui/TextArea';
+import { Metric } from './MetricBar';
 
 interface IssuePanelProps {
   docId: string;
@@ -45,6 +46,13 @@ interface IssuePanelProps {
    * here. Defaults to true so legacy call sites keep today's behaviour.
    */
   canEdit?: boolean;
+  /**
+   * spec-188 dec-4: whether the Convert-to-Task disposition renders at all.
+   * The Verify tab passes false — converting mints an incomplete task, which
+   * is build-phase work, so the human-facing Verify surface doesn't offer it
+   * (the MCP/agent path is deliberately ungated). Defaults to true.
+   */
+  allowConvert?: boolean;
   /** Bubble up after a mutation so the rest of the spec view (counts, etc.)
    *  picks up related changes. */
   onUpdate?: () => void;
@@ -56,6 +64,15 @@ interface IssuePanelProps {
 }
 
 const TYPE_LABEL: Record<IssueType, string> = { bug: 'bug', todo: 'todo' };
+
+// Type → Badge status token, status-aware (spec-188 ac-5): the pronounced
+// type colour (bug = red/danger) is the call-to-action of an OPEN issue.
+// Once the issue leaves `open`, the type chip recedes to the neutral grey so
+// resolved issues stop shouting from the list.
+function typeBadgeStatus(issue: Issue): string {
+  if (issue.status !== 'open') return 'archived';
+  return issue.type === 'bug' ? 'blocked' : 'archived';
+}
 
 // Status → Badge status token. `open` reads as a live task; converted /
 // resolved / wont_fix wind down the visual weight.
@@ -79,10 +96,76 @@ function chipLabel(issue: Issue): string {
   return `issue-${issue.seq} — ${issue.title}`;
 }
 
+// spec-188 dec-3: the secondary affordance beside the primary Resolve button —
+// a small ⋯ menu carrying the less-common lifecycle exit (Won't fix). Closes
+// on outside click or Escape; stopPropagation throughout so the card's
+// expand-on-click doesn't fire.
+function IssueRowMenu({ onWontFix }: { onWontFix: () => void }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onDocClick);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDocClick);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [menuOpen]);
+
+  return (
+    <div ref={rootRef} className="relative">
+      <Button
+        data-testid="issue-menu"
+        variant="ghost"
+        size="sm"
+        aria-haspopup="menu"
+        aria-expanded={menuOpen}
+        onClick={(e) => {
+          e.stopPropagation();
+          setMenuOpen((o) => !o);
+        }}
+        title="More actions"
+      >
+        ⋯
+      </Button>
+      {menuOpen && (
+        <div
+          role="menu"
+          className="absolute right-0 top-full mt-1 z-10 min-w-[8rem] rounded-md border border-edge bg-panel shadow-lg py-1"
+        >
+          <button
+            role="menuitem"
+            data-testid="issue-wontfix"
+            onClick={(e) => {
+              e.stopPropagation();
+              setMenuOpen(false);
+              onWontFix();
+            }}
+            className="block w-full text-left px-3 py-1.5 text-sm text-secondary hover:text-primary hover:bg-card-hover"
+          >
+            Won't fix
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function IssuePanel({
   docId,
   canWrite = true,
   canEdit = true,
+  allowConvert = true,
   onUpdate,
   highlightIssueHandle,
 }: IssuePanelProps) {
@@ -212,7 +295,12 @@ export function IssuePanel({
   }
 
   const open = issues.filter((i) => i.status === 'open');
+  // spec-188 ac-4: the panel's vocabulary is "resolved", never "closed" —
+  // every non-open status (resolved / won't fix / converted) counts as dealt
+  // with for the heading and the resolution metric below.
   const other = issues.filter((i) => i.status !== 'open');
+  const pctResolved =
+    issues.length === 0 ? 0 : Math.round((other.length / issues.length) * 100);
 
   return (
     <div ref={panelRef} data-testid="issue-panel" className="border rounded-lg p-5 border-edge bg-panel">
@@ -221,9 +309,28 @@ export function IssuePanel({
           Issues
         </h3>
         <span className="text-xs text-muted">
-          {open.length} open, {other.length} closed
+          {open.length} open, {other.length} resolved
         </span>
       </div>
+
+      {/* spec-188 ac-2: resolution progress — the same Metric tile the AC
+          panel uses (one source, MetricBar.tsx), sitting beneath the heading
+          and above the list. */}
+      {issues.length > 0 && (
+        <div
+          data-testid="issue-resolution-header"
+          className="mb-4 rounded-md bg-zinc-50 dark:bg-zinc-900/50 p-4"
+        >
+          <Metric
+            label="resolved"
+            percent={pctResolved}
+            colourClass="green"
+            caption={`${other.length} of ${issues.length} issue${
+              issues.length === 1 ? '' : 's'
+            } resolved`}
+          />
+        </div>
+      )}
 
       {error && (
         <div className="mb-4 rounded-md border border-status-danger-border bg-status-danger-bg px-3 py-2 text-xs text-status-danger-text">
@@ -275,7 +382,7 @@ export function IssuePanel({
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <Badge
-                    status={issue.type === 'bug' ? 'blocked' : 'archived'}
+                    status={typeBadgeStatus(issue)}
                     label={TYPE_LABEL[issue.type]}
                   />
                   <Badge status={STATUS_BADGE[issue.status]} label={STATUS_LABEL[issue.status]} />
@@ -305,32 +412,42 @@ export function IssuePanel({
                 )}
               </div>
               {/* spec-182 dec-4: dispositions are editor calls — canEdit on top
-                  of the spec-111 read gate (canWrite false suppresses everything). */}
+                  of the spec-111 read gate (canWrite false suppresses everything).
+                  spec-188 dec-3 / ac-11: Resolve is the primary disposition on
+                  the row; Won't fix moves into the ⋯ menu beside it. */}
               {canWrite && canEdit && issue.status === 'open' && (
                 <div className="flex-none flex items-center gap-2">
+                  {/* spec-188 dec-4: Convert is suppressed on the Verify tab —
+                      it mints build-phase work the verify posture shouldn't
+                      invite. Build keeps it; the agent/MCP path is ungated. */}
+                  {allowConvert && (
+                    <Button
+                      data-testid="issue-convert"
+                      variant="ghost"
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void handleConvert(issue);
+                      }}
+                      title="Convert this Issue into a Task (spawns a verifying AC)"
+                    >
+                      Convert to Task
+                    </Button>
+                  )}
                   <Button
-                    data-testid="issue-convert"
-                    variant="ghost"
+                    data-testid="issue-resolve"
                     size="sm"
                     onClick={(e) => {
                       e.stopPropagation();
-                      void handleConvert(issue);
+                      void handleStatus(issue, 'resolved');
                     }}
-                    title="Convert this Issue into a Task (spawns a verifying AC)"
+                    title="Mark this Issue as resolved"
                   >
-                    Convert to Task
+                    Resolve
                   </Button>
-                  <Button
-                    data-testid="issue-wontfix"
-                    variant="ghost"
-                    size="sm"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      void handleStatus(issue, 'wont_fix');
-                    }}
-                  >
-                    Won't fix
-                  </Button>
+                  <IssueRowMenu
+                    onWontFix={() => void handleStatus(issue, 'wont_fix')}
+                  />
                 </div>
               )}
             </div>

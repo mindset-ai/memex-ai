@@ -10,11 +10,12 @@ import {
   pauseDoc,
   unpauseDoc,
   updateDocStatus,
+  resetHandholdDemo,
   NotFoundError,
   type AcWithVerification,
   type DocAssigneeView,
 } from '../api/client';
-import type { Comment, CommentType, DocWithGraph, Issue, SpecStatus, Tag } from '../api/types';
+import type { Comment, DocWithGraph, Issue, SpecStatus, Tag } from '../api/types';
 import { TagPicker } from '../components/TagPicker';
 import { Spinner } from '../components/Spinner';
 import { SectionCard } from '../components/SectionCard';
@@ -49,6 +50,7 @@ import { formatDate, docSeq } from '../utils/format';
 import { tenantPath, getCurrentTenant } from '../utils/tenantUrl';
 import { PromptButton } from '../components/PromptButton';
 import { useMemexAccess } from '../hooks/useMemexAccess';
+import { useHandholdReveal, nextRevealPhase } from '../hooks/useHandholdReveal';
 import { BylineAssignees } from '../components/BylineAssignees';
 import { useDocRole } from '../hooks/useDocRole';
 import { useOrgScaffoldBlocks } from '../hooks/useOrgScaffoldBlocks';
@@ -58,9 +60,24 @@ export function DocDocument() {
   // deep-links `specs/:id/decisions/:decId` and `specs/:id/issues/:issueId` (the
   // shape the ⌘K palette navigates to). `id` is the Spec handle; `decId`/`issueId`
   // are the optional sub-targets that open the relevant tab + scroll into view.
-  const { id, decId, issueId } = useParams<{ id: string; decId?: string; issueId?: string }>();
+  const { id, decId, issueId, namespace, memex } = useParams<{
+    id: string;
+    decId?: string;
+    issueId?: string;
+    namespace?: string;
+    memex?: string;
+  }>();
   const navigate = useNavigate();
   const location = useLocation();
+  // spec-178 t-10 (dec-10): the progressive-reveal pointer, scoped to the
+  // tenant in the route. Same hook the board uses, so advancing here and the
+  // board's filter agree on which demo phase is shown. Tenant comes from the
+  // route params (router-driven, unlike window.location); the hook is null-safe.
+  const {
+    revealedPhase,
+    advance: advanceReveal,
+    reset: resetReveal,
+  } = useHandholdReveal(namespace ?? null, memex ?? null);
   // spec-111 t-8: gate every mutation surface on this doc page behind write
   // access to the current Memex. A non-member reading a public Memex sees the
   // full document, decisions, tasks, ACs, and comments — but no edit/create/
@@ -109,7 +126,7 @@ export function DocDocument() {
   const [commentsByTask, setCommentsByTask] = useState<Record<string, Comment[]>>({});
   const [selectedSectionId, setSelectedSectionId] = useState<string | null>(null);
   // spec-159 t-6: the page is organised around the Spec's three working phases
-  // (Plan / Build / Verify) instead of the six flat content tabs. `selectedTab`
+  // (Specify / Build / Verify) instead of the six flat content tabs. `selectedTab`
   // is the phase view the user is browsing — it never drives the Spec's phase
   // (that's TransitionSentence's [Yes]); it only changes what's shown.
   // `null` defers to the doc's current phase, computed once the doc loads.
@@ -135,10 +152,6 @@ export function DocDocument() {
   const [moveOpen, setMoveOpen] = useState(false);
   const [showDownloadDialog, setShowDownloadDialog] = useState(false);
   const [showInitPromptDialog, setShowInitPromptDialog] = useState(false);
-  // t-19 W3.3: chip filter lifted from AllComments. Driving it from here lets us
-  // pass `?type=` through to fetchDocComments (server-side filter) instead of
-  // doing a client-side pass after the fact. `null` = "All".
-  const [commentTypeFilter, setCommentTypeFilter] = useState<CommentType | null>(null);
   // spec-100: collapse the comment gutters doc-wide (leaving only inline bubbles).
   const [commentsCollapsed, setCommentsCollapsed] = useState(false);
 
@@ -192,7 +205,6 @@ export function DocDocument() {
   useEffect(() => {
     if (!id) return;
 
-    const types = commentTypeFilter ? [commentTypeFilter] : undefined;
     fetchDoc(id)
       .then((d) => {
         // Per doc-30 dec-4 (post-b-105 rename): typed top-level routes. If the
@@ -215,7 +227,7 @@ export function DocDocument() {
           return;
         }
         setDoc(d);
-        fetchDocComments(d.id, types).then(applyComments).catch(console.error);
+        fetchDocComments(d.id).then(applyComments).catch(console.error);
       })
       .catch((err) => {
         if (err instanceof NotFoundError) {
@@ -230,7 +242,7 @@ export function DocDocument() {
     // don't want to re-fetch on that change. `id` already triggers re-fetch
     // when the route param changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, applyComments, commentTypeFilter, navigate]);
+  }, [id, applyComments, navigate]);
 
   // spec-159 t-6: pull the Spec's ACs / issues / assignees alongside the doc.
   // These feed the transition-sentence counts and the done report; they refresh
@@ -249,8 +261,8 @@ export function DocDocument() {
   // or `?issue=issue-N`) must land on a phase view that actually renders IssuePanel
   // so `highlightIssueHandle` reaches it — including on a fresh full-page load.
   // spec-159's restructure only mounts IssuePanel under the Build / Verify layouts;
-  // a Spec sitting in draft/plan/done would otherwise drop the highlight. When a
-  // deep-linked issue is present and the doc's current phase view is Plan (the one
+  // a Spec sitting in draft/specify/done would otherwise drop the highlight. When a
+  // deep-linked issue is present and the doc's current phase view is Specify (the one
   // phase tab without IssuePanel), browse to Build once. Runs a single time on the
   // first doc load; the user can still navigate away afterwards.
   const issueDeepLinkLandedRef = useRef(false);
@@ -260,7 +272,7 @@ export function DocDocument() {
     issueDeepLinkLandedRef.current = true;
     const phaseTab =
       doc.status === 'build' ? 'build' : doc.status === 'verify' ? 'verify' : null;
-    // Build / Verify already show IssuePanel; only Plan (draft/plan) and the
+    // Build / Verify already show IssuePanel; only Specify (draft/specify) and the
     // done report need redirecting to a tab that mounts it.
     if (phaseTab === null) setSelectedTab('build');
   }, [doc, initialIssueHandle]);
@@ -309,8 +321,8 @@ export function DocDocument() {
 
 
   const handleSelectSection = useCallback((sectionId: string) => {
-    // The Narrative lives under the Plan view's first sub-tab.
-    setSelectedTab('plan');
+    // The Narrative lives under the Specify view's first sub-tab.
+    setSelectedTab('specify');
     setPlanSubTab('narrative');
     setSelectedSectionId(sectionId);
     const index = sortedSections.findIndex((s) => s.id === sectionId);
@@ -322,22 +334,22 @@ export function DocDocument() {
   }, [sortedSections]);
 
   // AllComments' onTabChange hands back a section/decision/task target tab. The
-  // only navigable destinations that still exist live under the Plan view, so
+  // only navigable destinations that still exist live under the Specify view, so
   // route them there (Narrative for sections, Decisions & ACs for decisions).
   const handleTabChange = useCallback((tab: string) => {
-    setSelectedTab('plan');
+    setSelectedTab('specify');
     if (tab === 'decisions') setPlanSubTab('decisions');
     else if (tab === 'document') setPlanSubTab('narrative');
   }, []);
 
   // Cross-view nav for the DecisionAcStrip pills: when a pill is clicked in the
   // Decisions & ACs column, focus the AC and surface it. Both panels live in the
-  // same Plan sub-tab (two columns), so we just hand AcPanel the focus id; it
+  // same Specify sub-tab (two columns), so we just hand AcPanel the focus id; it
   // scrolls + highlights, then calls onFocusConsumed.
   const [focusedAcId, setFocusedAcId] = useState<string | null>(null);
   const handleJumpToAc = useCallback((acId: string) => {
     setFocusedAcId(acId);
-    setSelectedTab('plan');
+    setSelectedTab('specify');
     setPlanSubTab('decisions');
   }, []);
 
@@ -369,13 +381,12 @@ export function DocDocument() {
 
   const reloadDoc = useCallback(() => {
     if (!id) return;
-    const types = commentTypeFilter ? [commentTypeFilter] : undefined;
     fetchDoc(id).then((d) => {
       setDoc(d);
-      fetchDocComments(d.id, types).then(applyComments).catch(console.error);
+      fetchDocComments(d.id).then(applyComments).catch(console.error);
       reloadAux(d.id);
     }).catch(console.error);
-  }, [id, applyComments, commentTypeFilter, reloadAux]);
+  }, [id, applyComments, reloadAux]);
 
   // Refetch when any source (agent, MCP, REST, other clients) mutates this document
   useDocChangeStream(doc?.id ?? null, reloadDoc);
@@ -537,22 +548,22 @@ export function DocDocument() {
   // The Spec's live phase. `done` is handled separately (DoneSummary takes over
   // the content area) — every other phase routes through the PhaseTabBar.
   const phase = doc.status as SpecStatus;
-  // The tab the phase makes "current" (draft → plan; done → none). The view the
-  // user is *browsing* is `selectedTab` once they've clicked, else this.
+  // The tab the phase makes "current" (draft → specify; done → none). The view
+  // the user is *browsing* is `selectedTab` once they've clicked, else this.
   const currentTab: PhaseTab | null =
-    phase === 'draft' || phase === 'plan'
-      ? 'plan'
+    phase === 'draft' || phase === 'specify'
+      ? 'specify'
       : phase === 'build'
         ? 'build'
         : phase === 'verify'
           ? 'verify'
           : null;
-  const viewedTab: PhaseTab = selectedTab ?? currentTab ?? 'plan';
+  const viewedTab: PhaseTab = selectedTab ?? currentTab ?? 'specify';
 
   // ── spec-159 ac-17: the next-action handoff line ───────────────────────────
   // Beneath the Rubicon line, a one-sentence "Copy a prompt to …" handoff keyed
   // to the Spec's CURRENT phase (not the browsed tab). It renders for every
-  // viewer — copying a prompt is read-only. draft + plan share the plan handoff;
+  // viewer — copying a prompt is read-only. draft + specify share the specify handoff;
   // build / verify each get theirs; done shows none. Each entry names the
   // Scaffold PromptButtonNode and the sentence that trails the "Copy" link.
   const tenant = getCurrentTenant();
@@ -562,6 +573,40 @@ export function DocDocument() {
     handle: doc.handle,
     title: doc.title,
     url: `${window.location.origin}/${tenant?.namespace ?? ''}/${tenant?.memex ?? ''}/specs/${doc.handle}`,
+  };
+
+  // ── spec-178 t-10 (dec-10): the in-page progressive-reveal advance control ──
+  // On a demo spec the page mirrors the board's advance affordance near the
+  // value banner. Advancing bumps the shared reveal pointer and navigates back
+  // to the board, where the freshly-revealed (next-phase) demo card is now the
+  // one shown — the cleaner of the two offered paths (the board is the demo's
+  // home; the spec we just walked away from is no longer revealed). At the
+  // terminal 'done' phase there is no next: the control becomes "Reset demo",
+  // firing the SAME re-seed (resetHandholdDemo) the board's Reset button does
+  // plus reset()-ing the pointer to 'draft', then returning to the board.
+  const demoNextPhase = doc.isDemo ? nextRevealPhase(revealedPhase) : null;
+  const handleDemoAdvance = () => {
+    advanceReveal();
+    navigate(tenantPath('/specs'));
+  };
+  const handleDemoResetFromDoc = async () => {
+    if (
+      !window.confirm(
+        'Reset the demo specs? This deletes the current demo specs and re-seeds a fresh set. Your real specs are untouched.',
+      )
+    ) {
+      return;
+    }
+    try {
+      // Tenant comes from the route params (same source the reveal hook keys
+      // on), so the re-seed target and the pointer key always agree.
+      if (namespace && memex) await resetHandholdDemo(namespace, memex);
+      resetReveal();
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : 'Failed to reset demo');
+      return;
+    }
+    navigate(tenantPath('/specs'));
   };
 
   // ── spec-159 ac-19: the writable reviewer's review-action row ──────────────
@@ -602,19 +647,21 @@ export function DocDocument() {
     sentenceLabel?: string;
   } | null =
     // spec-164 issue-1: draft shows NO handoff line. Originally spec-159 ac-17
-    // shared the plan handoff between draft and plan (one arm,
-    // `phase === 'draft' || phase === 'plan'`). But dec-3 gates the Decisions &
+    // shared the specify handoff between draft and specify (one arm,
+    // `phase === 'draft' || phase === 'specify'`). But dec-3 gates the Decisions &
     // ACs panels in draft behind an empty-state directive ("Move this spec to
     // Specify to start capturing Decisions and ACs.") — the draft posture is to
     // invite the move to Specify FIRST. A coding-agent prompt to "create
     // Decisions and ACs" while in draft contradicts that gate-the-invitation
-    // principle, so draft now yields null (no handoff); plan keeps plan-handoff.
+    // principle, so draft now yields null (no handoff); specify keeps the
+    // plan-handoff Scaffold node (the BASE_SCAFFOLD PromptButtonNode id is
+    // unchanged — it's a stable scaffold id, not a phase value).
     // spec-182 issue-4: the hyperlink LEADS each handoff line and NAMES its
     // prompt ("Copy the Specify prompt …"), so adjacent handoff lines are
     // distinguishable from the blue text alone — the old shape buried the
     // purpose at the end of two near-identical "Copy and paste this prompt…"
     // sentences. Link names match the tab bar's phase display names.
-    phase === 'plan'
+    phase === 'specify'
       ? {
           buttonId: 'plan-handoff',
           // "*Copy the Specify prompt* into your coding agent to create
@@ -668,7 +715,7 @@ export function DocDocument() {
 
   // Counts feeding the in-situ phase directives — derived from the page's
   // already-fetched AC / task sets plus the shared open-decision count.
-  // `hasAcceptanceCriteria` informs plan→build; `openTaskCount` build→verify;
+  // `hasAcceptanceCriteria` informs specify→build; `openTaskCount` build→verify;
   // `unverifiedAcCount` verify→done. Only active ACs count toward verification.
   const activeAcs = acs.filter((a) => a.ac.status === 'active');
   const hasAcceptanceCriteria = activeAcs.length > 0;
@@ -691,7 +738,7 @@ export function DocDocument() {
   // "Rubicon line — copy set" section: emphasised entity + "must be …",
   // consecutive same-requirement fragments merging their entities
   // ("Decisions and ACs must be created…"). Each phase's line renders only on
-  // that phase's own layout — a directive about plan→build is noise while
+  // that phase's own layout — a directive about specify→build is noise while
   // browsing the build tab from verify.
   const pluralise = (n: number, noun: string) => `${n} ${noun}${n === 1 ? '' : 's'}`;
   type DirectivePart = { em: string; rest: string };
@@ -731,7 +778,7 @@ export function DocDocument() {
     );
   };
   const planDirective = directiveLine(
-    phase === 'plan'
+    phase === 'specify'
       ? [
           ...(decs.length === 0
             ? [{ em: 'Decisions', rest: 'must be created' }]
@@ -818,6 +865,8 @@ export function DocDocument() {
             canEdit={canEdit}
             commentsCollapsed={commentsCollapsed}
             onExpandComments={() => setCommentsCollapsed(false)}
+            /* spec-178 ac-24: a frozen demo spec suppresses handle auto-linking. */
+            isDemo={doc?.isDemo ?? false}
           />
         ))}
       </div>
@@ -845,6 +894,8 @@ export function DocDocument() {
       onJumpToAc={handleJumpToAc}
       canWrite={canWrite}
       canEdit={canEdit}
+      /* spec-178 ac-24: same handle auto-linking suppression for demo decisions. */
+      isDemo={doc.isDemo ?? false}
     />
   );
 
@@ -867,17 +918,45 @@ export function DocDocument() {
     />
   );
 
-  const issuePanel = (
+  // spec-188 dec-4: the Build tab offers Convert-to-Task; the Verify tab does
+  // NOT — converting mints an incomplete (build-phase) task, so the human
+  // verify posture doesn't invite it. Parameterised per layout below.
+  const issuePanel = (allowConvert: boolean) => (
     <IssuePanel
       docId={doc.id}
       canWrite={canWrite}
       /* spec-182 dec-4: dispositions (convert / won't-fix) are editor calls;
          registering stays open to reviewers via canWrite. */
       canEdit={canEdit}
+      allowConvert={allowConvert}
       onUpdate={reloadDoc}
       highlightIssueHandle={initialIssueHandle}
     />
   );
+
+  // spec-188 dec-5: the Verify tab's compact task-completion echo — the
+  // confirmation that everything built is built, and the amber exception
+  // signal when verification work has regressed the Spec (incomplete tasks
+  // on a verify view). Hidden when the Spec has no tasks.
+  const completedTaskCount = ts.filter((t) => t.status === 'complete').length;
+  const incompleteTaskCount = ts.length - completedTaskCount;
+  const verifyTaskEcho =
+    ts.length === 0 ? null : (
+      <div
+        data-testid="verify-task-echo"
+        className={`mb-4 text-xs ${
+          incompleteTaskCount === 0
+            ? 'text-green-600 dark:text-green-400'
+            : 'text-amber-600 dark:text-amber-400'
+        }`}
+      >
+        {incompleteTaskCount === 0
+          ? `✓ ${completedTaskCount}/${ts.length} tasks complete`
+          : `⚠ ${incompleteTaskCount} of ${ts.length} task${
+              ts.length === 1 ? '' : 's'
+            } incomplete — this Spec has unbuilt work`}
+      </div>
+    );
 
   const allCommentsView = (
     <AllComments
@@ -889,8 +968,6 @@ export function DocDocument() {
       commentsByTask={commentsByTask}
       onNavigateToSection={handleSelectSection}
       onTabChange={handleTabChange}
-      filter={commentTypeFilter}
-      onFilterChange={setCommentTypeFilter}
     />
   );
 
@@ -916,10 +993,10 @@ export function DocDocument() {
   // ── The declarative phase → layout map (spec-159: explicitly a plain data
   //    structure so the per-phase composition is cheap to rearrange). `done`
   //    isn't here — DoneSummary replaces the whole content area below. `draft`
-  //    shares the `plan` layout (its home tab). Each entry says whether the
+  //    shares the `specify` layout (its home tab). Each entry says whether the
   //    phase carries a sub-tab bar and what it renders. ──────────────────────
   const PHASE_LAYOUTS: Record<PhaseTab, { hasSubTabs: boolean; render: () => React.ReactNode }> = {
-    plan: {
+    specify: {
       hasSubTabs: true,
       render: () => (
         <>
@@ -939,11 +1016,19 @@ export function DocDocument() {
     },
     build: {
       hasSubTabs: false,
-      render: () => twoCol(taskPanel, issuePanel, buildDirective),
+      render: () => twoCol(taskPanel, issuePanel(true), buildDirective),
     },
     verify: {
       hasSubTabs: false,
-      render: () => twoCol(acPanel, issuePanel, verifyDirective),
+      render: () =>
+        twoCol(
+          acPanel,
+          issuePanel(false),
+          <>
+            {verifyDirective}
+            {verifyTaskEcho}
+          </>,
+        ),
     },
   };
 
@@ -980,6 +1065,53 @@ export function DocDocument() {
             spec-159 — it's handled elsewhere; SpecRoleControls is no longer
             rendered here. */}
       </div>
+
+      {/* spec-178 ac-25/ac-26 (dec-8): the per-phase value banner atop a demo spec.
+          The server attaches `demoValueCallout` to the GET payload of an is_demo doc,
+          keyed to the doc's current phase. It is DEMO GUIDANCE — a "what this phase is
+          for" callout — NOT part of the spec content, so it renders as a distinct
+          accent panel above the document body rather than inside a section. Shown only
+          when the doc is a demo AND a callout exists for its phase; absent on real
+          specs and on demo phases that carry no callout. */}
+      {doc.isDemo && doc.demoValueCallout && (
+        <div
+          data-testid="demo-value-banner"
+          className="mb-4 flex items-start gap-2.5 rounded-lg border border-accent/40 bg-accent/10 px-4 py-3"
+        >
+          <Badge status="demo" label="DEMO" className="flex-none mt-0.5" />
+          <p className="text-sm text-primary leading-relaxed">{doc.demoValueCallout}</p>
+        </div>
+      )}
+
+      {/* spec-178 ac-33/ac-34 (dec-10): the in-page progressive-reveal advance
+          control, near the value banner and rendered ONLY on a demo spec. It
+          walks the shared reveal pointer and returns to the board (the demo's
+          home), where the next-phase demo card is now revealed. At 'done' there
+          is no next, so it becomes "Reset demo" — same re-seed + pointer reset
+          as the board's Reset button. Absent on real specs. */}
+      {doc.isDemo && (
+        <div className="mb-4">
+          {demoNextPhase ? (
+            <button
+              type="button"
+              data-testid="demo-advance-control"
+              onClick={handleDemoAdvance}
+              className="text-sm font-medium text-accent hover:text-accent-hover inline-flex items-center gap-1 px-3 py-1.5 rounded-md border border-accent/40 bg-accent/10 hover:bg-accent/20 transition-colors"
+            >
+              See it in {phaseDisplayName(demoNextPhase)} →
+            </button>
+          ) : (
+            <button
+              type="button"
+              data-testid="demo-reset-control"
+              onClick={handleDemoResetFromDoc}
+              className="text-sm font-medium text-secondary hover:text-primary inline-flex items-center gap-1 px-3 py-1.5 rounded-md border border-edge hover:bg-overlay transition-colors"
+            >
+              Reset demo
+            </button>
+          )}
+        </div>
+      )}
 
       {shareOpen && <ShareModal docId={doc.id} onClose={() => setShareOpen(false)} />}
       {/* The header Share pill — the Spec's canonical URL with a Copy button
@@ -1054,7 +1186,7 @@ export function DocDocument() {
                 behind a collapsed-by-default disclosure — access survives,
                 but the reviewer workflow no longer dominates the editor's
                 page. Reviewers get them expanded, no chrome. */}
-            {phase === 'plan' && (
+            {phase === 'specify' && (
               <>
                 {canEdit && (
                   <button

@@ -35,8 +35,8 @@ const DOC = { id: 'doc-1' };
 function baseProps(overrides: Partial<React.ComponentProps<typeof TransitionSentence>> = {}) {
   return {
     doc: DOC,
-    currentPhase: 'plan' as SpecStatus,
-    viewedTab: 'plan' as SpecStatus,
+    currentPhase: 'specify' as SpecStatus,
+    viewedTab: 'specify' as SpecStatus,
     totalDecisionCount: 2,
     openDecisionCount: 0,
     hasAcceptanceCriteria: true,
@@ -59,14 +59,14 @@ describe('Rubicon line — shape 1: current tab, rubric clean → offer + Yes', 
     expect(text()).toContain('Do you want to move this spec to Verify?');
   });
 
-  it('draft → offers plan (draft is never gated)', () => {
+  it('draft → offers specify (draft is never gated)', () => {
     tagAc(AC(3));
     tagAc(AC(13));
     render(
       <TransitionSentence
         {...baseProps({
           currentPhase: 'draft',
-          viewedTab: 'plan',
+          viewedTab: 'specify',
           totalDecisionCount: 0,
           hasAcceptanceCriteria: false,
         })}
@@ -77,7 +77,7 @@ describe('Rubicon line — shape 1: current tab, rubric clean → offer + Yes', 
     expect(screen.queryByRole('button', { name: 'No' })).toBeNull();
   });
 
-  it('plan (clean) → "Do you wish to move this spec to Build?" + Yes', () => {
+  it('specify (clean) → "Do you wish to move this spec to Build?" + Yes', () => {
     tagAc(AC(3));
     tagAc(AC(13));
     render(<TransitionSentence {...baseProps()} />);
@@ -103,7 +103,7 @@ describe('Rubicon line — shape 1: current tab, rubric clean → offer + Yes', 
 });
 
 describe('Rubicon line — shape 2: current tab, rubric blocked → exact status, NO buttons', () => {
-  it('plan with no decisions and no ACs → combined summary, no buttons', () => {
+  it('specify with no decisions and no ACs → combined summary, no buttons', () => {
     tagAc(AC(3));
     tagAc(AC(13));
     render(
@@ -117,7 +117,7 @@ describe('Rubicon line — shape 2: current tab, rubric blocked → exact status
     expect(screen.queryByRole('button')).toBeNull();
   });
 
-  it('plan with open decisions and ACs present → decisions-only summary', () => {
+  it('specify with open decisions and ACs present → decisions-only summary', () => {
     tagAc(AC(13));
     render(<TransitionSentence {...baseProps({ openDecisionCount: 4 })} />);
     expect(text()).toContain('4 Decisions must be resolved before this spec can move to Build.');

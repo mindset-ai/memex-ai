@@ -38,6 +38,16 @@
 //
 // Archived and paused content is excluded by default (per b-34 spec
 // requirement); `includeArchived: true` opts back in.
+//
+// Handhold demo specs (documents.is_demo) are excluded UNCONDITIONALLY from
+// every arm (spec-178 t-11 / dec-11, ac-36). This reverses the earlier
+// "searchable" posture (ac-20): a demo spec must be invisible AND inert to ⌘K
+// AND to the MCP `search_memex` tool (and thereby to both in-app agents, which
+// reach search only through this function). The board (SpecList) does NOT use
+// searchMemex — it renders demo specs via listDocs — so no opt-in flag is
+// needed here; the predicate is hard-wired into every query. The canonical
+// predicate is `AND d.is_demo IS NOT TRUE` (column is NOT NULL DEFAULT false,
+// but IS NOT TRUE is robust against any legacy NULL and reads as the intent).
 
 import { sql } from "drizzle-orm";
 import { db } from "../db/connection.js";
@@ -48,6 +58,27 @@ import {
 import { listSpecsAssignedToUser } from "./doc-assignees.js";
 
 const HANDLE_REGEX = /^(spec|std|doc)-\d+$/i;
+
+// spec-191: the number-jump grammar for the ⌘K Jump-to lane (dec-2). An optional
+// type token + optional single `-`/space separator + a required integer, anchored
+// to the whole query, case-insensitive. The token+separator form ONE optional
+// group, so a lone leading separator (e.g. `-178`) does NOT parse as a bare number.
+// The alternation is ordered longest-first (`spec|std|doc|s`) so `std178` resolves
+// the Standard, and only a lone leading `s` (`s178`/`s-178`) takes the single-letter
+// Spec short form (std-1's `s-N` vocabulary). A bare integer (no token) fans out to
+// all three memex-global kinds (dec-1); a token scopes to one. `@name` assignee
+// queries never match — they carry no digit in this position. Capture groups:
+// [1] = optional type token, [2] = the integer.
+const NUMBER_JUMP_REGEX = /^(?:(spec|std|doc|s)[\s-]?)?(\d+)$/i;
+
+// Number-jump rows rank below an exact full-handle hit (score 1) and above the
+// title-substring rows (0.5); the descending per-kind scores also keep the
+// spec→std→doc order (dec-1) stable regardless of how the parallel lookups resolve.
+const NUMBER_JUMP_SCORE: Record<"spec" | "std" | "doc", number> = {
+  spec: 0.9,
+  std: 0.8,
+  doc: 0.7,
+};
 
 // Reciprocal-rank-fusion constant. 60 is the canonical default from the
 // original Cormack/Clarke 2009 paper. Lower k weights top ranks more heavily,
@@ -437,6 +468,7 @@ async function lookupByHandle(
     LEFT JOIN doc_sections s ON s.doc_id = d.id
     WHERE d.memex_id = ${memexId}
       ${archivedClause}
+      AND d.is_demo IS NOT TRUE
       AND d.handle = ${query.toLowerCase()}
     ORDER BY s.seq
   `)) as unknown as SectionRow[];
@@ -523,6 +555,47 @@ export async function resolveJumpTo(
     }
   }
 
+  // 1b. Number / short-handle jump (spec-191). A bare integer — or a kind-scoped
+  //     short/long form — resolves to the doc(s) carrying that number across the
+  //     three memex-global kinds (spec-N / std-N / doc-N). It reuses the SAME
+  //     lookupByHandle the exact-handle arm uses, so the number jump and the
+  //     full-handle jump always agree on what a handle points at — no new SQL
+  //     pattern, just indexed equality lookups. A bare number fans out to all
+  //     three kinds, specs first (dec-1); a prefix scopes to one (s/spec → Spec,
+  //     std → Standard, doc → Document — dec-2). The semantic core (searchMemex)
+  //     is deliberately NOT taught numbers (dec-3): this arm is UI-only. A full
+  //     handle like `spec-178` is already resolved by the exact-handle arm above
+  //     and deduped here via seenDocIds, so it is never listed twice; visibility
+  //     (archived + is_demo excluded, drafts included) is inherited from
+  //     lookupByHandle unchanged.
+  const numberMatch = NUMBER_JUMP_REGEX.exec(trimmed);
+  if (numberMatch) {
+    const token = numberMatch[1]?.toLowerCase();
+    const n = Number.parseInt(numberMatch[2], 10);
+    // token → ordered candidate kinds. No token → all three, specs first (dec-1).
+    // `s` is the single-letter short form for a Spec (std-1's `s-N` vocabulary).
+    const kinds: ReadonlyArray<"spec" | "std" | "doc"> =
+      token === undefined
+        ? ["spec", "std", "doc"]
+        : token === "std"
+          ? ["std"]
+          : token === "doc"
+            ? ["doc"]
+            : ["spec"]; // "s" | "spec"
+    // Resolve the (≤3) candidate handles in parallel, then push in kind order so
+    // the spec→std→doc ranking is deterministic regardless of resolution timing.
+    const resolved = await Promise.all(
+      kinds.map((kind) => lookupByHandle(memexId, slugs, `${kind}-${n}`, false)),
+    );
+    kinds.forEach((kind, i) => {
+      const hit = resolved[i];
+      if (hit && !seenDocIds.has(hit.id)) {
+        seenDocIds.add(hit.id);
+        hits.push({ ...hit, score: NUMBER_JUMP_SCORE[kind] });
+      }
+    });
+  }
+
   // 2. Spec title-substring (ac-18) — docType='spec' only ("Spec title"),
   //    case-insensitive contains. Same archived/paused exclusion as the content
   //    tier; NO status filter so drafts are eligible. ESCAPE the LIKE wildcards
@@ -541,6 +614,7 @@ export async function resolveJumpTo(
       AND d.doc_type = 'spec'
       AND d.archived_at IS NULL
       AND d.paused_at IS NULL
+      AND d.is_demo IS NOT TRUE
       AND d.title ILIKE ${pattern} ESCAPE '\\'
     ORDER BY length(d.title) ASC, d.title ASC
     LIMIT ${JUMP_TITLE_LIMIT}
@@ -589,11 +663,23 @@ export async function resolveAssignedSpecs(
   const slugs = await loadMemexSlugs(memexId);
   if (!slugs) return [];
 
+  // spec-178 t-11 / dec-11 (ac-36): a demo spec must not surface in the
+  // assigned lane either. listSpecsAssignedToUser (doc-assignees.ts) excludes
+  // archived/paused but not is_demo and doesn't project the flag, so resolve the
+  // demo doc ids for this memex in one batched read and skip them below. The
+  // demo set is tiny (one per phase), so this is a cheap single round-trip.
+  const demoRows = (await db.execute(sql`
+    SELECT id FROM documents
+    WHERE memex_id = ${memexId} AND is_demo IS TRUE
+  `)) as unknown as { id: string }[];
+  const demoDocIds = new Set(demoRows.map((r) => r.id));
+
   const hits: MemexSearchHit[] = [];
   const seenDocIds = new Set<string>();
   for (const userId of userIds) {
     const rows = await listSpecsAssignedToUser(memexId, userId);
     for (const r of rows) {
+      if (demoDocIds.has(r.docId)) continue;
       if (seenDocIds.has(r.docId)) continue;
       seenDocIds.add(r.docId);
       hits.push({
@@ -648,6 +734,7 @@ async function runSectionFts(
     WHERE d.memex_id = ${memexId}
       AND d.doc_type IN ${sql.raw(`(${docTypes.map((t) => `'${t}'`).join(",")})`)}
       ${archivedClause}
+      AND d.is_demo IS NOT TRUE
       ${excludeClause}
       AND (s.status <> 'deleted' OR s.status IS NULL)
       AND s.content_tsv @@ plainto_tsquery('english', ${query})
@@ -701,6 +788,7 @@ async function runSectionVector(
     WHERE d.memex_id = ${memexId}
       AND d.doc_type IN ${sql.raw(`(${docTypes.map((t) => `'${t}'`).join(",")})`)}
       ${archivedClause}
+      AND d.is_demo IS NOT TRUE
       ${excludeClause}
       AND (s.status <> 'deleted' OR s.status IS NULL)
       AND s.embedding IS NOT NULL
@@ -752,6 +840,7 @@ async function runDecisionFts(
     INNER JOIN documents d ON d.id = dec.doc_id
     WHERE dec.memex_id = ${memexId}
       ${archivedClause}
+      AND d.is_demo IS NOT TRUE
       ${excludeClause}
       AND to_tsvector('english',
             coalesce(dec.title, '') || ' ' ||
@@ -807,6 +896,7 @@ async function runDecisionVector(
     INNER JOIN documents d ON d.id = dec.doc_id
     WHERE dec.memex_id = ${memexId}
       ${archivedClause}
+      AND d.is_demo IS NOT TRUE
       ${excludeClause}
       AND dec.embedding IS NOT NULL
       AND dec.embedding_model = ${provider.name}
@@ -859,6 +949,7 @@ async function runIssueFts(
     INNER JOIN documents d ON d.id = iss.doc_id
     WHERE iss.memex_id = ${memexId}
       ${archivedClause}
+      AND d.is_demo IS NOT TRUE
       ${excludeClause}
       AND to_tsvector('english',
             coalesce(iss.title, '') || ' ' ||
@@ -913,6 +1004,7 @@ async function runIssueVector(
     INNER JOIN documents d ON d.id = iss.doc_id
     WHERE iss.memex_id = ${memexId}
       ${archivedClause}
+      AND d.is_demo IS NOT TRUE
       ${excludeClause}
       AND iss.embedding IS NOT NULL
       AND iss.embedding_model = ${provider.name}

@@ -107,6 +107,26 @@ jobs:
           path: packages/server/coverage/
           retention-days: 14
 
+  # Production build gate (std-17 §6 / cl-55): `make build` is what the deploy
+  # actually runs, and vitest does NOT typecheck — a green test matrix can hide
+  # a TS2741 that splits the deploy (exactly how PR #44's AcPill gap shipped:
+  # every per-PR job passed, then both develop deploys went red at `tsc -b`).
+  # Running `pnpm build` (= make build) per PR moves that failure from the
+  # deploy tail to the merge gate.
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Production build (tsc + vite) — the same gate the deploy runs
+        run: pnpm build
+
   # React UI unit tests (jsdom) + coverage gate. No database.
   ui:
     runs-on: ubuntu-latest
@@ -152,14 +172,25 @@ jobs:
   # UI E2E (Playwright). Runs against a freshly migrated DB via the webServer block
   # in playwright.config.ts — the same setup a developer uses locally.
   #
-  # TEMPORARILY out of the per-PR path (nightly/manual only, like perf): the
-  # journeys predate the 0038 accounts→namespace/org/memex split and 32/33
-  # fail on any cold database — a guaranteed red on every PR is noise, not
-  # signal. Restoration is tracked as spec-172 ("Restore the Playwright e2e
-  # journeys to the post-0038 schema"); its definition of done is removing
-  # this `if:` and re-adding e2e to the required checks on develop + main.
+  # Per-PR again: spec-172 REBUILT this tier against the post-0038 product —
+  # deleted the six account-era journeys, replaced the dropped-table SQL seeding
+  # with service-backed test-only endpoints (/api/__test__), added a cold-DB
+  # globalSetup, and re-based the retained journeys + authored fresh tenancy and
+  # lifecycle-spine journeys. The suite now goes green on a cold, freshly-migrated
+  # database, so the schedule/workflow_dispatch gate is removed and e2e is a
+  # per-PR job again (the merge-side counterpart of the std-17 smoke tier).
+  #
+  # The suite runs serially (workers: 1 — tests share the dev user + DB), so
+  # wall-clock is cut by SHARDING across jobs instead: each shard gets its own
+  # Postgres service and runs 1/N of the files. Branch protection should require
+  # the single `e2e-result` aggregator below, NOT the matrix legs (their check
+  # names — "e2e (1)" etc. — change with the shard count). Flipping that required
+  # check on develop + main is a repo-settings action for the owner, not this file.
   e2e:
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -212,17 +243,65 @@ jobs:
       - name: Apply migrations
         run: |
           for f in packages/server/drizzle/*.sql; do psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f "$f"; done
+      # Cache the Chromium binary (~150MB download) keyed on the lockfile — the
+      # Playwright version is pinned there, so a version bump busts the cache.
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('pnpm-lock.yaml') }}
       - name: Install Playwright Chromium
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: pnpm --filter @memex/ui exec playwright install --with-deps chromium
-      - name: E2E journeys
-        run: pnpm --filter @memex/ui test:e2e
+      - name: Install Playwright OS deps (cached browser)
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: pnpm --filter @memex/ui exec playwright install-deps chromium
+      - name: E2E journeys (shard ${{ matrix.shard }}/3)
+        run: pnpm --filter @memex/ui test:e2e --shard=${{ matrix.shard }}/3
       - name: Upload Playwright trace on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-traces
+          name: playwright-traces-shard-${{ matrix.shard }}
           path: packages/ui/test-results/
           retention-days: 7
+
+  # The single stable check name for branch protection (matrix leg names shift
+  # with the shard count). Green only when every e2e shard is green.
+  e2e-result:
+    needs: e2e
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    env:
+      MEMEX_EMIT_KEY: ${{ secrets.MEMEX_EMIT_KEY }}
+    steps:
+      # spec-172 ac-1 self-reports from here: this aggregator IS the "full
+      # Playwright suite passed against a cold, freshly-migrated DB" signal,
+      # so it emits the AC's test event — pass AND fail alike, per the
+      # ac-emission discipline — to the canonical Memex. A missing key or a
+      # failed POST never flips the check itself (`|| true`), matching the
+      # vitest helper's warn-and-move-on semantics.
+      - name: Emit spec-172 ac-1 (full e2e suite cold)
+        run: |
+          STATUS=$([ "${{ needs.e2e.result }}" = "success" ] && echo pass || echo fail)
+          if [ -z "$MEMEX_EMIT_KEY" ]; then
+            echo "MEMEX_EMIT_KEY unset — skipping ac-1 emission (status would be: $STATUS)"
+          else
+            curl -sS -X POST "https://memex.ai/api/test-events" \
+              -H "Authorization: Bearer $MEMEX_EMIT_KEY" \
+              -H "Content-Type: application/json" \
+              -d "{\"ac_uid\":\"mindset-prod/memex-building-itself/specs/spec-172/acs/ac-1\",\"status\":\"$STATUS\",\"test_identifier\":\".github/workflows/test.yml::e2e-result\",\"actor\":\"${{ github.actor }}\",\"metadata\":{\"branch\":\"${{ github.ref_name }}\",\"commit\":\"${{ github.sha }}\",\"run_id\":\"${{ github.run_id }}\"}}" \
+              && echo "ac-1 emitted: $STATUS" || echo "ac-1 emission failed (non-blocking)"
+          fi
+      - name: All e2e shards green?
+        run: |
+          if [ "${{ needs.e2e.result }}" != "success" ]; then
+            echo "e2e shards result: ${{ needs.e2e.result }}"
+            exit 1
+          fi
+          echo "All e2e shards passed."
 
   # Separate job (not part of the PR gate) — runs the slow perf suite nightly and on
   # demand. Kept out of the per-PR path so reviewers aren't waiting on 20s of concurrent

@@ -7,6 +7,9 @@ export {
   isForwardTransition,
   isBackwardTransition,
   shouldBlockForwardTransition,
+  // spec-189: the traffic-driven phase-advancement matrix (the single place
+  // the gated transition rules live — ac-3).
+  nextPhaseForTraffic,
 } from './spec-readiness.js';
 export type {
   SpecPhase,
@@ -16,6 +19,7 @@ export type {
   ReadinessInput,
   OutstandingItem,
   SpecReadiness,
+  TrafficClass,
 } from './spec-readiness.js';
 export { toolManifest } from './tool-manifest.js';
 export type { ToolManifestEntry } from './tool-manifest.js';

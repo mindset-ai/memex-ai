@@ -149,6 +149,11 @@ describe('spec-148 t-1: Pulse feature-hide', () => {
 
   it('ac-6: hidden → the Pulse nav link is absent', () => {
     tagAc(AC(6));
+    // spec-146 ac-6 (scope) — the hiding mechanism is feature-agnostic and reusable:
+    // Pulse (a different feature) is hidden by adding its slug to the same
+    // hiddenFeatures list and applying the same nav gate, with no bespoke per-feature
+    // code — exactly the one-Spec-per-feature reuse spec-146 committed to.
+    tagAc('mindset-prod/memex-building-itself/specs/spec-146/acs/ac-6');
     mockSession = makeSession(['pulse']);
     renderShell(['/specs']);
 

@@ -27,6 +27,7 @@ import {
 import { tagAc } from "@memex-ai-ac/vitest";
 import {
   searchMemex,
+  resolveJumpTo,
   formatSearchResults,
   type MemexSearchHit,
 } from "./memex-search.js";
@@ -743,7 +744,7 @@ describe("formatSearchResults — b-34 D-4 spec", () => {
         kind: "spec",
         path: "mindset-int/memex-app/specs/spec-99",
         title: "Sample spec",
-        status: "plan",
+        status: "specify",
         score: 0.42,
         strategies: ["fts", "vector"],
         matchingSections: [
@@ -772,7 +773,7 @@ describe("formatSearchResults — b-34 D-4 spec", () => {
     ];
 
     const out = formatSearchResults("phase", hits);
-    expect(out).toContain(`### mindset-int/memex-app/specs/spec-99 — "Sample spec" (spec, plan)`);
+    expect(out).toContain(`### mindset-int/memex-app/specs/spec-99 — "Sample spec" (spec, specify)`);
     expect(out).toContain(`### mindset-int/memex-app/specs/spec-99/decisions/dec-3 — "Sample decision" (decision, resolved)`);
     expect(out).toContain(`- Section "Overview" (vector):`);
     expect(out).toContain(`> Some matching content goes here.`);
@@ -789,7 +790,7 @@ describe("formatSearchResults — b-34 D-4 spec", () => {
       kind: "spec",
       path: "x/y/specs/spec-1",
       title: "T",
-      status: "plan",
+      status: "specify",
       score: 0.42,
       strategies: ["fts"],
       matchingSections: [],
@@ -932,7 +933,7 @@ describe("formatSearchResults — [current doc] tag (includeCurrentDoc opt-in)",
       kind: "spec",
       path: "ns/mx/specs/spec-1",
       title: "My Spec",
-      status: "plan",
+      status: "specify",
       score: 0.5,
       strategies: ["fts"],
       matchingSections: [
@@ -981,7 +982,7 @@ describe("formatSearchResults — [current doc] tag (includeCurrentDoc opt-in)",
       kind: "spec",
       path: "ns/mx/specs/spec-2",
       title: "Other spec",
-      status: "plan",
+      status: "specify",
       score: 0.3,
       strategies: ["fts"],
       matchingSections: [],
@@ -989,5 +990,168 @@ describe("formatSearchResults — [current doc] tag (includeCurrentDoc opt-in)",
 
     const out = formatSearchResults("q", [hit], { currentDocId });
     expect(out).not.toContain("[current doc]");
+  });
+});
+
+// ── spec-191: number / short-handle jump in the ⌘K Jump-to lane ────────────────
+// resolveJumpTo gains a number-jump arm so typing a bare Spec number (or a short
+// `s-178`/`std178`/`doc178` form) navigates to the doc(s) carrying that number.
+// We use a FRESH makeTestMemex so the first Spec / Standard / Document each mint
+// number 1 (independent per-kind sequences sharing the memex-global number space),
+// giving us a deterministic `spec-1` / `std-1` / `doc-1` trio for the ambiguity
+// case. The arm reuses lookupByHandle, so it needs no embedding provider.
+const SPEC191_AC = (n: number) =>
+  `mindset-prod/memex-building-itself/specs/spec-191/acs/ac-${n}`;
+
+describe("resolveJumpTo — number / short-handle jump (spec-191)", () => {
+  let jumpMemexId: string;
+  let specId: string;
+  let stdId: string;
+  let docId: string;
+  let specHandle: string;
+  let stdHandle: string;
+  let docHandle: string;
+  let n: number; // the shared number — 1 in a fresh memex
+  const ours = (h: { id: string }) => [specId, stdId, docId].includes(h.id);
+
+  beforeAll(async () => {
+    jumpMemexId = await makeTestMemex("jump191");
+    const spec = await createDocDraft(jumpMemexId, "Number jump target", "Overview body.", "spec");
+    const std = await createStandard(jumpMemexId, {
+      title: "Number jump rule",
+      sections: [{ sectionType: "do", content: "A rule body." }],
+    });
+    const doc = await createDocDraft(jumpMemexId, "Number jump note", "Doc body.", "document");
+    specId = spec.id;
+    stdId = std.id;
+    docId = doc.id;
+    specHandle = spec.handle;
+    stdHandle = std.handle;
+    docHandle = doc.handle;
+    createdDocIds.push(specId, stdId, docId);
+    n = Number(specHandle.split("-")[1]);
+  });
+
+  it("a bare Spec number surfaces the Spec as a jumpTo row (ac-1)", async () => {
+    tagAc(SPEC191_AC(1));
+    const hits = await resolveJumpTo(jumpMemexId, String(n));
+    const specHit = hits.find((h) => h.id === specId);
+    expect(specHit).toBeDefined();
+    expect(specHit?.kind).toBe("spec");
+    expect(specHit?.path).toContain(`/specs/${specHandle}`);
+  });
+
+  it("a bare number matching all three kinds returns rows ordered spec→std→doc with scores in (0.5,1) (ac-2, ac-7)", async () => {
+    tagAc(SPEC191_AC(2));
+    tagAc(SPEC191_AC(7));
+    // In this fresh memex the three docs share the number (independent sequences
+    // each start at 1) — assert that precondition explicitly.
+    expect(stdHandle).toBe(`std-${n}`);
+    expect(docHandle).toBe(`doc-${n}`);
+
+    const hits = await resolveJumpTo(jumpMemexId, String(n));
+    // A bare number doesn't match HANDLE_REGEX (no exact-handle hit) and no Spec
+    // title contains the digit (no title-substring rows), so our three docs are
+    // the number-jump rows. Filter to them to stay robust to incidental rows.
+    const rows = hits.filter(ours);
+    expect(rows.map((h) => h.id)).toEqual([specId, stdId, docId]);
+    expect(rows.map((h) => h.kind)).toEqual(["spec", "standard", "document"]);
+    // Each ranks below an exact full-handle hit (1) and above the title tier (0.5),
+    // and strictly descending so the spec→std→doc order is stable.
+    for (const h of rows) {
+      expect(h.score).toBeGreaterThan(0.5);
+      expect(h.score).toBeLessThan(1);
+    }
+    expect(rows[0].score).toBeGreaterThan(rows[1].score);
+    expect(rows[1].score).toBeGreaterThan(rows[2].score);
+  });
+
+  it("a short/explicit prefix scopes the jump to one kind (ac-3, ac-8)", async () => {
+    tagAc(SPEC191_AC(3));
+    tagAc(SPEC191_AC(8));
+    // s / s- / spec / spec- + number → the Spec only.
+    for (const q of [`s${n}`, `s-${n}`, `spec${n}`, `spec-${n}`]) {
+      const rows = (await resolveJumpTo(jumpMemexId, q)).filter(ours);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].id).toBe(specId);
+      expect(rows[0].kind).toBe("spec");
+    }
+    // std + number → the Standard only (longest-first alternation, not the s-branch).
+    {
+      const rows = (await resolveJumpTo(jumpMemexId, `std${n}`)).filter(ours);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].id).toBe(stdId);
+      expect(rows[0].kind).toBe("standard");
+    }
+    // doc + number → the Document only.
+    {
+      const rows = (await resolveJumpTo(jumpMemexId, `doc${n}`)).filter(ours);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].id).toBe(docId);
+      expect(rows[0].kind).toBe("document");
+    }
+  });
+
+  it("a number matching no document produces no fabricated jumpTo row (ac-4)", async () => {
+    tagAc(SPEC191_AC(4));
+    const hits = await resolveJumpTo(jumpMemexId, "999999");
+    // No doc carries 999999 across any kind, and no Spec title contains it — the
+    // query falls through with an empty jump lane, no fabricated row.
+    expect(hits.filter(ours)).toHaveLength(0);
+  });
+
+  it("honours Jump-to visibility: archived and demo docs excluded, drafts included (ac-5)", async () => {
+    tagAc(SPEC191_AC(5));
+    const visMemex = await makeTestMemex("jumpvis191");
+    const draftSpec = await createDocDraft(visMemex, "Draft target", "body", "spec");
+    const archivedSpec = await createDocDraft(visMemex, "Archived target", "body", "spec");
+    await db.execute(sql`UPDATE documents SET archived_at = now() WHERE id = ${archivedSpec.id}`);
+    const demoSpec = await createDocDraft(visMemex, "Demo target", "body", "spec", undefined, {
+      isDemo: true,
+    });
+    createdDocIds.push(draftSpec.id, archivedSpec.id, demoSpec.id);
+
+    const numOf = (handle: string) => Number(handle.split("-")[1]);
+
+    // A freshly created Spec is status 'draft' — drafts are eligible (no status filter).
+    const draftHits = await resolveJumpTo(visMemex, String(numOf(draftSpec.handle)));
+    expect(draftHits.find((h) => h.id === draftSpec.id)).toBeDefined();
+    expect(draftHits.find((h) => h.id === draftSpec.id)?.status).toBe("draft");
+
+    // Archived excluded (lookupByHandle filters archived_at IS NULL).
+    const archivedHits = await resolveJumpTo(visMemex, String(numOf(archivedSpec.handle)));
+    expect(archivedHits.find((h) => h.id === archivedSpec.id)).toBeUndefined();
+
+    // Demo excluded (lookupByHandle filters is_demo IS NOT TRUE — spec-178 dec-11).
+    const demoHits = await resolveJumpTo(visMemex, String(numOf(demoSpec.handle)));
+    expect(demoHits.find((h) => h.id === demoSpec.id)).toBeUndefined();
+  });
+
+  it("does not collide with the exact-handle or @name paths (ac-9)", async () => {
+    tagAc(SPEC191_AC(9));
+    // A full handle is resolved by the exact-handle arm (score 1) and deduped — the
+    // number arm sees it in seenDocIds and does NOT add a second row at 0.9.
+    const handleHits = await resolveJumpTo(jumpMemexId, specHandle); // e.g. "spec-1"
+    const specRows = handleHits.filter((h) => h.id === specId);
+    expect(specRows).toHaveLength(1);
+    expect(specRows[0].score).toBe(1);
+
+    // An @name assignee query carries no digit in the numeric position, so the
+    // number grammar never matches and contributes no number row.
+    const atHits = await resolveJumpTo(jumpMemexId, "@dev");
+    expect(atHits.filter(ours)).toHaveLength(0);
+  });
+
+  it("searchMemex (the agent core) does NOT short-circuit a bare number to a handle hit (ac-10)", async () => {
+    tagAc(SPEC191_AC(10));
+    // The number-jump arm lives ONLY in resolveJumpTo (dec-3). HANDLE_REGEX still
+    // matches only full `kind-N` handles, so a bare number must not short-circuit
+    // searchMemex to spec-N. With vector disabled, a bare digit has no FTS lexeme
+    // match against our text → no handle hit for the Spec.
+    const hits = await searchMemex(jumpMemexId, String(n), { disableVector: true });
+    const handleHit = hits.find(
+      (h) => h.id === specId && h.strategies.includes("handle"),
+    );
+    expect(handleHit).toBeUndefined();
   });
 });

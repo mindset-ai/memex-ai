@@ -4,7 +4,7 @@
 // 32-tool MCP surface. Three workflows:
 //
 //   1. Spec lifecycle — create_doc(spec) → add_section → create_decision
-//      → resolve_decision → update_doc({status:'plan'}) → assess_spec
+//      → resolve_decision → update_doc({status:'specify'}) → assess_spec
 //      → update_doc({status:'build'}) → create_task → update_task → done.
 //
 //   2. Standards drift loop — create_doc(standard) → flag_drift → propose_
@@ -132,7 +132,7 @@ function refForSection(
 
 // ── Workflow 1: Spec lifecycle ─────────────────────────────────────
 
-describe("Workflow: Spec lifecycle (draft → plan → build → verify → done)", () => {
+describe("Workflow: Spec lifecycle (draft → specify → build → verify → done)", () => {
   let actor: Awaited<ReturnType<typeof setupActor>>;
 
   beforeAll(async () => {
@@ -194,10 +194,10 @@ describe("Workflow: Spec lifecycle (draft → plan → build → verify → done
     });
     expect(allResolved.every((d) => d.status === "resolved")).toBe(true);
 
-    // 5. update_doc({status:'plan'}) — bump out of draft
+    // 5. update_doc({status:'specify'}) — bump out of draft
     const planRes = await callTool(actor.user.id, "update_doc", {
       ref: specRef,
-      status: "plan",
+      status: "specify",
     });
     expect(planRes.isError).toBeFalsy();
 
@@ -302,9 +302,12 @@ describe.skip("Workflow: Standards drift loop", () => {
     });
     expect(doSection).toBeTruthy();
 
+    // spec-143 ac-14: the standards-drift verbs take the canonical section ref.
+    const doSectionRef = refForSection(actor, std!, doSection!.seq);
+
     // 2. flag_drift on the section
     const flagRes = await callTool(actor.user.id, "flag_drift", {
-      standardSectionId: doSection!.id,
+      ref: doSectionRef,
       observation: "auth/login.ts:42 still uses bcrypt — diverges from this rule.",
     });
     expect(flagRes.isError).toBeFalsy();
@@ -316,7 +319,7 @@ describe.skip("Workflow: Standards drift loop", () => {
 
     // 3. propose_standard_change
     const proposeRes = await callTool(actor.user.id, "propose_standard_change", {
-      standardSectionId: doSection!.id,
+      ref: doSectionRef,
       proposedContent: "Always use scrypt or argon2id for password hashing.",
       rationale: "argon2id is the OWASP-recommended default for new code.",
     });
@@ -373,8 +376,8 @@ describe("Workflow: Cross-Memex isolation (no memexId leakage in collapsed list_
 
   it("list_docs filtered by Memex A doesn't leak Memex B docs (and vice versa)", async () => {
     // Create one spec in each memex with the same title. list_docs(spec)
-    // shows ACTIVE Specs only (status in plan/build/verify), so we publish
-    // each one to plan after creation.
+    // shows ACTIVE Specs only (status in specify/build/verify), so we publish
+    // each one to specify after creation.
     const aRes = await callTool(userIdMember, "create_doc", {
       memex: `${actorA.account.slug}/main`,
       title: "Same Title",
@@ -514,7 +517,7 @@ describe("update_task completion nudge", () => {
       ref: refForDecision(actor, spec, dec!.seq),
       resolution: "Resolved for setup.",
     });
-    await callTool(actor.user.id, "update_doc", { ref: specRef, status: "plan" });
+    await callTool(actor.user.id, "update_doc", { ref: specRef, status: "specify" });
     await callTool(actor.user.id, "update_doc", { ref: specRef, status: "build" });
   });
 

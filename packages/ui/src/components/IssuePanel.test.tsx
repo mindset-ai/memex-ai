@@ -301,19 +301,187 @@ describe('IssuePanel — posture-split powers (spec-182)', () => {
 
     // Register stays available…
     expect(screen.getByTestId('issue-add')).toBeInTheDocument();
-    // …the dispositions do not.
+    // …the dispositions do not (spec-188: Resolve + the ⋯ menu carrying
+    // Won't fix are dispositions too, so they gate identically).
     expect(screen.queryByTestId('issue-convert')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('issue-resolve')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('issue-menu')).not.toBeInTheDocument();
     expect(screen.queryByTestId('issue-wontfix')).not.toBeInTheDocument();
   });
 
-  it('an editor (canEdit) keeps both dispositions on an open issue', async () => {
+  it('an editor (canEdit) keeps all dispositions on an open issue', async () => {
     tagAc(AC182_12);
+    mockFetchIssues.mockResolvedValue([makeIssue({ id: 'iss-1', seq: 1, status: 'open' })]);
+
+    const user = userEvent.setup();
+    render(<IssuePanel docId="doc-1" canWrite canEdit />);
+    await screen.findByTestId('issue-card');
+
+    expect(screen.getByTestId('issue-convert')).toBeInTheDocument();
+    expect(screen.getByTestId('issue-resolve')).toBeInTheDocument();
+    // spec-188 dec-3: Won't fix lives in the ⋯ menu beside Resolve.
+    await user.click(screen.getByTestId('issue-menu'));
+    expect(screen.getByTestId('issue-wontfix')).toBeInTheDocument();
+  });
+});
+
+// spec-188 — issue-resolution progress bar (ac-2), per-row Resolve (ac-3 /
+// ac-11), "resolved" vocabulary (ac-4) and the muted type tags on non-open
+// issues (ac-5).
+describe('IssuePanel — resolution progress + resolve controls (spec-188)', () => {
+  const SPEC188 = 'mindset-prod/memex-building-itself/specs/spec-188';
+
+  it('renders the resolution Metric beneath the heading and above the list', async () => {
+    tagAc(`${SPEC188}/acs/ac-2`);
+    mockFetchIssues.mockResolvedValue([
+      makeIssue({ id: 'i-1', seq: 1, status: 'resolved' }),
+      makeIssue({ id: 'i-2', seq: 2, status: 'open' }),
+      makeIssue({ id: 'i-3', seq: 3, status: 'open' }),
+      makeIssue({ id: 'i-4', seq: 4, status: 'wont_fix' }),
+    ]);
+
+    render(<IssuePanel docId="doc-1" />);
+    const header = await screen.findByTestId('issue-resolution-header');
+
+    // 2 of 4 non-open → 50%, with the same Metric visual identity as the AC
+    // panel (big tabular % + the h-2 rounded bar from MetricBar).
+    expect(within(header).getByText('50%')).toBeInTheDocument();
+    expect(within(header).getByText('resolved')).toBeInTheDocument();
+    expect(within(header).getByTestId('metric-bar-resolved')).toBeInTheDocument();
+    expect(within(header).getByText('2 of 4 issues resolved')).toBeInTheDocument();
+
+    // Position: beneath the heading block, above the issue list — the header
+    // precedes the first issue card in document order.
+    const firstCard = screen.getAllByTestId('issue-card')[0];
+    expect(
+      header.compareDocumentPosition(firstCard) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it('no progress bar on an empty issue list', async () => {
+    tagAc(`${SPEC188}/acs/ac-2`);
+    mockFetchIssues.mockResolvedValue([]);
+
+    render(<IssuePanel docId="doc-1" />);
+    await screen.findByTestId('issue-panel');
+    expect(screen.queryByTestId('issue-resolution-header')).not.toBeInTheDocument();
+  });
+
+  it('the heading says "resolved" — the word "closed" is gone from the panel', async () => {
+    tagAc(`${SPEC188}/acs/ac-4`);
+    mockFetchIssues.mockResolvedValue([
+      makeIssue({ id: 'i-1', seq: 1, status: 'open' }),
+      makeIssue({ id: 'i-2', seq: 2, status: 'resolved' }),
+      makeIssue({ id: 'i-3', seq: 3, status: 'wont_fix' }),
+      makeIssue({ id: 'i-4', seq: 4, status: 'converted' }),
+    ]);
+
+    render(<IssuePanel docId="doc-1" />);
+    const panel = await screen.findByTestId('issue-panel');
+    expect(within(panel).getByText('1 open, 3 resolved')).toBeInTheDocument();
+    expect(panel.textContent).not.toMatch(/closed/i);
+  });
+
+  it('Resolve on the row marks the issue resolved and the panel updates in place', async () => {
+    tagAc(`${SPEC188}/acs/ac-3`);
+    tagAc(`${SPEC188}/acs/ac-11`);
+    const issue = makeIssue({ id: 'iss-9', seq: 9, status: 'open' });
+    mockFetchIssues.mockResolvedValue([issue]);
+    mockUpdateIssueStatusApi.mockImplementation(async () => {
+      // Subsequent loads see the resolved row — the regroup + counts assert
+      // the refetch happened without a page reload.
+      mockFetchIssues.mockResolvedValue([{ ...issue, status: 'resolved' }]);
+      return { ...issue, status: 'resolved' };
+    });
+
+    const user = userEvent.setup();
+    render(<IssuePanel docId="doc-1" />);
+    await user.click(await screen.findByTestId('issue-resolve'));
+
+    expect(mockUpdateIssueStatusApi).toHaveBeenCalledWith('iss-9', 'resolved');
+    await waitFor(() =>
+      expect(screen.getByText('0 open, 1 resolved')).toBeInTheDocument(),
+    );
+    // The resolved row regrouped out of open: its controls are gone…
+    expect(screen.queryByTestId('issue-resolve')).not.toBeInTheDocument();
+    // …and the bar reflects 100%.
+    expect(
+      within(screen.getByTestId('issue-resolution-header')).getByText('100%'),
+    ).toBeInTheDocument();
+  });
+
+  it("Won't fix in the row menu transitions via the same status mutation", async () => {
+    tagAc(`${SPEC188}/acs/ac-11`);
+    const issue = makeIssue({ id: 'iss-7', seq: 7, status: 'open' });
+    mockFetchIssues.mockResolvedValue([issue]);
+    mockUpdateIssueStatusApi.mockResolvedValue({ ...issue, status: 'wont_fix' });
+
+    const user = userEvent.setup();
+    render(<IssuePanel docId="doc-1" />);
+    await user.click(await screen.findByTestId('issue-menu'));
+    await user.click(screen.getByTestId('issue-wontfix'));
+
+    expect(mockUpdateIssueStatusApi).toHaveBeenCalledWith('iss-7', 'wont_fix');
+  });
+
+  it('bug/todo type tags go neutral grey once the issue is no longer open', async () => {
+    tagAc(`${SPEC188}/acs/ac-5`);
+    mockFetchIssues.mockResolvedValue([
+      makeIssue({ id: 'i-1', seq: 1, type: 'bug', status: 'open' }),
+      makeIssue({ id: 'i-2', seq: 2, type: 'bug', status: 'resolved' }),
+      makeIssue({ id: 'i-3', seq: 3, type: 'todo', status: 'resolved' }),
+    ]);
+
+    render(<IssuePanel docId="doc-1" />);
+    await screen.findByTestId('issue-panel');
+
+    const cards = screen.getAllByTestId('issue-card');
+    const byStatus = (status: string, type: string) =>
+      cards.find(
+        (c) =>
+          c.getAttribute('data-issue-status') === status &&
+          c.getAttribute('data-issue-type') === type,
+      )!;
+
+    // Open bug keeps the pronounced danger badge…
+    const openBugBadge = within(byStatus('open', 'bug')).getByText('bug');
+    // …a resolved bug's type tag drops to the same neutral classes the todo
+    // tag wears. We assert by comparing class lists: resolved bug === todo
+    // (neutral), and !== open bug (danger).
+    const resolvedBugBadge = within(byStatus('resolved', 'bug')).getByText('bug');
+    const resolvedTodoBadge = within(byStatus('resolved', 'todo')).getByText('todo');
+    expect(resolvedBugBadge.className).toBe(resolvedTodoBadge.className);
+    expect(resolvedBugBadge.className).not.toBe(openBugBadge.className);
+  });
+});
+
+// spec-188 dec-4 (ac-13) — Convert-to-Task is suppressed where the human is in
+// the verify posture: allowConvert=false drops the Convert control while the
+// other dispositions stay.
+describe('IssuePanel — allowConvert gating (spec-188 dec-4)', () => {
+  const AC13 = 'mindset-prod/memex-building-itself/specs/spec-188/acs/ac-13';
+
+  it('allowConvert=false hides Convert but keeps Resolve and the won\'t-fix menu', async () => {
+    tagAc(AC13);
+    mockFetchIssues.mockResolvedValue([makeIssue({ id: 'iss-1', seq: 1, status: 'open' })]);
+
+    const user = userEvent.setup();
+    render(<IssuePanel docId="doc-1" canWrite canEdit allowConvert={false} />);
+    await screen.findByTestId('issue-card');
+
+    expect(screen.queryByTestId('issue-convert')).not.toBeInTheDocument();
+    expect(screen.getByTestId('issue-resolve')).toBeInTheDocument();
+    await user.click(screen.getByTestId('issue-menu'));
+    expect(screen.getByTestId('issue-wontfix')).toBeInTheDocument();
+  });
+
+  it('default (allowConvert omitted) keeps Convert — the Build-tab posture', async () => {
+    tagAc(AC13);
     mockFetchIssues.mockResolvedValue([makeIssue({ id: 'iss-1', seq: 1, status: 'open' })]);
 
     render(<IssuePanel docId="doc-1" canWrite canEdit />);
     await screen.findByTestId('issue-card');
 
     expect(screen.getByTestId('issue-convert')).toBeInTheDocument();
-    expect(screen.getByTestId('issue-wontfix')).toBeInTheDocument();
   });
 });

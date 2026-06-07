@@ -8,7 +8,7 @@ import { Button } from './ui';
 // call. Mirrors `ResolveCommentsButton` and `RefreshSpecButton` so the three
 // outstanding-work affordances feel consistent.
 //
-// Visibility: count > 0 AND phase ∈ {draft, plan, build, verify}. Hidden in
+// Visibility: count > 0 AND phase ∈ {draft, specify, build, verify}. Hidden in
 // `done` because a closed Spec is read-only.
 
 export interface ResolveDecisionsButtonProps {

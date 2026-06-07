@@ -121,6 +121,16 @@ export default defineConfig({
       // above) — the other job the retired vitest.setup.ts used to do.
       ...(rootEnv.MEMEX_EMIT_KEY ? { MEMEX_EMIT_KEY: rootEnv.MEMEX_EMIT_KEY } : {}),
       ...(rootEnv.MEMEX_EMIT ? { MEMEX_EMIT: rootEnv.MEMEX_EMIT } : {}),
+      // spec-186: the spec-178 signup hook fires a DETACHED handhold-demo seed
+      // on every user creation — under vitest those outlive their test, racing
+      // cleanup (FK noise + rotating deadlocks) and logging after worker
+      // teardown (the EnvironmentTeardownError). Off suite-wide; the hook's own
+      // suites stub it back on per-test (the gate reads env at call time).
+      MEMEX_HANDHOLD_SIGNUP_SEED: "off",
+      // spec-184: same treatment for the default-Standards signup seed hook — a second
+      // detached seed on the same ensureUserNamespace path. Off suite-wide; the seed's
+      // own suites stub it back on per-test.
+      MEMEX_DEFAULT_STANDARDS_SIGNUP_SEED: "off",
     },
     typecheck: { enabled: false },
     coverage: {

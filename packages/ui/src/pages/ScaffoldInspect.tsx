@@ -40,12 +40,12 @@ type Selected =
   | { kind: 'button'; buttonId: string }
   | { kind: 'matrix' };
 
-const PHASES: Phase[] = ['draft', 'plan', 'build', 'verify', 'done'];
-const TRANSITIONS: Transition[] = ['plan', 'build', 'verify', 'done'];
+const PHASES: Phase[] = ['draft', 'specify', 'build', 'verify', 'done'];
+const TRANSITIONS: Transition[] = ['specify', 'build', 'verify', 'done'];
 
 const TRANSITION_FOR_PHASE: Record<Phase, Transition | null> = {
-  draft: 'plan',
-  plan: 'build',
+  draft: 'specify',
+  specify: 'build',
   build: 'verify',
   verify: 'done',
   done: null,

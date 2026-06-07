@@ -13,7 +13,7 @@
 // Query params (all optional, all compose):
 //   ?scope=mine|all    — default 'mine' (issues on Specs assigned to the caller);
 //                        'all' widens to the whole Memex (ac-12).
-//   ?phases=plan,build  — comma-separated subset of draft/plan/build/verify/done;
+//   ?phases=specify,build  — comma-separated subset of draft/specify/build/verify/done;
 //                        narrows on the parent Spec's status (ac-13). Unknown
 //                        tokens are ignored; absent ⇒ all phases.
 //   ?types=bug,todo     — comma-separated subset of bug/todo; narrows on the

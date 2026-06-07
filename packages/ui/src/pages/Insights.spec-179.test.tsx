@@ -76,7 +76,7 @@ const POINTS = [
   { day: '2026-06-02', created: 1, cumulative: 3 },
   { day: '2026-06-03', created: 2, cumulative: 5 },
 ];
-const BY_PHASE = [{ day: '2026-06-01', draft: 1, plan: 0, build: 0, verify: 0, done: 1 }];
+const BY_PHASE = [{ day: '2026-06-01', draft: 1, specify: 0, build: 0, verify: 0, done: 1 }];
 const DURATIONS = {
   inPhase: [{ phase: 'draft', n: 1, avgDays: 2, medianDays: 2, maxDays: 2 }],
   cycleTime: { n: 1, avgDays: 1, medianDays: 1, p25Days: 1, p75Days: 1, maxDays: 1, valuesDays: [1] },
@@ -84,7 +84,7 @@ const DURATIONS = {
 
 const FUNNEL = [
   { phase: 'draft', count: 3 },
-  { phase: 'plan', count: 2 },
+  { phase: 'specify', count: 2 },
   { phase: 'build', count: 1 },
   { phase: 'verify', count: 1 },
   { phase: 'done', count: 1 },

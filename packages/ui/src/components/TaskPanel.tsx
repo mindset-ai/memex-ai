@@ -9,6 +9,7 @@ import {
   PLAN_STATE_CLASSES,
 } from './ExecutionPlanModal';
 import { Badge } from './ui';
+import { Metric } from './MetricBar';
 
 interface TaskPanelProps {
   /** Retained for call-site compatibility — was only consumed by the removed
@@ -103,6 +104,25 @@ export function TaskPanel({ docId: _docId, doc: _doc, tasks, onUpdate, canWrite:
           {ready.length} ready, {blocked.length} blocked, {inProgress.length} in progress, {complete.length} complete
         </span>
       </div>
+
+      {/* spec-188 dec-5 (ac-14): task-completion progress — the same Metric
+          tile the AC and Issues panels use (MetricBar.tsx), beneath the
+          heading and above the list. Hidden at zero tasks. */}
+      {tasks.length > 0 && (
+        <div
+          data-testid="task-completion-header"
+          className="mb-4 rounded-md bg-zinc-50 dark:bg-zinc-900/50 p-4"
+        >
+          <Metric
+            label="complete"
+            percent={Math.round((complete.length / tasks.length) * 100)}
+            colourClass="green"
+            caption={`${complete.length} of ${tasks.length} task${
+              tasks.length === 1 ? '' : 's'
+            } complete`}
+          />
+        </div>
+      )}
 
       {/* spec-164 dec-2: the t-19 graph view is removed — the build tab is
           list-only. A future task graph should arrive via its own spec. */}

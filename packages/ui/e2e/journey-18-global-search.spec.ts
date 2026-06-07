@@ -1,10 +1,11 @@
-import { test, expect, bareUrl } from "./helpers/fixtures.js";
+import { test, expect, bareUrl } from "./helpers/index.js";
 import {
   getPersonalMemexByEmail,
   setUserName,
   seedSpecInMemex,
   deleteDoc,
-} from "./helpers/db.js";
+  emitAcEvents,
+} from "./helpers/index.js";
 
 // Journey 18 (spec-64 t-6): the global ⌘K search palette, end-to-end in a real
 // browser. The component test (SearchPalette.test.tsx) runs under jsdom, which
@@ -25,6 +26,11 @@ import {
 //   ac-9   typing a Spec title surfaces a result row with a kind badge.
 //   ac-10  ArrowDown moves the roving selection, Enter navigates to the hit.
 //   ac-8   Esc closes the dialog AND restores focus to the prior element.
+//
+// spec-191 extends this journey: typing the bare Spec NUMBER (the new number-jump
+// arm in resolveJumpTo) now surfaces the Spec under "Jump to" and navigates to it
+// — the real-browser proof that a bare number reaches the lane (spec-191 ac-1
+// through the human ⌘K surface; std-28 PR-gate journey).
 
 // A title unlikely to collide with anything already in the local dev memex, so
 // the query resolves to exactly our seeded Spec.
@@ -47,12 +53,11 @@ test.describe("Journey 18 — global ⌘K search palette", () => {
     // Give it a name so we land on the Specs board. (The shared account-based
     // fixture that normally does this writes to the dropped pre-0038 schema.)
     await setUserName("dev@memex.ai", "Dev User");
-    // A unique handle so reruns don't collide on the per-memex (memex_id, handle)
-    // unique constraint if a prior afterEach failed to clean up.
-    specHandle = `spec-j18-${Date.now().toString(36)}`;
-    ({ docId } = await seedSpecInMemex({
+    // The seed service mints the handle (`spec-N`) via createDocDraft and returns
+    // it — we navigate/assert against the SERVER-chosen handle rather than a
+    // self-picked one (the new HTTP seed surface owns handle allocation, dec-2).
+    ({ docId, handle: specHandle } = await seedSpecInMemex({
       memexId: memex.memexId,
-      handle: specHandle,
       title: SPEC_TITLE,
       purpose: "Zephyr Quokka Search Beacon — purpose body for the global search journey.",
     }));
@@ -60,6 +65,33 @@ test.describe("Journey 18 — global ⌘K search palette", () => {
 
   test.afterEach(async () => {
     if (docId) await deleteDoc(docId);
+  });
+
+  // spec-192 t-5: emit AC pass/fail for the two trigger tests (ac-8 board, ac-10
+  // doc-header; ac-2 = both open the SAME palette). Title→refs map per the repo's
+  // e2e emission idiom (journey-20); the spec-64/191 tests above carry no refs and
+  // emit nothing. Routing is namespace-derived; gated by MEMEX_EMIT.
+  const SPEC192 = "mindset-prod/memex-building-itself/specs/spec-192";
+  const ACS_BY_TEST: Record<string, string[]> = {
+    "clicking the Specs-board search trigger opens the palette (spec-192 ac-8)": [
+      `${SPEC192}/acs/ac-8`,
+      `${SPEC192}/acs/ac-2`,
+    ],
+    "clicking the doc-page header search trigger opens the palette (spec-192 ac-10)": [
+      `${SPEC192}/acs/ac-10`,
+      `${SPEC192}/acs/ac-2`,
+    ],
+  };
+  test.afterEach(async ({}, testInfo) => {
+    if (testInfo.status === "skipped") return;
+    const refs = ACS_BY_TEST[testInfo.title];
+    if (!refs) return;
+    await emitAcEvents(
+      refs,
+      testInfo.status === "passed" ? "pass" : "fail",
+      `packages/ui/e2e/journey-18-global-search.spec.ts::${testInfo.title}`,
+      testInfo.duration ?? 0,
+    );
   });
 
   // The keyboard chord differs by platform. The app-level listener (App.tsx
@@ -147,5 +179,87 @@ test.describe("Journey 18 — global ⌘K search palette", () => {
     await expect(reopened).not.toBeVisible();
     // ac-8: focus is restored to the element that was focused before opening.
     await expect(backLink).toBeFocused();
+  });
+
+  // spec-191: the bare-number jump. The reporter (Barrie) typed a Spec number into
+  // ⌘K and got nothing; this proves it now navigates. We type just the seeded
+  // Spec's number (parsed from its server-minted `spec-N` handle) and assert it
+  // surfaces under "Jump to" with the right path, then clicking it navigates.
+  // Presence-based (not exclusive) so demo specs / other same-numbered docs in the
+  // dev memex can't make it flaky.
+  test("typing the bare Spec number surfaces it under 'Jump to' and navigates (spec-191 ac-1)", async ({
+    page,
+  }) => {
+    await page.goto(bareUrl("/"));
+    await expect(page.getByRole("heading", { name: "Specs" })).toBeVisible({
+      timeout: 15_000,
+    });
+
+    await page.keyboard.press(HOTKEY);
+    const dialog = page.getByRole("dialog", { name: "Search this memex" });
+    await expect(dialog).toBeVisible();
+
+    // The number alone — no `spec-` prefix. This is the path that did nothing
+    // before spec-191 (it fell through to the content FTS tier, which matches body
+    // text, not handles).
+    const specNumber = specHandle.split("-")[1];
+    await page.getByPlaceholder(/Search specs/i).fill(specNumber);
+
+    const specRow = dialog
+      .locator('[data-testid="search-result"][data-kind="spec"]')
+      .filter({ hasText: SPEC_TITLE })
+      .first();
+    await expect(specRow).toBeVisible({ timeout: 10_000 });
+    // It lands in the Jump-to tier (the number arm sits there, above content).
+    await expect(dialog.getByText("Jump to", { exact: true })).toBeVisible();
+    await expect(specRow).toHaveAttribute(
+      "data-path",
+      `${nsSlug}/${mxSlug}/specs/${specHandle}`,
+    );
+
+    // Selecting the number-jump row navigates to the Spec detail page.
+    await specRow.click();
+    await expect(page).toHaveURL(
+      new RegExp(`/${nsSlug}/${mxSlug}/specs/${specHandle}$`),
+    );
+    await expect(dialog).not.toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: SPEC_TITLE, level: 1 }),
+    ).toBeVisible({ timeout: 15_000 });
+  });
+
+  // ── spec-192: the two persistent search TRIGGERS (buttons, not the hotkey) ──
+  // The discoverability buttons added by spec-192 must open the SAME palette the
+  // ⌘K shortcut does — one on the Specs board header, one on the doc-page header
+  // (where the sidebar is hidden). Real-browser proof the click reaches the shared
+  // open-state and the cmdk dialog mounts + takes focus.
+  test("clicking the Specs-board search trigger opens the palette (spec-192 ac-8)", async ({
+    page,
+  }) => {
+    await page.goto(bareUrl("/"));
+    await expect(page.getByRole("heading", { name: "Specs" })).toBeVisible({
+      timeout: 15_000,
+    });
+
+    await page.getByTestId("search-palette-trigger-board").click();
+    const dialog = page.getByRole("dialog", { name: "Search this memex" });
+    await expect(dialog).toBeVisible();
+    // Same palette as ⌘K: the search input takes focus on open.
+    await expect(page.getByPlaceholder(/Search specs/i)).toBeFocused();
+  });
+
+  test("clicking the doc-page header search trigger opens the palette (spec-192 ac-10)", async ({
+    page,
+  }) => {
+    // The sidebar is hidden on spec/doc pages — the header trigger is the cue here.
+    await page.goto(bareUrl(`/${nsSlug}/${mxSlug}/specs/${specHandle}`));
+    await expect(
+      page.getByRole("heading", { name: SPEC_TITLE, level: 1 }),
+    ).toBeVisible({ timeout: 15_000 });
+
+    await page.getByTestId("search-palette-trigger-header").click();
+    const dialog = page.getByRole("dialog", { name: "Search this memex" });
+    await expect(dialog).toBeVisible();
+    await expect(page.getByPlaceholder(/Search specs/i)).toBeFocused();
   });
 });

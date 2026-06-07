@@ -7,7 +7,7 @@ import { phaseDisplayName } from '../utils/phaseDisplay';
 //
 //   1. CURRENT PHASE — the filled pill driven by the Spec's actual phase. It
 //      persists regardless of what the user has clicked. `draft` lights up a
-//      dedicated grey Draft pill at the far left (NOT the Plan tab); `done`
+//      dedicated grey Draft pill at the far left (NOT the Specify tab); `done`
 //      lights up no tab (a "✓ Done" marker renders beside the bar instead).
 //   2. SELECTED — the underline accent driven by clicks. It renders ONLY when
 //      the selected tab differs from the current one (when they coincide the
@@ -18,26 +18,27 @@ import { phaseDisplayName } from '../utils/phaseDisplay';
 // also selected). The two states are deliberately decoupled so a user can read
 // the build view while the Spec still sits in verify.
 //
-// DRAFT PILL — in `draft` a grey Draft pill renders leftmost, before Plan,
+// DRAFT PILL — in `draft` a grey Draft pill renders leftmost, before Specify,
 // carrying the current treatment (filled grey + ● dot, aria-current="step",
 // data-tab="draft"). It is a status indicator, not a browsable view: it sits
-// OUTSIDE the tablist's roving selection and its click selects the Plan view
-// (draft's home), exactly like clicking Plan. While in draft no Plan/Build/
-// Verify tab is current, so Plan may still wear the selected underline.
+// OUTSIDE the tablist's roving selection and its click selects the Specify view
+// (draft's home), exactly like clicking Specify. While in draft no Specify/Build/
+// Verify tab is current, so Specify may still wear the selected underline.
 
-const TABS = ['plan', 'build', 'verify'] as const;
+const TABS = ['specify', 'build', 'verify'] as const;
 export type PhaseTab = (typeof TABS)[number];
 
-// spec-164 dec-1: labels come from the shared phase display-name layer — the
-// `plan` tab reads "Specify" while data-tab and the enum keep `plan`.
+// spec-181: labels come from the shared phase display-name layer, which is now a
+// plain capitaliser — the `specify` tab reads "Specify" straight from the enum
+// value (data-tab and the enum both say `specify`).
 const TAB_LABELS: Record<PhaseTab, string> = {
-  plan: phaseDisplayName('plan'),
+  specify: phaseDisplayName('specify'),
   build: phaseDisplayName('build'),
   verify: phaseDisplayName('verify'),
 };
 
 // Per-tab fill, reusing the canonical statusVariant → status-* token classes
-// (plan→warning amber, build→info blue, verify→success green). statusVariant
+// (specify→warning amber, build→info blue, verify→success green). statusVariant
 // already maps each phase string to its variant, so we route through it rather
 // than hardcoding a second colour table.
 const VARIANT_FILL: Record<ReturnType<typeof statusVariant>, string> = {
@@ -48,14 +49,14 @@ const VARIANT_FILL: Record<ReturnType<typeof statusVariant>, string> = {
   neutral: 'bg-status-neutral-bg text-status-neutral-text border-status-neutral-border',
 };
 
-/** The Plan/Build/Verify tab a given Spec phase makes "current". `draft` and
+/** The Specify/Build/Verify tab a given Spec phase makes "current". `draft` and
  * `done` make NO tab current — `draft` lights up the dedicated Draft pill,
  * `done` the ✓ Done marker (the two are told apart by the `isDraft` flag, not
  * by this null). */
 function currentTabFor(phase: SpecStatus): PhaseTab | null {
   switch (phase) {
-    case 'plan':
-      return 'plan';
+    case 'specify':
+      return 'specify';
     case 'build':
       return 'build';
     case 'verify':
@@ -81,7 +82,7 @@ export function PhaseTabBar({ currentPhase, selectedTab, onSelect }: PhaseTabBar
   // tells them apart so the Draft pill and the ✓ Done marker never collide.
   const isDraft = currentPhase === 'draft';
   const tabRefs = useRef<Record<PhaseTab, HTMLButtonElement | null>>({
-    plan: null,
+    specify: null,
     build: null,
     verify: null,
   });
@@ -105,14 +106,14 @@ export function PhaseTabBar({ currentPhase, selectedTab, onSelect }: PhaseTabBar
     <div className="flex items-center gap-2 mb-4">
       {isDraft && (
         // Draft is the current STATUS, not a browsable view: a grey filled pill
-        // outside the tablist. Clicking it selects the Plan view (draft's home),
-        // matching a click on Plan. Kept out of the roving arrow-key cycle.
+        // outside the tablist. Clicking it selects the Specify view (draft's home),
+        // matching a click on Specify. Kept out of the roving arrow-key cycle.
         <button
           type="button"
           aria-current="step"
           data-tab="draft"
           data-current="true"
-          onClick={() => onSelect('plan')}
+          onClick={() => onSelect('specify')}
           className={`
             relative inline-flex items-center gap-1.5 rounded-full border px-3 py-1
             text-xs font-medium uppercase tracking-wider transition-colors

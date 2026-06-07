@@ -58,7 +58,7 @@ const chat = {
 vi.mock('../components/ChatContext', () => ({ useChat: () => chat }));
 
 const updateDocStatus = vi.fn();
-let docStatus: DocWithGraph['status'] = 'plan';
+let docStatus: DocWithGraph['status'] = 'specify';
 let docDecisions: unknown[] = [];
 let docTasks: unknown[] = [];
 let docAcs: unknown[] = [];
@@ -206,7 +206,7 @@ describe('spec-159 — blocked current phase withholds Yes for an editor (ac-3)'
       },
     ];
     docAcs = [{ ac: { status: 'active' }, verificationState: 'verified' }];
-    renderAt('plan');
+    renderAt('specify');
 
     const sentence = await screen.findByTestId('transition-sentence');
     // Even with an editor posture (canTransition true) a dirty rubric on the

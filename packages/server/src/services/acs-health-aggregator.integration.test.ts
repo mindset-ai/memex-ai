@@ -100,6 +100,7 @@ describe("aggregateAcHealthForBriefs", () => {
       verified: 0,
       failing: 0,
       stale: 0,
+      accepted: 0,
       untested: 0,
     });
   });
@@ -125,6 +126,7 @@ describe("aggregateAcHealthForBriefs", () => {
       verified: 1,
       failing: 0,
       stale: 0,
+      accepted: 0,
       untested: 0,
     });
   });
@@ -154,6 +156,7 @@ describe("aggregateAcHealthForBriefs", () => {
       verified: 1,
       failing: 1,
       stale: 0,
+      accepted: 0,
       untested: 0,
     });
   });
@@ -179,6 +182,7 @@ describe("aggregateAcHealthForBriefs", () => {
       verified: 0,
       failing: 0,
       stale: 1,
+      accepted: 0,
       untested: 0,
     });
   });
@@ -200,6 +204,7 @@ describe("aggregateAcHealthForBriefs", () => {
       verified: 0,
       failing: 0,
       stale: 0,
+      accepted: 0,
       untested: 1,
     });
   });

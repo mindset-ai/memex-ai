@@ -106,7 +106,7 @@ function makeComment(overrides: Partial<Comment> = {}): Comment {
 const EXPECTED_GROUP_ORDER: InitPromptRefEntry['group'][] = ['read', 'planning', 'build', 'comments'];
 const EXPECTED_GROUP_HEADINGS: Record<InitPromptRefEntry['group'], string> = {
   read: '### Read (any phase)',
-  planning: '### Planning phase (`draft` / `plan`)',
+  planning: '### Specify phase (`draft` / `specify`)',
   build: '### Build phase (`build`)',
   comments: '### Comments (any phase)',
 };
@@ -142,7 +142,7 @@ describe('renderToolReference (rendered tool reference block)', () => {
   const block = manifestBlock();
 
   it('renders every BASE_SCAFFOLD tool exactly once, formatted from its exact args + summary', () => {
-    tagAc('mindset-prod/memex-building-itself/briefs/b-68/acs/ac-27');
+    tagAc('mindset-prod/memex-building-itself/specs/spec-68/acs/ac-27');
     for (const e of REFERENCE_ENTRIES) {
       const line = expectedToolLine(e);
       const occurrences = block.split(line).length - 1;
@@ -151,7 +151,7 @@ describe('renderToolReference (rendered tool reference block)', () => {
   });
 
   it('the set of rendered tool names equals the set of names in BASE_SCAFFOLD.tools', () => {
-    tagAc('mindset-prod/memex-building-itself/briefs/b-68/acs/ac-27');
+    tagAc('mindset-prod/memex-building-itself/specs/spec-68/acs/ac-27');
     // Every reference line is `- \`<name>(...)\` — ...`. Pull the leading
     // identifier of each bulleted, backticked tool line out of the block.
     const lineRe = /^- `([a-z][a-z0-9_]*(?:__[a-z0-9_]+)?)\(/gm;
@@ -215,7 +215,7 @@ describe('renderToolReference (rendered tool reference block)', () => {
   // `toolManifest`; it derives from `BASE_SCAFFOLD.tools` via projection.
 
   it('the rendered block is byte-identical to a fresh projection of BASE_SCAFFOLD.tools', () => {
-    tagAc('mindset-prod/memex-building-itself/briefs/b-68/acs/ac-27');
+    tagAc('mindset-prod/memex-building-itself/specs/spec-68/acs/ac-27');
     // Re-render the reference block from the source-of-truth data using the
     // same projection the implementation uses. If anyone hand-edits the prompt
     // text without going through the model, this assertion fails.
@@ -230,7 +230,7 @@ describe('renderToolReference (rendered tool reference block)', () => {
   });
 
   it('every BASE_SCAFFOLD tool projects to a non-empty InitPromptRefEntry', () => {
-    tagAc('mindset-prod/memex-building-itself/briefs/b-68/acs/ac-27');
+    tagAc('mindset-prod/memex-building-itself/specs/spec-68/acs/ac-27');
     // The projection contract: rationale is stripped, the four reference
     // fields (name/summary/args/group) are preserved and non-empty.
     for (const tool of BASE_SCAFFOLD.tools) {
@@ -261,7 +261,7 @@ describe('renderToolReference (rendered tool reference block)', () => {
 
 describe('b-67 manifest ↔ scaffold parity (ac-26)', () => {
   it('every toolManifest entry has a 1:1 BASE_SCAFFOLD.tools mirror (name/summary/args/group)', () => {
-    tagAc('mindset-prod/memex-building-itself/briefs/b-68/acs/ac-26');
+    tagAc('mindset-prod/memex-building-itself/specs/spec-68/acs/ac-26');
     expect(BASE_SCAFFOLD.tools.length).toBe(toolManifest.length);
     const byName = new Map(BASE_SCAFFOLD.tools.map((t) => [t.name, t]));
     for (const m of toolManifest) {
@@ -275,7 +275,7 @@ describe('b-67 manifest ↔ scaffold parity (ac-26)', () => {
   });
 
   it('projecting BASE_SCAFFOLD.tools through toInitPromptRef yields the toolManifest set', () => {
-    tagAc('mindset-prod/memex-building-itself/briefs/b-68/acs/ac-26');
+    tagAc('mindset-prod/memex-building-itself/specs/spec-68/acs/ac-26');
     // The projection contract: `toInitPromptRef` produces values of type
     // `InitPromptRefEntry` (= `ToolManifestEntry`). The set of projected
     // entries must equal the manifest as a multiset on (name/summary/args/group).
@@ -358,13 +358,13 @@ describe('renderSpecInitPrompt — execute mode phase gate', () => {
     }
   });
 
-  it('short-circuits to a wrong-phase warning when the spec is still planning', () => {
-    for (const status of ['draft', 'plan'] as const) {
+  it('short-circuits to a wrong-phase warning when the spec is still specifying', () => {
+    for (const status of ['draft', 'specify'] as const) {
       const out = renderSpecInitPrompt(makeDoc({ status }), 2, 'execute');
       expect(out, `status ${status} should warn`).toContain('⚠ **Wrong phase.**');
       expect(out).toContain(`This Spec is in \`${status}\``);
-      // It tells the agent to switch to plan mode rather than run tasks.
-      expect(out).toContain('switch to plan mode');
+      // It tells the agent to switch to specify mode rather than run tasks.
+      expect(out).toContain('switch to specify mode');
       // The wrong-phase FOCUS block does NOT walk the build loop (list_tasks
       // still appears in the always-present manifest reference above it).
       expect(focusBlock(out)).not.toContain('list_tasks(');
@@ -375,14 +375,14 @@ describe('renderSpecInitPrompt — execute mode phase gate', () => {
 
   it('singularises the open-decision count in the wrong-phase warning', () => {
     const one = renderSpecInitPrompt(
-      makeDoc({ status: 'plan', decisions: [{ id: 'd1', docId: 'spec-uuid', seq: 1, title: 'x', context: null, status: 'open', resolution: null, createdAt: '2026-05-01T00:00:00Z', resolvedAt: null } as never] }),
+      makeDoc({ status: 'specify', decisions: [{ id: 'd1', docId: 'spec-uuid', seq: 1, title: 'x', context: null, status: 'open', resolution: null, createdAt: '2026-05-01T00:00:00Z', resolvedAt: null } as never] }),
       0,
       'execute',
     );
     expect(one).toContain('1 open decision first');
     const many = renderSpecInitPrompt(
       makeDoc({
-        status: 'plan',
+        status: 'specify',
         decisions: [
           { id: 'd1', docId: 'spec-uuid', seq: 1, title: 'x', context: null, status: 'open', resolution: null, createdAt: '2026-05-01T00:00:00Z', resolvedAt: null } as never,
           { id: 'd2', docId: 'spec-uuid', seq: 2, title: 'y', context: null, status: 'open', resolution: null, createdAt: '2026-05-01T00:00:00Z', resolvedAt: null } as never,
@@ -491,10 +491,10 @@ describe('drift guard — disabled/removed tools never reappear as calls', () =>
       renderSpecInitPrompt(doc, 3, mode),
     );
     // Also exercise the execute wrong-phase branch and a blocked task path.
-    modes.push(renderSpecInitPrompt(makeDoc({ status: 'plan' }), 1, 'execute'));
+    modes.push(renderSpecInitPrompt(makeDoc({ status: 'specify' }), 1, 'execute'));
     const task = renderTaskInitPrompt(doc, makeTask(), [makeComment()]);
     const blockedTask = renderTaskInitPrompt(
-      makeDoc({ status: 'plan' }),
+      makeDoc({ status: 'specify' }),
       makeTask({ blocked: true }),
       [],
     );

@@ -16,7 +16,7 @@
 //            relation — the same assignment mechanism assign_spec / the board's
 //            "assigned to me" filter use, ac-12). 'all' returns every open issue
 //            in the Memex regardless of assignment.
-//   phases — any subset of draft/plan/build/verify/done; narrows to issues whose
+//   phases — any subset of draft/specify/build/verify/done; narrows to issues whose
 //            parent Spec's status is in the requested set (ac-13). An empty/absent
 //            set applies no phase narrowing (all phases).
 //   types  — any subset of bug/todo; narrows on the issue's own type column
@@ -39,10 +39,10 @@ import { issues, documents, docAssignees } from "../db/schema.js";
 import { ISSUE_TYPES, type IssueType } from "./issues.js";
 
 // The Spec workflow phases the phase filter accepts (ac-13). These are the
-// documents.status values the Spec rename settled on (doc-10): draft / plan /
+// documents.status values the Spec rename settled on (doc-10): draft / specify /
 // build / verify / done. The UI's phase checkboxes map 1:1 onto this set.
-export type SpecPhase = "draft" | "plan" | "build" | "verify" | "done";
-export const SPEC_PHASES = ["draft", "plan", "build", "verify", "done"] as const;
+export type SpecPhase = "draft" | "specify" | "build" | "verify" | "done";
+export const SPEC_PHASES = ["draft", "specify", "build", "verify", "done"] as const;
 export function isSpecPhase(value: string): value is SpecPhase {
   return (SPEC_PHASES as readonly string[]).includes(value);
 }
@@ -59,7 +59,7 @@ export interface ListMemexIssuesOptions {
   scope?: IssueScope;
   /** The requesting user, for scope='mine'. Ignored when scope='all'. */
   userId?: string | null;
-  /** Subset of draft/plan/build/verify/done. Empty/absent → no phase narrowing. */
+  /** Subset of draft/specify/build/verify/done. Empty/absent → no phase narrowing. */
   phases?: SpecPhase[];
   /** Subset of bug/todo. Empty/absent → no type narrowing. */
   types?: IssueType[];

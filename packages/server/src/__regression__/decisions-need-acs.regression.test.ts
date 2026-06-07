@@ -44,8 +44,8 @@ const toolSpecs = readFileSync(TOOL_SPECS, "utf-8");
 const phaseAssess = readFileSync(PHASE_ASSESS, "utf-8");
 const acsService = readFileSync(ACS_SERVICE, "utf-8");
 
-// b-68 t-7: the plan→build rubric prose used to live in
-// `phases/plan/transitions.md` and was read from disk here. That file is
+// b-68 t-7: the specify→build rubric prose used to live in
+// `phases/specify/transitions.md` and was read from disk here. That file is
 // retired; the prose is now a `TransitionRubric` record on
 // `BASE_SCAFFOLD.transitions`. Read it through the projection so the regression
 // guard pins the same content from its new home.
@@ -69,7 +69,7 @@ describe("Channel A — resolve_decision JIT nudge", () => {
     );
   });
 
-  it("warns that build-readiness will refuse plan→build without the ACs", () => {
+  it("warns that build-readiness will refuse specify→build without the ACs", () => {
     expect(toolSpecs).toMatch(/build-readiness will refuse/i);
   });
 });
@@ -97,7 +97,7 @@ describe("Channel B — guidance topic body", () => {
   });
 
   it("body cites the build-readiness gate", () => {
-    expect(topic.body).toMatch(/plan→build/);
+    expect(topic.body).toMatch(/specify→build/);
     expect(topic.body).toMatch(/hold/);
   });
 
@@ -154,7 +154,7 @@ describe("Channel D — assess_brief build rubric + fact + nudge", () => {
     expect(phaseAssess).toMatch(
       /Resolved decisions without implementation ACs/,
     );
-    expect(phaseAssess).toMatch(/Plan→build is a hold/);
+    expect(phaseAssess).toMatch(/Specify→build is a hold/);
   });
 
   it("formatPhaseAssessment renders the implementation-AC coverage block", () => {

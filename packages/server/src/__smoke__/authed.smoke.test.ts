@@ -131,7 +131,7 @@ describe.skipIf(!SMOKE_MCP_TOKEN)(
       // Phase mechanics are the largest topic and the one most likely to be
       // referenced by other tools. Body should describe the 5-phase pipeline.
       expect(text).toMatch(/draft/);
-      expect(text).toMatch(/plan/);
+      expect(text).toMatch(/specify/);
       expect(text).toMatch(/build/);
       expect(text).toMatch(/verify/);
       expect(text).toMatch(/done/);
@@ -284,7 +284,7 @@ describe.skipIf(!SMOKE_MCP_TOKEN)(
       expect(docRef, "create_doc should return a canonical ref").toBeTruthy();
 
       // Move to build so a task can be created (tasks are build-phase only).
-      await callMcpTool("update_doc", { ref: docRef!, status: "plan" });
+      await callMcpTool("update_doc", { ref: docRef!, status: "specify" });
       await callMcpTool("update_doc", { ref: docRef!, status: "build" });
 
       // CREATE the deletable entity — a task on the throwaway doc.
@@ -379,6 +379,60 @@ describe.skipIf(!SMOKE_MCP_TOKEN)(
       );
       expect(docText).not.toContain(marker);
       expect(docText).not.toContain("Smoke Lens Renamed");
+    });
+
+    // ── spec-189: traffic-driven phase advancement on the LIVE /mcp surface.
+    //
+    //    Specify-class traffic (create_decision) at a freshly-created draft
+    //    Spec must auto-advance it draft → specify; build-class traffic
+    //    (create_task) must then advance it specify → build. This is the
+    //    deployed-contract probe for the runToolWithSpecTraffic seam — the
+    //    exact class of /mcp wiring that std-17's first live run proved local
+    //    suites can miss. The full matrix is locked by unit + integration
+    //    tests; the smoke probe asserts the seam is ALIVE on the deployed
+    //    image, not the matrix itself.
+    it("spec-189: agent traffic auto-advances a draft Spec (draft → specify → build)", async () => {
+      const created = await callMcpTool("create_doc", {
+        memex: SMOKE_NAMESPACE,
+        title: `[smoke] spec-189 traffic probe ${new Date().toISOString()}`,
+        purpose: "Throwaway probe — traffic-driven phase advancement.",
+      });
+      expect(created.status).toBe(200);
+      expect(created.body.result?.isError).toBeFalsy();
+      const specRef = parseRef(mcpTextPayload(created.body));
+      expect(specRef, "create_doc should return a spec ref").toBeTruthy();
+
+      // Specify-class traffic: decision authoring.
+      const dec = await callMcpTool("create_decision", {
+        ref: specRef!,
+        title: "[smoke] spec-189 probe decision",
+      });
+      expect(dec.status).toBe(200);
+      expect(dec.body.result?.isError).toBeFalsy();
+
+      // Terse get_doc renders `ref: <ref> "<title>" [spec, <phase>].` —
+      // verified against the live int surface (first probe run guessed
+      // `[SPECIFY]` and failed while the feature itself worked).
+      let docText = mcpTextPayload(
+        (await callMcpTool("get_doc", { ref: specRef! })).body,
+      );
+      expect(docText).toMatch(/\[spec,\s*specify\]|status:\s*specify|phase:\s*specify/i);
+
+      // Build-class traffic: task creation (also sweeps via createdTaskRefs).
+      const task = await callMcpTool("create_task", {
+        ref: specRef!,
+        title: "[smoke] spec-189 probe task",
+        description: "Throwaway — drives specify → build.",
+      });
+      expect(task.status).toBe(200);
+      expect(task.body.result?.isError).toBeFalsy();
+      const taskRef = parseRef(mcpTextPayload(task.body));
+      if (taskRef) createdTaskRefs.push(taskRef);
+
+      docText = mcpTextPayload(
+        (await callMcpTool("get_doc", { ref: specRef! })).body,
+      );
+      expect(docText).toMatch(/\[spec,\s*build\]|status:\s*build|phase:\s*build/i);
     });
   },
 );

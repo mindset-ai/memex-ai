@@ -39,6 +39,7 @@ function makeDoc(overrides: Partial<Doc> = {}): Doc {
     archivedAt: null,
     pausedAt: null,
     narrativeLastConsolidatedAt: null,
+    isDemo: false,
     ...overrides,
   };
 }
@@ -399,9 +400,9 @@ describe("formatCommentList", () => {
   });
 });
 
-describe("spec phase guidance — plan/draft code-grounding nudge", () => {
+describe("spec phase guidance — specify/draft code-grounding nudge", () => {
   const CANONICAL_PHRASE =
-    "Ground code-touching decisions against current source before resolving (the plan prompt covers this).";
+    "Ground code-touching decisions against current source before resolving (the specify prompt covers this).";
 
   it("includes the code-grounding nudge when a Spec is in `draft`", () => {
     const doc = {
@@ -413,9 +414,9 @@ describe("spec phase guidance — plan/draft code-grounding nudge", () => {
     expect(result).toContain(CANONICAL_PHRASE);
   });
 
-  it("includes the code-grounding nudge when a Spec is in `plan`", () => {
+  it("includes the code-grounding nudge when a Spec is in `specify`", () => {
     const doc = {
-      ...makeDoc({ docType: "spec", status: "plan" }),
+      ...makeDoc({ docType: "spec", status: "specify" }),
       sections: [makeSection()],
     };
     const result = formatFullDocState(doc, [], []);
@@ -470,22 +471,22 @@ describe("b-68 t-7 ac-22: formatPhaseGuidance retired; per-phase prose flows thr
 
   it("an MCP-formatted spec response includes content sourced from toNudge / BASE_SCAFFOLD per-phase guidance", () => {
     tagAc("mindset-prod/memex-building-itself/specs/spec-68/acs/ac-22");
-    // Pull a sentinel string from BASE_SCAFFOLD's plan-intent block — this
+    // Pull a sentinel string from BASE_SCAFFOLD's specify-intent block — this
     // text now arrives in the rendered output exclusively through `toNudge`.
-    const planIntent = BASE_SCAFFOLD.baseGuidance.find(
+    const specifyIntent = BASE_SCAFFOLD.baseGuidance.find(
       (g) =>
-        g.target.phase === "plan" &&
+        g.target.phase === "specify" &&
         g.target.tool === undefined &&
         g.target.transition === undefined &&
-        g.text.startsWith("**Phase:** plan"),
+        g.text.startsWith("**Phase:** specify"),
     );
-    expect(planIntent, "BASE_SCAFFOLD must carry a `plan` phase-intent block").toBeDefined();
+    expect(specifyIntent, "BASE_SCAFFOLD must carry a `specify` phase-intent block").toBeDefined();
     const doc = {
-      ...makeDoc({ docType: "spec", status: "plan" }),
+      ...makeDoc({ docType: "spec", status: "specify" }),
       sections: [makeSection()],
     };
     const result = formatFullDocState(doc, [], []);
-    expect(result).toContain(planIntent!.text);
+    expect(result).toContain(specifyIntent!.text);
   });
 });
 
@@ -502,7 +503,7 @@ describe("b-68 t-7 ac-24: allowance prose derives from BASE_SCAFFOLD.phases[<pha
     expect(formattersSrc).not.toContain("phaseIntentLine");
   });
 
-  it.each(["draft", "plan", "build"] as const)(
+  it.each(["draft", "specify", "build"] as const)(
     "the rendered allowance line names every `allowed` tool from BASE_SCAFFOLD.phases.%s.allowance",
     (phase) => {
       tagAc("mindset-prod/memex-building-itself/specs/spec-68/acs/ac-24");
@@ -513,10 +514,10 @@ describe("b-68 t-7 ac-24: allowance prose derives from BASE_SCAFFOLD.phases[<pha
         sections: [makeSection()],
       };
       const rendered = formatFullDocState(doc, [], []);
-      // For draft/plan the allowance line spells every allowed tool out
+      // For draft/specify the allowance line spells every allowed tool out
       // (build's allowance line is the legacy compressed phrase, asserted
       // separately below).
-      if (phase === "draft" || phase === "plan") {
+      if (phase === "draft" || phase === "specify") {
         for (const tool of node!.allowance.allowed) {
           expect(rendered).toContain(`\`${tool}\``);
         }
@@ -524,14 +525,14 @@ describe("b-68 t-7 ac-24: allowance prose derives from BASE_SCAFFOLD.phases[<pha
     },
   );
 
-  it("the rendered allowance line carries the blocked-set summary for plan ('task creation (`create_task`), execution plans')", () => {
+  it("the rendered allowance line carries the blocked-set summary for specify ('task creation (`create_task`), execution plans')", () => {
     tagAc("mindset-prod/memex-building-itself/specs/spec-68/acs/ac-24");
-    const planNode = BASE_SCAFFOLD.phases.find((p) => p.phase === "plan");
-    expect(planNode?.allowance.blocked).toEqual(
+    const specifyNode = BASE_SCAFFOLD.phases.find((p) => p.phase === "specify");
+    expect(specifyNode?.allowance.blocked).toEqual(
       expect.arrayContaining(["create_task", "execution_plans"]),
     );
     const doc = {
-      ...makeDoc({ docType: "spec", status: "plan" }),
+      ...makeDoc({ docType: "spec", status: "specify" }),
       sections: [makeSection()],
     };
     const rendered = formatFullDocState(doc, [], []);

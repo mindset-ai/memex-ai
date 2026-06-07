@@ -87,7 +87,7 @@ async function makeMissionInPhase(phase: string): Promise<{ id: string; handle: 
   createdDocIds.push(m.id);
   if (phase !== "draft") {
     // Walk through phases respecting the existing service-layer rules.
-    const stages = ["plan", "build", "verify", "done"];
+    const stages = ["specify", "build", "verify", "done"];
     for (const s of stages) {
       await updateDocStatus(memexId, m.id, s);
       if (s === phase) break;
@@ -97,8 +97,8 @@ async function makeMissionInPhase(phase: string): Promise<{ id: string; handle: 
 }
 
 describe("update_doc_status nudge (t-7)", () => {
-  it("nudges plan→build when no recent readiness review", async () => {
-    const m = await makeMissionInPhase("plan");
+  it("nudges specify→build when no recent readiness review", async () => {
+    const m = await makeMissionInPhase("specify");
     const result = await executeServerTool(
       memexId,
       "update_doc",
@@ -149,7 +149,7 @@ describe("update_doc_status nudge (t-7)", () => {
   });
 
   it("does NOT nudge when assess_phase_transition was called recently", async () => {
-    const m = await makeMissionInPhase("plan");
+    const m = await makeMissionInPhase("specify");
     await assessPhaseTransition(memexId, m.id, "build");
     const result = await executeServerTool(
       memexId,
@@ -161,24 +161,24 @@ describe("update_doc_status nudge (t-7)", () => {
     expect(result).not.toMatch(/⚠/);
   });
 
-  it("does NOT nudge on backward transitions (build→plan)", async () => {
+  it("does NOT nudge on backward transitions (build→specify)", async () => {
     const m = await makeMissionInPhase("build");
     const result = await executeServerTool(
       memexId,
       "update_doc",
-      { ref: refFor(m), status: "plan" },
+      { ref: refFor(m), status: "specify" },
       userId,
     );
     expect(result).not.toMatch(/run assess_spec/i);
     expect(result).not.toMatch(/⚠/);
   });
 
-  it("does NOT nudge on draft→plan (no rubric)", async () => {
+  it("does NOT nudge on draft→specify (no rubric)", async () => {
     const m = await makeMissionInPhase("draft");
     const result = await executeServerTool(
       memexId,
       "update_doc",
-      { ref: refFor(m), status: "plan" },
+      { ref: refFor(m), status: "specify" },
       userId,
     );
     expect(result).not.toMatch(/run assess_spec/i);
@@ -214,7 +214,7 @@ describe("update_doc_status nudge (t-7)", () => {
 
   // ── DRY refactor: structured blockers from @memex/shared ──
   it("includes the structured 'Outstanding work' list when there are open comments", async () => {
-    const m = await makeMissionInPhase("plan");
+    const m = await makeMissionInPhase("specify");
     const section = await addSection(memexId, m.id, "purpose", "Body", "Purpose");
     await addComment(memexId, section.id, "tester", "open question", { type: "discussion" });
     const result = await executeServerTool(
@@ -229,7 +229,7 @@ describe("update_doc_status nudge (t-7)", () => {
   });
 
   it("includes the 'Outstanding work' list when the narrative is stale (decisions newer than consolidation)", async () => {
-    const m = await makeMissionInPhase("plan");
+    const m = await makeMissionInPhase("specify");
     // Spec has never been consolidated → every decision counts as stale.
     await createDecision(memexId, m.id, "Pick a database");
     const result = await executeServerTool(
@@ -244,7 +244,7 @@ describe("update_doc_status nudge (t-7)", () => {
   });
 
   it("omits the 'Outstanding work' list when the Spec is clean", async () => {
-    const m = await makeMissionInPhase("plan");
+    const m = await makeMissionInPhase("specify");
     const result = await executeServerTool(
       memexId,
       "update_doc",

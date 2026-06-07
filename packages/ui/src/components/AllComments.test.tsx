@@ -6,8 +6,13 @@ import type { DocSection, Decision, Task, Comment } from '../api/types';
 import { tagAc } from "@memex-ai-ac/vitest";
 
 const AC_FILTER_LOADBEARING = 'mindset-prod/memex-building-itself/specs/spec-100/acs/ac-9';
-const AC_FILTER_USABLE = 'mindset-prod/memex-building-itself/specs/spec-100/acs/ac-4';
 const AC_DEEPLINK = 'mindset-prod/memex-building-itself/specs/spec-100/acs/ac-6';
+// spec-185 — remove the human comment-type filter chips.
+const AC185 = (n: number) =>
+  `mindset-prod/memex-building-itself/specs/spec-185/acs/ac-${n}`;
+// spec-194 — remove the author-kind (Everyone/System/People) filter row.
+const AC194 = (n: number) =>
+  `mindset-prod/memex-building-itself/specs/spec-194/acs/ac-${n}`;
 
 function makeComment(overrides: Partial<Comment> = {}): Comment {
   return {
@@ -159,11 +164,11 @@ describe('AllComments', () => {
     expect(onTabChange).toHaveBeenCalledWith('decisions');
   });
 
-  // ── Filter chips (t-15) ──
+  // ── Comment-type filter chips removed (spec-185) ──
 
-  it('chip click emits onFilterChange so the parent can refetch with ?type= (W3.3 server-side filter)', async () => {
-    const user = userEvent.setup();
-    const onFilterChange = vi.fn();
+  it('renders no comment-type filter row even with open comments of mixed type (spec-185 ac-7)', () => {
+    tagAc(AC185(7));
+    tagAc(AC185(2)); // scope ac-2: doc-wide half of the symmetric removal (CommentTray tags ac-2 too)
     const section = makeSection();
     const decision = makeDecision();
     const task = makeTask();
@@ -189,40 +194,48 @@ describe('AllComments', () => {
           ],
         }}
         onNavigateToSection={vi.fn()}
-        filter={null}
-        onFilterChange={onFilterChange}
       />
     );
 
-    // All three visible at start (parent has not yet narrowed the data).
+    // No comment-type chip row in the doc-wide view (consistent with CommentTray).
+    expect(screen.queryByTestId('comment-filter-chips')).not.toBeInTheDocument();
+    for (const chip of ['all', 'plan', 'progress', 'question', 'issue', 'drift']) {
+      expect(screen.queryByTestId(`comment-filter-${chip}`)).not.toBeInTheDocument();
+    }
+    // ...and every comment renders regardless of type (no type narrowing).
     expect(screen.getByText('plan section')).toBeInTheDocument();
     expect(screen.getByText('decision question')).toBeInTheDocument();
     expect(screen.getByText('task issue')).toBeInTheDocument();
-
-    await user.click(screen.getByTestId('comment-filter-plan'));
-    // The chip click drives the parent's filter setter — the actual narrowing
-    // happens after the parent's refetch with ?type=plan returns the smaller
-    // dataset. Asserting the callback was called (with the right type) is the
-    // contract for server-side filtering.
-    expect(onFilterChange).toHaveBeenCalledWith('plan');
   });
 
-  it('filter chips are hidden when there are no open comments at all', () => {
+  // ── spec-194 (dec-2): author-kind row restored (People→Humans), one combined row, distinct colour ──
+
+  it('renders the author-kind row with Everyone/System/Humans — People renamed to Humans (spec-194 ac-5)', () => {
+    tagAc(AC194(5));
+    tagAc(AC194(8)); // ac-8: supersession withdrawn — the spec-100 author-filter test is re-added with the "Humans" label; restoration recorded in spec-100 + spec-185 comments
+    const section = makeSection();
     render(
       <AllComments
-        sections={[makeSection()]}
-        commentsBySection={{}}
+        sections={[section]}
+        commentsBySection={{
+          [section.id]: [makeComment({ id: 'h', content: 'human note', source: 'human' })],
+        }}
         onNavigateToSection={vi.fn()}
       />
     );
-    expect(screen.queryByTestId('comment-filter-chips')).not.toBeInTheDocument();
-    expect(screen.getByText('No open comments.')).toBeInTheDocument();
+    expect(screen.getByTestId('author-filter')).toBeInTheDocument();
+    for (const kind of ['all', 'system', 'human']) {
+      expect(screen.getByTestId(`author-filter-${kind}`)).toBeInTheDocument();
+    }
+    // The human option reads "Humans", not "People".
+    expect(screen.getByTestId('author-filter-human')).toHaveTextContent('Humans');
+    expect(screen.queryByText('People')).not.toBeInTheDocument();
   });
 
-  // ── spec-100 ac-9 / ac-4: author-kind + status filtering ──
-
-  it('filters to system (agent) comments when the System chip is clicked', async () => {
-    tagAc(AC_FILTER_LOADBEARING);
+  it('author-kind filtering narrows: System → agent only, Humans → human only (spec-194 ac-7)', async () => {
+    tagAc(AC194(7));
+    tagAc(AC194(3)); // scope ac-3: default (Everyone) shows human + agent together; author-kind narrowing is available, not forced
+    tagAc(AC194(4)); // scope ac-4: narrowing reuses the shared filterComments predicate unchanged (System→agent, Humans→human)
     const user = userEvent.setup();
     const section = makeSection();
     render(
@@ -237,18 +250,55 @@ describe('AllComments', () => {
         onNavigateToSection={vi.fn()}
       />
     );
-
     // Default (Everyone): both visible.
     expect(screen.getByText('human note')).toBeInTheDocument();
     expect(screen.getByText('system flag')).toBeInTheDocument();
-
+    // System → only agent-sourced.
     await user.click(screen.getByTestId('author-filter-system'));
     expect(screen.getByText('system flag')).toBeInTheDocument();
     expect(screen.queryByText('human note')).not.toBeInTheDocument();
+    // Humans → only human-sourced.
+    await user.click(screen.getByTestId('author-filter-human'));
+    expect(screen.getByText('human note')).toBeInTheDocument();
+    expect(screen.queryByText('system flag')).not.toBeInTheDocument();
+  });
+
+  it('renders author-kind + status chips on one combined row (spec-194 ac-9)', () => {
+    tagAc(AC194(9));
+    tagAc(AC194(1)); // scope ac-1: author-kind chips + status chips render together on one combined row
+    const section = makeSection();
+    render(
+      <AllComments
+        sections={[section]}
+        commentsBySection={{ [section.id]: [makeComment({ id: 'h', content: 'human note' })] }}
+        onNavigateToSection={vi.fn()}
+      />
+    );
+    const author = screen.getByTestId('author-filter');
+    const statusRow = screen.getByTestId('status-filter');
+    // Same parent element → one combined row (author group, divider, status group).
+    expect(author.parentElement).toBe(statusRow.parentElement);
+  });
+
+  it('author-kind chips carry the agent tone, status chips the accent tone (spec-194 ac-10)', () => {
+    tagAc(AC194(10));
+    const section = makeSection();
+    render(
+      <AllComments
+        sections={[section]}
+        commentsBySection={{ [section.id]: [makeComment({ id: 'h', content: 'human note' })] }}
+        onNavigateToSection={vi.fn()}
+      />
+    );
+    expect(screen.getByTestId('author-filter')).toHaveAttribute('data-tone', 'agent');
+    expect(screen.getByTestId('status-filter')).toHaveAttribute('data-tone', 'accent');
   });
 
   it('surfaces resolved comments only when the Resolved status is selected', async () => {
-    tagAc(AC_FILTER_LOADBEARING);
+    tagAc(AC_FILTER_LOADBEARING); // spec-100 ac-9 — status half retained
+    tagAc(AC194(6)); // spec-194 ac-6: status filter still renders + works
+    tagAc(AC185(5)); // scope ac-5: Open/Resolved/All state filter row unchanged by the chip removal
+    tagAc(AC194(2)); // scope ac-2: Open/Resolved/All status row unchanged + still reaches resolved history
     const user = userEvent.setup();
     const section = makeSection();
     render(
@@ -271,36 +321,6 @@ describe('AllComments', () => {
     await user.click(screen.getByTestId('status-filter-resolved'));
     expect(screen.getByText('resolved one')).toBeInTheDocument();
     expect(screen.queryByText('open one')).not.toBeInTheDocument();
-  });
-
-  it('stays usable at 20+ comments: filtering to system narrows to the seeded flags', async () => {
-    tagAc(AC_FILTER_USABLE);
-    const user = userEvent.setup();
-    const section = makeSection();
-    const many: Comment[] = [];
-    for (let i = 0; i < 22; i++) {
-      many.push(makeComment({ id: `h-${i}`, content: `human ${i}`, source: 'human' }));
-    }
-    many.push(makeComment({ id: 'sys-a', content: 'seeded weakness A', source: 'agent', commentType: 'issue' }));
-    many.push(makeComment({ id: 'sys-b', content: 'seeded weakness B', source: 'agent', commentType: 'issue' }));
-
-    render(
-      <AllComments
-        sections={[section]}
-        commentsBySection={{ [section.id]: many }}
-        onNavigateToSection={vi.fn()}
-      />
-    );
-
-    // All 24 rendered at the default view (noisy).
-    expect(screen.getByText('human 0')).toBeInTheDocument();
-
-    // Filtering to System collapses the noise to just the two seeded flags.
-    await user.click(screen.getByTestId('author-filter-system'));
-    expect(screen.getByText('seeded weakness A')).toBeInTheDocument();
-    expect(screen.getByText('seeded weakness B')).toBeInTheDocument();
-    expect(screen.queryByText('human 0')).not.toBeInTheDocument();
-    expect(screen.queryByText('human 21')).not.toBeInTheDocument();
   });
 
   // ── spec-100 ac-6: deep-link to a comment ──

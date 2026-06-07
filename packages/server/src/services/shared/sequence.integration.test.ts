@@ -12,7 +12,7 @@
 import { describe, it, expect } from "vitest";
 import { eq, sql } from "drizzle-orm";
 import { db } from "../../db/connection.js";
-import { docSections, docComments, tasks, decisions } from "../../db/schema.js";
+import { docSections, docComments, tasks, decisions, documents } from "../../db/schema.js";
 import { makeTestMemex } from "../test-helpers.js";
 import { createDocDraft } from "../documents.js";
 import { addSection } from "../sections.js";
@@ -147,6 +147,32 @@ describe("per-doc seq allocator (b-36 T-2)", () => {
     ]);
 
     expect(d1.seq).not.toBe(d2.seq);
+  });
+
+  // ── Concurrent allocation: document handles — createDocDraft (spec-187) ──
+  // The handle mint (COALESCE(MAX(spec-N))+1) raced under concurrent creates in
+  // the same memex and 23505'd on `documents_memex_id_handle_unique` — exactly
+  // the b-38 F-3 race, which never reached documents until spec-187. Six
+  // concurrent creates is the worst case the withSeqRetry cap (12) is sized
+  // for; this is also the shape that flaked path-routing.api.test.ts in CI.
+  it("six concurrent createDocDraft calls in the same memex all succeed with distinct handles", async () => {
+    const memexId = await makeTestMemex("seq-concur-doc");
+
+    const docs = await Promise.all(
+      Array.from({ length: 6 }, (_, i) =>
+        createDocDraft(memexId, `Concurrent spec ${i}`, "Purpose"),
+      ),
+    );
+
+    const handles = docs.map((d) => d.handle);
+    expect(new Set(handles).size).toBe(6);
+    for (const h of handles) expect(h).toMatch(/^spec-\d+$/);
+
+    const rows = await db
+      .select({ handle: documents.handle })
+      .from(documents)
+      .where(eq(documents.memexId, memexId));
+    expect(new Set(rows.map((r) => r.handle)).size).toBe(rows.length);
   });
 
   // ── Migration invariant: existing rows ──────────────────────────────────

@@ -31,7 +31,7 @@ import { loadSkill } from "./skills.js";
 // `spec-document` skill — creation is out of
 // scope for b-68 (see t-2 progress note).
 //
-// `draft` and `plan` share the `plan` projection
+// `draft` and `specify` share the `specify` projection
 // (b-33: draftAgent removed; the two statuses
 // are functionally identical for the agent).
 // ──────────────────────────────────────────────
@@ -92,7 +92,7 @@ if (!DRIFT_BLOCK) {
  * PromptBlockNodes for the phase in declaration order, then a final
  * `## Document Context` block is appended carrying `cache_control: ephemeral`
  * (the cache breakpoint for prompt caching). `draft` is projected through the
- * `plan` PhaseNode — draft + plan share the React prompt set.
+ * `specify` PhaseNode — draft + specify share the React prompt set.
  *
  * Per b-68 dec-9 the React surface receives orientation-style content: role,
  * MDX components, UI tools, context-awareness + cross-phase invariants. The
@@ -122,7 +122,7 @@ export function buildSystemBlocks(
   driftMode = false,
   integrationState?: IntegrationState,
 ): SystemBlock[] {
-  const projectedPhase: SpecPhase = phase === "draft" ? "plan" : phase;
+  const projectedPhase: SpecPhase = phase === "draft" ? "specify" : phase;
   const instructionBlocks = toPromptBlocks(BASE_SCAFFOLD, projectedPhase);
   const baseContent = instructionBlocks.map((b) => b.text).join("\n\n");
 

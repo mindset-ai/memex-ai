@@ -1,7 +1,7 @@
 // b-33 t-5 / b-68 t-7: per-phase MCP tool-description override plumbing.
 //
 // The agent eventually wants different tool descriptions in different Spec
-// phases (e.g. discourage `create_task` while a Spec is in `plan`, expand
+// phases (e.g. discourage `create_task` while a Spec is in `specify`, expand
 // `update_doc` guidance in `verify`). Until b-68 t-7 those overrides were
 // stored as `agent/phases/<phase>/mcp-descriptions.md` files. Those files
 // are now retired — their content (currently all inert HTML-comment stubs)
@@ -101,13 +101,13 @@ export function parsePhaseDescriptions(markdown: string): Record<string, string>
  * BASE_SCAFFOLD via a `toToolDefinition`-style projection rather than
  * re-parsed from markdown.
  *
- * `draft` and `plan` share the same override set (the two phases are
+ * `draft` and `specify` share the same override set (the two phases are
  * functionally identical for the agent; mirrors the folder mapping in
  * `agent/system-prompt.ts`).
  */
 export const PHASE_DESCRIPTIONS: Record<SpecPhase, Record<string, string>> = {
   draft: {},
-  plan: {},
+  specify: {},
   build: {},
   verify: {},
   done: {},

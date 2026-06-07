@@ -35,8 +35,8 @@ describe('ResolveDecisionsButton — visibility', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('visible in draft / plan / build / verify when decisions exist', () => {
-    for (const phase of ['draft', 'plan', 'build', 'verify'] as const) {
+  it('visible in draft / specify / build / verify when decisions exist', () => {
+    for (const phase of ['draft', 'specify', 'build', 'verify'] as const) {
       const { unmount } = renderResolve(phase, 1);
       expect(
         screen.getByRole('button', { name: /Resolve Decision/i }),
@@ -48,12 +48,12 @@ describe('ResolveDecisionsButton — visibility', () => {
 
 describe('ResolveDecisionsButton — labels', () => {
   it('uses singular "Decision" when there is one open', () => {
-    renderResolve('plan', 1);
+    renderResolve('specify', 1);
     expect(screen.getByRole('button')).toHaveTextContent('Resolve Decision (1)');
   });
 
   it('uses plural "Decisions" for two or more', () => {
-    renderResolve('plan', 4);
+    renderResolve('specify', 4);
     expect(screen.getByRole('button')).toHaveTextContent('Resolve Decisions (4)');
   });
 
@@ -69,7 +69,7 @@ describe('ResolveDecisionsButton — labels', () => {
 describe('ResolveDecisionsButton — click behavior', () => {
   it('seeds the chat with the decision-walkthrough prompt', async () => {
     const user = userEvent.setup();
-    renderResolve('plan', 2);
+    renderResolve('specify', 2);
 
     await user.click(screen.getByRole('button', { name: /Resolve Decisions/i }));
 
