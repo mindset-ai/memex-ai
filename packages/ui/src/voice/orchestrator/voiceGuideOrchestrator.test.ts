@@ -18,6 +18,7 @@ function fakeSocket() {
   let closed = false;
   const sock: SocketLike = {
     binaryType: '',
+    readyState: 1, // WebSocket.OPEN — sends are gated on this
     onopen: null,
     onmessage: null,
     onerror: null,

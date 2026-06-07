@@ -123,6 +123,11 @@ export default defineConfig({
       '/api': {
         target: API_TARGET,
         changeOrigin: false,
+        // spec-190 (dec-9): forward WebSocket upgrades too. The voice session WS
+        // lives at /api/<ns>/<mx>/voice/session; without ws:true the dev server
+        // never proxies the upgrade to the API, so the socket hangs in CONNECTING
+        // and every sendAudio/endUtterance throws InvalidStateError.
+        ws: true,
       },
     },
   },

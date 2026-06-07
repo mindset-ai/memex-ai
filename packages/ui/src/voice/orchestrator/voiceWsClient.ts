@@ -37,6 +37,10 @@ export interface VoiceWsClient {
 export interface SocketLike {
   send(data: string | ArrayBufferView | ArrayBuffer): void;
   close(): void;
+  /** WebSocket.OPEN === 1. Sends before OPEN throw InvalidStateError, so callers
+   *  must gate on this — mic PCM frames + the VAD's end_utterance fire from
+   *  audio-thread callbacks that can run during the connect window. */
+  readonly readyState: number;
   binaryType: string;
   onopen: ((ev: unknown) => void) | null;
   onmessage: ((ev: { data: unknown }) => void) | null;
@@ -120,10 +124,21 @@ export function openVoiceWs(
     }
   };
 
-  const sendJson = (obj: Record<string, unknown>) => ws.send(JSON.stringify(obj));
+  // WebSocket.OPEN === 1. Drop anything sent before the socket is OPEN (the
+  // connect window) rather than letting ws.send throw InvalidStateError — these
+  // calls originate in the mic audio-process callback and the VAD speech-end
+  // callback, so an uncaught throw there destabilizes the audio pipeline. A few
+  // ms of pre-open mic audio is immaterial; control frames that matter
+  // (start_listening) only fire after the server 'ready' frame, post-open.
+  const OPEN = 1;
+  const sendJson = (obj: Record<string, unknown>) => {
+    if (ws.readyState === OPEN) ws.send(JSON.stringify(obj));
+  };
 
   return {
-    sendAudio: (frame) => ws.send(frame),
+    sendAudio: (frame) => {
+      if (ws.readyState === OPEN) ws.send(frame);
+    },
     startListening: () => sendJson({ type: 'start_listening' }),
     endUtterance: () => sendJson({ type: 'end_utterance' }),
     speak: (requestId, text) => sendJson({ type: 'speak', requestId, text }),
