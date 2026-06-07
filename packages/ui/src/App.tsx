@@ -39,6 +39,8 @@ import { parseTenantFromPathname } from './utils/tenantUrl';
 import { isFeatureHidden } from './utils/featureFlags';
 import { probePublicMemex, type PublicMemexProbe } from './api/client';
 import { PublicMemexProvider } from './components/PublicMemexContext';
+import { VoiceSessionProvider } from './voice/session/VoiceSessionContext';
+import { VoiceLayer } from './voice/session/VoiceLayer';
 import { SearchPalette } from './components/SearchPalette';
 
 declare const __BUILD_TIME__: string;
@@ -174,12 +176,19 @@ function TenantLayout() {
   // callback; useDocChangeStream captures tenantBase() once on connect).
   return (
     <ChatProvider>
-      <OrgConsentDialog />
-      <AppShell>
-        <Fragment key={`${namespace}/${memex}`}>
-          <Outlet />
-        </Fragment>
-      </AppShell>
+      {/* spec-190 t-8: the voice guide is available on authed tenant routes (the
+          guide-chat SSE leg needs a session). VoiceLayer is a fixed overlay
+          rendered beside AppShell so the shell needs no edit and the public
+          branch — which has no VoiceSessionProvider — never mounts it. */}
+      <VoiceSessionProvider>
+        <OrgConsentDialog />
+        <AppShell>
+          <Fragment key={`${namespace}/${memex}`}>
+            <Outlet />
+          </Fragment>
+        </AppShell>
+        <VoiceLayer />
+      </VoiceSessionProvider>
     </ChatProvider>
   );
 }
