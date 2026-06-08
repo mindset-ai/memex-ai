@@ -15,6 +15,7 @@ import { resolveScreenKey } from '@memex/shared';
 import { useVoiceSession } from './VoiceSessionContext';
 import { VoiceIcon } from './VoiceIcon';
 import { VoiceSessionPill } from './VoiceSessionPill';
+import { Specky } from '../../components/Specky';
 
 const ANCHOR = 'fixed bottom-6 right-6 z-50';
 
@@ -39,10 +40,13 @@ export function VoiceLayer(): React.JSX.Element | null {
   }
 
   // Inactive / requesting / mic-unavailable → the icon, on registered screens only.
+  // spec-197: the entry doorway carries Specky's identity but stays QUIET — the
+  // static (non-animated) frame, not the wobbling idle loop (dec-2 / ac-8). The
+  // animated Specky only appears in the pill once a session is live (dec-1).
   if (resolveScreenKey(pathname) === null) return null;
   return (
     <div className={ANCHOR}>
-      <VoiceIcon />
+      <VoiceIcon mark={<Specky animated={false} size={28} />} />
     </div>
   );
 }

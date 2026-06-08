@@ -21,6 +21,7 @@ import { tagAc } from '@memex-ai-ac/vitest';
 const AC_TRANSPARENT_SCALABLE = 'mindset-prod/memex-building-itself/specs/spec-197/acs/ac-3';
 const AC_REDUCED_MOTION = 'mindset-prod/memex-building-itself/specs/spec-197/acs/ac-4';
 const AC_CANONICAL_SOURCE = 'mindset-prod/memex-building-itself/specs/spec-197/acs/ac-5';
+const AC_QUIET_STATIC = 'mindset-prod/memex-building-itself/specs/spec-197/acs/ac-8';
 const AC_ASSETS_MECHANISM = 'mindset-prod/memex-building-itself/specs/spec-197/acs/ac-10';
 
 const SRC_DIR = dirname(fileURLToPath(import.meta.url)); // packages/ui/src
@@ -30,6 +31,8 @@ const REPO_ROOT = join(SRC_DIR, '..', '..', '..'); // repo root
 const CANONICAL_SVG = join(REPO_ROOT, 'assets', 'specky', 'specky.svg');
 const UI_ASSET_SVG = join(SRC_DIR, 'assets', 'specky.svg'); // bundler-imported
 const PUBLIC_SVG = join(UI_ROOT, 'public', 'specky.svg'); // the WRONG (unrouted) place
+const CANONICAL_STATIC = join(REPO_ROOT, 'assets', 'specky', 'specky-static.svg');
+const UI_STATIC_SVG = join(SRC_DIR, 'assets', 'specky-static.svg'); // quiet-doorway variant
 const MAKE_RASTER = join(REPO_ROOT, 'assets', 'specky', 'make_raster.py');
 const README = join(REPO_ROOT, 'assets', 'specky', 'README.md');
 
@@ -79,6 +82,30 @@ describe('Specky asset — served via /assets/, not the web root (spec-197 dec-3
     type SvgImport = typeof import('./assets/specky.svg');
     const _check: SvgImport extends { default: string } ? true : never = true;
     expect(_check).toBe(true);
+  });
+});
+
+describe('Specky asset — static (quiet-doorway) variant (spec-197 dec-2 / ac-8)', () => {
+  it('specky-static.svg exists (canonical + UI copy) and is byte-identical', () => {
+    tagAc(AC_CANONICAL_SOURCE);
+    expect(existsSync(CANONICAL_STATIC)).toBe(true);
+    expect(existsSync(UI_STATIC_SVG)).toBe(true);
+    expect(readFileSync(UI_STATIC_SVG).equals(readFileSync(CANONICAL_STATIC))).toBe(true);
+  });
+
+  it('the static variant carries the same artwork but NO animation (so the entry stays quiet)', () => {
+    tagAc(AC_QUIET_STATIC);
+    const still = readFileSync(CANONICAL_STATIC, 'utf8');
+    const animated = readFileSync(CANONICAL_SVG, 'utf8');
+    // Same character: the distinctive clip-body path + the eyes are present in both.
+    expect(still).toContain('M 78 300 L 78 122');
+    expect(animated).toContain('M 78 300 L 78 122');
+    // Genuinely static: no animation machinery at all.
+    expect(still).not.toMatch(/@keyframes/);
+    expect(still).not.toMatch(/animation:/);
+    expect(still).not.toContain('<style');
+    // ...whereas the avatar variant IS animated.
+    expect(animated).toMatch(/@keyframes/);
   });
 });
 

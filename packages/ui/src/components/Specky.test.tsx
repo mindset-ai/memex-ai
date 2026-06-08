@@ -11,7 +11,14 @@ import { tagAc } from '@memex-ai-ac/vitest';
 
 const AC_TRANSPARENT_SCALABLE = 'mindset-prod/memex-building-itself/specs/spec-197/acs/ac-3';
 const AC_IDLE_ONLY = 'mindset-prod/memex-building-itself/specs/spec-197/acs/ac-7';
+const AC_QUIET_STATIC = 'mindset-prod/memex-building-itself/specs/spec-197/acs/ac-8';
 const AC_IMG_NO_RUNTIME = 'mindset-prod/memex-building-itself/specs/spec-197/acs/ac-10';
+
+/** Decode an inlined data: URI svg to markup; pass through an /assets/ URL. */
+function svgOf(img: Element): string {
+  const src = img.getAttribute('src')!;
+  return src.startsWith('data:') ? decodeURIComponent(src.slice(src.indexOf(',') + 1)) : src;
+}
 
 describe('Specky component (spec-197 t-5 — standalone renderer)', () => {
   it('renders a plain <img> from the bundler /assets/ URL — no canvas/Lottie/inline-SVG runtime (ac-10)', () => {
@@ -51,15 +58,28 @@ describe('Specky component (spec-197 t-5 — standalone renderer)', () => {
   it('is idle-only: exposes no session-state variants, one self-contained idle asset (dec-1=a / ac-7)', () => {
     tagAc(AC_IDLE_ONLY);
     // Compile-time guarantee the API surfaces no listening/thinking/speaking/
-    // ducked/state prop — adding one would fail this exhaustive Record.
+    // ducked/state prop — adding one would fail this exhaustive Record. `animated`
+    // is a presentation toggle (idle loop vs static frame), NOT a session state.
     type Keys = keyof import('./Specky').SpeckyProps;
-    const allowed: Record<Keys, true> = { size: true, alt: true, className: true };
-    expect(Object.keys(allowed).sort()).toStrictEqual(['alt', 'className', 'size']);
-    // The same single idle SVG is the source regardless of usage — no variant swap.
+    const allowed: Record<Keys, true> = { size: true, alt: true, animated: true, className: true };
+    expect(Object.keys(allowed).sort()).toStrictEqual(['alt', 'animated', 'className', 'size']);
+    // The same single idle SVG is the source regardless of size — no per-state swap.
     const first = render(<Specky alt="a" />).container.querySelector('img')!.getAttribute('src');
     const second = render(<Specky alt="b" size={200} />).container.querySelector('img')!.getAttribute('src');
     expect(first).toBe(second);
     expect(first!.startsWith('data:image/svg+xml') || first!.includes('/assets/')).toBe(true);
+  });
+
+  it('renders the static frame when animated={false}, the idle loop by default — same character (dec-2 / ac-8)', () => {
+    tagAc(AC_QUIET_STATIC);
+    const idle = svgOf(render(<Specky alt="a" />).container.querySelector('img')!);
+    const still = svgOf(render(<Specky alt="b" animated={false} />).container.querySelector('img')!);
+    // Default = animated idle loop.
+    expect(idle.startsWith('/') ? idle.includes('specky') && !idle.includes('specky-static') : idle.includes('@keyframes')).toBe(true);
+    // animated={false} = a genuinely static frame: no animation at all.
+    expect(still.startsWith('/') ? still.includes('specky-static') : !still.includes('@keyframes')).toBe(true);
+    // ...but the same character artwork (the clip-body signature path).
+    expect(still.startsWith('/') || still.includes('M 78 300 L 78 122')).toBe(true);
   });
 
   it('is decorative by default (alt="") so it does not double-announce inside a labelled control', () => {

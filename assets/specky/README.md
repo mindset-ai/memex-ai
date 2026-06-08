@@ -11,7 +11,8 @@ This directory is the **canonical source of truth** for the Specky assets.
 
 | File | Role |
 |---|---|
-| `specky.svg` | **Primary deliverable.** Self-contained animated SVG — transparent background, crisp at any size, idle loop defined entirely in its `<style>` block. This is the asset the web app uses. |
+| `specky.svg` | **Primary deliverable.** Self-contained animated SVG — transparent background, crisp at any size, idle loop defined entirely in its `<style>` block. The live session-pill avatar (dec-1). |
+| `specky-static.svg` | The **quiet-doorway** variant (dec-2 / ac-8): the same artwork with the animation/style block removed, so it never moves. Used for the in-view entry mark so a paperclip isn't wobbling in every view. Derived from `specky.svg` — keep the two artworks in sync (a tagged test guards this). |
 | `make_raster.py` | Regenerates the raster fallbacks (`specky.gif`, `specky.png`) from `specky.svg`. |
 | `specky.gif` / `specky.png` | *(optional)* Raster fallbacks for non-web surfaces that can't run SVG (e.g. email). Regenerate with `make_raster.py`. Not required by the web app. |
 
