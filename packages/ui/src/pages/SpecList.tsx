@@ -17,7 +17,8 @@ import { RenameSpecDialog } from '../components/RenameSpecDialog';
 import { MoveSpecDialog } from '../components/MoveSpecDialog';
 import { tenantPath, getCurrentTenant } from '../utils/tenantUrl';
 import { useAuth } from '../components/AuthContext';
-import { useHandholdReveal, nextRevealPhase, type RevealPhase } from '../hooks/useHandholdReveal';
+import { nextRevealPhase, type RevealPhase } from '../hooks/useHandholdReveal';
+import { useHandholdRevealValue } from '../hooks/HandholdRevealContext';
 import { useIsFeatureHidden } from '../hooks/useIsFeatureHidden';
 import { useMemexAccess } from '../hooks/useMemexAccess';
 import { CreateOrgBanner } from '../components/CreateOrgBanner';
@@ -414,7 +415,10 @@ export function SpecList() {
   // tracks its own walkthrough. `getCurrentTenant()` is null on caller-scoped
   // routes; the hook is null-safe and just collapses to a shared key there.
   const revealTenant = getCurrentTenant();
-  const { revealedPhase, advance: advanceReveal, reset: resetReveal } = useHandholdReveal(
+  // spec-206 t-2: read the SHARED reveal pointer (provider in App.tsx) so the
+  // Specky synced walkthrough and the board advance together; falls back to a
+  // standalone pointer when no provider is mounted (isolation/tests).
+  const { revealedPhase, advance: advanceReveal, reset: resetReveal } = useHandholdRevealValue(
     revealTenant?.namespace ?? null,
     revealTenant?.memex ?? null,
   );

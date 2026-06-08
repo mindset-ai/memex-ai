@@ -35,6 +35,7 @@ function buildApp(routePath: string) {
       emailVerifiedAt: new Date(),
       status: "active",
       namespaceId: "ns-user-1",
+      onboardingGreetedAt: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     });

@@ -17,6 +17,8 @@ const AC28 = 'mindset-prod/memex-building-itself/specs/spec-190/acs/ac-28';
 // screen it's talking about; ac-4 = on request it navigates to the right section.
 const AC3 = 'mindset-prod/memex-building-itself/specs/spec-190/acs/ac-3';
 const AC4 = 'mindset-prod/memex-building-itself/specs/spec-190/acs/ac-4';
+// spec-206 t-2: the orchestrator-commandable advance.
+const AC206_8 = 'mindset-prod/memex-building-itself/specs/spec-206/acs/ac-8';
 
 function ctx(navigate = vi.fn()): NavigateContext {
   return { namespace: 'acme', memex: 'team', navigate };
@@ -76,5 +78,18 @@ describe('dispatchGuideUiTool — client toolset guard (ac-28)', () => {
     }
     expect(navigate).toHaveBeenCalledTimes(1); // only the legit navigate fired
     tagAc(AC28);
+  });
+
+  it('routes advance_demo to the wired advance callback (spec-206 ac-8)', () => {
+    const advanceDemo = vi.fn();
+    const r = dispatchGuideUiTool('advance_demo', {}, { ...ctx(), advanceDemo });
+    expect(r.ok).toBe(true);
+    expect(advanceDemo).toHaveBeenCalledTimes(1);
+    tagAc(AC206_8);
+  });
+
+  it('advance_demo is a no-op (never throws) when no advance callback is wired', () => {
+    // ctx() has no advanceDemo — degrade gracefully rather than throw.
+    expect(dispatchGuideUiTool('advance_demo', {}, ctx()).ok).toBe(false);
   });
 });

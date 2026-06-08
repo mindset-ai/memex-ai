@@ -82,6 +82,17 @@ export async function clearUserName(email: string): Promise<void> {
 }
 
 /**
+ * Set/clear a user's first-run greeting flag (spec-206). `greeted: true` stamps
+ * onboarding_greeted_at (so Specky's auto-greeting won't fire); `false` un-greets
+ * so it will. The per-test fixture pre-stamps the dev user `true` so the greeting
+ * never surprises other journeys; the onboarding journey sets it `false` to drive
+ * the auto-greeting deterministically.
+ */
+export async function setOnboardingGreeted(email: string, greeted: boolean): Promise<void> {
+  await call("POST", "/onboarding-greeted", { email, greeted });
+}
+
+/**
  * Seed a Spec into a memex through the server's createDocDraft service — so the
  * bus emits `document created` and the SSE-reactive UI sees it like a real Spec.
  * The service mints the handle; we return both the docId (cleanup) and the

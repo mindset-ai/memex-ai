@@ -34,6 +34,7 @@ import { wellKnown, publicBaseUrl } from "./routes/well-known.js";
 import driftRouter from "./routes/drift.js";
 import { search } from "./routes/search.js";
 import { handhold } from "./routes/handhold.js";
+import { onboarding } from "./routes/onboarding.js";
 import { testEventsRouter } from "./routes/test-events.js";
 import { testOnlyRouter } from "./routes/__test__.js";
 import { hostGuard, memexResolver } from "./middleware/memex-resolver.js";
@@ -302,6 +303,10 @@ app.route("/api/llm", llmRouter);
 // per-memex semantics, so prefixing them would be noise.
 app.route("/api/waitlist", waitlist);
 app.route("/api/auth", auth);
+// /api/onboarding — spec-206: the user-level first-run greeting gate for the
+// Specky welcome (greet-eligibility read + once-per-user stamp). User-keyed, no
+// memex semantics, so it stays flat.
+app.route("/api/onboarding", onboarding);
 // /api/orgs — t-14 + t-16 of doc-15. Single org-creation + admin surface.
 // Replaces the retired /api/accounts and /api/account mounts.
 app.route("/api/orgs", orgsRouter);

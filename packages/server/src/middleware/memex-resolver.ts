@@ -54,6 +54,8 @@ const NON_TENANT_API_PREFIXES = [
   "/api/me",
   "/api/oauth/",
   "/api/oauth",
+  "/api/onboarding/",
+  "/api/onboarding", // exact — spec-206 first-run greeting gate (user-level)
   "/api/install",
   "/install.sh",
   "/install.ps1",
@@ -92,6 +94,7 @@ const RESERVED_API_ROOTS = new Set([
   "cli",
   "mcp",
   "me",
+  "onboarding",
   "orgs",
   "namespaces",
   "consent",

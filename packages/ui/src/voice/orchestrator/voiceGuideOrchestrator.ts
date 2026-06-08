@@ -42,6 +42,9 @@ export interface ScreenContext {
 /** React-bound deps the factory needs (only resolvable inside the router tree). */
 export interface VoiceOrchestratorReactDeps {
   navigate: (path: string) => void;
+  /** spec-206 t-2/dec-1: advance the shared Handhold reveal pointer — the guide's
+   *  `advance_demo` tool calls this to walk the demo board during the walkthrough. */
+  advanceDemo: () => void;
   getScreenContext: () => ScreenContext;
   /** Current session bearer token (for the WS connect-query + the SSE leg). */
   authToken: () => string | null;
@@ -227,7 +230,12 @@ class VoiceGuideOrchestrator implements VoiceOrchestrator {
                 assistantText += t;
               },
               onUiTool: (name: string, _id: string, input: Record<string, unknown>) => {
-                dispatchGuideUiTool(name, input, { namespace, memex, navigate: this.react.navigate });
+                dispatchGuideUiTool(name, input, {
+                  namespace,
+                  memex,
+                  navigate: this.react.navigate,
+                  advanceDemo: this.react.advanceDemo,
+                });
               },
             },
           },

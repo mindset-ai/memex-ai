@@ -178,6 +178,23 @@ export async function markEmailVerified(userId: string): Promise<User> {
   return updated;
 }
 
+// spec-206 t-1 (dec-3 / dec-4 / ac-14): stamp the first-run greeting flag.
+// Idempotent — the FIRST greeting wins; a later call is a no-op that preserves
+// the original timestamp, so the auto-greeting never re-fires (on any device).
+// Called by the client only once Specky's opening turn reaches `active` (dec-4).
+export async function markOnboardingGreeted(userId: string): Promise<User> {
+  const existing = await getUserById(userId);
+  if (!existing) throw new ValidationError(`User ${userId} not found`);
+  if (existing.onboardingGreetedAt) return existing;
+
+  const [updated] = await db
+    .update(users)
+    .set({ onboardingGreetedAt: new Date(), updatedAt: new Date() })
+    .where(eq(users.id, userId))
+    .returning();
+  return updated;
+}
+
 export async function setUserPasswordHash(userId: string, passwordHash: string): Promise<User> {
   const [updated] = await db
     .update(users)

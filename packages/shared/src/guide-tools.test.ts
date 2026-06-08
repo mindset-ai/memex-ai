@@ -12,10 +12,26 @@ import {
 
 const AC26 = 'mindset-prod/memex-building-itself/specs/spec-190/acs/ac-26';
 const AC28 = 'mindset-prod/memex-building-itself/specs/spec-190/acs/ac-28';
+// spec-206 t-4: the synced-walkthrough advance tool.
+const AC206_7 = 'mindset-prod/memex-building-itself/specs/spec-206/acs/ac-7';
 
 describe('guide toolset — no product-data tools (ac-28)', () => {
-  it('contains exactly highlight, navigate, search_guide and nothing else', () => {
-    expect([...GUIDE_TOOL_NAMES].sort()).toEqual(['highlight', 'navigate', 'search_guide']);
+  it('contains exactly the UI/guide tools and nothing else', () => {
+    // spec-206 added advance_demo (a pure UI affordance — no tenant data).
+    expect([...GUIDE_TOOL_NAMES].sort()).toEqual([
+      'advance_demo',
+      'highlight',
+      'navigate',
+      'search_guide',
+    ]);
+  });
+
+  it('exposes advance_demo for the demo-specs walkthrough (spec-206 ac-7)', () => {
+    const tool = GUIDE_TOOLS.find((t) => t.name === 'advance_demo');
+    expect(tool).toBeDefined();
+    expect(tool!.description.toLowerCase()).toContain('walkthrough');
+    expect(tool!.input_schema.type).toBe('object');
+    tagAc(AC206_7);
   });
 
   it('contains NO product-data / tenant-content tool', () => {
