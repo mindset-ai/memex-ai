@@ -47,4 +47,12 @@ describe('spec-141 ac-3: consolidated Integrations page', () => {
     expect(screen.getByRole('heading', { name: 'MCP Tokens' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Install Memex MCP' })).toBeInTheDocument();
   });
+
+  it('composes the spec-201 Genesis-prompt section', async () => {
+    tagAc('mindset-prod/memex-building-itself/specs/spec-201/acs/ac-21');
+    renderPage();
+    expect(
+      await screen.findByRole('heading', { name: 'Set up with one prompt' })
+    ).toBeInTheDocument();
+  });
 });

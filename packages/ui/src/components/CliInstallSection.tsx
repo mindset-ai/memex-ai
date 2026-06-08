@@ -4,18 +4,13 @@
 // (/install/mcp/auth, InstallAuth) is unaffected — this is only the
 // human-facing "how to install" copy. Cross-link to MCP tokens is now an
 // in-page anchor.
+//
+// spec-201: the URL derivation moved to utils/mcpUrl.ts and the code-block
+// primitives to components/CodeBlock.tsx, both shared with GenesisPromptSection.
 
 import { useState } from 'react';
-
-const API_URL = import.meta.env.VITE_API_URL ?? '';
-const isDeployed = API_URL.startsWith('http');
-
-// Bootstrap URLs (/install.{sh,ps1}) are served from the same Cloud Run service
-// that hosts the API — the canonical host is whatever VITE_API_URL resolves to.
-// In dev we point at the local server's bootstrap path.
-const installBase = isDeployed
-  ? API_URL.replace(/\/api\/?$/, '')
-  : 'http://localhost:8080';
+import { CodeBlock, InlineCode } from './CodeBlock';
+import { installBase } from '../utils/mcpUrl';
 
 const SH_COMMAND = `curl -fsSL ${installBase}/install.sh | sh`;
 const PS_COMMAND = `irm ${installBase}/install.ps1 | iex`;
@@ -28,40 +23,6 @@ function detectOs(): 'mac' | 'linux' | 'windows' | 'unknown' {
   if (p.includes('win') || u.includes('windows')) return 'windows';
   if (p.includes('linux') || u.includes('linux')) return 'linux';
   return 'unknown';
-}
-
-function CopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <button
-      onClick={() => {
-        navigator.clipboard.writeText(text).then(() => {
-          setCopied(true);
-          setTimeout(() => setCopied(false), 2000);
-        });
-      }}
-      className="absolute top-2 right-2 px-2 py-1 text-xs font-medium rounded transition-colors bg-btn-secondary hover:bg-btn-secondary-hover text-secondary"
-    >
-      {copied ? 'Copied!' : 'Copy'}
-    </button>
-  );
-}
-
-function CodeBlock({ code }: { code: string }) {
-  return (
-    <div className="relative group">
-      <CopyButton text={code} />
-      <pre className="border rounded-lg p-4 overflow-x-auto text-sm leading-relaxed bg-surface border-edge">
-        <code className="text-primary">{code}</code>
-      </pre>
-    </div>
-  );
-}
-
-function InlineCode({ children }: { children: React.ReactNode }) {
-  return (
-    <code className="px-1.5 py-0.5 rounded text-xs text-primary bg-input">{children}</code>
-  );
 }
 
 export function CliInstallSection() {

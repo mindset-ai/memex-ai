@@ -6,12 +6,14 @@
 //   - <DiscordIntegrationSection/> — Enterprise (lives under components/.ee/, spec-138)
 //   - <McpTokensSection/>          — open core (MCP token management).
 //   - <CliInstallSection/>         — open core (install instructions).
+//   - <GenesisPromptSection/>      — open core (spec-201: one-paste agent setup).
 // The retired routes redirect here (see App.tsx).
 
 import { SlackIntegrationSection } from '../components/.ee/SlackIntegrationSection';
 import { DiscordIntegrationSection } from '../components/.ee/DiscordIntegrationSection';
 import { McpTokensSection } from '../components/McpTokensSection';
 import { CliInstallSection } from '../components/CliInstallSection';
+import { GenesisPromptSection } from '../components/GenesisPromptSection';
 
 export function SettingsIntegrations() {
   // AppShell's <main> is `overflow-hidden`, so each page owns its own scroll
@@ -30,6 +32,7 @@ export function SettingsIntegrations() {
         <DiscordIntegrationSection />
         <McpTokensSection />
         <CliInstallSection />
+        <GenesisPromptSection />
       </div>
     </div>
   );
