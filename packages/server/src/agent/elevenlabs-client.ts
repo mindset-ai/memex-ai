@@ -150,7 +150,13 @@ export function __resetVoiceProviderForTests(): void {
 const EL_BASE = "wss://api.elevenlabs.io";
 const DEFAULT_VOICE_ID = "21m00Tcm4TlvDq8ikWAM"; // ElevenLabs "Rachel" (documented default voice)
 const DEFAULT_TTS_MODEL = "eleven_flash_v2_5"; // lowest-latency model — the ping budget (dec-6) is tight
-const DEFAULT_TTS_FORMAT = "mp3_44100_128";
+// Raw PCM, NOT mp3: the browser plays streamed chunks back-to-back, and MP3
+// chunks aren't independently decodable (frame boundaries split across chunks →
+// decodeAudioData clicks/gaps → audible stutter on longer replies). PCM chunks are
+// self-contained 16-bit LE samples the playback queue turns straight into
+// AudioBuffers. Keep this sample rate in sync with PCM_PLAYBACK_RATE in
+// ui/src/voice/playbackQueue.ts.
+const DEFAULT_TTS_FORMAT = "pcm_24000";
 // Realtime STT is Scribe v2 Realtime (the older scribe_v1 is batch-only). Endpoint,
 // message protocol, and model were validated against the live API via
 // scripts/smoke-elevenlabs.ts. Overridable so a model bump needs no code change.
