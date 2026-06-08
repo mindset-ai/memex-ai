@@ -17,6 +17,7 @@
 import { z } from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { and, eq, isNull, notInArray } from "drizzle-orm";
+import { WHATS_NEW_SYSTEM_PROMPT } from "@memex/shared";
 import { getAnthropicClient } from "../agent/anthropic-client.js";
 import { db } from "../db/connection.js";
 import { documents, memexes, namespaces } from "../db/schema.js";
@@ -65,23 +66,6 @@ export interface GenerateOptions {
   /** Injected client for tests; defaults to the shared Anthropic client. */
   client?: AnthropicLike;
 }
-
-// The generation prompt. Kept here (not packages/server/src/agent/phases/) to
-// mirror the clause-translator transform-prompt precedent; could move to
-// @memex/shared if a reviewer prefers parity with CLAUSE_TRANSLATOR_PROMPT.
-export const WHATS_NEW_SYSTEM_PROMPT = `You write release notes for Memex users.
-
-You are given a digest of a software Spec that just shipped to production: its purpose, the decisions made, and the acceptance criteria that define success. Turn it into ONE release-note entry with three fields:
-
-- "title": a short, friendly, benefit-led headline (max ~8 words). Describe the user-visible win, not the internal feature name. No "spec-N", no jargon.
-- "what": one or two plain sentences saying WHAT changed, from the user's point of view.
-- "why": one or two plain sentences saying WHY it matters to the user — the benefit they get.
-
-Rules:
-- Write for an end user, never an engineer. No internal vocabulary (no "decision", "AC", "migration", "endpoint", phase names, file paths).
-- Lead with the benefit. This is a "here's what's new and why you'll like it" note, not a changelog line.
-- Be concrete and warm, never marketing-fluffy. No exclamation-mark spam.
-- If the Spec is purely internal with no user-facing effect, still describe the closest user benefit honestly (e.g. reliability, speed) rather than inventing a feature.`;
 
 interface SpecSlugs {
   namespace: string;

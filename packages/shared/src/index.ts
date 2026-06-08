@@ -82,6 +82,7 @@ export { BASE_REVIEW } from './scaffold-data.js';
 // spec-150 dec-6: the clause-translator system prompt (std-15 — one home; shared by
 // the server migration and spec-142's admin standards agent).
 export { CLAUSE_TRANSLATOR_PROMPT } from './scaffold-data.js';
+export { WHATS_NEW_SYSTEM_PROMPT } from './scaffold-data.js';
 // spec-143 t-4 (dec-6) — drift-agent mode block, injected by buildSystemBlocks
 // when the per-request driftMode flag is set (the React UI's Drift Inbox sets
 // mode "drift"). Lives in the scaffold model (one home, std-15/std-16), not as a

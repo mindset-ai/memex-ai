@@ -120,6 +120,9 @@ const ALLOWLIST: Record<string, string> = {
   // ── Bus sink ────────────────────────────────────────────────────────────
   "services/activity-log.ts":
     "bus sink — wrapping would recurse on emit. persistEvent() is the single subscriber that writes activity_log rows in response to a bus event; routing its insert through mutate() would emit another event, which the sink would persist, which would emit again. Must stay outside mutate() by construction.",
+  // ── Global, non-tenant feed ──────────────────────────────────────────────
+  "services/whats-new.ts":
+    "Global append-only release-notes feed (spec-200). whats_new_entries has NO memexId/userId — it is one global feed (dec-3), identical for every user, generated at deploy time (dec-1/dec-2). With no tenant/doc entity there is nothing to emit on the memexId-keyed SSE bus; the UI reads it on load (deliberately no live SSE — dec-4). Same category as test-event-latest.ts / activity-log.ts: append-only, must not emit.",
   // ── Code-intelligence ingestion (extractor / repo-data cluster) ──────────
   // std-8 §6 classifies repos, repo_scope, files, symbols, dependencies, calls,
   // embeddings, repo_endpoints, repo_structure, repo_patterns, repo_domains,
