@@ -125,3 +125,44 @@ export function tenantPathFor(
 export function namespaceHomePath(slug: string): string {
   return `/${slug}/`;
 }
+
+// Minimal membership shape resolveNavTo needs (a subset of the session
+// membership rows).
+export interface MembershipForNav {
+  slug: string;
+  memexSlug: string;
+  kind: "personal" | "team";
+}
+
+// spec-201: resolve a tenant-relative path (e.g. "/keys") to an absolute,
+// memex-scoped URL. Extracted from AppShell so non-shell surfaces (the
+// Integrations AC-emitter section) can build the same deep links.
+//
+// Resolution order: (1) the tenant in the current path, (2) the namespace in
+// the current path matched against a membership, (3) the user's personal (or
+// first) membership, (4) the path unchanged when no tenant context exists.
+export function resolveNavTo(
+  toInTenant: string,
+  pathname: string,
+  memberships: MembershipForNav[] | undefined,
+): string {
+  const normalized = toInTenant.startsWith("/") ? toInTenant : `/${toInTenant}`;
+  const suffix = normalized === "/" ? "" : normalized;
+
+  const tenant = parseTenantFromPathname(pathname);
+  if (tenant) return `/${tenant.namespace}/${tenant.memex}${suffix}`;
+
+  const ns = parseNamespaceFromPathname(pathname);
+  if (ns && memberships) {
+    const m = memberships.find((row) => row.slug === ns);
+    if (m) return `/${ns}/${m.memexSlug}${suffix}`;
+  }
+
+  if (memberships && memberships.length > 0) {
+    const personal =
+      memberships.find((row) => row.kind === "personal") ?? memberships[0];
+    return `/${personal.slug}/${personal.memexSlug}${suffix}`;
+  }
+
+  return normalized;
+}

@@ -4,21 +4,30 @@
 // (/install/mcp/auth, InstallAuth) is unaffected — this is only the
 // human-facing "how to install" copy. Cross-link to MCP tokens is now an
 // in-page anchor.
+//
+// spec-201: the URL derivation moved to utils/mcpUrl.ts and the code-block
+// primitives to components/CodeBlock.tsx, both shared with GenesisPromptSection.
 
 import { useState } from 'react';
-
-const API_URL = import.meta.env.VITE_API_URL ?? '';
-const isDeployed = API_URL.startsWith('http');
-
-// Bootstrap URLs (/install.{sh,ps1}) are served from the same Cloud Run service
-// that hosts the API — the canonical host is whatever VITE_API_URL resolves to.
-// In dev we point at the local server's bootstrap path.
-const installBase = isDeployed
-  ? API_URL.replace(/\/api\/?$/, '')
-  : 'http://localhost:8080';
+import { CodeBlock, InlineCode } from './CodeBlock';
+import { installBase } from '../utils/mcpUrl';
 
 const SH_COMMAND = `curl -fsSL ${installBase}/install.sh | sh`;
 const PS_COMMAND = `irm ${installBase}/install.ps1 | iex`;
+
+// spec-201 dec-4: the canonical MCP endpoint, shared by the claude.ai web and
+// Cursor connect steps below. Same derivation as the manual configs.
+const MCP_URL = `${installBase}/mcp`;
+
+// Cursor MCP config — remote server over HTTP. url-only is correct for dynamic
+// OAuth (spec-31): Cursor runs the sign-in flow on connect (no static token).
+const CURSOR_CONFIG = `{
+  "mcpServers": {
+    "memex": {
+      "url": "${MCP_URL}"
+    }
+  }
+}`;
 
 function detectOs(): 'mac' | 'linux' | 'windows' | 'unknown' {
   if (typeof navigator === 'undefined') return 'unknown';
@@ -28,40 +37,6 @@ function detectOs(): 'mac' | 'linux' | 'windows' | 'unknown' {
   if (p.includes('win') || u.includes('windows')) return 'windows';
   if (p.includes('linux') || u.includes('linux')) return 'linux';
   return 'unknown';
-}
-
-function CopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <button
-      onClick={() => {
-        navigator.clipboard.writeText(text).then(() => {
-          setCopied(true);
-          setTimeout(() => setCopied(false), 2000);
-        });
-      }}
-      className="absolute top-2 right-2 px-2 py-1 text-xs font-medium rounded transition-colors bg-btn-secondary hover:bg-btn-secondary-hover text-secondary"
-    >
-      {copied ? 'Copied!' : 'Copy'}
-    </button>
-  );
-}
-
-function CodeBlock({ code }: { code: string }) {
-  return (
-    <div className="relative group">
-      <CopyButton text={code} />
-      <pre className="border rounded-lg p-4 overflow-x-auto text-sm leading-relaxed bg-surface border-edge">
-        <code className="text-primary">{code}</code>
-      </pre>
-    </div>
-  );
-}
-
-function InlineCode({ children }: { children: React.ReactNode }) {
-  return (
-    <code className="px-1.5 py-0.5 rounded text-xs text-primary bg-input">{children}</code>
-  );
 }
 
 export function CliInstallSection() {
@@ -76,7 +51,8 @@ export function CliInstallSection() {
       <h2 id="install-cli-heading" className="text-xl font-semibold mb-2 text-heading">Install Memex MCP</h2>
       <p className="mb-8 text-secondary">
         Connect Memex to Claude Code and Claude Desktop. The installer opens your browser
-        once to authorize this device — after that it works without ever expiring.
+        once to authorize this device — after that it works without ever expiring. Using
+        claude.ai (web) or Cursor instead? See <a href="#other-clients" className="underline hover:text-primary">Other clients</a> below.
       </p>
 
       <div className="mb-10">
@@ -102,6 +78,38 @@ export function CliInstallSection() {
           </a>{' '}
           section above.
         </p>
+      </div>
+
+      {/* spec-201 dec-4: claude.ai web + Cursor. Both complete OAuth on connect,
+          so there's no token to paste — they just need the MCP URL. */}
+      <div id="other-clients" className="mb-10">
+        <h3 className="text-base font-medium mb-3 text-heading">Other clients</h3>
+        <p className="text-sm mb-3 text-secondary">
+          claude.ai (web) and Cursor connect to the same endpoint and sign in over OAuth —
+          no token to paste. Your MCP URL:
+        </p>
+        <CodeBlock code={MCP_URL} />
+
+        <div className="mt-6 space-y-6">
+          <div>
+            <h4 className="text-sm font-medium mb-2 text-heading">claude.ai (web)</h4>
+            <ol className="list-decimal list-inside text-sm space-y-1 text-secondary">
+              <li>Open <strong>Settings → Connectors</strong>.</li>
+              <li>Click <strong>Add custom connector</strong>.</li>
+              <li>Name it <InlineCode>Memex</InlineCode> and paste the MCP URL above.</li>
+              <li>Save, then complete the sign-in in the popup.</li>
+            </ol>
+          </div>
+          <div>
+            <h4 className="text-sm font-medium mb-2 text-heading">Cursor</h4>
+            <p className="text-xs mb-2 text-secondary">
+              Add to <InlineCode>.cursor/mcp.json</InlineCode> (this project) or{' '}
+              <InlineCode>~/.cursor/mcp.json</InlineCode> (everywhere), then reload Cursor and
+              complete the OAuth sign-in:
+            </p>
+            <CodeBlock code={CURSOR_CONFIG} />
+          </div>
+        </div>
       </div>
 
       <div>

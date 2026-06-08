@@ -24,6 +24,11 @@ export type {
 export { toolManifest } from './tool-manifest.js';
 export type { ToolManifestEntry } from './tool-manifest.js';
 
+// spec-201 dec-3: the per-language AC-emitter adapter catalogue (single source
+// for the Integrations install matrix).
+export { acEmitterManifest, AC_EMITTER_STATUSES } from './ac-emitter-manifest.js';
+export type { AcEmitterEntry, AcEmitterStatus } from './ac-emitter-manifest.js';
+
 // b-68 t-1: the scaffold model. The base scaffold DATA (records) will be
 // added in t-2 as `scaffold-data.ts`; this export surface is the shape +
 // projection contract everything else builds against.
