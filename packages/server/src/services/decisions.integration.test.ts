@@ -739,6 +739,9 @@ describe("resolveDecision with chosenOptionIndex", () => {
   });
 
   it("persists chosenOptionIndex when within bounds", async () => {
+    // spec-209 ac-4: the with-options path is unchanged — an in-bounds index records.
+    tagAc("mindset-prod/memex-building-itself/specs/spec-209/acs/ac-4");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-209/acs/ac-2"); // scope
     const dec = await createDecision(memexId, docId, "Pick");
     await setDecisionOptions(memexId, dec.id, [
       { label: "A", trade_offs: "x" },
@@ -750,6 +753,9 @@ describe("resolveDecision with chosenOptionIndex", () => {
   });
 
   it("throws when chosenOptionIndex is out of bounds", async () => {
+    // spec-209 ac-4: the with-options path is unchanged — out-of-bounds still errors.
+    tagAc("mindset-prod/memex-building-itself/specs/spec-209/acs/ac-4");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-209/acs/ac-2"); // scope
     const dec = await createDecision(memexId, docId, "Pick OOB");
     await setDecisionOptions(memexId, dec.id, [{ label: "Solo", trade_offs: "only" }]);
     await expect(
@@ -757,11 +763,17 @@ describe("resolveDecision with chosenOptionIndex", () => {
     ).rejects.toThrow(ValidationError);
   });
 
-  it("throws when chosenOptionIndex is provided but no options exist", async () => {
-    const dec = await createDecision(memexId, docId, "No options");
-    await expect(resolveDecision(memexId, dec.id, "should fail", 0)).rejects.toThrow(
-      ValidationError,
-    );
+  it("resolves on the prose when a chosenOptionIndex is supplied but no options exist (spec-209 dec-1)", async () => {
+    // Pre-spec-209 this threw "chosenOptionIndex requires options to be set" —
+    // the dominant resolve_decision failure (88% of its errors on prod). Now the
+    // meaningless index is dropped and the decision resolves on the prose.
+    tagAc("mindset-prod/memex-building-itself/specs/spec-209/acs/ac-3");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-209/acs/ac-1"); // scope
+    const dec = await createDecision(memexId, docId, "No options, index supplied");
+    const resolved = await resolveDecision(memexId, dec.id, "resolved on prose", 0);
+    expect(resolved.status).toBe("resolved");
+    expect(resolved.resolution).toBe("resolved on prose");
+    expect(resolved.chosenOptionIndex).toBeNull();
   });
 
   it("works without chosenOptionIndex (legacy callers)", async () => {
