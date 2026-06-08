@@ -42,9 +42,13 @@ describe("Channel 1 — list_acs surfaces coverage gap", () => {
     expect(toolSpecs).toMatch(/verificationState/);
   });
 
-  it("emits an aggregate covered/verified header at the top", () => {
+  it("emits an aggregate coverage header that leads with the gap, not a trophy", () => {
+    // spec-207 dec-1: the headline routes through formatAcCoverageSummary.
     expect(toolSpecs).toMatch(/% covered/);
-    expect(toolSpecs).toMatch(/% verified \(of covered\)/);
+    expect(toolSpecs).toMatch(/formatAcCoverageSummary/);
+    // The self-flattering "verified (of covered)" trophy is gone — a partially
+    // covered Spec must never read as 100% verified (spec-207 ac-2).
+    expect(toolSpecs).not.toMatch(/% verified \(of covered\)/);
   });
 
   it("emits a tail nudge pointing at the test-coverage topic when any AC is untested", () => {
@@ -85,12 +89,16 @@ describe("Channel 2 — phase-transition advice carries a coverage paragraph", (
 
   it("verbose get_doc prepends the coverage header for Specs", () => {
     // The wiring lives inside the get_doc handler — assert the helper is
-    // called there and its result is concatenated with the formatted state.
+    // called there and its result reaches the composer as a header-zone block.
     expect(toolSpecs).toMatch(
       /const coverageHeader = await formatCoverageHeader\([\s\S]*?doc\.docType,[\s\S]*?\);/,
     );
+    // spec-203 t-3: the coverage header is now passed to formatState as a
+    // header-zone InjectedBlock (the composer places it above the doc), not
+    // string-concatenated at the call site. Output is byte-identical; this
+    // guard pins the new wiring.
     expect(toolSpecs).toMatch(
-      /\$\{coverageHeader\}\$\{await formatState\(url, state, ctx\)\}/,
+      /\{ zone: "header", content: coverageHeader \}/,
     );
   });
 });

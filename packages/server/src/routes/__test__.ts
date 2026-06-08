@@ -13,17 +13,19 @@ import {
   type QueuedFakeResponse,
 } from "../agent/anthropic-fake.js";
 import { db } from "../db/connection.js";
-import { users, namespaces, memexes, orgMemberships, orgs, documents, decisions } from "../db/schema.js";
+import { users, namespaces, memexes, orgMemberships, orgs, documents, decisions, whatsNewEntries } from "../db/schema.js";
 import {
   getUserByEmail,
   upsertUserByEmail,
   updateUserProfile,
   markEmailVerified,
+  markOnboardingGreeted,
   createUserWithPassword,
 } from "../services/users.js";
 import { ensureUserNamespace, ensureUserMemex } from "../services/user-namespaces.js";
 import { createDocDraft, updateDocStatus } from "../services/documents.js";
 import { markNarrativeConsolidated } from "../services/narrative.js";
+import { publishEntry } from "../services/whats-new.js";
 import { createDecision } from "../services/decisions.js";
 import { hashPassword } from "../services/passwords.js";
 import { issueAuthToken } from "../services/auth-tokens.js";
@@ -164,6 +166,37 @@ testOnlyRouter.post("/user-name", async (c) => {
   return c.json({ ok: true });
 });
 
+// spec-206 t-5: set/clear a user's first-run greeting flag. The onboarding journey
+// un-greets the dev user to drive the auto-greeting deterministically; the per-test
+// fixture + globalSetup pre-stamp it greeted so the auto-greeting never surprises
+// OTHER journeys (it would otherwise fire on the shared dev user's first board load
+// wherever a mic is available). greeted=true uses the real service; greeted=false
+// is a direct nulling (un-greeting exists only for tests).
+const onboardingGreetedSchema = z.object({
+  email: z.string().email(),
+  greeted: z.boolean(),
+});
+testOnlyRouter.post("/onboarding-greeted", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = onboardingGreetedSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
+  }
+  const { email, greeted } = parsed.data;
+  const user = await getUserByEmail(email);
+  if (!user) return c.json({ error: `User ${email} not found` }, 404);
+
+  if (greeted) {
+    await markOnboardingGreeted(user.id);
+  } else {
+    await db
+      .update(users)
+      .set({ onboardingGreetedAt: null, updatedAt: new Date() })
+      .where(eq(users.id, user.id));
+  }
+  return c.json({ ok: true });
+});
+
 // Seed a Spec (documents row + first section) into a memex through the real
 // createDocDraft service — so the bus emits a `document created` and the
 // SSE-reactive UI sees it like any real Spec. The service mints the handle
@@ -185,6 +218,35 @@ testOnlyRouter.post("/seed-spec", async (c) => {
   // The first (overview/purpose) section id — handy for journeys that mutate a
   // section over the API (e.g. the reactivity round-trips in journey-16).
   return c.json({ docId: result.id, handle: result.handle, sectionId: result.sections[0]?.id ?? null });
+});
+
+// spec-200 t-3/journey-22: seed a published What's New entry into the global feed
+// (the env-gated equivalent of the deploy-time generation step). Idempotent on
+// sourceSpecRef, like the real generation path.
+const seedWhatsNewSchema = z.object({
+  sourceSpecRef: z.string(),
+  sourceSpecHandle: z.string(),
+  title: z.string(),
+  whatText: z.string(),
+  whyText: z.string(),
+});
+testOnlyRouter.post("/seed-whats-new", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = seedWhatsNewSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
+  }
+  const entry = await publishEntry(parsed.data);
+  return c.json({ id: entry?.id ?? null });
+});
+
+// spec-200 journey-22: clear the global What's New feed so a seeded entry can't
+// leak into other journeys (the feed is global, and each test gets a fresh
+// browser context with no dismiss marker → the ribbon would otherwise show
+// everywhere). Test-only truncate.
+testOnlyRouter.delete("/whats-new", async (c) => {
+  await db.delete(whatsNewEntries);
+  return c.json({ ok: true });
 });
 
 // Hard-delete a seeded doc (cascades to its sections via the FK). Used by the

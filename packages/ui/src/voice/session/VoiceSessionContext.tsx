@@ -35,8 +35,10 @@ import {
 } from './orchestrator';
 
 export interface VoiceSessionValue extends VoiceSessionState {
-  /** Start a session: requests mic permission (first time), then begins the loop. */
-  start: () => Promise<void>;
+  /** Start a session: requests mic permission (first time), then begins the loop.
+   *  spec-200 t-7: pass `openingContext` to have the guide open by explaining it
+   *  (the What's New ear seeds the entry text). Omit for a normal session. */
+  start: (openingContext?: string) => Promise<void>;
   /** Tap-to-interrupt the agent mid-speech (manual barge-in fallback). */
   interrupt: () => void;
   /** End the session and release the mic. */
@@ -124,7 +126,7 @@ export function VoiceSessionProvider({
     streamRef.current = null;
   }, []);
 
-  const start = useCallback(async () => {
+  const start = useCallback(async (openingContext?: string) => {
     const current = stateRef.current;
     if (current.status === 'active' || current.status === 'requesting_permission') {
       return; // idempotent — already starting / running
@@ -149,7 +151,7 @@ export function VoiceSessionProvider({
     setState((s) => ({ ...s, status: 'active', loopState: 'listening' }));
 
     try {
-      await orchestrator.start(stream); // consumes the granted, AEC'd stream
+      await orchestrator.start(stream, openingContext); // consumes the granted, AEC'd stream
     } catch (err) {
       releaseStream();
       setState((s) => ({ ...s, status: 'error', error: err instanceof Error ? err.message : String(err) }));

@@ -18,9 +18,10 @@ import { callGuideLlmProxy, type GuideScreenElement } from './guideLlmClient';
 import type { MessageParam, ContentBlock, ToolUseBlock } from '../agent/types';
 
 /** Tools the guide executes CLIENT-side (React performs them): highlight a
- *  registry element, navigate to a registry screen (dec-4, t-5). search_guide is
+ *  registry element, navigate to a registry screen (dec-4, t-5), and advance the
+ *  demo board during the synced walkthrough (spec-206 t-4, dec-1). search_guide is
  *  a SERVER tool (dec-6, t-6) executed via the injected executor. */
-export const GUIDE_CLIENT_TOOLS = new Set(['highlight', 'navigate']);
+export const GUIDE_CLIENT_TOOLS = new Set(['highlight', 'navigate', 'advance_demo']);
 
 export const GuideState = Annotation.Root({
   /** Anthropic-format conversation. */

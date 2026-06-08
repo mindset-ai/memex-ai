@@ -82,6 +82,17 @@ export async function clearUserName(email: string): Promise<void> {
 }
 
 /**
+ * Set/clear a user's first-run greeting flag (spec-206). `greeted: true` stamps
+ * onboarding_greeted_at (so Specky's auto-greeting won't fire); `false` un-greets
+ * so it will. The per-test fixture pre-stamps the dev user `true` so the greeting
+ * never surprises other journeys; the onboarding journey sets it `false` to drive
+ * the auto-greeting deterministically.
+ */
+export async function setOnboardingGreeted(email: string, greeted: boolean): Promise<void> {
+  await call("POST", "/onboarding-greeted", { email, greeted });
+}
+
+/**
  * Seed a Spec into a memex through the server's createDocDraft service — so the
  * bus emits `document created` and the SSE-reactive UI sees it like a real Spec.
  * The service mints the handle; we return both the docId (cleanup) and the
@@ -93,6 +104,26 @@ export async function seedSpecInMemex(opts: {
   purpose?: string;
 }): Promise<{ docId: string; handle: string }> {
   return call<{ docId: string; handle: string }>("POST", "/seed-spec", opts);
+}
+
+/**
+ * Seed a published What's New entry into the GLOBAL feed (spec-200) — the
+ * env-gated equivalent of the deploy-time generation step. Idempotent on
+ * sourceSpecRef; returns the row id (or null if one already existed).
+ */
+export async function seedWhatsNewEntry(opts: {
+  sourceSpecRef: string;
+  sourceSpecHandle: string;
+  title: string;
+  whatText: string;
+  whyText: string;
+}): Promise<{ id: string | null }> {
+  return call<{ id: string | null }>("POST", "/seed-whats-new", opts);
+}
+
+/** Clear the global What's New feed so a seeded entry can't leak into other journeys. */
+export async function clearWhatsNewEntries(): Promise<void> {
+  await call("DELETE", "/whats-new");
 }
 
 /** Hard-delete a seeded doc by id (cascades to its sections). */

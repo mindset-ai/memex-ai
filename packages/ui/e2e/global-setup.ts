@@ -10,11 +10,21 @@
 // the onboarding journey deliberately clears the name to walk that screen (the
 // per-test fixture re-asserts the name so it can't leak forward).
 
-import { ensureUser, setUserName, DEV_EMAIL, DEV_NAME } from "./helpers/index.js";
+import {
+  ensureUser,
+  setUserName,
+  setOnboardingGreeted,
+  DEV_EMAIL,
+  DEV_NAME,
+} from "./helpers/index.js";
 
 export default async function globalSetup(): Promise<void> {
   // ensureUser provisions dev@memex.ai + its personal namespace/memex through the
   // server's real services; setUserName then skips the onboarding profile screen.
   await ensureUser(DEV_EMAIL);
   await setUserName(DEV_EMAIL, DEV_NAME);
+  // spec-206: pre-stamp the dev user greeted so Specky's first-run auto-greeting
+  // doesn't fire on the first journey to load the board (the per-test fixture
+  // re-asserts this too; the onboarding journey un-greets to drive it).
+  await setOnboardingGreeted(DEV_EMAIL, true);
 }

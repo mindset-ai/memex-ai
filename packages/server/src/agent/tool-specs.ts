@@ -161,6 +161,7 @@ import {
   formatStandard,
   renderStandardSectionBody,
   formatTerseSpecPhase,
+  type InjectedBlock,
 } from "../mcp/formatters.js";
 import { buildSketchBlock, type SketchAc } from "../mcp/ac-test-sketch.js";
 import { getStandard, flagDrift, proposeStandardChange } from "../services/standards.js";
@@ -190,9 +191,14 @@ import {
 import {
   blockerLines,
   toolManifest,
+  BASE_SCAFFOLD,
+  HANDOFF_BUTTON_BY_PHASE,
+  toButtonPrompt,
   type SpecPhase,
+  type Phase,
   type GuidanceBlock,
 } from "@memex/shared";
+import { claimFullHandoffDelivery } from "../services/handoff-delivery.js";
 import {
   assessNarrativeFreshness,
   markNarrativeConsolidated,
@@ -233,6 +239,15 @@ export interface ResolvedRef {
 
 export interface ToolCtx {
   userId: string;
+  /**
+   * spec-203 Layer 2 (dec-2): the MCP `Mcp-Session-Id` for this call, threaded
+   * from the dispatch layer (`createMcpServer`). The centralized footer machine
+   * (`formatState`) keys its once-per-(user, session, spec, phase) full-handoff
+   * delivery on it. Present only on the MCP surface; undefined for the in-app
+   * agent (which is primed via the shared_nudge channel, spec-123 dec-8) and for
+   * hand-rolled test ctxes — both keep the compressed-essence footer path.
+   */
+  sessionId?: string;
   /**
    * spec-156 ac-19: the surface invoking this handler — `mcp` for the MCP
    * server wrap (`mcp/tools.ts`), `in_app_agent` for the React agent loop
@@ -539,6 +554,10 @@ async function formatState(
   baseUrl: string,
   state: FullDocState,
   ctx?: ToolCtx,
+  // spec-203 dec-3 (t-3): tool-injected guidance blocks (coverage header, tag
+  // summary, nudges). Tools report these instead of concatenating around the
+  // call; the composer places them by zone. Absent for the many bare callers.
+  blocks?: readonly InjectedBlock[],
 ): Promise<string> {
   // The nudge channel only fires for Spec docs; skip the Org
   // blocks fetch for everything else to keep the cost off the hot path.
@@ -548,9 +567,34 @@ async function formatState(
     briefLike && ctx?.getOrgBlocksForNudge
       ? await ctx.getOrgBlocksForNudge()
       : undefined;
+  // spec-203 Layer 2 (dec-2): decide whether THIS response carries the full
+  // current-phase handoff (once per user+session+spec+phase, TTL-backstopped) or
+  // the compressed essence (Layer 1, every other response). Only the MCP surface
+  // threads a sessionId; the in-app agent (no sessionId) stays on the essence
+  // path. Resolve the interpolation context BEFORE claiming, so a context we
+  // can't build never burns a delivery.
+  let fullHandoff: string | undefined;
+  if (briefLike && ctx?.sessionId) {
+    const handoffButtonId = HANDOFF_BUTTON_BY_PHASE[state.doc.status as Phase];
+    const handoffContext = handoffButtonId
+      ? handoffInterpolationContext(baseUrl, state.doc)
+      : undefined;
+    if (
+      handoffButtonId &&
+      handoffContext &&
+      claimFullHandoffDelivery(ctx.userId, ctx.sessionId, state.doc.id, state.doc.status)
+    ) {
+      fullHandoff =
+        toButtonPrompt({
+          dataset: BASE_SCAFFOLD,
+          buttonId: handoffButtonId,
+          context: handoffContext,
+        }) ?? undefined;
+    }
+  }
   const nudge =
-    briefLike && (ctx?.toolName || orgBlocks)
-      ? { tool: ctx?.toolName, orgBlocks }
+    briefLike && (ctx?.toolName || orgBlocks || fullHandoff)
+      ? { tool: ctx?.toolName, orgBlocks, fullHandoff }
       : undefined;
   // spec-121 mechanism 1 — feed the build-phase nag its live AC-state lookup.
   // Only fetched for a Spec in `build` (the nag's only phase), reusing the same
@@ -579,7 +623,41 @@ async function formatState(
     acVerifications,
     // spec-136 t-4: the Spec's tags, rendered as a one-line strip in the header.
     state.tags,
+    // spec-203 dec-3 (t-3): tool-injected guidance, placed by the composer.
+    blocks,
   );
+}
+
+// spec-203 Layer 2 (dec-2): build the {namespace}/{memex}/{handle}/{title}/{url}
+// interpolation context the full handoff prompt needs, from the workspace URL
+// (origin/<namespace>/<memex>, the same `baseUrl` formatState already holds) and
+// the doc. Returns undefined when the URL can't be parsed (e.g. the in-app
+// agent's no-op empty workspace URL), in which case the footer keeps the
+// token-free essence rather than emitting an un-interpolated full prompt.
+function handoffInterpolationContext(
+  workspaceUrl: string,
+  doc: { handle: string; title: string },
+): { namespace: string; memex: string; handle: string; title: string; url: string } | undefined {
+  if (!workspaceUrl) return undefined;
+  let pathname: string;
+  try {
+    pathname = new URL(workspaceUrl).pathname;
+  } catch {
+    return undefined;
+  }
+  const segs = pathname.split("/").filter(Boolean);
+  if (segs.length < 2) return undefined;
+  const memex = segs[segs.length - 1];
+  const namespace = segs[segs.length - 2];
+  return {
+    namespace,
+    memex,
+    handle: doc.handle,
+    title: doc.title,
+    // Spec docs render under /specs/ (refs.ts DB_DOC_TYPE_TO_URL); the handoff
+    // only fires for specs, so the path segment is fixed.
+    url: `${workspaceUrl}/specs/${doc.handle}`,
+  };
 }
 
 // Per doc-12 t-6 / t-7 — soft guidance nudge appended to forward Spec
@@ -685,6 +763,60 @@ async function formatCoverageNudge(
 }
 
 /**
+ * spec-207 dec-1 — the single source of truth for the one-line AC coverage
+ * summary an agent reads to judge "is this Spec done?". Consumed by BOTH
+ * renderers — `formatCoverageHeader` (the get_doc doc-state header) and the
+ * `list_acs` handler — so the contract can't silently drift between them again.
+ * The two had already drifted in wording, and a `kind`-filtered `list_acs` once
+ * read fully green while scope ACs sat untested (the spec-201 false-done).
+ *
+ * Contract:
+ *  - LEADS WITH THE GAP: the count of not-verified ACs (untested + failing) and
+ *    their handles (`ac-1 ac-2 …`). The honest signal is never demoted to a
+ *    tail clause. (ac-1)
+ *  - No "verified (of covered)" headline — that trophy reads *better* the more
+ *    ACs you leave untested. Any percentage is denominated over the TOTAL rows
+ *    in the set, never the self-selecting covered subset. (ac-2)
+ *  - `hiddenByFilter` (list_acs only): when a kind/status filter shrank the set,
+ *    state how many active ACs fall outside it, so a filtered view can't
+ *    silently understate the gap. (ac-3)
+ *
+ * Pure over the `rows` it's handed (no DB, no clock). `stale` and `accepted`
+ * count as covered / not-a-gap, mirroring the spec-121 nag footer.
+ */
+export function formatAcCoverageSummary(
+  rows: AcWithVerification[],
+  opts: { hiddenByFilter?: number } = {},
+): string {
+  const total = rows.length;
+  const s = total === 1 ? "" : "s";
+  const notVerified = rows.filter(
+    (r) =>
+      r.verificationState === "untested" || r.verificationState === "failing",
+  );
+  const covered = rows.filter((r) => r.tests.length > 0).length;
+  const pctCovered = total === 0 ? 0 : Math.round((covered / total) * 100);
+
+  const gapLead =
+    notVerified.length === 0
+      ? `0 of ${total} AC${s} not verified`
+      : `${notVerified.length} of ${total} AC${s} NOT VERIFIED: ${notVerified
+          .map((r) => `ac-${r.ac.seq}`)
+          .join(" ")}`;
+
+  const parts = [gapLead, `${pctCovered}% covered (of ${total})`];
+
+  if (opts.hiddenByFilter && opts.hiddenByFilter > 0) {
+    const h = opts.hiddenByFilter;
+    parts.push(
+      `⚠ ${h} active AC${h === 1 ? "" : "s"} outside this filter (not counted above)`,
+    );
+  }
+
+  return parts.join(" · ");
+}
+
+/**
  * Render a one-line coverage header for a Spec, suitable for prepending to a
  * verbose doc-state dump. Returns "" when the Spec has no ACs (no signal),
  * or when the doc isn't a Spec.
@@ -699,23 +831,7 @@ async function formatCoverageHeader(
     const rows = await listAcsForBriefWithVerification(memexId, briefId);
     const active = rows.filter((r) => r.ac.status === "active");
     if (active.length === 0) return "";
-    const covered = active.filter((r) => r.tests.length > 0).length;
-    const total = active.length;
-    const untested = total - covered;
-    const failing = active.filter((r) => r.verificationState === "failing").length;
-    const verified = active.filter((r) => r.verificationState === "verified").length;
-    const pctCovered = Math.round((covered / total) * 100);
-    const pctVerified = covered === 0 ? 0 : Math.round((verified / covered) * 100);
-
-    const parts: string[] = [
-      `${total} active AC${total === 1 ? "" : "s"}`,
-      `${pctCovered}% covered`,
-      `${pctVerified}% verified (of covered)`,
-    ];
-    if (untested > 0) parts.push(`${untested} UNTESTED`);
-    if (failing > 0) parts.push(`${failing} failing`);
-
-    return `**AC coverage:** ${parts.join(" · ")}\n\n`;
+    return `**AC coverage:** ${formatAcCoverageSummary(active)}\n\n`;
   } catch {
     return "";
   }
@@ -1027,7 +1143,11 @@ export const toolSpecs: ToolSpec[] = [
           doc.id,
           doc.docType,
         );
-        return `${coverageHeader}${await formatState(url, state, ctx)}`;
+        // spec-203 dec-3 (t-3): the coverage header is a header-zone block — the
+        // composer places it above the doc; this handler no longer concatenates.
+        return await formatState(url, state, ctx, [
+          { zone: "header", content: coverageHeader },
+        ]);
       }
 
       // Terse: agent already has the doc context injected by the system
@@ -1329,7 +1449,12 @@ export const toolSpecs: ToolSpec[] = [
       if (ctx.verbose) {
         const state = await fullDocState(memexId, before.id);
         const url = await ctx.workspaceUrl(memexId);
-        return `${await formatState(url, state, ctx)}${tagSuffix}${nudge}`;
+        // spec-203 dec-3 (t-3): tag summary + transition nudge are footer-zone
+        // blocks, placed after the machine footer by the composer (same order).
+        return await formatState(url, state, ctx, [
+          { zone: "footer", content: tagSuffix },
+          { zone: "footer", content: nudge },
+        ]);
       }
       const fresh = await getDoc(memexId, before.id);
       // Per dec-1: on a status change include the deterministic phase header so
@@ -2218,10 +2343,9 @@ export const toolSpecs: ToolSpec[] = [
       // test count + derived state. Filtering is client-side because the
       // service signature doesn't accept filters — the row set is tiny
       // (rarely > 50 ACs per Spec) so the JS pass is negligible.
-      let rows: AcWithVerification[] = await listAcsForBriefWithVerification(
-        memexId,
-        doc.id,
-      );
+      const allRows: AcWithVerification[] =
+        await listAcsForBriefWithVerification(memexId, doc.id);
+      let rows = allRows;
       if (kind) rows = rows.filter((r) => r.ac.kind === kind);
       if (status) rows = rows.filter((r) => r.ac.status === status);
 
@@ -2229,25 +2353,29 @@ export const toolSpecs: ToolSpec[] = [
         return `No ACs on ${slugs.namespace}/${slugs.memex}/specs/${doc.handle} matching the filter.`;
       }
 
-      // Aggregate header — the coverage gap is the action signal. The
-      // agent enumerates ACs constantly during build; lighting up "X
-      // untested" at the top of every list_acs response makes the gap
-      // unmissable in the context the agent is already reading.
-      const total = rows.length;
+      // spec-207 ac-3 — a kind/status filter shrinks `rows`; surface how many
+      // active ACs it hides so a filtered view can't silently understate the
+      // gap. Counted over the active set on both sides (proposed/superseded ACs
+      // aren't part of the "is this done?" signal).
+      const filterActive = Boolean(kind || status);
+      const hiddenByFilter = filterActive
+        ? allRows.filter((r) => r.ac.status === "active").length -
+          rows.filter((r) => r.ac.status === "active").length
+        : 0;
+
+      // Aggregate header — the coverage gap is the action signal. The agent
+      // enumerates ACs constantly during build; spec-207 dec-1 routes the
+      // headline through the shared `formatAcCoverageSummary` so it leads with
+      // the not-verified gap (and the filter-hiding warning) instead of a
+      // self-flattering "verified (of covered)" trophy.
       const covered = rows.filter((r) => r.tests.length > 0).length;
-      const untested = total - covered;
+      const untested = rows.length - covered;
       const verified = rows.filter((r) => r.verificationState === "verified").length;
       const failing = rows.filter((r) => r.verificationState === "failing").length;
       const stale = rows.filter((r) => r.verificationState === "stale").length;
-      const pctCovered = total === 0 ? 0 : Math.round((covered / total) * 100);
-      const pctVerified =
-        covered === 0 ? 0 : Math.round((verified / covered) * 100);
 
-      const headerParts: string[] = [
-        `${total} AC${total === 1 ? "" : "s"}`,
-        `${pctCovered}% covered (${covered}/${total} with ≥1 tagged test)`,
-        `${pctVerified}% verified (of covered)`,
-      ];
+      const summary = formatAcCoverageSummary(rows, { hiddenByFilter });
+      // Full state distribution stays below the headline as a breakdown.
       const breakdown: string[] = [];
       if (verified > 0) breakdown.push(`${verified} verified`);
       if (failing > 0) breakdown.push(`${failing} failing`);
@@ -2283,7 +2411,7 @@ export const toolSpecs: ToolSpec[] = [
         // Best-effort.
       }
 
-      const header = `${headerParts.join(" · ")}\nBreakdown: ${breakdown.join(", ")}${decisionLine}`;
+      const header = `${summary}\nBreakdown: ${breakdown.join(", ")}${decisionLine}`;
 
       // Per-row line — surfaces the AC's tagged-test count so the gap is
       // visible per AC, not just in the aggregate. UNTESTED is uppercase
@@ -2944,8 +3072,16 @@ export const toolSpecs: ToolSpec[] = [
         const fresh = await getTask(memexId, taskUuid);
         const state = await fullDocState(memexId, fresh.docId);
         const url = await ctx.workspaceUrl(memexId);
-        const base = await formatState(url, state, ctx);
-        return status === "complete" ? `${base}\n\n> ${COMPLETION_NUDGE}` : base;
+        // spec-203 dec-3 (t-3): the completion nudge is a footer-zone block,
+        // present only when the task was completed.
+        return await formatState(
+          url,
+          state,
+          ctx,
+          status === "complete"
+            ? [{ zone: "footer", content: `\n\n> ${COMPLETION_NUDGE}` }]
+            : [],
+        );
       }
 
       if (messages.length === 0) {
@@ -3396,7 +3532,10 @@ export const toolSpecs: ToolSpec[] = [
       if (ctx.verbose) {
         const state = await fullDocState(memexId, doc.id);
         const url = await ctx.workspaceUrl(memexId);
-        return `${await formatState(url, state, ctx)}${nudge}`;
+        // spec-203 dec-3 (t-3): the transition nudge is a footer-zone block.
+        return await formatState(url, state, ctx, [
+          { zone: "footer", content: nudge },
+        ]);
       }
       const fresh = await getDoc(memexId, doc.id);
       // Per dec-1 / t-8: replace the best-effort `nudge` with the deterministic

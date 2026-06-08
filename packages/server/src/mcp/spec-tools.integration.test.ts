@@ -21,11 +21,13 @@ import {
   decisions,
   tasks,
   users,
+  mcpSessions,
 } from "../db/schema.js";
 import { createMcpServer } from "./tools.js";
 import { createDocDraft, updateDocStatus } from "../services/documents.js";
 import { createTask } from "../services/tasks.js";
 import { _clearRecentAssessments } from "../services/phase-assessment.js";
+import { _clearHandoffDeliveries } from "../services/handoff-delivery.js";
 import { tagAc } from "@memex-ai-ac/vitest";
 
 const created = {
@@ -553,5 +555,87 @@ describe("list_specs active-only filter (doc-12 t-15)", () => {
     expect(text).not.toContain("DoneSpec");
     expect(text).not.toContain("PausedSpec");
     expect(text).not.toContain("ArchivedSpec");
+  });
+});
+
+// spec-203 Layer 2 (dec-2) ac-10: the end-to-end delivery decision through the
+// real createMcpServer dispatch — proves session_id is threaded from dispatch
+// into ctx and the footer delivers the FULL handoff once per (session, spec,
+// phase) then the essence, re-delivering for a new session.
+const AC203 = (n: number) =>
+  `mindset-prod/memex-building-itself/specs/spec-203/acs/ac-${n}`;
+
+async function callToolWithSession(
+  userId: string,
+  sessionId: string,
+  name: string,
+  args: Record<string, unknown>,
+): Promise<ToolResult> {
+  const server = createMcpServer(userId, undefined, sessionId);
+  const registry = (
+    server as unknown as { _registeredTools: Record<string, RegisteredToolLike> }
+  )._registeredTools;
+  const tool = registry[name];
+  if (!tool) throw new Error(`Tool not registered: ${name}`);
+  const withVerbose = "verbose" in args ? args : { ...args, verbose: true };
+  return await tool.handler(withVerbose, {} as unknown);
+}
+
+describe("phase handoff full-vs-essence delivery (spec-203 Layer 2, ac-10)", () => {
+  // Static opening of the full handoff prompt + a STEP-1 detail that lives ONLY
+  // in the full text, never in the compressed essence.
+  const FULL_MARKER = "You are working in Memex";
+  const FULL_ONLY = "minting them is your job";
+  const ESSENCE_MARKER = 'BUILD handoff (full prompt: the "Build handoff" button)';
+
+  let buildSpecRef: string;
+
+  beforeAll(async () => {
+    _clearHandoffDeliveries();
+    const doc = await createDocDraft(actor.account.id, "HandoffDelivery Spec", "P", "spec");
+    created.docs.push(doc.id);
+    // Drop straight to build so the footer carries the build handoff (the test
+    // exercises the delivery machine, not the specify→build gate).
+    await db.update(documents).set({ status: "build" }).where(eq(documents.id, doc.id));
+    // Seed the MCP sessions so the error-swallowing tool-call telemetry insert
+    // (which FK-references mcp_sessions) stays quiet during the test.
+    await db
+      .insert(mcpSessions)
+      .values([
+        { sessionId: "handoff-sess-A", userId: actor.user.id },
+        { sessionId: "handoff-sess-B", userId: actor.user.id },
+      ])
+      .onConflictDoNothing();
+    buildSpecRef = `${actor.account.slug}/main/specs/${doc.handle}`;
+  });
+
+  it("delivers the FULL handoff on the first response of a session+phase, the essence after", async () => {
+    tagAc(AC203(10));
+    // Scope outcomes this end-to-end run also proves: a chat-driven agent gets
+    // the handoff in the footer (ac-1), and full-once-then-essence (ac-3).
+    tagAc(AC203(1));
+    tagAc(AC203(3));
+    const first = await callToolWithSession(actor.user.id, "handoff-sess-A", "get_doc", {
+      ref: buildSpecRef,
+    });
+    const firstText = first.content[0].text;
+    expect(firstText).toContain(FULL_MARKER);
+    expect(firstText).toContain(FULL_ONLY);
+    expect(firstText).not.toContain(ESSENCE_MARKER);
+
+    const second = await callToolWithSession(actor.user.id, "handoff-sess-A", "get_doc", {
+      ref: buildSpecRef,
+    });
+    const secondText = second.content[0].text;
+    expect(secondText).toContain(ESSENCE_MARKER);
+    expect(secondText).not.toContain(FULL_MARKER);
+  });
+
+  it("re-delivers the FULL handoff for a different session", async () => {
+    tagAc(AC203(10));
+    const fresh = await callToolWithSession(actor.user.id, "handoff-sess-B", "get_doc", {
+      ref: buildSpecRef,
+    });
+    expect(fresh.content[0].text).toContain(FULL_MARKER);
   });
 });

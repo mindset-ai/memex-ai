@@ -21,11 +21,11 @@
     .brows { animation: brows 9s ease-in-out infinite; }
     @keyframes bob {
       0%, 100% { transform: translateY(0px); }
-      50%      { transform: translateY(-11px); }
+      50%      { transform: translateY(-24px); }
     }
     @keyframes sway {
-      0%, 100% { transform: rotate(-2deg); }
-      50%      { transform: rotate(2deg); }
+      0%, 100% { transform: rotate(-3deg); }
+      50%      { transform: rotate(3deg); }
     }
     @keyframes look {
       0%, 16%   { transform: translate(0px, 0px); }

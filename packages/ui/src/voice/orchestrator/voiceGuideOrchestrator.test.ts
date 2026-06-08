@@ -96,6 +96,7 @@ function hooks(): OrchestratorHooks & { states: string[]; earcons: string[]; err
 
 const react = {
   navigate: vi.fn(),
+  advanceDemo: vi.fn(),
   authToken: () => 'tok',
   tenantBase: () => '/api/ns/mx',
   origin: 'http://localhost',
@@ -211,6 +212,54 @@ describe('voice orchestrator wiring (ac-11)', () => {
     // Playback finishes → now we return to listening.
     playback.drain();
     expect(h.states[h.states.length - 1]).toBe('listening');
+  });
+
+  it('seeds a proactive opening turn from openingContext on ws ready (spec-200 t-7 / ac-15)', async () => {
+    tagAc('mindset-prod/memex-building-itself/specs/spec-200/acs/ac-15');
+    const sock = fakeSocket();
+    const graph = fakeGraph((cb) => cb.onTextDelta?.('This update lets you see what shipped.' as never));
+    const h = hooks();
+    const orch = createVoiceOrchestratorFactory(react, {
+      socketFactory: sock.factory,
+      vadEngine: fakeVad().engine,
+      capture: fakeCapture(),
+      playback: fakePlayback(),
+      graph,
+      newId: () => 'seed-1',
+    })(h);
+
+    const seed = "What's New — See what shipped. What shipped: A feed. Why it matters: You stay current.";
+    await orch.start(fakeStream, seed);
+
+    // ws ready → the guide opens PROACTIVELY (no transcript), grounded on the seed.
+    sock.sock.onmessage?.({ data: JSON.stringify({ type: 'ready' }) });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(graph.invoke).toHaveBeenCalledTimes(1);
+    const input = graph.invoke.mock.calls[0][0] as { guideContext: string[] };
+    expect(input.guideContext).toEqual([seed]); // entry text seeded for Specky to explain
+    const spoke = sock.sent.map((s) => (typeof s === 'string' ? JSON.parse(s) : null)).find((m) => m?.type === 'speak');
+    expect(spoke?.text).toContain('see what shipped');
+  });
+
+  it('does NOT seed an opening turn without openingContext (additive — ac-15)', async () => {
+    tagAc('mindset-prod/memex-building-itself/specs/spec-200/acs/ac-15');
+    const sock = fakeSocket();
+    const graph = fakeGraph(() => {});
+    const orch = createVoiceOrchestratorFactory(react, {
+      socketFactory: sock.factory,
+      vadEngine: fakeVad().engine,
+      capture: fakeCapture(),
+      playback: fakePlayback(),
+      graph,
+      newId: () => 'id',
+    })(hooks());
+    await orch.start(fakeStream); // no opening context — today's behaviour
+    sock.sock.onmessage?.({ data: JSON.stringify({ type: 'ready' }) });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(graph.invoke).not.toHaveBeenCalled(); // waits for the user to speak
   });
 
   it('dispatches a navigate UI tool through the app router', async () => {

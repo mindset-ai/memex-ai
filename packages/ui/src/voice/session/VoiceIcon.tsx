@@ -30,7 +30,7 @@ export function VoiceIcon({ mark }: VoiceIconProps): React.JSX.Element {
       title={disabled ? 'Microphone unavailable' : 'Ask Specky'}
       disabled={disabled || requesting}
       onClick={() => void session.start()}
-      className="flex h-12 w-12 items-center justify-center rounded-full bg-surface shadow-lg ring-1 ring-border transition hover:scale-105 disabled:opacity-40 disabled:hover:scale-100"
+      className="flex h-16 w-16 items-center justify-center rounded-full bg-surface shadow-lg ring-1 ring-border transition hover:scale-105 disabled:opacity-40 disabled:hover:scale-100"
     >
       {mark ?? <DefaultMark spinning={requesting} />}
     </button>
