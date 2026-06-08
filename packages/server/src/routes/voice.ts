@@ -38,6 +38,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import type { MessageParam, ContentBlockParam } from "@anthropic-ai/sdk/resources/messages.js";
 import { verifySessionToken, InvalidTokenError } from "../services/auth-jwt.js";
 import { getUserById } from "../services/users.js";
+import { isDevMode, resolveDevUser } from "../middleware/session.js";
 import { canReadMemex } from "../mcp/auth.js";
 import {
   isVoiceConfigured,
@@ -138,17 +139,41 @@ export async function authenticateVoiceConnection(
   c: Context<Env>,
 ): Promise<VoiceAuthResult> {
   const token = c.req.query("token");
-  if (!token) return DENY;
 
-  let userId: string;
-  try {
-    userId = verifySessionToken(token).sub;
-  } catch (err) {
-    if (err instanceof InvalidTokenError) return DENY;
-    throw err;
+  // Resolve the caller from the connect-query token. Mirror the HTTP session
+  // middleware's dev-mode posture (resolveBearerUser): a missing or
+  // malformed/expired token in dev mode falls back to the dev user, so the WS
+  // keeps working without a real login — and survives the ephemeral-JWT-secret
+  // reset on every dev server restart (which invalidates previously-minted
+  // tokens). In production isDevMode() is false, so this stays strict: no token
+  // or a bad token denies. Without this the voice WS was the ONLY auth path
+  // lacking the dev bypass, so it 1008'd every local session after a restart.
+  const devMode = isDevMode();
+  let userId: string | undefined;
+  if (token) {
+    try {
+      userId = verifySessionToken(token).sub;
+    } catch (err) {
+      if (!(err instanceof InvalidTokenError)) throw err;
+      userId = undefined; // malformed/expired — fall through to dev fallback / deny
+    }
+  }
+  if (!userId) {
+    if (!devMode) return DENY;
+    userId = (await resolveDevUser()).id;
   }
 
-  const user = await getUserById(userId);
+  let user = await getUserById(userId);
+  if (!user && devMode) {
+    // Valid token whose subject doesn't exist in THIS database — e.g. a prod/int
+    // memex.ai token sitting in localStorage while developing locally (the JWT
+    // secret verifies it, but the user UUID is only in the other DB). Mirror
+    // resolveBearerUser's userGone→dev fallback (session.ts) so a stale token
+    // never bricks local voice. Production (devMode=false) still denies.
+    const dev = await resolveDevUser();
+    userId = dev.id;
+    user = dev;
+  }
   if (!user || user.status === "disabled") return DENY;
 
   const memex = c.get("memex");

@@ -215,13 +215,18 @@ function VoiceGuideMount({
 }) {
   const { token } = useAuth();
   const navigate = useNavigate();
-  const liveRef = useRef({ token, namespace, memex });
-  liveRef.current = { token, namespace, memex };
+  // All live values flow through this ref so the factory can be created ONCE and
+  // never change identity. `navigate` in particular gets a new identity on router
+  // re-renders; if the factory depended on it, the provider's memoized orchestrator
+  // would be recreated mid-turn — and its cleanup effect would stop() the in-flight
+  // orchestrator, dropping the spoken reply (the turn finished with stopped=true).
+  const liveRef = useRef({ token, namespace, memex, navigate });
+  liveRef.current = { token, namespace, memex, navigate };
 
   const factory = useMemo(
     () =>
       createVoiceOrchestratorFactory({
-        navigate: (path: string) => navigate(path),
+        navigate: (path: string) => liveRef.current.navigate(path),
         authToken: () => liveRef.current.token,
         tenantBase: () => tenantBase(),
         origin: typeof window !== 'undefined' ? window.location.origin : '',
@@ -237,7 +242,8 @@ function VoiceGuideMount({
           };
         },
       }),
-    [navigate],
+    // Stable for the component's lifetime — live values are read via liveRef.
+    [],
   );
 
   return (

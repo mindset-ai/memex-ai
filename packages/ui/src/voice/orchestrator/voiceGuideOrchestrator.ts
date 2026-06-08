@@ -96,6 +96,12 @@ class VoiceGuideOrchestrator implements VoiceOrchestrator {
   }
 
   async start(stream: MediaStream): Promise<void> {
+    // Reset the stopped flag: this orchestrator instance is reused across
+    // sessions (the provider memoizes it), and React StrictMode double-invokes the
+    // provider's mount effect (mount → cleanup → mount), so stop() may have run at
+    // mount — leaving stopped=true. Without this reset every turn would finish with
+    // stopped=true and refuse to speak even though the reply was ready.
+    this.stopped = false;
     const token = this.react.authToken();
     const base = this.react.tenantBase();
     if (!token || !base) {
