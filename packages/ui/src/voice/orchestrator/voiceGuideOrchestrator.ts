@@ -78,6 +78,7 @@ class VoiceGuideOrchestrator implements VoiceOrchestrator {
   private turnAbort: AbortController | null = null;
   private speakingRequestId: string | null = null;
   private stopped = false;
+  private muted = false;
   private readonly newId: () => string;
 
   constructor(
@@ -102,6 +103,7 @@ class VoiceGuideOrchestrator implements VoiceOrchestrator {
     // mount — leaving stopped=true. Without this reset every turn would finish with
     // stopped=true and refuse to speak even though the reply was ready.
     this.stopped = false;
+    this.muted = false; // fresh session starts unmuted (instance is reused)
     const token = this.react.authToken();
     const base = this.react.tenantBase();
     if (!token || !base) {
@@ -158,6 +160,10 @@ class VoiceGuideOrchestrator implements VoiceOrchestrator {
   }
 
   private onSpeechStart(): void {
+    // Muted = "don't listen to me": the VAD keeps running (capture.setMuted only
+    // stops the STT audio), so we ignore its onset here too — no barge-in, no
+    // earcon, no state change.
+    if (this.muted) return;
     // If the agent is mid-speech, this ducks + arms the cut (dec-8). If idle, it's
     // the user starting their turn — inert for barge-in.
     const wasSpeaking = this.barge?.state === 'speaking' || this.barge?.state === 'ducked';
@@ -166,6 +172,9 @@ class VoiceGuideOrchestrator implements VoiceOrchestrator {
   }
 
   private onSpeechEnd(): void {
+    // Muted: ignore the VAD entirely (it still fires, but capture is silenced) so a
+    // muted user never triggers the ack ping / "thinking" with no audio behind it.
+    if (this.muted) return;
     const wasInterrupting = this.barge?.state === 'ducked';
     this.barge?.onSpeechEnd();
     if (wasInterrupting) return; // transient over agent speech — bargeIn restored it
@@ -178,6 +187,19 @@ class VoiceGuideOrchestrator implements VoiceOrchestrator {
   }
 
   private async runTurn(transcript: string): Promise<void> {
+    // A new user turn supersedes any in-flight agent speech (barge-in, or a fast
+    // follow-up before the previous reply finished): stop the old TTS leg and flush
+    // its already-queued audio so the previous answer doesn't keep playing over this
+    // one. The duck-then-cut timer (dec-8) only fires on SUSTAINED speech; a short
+    // interjection ("standards", "stop") ends before it, so without this the old
+    // audio plays on. endTurn() resets barge state for the fresh turn.
+    if (this.speakingRequestId) {
+      this.ws?.abort(this.speakingRequestId);
+      this.speakingRequestId = null;
+    }
+    this.playback?.flush();
+    this.barge?.endTurn();
+
     const { screenKey, screenRegistry, namespace, memex } = this.react.getScreenContext();
     this.turnAbort = new AbortController();
     let assistantText = '';
@@ -231,6 +253,7 @@ class VoiceGuideOrchestrator implements VoiceOrchestrator {
   }
 
   setMuted(muted: boolean): void {
+    this.muted = muted;
     this.capture?.setMuted(muted);
   }
 

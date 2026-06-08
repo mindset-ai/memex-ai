@@ -52,7 +52,10 @@ export interface CharAlignment {
 }
 
 const DEFAULT_DUCK_MS = 50;
-const DEFAULT_CUT_MS = 280;
+// Sustained-speech window before a hard cut. Kept short so a real interruption
+// cuts the agent promptly; below this a blip (cough/backchannel) just ducks then
+// restores. Tuned down from 280ms on-device — 280 felt unresponsive (dec-8 / t-9).
+const DEFAULT_CUT_MS = 160;
 
 /**
  * The prefix of the synthesized text whose characters had begun playing by

@@ -114,9 +114,20 @@ export interface SileroWorkletOptions {
   onnxWASMBasePath?: string;
   /** Silero model variant. Default 'v5' (current); 'legacy' is the older model. */
   model?: 'v5' | 'legacy';
-  /** Speech-onset probability threshold (0..1). vad-web default ~0.5. */
+  /** Speech-onset probability threshold (0..1). Lower = snappier/more-sensitive
+   *  onset (better barge-in over agent playback), at the cost of more false
+   *  onsets — safe here because dec-8 ducks first and only cuts after a confirm
+   *  delay. Default tuned below for barge-in; vad-web's own default is 0.3. */
   positiveSpeechThreshold?: number;
+  /** Speech-offset threshold (0..1). Conventionally ~0.15 below the positive one. */
+  negativeSpeechThreshold?: number;
 }
+
+// Barge-in-tuned onset/offset defaults. The user must be able to cut in OVER the
+// agent's own speech, which echo-cancellation partially attenuates — so we run a
+// more sensitive onset than vad-web's stock 0.3. Tuned on-device (dec-8 / t-9).
+const DEFAULT_POSITIVE_SPEECH_THRESHOLD = 0.22;
+const DEFAULT_NEGATIVE_SPEECH_THRESHOLD = 0.18;
 
 // Minimal structural type for the vad-web handle we use — keeps this module from
 // hard-importing the lib's types at the top level (the import is dynamic so the
@@ -143,9 +154,8 @@ export class SileroWorkletVadEngine implements VadEngine {
       baseAssetPath: base,
       onnxWASMBasePath: this.opts.onnxWASMBasePath ?? base,
       startOnLoad: false,
-      ...(this.opts.positiveSpeechThreshold != null
-        ? { positiveSpeechThreshold: this.opts.positiveSpeechThreshold }
-        : {}),
+      positiveSpeechThreshold: this.opts.positiveSpeechThreshold ?? DEFAULT_POSITIVE_SPEECH_THRESHOLD,
+      negativeSpeechThreshold: this.opts.negativeSpeechThreshold ?? DEFAULT_NEGATIVE_SPEECH_THRESHOLD,
       onSpeechStart: () => onSpeech(true),
       onSpeechEnd: () => onSpeech(false),
       // A misfire (onset with too-short speech) must still restore state — treat
