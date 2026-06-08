@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { eq } from "drizzle-orm";
 import { db } from "../db/connection.js";
-import { documents, decisions, tasks, docComments, issues } from "../db/schema.js";
+import { documents, decisions, tasks, docComments, issues, acs, memexes, namespaces } from "../db/schema.js";
 import { createDocDraft, updateDocStatus } from "./documents.js";
 import { createDecision, resolveDecision } from "./decisions.js";
 import { createTask, updateTaskStatus } from "./tasks.js";
@@ -15,8 +15,13 @@ import {
   _clearRecentAssessments,
 } from "./phase-assessment.js";
 import { addSection } from "./sections.js";
+import {
+  createAc,
+  listAcsForBriefWithVerification,
+  STALE_THRESHOLD_DAYS,
+} from "./acs.js";
 import { NotFoundError, ValidationError } from "../types/errors.js";
-import { makeTestMemex } from "./test-helpers.js";
+import { makeTestMemex, seedTestEvent } from "./test-helpers.js";
 import { tagAc } from "@memex-ai-ac/vitest";
 
 const SPEC = "mindset-prod/memex-building-itself/specs/spec-106";
@@ -29,6 +34,7 @@ afterAll(async () => {
     await db.delete(issues).where(eq(issues.docId, id)).catch(() => {});
     await db.delete(tasks).where(eq(tasks.docId, id)).catch(() => {});
     await db.delete(decisions).where(eq(decisions.docId, id)).catch(() => {});
+    await db.delete(acs).where(eq(acs.briefId, id)).catch(() => {});
     await db.delete(documents).where(eq(documents.id, id)).catch(() => {});
   }
 });
@@ -389,5 +395,252 @@ describe("verify→done open/converted Issue warning (spec-112 t-8)", () => {
     // ...yet the transition to done still goes through — soft nudge, never a gate.
     const updated = await updateDocStatus(memexId, docId, "done");
     expect(updated.status).toBe("done");
+  });
+});
+
+// spec-120 — Complete the verify fact sheet. The done gate must read AC
+// verification state (not just coverage), surface it from the SAME test_events
+// derivation list_acs uses, raise an explicit hold signal for failing/stale
+// ACs, and break open comments down by type. DB-backed by design: the parity
+// claim ("the gate and list_acs can never silently disagree") depends on the
+// canonical ac_uid join, which only an integration test exercises.
+const SPEC_120 = "mindset-prod/memex-building-itself/specs/spec-120";
+const AC120 = (n: number) => `${SPEC_120}/acs/ac-${n}`;
+
+describe("verify fact sheet completeness (spec-120)", () => {
+  let namespaceSlug: string;
+  let memexSlug: string;
+
+  beforeAll(async () => {
+    const [row] = await db
+      .select({ memexSlug: memexes.slug, namespaceSlug: namespaces.slug })
+      .from(memexes)
+      .innerJoin(namespaces, eq(memexes.namespaceId, namespaces.id))
+      .where(eq(memexes.id, memexId))
+      .limit(1);
+    if (!row) throw new Error("could not resolve test memex slugs");
+    memexSlug = row.memexSlug;
+    namespaceSlug = row.namespaceSlug;
+  });
+
+  // A Spec carried all the way to `verify`, ready for the done gate. Mirrors the
+  // spec-112 `specInVerify` helper but local to this block.
+  async function specReadyForDone(title: string): Promise<{ id: string; handle: string }> {
+    const spec = await createDocDraft(memexId, title, "Purpose", "spec");
+    createdDocIds.push(spec.id);
+    await updateDocStatus(memexId, spec.id, "specify");
+    await updateDocStatus(memexId, spec.id, "build");
+    await updateDocStatus(memexId, spec.id, "verify");
+    return { id: spec.id, handle: spec.handle! };
+  }
+
+  function acRef(briefHandle: string, seq: number): string {
+    return `${namespaceSlug}/${memexSlug}/specs/${briefHandle}/acs/ac-${seq}`;
+  }
+
+  // Create an `active` scope AC and put it into a known verification state by
+  // seeding test_events through the same path the emission route uses.
+  async function makeAcInState(
+    briefId: string,
+    briefHandle: string,
+    state: "verified" | "failing" | "stale" | "untested",
+  ): Promise<string> {
+    const ac = await createAc({
+      memexId,
+      briefId,
+      kind: "scope",
+      statement: `ac in ${state}`,
+    });
+    const handle = `ac-${ac.seq}`;
+    const uid = acRef(briefHandle, ac.seq);
+    if (state === "verified") {
+      await seedTestEvent({ acUid: uid, status: "pass" });
+    } else if (state === "failing") {
+      await seedTestEvent({ acUid: uid, status: "fail" });
+    } else if (state === "stale") {
+      const longAgo = new Date(Date.now() - (STALE_THRESHOLD_DAYS + 2) * 86_400_000);
+      await seedTestEvent({ acUid: uid, status: "pass", createdAt: longAgo });
+    }
+    // untested: no emission at all.
+    return handle;
+  }
+
+  it("ac-1: fact sheet carries AC verification counts + failing/stale handles, drawn from the list_acs derivation", async () => {
+    tagAc(AC120(1));
+    const spec = await specReadyForDone("AC verification fact sheet");
+    const verifiedH = await makeAcInState(spec.id, spec.handle, "verified");
+    const failingH = await makeAcInState(spec.id, spec.handle, "failing");
+    const staleH = await makeAcInState(spec.id, spec.handle, "stale");
+    const untestedH = await makeAcInState(spec.id, spec.handle, "untested");
+
+    const result = await assessPhaseTransition(memexId, spec.id, "done");
+    const acv = result.facts.acVerification;
+
+    expect(acv.totalActive).toBe(4);
+    expect(acv.verified).toBe(1);
+    expect(acv.failing).toBe(1);
+    expect(acv.stale).toBe(1);
+    expect(acv.untested).toBe(1);
+    expect(acv.covered).toBe(3); // verified + failing + stale have ≥1 event
+    expect(acv.failingHandles).toEqual([failingH]);
+    expect(acv.staleHandles).toEqual([staleH]);
+    // The verified / untested handles are NOT mislabelled as hold signals.
+    expect(acv.failingHandles).not.toContain(verifiedH);
+    expect(acv.failingHandles).not.toContain(untestedH);
+
+    // Rendered fact sheet shows the roll-up line and names the hold handles.
+    const rendered = formatPhaseAssessment(result);
+    expect(rendered).toMatch(/AC verification: 4 active — 1 verified, 1 failing, 1 stale, 1 untested/);
+    expect(rendered).toMatch(new RegExp(`FAILING: ${failingH}`));
+    expect(rendered).toMatch(new RegExp(`STALE: ${staleH}`));
+  });
+
+  it("ac-4: the fact-sheet counts equal what listAcsForBriefWithVerification derives (one voice, no new query path)", async () => {
+    tagAc(AC120(4));
+    const spec = await specReadyForDone("AC verification parity");
+    await makeAcInState(spec.id, spec.handle, "verified");
+    await makeAcInState(spec.id, spec.handle, "failing");
+    await makeAcInState(spec.id, spec.handle, "untested");
+
+    const result = await assessPhaseTransition(memexId, spec.id, "done");
+    const acv = result.facts.acVerification;
+
+    // Independently derive the same numbers straight from the list_acs path the
+    // AC tab consumes. If the gate ever forks to a different derivation, these
+    // diverge — which is exactly the silent disagreement spec-120 closes.
+    const rows = (await listAcsForBriefWithVerification(memexId, spec.id)).filter(
+      (r) => r.ac.status === "active",
+    );
+    const tally = { verified: 0, failing: 0, stale: 0, untested: 0, accepted: 0 };
+    for (const r of rows) tally[r.verificationState] += 1;
+
+    expect(acv.totalActive).toBe(rows.length);
+    expect(acv.verified).toBe(tally.verified);
+    expect(acv.failing).toBe(tally.failing);
+    expect(acv.stale).toBe(tally.stale);
+    expect(acv.untested).toBe(tally.untested);
+  });
+
+  it("ac-2: a failing AC raises an explicit hold-signal nudge at done that NAMES the handle", async () => {
+    tagAc(AC120(2));
+    const spec = await specReadyForDone("Failing AC hold signal");
+    const failingH = await makeAcInState(spec.id, spec.handle, "failing");
+
+    const result = await assessPhaseTransition(memexId, spec.id, "done");
+
+    const holdNudge = result.nudges.find((n) => /FAILING/.test(n));
+    expect(holdNudge).toBeDefined();
+    expect(holdNudge).toMatch(new RegExp(failingH));
+    expect(holdNudge).toMatch(/1 acceptance criterion is FAILING/);
+
+    // Visible in the rendered assessment's Nudges section too.
+    const rendered = formatPhaseAssessment(result);
+    expect(rendered).toMatch(/## Nudges/);
+    expect(rendered).toMatch(/acceptance criterion is FAILING/);
+  });
+
+  it("ac-2: a stale AC raises an explicit hold-signal nudge at done that NAMES the handle", async () => {
+    tagAc(AC120(2));
+    const spec = await specReadyForDone("Stale AC hold signal");
+    const staleH = await makeAcInState(spec.id, spec.handle, "stale");
+
+    const result = await assessPhaseTransition(memexId, spec.id, "done");
+
+    const staleNudge = result.nudges.find((n) => /STALE/.test(n));
+    expect(staleNudge).toBeDefined();
+    expect(staleNudge).toMatch(new RegExp(staleH));
+    expect(staleNudge).toMatch(/1 acceptance criterion is STALE/);
+  });
+
+  it("ac-2: the AC hold signal is done-scoped — no warning at the build→verify gate", async () => {
+    tagAc(AC120(2));
+    // A Spec sitting in `build` with a failing AC: the verify gate should not
+    // raise the done-only AC hold signal (mirrors the openIssues done-scoping).
+    const spec = await createDocDraft(memexId, "Failing AC at verify gate", "Purpose", "spec");
+    createdDocIds.push(spec.id);
+    await updateDocStatus(memexId, spec.id, "specify");
+    await updateDocStatus(memexId, spec.id, "build");
+    await makeAcInState(spec.id, spec.handle!, "failing");
+
+    const result = await assessPhaseTransition(memexId, spec.id, "verify");
+    expect(result.nudges.some((n) => /FAILING/.test(n))).toBe(false);
+    // The fact sheet still carries the count truthfully, regardless of target.
+    expect(result.facts.acVerification.failing).toBe(1);
+  });
+
+  it("ac-2: the hold signal is NON-BLOCKING — update_doc({status:'done'}) still succeeds with a failing AC", async () => {
+    tagAc(AC120(2));
+    const spec = await specReadyForDone("Done despite failing AC");
+    await makeAcInState(spec.id, spec.handle, "failing");
+
+    const result = await assessPhaseTransition(memexId, spec.id, "done");
+    expect(result.nudges.some((n) => /FAILING/.test(n))).toBe(true);
+
+    const updated = await updateDocStatus(memexId, spec.id, "done");
+    expect(updated.status).toBe("done");
+  });
+
+  it("ac-2: a clean AC slate raises NO hold signal at done", async () => {
+    tagAc(AC120(2));
+    const spec = await specReadyForDone("All ACs verified");
+    await makeAcInState(spec.id, spec.handle, "verified");
+    await makeAcInState(spec.id, spec.handle, "verified");
+
+    const result = await assessPhaseTransition(memexId, spec.id, "done");
+    expect(result.nudges.some((n) => /FAILING|STALE/.test(n))).toBe(false);
+    expect(result.facts.acVerification.failing).toBe(0);
+    expect(result.facts.acVerification.stale).toBe(0);
+  });
+
+  it("ac-3: the fact sheet breaks open comments down by type", async () => {
+    tagAc(AC120(3));
+    const spec = await specReadyForDone("Open comments by type");
+    const section = await addSection(
+      memexId,
+      spec.id,
+      "approach",
+      "Body to hang comments on",
+      "Approach",
+    );
+
+    // Two hold-signal types and one provenance type, all unresolved.
+    await addComment(memexId, section.id, "tester", "needs another look", { type: "review" });
+    await addComment(memexId, section.id, "tester", "is this right?", { type: "question" });
+    await addComment(memexId, section.id, "tester", "did the thing", { type: "progress" });
+
+    const result = await assessPhaseTransition(memexId, spec.id, "done");
+
+    expect(result.facts.openCommentsCount).toBe(3);
+    expect(result.facts.openCommentsByType).toMatchObject({
+      review: 1,
+      question: 1,
+      progress: 1,
+    });
+
+    // Rendered fact sheet enumerates the per-type breakdown.
+    const rendered = formatPhaseAssessment(result);
+    expect(rendered).toMatch(/- Open comments: 3/);
+    expect(rendered).toMatch(/ {2}- review: 1/);
+    expect(rendered).toMatch(/ {2}- question: 1/);
+    expect(rendered).toMatch(/ {2}- progress: 1/);
+  });
+
+  it("ac-5: a failing AC makes the done gate self-sufficient — the assessment alone reveals it, no separate list_acs call", async () => {
+    tagAc(AC120(5));
+    const spec = await specReadyForDone("Self-sufficient done gate");
+    const failingH = await makeAcInState(spec.id, spec.handle, "failing");
+
+    // The done assessment is the ONLY thing consulted here — no list_acs.
+    const result = await assessPhaseTransition(memexId, spec.id, "done");
+
+    // A reader of the gate alone learns the AC is failing: it's in the fact
+    // sheet AND raised as a hold nudge. This is what lets spec-116's verify
+    // prompt drop its "always cross-check list_acs" workaround.
+    expect(result.facts.acVerification.failing).toBe(1);
+    expect(result.facts.acVerification.failingHandles).toEqual([failingH]);
+    expect(result.nudges.some((n) => /FAILING/.test(n) && new RegExp(failingH).test(n))).toBe(true);
+
+    const rendered = formatPhaseAssessment(result);
+    expect(rendered).toMatch(new RegExp(`FAILING: ${failingH}`));
   });
 });
