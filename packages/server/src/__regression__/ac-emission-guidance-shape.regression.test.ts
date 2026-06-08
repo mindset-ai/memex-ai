@@ -12,7 +12,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { tagAc } from "@memex-ai-ac/vitest";
+import { tagAc, deriveEventsUrl } from "@memex-ai-ac/vitest";
 
 const TOPIC = join(
   __dirname,
@@ -31,7 +31,7 @@ const topic = JSON.parse(readFileSync(TOPIC, "utf-8")) as {
 
 describe("b-90 ac-6: ac-emission guidance topic body shape", () => {
   it("body leads with the namespace-routing mental model", () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-90/acs/ac-6");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-6");
     // The first ~500 chars should establish "the ref IS the routing
     // instruction" mental model before any mechanism / override discussion.
     const opening = topic.body.slice(0, 500);
@@ -40,14 +40,14 @@ describe("b-90 ac-6: ac-emission guidance topic body shape", () => {
   });
 
   it("body explicitly states 'the ref's namespace IS the routing instruction'", () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-90/acs/ac-6");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-6");
     expect(topic.body).toMatch(
       /namespace\s+IS\s+the\s+routing\s+instruction/i,
     );
   });
 
   it("body mentions MEMEX_TEST_EVENTS_URL AFTER the routing model is established", () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-90/acs/ac-6");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-6");
     const routingIdx = topic.body.search(/namespace\s+IS\s+the\s+routing\s+instruction/i);
     const overrideIdx = topic.body.search(/MEMEX_TEST_EVENTS_URL/);
     expect(routingIdx).toBeGreaterThanOrEqual(0);
@@ -56,12 +56,12 @@ describe("b-90 ac-6: ac-emission guidance topic body shape", () => {
   });
 
   it("body frames the override as 'almost never needed'", () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-90/acs/ac-6");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-6");
     expect(topic.body).toMatch(/almost\s+never/i);
   });
 
   it("body contains an anti-example callout naming the localhost-as-safe mistake", () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-90/acs/ac-6");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-6");
     // The literal mistake shape from b-68.
     expect(topic.body).toMatch(
       /MEMEX_TEST_EVENTS_URL=http:\/\/localhost:8080[^\n]*be\s+safe/i,
@@ -69,12 +69,12 @@ describe("b-90 ac-6: ac-emission guidance topic body shape", () => {
   });
 
   it("body explains that the override defeats the default safety", () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-90/acs/ac-6");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-6");
     expect(topic.body).toMatch(/default\s+routing\s+IS\s+the\s+safety/i);
   });
 
   it("body still describes the wire format (POST /api/test-events)", () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-90/acs/ac-6");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-6");
     expect(topic.body).toMatch(/POST.*\/api\/test-events|\/api\/test-events/);
     expect(topic.body).toMatch(/ac_uid/);
     expect(topic.body).toMatch(/status/);
@@ -161,5 +161,41 @@ describe("spec-129 t-9: bootstrap daisy-chain", () => {
 
   it("bootstrap topic tells porters to prefer the official package", () => {
     expect(bootstrap.body).toMatch(/prefer.*official|official.*helper/i);
+  });
+});
+
+// spec-90 dec-7 (B1) — the guidance MUST stay in lockstep with the implemented
+// routing reality: unknown namespaces default to the SaaS host (memex.ai), they
+// are NOT skipped. The first assertion pins the actual deriveEventsUrl behaviour;
+// the rest pin the two get_information topics to that same reality. If the code
+// changes, the doc assertions force the docs to change with it, and vice-versa.
+describe("spec-90 dec-7: emission guidance is locked to the multi-tenant routing reality", () => {
+  const UNKNOWN_NS_DEST = "https://memex.ai/api/test-events";
+
+  it("deriveEventsUrl actually defaults an unknown namespace to memex.ai", () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-2");
+    expect(deriveEventsUrl("a-customer/their-mx/specs/spec-1/acs/ac-1")).toBe(
+      UNKNOWN_NS_DEST,
+    );
+  });
+
+  it("ac-emission topic documents the memex.ai default and no longer says it skips", () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-6");
+    expect(topic.body).toMatch(/defaults? to the SaaS host `?https:\/\/memex\.ai/i);
+    expect(topic.body).not.toMatch(/warns once and skips the emission/i);
+  });
+
+  it("ac-emission-bootstrap topic documents the memex.ai default for unknown namespaces", () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-6");
+    expect(bootstrap.body).toMatch(/default to the SaaS host `?https:\/\/memex\.ai/i);
+    expect(bootstrap.body).toMatch(
+      /defaults unknown namespaces to `?https:\/\/memex\.ai/i,
+    );
+  });
+
+  it("bootstrap no longer instructs skipping unmapped namespaces", () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-90/acs/ac-6");
+    expect(bootstrap.body).not.toMatch(/skip the emission/i);
+    expect(bootstrap.body).not.toMatch(/skips unknown namespaces/i);
   });
 });

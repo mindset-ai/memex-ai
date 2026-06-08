@@ -10,6 +10,7 @@ import { InviteMembersDialog } from './InviteMembersDialog';
 import { PublicAuthButtons, ReadOnlyBadge } from './PublicAccessControls';
 import { useMemexAccess } from '../hooks/useMemexAccess';
 import { HeaderSlotProvider, useHeaderSlotContent } from './HeaderSlot';
+import { SearchTrigger } from './SearchTrigger';
 import {
   getCurrentTenant,
   parseTenantFromPathname,
@@ -397,26 +398,35 @@ function NavItem({
 
 // Doc-page header. Renders inside HeaderSlotProvider so it can read the
 // page-supplied right-side actions (status dropdown, share, download, menu).
+// spec-192 t-3 (dec-2): the sidebar is hidden on doc pages, so the search trigger
+// lives here. It sits as its OWN full-height flex column at the far right, AFTER
+// the page actions (which stay in the flex-1 inner row) — so the borderless
+// recess bleeds to the bar's top/bottom/right edges and can never overlap the
+// Edit / Share / download / ⋯ controls (ac-11). The bar's background + border +
+// blur move to the outer <header> so they sit behind the trigger too.
 function DocPageHeader() {
   const slot = useHeaderSlotContent();
   const { session } = useAuth();
   const { pathname } = useLocation();
   const specsHref = resolveNavTo('/specs', pathname, session?.memberships);
   return (
-    <header className="border-b flex-none px-6 py-3 flex items-center gap-8 backdrop-blur-sm border-edge bg-page/80">
-      <Link
-        to={specsHref}
-        className="text-lg font-semibold tracking-tight text-heading hover:text-heading"
-      >
-        memex<span className="text-[#7b93b8]">.ai</span>
-      </Link>
-      <Link
-        to={specsHref}
-        className="text-sm transition-colors text-muted hover:text-primary"
-      >
-        &larr; All specs
-      </Link>
-      {slot && <div className="ml-auto flex items-center gap-2">{slot}</div>}
+    <header className="border-b flex-none flex items-stretch backdrop-blur-sm border-edge bg-page/80">
+      <div className="flex-1 min-w-0 flex items-center gap-8 px-6 py-3">
+        <Link
+          to={specsHref}
+          className="text-lg font-semibold tracking-tight text-heading hover:text-heading"
+        >
+          memex<span className="text-[#7b93b8]">.ai</span>
+        </Link>
+        <Link
+          to={specsHref}
+          className="text-sm transition-colors text-muted hover:text-primary"
+        >
+          &larr; All specs
+        </Link>
+        {slot && <div className="ml-auto flex items-center gap-2">{slot}</div>}
+      </div>
+      <SearchTrigger variant="doc-header" />
     </header>
   );
 }

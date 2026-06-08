@@ -4,6 +4,7 @@ import {
   setUserName,
   seedSpecInMemex,
   deleteDoc,
+  emitAcEvents,
 } from "./helpers/index.js";
 
 // Journey 18 (spec-64 t-6): the global ⌘K search palette, end-to-end in a real
@@ -64,6 +65,33 @@ test.describe("Journey 18 — global ⌘K search palette", () => {
 
   test.afterEach(async () => {
     if (docId) await deleteDoc(docId);
+  });
+
+  // spec-192 t-5: emit AC pass/fail for the two trigger tests (ac-8 board, ac-10
+  // doc-header; ac-2 = both open the SAME palette). Title→refs map per the repo's
+  // e2e emission idiom (journey-20); the spec-64/191 tests above carry no refs and
+  // emit nothing. Routing is namespace-derived; gated by MEMEX_EMIT.
+  const SPEC192 = "mindset-prod/memex-building-itself/specs/spec-192";
+  const ACS_BY_TEST: Record<string, string[]> = {
+    "clicking the Specs-board search trigger opens the palette (spec-192 ac-8)": [
+      `${SPEC192}/acs/ac-8`,
+      `${SPEC192}/acs/ac-2`,
+    ],
+    "clicking the doc-page header search trigger opens the palette (spec-192 ac-10)": [
+      `${SPEC192}/acs/ac-10`,
+      `${SPEC192}/acs/ac-2`,
+    ],
+  };
+  test.afterEach(async ({}, testInfo) => {
+    if (testInfo.status === "skipped") return;
+    const refs = ACS_BY_TEST[testInfo.title];
+    if (!refs) return;
+    await emitAcEvents(
+      refs,
+      testInfo.status === "passed" ? "pass" : "fail",
+      `packages/ui/e2e/journey-18-global-search.spec.ts::${testInfo.title}`,
+      testInfo.duration ?? 0,
+    );
   });
 
   // The keyboard chord differs by platform. The app-level listener (App.tsx
@@ -198,5 +226,40 @@ test.describe("Journey 18 — global ⌘K search palette", () => {
     await expect(
       page.getByRole("heading", { name: SPEC_TITLE, level: 1 }),
     ).toBeVisible({ timeout: 15_000 });
+  });
+
+  // ── spec-192: the two persistent search TRIGGERS (buttons, not the hotkey) ──
+  // The discoverability buttons added by spec-192 must open the SAME palette the
+  // ⌘K shortcut does — one on the Specs board header, one on the doc-page header
+  // (where the sidebar is hidden). Real-browser proof the click reaches the shared
+  // open-state and the cmdk dialog mounts + takes focus.
+  test("clicking the Specs-board search trigger opens the palette (spec-192 ac-8)", async ({
+    page,
+  }) => {
+    await page.goto(bareUrl("/"));
+    await expect(page.getByRole("heading", { name: "Specs" })).toBeVisible({
+      timeout: 15_000,
+    });
+
+    await page.getByTestId("search-palette-trigger-board").click();
+    const dialog = page.getByRole("dialog", { name: "Search this memex" });
+    await expect(dialog).toBeVisible();
+    // Same palette as ⌘K: the search input takes focus on open.
+    await expect(page.getByPlaceholder(/Search specs/i)).toBeFocused();
+  });
+
+  test("clicking the doc-page header search trigger opens the palette (spec-192 ac-10)", async ({
+    page,
+  }) => {
+    // The sidebar is hidden on spec/doc pages — the header trigger is the cue here.
+    await page.goto(bareUrl(`/${nsSlug}/${mxSlug}/specs/${specHandle}`));
+    await expect(
+      page.getByRole("heading", { name: SPEC_TITLE, level: 1 }),
+    ).toBeVisible({ timeout: 15_000 });
+
+    await page.getByTestId("search-palette-trigger-header").click();
+    const dialog = page.getByRole("dialog", { name: "Search this memex" });
+    await expect(dialog).toBeVisible();
+    await expect(page.getByPlaceholder(/Search specs/i)).toBeFocused();
   });
 });

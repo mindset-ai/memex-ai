@@ -1,4 +1,4 @@
-import { Fragment, useState, useEffect, useRef, useCallback, useMemo, type ReactNode } from 'react';
+import { Fragment, useState, useEffect, useRef, useMemo, type ReactNode } from 'react';
 import { Routes, Route, useLocation, useParams, useNavigate, Navigate, Outlet } from 'react-router-dom';
 import { Pulse } from './pages/Pulse';
 import { Insights } from './pages/Insights';
@@ -45,7 +45,7 @@ import { createVoiceOrchestratorFactory } from './voice/orchestrator/voiceGuideO
 import { currentScreenKey } from './voice/guideElements';
 import { guideElementsForScreen } from '@memex/shared';
 import { tenantBase } from './api/http';
-import { SearchPalette } from './components/SearchPalette';
+import { SearchProvider } from './components/SearchContext';
 
 declare const __BUILD_TIME__: string;
 
@@ -430,52 +430,11 @@ function FlatShell({ children }: { children: React.ReactNode }) {
   );
 }
 
-// spec-64 t-3 (ac-8/ac-16): the global ⌘K / Ctrl+K host. A THIN app-level
-// keydown listener owns the hotkey — it toggles the palette and calls
-// preventDefault() so the browser/cmdk never sees it (cmdk does NOT register the
-// global shortcut, ac-16). It also owns focus-restoration (ac-8): because the
-// palette opens programmatically (no Radix Dialog.Trigger), Radix has nothing to
-// restore focus to on close and it would fall to <body>. So we capture the
-// focused element when the palette opens and restore it on close — whether the
-// close came from Esc, an overlay click, or a ⌘K toggle. (The jsdom component
-// test can't model real focus restoration; journey-18 proves it.) Mounted
-// app-wide so the omnibox is reachable from any route.
-function GlobalSearchHost() {
-  const [open, setOpen] = useState(false);
-  const openRef = useRef(false);
-  const restoreFocusRef = useRef<HTMLElement | null>(null);
-
-  const setOpenSafe = useCallback((next: boolean) => {
-    if (next && !openRef.current) {
-      // Opening: remember where focus was so we can hand it back on close.
-      restoreFocusRef.current = document.activeElement as HTMLElement | null;
-    }
-    openRef.current = next;
-    setOpen(next);
-    if (!next) {
-      const el = restoreFocusRef.current;
-      restoreFocusRef.current = null;
-      // Restore on the next frame, after Radix's own close-autofocus (which
-      // targets the absent trigger) has run — so our restore wins.
-      if (el && typeof el.focus === 'function') {
-        requestAnimationFrame(() => el.focus());
-      }
-    }
-  }, []);
-
-  useEffect(() => {
-    function onKeyDown(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
-        e.preventDefault();
-        setOpenSafe(!openRef.current);
-      }
-    }
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [setOpenSafe]);
-
-  return <SearchPalette open={open} onOpenChange={setOpenSafe} />;
-}
+// spec-192 t-1: the ⌘K omnibox host — open-state, the ⌘K / Ctrl K hotkey, and
+// open/close focus-restoration (originally spec-64's GlobalSearchHost) — now
+// lives in SearchProvider (components/SearchContext) so the Specs-board and
+// doc-page chrome can open the same single palette. App just mounts the provider
+// around the router below.
 
 export function App() {
   console.log(`[memex.ai] deployed: ${__BUILD_TIME__}`);
@@ -521,10 +480,13 @@ export function App() {
           </Routes>
         ) : (
           <AuthGate>
-            {/* spec-64 t-3: mount the ⌘K omnibox app-wide so it's reachable from
-                every authenticated/public-tenant route. */}
-            <GlobalSearchHost />
-            <PostLoginRouter />
+            {/* spec-64 t-3 / spec-192 t-1: SearchProvider owns the single ⌘K
+                palette + open-state and exposes openSearch() to the chrome
+                (Specs-board + doc-page triggers); it wraps the router so those
+                surfaces sit inside the context. */}
+            <SearchProvider>
+              <PostLoginRouter />
+            </SearchProvider>
           </AuthGate>
         )}
       </AuthProvider>

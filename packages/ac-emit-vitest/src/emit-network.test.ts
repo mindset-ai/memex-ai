@@ -119,12 +119,34 @@ describe("emit() — HTTP POST behaviour", () => {
     expect(body.metadata?.actor).toBeUndefined();
   });
 
-  it("does not call fetch when namespace is unknown and no override", async () => {
-    const fetchMock = vi.fn();
+  it("posts to the SaaS host (memex.ai) when namespace is unknown and no override (spec-90 B1)", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 201,
+      headers: { get: () => null },
+    });
     vi.stubGlobal("fetch", fetchMock);
 
     await emit({
       ac_uid: "unknown-ns/foo/specs/spec-1/acs/ac-1",
+      status: "pass",
+      test_identifier: "test.ts::it works",
+      duration_ms: 42,
+    });
+
+    // memex.ai serves every customer tenant, so an unmapped namespace defaults
+    // there rather than being skipped.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://memex.ai/api/test-events");
+  });
+
+  it("does not call fetch when the ref has no namespace at all (malformed)", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await emit({
+      ac_uid: "",
       status: "pass",
       test_identifier: "test.ts::it works",
       duration_ms: 42,

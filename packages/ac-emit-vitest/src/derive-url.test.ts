@@ -16,12 +16,14 @@ describe("deriveEventsUrl — namespace routing", () => {
     expect(url).toBe("https://memex.ai/api/test-events");
   });
 
-  it("returns null for unknown namespace with no override", () => {
+  it("defaults an unknown namespace to the SaaS host (memex.ai) with no override", () => {
+    // spec-90 dec-7 / B1: memex.ai serves every customer tenant, so an
+    // unmapped namespace routes there rather than being skipped.
     const url = deriveEventsUrl("unknown-ns/foo/specs/spec-1/acs/ac-1");
-    expect(url).toBeNull();
+    expect(url).toBe("https://memex.ai/api/test-events");
   });
 
-  it("returns null for empty namespace", () => {
+  it("returns null for empty namespace (malformed ref, nothing to route)", () => {
     const url = deriveEventsUrl("");
     expect(url).toBeNull();
   });

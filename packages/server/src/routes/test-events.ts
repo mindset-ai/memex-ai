@@ -1,17 +1,17 @@
 // POST /api/test-events — receives test pass/fail emissions from tests in the
 // codebase tagged with an AC reference (canonical ref).
 //
-// ── Cross-namespace safety net (b-90 dec-4, dec-5) ────────────────────────
-// Each Memex server knows its own namespace identity via the
-// `MEMEX_OWN_NAMESPACE` env var (set per-env in scripts/deploy-config.sh).
-// The route rejects events for refs whose namespace doesn't match the
-// server's own, returning a 4xx whose body names the correct canonical
-// destination. This catches cross-namespace misroutes at the destination
-// even if the helper is misconfigured, bypassed, or hand-rolled (curl).
-//
-// When `MEMEX_OWN_NAMESPACE` is unset, the route fail-closes: every POST
-// returns 4xx. Local-dev devs running tests against a local Memex server
-// must set MEMEX_OWN_NAMESPACE explicitly to opt in.
+// ── Identity gate: per-memex emission key only (spec-90 dec-7, A1) ─────────
+// There is NO server-owned-namespace guard. The b-90 Fix-4 design compared the
+// ref's namespace to a MEMEX_OWN_NAMESPACE scalar — but memex.ai is multi-tenant
+// (it serves every customer namespace, not just mindset-prod), so that scalar is
+// the wrong identity key and rejected legitimately-keyed customer tenants
+// (e.g. agent-craft) outright. The genuine safety check is spec-129's per-memex
+// emission-key match: the bearer key must authorise the exact memex named in the
+// ref (resolveMemexId(namespace, slug) == emissionKey.memexId). That proves the
+// caller owns the target workspace regardless of namespace, so it is sufficient
+// on its own. MEMEX_OWN_NAMESPACE and the wrong-namespace / fail-closed branches
+// are removed.
 //
 // Payload (JSON body):
 //   ac_uid           required, text (the AC's full canonical ref)
@@ -38,8 +38,8 @@
 // Response: 201 with the inserted row id and timestamp on success;
 //           201 with X-Memex-Warning header when metadata keys were dropped;
 //           400 with reason on bad payload;
-//           503 when MEMEX_OWN_NAMESPACE is unset (server has no identity);
-//           400 with `error: 'wrong-namespace'` for cross-namespace events.
+//           401 when the emission key is missing/invalid or does not authorise
+//               the memex named in ac_uid (spec-129).
 //
 // Also logs every received event to stdout so observers can watch the
 // stream during deploys and incident triage.
@@ -139,19 +139,6 @@ export function validateMetadata(
   return { metadata: Object.fromEntries(entries), dropped };
 }
 
-// Namespace → canonical destination URL. Mirrors the helper's
-// NAMESPACE_TO_BASE_URL table; lives here so the 4xx body can name the
-// correct canonical destination for a misrouted ref.
-const NAMESPACE_TO_BASE_URL: Record<string, string> = {
-  "mindset-int": "https://int.memex.ai",
-  "mindset-prod": "https://memex.ai",
-};
-
-function canonicalUrlFor(namespace: string): string | undefined {
-  const base = NAMESPACE_TO_BASE_URL[namespace];
-  return base ? `${base}/api/test-events` : undefined;
-}
-
 function namespaceFromAcUid(acUid: string): string {
   const slashIdx = acUid.indexOf("/");
   return slashIdx > 0 ? acUid.slice(0, slashIdx) : "";
@@ -165,31 +152,11 @@ function memexSlugFromAcUid(acUid: string): string {
 }
 
 testEventsRouter.post("/", async (c) => {
-  // ── Cross-namespace safety net ──────────────────────────────
-  // Read MEMEX_OWN_NAMESPACE EXCLUSIVELY from process.env. No host-derivation,
-  // no PUBLIC_HOST/APP_BASE_URL inference (per dec-5 + ac-11). If the env var
-  // is unset, fail-closed: 503 every request with a body naming the missing
-  // env var + remediation (per dec-4 + ac-7, ac-8).
-  const ownNamespace = process.env.MEMEX_OWN_NAMESPACE;
-  if (!ownNamespace) {
-    return c.json(
-      {
-        error: "missing-config",
-        message:
-          "MEMEX_OWN_NAMESPACE is not set on this server. /api/test-events " +
-          "is fail-closed without it (the cross-namespace safety net cannot " +
-          "operate). Set MEMEX_OWN_NAMESPACE in the server's environment to " +
-          "the namespace this server owns (e.g. 'mindset-int' or " +
-          "'mindset-prod') to enable test-event ingestion.",
-      },
-      503,
-    );
-  }
-
   // ── Emission-key auth (spec-129 dec-3) ──────────────────────────
   // A valid per-Memex key is required for every emission. Authenticate from the
-  // Authorization: Bearer header ONLY (ac-8), AFTER the server-identity 503 check and
-  // BEFORE any payload work (ac-9). The memex-match (ac-10) runs once ac_uid is known.
+  // Authorization: Bearer header ONLY (ac-8), BEFORE any payload work (ac-9).
+  // The memex-match (ac-10) runs once ac_uid is known. This key match is the
+  // SOLE identity gate — there is no server-owned-namespace check (spec-90 dec-7).
   const authHeader = c.req.header("Authorization") ?? "";
   const rawKey = authHeader.startsWith("Bearer ")
     ? authHeader.slice("Bearer ".length).trim()
@@ -251,25 +218,11 @@ testEventsRouter.post("/", async (c) => {
     );
   }
 
-  // Cross-namespace check: if the ref names a namespace this server doesn't
-  // own, reject with a body that names the correct canonical destination
-  // (per dec-4 + ac-5). Even if the client's helper is misconfigured, the
-  // 4xx body tells them where the event SHOULD have gone.
+  // spec-90 dec-7 (A1): no server-owned-namespace guard. The ref's namespace is
+  // parsed only to resolve the target memex for the emission-key match below —
+  // it is NOT compared against any server identity. memex.ai is multi-tenant, so
+  // a cross-namespace ref from a legitimately-keyed tenant is expected and valid.
   const refNamespace = namespaceFromAcUid(body.ac_uid);
-  if (refNamespace !== ownNamespace) {
-    const expectedDestination = canonicalUrlFor(refNamespace);
-    return c.json(
-      {
-        error: "wrong-namespace",
-        message:
-          `This server owns ${ownNamespace}; received ac_uid in namespace ` +
-          `${refNamespace || "(empty)"}. The event was rejected — repoint ` +
-          `your emitter at the correct destination.`,
-        ...(expectedDestination ? { expectedDestination } : {}),
-      },
-      400,
-    );
-  }
 
   // Authorization (spec-129 ac-10): a key only authorises emissions for its OWN Memex.
   // Resolve the memex named by ac_uid (<namespace>/<memex>/…) and confirm it matches the

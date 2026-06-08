@@ -217,7 +217,7 @@ beforeEach(() => {
 
 describe('ScaffoldInspect — phase view (b-68 t-13)', () => {
   it('phase pane renders the four sub-panels and the outgoing-gate link (ac-1)', async () => {
-    tagAc('mindset-prod/memex-building-itself/briefs/b-68/acs/ac-1');
+    tagAc('mindset-prod/memex-building-itself/specs/spec-68/acs/ac-1');
     setupAuth({ role: 'administrator' });
     renderPage();
 
@@ -238,7 +238,7 @@ describe('ScaffoldInspect — phase view (b-68 t-13)', () => {
   });
 
   it('clicking the outgoing-gate link switches to the gate pane', async () => {
-    tagAc('mindset-prod/memex-building-itself/briefs/b-68/acs/ac-1');
+    tagAc('mindset-prod/memex-building-itself/specs/spec-68/acs/ac-1');
     setupAuth({ role: 'administrator' });
     renderPage();
 
@@ -255,7 +255,7 @@ describe('ScaffoldInspect — phase view (b-68 t-13)', () => {
   });
 
   it('matrix-pivot toggle shows the (tool × phase) grid (ac-2)', async () => {
-    tagAc('mindset-prod/memex-building-itself/briefs/b-68/acs/ac-2');
+    tagAc('mindset-prod/memex-building-itself/specs/spec-68/acs/ac-2');
     setupAuth({ role: 'administrator' });
     renderPage();
 
@@ -282,7 +282,7 @@ describe('ScaffoldInspect — phase view (b-68 t-13)', () => {
   });
 
   it('live preview shows the merged base + enabled-Org text exactly (ac-4)', async () => {
-    tagAc('mindset-prod/memex-building-itself/briefs/b-68/acs/ac-4');
+    tagAc('mindset-prod/memex-building-itself/specs/spec-68/acs/ac-4');
     setupAuth({ role: 'administrator' });
     renderPage();
 
@@ -311,7 +311,7 @@ describe('ScaffoldInspect — phase view (b-68 t-13)', () => {
 
 describe('ScaffoldInspect — inline authoring (b-68 t-14)', () => {
   it('admin can open the editor, submit a new GuidanceBlock, refresh updates preview (ac-3)', async () => {
-    tagAc('mindset-prod/memex-building-itself/briefs/b-68/acs/ac-3');
+    tagAc('mindset-prod/memex-building-itself/specs/spec-68/acs/ac-3');
     setupAuth({ role: 'administrator' });
 
     // First load: just the base org block.
@@ -374,7 +374,7 @@ describe('ScaffoldInspect — inline authoring (b-68 t-14)', () => {
   });
 
   it('non-admin users do not see Add buttons (ac-13)', async () => {
-    tagAc('mindset-prod/memex-building-itself/briefs/b-68/acs/ac-13');
+    tagAc('mindset-prod/memex-building-itself/specs/spec-68/acs/ac-13');
     setupAuth({ role: 'member' });
     renderPage();
 
@@ -393,7 +393,7 @@ describe('ScaffoldInspect — inline authoring (b-68 t-14)', () => {
   });
 
   it('non-admin reading the gate pane sees no Add / toggle affordances (ac-13)', async () => {
-    tagAc('mindset-prod/memex-building-itself/briefs/b-68/acs/ac-13');
+    tagAc('mindset-prod/memex-building-itself/specs/spec-68/acs/ac-13');
     setupAuth({ role: 'member' });
     renderPage();
 
@@ -407,7 +407,7 @@ describe('ScaffoldInspect — inline authoring (b-68 t-14)', () => {
 
 describe('ScaffoldInspect — overview (t-12)', () => {
   it('overview pane is the default landing view and renders the explainer', async () => {
-    tagAc('mindset-prod/memex-building-itself/briefs/b-68/acs/ac-15');
+    tagAc('mindset-prod/memex-building-itself/specs/spec-68/acs/ac-15');
     setupAuth({ role: 'administrator' });
     renderPage();
 

@@ -22,6 +22,7 @@ import { useIsFeatureHidden } from '../hooks/useIsFeatureHidden';
 import { useMemexAccess } from '../hooks/useMemexAccess';
 import { CreateOrgBanner } from '../components/CreateOrgBanner';
 import { PageHeader } from '../components/PageHeader';
+import { SearchTrigger } from '../components/SearchTrigger';
 import {
   borderClassForHealth,
   SpecHealthChip,
@@ -816,6 +817,12 @@ export function SpecList() {
                 + New Spec
               </Button>
             )}
+            {/* spec-192 t-4 (dec-1): the Specs board is the ONLY list page that
+                carries a search trigger, and it's wired HERE in SpecList — not in
+                the shared PageHeader — so no other list page (Issues / Standards /
+                Insights / Pulse) gets one. Shown to everyone (search is a read
+                action), so it is NOT gated on canWrite. */}
+            <SearchTrigger variant="spec-board" />
           </>
         }
       />

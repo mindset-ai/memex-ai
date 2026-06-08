@@ -192,7 +192,7 @@ describe("GET /api/:namespace/:memex/acs/:acId/test-matrix [b-96 t-1]", () => {
   // public-read session. The seeded memex is PRIVATE (default), so an anonymous
   // caller gets a std-7 404 (indistinguishable from non-existent), NOT 401.
   it("returns 404 (std-7) without an Authorization header on a private memex", async () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-96/acs/ac-9");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-96/acs/ac-9");
     const res = await app.request(
       `/api/${namespace}/${memex}/acs/${acIdWithEvents}/test-matrix`,
       { headers: { Host: "memex.ai" } },
@@ -201,8 +201,8 @@ describe("GET /api/:namespace/:memex/acs/:acId/test-matrix [b-96 t-1]", () => {
   });
 
   it("returns rows grouped by test_identifier with emissions newest-first", async () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-96/acs/ac-1");
-    tagAc("mindset-prod/memex-building-itself/briefs/b-96/acs/ac-6");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-96/acs/ac-1");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-96/acs/ac-6");
     const res = await authedRequest(
       `/api/${namespace}/${memex}/acs/${acIdWithEvents}/test-matrix`,
       bearer,
@@ -240,8 +240,8 @@ describe("GET /api/:namespace/:memex/acs/:acId/test-matrix [b-96 t-1]", () => {
   });
 
   it("returns an empty array for an AC with no test events", async () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-96/acs/ac-3");
-    tagAc("mindset-prod/memex-building-itself/briefs/b-96/acs/ac-6");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-96/acs/ac-3");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-96/acs/ac-6");
     const res = await authedRequest(
       `/api/${namespace}/${memex}/acs/${acIdEmpty}/test-matrix`,
       bearer,
@@ -252,7 +252,7 @@ describe("GET /api/:namespace/:memex/acs/:acId/test-matrix [b-96 t-1]", () => {
   });
 
   it("returns 404 when the AC belongs to a different memex (std-7)", async () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-96/acs/ac-9");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-96/acs/ac-9");
     const otherUserId = await seedUser();
     const otherBearer = signSessionToken(otherUserId);
     const res = await authedRequest(
@@ -265,7 +265,7 @@ describe("GET /api/:namespace/:memex/acs/:acId/test-matrix [b-96 t-1]", () => {
   });
 
   it("returns 404 for a malformed / non-existent acId", async () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-96/acs/ac-6");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-96/acs/ac-6");
     const res = await authedRequest(
       `/api/${namespace}/${memex}/acs/00000000-0000-0000-0000-000000000000/test-matrix`,
       bearer,
@@ -342,7 +342,7 @@ describe("DELETE /api/:namespace/:memex/acs/:acId/test-events [b-96 t-2]", () =>
   });
 
   it("returns 400 when test_identifier query param is missing", async () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-96/acs/ac-7");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-96/acs/ac-7");
     const res = await authedRequest(
       `/api/${namespace}/${memex}/acs/${acId}/test-events`,
       bearer,
@@ -354,8 +354,8 @@ describe("DELETE /api/:namespace/:memex/acs/:acId/test-events [b-96 t-2]", () =>
   });
 
   it("deletes every row for (acUid, test_identifier) and returns {deleted: N}", async () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-96/acs/ac-2");
-    tagAc("mindset-prod/memex-building-itself/briefs/b-96/acs/ac-7");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-96/acs/ac-2");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-96/acs/ac-7");
 
     const before = await db
       .select({ count: sql<number>`count(*)::int` })
@@ -387,8 +387,8 @@ describe("DELETE /api/:namespace/:memex/acs/:acId/test-events [b-96 t-2]", () =>
   });
 
   it("subsequent GET test-matrix omits the deleted row [server-side ac-3]", async () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-96/acs/ac-3");
-    tagAc("mindset-prod/memex-building-itself/briefs/b-96/acs/ac-7");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-96/acs/ac-3");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-96/acs/ac-7");
 
     await authedRequest(
       `/api/${namespace}/${memex}/acs/${acId}/test-events?test_identifier=t_drop`,
@@ -406,7 +406,7 @@ describe("DELETE /api/:namespace/:memex/acs/:acId/test-events [b-96 t-2]", () =>
   });
 
   it("re-emission after delete produces a fresh-history row [ac-4]", async () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-96/acs/ac-4");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-96/acs/ac-4");
 
     // Discontinue t_drop.
     await authedRequest(
@@ -443,8 +443,8 @@ describe("DELETE /api/:namespace/:memex/acs/:acId/test-events [b-96 t-2]", () =>
   });
 
   it("returns 404 when the AC belongs to a different memex (std-7) [ac-5, ac-9]", async () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-96/acs/ac-5");
-    tagAc("mindset-prod/memex-building-itself/briefs/b-96/acs/ac-9");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-96/acs/ac-5");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-96/acs/ac-9");
 
     const otherUserId = await seedUser();
     const otherBearer = signSessionToken(otherUserId);
@@ -464,7 +464,7 @@ describe("DELETE /api/:namespace/:memex/acs/:acId/test-events [b-96 t-2]", () =>
   });
 
   it("writes no audit record: no comments on the spec, no other table touched [ac-8]", async () => {
-    tagAc("mindset-prod/memex-building-itself/briefs/b-96/acs/ac-8");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-96/acs/ac-8");
 
     const commentsBefore = await db
       .select({ count: sql<number>`count(*)::int` })
