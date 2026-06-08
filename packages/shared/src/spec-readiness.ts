@@ -62,8 +62,11 @@ export type SpecReadiness = {
 
 const RESOLVE_COMMENTS_CTA =
   'Use the "Resolve Comments" button to walk them with the agent.';
+// spec-196 dec-3/dec-1: human-facing copy says "spec narrative"; the live
+// affordance is the opening-turn "Update spec narrative" helper (spec-123),
+// not the retired top-bar button.
 const REFRESH_SPEC_CTA =
-  'Use the "New decisions — update narrative" button to consolidate.';
+  'Use the "Update spec narrative" helper to consolidate.';
 const RESOLVE_DECISIONS_CTA =
   'Resolve them on the Decisions tab — tasks are first-class only once decisions are settled.';
 const OPEN_ISSUES_CTA =
@@ -205,7 +208,7 @@ export function computeSpecReadiness(input: ReadinessInput): SpecReadiness {
 /**
  * Convenience: human-readable lines for a confirm dialog or MCP response.
  * One line per outstanding item, formatted like:
- *   `3 decisions not yet reflected in the narrative — use the "New decisions — update narrative" button to consolidate.`
+ *   `3 decisions not yet reflected in the narrative — Use the "Update spec narrative" helper to consolidate.`
  */
 export function blockerLines(readiness: SpecReadiness): string[] {
   return readiness.outstandingItems.map((item) => `${item.label} — ${item.cta}`);

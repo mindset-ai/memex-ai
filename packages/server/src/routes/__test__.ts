@@ -22,7 +22,8 @@ import {
   createUserWithPassword,
 } from "../services/users.js";
 import { ensureUserNamespace, ensureUserMemex } from "../services/user-namespaces.js";
-import { createDocDraft } from "../services/documents.js";
+import { createDocDraft, updateDocStatus } from "../services/documents.js";
+import { markNarrativeConsolidated } from "../services/narrative.js";
 import { createDecision } from "../services/decisions.js";
 import { hashPassword } from "../services/passwords.js";
 import { issueAuthToken } from "../services/auth-tokens.js";
@@ -585,6 +586,44 @@ testOnlyRouter.get("/doc-status/:id", async (c) => {
   });
   if (!doc) return c.json({ error: `Document ${docId} not found` }, 404);
   return c.json({ status: doc.status });
+});
+
+// spec-196 t-5: set a doc's status through the real updateDocStatus service
+// (bus-emitted, SSE-visible). Journeys use this to seed a Spec in a phase the
+// UI can't browse to (e.g. `done` for the DoneSummary read view) without
+// driving every intermediate gate.
+const setDocStatusSchema = z.object({
+  memexId: z.string().uuid(),
+  docId: z.string().uuid(),
+  status: z.string(),
+});
+testOnlyRouter.post("/set-doc-status", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = setDocStatusSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
+  }
+  const { memexId, docId, status } = parsed.data;
+  const result = await updateDocStatus(memexId, docId, status);
+  return c.json({ docId: result.id, status: result.status });
+});
+
+// spec-196 t-5: stamp `narrativeLastConsolidatedAt = now()` through the real
+// markNarrativeConsolidated service — what `assess_spec({mode:'consolidate'})`
+// does, reachable for journeys (the MCP surface isn't drivable from Playwright).
+const consolidateSchema = z.object({
+  memexId: z.string().uuid(),
+  docId: z.string().uuid(),
+});
+testOnlyRouter.post("/consolidate-narrative", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = consolidateSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
+  }
+  const { memexId, docId } = parsed.data;
+  const result = await markNarrativeConsolidated(memexId, docId);
+  return c.json({ consolidatedAt: result.consolidatedAt });
 });
 
 // Resolve the latest active share token for a doc — the schema-current

@@ -205,12 +205,12 @@ describe('spec-159 t-6 — DocDocument phase layouts', () => {
     const user = userEvent.setup();
     renderAt('specify');
 
-    // Specify view is current → its sub-tab bar shows Narrative / Decisions & ACs / Comments.
-    await screen.findByText('Narrative');
+    // Specify view is current → its sub-tab bar shows Spec / Decisions & ACs / Comments.
+    await screen.findByText('Spec');
     expect(screen.getByText('Decisions & ACs')).toBeInTheDocument();
     expect(screen.getByText('Comments')).toBeInTheDocument();
 
-    // Default sub-tab is Narrative (section cards render).
+    // Default sub-tab is Spec (the narrative) (section cards render).
     expect(screen.getByTestId('section-card')).toBeInTheDocument();
 
     // Switch to Decisions & ACs → both panels render side by side.
@@ -284,7 +284,7 @@ describe('spec-159 t-6 — DocDocument phase layouts', () => {
   it('mounts no PhaseDropdown and no other phase-control affordance (ac-1)', async () => {
     tagAc(AC(1));
     renderAt('specify');
-    await screen.findByText('Narrative');
+    await screen.findByText('Spec');
 
     // No listbox-style phase dropdown trigger anywhere.
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
@@ -349,7 +349,7 @@ describe('spec-159 — Rubicon line + in-situ directives', () => {
     const user = userEvent.setup();
     docDecisions = [decision('d-1', 'open')];
     renderAt('specify');
-    await screen.findByText('Narrative');
+    await screen.findByText('Spec');
 
     await user.click(phaseTab('build'));
     const sentence = screen.getByTestId('transition-sentence');
@@ -362,7 +362,7 @@ describe('spec-159 — Rubicon line + in-situ directives', () => {
     // No → back to the current phase's view, no phase mutation.
     await user.click(within(sentence).getByRole('button', { name: 'No' }));
     expect(phaseTab('specify')).toHaveAttribute('data-selected', 'true');
-    expect(screen.getByText('Narrative')).toBeInTheDocument();
+    expect(screen.getByText('Spec')).toBeInTheDocument();
     expect(updateDocStatus).not.toHaveBeenCalled();
   });
 
@@ -454,7 +454,7 @@ describe('spec-159 — Rubicon line + in-situ directives', () => {
     docDecisions = [decision('d-1', 'open')];
     docTasks = [{ id: 't-1', status: 'in_progress' }];
     renderAt('specify');
-    await screen.findByText('Narrative');
+    await screen.findByText('Spec');
 
     await user.click(phaseTab('build'));
     await screen.findByTestId('task-panel');
@@ -472,7 +472,7 @@ describe('spec-159 — Rubicon line + in-situ directives', () => {
     await screen.findByTestId('task-panel');
 
     await user.click(phaseTab('specify'));
-    await screen.findByText('Narrative');
+    await screen.findByText('Spec');
     expect(phaseTab('build')).toHaveAttribute('data-current', 'true');
 
     // The refetch after the transition returns the moved doc.
@@ -493,7 +493,7 @@ describe('spec-159 — Rubicon line + in-situ directives', () => {
     tagAc(AC(19));
     mockRole = 'editor';
     renderAt('specify');
-    await screen.findByText('Narrative');
+    await screen.findByText('Spec');
 
     // Editors still get the PhaseTabBar (3 phase tabs) and the Rubicon line.
     expect(screen.getAllByRole('tab')).toHaveLength(3);
@@ -590,12 +590,12 @@ describe('spec-182 — unified reviewer phase block', () => {
     mockRole = 'editor';
     const user = userEvent.setup();
     renderAt('specify');
-    await screen.findByText('Narrative');
+    await screen.findByText('Spec');
 
     const header = screen.getByTestId('header-slot');
     // findByRole: the header slot populates via a useHeaderSlot effect a tick
     // after the page body renders — under full-suite load the pill can land
-    // after 'Narrative' is already visible (same async class as i-2).
+    // after 'Spec' is already visible (same async class as i-2).
     await user.click(await within(header).findByRole('button', { name: /You are editing/ }));
     await user.click(screen.getByRole('menuitemradio', { name: /Reviewing/ }));
     // useSwitchPosture → demoteToReviewer(docId) then a role refetch.
@@ -682,7 +682,7 @@ describe('spec-182 — unified reviewer phase block', () => {
     tagAc(AC182(3));
     renderAt('draft');
 
-    await screen.findByText('Narrative');
+    await screen.findByText('Spec');
     expect(screen.queryByTestId('review-action-row')).not.toBeInTheDocument();
     expect(screen.queryByTestId('review-handoff-line')).not.toBeInTheDocument();
   });
@@ -709,16 +709,21 @@ describe('spec-182 — unified reviewer phase block', () => {
     expect(sentence.textContent).not.toContain("You're reviewing");
   });
 
-  it('done collapses to the DoneSummary for reviewers — no review block, no Reopen', async () => {
+  it('done collapses to the DoneSummary for reviewers — no review block; Reopen is offered (spec-196)', async () => {
     tagAc(AC182(13));
     tagAc(AC182(5));
+    // spec-196 ac-15: a writable reviewer sees Reopen at done (gate relaxed
+    // from editor posture to org write access).
+    tagAc('mindset-prod/memex-building-itself/specs/spec-196/acs/ac-15');
     renderAt('done');
 
     const summary = await screen.findByTestId('done-summary');
     expect(screen.queryByTestId('review-action-row')).not.toBeInTheDocument();
     expect(screen.queryByTestId('review-handoff-line')).not.toBeInTheDocument();
-    // Reopen stays canEdit-gated (spec-164 dec-5) — absent for a reviewer.
-    expect(summary).toHaveAttribute('data-can-reopen', 'false');
+    // spec-196 relaxed spec-164 dec-5: Reopen now gates on org write access,
+    // not editor posture, so a writable reviewer sees it (the reviewer/editor
+    // distinction is meaningless on a closed spec). canWrite is true here.
+    expect(summary).toHaveAttribute('data-can-reopen', 'true');
   });
 });
 

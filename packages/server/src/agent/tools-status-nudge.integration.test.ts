@@ -240,7 +240,7 @@ describe("update_doc_status nudge (t-7)", () => {
     );
     expect(result).toMatch(/Outstanding work:/);
     expect(result).toMatch(/not yet reflected in the narrative/);
-    expect(result).toMatch(/"New decisions — update narrative"/);
+    expect(result).toMatch(/"Update spec narrative"/);
   });
 
   it("omits the 'Outstanding work' list when the Spec is clean", async () => {
