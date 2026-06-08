@@ -43,8 +43,9 @@ async function main(): Promise<void> {
   console.log(`[whats-new] generating entries for ${NAMESPACE_SLUG}/${MEMEX_SLUG}…`);
   const result = await runWhatsNewGeneration(row.memexId);
   console.log(
-    `[whats-new] done — generated ${result.generated}, skipped ${result.skipped} of ${result.total} shippable spec(s)` +
-      (result.capped ? " (CAPPED this run — remaining specs publish on the next deploy)." : "."),
+    `[whats-new] done — judged ${result.evaluated} of ${result.total} shippable spec(s): ` +
+      `${result.generated} published, ${result.skipped} skipped (not noteworthy)` +
+      (result.capped ? " (CAPPED this run — remaining specs judged on the next deploy)." : "."),
   );
   process.exit(0);
 }

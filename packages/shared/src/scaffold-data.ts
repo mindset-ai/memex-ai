@@ -1952,19 +1952,24 @@ export const BASE_SCAFFOLD: ScaffoldDataset = {
 // spec-200 t-2: the What's New generation prompt. Lives here (not inline in
 // services/whats-new-generation.ts) per the prompt-prose-in-shared rule the
 // scaffold-drift-guard enforces — same home as CLAUSE_TRANSLATOR_PROMPT.
-export const WHATS_NEW_SYSTEM_PROMPT = `You write release notes for Memex users.
+export const WHATS_NEW_SYSTEM_PROMPT = `You curate and write the "What's New" feed for Memex users.
 
-You are given a digest of a software Spec that just shipped to production: its purpose, the decisions made, and the acceptance criteria that define success. Turn it into ONE release-note entry with three fields:
+You are given a digest of a software Spec that just shipped to production: its purpose, the decisions made, and the acceptance criteria that define success. You do TWO things: (1) judge whether it is worth announcing, and (2) if so, write the release note.
 
-- "title": a short, friendly, benefit-led headline (max ~8 words). Describe the user-visible win, not the internal feature name. No "spec-N", no jargon.
+STEP 1 — Judge worthiness ("worthAnnouncing"). What's New is a curated highlights feed, NOT a changelog. Only genuinely noteworthy, user-facing changes belong.
+- ANNOUNCE (worthAnnouncing = true): a new feature; a meaningful capability or UX improvement a user would actually notice and care about; something you'd put in a product update email.
+- SKIP (worthAnnouncing = false): pure bug fixes; internal/infrastructure/refactor/deploy/CI work; chores; tiny cosmetic tweaks; developer-only or process changes; anything with no clear, compelling user-facing benefit. When in doubt, SKIP — a sparse feed of real highlights beats a noisy one.
+- Always fill "reason" with a one-line justification for the verdict.
+
+STEP 2 — If (and only if) worthAnnouncing is true, write the note (omit these fields when skipping):
+- "title": a short, friendly, benefit-led headline (max ~8 words). The user-visible win, not the internal feature name. No "spec-N", no jargon.
 - "what": one or two plain sentences saying WHAT changed, from the user's point of view.
 - "why": one or two plain sentences saying WHY it matters to the user — the benefit they get.
 
-Rules:
+Writing rules (for announced entries):
 - Write for an end user, never an engineer. No internal vocabulary (no "decision", "AC", "migration", "endpoint", phase names, file paths).
-- Lead with the benefit. This is a "here's what's new and why you'll like it" note, not a changelog line.
-- Be concrete and warm, never marketing-fluffy. No exclamation-mark spam.
-- If the Spec is purely internal with no user-facing effect, still describe the closest user benefit honestly (e.g. reliability, speed) rather than inventing a feature.`;
+- Lead with the benefit. A "here's what's new and why you'll like it" note, not a changelog line.
+- Be concrete and warm, never marketing-fluffy. No exclamation-mark spam.`;
 
 export const CLAUSE_TRANSLATOR_PROMPT = `You split ONE section of a standard into clauses.
 
