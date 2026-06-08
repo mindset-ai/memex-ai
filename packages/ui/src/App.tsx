@@ -49,6 +49,7 @@ import { tenantBase } from './api/http';
 import { SearchProvider } from './components/SearchContext';
 import { WhatsNewRibbonConnected } from './components/whats-new/WhatsNewRibbonConnected';
 import { FirstRunGreeting } from './components/onboarding/FirstRunGreeting';
+import { DemoWalkthroughController } from './voice/walkthrough/DemoWalkthroughController';
 
 declare const __BUILD_TIME__: string;
 
@@ -239,6 +240,9 @@ function VoiceGuideMount({
   // orchestrator so the guide's `advance_demo` tool walks the board during the
   // synced walkthrough (dec-1). Read via the provider that wraps this component.
   const { advance: advanceDemo } = useHandholdRevealValue(namespace || null, memex || null);
+  // spec-211 t-3: the demo-walkthrough sequencer registers its start() here; the
+  // guide's start_walkthrough tool invokes it through the orchestrator dep below.
+  const walkthroughStartRef = useRef<() => void>(() => {});
   // All live values flow through this ref so the factory can be created ONCE and
   // never change identity. `navigate` in particular gets a new identity on router
   // re-renders; if the factory depended on it, the provider's memoized orchestrator
@@ -252,6 +256,7 @@ function VoiceGuideMount({
       createVoiceOrchestratorFactory({
         navigate: (path: string) => liveRef.current.navigate(path),
         advanceDemo: () => liveRef.current.advanceDemo(),
+        startWalkthrough: () => walkthroughStartRef.current(),
         authToken: () => liveRef.current.token,
         tenantBase: () => tenantBase(),
         origin: typeof window !== 'undefined' ? window.location.origin : '',
@@ -274,6 +279,14 @@ function VoiceGuideMount({
   return (
     <VoiceSessionProvider orchestratorFactory={factory}>
       {children}
+      {/* spec-211 t-3: the demo-walkthrough sequencer (renders nothing). Inside the
+          provider so it can drive narratePhase; registers start() into the ref the
+          start_walkthrough tool calls. */}
+      <DemoWalkthroughController
+        namespace={namespace || null}
+        memex={memex || null}
+        startRef={walkthroughStartRef}
+      />
       <VoiceLayer />
     </VoiceSessionProvider>
   );

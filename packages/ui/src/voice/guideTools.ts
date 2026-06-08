@@ -44,6 +44,10 @@ export interface NavigateContext {
    *  draft→specify→build→verify→done). Optional so callers that don't wire it
    *  (and tests) degrade to a no-op rather than throwing. */
   advanceDemo?: () => void;
+  /** spec-211 t-3 (dec-1): hand control to the client demo-walkthrough sequencer.
+   *  The guide calls `start_walkthrough` when the user accepts the offer; the
+   *  client then drives the speech-synced per-phase tour. Optional → no-op. */
+  startWalkthrough?: () => void;
 }
 
 export interface AdvanceDemoResult {
@@ -55,6 +59,14 @@ export interface AdvanceDemoResult {
 export function executeAdvanceDemo(ctx: NavigateContext): AdvanceDemoResult {
   if (!ctx.advanceDemo) return { ok: false };
   ctx.advanceDemo();
+  return { ok: true };
+}
+
+/** spec-211 t-3: start the client demo-walkthrough sequencer. Best-effort no-op
+ *  when nothing is wired (tests / no sequencer mounted). */
+export function executeStartWalkthrough(ctx: NavigateContext): { ok: boolean } {
+  if (!ctx.startWalkthrough) return { ok: false };
+  ctx.startWalkthrough();
   return { ok: true };
 }
 
@@ -84,6 +96,9 @@ export const GUIDE_CLIENT_TOOL_NAMES: ReadonlySet<string> = new Set([
   // spec-206 t-2 (dec-1): the synced-walkthrough advance. The graph emits it per
   // narrated phase (t-4); React walks the shared reveal pointer here.
   'advance_demo',
+  // spec-211 t-3 (dec-1): the guide calls this when the user accepts the demo
+  // walkthrough; the client sequencer then drives the speech-synced tour.
+  'start_walkthrough',
 ]);
 
 /**
@@ -103,6 +118,8 @@ export function dispatchGuideUiTool(
       return executeNavigate(input as { screen?: string }, ctx);
     case 'advance_demo':
       return executeAdvanceDemo(ctx);
+    case 'start_walkthrough':
+      return executeStartWalkthrough(ctx);
     default:
       return { ok: false };
   }
