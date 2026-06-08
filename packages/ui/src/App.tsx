@@ -1,5 +1,5 @@
-import { Fragment, useState, useEffect } from 'react';
-import { Routes, Route, useLocation, useParams, Navigate, Outlet } from 'react-router-dom';
+import { Fragment, useState, useEffect, useRef, useMemo, type ReactNode } from 'react';
+import { Routes, Route, useLocation, useParams, useNavigate, Navigate, Outlet } from 'react-router-dom';
 import { Pulse } from './pages/Pulse';
 import { Insights } from './pages/Insights';
 import { Decisions } from './pages/Decisions';
@@ -39,6 +39,12 @@ import { parseTenantFromPathname } from './utils/tenantUrl';
 import { isFeatureHidden } from './utils/featureFlags';
 import { probePublicMemex, type PublicMemexProbe } from './api/client';
 import { PublicMemexProvider } from './components/PublicMemexContext';
+import { VoiceSessionProvider } from './voice/session/VoiceSessionContext';
+import { VoiceLayer } from './voice/session/VoiceLayer';
+import { createVoiceOrchestratorFactory } from './voice/orchestrator/voiceGuideOrchestrator';
+import { currentScreenKey } from './voice/guideElements';
+import { guideElementsForScreen } from '@memex/shared';
+import { tenantBase } from './api/http';
 import { SearchProvider } from './components/SearchContext';
 
 declare const __BUILD_TIME__: string;
@@ -174,13 +180,77 @@ function TenantLayout() {
   // callback; useDocChangeStream captures tenantBase() once on connect).
   return (
     <ChatProvider>
-      <OrgConsentDialog />
-      <AppShell>
-        <Fragment key={`${namespace}/${memex}`}>
-          <Outlet />
-        </Fragment>
-      </AppShell>
+      {/* spec-190 t-8/t-3: the voice guide is available on authed tenant routes
+          (the guide-chat SSE leg needs a session). VoiceGuideMount supplies the
+          real mic→STT→graph→TTS orchestrator factory + renders VoiceLayer beside
+          AppShell, so the shell needs no edit and the public branch — which never
+          mounts VoiceGuideMount — has no voice surface. */}
+      <VoiceGuideMount namespace={namespace ?? ''} memex={memex ?? ''}>
+        <OrgConsentDialog />
+        <AppShell>
+          <Fragment key={`${namespace}/${memex}`}>
+            <Outlet />
+          </Fragment>
+        </AppShell>
+      </VoiceGuideMount>
     </ChatProvider>
+  );
+}
+
+/**
+ * spec-190 t-3 — mounts the voice session provider with the REAL orchestrator
+ * factory (the mic→STT→graph→TTS loop) and the VoiceLayer overlay. Lives inside
+ * the router tree so navigate / route context resolve. The factory is stable
+ * (built once); live values (token, tenant, screen) are read through refs/helpers
+ * each turn so a session is never swapped out from under itself.
+ */
+function VoiceGuideMount({
+  namespace,
+  memex,
+  children,
+}: {
+  namespace: string;
+  memex: string;
+  children: ReactNode;
+}) {
+  const { token } = useAuth();
+  const navigate = useNavigate();
+  // All live values flow through this ref so the factory can be created ONCE and
+  // never change identity. `navigate` in particular gets a new identity on router
+  // re-renders; if the factory depended on it, the provider's memoized orchestrator
+  // would be recreated mid-turn — and its cleanup effect would stop() the in-flight
+  // orchestrator, dropping the spoken reply (the turn finished with stopped=true).
+  const liveRef = useRef({ token, namespace, memex, navigate });
+  liveRef.current = { token, namespace, memex, navigate };
+
+  const factory = useMemo(
+    () =>
+      createVoiceOrchestratorFactory({
+        navigate: (path: string) => liveRef.current.navigate(path),
+        authToken: () => liveRef.current.token,
+        tenantBase: () => tenantBase(),
+        origin: typeof window !== 'undefined' ? window.location.origin : '',
+        getScreenContext: () => {
+          const screenKey = currentScreenKey(
+            typeof window !== 'undefined' ? window.location.pathname : '',
+          );
+          return {
+            screenKey,
+            screenRegistry: screenKey ? guideElementsForScreen(screenKey) : [],
+            namespace: liveRef.current.namespace,
+            memex: liveRef.current.memex,
+          };
+        },
+      }),
+    // Stable for the component's lifetime — live values are read via liveRef.
+    [],
+  );
+
+  return (
+    <VoiceSessionProvider orchestratorFactory={factory}>
+      {children}
+      <VoiceLayer />
+    </VoiceSessionProvider>
   );
 }
 

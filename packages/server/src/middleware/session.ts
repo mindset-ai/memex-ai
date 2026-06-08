@@ -53,7 +53,7 @@ export type SessionEnv = {
 
 const DEV_USER_EMAIL = process.env.DEV_USER_EMAIL ?? "dev@memex.ai";
 
-async function resolveDevUser(): Promise<User> {
+export async function resolveDevUser(): Promise<User> {
   const user = await upsertUserByEmail(DEV_USER_EMAIL);
   if (!user.namespaceId) {
     await ensureUserNamespace(user.id);

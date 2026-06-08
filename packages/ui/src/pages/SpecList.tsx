@@ -811,7 +811,12 @@ export function SpecList() {
                 {resetting ? 'Resetting…' : 'Reset demo'}
               </Button>
             )}
-            {canWrite && <Button onClick={() => setModalOpen(true)}>+ New Spec</Button>}
+            {/* spec-190 t-4 (dec-3): voice-guide highlight target — see guide-registry 'specs-list'. */}
+            {canWrite && (
+              <Button data-guide-id="new-spec-button" onClick={() => setModalOpen(true)}>
+                + New Spec
+              </Button>
+            )}
             {/* spec-192 t-4 (dec-1): the Specs board is the ONLY list page that
                 carries a search trigger, and it's wired HERE in SpecList — not in
                 the shared PageHeader — so no other list page (Issues / Standards /

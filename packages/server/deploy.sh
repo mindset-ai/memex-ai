@@ -66,6 +66,19 @@ else
   echo "  ⚠ slack-client-secret not found — Slack integration disabled (see b-23)"
   HAS_SLACK=0
 fi
+# ELEVENLABS_API_KEY is optional (spec-190 voice guide). Wired ONLY if the secret
+# exists, so a deploy never breaks before it's provisioned — voice simply stays
+# disabled (isVoiceConfigured() is false) until the secret lands. Create it once
+# per project to light voice up (no code change needed):
+#   printf %s "<key>" | gcloud secrets create elevenlabs-api-key --data-file=- \
+#     --project "${GCP_PROJECT}" --replication-policy=user-managed --locations=us-east4
+if gcloud secrets describe elevenlabs-api-key --project "${GCP_PROJECT}" >/dev/null 2>&1; then
+  echo "  ✓ elevenlabs-api-key present — voice guide enabled"
+  HAS_ELEVENLABS=1
+else
+  echo "  ⚠ elevenlabs-api-key not found — voice guide disabled (spec-190)"
+  HAS_ELEVENLABS=0
+fi
 
 # ── KMS prerequisite ─────────────────────────────────────────
 # The Slack token encryption path (services/slack/crypto.ts) requires a
@@ -169,6 +182,22 @@ echo "  1d. default Standards backfill (spec-184 t-4 / ac-15)..."
 DATABASE_URL="${DB_URL}" timeout 600 pnpm db:backfill-default-standards \
   || echo "  ⚠ default-standards backfill timed out or failed (non-gating, exit $?) — deploy continues; next deploy resumes (idempotent)."
 
+# 1e. spec-190 t-7 / ac-18,ac-20 — import the repo's guide-content/ markdown into
+# the guide_content table (the voice guide's knowledge store). Content is imported
+# from the SAME commit being deployed, per environment, so the guide never describes
+# UI that isn't shipped here (dec-7d). The import is idempotent — upsert by
+# source_path + content_hash, so unchanged chunks are never re-embedded — and prunes
+# rows whose source file is gone, so it's safe to run on every deploy.
+#
+# Bounded + non-gating, exactly like 1c/1d: `timeout` caps the run and `|| echo`
+# swallows a timeout (124) or any error (incl. a frontmatter validation failure) so
+# `set -e` can never abort a live deploy; the next deploy resumes. Embeddings ride on
+# resolveEmbeddingProvider() (Cohere default); with no provider rows land vectorless
+# and FTS covers (spec-64 posture), so a missing embedding key never fails the deploy.
+echo "  1e. guide-content import (spec-190 t-7 / ac-18)..."
+DATABASE_URL="${DB_URL}" timeout 600 pnpm db:import-guide-content \
+  || echo "  ⚠ guide-content import timed out or failed (non-gating, exit $?) — deploy continues; next deploy resumes (idempotent)."
+
 kill $PROXY_PID 2>/dev/null
 wait $PROXY_PID 2>/dev/null || true
 
@@ -208,6 +237,9 @@ if [ "$HAS_SLACK" = "1" ]; then
 fi
 if [ "$HAS_COHERE" = "1" ]; then
   SECRETS_WIRING+=",COHERE_API_KEY=cohere-api-key:latest"
+fi
+if [ "$HAS_ELEVENLABS" = "1" ]; then
+  SECRETS_WIRING+=",ELEVENLABS_API_KEY=elevenlabs-api-key:latest"
 fi
 
 # HIDDEN_FEATURES is appended to --update-env-vars ONLY when it is set (see
