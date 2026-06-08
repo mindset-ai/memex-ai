@@ -82,7 +82,7 @@ export default defineConfig({
       // plain `/api/docs/events` prefix no longer matches it. A `^`-prefixed key
       // is treated as a RegExp by Vite's proxy matcher, so this catches both the
       // tenant-scoped doc stream and `/api/me/events`.
-      '^/api/(.*/)?(docs/events|me/events)': {
+      '^/api/(.*/)?(docs/events|me/events|voice/guide-chat)': {
         target: API_TARGET,
         // changeOrigin: false preserves the original Host header. Even though
         // tenancy lives in the URL path now, the server still inspects the

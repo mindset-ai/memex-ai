@@ -149,19 +149,38 @@ export const GUIDE_SCREENS: Partial<Record<GuideScreenKey, GuideScreen>> = {
 /** Screens that currently have registered elements (a subset of all keys). */
 export const REGISTERED_SCREEN_KEYS = Object.keys(GUIDE_SCREENS) as GuideScreenKey[];
 
-/** The highlightable elements for a screen ([] when none are registered yet). */
+// GLOBAL elements live in the app shell (the sidebar nav), so they're present and
+// highlightable on EVERY in-tenant screen — not owned by any one screen. The guide
+// uses these to "show, don't just tell": when a user asks how/where to do
+// something, it highlights the real affordance (e.g. the Standards nav link) so
+// they learn where it is, instead of only describing it. The matching DOM nodes
+// carry data-guide-id in AppShell.tsx. (Soft-launch-hidden nav — Pulse, Scaffold —
+// is intentionally omitted; highlighting a non-rendered element is a safe no-op.)
+export const GLOBAL_GUIDE_ELEMENTS: GuideElement[] = [
+  { id: 'specs-nav', description: 'Sidebar link to the Specs board — the Kanban of all Specs (the home screen).' },
+  { id: 'issues-nav', description: 'Sidebar link to the Issues list — Specs/issues assigned across the workspace.' },
+  { id: 'insights-nav', description: 'Sidebar link to Insights — per-Memex Spec analytics charts.' },
+  { id: 'standards-nav', description: 'Sidebar link to the Standards page — the team’s durable rules.' },
+  { id: 'drift-nav', description: 'Sidebar link to the Drift Inbox — where standard-drift signals collect.' },
+];
+
+/** The highlightable elements for a screen: the always-present global (nav)
+ *  elements plus any screen-specific ones. */
 export function guideElementsForScreen(key: GuideScreenKey): GuideElement[] {
-  return GUIDE_SCREENS[key]?.elements ?? [];
+  return [...GLOBAL_GUIDE_ELEMENTS, ...(GUIDE_SCREENS[key]?.elements ?? [])];
 }
 
-/** True when `id` is a registered element id on `screenKey` (content validation,
- *  t-7, and the highlight tool's guardrail, t-5). */
+/** True when `id` is a known element on `screenKey` — a global (nav) element or a
+ *  screen-specific one (content validation t-7, and the highlight guardrail t-5). */
 export function isKnownGuideElement(screenKey: GuideScreenKey, id: string): boolean {
   return guideElementsForScreen(screenKey).some((e) => e.id === id);
 }
 
-/** Every registered element id across all screens (used by the t-7 import-time
- *  referential validation and ui-side consistency checks). */
+/** Every registered element id — the globals plus every screen's elements (used by
+ *  the t-7 import-time referential validation and ui-side consistency checks). */
 export function allGuideElementIds(): string[] {
-  return Object.values(GUIDE_SCREENS).flatMap((s) => s?.elements.map((e) => e.id) ?? []);
+  return [
+    ...GLOBAL_GUIDE_ELEMENTS.map((e) => e.id),
+    ...Object.values(GUIDE_SCREENS).flatMap((s) => s?.elements.map((e) => e.id) ?? []),
+  ];
 }

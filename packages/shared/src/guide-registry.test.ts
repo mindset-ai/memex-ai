@@ -9,6 +9,7 @@ import {
   guideElementsForScreen,
   isKnownGuideElement,
   allGuideElementIds,
+  GLOBAL_GUIDE_ELEMENTS,
 } from './guide-registry.js';
 
 const AC16 = 'mindset-prod/memex-building-itself/specs/spec-190/acs/ac-16';
@@ -69,11 +70,20 @@ describe('registry structure (ac-16 elements)', () => {
     const all = allGuideElementIds();
     expect(all).toContain('phase-pill');
     expect(all).toContain('new-spec-button');
-    expect(all.length).toBe(Object.values(GUIDE_SCREENS).reduce((n, s) => n + (s?.elements.length ?? 0), 0));
+    expect(all).toContain('standards-nav'); // global (nav) element
+    // globals + every screen's elements
+    expect(all.length).toBe(
+      GLOBAL_GUIDE_ELEMENTS.length +
+        Object.values(GUIDE_SCREENS).reduce((n, s) => n + (s?.elements.length ?? 0), 0),
+    );
   });
 
-  it('returns [] for a screen with no registered elements yet', () => {
-    expect(guideElementsForScreen('insights')).toEqual([]);
+  it('exposes the global nav elements on every screen (show-don’t-tell)', () => {
+    // Even a screen with no screen-specific elements still surfaces the nav globals.
+    expect(guideElementsForScreen('insights')).toEqual(GLOBAL_GUIDE_ELEMENTS);
+    // And the globals are known/highlightable from any screen.
+    expect(isKnownGuideElement('specs-list', 'standards-nav')).toBe(true);
+    expect(isKnownGuideElement('standards-list', 'specs-nav')).toBe(true);
   });
 
   it('verifies the registry mechanism', () => {

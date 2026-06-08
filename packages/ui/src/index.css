@@ -352,3 +352,39 @@
   background-color: rgba(251, 191, 36, 0.45);
   border-radius: 2px;
 }
+
+/* spec-190 (dec-4 / t-5): the voice guide's highlight tool adds `.guide-highlight`
+   to a registry element (data-guide-id) to draw the eye while the guide talks
+   about it. Without a visible style the highlight tool was a silent no-op. A
+   pulsing accent ring; removed by the tool after ~2.5s. */
+.guide-highlight {
+  border-radius: 8px;
+  animation: guide-highlight-pulse 1.2s ease-in-out infinite;
+  /* Layered ring so it reads on any surface without shifting layout. */
+  box-shadow:
+    0 0 0 3px rgba(99, 102, 241, 0.9),
+    0 0 0 6px rgba(99, 102, 241, 0.35);
+}
+
+@keyframes guide-highlight-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 3px rgba(99, 102, 241, 0.9),
+      0 0 0 6px rgba(99, 102, 241, 0.25);
+  }
+  50% {
+    box-shadow:
+      0 0 0 3px rgba(99, 102, 241, 1),
+      0 0 0 10px rgba(99, 102, 241, 0.45);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .guide-highlight {
+    animation: none;
+    box-shadow:
+      0 0 0 3px rgba(99, 102, 241, 0.95),
+      0 0 0 6px rgba(99, 102, 241, 0.4);
+  }
+}
