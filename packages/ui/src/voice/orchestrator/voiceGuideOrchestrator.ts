@@ -84,6 +84,9 @@ class VoiceGuideOrchestrator implements VoiceOrchestrator {
   private turnAbort: AbortController | null = null;
   private speakingRequestId: string | null = null;
   private stopped = false;
+  // spec-200 t-7: a one-shot opening context (a What's New entry) the guide
+  // explains proactively on session start. Consumed on ws ready, then cleared.
+  private openingContext: string | null = null;
   private readonly newId: () => string;
 
   constructor(
@@ -101,13 +104,15 @@ class VoiceGuideOrchestrator implements VoiceOrchestrator {
       createGuideGraph({ executeServerTool: async () => '(guide content already retrieved for this turn)' });
   }
 
-  async start(stream: MediaStream): Promise<void> {
+  async start(stream: MediaStream, openingContext?: string): Promise<void> {
     // Reset the stopped flag: this orchestrator instance is reused across
     // sessions (the provider memoizes it), and React StrictMode double-invokes the
     // provider's mount effect (mount → cleanup → mount), so stop() may have run at
     // mount — leaving stopped=true. Without this reset every turn would finish with
     // stopped=true and refuse to speak even though the reply was ready.
     this.stopped = false;
+    // spec-200 t-7: seed (or clear) the one-shot opening explanation for this session.
+    this.openingContext = openingContext ?? null;
     const token = this.react.authToken();
     const base = this.react.tenantBase();
     if (!token || !base) {
@@ -140,7 +145,17 @@ class VoiceGuideOrchestrator implements VoiceOrchestrator {
     this.ws = openVoiceWs(
       buildVoiceWsUrl(base, token, this.react.origin),
       {
-        onReady: () => this.ws?.startListening(),
+        onReady: () => {
+          this.ws?.startListening();
+          // spec-200 t-7: if seeded, the guide opens by explaining the entry —
+          // a proactive first turn grounded on the entry text (guideContext),
+          // requiring no user speech. Consumed once.
+          const seed = this.openingContext;
+          this.openingContext = null;
+          if (seed && !this.stopped) {
+            void this.runTurn('Tell me what this update is and why it matters, in a sentence or two.', [seed]);
+          }
+        },
         onTranscript: (text, isFinal) => {
           if (!isFinal) return;
           if (text.trim()) void this.runTurn(text);
@@ -183,7 +198,7 @@ class VoiceGuideOrchestrator implements VoiceOrchestrator {
     this.hooks.setLoopState('thinking');
   }
 
-  private async runTurn(transcript: string): Promise<void> {
+  private async runTurn(transcript: string, guideContext: string[] = []): Promise<void> {
     // A new user turn supersedes any in-flight agent speech (barge-in, or a fast
     // follow-up before the previous reply finished): stop the old TTS leg and flush
     // its already-queued audio so the previous answer doesn't keep playing over this
@@ -202,7 +217,7 @@ class VoiceGuideOrchestrator implements VoiceOrchestrator {
     let assistantText = '';
     try {
       await this.graph.invoke(
-        { messages: [{ role: 'user', content: transcript }], screenKey, screenRegistry, guideContext: [] },
+        { messages: [{ role: 'user', content: transcript }], screenKey, screenRegistry, guideContext },
         {
           configurable: {
             thread_id: this.threadId,

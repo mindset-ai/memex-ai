@@ -34,6 +34,7 @@
     "db:backfill-handhold": "tsx scripts/backfill-handhold-demo.ts",
     "db:backfill-default-standards": "tsx scripts/backfill-default-standards.ts",
     "db:import-guide-content": "tsx scripts/import-guide-content.ts",
+    "db:generate-whats-new": "tsx scripts/generate-whats-new.ts",
     "oauth:smoke": "node scripts/oauth-smoke.mjs",
     "docker:build": "docker build -t memex-server .",
     "docker:run": "docker run -p 8080:8080 --env-file .env memex-server",

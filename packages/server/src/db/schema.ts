@@ -2469,3 +2469,41 @@ export type McpSession = InferSelectModel<typeof mcpSessions>;
 export type McpSessionInsert = InferInsertModel<typeof mcpSessions>;
 export type McpToolCall = InferSelectModel<typeof mcpToolCalls>;
 export type McpToolCallInsert = InferInsertModel<typeof mcpToolCalls>;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// spec-200: "What's New" release-note feed.
+//
+// One GLOBAL, append-only feed (dec-3) — the prod-promoted Specs of
+// memex-building-itself, identical for every user. Like guideContent there is
+// deliberately NO memex_id / user_id column. Entries are auto-generated at the
+// daily prod promotion (dec-1 fully-auto, dec-2 promotion-time), never
+// regenerated once published (stable/citable — ac-9), and idempotent on
+// sourceSpecRef (ac-6). Migration: drizzle/0080_add_whats_new_entries.sql.
+// ─────────────────────────────────────────────────────────────────────────────
+export const whatsNewEntries = pgTable(
+  "whats_new_entries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // Canonical ref of the source Spec — the generation idempotency key.
+    sourceSpecRef: text("source_spec_ref").notNull(),
+    // Display handle (e.g. "spec-192"), denormalised for cheap rendering.
+    sourceSpecHandle: text("source_spec_handle").notNull(),
+    // User-facing headline (benefit-led, not the raw Spec title).
+    title: text("title").notNull(),
+    // WHAT shipped (plain language).
+    whatText: text("what_text").notNull(),
+    // WHY it matters to users (plain language).
+    whyText: text("why_text").notNull(),
+    publishedAt: timestamp("published_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // One entry per source Spec (ac-6 idempotency key).
+    uniqueIndex("whats_new_entries_source_spec_ref_idx").on(table.sourceSpecRef),
+    // Newest-first feed read (ac-11 ordering).
+    index("whats_new_entries_published_at_idx").on(table.publishedAt),
+  ]
+);
+
+export type WhatsNewEntry = InferSelectModel<typeof whatsNewEntries>;
+export type WhatsNewEntryInsert = InferInsertModel<typeof whatsNewEntries>;

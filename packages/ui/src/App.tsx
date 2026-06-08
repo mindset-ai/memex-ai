@@ -46,6 +46,7 @@ import { currentScreenKey } from './voice/guideElements';
 import { guideElementsForScreen } from '@memex/shared';
 import { tenantBase } from './api/http';
 import { SearchProvider } from './components/SearchContext';
+import { WhatsNewRibbonConnected } from './components/whats-new/WhatsNewRibbonConnected';
 
 declare const __BUILD_TIME__: string;
 
@@ -187,6 +188,9 @@ function TenantLayout() {
           mounts VoiceGuideMount — has no voice surface. */}
       <VoiceGuideMount namespace={namespace ?? ''} memex={memex ?? ''}>
         <OrgConsentDialog />
+        {/* spec-200: global What's New ribbon — authed shell only (inside
+            VoiceGuideMount so t-7's ear can reach the voice session). */}
+        <WhatsNewRibbonConnected />
         <AppShell>
           <Fragment key={`${namespace}/${memex}`}>
             <Outlet />
