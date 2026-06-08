@@ -33,3 +33,8 @@ blueprint
 *.md
 !packages/server/src/agent/skills/*.md
 !packages/server/src/agent/phases/**/*.md
+# spec-190: the voice guide's system prompt is a runtime-loaded markdown asset
+# (std-15), copied into the image by the server build. Without this negation the
+# *.md rule above strips it from the Cloud Build context → `cp src/agent/voice/*.md`
+# fails and the image build dies.
+!packages/server/src/agent/voice/*.md
