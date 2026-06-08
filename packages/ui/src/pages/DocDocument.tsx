@@ -34,7 +34,12 @@ import { InitPromptDialog } from '../components/InitPromptDialog';
 import { useChat } from '../components/ChatContext';
 import { useSwitchPosture } from '../hooks/useSwitchPosture';
 import { PostureDropdown, HEADER_PILL_CLASS } from '../components/PostureDropdown';
-import { countUnresolvedDecisions, toButtonPrompt, BASE_SCAFFOLD } from '@memex/shared';
+import {
+  countUnresolvedDecisions,
+  isSpecNarrativeStale,
+  toButtonPrompt,
+  BASE_SCAFFOLD,
+} from '@memex/shared';
 import { useDocChangeStream } from '../hooks/useDocChangeStream';
 import { COMMENT_PARAM, parseCommentParam, commentAnchorId } from '../utils/commentDeepLink';
 import { phaseDisplayName } from '../utils/phaseDisplay';
@@ -729,6 +734,19 @@ export function DocDocument() {
       status: d.status,
     })),
   );
+  // spec-196 dec-2: the specify→build rubric also gates on narrative freshness.
+  // Same shared signal the refresh affordances key on — any decision modified
+  // after `narrativeLastConsolidatedAt` means the prose hasn't caught up with
+  // the decisions graph yet.
+  const narrativeStale = isSpecNarrativeStale(
+    doc.narrativeLastConsolidatedAt ?? null,
+    decs.map((d) => ({
+      id: d.id,
+      createdAt: d.createdAt,
+      resolvedAt: d.resolvedAt,
+      status: d.status,
+    })),
+  );
 
   // spec-159 dec-4 (amended): the readiness rubric is ADVISORY. The transition
   // sentence always offers the move; this in-situ directive spans the full
@@ -742,7 +760,7 @@ export function DocDocument() {
   // browsing the build tab from verify.
   const pluralise = (n: number, noun: string) => `${n} ${noun}${n === 1 ? '' : 's'}`;
   type DirectivePart = { em: string; rest: string };
-  const directiveLine = (parts: DirectivePart[], target: string) => {
+  const directiveLine = (parts: DirectivePart[], target: string, tail = '') => {
     if (parts.length === 0) return null;
     // Merge consecutive same-requirement fragments: their entities join with
     // "and" ahead of one shared verb phrase. Distinct requirements also join
@@ -772,11 +790,17 @@ export function DocDocument() {
               {g.rest}
             </span>
           ))}{' '}
-          before this spec can move to {phaseDisplayName(target)}.
+          before this spec can move to {phaseDisplayName(target)}
+          {tail}.
         </span>
       </p>
     );
   };
+  // spec-196 dec-2: the narrative-staleness condition joins the specify→build
+  // axis — but only once every decision is resolved (consolidating while
+  // decisions are still open would be premature; the prose chases a moving
+  // target). Mirrors the Rubicon line's fragment + how-to tail (dec-3 copy).
+  const planNarrativeStale = decs.length > 0 && openDecisionCount === 0 && narrativeStale;
   const planDirective = directiveLine(
     phase === 'specify'
       ? [
@@ -785,12 +809,21 @@ export function DocDocument() {
             : openDecisionCount > 0
               ? [{ em: pluralise(openDecisionCount, 'Decision'), rest: 'must be resolved' }]
               : []),
+          ...(planNarrativeStale
+            ? [
+                {
+                  em: 'The spec narrative',
+                  rest: 'must be updated to reflect the resolved decisions',
+                },
+              ]
+            : []),
           ...(!hasAcceptanceCriteria
             ? [{ em: 'Acceptance Criteria (ACs)', rest: 'must be created' }]
             : []),
         ]
       : [],
     'build',
+    planNarrativeStale ? ' — use the refresh action to generate the update prompt' : '',
   );
   const buildDirective = directiveLine(
     phase === 'build'
@@ -830,7 +863,10 @@ export function DocDocument() {
 
   // Plan's three sub-tabs. Build / Verify carry no sub-tab bar (ac-11).
   const planSubTabs = [
-    { id: 'narrative', label: 'Narrative', count: sectionCommentCount, countVariant: 'warning' as const },
+    /* spec-196 dec-1 / ac-1+ac-6: the label reads "Spec" (the prose sections ARE
+       the spec); the id stays 'narrative' — internal vocabulary and deep links
+       are deliberately unchanged. */
+    { id: 'narrative', label: 'Spec', count: sectionCommentCount, countVariant: 'warning' as const },
     { id: 'decisions', label: 'Decisions & ACs', count: decisionCommentCount, countVariant: 'warning' as const },
     { id: 'comments', label: 'Comments', count: totalCommentCount, countVariant: 'warning' as const },
   ];
@@ -1167,6 +1203,7 @@ export function DocDocument() {
               totalTaskCount={ts.length}
               openTaskCount={openTaskCount}
               unverifiedAcCount={unverifiedAcCount}
+              narrativeStale={narrativeStale}
               onTransitioned={() => {
                 // The view follows the move: clear the browsed-tab pin so
                 // `viewedTab` falls back to the (re-fetched) current phase's
@@ -1277,12 +1314,13 @@ export function DocDocument() {
           acs={acs}
           issues={issues}
           people={assignees}
-          /* spec-164 dec-5: the one deliberate door back from done. Gates on
-             the same editor posture as the transition sentence's Yes; the
-             status write lives here (DoneSummary stays fetch-free, ac-9).
-             After the write the view follows the move, exactly like
-             TransitionSentence's onTransitioned. */
-          canReopen={canEdit}
+          /* spec-164 dec-5, relaxed by spec-196: the one deliberate door back
+             from done. Gates on org WRITE ACCESS (canWrite), not an editor
+             posture — the reviewer/editor distinction is meaningless on a
+             closed spec, and the status write here would 403 only for a
+             non-member. DoneSummary stays fetch-free (ac-9); after the write
+             the view follows the move, like TransitionSentence's onTransitioned. */
+          canReopen={canWrite}
           onReopen={async () => {
             await updateDocStatus(doc.id, 'verify');
             setSelectedTab(null);

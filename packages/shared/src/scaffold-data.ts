@@ -1577,12 +1577,13 @@ const OPENING_TURN_PROMPT_BUTTONS: PromptButtonNode[] = [
   {
     kind: 'prompt_button',
     id: 'opening-refresh-narrative',
-    label: 'Update narrative',
-    // VERBATIM the prompt RefreshSpecButton sends today (spec-123 ac-11).
-    text: 'Refresh the Spec narrative — walk every decision modified since the last consolidation and propose updates to the affected sections.',
+    label: 'Update spec narrative',
+    // spec-196 dec-3: the approved consolidation prompt. Human-facing copy
+    // says "spec narrative" (dec-1); the node id keeps the internal word.
+    text: 'Update the spec narrative — walk every decision modified since the last consolidation and update the affected sections so the narrative reflects what was decided.',
     surfaces: ['opening-turn'],
     rationale:
-      'spec-123 dec-4/ac-11: the "New decisions — update narrative" secondary-helper trigger. Verbatim the text the top-bar RefreshSpecButton injects today.',
+      'spec-123 dec-4/ac-11 housed the trigger; spec-196 dec-3 set the copy: human-facing strings say "spec narrative" and the prompt asks for the sections to be UPDATED (not merely proposed) so the prose reflects what was decided before specify→build.',
   },
   {
     kind: 'prompt_button',

@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { tagAc } from '@memex-ai-ac/vitest';
+import { BASE_SCAFFOLD } from '@memex/shared';
 import {
   RefreshSpecButton,
   isSpecNarrativeStale,
@@ -137,7 +139,28 @@ describe('RefreshSpecButton — click behavior', () => {
 
     expect(mockSendMessage).toHaveBeenCalledTimes(1);
     expect(mockSendMessage).toHaveBeenCalledWith(
-      expect.stringMatching(/Refresh the Spec narrative/i),
+      expect.stringMatching(/Update the spec narrative/i),
     );
+  });
+});
+
+// spec-196 t-3 (ac-11): the orphaned top-bar button stays verbatim-in-sync
+// with the LIVE home of this copy — the scaffold's opening-refresh-narrative
+// helper. A drift between the two would ship two different consolidation
+// prompts depending on which surface fires.
+describe('spec-196 — dec-3 copy kept in sync with the scaffold node', () => {
+  const AC11 = 'mindset-prod/memex-building-itself/specs/spec-196/acs/ac-11';
+
+  it('the clipboard prompt equals the dec-3 string exactly and matches the scaffold node', async () => {
+    tagAc(AC11);
+    const user = userEvent.setup();
+    renderRefresh();
+    await user.click(screen.getByRole('button', { name: /update spec narrative/i }));
+
+    const expected =
+      'Update the spec narrative — walk every decision modified since the last consolidation and update the affected sections so the narrative reflects what was decided.';
+    expect(mockSendMessage).toHaveBeenCalledWith(expected);
+    const node = BASE_SCAFFOLD.promptButtons.find((b) => b.id === 'opening-refresh-narrative');
+    expect(node?.text).toBe(expected);
   });
 });

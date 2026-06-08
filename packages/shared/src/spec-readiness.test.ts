@@ -291,7 +291,7 @@ describe('computeSpecReadiness', () => {
       staleDecisionCount: 2,
       label: '2 decisions not yet reflected in the narrative',
     });
-    expect(r.outstandingItems[0].cta).toContain('New decisions — update narrative');
+    expect(r.outstandingItems[0].cta).toContain('Update spec narrative');
   });
 
   it('uses singular "decision" when only one is stale', () => {
@@ -524,7 +524,7 @@ describe('blockerLines', () => {
     const lines = blockerLines(r);
     expect(lines).toEqual([
       '1 open comment — Use the "Resolve Comments" button to walk them with the agent.',
-      '3 decisions not yet reflected in the narrative — Use the "New decisions — update narrative" button to consolidate.',
+      '3 decisions not yet reflected in the narrative — Use the "Update spec narrative" helper to consolidate.',
     ]);
   });
 

@@ -11,12 +11,25 @@
 // no new endpoint, no new table. The same panels (DecisionPanel / TaskPanel /
 // AcPanel / IssuePanel) are handed these exact shapes elsewhere on the page.
 //
+// spec-196 dec-4: beneath the report, a "Read the spec" toggle (ALL postures —
+// reading is not a write) expands the full record inline: the sorted narrative
+// sections plus read-only decision/task/AC/issue detail. It shares the footer's
+// single action row with Reopen (which spec-196 relaxed from an editor-posture
+// gate to an org-write gate — the reviewer/editor split means nothing here).
+// Deliberately NOT the live panels — AcPanel and IssuePanel fetch their own
+// data and TaskPanel fetches plan readiness, which would break this
+// component's fetch-free posture (ac-9 / spec-196 ac-14). The detail renders
+// from the props above; no mutation affordances; expanding never changes phase.
+//
 // Timeline degradation: the doc data carries only `createdAt` and the LATEST
 // `statusChangedAt` (when it became `done`) — there is no per-phase change log
 // on the doc today. So the timeline renders what's actually known (start → done
 // + total elapsed) rather than fabricating intermediate specify/build/verify dates.
 
 import { useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import rehypeHighlight from 'rehype-highlight';
 import type { Decision, Task, Issue, DocWithGraph } from '../api/types';
 import type { AcWithVerification, DocAssigneeView } from '../api/client';
 import { Button, Card } from './ui';
@@ -40,11 +53,12 @@ interface DoneSummaryProps {
    */
   people?: DocAssigneeView[];
   /**
-   * spec-164 dec-5: when true (editor posture, same gate as the transition
-   * sentence's Yes), the report carries a single "Reopen" affordance — the
-   * one deliberate door back to `verify`. Hidden for read-only viewers and
-   * writable reviewers. Defaults to false so existing call sites stay
-   * report-only.
+   * spec-164 dec-5 (relaxed by spec-196): when true the report carries the
+   * "Reopen" affordance — the one deliberate door back to `verify`. The parent
+   * now gates this on org WRITE ACCESS, not an editor posture: the
+   * reviewer/editor distinction carries no meaning on a closed spec, so any
+   * member who could write may reopen. Still hidden for read-only (non-member)
+   * viewers, whose reopen would 403. Defaults to false.
    */
   canReopen?: boolean;
   /**
@@ -110,6 +124,11 @@ export function DoneSummary({
   // Yes/Cancel; 'submitting' while the parent's status write is in flight.
   const [reopenState, setReopenState] = useState<'idle' | 'confirming' | 'submitting'>('idle');
 
+  // spec-196 dec-4: "Read the spec" — collapsed by default so the calm
+  // retrospective stays the landing state; expanding is pure presentation
+  // (no fetch, no phase change).
+  const [readOpen, setReadOpen] = useState(false);
+
   const handleReopenYes = async () => {
     setReopenState('submitting');
     try {
@@ -153,6 +172,10 @@ export function DoneSummary({
 
   const completedAt = doc.statusChangedAt;
   const totalDays = daysBetween(doc.createdAt, completedAt);
+
+  // spec-196 dec-4: the full record, from data already in hand.
+  const sortedSections = [...(doc.sections ?? [])].sort((a, b) => a.seq - b.seq);
+  const recordHeading = 'text-sm font-semibold text-muted tracking-wide mb-3';
 
   return (
     <Card variant="panel" data-testid="done-summary" className="max-w-3xl mx-auto">
@@ -198,46 +221,147 @@ export function DoneSummary({
         </ReportRow>
       </div>
 
-      {/* spec-164 dec-5: the one deliberate door back. Editor-gated; an
-          explicit confirm; the parent performs the verify status write. */}
-      {canReopen && (
-        <div className="mt-6 pt-4 border-t border-edge-subtle text-center text-sm text-secondary">
-          {reopenState === 'idle' ? (
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              data-testid="done-reopen"
-              onClick={() => setReopenState('confirming')}
-            >
-              Reopen
-            </Button>
-          ) : (
-            <span data-testid="done-reopen-confirm">
-              Move this spec back to {phaseDisplayName('verify')}?{' '}
-              <Button
-                type="button"
-                variant="primary"
-                size="sm"
-                data-testid="done-reopen-yes"
-                disabled={reopenState === 'submitting'}
-                onClick={() => void handleReopenYes()}
-              >
-                {reopenState === 'submitting' ? 'Reopening…' : 'Yes'}
-              </Button>{' '}
+      {/* The done view's action footer — one divider, one centred row.
+          • "Read the spec" (spec-196 dec-4) is offered to everyone — reading is
+            not a write.
+          • "Reopen" (spec-164 dec-5, relaxed by spec-196) needs org write
+            access (canReopen) but NOT an editor posture — the reviewer/editor
+            distinction is meaningless on a closed spec. An explicit two-step
+            confirm; the parent performs the verify status write. */}
+      <div className="mt-6 pt-4 border-t border-edge-subtle">
+        <div className="flex flex-wrap items-center justify-center gap-3 text-sm text-secondary">
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            data-testid="done-read-spec"
+            aria-expanded={readOpen}
+            onClick={() => setReadOpen((v) => !v)}
+          >
+            {readOpen ? 'Hide the spec' : 'Read the spec'}
+          </Button>
+
+          {canReopen &&
+            (reopenState === 'idle' ? (
               <Button
                 type="button"
                 variant="secondary"
                 size="sm"
-                disabled={reopenState === 'submitting'}
-                onClick={() => setReopenState('idle')}
+                data-testid="done-reopen"
+                onClick={() => setReopenState('confirming')}
               >
-                Cancel
+                Reopen
               </Button>
-            </span>
-          )}
+            ) : (
+              <span
+                data-testid="done-reopen-confirm"
+                className="inline-flex flex-wrap items-center gap-2"
+              >
+                Move this spec back to {phaseDisplayName('verify')}?
+                <Button
+                  type="button"
+                  variant="primary"
+                  size="sm"
+                  data-testid="done-reopen-yes"
+                  disabled={reopenState === 'submitting'}
+                  onClick={() => void handleReopenYes()}
+                >
+                  {reopenState === 'submitting' ? 'Reopening…' : 'Yes'}
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  disabled={reopenState === 'submitting'}
+                  onClick={() => setReopenState('idle')}
+                >
+                  Cancel
+                </Button>
+              </span>
+            ))}
         </div>
-      )}
+
+        {readOpen && (
+          <div data-testid="done-read-spec-body" className="mt-6 space-y-8 text-left">
+            {/* The narrative — sorted sections, same prose treatment as the
+                live page, minus comments/editing. */}
+            <div className="space-y-6">
+              {sortedSections.map((section, index) => (
+                <div key={section.id} data-testid="done-read-section">
+                  <h4 className="text-base font-semibold text-primary mb-2">
+                    {index + 1}. {section.title || section.sectionType}
+                  </h4>
+                  <div className="prose-dark overflow-hidden">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
+                      {section.content}
+                    </ReactMarkdown>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {decisions.length > 0 && (
+              <div>
+                <h3 className={recordHeading}>Decisions</h3>
+                <ul className="space-y-3">
+                  {decisions.map((d) => (
+                    <li key={d.id} className="text-sm" data-testid="done-read-decision">
+                      <span className="font-medium text-primary">{d.title}</span>{' '}
+                      <span className="text-muted">({d.status})</span>
+                      {d.resolution && (
+                        <div className="text-secondary mt-1 whitespace-pre-wrap">{d.resolution}</div>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {tasks.length > 0 && (
+              <div>
+                <h3 className={recordHeading}>Tasks</h3>
+                <ul className="space-y-1.5">
+                  {tasks.map((t) => (
+                    <li key={t.id} className="text-sm text-primary" data-testid="done-read-task">
+                      {t.title} <span className="text-muted">({t.status.replace('_', ' ')})</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {acs.length > 0 && (
+              <div>
+                <h3 className={recordHeading}>Acceptance Criteria</h3>
+                <ul className="space-y-1.5">
+                  {acs.map((a) => (
+                    <li key={a.ac.id} className="text-sm text-primary" data-testid="done-read-ac">
+                      {a.ac.statement}{' '}
+                      <span className="text-muted">
+                        ({a.ac.kind}
+                        {a.verificationState === 'verified' ? ' · verified' : ''})
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {issues.length > 0 && (
+              <div>
+                <h3 className={recordHeading}>Issues</h3>
+                <ul className="space-y-1.5">
+                  {issues.map((i) => (
+                    <li key={i.id} className="text-sm text-primary" data-testid="done-read-issue">
+                      {i.title} <span className="text-muted">({i.status})</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     </Card>
   );
 }
