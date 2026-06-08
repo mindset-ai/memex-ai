@@ -103,6 +103,15 @@ export interface PromptButtonNode extends BaseNodeShape {
   label: string;
   text: string;
   surfaces: readonly string[];
+  /** spec-203 dec-1: the compressed footer projection of this handoff. The full
+   *  `text` rides the copy button (clipboard / opening-turn); `essence` is the
+   *  short nudge the in-chat footer machine emits on every spec-tool response so
+   *  a chat-driven agent gets the current phase's handoff without the ~1500-word
+   *  prompt. Co-located with `text` on ONE node so the two projections cannot
+   *  drift (std-15). Only the three phase handoffs carry it; absent on every
+   *  other button (opening-turn triggers, review actions). Projected by
+   *  `toHandoffEssence` via `HANDOFF_BUTTON_BY_PHASE`. */
+  essence?: string;
 }
 
 /** Tool node — extends b-67's `ToolManifestEntry` without forking it. Shared
@@ -384,6 +393,33 @@ export function toButtonPrompt(input: ToButtonPromptInput): string | null {
 
   const composed = [button.text, ...orgAppends.map((b) => b.text)].join('\n\n');
   return interpolateContext(composed, context);
+}
+
+/** spec-203 dec-1: the single canonical phase→handoff-node mapping. Both the
+ *  copy button (UI, `DocDocument`) and the in-chat footer (`toHandoffEssence`)
+ *  select the handoff for a phase through THIS map, so node-selection is
+ *  single-source and cannot drift between the two projections. `draft` and
+ *  `done` carry no handoff (draft invites the move to specify first — spec-164
+ *  issue-1; done is terminal). */
+export const HANDOFF_BUTTON_BY_PHASE: Readonly<Partial<Record<Phase, string>>> = {
+  specify: 'plan-handoff',
+  build: 'opening-build-handoff',
+  verify: 'verify-spec',
+};
+
+/** Returns the compressed footer `essence` of the handoff for `phase`, or
+ *  `null` when the phase has no handoff (draft / done) or its node carries no
+ *  essence. This is the footer projection half of spec-203 dec-1 — the copy
+ *  button projects the node's full `text` via `toButtonPrompt`; the footer
+ *  projects the same node's `essence` here. Token-free by construction (the
+ *  footer header already carries the Spec ref / URL), so it needs no
+ *  interpolation context and Layer 1 stays free of identity/ctx plumbing. */
+export function toHandoffEssence(dataset: ScaffoldDataset, phase: Phase): string | null {
+  const buttonId = HANDOFF_BUTTON_BY_PHASE[phase];
+  if (!buttonId) return null;
+  const node = dataset.promptButtons.find((b) => b.id === buttonId);
+  const essence = node?.essence?.trim();
+  return essence ? essence : null;
 }
 
 /** Returns the Init Prompt tool reference entry. Same shape as b-67's

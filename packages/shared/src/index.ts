@@ -40,6 +40,8 @@ export {
   toRubric,
   toInitPromptRef,
   toButtonPrompt,
+  toHandoffEssence,
+  HANDOFF_BUTTON_BY_PHASE,
 } from './scaffold-model.js';
 export type {
   Phase,

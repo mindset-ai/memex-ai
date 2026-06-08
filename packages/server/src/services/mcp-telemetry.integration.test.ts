@@ -24,6 +24,11 @@ import {
   users,
 } from "../db/schema.js";
 import { upsertSession, logToolCall } from "./mcp-telemetry.js";
+import { tagAc } from "@memex-ai-ac/vitest";
+import { FOOTER_DELIMITER } from "../mcp/footer-delimiter.js";
+
+const AC = (n: number) =>
+  `mindset-prod/memex-building-itself/specs/spec-203/acs/ac-${n}`;
 
 const createdMemexIds: string[] = [];
 const createdNamespaceIds: string[] = [];
@@ -418,5 +423,75 @@ describe("logToolCall", () => {
     expect(row.error?.length).toBeGreaterThan(300); // sanity: not redacted to a short envelope
     expect(row.error).toContain("ENOENT");
     expect(row.error).toContain("at async listTopics");
+  });
+});
+
+// spec-203 dec-3 (t-5) ac-12: footer-only audit capture. The default mode in
+// this file is production-like (isDevMode false → result_text suppressed), so
+// these tests prove the footer is captured UNCONDITIONALLY — present even when
+// the full output is not — and that only the footer (never the body) lands.
+describe("logToolCall — footer-only audit capture (spec-203 dec-3)", () => {
+  it("persists ONLY the footer (split on the delimiter), not the full output, on the prod path", async () => {
+    tagAc(AC(12));
+    const userId = await seedUser();
+    const sessionId = unique("footer-sess");
+    createdSessionIds.push(sessionId);
+    await db.insert(mcpSessions).values({ sessionId, userId });
+
+    // Exercise the PRODUCTION path: isDevMode() false, so result_text is
+    // dropped. If footer_text still lands, the footer capture is genuinely
+    // unconditional. (isDevMode throws on NODE_ENV=production with no client id,
+    // so set both; the file's beforeEach resets env for the next test.)
+    process.env.NODE_ENV = "production";
+    process.env.GOOGLE_CLIENT_ID = "fake-client-for-test";
+
+    const body = "# Spec X\nthe real tool output body";
+    const footer = 'BUILD handoff (full prompt: the "Build handoff" button). phase guidance';
+    await logToolCall({
+      sessionId,
+      userId,
+      memexId: null,
+      toolName: "get_doc",
+      args: { ref: "x" },
+      durationMs: 5,
+      error: null,
+      resultText: `${body}\n${FOOTER_DELIMITER}\n${footer}`,
+    });
+
+    const [row] = await db
+      .select()
+      .from(mcpToolCalls)
+      .where(eq(mcpToolCalls.sessionId, sessionId));
+    // Footer captured (unconditional — this is the prod path)…
+    expect(row.footerText).toBe(footer);
+    // …and the tool's real output body is NOT in the captured footer…
+    expect(row.footerText).not.toContain("the real tool output body");
+    // …and the full output is NOT persisted on the prod path.
+    expect(row.resultText).toBeNull();
+  });
+
+  it("persists NULL footer when the result carried no delimiter", async () => {
+    tagAc(AC(12));
+    const userId = await seedUser();
+    const sessionId = unique("footer-none-sess");
+    createdSessionIds.push(sessionId);
+    await db.insert(mcpSessions).values({ sessionId, userId });
+
+    await logToolCall({
+      sessionId,
+      userId,
+      memexId: null,
+      toolName: "list_memexes",
+      args: {},
+      durationMs: 2,
+      error: null,
+      resultText: "a terse response with no footer",
+    });
+
+    const [row] = await db
+      .select()
+      .from(mcpToolCalls)
+      .where(eq(mcpToolCalls.sessionId, sessionId));
+    expect(row.footerText).toBeNull();
   });
 });

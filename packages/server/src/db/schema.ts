@@ -2455,6 +2455,11 @@ export const mcpToolCalls = pgTable(
     // Dev-only capture — gated by isDevMode() in services/telemetry.ts.
     // NULL in production until per-customer opt-in lands.
     resultText: text("result_text"),
+    // spec-203 dec-3: the platform footer (everything after FOOTER_DELIMITER),
+    // captured UNCONDITIONALLY (prod included) by splitting the result — never
+    // the full tool output. NULL when the response carried no footer (non-Spec
+    // docs, terse responses). The audit trail of exactly what guidance we inject.
+    footerText: text("footer_text"),
   },
   (table) => [
     index("mcp_tool_calls_session_idx").on(table.sessionId, table.createdAt),
