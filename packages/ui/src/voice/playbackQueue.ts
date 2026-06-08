@@ -8,7 +8,13 @@
 
 import type { PlaybackSink } from './bargeIn';
 
-const DEFAULT_DUCK_GAIN = 0.15;
+// Duck to near-silence on the FIRST sign of barge-in (was 0.15). The deep duck is
+// what makes interruption feel instant — the agent effectively stops the moment you
+// speak, before the hard cut commits ~cutMs later (bargeIn.ts). On speakers it also
+// collapses the agent→mic echo bleed that was making the VAD flicker, which is half
+// of why the cut never landed. 0.05 (not 0) keeps a hair of presence so a transient
+// (cough) restore isn't a jarring pop. (spec-190 dec-8 barge-in tuning.)
+const DEFAULT_DUCK_GAIN = 0.05;
 const DEFAULT_DUCK_RAMP_S = 0.05; // ~50ms, matches BargeInController.duckDelayMs
 // Sample rate of the raw PCM the server streams (ElevenLabs output_format
 // pcm_24000). Keep in sync with DEFAULT_TTS_FORMAT in server elevenlabs-client.ts.

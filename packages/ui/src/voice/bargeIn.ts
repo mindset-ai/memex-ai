@@ -40,8 +40,13 @@ export interface BargeInCallbacks {
 export interface BargeInOptions {
   /** Duck ramp duration the playback layer targets (~50ms). Advisory here. */
   duckMs?: number;
-  /** Sustained-speech threshold before a full cut (~250–300ms). */
+  /** Sustained-speech threshold before a full cut (~300ms). */
   cutMs?: number;
+  /** Continuous-silence window that confirms a transient and aborts the pending
+   *  cut (~120ms). A gap SHORTER than this is tolerated — the cut keeps heading
+   *  in — so choppy real interruption speech (and speaker echo flicker) still
+   *  cuts; only sustained silence restores. */
+  restoreMs?: number;
 }
 
 /** Char-level alignment for a synthesized chunk (from ElevenLabs TTS). */
@@ -52,10 +57,19 @@ export interface CharAlignment {
 }
 
 const DEFAULT_DUCK_MS = 50;
-// Sustained-speech window before a hard cut. Kept short so a real interruption
-// cuts the agent promptly; below this a blip (cough/backchannel) just ducks then
-// restores. Tuned down from 280ms on-device — 280 felt unresponsive (dec-8 / t-9).
-const DEFAULT_CUT_MS = 160;
+// Sustained-interruption window before a hard cut. The FELT responsiveness comes
+// from the deep duck at onset (playbackQueue ducks the agent to ~5% in ~50ms — the
+// user instantly hears it yield), so this window can be long enough to be robust
+// without feeling laggy. It is gap-TOLERANT: armed once on the first onset and NOT
+// reset by short VAD dips (real interruption speech is choppy, and on speakers the
+// agent's echo bleed makes the VAD flicker). Only `restoreMs` of CONTINUOUS silence
+// aborts it — see onSpeechEnd. (dec-8 / t-9; was 160ms, which never landed because
+// any single dip cancelled it.)
+const DEFAULT_CUT_MS = 300;
+// Continuous silence that confirms a blip was a transient (cough/backchannel) and
+// restores full volume. Must stay BELOW cutMs so a genuine transient restores
+// before the cut fires; the gap between them is the speech-gap tolerance.
+const DEFAULT_RESTORE_MS = 120;
 
 /**
  * The prefix of the synthesized text whose characters had begun playing by
@@ -74,11 +88,15 @@ export function spokenPrefix(chars: string[], charStartMs: number[], cutMs: numb
 export class BargeInController {
   private _state: BargeInState = 'idle';
   private cutTimer: ReturnType<typeof setTimeout> | null = null;
+  // Pending "this was a transient, restore" timer — armed on a VAD gap while
+  // ducked, cancelled if speech resumes before it fires (gap tolerance).
+  private restoreTimer: ReturnType<typeof setTimeout> | null = null;
   // Accumulated alignment of the CURRENT assistant turn, for truncation on cut.
   private chars: string[] = [];
   private startMs: number[] = [];
   private readonly duckMs: number;
   private readonly cutMs: number;
+  private readonly restoreMs: number;
 
   constructor(
     private readonly playback: PlaybackSink,
@@ -87,6 +105,7 @@ export class BargeInController {
   ) {
     this.duckMs = opts.duckMs ?? DEFAULT_DUCK_MS;
     this.cutMs = opts.cutMs ?? DEFAULT_CUT_MS;
+    this.restoreMs = opts.restoreMs ?? DEFAULT_RESTORE_MS;
   }
 
   get state(): BargeInState {
@@ -101,7 +120,7 @@ export class BargeInController {
 
   /** Agent begins a spoken turn — reset truncation accounting. */
   startTurn(): void {
-    this.clearCutTimer();
+    this.clearTimers();
     this.chars = [];
     this.startMs = [];
     this._state = 'speaking';
@@ -118,31 +137,37 @@ export class BargeInController {
 
   /** Agent finished speaking naturally (no interruption). */
   endTurn(): void {
-    this.clearCutTimer();
+    this.clearTimers();
     if (this._state !== 'cut') this._state = 'idle';
   }
 
   /** VAD speech onset. While the agent speaks: duck immediately and arm the
-   *  sustained-speech cut timer. Inert outside a turn — there's nothing to
-   *  interrupt, and the agent's own earcons never reach here (AEC, ac-23). */
+   *  sustained-interruption cut timer. A re-onset after a short gap cancels the
+   *  pending restore and KEEPS the cut timer running (gap tolerance) — it never
+   *  re-arms, so the cut measures sustained interruption from the FIRST onset.
+   *  Inert outside a turn — there's nothing to interrupt, and the agent's own
+   *  earcons never reach here (AEC, ac-23). */
   onSpeechStart(): void {
+    this.clearRestoreTimer(); // speech (re)started — this was not sustained silence
     if (this._state === 'speaking') {
-      this.playback.duck(); // agent audibly yields (~duckMs ramp)
+      this.playback.duck(); // agent audibly yields (deep + fast ~duckMs ramp)
       this._state = 'ducked';
       this.armCutTimer();
     } else if (this._state === 'ducked') {
-      this.armCutTimer(); // already ducked; ensure the cut timer is running
+      this.armCutTimer(); // already ducked mid-interruption; keep the timer running
     }
     // 'idle' / 'cut' → inert.
   }
 
-  /** VAD speech end. If it ends before the cut fires it was a transient
-   *  (backchannel/cough): restore volume, cancel the pending cut. */
+  /** VAD speech end. A single gap does NOT restore — real interruption speech is
+   *  choppy and speaker echo makes the VAD flicker, so an immediate restore is why
+   *  the cut never landed. Instead arm a restore timer: only `restoreMs` of
+   *  CONTINUOUS silence confirms a transient (cough/backchannel) and restores +
+   *  cancels the cut. If speech resumes first, onSpeechStart cancels this and the
+   *  cut keeps heading in. */
   onSpeechEnd(): void {
     if (this._state !== 'ducked') return;
-    this.clearCutTimer();
-    this.playback.restore();
-    this._state = 'speaking';
+    this.armRestoreTimer();
   }
 
   /** Manual tap-to-interrupt fallback: immediate full cut. */
@@ -151,7 +176,7 @@ export class BargeInController {
   }
 
   dispose(): void {
-    this.clearCutTimer();
+    this.clearTimers();
   }
 
   private armCutTimer(): void {
@@ -162,6 +187,17 @@ export class BargeInController {
     }, this.cutMs);
   }
 
+  /** Arm the transient-confirm timer: sustained silence → restore + cancel cut. */
+  private armRestoreTimer(): void {
+    if (this.restoreTimer) return;
+    this.restoreTimer = setTimeout(() => {
+      this.restoreTimer = null;
+      this.clearCutTimer();
+      this.playback.restore();
+      this._state = 'speaking';
+    }, this.restoreMs);
+  }
+
   private clearCutTimer(): void {
     if (this.cutTimer) {
       clearTimeout(this.cutTimer);
@@ -169,8 +205,20 @@ export class BargeInController {
     }
   }
 
-  private cut(): void {
+  private clearRestoreTimer(): void {
+    if (this.restoreTimer) {
+      clearTimeout(this.restoreTimer);
+      this.restoreTimer = null;
+    }
+  }
+
+  private clearTimers(): void {
     this.clearCutTimer();
+    this.clearRestoreTimer();
+  }
+
+  private cut(): void {
+    this.clearTimers();
     // Truncate to the words actually heard BEFORE flushing (playedMs is read now).
     const spoken = spokenPrefix(this.chars, this.startMs, this.playback.playedMs());
     this.playback.flush();
