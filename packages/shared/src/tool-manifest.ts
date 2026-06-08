@@ -480,6 +480,33 @@ export const toolManifest: ToolManifestEntry[] = [
     trafficClass: null,
   },
   {
+    name: 'get_test_matrix',
+    summary:
+      "Read an AC's per-test_identifier test-event digest by ref: latest status, emission count, and PINNING/retired flags. Use to find which identifier holds an AC red before retiring an orphan.",
+    args: 'get_test_matrix(ref)',
+    group: 'build',
+    readOnlyHint: true,
+    trafficClass: null,
+  },
+  {
+    name: 'discontinue_test_events',
+    summary:
+      'Soft-hide an orphaned test_identifier on an AC (a test you renamed/deleted whose stale fail still pins the AC red). Reversible; audit retained; a fresh live emission re-enters the verdict. Only for identifiers gone from the codebase.',
+    args: 'discontinue_test_events(ref, test_identifier)',
+    group: 'build',
+    readOnlyHint: false,
+    trafficClass: null,
+  },
+  {
+    name: 'restore_test_events',
+    summary:
+      'Reverse discontinue_test_events: un-hide a test_identifier on an AC and recompute its verification badge from the restored history.',
+    args: 'restore_test_events(ref, test_identifier)',
+    group: 'build',
+    readOnlyHint: false,
+    trafficClass: null,
+  },
+  {
     name: 'update_ac',
     summary:
       'Update an AC statement by ref. Only statement is mutable here; kind is fixed at creation; status transitions via accept_ac / reject_ac.',

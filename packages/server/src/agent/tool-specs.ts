@@ -95,6 +95,9 @@ import {
   acceptAc,
   rejectAc,
   linkAcToParent,
+  listTestEventDigestForAc,
+  softHideTestEventsForAc,
+  restoreTestEventsForAc,
   type Ac,
   type AcKind,
   type AcStatus,
@@ -487,6 +490,26 @@ async function resolveStandardSectionRef(
     );
   }
   return { memexId: resolved.memexId, sectionId: resolved.entity.row.id };
+}
+
+/**
+ * Resolve the current verification state of one AC (spec-127) so the
+ * discontinue/restore write tools can report the badge result inline — the
+ * agent sees immediately whether the retire cleared the red. Best-effort: any
+ * lookup miss reports "unknown" rather than failing the (already-committed)
+ * mutation.
+ */
+async function verificationStateForAc(
+  memexId: string,
+  briefId: string,
+  acId: string,
+): Promise<string> {
+  try {
+    const rows = await listAcsForBriefWithVerification(memexId, briefId);
+    return rows.find((r) => r.ac.id === acId)?.verificationState ?? "unknown";
+  } catch {
+    return "unknown";
+  }
 }
 
 async function fullDocState(memexId: string, docIdOrHandle: string): Promise<FullDocState> {
@@ -2305,6 +2328,29 @@ export const toolSpecs: ToolSpec[] = [
       } catch {
         // Best-effort.
       }
+
+      // spec-127 ac-6: orphan awareness. For every FAILING AC, name the
+      // test_identifier(s) pinning it red and point to the ref-keyed retire
+      // path — so an agent that just renamed/deleted a tagged test discovers
+      // and clears its own orphan in-flow. We do NOT claim these ARE orphans
+      // (the server can't tell "renamed away" from "failed for real"); we
+      // surface the candidates + the affordance and leave the judgement to the
+      // actor who knows the codebase (dec-1).
+      const failingRows = rows.filter((r) => r.verificationState === "failing");
+      if (failingRows.length > 0) {
+        const pinLines = failingRows.map((r) => {
+          const acRef = buildChildRef(slugs, doc, { type: "acs", seq: r.ac.seq });
+          const ids = r.tests
+            .filter((t) => t.latestStatus === "fail" || t.latestStatus === "error")
+            .map((t) => `"${t.testIdentifier ?? "(no identifier)"}"`);
+          return `- ${acRef} pinned by ${ids.join(", ")}`;
+        });
+        tailParts.push(
+          `${failingRows.length} failing AC${failingRows.length === 1 ? "" : "s"} — if a pinning test was renamed/deleted in the codebase, ` +
+            `it's an orphan: retire it with \`discontinue_test_events(ref, test_identifier)\` (inspect first with \`get_test_matrix(ref)\`). ` +
+            `See \`get_information(topic='orphaned-test-events')\`.\n${pinLines.join("\n")}`,
+        );
+      }
       const tail = tailParts.length > 0 ? `\n\n${tailParts.join("\n\n")}` : "";
 
       return `${header}\n\n${lines.join("\n")}${tail}`;
@@ -2330,13 +2376,186 @@ export const toolSpecs: ToolSpec[] = [
           `get_ac expects an ac ref; got ${resolved.entity.kind}.`,
         );
       }
-      const { doc, slugs, entity } = resolved;
+      const { memexId, doc, slugs, entity } = resolved;
       const ac = entity.row;
       const acRef = buildChildRef(slugs, doc, { type: "acs", seq: ac.seq });
-      if (ctx.verbose) {
-        return `ref: ${acRef} (seq=${ac.seq}, kind=${ac.kind}, status=${ac.status}): "${ac.statement}"`;
+
+      // spec-127 ac-6: when this AC is held red, name the pinning identifier(s)
+      // and point to the ref-keyed retire path, so an agent inspecting an AC it
+      // just broke by renaming a test discovers and clears its own orphan. The
+      // digest read is best-effort — a miss never fails get_ac.
+      let orphanHint = "";
+      try {
+        const digest = await listTestEventDigestForAc(memexId, ac.id);
+        const pinning = digest.filter((d) => d.pinning);
+        if (pinning.length > 0) {
+          const ids = pinning
+            .map((d) => `"${d.testIdentifier === "" ? "(no identifier)" : d.testIdentifier}"`)
+            .join(", ");
+          orphanHint =
+            `\n⚠ This AC reads failing — pinned by ${ids}. If a pinning test was renamed/deleted in the codebase, ` +
+            `it's an orphan: retire it with \`discontinue_test_events(ref="${acRef}", test_identifier=…)\` ` +
+            `(inspect with \`get_test_matrix(ref="${acRef}")\`). See \`get_information(topic='orphaned-test-events')\`.`;
+        }
+      } catch {
+        // Best-effort.
       }
-      return `ref: ${acRef} [${ac.kind}, ${ac.status}] "${ac.statement}"`;
+
+      if (ctx.verbose) {
+        return `ref: ${acRef} (seq=${ac.seq}, kind=${ac.kind}, status=${ac.status}): "${ac.statement}"${orphanHint}`;
+      }
+      return `ref: ${acRef} [${ac.kind}, ${ac.status}] "${ac.statement}"${orphanHint}`;
+    },
+  },
+  {
+    name: "get_test_matrix",
+    annotations: {
+      title: "Read an AC's test-event matrix",
+      readOnlyHint: true,
+      destructiveHint: false,
+    },
+    description:
+      "Read the per-`test_identifier` test-event digest for one AC, keyed by its " +
+      "canonical ref. One row per identifier: latest (non-hidden) status, last run " +
+      "time, emission count, and two flags — `PINNING red` (this identifier's latest " +
+      "emission is fail/error, so it holds the AC red) and `retired (hidden)` (already " +
+      "soft-hidden, invisible to the verdict). Use this when an AC reads `failing`/`stale` " +
+      "to find WHICH identifier is responsible — then, if you renamed/deleted that test " +
+      "in the codebase, retire its orphan with `discontinue_test_events`. See " +
+      "`get_information(topic='orphaned-test-events')`.",
+    schema: {
+      ref: z.string().describe(
+        "Canonical ref to the AC, e.g. `mindset/main/specs/spec-3/acs/ac-2`.",
+      ),
+      verbose: VERBOSE_FIELD,
+    },
+    async handler(input, ctx) {
+      const ref = input.ref as string;
+      const resolved = await resolveRefArg(ctx, ref);
+      if (resolved.entity.kind !== "ac") {
+        throw new ValidationError(
+          `get_test_matrix expects an ac ref; got ${resolved.entity.kind}.`,
+        );
+      }
+      const { memexId, doc, slugs, entity } = resolved;
+      const acRef = buildChildRef(slugs, doc, { type: "acs", seq: entity.row.seq });
+      const rows = await listTestEventDigestForAc(memexId, entity.row.id);
+      if (rows.length === 0) {
+        return `ref: ${acRef}\nNo test events recorded for this AC yet.`;
+      }
+      const lines = rows.map((r) => {
+        const id = r.testIdentifier === "" ? "(no identifier)" : r.testIdentifier;
+        const status = r.hidden ? "retired" : (r.latestStatus ?? "—");
+        const last = r.latestRunAt ? r.latestRunAt.toISOString() : "—";
+        const flags: string[] = [];
+        if (r.pinning) flags.push("PINNING red");
+        if (r.hidden) flags.push("retired (hidden)");
+        const flagStr = flags.length > 0 ? ` [${flags.join(", ")}]` : "";
+        return `- ${id} — latest ${status}, ${r.count} emission${r.count === 1 ? "" : "s"}, last ${last}${flagStr}`;
+      });
+      return `ref: ${acRef}\n${lines.join("\n")}`;
+    },
+  },
+  {
+    name: "discontinue_test_events",
+    annotations: {
+      title: "Discontinue (soft-hide) an orphaned test_identifier",
+      readOnlyHint: false,
+      destructiveHint: false,
+    },
+    description:
+      "Retire an orphaned `test_identifier` on an AC — a test you renamed/moved/deleted " +
+      "in the codebase whose last emission still pins the AC red. SOFT, reversible: it sets " +
+      "`hidden=true` on the matching emissions (audit retained) and drops them from the " +
+      "verification badge. If you were wrong, `restore_test_events` brings it back; and a " +
+      "fresh live emission of the same identifier re-enters the verdict on its own. Only " +
+      "retire an identifier you KNOW no longer exists in the codebase — not one that merely " +
+      "wasn't run this round. Find the identifier with `get_test_matrix`.",
+    schema: {
+      ref: z.string().describe(
+        "Canonical ref to the AC, e.g. `mindset/main/specs/spec-3/acs/ac-2`.",
+      ),
+      test_identifier: z.string().describe(
+        "The exact test_identifier to retire (as shown by get_test_matrix), " +
+          "e.g. `tests/cache.test.ts::uses redis`.",
+      ),
+      verbose: VERBOSE_FIELD,
+    },
+    async handler(input, ctx) {
+      const ref = input.ref as string;
+      // Resolve the ref FIRST so the std-10 UUID boundary guard fires before
+      // any other validation (b-36 D-7 — the canonical error must win).
+      const resolved = await resolveRefArg(ctx, ref);
+      if (resolved.entity.kind !== "ac") {
+        throw new ValidationError(
+          `discontinue_test_events expects an ac ref; got ${resolved.entity.kind}.`,
+        );
+      }
+      const testIdentifier = input.test_identifier as string;
+      if (!testIdentifier?.trim()) {
+        throw new ValidationError("test_identifier is required.");
+      }
+      const { memexId, doc, slugs, entity } = resolved;
+      const acRef = buildChildRef(slugs, doc, { type: "acs", seq: entity.row.seq });
+      const result = await softHideTestEventsForAc(
+        memexId,
+        entity.row.id,
+        testIdentifier,
+      );
+      const state = await verificationStateForAc(memexId, doc.id, entity.row.id);
+      if (result.hidden === 0) {
+        return `ref: ${acRef} — no emissions matched "${testIdentifier}"; nothing retired. AC verification: ${state}.`;
+      }
+      return `ref: ${acRef} — retired (soft-hidden) ${result.hidden} emission${result.hidden === 1 ? "" : "s"} of "${testIdentifier}". AC verification is now: ${state}. Reverse with restore_test_events.`;
+    },
+  },
+  {
+    name: "restore_test_events",
+    annotations: {
+      title: "Restore (un-hide) a discontinued test_identifier",
+      readOnlyHint: false,
+      destructiveHint: false,
+    },
+    description:
+      "Reverse a `discontinue_test_events`: un-hide every emission of a `test_identifier` " +
+      "on an AC and recompute the verification badge from the restored history. Use when an " +
+      "identifier was retired by mistake (the test still exists). Find retired identifiers " +
+      "with `get_test_matrix` (they show `retired (hidden)`).",
+    schema: {
+      ref: z.string().describe(
+        "Canonical ref to the AC, e.g. `mindset/main/specs/spec-3/acs/ac-2`.",
+      ),
+      test_identifier: z.string().describe(
+        "The exact test_identifier to restore (as shown by get_test_matrix).",
+      ),
+      verbose: VERBOSE_FIELD,
+    },
+    async handler(input, ctx) {
+      const ref = input.ref as string;
+      // Resolve the ref FIRST so the std-10 UUID boundary guard fires before
+      // any other validation (b-36 D-7 — the canonical error must win).
+      const resolved = await resolveRefArg(ctx, ref);
+      if (resolved.entity.kind !== "ac") {
+        throw new ValidationError(
+          `restore_test_events expects an ac ref; got ${resolved.entity.kind}.`,
+        );
+      }
+      const testIdentifier = input.test_identifier as string;
+      if (!testIdentifier?.trim()) {
+        throw new ValidationError("test_identifier is required.");
+      }
+      const { memexId, doc, slugs, entity } = resolved;
+      const acRef = buildChildRef(slugs, doc, { type: "acs", seq: entity.row.seq });
+      const result = await restoreTestEventsForAc(
+        memexId,
+        entity.row.id,
+        testIdentifier,
+      );
+      const state = await verificationStateForAc(memexId, doc.id, entity.row.id);
+      if (result.restored === 0) {
+        return `ref: ${acRef} — no emissions matched "${testIdentifier}"; nothing restored. AC verification: ${state}.`;
+      }
+      return `ref: ${acRef} — restored ${result.restored} emission${result.restored === 1 ? "" : "s"} of "${testIdentifier}". AC verification is now: ${state}.`;
     },
   },
   {
