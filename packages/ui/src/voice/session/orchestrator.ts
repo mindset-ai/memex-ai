@@ -19,8 +19,12 @@ export interface OrchestratorHooks {
 export interface VoiceOrchestrator {
   /** Begin the loop on an ALREADY-granted, AEC'd mic stream (the provider owns
    *  permission + the stream; the orchestrator consumes it — matches
-   *  SileroWorkletVadEngine.start(stream, …)). */
-  start(stream: MediaStream): Promise<void> | void;
+   *  SileroWorkletVadEngine.start(stream, …)).
+   *
+   *  spec-200 t-7: `openingContext` (optional, additive) seeds the session so the
+   *  guide proactively opens by explaining it — used by the What's New ear to make
+   *  Specky explain a specific entry. Omitting it preserves today's behaviour. */
+  start(stream: MediaStream, openingContext?: string): Promise<void> | void;
   /** Tap-to-interrupt / barge-in cut (dec-8). */
   interrupt(): void;
   /** Full teardown — close sockets, stop playback, release nodes. */
