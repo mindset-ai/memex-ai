@@ -102,7 +102,7 @@ export async function disableMembership(
 
   return mutate(
     {},
-    { memexId, entity: "org_membership", action: "deleted" },
+    { memexId, userId: targetUserId, entity: "org_membership", action: "deleted" },
     async () => {
       return db.transaction(async (tx) => {
         const [updated] = await tx

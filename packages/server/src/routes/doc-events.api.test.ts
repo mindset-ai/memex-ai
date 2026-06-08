@@ -1,4 +1,5 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
+import { tagAc } from "@memex-ai-ac/vitest";
 
 // vi.mock() is hoisted above all imports — the factory must be self-contained, so we
 // re-create a passthrough middleware inline rather than importing one. This is the same
@@ -21,6 +22,9 @@ const TEST_MEMEX_ID = "00000000-0000-0000-0000-000000000001";
 const OTHER_ACCOUNT_ID = "00000000-0000-0000-0000-000000000099";
 const TEST_DOC_ID = "11111111-1111-1111-1111-111111111111";
 const OTHER_DOC_ID = "22222222-2222-2222-2222-222222222222";
+// Matches the default userId injected by makeTestAppWithTenant / tenantStubMiddleware.
+const TEST_USER_ID = "00000000-0000-0000-0000-000000000010";
+const OTHER_USER_ID = "00000000-0000-0000-0000-000000000020";
 
 function makeApp(memexId: string = TEST_MEMEX_ID) {
   const app = makeTestAppWithTenant({ memexId });
@@ -102,6 +106,26 @@ async function readSSEEvents(
 
   reader.cancel().catch(() => {});
   return events;
+}
+
+/** Reads the stream until it closes (done:true) or the timeout fires. */
+async function waitForStreamClose(res: Response, timeoutMs = 2000): Promise<void> {
+  const reader = res.body!.getReader();
+  const timeout = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error("stream did not close within timeout")), timeoutMs),
+  );
+  const waitClose = async () => {
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const { done } = await reader.read();
+      if (done) return;
+    }
+  };
+  try {
+    await Promise.race([waitClose(), timeout]);
+  } finally {
+    await reader.cancel().catch(() => {});
+  }
 }
 
 describe("GET /api/docs/events/:docId", () => {
@@ -484,5 +508,92 @@ describe("GET /api/docs/events/:docId (?include= action filter)", () => {
     const events = await readSSEEvents(res, 1);
     expect(events).toHaveLength(1);
     expect(JSON.parse(events[0]).action).toBe("updated");
+  });
+});
+
+const AC_199 = (n: number) =>
+  `mindset-prod/memex-building-itself/specs/spec-199/acs/ac-${n}`;
+
+// spec-199 t-4 — in-flight SSE streams are torn down when org membership is revoked.
+describe("spec-199 t-4 — SSE streams close on org_membership revocation (ac-4)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("per-doc stream closes when org_membership deleted fires for the connected user", async () => {
+    tagAc(AC_199(4));
+    stubDocLookup("owned");
+    const app = makeApp();
+    const res = await app.request(`/api/docs/events/${TEST_DOC_ID}`);
+    expect(res.status).toBe(200);
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    bus.emit({
+      memexId: TEST_MEMEX_ID,
+      userId: TEST_USER_ID,
+      entity: "org_membership",
+      action: "deleted",
+    });
+
+    await waitForStreamClose(res);
+    // If waitForStreamClose resolves without throwing, the stream closed cleanly.
+  });
+
+  it("global stream closes when org_membership deleted fires for the connected user", async () => {
+    tagAc(AC_199(4));
+    const app = makeApp();
+    const res = await app.request("/api/docs/events");
+    expect(res.status).toBe(200);
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    bus.emit({
+      memexId: TEST_MEMEX_ID,
+      userId: TEST_USER_ID,
+      entity: "org_membership",
+      action: "deleted",
+    });
+
+    await waitForStreamClose(res);
+  });
+
+  it("per-doc stream does not close when a DIFFERENT user's membership is revoked", async () => {
+    tagAc(AC_199(4));
+    stubDocLookup("owned");
+    const app = makeApp();
+    const res = await app.request(`/api/docs/events/${TEST_DOC_ID}`);
+    expect(res.status).toBe(200);
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    bus.emit({
+      memexId: TEST_MEMEX_ID,
+      userId: OTHER_USER_ID,
+      entity: "org_membership",
+      action: "deleted",
+    });
+
+    // Stream must stay open — waitForStreamClose should timeout.
+    // (waitForStreamClose's finally block handles reader cleanup.)
+    await expect(waitForStreamClose(res, 300)).rejects.toThrow("did not close");
+  });
+
+  it("global stream does not close when a DIFFERENT user's membership is revoked", async () => {
+    tagAc(AC_199(4));
+    const app = makeApp();
+    const res = await app.request("/api/docs/events");
+    expect(res.status).toBe(200);
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    bus.emit({
+      memexId: TEST_MEMEX_ID,
+      userId: OTHER_USER_ID,
+      entity: "org_membership",
+      action: "deleted",
+    });
+
+    await expect(waitForStreamClose(res, 300)).rejects.toThrow("did not close");
   });
 });

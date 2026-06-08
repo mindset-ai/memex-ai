@@ -62,6 +62,7 @@ docEventsRouter.get("/events/:docId", async (c) => {
   const memexId = requireMemexId(c);
   const docId = c.req.param("docId");
   const actions = resolveIncludeActions(c.req.query("include"));
+  const user = c.get("user");
 
   // Verify the doc belongs to the requesting tenant before opening the stream.
   // Without this check a session user could subscribe to any docId by guessing
@@ -74,6 +75,11 @@ docEventsRouter.get("/events/:docId", async (c) => {
   }
 
   return streamSSE(c, async (stream) => {
+    // Resolvable promise: holds the stream open. Resolves when the user's
+    // membership is revoked (spec-199 t-4) or the client disconnects.
+    let close!: () => void;
+    const done = new Promise<void>((resolve) => { close = resolve; });
+
     const handler = (event: ChangeEvent) => {
       stream.writeSSE({
         event: "doc_change",
@@ -84,7 +90,13 @@ docEventsRouter.get("/events/:docId", async (c) => {
     // Filter by (memexId, docId) at the bus level — the bus subscribe filter
     // takes care of cross-tenant isolation and per-doc scoping in one place.
     // `actions` narrows by the resolved `?include=` allowlist (undefined = all).
-    const unsubscribe = bus.subscribe({ memexId, docId, actions }, handler);
+    const unsubDoc = bus.subscribe({ memexId, docId, actions }, handler);
+
+    // spec-199 t-4: close stream when the connected user's membership is revoked.
+    const unsubRevoke = bus.subscribe(
+      { userId: user.id, entity: "org_membership", actions: ["deleted"] as const },
+      () => close(),
+    );
 
     // t-19 W5: emit a `ready` event the instant the listener is attached so test
     // clients (and a future production client that wants exactly-once-since-
@@ -98,24 +110,33 @@ docEventsRouter.get("/events/:docId", async (c) => {
       stream.writeSSE({ event: "keepalive", data: "" });
     }, 30_000);
 
-    // Clean up on disconnect — both the keepalive and the bus subscription
-    // must be torn down or the bus accumulates orphan listeners across the
-    // lifetime of the process.
+    // Clean up on disconnect — keepalive, doc-change subscription, and revoke
+    // subscription must all be torn down to avoid orphan listeners.
     stream.onAbort(() => {
       clearInterval(keepalive);
-      unsubscribe();
+      unsubDoc();
+      unsubRevoke();
+      close(); // Resolve done so the callback exits cleanly on client disconnect
     });
 
-    // Hold connection open until aborted
-    await new Promise(() => {});
+    await done;
+    clearInterval(keepalive);
+    unsubDoc();
+    unsubRevoke();
   });
 });
 
 docEventsRouter.get("/events", (c) => {
   const memexId = requireMemexId(c);
   const actions = resolveIncludeActions(c.req.query("include"));
+  const user = c.get("user");
 
   return streamSSE(c, async (stream) => {
+    // Resolvable promise: holds the stream open. Resolves when the user's
+    // membership is revoked (spec-199 t-4) or the client disconnects.
+    let close!: () => void;
+    const done = new Promise<void>((resolve) => { close = resolve; });
+
     const handler = (event: ChangeEvent) => {
       // Cross-tenant filter is enforced by the bus subscribe filter below,
       // but the per-Memex stream is intentionally fan-out across all docs in
@@ -127,7 +148,13 @@ docEventsRouter.get("/events", (c) => {
     };
 
     // `actions` narrows by the resolved `?include=` allowlist (undefined = all).
-    const unsubscribe = bus.subscribe({ memexId, actions }, handler);
+    const unsubDoc = bus.subscribe({ memexId, actions }, handler);
+
+    // spec-199 t-4: close stream when the connected user's membership is revoked.
+    const unsubRevoke = bus.subscribe(
+      { userId: user.id, entity: "org_membership", actions: ["deleted"] as const },
+      () => close(),
+    );
 
     // t-19 W5: see per-doc handler above. Same `ready` handshake on the global
     // stream so test clients (and any future production listener that wants
@@ -140,9 +167,14 @@ docEventsRouter.get("/events", (c) => {
 
     stream.onAbort(() => {
       clearInterval(keepalive);
-      unsubscribe();
+      unsubDoc();
+      unsubRevoke();
+      close(); // Resolve done so the callback exits cleanly on client disconnect
     });
 
-    await new Promise(() => {});
+    await done;
+    clearInterval(keepalive);
+    unsubDoc();
+    unsubRevoke();
   });
 });
