@@ -64,6 +64,19 @@ export const GUIDE_TOOLS: GuideToolDefinition[] = [
       required: ['query'],
     },
   },
+  // spec-206 t-4 (dec-1): the synced demo walkthrough. A pure UI affordance — it
+  // touches NO tenant data (it just moves the on-screen demo board), so it does
+  // not breach the dec-4 boundary. The guide calls it once after narrating each
+  // phase of the demo-specs walkthrough.
+  {
+    name: 'advance_demo',
+    description:
+      'During the demo-specs walkthrough ONLY: advance the on-screen demo board to the next phase (draft → specify → build → verify → done). Call this once right after you finish narrating each phase, so the visible demo spec moves to the next column in sync with what you are saying. Takes no input; it is a no-op once already at the final phase. Never use it outside the walkthrough.',
+    input_schema: {
+      type: 'object',
+      properties: {},
+    },
+  },
 ];
 
 /** The guide tool names as a set (dispatch + guard). */

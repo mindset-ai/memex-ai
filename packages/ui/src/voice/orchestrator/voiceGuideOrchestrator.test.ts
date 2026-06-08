@@ -96,6 +96,7 @@ function hooks(): OrchestratorHooks & { states: string[]; earcons: string[]; err
 
 const react = {
   navigate: vi.fn(),
+  advanceDemo: vi.fn(),
   authToken: () => 'tok',
   tenantBase: () => '/api/ns/mx',
   origin: 'http://localhost',

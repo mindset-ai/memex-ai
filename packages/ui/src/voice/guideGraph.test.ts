@@ -125,9 +125,12 @@ describe('guide graph (ac-11)', () => {
     tagAc(AC11);
   });
 
-  it('classifies highlight/navigate as client tools and search_guide as a server tool', () => {
+  it('classifies highlight/navigate/advance_demo as client tools and search_guide as a server tool', () => {
     expect(GUIDE_CLIENT_TOOLS.has('highlight')).toBe(true);
     expect(GUIDE_CLIENT_TOOLS.has('navigate')).toBe(true);
+    // spec-206 t-4: the synced-walkthrough advance is React-executed (the graph
+    // routes it to onUiTool → dispatchGuideUiTool → the shared reveal pointer).
+    expect(GUIDE_CLIENT_TOOLS.has('advance_demo')).toBe(true);
     expect(GUIDE_CLIENT_TOOLS.has('search_guide')).toBe(false);
   });
 });

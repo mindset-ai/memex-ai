@@ -56,7 +56,8 @@ import { formatDate, docSeq } from '../utils/format';
 import { tenantPath, getCurrentTenant } from '../utils/tenantUrl';
 import { PromptButton } from '../components/PromptButton';
 import { useMemexAccess } from '../hooks/useMemexAccess';
-import { useHandholdReveal, nextRevealPhase } from '../hooks/useHandholdReveal';
+import { nextRevealPhase } from '../hooks/useHandholdReveal';
+import { useHandholdRevealValue } from '../hooks/HandholdRevealContext';
 import { BylineAssignees } from '../components/BylineAssignees';
 import { useDocRole } from '../hooks/useDocRole';
 import { useOrgScaffoldBlocks } from '../hooks/useOrgScaffoldBlocks';
@@ -83,7 +84,7 @@ export function DocDocument() {
     revealedPhase,
     advance: advanceReveal,
     reset: resetReveal,
-  } = useHandholdReveal(namespace ?? null, memex ?? null);
+  } = useHandholdRevealValue(namespace ?? null, memex ?? null);
   // spec-111 t-8: gate every mutation surface on this doc page behind write
   // access to the current Memex. A non-member reading a public Memex sees the
   // full document, decisions, tasks, ACs, and comments — but no edit/create/

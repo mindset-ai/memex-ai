@@ -1087,6 +1087,12 @@ export const users = pgTable("users", {
   // for legacy rows. Nullable to break the chicken-and-egg with
   // `namespaces.owner_user_id` at signup time. UNIQUE so one user → one namespace.
   namespaceId: uuid("namespace_id").references(() => namespaces.id, { onDelete: "set null" }),
+  // spec-206 (dec-3): the server-authoritative first-run flag for the Specky
+  // welcome. Null = the user has never been greeted; a timestamp = the first
+  // session where Specky's opening turn actually started speaking (dec-4 — a
+  // blocked/denied audio start does NOT stamp it). True once-per-user across
+  // devices, so the auto-greeting never re-fires.
+  onboardingGreetedAt: timestamp("onboarding_greeted_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
