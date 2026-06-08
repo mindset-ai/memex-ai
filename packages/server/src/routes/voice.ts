@@ -316,7 +316,14 @@ export class VoiceSession {
         });
       }
     } catch {
-      this.send({ type: "error", requestId, message: "tts_failed" });
+      // A barge-in / Stop aborts the synthesize() generator mid-stream, which
+      // surfaces here as a throw — that is INTENTIONAL, not a failure. Sending an
+      // error frame would make the client escalate to status:'error', which
+      // unmounts the pill (the beep-then-close bug) and kills the session on every
+      // interruption. Only surface a REAL synthesis failure (not an abort).
+      if (!ac.signal.aborted) {
+        this.send({ type: "error", requestId, message: "tts_failed" });
+      }
     } finally {
       this.ttsAborts.delete(requestId);
     }

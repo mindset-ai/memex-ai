@@ -290,6 +290,10 @@ describe("ac-32 — one authenticated socket carries the whole loop", () => {
       await flush();
       const audio = sent.filter((m) => m.type === "audio");
       expect(audio.length).toBeLessThan(8); // cut short by the abort
+      // An abort is INTENTIONAL — it must NOT emit an error frame. The client
+      // escalates {type:'error'} to status:'error', which unmounts the pill and
+      // ends the session, so a barge-in/Stop would beep-and-close every time.
+      expect(sent.filter((m) => m.type === "error")).toHaveLength(0);
       tagAc(AC32);
     });
   });

@@ -35,24 +35,29 @@ export function VoiceSessionPill(): React.JSX.Element {
             it conveys listening/thinking/speaking, so Specky stays a single idle
             character (ac-7). Decorative — the state label carries the meaning. */}
         <Specky size={24} />
-        <StateBlip loopState={session.loopState} muted={session.muted} />
+        <StateBlip loopState={session.loopState} />
         <span className={`text-sm ${ducked ? 'opacity-70' : ''}`} data-voice-state-label>
           {label}
         </span>
       </button>
 
       <div className="ml-1 flex items-center gap-1">
-        <button
-          type="button"
-          data-voice-mute
-          aria-pressed={session.muted}
-          aria-label={session.muted ? 'Unmute microphone' : 'Mute microphone'}
-          title={session.muted ? 'Unmute' : 'Mute'}
-          onClick={session.toggleMute}
-          className="rounded-full p-1 text-text-secondary hover:bg-surface-hover"
-        >
-          {session.muted ? '🔇' : '🎙️'}
-        </button>
+        {/* Explicit Stop — appears the moment the agent has audio to interrupt
+            (speaking or ducked). Gives the user deliberate, discoverable control
+            without waiting on the VAD-driven barge-in; same hard-cut path as the
+            body tap (session.interrupt → orchestrator.interrupt → tapInterrupt). */}
+        {(session.loopState === 'speaking' || session.loopState === 'ducked') && (
+          <button
+            type="button"
+            data-voice-stop
+            aria-label="Stop the guide"
+            title="Stop"
+            onClick={session.interrupt}
+            className="rounded-full p-1 text-accent hover:bg-surface-hover"
+          >
+            <span aria-hidden className="block h-3 w-3 rounded-[2px] bg-current" />
+          </button>
+        )}
         <button
           type="button"
           data-voice-end
@@ -72,20 +77,16 @@ export function VoiceSessionPill(): React.JSX.Element {
  *  loop state. The 'acknowledged' state is the blink that fires with the ping. */
 function StateBlip({
   loopState,
-  muted,
 }: {
   loopState: string;
-  muted: boolean;
 }): React.JSX.Element {
-  const pulsing = !muted && (loopState === 'listening' || loopState === 'acknowledged' || loopState === 'speaking');
+  const pulsing = loopState === 'listening' || loopState === 'acknowledged' || loopState === 'speaking';
   const color =
-    muted
-      ? 'bg-text-secondary'
-      : loopState === 'speaking'
-        ? 'bg-accent'
-        : loopState === 'thinking'
-          ? 'bg-amber-400'
-          : 'bg-emerald-400';
+    loopState === 'speaking'
+      ? 'bg-accent'
+      : loopState === 'thinking'
+        ? 'bg-amber-400'
+        : 'bg-emerald-400';
   return (
     <span
       data-voice-blip
