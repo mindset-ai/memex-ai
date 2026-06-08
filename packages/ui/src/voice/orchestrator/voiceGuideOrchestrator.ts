@@ -53,14 +53,20 @@ export interface VoiceOrchestratorReactDeps {
 export interface VoiceOrchestratorGlue {
   socketFactory?: SocketFactory;
   vadEngine?: VadEngine;
-  playback?: PlaybackSink & { enqueue(audio: ArrayBuffer): Promise<void> | void; dispose(): void };
+  playback?: PlaybackImpl;
   capture?: PcmCapture;
   graph?: ReturnType<typeof createGuideGraph>;
   newId?: () => string;
 }
 
 type PlaybackImpl = PlaybackSink & {
+  /** Begin a fresh spoken turn: reset gain to full + re-base the played clock. */
+  startTurn(): void;
   enqueue(audio: ArrayBuffer): Promise<void> | void;
+  /** Fire `cb` once the scheduled audio has finished playing (or immediately if
+   *  nothing is queued) — lets the loop hold 'speaking' until the agent is
+   *  actually inaudible, not merely until the final chunk has arrived. */
+  onDrain(cb: () => void): void;
   dispose(): void;
 };
 
@@ -78,7 +84,6 @@ class VoiceGuideOrchestrator implements VoiceOrchestrator {
   private turnAbort: AbortController | null = null;
   private speakingRequestId: string | null = null;
   private stopped = false;
-  private muted = false;
   private readonly newId: () => string;
 
   constructor(
@@ -103,7 +108,6 @@ class VoiceGuideOrchestrator implements VoiceOrchestrator {
     // mount — leaving stopped=true. Without this reset every turn would finish with
     // stopped=true and refuse to speak even though the reply was ready.
     this.stopped = false;
-    this.muted = false; // fresh session starts unmuted (instance is reused)
     const token = this.react.authToken();
     const base = this.react.tenantBase();
     if (!token || !base) {
@@ -160,10 +164,6 @@ class VoiceGuideOrchestrator implements VoiceOrchestrator {
   }
 
   private onSpeechStart(): void {
-    // Muted = "don't listen to me": the VAD keeps running (capture.setMuted only
-    // stops the STT audio), so we ignore its onset here too — no barge-in, no
-    // earcon, no state change.
-    if (this.muted) return;
     // If the agent is mid-speech, this ducks + arms the cut (dec-8). If idle, it's
     // the user starting their turn — inert for barge-in.
     const wasSpeaking = this.barge?.state === 'speaking' || this.barge?.state === 'ducked';
@@ -172,9 +172,6 @@ class VoiceGuideOrchestrator implements VoiceOrchestrator {
   }
 
   private onSpeechEnd(): void {
-    // Muted: ignore the VAD entirely (it still fires, but capture is silenced) so a
-    // muted user never triggers the ack ping / "thinking" with no audio behind it.
-    if (this.muted) return;
     const wasInterrupting = this.barge?.state === 'ducked';
     this.barge?.onSpeechEnd();
     if (wasInterrupting) return; // transient over agent speech — bargeIn restored it
@@ -230,6 +227,11 @@ class VoiceGuideOrchestrator implements VoiceOrchestrator {
     if (assistantText.trim() && !this.stopped) {
       const requestId = this.newId();
       this.speakingRequestId = requestId;
+      // Reset the playback turn alongside the barge turn: this restores the gain to
+      // full (a prior barge-in duck-then-cut leaves it attenuated) and re-bases the
+      // played-ms clock used for truncation. Without it every reply after the first
+      // interruption plays at the ducked volume.
+      this.playback?.startTurn();
       this.barge?.startTurn();
       this.hooks.setLoopState('speaking');
       this.ws?.speak(requestId, assistantText);
@@ -241,20 +243,24 @@ class VoiceGuideOrchestrator implements VoiceOrchestrator {
   private onAudio(audio: ArrayBuffer, alignment: CharAlignment | undefined, isFinal: boolean): void {
     void this.playback?.enqueue(audio);
     this.barge?.appendChunk(alignment);
-    if (isFinal) {
-      this.barge?.endTurn();
-      this.speakingRequestId = null;
-      this.hooks.setLoopState('listening');
-    }
+    // isFinal marks the last chunk RECEIVED, but the audio is still playing out of
+    // the queue. Stay in 'speaking' — barge armed, the Stop control visible — until
+    // playback actually drains, so the user can interrupt for as long as they can
+    // hear the agent. onDrain fires immediately if nothing is queued.
+    if (isFinal) this.playback?.onDrain(() => this.onPlaybackDrained());
+  }
+
+  /** The agent's speech has fully played out (no interruption). Now — not on the
+   *  final-chunk receipt — return to listening and disarm the barge. */
+  private onPlaybackDrained(): void {
+    if (this.stopped) return;
+    this.barge?.endTurn();
+    this.speakingRequestId = null;
+    this.hooks.setLoopState('listening');
   }
 
   interrupt(): void {
     this.barge?.tapInterrupt();
-  }
-
-  setMuted(muted: boolean): void {
-    this.muted = muted;
-    this.capture?.setMuted(muted);
   }
 
   stop(): void {

@@ -10,8 +10,6 @@
 
 export interface PcmCapture {
   start(stream: MediaStream, onFrame: (pcm: ArrayBuffer) => void): Promise<void> | void;
-  /** Stop forwarding frames without tearing down (mute). */
-  setMuted(muted: boolean): void;
   stop(): void;
 }
 
@@ -21,7 +19,6 @@ export class WebAudioPcmCapture implements PcmCapture {
   private ctx: AudioContext | null = null;
   private source: MediaStreamAudioSourceNode | null = null;
   private processor: ScriptProcessorNode | null = null;
-  private muted = false;
 
   start(stream: MediaStream, onFrame: (pcm: ArrayBuffer) => void): void {
     const ctx = new AudioContext();
@@ -31,7 +28,6 @@ export class WebAudioPcmCapture implements PcmCapture {
     const ratio = ctx.sampleRate / TARGET_RATE;
 
     processor.onaudioprocess = (e) => {
-      if (this.muted) return;
       const input = e.inputBuffer.getChannelData(0);
       const outLen = Math.floor(input.length / ratio);
       const pcm = new Int16Array(outLen);
@@ -52,10 +48,6 @@ export class WebAudioPcmCapture implements PcmCapture {
 
     this.source = source;
     this.processor = processor;
-  }
-
-  setMuted(muted: boolean): void {
-    this.muted = muted;
   }
 
   stop(): void {

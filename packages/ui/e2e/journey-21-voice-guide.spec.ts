@@ -48,7 +48,7 @@ test("voice affordance is in-view on a registered screen, not in the global nav 
   await expect(page.getByTestId("primary-nav").locator("[data-voice-affordance]")).toHaveCount(0);
 });
 
-test("start → pill → mute → end, and an active session never blocks the app (ac-1 / ac-5)", async ({
+test("start → pill → end, and an active session never blocks the app (ac-1 / ac-5)", async ({
   page,
 }) => {
   await page.goto(bareUrl("/"));
@@ -62,14 +62,6 @@ test("start → pill → mute → end, and an active session never blocks the ap
   const pill = page.locator("[data-voice-pill]");
   await expect(pill).toBeVisible({ timeout: 15_000 });
   await expect(page.locator("[data-voice-affordance]")).toHaveCount(0);
-
-  // Mute is available and toggles (ac-5).
-  const mute = page.locator("[data-voice-mute]");
-  await expect(mute).toHaveAttribute("aria-label", "Mute microphone");
-  await mute.click();
-  await expect(mute).toHaveAttribute("aria-label", "Unmute microphone");
-  await mute.click();
-  await expect(mute).toHaveAttribute("aria-label", "Mute microphone");
 
   // ac-5: the session never blocks normal use — the app still navigates with a
   // session active, and the pill persists across the route change (it's mounted at

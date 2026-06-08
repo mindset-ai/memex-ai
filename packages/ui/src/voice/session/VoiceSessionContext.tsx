@@ -39,7 +39,6 @@ export interface VoiceSessionValue extends VoiceSessionState {
   start: () => Promise<void>;
   /** Tap-to-interrupt the agent mid-speech (manual barge-in fallback). */
   interrupt: () => void;
-  toggleMute: () => void;
   /** End the session and release the mic. */
   end: () => void;
   /** Retry from the permission-denied recovery UI. */
@@ -113,7 +112,7 @@ export function VoiceSessionProvider({
       onEnded: () =>
         setState((s) =>
           s.status === 'active'
-            ? { ...s, status: 'inactive', loopState: 'idle', muted: false }
+            ? { ...s, status: 'inactive', loopState: 'idle' }
             : s,
         ),
     };
@@ -147,7 +146,7 @@ export function VoiceSessionProvider({
 
     streamRef.current = stream;
     earconPlayer.play('start');
-    setState((s) => ({ ...s, status: 'active', loopState: 'listening', muted: false }));
+    setState((s) => ({ ...s, status: 'active', loopState: 'listening' }));
 
     try {
       await orchestrator.start(stream); // consumes the granted, AEC'd stream
@@ -163,20 +162,11 @@ export function VoiceSessionProvider({
     setState((s) => (s.status === 'active' ? { ...s, loopState: 'listening' } : s));
   }, [orchestrator]);
 
-  const toggleMute = useCallback(() => {
-    setState((s) => {
-      if (s.status !== 'active') return s;
-      const muted = !s.muted;
-      orchestrator.setMuted(muted);
-      return { ...s, muted };
-    });
-  }, [orchestrator]);
-
   const end = useCallback(() => {
     orchestrator.stop();
     releaseStream();
     earconPlayer.play('end');
-    setState((s) => ({ ...s, status: 'inactive', loopState: 'idle', muted: false, error: null }));
+    setState((s) => ({ ...s, status: 'inactive', loopState: 'idle', error: null }));
   }, [orchestrator, releaseStream, earconPlayer]);
 
   // Tear down on unmount — never leave the mic hot.
@@ -189,8 +179,8 @@ export function VoiceSessionProvider({
   }, [orchestrator, releaseStream, earconPlayer]);
 
   const value = useMemo<VoiceSessionValue>(
-    () => ({ ...state, start, interrupt, toggleMute, end, retryPermission: start }),
-    [state, start, interrupt, toggleMute, end],
+    () => ({ ...state, start, interrupt, end, retryPermission: start }),
+    [state, start, interrupt, end],
   );
 
   return <VoiceSessionContext.Provider value={value}>{children}</VoiceSessionContext.Provider>;

@@ -43,18 +43,31 @@ function fakeVad() {
 }
 
 function fakePlayback() {
+  let drainCb: (() => void) | null = null;
   return {
+    startTurn: vi.fn(),
     enqueue: vi.fn(),
     duck: vi.fn(),
     restore: vi.fn(),
-    flush: vi.fn(),
+    flush: vi.fn(() => {
+      drainCb = null;
+    }),
     playedMs: () => 0,
+    onDrain: vi.fn((cb: () => void) => {
+      drainCb = cb;
+    }),
     dispose: vi.fn(),
+    /** Test helper: simulate the scheduled audio finishing playback. */
+    drain: () => {
+      const cb = drainCb;
+      drainCb = null;
+      cb?.();
+    },
   };
 }
 
 function fakeCapture() {
-  return { start: vi.fn(), setMuted: vi.fn(), stop: vi.fn() };
+  return { start: vi.fn(), stop: vi.fn() };
 }
 
 // A fake graph whose invoke drives the callbacks the test wants (text + tools).
@@ -143,12 +156,13 @@ describe('voice orchestrator wiring (ac-11)', () => {
     tagAc(AC11);
     const sock = fakeSocket();
     const graph = fakeGraph((cb) => cb.onTextDelta?.('This is the Specs board.' as never));
+    const playback = fakePlayback();
     const h = hooks();
     const orch = createVoiceOrchestratorFactory(react, {
       socketFactory: sock.factory,
       vadEngine: fakeVad().engine,
       capture: fakeCapture(),
-      playback: fakePlayback(),
+      playback,
       graph,
       newId: () => 'req-1',
     })(h);
@@ -163,6 +177,40 @@ describe('voice orchestrator wiring (ac-11)', () => {
     const sentSpeak = sock.sent.map((s) => (typeof s === 'string' ? JSON.parse(s) : null)).find((m) => m?.type === 'speak');
     expect(sentSpeak).toMatchObject({ type: 'speak', requestId: 'req-1', text: 'This is the Specs board.' });
     expect(h.states).toContain('speaking');
+    // Each spoken turn re-bases playback so a prior barge-in duck-then-cut can't
+    // leave the gain attenuated (volume must return to full on the next reply).
+    expect(playback.startTurn).toHaveBeenCalled();
+  });
+
+  it('holds "speaking" until playback drains — not on the final chunk (Stop stays available)', async () => {
+    tagAc(AC11);
+    const sock = fakeSocket();
+    const graph = fakeGraph((cb) => cb.onTextDelta?.('Here is the answer.' as never));
+    const playback = fakePlayback();
+    const h = hooks();
+    const orch = createVoiceOrchestratorFactory(react, {
+      socketFactory: sock.factory,
+      vadEngine: fakeVad().engine,
+      capture: fakeCapture(),
+      playback,
+      graph,
+      newId: () => 'req-1',
+    })(h);
+    await orch.start(fakeStream);
+    sock.sock.onmessage?.({ data: JSON.stringify({ type: 'transcript', text: 'q?', isFinal: true }) });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(h.states[h.states.length - 1]).toBe('speaking');
+
+    // Final TTS chunk arrives, but the audio is still playing out of the queue —
+    // we must NOT drop to listening yet (else the Stop affordance vanishes mid-speech).
+    sock.sock.onmessage?.({ data: JSON.stringify({ type: 'audio', requestId: 'req-1', audio: '', isFinal: true }) });
+    expect(playback.onDrain).toHaveBeenCalled();
+    expect(h.states[h.states.length - 1]).toBe('speaking');
+
+    // Playback finishes → now we return to listening.
+    playback.drain();
+    expect(h.states[h.states.length - 1]).toBe('listening');
   });
 
   it('dispatches a navigate UI tool through the app router', async () => {

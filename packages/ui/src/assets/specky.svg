@@ -49,8 +49,8 @@
        its base pose: clip upright, pupils centred, eyes open, brows level).
        The character is never hidden — the affordance must stay discoverable
        for motion-sensitive users. This rule lives inside the SVG so the asset
-       self-handles reduced motion even when embedded as a plain <img>, with
-       no consuming-component CSS required (dec-3=a drop-in img). */
+       self-handles reduced motion even when embedded as a plain img element,
+       with no consuming-component CSS required (dec-3=a drop-in img). */
     @media (prefers-reduced-motion: reduce) {
       .clip-root,
       .pupils,

@@ -48,7 +48,7 @@ function renderVoice(initialPath = REGISTERED) {
 
 async function startSession(): Promise<void> {
   await act(async () => {
-    fireEvent.click(screen.getByLabelText('Ask the voice guide'));
+    fireEvent.click(screen.getByLabelText('Ask Specky'));
   });
 }
 
@@ -81,7 +81,7 @@ describe('spec-197 wiring — Specky in the spec-190 voice surface', () => {
     tagAc(AC_QUIET_ENTRY);
     tagAc(AC_IDENTITY);
     renderVoice(REGISTERED);
-    const affordance = screen.getByLabelText('Ask the voice guide');
+    const affordance = screen.getByLabelText('Ask Specky');
     const img = affordance.querySelector('img');
     // Specky is the identity (an <img>), replacing the placeholder sound-wave glyph.
     expect(img).not.toBeNull();
@@ -106,13 +106,13 @@ describe('spec-197 wiring — Specky in the spec-190 voice surface', () => {
     expect(avatar).not.toBeNull();
     expect(isAnimated(avatar)).toBe(true);
     // The inactive entry icon is gone (we're in-session now).
-    expect(screen.queryByLabelText('Ask the voice guide')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Ask Specky')).not.toBeInTheDocument();
   });
 
   it('the SAME character serves both the entry doorway and the pill avatar (ac-1)', async () => {
     tagAc(AC_IDENTITY);
     renderVoice(REGISTERED);
-    const entryMarkup = svgOf(screen.getByLabelText('Ask the voice guide').querySelector('img'));
+    const entryMarkup = svgOf(screen.getByLabelText('Ask Specky').querySelector('img'));
     await startSession();
     const pillMarkup = svgOf(document.querySelector('[data-voice-pill] img'));
     // Both carry Specky's signature artwork (the clip body path + the eyes),
@@ -126,7 +126,7 @@ describe('spec-197 wiring — Specky in the spec-190 voice surface', () => {
     tagAc(AC_ABSENT_WHEN_DISABLED);
     const { container } = renderVoice(UNREGISTERED);
     // VoiceLayer renders nothing on an unregistered screen — so no affordance...
-    expect(screen.queryByLabelText('Ask the voice guide')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Ask Specky')).not.toBeInTheDocument();
     // ...and no Specky artwork anywhere. Specky is purely the visual layer over
     // the guide; it never appears on its own.
     expect(container.querySelector('img')).toBeNull();

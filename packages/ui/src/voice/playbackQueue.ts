@@ -24,6 +24,10 @@ export class WebAudioPlayback implements PlaybackSink {
   // ctx.currentTime when the current turn's playback began (for playedMs).
   private turnStartedAt = 0;
   private turnPlaying = false;
+  // One-shot callback fired when the scheduled queue has finished playing out.
+  // The orchestrator arms this on the FINAL chunk so 'speaking' is held until the
+  // user stops hearing the agent — not merely until the last chunk arrives.
+  private drainCb: (() => void) | null = null;
 
   constructor(ctx?: AudioContext) {
     this.ctx = ctx ?? new AudioContext();
@@ -33,6 +37,7 @@ export class WebAudioPlayback implements PlaybackSink {
 
   /** Start a fresh assistant turn — reset the schedule + the played clock. */
   startTurn(): void {
+    this.drainCb = null; // a new turn supersedes any pending drain of the old one
     this.nextStartAt = this.ctx.currentTime;
     this.turnStartedAt = this.ctx.currentTime;
     this.turnPlaying = true;
@@ -63,7 +68,27 @@ export class WebAudioPlayback implements PlaybackSink {
     src.start(startAt);
     this.nextStartAt = startAt + buffer.duration;
     this.sources.add(src);
-    src.onended = () => this.sources.delete(src);
+    src.onended = () => {
+      this.sources.delete(src);
+      // The last scheduled source has the latest end time, so an empty set here
+      // means the queue has truly drained. drainCb is only armed (after the final
+      // chunk) by onDrain(); before that this is a no-op.
+      if (this.sources.size === 0) this.fireDrain();
+    };
+  }
+
+  /** Arm a one-shot callback for when the currently-scheduled audio finishes
+   *  playing. Fires immediately if nothing is queued. Cleared by flush()/startTurn()
+   *  so a barge-in cut or a superseding turn takes precedence. */
+  onDrain(cb: () => void): void {
+    this.drainCb = cb;
+    if (this.sources.size === 0) this.fireDrain();
+  }
+
+  private fireDrain(): void {
+    const cb = this.drainCb;
+    this.drainCb = null;
+    cb?.();
   }
 
   duck(): void {
@@ -94,6 +119,7 @@ export class WebAudioPlayback implements PlaybackSink {
     this.sources.clear();
     this.nextStartAt = this.ctx.currentTime;
     this.turnPlaying = false;
+    this.drainCb = null; // a hard cut returns to listening via onCut, not drain
   }
 
   /** Milliseconds of audio actually played in the current turn. Clamped so a cut

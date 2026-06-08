@@ -23,7 +23,6 @@ export interface VoiceOrchestrator {
   start(stream: MediaStream): Promise<void> | void;
   /** Tap-to-interrupt / barge-in cut (dec-8). */
   interrupt(): void;
-  setMuted(muted: boolean): void;
   /** Full teardown — close sockets, stop playback, release nodes. */
   stop(): void;
 }
@@ -39,6 +38,5 @@ export type OrchestratorFactory = (hooks: OrchestratorHooks) => VoiceOrchestrato
 export const stubOrchestratorFactory: OrchestratorFactory = () => ({
   start: () => {},
   interrupt: () => {},
-  setMuted: () => {},
   stop: () => {},
 });

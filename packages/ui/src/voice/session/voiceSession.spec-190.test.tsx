@@ -41,7 +41,6 @@ function fakeOrchestrator(): {
     return {
       start: () => { calls.push('start'); },
       interrupt: () => { calls.push('interrupt'); },
-      setMuted: (m) => { calls.push(`setMuted:${m}`); },
       stop: () => { calls.push('stop'); },
     };
   };
@@ -88,7 +87,7 @@ function fakeStream(): MediaStream {
 
 async function startSession(): Promise<void> {
   await act(async () => {
-    fireEvent.click(screen.getByLabelText('Ask the voice guide'));
+    fireEvent.click(screen.getByLabelText('Ask Specky'));
   });
 }
 
@@ -100,19 +99,19 @@ describe('voice icon affordance (ac-29 / ac-1 / ac-31)', () => {
     tagAc(AC1); // scope: in-view affordance to start a voice conversation
 
     renderVoice({ initialPath: '/ns/mx/specs' });
-    expect(screen.getByLabelText('Ask the voice guide')).toBeInTheDocument();
+    expect(screen.getByLabelText('Ask Specky')).toBeInTheDocument();
   });
 
   it('does NOT render the icon on a non-registered route', () => {
     tagAc(AC29);
     renderVoice({ initialPath: '/ns/mx/not-a-registered-screen' });
-    expect(screen.queryByLabelText('Ask the voice guide')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Ask Specky')).not.toBeInTheDocument();
   });
 
   it('disables the affordance when no mic is available (ac-31)', () => {
     tagAc(AC31);
     renderVoice({ detectMic: () => false });
-    expect(screen.getByLabelText('Voice guide (microphone unavailable)')).toBeDisabled();
+    expect(screen.getByLabelText('Specky (microphone unavailable)')).toBeDisabled();
   });
 
   it('does NOT request mic permission on load — only on start (ac-31)', async () => {
@@ -126,14 +125,13 @@ describe('voice icon affordance (ac-29 / ac-1 / ac-31)', () => {
 });
 
 describe('session pill (ac-29)', () => {
-  it('opens the pill on start, with mute + end + tap-to-interrupt controls', async () => {
+  it('opens the pill on start, with end + tap-to-interrupt controls', async () => {
     tagAc(AC29);
     renderVoice();
     await startSession();
     expect(screen.getByTestId('nav-/ns/mx/standards')).toBeInTheDocument();
     const pill = document.querySelector('[data-voice-pill]');
     expect(pill).toBeTruthy();
-    expect(document.querySelector('[data-voice-mute]')).toBeTruthy();
     expect(document.querySelector('[data-voice-end]')).toBeTruthy();
     expect(document.querySelector('[data-voice-interrupt]')).toBeTruthy();
   });
@@ -149,7 +147,7 @@ describe('session pill (ac-29)', () => {
     });
     expect(document.querySelector('[data-voice-pill]')).toBeTruthy();
     // And the icon must NOT show while a session is active.
-    expect(screen.queryByLabelText('Ask the voice guide')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Ask Specky')).not.toBeInTheDocument();
   });
 
   it('reflects the live loop state driven by the orchestrator', async () => {
@@ -164,17 +162,15 @@ describe('session pill (ac-29)', () => {
     expect(document.querySelector('[data-voice-pill]')?.getAttribute('data-loop-state')).toBe('speaking');
   });
 
-  it('tap-to-interrupt and mute call the orchestrator; end stops + closes the pill', async () => {
+  it('tap-to-interrupt calls the orchestrator; end stops + closes the pill', async () => {
     tagAc(AC29);
-    tagAc(AC5); // scope: interrupt / mute / end at any time
+    tagAc(AC5); // scope: interrupt / end at any time
 
     const orch = fakeOrchestrator();
     renderVoice({ factory: orch.factory });
     await startSession();
     fireEvent.click(document.querySelector('[data-voice-interrupt]')!);
     expect(orch.calls).toContain('interrupt');
-    fireEvent.click(document.querySelector('[data-voice-mute]')!);
-    expect(orch.calls).toContain('setMuted:true');
     fireEvent.click(document.querySelector('[data-voice-end]')!);
     expect(orch.calls).toContain('stop');
     expect(document.querySelector('[data-voice-pill]')).toBeFalsy();
