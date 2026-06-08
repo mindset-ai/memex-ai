@@ -34,7 +34,7 @@ export function VoiceSessionPill(): React.JSX.Element {
             dec-1=a). It does NOT change per session state; the StateBlip beside
             it conveys listening/thinking/speaking, so Specky stays a single idle
             character (ac-7). Decorative — the state label carries the meaning. */}
-        <Specky size={24} />
+        <Specky size={30} />
         <StateBlip loopState={session.loopState} />
         <span className={`text-sm ${ducked ? 'opacity-70' : ''}`} data-voice-state-label>
           {label}
