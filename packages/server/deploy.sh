@@ -66,6 +66,19 @@ else
   echo "  ⚠ slack-client-secret not found — Slack integration disabled (see b-23)"
   HAS_SLACK=0
 fi
+# ELEVENLABS_API_KEY is optional (spec-190 voice guide). Wired ONLY if the secret
+# exists, so a deploy never breaks before it's provisioned — voice simply stays
+# disabled (isVoiceConfigured() is false) until the secret lands. Create it once
+# per project to light voice up (no code change needed):
+#   printf %s "<key>" | gcloud secrets create elevenlabs-api-key --data-file=- \
+#     --project "${GCP_PROJECT}" --replication-policy=user-managed --locations=us-east4
+if gcloud secrets describe elevenlabs-api-key --project "${GCP_PROJECT}" >/dev/null 2>&1; then
+  echo "  ✓ elevenlabs-api-key present — voice guide enabled"
+  HAS_ELEVENLABS=1
+else
+  echo "  ⚠ elevenlabs-api-key not found — voice guide disabled (spec-190)"
+  HAS_ELEVENLABS=0
+fi
 
 # ── KMS prerequisite ─────────────────────────────────────────
 # The Slack token encryption path (services/slack/crypto.ts) requires a
@@ -224,6 +237,9 @@ if [ "$HAS_SLACK" = "1" ]; then
 fi
 if [ "$HAS_COHERE" = "1" ]; then
   SECRETS_WIRING+=",COHERE_API_KEY=cohere-api-key:latest"
+fi
+if [ "$HAS_ELEVENLABS" = "1" ]; then
+  SECRETS_WIRING+=",ELEVENLABS_API_KEY=elevenlabs-api-key:latest"
 fi
 
 # HIDDEN_FEATURES is appended to --update-env-vars ONLY when it is set (see
