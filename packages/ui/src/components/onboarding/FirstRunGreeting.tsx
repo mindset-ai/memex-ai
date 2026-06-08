@@ -22,7 +22,7 @@ import { fetchGreetingGate, stampGreeting } from '../../api/client';
 
 /**
  * The seed context handed to the guide for its proactive opening turn (dec-2).
- * The guide LLM produces the actual spoken greeting from this brief. Encodes:
+ * The guide LLM produces the actual spoken greeting from this seed. Encodes:
  * a warm first-name greeting (or a nameless fallback), the value prop, on-screen
  * orientation, the open invitation, and the demo-walkthrough offer — all "under a
  * minute" (ac-2 / ac-3 / ac-10 / ac-11).
@@ -34,7 +34,7 @@ export function buildOnboardingOpeningContext(firstName: string | null): string 
   return [
     `This is the user's very first time in Memex. You are opening the conversation proactively, before they have said anything.`,
     greeting,
-    `Then, in under a minute total, give a brief spoken welcome that:`,
+    `Then, in under a minute total, give a short spoken welcome that:`,
     `1. Explains what Memex is — a living spec and shared graph that humans and AI coding agents both read and write, so the plan stays live and what's done is proven by CI.`,
     `2. Orients them to what is on screen right now — the Specs board and its phase columns (draft, specify, build, verify, done).`,
     `3. Invites them to ask you about anything they can see on the screen.`,
