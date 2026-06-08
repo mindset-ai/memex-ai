@@ -2507,3 +2507,21 @@ export const whatsNewEntries = pgTable(
 
 export type WhatsNewEntry = InferSelectModel<typeof whatsNewEntries>;
 export type WhatsNewEntryInsert = InferInsertModel<typeof whatsNewEntries>;
+
+// spec-200 dec-7: persisted "judged not worth announcing" verdicts, so each Spec
+// is evaluated exactly once (the candidate set excludes Specs in entries OR skips).
+export const whatsNewSkips = pgTable(
+  "whats_new_skips",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sourceSpecRef: text("source_spec_ref").notNull(),
+    sourceSpecHandle: text("source_spec_handle").notNull(),
+    // The model's reason for skipping (debug / audit only).
+    reason: text("reason"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [uniqueIndex("whats_new_skips_source_spec_ref_idx").on(table.sourceSpecRef)]
+);
+
+export type WhatsNewSkip = InferSelectModel<typeof whatsNewSkips>;
+export type WhatsNewSkipInsert = InferInsertModel<typeof whatsNewSkips>;
