@@ -23,6 +23,10 @@ const AC_REDUCED_MOTION = 'mindset-prod/memex-building-itself/specs/spec-197/acs
 const AC_CANONICAL_SOURCE = 'mindset-prod/memex-building-itself/specs/spec-197/acs/ac-5';
 const AC_QUIET_STATIC = 'mindset-prod/memex-building-itself/specs/spec-197/acs/ac-8';
 const AC_ASSETS_MECHANISM = 'mindset-prod/memex-building-itself/specs/spec-197/acs/ac-10';
+// Implementation ACs from dec-4 / dec-5 (impl-side restatements of ac-5 / ac-4):
+const AC_ASSET_HOME = 'mindset-prod/memex-building-itself/specs/spec-197/acs/ac-11'; // dec-4 canonical dir + bundler UI copy
+const AC_RASTER_REGEN = 'mindset-prod/memex-building-itself/specs/spec-197/acs/ac-12'; // dec-4 reproducible rasters
+const AC_REDUCED_MOTION_IMPL = 'mindset-prod/memex-building-itself/specs/spec-197/acs/ac-13'; // dec-5 static, not hidden
 
 const SRC_DIR = dirname(fileURLToPath(import.meta.url)); // packages/ui/src
 const UI_ROOT = join(SRC_DIR, '..'); // packages/ui
@@ -39,6 +43,7 @@ const README = join(REPO_ROOT, 'assets', 'specky', 'README.md');
 describe('Specky asset — repo home & bundler-imported copy (spec-197 dec-4 / ac-5)', () => {
   it('specky.svg is the canonical in-repo source under assets/specky/', () => {
     tagAc(AC_CANONICAL_SOURCE);
+    tagAc(AC_ASSET_HOME); // ac-11: canonical source set lives under assets/specky/
     expect(existsSync(CANONICAL_SVG)).toBe(true);
     const svg = readFileSync(CANONICAL_SVG, 'utf8');
     expect(svg).toContain('<svg');
@@ -47,6 +52,8 @@ describe('Specky asset — repo home & bundler-imported copy (spec-197 dec-4 / a
 
   it('a vendored regenerator + README make the asset reproducible in-repo', () => {
     tagAc(AC_CANONICAL_SOURCE);
+    tagAc(AC_RASTER_REGEN); // ac-12: rasters regenerate reproducibly via make_raster.py
+    tagAc(AC_ASSET_HOME); // ac-11: make_raster.py + README are part of the canonical source set
     expect(existsSync(MAKE_RASTER)).toBe(true);
     const py = readFileSync(MAKE_RASTER, 'utf8');
     expect(py).toContain('specky.gif');
@@ -56,6 +63,7 @@ describe('Specky asset — repo home & bundler-imported copy (spec-197 dec-4 / a
 
   it('the UI copy at src/assets/specky.svg is byte-identical to the source', () => {
     tagAc(AC_CANONICAL_SOURCE);
+    tagAc(AC_ASSET_HOME); // ac-11: UI copy is byte-identical + bundler-imported (not public web-root)
     expect(existsSync(UI_ASSET_SVG)).toBe(true);
     const source = readFileSync(CANONICAL_SVG);
     const uiCopy = readFileSync(UI_ASSET_SVG);
@@ -88,6 +96,7 @@ describe('Specky asset — served via /assets/, not the web root (spec-197 dec-3
 describe('Specky asset — static (quiet-doorway) variant (spec-197 dec-2 / ac-8)', () => {
   it('specky-static.svg exists (canonical + UI copy) and is byte-identical', () => {
     tagAc(AC_CANONICAL_SOURCE);
+    tagAc(AC_ASSET_HOME); // ac-11: the static variant is part of the canonical source set + byte-identical UI copy
     expect(existsSync(CANONICAL_STATIC)).toBe(true);
     expect(existsSync(UI_STATIC_SVG)).toBe(true);
     expect(readFileSync(UI_STATIC_SVG).equals(readFileSync(CANONICAL_STATIC))).toBe(true);
@@ -116,6 +125,7 @@ describe('Specky asset — reduced motion (spec-197 dec-5 / ac-4)', () => {
   ] as const) {
     it(`${label} freezes to a static frame under prefers-reduced-motion (never display:none)`, () => {
       tagAc(AC_REDUCED_MOTION);
+      tagAc(AC_REDUCED_MOTION_IMPL); // ac-13: dec-5 impl — static frame, not display:none
       const svg = readFileSync(file, 'utf8');
       expect(svg).toMatch(/@media\s*\(\s*prefers-reduced-motion:\s*reduce\s*\)/);
       const block = svg.slice(svg.indexOf('prefers-reduced-motion'));
