@@ -763,6 +763,60 @@ async function formatCoverageNudge(
 }
 
 /**
+ * spec-207 dec-1 — the single source of truth for the one-line AC coverage
+ * summary an agent reads to judge "is this Spec done?". Consumed by BOTH
+ * renderers — `formatCoverageHeader` (the get_doc doc-state header) and the
+ * `list_acs` handler — so the contract can't silently drift between them again.
+ * The two had already drifted in wording, and a `kind`-filtered `list_acs` once
+ * read fully green while scope ACs sat untested (the spec-201 false-done).
+ *
+ * Contract:
+ *  - LEADS WITH THE GAP: the count of not-verified ACs (untested + failing) and
+ *    their handles (`ac-1 ac-2 …`). The honest signal is never demoted to a
+ *    tail clause. (ac-1)
+ *  - No "verified (of covered)" headline — that trophy reads *better* the more
+ *    ACs you leave untested. Any percentage is denominated over the TOTAL rows
+ *    in the set, never the self-selecting covered subset. (ac-2)
+ *  - `hiddenByFilter` (list_acs only): when a kind/status filter shrank the set,
+ *    state how many active ACs fall outside it, so a filtered view can't
+ *    silently understate the gap. (ac-3)
+ *
+ * Pure over the `rows` it's handed (no DB, no clock). `stale` and `accepted`
+ * count as covered / not-a-gap, mirroring the spec-121 nag footer.
+ */
+export function formatAcCoverageSummary(
+  rows: AcWithVerification[],
+  opts: { hiddenByFilter?: number } = {},
+): string {
+  const total = rows.length;
+  const s = total === 1 ? "" : "s";
+  const notVerified = rows.filter(
+    (r) =>
+      r.verificationState === "untested" || r.verificationState === "failing",
+  );
+  const covered = rows.filter((r) => r.tests.length > 0).length;
+  const pctCovered = total === 0 ? 0 : Math.round((covered / total) * 100);
+
+  const gapLead =
+    notVerified.length === 0
+      ? `0 of ${total} AC${s} not verified`
+      : `${notVerified.length} of ${total} AC${s} NOT VERIFIED: ${notVerified
+          .map((r) => `ac-${r.ac.seq}`)
+          .join(" ")}`;
+
+  const parts = [gapLead, `${pctCovered}% covered (of ${total})`];
+
+  if (opts.hiddenByFilter && opts.hiddenByFilter > 0) {
+    const h = opts.hiddenByFilter;
+    parts.push(
+      `⚠ ${h} active AC${h === 1 ? "" : "s"} outside this filter (not counted above)`,
+    );
+  }
+
+  return parts.join(" · ");
+}
+
+/**
  * Render a one-line coverage header for a Spec, suitable for prepending to a
  * verbose doc-state dump. Returns "" when the Spec has no ACs (no signal),
  * or when the doc isn't a Spec.
@@ -777,23 +831,7 @@ async function formatCoverageHeader(
     const rows = await listAcsForBriefWithVerification(memexId, briefId);
     const active = rows.filter((r) => r.ac.status === "active");
     if (active.length === 0) return "";
-    const covered = active.filter((r) => r.tests.length > 0).length;
-    const total = active.length;
-    const untested = total - covered;
-    const failing = active.filter((r) => r.verificationState === "failing").length;
-    const verified = active.filter((r) => r.verificationState === "verified").length;
-    const pctCovered = Math.round((covered / total) * 100);
-    const pctVerified = covered === 0 ? 0 : Math.round((verified / covered) * 100);
-
-    const parts: string[] = [
-      `${total} active AC${total === 1 ? "" : "s"}`,
-      `${pctCovered}% covered`,
-      `${pctVerified}% verified (of covered)`,
-    ];
-    if (untested > 0) parts.push(`${untested} UNTESTED`);
-    if (failing > 0) parts.push(`${failing} failing`);
-
-    return `**AC coverage:** ${parts.join(" · ")}\n\n`;
+    return `**AC coverage:** ${formatAcCoverageSummary(active)}\n\n`;
   } catch {
     return "";
   }
@@ -2305,10 +2343,9 @@ export const toolSpecs: ToolSpec[] = [
       // test count + derived state. Filtering is client-side because the
       // service signature doesn't accept filters — the row set is tiny
       // (rarely > 50 ACs per Spec) so the JS pass is negligible.
-      let rows: AcWithVerification[] = await listAcsForBriefWithVerification(
-        memexId,
-        doc.id,
-      );
+      const allRows: AcWithVerification[] =
+        await listAcsForBriefWithVerification(memexId, doc.id);
+      let rows = allRows;
       if (kind) rows = rows.filter((r) => r.ac.kind === kind);
       if (status) rows = rows.filter((r) => r.ac.status === status);
 
@@ -2316,25 +2353,29 @@ export const toolSpecs: ToolSpec[] = [
         return `No ACs on ${slugs.namespace}/${slugs.memex}/specs/${doc.handle} matching the filter.`;
       }
 
-      // Aggregate header — the coverage gap is the action signal. The
-      // agent enumerates ACs constantly during build; lighting up "X
-      // untested" at the top of every list_acs response makes the gap
-      // unmissable in the context the agent is already reading.
-      const total = rows.length;
+      // spec-207 ac-3 — a kind/status filter shrinks `rows`; surface how many
+      // active ACs it hides so a filtered view can't silently understate the
+      // gap. Counted over the active set on both sides (proposed/superseded ACs
+      // aren't part of the "is this done?" signal).
+      const filterActive = Boolean(kind || status);
+      const hiddenByFilter = filterActive
+        ? allRows.filter((r) => r.ac.status === "active").length -
+          rows.filter((r) => r.ac.status === "active").length
+        : 0;
+
+      // Aggregate header — the coverage gap is the action signal. The agent
+      // enumerates ACs constantly during build; spec-207 dec-1 routes the
+      // headline through the shared `formatAcCoverageSummary` so it leads with
+      // the not-verified gap (and the filter-hiding warning) instead of a
+      // self-flattering "verified (of covered)" trophy.
       const covered = rows.filter((r) => r.tests.length > 0).length;
-      const untested = total - covered;
+      const untested = rows.length - covered;
       const verified = rows.filter((r) => r.verificationState === "verified").length;
       const failing = rows.filter((r) => r.verificationState === "failing").length;
       const stale = rows.filter((r) => r.verificationState === "stale").length;
-      const pctCovered = total === 0 ? 0 : Math.round((covered / total) * 100);
-      const pctVerified =
-        covered === 0 ? 0 : Math.round((verified / covered) * 100);
 
-      const headerParts: string[] = [
-        `${total} AC${total === 1 ? "" : "s"}`,
-        `${pctCovered}% covered (${covered}/${total} with ≥1 tagged test)`,
-        `${pctVerified}% verified (of covered)`,
-      ];
+      const summary = formatAcCoverageSummary(rows, { hiddenByFilter });
+      // Full state distribution stays below the headline as a breakdown.
       const breakdown: string[] = [];
       if (verified > 0) breakdown.push(`${verified} verified`);
       if (failing > 0) breakdown.push(`${failing} failing`);
@@ -2370,7 +2411,7 @@ export const toolSpecs: ToolSpec[] = [
         // Best-effort.
       }
 
-      const header = `${headerParts.join(" · ")}\nBreakdown: ${breakdown.join(", ")}${decisionLine}`;
+      const header = `${summary}\nBreakdown: ${breakdown.join(", ")}${decisionLine}`;
 
       // Per-row line — surfaces the AC's tagged-test count so the gap is
       // visible per AC, not just in the aggregate. UNTESTED is uppercase
