@@ -26,8 +26,8 @@ const OTHER_DOC_ID = "22222222-2222-2222-2222-222222222222";
 const TEST_USER_ID = "00000000-0000-0000-0000-000000000010";
 const OTHER_USER_ID = "00000000-0000-0000-0000-000000000020";
 
-function makeApp(memexId: string = TEST_MEMEX_ID) {
-  const app = makeTestAppWithTenant({ memexId });
+function makeApp(memexId: string = TEST_MEMEX_ID, accessLevel?: "read" | "write") {
+  const app = makeTestAppWithTenant({ memexId, accessLevel });
   app.route("/api/docs", docEventsRouter);
   return app;
 }
@@ -595,5 +595,71 @@ describe("spec-199 t-4 — SSE streams close on org_membership revocation (ac-4)
     });
 
     await expect(waitForStreamClose(res, 300)).rejects.toThrow("did not close");
+  });
+});
+
+// spec-199 t-5 — `?include=all` is gated on write membership.
+//
+// Integration chain:
+//   (a) users.visited-public.integration.test.ts already proves that
+//       listMemberships() returns accessLevel:"read" for a visited user.
+//   (b) These tests (below) prove the gate: a read-access subscriber that
+//       requests include=all is pinned to mutations, not the full stream.
+//   Together (a)+(b) cover: visited → listMemberships → session → gate.
+describe("spec-199 t-5 — ?include=all gated on write membership (ac-5)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("read-access subscriber with ?include=all receives only mutations (global stream)", async () => {
+    tagAc(AC_199(5));
+    const app = makeApp(TEST_MEMEX_ID, "read");
+    const res = await app.request("/api/docs/events?include=all");
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Emit a read event FIRST — it must be dropped so the first delivered
+    // event is the subsequent mutation.
+    bus.emit({ memexId: TEST_MEMEX_ID, docId: "read-doc", entity: "document", action: "viewed" });
+    bus.emit({ memexId: TEST_MEMEX_ID, docId: "mut-doc", entity: "section", action: "updated" });
+
+    const events = await readSSEEvents(res, 1);
+    expect(events).toHaveLength(1);
+    const parsed = JSON.parse(events[0]);
+    expect(parsed.action).toBe("updated");
+    expect(parsed.docId).toBe("mut-doc");
+  });
+
+  it("read-access subscriber with ?include=all receives only mutations (per-doc stream)", async () => {
+    tagAc(AC_199(5));
+    stubDocLookup("owned");
+    const app = makeApp(TEST_MEMEX_ID, "read");
+    const res = await app.request(`/api/docs/events/${TEST_DOC_ID}?include=all`);
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    bus.emit({ memexId: TEST_MEMEX_ID, docId: TEST_DOC_ID, entity: "document", action: "viewed" });
+    bus.emit({ memexId: TEST_MEMEX_ID, docId: TEST_DOC_ID, entity: "section", action: "updated" });
+
+    const events = await readSSEEvents(res, 1);
+    expect(events).toHaveLength(1);
+    expect(JSON.parse(events[0]).action).toBe("updated");
+  });
+
+  it("write-access subscriber with ?include=all receives reads AND mutations (global stream)", async () => {
+    tagAc(AC_199(5));
+    // Default makeApp has accessLevel:"write" — the gate must not over-block.
+    const app = makeApp(TEST_MEMEX_ID);
+    const res = await app.request("/api/docs/events?include=all");
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    bus.emit({ memexId: TEST_MEMEX_ID, docId: "read-doc", entity: "document", action: "viewed" });
+    bus.emit({ memexId: TEST_MEMEX_ID, docId: "mut-doc", entity: "section", action: "updated" });
+
+    const events = await readSSEEvents(res, 2);
+    expect(events).toHaveLength(2);
+    const actions = events.map((e) => JSON.parse(e).action);
+    expect(actions).toEqual(["viewed", "updated"]);
   });
 });

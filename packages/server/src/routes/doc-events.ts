@@ -25,14 +25,19 @@ const MUTATION_ACTIONS: readonly ChangeAction[] = ["created", "updated", "delete
  *   absent | "mutations" (DEFAULT) → mutation allowlist (created/updated/deleted),
  *                                     preserving today's behaviour for every
  *                                     existing consumer.
- *   "all"                          → undefined (no action filter — every action,
+ *   "all" + write access           → undefined (no action filter — every action,
  *                                     including reads, is delivered). Pulse uses this.
+ *   "all" + read/null/unknown      → mutation allowlist (spec-199 t-5 gate).
  *   unknown value                  → mutation allowlist (safe default).
  */
-function resolveIncludeActions(include: string | undefined): readonly ChangeAction[] | undefined {
-  if (include === "all") return undefined;
-  // "mutations", absent, or any unrecognised value all fall through to the
-  // mutation allowlist — default-closed for reads.
+function resolveIncludeActions(
+  include: string | undefined,
+  accessLevel: "read" | "write" | null | undefined,
+): readonly ChangeAction[] | undefined {
+  // spec-199 t-5: full stream is only available to write-access subscribers.
+  if (include === "all" && accessLevel === "write") return undefined;
+  // "mutations", absent, read-access with "all", or any unrecognised value all
+  // fall through to the mutation allowlist — default-closed for reads.
   return MUTATION_ACTIONS;
 }
 
@@ -61,7 +66,7 @@ docEventsRouter.use("/events/*", sessionMiddleware);
 docEventsRouter.get("/events/:docId", async (c) => {
   const memexId = requireMemexId(c);
   const docId = c.req.param("docId");
-  const actions = resolveIncludeActions(c.req.query("include"));
+  const actions = resolveIncludeActions(c.req.query("include"), c.get("currentAccessLevel"));
   const user = c.get("user");
 
   // Verify the doc belongs to the requesting tenant before opening the stream.
@@ -128,7 +133,7 @@ docEventsRouter.get("/events/:docId", async (c) => {
 
 docEventsRouter.get("/events", (c) => {
   const memexId = requireMemexId(c);
-  const actions = resolveIncludeActions(c.req.query("include"));
+  const actions = resolveIncludeActions(c.req.query("include"), c.get("currentAccessLevel"));
   const user = c.get("user");
 
   return streamSSE(c, async (stream) => {
