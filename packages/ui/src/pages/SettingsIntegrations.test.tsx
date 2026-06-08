@@ -55,4 +55,12 @@ describe('spec-141 ac-3: consolidated Integrations page', () => {
       await screen.findByRole('heading', { name: 'Set up with one prompt' })
     ).toBeInTheDocument();
   });
+
+  it('ac-6: composes the spec-201 "Install the AC emitter" section', async () => {
+    tagAc('mindset-prod/memex-building-itself/specs/spec-201/acs/ac-6');
+    renderPage();
+    expect(
+      await screen.findByRole('heading', { name: 'Install the AC emitter' })
+    ).toBeInTheDocument();
+  });
 });
