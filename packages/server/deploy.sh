@@ -68,10 +68,22 @@ else
 fi
 # ELEVENLABS_API_KEY is optional (spec-190 voice guide). Wired ONLY if the secret
 # exists, so a deploy never breaks before it's provisioned — voice simply stays
-# disabled (isVoiceConfigured() is false) until the secret lands. Create it once
-# per project to light voice up (no code change needed):
+# disabled (isVoiceConfigured() is false) until the secret lands. To light voice
+# up in an env, provisioning the secret is TWO steps (no code change needed):
+# create it, AND grant the Cloud Run runtime SA read access. The runtime SA reads
+# secrets PER-SECRET here (resource-level binding), not project-wide — so a
+# freshly-created secret is unreadable until bound, and the next deploy would
+# fail to mount ELEVENLABS_API_KEY without the grant. The deploy preflight below
+# (run by the github-deployer SA, which DOES have project-level access) detects
+# the secret either way; it's the runtime mount that needs the binding.
 #   printf %s "<key>" | gcloud secrets create elevenlabs-api-key --data-file=- \
 #     --project "${GCP_PROJECT}" --replication-policy=user-managed --locations=us-east4
+#   gcloud secrets add-iam-policy-binding elevenlabs-api-key --project "${GCP_PROJECT}" \
+#     --member="serviceAccount:<cloud-run-runtime-SA>" \
+#     --role="roles/secretmanager.secretAccessor"
+# Runtime SA: int = default compute SA (…-compute@developer); prod =
+# memex-api-runtime@memex-ai-prod.iam.gserviceaccount.com. (Mirrors how every
+# other Cloud Run secret — anthropic/openai/postmark — is already bound.)
 if gcloud secrets describe elevenlabs-api-key --project "${GCP_PROJECT}" >/dev/null 2>&1; then
   echo "  ✓ elevenlabs-api-key present — voice guide enabled"
   HAS_ELEVENLABS=1
