@@ -214,10 +214,16 @@ describe('spec-196 t-1 — Specify sub-tab reads "Spec", id stays narrative', ()
     unmount();
 
     // Consolidation refreshed past the decision → the advancement offer.
+    // waitFor (not a bare findByTestId assertion): the offer only appears once
+    // the async fetchAcsForBrief settles — until then hasAcceptanceCriteria is
+    // false and the AC blocker transiently shares the line. Asserting on the
+    // first render tick races that fetch (green locally, flaky under CI load).
     docNarrativeConsolidatedAt = '2026-06-06T00:00:00Z';
     renderAt();
     const fresh = await screen.findByTestId('transition-sentence');
-    expect(fresh.textContent).toContain('Do you wish to move this spec to Build?');
+    await waitFor(() =>
+      expect(fresh.textContent).toContain('Do you wish to move this spec to Build?'),
+    );
   });
 
   it("source pins the pair: label 'Spec' with id 'narrative' (ac-6)", () => {
