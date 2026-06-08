@@ -22,6 +22,9 @@ const SERVER_DEPLOY_SH = join(REPO_ROOT, "packages", "server", "deploy.sh");
 const DEPLOY_WORKFLOW = join(REPO_ROOT, ".github", "workflows", "deploy.yml");
 const AC_20 = "mindset-prod/memex-building-itself/specs/spec-190/acs/ac-20";
 const AC_21 = "mindset-prod/memex-building-itself/specs/spec-190/acs/ac-21";
+// Scope ac-10 (deploy half): guide content is re-imported into Postgres on every
+// deploy, so the guide's knowledge stays current with the shipped product.
+const AC_10 = "mindset-prod/memex-building-itself/specs/spec-190/acs/ac-10";
 
 const deploySh = readFileSync(SERVER_DEPLOY_SH, "utf-8");
 
@@ -34,6 +37,8 @@ const killProxyIdx = deploySh.search(/kill\s+\$PROXY_PID/);
 describe("spec-190 ac-20: the guide-content import is wired into the CI/CD deploy (bounded, non-gating)", () => {
   it("packages/server/deploy.sh invokes the import", () => {
     tagAc(AC_20);
+    tagAc(AC_10); // scope: content re-imported into Postgres on every deploy
+
     expect(importIdx).toBeGreaterThanOrEqual(0);
   });
 

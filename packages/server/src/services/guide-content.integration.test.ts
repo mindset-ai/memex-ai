@@ -28,6 +28,9 @@ import { GUIDE_TOOLS, GUIDE_TOOL_NAMES } from "@memex/shared";
 const AC13 = "mindset-prod/memex-building-itself/specs/spec-190/acs/ac-13";
 const AC14 = "mindset-prod/memex-building-itself/specs/spec-190/acs/ac-14";
 const AC15 = "mindset-prod/memex-building-itself/specs/spec-190/acs/ac-15";
+// Scope ac-10 (vector-search half): the guide answers from content retrieved by
+// vector search WITHOUT leaving Postgres mid-conversation.
+const AC10 = "mindset-prod/memex-building-itself/specs/spec-190/acs/ac-10";
 
 // One-hot, topic-keyed fake provider. Same topic token in two texts → identical
 // vector → cosine distance 0; different topics → orthogonal → distance 1 (> the
@@ -213,6 +216,8 @@ describe("Layer 1 — route-change screen pre-fetch (ac-14)", () => {
 describe("Layer 2 — per-turn vector search with FTS fallback (ac-15)", () => {
   it("embeds the utterance and returns vector hits over the whole corpus, floored by relevance", async () => {
     tagAc(AC15);
+    tagAc(AC10); // scope: in-Postgres vector retrieval of up-to-date guide content
+
     const provider = makeTopicProvider();
     // Two topics in the corpus, on DIFFERENT screens (whole-corpus search).
     await upsertGuideChunk(

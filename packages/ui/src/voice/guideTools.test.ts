@@ -13,6 +13,10 @@ import {
 
 const AC26 = 'mindset-prod/memex-building-itself/specs/spec-190/acs/ac-26';
 const AC28 = 'mindset-prod/memex-building-itself/specs/spec-190/acs/ac-28';
+// Scope ACs (t-9 sweep): ac-3 = the guide can visually highlight the part of the
+// screen it's talking about; ac-4 = on request it navigates to the right section.
+const AC3 = 'mindset-prod/memex-building-itself/specs/spec-190/acs/ac-3';
+const AC4 = 'mindset-prod/memex-building-itself/specs/spec-190/acs/ac-4';
 
 function ctx(navigate = vi.fn()): NavigateContext {
   return { namespace: 'acme', memex: 'team', navigate };
@@ -29,6 +33,7 @@ describe('executeHighlight (ac-26)', () => {
     const r = executeHighlight({ elementId: 'new-spec-button' });
     expect(r.ok).toBe(true);
     expect(node.classList.contains('guide-highlight')).toBe(true);
+    tagAc(AC3); // scope: visually highlight the element it's talking about
   });
 
   it('is a no-op (never throws) when the element is not rendered or id missing', () => {
@@ -44,6 +49,7 @@ describe('executeNavigate (ac-26)', () => {
     const r = executeNavigate({ screen: 'standards-list' }, ctx(navigate));
     expect(r).toEqual({ ok: true, path: '/acme/team/standards' });
     expect(navigate).toHaveBeenCalledWith('/acme/team/standards');
+    tagAc(AC4); // scope: on request, navigate to the right section
   });
 
   it('rejects an unregistered / detail-only destination WITHOUT calling the router', () => {

@@ -17,6 +17,11 @@ import type { OrchestratorFactory, OrchestratorHooks } from './orchestrator';
 
 const AC29 = 'mindset-prod/memex-building-itself/specs/spec-190/acs/ac-29';
 const AC31 = 'mindset-prod/memex-building-itself/specs/spec-190/acs/ac-31';
+// Scope ACs (t-9 sweep): ac-1 = in-view affordance to start a voice conversation;
+// ac-5 = the user can interrupt / mute / end at any time. Also emitted by the e2e
+// journey-21; tagged here too so they verify off the deterministic unit tests.
+const AC1 = 'mindset-prod/memex-building-itself/specs/spec-190/acs/ac-1';
+const AC5 = 'mindset-prod/memex-building-itself/specs/spec-190/acs/ac-5';
 
 function recordingEarcons(): EarconPlayer & { played: Earcon[] } {
   const played: Earcon[] = [];
@@ -92,6 +97,8 @@ beforeEach(() => vi.clearAllMocks());
 describe('voice icon affordance (ac-29 / ac-1 / ac-31)', () => {
   it('renders the in-view icon on a registered screen', () => {
     tagAc(AC29);
+    tagAc(AC1); // scope: in-view affordance to start a voice conversation
+
     renderVoice({ initialPath: '/ns/mx/specs' });
     expect(screen.getByLabelText('Ask the voice guide')).toBeInTheDocument();
   });
@@ -159,6 +166,8 @@ describe('session pill (ac-29)', () => {
 
   it('tap-to-interrupt and mute call the orchestrator; end stops + closes the pill', async () => {
     tagAc(AC29);
+    tagAc(AC5); // scope: interrupt / mute / end at any time
+
     const orch = fakeOrchestrator();
     renderVoice({ factory: orch.factory });
     await startSession();

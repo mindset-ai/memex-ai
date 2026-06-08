@@ -12,6 +12,9 @@ import { GUIDE_TOOLS } from "@memex/shared";
 const AC11 = "mindset-prod/memex-building-itself/specs/spec-190/acs/ac-11";
 const AC15 = "mindset-prod/memex-building-itself/specs/spec-190/acs/ac-15";
 const AC28 = "mindset-prod/memex-building-itself/specs/spec-190/acs/ac-28";
+// Scope ac-2: the guide answers "what is this / how do I…" for the CURRENT screen —
+// proven by the screen context (key + elements + content) reaching the prompt.
+const AC2 = "mindset-prod/memex-building-itself/specs/spec-190/acs/ac-2";
 
 // Mock the t-6 retrieval so we assert it's wired into the endpoint without a DB.
 const retrieval = vi.hoisted(() => ({
@@ -95,6 +98,8 @@ describe("POST /voice/guide-chat — guide LLM text leg (ac-11)", () => {
 
   it("injects the screen context (screenKey + elements + guide content) into the system prompt", async () => {
     tagAc(AC11);
+    tagAc(AC2); // scope: answers what-is/how-do-I for the current screen
+
     await postGuideChat({
       messages: [{ role: "user", content: "explain" }],
       screenKey: "specs-list",

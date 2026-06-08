@@ -17,6 +17,9 @@ import { callGuideLlmProxy, type GuideLlmInput } from './guideLlmClient';
 import type { ContentBlock } from '../agent/types';
 
 const AC11 = 'mindset-prod/memex-building-itself/specs/spec-190/acs/ac-11';
+// Scope ac-4: the guide's context follows navigation — screens are STATE, refreshed
+// before the next turn, so it answers about the screen the user is actually on.
+const AC4 = 'mindset-prod/memex-building-itself/specs/spec-190/acs/ac-4';
 
 async function* fakeStream(events: unknown[]) {
   for (const e of events) yield e as never;
@@ -58,6 +61,7 @@ describe('guide graph (ac-11)', () => {
 
     expect(seen).toEqual(['spec-detail', 'standards-list']);
     tagAc(AC11);
+    tagAc(AC4); // scope: context follows navigation (screens-as-state)
   });
 
   it('loops guideAgent → tools → guideAgent on a client UI tool, then ends', async () => {
