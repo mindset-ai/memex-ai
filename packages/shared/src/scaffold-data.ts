@@ -1666,6 +1666,12 @@ PARALLELISE ONLY WHEN IT PAYS. If you can spawn sub-agents / run workflows AND t
   • If everything is green or consciously signed off, recommend moving to \`verify\` — you do NOT move it, and you never move to \`done\`; both are the human's call. If anything is unverified, leave those tasks open and report exactly what remains and why.
 Finish with a summary: per-task outcome, AC verification state, any new decisions you surfaced, and any standards drift or decision-vs-code mismatches you found.`,
     surfaces: ['opening-turn'],
+    // spec-203 dec-1: the compressed footer projection of this build handoff —
+    // the in-chat essence a chat-driven agent gets on every spec-tool response.
+    // Distils the STEP structure to the behaviours spec-120 proved never reach a
+    // chat agent (task-minting is your job; recommend verify). Token-free; names
+    // the full-prompt button so the agent can escalate.
+    essence: `BUILD handoff (full prompt: the "Build handoff" button). This Spec's plan is settled — BUILD it end-to-end, don't sketch it. 0 tasks + untested ACs is the NORMAL build-start state: deriving the task graph from the NARRATIVE is YOUR job (create_task — build only). Ground every code-naming decision against current source first; a drifted anchor is a decision-vs-code mismatch to surface, not a silent relocation. Verify each task in the shape of its claim — behaviour → test-first red→green, tagged to the AC's canonical ref (don't override test-event routing); prose/config → exercise the artifact. COMPLETE only when verification actually RAN clean. When everything's green or consciously signed off, recommend \`verify\` — you do NOT move the phase, and never to \`done\`. A fork the plan didn't settle → create_decision; don't invent the answer.`,
     rationale:
       'Hand a build-phase Spec to a coding agent to build it end-to-end: ground the resolved decisions against current source, derive the task graph from the narrative, implement and verify in the shape of each task, and recommend `verify` (never close — that is the human\'s call). Portable per std-22 — every tooling-specific step gated on "if the project has it". Authored and hardened via spec-149 across four read-only dry-runs. Rendered as the build "Build handoff" action on the opening turn.',
   },
@@ -1779,6 +1785,8 @@ Scope ACs with no test: judge by reading + exercising the running behaviour.
 ── STEP 4: close out ──
 Give a per-dimension verdict (pass / fail / gap) and an overall read. "Clean" = all ACs verified (cross-checked in list_acs, not just a clean gate), all tasks reproduced, no security gap, the testing requirements in this Memex's Standards met, and every open comment resolved or consciously carried forward. If clean, recommend moving to \`done\` (you do NOT move it). If anything failed, recommend reopening the specific task(s) (update_task) so the Spec returns to build — do not call update_doc to change phase yourself.`,
     surfaces: ['spec-header'],
+    // spec-203 dec-1: compressed footer projection of the verify handoff.
+    essence: `VERIFY handoff (full prompt: the "Verify handoff" button). This Spec finished \`build\` — earn confidence it's GENUINELY done, against the RUNNING SYSTEM, not the diff. Run the deterministic gate (assess_spec target:'done'), but a clean gate can coexist with a FAILING AC — cross-check list_acs and treat THAT as the truth on AC health. Verify across all SIX dimensions, none skippable: acceptance criteria, tasks-actually-ran, scope completeness, security, standards drift, test-coverage gaps. An UNtagged passing test moves no AC; don't override test-event routing. File BLOCKERS as Issues (register_issue), ADVISORIES as review comments. If clean, recommend \`done\`; if anything failed, reopen the specific task(s) (update_task) — you do NOT move the phase yourself.`,
     rationale:
       'Hand a verify-phase Spec to a coding agent to verify its acceptance ' +
       'criteria — run tests + type checks and exercise the path, not just ' +
@@ -1834,6 +1842,8 @@ Author the scope ACs that define what finishing this Spec MEANS — the manager-
   • If decisions are resolved, the narrative reflects them, and scope ACs cover the work, recommend moving to \`build\` — you do NOT move it; that is the human's call. If anything is still open, leave it open and report exactly what remains and why.
 Finish with a summary: the decisions you surfaced and how each resolved, the scope ACs you authored, any standards drift or decision-vs-code mismatches you found, and what (if anything) still blocks the move to build.`,
     surfaces: ['spec-header'],
+    // spec-203 dec-1: compressed footer projection of the specify/plan handoff.
+    essence: `SPECIFY handoff (full prompt: the "Plan handoff" button). This Spec is still PLANNING — do NOT write product code, create tasks, or build (those belong to \`build\`). Surface the choices the work hinges on as Decisions (create_decision), grounding each against current source AND the Memex's history (search_memex kind:'decision' / 'standard') BEFORE resolving — never self-resolve a load-bearing choice; that's the user's call. Pin down what "done" means as scope ACs (create_ac kind:'scope') — one per observable outcome, implementation-agnostic. Reflect every resolution back into the narrative (update_section) — an unrecorded decision hasn't truly been made. When decisions are resolved, the narrative reflects them, and scope ACs cover the work, recommend \`build\` — you do NOT move the phase.`,
     rationale:
       'Hand a draft/specify-phase Spec to a coding agent to make it buildable: ' +
       'ground the narrative against current source + Standards, surface and ' +

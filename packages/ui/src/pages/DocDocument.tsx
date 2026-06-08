@@ -39,6 +39,7 @@ import {
   isSpecNarrativeStale,
   toButtonPrompt,
   BASE_SCAFFOLD,
+  HANDOFF_BUTTON_BY_PHASE,
 } from '@memex/shared';
 import { useDocChangeStream } from '../hooks/useDocChangeStream';
 import { COMMENT_PARAM, parseCommentParam, commentAnchorId } from '../utils/commentDeepLink';
@@ -643,6 +644,13 @@ export function DocDocument() {
     chat.sendMessage(prompt);
   };
 
+  // spec-203 dec-1: the handoff node id is sourced from the single shared
+  // HANDOFF_BUTTON_BY_PHASE map — the SAME map the in-chat footer projection
+  // (`toHandoffEssence`) selects through — so the copy button and the footer
+  // can never drift on which handoff belongs to a phase. The map also encodes
+  // the "draft / done → no handoff" rule (those phases are absent), so an absent
+  // id collapses the whole line to null.
+  const handoffButtonId = HANDOFF_BUTTON_BY_PHASE[phase];
   const handoff: {
     buttonId: string;
     sentence: React.ReactNode;
@@ -651,6 +659,9 @@ export function DocDocument() {
     /** Plain-text FULL sentence for the accessible name (needed when sentence is a node). */
     sentenceLabel?: string;
   } | null =
+    !handoffButtonId
+      ? null
+      :
     // spec-164 issue-1: draft shows NO handoff line. Originally spec-159 ac-17
     // shared the specify handoff between draft and specify (one arm,
     // `phase === 'draft' || phase === 'specify'`). But dec-3 gates the Decisions &
@@ -668,7 +679,7 @@ export function DocDocument() {
     // sentences. Link names match the tab bar's phase display names.
     phase === 'specify'
       ? {
-          buttonId: 'plan-handoff',
+          buttonId: handoffButtonId,
           // "*Copy the Specify prompt* into your coding agent to create
           // **Decisions** and **ACs**." — entities bold. "ACs" stays
           // abbreviated: the Rubicon line above already spells out
@@ -686,7 +697,7 @@ export function DocDocument() {
         }
       : phase === 'build'
         ? {
-            buttonId: 'opening-build-handoff',
+            buttonId: handoffButtonId,
             // "*Copy the Build prompt* into your coding agent to complete
             // the **Tasks** and build this spec."
             linkText: 'Copy the Build prompt',
@@ -701,7 +712,7 @@ export function DocDocument() {
           }
         : phase === 'verify'
           ? {
-              buttonId: 'verify-spec',
+              buttonId: handoffButtonId,
               // "*Copy the Verify prompt* into your coding agent to verify
               // this spec against its **ACs**." — "ACs" stays abbreviated: the
               // Rubicon line above already spells out "Acceptance Criteria

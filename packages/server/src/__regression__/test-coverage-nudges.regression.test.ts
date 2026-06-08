@@ -85,12 +85,16 @@ describe("Channel 2 — phase-transition advice carries a coverage paragraph", (
 
   it("verbose get_doc prepends the coverage header for Specs", () => {
     // The wiring lives inside the get_doc handler — assert the helper is
-    // called there and its result is concatenated with the formatted state.
+    // called there and its result reaches the composer as a header-zone block.
     expect(toolSpecs).toMatch(
       /const coverageHeader = await formatCoverageHeader\([\s\S]*?doc\.docType,[\s\S]*?\);/,
     );
+    // spec-203 t-3: the coverage header is now passed to formatState as a
+    // header-zone InjectedBlock (the composer places it above the doc), not
+    // string-concatenated at the call site. Output is byte-identical; this
+    // guard pins the new wiring.
     expect(toolSpecs).toMatch(
-      /\$\{coverageHeader\}\$\{await formatState\(url, state, ctx\)\}/,
+      /\{ zone: "header", content: coverageHeader \}/,
     );
   });
 });

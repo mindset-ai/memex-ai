@@ -161,6 +161,7 @@ import {
   formatStandard,
   renderStandardSectionBody,
   formatTerseSpecPhase,
+  type InjectedBlock,
 } from "../mcp/formatters.js";
 import { buildSketchBlock, type SketchAc } from "../mcp/ac-test-sketch.js";
 import { getStandard, flagDrift, proposeStandardChange } from "../services/standards.js";
@@ -190,9 +191,14 @@ import {
 import {
   blockerLines,
   toolManifest,
+  BASE_SCAFFOLD,
+  HANDOFF_BUTTON_BY_PHASE,
+  toButtonPrompt,
   type SpecPhase,
+  type Phase,
   type GuidanceBlock,
 } from "@memex/shared";
+import { claimFullHandoffDelivery } from "../services/handoff-delivery.js";
 import {
   assessNarrativeFreshness,
   markNarrativeConsolidated,
@@ -233,6 +239,15 @@ export interface ResolvedRef {
 
 export interface ToolCtx {
   userId: string;
+  /**
+   * spec-203 Layer 2 (dec-2): the MCP `Mcp-Session-Id` for this call, threaded
+   * from the dispatch layer (`createMcpServer`). The centralized footer machine
+   * (`formatState`) keys its once-per-(user, session, spec, phase) full-handoff
+   * delivery on it. Present only on the MCP surface; undefined for the in-app
+   * agent (which is primed via the shared_nudge channel, spec-123 dec-8) and for
+   * hand-rolled test ctxes — both keep the compressed-essence footer path.
+   */
+  sessionId?: string;
   /**
    * spec-156 ac-19: the surface invoking this handler — `mcp` for the MCP
    * server wrap (`mcp/tools.ts`), `in_app_agent` for the React agent loop
@@ -539,6 +554,10 @@ async function formatState(
   baseUrl: string,
   state: FullDocState,
   ctx?: ToolCtx,
+  // spec-203 dec-3 (t-3): tool-injected guidance blocks (coverage header, tag
+  // summary, nudges). Tools report these instead of concatenating around the
+  // call; the composer places them by zone. Absent for the many bare callers.
+  blocks?: readonly InjectedBlock[],
 ): Promise<string> {
   // The nudge channel only fires for Spec docs; skip the Org
   // blocks fetch for everything else to keep the cost off the hot path.
@@ -548,9 +567,34 @@ async function formatState(
     briefLike && ctx?.getOrgBlocksForNudge
       ? await ctx.getOrgBlocksForNudge()
       : undefined;
+  // spec-203 Layer 2 (dec-2): decide whether THIS response carries the full
+  // current-phase handoff (once per user+session+spec+phase, TTL-backstopped) or
+  // the compressed essence (Layer 1, every other response). Only the MCP surface
+  // threads a sessionId; the in-app agent (no sessionId) stays on the essence
+  // path. Resolve the interpolation context BEFORE claiming, so a context we
+  // can't build never burns a delivery.
+  let fullHandoff: string | undefined;
+  if (briefLike && ctx?.sessionId) {
+    const handoffButtonId = HANDOFF_BUTTON_BY_PHASE[state.doc.status as Phase];
+    const handoffContext = handoffButtonId
+      ? handoffInterpolationContext(baseUrl, state.doc)
+      : undefined;
+    if (
+      handoffButtonId &&
+      handoffContext &&
+      claimFullHandoffDelivery(ctx.userId, ctx.sessionId, state.doc.id, state.doc.status)
+    ) {
+      fullHandoff =
+        toButtonPrompt({
+          dataset: BASE_SCAFFOLD,
+          buttonId: handoffButtonId,
+          context: handoffContext,
+        }) ?? undefined;
+    }
+  }
   const nudge =
-    briefLike && (ctx?.toolName || orgBlocks)
-      ? { tool: ctx?.toolName, orgBlocks }
+    briefLike && (ctx?.toolName || orgBlocks || fullHandoff)
+      ? { tool: ctx?.toolName, orgBlocks, fullHandoff }
       : undefined;
   // spec-121 mechanism 1 — feed the build-phase nag its live AC-state lookup.
   // Only fetched for a Spec in `build` (the nag's only phase), reusing the same
@@ -579,7 +623,41 @@ async function formatState(
     acVerifications,
     // spec-136 t-4: the Spec's tags, rendered as a one-line strip in the header.
     state.tags,
+    // spec-203 dec-3 (t-3): tool-injected guidance, placed by the composer.
+    blocks,
   );
+}
+
+// spec-203 Layer 2 (dec-2): build the {namespace}/{memex}/{handle}/{title}/{url}
+// interpolation context the full handoff prompt needs, from the workspace URL
+// (origin/<namespace>/<memex>, the same `baseUrl` formatState already holds) and
+// the doc. Returns undefined when the URL can't be parsed (e.g. the in-app
+// agent's no-op empty workspace URL), in which case the footer keeps the
+// token-free essence rather than emitting an un-interpolated full prompt.
+function handoffInterpolationContext(
+  workspaceUrl: string,
+  doc: { handle: string; title: string },
+): { namespace: string; memex: string; handle: string; title: string; url: string } | undefined {
+  if (!workspaceUrl) return undefined;
+  let pathname: string;
+  try {
+    pathname = new URL(workspaceUrl).pathname;
+  } catch {
+    return undefined;
+  }
+  const segs = pathname.split("/").filter(Boolean);
+  if (segs.length < 2) return undefined;
+  const memex = segs[segs.length - 1];
+  const namespace = segs[segs.length - 2];
+  return {
+    namespace,
+    memex,
+    handle: doc.handle,
+    title: doc.title,
+    // Spec docs render under /specs/ (refs.ts DB_DOC_TYPE_TO_URL); the handoff
+    // only fires for specs, so the path segment is fixed.
+    url: `${workspaceUrl}/specs/${doc.handle}`,
+  };
 }
 
 // Per doc-12 t-6 / t-7 — soft guidance nudge appended to forward Spec
@@ -1027,7 +1105,11 @@ export const toolSpecs: ToolSpec[] = [
           doc.id,
           doc.docType,
         );
-        return `${coverageHeader}${await formatState(url, state, ctx)}`;
+        // spec-203 dec-3 (t-3): the coverage header is a header-zone block — the
+        // composer places it above the doc; this handler no longer concatenates.
+        return await formatState(url, state, ctx, [
+          { zone: "header", content: coverageHeader },
+        ]);
       }
 
       // Terse: agent already has the doc context injected by the system
@@ -1329,7 +1411,12 @@ export const toolSpecs: ToolSpec[] = [
       if (ctx.verbose) {
         const state = await fullDocState(memexId, before.id);
         const url = await ctx.workspaceUrl(memexId);
-        return `${await formatState(url, state, ctx)}${tagSuffix}${nudge}`;
+        // spec-203 dec-3 (t-3): tag summary + transition nudge are footer-zone
+        // blocks, placed after the machine footer by the composer (same order).
+        return await formatState(url, state, ctx, [
+          { zone: "footer", content: tagSuffix },
+          { zone: "footer", content: nudge },
+        ]);
       }
       const fresh = await getDoc(memexId, before.id);
       // Per dec-1: on a status change include the deterministic phase header so
@@ -2944,8 +3031,16 @@ export const toolSpecs: ToolSpec[] = [
         const fresh = await getTask(memexId, taskUuid);
         const state = await fullDocState(memexId, fresh.docId);
         const url = await ctx.workspaceUrl(memexId);
-        const base = await formatState(url, state, ctx);
-        return status === "complete" ? `${base}\n\n> ${COMPLETION_NUDGE}` : base;
+        // spec-203 dec-3 (t-3): the completion nudge is a footer-zone block,
+        // present only when the task was completed.
+        return await formatState(
+          url,
+          state,
+          ctx,
+          status === "complete"
+            ? [{ zone: "footer", content: `\n\n> ${COMPLETION_NUDGE}` }]
+            : [],
+        );
       }
 
       if (messages.length === 0) {
@@ -3396,7 +3491,10 @@ export const toolSpecs: ToolSpec[] = [
       if (ctx.verbose) {
         const state = await fullDocState(memexId, doc.id);
         const url = await ctx.workspaceUrl(memexId);
-        return `${await formatState(url, state, ctx)}${nudge}`;
+        // spec-203 dec-3 (t-3): the transition nudge is a footer-zone block.
+        return await formatState(url, state, ctx, [
+          { zone: "footer", content: nudge },
+        ]);
       }
       const fresh = await getDoc(memexId, doc.id);
       // Per dec-1 / t-8: replace the best-effort `nudge` with the deterministic
