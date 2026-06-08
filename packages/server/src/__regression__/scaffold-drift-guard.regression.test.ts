@@ -90,6 +90,13 @@ const ALLOWLISTED_PROSE_FILES = new Set(
     // to paste into a coding agent. Not consumed by Mindset's own agent.
     "packages/ui/src/utils/specInitPrompt.ts",
     "packages/ui/src/utils/taskInitPrompt.ts",
+    // spec-201: the "Genesis prompt" — clipboard text a human pastes into a
+    // fresh Claude Code / Cursor session to wire their own agent up to Memex
+    // (register the MCP server + write a CLAUDE.md / .cursor rule). Same
+    // category as the Init Prompts above: human-pasted, NOT consumed by
+    // Mindset's own agent, so it belongs here rather than in scaffold-data.ts
+    // (which owns Mindset-agent system-prompt / nudge / rubric prose).
+    "packages/ui/src/utils/genesisPrompt.ts",
     // One-shot Postgres seed for the b-3 "reviewer" persona — bootstrap
     // data, not a runtime nudge channel.
     "packages/server/src/db/seed-reviewer.ts",
