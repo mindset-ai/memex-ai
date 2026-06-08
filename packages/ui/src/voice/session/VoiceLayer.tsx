@@ -40,13 +40,16 @@ export function VoiceLayer(): React.JSX.Element | null {
   }
 
   // Inactive / requesting / mic-unavailable → the icon, on registered screens only.
-  // spec-197: the entry doorway carries Specky's identity but stays QUIET — the
-  // static (non-animated) frame, not the wobbling idle loop (dec-2 / ac-8). The
-  // animated Specky only appears in the pill once a session is live (dec-1).
+  // spec-197: the entry doorway IS Specky — present and alive (the animated idle
+  // loop, dec-2 revised 2026-06-08 / ac-8). dec-2 originally kept this a quiet
+  // static frame, but the product owner chose the livelier doorway so the guide
+  // reads as inviting rather than dormant. Reduced-motion still freezes it to the
+  // base pose via the SVG's own media query (dec-5), so it stays calm for
+  // motion-sensitive users without any code here.
   if (resolveScreenKey(pathname) === null) return null;
   return (
     <div className={ANCHOR}>
-      <VoiceIcon mark={<Specky animated={false} size={28} />} />
+      <VoiceIcon mark={<Specky size={40} />} />
     </div>
   );
 }
