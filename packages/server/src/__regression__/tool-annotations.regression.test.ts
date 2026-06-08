@@ -35,6 +35,8 @@ const READ_ONLY = new Set<string>([
   "code_search",
   "list_acs",
   "get_ac",
+  // spec-127: per-AC test-event digest read — no mutation.
+  "get_test_matrix",
   "get_information",
   // export_doc (spec-100): reads a doc and renders lossless export markdown —
   // no mutation, so readOnlyHint: true.
