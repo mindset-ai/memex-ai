@@ -9,6 +9,7 @@
 
 import { useVoiceSession } from './VoiceSessionContext';
 import { loopStateLabel } from './voiceSessionModel';
+import { Specky } from '../../components/Specky';
 
 export function VoiceSessionPill(): React.JSX.Element {
   const session = useVoiceSession();
@@ -29,6 +30,11 @@ export function VoiceSessionPill(): React.JSX.Element {
         onClick={session.interrupt}
         className="flex items-center gap-2"
       >
+        {/* spec-197: the animated Specky avatar — present + alive (idle loop,
+            dec-1=a). It does NOT change per session state; the StateBlip beside
+            it conveys listening/thinking/speaking, so Specky stays a single idle
+            character (ac-7). Decorative — the state label carries the meaning. */}
+        <Specky size={24} />
         <StateBlip loopState={session.loopState} muted={session.muted} />
         <span className={`text-sm ${ducked ? 'opacity-70' : ''}`} data-voice-state-label>
           {label}
