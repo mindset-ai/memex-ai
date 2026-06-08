@@ -13,6 +13,10 @@
 // ac-7: only ingest shippable Specs — a draft/specify (private/authoring) Spec
 //       produces no entry. The deploy hook (t-3) supplies the stronger "actually
 //       promoted to prod" gate; this is the service-level backstop.
+// ac-16 (dec-7): the model also judges WORTHINESS — only noteworthy, user-facing
+//       Specs publish; bug-fixes / internal / chores are recorded as skips so the
+//       feed stays a curated highlights list, not a changelog. Each Spec is judged
+//       exactly once (the skip verdict is persisted in whats_new_skips).
 
 import { z } from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
@@ -24,7 +28,7 @@ import { documents, memexes, namespaces } from "../db/schema.js";
 import { getDoc } from "./documents.js";
 import { listDecisions } from "./decisions.js";
 import { listAcsForBrief } from "./acs.js";
-import { publishEntry, getEntryBySpecRef, type NewWhatsNewEntry } from "./whats-new.js";
+import { publishEntry, recordSkip, isAlreadyEvaluated, type NewWhatsNewEntry } from "./whats-new.js";
 import type { WhatsNewEntry } from "../db/schema.js";
 
 // Same model as clause-translator + the chat route (std-11 / routes/llm.ts).
@@ -43,16 +47,36 @@ export class SpecNotShippableError extends Error {
   }
 }
 
-// Structured-output contract: a user-facing release-note entry.
+// Structured-output contract: the worthiness verdict (dec-7) + the draft (only
+// when worthy). title/what/why are optional because the model omits them when it
+// judges the Spec not worth announcing.
 export const WhatsNewDraftSchema = z.object({
-  // A short, benefit-led headline (NOT the raw Spec title).
-  title: z.string(),
-  // WHAT shipped, plain language.
-  what: z.string(),
-  // WHY it matters to the user, plain language.
-  why: z.string(),
+  // dec-7: is this a noteworthy, user-facing change worth a What's New entry?
+  worthAnnouncing: z.boolean(),
+  // One-line justification for the verdict (debug / audit).
+  reason: z.string(),
+  // A short, benefit-led headline (NOT the raw Spec title). Present iff worthy.
+  title: z.string().optional(),
+  // WHAT shipped, plain language. Present iff worthy.
+  what: z.string().optional(),
+  // WHY it matters to the user, plain language. Present iff worthy.
+  why: z.string().optional(),
 });
 export type WhatsNewDraft = z.infer<typeof WhatsNewDraftSchema>;
+
+/** The verdict + (when worthy) the entry to publish. */
+export interface DraftVerdict {
+  worthAnnouncing: boolean;
+  reason: string;
+  entry: NewWhatsNewEntry | null;
+}
+
+/** Outcome of evaluating one Spec (drives the batch cap + the script log). */
+export type GenerationOutcome =
+  | { status: "published"; entry: WhatsNewEntry }
+  | { status: "skipped"; reason: string }
+  | { status: "already-evaluated" }
+  | { status: "not-shippable" };
 
 // Minimal Anthropic surface used here, so tests inject a stub.
 export interface AnthropicLike {
@@ -60,6 +84,11 @@ export interface AnthropicLike {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     parse: (args: any) => Promise<{ parsed_output: WhatsNewDraft | null }>;
   };
+}
+
+/** True when the model judged the Spec worth announcing AND gave usable copy. */
+function isPublishableDraft(d: WhatsNewDraft): boolean {
+  return !!d.worthAnnouncing && !!d.title?.trim() && !!d.what?.trim() && !!d.why?.trim();
 }
 
 export interface GenerateOptions {
@@ -117,14 +146,15 @@ function buildSpecDigest(args: {
 }
 
 /**
- * Draft a What's New entry for a Spec (no DB write). Throws SpecNotShippableError
- * for a draft/specify Spec (ac-7), and Error for a non-spec or empty model output.
+ * Judge + draft for a Spec (no DB write). Returns the worthiness verdict (dec-7)
+ * and, when worthy, the entry to publish. Throws SpecNotShippableError for a
+ * draft/specify Spec (ac-7) and Error for a non-spec or malformed model output.
  */
 export async function draftEntryForSpec(
   memexId: string,
   specHandleOrId: string,
   opts: GenerateOptions = {},
-): Promise<NewWhatsNewEntry> {
+): Promise<DraftVerdict> {
   const doc = await getDoc(memexId, specHandleOrId);
   if (doc.docType !== "spec") {
     throw new Error(`Document ${specHandleOrId} is not a spec (docType=${doc.docType}).`);
@@ -163,76 +193,89 @@ export async function draftEntryForSpec(
   });
 
   const draft = message.parsed_output;
-  if (!draft || !draft.what.trim() || !draft.why.trim() || !draft.title.trim()) {
-    throw new Error(`Empty What's New draft for ${doc.handle}.`);
+  if (!draft) throw new Error(`Empty What's New model output for ${doc.handle}.`);
+
+  // dec-7: not worth announcing → no entry (the caller persists the skip verdict).
+  if (!isPublishableDraft(draft)) {
+    return { worthAnnouncing: false, reason: draft.reason || "not noteworthy", entry: null };
   }
 
   return {
-    sourceSpecRef,
-    sourceSpecHandle: doc.handle,
-    title: draft.title.trim(),
-    whatText: draft.what.trim(),
-    whyText: draft.why.trim(),
+    worthAnnouncing: true,
+    reason: draft.reason || "",
+    entry: {
+      sourceSpecRef,
+      sourceSpecHandle: doc.handle,
+      title: draft.title!.trim(),
+      whatText: draft.what!.trim(),
+      whyText: draft.why!.trim(),
+    },
   };
 }
 
 /**
- * Generate + publish an entry for a Spec, idempotently (ac-6). Returns the
- * published row, or null if the Spec isn't a shippable spec (ac-7) or already
- * had an entry — so a deploy-time batch loop is resilient and never throws
- * per-Spec.
- *
- * The cheap guards (not-a-spec / not-shippable / already-published) run BEFORE
- * the LLM call, so a re-run over already-published Specs costs zero model calls
- * — important for bounding the daily deploy batch.
+ * Evaluate a Spec and act on the verdict (dec-7), idempotently. Cheap guards
+ * (not-a-spec / not-shippable / already-evaluated) run BEFORE the LLM call so a
+ * re-run costs zero model calls. Worthy → publish; not worthy → record the skip
+ * so the Spec is never re-judged. Never throws per-Spec — safe for the batch.
  */
 export async function generateAndPublishForSpec(
   memexId: string,
   specHandleOrId: string,
   opts: GenerateOptions = {},
-): Promise<WhatsNewEntry | null> {
+): Promise<GenerationOutcome> {
   const doc = await getDoc(memexId, specHandleOrId);
-  if (doc.docType !== "spec") return null;
-  if (NON_SHIPPABLE_PHASES.has(doc.status)) return null; // ac-7
+  if (doc.docType !== "spec") return { status: "not-shippable" };
+  if (NON_SHIPPABLE_PHASES.has(doc.status)) return { status: "not-shippable" }; // ac-7
 
   const slugs = await resolveSpecSlugs(doc.id);
-  if (!slugs) return null;
+  if (!slugs) return { status: "not-shippable" };
   const sourceSpecRef = `${slugs.namespace}/${slugs.memex}/specs/${slugs.handle}`;
 
-  // Idempotent: already published → no rewrite, and crucially no LLM call.
-  if (await getEntryBySpecRef(sourceSpecRef)) return null;
+  // dec-7: judged exactly once — already published OR skipped → no LLM call.
+  if (await isAlreadyEvaluated(sourceSpecRef)) return { status: "already-evaluated" };
 
-  const draft = await draftEntryForSpec(memexId, specHandleOrId, opts);
-  return publishEntry(draft);
+  const verdict = await draftEntryForSpec(memexId, specHandleOrId, opts);
+  if (!verdict.worthAnnouncing || !verdict.entry) {
+    await recordSkip({ sourceSpecRef, sourceSpecHandle: doc.handle, reason: verdict.reason });
+    return { status: "skipped", reason: verdict.reason };
+  }
+
+  const entry = await publishEntry(verdict.entry);
+  // A concurrent run may have published first; treat that as already-evaluated.
+  return entry ? { status: "published", entry } : { status: "already-evaluated" };
 }
 
 /** Outcome of a batch generation run (returned to the deploy script for logging). */
 export interface WhatsNewGenerationResult {
-  /** Specs newly published this run. */
+  /** Specs newly PUBLISHED this run (judged worthy). */
   generated: number;
-  /** Specs skipped (already published, or filtered out before the loop). */
+  /** Specs judged NOT worth announcing this run (skip verdict persisted). */
   skipped: number;
+  /** Specs that consumed an LLM judgement this run (generated + skipped). */
+  evaluated: number;
   /** Total shippable, non-archived specs considered. */
   total: number;
-  /** True if MAX_PER_RUN was hit and shippable specs remain for the next run. */
+  /** True if the per-run evaluation cap was hit and un-judged specs remain. */
   capped: boolean;
 }
 
-// Bound the LLM fan-out per deploy (spec-178 t-5 lesson: a deploy step that
-// fans out unboundedly hung the deploy). Only UNPUBLISHED shippable specs draft,
-// so steady state is "today's promotions"; the cap protects the first backfill
-// run, which resumes idempotently on the next deploy.
+// Bound the LLM fan-out per deploy (spec-178 t-5 lesson: a deploy step that fans
+// out unboundedly hung the deploy). Caps the number of LLM JUDGEMENTS per run —
+// already-evaluated specs (published OR skipped, dec-7) cost zero calls, so steady
+// state is just "today's promotions"; the cap protects only the first backfill,
+// which resumes idempotently on the next deploy.
 const MAX_PER_RUN_DEFAULT = 25;
 
 export interface BatchOptions extends GenerateOptions {
-  /** Max entries to GENERATE this run. Default 25. */
+  /** Max LLM judgements this run. Default 25. */
   max?: number;
 }
 
 /**
- * Generate + publish entries for all shippable, not-yet-published Specs in a
- * Memex (dec-2: run at the daily prod promotion). Idempotent, bounded by `max`,
- * and never throws per-Spec — safe for a non-gating deploy step.
+ * Evaluate all shippable, not-yet-judged Specs in a Memex (dec-2: run at the daily
+ * prod promotion). Judges each once (dec-7) — worthy → publish, else → record skip.
+ * Idempotent, bounded by `max` LLM judgements, never throws per-Spec.
  */
 export async function runWhatsNewGeneration(
   memexId: string,
@@ -255,13 +298,21 @@ export async function runWhatsNewGeneration(
 
   let generated = 0;
   let skipped = 0;
+  let evaluated = 0;
   for (const { handle } of candidates) {
-    if (generated >= max) {
-      return { generated, skipped, total: candidates.length, capped: true };
+    if (evaluated >= max) {
+      return { generated, skipped, evaluated, total: candidates.length, capped: true };
     }
-    const published = await generateAndPublishForSpec(memexId, handle, opts);
-    if (published) generated++;
-    else skipped++;
+    const outcome = await generateAndPublishForSpec(memexId, handle, opts);
+    // Only LLM judgements count toward the cap; already-evaluated / non-shippable
+    // specs short-circuit before the model call.
+    if (outcome.status === "published") {
+      generated++;
+      evaluated++;
+    } else if (outcome.status === "skipped") {
+      skipped++;
+      evaluated++;
+    }
   }
-  return { generated, skipped, total: candidates.length, capped: false };
+  return { generated, skipped, evaluated, total: candidates.length, capped: false };
 }

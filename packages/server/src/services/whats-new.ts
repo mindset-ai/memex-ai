@@ -9,7 +9,7 @@
 
 import { desc, eq } from "drizzle-orm";
 import { db } from "../db/connection.js";
-import { whatsNewEntries, type WhatsNewEntry } from "../db/schema.js";
+import { whatsNewEntries, whatsNewSkips, type WhatsNewEntry } from "../db/schema.js";
 
 /** The fields the generation service supplies for a new entry. */
 export interface NewWhatsNewEntry {
@@ -57,4 +57,42 @@ export async function getEntryBySpecRef(sourceSpecRef: string): Promise<WhatsNew
     .where(eq(whatsNewEntries.sourceSpecRef, sourceSpecRef))
     .limit(1);
   return rows[0] ?? null;
+}
+
+/**
+ * Record that a Spec was judged NOT worth announcing (dec-7), idempotently. The
+ * persisted verdict means the Spec is evaluated exactly once — never re-judged on
+ * a later deploy. Returns true if a new skip row was written, false if one existed.
+ */
+export async function recordSkip(skip: {
+  sourceSpecRef: string;
+  sourceSpecHandle: string;
+  reason?: string;
+}): Promise<boolean> {
+  const rows = await db
+    .insert(whatsNewSkips)
+    .values({ ...skip, reason: skip.reason ?? null })
+    .onConflictDoNothing({ target: whatsNewSkips.sourceSpecRef })
+    .returning();
+  return rows.length > 0;
+}
+
+/**
+ * Has this Spec already been evaluated (published OR skipped)? Used as the cheap
+ * pre-LLM gate so an already-judged Spec is never re-judged (dec-7).
+ */
+export async function isAlreadyEvaluated(sourceSpecRef: string): Promise<boolean> {
+  const [entry, skip] = await Promise.all([
+    db
+      .select({ id: whatsNewEntries.id })
+      .from(whatsNewEntries)
+      .where(eq(whatsNewEntries.sourceSpecRef, sourceSpecRef))
+      .limit(1),
+    db
+      .select({ id: whatsNewSkips.id })
+      .from(whatsNewSkips)
+      .where(eq(whatsNewSkips.sourceSpecRef, sourceSpecRef))
+      .limit(1),
+  ]);
+  return entry.length > 0 || skip.length > 0;
 }
