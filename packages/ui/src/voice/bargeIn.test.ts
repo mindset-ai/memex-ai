@@ -76,7 +76,7 @@ describe('BargeInController duck-then-cut (ac-24)', () => {
     expect(cb.onCut).not.toHaveBeenCalled();
   });
 
-  it('tolerates a brief gap mid-interruption and still cuts (choppy real speech)', () => {
+  it('tolerates a short gap mid-interruption and still cuts (choppy real speech)', () => {
     const { ctrl, playback, cb } = harness(120);
     ctrl.startTurn();
     ctrl.appendChunk({ chars: [...'hi there'], charStartMs: [0, 50, 100, 150, 200, 250, 300, 350] });

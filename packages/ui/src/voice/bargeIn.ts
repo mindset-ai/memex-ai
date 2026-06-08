@@ -61,7 +61,7 @@ const DEFAULT_DUCK_MS = 50;
 // from the deep duck at onset (playbackQueue ducks the agent to ~5% in ~50ms — the
 // user instantly hears it yield), so this window can be long enough to be robust
 // without feeling laggy. It is gap-TOLERANT: armed once on the first onset and NOT
-// reset by brief VAD dips (real interruption speech is choppy, and on speakers the
+// reset by short VAD dips (real interruption speech is choppy, and on speakers the
 // agent's echo bleed makes the VAD flicker). Only `restoreMs` of CONTINUOUS silence
 // aborts it — see onSpeechEnd. (dec-8 / t-9; was 160ms, which never landed because
 // any single dip cancelled it.)
@@ -142,7 +142,7 @@ export class BargeInController {
   }
 
   /** VAD speech onset. While the agent speaks: duck immediately and arm the
-   *  sustained-interruption cut timer. A re-onset after a brief gap cancels the
+   *  sustained-interruption cut timer. A re-onset after a short gap cancels the
    *  pending restore and KEEPS the cut timer running (gap tolerance) — it never
    *  re-arms, so the cut measures sustained interruption from the FIRST onset.
    *  Inert outside a turn — there's nothing to interrupt, and the agent's own
