@@ -6,15 +6,16 @@ import { existsSync, createReadStream } from 'node:fs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
-// spec-190 (dec-8) — serve the Silero VAD / onnxruntime-web assets from public/vad
-// as RAW files in DEV. onnxruntime-web 1.26 loads its wasm glue by dynamically
-// importing `/vad/ort-wasm-simd-threaded.mjs`; Vite's dev server refuses to serve a
-// file under /public through the module pipeline (it appends `?import` and throws
-// "should not be imported from source code"), which 500s VAD init and stops a voice
-// session from starting. Intercept `/vad/*` BEFORE Vite's transform middleware and
-// stream the bytes with a correct content-type. DEV-ONLY: configureServer never runs
-// for `vite build`, and the prod build copies public/ as-is (served statically, no
-// guard) — so this changes nothing about the shipped bundle.
+// spec-190 (dec-8) — serve the Silero VAD / onnxruntime-web assets from
+// public/assets/vad as RAW files in DEV. onnxruntime-web 1.26 loads its wasm glue
+// by dynamically importing `/assets/vad/ort-wasm-simd-threaded.mjs`; Vite's dev
+// server refuses to serve a file under /public through the module pipeline (it
+// appends `?import` and throws "should not be imported from source code"), which
+// 500s VAD init and stops a voice session from starting. Intercept `/assets/vad/*`
+// BEFORE Vite's transform middleware and stream the bytes with a correct
+// content-type. DEV-ONLY: configureServer never runs for `vite build`, and the prod
+// build copies public/ as-is (served statically under /assets/, which the deployed
+// LB routes straight to the bucket) — so this changes nothing about the shipped bundle.
 const serveVadAssetsRaw: PluginOption = {
   name: 'spec190-serve-vad-assets-raw',
   configureServer(server) {
@@ -22,7 +23,7 @@ const serveVadAssetsRaw: PluginOption = {
     // internal transform/public-file middlewares.
     server.middlewares.use((req, res, next) => {
       const url = req.url ?? ''
-      if (!url.startsWith('/vad/')) return next()
+      if (!url.startsWith('/assets/vad/')) return next()
       const rel = url.split('?')[0] // drop ?import and friends
       const file = join(__dirname, 'public', rel)
       if (!existsSync(file)) return next()

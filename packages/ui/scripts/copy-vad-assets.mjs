@@ -1,8 +1,15 @@
-// spec-190 t-8/dec-8 — stage the Silero VAD runtime assets into public/vad so
-// they're served at /vad/ for the browser AudioWorklet (the local speech-onset
-// detector, ac-23). Runs on predev + prebuild so both `pnpm dev` and `pnpm build`
-// (incl. the CI/deploy build) have the assets without committing ~14MB of binary
-// (.onnx model + onnxruntime-web .wasm) into git.
+// spec-190 t-8/dec-8 — stage the Silero VAD runtime assets into public/assets/vad
+// so they're served at /assets/vad/ for the browser AudioWorklet (the local
+// speech-onset detector, ac-23). Runs on predev + prebuild so both `pnpm dev` and
+// `pnpm build` (incl. the CI/deploy build) have the assets without committing
+// ~14MB of binary (.onnx model + onnxruntime-web .wasm) into git.
+//
+// WHY under /assets/ and not a web-root /vad/: the deployed SPA's GCS/LB only
+// routes /assets/* straight to the bucket; every other path is rewritten to
+// /index.html, so a raw /vad/ asset 404s in INT/PROD even though it works in the
+// Vite dev server. Living under /assets/ means the existing recursive
+// `dist/assets/` rsync uploads them with correct MIME, no LB rule needed. Same
+// fix spec-197 dec-3 applied to Specky.
 //
 // What gets copied:
 //   - @ricky0123/vad-web: the AudioWorklet bundle + the Silero ONNX models
@@ -19,7 +26,7 @@ import { fileURLToPath } from "node:url";
 
 const require = createRequire(import.meta.url);
 const here = dirname(fileURLToPath(import.meta.url));
-const PUBLIC_VAD = join(here, "..", "public", "vad");
+const PUBLIC_VAD = join(here, "..", "public", "assets", "vad");
 
 // vad-web dist (main = dist/index.js → its dir).
 const vadDist = dirname(require.resolve("@ricky0123/vad-web"));
@@ -70,5 +77,5 @@ for (const f of ORT_FILES) {
 
 const expected = 2 + ORT_FILES.length;
 console.log(
-  `[copy-vad-assets] ${copied} file(s) staged into public/vad (${expected} expected; rest already current).`,
+  `[copy-vad-assets] ${copied} file(s) staged into public/assets/vad (${expected} expected; rest already current).`,
 );

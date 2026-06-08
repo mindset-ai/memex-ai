@@ -103,14 +103,19 @@ export class MicVad {
 //     ScriptProcessor main-thread fallback), matching dec-8/ac-23.
 //
 // The runtime assets (worklet bundle, Silero .onnx, onnxruntime-web .wasm) are
-// served from `baseAssetPath` / `onnxWASMBasePath` — staged into public/vad by
-// scripts/copy-vad-assets.mjs (predev/prebuild). Validated on a real device
+// served from `baseAssetPath` / `onnxWASMBasePath` — staged into public/assets/vad
+// by scripts/copy-vad-assets.mjs (predev/prebuild). They live UNDER /assets/ (not
+// a web-root /vad/) so the deployed SPA actually serves them: the GCS/LB only
+// routes /assets/* straight to the bucket — every other path is rewritten to
+// /index.html, which would 404 a raw /vad/ asset (the same reason spec-197 dec-3
+// moved Specky under /assets/). The recursive dist/assets/ rsync uploads them with
+// correct MIME (.mjs→text/javascript, .wasm→application/wasm). Validated on a real device
 // (jsdom has no AudioWorklet / WebAssembly mic pipeline), the same way t-1's real
 // ElevenLabs provider is validated once a key lands.
 export interface SileroWorkletOptions {
-  /** Where the worklet bundle + Silero ONNX model are served (default '/vad/'). */
+  /** Where the worklet bundle + Silero ONNX model are served (default '/assets/vad/'). */
   baseAssetPath?: string;
-  /** Where the onnxruntime-web wasm is served (default '/vad/'). */
+  /** Where the onnxruntime-web wasm is served (default '/assets/vad/'). */
   onnxWASMBasePath?: string;
   /** Silero model variant. Default 'v5' (current); 'legacy' is the older model. */
   model?: 'v5' | 'legacy';
@@ -145,7 +150,7 @@ export class SileroWorkletVadEngine implements VadEngine {
 
   async start(stream: MediaStream, onSpeech: (speaking: boolean) => void): Promise<void> {
     const { MicVAD } = await import('@ricky0123/vad-web');
-    const base = this.opts.baseAssetPath ?? '/vad/';
+    const base = this.opts.baseAssetPath ?? '/assets/vad/';
     this.vad = await MicVAD.new({
       // Use the AEC'd stream we already opened — never let vad-web open its own.
       getStream: async () => stream,
