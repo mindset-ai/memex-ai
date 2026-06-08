@@ -16,7 +16,9 @@ docAssigneesRouter.on(["POST", "PUT", "PATCH", "DELETE"], "/*", sessionMiddlewar
 docAssigneesRouter.get("/doc/:docId", async (c) => {
   const memexId = await resolveReadableMemexId(c);
   const docId = c.req.param("docId");
-  return c.json(await listAssignees(memexId, docId));
+  // currentMemexId is set only for confirmed org members; null for anonymous/non-members.
+  const isMember = !!(c.get("currentMemexId") as string | null);
+  return c.json(await listAssignees(memexId, docId, isMember));
 });
 
 // Assign a user to a Spec. `assigned_by` is the authenticated caller.

@@ -26,8 +26,10 @@ docMembersRouter.get("/doc/:docId", async (c) => {
   const memexId = await resolveReadableMemexId(c);
   const docId = c.req.param("docId");
   const userId = (c.get("currentUserId") as string | null) ?? null;
+  // currentMemexId is set only for confirmed org members; null for anonymous/non-members.
+  const isMember = !!(c.get("currentMemexId") as string | null);
   const [editors, myRole] = await Promise.all([
-    listEditors(memexId, docId),
+    listEditors(memexId, docId, isMember),
     resolveRole(memexId, docId, userId),
   ]);
   return c.json({ editors, myRole });

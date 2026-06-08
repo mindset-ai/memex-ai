@@ -26,6 +26,8 @@ import { Hono } from "hono";
 import { backstageRouter } from "./backstage.js";
 import { errorHandler } from "../middleware/error-handler.js";
 import { upsertUserByEmail } from "../services/users.js";
+import { isDevMode } from "../middleware/session.js";
+import { tagAc } from "@memex-ai-ac/vitest";
 
 const createdAccountIds: string[] = [];
 const createdUserIds: string[] = [];
@@ -221,6 +223,24 @@ describe("POST /api/backstage/accounts/:id/impersonate", () => {
       expect(res.status).toBe(403);
     } finally {
       delete process.env.GOOGLE_CLIENT_ID;
+    }
+  });
+});
+
+describe("spec-199 Finding #2 — backstage fails closed in production when GOOGLE_CLIENT_ID is missing (ac-2)", () => {
+  it("isDevMode() throws when GOOGLE_CLIENT_ID is unset in NODE_ENV=production", () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-199/acs/ac-2");
+    const originalNodeEnv = process.env.NODE_ENV;
+    const savedClientId = process.env.GOOGLE_CLIENT_ID;
+    try {
+      process.env.NODE_ENV = "production";
+      delete process.env.GOOGLE_CLIENT_ID;
+        // isDevMode reads process.env at call time — static import is fine here.
+      expect(() => isDevMode()).toThrow(/GOOGLE_CLIENT_ID is required in production/);
+    } finally {
+      process.env.NODE_ENV = originalNodeEnv;
+      if (savedClientId !== undefined) process.env.GOOGLE_CLIENT_ID = savedClientId;
+      else delete process.env.GOOGLE_CLIENT_ID;
     }
   });
 });
