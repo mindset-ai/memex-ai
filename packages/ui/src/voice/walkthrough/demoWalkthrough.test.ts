@@ -49,6 +49,9 @@ describe('runDemoTour — speech-synced per-phase loop (spec-211)', () => {
     expect(log[log.length - 1]).toBe('nav:/board');
     tagAc(AC(1));
     tagAc(AC(3));
+    // ac-4: every phase is opened (its detail), and the opened path matches the
+    // phase being narrated — asserted by the open-before-narrate loop above.
+    tagAc(AC(4));
     tagAc(AC(12));
   });
 
