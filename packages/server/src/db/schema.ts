@@ -1366,6 +1366,8 @@ export const shareTokens = pgTable("share_tokens", {
   token: text("token").notNull().unique(),
   revoked: boolean("revoked").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  createdByUserId: uuid("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
 });
 
 // Long-lived MCP API tokens issued per (user × device). Token value `mxt_<random>` is

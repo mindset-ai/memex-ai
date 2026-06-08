@@ -1,9 +1,9 @@
 // Admin-driven membership mutations: enable/disable members, promote/demote roles,
 // last-admin guards. Discovery + auto-join flows live in org-discovery.ts.
 
-import { and, eq, count } from "drizzle-orm";
+import { and, eq, count, inArray } from "drizzle-orm";
 import { db } from "../db/connection.js";
-import { orgMemberships } from "../db/schema.js";
+import { orgMemberships, shareTokens, documents, memexes, namespaces } from "../db/schema.js";
 import type { OrgMembership } from "../db/schema.js";
 import { ValidationError } from "../types/errors.js";
 import type { Role } from "../types/roles.js";
@@ -104,12 +104,36 @@ export async function disableMembership(
     {},
     { memexId, entity: "org_membership", action: "deleted" },
     async () => {
-      const [updated] = await db
-        .update(orgMemberships)
-        .set({ status: "disabled" })
-        .where(eq(orgMemberships.id, target.id))
-        .returning();
-      return updated;
+      return db.transaction(async (tx) => {
+        const [updated] = await tx
+          .update(orgMemberships)
+          .set({ status: "disabled" })
+          .where(eq(orgMemberships.id, target.id))
+          .returning();
+
+        // Bulk-revoke all share tokens this user created within the org (spec-199 t-3).
+        // The subquery walks: documents → memexes → namespaces → ownerOrgId = orgId.
+        await tx
+          .update(shareTokens)
+          .set({ revoked: true })
+          .where(
+            and(
+              eq(shareTokens.createdByUserId, targetUserId),
+              eq(shareTokens.revoked, false),
+              inArray(
+                shareTokens.documentId,
+                db
+                  .select({ id: documents.id })
+                  .from(documents)
+                  .innerJoin(memexes, eq(memexes.id, documents.memexId))
+                  .innerJoin(namespaces, eq(namespaces.id, memexes.namespaceId))
+                  .where(eq(namespaces.ownerOrgId, orgId)),
+              ),
+            ),
+          );
+
+        return updated;
+      });
     },
   );
 }

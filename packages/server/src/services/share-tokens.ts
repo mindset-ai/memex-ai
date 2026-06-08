@@ -31,11 +31,22 @@ export class ShareTokenError extends ValidationError {
   }
 }
 
+// Default TTL for share tokens. Configurable via SHARE_TOKEN_TTL_DAYS; null = no expiry.
+function defaultExpiresAt(): Date | null {
+  const days = process.env.SHARE_TOKEN_TTL_DAYS ? parseInt(process.env.SHARE_TOKEN_TTL_DAYS, 10) : null;
+  if (!days || isNaN(days)) return null;
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return d;
+}
+
 // Creates a cryptographically random share token for the given document.
 // Caller (route handler) must enforce that the requester belongs to the document's account.
+// createdByUserId is recorded so tokens can be bulk-revoked when a member is removed (spec-199 t-3).
 export async function createShareToken(
   memexId: string,
-  documentId: string
+  documentId: string,
+  createdByUserId: string | null = null,
 ): Promise<Mutated<ShareToken>> {
   await assertDocBelongsToMemex(documentId, memexId);
 
@@ -44,9 +55,10 @@ export async function createShareToken(
     { memexId, docId: documentId, entity: "share_token", action: "created" },
     async () => {
       const token = randomUUID();
+      const expiresAt = defaultExpiresAt();
       const [created] = await db
         .insert(shareTokens)
-        .values({ documentId, token })
+        .values({ documentId, token, createdByUserId, expiresAt })
         .returning();
       return created;
     },
@@ -134,6 +146,9 @@ export async function getSharedDocumentByToken(token: string): Promise<SharedDoc
   }
   if (tokenRow.revoked) {
     throw new ShareTokenError("revoked", "This link has been revoked");
+  }
+  if (tokenRow.expiresAt && tokenRow.expiresAt < new Date()) {
+    throw new ShareTokenError("revoked", "This link has expired");
   }
 
   const doc = await db.query.documents.findFirst({
