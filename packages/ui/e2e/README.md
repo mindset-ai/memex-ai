@@ -17,6 +17,37 @@ Playwright boots both the server (`http://localhost:8090`) and UI (`http://local
 via its `webServer` block, then runs `globalSetup`. Postgres must already be running
 (`brew services start postgresql@16`).
 
+## Running locally — first-run gotchas
+
+CI does these steps for you; a fresh local checkout does not. If `make e2e-cold` seems to
+hang, or **every** journey fails identically, it's almost always one of these — not your
+test.
+
+- **`PGPASSWORD` for the cold-DB rebuild.** `make e2e-cold` rebuilds the
+  `memex_e2e_template` DB whenever the `drizzle/*.sql` set changes (e.g. a branch that adds
+  a migration). Its `dropdb`/`createdb` steps don't carry a password — unlike the `psql -f`
+  steps, which embed it in the URL — so on a Postgres that requires auth they block on a
+  hidden `Password:` prompt **with zero output** (looks like a slow build; hangs forever).
+  Run it as `PGPASSWORD=postgres make e2e-cold`.
+- **Rebuild `@memex/shared` after a branch switch.** The UI imports `@memex/shared` from its
+  prebuilt `dist/`, not the TS source. A stale `dist` (missing an export the UI now imports)
+  throws a module-load `SyntaxError` → React never mounts → **blank page on every route →
+  every journey fails identically** with a generic "heading not found" timeout. Run
+  `pnpm --filter @memex/shared build` first. The `SyntaxError` is only visible in `trace.zip`,
+  not the screenshot.
+- **Install the browser.** `make e2e-cold` doesn't. A fresh checkout or a bumped Playwright
+  version fails at `browserType.launch` ("Executable doesn't exist") until you run
+  `pnpm exec playwright install chromium`.
+- **`MEMEX_EMIT=false` for dry runs.** Otherwise a journey's `afterEach` POSTs real
+  `test_events` to the AC ref's canonical host (prod `memex.ai` for `mindset-prod/...` refs).
+  Set `MEMEX_EMIT=false` when running locally just to confirm a journey is green.
+
+**Diagnosis shortcut:** when a journey fails, run a known-good one (e.g.
+`make e2e-cold ARGS="journey-10-primary-nav"`). If *it* fails identically, the problem is
+environmental, not your spec — stop debugging the test and read `trace.zip` (console +
+network), where the real error lives. A blank page with **no `/api/*` calls** in the trace
+means the app crashed before bootstrap (almost always the stale-`dist` `SyntaxError` above).
+
 ## The foundation (spec-172)
 
 The e2e package has **no Postgres / SQL dependency**. All seeding, reads, and cleanup go
