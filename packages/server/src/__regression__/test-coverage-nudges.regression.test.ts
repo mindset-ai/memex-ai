@@ -42,9 +42,13 @@ describe("Channel 1 — list_acs surfaces coverage gap", () => {
     expect(toolSpecs).toMatch(/verificationState/);
   });
 
-  it("emits an aggregate covered/verified header at the top", () => {
+  it("emits an aggregate coverage header that leads with the gap, not a trophy", () => {
+    // spec-207 dec-1: the headline routes through formatAcCoverageSummary.
     expect(toolSpecs).toMatch(/% covered/);
-    expect(toolSpecs).toMatch(/% verified \(of covered\)/);
+    expect(toolSpecs).toMatch(/formatAcCoverageSummary/);
+    // The self-flattering "verified (of covered)" trophy is gone — a partially
+    // covered Spec must never read as 100% verified (spec-207 ac-2).
+    expect(toolSpecs).not.toMatch(/% verified \(of covered\)/);
   });
 
   it("emits a tail nudge pointing at the test-coverage topic when any AC is untested", () => {
