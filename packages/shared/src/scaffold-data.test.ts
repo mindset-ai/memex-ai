@@ -162,3 +162,71 @@ describe('spec-176 ac-10: BASE_CREATE_FROM_DOC is react_only', () => {
     expect(block?.surface).toBe('react_only');
   });
 });
+
+// spec-202: surface the `todo` Issue as the planning parking lot — route
+// don't-forget actions in specify (PHASE_PLAN_DISCIPLINE), triage open todos
+// at the specify→build gate (TRANSITION_BUILD). ACs are verified by asserting
+// the BASE scaffold prose directly — the prose IS the deliverable.
+describe('spec-202: planning parking lot — specify routing + specify→build triage', () => {
+  const AC202 = (n: number) =>
+    `mindset-prod/memex-building-itself/specs/spec-202/acs/ac-${n}`;
+
+  const disciplineText = () =>
+    BASE_SCAFFOLD.promptBlocks.find((b) => b.id === 'phase-specify-discipline')?.text ?? '';
+  const intentText = () =>
+    BASE_SCAFFOLD.promptBlocks.find((b) => b.id === 'phase-specify-intent')?.text ?? '';
+  const buildRubricText = () =>
+    BASE_SCAFFOLD.transitions.find((t) => t.transition === 'build')?.text ?? '';
+
+  it('ac-5/ac-1: PHASE_PLAN_DISCIPLINE routes capture by kind and names register_issue({type:todo}) as the parking lot', () => {
+    tagAc(AC202(5));
+    tagAc(AC202(1)); // scope outcome ac-1 is verified by this same assertion
+    const text = disciplineText();
+    expect(text).toContain("register_issue({ type: 'todo' })");
+    expect(text).toContain('create_decision');
+    expect(text).toContain('update_section');
+    expect(text.toLowerCase()).toContain('parking lot');
+  });
+
+  it('ac-6/ac-2: PHASE_PLAN_DISCIPLINE states the decision-in-disguise anti-pattern', () => {
+    tagAc(AC202(6));
+    tagAc(AC202(2)); // scope outcome ac-2 is verified by this same assertion
+    const text = disciplineText();
+    expect(text).toContain('task in disguise');
+    expect(text).toContain('pollutes the gate');
+  });
+
+  it('ac-7: routing is single-homed — PHASE_PLAN_INTENT carries no register_issue duplicate', () => {
+    tagAc(AC202(7));
+    const intent = intentText();
+    expect(intent.length, 'phase-specify-intent block missing').toBeGreaterThan(0);
+    expect(intent).not.toContain('register_issue');
+  });
+
+  it('ac-8/ac-3: TRANSITION_BUILD enumerates open todo Issues for triage (convert/defer/close)', () => {
+    tagAc(AC202(8));
+    tagAc(AC202(3)); // scope outcome ac-3 is verified by this same assertion
+    const text = buildRubricText();
+    expect(text).toContain('todo');
+    expect(text).toContain('convert_issue_to_task');
+    expect(text.toLowerCase()).toContain('defer');
+    expect(text.toLowerCase()).toContain('close');
+    expect(text.toLowerCase()).toContain('parking lot');
+  });
+
+  it('ac-9: TRANSITION_BUILD stays advisory — open todos never force a hold', () => {
+    tagAc(AC202(9));
+    const text = buildRubricText();
+    expect(text).toContain('This rubric is advisory.');
+    expect(text).toContain('never downgrades the verdict to `hold`');
+    expect(text).toContain('Open `todo` Issues have each been converted, deferred, or closed');
+  });
+
+  it('ac-4: both edits live in scaffold-data BASE_SCAFFOLD — the single owner of scaffold prose', () => {
+    tagAc(AC202(4));
+    // Both changes are sourced from scaffold-data.ts (BASE_SCAFFOLD), not a new
+    // phases/*.md or inline server prose — which is what keeps the drift guard green.
+    expect(disciplineText()).toContain("register_issue({ type: 'todo' })");
+    expect(buildRubricText()).toContain('convert_issue_to_task');
+  });
+});

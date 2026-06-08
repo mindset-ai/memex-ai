@@ -342,8 +342,11 @@ const PHASE_PLAN_DISCIPLINE: PromptBlockNode = {
   surface: 'shared_nudge',
   text:
     '## Phase discipline\n\n' +
-    '- **Tasks are NOT first-class in `specify` or `draft`.** Never call `create_task` while the Spec is in either phase. If work needs to be captured, surface it as a decision or a section update instead. Tasks belong in `build`.\n' +
-    '- The work here is decision resolution and narrative shaping — nothing else.\n' +
+    '- **Tasks are NOT first-class in `specify` or `draft`.** Never call `create_task` while the Spec is in either phase — tasks belong in `build`. When something needs capturing, route it by what it *is*:\n' +
+    '  - **A fork to resolve** (a choice the work hinges on) → `create_decision`. Open decisions gate the specify→build transition, and that is correct — an unresolved fork *should* hold up the build.\n' +
+    '  - **An action to remember** (a follow-up, a "we must also…", a don\'t-forget) → `register_issue({ type: \'todo\' })`. This is the parking lot: gate-neutral (it never blocks the transition), build-visible, and promotable straight to a Task via `convert_issue_to_task` once you reach `build`. Do **not** file an action as a Decision — a "decision" with no options and nothing to resolve is a task in disguise, and it pollutes the gate with a non-question.\n' +
+    '  - **Context, or a choice already shaped** → fold it into the narrative with `update_section`. The Spec is the source of truth.\n' +
+    '- The *work* here is decision resolution and narrative shaping; capturing a fork, an action, or context (above) is done in passing, not as the main activity.\n' +
     '- Verify against current code before resolving — read the relevant source, don\'t lean on CLAUDE.md or prior knowledge. Decisions that name code (files, symbols, schema, routes) must be grounded against current source here in specify; the specify→build gate (`assess_spec`) will ask you to classify that grounding as `not_applicable`, `verified`, or `not_verified`.',
   rationale:
     'Specify-phase guardrails: no tasks, just decisions + narrative + code grounding. Mirrors the "## Phase discipline" block of `specify/system.md`.',
@@ -853,7 +856,8 @@ const TRANSITION_BUILD: TransitionRubric = {
     '5. **UX shape.** If the Spec has a user-facing surface, Design (or equivalent) describes the flow concretely enough that a task could be derived from it. Vague gestures ("we\'ll figure out the UI") are a hold signal.\n' +
     '6. **Scope acceptance criteria.** The Spec\'s Scope ACs (`create_ac({kind:\'scope\'})`) read as outcomes, not implementation steps, and match the agreed scope. Without scope ACs, the Spec has no measurable success criteria at the manager\'s level.\n' +
     '7. **Standards.** `search_memex({ kind: \'standard\' })` has been run for the load-bearing concerns; gaps are acknowledged (cold-start) rather than ignored.\n' +
-    '8. **Open questions.** No `question`-typed comments are unresolved on sections the upcoming tasks will touch.\n\n' +
+    '8. **Open questions.** No `question`-typed comments are unresolved on sections the upcoming tasks will touch.\n' +
+    '9. **Open `todo` Issues — the parking lot.** Walk the Spec\'s open `todo` Issues (actions parked during specify). For each, decide with the human: convert it to a Task now (`convert_issue_to_task`, which mints its verifying AC), defer it explicitly (note why and where), or close it as no-longer-relevant — in the context of the tasks now forming. This is advisory: surface the list and recommend a disposition, but an un-triaged `todo` never downgrades the verdict to `hold` (a `todo` Issue is gate-neutral by design). A `todo` carried silently into build is a forgotten commitment — make the triage visible, not blocking.\n\n' +
     '## Narrative consolidation (mandatory per dec-11)\n\n' +
     'Before recommending `proceed`, walk every resolved decision and confirm:\n\n' +
     '- Its architectural consequence appears in a narrative section. If not, propose an `add_section` or `update_section` to surface it.\n' +
@@ -866,6 +870,7 @@ const TRANSITION_BUILD: TransitionRubric = {
     '- Each resolved decision has ≥1 active implementation AC linked to it (`resolvedDecisionAcCoverage` shows zero naked).\n' +
     '- The Approach / Architecture reads coherently end-to-end.\n' +
     '- Standards search has been done; cold-start gaps are noted.\n' +
+    '- Open `todo` Issues have each been converted, deferred, or closed — none carried in silently.\n' +
     '- The user has seen and confirmed the consolidated narrative.\n\n' +
     '## Verdict format\n\n' +
     'Return a short narrative ending with one of:\n' +
