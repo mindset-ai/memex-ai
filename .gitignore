@@ -32,3 +32,4 @@ _private/
 # TypeScript incremental compile cache — produced by `tsc` when
 # `--incremental` is on (default for some configs). Per-machine artefact.
 *.tsbuildinfo
+packages/ui/public/assets/vad/

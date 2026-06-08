@@ -27,8 +27,12 @@ export interface RefreshSpecButtonProps {
   decisions: Decision[];
 }
 
+// spec-196 dec-3: the approved consolidation prompt. Kept verbatim in sync
+// with the scaffold's `opening-refresh-narrative` node (scaffold-data.ts),
+// which is the LIVE home of this copy — this component is currently unmounted
+// (the opening-turn helper superseded the top-bar button, spec-123).
 const REFRESH_PROMPT =
-  'Refresh the Spec narrative — walk every decision modified since the last consolidation and propose updates to the affected sections.';
+  'Update the spec narrative — walk every decision modified since the last consolidation and update the affected sections so the narrative reflects what was decided.';
 
 // Doc-12 DRY refactor: the staleness rule (max(createdAt, resolvedAt) >
 // narrativeLastConsolidatedAt) lives in @memex/shared/spec-readiness so
@@ -57,10 +61,10 @@ export function RefreshSpecButton({
       type="button"
       variant="secondary"
       size="sm"
-      aria-label="New decisions — update Spec narrative"
+      aria-label="New decisions — update spec narrative"
       onClick={() => chat.sendMessage(REFRESH_PROMPT)}
     >
-      New decisions — update narrative
+      New decisions — update spec narrative
     </Button>
   );
 }

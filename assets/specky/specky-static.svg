@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 330" width="240" height="330">
+  <!-- specky-static.svg — the QUIET in-view doorway variant (spec-197 dec-2 / ac-8).
+       Byte-for-byte the same artwork as specky.svg with the entire animated style
+       block (and keyframes) removed, so it renders the neutral base pose (clip
+       upright, centred, eyes open, brows level, friendly smile) and never moves.
+       The animated specky.svg is used for the live session-pill avatar (dec-1);
+       this static frame keeps the entry affordance calm and "decays-with-
+       familiarity" rather than a paperclip wobbling in every view. Derived from
+       specky.svg — keep the two artworks in sync. -->
+  <defs>
+    <linearGradient id="wire" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#c3ced9"/>
+      <stop offset="0.5" stop-color="#94a1af"/>
+      <stop offset="1" stop-color="#69778a"/>
+    </linearGradient>
+    <linearGradient id="wireHi" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#eef3f7" stop-opacity="0.9"/>
+      <stop offset="1" stop-color="#eef3f7" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <g class="float">
+    <g class="clip-root">
+
+      <path d="M 78 300 L 78 122 A 42 42 0 0 1 162 122 L 162 252 A 28 28 0 0 1 106 252 L 106 152"
+            fill="none" stroke="url(#wire)" stroke-width="16" stroke-linecap="round"/>
+
+      <path d="M 74.5 300 L 74.5 122 A 45.5 45.5 0 0 1 120 76.5"
+            fill="none" stroke="url(#wireHi)" stroke-width="3.5" stroke-linecap="round"/>
+
+      <g class="brows" fill="none" stroke="#6e7a88" stroke-width="7" stroke-linecap="round">
+        <path d="M 84 46 Q 99 35 113 45"/>
+        <path d="M 127 45 Q 141 35 156 46"/>
+      </g>
+
+      <g class="eyes">
+        <ellipse cx="99" cy="86" rx="18" ry="23" fill="#ffffff" stroke="#3d4654" stroke-width="3.5"/>
+        <ellipse cx="141" cy="86" rx="18" ry="23" fill="#ffffff" stroke="#3d4654" stroke-width="3.5"/>
+        <g class="pupils" fill="#1d242e">
+          <circle cx="99" cy="89" r="7.5"/>
+          <circle cx="141" cy="89" r="7.5"/>
+          <circle cx="96.5" cy="86" r="2.2" fill="#ffffff"/>
+          <circle cx="138.5" cy="86" r="2.2" fill="#ffffff"/>
+        </g>
+      </g>
+
+      <!-- friendly smile (the warmer face from the mock) -->
+      <path d="M 107 114 Q 120 126 133 114" fill="none" stroke="#6e7a88"
+            stroke-width="5" stroke-linecap="round"/>
+    </g>
+  </g>
+</svg>

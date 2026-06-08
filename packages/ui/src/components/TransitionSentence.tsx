@@ -79,6 +79,14 @@ export interface TransitionSentenceProps {
   openTaskCount?: number;
   /** Active-but-unverified ACs (verify→done axis). */
   unverifiedAcCount?: number;
+  /**
+   * spec-196 dec-2: whether the spec narrative is stale relative to the
+   * decisions graph (shared `isSpecNarrativeStale` semantics — any decision
+   * modified after `narrativeLastConsolidatedAt`). On the specify→build axis,
+   * once every decision is resolved, a stale narrative blocks the advancement
+   * offer: the prose must reflect the resolutions before build.
+   */
+  narrativeStale?: boolean;
   /** Fired after a successful transition so the parent can refetch / re-render. */
   onTransitioned?: (newPhase: SpecStatus) => void;
   /** The browse-confirm's [No]: return the view to the current phase's tab. */
@@ -98,6 +106,7 @@ function blockerFragments(p: {
   totalTaskCount: number;
   openTaskCount: number;
   unverifiedAcCount: number;
+  narrativeStale: boolean;
 }): BlockerPart[] {
   const parts: BlockerPart[] = [];
   if (p.currentPhase === 'specify') {
@@ -105,6 +114,15 @@ function blockerFragments(p: {
       parts.push({ em: 'Decisions', rest: 'must be created' });
     } else if (p.openDecisionCount > 0) {
       parts.push({ em: plural(p.openDecisionCount, 'Decision'), rest: 'must be resolved' });
+    } else if (p.narrativeStale) {
+      // spec-196 dec-2: decisions are settled but the prose hasn't caught up.
+      // Only fires once every decision is resolved — while decisions are still
+      // open, consolidating would be premature (the narrative will go stale
+      // again as they resolve), so the decisions blocker leads alone.
+      parts.push({
+        em: 'The spec narrative',
+        rest: 'must be updated to reflect the resolved decisions',
+      });
     }
     if (!p.hasAcceptanceCriteria) {
       parts.push({ em: 'Acceptance Criteria (ACs)', rest: 'must be created' });
@@ -168,6 +186,7 @@ export function TransitionSentence({
   totalTaskCount = 0,
   openTaskCount = 0,
   unverifiedAcCount = 0,
+  narrativeStale = false,
   onTransitioned,
   onCancelBrowse,
 }: TransitionSentenceProps) {
@@ -194,7 +213,15 @@ export function TransitionSentence({
     totalTaskCount,
     openTaskCount,
     unverifiedAcCount,
+    narrativeStale,
   });
+
+  // spec-196 dec-3: when the staleness blocker is present, the sentence carries
+  // the how-to tail — the user shouldn't have to know where the refresh lives.
+  const narrativeBlocked = blockers.some((b) => b.em === 'The spec narrative');
+  const refreshTail = narrativeBlocked
+    ? ' — use the refresh action to generate the update prompt'
+    : '';
 
   async function handleYes() {
     if (!target) return;
@@ -248,7 +275,8 @@ export function TransitionSentence({
       // buttons to press.
       return (
         <p className="text-sm text-secondary" data-testid="transition-sentence">
-          {renderBlockers(blockers)} before this spec can move to {phaseDisplayName(target)}.
+          {renderBlockers(blockers)} before this spec can move to {phaseDisplayName(target)}
+          {refreshTail}.
         </p>
       );
     }
@@ -281,7 +309,8 @@ export function TransitionSentence({
     }
     return (
       <p className="text-sm text-secondary" data-testid="transition-sentence">
-        {renderBlockers(blockers)} before {phaseDisplayName(target)}.
+        {renderBlockers(blockers)} before {phaseDisplayName(target)}
+        {refreshTail}.
       </p>
     );
   }
@@ -292,7 +321,12 @@ export function TransitionSentence({
       : `Are you sure you want to move this spec to ${phaseDisplayName(target)}?`;
   return (
     <p className="text-sm text-secondary" data-testid="transition-sentence">
-      {showSummary && <>{renderBlockers(blockers)} before {phaseDisplayName(target)}. </>}
+      {showSummary && (
+        <>
+          {renderBlockers(blockers)} before {phaseDisplayName(target)}
+          {refreshTail}.{' '}
+        </>
+      )}
       {question} {yesButton} {noButton}
       {errorNote}
     </p>

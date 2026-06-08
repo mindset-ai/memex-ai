@@ -5,7 +5,11 @@ import { and, eq, isNull } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import { documents, decisions, tasks, docComments, docSections, issues } from "../db/schema.js";
 import type { Decision, Task, DocSection } from "../db/schema.js";
-import { listResolvedDecisionImplAcCoverage } from "./acs.js";
+import {
+  listResolvedDecisionImplAcCoverage,
+  listAcsForBriefWithVerification,
+  STALE_THRESHOLD_DAYS,
+} from "./acs.js";
 import { NotFoundError, ValidationError } from "../types/errors.js";
 import { getReadyTasks } from "./tasks.js";
 import { parsePhaseDescriptions } from "../mcp/phase-descriptions.js";
@@ -211,6 +215,31 @@ export interface DecisionAcCoverageFact {
   implementationAcCount: number;
 }
 
+/**
+ * spec-120 ac-1 — AC verification roll-up for the fact sheet. Drawn from the
+ * SAME `test_events` derivation `list_acs` uses (`listAcsForBriefWithVerification`
+ * → `deriveVerificationState`), so the deterministic gate and `list_acs` can
+ * never silently disagree. Counts cover only `active` ACs (matching the
+ * `list_acs` default), and the `failing` / `stale` handles are surfaced inline
+ * so the done-rubric hold signal can name them without a second tool call.
+ */
+export interface AcVerificationFact {
+  /** Active ACs on this Spec (matches `list_acs` default scope). */
+  totalActive: number;
+  /** Active ACs with ≥1 tagged test event (any status). */
+  covered: number;
+  verified: number;
+  failing: number;
+  stale: number;
+  untested: number;
+  /** Manually accepted (spec-188) with no failing evidence. */
+  accepted: number;
+  /** Handles (`ac-N`) of every `failing` AC — the hold signals. */
+  failingHandles: string[];
+  /** Handles (`ac-N`) of every `stale` AC — also a hold signal at `done`. */
+  staleHandles: string[];
+}
+
 export interface PhaseAssessment {
   briefId: string;
   specHandle: string;
@@ -243,6 +272,22 @@ export interface PhaseAssessment {
     incompleteTasks: { handle: string; title: string; status: string; blocked: boolean }[];
     unresolvedDriftCount: number;
     unresolvedPlanRevisionCount: number;
+    /**
+     * spec-120 ac-3: total open (unresolved) comments whose target lives on
+     * this Spec, plus the same figure broken down by `commentType`. The
+     * breakdown lets a verifier distinguish hold-signals (review / question /
+     * drift / plan_revision) from benign provenance notes (progress / plan)
+     * inline, without a separate `list_comments` call. `openCommentsCount` is
+     * the sum of `openCommentsByType` values.
+     */
+    openCommentsCount: number;
+    openCommentsByType: Record<string, number>;
+    /**
+     * spec-120 ac-1: AC verification roll-up, derived from the same
+     * `test_events` path `list_acs` uses so the gate and `list_acs` speak with
+     * one voice. See `AcVerificationFact`.
+     */
+    acVerification: AcVerificationFact;
     /**
      * spec-112 t-8: count of Issues still in flight on this Spec (`open` +
      * `converted`). Drives the SOFT verify→done warning (ac-17). 0 when the Spec
@@ -280,26 +325,101 @@ export interface PhaseAssessment {
   codeGroundingPromptPending?: boolean;
 }
 
-// Open-comments count used by the shared readiness computation. Counts every
-// unresolved comment whose target lives on the Spec, regardless of type.
-async function countOpenCommentsOnSpec(
+// spec-120 ac-3: open-comments on a Spec, both as a total AND broken down by
+// `commentType`. Counts every unresolved comment whose target (section /
+// decision / task) lives on this Spec. One query; the by-type map lets the
+// fact sheet distinguish hold-signals from provenance notes inline.
+async function breakdownOpenCommentsOnSpec(
   memexId: string,
   sectionIdSet: Set<string>,
   decisionIdSet: Set<string>,
   taskIdSet: Set<string>,
-): Promise<number> {
+): Promise<{ total: number; byType: Record<string, number> }> {
   const open = await db.query.docComments.findMany({
     where: and(
       eq(docComments.memexId, memexId),
       isNull(docComments.resolvedAt),
     ),
   });
-  return open.filter(
+  const onSpec = open.filter(
     (c) =>
       (c.sectionId !== null && sectionIdSet.has(c.sectionId)) ||
       (c.decisionId !== null && decisionIdSet.has(c.decisionId)) ||
       (c.taskId !== null && taskIdSet.has(c.taskId)),
-  ).length;
+  );
+  const byType: Record<string, number> = {};
+  for (const c of onSpec) {
+    byType[c.commentType] = (byType[c.commentType] ?? 0) + 1;
+  }
+  return { total: onSpec.length, byType };
+}
+
+// Open-comments count used by the shared readiness computation. Counts every
+// unresolved comment whose target lives on the Spec, regardless of type — a
+// thin wrapper over `breakdownOpenCommentsOnSpec` so the total and the by-type
+// view derive from a single query path.
+async function countOpenCommentsOnSpec(
+  memexId: string,
+  sectionIdSet: Set<string>,
+  decisionIdSet: Set<string>,
+  taskIdSet: Set<string>,
+): Promise<number> {
+  const { total } = await breakdownOpenCommentsOnSpec(
+    memexId,
+    sectionIdSet,
+    decisionIdSet,
+    taskIdSet,
+  );
+  return total;
+}
+
+// spec-120 ac-1: AC verification roll-up for a single Spec, computed through
+// `listAcsForBriefWithVerification` — the EXACT path `list_acs` uses — so the
+// gate's counts and `list_acs` derive from one `deriveVerificationState` call
+// and can never silently disagree. Scoped to `active` ACs to match the
+// `list_acs` default; failing / stale handles are collected for the hold signal.
+async function summarizeAcVerification(
+  memexId: string,
+  briefId: string,
+): Promise<AcVerificationFact> {
+  const rows = (await listAcsForBriefWithVerification(memexId, briefId)).filter(
+    (r) => r.ac.status === "active",
+  );
+  const fact: AcVerificationFact = {
+    totalActive: rows.length,
+    covered: 0,
+    verified: 0,
+    failing: 0,
+    stale: 0,
+    untested: 0,
+    accepted: 0,
+    failingHandles: [],
+    staleHandles: [],
+  };
+  for (const r of rows) {
+    if (r.tests.length > 0) fact.covered += 1;
+    const handle = `ac-${r.ac.seq}`;
+    switch (r.verificationState) {
+      case "verified":
+        fact.verified += 1;
+        break;
+      case "failing":
+        fact.failing += 1;
+        fact.failingHandles.push(handle);
+        break;
+      case "stale":
+        fact.stale += 1;
+        fact.staleHandles.push(handle);
+        break;
+      case "untested":
+        fact.untested += 1;
+        break;
+      case "accepted":
+        fact.accepted += 1;
+        break;
+    }
+  }
+  return fact;
 }
 
 // spec-112 t-8 — count the Issues that are still in flight on a Spec:
@@ -496,6 +616,22 @@ export async function assessPhaseTransition(
   // SOFT verify→done warning below and the matching fact.
   const openIssuesCount = await countOpenIssuesOnSpec(memexId, briefId);
 
+  // spec-120 ac-3: open comments on this Spec, total + by-type. Computed once
+  // here; `.total` feeds the shared readiness view below (same figure as
+  // before) and `.byType` rides the fact sheet so hold-signals are
+  // distinguishable from provenance notes inline.
+  const openComments = await breakdownOpenCommentsOnSpec(
+    memexId,
+    sectionIdSet,
+    decisionIdSet,
+    taskIdSet,
+  );
+
+  // spec-120 ac-1: AC verification roll-up drawn from the same `test_events`
+  // derivation `list_acs` uses, so the gate and `list_acs` can never silently
+  // disagree. Drives the `done` hold signal below (ac-2) and the fact sheet.
+  const acVerification = await summarizeAcVerification(memexId, briefId);
+
   // b-68 t-7: the legacy per-target `.md`-sourced rubric is retired. Only the
   // friendly note for the rubric-less draft→specify transition remains; the
   // composed `rubricProse` below carries the full rubric prose.
@@ -552,6 +688,30 @@ export async function assessPhaseTransition(
       `There ${openIssuesCount === 1 ? "is" : "are"} ${openIssuesCount} open or converted Issue${openIssuesCount === 1 ? "" : "s"} on this Spec. ` +
         `Closing it to 'done' leaves that work unresolved — resolve, convert, or mark them wont_fix first, or close anyway if intentional.`,
     );
+  }
+
+  // spec-120 ac-2: failing / stale AC hold signal on the verify→done gate.
+  // Mirrors how open drift is surfaced — an explicit warning line that NAMES
+  // the offending AC handles, drawn from the same `test_events` derivation
+  // `list_acs` uses (acVerification above). Closing a Spec to 'done' while a
+  // tagged test is emitting `fail`, or while a once-passing AC has gone `stale`
+  // (>7d), means the gate would otherwise read clean while an acceptance
+  // criterion is unmet — exactly the gap spec-116's dry-runs surfaced. SOFT
+  // (a nudge, not a hard gate), consistent with the other done-phase warnings.
+  if (targetPhase === "done") {
+    const { failing, stale, failingHandles, staleHandles } = acVerification;
+    if (failing > 0) {
+      nudges.push(
+        `${failing} acceptance criteri${failing === 1 ? "on is" : "a are"} FAILING (${failingHandles.join(", ")}). ` +
+          `A clean done gate would otherwise hide this — fix the code or the test so the tagged test passes before closing to 'done'.`,
+      );
+    }
+    if (stale > 0) {
+      nudges.push(
+        `${stale} acceptance criteri${stale === 1 ? "on is" : "a are"} STALE (${staleHandles.join(", ")}) — last passing run is older than ${STALE_THRESHOLD_DAYS} days. ` +
+          `Re-run the tagged tests to refresh verification before closing to 'done', or close anyway if intentional.`,
+      );
+    }
   }
 
   // Decisions-need-ACs gate: any resolved decision on the specify→build path that
@@ -613,12 +773,8 @@ export async function assessPhaseTransition(
 
   // Cross-surface readiness — same shape consumed by the React UI's
   // PhaseDropdown, computed via @memex/shared so behaviour stays in lockstep.
-  const openCommentCountAll = await countOpenCommentsOnSpec(
-    memexId,
-    sectionIdSet,
-    decisionIdSet,
-    taskIdSet,
-  );
+  // spec-120 ac-3: the total open-comment figure reuses the by-type breakdown
+  // computed above — one query path, no double count.
   const readiness = computeSpecReadiness({
     currentPhase: spec.status as SpecPhase,
     decisions: allDecisions.map((d) => ({
@@ -627,7 +783,7 @@ export async function assessPhaseTransition(
       resolvedAt: d.resolvedAt,
       status: d.status as 'open' | 'resolved' | 'candidate' | 'rejected',
     })),
-    openCommentCount: openCommentCountAll,
+    openCommentCount: openComments.total,
     narrativeLastConsolidatedAt: spec.narrativeLastConsolidatedAt ?? null,
     // spec-112 t-8: same in-flight Issue count feeds the shared readiness view
     // so the React UI's PhaseDropdown and the MCP fact sheet speak with one
@@ -660,6 +816,9 @@ export async function assessPhaseTransition(
       })),
       unresolvedDriftCount: specDrift.length,
       unresolvedPlanRevisionCount: specPlanRevisions.length,
+      openCommentsCount: openComments.total,
+      openCommentsByType: openComments.byType,
+      acVerification,
       openIssuesCount,
       sections: sectionRows.map((s) => ({
         sectionType: s.sectionType,
@@ -710,7 +869,32 @@ export function formatPhaseAssessment(assessment: PhaseAssessment): string {
   }
   lines.push(`- Unresolved drift comments: ${f.unresolvedDriftCount}`);
   lines.push(`- Unresolved plan_revision comments: ${f.unresolvedPlanRevisionCount}`);
+  // spec-120 ac-3: open comments broken down by type so hold-signals
+  // (review / question / drift / plan_revision) are distinguishable from
+  // provenance notes (progress / plan) without a separate list_comments call.
+  lines.push(`- Open comments: ${f.openCommentsCount}`);
+  if (f.openCommentsCount > 0) {
+    const byType = Object.entries(f.openCommentsByType).sort((a, b) =>
+      a[0].localeCompare(b[0]),
+    );
+    for (const [type, count] of byType) {
+      lines.push(`  - ${type}: ${count}`);
+    }
+  }
   lines.push(`- Open/converted Issues: ${f.openIssuesCount}`);
+  // spec-120 ac-1: AC verification state, from the same test_events derivation
+  // list_acs uses — the gate and list_acs can never silently disagree. Failing
+  // / stale handles are named inline so a verifier never needs a second call.
+  const acv = f.acVerification;
+  lines.push(
+    `- AC verification: ${acv.totalActive} active — ${acv.verified} verified, ${acv.failing} failing, ${acv.stale} stale, ${acv.untested} untested${acv.accepted > 0 ? `, ${acv.accepted} accepted` : ""}`,
+  );
+  if (acv.failingHandles.length > 0) {
+    lines.push(`  - FAILING: ${acv.failingHandles.join(", ")}`);
+  }
+  if (acv.staleHandles.length > 0) {
+    lines.push(`  - STALE: ${acv.staleHandles.join(", ")}`);
+  }
   lines.push(`- Sections: ${f.sections.length}`);
   if (f.resolvedDecisionCoverage.length > 0) {
     lines.push("- Resolved-decision narrative coverage (best-effort):");

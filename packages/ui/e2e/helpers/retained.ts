@@ -64,6 +64,25 @@ export async function seedSpec(opts: {
   return call("POST", "/seed-spec", opts);
 }
 
+/** spec-196: set a doc's status through the real updateDocStatus service —
+ *  for phases the UI can't browse to (e.g. `done` for the read view). */
+export async function setDocStatus(opts: {
+  memexId: string;
+  docId: string;
+  status: string;
+}): Promise<{ docId: string; status: string }> {
+  return call("POST", "/set-doc-status", opts);
+}
+
+/** spec-196: stamp narrativeLastConsolidatedAt = now() through the real
+ *  markNarrativeConsolidated service (assess_spec consolidate's effect). */
+export async function consolidateNarrative(opts: {
+  memexId: string;
+  docId: string;
+}): Promise<{ consolidatedAt: string }> {
+  return call("POST", "/consolidate-narrative", opts);
+}
+
 /** Seed a standard / document (first section carries `body` for FTS). */
 export async function seedDoc(opts: {
   memexId: string;

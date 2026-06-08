@@ -326,6 +326,17 @@ function InvitePersonIcon() {
   );
 }
 
+// Maps a nav link's in-tenant path to its voice-guide element id (the
+// GLOBAL_GUIDE_ELEMENTS in @memex/shared). Only the always-visible links are
+// tagged; soft-launch-hidden ones (Pulse, Scaffold) are intentionally absent.
+const NAV_GUIDE_IDS: Record<string, string> = {
+  '/specs': 'specs-nav',
+  '/issues': 'issues-nav',
+  '/insights': 'insights-nav',
+  '/standards': 'standards-nav',
+  '/drift': 'drift-nav',
+};
+
 function NavItem({
   to,
   label,
@@ -353,9 +364,14 @@ function NavItem({
   const resolvedTo = resolveNavTo(to, pathname, session?.memberships);
   const tenantSuffix = stripTenantPrefix(pathname);
   const matchedAlt = altPaths?.includes(tenantSuffix) ?? false;
+  // spec-190 (dec-4 / t-5): tag the global nav links so the voice guide can
+  // highlight them ("show, don't just tell"). The ids are the GLOBAL_GUIDE_ELEMENTS
+  // in @memex/shared guide-registry; keep the two in sync.
+  const guideId = NAV_GUIDE_IDS[to];
   return (
     <NavLink
       to={resolvedTo}
+      data-guide-id={guideId}
       className={({ isActive }) => {
         const active = isActive || matchedAlt;
         return [
