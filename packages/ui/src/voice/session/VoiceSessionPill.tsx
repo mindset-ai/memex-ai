@@ -42,6 +42,22 @@ export function VoiceSessionPill(): React.JSX.Element {
       </button>
 
       <div className="ml-1 flex items-center gap-1">
+        {/* Explicit Stop — appears the moment the agent has audio to interrupt
+            (speaking or ducked). Gives the user deliberate, discoverable control
+            without waiting on the VAD-driven barge-in; same hard-cut path as the
+            body tap (session.interrupt → orchestrator.interrupt → tapInterrupt). */}
+        {(session.loopState === 'speaking' || session.loopState === 'ducked') && (
+          <button
+            type="button"
+            data-voice-stop
+            aria-label="Stop the guide"
+            title="Stop"
+            onClick={session.interrupt}
+            className="rounded-full p-1 text-accent hover:bg-surface-hover"
+          >
+            <span aria-hidden className="block h-3 w-3 rounded-[2px] bg-current" />
+          </button>
+        )}
         <button
           type="button"
           data-voice-mute
