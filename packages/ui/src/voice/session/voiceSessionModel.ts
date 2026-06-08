@@ -34,7 +34,6 @@ export type Earcon = 'start' | 'ping' | 'end' | 'error';
 export interface VoiceSessionState {
   status: SessionStatus;
   loopState: VoiceLoopState;
-  muted: boolean;
   /** False when the browser exposes no usable mic — disables the affordance. */
   micAvailable: boolean;
   /** Last error message, surfaced in the error state. */
@@ -45,7 +44,6 @@ export function initialVoiceSessionState(micAvailable: boolean): VoiceSessionSta
   return {
     status: 'inactive',
     loopState: 'idle',
-    muted: false,
     micAvailable,
     error: null,
   };
@@ -63,7 +61,6 @@ export function isAffordanceDisabled(s: VoiceSessionState): boolean {
 
 /** Human label for the current pill state (spoken-UX copy, not a transcript). */
 export function loopStateLabel(s: VoiceSessionState): string {
-  if (s.muted) return 'Muted';
   switch (s.loopState) {
     case 'listening':
       return 'Listening…';

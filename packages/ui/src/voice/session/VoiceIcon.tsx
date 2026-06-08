@@ -26,8 +26,8 @@ export function VoiceIcon({ mark }: VoiceIconProps): React.JSX.Element {
     <button
       type="button"
       data-voice-affordance
-      aria-label={disabled ? 'Voice guide (microphone unavailable)' : 'Ask the voice guide'}
-      title={disabled ? 'Microphone unavailable' : 'Ask the voice guide'}
+      aria-label={disabled ? 'Specky (microphone unavailable)' : 'Ask Specky'}
+      title={disabled ? 'Microphone unavailable' : 'Ask Specky'}
       disabled={disabled || requesting}
       onClick={() => void session.start()}
       className="flex h-12 w-12 items-center justify-center rounded-full bg-surface shadow-lg ring-1 ring-border transition hover:scale-105 disabled:opacity-40 disabled:hover:scale-100"

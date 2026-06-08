@@ -28,7 +28,7 @@ function harness(playedMs = 0) {
     abortLlm: vi.fn(),
     onCut: vi.fn(),
   };
-  const ctrl = new BargeInController(playback, cb, { cutMs: 280 });
+  const ctrl = new BargeInController(playback, cb, { cutMs: 280, restoreMs: 120 });
   return { ctrl, playback, cb };
 }
 
@@ -59,17 +59,41 @@ describe('BargeInController duck-then-cut (ac-24)', () => {
     expect(playback.flush).not.toHaveBeenCalled();
   });
 
-  it('restores (no cut) when speech ends before the cut threshold — a transient', () => {
+  it('restores (no cut) only after SUSTAINED silence — a transient cough/backchannel', () => {
     const { ctrl, playback, cb } = harness();
     ctrl.startTurn();
     ctrl.onSpeechStart();
-    vi.advanceTimersByTime(150);
-    ctrl.onSpeechEnd(); // backchannel / cough
+    vi.advanceTimersByTime(80); // a short blip
+    ctrl.onSpeechEnd();
+    // A single gap does NOT restore immediately — it arms the restore timer.
+    expect(playback.restore).not.toHaveBeenCalled();
+    expect(ctrl.state).toBe('ducked');
+    vi.advanceTimersByTime(120); // restoreMs of continuous silence → transient confirmed
     expect(playback.restore).toHaveBeenCalledTimes(1);
     expect(ctrl.state).toBe('speaking');
     vi.advanceTimersByTime(500); // the armed cut must have been cancelled
     expect(cb.abortTts).not.toHaveBeenCalled();
     expect(cb.onCut).not.toHaveBeenCalled();
+  });
+
+  it('tolerates a short gap mid-interruption and still cuts (choppy real speech)', () => {
+    const { ctrl, playback, cb } = harness(120);
+    ctrl.startTurn();
+    ctrl.appendChunk({ chars: [...'hi there'], charStartMs: [0, 50, 100, 150, 200, 250, 300, 350] });
+    ctrl.onSpeechStart(); // t=0: duck + arm cut(280)
+    vi.advanceTimersByTime(100); // t=100
+    ctrl.onSpeechEnd(); // gap begins → arm restore(120 → would fire at t=220)
+    vi.advanceTimersByTime(80); // t=180, gap=80ms < restoreMs → still ducked, no restore
+    expect(playback.restore).not.toHaveBeenCalled();
+    ctrl.onSpeechStart(); // speech resumes → cancels restore, cut timer keeps running
+    expect(ctrl.state).toBe('ducked');
+    vi.advanceTimersByTime(100); // t=280 → the original cut fires
+    expect(playback.flush).toHaveBeenCalledTimes(1);
+    expect(cb.abortTts).toHaveBeenCalledTimes(1);
+    expect(cb.onCut).toHaveBeenCalledWith('hi ');
+    expect(ctrl.state).toBe('cut');
+    expect(playback.restore).not.toHaveBeenCalled(); // never wrongly restored
+    tagAc(AC24);
   });
 
   it('cuts on sustained speech: flush + abort TTS + abort LLM + truncated turn', () => {
