@@ -57,8 +57,9 @@ describe('WhatsNewRibbon (spec-200 t-5)', () => {
 
     const ribbon = await screen.findByTestId('whats-new-ribbon');
     expect(ribbon).toBeTruthy();
-    // Confetti burst on slide-up.
-    expect(screen.getByTestId('whats-new-confetti')).toBeTruthy();
+    // Confetti burst on slide-up. Use findBy (not getBy): confetti mounts one
+    // effect-tick after the ribbon, so a synchronous query races the render in CI.
+    expect(await screen.findByTestId('whats-new-confetti')).toBeTruthy();
 
     // Click opens the popup with both entries, in the given (newest-first) order.
     fireEvent.click(ribbon);
