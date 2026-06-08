@@ -1,28 +1,31 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 330" width="240" height="330">
   <style>
+    /* spec-197 — Specky idle loop. Livelier per the spec-200 mock: a
+       continuous BOB (float) + soft SWAY (tilt), over the glance/blink/brow
+       life. Still an idle loop only (dec-1=a), no session-state variants.
+       NOTE: keep this asset apostrophe-free so Vite inlines it as a URL-
+       encoded data URI (an apostrophe trips Vite nestedQuotesRE -> base64,
+       which the spec-197 wiring test cannot decode). */
+    .float { animation: bob 3.4s ease-in-out infinite; }
     .clip-root {
       transform-box: fill-box;
       transform-origin: 50% 90%;
-      animation: wobble 7s ease-in-out infinite;
+      animation: sway 3.4s ease-in-out infinite;
     }
-    .pupils {
-      animation: look 9s ease-in-out infinite;
-    }
+    .pupils { animation: look 9s ease-in-out infinite; }
     .eyes {
       transform-box: fill-box;
       transform-origin: 50% 50%;
       animation: blink 6.5s linear infinite;
     }
-    .brows {
-      animation: brows 9s ease-in-out infinite;
+    .brows { animation: brows 9s ease-in-out infinite; }
+    @keyframes bob {
+      0%, 100% { transform: translateY(0px); }
+      50%      { transform: translateY(-11px); }
     }
-    @keyframes wobble {
-      0%, 68%  { transform: rotate(0deg); }
-      71%      { transform: rotate(-5deg); }
-      74%      { transform: rotate(4deg); }
-      77%      { transform: rotate(-2.5deg); }
-      80%      { transform: rotate(1.5deg); }
-      83%, 100% { transform: rotate(0deg); }
+    @keyframes sway {
+      0%, 100% { transform: rotate(-2deg); }
+      50%      { transform: rotate(2deg); }
     }
     @keyframes look {
       0%, 16%   { transform: translate(0px, 0px); }
@@ -44,20 +47,11 @@
       84%, 100% { transform: translate(0px, 0px); }
     }
 
-    /* spec-197 dec-5(b) / ac-4 — honour prefers-reduced-motion by freezing
-       Specky to a neutral static frame (animation:none resets each element to
-       its base pose: clip upright, pupils centred, eyes open, brows level).
-       The character is never hidden — the affordance must stay discoverable
-       for motion-sensitive users. This rule lives inside the SVG so the asset
-       self-handles reduced motion even when embedded as a plain <img>, with
-       no consuming-component CSS required (dec-3=a drop-in img). */
+    /* dec-5(b) / ac-4 — prefers-reduced-motion freezes Specky to its base
+       pose. The character is never hidden, so the affordance stays
+       discoverable for motion-sensitive users. */
     @media (prefers-reduced-motion: reduce) {
-      .clip-root,
-      .pupils,
-      .eyes,
-      .brows {
-        animation: none;
-      }
+      .float, .clip-root, .pupils, .eyes, .brows { animation: none; }
     }
   </style>
 
@@ -73,28 +67,34 @@
     </linearGradient>
   </defs>
 
-  <g class="clip-root">
+  <g class="float">
+    <g class="clip-root">
 
-    <path d="M 78 300 L 78 122 A 42 42 0 0 1 162 122 L 162 252 A 28 28 0 0 1 106 252 L 106 152"
-          fill="none" stroke="url(#wire)" stroke-width="16" stroke-linecap="round"/>
+      <path d="M 78 300 L 78 122 A 42 42 0 0 1 162 122 L 162 252 A 28 28 0 0 1 106 252 L 106 152"
+            fill="none" stroke="url(#wire)" stroke-width="16" stroke-linecap="round"/>
 
-    <path d="M 74.5 300 L 74.5 122 A 45.5 45.5 0 0 1 120 76.5"
-          fill="none" stroke="url(#wireHi)" stroke-width="3.5" stroke-linecap="round"/>
+      <path d="M 74.5 300 L 74.5 122 A 45.5 45.5 0 0 1 120 76.5"
+            fill="none" stroke="url(#wireHi)" stroke-width="3.5" stroke-linecap="round"/>
 
-    <g class="brows" fill="none" stroke="#6e7a88" stroke-width="7" stroke-linecap="round">
-      <path d="M 84 46 Q 99 35 113 45"/>
-      <path d="M 127 45 Q 141 35 156 46"/>
-    </g>
-
-    <g class="eyes">
-      <ellipse cx="99" cy="86" rx="18" ry="23" fill="#ffffff" stroke="#3d4654" stroke-width="3.5"/>
-      <ellipse cx="141" cy="86" rx="18" ry="23" fill="#ffffff" stroke="#3d4654" stroke-width="3.5"/>
-      <g class="pupils" fill="#1d242e">
-        <circle cx="99" cy="89" r="7.5"/>
-        <circle cx="141" cy="89" r="7.5"/>
-        <circle cx="96.5" cy="86" r="2.2" fill="#ffffff"/>
-        <circle cx="138.5" cy="86" r="2.2" fill="#ffffff"/>
+      <g class="brows" fill="none" stroke="#6e7a88" stroke-width="7" stroke-linecap="round">
+        <path d="M 84 46 Q 99 35 113 45"/>
+        <path d="M 127 45 Q 141 35 156 46"/>
       </g>
+
+      <g class="eyes">
+        <ellipse cx="99" cy="86" rx="18" ry="23" fill="#ffffff" stroke="#3d4654" stroke-width="3.5"/>
+        <ellipse cx="141" cy="86" rx="18" ry="23" fill="#ffffff" stroke="#3d4654" stroke-width="3.5"/>
+        <g class="pupils" fill="#1d242e">
+          <circle cx="99" cy="89" r="7.5"/>
+          <circle cx="141" cy="89" r="7.5"/>
+          <circle cx="96.5" cy="86" r="2.2" fill="#ffffff"/>
+          <circle cx="138.5" cy="86" r="2.2" fill="#ffffff"/>
+        </g>
+      </g>
+
+      <!-- friendly smile (the warmer face from the mock) -->
+      <path d="M 107 114 Q 120 126 133 114" fill="none" stroke="#6e7a88"
+            stroke-width="5" stroke-linecap="round"/>
     </g>
   </g>
 </svg>
