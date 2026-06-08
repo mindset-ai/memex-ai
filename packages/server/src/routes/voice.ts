@@ -52,10 +52,13 @@ import { GUIDE_TOOLS } from "@memex/shared";
 import type { MemexResolverEnv } from "../middleware/memex-resolver.js";
 import type { SessionEnv } from "../middleware/session.js";
 
-// Same model as the main agent proxy (routes/llm.ts). Voice replies are short
-// (max_tokens kept low) and TTS streams from the first token, so latency rides
-// on time-to-first-token, not total length.
-const GUIDE_MODEL = "claude-sonnet-4-5-20250929";
+// The voice guide deliberately runs a FASTER model than the main agent proxy
+// (routes/llm.ts uses Sonnet). Voice replies are short (max_tokens kept low) and
+// TTS streams from the first token, so the FELT latency is time-to-first-token —
+// which dominated the "thinking" gap (int guide-chat ran ~2-3s/turn on Sonnet).
+// Haiku's lower TTFT is the win for short product-navigation answers; the small
+// quality trade is acceptable here (spec-190 latency follow-up).
+const GUIDE_MODEL = "claude-haiku-4-5-20251001";
 
 const guideChatSchema = z.object({
   messages: z.array(z.object({ role: z.enum(["user", "assistant"]), content: z.any() })),
