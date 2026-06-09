@@ -36,6 +36,10 @@ export {
   seedTestEvent,
   seedTask,
   signupWithToken,
+  seedAssignee,
+  setMemexVisibility,
+  seedActivityRow,
+  disableMember,
   type PersonalMemex,
   type SeededOrg,
 } from "./seed.js";
