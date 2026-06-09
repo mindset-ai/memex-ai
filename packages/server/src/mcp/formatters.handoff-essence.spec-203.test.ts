@@ -11,10 +11,11 @@
 import { describe, it, expect } from "vitest";
 import { tagAc } from "@memex-ai-ac/vitest";
 // spec-203 ac-15: the footer is no longer composed inside formatFullDocState —
-// the single seat `decideFooter` authors it via the exported `formatSpecGuidance`
-// composer. These tests exercise that composer directly (the footer content is
-// unchanged); the seat + choke-point delivery is covered by the integration
-// tests in services/spec-footer-on-terse.integration.test.ts.
+// the single seat `composeGuidanceEnvelope` (spec-219) authors it via the
+// exported `formatSpecGuidance` / `formatSpecGuidanceBody` composer. These tests
+// exercise that composer directly (the footer content is unchanged); the seat +
+// choke-point delivery is covered by the integration tests in
+// services/spec-203-footer.integration.test.ts.
 import { formatSpecGuidance } from "./formatters.js";
 import { FOOTER_DELIMITER } from "./footer-delimiter.js";
 import type { Doc, DocSection } from "../db/schema.js";

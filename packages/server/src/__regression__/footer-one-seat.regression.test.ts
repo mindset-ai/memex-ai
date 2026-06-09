@@ -1,9 +1,9 @@
 // spec-203 ac-14/ac-15/ac-16/ac-17 — the footer has ONE seat of intelligence.
 //
 // A tool call is the client phoning home; the server returns the real result,
-// then uses that one opening to steer the client through a footer authored in a
-// SINGLE place (`decideFooter`) and attached at a SINGLE choke point
-// (`runToolWithSpecTraffic`), on EVERY Spec-resolving call. Source-text guards
+// then uses that one opening to steer the client through guidance authored in a
+// SINGLE place (`composeGuidanceEnvelope`, spec-219) and attached at a SINGLE
+// choke point (`runToolWithSpecTraffic`), on EVERY Spec-resolving call. Source-text guards
 // (no DB) pin the wiring so a future refactor cannot re-introduce a second footer
 // author or re-gate persistence. The behavioural proof (footer rides terse +
 // persisted) lives in services/spec-203-footer.integration.test.ts.
@@ -38,13 +38,13 @@ describe("ac-15 — one seat: the footer is composed in exactly one place", () =
     expect(bodyFn).not.toMatch(/lines\.push\(formatSpecGuidance\(/);
   });
 
-  it("decideFooter is the single seat that authors footer content", () => {
+  it("composeGuidanceEnvelope is the single seat that authors guidance content", () => {
     tagAc(AC(15));
     tagAc(AC(16));
-    expect(toolSpecs).toMatch(/export async function decideFooter\(/);
+    expect(toolSpecs).toMatch(/export async function composeGuidanceEnvelope\(/);
     // Sole author: nothing else in spec-traffic composes a footer; it only calls
     // the seat.
-    expect(specTraffic).toMatch(/const \{ decideFooter \} = await import/);
+    expect(specTraffic).toMatch(/const \{ composeGuidanceEnvelope \} = await import/);
   });
 });
 
@@ -52,7 +52,10 @@ describe("ac-14 / ac-16 — the seat is invoked at the one choke point, every ca
   it("runToolWithSpecTraffic attaches the seat's footer for every resolved Spec", () => {
     tagAc(AC(14));
     tagAc(AC(16));
-    expect(specTraffic).toMatch(/decideFooter\(target\.memexId, target\.docId, ctx\)/);
+    expect(specTraffic).toMatch(/composeGuidanceEnvelope\(/);
+    // The choke point owns the single delimiter, assembling header + body +
+    // FOOTER_DELIMITER + footer (spec-219 ac-7).
+    expect(specTraffic).toMatch(/\$\{FOOTER_DELIMITER\}\\n\$\{footer\}/);
     // Only when a Spec resolved, and only when no footer is already present
     // (defence-in-depth — the body composes none).
     expect(specTraffic).toMatch(/if \(target && !text\.includes\(FOOTER_DELIMITER\)\)/);
@@ -61,7 +64,7 @@ describe("ac-14 / ac-16 — the seat is invoked at the one choke point, every ca
   it("the seat branches on verbose internally — one method, not two paths", () => {
     tagAc(AC(16));
     const seat = toolSpecs.slice(
-      toolSpecs.indexOf("export async function decideFooter("),
+      toolSpecs.indexOf("export async function composeGuidanceEnvelope("),
       toolSpecs.indexOf("async function craftUntestedAcNag("),
     );
     expect(seat).toMatch(/if \(ctx\.verbose\)/); // full footer on reads
