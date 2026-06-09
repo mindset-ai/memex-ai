@@ -37,6 +37,7 @@ import {
 } from "@memex/shared";
 import { db } from "../db/connection.js";
 import { documents } from "../db/schema.js";
+import { FOOTER_DELIMITER } from "../mcp/footer-delimiter.js";
 import { isSpecStatus } from "../types/roles.js";
 import { assign } from "./doc-assignees.js";
 import { promoteToEditor } from "./doc-members.js";
@@ -160,6 +161,27 @@ export async function runToolWithSpecTraffic(
     userId: ctx.userId,
     ...target,
   });
+
+  // spec-203 ac-14/ac-15: the ONE place a footer is attached. Every tool call is
+  // the client phoning home; here — and only here — the single seat
+  // (`decideFooter`) takes that opening to steer the client, on EVERY
+  // Spec-resolving response (terse and verbose), never per-tool and never twice.
+  // The seat frames its return with FOOTER_DELIMITER, so the telemetry wrap that
+  // runs after this splits + persists it (ac-17). Guards: only when the call
+  // resolved ONE Spec (`target` set — list/search resolve none), and only when
+  // the body does not already carry a footer (defence-in-depth; the body no
+  // longer composes one). `decideFooter` is imported dynamically to keep this
+  // module free of a runtime cycle with agent/tool-specs.ts (cached after first
+  // use); it never throws, but the guard keeps a footer failure off the result.
+  if (target && !text.includes(FOOTER_DELIMITER)) {
+    try {
+      const { decideFooter } = await import("../agent/tool-specs.js");
+      const footer = await decideFooter(target.memexId, target.docId, ctx);
+      if (footer) return `${text}\n\n${footer}`;
+    } catch {
+      // swallow — the tool's real result already succeeded.
+    }
+  }
   return text;
 }
 

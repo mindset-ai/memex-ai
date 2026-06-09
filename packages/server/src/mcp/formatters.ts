@@ -220,10 +220,13 @@ export function formatFullDocState(
     lines.push("");
   }
 
-  // Phase-aware guidance (Spec docs) — the machine's own always-on footer.
-  if (doc.docType === "spec") {
-    lines.push(formatSpecGuidance(doc, decisions, tasks, nudge, acVerifications));
-  }
+  // spec-203 ac-15: the footer is NO LONGER composed here. There is exactly one
+  // seat that decides and attaches the footer — `decideFooter`, invoked at the
+  // single choke point (`runToolWithSpecTraffic`) on EVERY Spec-resolving call,
+  // terse and verbose alike. The doc body this function renders carries no
+  // footer of its own; the choke point appends whatever the seat returns. (The
+  // `nudge` / `acVerifications` params remain on the signature for the seat's
+  // own composition path, which calls `formatSpecGuidance` directly.)
 
   // spec-203 dec-3 (t-3): the envelope. Header blocks wrap above the doc, footer
   // blocks after the machine footer, placement by zone alone. Joining each zone
@@ -1047,7 +1050,12 @@ export function renderAcNagFooter(
   return lines.join("\n");
 }
 
-function formatSpecGuidance(
+// spec-203 ac-15: exported so the single footer seat (`decideFooter`) can author
+// the FULL phase footer through this composer when it chooses to. It is a pure
+// helper the seat invokes — the seat remains the sole author/decider; no other
+// code path composes a footer. `formatFullDocState` no longer calls it (the body
+// carries no footer of its own).
+export function formatSpecGuidance(
   doc: Doc,
   decs: Decision[],
   tasksList: TaskWithBlockers[],
