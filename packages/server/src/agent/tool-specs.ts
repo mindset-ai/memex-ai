@@ -174,6 +174,7 @@ import { getOrgIdForMemex } from "../services/memexes.js";
 import { markdownToMrkdwn } from "../services/slack-markdown.js";
 import { buildTenantUrl } from "../services/shared/tenant-url.js";
 import { listOrgScaffoldAdditionsCached } from "../services/scaffold-additions-cache.js";
+import { filterOrgBlocksForMemex } from "../services/scaffold-additions.js";
 import {
   searchMemex,
   formatSearchResults,
@@ -363,7 +364,12 @@ export function buildNudgeOrgBlocksGetter(
     if (!memexId) return [];
     const orgId = await getOrgIdForMemex(memexId);
     if (!orgId) return [];
-    return listOrgScaffoldAdditionsCached(orgId, { enabledOnly: true });
+    // spec-193 t-5: the cache holds every enabled row for the Org (account-wide
+    // + per-memex). Filter to this memex's view — account-wide rows plus the
+    // rows scoped to THIS memex — so a per-memex override never bleeds into a
+    // sibling memex under the same namespace.
+    const all = await listOrgScaffoldAdditionsCached(orgId, { enabledOnly: true });
+    return filterOrgBlocksForMemex(all, memexId);
   };
 }
 

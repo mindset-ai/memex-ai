@@ -1311,6 +1311,13 @@ export const orgScaffoldAdditions = pgTable(
     orgId: uuid("org_id")
       .notNull()
       .references(() => orgs.id, { onDelete: "cascade" }),
+    // spec-193 t-5 (dec-6 grain): optional per-memex scope. NULL = account-wide
+    // — applies to every memex in the Org's namespace (existing behaviour, the
+    // default for security / house-style blocks). Set = applies ONLY to that
+    // memex (the override). Resolution merges account-wide + per-memex at query
+    // time. ON DELETE CASCADE so deleting a memex drops its scoped overrides;
+    // account-wide rows (NULL) are untouched.
+    memexId: uuid("memex_id").references(() => memexes.id, { onDelete: "cascade" }),
     // Phase the block attaches to. NULL = matches every phase.
     targetPhase: text("target_phase"),
     // Tool name the block attaches to. NULL = matches every tool.
@@ -1354,6 +1361,10 @@ export const orgScaffoldAdditions = pgTable(
       sql`${table.emphasis} IS NULL OR ${table.emphasis} IN ('do', 'dont')`
     ),
     index("org_scaffold_additions_org_id_idx").on(table.orgId),
+    // spec-193 t-5: the per-memex merge reads `WHERE org_id = ? AND (memex_id
+    // IS NULL OR memex_id = ?)`; index (org_id, memex_id) so account-wide +
+    // per-memex resolution stays an index scan.
+    index("org_scaffold_additions_org_id_memex_id_idx").on(table.orgId, table.memexId),
     index("org_scaffold_additions_org_id_target_idx").on(
       table.orgId,
       table.targetPhase,

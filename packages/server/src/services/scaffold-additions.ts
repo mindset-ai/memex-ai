@@ -72,6 +72,8 @@ export interface CreateOrgScaffoldAdditionInput {
   emphasis?: GuidanceEmphasis;
   enabled?: boolean;
   order?: number;
+  // spec-193 t-5: optional per-memex scope. Omitted / null = account-wide.
+  memexId?: string | null;
 }
 
 export interface UpdateOrgScaffoldAdditionInput {
@@ -82,6 +84,9 @@ export interface UpdateOrgScaffoldAdditionInput {
   emphasis?: GuidanceEmphasis | null;
   enabled?: boolean;
   order?: number;
+  // spec-193 t-5: re-scope the row. `null` clears it back to account-wide;
+  // omitting the field leaves the scope untouched.
+  memexId?: string | null;
 }
 
 export interface ListOrgScaffoldAdditionsFilters {
@@ -165,6 +170,9 @@ function toView(row: OrgScaffoldAddition): OrgScaffoldAdditionView {
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
+  // spec-193 t-5: surface the per-memex scope. NULL column = account-wide, so
+  // the field is left absent (mirrors how NULL target columns are absent).
+  if (row.memexId !== null) view.memexId = row.memexId;
   if (row.emphasis !== null) {
     view.emphasis = row.emphasis as GuidanceEmphasis;
   }
@@ -228,6 +236,8 @@ export async function createOrgScaffoldAddition(
   const insertValues: OrgScaffoldAdditionInsert = {
     orgId: input.orgId,
     authorId: input.authorId,
+    // spec-193 t-5: NULL = account-wide; a memex UUID = scoped to that memex.
+    memexId: input.memexId ?? null,
     targetPhase: input.target.phase ?? null,
     targetTool: input.target.tool ?? null,
     targetTransition: input.target.transition ?? null,
@@ -288,6 +298,9 @@ export async function updateOrgScaffoldAddition(
   }
   if (input.enabled !== undefined) set.enabled = input.enabled;
   if (input.order !== undefined) set.displayOrder = input.order;
+  // spec-193 t-5: re-scope. `null` clears back to account-wide; `undefined`
+  // leaves the existing scope untouched.
+  if (input.memexId !== undefined) set.memexId = input.memexId;
 
   return mutate(
     ctx,
@@ -311,6 +324,26 @@ export async function toggleOrgScaffoldAddition(
   // Sugar over updateOrgScaffoldAddition so the toggle UI doesn't have to
   // construct a full update payload. Emits the same `updated` event.
   return updateOrgScaffoldAddition(id, { enabled }, ctx);
+}
+
+/**
+ * spec-193 t-5: resolve the per-memex view of an Org's overlay blocks. Keeps
+ * account-wide rows (memexId absent / NULL — the default for security and
+ * house-style blocks) AND the rows scoped to THIS memex; drops rows scoped to a
+ * DIFFERENT memex. Pure + total, so every consumer (the nudge getter and the
+ * transition-rubric path) filters IDENTICALLY and a per-memex override can never
+ * bleed into another memex's prompting. When `memexId` is undefined (a personal
+ * namespace with no bound memex), only account-wide rows survive.
+ *
+ * The merge IS this filter: account-wide ∪ (this memex) — you can aggregate
+ * account-wide items up, you cannot disaggregate a shared list back down per
+ * memex (dec-6 rationale).
+ */
+export function filterOrgBlocksForMemex<T extends { memexId?: string }>(
+  blocks: readonly T[],
+  memexId: string | undefined,
+): T[] {
+  return blocks.filter((b) => b.memexId === undefined || b.memexId === memexId);
 }
 
 export async function deleteOrgScaffoldAddition(

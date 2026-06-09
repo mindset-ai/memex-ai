@@ -42,6 +42,7 @@ import {
   toggleOrgScaffoldAddition,
   updateOrgScaffoldAddition,
 } from "../services/scaffold-additions.js";
+import { getOrgIdForMemex } from "../services/memexes.js";
 import { BASE_SCAFFOLD } from "@memex/shared";
 import type {
   GuidanceEmphasis,
@@ -147,6 +148,33 @@ function parseTarget(raw: unknown): GuidanceTarget {
   return out;
 }
 
+// spec-193 t-5: parse + tenancy-validate the optional per-memex scope on a
+// write body. Returns:
+//   - undefined  → field absent (POST: account-wide default; PATCH: leave as-is)
+//   - null       → explicit account-wide (PATCH-only clear)
+//   - string     → a memex UUID, validated to belong to THIS org's namespace
+// Scoping a block to a memex the caller's org does not own is a malformed
+// request (you cannot author prompting for another tenant's workspace) — reject
+// with a ValidationError. The org membership / admin gate is enforced upstream;
+// this guards the BODY against pointing at a foreign memex.
+async function parseMemexScope(
+  raw: unknown,
+  orgId: string,
+): Promise<string | undefined | null> {
+  if (raw === undefined) return undefined;
+  if (raw === null) return null;
+  if (typeof raw !== "string" || raw.trim().length === 0) {
+    throw new ValidationError("memexId must be a memex UUID string (or null to clear)");
+  }
+  const owningOrg = await getOrgIdForMemex(raw);
+  if (owningOrg !== orgId) {
+    throw new ValidationError(
+      "memexId must reference a memex in this org's namespace",
+    );
+  }
+  return raw;
+}
+
 function parseEmphasis(raw: unknown): GuidanceEmphasis | undefined | null {
   if (raw === undefined) return undefined;
   if (raw === null) return null; // PATCH-only: explicit clear
@@ -221,6 +249,9 @@ scaffoldRouter.post("/:orgId/scaffold/additions", async (c) => {
   if (typeof body.order === "number" && Number.isFinite(body.order)) {
     createInput.order = body.order;
   }
+  // spec-193 t-5: optional per-memex scope. Absent / null → account-wide.
+  const createMemexScope = await parseMemexScope(body.memexId, orgId);
+  if (createMemexScope) createInput.memexId = createMemexScope;
 
   const created = await createOrgScaffoldAddition(createInput, { channel: "rest_ui" });
   return c.json(created, 201);
@@ -269,6 +300,11 @@ scaffoldRouter.patch("/:orgId/scaffold/additions/:id", async (c) => {
       throw new ValidationError("order must be a finite number");
     }
     input.order = body.order;
+  }
+  // spec-193 t-5: re-scope. `null` clears back to account-wide; a UUID scopes
+  // to a memex in this org's namespace; absent leaves the scope untouched.
+  if (body.memexId !== undefined) {
+    input.memexId = await parseMemexScope(body.memexId, orgId);
   }
 
   // Cross-tenant guard: an admin of org A must NOT be able to PATCH a row

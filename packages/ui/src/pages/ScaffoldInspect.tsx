@@ -62,6 +62,11 @@ export function ScaffoldInspect() {
       )
     : session?.memberships.find((m) => m.memexId === session?.currentMemexId);
   const isAdmin = currentMembership?.role === 'administrator';
+  // spec-193 t-5: the memex this Inspect page is anchored to, for the per-memex
+  // Scope control in the authoring editor. Null on org-level views with no
+  // resolved memex (the editor then offers account-wide only).
+  const currentMemexId = currentMembership?.memexId ?? null;
+  const currentMemexLabel = tenant?.memex;
 
   const [orgId, setOrgId] = useState<string | null>(null);
 
@@ -125,6 +130,8 @@ export function ScaffoldInspect() {
       text: string;
       rationale: string;
       emphasis?: GuidanceBlock['emphasis'];
+      // spec-193 t-5: optional per-memex scope, set by the editor's Scope control.
+      memexId?: string;
     }) => {
       if (!orgId) throw new Error('No Org resolved');
       await createScaffoldAddition(orgId, input);
@@ -224,6 +231,8 @@ export function ScaffoldInspect() {
             isAdmin={canEdit}
             onCreateAddition={canEdit ? handleCreateAddition : undefined}
             onToggleAddition={canEdit ? handleToggleAddition : undefined}
+            currentMemexId={currentMemexId}
+            currentMemexLabel={currentMemexLabel}
           />
         ) : null}
         {selected.kind === 'gate' ? (
@@ -234,6 +243,8 @@ export function ScaffoldInspect() {
             isAdmin={canEdit}
             onCreateAddition={canEdit ? handleCreateAddition : undefined}
             onToggleAddition={canEdit ? handleToggleAddition : undefined}
+            currentMemexId={currentMemexId}
+            currentMemexLabel={currentMemexLabel}
           />
         ) : null}
         {selected.kind === 'button' ? (
@@ -244,6 +255,8 @@ export function ScaffoldInspect() {
             isAdmin={canEdit}
             onCreateAddition={canEdit ? handleCreateAddition : undefined}
             onToggleAddition={canEdit ? handleToggleAddition : undefined}
+            currentMemexId={currentMemexId}
+            currentMemexLabel={currentMemexLabel}
           />
         ) : null}
         {selected.kind === 'matrix' ? (

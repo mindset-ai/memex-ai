@@ -39,6 +39,9 @@ export interface CreateScaffoldAdditionInput {
   emphasis?: GuidanceEmphasis;
   enabled?: boolean;
   order?: number;
+  // spec-193 t-5: optional per-memex scope. Omitted = account-wide; a memex
+  // UUID scopes the block to that one memex.
+  memexId?: string;
 }
 
 /** Body for PATCH /scaffold/additions/:id. `emphasis: null` clears the field. */
@@ -49,6 +52,8 @@ export interface UpdateScaffoldAdditionInput {
   emphasis?: GuidanceEmphasis | null;
   enabled?: boolean;
   order?: number;
+  // spec-193 t-5: re-scope. `null` clears back to account-wide.
+  memexId?: string | null;
 }
 
 function scaffoldBase(orgId: string): string {
