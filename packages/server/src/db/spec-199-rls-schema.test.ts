@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { sql } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import postgres from "postgres";
 import { db } from "./connection.js";
 import { documents, memexes, namespaces } from "./schema.js";
@@ -99,6 +99,19 @@ describe("spec-199 ac-16: RLS tenant isolation", () => {
     await restrictedSql?.end({ timeout: 5 });
     await db.execute(sql.raw(`DROP OWNED BY ${RLS_ROLE} CASCADE`)).catch(() => {});
     await db.execute(sql.raw(`DROP ROLE IF EXISTS ${RLS_ROLE}`));
+    // Clean up seed data so the namespace owner-XOR invariant check in
+    // migration-smoke.api.test.ts passes when it runs in the same worker DB.
+    // Our namespaces are kind='org' without owner_org_id (test-only shortcut)
+    // which violates the invariant. Delete in FK order.
+    const memexIds = [memexAId, memexBId].filter(Boolean);
+    if (memexIds.length) {
+      await db.delete(documents).where(inArray(documents.memexId, memexIds)).catch(() => {});
+      await db.delete(memexes).where(inArray(memexes.id, memexIds)).catch(() => {});
+    }
+    await db
+      .delete(namespaces)
+      .where(inArray(namespaces.slug, ["rls-test-ns-a", "rls-test-ns-b"]))
+      .catch(() => {});
   });
 
   it("ac-16: no GUC → restricted role sees 0 rows in documents", async () => {
