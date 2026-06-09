@@ -147,10 +147,9 @@ import {
   type ParsedTag,
 } from "../services/tags.js";
 import { NotFoundError, ValidationError } from "../types/errors.js";
-import { FOOTER_DELIMITER } from "../mcp/footer-delimiter.js";
 import {
   formatFullDocState,
-  formatSpecGuidance,
+  formatSpecGuidanceBody,
   formatDocList,
   formatComment,
   formatCommentList,
@@ -339,6 +338,20 @@ export interface ToolCtx {
    * memex has no Org context (personal namespaces).
    */
   getOrgBlocksForNudge?: () => Promise<readonly GuidanceBlock[]>;
+  /**
+   * spec-219 dec-3 (t-3): the stable slot a handler parks its dynamic footer
+   * nugget in — the result-reporting / steering text it used to inject as a
+   * `{ zone: "footer" }` block on its own `formatState` call. The single seat
+   * (`composeGuidanceEnvelope`) reads it and folds it into the footer, so the
+   * choke point lands it AFTER `FOOTER_DELIMITER` and the telemetry split
+   * persists it to `mcp_tool_calls.footer_text` (it never was while the nugget
+   * rode the body, before the delimiter). A shared mutable holder: the choke
+   * point (`runToolWithSpecTraffic`) creates one, threads it into the handler's
+   * ctx, and reads it back when it composes the envelope. Absent on hand-rolled
+   * test ctxes that bypass the choke — there the nugget is simply not delivered,
+   * exactly as any footer needs the choke to attach it.
+   */
+  footerSlot?: { content?: string };
 }
 
 /**
@@ -591,14 +604,19 @@ async function formatState(
 }
 
 /**
- * THE single seat that decides and attaches the footer (spec-203 ac-15 / ac-16).
+ * THE single seat that composes the platform guidance ENVELOPE — header + footer
+ * (spec-203 ac-15 / ac-16; spec-219 ac-6).
  *
  * A tool call — any tool call — is the client phoning home; we return the real
- * tool result, then take that one opening to STEER the client. `decideFooter` is
- * invoked at the single choke point (`runToolWithSpecTraffic`) on EVERY
- * Spec-resolving call (ac-14), and is the only place a footer is composed. It
- * returns the footer already framed with FOOTER_DELIMITER (so the telemetry wrap
- * splits + persists it — ac-17), or null for "no footer this time".
+ * tool result, then take that one opening to STEER the client.
+ * `composeGuidanceEnvelope` is invoked at the single choke point
+ * (`runToolWithSpecTraffic`) on EVERY Spec-resolving call (ac-14), and is the
+ * only place a header or footer is composed (`formatFullDocState` composes
+ * neither). It returns `{ header?, footer? }` where BOTH are DELIMITER-LESS
+ * content: the choke point owns the single `FOOTER_DELIMITER` and writes it
+ * exactly once when it assembles `header + body + FOOTER_DELIMITER + footer`
+ * (spec-219 ac-7); the telemetry wrap then splits + persists the footer (ac-17).
+ * An empty envelope `{}` means "nothing to add this time".
  *
  * Starting policy (deterministic; the SITUATIONAL logic — onboarding a first
  * Spec, a reprimand when an agent is drifting — evolves HERE, behind this one
@@ -608,20 +626,88 @@ async function formatState(
  *     preserved, including spec-193's tripwire vocabulary.
  *   - terse calls (the build loop) → the COMPACT footer (handoff essence +
  *     dynamic state incl. the AC nag), steering without flooding the agent.
- * One composer for both (`formatSpecGuidance`); the only knob is `compact`.
+ * One composer for both (`formatSpecGuidanceBody`).
  *
- * Best-effort: never throws — a footer-policy failure must not cost the tool its
- * result.
+ * Best-effort: never throws — a guidance-policy failure must not cost the tool
+ * its result.
  */
-export async function decideFooter(
+export interface GuidanceEnvelope {
+  header?: string;
+  footer?: string;
+}
+
+/**
+ * spec-219 dec-5 (t-4): the per-tool STEERING registry — the ONE place the
+ * transition map (tool T → the move we want next, T+1) lives. Keyed by the
+ * dispatching tool, it is the seam that makes the footer TRANSITION-keyed rather
+ * than purely phase-keyed (ac-11): two tools resolving the same Spec in the same
+ * phase can get different footers.
+ *
+ * Division of labour (dec-5): handlers own RESULT-REPORTING (the footer slot,
+ * t-3 — what the tool just did); the seat owns STEERING (this registry + the
+ * phase guidance — where to go next). A steer here MUST COMPLEMENT, never echo,
+ * the handler's slot nugget (ac-12) — so a tool that already parks a slot steer
+ * (update_task's completion nudge, update_doc / publish_spec transition nudges)
+ * deliberately has NO entry here. Phase 2 migrates the remaining scattered
+ * per-tool steers (create_doc's scope-AC push, resolve_decision's impl-AC push,
+ * …) into this one map; this is the seam they land on.
+ */
+const STEER_BY_TOOL: Partial<Record<string, (phase: Phase) => string | undefined>> = {
+  // After editing a section while shaping the plan, the surgical next move is to
+  // keep the narrative honest against the decisions. No other surface says this
+  // per-tool, and update_section parks no slot nugget — so no echo.
+  update_section: (phase) =>
+    phase === "specify" || phase === "draft"
+      ? "Steer: if this edit captures a resolved decision, confirm the decision's consequence now reads in the prose; if a new fork surfaced while writing, capture it with create_decision before it gets buried."
+      : undefined,
+};
+
+/**
+ * Compose the per-tool steer for this (tool, phase). Undefined when the tool has
+ * no registered steer — the footer then carries only the phase guidance (+ any
+ * handler slot). This is the single read of the transition map (ac-5: the
+ * per-tool nudge notion has exactly one author, the seat).
+ */
+function composeToolSteer(toolName: string | undefined, phase: Phase): string | undefined {
+  if (!toolName) return undefined;
+  return STEER_BY_TOOL[toolName]?.(phase);
+}
+
+export async function composeGuidanceEnvelope(
   memexId: string,
   docId: string,
   ctx: ToolCtx,
-): Promise<string | null> {
+): Promise<GuidanceEnvelope> {
+  // spec-219 dec-3 (t-3): a handler may have parked a dynamic footer nugget in
+  // the slot (the result-reporting / steering it used to inject as a footer
+  // block). `compose` folds it into the footer — BEFORE the seat's phase
+  // guidance, matching the order it had on the body side — so the choke point
+  // lands it past the delimiter and the telemetry split persists it (ac-9). The
+  // handler kept its own DB read; the seat only composes (ac-8).
+  const slotRaw = ctx.footerSlot?.content;
+  const slot = slotRaw && slotRaw.trim().length > 0 ? slotRaw : undefined;
+  const compose = (
+    header: string | undefined,
+    footer: string | undefined,
+  ): GuidanceEnvelope => {
+    const footerBody =
+      [slot, footer].filter((s): s is string => Boolean(s)).join("\n\n") || undefined;
+    const env: GuidanceEnvelope = {};
+    if (header) env.header = header;
+    if (footerBody) env.footer = footerBody;
+    return env;
+  };
   try {
     const state = await fullDocState(memexId, docId);
-    if (state.doc.docType !== "spec") return null;
+    if (state.doc.docType !== "spec") return compose(undefined, undefined);
     const phase = state.doc.status as Phase;
+    // spec-219 dec-5 (t-4): the seat's per-tool steer for this (tool, phase) — the
+    // transition-keyed element of the footer. Folded BEFORE the general phase
+    // guidance (surgical steer first); complements, never echoes, the handler's
+    // slot result-reporting (ac-12).
+    const toolSteer = composeToolSteer(ctx.toolName, phase);
+    const withSteer = (footer: string | undefined): string | undefined =>
+      [toolSteer, footer].filter((s): s is string => Boolean(s)).join("\n\n") || undefined;
 
     // VERBOSE reads — the agent asked for the whole document, so author the FULL
     // phase footer via the shared composer (a pure helper; the seat still owns
@@ -663,23 +749,41 @@ export async function decideFooter(
           acVerifications = undefined;
         }
       }
-      return formatSpecGuidance(state.doc, state.decs, state.tasks, nudge, acVerifications);
+      const footer = formatSpecGuidanceBody(
+        state.doc,
+        state.decs,
+        state.tasks,
+        nudge,
+        acVerifications,
+      );
+      // spec-219 ac-10 / dec-4: the AC-coverage HEADER is composed HERE (the one
+      // seat), not in the get_doc handler. It is the get_doc-verbose-only surface
+      // — emitted only when this is a `get_doc` call (the coverage summary above
+      // the doc body), with NO header delimiter (the `**AC coverage:**` line is
+      // self-labelling and re-derivable, so it is not persisted). The choke point
+      // prepends it above the body, byte-identical to the former header block.
+      const header =
+        ctx.toolName === "get_doc"
+          ? (await formatCoverageHeader(memexId, docId, state.doc.docType)) || undefined
+          : undefined;
+      return compose(header, withSteer(footer ?? undefined));
     }
 
     // TERSE build-loop calls — author a LEAN, situational footer here. This is
     // the seat where the steering logic lives and grows (per tool, per user, per
     // signal). Starting policy: the phase essence ("what's my job this phase")
-    // plus, in build, the AC nag — the highest-value methodology steer.
-    const lines: string[] = [FOOTER_DELIMITER];
+    // plus, in build, the AC nag — the highest-value methodology steer. The body
+    // is DELIMITER-LESS (spec-219 ac-7): the choke point frames it.
+    const lines: string[] = [];
     const essence = toHandoffEssence(BASE_SCAFFOLD, phase);
     if (essence) lines.push(essence);
     if (phase === "build") {
       const nag = await craftUntestedAcNag(memexId, docId);
       if (nag) lines.push(nag);
     }
-    return lines.length > 1 ? lines.join("\n") : null;
+    return compose(undefined, withSteer(lines.length > 0 ? lines.join("\n") : undefined));
   } catch {
-    return null;
+    return compose(undefined, undefined);
   }
 }
 
@@ -1214,20 +1318,12 @@ export const toolSpecs: ToolSpec[] = [
           return formatStandard(standard, url);
         }
         const state = await fullDocState(memexId, doc.id);
-        // Prepend an AC-coverage header for Specs so the agent sees the
-        // gap before reading the full state. Returns "" for non-Spec docs
-        // or Specs with no active ACs, so the header is non-intrusive when
-        // it doesn't apply.
-        const coverageHeader = await formatCoverageHeader(
-          memexId,
-          doc.id,
-          doc.docType,
-        );
-        // spec-203 dec-3 (t-3): the coverage header is a header-zone block — the
-        // composer places it above the doc; this handler no longer concatenates.
-        return await formatState(url, state, ctx, [
-          { zone: "header", content: coverageHeader },
-        ]);
+        // spec-219 ac-10 / dec-4: the AC-coverage header is NO LONGER injected
+        // here. The single seat (`composeGuidanceEnvelope`) composes it — verbose
+        // AND get_doc only — and the choke point (`runToolWithSpecTraffic`)
+        // prepends it above the body. Centralizing both header and footer in the
+        // one seat is the whole point (ac-6); this handler renders only the body.
+        return await formatState(url, state, ctx);
       }
 
       // Terse: agent already has the doc context injected by the system
@@ -1529,12 +1625,12 @@ export const toolSpecs: ToolSpec[] = [
       if (ctx.verbose) {
         const state = await fullDocState(memexId, before.id);
         const url = await ctx.workspaceUrl(memexId);
-        // spec-203 dec-3 (t-3): tag summary + transition nudge are footer-zone
-        // blocks, placed after the machine footer by the composer (same order).
-        return await formatState(url, state, ctx, [
-          { zone: "footer", content: tagSuffix },
-          { zone: "footer", content: nudge },
-        ]);
+        // spec-219 dec-3 (t-3): park the tag summary + transition nudge in the
+        // footer slot; the single seat folds them into the footer (after the
+        // delimiter, so they persist to footer_text — they never did while they
+        // rode the body). The handler keeps its own reads.
+        if (ctx.footerSlot) ctx.footerSlot.content = `${tagSuffix}${nudge}`;
+        return await formatState(url, state, ctx);
       }
       const fresh = await getDoc(memexId, before.id);
       // Per dec-1: on a status change include the deterministic phase header so
@@ -3152,16 +3248,13 @@ export const toolSpecs: ToolSpec[] = [
         const fresh = await getTask(memexId, taskUuid);
         const state = await fullDocState(memexId, fresh.docId);
         const url = await ctx.workspaceUrl(memexId);
-        // spec-203 dec-3 (t-3): the completion nudge is a footer-zone block,
-        // present only when the task was completed.
-        return await formatState(
-          url,
-          state,
-          ctx,
-          status === "complete"
-            ? [{ zone: "footer", content: `\n\n> ${COMPLETION_NUDGE}` }]
-            : [],
-        );
+        // spec-219 dec-3 (t-3): park the completion nudge in the footer slot
+        // (only when the task was completed); the seat folds it into the footer,
+        // past the delimiter, so it persists to footer_text.
+        if (status === "complete" && ctx.footerSlot) {
+          ctx.footerSlot.content = `> ${COMPLETION_NUDGE}`;
+        }
+        return await formatState(url, state, ctx);
       }
 
       if (messages.length === 0) {
@@ -3612,10 +3705,10 @@ export const toolSpecs: ToolSpec[] = [
       if (ctx.verbose) {
         const state = await fullDocState(memexId, doc.id);
         const url = await ctx.workspaceUrl(memexId);
-        // spec-203 dec-3 (t-3): the transition nudge is a footer-zone block.
-        return await formatState(url, state, ctx, [
-          { zone: "footer", content: nudge },
-        ]);
+        // spec-219 dec-3 (t-3): park the transition nudge in the footer slot; the
+        // seat folds it into the footer, past the delimiter, so it persists.
+        if (ctx.footerSlot) ctx.footerSlot.content = nudge;
+        return await formatState(url, state, ctx);
       }
       const fresh = await getDoc(memexId, doc.id);
       // Per dec-1 / t-8: replace the best-effort `nudge` with the deterministic
