@@ -29,8 +29,12 @@ interface Props {
     text: string;
     rationale: string;
     emphasis?: GuidanceBlock['emphasis'];
+    memexId?: string;
   }) => Promise<void>;
   onToggleAddition?: (id: string, enabled: boolean) => Promise<void>;
+  // spec-193 t-5: the memex the Inspect page is anchored to (for the Scope control).
+  currentMemexId?: string | null;
+  currentMemexLabel?: string;
 }
 
 const TRANSITION_FOR_PHASE: Record<Phase, string | null> = {
@@ -56,6 +60,8 @@ export function ScaffoldPhaseView({
   isAdmin,
   onCreateAddition,
   onToggleAddition,
+  currentMemexId,
+  currentMemexLabel,
 }: Props) {
   const phaseNode = dataset.phases.find((p) => p.phase === phase);
   const reactOnlyBlocks = useMemo(() => {
@@ -175,6 +181,8 @@ export function ScaffoldPhaseView({
             initialTarget={{ phase }}
             onSubmit={onCreateAddition}
             label="Add stage guidance"
+            currentMemexId={currentMemexId}
+            currentMemexLabel={currentMemexLabel}
           />
         ) : null}
       </section>

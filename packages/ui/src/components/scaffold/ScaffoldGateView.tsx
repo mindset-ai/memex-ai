@@ -27,8 +27,12 @@ interface Props {
     text: string;
     rationale: string;
     emphasis?: GuidanceBlock['emphasis'];
+    memexId?: string;
   }) => Promise<void>;
   onToggleAddition?: (id: string, enabled: boolean) => Promise<void>;
+  // spec-193 t-5: the memex the Inspect page is anchored to (for the Scope control).
+  currentMemexId?: string | null;
+  currentMemexLabel?: string;
 }
 
 // What the deterministic fact sheet structure looks like — the SHAPE, not the
@@ -51,6 +55,8 @@ export function ScaffoldGateView({
   isAdmin,
   onCreateAddition,
   onToggleAddition,
+  currentMemexId,
+  currentMemexLabel,
 }: Props) {
   const baseRubric = dataset.transitions.find((t) => t.transition === transition);
 
@@ -143,6 +149,8 @@ export function ScaffoldGateView({
             initialTarget={{ transition }}
             onSubmit={onCreateAddition}
             label="Add gate check"
+            currentMemexId={currentMemexId}
+            currentMemexLabel={currentMemexLabel}
           />
         ) : null}
       </section>

@@ -277,6 +277,29 @@ const BASE_STANDARDS_PROTOCOL: PromptBlockNode = {
     'Standards-handling protocol — both agents should propose changes / flag drift / cite with `[per std-N]` identically. Shared nudge by design. Mirrors `_base/standards-protocol.md`.',
 };
 
+// spec-193 t-1 (dec-1 / dec-2): the product-generic "classify-and-consult"
+// trigger + the 16-tripwire vocabulary. An agent will not consult a rule it
+// does not know exists; this injects the IMPULSE to consult, plus the coarse
+// vocabulary it classifies its work against, into the always-on footer (both
+// agents, via `toNudge`). Tenant-agnostic by contract (spec-193 ac-6): NO tool
+// names beyond the generic Memex `search_memex`, NO commands, NO CI shapes, NO
+// standards handles — the specifics resolve at query time from the tenant's own
+// standards corpus. Classification is agent-side against THIS list (ac-9); there
+// is no product-side standard→tripwire map. Routing is classify-guided semantic
+// search — the dec-1 experiment measured classification as high-recall and
+// low-noise, so no per-standard tag store is required (ac-8), and plain
+// `search_memex` over standards stays the always-on backstop (ac-10).
+const BASE_TRIPWIRE_PROTOCOL: PromptBlockNode = {
+  kind: 'prompt_block',
+  id: 'tripwire-protocol',
+  surface: 'shared_nudge',
+  text:
+    '**Consult the standards your work touches (classify-and-consult).** A standard you don\'t know exists is a standard you won\'t follow — so don\'t rely on remembering to search. At each step, classify the work against the coarse practice categories ("tripwires") below, and for every wire your change trips, pull the standards that govern it into context with `search_memex({ query, kind: \'standard\' })`, then follow and cite them (`[per std-N]`). Classify what the work actually TOUCHES — that is more reliable than guessing a search phrase. Fire it TWICE: a predictive pass at specify / build-start (classify the work AHEAD, from the task and narrative, and let the standards shape what you write) and a confirmatory pass at verify / pre-PR (classify the actual DIFF and re-check). Where a tripped wire has no governing standard, just proceed — an uncovered wire leads nowhere; closing that gap is an admin / setup job, not yours, and you never author a standard to fill it. Plain semantic search over the standards stays the backstop for anything the tripwires miss.\n\n' +
+    'Tripwires: (1) test coverage (unit / service); (2) end-to-end / user-facing-flow testing; (3) post-deploy smoke / live verification; (4) deploy / release process; (5) security — authz, tenancy, secrets, input validation; (6) architecture / design patterns; (7) code style / conventions / lint; (8) DB schema & migrations; (9) API design / contracts / versioning; (10) error handling / logging / observability; (11) performance; (12) accessibility / design-system conformance; (13) CI / PR process, branching & commit conventions; (14) documentation — README / CHANGELOG / runbooks; (15) dependency management / upgrades; (16) feature flags / rollout / user migration.',
+  rationale:
+    'spec-193 t-1: the classify-and-consult trigger + tripwire vocabulary. The base-block channel of the three carrying the trigger (the other two are the plan-handoff and verify-spec essences). Tenant-agnostic product vocabulary; specifics resolve from the tenant standards corpus at query time. Reaches both agents through the footer (toNudge) at the working phases (specify / build / verify).',
+};
+
 // ──────────────────────────────────────────────────────────────────────────
 // PromptBlockNodes — per-phase behavioural blocks (shared_nudge).
 // Each `<phase>/system.md` is split into multiple blocks per b-68 dec-9
@@ -1473,6 +1496,56 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
     rationale:
       'spec-106 ac-11/ac-12: lens-shape guidance throughout planning. Teaches the agent to PROPOSE the fitting anatomy (core lenses + adaptive Operations, primitives, trivial-Overview-only) and to READ existing section types to scope its work without hard-coding enforcement. `shared_nudge` reaches both surfaces via `toNudge` (ac-13).',
   },
+
+  // ── spec-193 t-1: the classify-and-consult trigger + tripwire vocabulary.
+  //    Present across the working phases (specify / build / verify) so the
+  //    agent always has the vocabulary in context to classify against; the two
+  //    FIRINGS (predictive / confirmatory) ride the plan-handoff and
+  //    verify-spec essences (t-2 / t-3). `order: 30` places it after the
+  //    behavioural blocks. Not targeted at draft (mirrors specify already) →
+  //    we DO target draft too so the planning surface carries it identically,
+  //    matching the PHASE_PLAN_* draft-mirroring above. Reaches both agents
+  //    through the footer (renderSpecPhaseGuidance → toNudge) — spec-193 ac-11.
+  {
+    kind: 'guidance_block',
+    source: 'base',
+    target: { phase: 'specify' },
+    text: BASE_TRIPWIRE_PROTOCOL.text,
+    enabled: true,
+    order: 30,
+    rationale:
+      'spec-193 ac-11: the base-block channel of the classify-and-consult trigger, on the specify (plan) surface where the predictive pass fires. Tenant-agnostic vocabulary (ac-6); classification is agent-side (ac-9); semantic search is the backstop (ac-10).',
+  },
+  {
+    kind: 'guidance_block',
+    source: 'base',
+    target: { phase: 'draft' },
+    text: BASE_TRIPWIRE_PROTOCOL.text,
+    enabled: true,
+    order: 30,
+    rationale:
+      'spec-193 ac-11: draft mirrors specify (one prompt, two statuses) so the trigger composes identically while the Spec is being shaped.',
+  },
+  {
+    kind: 'guidance_block',
+    source: 'base',
+    target: { phase: 'build' },
+    text: BASE_TRIPWIRE_PROTOCOL.text,
+    enabled: true,
+    order: 30,
+    rationale:
+      'spec-193 ac-11: the base-block channel of the classify-and-consult trigger on the build surface, where the predictive pass keeps shaping the code as the agent writes it.',
+  },
+  {
+    kind: 'guidance_block',
+    source: 'base',
+    target: { phase: 'verify' },
+    text: BASE_TRIPWIRE_PROTOCOL.text,
+    enabled: true,
+    order: 30,
+    rationale:
+      'spec-193 ac-11: the base-block channel of the classify-and-consult trigger on the verify surface, where the confirmatory pass classifies the actual diff before the PR.',
+  },
 ];
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -1774,7 +1847,7 @@ Scope ACs with no test: judge by reading + exercising the running behaviour.
 
 5. Coding-standards drift. Re-check the change against THIS Memex's Standards (search_memex({ query, kind: 'standard' })). Where the CODE has drifted from a rule, do not silently conform it and do not ignore it — name the standard and the divergence to the human and capture it durably as an Issue (register_issue) so it survives the session. If the RULE itself is wrong rather than the code, say so. If the Spec's own text is what's stale (not the code), that's a dimension-3 advisory, not drift.
 
-6. Test-coverage gaps. Assess the testing approach for gaps — across the test tiers this project uses (unit / integration / end-to-end / live-environment smoke, as applicable) and across perspectives (happy path, edge, adversarial, regression). Search THIS Memex's Standards (search_memex({ query, kind: 'standard' })) for any testing or smoke requirements and hold the change to them. Name each gap and the perspective it leaves uncovered, concretely enough to convert to a task. A brittle test (asserts a global/shared-state invariant rather than an isolated fixture) is also a coverage finding.
+6. Test-coverage gaps. Assess the testing approach for gaps — across the test tiers this project uses (unit / integration / end-to-end / live-environment smoke, as applicable) and across perspectives (happy path, edge, adversarial, regression). Search THIS Memex's Standards (search_memex({ query, kind: 'standard' })) for any testing or smoke requirements and hold the change to them. Name each gap and the perspective it leaves uncovered, concretely enough to convert to a task. A brittle test (asserts a global/shared-state invariant rather than an isolated fixture) is also a coverage finding. CONFIRMATORY pass: classify the actual DIFF against the coarse practice categories it touched (testing tiers, end-to-end / user-facing flows, security, migrations, API, deploy / rollout, …) and confirm each governing standard is met — the safety net for scope the plan-time guess didn't foresee. And before the PR is opened, run the relevant test harnesses to GREEN locally first; CI's per-PR run is the enforcement backstop, not where you discover the suite is red.
 
 ── STEP 3: record findings (severity-split) ──
   • BLOCKERS — an AC failing on a real defect, an unverifiable AC, a security vulnerability, an incomplete task marked complete, a scope item silently dropped: file as an Issue → register_issue({ ref: '{namespace}/{memex}/specs/{handle}', ... }) so it's tracked and can convert straight to a task if the Spec goes back to build.
@@ -1786,7 +1859,7 @@ Scope ACs with no test: judge by reading + exercising the running behaviour.
 Give a per-dimension verdict (pass / fail / gap) and an overall read. "Clean" = all ACs verified (cross-checked in list_acs, not just a clean gate), all tasks reproduced, no security gap, the testing requirements in this Memex's Standards met, and every open comment resolved or consciously carried forward. If clean, recommend moving to \`done\` (you do NOT move it). If anything failed, recommend reopening the specific task(s) (update_task) so the Spec returns to build — do not call update_doc to change phase yourself.`,
     surfaces: ['spec-header'],
     // spec-203 dec-1: compressed footer projection of the verify handoff.
-    essence: `VERIFY handoff (full prompt: the "Verify handoff" button). This Spec finished \`build\` — earn confidence it's GENUINELY done, against the RUNNING SYSTEM, not the diff. Run the deterministic gate (assess_spec target:'done'), but a clean gate can coexist with a FAILING AC — cross-check list_acs and treat THAT as the truth on AC health. Verify across all SIX dimensions, none skippable: acceptance criteria, tasks-actually-ran, scope completeness, security, standards drift, test-coverage gaps. An UNtagged passing test moves no AC; don't override test-event routing. File BLOCKERS as Issues (register_issue), ADVISORIES as review comments. If clean, recommend \`done\`; if anything failed, reopen the specific task(s) (update_task) — you do NOT move the phase yourself.`,
+    essence: `VERIFY handoff (full prompt: the "Verify handoff" button). This Spec finished \`build\` — earn confidence it's GENUINELY done, against the RUNNING SYSTEM, not the diff. Run the deterministic gate (assess_spec target:'done'), but a clean gate can coexist with a FAILING AC — cross-check list_acs and treat THAT as the truth on AC health. Verify across all SIX dimensions, none skippable: acceptance criteria, tasks-actually-ran, scope completeness, security, standards drift, test-coverage gaps. CONFIRMATORY standards pass: classify the actual DIFF against the tripwire categories and re-check the standards each tripped wire routes to. The relevant test harnesses must be GREEN before the PR is opened — run them locally first; CI is the enforcement backstop, not where you learn the suite is red. An UNtagged passing test moves no AC; don't override test-event routing. File BLOCKERS as Issues (register_issue), ADVISORIES as review comments. If clean, recommend \`done\`; if anything failed, reopen the specific task(s) (update_task) — you do NOT move the phase yourself.`,
     rationale:
       'Hand a verify-phase Spec to a coding agent to verify its acceptance ' +
       'criteria — run tests + type checks and exercise the path, not just ' +
@@ -1819,6 +1892,7 @@ Hold the overview, the narrative, and the existing decisions together before pro
 ── STEP 2: ground — against the code AND the Standards ──
 CODE. Where the narrative or a decision names code shape (files / symbols / schema / routes / existing patterns), read the actual source to confirm it exists and means what the Spec assumes. A decision grounded in stale or imagined code is a decision built on sand — locate the real construct, and if the Spec's claim has drifted from reality, say so and let that correct the narrative. If the plan says to mirror or reuse another Spec or an existing primitive, verify that target is actually present (grep the named symbol; get_doc its phase) before depending on it.
 STANDARDS. For every load-bearing concern the Spec touches (data, auth, tenancy, API, testing, prompts, licensing — whatever applies): search_memex({ query, kind: 'standard' }) and read any standard the Spec cites as [per std-N]. If the search returns nothing for an area, this Memex has no Standard there yet — that is normal; proceed. Where a Standard exists and contradicts the Spec's direction, STOP and surface it — drift is the enemy; don't quietly pick one.
+Do this as a PREDICTIVE pass: classify the work AHEAD against the coarse practice categories it touches (testing tiers, end-to-end / user-facing flows, security, DB schema & migrations, API contracts, deploy / rollout, code style, observability, accessibility, docs, dependencies, …) and pull each governing standard in so the rules SHAPE the plan — surfacing the journey / test / migration work this Spec must own now, not after the diff. A category with no standard simply means none exists yet — proceed; ensuring coverage is admin / setup governance, not your chore, and you never author a standard to fill the gap.
 
 ── STEP 3: surface and resolve the Decisions ──
 From the NARRATIVE (not your own preferences), identify the choices this work genuinely hinges on and capture each as a Decision (create_decision):
@@ -1843,7 +1917,7 @@ Author the scope ACs that define what finishing this Spec MEANS — the manager-
 Finish with a summary: the decisions you surfaced and how each resolved, the scope ACs you authored, any standards drift or decision-vs-code mismatches you found, and what (if anything) still blocks the move to build.`,
     surfaces: ['spec-header'],
     // spec-203 dec-1: compressed footer projection of the specify/plan handoff.
-    essence: `SPECIFY handoff (full prompt: the "Plan handoff" button). This Spec is still PLANNING — do NOT write product code, create tasks, or build (those belong to \`build\`). Surface the choices the work hinges on as Decisions (create_decision), grounding each against current source AND the Memex's history (search_memex kind:'decision' / 'standard') BEFORE resolving — never self-resolve a load-bearing choice; that's the user's call. Pin down what "done" means as scope ACs (create_ac kind:'scope') — one per observable outcome, implementation-agnostic. Reflect every resolution back into the narrative (update_section) — an unrecorded decision hasn't truly been made. When decisions are resolved, the narrative reflects them, and scope ACs cover the work, recommend \`build\` — you do NOT move the phase.`,
+    essence: `SPECIFY handoff (full prompt: the "Plan handoff" button). This Spec is still PLANNING — do NOT write product code, create tasks, or build (those belong to \`build\`). Surface the choices the work hinges on as Decisions (create_decision), grounding each against current source AND the Memex's history (search_memex kind:'decision' / 'standard') BEFORE resolving — never self-resolve a load-bearing choice; that's the user's call. PREDICTIVE standards pass: classify the work AHEAD against the tripwire categories and pull the governing standards into context BEFORE you settle the plan, so they SHAPE the decisions and surface the journey / test / migration work this Spec must own; where a tripped wire has no standard, just proceed (coverage is admin's job, not yours). Pin down what "done" means as scope ACs (create_ac kind:'scope') — one per observable outcome, implementation-agnostic. Reflect every resolution back into the narrative (update_section) — an unrecorded decision hasn't truly been made. When decisions are resolved, the narrative reflects them, and scope ACs cover the work, recommend \`build\` — you do NOT move the phase.`,
     rationale:
       'Hand a draft/specify-phase Spec to a coding agent to make it buildable: ' +
       'ground the narrative against current source + Standards, surface and ' +
