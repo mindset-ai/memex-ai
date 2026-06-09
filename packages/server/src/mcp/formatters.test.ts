@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { describe, it, expect } from "vitest";
 import * as formatters from "./formatters.js";
 import {
+  formatSpecGuidance,
   formatFullDocState,
   formatDocList,
   formatComment,
@@ -144,7 +145,7 @@ describe("formatFullDocState", () => {
     // b-105: a Spec in a recognised phase routes through phase-based guidance;
     // an unrecognised status falls back to the legacy data-shape inference.
     const doc = { ...makeDoc({ docType: "spec", status: "wat" }), sections: [makeSection()] };
-    const result = formatFullDocState(doc, [], []);
+    const result = formatSpecGuidance(doc, [], []);
 
     expect(result).toContain("Next: Identify Decisions");
     expect(result).toContain("create_decision");
@@ -159,7 +160,7 @@ describe("formatFullDocState", () => {
       source: "human" as const,
       resolution: null, resolvedAt: null, previousStatus: null, createdAt: baseDate,
     }];
-    const result = formatFullDocState(doc, decs, []);
+    const result = formatSpecGuidance(doc, decs, []);
 
     expect(result).toContain("Remaining: 1 Open Decision");
     expect(result).toContain("Which database?");
@@ -409,7 +410,7 @@ describe("spec phase guidance — specify/draft code-grounding nudge", () => {
       ...makeDoc({ docType: "spec", status: "draft" }),
       sections: [makeSection()],
     };
-    const result = formatFullDocState(doc, [], []);
+    const result = formatSpecGuidance(doc, [], []);
 
     expect(result).toContain(CANONICAL_PHRASE);
   });
@@ -419,7 +420,7 @@ describe("spec phase guidance — specify/draft code-grounding nudge", () => {
       ...makeDoc({ docType: "spec", status: "specify" }),
       sections: [makeSection()],
     };
-    const result = formatFullDocState(doc, [], []);
+    const result = formatSpecGuidance(doc, [], []);
 
     expect(result).toContain(CANONICAL_PHRASE);
   });
@@ -429,7 +430,7 @@ describe("spec phase guidance — specify/draft code-grounding nudge", () => {
       ...makeDoc({ docType: "spec", status: "build" }),
       sections: [makeSection()],
     };
-    const result = formatFullDocState(doc, [], []);
+    const result = formatSpecGuidance(doc, [], []);
 
     expect(result).not.toContain(CANONICAL_PHRASE);
   });
@@ -439,7 +440,7 @@ describe("spec phase guidance — specify/draft code-grounding nudge", () => {
       ...makeDoc({ docType: "spec", status: "verify" }),
       sections: [makeSection()],
     };
-    const result = formatFullDocState(doc, [], []);
+    const result = formatSpecGuidance(doc, [], []);
 
     expect(result).not.toContain(CANONICAL_PHRASE);
   });
@@ -449,7 +450,7 @@ describe("spec phase guidance — specify/draft code-grounding nudge", () => {
       ...makeDoc({ docType: "spec", status: "done" }),
       sections: [makeSection()],
     };
-    const result = formatFullDocState(doc, [], []);
+    const result = formatSpecGuidance(doc, [], []);
 
     expect(result).not.toContain(CANONICAL_PHRASE);
   });
@@ -485,7 +486,7 @@ describe("b-68 t-7 ac-22: formatPhaseGuidance retired; per-phase prose flows thr
       ...makeDoc({ docType: "spec", status: "specify" }),
       sections: [makeSection()],
     };
-    const result = formatFullDocState(doc, [], []);
+    const result = formatSpecGuidance(doc, [], []);
     expect(result).toContain(specifyIntent!.text);
   });
 });
@@ -513,7 +514,7 @@ describe("b-68 t-7 ac-24: allowance prose derives from BASE_SCAFFOLD.phases[<pha
         ...makeDoc({ docType: "spec", status: phase }),
         sections: [makeSection()],
       };
-      const rendered = formatFullDocState(doc, [], []);
+      const rendered = formatSpecGuidance(doc, [], []);
       // For draft/specify the allowance line spells every allowed tool out
       // (build's allowance line is the legacy compressed phrase, asserted
       // separately below).
@@ -535,7 +536,7 @@ describe("b-68 t-7 ac-24: allowance prose derives from BASE_SCAFFOLD.phases[<pha
       ...makeDoc({ docType: "spec", status: "specify" }),
       sections: [makeSection()],
     };
-    const rendered = formatFullDocState(doc, [], []);
+    const rendered = formatSpecGuidance(doc, [], []);
     expect(rendered).toMatch(/Blocked now:\*\* task creation \(`create_task`\), execution plans/);
   });
 });

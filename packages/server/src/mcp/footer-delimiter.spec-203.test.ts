@@ -4,7 +4,7 @@
 import { describe, it, expect } from "vitest";
 import { tagAc } from "@memex-ai-ac/vitest";
 import { FOOTER_DELIMITER, splitToolResult } from "./footer-delimiter.js";
-import { formatFullDocState } from "./formatters.js";
+import { formatSpecGuidance } from "./formatters.js";
 import type { Doc, DocSection } from "../db/schema.js";
 
 const AC = (n: number) =>
@@ -72,24 +72,25 @@ describe("splitToolResult", () => {
   });
 });
 
-describe("formatFullDocState — footer delimiter boundary (spec-203 dec-3)", () => {
+describe("formatSpecGuidance — footer delimiter boundary (spec-203 dec-3)", () => {
   it("emits the delimiter exactly once at the doc-state→footer boundary for a Spec", () => {
     tagAc(AC(11));
-    const out = formatFullDocState(makeSpec("build"), [], []);
+    const out = formatSpecGuidance(makeSpec("build"), [], []);
     const occurrences = out.split(FOOTER_DELIMITER).length - 1;
     expect(occurrences).toBe(1);
-    // Everything before the delimiter is the tool's real output (the doc state);
-    // splitting recovers the platform footer (which carries the phase handoff).
-    const { body, footer } = splitToolResult(out);
-    expect(body).toContain("# Test Spec");
-    expect(body).not.toContain("BUILD handoff (full prompt:");
+    // spec-203 ac-15: the composer's output IS the footer — it leads with the
+    // delimiter, and splitting recovers the phase guidance. (Body↔footer
+    // separation on a REAL tool result is the choke point's job, covered by
+    // services/spec-footer-on-terse.integration.test.ts.)
+    expect(out.startsWith(FOOTER_DELIMITER)).toBe(true);
+    const { footer } = splitToolResult(out);
     expect(footer).toContain("BUILD handoff (full prompt:");
   });
 
   it("emits NO delimiter for a non-Spec doc (no footer to separate)", () => {
     tagAc(AC(11));
     const doc = { ...makeSpec("build"), docType: "document" };
-    const out = formatFullDocState(doc, [], []);
+    const out = formatSpecGuidance(doc, [], []);
     expect(out).not.toContain(FOOTER_DELIMITER);
     expect(splitToolResult(out).footer).toBeNull();
   });

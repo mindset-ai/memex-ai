@@ -147,8 +147,10 @@ import {
   type ParsedTag,
 } from "../services/tags.js";
 import { NotFoundError, ValidationError } from "../types/errors.js";
+import { FOOTER_DELIMITER } from "../mcp/footer-delimiter.js";
 import {
   formatFullDocState,
+  formatSpecGuidance,
   formatDocList,
   formatComment,
   formatCommentList,
@@ -195,6 +197,7 @@ import {
   BASE_SCAFFOLD,
   HANDOFF_BUTTON_BY_PHASE,
   toButtonPrompt,
+  toHandoffEssence,
   type SpecPhase,
   type Phase,
   type GuidanceBlock,
@@ -565,59 +568,12 @@ async function formatState(
   // call; the composer places them by zone. Absent for the many bare callers.
   blocks?: readonly InjectedBlock[],
 ): Promise<string> {
-  // The nudge channel only fires for Spec docs; skip the Org
-  // blocks fetch for everything else to keep the cost off the hot path.
-  const briefLike =
-    state.doc.docType === "spec";
-  const orgBlocks =
-    briefLike && ctx?.getOrgBlocksForNudge
-      ? await ctx.getOrgBlocksForNudge()
-      : undefined;
-  // spec-203 Layer 2 (dec-2): decide whether THIS response carries the full
-  // current-phase handoff (once per user+session+spec+phase, TTL-backstopped) or
-  // the compressed essence (Layer 1, every other response). Only the MCP surface
-  // threads a sessionId; the in-app agent (no sessionId) stays on the essence
-  // path. Resolve the interpolation context BEFORE claiming, so a context we
-  // can't build never burns a delivery.
-  let fullHandoff: string | undefined;
-  if (briefLike && ctx?.sessionId) {
-    const handoffButtonId = HANDOFF_BUTTON_BY_PHASE[state.doc.status as Phase];
-    const handoffContext = handoffButtonId
-      ? handoffInterpolationContext(baseUrl, state.doc)
-      : undefined;
-    if (
-      handoffButtonId &&
-      handoffContext &&
-      claimFullHandoffDelivery(ctx.userId, ctx.sessionId, state.doc.id, state.doc.status)
-    ) {
-      fullHandoff =
-        toButtonPrompt({
-          dataset: BASE_SCAFFOLD,
-          buttonId: handoffButtonId,
-          context: handoffContext,
-        }) ?? undefined;
-    }
-  }
-  const nudge =
-    briefLike && (ctx?.toolName || orgBlocks || fullHandoff)
-      ? { tool: ctx?.toolName, orgBlocks, fullHandoff }
-      : undefined;
-  // spec-121 mechanism 1 — feed the build-phase nag its live AC-state lookup.
-  // Only fetched for a Spec in `build` (the nag's only phase), reusing the same
-  // verification-enriched query the coverage channel already runs (dec-6).
-  // Best-effort: a lookup failure must never break the tool response.
-  let acVerifications: AcWithVerification[] | undefined;
-  if (briefLike && state.doc.status === "build") {
-    try {
-      const rows = await listAcsForBriefWithVerification(
-        state.doc.memexId,
-        state.doc.id,
-      );
-      acVerifications = rows.filter((r) => r.ac.status === "active");
-    } catch {
-      acVerifications = undefined;
-    }
-  }
+  // spec-203 ac-15: formatState renders only the doc BODY (+ tool-injected
+  // header/footer blocks). The machine footer is no longer composed here — the
+  // single seat `decideFooter` composes and attaches it at the one choke point
+  // (`runToolWithSpecTraffic`) on EVERY Spec-resolving call. `ctx` is retained
+  // for signature stability (callers pass it); the footer no longer reads it.
+  void ctx;
   return formatFullDocState(
     state.doc,
     state.decs,
@@ -625,13 +581,131 @@ async function formatState(
     baseUrl,
     state.comments,
     undefined,
-    nudge,
-    acVerifications,
+    undefined,
+    undefined,
     // spec-136 t-4: the Spec's tags, rendered as a one-line strip in the header.
     state.tags,
     // spec-203 dec-3 (t-3): tool-injected guidance, placed by the composer.
     blocks,
   );
+}
+
+/**
+ * THE single seat that decides and attaches the footer (spec-203 ac-15 / ac-16).
+ *
+ * A tool call — any tool call — is the client phoning home; we return the real
+ * tool result, then take that one opening to STEER the client. `decideFooter` is
+ * invoked at the single choke point (`runToolWithSpecTraffic`) on EVERY
+ * Spec-resolving call (ac-14), and is the only place a footer is composed. It
+ * returns the footer already framed with FOOTER_DELIMITER (so the telemetry wrap
+ * splits + persists it — ac-17), or null for "no footer this time".
+ *
+ * Starting policy (deterministic; the SITUATIONAL logic — onboarding a first
+ * Spec, a reprimand when an agent is drifting — evolves HERE, behind this one
+ * function, with no caller change):
+ *   - verbose reads → the FULL phase footer (toNudge prose + Org overlays +
+ *     once-per-session full handoff + dynamic state) — today's content,
+ *     preserved, including spec-193's tripwire vocabulary.
+ *   - terse calls (the build loop) → the COMPACT footer (handoff essence +
+ *     dynamic state incl. the AC nag), steering without flooding the agent.
+ * One composer for both (`formatSpecGuidance`); the only knob is `compact`.
+ *
+ * Best-effort: never throws — a footer-policy failure must not cost the tool its
+ * result.
+ */
+export async function decideFooter(
+  memexId: string,
+  docId: string,
+  ctx: ToolCtx,
+): Promise<string | null> {
+  try {
+    const state = await fullDocState(memexId, docId);
+    if (state.doc.docType !== "spec") return null;
+    const phase = state.doc.status as Phase;
+
+    // VERBOSE reads — the agent asked for the whole document, so author the FULL
+    // phase footer via the shared composer (a pure helper; the seat still owns
+    // the decision to return it).
+    if (ctx.verbose) {
+      const baseUrl = await ctx.workspaceUrl(memexId);
+      const orgBlocks = ctx.getOrgBlocksForNudge
+        ? await ctx.getOrgBlocksForNudge()
+        : undefined;
+      let fullHandoff: string | undefined;
+      if (ctx.sessionId) {
+        const handoffButtonId = HANDOFF_BUTTON_BY_PHASE[phase];
+        const handoffContext = handoffButtonId
+          ? handoffInterpolationContext(baseUrl, state.doc)
+          : undefined;
+        if (
+          handoffButtonId &&
+          handoffContext &&
+          claimFullHandoffDelivery(ctx.userId, ctx.sessionId, state.doc.id, state.doc.status)
+        ) {
+          fullHandoff =
+            toButtonPrompt({
+              dataset: BASE_SCAFFOLD,
+              buttonId: handoffButtonId,
+              context: handoffContext,
+            }) ?? undefined;
+        }
+      }
+      const nudge =
+        ctx.toolName || orgBlocks || fullHandoff
+          ? { tool: ctx.toolName, orgBlocks, fullHandoff }
+          : undefined;
+      let acVerifications: AcWithVerification[] | undefined;
+      if (phase === "build") {
+        try {
+          const rows = await listAcsForBriefWithVerification(memexId, docId);
+          acVerifications = rows.filter((r) => r.ac.status === "active");
+        } catch {
+          acVerifications = undefined;
+        }
+      }
+      return formatSpecGuidance(state.doc, state.decs, state.tasks, nudge, acVerifications);
+    }
+
+    // TERSE build-loop calls — author a LEAN, situational footer here. This is
+    // the seat where the steering logic lives and grows (per tool, per user, per
+    // signal). Starting policy: the phase essence ("what's my job this phase")
+    // plus, in build, the AC nag — the highest-value methodology steer.
+    const lines: string[] = [FOOTER_DELIMITER];
+    const essence = toHandoffEssence(BASE_SCAFFOLD, phase);
+    if (essence) lines.push(essence);
+    if (phase === "build") {
+      const nag = await craftUntestedAcNag(memexId, docId);
+      if (nag) lines.push(nag);
+    }
+    return lines.length > 1 ? lines.join("\n") : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Lean steering line for the terse footer: how many active ACs have no passing
+ * test yet, named, with the methodology push. Returns null when there are none
+ * (nothing worth saying → no footer). Best-effort; never throws.
+ */
+async function craftUntestedAcNag(
+  memexId: string,
+  docId: string,
+): Promise<string | null> {
+  try {
+    const rows = await listAcsForBriefWithVerification(memexId, docId);
+    const untested = rows.filter(
+      (r) => r.ac.status === "active" && r.verificationState !== "verified",
+    );
+    if (untested.length === 0) return null;
+    const handles = untested
+      .map((r) => `ac-${r.ac.seq}`)
+      .join(", ");
+    const plural = untested.length === 1 ? "" : "s";
+    return `\n⚠ ${untested.length} untested acceptance criteri${untested.length === 1 ? "on" : "a"} (${handles}). Write the tagged test before you move on — don't go dark.`;
+  } catch {
+    return null;
+  }
 }
 
 // spec-203 Layer 2 (dec-2): build the {namespace}/{memex}/{handle}/{title}/{url}
