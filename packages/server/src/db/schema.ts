@@ -1380,6 +1380,9 @@ export const shareTokens = pgTable("share_tokens", {
   documentId: uuid("document_id")
     .notNull()
     .references(() => documents.id, { onDelete: "cascade" }),
+  memexId: uuid("memex_id")
+    .notNull()
+    .references(() => memexes.id, { onDelete: "cascade" }),
   token: text("token").notNull().unique(),
   revoked: boolean("revoked").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

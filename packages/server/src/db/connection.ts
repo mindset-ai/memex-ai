@@ -71,10 +71,10 @@ export const memexContext = new AsyncLocalStorage<MemexRequestContext>();
  * blocks cross-tenant reads on the restricted role, and the superuser role
  * bypasses RLS unconditionally.
  */
-export function runWithMemexId(
+export function runWithMemexId<T>(
   memexId: string | null | undefined,
-  fn: () => Promise<void>,
-): Promise<void> {
+  fn: () => Promise<T>,
+): Promise<T> {
   if (!memexId) return fn();
   return memexContext.run({ memexId }, fn);
 }
