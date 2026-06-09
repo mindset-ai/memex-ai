@@ -382,6 +382,30 @@ export async function resetHandholdDemo(namespace: string, memex: string): Promi
   }
 }
 
+// spec-206 t-1/t-3: the user-level first-run greeting gate (NOT tenant-scoped).
+export interface GreetingGate {
+  /** True iff the user has never been greeted (onboarding_greeted_at IS NULL). */
+  greet: boolean;
+  /** First whitespace token of users.name, or null → warm nameless fallback. */
+  firstName: string | null;
+}
+
+/** Should Specky greet this user on first run? Called on board mount. */
+export async function fetchGreetingGate(): Promise<GreetingGate> {
+  return fetchJsonRaw<GreetingGate>(fetchWithRetry, `${BASE_URL}/onboarding/greeting`);
+}
+
+/** Stamp onboarding_greeted_at — called ONLY once the greeting actually starts
+ *  speaking (dec-4 / ac-16). Idempotent server-side; never re-greets after. */
+export async function stampGreeting(): Promise<void> {
+  const res = await fetchWithRetry(`${BASE_URL}/onboarding/greeting`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{}',
+  });
+  if (!res.ok) throw new Error(`Failed to stamp greeting: ${res.status}`);
+}
+
 export interface MoveDocInput {
   targetMemexId: string;
   includeDecisions: boolean;

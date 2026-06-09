@@ -37,6 +37,7 @@ import {
 } from "@memex/shared";
 import { db } from "../db/connection.js";
 import { documents } from "../db/schema.js";
+import { FOOTER_DELIMITER } from "../mcp/footer-delimiter.js";
 import { isSpecStatus } from "../types/roles.js";
 import { assign } from "./doc-assignees.js";
 import { promoteToEditor } from "./doc-members.js";
@@ -141,8 +142,14 @@ export async function runToolWithSpecTraffic(
   ctx: ToolCtx,
 ): Promise<string> {
   let target: { memexId: string; docId: string } | undefined;
+  // spec-219 dec-3 (t-3): the shared footer slot. A handler parks its dynamic
+  // footer nugget here; the seat (`composeGuidanceEnvelope`) reads it back and
+  // folds it into the footer, so it lands AFTER the delimiter and is persisted.
+  // One holder, threaded into the handler's ctx AND handed to the seat below.
+  const footerSlot: { content?: string } = {};
   const wrappedCtx: ToolCtx = {
     ...ctx,
+    footerSlot,
     resolveRef: async (ref) => {
       const result = await ctx.resolveRef(ref);
       target = { memexId: result.memexId, docId: result.doc.id };
@@ -160,6 +167,39 @@ export async function runToolWithSpecTraffic(
     userId: ctx.userId,
     ...target,
   });
+
+  // spec-203 ac-14/ac-15 + spec-219 ac-6/ac-7: the ONE place the platform
+  // guidance ENVELOPE is attached. Every tool call is the client phoning home;
+  // here — and only here — the single seat (`composeGuidanceEnvelope`) takes that
+  // opening to steer the client, on EVERY Spec-resolving response (terse and
+  // verbose), never per-tool and never twice. The seat returns DELIMITER-LESS
+  // `{ header?, footer? }`; this choke point assembles
+  // `header + body + FOOTER_DELIMITER + footer` — header prepended above the
+  // body, the single FOOTER_DELIMITER owned HERE (written exactly once), footer
+  // after it — so the telemetry wrap that runs after this splits + persists the
+  // footer (ac-17). Guards: only when the call resolved ONE Spec (`target` set —
+  // list/search resolve none), and only when the body does not already carry a
+  // footer (defence-in-depth; the body composes none). `composeGuidanceEnvelope`
+  // is imported dynamically to keep this module free of a runtime cycle with
+  // agent/tool-specs.ts (cached after first use); it never throws, but the guard
+  // keeps a guidance failure off the result.
+  if (target && !text.includes(FOOTER_DELIMITER)) {
+    try {
+      const { composeGuidanceEnvelope } = await import("../agent/tool-specs.js");
+      // Pass wrappedCtx — it carries the footerSlot the handler may have parked.
+      const { header, footer } = await composeGuidanceEnvelope(
+        target.memexId,
+        target.docId,
+        wrappedCtx,
+      );
+      let out = text;
+      if (header) out = `${header}${out}`;
+      if (footer) out = `${out}\n\n${FOOTER_DELIMITER}\n${footer}`;
+      return out;
+    } catch {
+      // swallow — the tool's real result already succeeded.
+    }
+  }
   return text;
 }
 

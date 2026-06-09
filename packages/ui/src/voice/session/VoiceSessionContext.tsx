@@ -35,14 +35,21 @@ import {
 } from './orchestrator';
 
 export interface VoiceSessionValue extends VoiceSessionState {
-  /** Start a session: requests mic permission (first time), then begins the loop. */
-  start: () => Promise<void>;
+  /** Start a session: requests mic permission (first time), then begins the loop.
+   *  spec-200 t-7: pass `openingContext` to have the guide open by explaining it
+   *  (the What's New ear seeds the entry text). Omit for a normal session. */
+  start: (openingContext?: string) => Promise<void>;
   /** Tap-to-interrupt the agent mid-speech (manual barge-in fallback). */
   interrupt: () => void;
   /** End the session and release the mic. */
   end: () => void;
   /** Retry from the permission-denied recovery UI. */
   retryPermission: () => Promise<void>;
+  /** spec-211 t-1 (dec-1): trigger a proactive narration turn for the demo
+   *  walkthrough and resolve when that spoken turn has finished playing. Resolves
+   *  immediately if no session is active. The client tour sequencer awaits this to
+   *  advance one phase at a time, synced to speech. */
+  narratePhase: (context: string) => Promise<void>;
 }
 
 const VoiceSessionContext = createContext<VoiceSessionValue | null>(null);
@@ -89,6 +96,16 @@ export function VoiceSessionProvider({
 
   const streamRef = useRef<MediaStream | null>(null);
 
+  // spec-211 t-1: the resolver for an in-flight narratePhase() promise. The
+  // orchestrator's onTurnComplete hook (and end/ended) resolves it so the client
+  // tour sequencer's await unblocks exactly when the spoken turn finishes.
+  const pendingTurnResolve = useRef<(() => void) | null>(null);
+  const resolvePendingTurn = useCallback(() => {
+    const resolve = pendingTurnResolve.current;
+    pendingTurnResolve.current = null;
+    resolve?.();
+  }, []);
+
   // Earcon player + orchestrator are created once. The orchestrator's hooks drive
   // the live loop state (only while active, so a late callback can't resurrect an
   // ended session).
@@ -107,24 +124,31 @@ export function VoiceSessionProvider({
       setLoopState: (loopState) =>
         setState((s) => (s.status === 'active' ? { ...s, loopState } : s)),
       playEarcon: (e) => earconPlayer.play(e),
-      onError: (message) =>
-        setState((s) => ({ ...s, status: 'error', error: message })),
-      onEnded: () =>
+      onError: (message) => {
+        setState((s) => ({ ...s, status: 'error', error: message }));
+        resolvePendingTurn(); // unblock a walkthrough await (spec-211 t-1)
+      },
+      onEnded: () => {
         setState((s) =>
           s.status === 'active'
             ? { ...s, status: 'inactive', loopState: 'idle' }
             : s,
-        ),
+        );
+        resolvePendingTurn(); // session ended mid-narration → unblock (spec-211 t-1)
+      },
+      // spec-211 t-1: a proactive/agent turn finished playing — resolve the
+      // pending narratePhase() promise so the sequencer advances one phase.
+      onTurnComplete: () => resolvePendingTurn(),
     };
     return orchestratorFactory(hooks);
-  }, [orchestratorFactory, earconPlayer]);
+  }, [orchestratorFactory, earconPlayer, resolvePendingTurn]);
 
   const releaseStream = useCallback(() => {
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
   }, []);
 
-  const start = useCallback(async () => {
+  const start = useCallback(async (openingContext?: string) => {
     const current = stateRef.current;
     if (current.status === 'active' || current.status === 'requesting_permission') {
       return; // idempotent — already starting / running
@@ -149,7 +173,7 @@ export function VoiceSessionProvider({
     setState((s) => ({ ...s, status: 'active', loopState: 'listening' }));
 
     try {
-      await orchestrator.start(stream); // consumes the granted, AEC'd stream
+      await orchestrator.start(stream, openingContext); // consumes the granted, AEC'd stream
     } catch (err) {
       releaseStream();
       setState((s) => ({ ...s, status: 'error', error: err instanceof Error ? err.message : String(err) }));
@@ -167,7 +191,27 @@ export function VoiceSessionProvider({
     releaseStream();
     earconPlayer.play('end');
     setState((s) => ({ ...s, status: 'inactive', loopState: 'idle', error: null }));
-  }, [orchestrator, releaseStream, earconPlayer]);
+    // spec-211 t-1/dec-4: a Stop mid-walkthrough must unblock the sequencer's
+    // await so it can observe the ended session and halt (no orphaned advances).
+    resolvePendingTurn();
+  }, [orchestrator, releaseStream, earconPlayer, resolvePendingTurn]);
+
+  // spec-211 t-1 (dec-1): proactive narration turn → resolves when it finishes
+  // playing (via onTurnComplete) or when the session ends. No-op (resolved) if no
+  // session is active, so a sequencer that races a teardown never hangs.
+  const narratePhase = useCallback(
+    (context: string): Promise<void> => {
+      if (stateRef.current.status !== 'active') return Promise.resolve();
+      // A new narration supersedes any still-pending await (shouldn't happen with
+      // sequential awaits, but never leak a resolver).
+      resolvePendingTurn();
+      return new Promise<void>((resolve) => {
+        pendingTurnResolve.current = resolve;
+        orchestrator.narratePhase(context);
+      });
+    },
+    [orchestrator, resolvePendingTurn],
+  );
 
   // Tear down on unmount — never leave the mic hot.
   useEffect(() => {
@@ -179,8 +223,8 @@ export function VoiceSessionProvider({
   }, [orchestrator, releaseStream, earconPlayer]);
 
   const value = useMemo<VoiceSessionValue>(
-    () => ({ ...state, start, interrupt, end, retryPermission: start }),
-    [state, start, interrupt, end],
+    () => ({ ...state, start, interrupt, end, retryPermission: start, narratePhase }),
+    [state, start, interrupt, end, narratePhase],
   );
 
   return <VoiceSessionContext.Provider value={value}>{children}</VoiceSessionContext.Provider>;

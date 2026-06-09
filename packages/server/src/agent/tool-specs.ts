@@ -95,6 +95,9 @@ import {
   acceptAc,
   rejectAc,
   linkAcToParent,
+  listTestEventDigestForAc,
+  softHideTestEventsForAc,
+  restoreTestEventsForAc,
   type Ac,
   type AcKind,
   type AcStatus,
@@ -146,6 +149,7 @@ import {
 import { NotFoundError, ValidationError } from "../types/errors.js";
 import {
   formatFullDocState,
+  formatSpecGuidanceBody,
   formatDocList,
   formatComment,
   formatCommentList,
@@ -158,6 +162,7 @@ import {
   formatStandard,
   renderStandardSectionBody,
   formatTerseSpecPhase,
+  type InjectedBlock,
 } from "../mcp/formatters.js";
 import { buildSketchBlock, type SketchAc } from "../mcp/ac-test-sketch.js";
 import { getStandard, flagDrift, proposeStandardChange } from "../services/standards.js";
@@ -170,6 +175,7 @@ import { getOrgIdForMemex } from "../services/memexes.js";
 import { markdownToMrkdwn } from "../services/slack-markdown.js";
 import { buildTenantUrl } from "../services/shared/tenant-url.js";
 import { listOrgScaffoldAdditionsCached } from "../services/scaffold-additions-cache.js";
+import { filterOrgBlocksForMemex } from "../services/scaffold-additions.js";
 import {
   searchMemex,
   formatSearchResults,
@@ -187,9 +193,15 @@ import {
 import {
   blockerLines,
   toolManifest,
+  BASE_SCAFFOLD,
+  HANDOFF_BUTTON_BY_PHASE,
+  toButtonPrompt,
+  toHandoffEssence,
   type SpecPhase,
+  type Phase,
   type GuidanceBlock,
 } from "@memex/shared";
+import { claimFullHandoffDelivery } from "../services/handoff-delivery.js";
 import {
   assessNarrativeFreshness,
   markNarrativeConsolidated,
@@ -230,6 +242,15 @@ export interface ResolvedRef {
 
 export interface ToolCtx {
   userId: string;
+  /**
+   * spec-203 Layer 2 (dec-2): the MCP `Mcp-Session-Id` for this call, threaded
+   * from the dispatch layer (`createMcpServer`). The centralized footer machine
+   * (`formatState`) keys its once-per-(user, session, spec, phase) full-handoff
+   * delivery on it. Present only on the MCP surface; undefined for the in-app
+   * agent (which is primed via the shared_nudge channel, spec-123 dec-8) and for
+   * hand-rolled test ctxes — both keep the compressed-essence footer path.
+   */
+  sessionId?: string;
   /**
    * spec-156 ac-19: the surface invoking this handler — `mcp` for the MCP
    * server wrap (`mcp/tools.ts`), `in_app_agent` for the React agent loop
@@ -317,6 +338,20 @@ export interface ToolCtx {
    * memex has no Org context (personal namespaces).
    */
   getOrgBlocksForNudge?: () => Promise<readonly GuidanceBlock[]>;
+  /**
+   * spec-219 dec-3 (t-3): the stable slot a handler parks its dynamic footer
+   * nugget in — the result-reporting / steering text it used to inject as a
+   * `{ zone: "footer" }` block on its own `formatState` call. The single seat
+   * (`composeGuidanceEnvelope`) reads it and folds it into the footer, so the
+   * choke point lands it AFTER `FOOTER_DELIMITER` and the telemetry split
+   * persists it to `mcp_tool_calls.footer_text` (it never was while the nugget
+   * rode the body, before the delimiter). A shared mutable holder: the choke
+   * point (`runToolWithSpecTraffic`) creates one, threads it into the handler's
+   * ctx, and reads it back when it composes the envelope. Absent on hand-rolled
+   * test ctxes that bypass the choke — there the nugget is simply not delivered,
+   * exactly as any footer needs the choke to attach it.
+   */
+  footerSlot?: { content?: string };
 }
 
 /**
@@ -345,7 +380,12 @@ export function buildNudgeOrgBlocksGetter(
     if (!memexId) return [];
     const orgId = await getOrgIdForMemex(memexId);
     if (!orgId) return [];
-    return listOrgScaffoldAdditionsCached(orgId, { enabledOnly: true });
+    // spec-193 t-5: the cache holds every enabled row for the Org (account-wide
+    // + per-memex). Filter to this memex's view — account-wide rows plus the
+    // rows scoped to THIS memex — so a per-memex override never bleeds into a
+    // sibling memex under the same namespace.
+    const all = await listOrgScaffoldAdditionsCached(orgId, { enabledOnly: true });
+    return filterOrgBlocksForMemex(all, memexId);
   };
 }
 
@@ -489,6 +529,26 @@ async function resolveStandardSectionRef(
   return { memexId: resolved.memexId, sectionId: resolved.entity.row.id };
 }
 
+/**
+ * Resolve the current verification state of one AC (spec-127) so the
+ * discontinue/restore write tools can report the badge result inline — the
+ * agent sees immediately whether the retire cleared the red. Best-effort: any
+ * lookup miss reports "unknown" rather than failing the (already-committed)
+ * mutation.
+ */
+async function verificationStateForAc(
+  memexId: string,
+  briefId: string,
+  acId: string,
+): Promise<string> {
+  try {
+    const rows = await listAcsForBriefWithVerification(memexId, briefId);
+    return rows.find((r) => r.ac.id === acId)?.verificationState ?? "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
 async function fullDocState(memexId: string, docIdOrHandle: string): Promise<FullDocState> {
   const doc = await getDoc(memexId, docIdOrHandle);
   const [decs, tasksList, comments, docTags] = await Promise.all([
@@ -516,35 +576,17 @@ async function formatState(
   baseUrl: string,
   state: FullDocState,
   ctx?: ToolCtx,
+  // spec-203 dec-3 (t-3): tool-injected guidance blocks (coverage header, tag
+  // summary, nudges). Tools report these instead of concatenating around the
+  // call; the composer places them by zone. Absent for the many bare callers.
+  blocks?: readonly InjectedBlock[],
 ): Promise<string> {
-  // The nudge channel only fires for Spec docs; skip the Org
-  // blocks fetch for everything else to keep the cost off the hot path.
-  const briefLike =
-    state.doc.docType === "spec";
-  const orgBlocks =
-    briefLike && ctx?.getOrgBlocksForNudge
-      ? await ctx.getOrgBlocksForNudge()
-      : undefined;
-  const nudge =
-    briefLike && (ctx?.toolName || orgBlocks)
-      ? { tool: ctx?.toolName, orgBlocks }
-      : undefined;
-  // spec-121 mechanism 1 — feed the build-phase nag its live AC-state lookup.
-  // Only fetched for a Spec in `build` (the nag's only phase), reusing the same
-  // verification-enriched query the coverage channel already runs (dec-6).
-  // Best-effort: a lookup failure must never break the tool response.
-  let acVerifications: AcWithVerification[] | undefined;
-  if (briefLike && state.doc.status === "build") {
-    try {
-      const rows = await listAcsForBriefWithVerification(
-        state.doc.memexId,
-        state.doc.id,
-      );
-      acVerifications = rows.filter((r) => r.ac.status === "active");
-    } catch {
-      acVerifications = undefined;
-    }
-  }
+  // spec-203 ac-15: formatState renders only the doc BODY (+ tool-injected
+  // header/footer blocks). The machine footer is no longer composed here — the
+  // single seat `decideFooter` composes and attaches it at the one choke point
+  // (`runToolWithSpecTraffic`) on EVERY Spec-resolving call. `ctx` is retained
+  // for signature stability (callers pass it); the footer no longer reads it.
+  void ctx;
   return formatFullDocState(
     state.doc,
     state.decs,
@@ -552,11 +594,254 @@ async function formatState(
     baseUrl,
     state.comments,
     undefined,
-    nudge,
-    acVerifications,
+    undefined,
+    undefined,
     // spec-136 t-4: the Spec's tags, rendered as a one-line strip in the header.
     state.tags,
+    // spec-203 dec-3 (t-3): tool-injected guidance, placed by the composer.
+    blocks,
   );
+}
+
+/**
+ * THE single seat that composes the platform guidance ENVELOPE — header + footer
+ * (spec-203 ac-15 / ac-16; spec-219 ac-6).
+ *
+ * A tool call — any tool call — is the client phoning home; we return the real
+ * tool result, then take that one opening to STEER the client.
+ * `composeGuidanceEnvelope` is invoked at the single choke point
+ * (`runToolWithSpecTraffic`) on EVERY Spec-resolving call (ac-14), and is the
+ * only place a header or footer is composed (`formatFullDocState` composes
+ * neither). It returns `{ header?, footer? }` where BOTH are DELIMITER-LESS
+ * content: the choke point owns the single `FOOTER_DELIMITER` and writes it
+ * exactly once when it assembles `header + body + FOOTER_DELIMITER + footer`
+ * (spec-219 ac-7); the telemetry wrap then splits + persists the footer (ac-17).
+ * An empty envelope `{}` means "nothing to add this time".
+ *
+ * Starting policy (deterministic; the SITUATIONAL logic — onboarding a first
+ * Spec, a reprimand when an agent is drifting — evolves HERE, behind this one
+ * function, with no caller change):
+ *   - verbose reads → the FULL phase footer (toNudge prose + Org overlays +
+ *     once-per-session full handoff + dynamic state) — today's content,
+ *     preserved, including spec-193's tripwire vocabulary.
+ *   - terse calls (the build loop) → the COMPACT footer (handoff essence +
+ *     dynamic state incl. the AC nag), steering without flooding the agent.
+ * One composer for both (`formatSpecGuidanceBody`).
+ *
+ * Best-effort: never throws — a guidance-policy failure must not cost the tool
+ * its result.
+ */
+export interface GuidanceEnvelope {
+  header?: string;
+  footer?: string;
+}
+
+/**
+ * spec-219 dec-5 (t-4): the per-tool STEERING registry — the ONE place the
+ * transition map (tool T → the move we want next, T+1) lives. Keyed by the
+ * dispatching tool, it is the seam that makes the footer TRANSITION-keyed rather
+ * than purely phase-keyed (ac-11): two tools resolving the same Spec in the same
+ * phase can get different footers.
+ *
+ * Division of labour (dec-5): handlers own RESULT-REPORTING (the footer slot,
+ * t-3 — what the tool just did); the seat owns STEERING (this registry + the
+ * phase guidance — where to go next). A steer here MUST COMPLEMENT, never echo,
+ * the handler's slot nugget (ac-12) — so a tool that already parks a slot steer
+ * (update_task's completion nudge, update_doc / publish_spec transition nudges)
+ * deliberately has NO entry here. Phase 2 migrates the remaining scattered
+ * per-tool steers (create_doc's scope-AC push, resolve_decision's impl-AC push,
+ * …) into this one map; this is the seam they land on.
+ */
+const STEER_BY_TOOL: Partial<Record<string, (phase: Phase) => string | undefined>> = {
+  // After editing a section while shaping the plan, the surgical next move is to
+  // keep the narrative honest against the decisions. No other surface says this
+  // per-tool, and update_section parks no slot nugget — so no echo.
+  update_section: (phase) =>
+    phase === "specify" || phase === "draft"
+      ? "Steer: if this edit captures a resolved decision, confirm the decision's consequence now reads in the prose; if a new fork surfaced while writing, capture it with create_decision before it gets buried."
+      : undefined,
+};
+
+/**
+ * Compose the per-tool steer for this (tool, phase). Undefined when the tool has
+ * no registered steer — the footer then carries only the phase guidance (+ any
+ * handler slot). This is the single read of the transition map (ac-5: the
+ * per-tool nudge notion has exactly one author, the seat).
+ */
+function composeToolSteer(toolName: string | undefined, phase: Phase): string | undefined {
+  if (!toolName) return undefined;
+  return STEER_BY_TOOL[toolName]?.(phase);
+}
+
+export async function composeGuidanceEnvelope(
+  memexId: string,
+  docId: string,
+  ctx: ToolCtx,
+): Promise<GuidanceEnvelope> {
+  // spec-219 dec-3 (t-3): a handler may have parked a dynamic footer nugget in
+  // the slot (the result-reporting / steering it used to inject as a footer
+  // block). `compose` folds it into the footer — BEFORE the seat's phase
+  // guidance, matching the order it had on the body side — so the choke point
+  // lands it past the delimiter and the telemetry split persists it (ac-9). The
+  // handler kept its own DB read; the seat only composes (ac-8).
+  const slotRaw = ctx.footerSlot?.content;
+  const slot = slotRaw && slotRaw.trim().length > 0 ? slotRaw : undefined;
+  const compose = (
+    header: string | undefined,
+    footer: string | undefined,
+  ): GuidanceEnvelope => {
+    const footerBody =
+      [slot, footer].filter((s): s is string => Boolean(s)).join("\n\n") || undefined;
+    const env: GuidanceEnvelope = {};
+    if (header) env.header = header;
+    if (footerBody) env.footer = footerBody;
+    return env;
+  };
+  try {
+    const state = await fullDocState(memexId, docId);
+    if (state.doc.docType !== "spec") return compose(undefined, undefined);
+    const phase = state.doc.status as Phase;
+    // spec-219 dec-5 (t-4): the seat's per-tool steer for this (tool, phase) — the
+    // transition-keyed element of the footer. Folded BEFORE the general phase
+    // guidance (surgical steer first); complements, never echoes, the handler's
+    // slot result-reporting (ac-12).
+    const toolSteer = composeToolSteer(ctx.toolName, phase);
+    const withSteer = (footer: string | undefined): string | undefined =>
+      [toolSteer, footer].filter((s): s is string => Boolean(s)).join("\n\n") || undefined;
+
+    // VERBOSE reads — the agent asked for the whole document, so author the FULL
+    // phase footer via the shared composer (a pure helper; the seat still owns
+    // the decision to return it).
+    if (ctx.verbose) {
+      const baseUrl = await ctx.workspaceUrl(memexId);
+      const orgBlocks = ctx.getOrgBlocksForNudge
+        ? await ctx.getOrgBlocksForNudge()
+        : undefined;
+      let fullHandoff: string | undefined;
+      if (ctx.sessionId) {
+        const handoffButtonId = HANDOFF_BUTTON_BY_PHASE[phase];
+        const handoffContext = handoffButtonId
+          ? handoffInterpolationContext(baseUrl, state.doc)
+          : undefined;
+        if (
+          handoffButtonId &&
+          handoffContext &&
+          claimFullHandoffDelivery(ctx.userId, ctx.sessionId, state.doc.id, state.doc.status)
+        ) {
+          fullHandoff =
+            toButtonPrompt({
+              dataset: BASE_SCAFFOLD,
+              buttonId: handoffButtonId,
+              context: handoffContext,
+            }) ?? undefined;
+        }
+      }
+      const nudge =
+        ctx.toolName || orgBlocks || fullHandoff
+          ? { tool: ctx.toolName, orgBlocks, fullHandoff }
+          : undefined;
+      let acVerifications: AcWithVerification[] | undefined;
+      if (phase === "build") {
+        try {
+          const rows = await listAcsForBriefWithVerification(memexId, docId);
+          acVerifications = rows.filter((r) => r.ac.status === "active");
+        } catch {
+          acVerifications = undefined;
+        }
+      }
+      const footer = formatSpecGuidanceBody(
+        state.doc,
+        state.decs,
+        state.tasks,
+        nudge,
+        acVerifications,
+      );
+      // spec-219 ac-10 / dec-4: the AC-coverage HEADER is composed HERE (the one
+      // seat), not in the get_doc handler. It is the get_doc-verbose-only surface
+      // — emitted only when this is a `get_doc` call (the coverage summary above
+      // the doc body), with NO header delimiter (the `**AC coverage:**` line is
+      // self-labelling and re-derivable, so it is not persisted). The choke point
+      // prepends it above the body, byte-identical to the former header block.
+      const header =
+        ctx.toolName === "get_doc"
+          ? (await formatCoverageHeader(memexId, docId, state.doc.docType)) || undefined
+          : undefined;
+      return compose(header, withSteer(footer ?? undefined));
+    }
+
+    // TERSE build-loop calls — author a LEAN, situational footer here. This is
+    // the seat where the steering logic lives and grows (per tool, per user, per
+    // signal). Starting policy: the phase essence ("what's my job this phase")
+    // plus, in build, the AC nag — the highest-value methodology steer. The body
+    // is DELIMITER-LESS (spec-219 ac-7): the choke point frames it.
+    const lines: string[] = [];
+    const essence = toHandoffEssence(BASE_SCAFFOLD, phase);
+    if (essence) lines.push(essence);
+    if (phase === "build") {
+      const nag = await craftUntestedAcNag(memexId, docId);
+      if (nag) lines.push(nag);
+    }
+    return compose(undefined, withSteer(lines.length > 0 ? lines.join("\n") : undefined));
+  } catch {
+    return compose(undefined, undefined);
+  }
+}
+
+/**
+ * Lean steering line for the terse footer: how many active ACs have no passing
+ * test yet, named, with the methodology push. Returns null when there are none
+ * (nothing worth saying → no footer). Best-effort; never throws.
+ */
+async function craftUntestedAcNag(
+  memexId: string,
+  docId: string,
+): Promise<string | null> {
+  try {
+    const rows = await listAcsForBriefWithVerification(memexId, docId);
+    const untested = rows.filter(
+      (r) => r.ac.status === "active" && r.verificationState !== "verified",
+    );
+    if (untested.length === 0) return null;
+    const handles = untested
+      .map((r) => `ac-${r.ac.seq}`)
+      .join(", ");
+    const plural = untested.length === 1 ? "" : "s";
+    return `\n⚠ ${untested.length} untested acceptance criteri${untested.length === 1 ? "on" : "a"} (${handles}). Write the tagged test before you move on — don't go dark.`;
+  } catch {
+    return null;
+  }
+}
+
+// spec-203 Layer 2 (dec-2): build the {namespace}/{memex}/{handle}/{title}/{url}
+// interpolation context the full handoff prompt needs, from the workspace URL
+// (origin/<namespace>/<memex>, the same `baseUrl` formatState already holds) and
+// the doc. Returns undefined when the URL can't be parsed (e.g. the in-app
+// agent's no-op empty workspace URL), in which case the footer keeps the
+// token-free essence rather than emitting an un-interpolated full prompt.
+function handoffInterpolationContext(
+  workspaceUrl: string,
+  doc: { handle: string; title: string },
+): { namespace: string; memex: string; handle: string; title: string; url: string } | undefined {
+  if (!workspaceUrl) return undefined;
+  let pathname: string;
+  try {
+    pathname = new URL(workspaceUrl).pathname;
+  } catch {
+    return undefined;
+  }
+  const segs = pathname.split("/").filter(Boolean);
+  if (segs.length < 2) return undefined;
+  const memex = segs[segs.length - 1];
+  const namespace = segs[segs.length - 2];
+  return {
+    namespace,
+    memex,
+    handle: doc.handle,
+    title: doc.title,
+    // Spec docs render under /specs/ (refs.ts DB_DOC_TYPE_TO_URL); the handoff
+    // only fires for specs, so the path segment is fixed.
+    url: `${workspaceUrl}/specs/${doc.handle}`,
+  };
 }
 
 // Per doc-12 t-6 / t-7 — soft guidance nudge appended to forward Spec
@@ -662,6 +947,60 @@ async function formatCoverageNudge(
 }
 
 /**
+ * spec-207 dec-1 — the single source of truth for the one-line AC coverage
+ * summary an agent reads to judge "is this Spec done?". Consumed by BOTH
+ * renderers — `formatCoverageHeader` (the get_doc doc-state header) and the
+ * `list_acs` handler — so the contract can't silently drift between them again.
+ * The two had already drifted in wording, and a `kind`-filtered `list_acs` once
+ * read fully green while scope ACs sat untested (the spec-201 false-done).
+ *
+ * Contract:
+ *  - LEADS WITH THE GAP: the count of not-verified ACs (untested + failing) and
+ *    their handles (`ac-1 ac-2 …`). The honest signal is never demoted to a
+ *    tail clause. (ac-1)
+ *  - No "verified (of covered)" headline — that trophy reads *better* the more
+ *    ACs you leave untested. Any percentage is denominated over the TOTAL rows
+ *    in the set, never the self-selecting covered subset. (ac-2)
+ *  - `hiddenByFilter` (list_acs only): when a kind/status filter shrank the set,
+ *    state how many active ACs fall outside it, so a filtered view can't
+ *    silently understate the gap. (ac-3)
+ *
+ * Pure over the `rows` it's handed (no DB, no clock). `stale` and `accepted`
+ * count as covered / not-a-gap, mirroring the spec-121 nag footer.
+ */
+export function formatAcCoverageSummary(
+  rows: AcWithVerification[],
+  opts: { hiddenByFilter?: number } = {},
+): string {
+  const total = rows.length;
+  const s = total === 1 ? "" : "s";
+  const notVerified = rows.filter(
+    (r) =>
+      r.verificationState === "untested" || r.verificationState === "failing",
+  );
+  const covered = rows.filter((r) => r.tests.length > 0).length;
+  const pctCovered = total === 0 ? 0 : Math.round((covered / total) * 100);
+
+  const gapLead =
+    notVerified.length === 0
+      ? `0 of ${total} AC${s} not verified`
+      : `${notVerified.length} of ${total} AC${s} NOT VERIFIED: ${notVerified
+          .map((r) => `ac-${r.ac.seq}`)
+          .join(" ")}`;
+
+  const parts = [gapLead, `${pctCovered}% covered (of ${total})`];
+
+  if (opts.hiddenByFilter && opts.hiddenByFilter > 0) {
+    const h = opts.hiddenByFilter;
+    parts.push(
+      `⚠ ${h} active AC${h === 1 ? "" : "s"} outside this filter (not counted above)`,
+    );
+  }
+
+  return parts.join(" · ");
+}
+
+/**
  * Render a one-line coverage header for a Spec, suitable for prepending to a
  * verbose doc-state dump. Returns "" when the Spec has no ACs (no signal),
  * or when the doc isn't a Spec.
@@ -676,23 +1015,7 @@ async function formatCoverageHeader(
     const rows = await listAcsForBriefWithVerification(memexId, briefId);
     const active = rows.filter((r) => r.ac.status === "active");
     if (active.length === 0) return "";
-    const covered = active.filter((r) => r.tests.length > 0).length;
-    const total = active.length;
-    const untested = total - covered;
-    const failing = active.filter((r) => r.verificationState === "failing").length;
-    const verified = active.filter((r) => r.verificationState === "verified").length;
-    const pctCovered = Math.round((covered / total) * 100);
-    const pctVerified = covered === 0 ? 0 : Math.round((verified / covered) * 100);
-
-    const parts: string[] = [
-      `${total} active AC${total === 1 ? "" : "s"}`,
-      `${pctCovered}% covered`,
-      `${pctVerified}% verified (of covered)`,
-    ];
-    if (untested > 0) parts.push(`${untested} UNTESTED`);
-    if (failing > 0) parts.push(`${failing} failing`);
-
-    return `**AC coverage:** ${parts.join(" · ")}\n\n`;
+    return `**AC coverage:** ${formatAcCoverageSummary(active)}\n\n`;
   } catch {
     return "";
   }
@@ -995,16 +1318,12 @@ export const toolSpecs: ToolSpec[] = [
           return formatStandard(standard, url);
         }
         const state = await fullDocState(memexId, doc.id);
-        // Prepend an AC-coverage header for Specs so the agent sees the
-        // gap before reading the full state. Returns "" for non-Spec docs
-        // or Specs with no active ACs, so the header is non-intrusive when
-        // it doesn't apply.
-        const coverageHeader = await formatCoverageHeader(
-          memexId,
-          doc.id,
-          doc.docType,
-        );
-        return `${coverageHeader}${await formatState(url, state, ctx)}`;
+        // spec-219 ac-10 / dec-4: the AC-coverage header is NO LONGER injected
+        // here. The single seat (`composeGuidanceEnvelope`) composes it — verbose
+        // AND get_doc only — and the choke point (`runToolWithSpecTraffic`)
+        // prepends it above the body. Centralizing both header and footer in the
+        // one seat is the whole point (ac-6); this handler renders only the body.
+        return await formatState(url, state, ctx);
       }
 
       // Terse: agent already has the doc context injected by the system
@@ -1306,7 +1625,12 @@ export const toolSpecs: ToolSpec[] = [
       if (ctx.verbose) {
         const state = await fullDocState(memexId, before.id);
         const url = await ctx.workspaceUrl(memexId);
-        return `${await formatState(url, state, ctx)}${tagSuffix}${nudge}`;
+        // spec-219 dec-3 (t-3): park the tag summary + transition nudge in the
+        // footer slot; the single seat folds them into the footer (after the
+        // delimiter, so they persist to footer_text — they never did while they
+        // rode the body). The handler keeps its own reads.
+        if (ctx.footerSlot) ctx.footerSlot.content = `${tagSuffix}${nudge}`;
+        return await formatState(url, state, ctx);
       }
       const fresh = await getDoc(memexId, before.id);
       // Per dec-1: on a status change include the deterministic phase header so
@@ -2195,10 +2519,9 @@ export const toolSpecs: ToolSpec[] = [
       // test count + derived state. Filtering is client-side because the
       // service signature doesn't accept filters — the row set is tiny
       // (rarely > 50 ACs per Spec) so the JS pass is negligible.
-      let rows: AcWithVerification[] = await listAcsForBriefWithVerification(
-        memexId,
-        doc.id,
-      );
+      const allRows: AcWithVerification[] =
+        await listAcsForBriefWithVerification(memexId, doc.id);
+      let rows = allRows;
       if (kind) rows = rows.filter((r) => r.ac.kind === kind);
       if (status) rows = rows.filter((r) => r.ac.status === status);
 
@@ -2206,25 +2529,29 @@ export const toolSpecs: ToolSpec[] = [
         return `No ACs on ${slugs.namespace}/${slugs.memex}/specs/${doc.handle} matching the filter.`;
       }
 
-      // Aggregate header — the coverage gap is the action signal. The
-      // agent enumerates ACs constantly during build; lighting up "X
-      // untested" at the top of every list_acs response makes the gap
-      // unmissable in the context the agent is already reading.
-      const total = rows.length;
+      // spec-207 ac-3 — a kind/status filter shrinks `rows`; surface how many
+      // active ACs it hides so a filtered view can't silently understate the
+      // gap. Counted over the active set on both sides (proposed/superseded ACs
+      // aren't part of the "is this done?" signal).
+      const filterActive = Boolean(kind || status);
+      const hiddenByFilter = filterActive
+        ? allRows.filter((r) => r.ac.status === "active").length -
+          rows.filter((r) => r.ac.status === "active").length
+        : 0;
+
+      // Aggregate header — the coverage gap is the action signal. The agent
+      // enumerates ACs constantly during build; spec-207 dec-1 routes the
+      // headline through the shared `formatAcCoverageSummary` so it leads with
+      // the not-verified gap (and the filter-hiding warning) instead of a
+      // self-flattering "verified (of covered)" trophy.
       const covered = rows.filter((r) => r.tests.length > 0).length;
-      const untested = total - covered;
+      const untested = rows.length - covered;
       const verified = rows.filter((r) => r.verificationState === "verified").length;
       const failing = rows.filter((r) => r.verificationState === "failing").length;
       const stale = rows.filter((r) => r.verificationState === "stale").length;
-      const pctCovered = total === 0 ? 0 : Math.round((covered / total) * 100);
-      const pctVerified =
-        covered === 0 ? 0 : Math.round((verified / covered) * 100);
 
-      const headerParts: string[] = [
-        `${total} AC${total === 1 ? "" : "s"}`,
-        `${pctCovered}% covered (${covered}/${total} with ≥1 tagged test)`,
-        `${pctVerified}% verified (of covered)`,
-      ];
+      const summary = formatAcCoverageSummary(rows, { hiddenByFilter });
+      // Full state distribution stays below the headline as a breakdown.
       const breakdown: string[] = [];
       if (verified > 0) breakdown.push(`${verified} verified`);
       if (failing > 0) breakdown.push(`${failing} failing`);
@@ -2260,7 +2587,7 @@ export const toolSpecs: ToolSpec[] = [
         // Best-effort.
       }
 
-      const header = `${headerParts.join(" · ")}\nBreakdown: ${breakdown.join(", ")}${decisionLine}`;
+      const header = `${summary}\nBreakdown: ${breakdown.join(", ")}${decisionLine}`;
 
       // Per-row line — surfaces the AC's tagged-test count so the gap is
       // visible per AC, not just in the aggregate. UNTESTED is uppercase
@@ -2305,6 +2632,29 @@ export const toolSpecs: ToolSpec[] = [
       } catch {
         // Best-effort.
       }
+
+      // spec-127 ac-6: orphan awareness. For every FAILING AC, name the
+      // test_identifier(s) pinning it red and point to the ref-keyed retire
+      // path — so an agent that just renamed/deleted a tagged test discovers
+      // and clears its own orphan in-flow. We do NOT claim these ARE orphans
+      // (the server can't tell "renamed away" from "failed for real"); we
+      // surface the candidates + the affordance and leave the judgement to the
+      // actor who knows the codebase (dec-1).
+      const failingRows = rows.filter((r) => r.verificationState === "failing");
+      if (failingRows.length > 0) {
+        const pinLines = failingRows.map((r) => {
+          const acRef = buildChildRef(slugs, doc, { type: "acs", seq: r.ac.seq });
+          const ids = r.tests
+            .filter((t) => t.latestStatus === "fail" || t.latestStatus === "error")
+            .map((t) => `"${t.testIdentifier ?? "(no identifier)"}"`);
+          return `- ${acRef} pinned by ${ids.join(", ")}`;
+        });
+        tailParts.push(
+          `${failingRows.length} failing AC${failingRows.length === 1 ? "" : "s"} — if a pinning test was renamed/deleted in the codebase, ` +
+            `it's an orphan: retire it with \`discontinue_test_events(ref, test_identifier)\` (inspect first with \`get_test_matrix(ref)\`). ` +
+            `See \`get_information(topic='orphaned-test-events')\`.\n${pinLines.join("\n")}`,
+        );
+      }
       const tail = tailParts.length > 0 ? `\n\n${tailParts.join("\n\n")}` : "";
 
       return `${header}\n\n${lines.join("\n")}${tail}`;
@@ -2330,13 +2680,186 @@ export const toolSpecs: ToolSpec[] = [
           `get_ac expects an ac ref; got ${resolved.entity.kind}.`,
         );
       }
-      const { doc, slugs, entity } = resolved;
+      const { memexId, doc, slugs, entity } = resolved;
       const ac = entity.row;
       const acRef = buildChildRef(slugs, doc, { type: "acs", seq: ac.seq });
-      if (ctx.verbose) {
-        return `ref: ${acRef} (seq=${ac.seq}, kind=${ac.kind}, status=${ac.status}): "${ac.statement}"`;
+
+      // spec-127 ac-6: when this AC is held red, name the pinning identifier(s)
+      // and point to the ref-keyed retire path, so an agent inspecting an AC it
+      // just broke by renaming a test discovers and clears its own orphan. The
+      // digest read is best-effort — a miss never fails get_ac.
+      let orphanHint = "";
+      try {
+        const digest = await listTestEventDigestForAc(memexId, ac.id);
+        const pinning = digest.filter((d) => d.pinning);
+        if (pinning.length > 0) {
+          const ids = pinning
+            .map((d) => `"${d.testIdentifier === "" ? "(no identifier)" : d.testIdentifier}"`)
+            .join(", ");
+          orphanHint =
+            `\n⚠ This AC reads failing — pinned by ${ids}. If a pinning test was renamed/deleted in the codebase, ` +
+            `it's an orphan: retire it with \`discontinue_test_events(ref="${acRef}", test_identifier=…)\` ` +
+            `(inspect with \`get_test_matrix(ref="${acRef}")\`). See \`get_information(topic='orphaned-test-events')\`.`;
+        }
+      } catch {
+        // Best-effort.
       }
-      return `ref: ${acRef} [${ac.kind}, ${ac.status}] "${ac.statement}"`;
+
+      if (ctx.verbose) {
+        return `ref: ${acRef} (seq=${ac.seq}, kind=${ac.kind}, status=${ac.status}): "${ac.statement}"${orphanHint}`;
+      }
+      return `ref: ${acRef} [${ac.kind}, ${ac.status}] "${ac.statement}"${orphanHint}`;
+    },
+  },
+  {
+    name: "get_test_matrix",
+    annotations: {
+      title: "Read an AC's test-event matrix",
+      readOnlyHint: true,
+      destructiveHint: false,
+    },
+    description:
+      "Read the per-`test_identifier` test-event digest for one AC, keyed by its " +
+      "canonical ref. One row per identifier: latest (non-hidden) status, last run " +
+      "time, emission count, and two flags — `PINNING red` (this identifier's latest " +
+      "emission is fail/error, so it holds the AC red) and `retired (hidden)` (already " +
+      "soft-hidden, invisible to the verdict). Use this when an AC reads `failing`/`stale` " +
+      "to find WHICH identifier is responsible — then, if you renamed/deleted that test " +
+      "in the codebase, retire its orphan with `discontinue_test_events`. See " +
+      "`get_information(topic='orphaned-test-events')`.",
+    schema: {
+      ref: z.string().describe(
+        "Canonical ref to the AC, e.g. `mindset/main/specs/spec-3/acs/ac-2`.",
+      ),
+      verbose: VERBOSE_FIELD,
+    },
+    async handler(input, ctx) {
+      const ref = input.ref as string;
+      const resolved = await resolveRefArg(ctx, ref);
+      if (resolved.entity.kind !== "ac") {
+        throw new ValidationError(
+          `get_test_matrix expects an ac ref; got ${resolved.entity.kind}.`,
+        );
+      }
+      const { memexId, doc, slugs, entity } = resolved;
+      const acRef = buildChildRef(slugs, doc, { type: "acs", seq: entity.row.seq });
+      const rows = await listTestEventDigestForAc(memexId, entity.row.id);
+      if (rows.length === 0) {
+        return `ref: ${acRef}\nNo test events recorded for this AC yet.`;
+      }
+      const lines = rows.map((r) => {
+        const id = r.testIdentifier === "" ? "(no identifier)" : r.testIdentifier;
+        const status = r.hidden ? "retired" : (r.latestStatus ?? "—");
+        const last = r.latestRunAt ? r.latestRunAt.toISOString() : "—";
+        const flags: string[] = [];
+        if (r.pinning) flags.push("PINNING red");
+        if (r.hidden) flags.push("retired (hidden)");
+        const flagStr = flags.length > 0 ? ` [${flags.join(", ")}]` : "";
+        return `- ${id} — latest ${status}, ${r.count} emission${r.count === 1 ? "" : "s"}, last ${last}${flagStr}`;
+      });
+      return `ref: ${acRef}\n${lines.join("\n")}`;
+    },
+  },
+  {
+    name: "discontinue_test_events",
+    annotations: {
+      title: "Discontinue (soft-hide) an orphaned test_identifier",
+      readOnlyHint: false,
+      destructiveHint: false,
+    },
+    description:
+      "Retire an orphaned `test_identifier` on an AC — a test you renamed/moved/deleted " +
+      "in the codebase whose last emission still pins the AC red. SOFT, reversible: it sets " +
+      "`hidden=true` on the matching emissions (audit retained) and drops them from the " +
+      "verification badge. If you were wrong, `restore_test_events` brings it back; and a " +
+      "fresh live emission of the same identifier re-enters the verdict on its own. Only " +
+      "retire an identifier you KNOW no longer exists in the codebase — not one that merely " +
+      "wasn't run this round. Find the identifier with `get_test_matrix`.",
+    schema: {
+      ref: z.string().describe(
+        "Canonical ref to the AC, e.g. `mindset/main/specs/spec-3/acs/ac-2`.",
+      ),
+      test_identifier: z.string().describe(
+        "The exact test_identifier to retire (as shown by get_test_matrix), " +
+          "e.g. `tests/cache.test.ts::uses redis`.",
+      ),
+      verbose: VERBOSE_FIELD,
+    },
+    async handler(input, ctx) {
+      const ref = input.ref as string;
+      // Resolve the ref FIRST so the std-10 UUID boundary guard fires before
+      // any other validation (b-36 D-7 — the canonical error must win).
+      const resolved = await resolveRefArg(ctx, ref);
+      if (resolved.entity.kind !== "ac") {
+        throw new ValidationError(
+          `discontinue_test_events expects an ac ref; got ${resolved.entity.kind}.`,
+        );
+      }
+      const testIdentifier = input.test_identifier as string;
+      if (!testIdentifier?.trim()) {
+        throw new ValidationError("test_identifier is required.");
+      }
+      const { memexId, doc, slugs, entity } = resolved;
+      const acRef = buildChildRef(slugs, doc, { type: "acs", seq: entity.row.seq });
+      const result = await softHideTestEventsForAc(
+        memexId,
+        entity.row.id,
+        testIdentifier,
+      );
+      const state = await verificationStateForAc(memexId, doc.id, entity.row.id);
+      if (result.hidden === 0) {
+        return `ref: ${acRef} — no emissions matched "${testIdentifier}"; nothing retired. AC verification: ${state}.`;
+      }
+      return `ref: ${acRef} — retired (soft-hidden) ${result.hidden} emission${result.hidden === 1 ? "" : "s"} of "${testIdentifier}". AC verification is now: ${state}. Reverse with restore_test_events.`;
+    },
+  },
+  {
+    name: "restore_test_events",
+    annotations: {
+      title: "Restore (un-hide) a discontinued test_identifier",
+      readOnlyHint: false,
+      destructiveHint: false,
+    },
+    description:
+      "Reverse a `discontinue_test_events`: un-hide every emission of a `test_identifier` " +
+      "on an AC and recompute the verification badge from the restored history. Use when an " +
+      "identifier was retired by mistake (the test still exists). Find retired identifiers " +
+      "with `get_test_matrix` (they show `retired (hidden)`).",
+    schema: {
+      ref: z.string().describe(
+        "Canonical ref to the AC, e.g. `mindset/main/specs/spec-3/acs/ac-2`.",
+      ),
+      test_identifier: z.string().describe(
+        "The exact test_identifier to restore (as shown by get_test_matrix).",
+      ),
+      verbose: VERBOSE_FIELD,
+    },
+    async handler(input, ctx) {
+      const ref = input.ref as string;
+      // Resolve the ref FIRST so the std-10 UUID boundary guard fires before
+      // any other validation (b-36 D-7 — the canonical error must win).
+      const resolved = await resolveRefArg(ctx, ref);
+      if (resolved.entity.kind !== "ac") {
+        throw new ValidationError(
+          `restore_test_events expects an ac ref; got ${resolved.entity.kind}.`,
+        );
+      }
+      const testIdentifier = input.test_identifier as string;
+      if (!testIdentifier?.trim()) {
+        throw new ValidationError("test_identifier is required.");
+      }
+      const { memexId, doc, slugs, entity } = resolved;
+      const acRef = buildChildRef(slugs, doc, { type: "acs", seq: entity.row.seq });
+      const result = await restoreTestEventsForAc(
+        memexId,
+        entity.row.id,
+        testIdentifier,
+      );
+      const state = await verificationStateForAc(memexId, doc.id, entity.row.id);
+      if (result.restored === 0) {
+        return `ref: ${acRef} — no emissions matched "${testIdentifier}"; nothing restored. AC verification: ${state}.`;
+      }
+      return `ref: ${acRef} — restored ${result.restored} emission${result.restored === 1 ? "" : "s"} of "${testIdentifier}". AC verification is now: ${state}.`;
     },
   },
   {
@@ -2725,8 +3248,13 @@ export const toolSpecs: ToolSpec[] = [
         const fresh = await getTask(memexId, taskUuid);
         const state = await fullDocState(memexId, fresh.docId);
         const url = await ctx.workspaceUrl(memexId);
-        const base = await formatState(url, state, ctx);
-        return status === "complete" ? `${base}\n\n> ${COMPLETION_NUDGE}` : base;
+        // spec-219 dec-3 (t-3): park the completion nudge in the footer slot
+        // (only when the task was completed); the seat folds it into the footer,
+        // past the delimiter, so it persists to footer_text.
+        if (status === "complete" && ctx.footerSlot) {
+          ctx.footerSlot.content = `> ${COMPLETION_NUDGE}`;
+        }
+        return await formatState(url, state, ctx);
       }
 
       if (messages.length === 0) {
@@ -3177,7 +3705,10 @@ export const toolSpecs: ToolSpec[] = [
       if (ctx.verbose) {
         const state = await fullDocState(memexId, doc.id);
         const url = await ctx.workspaceUrl(memexId);
-        return `${await formatState(url, state, ctx)}${nudge}`;
+        // spec-219 dec-3 (t-3): park the transition nudge in the footer slot; the
+        // seat folds it into the footer, past the delimiter, so it persists.
+        if (ctx.footerSlot) ctx.footerSlot.content = nudge;
+        return await formatState(url, state, ctx);
       }
       const fresh = await getDoc(memexId, doc.id);
       // Per dec-1 / t-8: replace the best-effort `nudge` with the deterministic

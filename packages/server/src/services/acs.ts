@@ -37,7 +37,7 @@ import {
 import type { InferSelectModel } from "drizzle-orm";
 import { ConflictError, NotFoundError, ValidationError } from "../types/errors.js";
 import { mutate, type Mutated } from "./mutate.js";
-import { removeSummaryForPair } from "./test-event-latest.js";
+import { removeSummaryForPair, recomputeSummaryForPair } from "./test-event-latest.js";
 import { nextSeq, withSeqRetry } from "./shared/sequence.js";
 
 export type Ac = InferSelectModel<typeof acs>;
@@ -662,6 +662,81 @@ export async function listTestMatrixForAc(
     .map(([testIdentifier, emissions]) => ({ testIdentifier, emissions }));
 }
 
+// ──────────────────────────────────────────────────────────────────────
+// Agent-facing test-event digest (spec-127 dec-2) — the ref-keyed read tool
+// ──────────────────────────────────────────────────────────────────────
+//
+// listTestMatrixForAc EXCLUDES hidden rows (it drives the human badge timeline).
+// The agent surface needs MORE: it must show which identifiers currently PIN the
+// AC red (candidates for discontinue) AND which are already retired/hidden
+// (candidates for restore). So this read sees every emission — hidden and not —
+// and collapses to one digest row per test_identifier, computing the
+// verdict-relevant view (latest NON-hidden status) alongside a `hidden` flag.
+
+export interface TestEventDigestRow {
+  /** test_identifier as emitted, or "" for the null bucket. */
+  testIdentifier: string;
+  /**
+   * Status of the latest NON-hidden emission — what the verdict actually sees
+   * (the verdict reads test_event_latest, which excludes hidden; spec-162).
+   * null when every emission for the pair is hidden (fully retired).
+   */
+  latestStatus: "pass" | "fail" | "error" | null;
+  /** created_at of the latest non-hidden emission, or null when fully retired. */
+  latestRunAt: Date | null;
+  /** commit_sha of the latest non-hidden emission (best-effort, often null). */
+  lastCommit: string | null;
+  /** Total emissions recorded (hidden + visible) — the audit depth. */
+  count: number;
+  /** No non-hidden emission remains — currently retired / invisible to the badge. */
+  hidden: boolean;
+  /** Latest non-hidden emission is fail/error — this identifier pins the AC red. */
+  pinning: boolean;
+}
+
+export async function listTestEventDigestForAc(
+  memexId: string,
+  acId: string,
+): Promise<TestEventDigestRow[]> {
+  const ac = await getAc(memexId, acId); // tenancy check; 404 via NotFoundError
+  const slugs = await resolveBriefSlugsForRef(ac.briefId);
+  const acUid = buildAcRef(slugs, ac.seq);
+
+  const events = await db.query.testEvents.findMany({
+    where: eq(testEvents.acUid, acUid),
+    orderBy: [desc(testEvents.createdAt)],
+  });
+
+  const byId = new Map<string, typeof events>();
+  for (const ev of events) {
+    const key = ev.testIdentifier ?? "";
+    const list = byId.get(key) ?? [];
+    list.push(ev);
+    byId.set(key, list);
+  }
+
+  const rows: TestEventDigestRow[] = [];
+  for (const [testIdentifier, evs] of byId.entries()) {
+    // evs are newest-first; the latest non-hidden emission is the verdict view.
+    const latestVisible = evs.find((e) => !e.hidden) ?? null;
+    const latestStatus = (latestVisible?.status ?? null) as
+      | "pass"
+      | "fail"
+      | "error"
+      | null;
+    rows.push({
+      testIdentifier,
+      latestStatus,
+      latestRunAt: latestVisible?.createdAt ?? null,
+      lastCommit: latestVisible?.commitSha ?? evs[0]?.commitSha ?? null,
+      count: evs.length,
+      hidden: latestVisible === null,
+      pinning: latestStatus === "fail" || latestStatus === "error",
+    });
+  }
+  return rows.sort((a, b) => a.testIdentifier.localeCompare(b.testIdentifier));
+}
+
 /**
  * Hard-delete every `test_events` row matching `(acUid, testIdentifier)` for
  * the AC. Writes no audit record (b-96 dec-14): no admin_actions row, no
@@ -699,6 +774,100 @@ export async function discontinueTestEventsForAc(
           .returning({ id: testEvents.id });
         await removeSummaryForPair(tx, acUid, testIdentifier);
         return { deleted: rows.length };
+      });
+    },
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// Soft-hide / restore discontinue (spec-127 dec-1) — the AGENT path
+// ══════════════════════════════════════════════════════════════════════
+//
+// The orphan self-heal problem: a renamed/deleted test keeps its last `fail`
+// in the summary forever, pinning its AC red. spec-127 retires orphans with a
+// SOFT, reversible hide rather than spec-96's hard delete (which stays as a
+// human escape hatch above). The actor that renamed/deleted the test knows the
+// identifier is dead and retires its own orphan via the ref-keyed surface.
+//
+// Mechanism, post-spec-162: the verdict reads `test_event_latest`, NOT the log
+// with a read-time `hidden=false` filter. So flipping `hidden` alone leaves the
+// stale `fail` in the summary and the badge unchanged. Hiding therefore does
+// TWO transactionally-paired writes — set `hidden=true` on the log rows (audit
+// preserved) AND evict the summary row (`removeSummaryForPair`). Restore is the
+// reverse, but un-flipping `hidden` cannot re-insert the summary row on its own,
+// so it RECOMPUTES the pair's summary from the surviving non-hidden log rows
+// (`recomputeSummaryForPair`). Self-heal still holds: a fresh non-hidden
+// emission re-runs applyEmissionToSummary and re-enters the verdict regardless.
+
+/**
+ * Soft-retire every `test_events` row matching `(acUid, testIdentifier)` for
+ * the AC: set `hidden = true` (audit retained) AND drop the summary row so the
+ * pair leaves the verification badge immediately. Reversible via
+ * `restoreTestEventsForAc`. Emits `ac:updated` so the badge + matrix re-render.
+ */
+export async function softHideTestEventsForAc(
+  memexId: string,
+  acId: string,
+  testIdentifier: string,
+): Promise<Mutated<{ hidden: number }>> {
+  const ac = await getAc(memexId, acId); // tenancy check; 404 via NotFoundError
+  const slugs = await resolveBriefSlugsForRef(ac.briefId);
+  const acUid = buildAcRef(slugs, ac.seq);
+
+  return mutate(
+    {},
+    { memexId, docId: ac.briefId, entity: "ac", action: "updated" },
+    async () => {
+      return db.transaction(async (tx) => {
+        const rows = await tx
+          .update(testEvents)
+          .set({ hidden: true })
+          .where(
+            and(
+              eq(testEvents.acUid, acUid),
+              eq(testEvents.testIdentifier, testIdentifier),
+            ),
+          )
+          .returning({ id: testEvents.id });
+        await removeSummaryForPair(tx, acUid, testIdentifier);
+        return { hidden: rows.length };
+      });
+    },
+  );
+}
+
+/**
+ * Reverse a soft-hide: set `hidden = false` on every matching `test_events`
+ * row AND recompute the summary row from the surviving non-hidden log rows so
+ * the pair re-enters the verdict at its true latest-non-hidden status (or
+ * stays off the badge if nothing non-hidden remains). Emits `ac:updated`.
+ */
+export async function restoreTestEventsForAc(
+  memexId: string,
+  acId: string,
+  testIdentifier: string,
+): Promise<Mutated<{ restored: number }>> {
+  const ac = await getAc(memexId, acId); // tenancy check; 404 via NotFoundError
+  const slugs = await resolveBriefSlugsForRef(ac.briefId);
+  const acUid = buildAcRef(slugs, ac.seq);
+
+  return mutate(
+    {},
+    { memexId, docId: ac.briefId, entity: "ac", action: "updated" },
+    async () => {
+      return db.transaction(async (tx) => {
+        const rows = await tx
+          .update(testEvents)
+          .set({ hidden: false })
+          .where(
+            and(
+              eq(testEvents.acUid, acUid),
+              eq(testEvents.testIdentifier, testIdentifier),
+            ),
+          )
+          .returning({ id: testEvents.id });
+        await recomputeSummaryForPair(tx, acUid, testIdentifier);
+        return { restored: rows.length };
       });
     },
   );

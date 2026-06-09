@@ -26,6 +26,7 @@ import {
   orgs,
 } from "../db/schema.js";
 import { isDevMode } from "../middleware/session.js";
+import { splitToolResult } from "../mcp/footer-delimiter.js";
 
 function log(...args: unknown[]): void {
   // eslint-disable-next-line no-console
@@ -185,6 +186,14 @@ export async function logToolCall(input: LogToolCallInput): Promise<void> {
       isDevMode() && input.resultText
         ? clip(input.resultText, MAX_RESULT_TEXT_LENGTH)
         : null;
+    // spec-203 dec-3: capture ONLY the platform footer (everything after the
+    // FOOTER_DELIMITER), UNCONDITIONALLY — prod included, NOT gated by isDevMode
+    // like result_text above. The full tool output is never persisted by this
+    // path. NULL when the response carried no footer.
+    const footer = input.resultText
+      ? splitToolResult(input.resultText).footer
+      : null;
+    const footerText = footer ? clip(footer, MAX_RESULT_TEXT_LENGTH) : null;
     // Derive org_id from memex_id at insert time so analytics queries
     // don't need a 3-table join every time. lookupOrgForMemex returns
     // null for personal-kind memexes (no owning org).
@@ -200,6 +209,7 @@ export async function logToolCall(input: LogToolCallInput): Promise<void> {
       durationMs: input.durationMs,
       error,
       resultText,
+      footerText,
     });
   } catch (err) {
     log("logToolCall failed", { toolName: input.toolName, err });

@@ -42,9 +42,13 @@ describe("Channel 1 — list_acs surfaces coverage gap", () => {
     expect(toolSpecs).toMatch(/verificationState/);
   });
 
-  it("emits an aggregate covered/verified header at the top", () => {
+  it("emits an aggregate coverage header that leads with the gap, not a trophy", () => {
+    // spec-207 dec-1: the headline routes through formatAcCoverageSummary.
     expect(toolSpecs).toMatch(/% covered/);
-    expect(toolSpecs).toMatch(/% verified \(of covered\)/);
+    expect(toolSpecs).toMatch(/formatAcCoverageSummary/);
+    // The self-flattering "verified (of covered)" trophy is gone — a partially
+    // covered Spec must never read as 100% verified (spec-207 ac-2).
+    expect(toolSpecs).not.toMatch(/% verified \(of covered\)/);
   });
 
   it("emits a tail nudge pointing at the test-coverage topic when any AC is untested", () => {
@@ -83,15 +87,17 @@ describe("Channel 2 — phase-transition advice carries a coverage paragraph", (
     expect(toolSpecs).toMatch(/\*\*AC coverage:\*\*/);
   });
 
-  it("verbose get_doc prepends the coverage header for Specs", () => {
-    // The wiring lives inside the get_doc handler — assert the helper is
-    // called there and its result is concatenated with the formatted state.
+  it("verbose get_doc prepends the coverage header via the one seat (spec-219 ac-10)", () => {
+    // spec-219: the wiring moved OUT of the get_doc handler INTO the single seat
+    // (composeGuidanceEnvelope), which composes the header — verbose AND get_doc
+    // only — and the choke point prepends it above the body. Behaviour (and the
+    // byte output) is preserved; this guard pins the new location.
     expect(toolSpecs).toMatch(
-      /const coverageHeader = await formatCoverageHeader\([\s\S]*?doc\.docType,[\s\S]*?\);/,
+      /ctx\.toolName === "get_doc"[\s\S]*?formatCoverageHeader\(/,
     );
-    expect(toolSpecs).toMatch(
-      /\$\{coverageHeader\}\$\{await formatState\(url, state, ctx\)\}/,
-    );
+    // The header is no longer injected as a header-zone block inside the get_doc
+    // handler — re-introducing that would re-fragment the one-seat composer.
+    expect(toolSpecs).not.toMatch(/\{ zone: "header", content: coverageHeader \}/);
   });
 });
 

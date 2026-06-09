@@ -14,11 +14,13 @@ import type {
   AffectedStandardMatch,
 } from "../services/standards.js";
 import { buildChildRef, buildDocRef, docTypeForUrl } from "./refs.js";
+import { FOOTER_DELIMITER } from "./footer-delimiter.js";
 import { formatRef } from "../services/refs.js";
 import {
   BASE_SCAFFOLD,
   BUILD_AC_NAG_PROSE,
   toNudge,
+  toHandoffEssence,
   type GuidanceBlock,
   type PhaseNode,
 } from "@memex/shared";
@@ -116,6 +118,23 @@ interface AcceptanceCriterion {
 export interface NudgeContext {
   tool?: string;
   orgBlocks?: readonly GuidanceBlock[];
+  // spec-203 Layer 2 (dec-2): when set, the footer emits this pre-resolved FULL
+  // handoff (the interpolated copy-button prompt) in place of the compressed
+  // essence. The delivery decision + interpolation happen up in the centralized
+  // formatState machine; the renderer stays dumb and emits whatever it's handed.
+  fullHandoff?: string;
+}
+
+// spec-203 dec-3 (t-3): a piece of platform-injected guidance a tool reports for
+// the composer to place. The tool supplies the rendered `content` and declares
+// its `zone` (above the doc / below it) — placement is data, NOT a tool-name
+// conditional in the composer. Header blocks land before the doc title; footer
+// blocks land after the machine footer (phase guidance / handoff), inside the
+// delimited region. The composer never inspects which tool sent a block.
+export type InjectedZone = "header" | "footer";
+export interface InjectedBlock {
+  zone: InjectedZone;
+  content: string;
 }
 
 // spec-136 t-4: one-line tag strip for a doc-state header. Renders structured
@@ -139,6 +158,11 @@ export function formatFullDocState(
   // spec-136 t-4: appended LAST so the existing positional callers (and the
   // develop nudge/acVerifications params at 7/8) keep compiling unchanged.
   tags?: Tag[],
+  // spec-203 dec-3 (t-3): tool-injected guidance blocks. The composer is the ONE
+  // place that lays out the response envelope — header blocks before the doc,
+  // footer blocks after the machine footer — driven by each block's zone, never
+  // by tool name. Absent for the many callers that inject nothing.
+  blocks?: readonly InjectedBlock[],
 ): string {
   const lines: string[] = [];
 
@@ -196,12 +220,27 @@ export function formatFullDocState(
     lines.push("");
   }
 
-  // Phase-aware guidance (Spec docs)
-  if (doc.docType === "spec") {
-    lines.push(formatSpecGuidance(doc, decisions, tasks, nudge, acVerifications));
-  }
+  // spec-203 ac-15: the footer is NO LONGER composed here. There is exactly one
+  // seat that decides and attaches the footer — `decideFooter`, invoked at the
+  // single choke point (`runToolWithSpecTraffic`) on EVERY Spec-resolving call,
+  // terse and verbose alike. The doc body this function renders carries no
+  // footer of its own; the choke point appends whatever the seat returns. (The
+  // `nudge` / `acVerifications` params remain on the signature for the seat's
+  // own composition path, which calls `formatSpecGuidance` directly.)
 
-  return lines.join("\n").trimEnd();
+  // spec-203 dec-3 (t-3): the envelope. Header blocks wrap above the doc, footer
+  // blocks after the machine footer, placement by zone alone. Joining each zone
+  // with "" preserves the exact bytes the call sites used to concatenate.
+  const body = lines.join("\n").trimEnd();
+  const headerStr = (blocks ?? [])
+    .filter((b) => b.zone === "header")
+    .map((b) => b.content)
+    .join("");
+  const footerStr = (blocks ?? [])
+    .filter((b) => b.zone === "footer")
+    .map((b) => b.content)
+    .join("");
+  return `${headerStr}${body}${footerStr}`;
 }
 
 // ══════════════════════════════════════
@@ -1011,18 +1050,43 @@ export function renderAcNagFooter(
   return lines.join("\n");
 }
 
-function formatSpecGuidance(
+// spec-203 ac-15 / spec-219 ac-6: exported so the single footer seat
+// (`composeGuidanceEnvelope`) can author the FULL phase footer through this
+// composer. The seat remains the sole author/decider; no other code path
+// composes a footer. `formatFullDocState` no longer calls it (the body carries
+// no footer of its own).
+//
+// spec-219 ac-6/ac-7: `formatSpecGuidanceBody` returns the DELIMITER-LESS footer
+// body — the single `FOOTER_DELIMITER` is owned by the choke point
+// (`runToolWithSpecTraffic`), which writes it exactly once when it assembles
+// `header + body + FOOTER_DELIMITER + footer`. The seat returns this body as the
+// `footer` of its envelope. `formatSpecGuidance` is kept as a thin wrapper that
+// prefixes the one delimiter, preserving its self-contained contract for direct
+// callers/tests (returns `null`-free, leads with the delimiter for a Spec).
+export function formatSpecGuidanceBody(
+  doc: Doc,
+  decs: Decision[],
+  tasksList: TaskWithBlockers[],
+  nudge?: NudgeContext,
+  acVerifications?: AcWithVerification[],
+): string | null {
+  if (doc.docType === "spec") {
+    const phase = phaseFromStatus(doc.status);
+    if (phase)
+      return renderSpecPhaseGuidance(doc, phase, decs, tasksList, nudge, acVerifications);
+  }
+  return null;
+}
+
+export function formatSpecGuidance(
   doc: Doc,
   decs: Decision[],
   tasksList: TaskWithBlockers[],
   nudge?: NudgeContext,
   acVerifications?: AcWithVerification[],
 ): string {
-  if (doc.docType === "spec") {
-    const phase = phaseFromStatus(doc.status);
-    if (phase)
-      return renderSpecPhaseGuidance(doc, phase, decs, tasksList, nudge, acVerifications);
-  }
+  const body = formatSpecGuidanceBody(doc, decs, tasksList, nudge, acVerifications);
+  if (body !== null) return `${FOOTER_DELIMITER}\n${body}`;
   return formatLegacyDataShapeGuidance(doc, decs, tasksList);
 }
 
@@ -1048,7 +1112,11 @@ function renderSpecPhaseGuidance(
   nudge?: NudgeContext,
   acVerifications?: AcWithVerification[],
 ): string {
-  const lines: string[] = ["---"];
+  // spec-219 ac-6/ac-7: the footer body is DELIMITER-LESS. The single
+  // FOOTER_DELIMITER (spec-203 dec-3) is no longer emitted here — the choke
+  // point owns it and writes it exactly once between body and footer. See
+  // formatSpecGuidanceBody / runToolWithSpecTraffic.
+  const lines: string[] = [];
   const openDecs = decs.filter((d) => d.status === "open");
   const resolvedDecs = decs.filter((d) => d.status === "resolved");
   const ready = tasksList.filter((t) => !t.blocked && t.status === "not_started");
@@ -1069,6 +1137,20 @@ function renderSpecPhaseGuidance(
   });
   if (nudgeText.length > 0) {
     lines.push(nudgeText);
+  }
+
+  // spec-203: the current phase's handoff in the footer. Layer 2 (the
+  // centralized formatState machine) hands us the FULL interpolated handoff to
+  // deliver once per (user, session, spec, phase) via `nudge.fullHandoff`;
+  // absent that, Layer 1 emits the compressed, token-free essence on every
+  // response. Either way a chat-driven agent (which never copies the button)
+  // gets the phase's handoff. Job-then-state: the handoff ("here's your job this
+  // phase") precedes the dynamic open-decision / task counts below ("here's the
+  // current state"). draft/done yield no essence.
+  const handoffBlock = nudge?.fullHandoff ?? toHandoffEssence(BASE_SCAFFOLD, phase);
+  if (handoffBlock) {
+    lines.push("");
+    lines.push(handoffBlock);
   }
 
   // Dynamic per-Spec counts — stay in code because they're derived from the

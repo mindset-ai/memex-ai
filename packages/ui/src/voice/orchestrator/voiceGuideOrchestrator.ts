@@ -42,6 +42,12 @@ export interface ScreenContext {
 /** React-bound deps the factory needs (only resolvable inside the router tree). */
 export interface VoiceOrchestratorReactDeps {
   navigate: (path: string) => void;
+  /** spec-206 t-2/dec-1: advance the shared Handhold reveal pointer — the guide's
+   *  `advance_demo` tool calls this to walk the demo board during the walkthrough. */
+  advanceDemo: () => void;
+  /** spec-211 t-3 (dec-1): start the client demo-walkthrough sequencer — the
+   *  guide's `start_walkthrough` tool calls this when the user accepts the offer. */
+  startWalkthrough: () => void;
   getScreenContext: () => ScreenContext;
   /** Current session bearer token (for the WS connect-query + the SSE leg). */
   authToken: () => string | null;
@@ -84,6 +90,9 @@ class VoiceGuideOrchestrator implements VoiceOrchestrator {
   private turnAbort: AbortController | null = null;
   private speakingRequestId: string | null = null;
   private stopped = false;
+  // spec-200 t-7: a one-shot opening context (a What's New entry) the guide
+  // explains proactively on session start. Consumed on ws ready, then cleared.
+  private openingContext: string | null = null;
   private readonly newId: () => string;
 
   constructor(
@@ -101,13 +110,15 @@ class VoiceGuideOrchestrator implements VoiceOrchestrator {
       createGuideGraph({ executeServerTool: async () => '(guide content already retrieved for this turn)' });
   }
 
-  async start(stream: MediaStream): Promise<void> {
+  async start(stream: MediaStream, openingContext?: string): Promise<void> {
     // Reset the stopped flag: this orchestrator instance is reused across
     // sessions (the provider memoizes it), and React StrictMode double-invokes the
     // provider's mount effect (mount → cleanup → mount), so stop() may have run at
     // mount — leaving stopped=true. Without this reset every turn would finish with
     // stopped=true and refuse to speak even though the reply was ready.
     this.stopped = false;
+    // spec-200 t-7: seed (or clear) the one-shot opening explanation for this session.
+    this.openingContext = openingContext ?? null;
     const token = this.react.authToken();
     const base = this.react.tenantBase();
     if (!token || !base) {
@@ -140,7 +151,17 @@ class VoiceGuideOrchestrator implements VoiceOrchestrator {
     this.ws = openVoiceWs(
       buildVoiceWsUrl(base, token, this.react.origin),
       {
-        onReady: () => this.ws?.startListening(),
+        onReady: () => {
+          this.ws?.startListening();
+          // spec-200 t-7: if seeded, the guide opens by explaining the entry —
+          // a proactive first turn grounded on the entry text (guideContext),
+          // requiring no user speech. Consumed once.
+          const seed = this.openingContext;
+          this.openingContext = null;
+          if (seed && !this.stopped) {
+            void this.runTurn('Tell me what this update is and why it matters, in a sentence or two.', [seed]);
+          }
+        },
         onTranscript: (text, isFinal) => {
           if (!isFinal) return;
           if (text.trim()) void this.runTurn(text);
@@ -183,7 +204,7 @@ class VoiceGuideOrchestrator implements VoiceOrchestrator {
     this.hooks.setLoopState('thinking');
   }
 
-  private async runTurn(transcript: string): Promise<void> {
+  private async runTurn(transcript: string, guideContext: string[] = []): Promise<void> {
     // A new user turn supersedes any in-flight agent speech (barge-in, or a fast
     // follow-up before the previous reply finished): stop the old TTS leg and flush
     // its already-queued audio so the previous answer doesn't keep playing over this
@@ -202,7 +223,7 @@ class VoiceGuideOrchestrator implements VoiceOrchestrator {
     let assistantText = '';
     try {
       await this.graph.invoke(
-        { messages: [{ role: 'user', content: transcript }], screenKey, screenRegistry, guideContext: [] },
+        { messages: [{ role: 'user', content: transcript }], screenKey, screenRegistry, guideContext },
         {
           configurable: {
             thread_id: this.threadId,
@@ -212,7 +233,13 @@ class VoiceGuideOrchestrator implements VoiceOrchestrator {
                 assistantText += t;
               },
               onUiTool: (name: string, _id: string, input: Record<string, unknown>) => {
-                dispatchGuideUiTool(name, input, { namespace, memex, navigate: this.react.navigate });
+                dispatchGuideUiTool(name, input, {
+                  namespace,
+                  memex,
+                  navigate: this.react.navigate,
+                  advanceDemo: this.react.advanceDemo,
+                  startWalkthrough: this.react.startWalkthrough,
+                });
               },
             },
           },
@@ -221,6 +248,9 @@ class VoiceGuideOrchestrator implements VoiceOrchestrator {
     } catch (err) {
       this.hooks.onError(err instanceof Error ? err.message : String(err));
       this.hooks.setLoopState('listening');
+      // spec-211 t-1: settle the turn even on error so an awaiting sequencer
+      // (dec-1) never hangs.
+      this.hooks.onTurnComplete?.();
       return;
     }
 
@@ -237,6 +267,9 @@ class VoiceGuideOrchestrator implements VoiceOrchestrator {
       this.ws?.speak(requestId, assistantText);
     } else {
       this.hooks.setLoopState('listening');
+      // spec-211 t-1: no speech to play (empty/aborted) — settle immediately so an
+      // awaiting sequencer advances rather than hangs.
+      if (!this.stopped) this.hooks.onTurnComplete?.();
     }
   }
 
@@ -257,10 +290,30 @@ class VoiceGuideOrchestrator implements VoiceOrchestrator {
     this.barge?.endTurn();
     this.speakingRequestId = null;
     this.hooks.setLoopState('listening');
+    // spec-211 t-1: the agent's spoken turn has fully played out — signal the
+    // client tour sequencer so it can advance one phase (dec-1).
+    this.hooks.onTurnComplete?.();
   }
 
   interrupt(): void {
     this.barge?.tapInterrupt();
+  }
+
+  // spec-211 t-1 (dec-1): a proactive narration turn for the demo walkthrough.
+  // No user speech — mirrors the seeded-opening path (a synthetic prompt + the
+  // phase beat as guideContext). Completion is signalled via hooks.onTurnComplete
+  // (fired when playback drains, or immediately if there's no socket/speech), so
+  // the client sequencer advances one phase only after this narration finishes.
+  narratePhase(context: string): void {
+    if (this.stopped || !this.ws) {
+      // Nothing will speak → settle now so an awaiting sequencer doesn't hang.
+      if (!this.stopped) this.hooks.onTurnComplete?.();
+      return;
+    }
+    void this.runTurn(
+      'Narrate this walkthrough step for the user in a sentence or two, then give a short cue toward the next step.',
+      [context],
+    );
   }
 
   stop(): void {

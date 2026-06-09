@@ -40,6 +40,34 @@ export interface NavigateContext {
   memex: string;
   /** The app router's navigate (react-router). */
   navigate: (path: string) => void;
+  /** spec-206 t-2/dec-1: advance the shared Handhold reveal pointer (board walks
+   *  draft→specify→build→verify→done). Optional so callers that don't wire it
+   *  (and tests) degrade to a no-op rather than throwing. */
+  advanceDemo?: () => void;
+  /** spec-211 t-3 (dec-1): hand control to the client demo-walkthrough sequencer.
+   *  The guide calls `start_walkthrough` when the user accepts the offer; the
+   *  client then drives the speech-synced per-phase tour. Optional → no-op. */
+  startWalkthrough?: () => void;
+}
+
+export interface AdvanceDemoResult {
+  ok: boolean;
+}
+
+/** Advance the demo reveal pointer one phase (dec-1). Best-effort: a missing
+ *  callback (no provider wired) is a no-op, never a throw — mirrors highlight. */
+export function executeAdvanceDemo(ctx: NavigateContext): AdvanceDemoResult {
+  if (!ctx.advanceDemo) return { ok: false };
+  ctx.advanceDemo();
+  return { ok: true };
+}
+
+/** spec-211 t-3: start the client demo-walkthrough sequencer. Best-effort no-op
+ *  when nothing is wired (tests / no sequencer mounted). */
+export function executeStartWalkthrough(ctx: NavigateContext): { ok: boolean } {
+  if (!ctx.startWalkthrough) return { ok: false };
+  ctx.startWalkthrough();
+  return { ok: true };
 }
 
 export interface NavigateResult {
@@ -62,12 +90,21 @@ export function executeNavigate(input: { screen?: string }, ctx: NavigateContext
 
 /** The names the guide executes CLIENT-side. (search_guide is a SERVER tool,
  *  handled by the graph's tools node, not here.) */
-export const GUIDE_CLIENT_TOOL_NAMES: ReadonlySet<string> = new Set(['highlight', 'navigate']);
+export const GUIDE_CLIENT_TOOL_NAMES: ReadonlySet<string> = new Set([
+  'highlight',
+  'navigate',
+  // spec-206 t-2 (dec-1): the synced-walkthrough advance. The graph emits it per
+  // narrated phase (t-4); React walks the shared reveal pointer here.
+  'advance_demo',
+  // spec-211 t-3 (dec-1): the guide calls this when the user accepts the demo
+  // walkthrough; the client sequencer then drives the speech-synced tour.
+  'start_walkthrough',
+]);
 
 /**
- * Dispatch a guide UI tool emitted by the graph. Knows ONLY highlight + navigate
- * — any other tool name (including any product-data tool) is not a client UI tool
- * and is refused here (dec-4 / ac-28).
+ * Dispatch a guide UI tool emitted by the graph. Knows ONLY the client UI tools
+ * (highlight / navigate / advance_demo) — any other tool name (including any
+ * product-data tool) is not a client UI tool and is refused here (dec-4 / ac-28).
  */
 export function dispatchGuideUiTool(
   name: string,
@@ -79,6 +116,10 @@ export function dispatchGuideUiTool(
       return executeHighlight(input as { elementId?: string });
     case 'navigate':
       return executeNavigate(input as { screen?: string }, ctx);
+    case 'advance_demo':
+      return executeAdvanceDemo(ctx);
+    case 'start_walkthrough':
+      return executeStartWalkthrough(ctx);
     default:
       return { ok: false };
   }

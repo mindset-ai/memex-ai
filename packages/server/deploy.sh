@@ -157,6 +157,14 @@ sleep 3
 DB_PASS_ENC=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "${DB_PASS}")
 DB_URL="postgresql://${DB_USER}:${DB_PASS_ENC}@localhost:${PROXY_PORT}/${DB_NAME}"
 
+# Runtime credentials for Cloud Run (spec-199 t-14). Migrations ALWAYS use the
+# superuser path (DB_USER/DB_PASS) — RUNTIME_DB_* is the restricted memex_app
+# role that RLS enforces on. Defaults to DB_USER/DB_PASS until t-14 is rolled
+# out per environment via RUNTIME_DB_USER/RUNTIME_DB_PASS in the deploy-env secret.
+RUNTIME_DB_USER="${RUNTIME_DB_USER:-$DB_USER}"
+RUNTIME_DB_PASS="${RUNTIME_DB_PASS:-$DB_PASS}"
+RUNTIME_DB_PASS_ENC=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "${RUNTIME_DB_PASS}")
+
 echo "  1a. drizzle-kit journal migrations..."
 DATABASE_URL="${DB_URL}" pnpm db:migrate
 
@@ -209,6 +217,22 @@ DATABASE_URL="${DB_URL}" timeout 600 pnpm db:backfill-default-standards \
 echo "  1e. guide-content import (spec-190 t-7 / ac-18)..."
 DATABASE_URL="${DB_URL}" timeout 600 pnpm db:import-guide-content \
   || echo "  ⚠ guide-content import timed out or failed (non-gating, exit $?) — deploy continues; next deploy resumes (idempotent)."
+
+# 1f. spec-200 t-3 / ac-8 — generate "What's New" feed entries for Specs newly
+# shipped to prod. dec-2: this runs at the daily promotion so the feed tracks
+# what's actually live; dec-3: it sources the global memex (mindset-prod/
+# memex-building-itself) — on INT, where that memex doesn't exist, the script
+# no-ops. dec-1: entries publish straight to the feed (no human approval).
+#
+# Bounded + non-gating, exactly like 1c/1d/1e — AND specifically hardened against
+# the spec-178 t-5 hang: runWhatsNewGeneration skips already-published Specs
+# BEFORE any LLM call and caps new entries per run (MAX_PER_RUN), so the daily
+# cost is just today's promotions and the first backfill resumes idempotently.
+# A missing Anthropic key just means no drafts land (next deploy retries) — it
+# never fails the deploy.
+echo "  1f. What's New generation (spec-200 t-3 / ac-8)..."
+DATABASE_URL="${DB_URL}" timeout 600 pnpm db:generate-whats-new \
+  || echo "  ⚠ What's New generation timed out or failed (non-gating, exit $?) — deploy continues; next deploy resumes (idempotent)."
 
 kill $PROXY_PID 2>/dev/null
 wait $PROXY_PID 2>/dev/null || true
@@ -272,7 +296,7 @@ gcloud run deploy "${SERVICE}" \
   --min-instances 0 \
   --max-instances 3 \
   --add-cloudsql-instances "${CLOUD_SQL_INSTANCE_CONN}" \
-  --update-env-vars "^|^NODE_ENV=production|DATABASE_URL=postgresql://${DB_USER}:${DB_PASS_ENC}@localhost:${DB_PORT}/${DB_NAME}|CLOUD_SQL_SOCKET=/cloudsql/${CLOUD_SQL_INSTANCE_CONN}|GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}|EMAIL_FROM=${EMAIL_FROM}|APP_BASE_URL=${APP_BASE_URL}|OAUTH_ENABLED=1|SLACK_CLIENT_ID=${SLACK_CLIENT_ID}|SLACK_OAUTH_REDIRECT_URI=${API_BASE_URL}/api/auth/slack/callback|KMS_KEY_NAME=projects/${GCP_PROJECT}/locations/${REGION}/keyRings/memex/cryptoKeys/slack-tokens${HIDDEN_FEATURES+|HIDDEN_FEATURES=${HIDDEN_FEATURES}}${SIGNUP_DOMAIN_ALLOWLIST+|SIGNUP_DOMAIN_ALLOWLIST=${SIGNUP_DOMAIN_ALLOWLIST}}" \
+  --update-env-vars "^|^NODE_ENV=production|DATABASE_URL=postgresql://${RUNTIME_DB_USER}:${RUNTIME_DB_PASS_ENC}@localhost:${DB_PORT}/${DB_NAME}|CLOUD_SQL_SOCKET=/cloudsql/${CLOUD_SQL_INSTANCE_CONN}|GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}|EMAIL_FROM=${EMAIL_FROM}|APP_BASE_URL=${APP_BASE_URL}|OAUTH_ENABLED=1|SLACK_CLIENT_ID=${SLACK_CLIENT_ID}|SLACK_OAUTH_REDIRECT_URI=${API_BASE_URL}/api/auth/slack/callback|KMS_KEY_NAME=projects/${GCP_PROJECT}/locations/${REGION}/keyRings/memex/cryptoKeys/slack-tokens${HIDDEN_FEATURES+|HIDDEN_FEATURES=${HIDDEN_FEATURES}}${SIGNUP_DOMAIN_ALLOWLIST+|SIGNUP_DOMAIN_ALLOWLIST=${SIGNUP_DOMAIN_ALLOWLIST}}" \
   --update-secrets "${SECRETS_WIRING}"
 
 # ── Done ──────────────────────────────────────────────────────

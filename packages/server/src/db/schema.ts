@@ -1087,6 +1087,12 @@ export const users = pgTable("users", {
   // for legacy rows. Nullable to break the chicken-and-egg with
   // `namespaces.owner_user_id` at signup time. UNIQUE so one user → one namespace.
   namespaceId: uuid("namespace_id").references(() => namespaces.id, { onDelete: "set null" }),
+  // spec-206 (dec-3): the server-authoritative first-run flag for the Specky
+  // welcome. Null = the user has never been greeted; a timestamp = the first
+  // session where Specky's opening turn actually started speaking (dec-4 — a
+  // blocked/denied audio start does NOT stamp it). True once-per-user across
+  // devices, so the auto-greeting never re-fires.
+  onboardingGreetedAt: timestamp("onboarding_greeted_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
@@ -1305,6 +1311,13 @@ export const orgScaffoldAdditions = pgTable(
     orgId: uuid("org_id")
       .notNull()
       .references(() => orgs.id, { onDelete: "cascade" }),
+    // spec-193 t-5 (dec-6 grain): optional per-memex scope. NULL = account-wide
+    // — applies to every memex in the Org's namespace (existing behaviour, the
+    // default for security / house-style blocks). Set = applies ONLY to that
+    // memex (the override). Resolution merges account-wide + per-memex at query
+    // time. ON DELETE CASCADE so deleting a memex drops its scoped overrides;
+    // account-wide rows (NULL) are untouched.
+    memexId: uuid("memex_id").references(() => memexes.id, { onDelete: "cascade" }),
     // Phase the block attaches to. NULL = matches every phase.
     targetPhase: text("target_phase"),
     // Tool name the block attaches to. NULL = matches every tool.
@@ -1348,6 +1361,10 @@ export const orgScaffoldAdditions = pgTable(
       sql`${table.emphasis} IS NULL OR ${table.emphasis} IN ('do', 'dont')`
     ),
     index("org_scaffold_additions_org_id_idx").on(table.orgId),
+    // spec-193 t-5: the per-memex merge reads `WHERE org_id = ? AND (memex_id
+    // IS NULL OR memex_id = ?)`; index (org_id, memex_id) so account-wide +
+    // per-memex resolution stays an index scan.
+    index("org_scaffold_additions_org_id_memex_id_idx").on(table.orgId, table.memexId),
     index("org_scaffold_additions_org_id_target_idx").on(
       table.orgId,
       table.targetPhase,
@@ -1363,6 +1380,9 @@ export const shareTokens = pgTable("share_tokens", {
   documentId: uuid("document_id")
     .notNull()
     .references(() => documents.id, { onDelete: "cascade" }),
+  memexId: uuid("memex_id")
+    .notNull()
+    .references(() => memexes.id, { onDelete: "cascade" }),
   token: text("token").notNull().unique(),
   revoked: boolean("revoked").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -2457,6 +2477,11 @@ export const mcpToolCalls = pgTable(
     // Dev-only capture — gated by isDevMode() in services/telemetry.ts.
     // NULL in production until per-customer opt-in lands.
     resultText: text("result_text"),
+    // spec-203 dec-3: the platform footer (everything after FOOTER_DELIMITER),
+    // captured UNCONDITIONALLY (prod included) by splitting the result — never
+    // the full tool output. NULL when the response carried no footer (non-Spec
+    // docs, terse responses). The audit trail of exactly what guidance we inject.
+    footerText: text("footer_text"),
   },
   (table) => [
     index("mcp_tool_calls_session_idx").on(table.sessionId, table.createdAt),
@@ -2471,3 +2496,59 @@ export type McpSession = InferSelectModel<typeof mcpSessions>;
 export type McpSessionInsert = InferInsertModel<typeof mcpSessions>;
 export type McpToolCall = InferSelectModel<typeof mcpToolCalls>;
 export type McpToolCallInsert = InferInsertModel<typeof mcpToolCalls>;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// spec-200: "What's New" release-note feed.
+//
+// One GLOBAL, append-only feed (dec-3) — the prod-promoted Specs of
+// memex-building-itself, identical for every user. Like guideContent there is
+// deliberately NO memex_id / user_id column. Entries are auto-generated at the
+// daily prod promotion (dec-1 fully-auto, dec-2 promotion-time), never
+// regenerated once published (stable/citable — ac-9), and idempotent on
+// sourceSpecRef (ac-6). Migration: drizzle/0080_add_whats_new_entries.sql.
+// ─────────────────────────────────────────────────────────────────────────────
+export const whatsNewEntries = pgTable(
+  "whats_new_entries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // Canonical ref of the source Spec — the generation idempotency key.
+    sourceSpecRef: text("source_spec_ref").notNull(),
+    // Display handle (e.g. "spec-192"), denormalised for cheap rendering.
+    sourceSpecHandle: text("source_spec_handle").notNull(),
+    // User-facing headline (benefit-led, not the raw Spec title).
+    title: text("title").notNull(),
+    // WHAT shipped (plain language).
+    whatText: text("what_text").notNull(),
+    // WHY it matters to users (plain language).
+    whyText: text("why_text").notNull(),
+    publishedAt: timestamp("published_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // One entry per source Spec (ac-6 idempotency key).
+    uniqueIndex("whats_new_entries_source_spec_ref_idx").on(table.sourceSpecRef),
+    // Newest-first feed read (ac-11 ordering).
+    index("whats_new_entries_published_at_idx").on(table.publishedAt),
+  ]
+);
+
+export type WhatsNewEntry = InferSelectModel<typeof whatsNewEntries>;
+export type WhatsNewEntryInsert = InferInsertModel<typeof whatsNewEntries>;
+
+// spec-200 dec-7: persisted "judged not worth announcing" verdicts, so each Spec
+// is evaluated exactly once (the candidate set excludes Specs in entries OR skips).
+export const whatsNewSkips = pgTable(
+  "whats_new_skips",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sourceSpecRef: text("source_spec_ref").notNull(),
+    sourceSpecHandle: text("source_spec_handle").notNull(),
+    // The model's reason for skipping (debug / audit only).
+    reason: text("reason"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [uniqueIndex("whats_new_skips_source_spec_ref_idx").on(table.sourceSpecRef)]
+);
+
+export type WhatsNewSkip = InferSelectModel<typeof whatsNewSkips>;
+export type WhatsNewSkipInsert = InferInsertModel<typeof whatsNewSkips>;

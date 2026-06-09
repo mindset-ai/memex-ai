@@ -39,6 +39,7 @@ import { resolveRef as resolveCanonicalRef } from "../services/resolver.js";
 import { parseRef } from "../services/refs.js";
 import { logToolCall } from "../services/mcp-telemetry.js";
 import { runToolWithSpecTraffic } from "../services/spec-traffic.js";
+import { memexContext } from "../db/connection.js";
 import { bus } from "../services/bus.js";
 import { deriveActivity } from "../agent/derive-activity.js";
 import type { ToolSpec } from "../agent/tool-specs.js";
@@ -369,6 +370,12 @@ export function createMcpServer(
         const rlsStore: { memexId: string } = { memexId: "" };
         const ctx: ToolCtx = {
           userId,
+          // spec-203 Layer 2 (dec-2): thread the dispatch-layer session id into
+          // ctx so the centralized footer machine can key its once-per-(user,
+          // session, spec, phase) full-handoff delivery on it. Undefined in
+          // stateless/test paths (createMcpServer's sessionId param), which is
+          // exactly when the footer falls back to the compressed essence.
+          sessionId,
           // spec-156 ac-19: this is the MCP surface. Handlers that derive a
           // mutate() channel from ctx (update_doc's tag writes) read this so
           // Pulse attributes MCP-driven activity to the `mcp` channel.

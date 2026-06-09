@@ -14,7 +14,7 @@ import { SearchTrigger } from './SearchTrigger';
 import {
   getCurrentTenant,
   parseTenantFromPathname,
-  parseNamespaceFromPathname,
+  resolveNavTo,
 } from '../utils/tenantUrl';
 
 // Strip the leading /<namespace>/<memex> from a pathname so we can match
@@ -35,31 +35,6 @@ function stripTenantPrefix(pathname: string): string {
 // the user's default landing tenant when the URL is fully flat. Pure helper
 // so it can be exercised without rendering — `useNavTo` below is the React
 // wrapper that pulls session + location from context.
-function resolveNavTo(
-  toInTenant: string,
-  pathname: string,
-  memberships: Array<{ slug: string; memexSlug: string; kind: 'personal' | 'team' }> | undefined,
-): string {
-  const normalized = toInTenant.startsWith('/') ? toInTenant : `/${toInTenant}`;
-  const suffix = normalized === '/' ? '' : normalized;
-
-  const tenant = parseTenantFromPathname(pathname);
-  if (tenant) return `/${tenant.namespace}/${tenant.memex}${suffix}`;
-
-  const ns = parseNamespaceFromPathname(pathname);
-  if (ns && memberships) {
-    const m = memberships.find((row) => row.slug === ns);
-    if (m) return `/${ns}/${m.memexSlug}${suffix}`;
-  }
-
-  if (memberships && memberships.length > 0) {
-    const personal = memberships.find((row) => row.kind === 'personal') ?? memberships[0];
-    return `/${personal.slug}/${personal.memexSlug}${suffix}`;
-  }
-
-  return normalized;
-}
-
 const PRIMARY_NAV_LINKS: ReadonlyArray<{
   to: string;
   label: string;

@@ -24,8 +24,12 @@ interface Props {
     text: string;
     rationale: string;
     emphasis?: GuidanceBlock['emphasis'];
+    memexId?: string;
   }) => Promise<void>;
   onToggleAddition?: (id: string, enabled: boolean) => Promise<void>;
+  // spec-193 t-5: the memex the Inspect page is anchored to (for the Scope control).
+  currentMemexId?: string | null;
+  currentMemexLabel?: string;
 }
 
 const PRE_CLASS =
@@ -38,6 +42,8 @@ export function ScaffoldButtonView({
   isAdmin,
   onCreateAddition,
   onToggleAddition,
+  currentMemexId,
+  currentMemexLabel,
 }: Props) {
   const button = dataset.promptButtons.find((b) => b.id === buttonId);
 
@@ -127,6 +133,8 @@ export function ScaffoldButtonView({
             initialTarget={{ button: buttonId }}
             onSubmit={onCreateAddition}
             label="Add button guidance"
+            currentMemexId={currentMemexId}
+            currentMemexLabel={currentMemexLabel}
           />
         ) : null}
       </section>

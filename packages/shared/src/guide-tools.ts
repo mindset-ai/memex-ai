@@ -64,6 +64,31 @@ export const GUIDE_TOOLS: GuideToolDefinition[] = [
       required: ['query'],
     },
   },
+  // spec-206 t-4 / spec-211 t-4 (dec-1/dec-5): a pure UI affordance — moves the
+  // on-screen demo board, touches NO tenant data. As of spec-211 the APP drives the
+  // demo walkthrough advances itself (speech-synced), so the guide does NOT call
+  // this — kept on the toolset for the rail, but neutralised in description.
+  {
+    name: 'advance_demo',
+    description:
+      'Reserved for the demo-specs walkthrough. The app now advances the demo board itself, in sync with your narration — do NOT call this tool. To begin a walkthrough, call start_walkthrough instead.',
+    input_schema: {
+      type: 'object',
+      properties: {},
+    },
+  },
+  // spec-211 t-4 (dec-1): hand the demo walkthrough to the app. Pure UI affordance
+  // (no tenant data). The guide calls this ONCE when the user accepts the offer;
+  // the app then drives the speech-synced, one-phase-at-a-time tour.
+  {
+    name: 'start_walkthrough',
+    description:
+      'Call this ONCE when the user accepts your offer to walk them through the demo specs (e.g. they say "yes", "sure", "go on"). It hands the walkthrough to the app, which opens each demo spec and advances the board one phase at a time in sync with your narration. After calling it, narrate ONLY the phase you are asked to narrate each turn — do not narrate all phases at once and do not advance the board yourself. Takes no input.',
+    input_schema: {
+      type: 'object',
+      properties: {},
+    },
+  },
 ];
 
 /** The guide tool names as a set (dispatch + guard). */

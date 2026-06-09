@@ -77,7 +77,7 @@ function isAnimated(img: Element | null | undefined): boolean {
 beforeEach(() => vi.clearAllMocks());
 
 describe('spec-197 wiring — Specky in the spec-190 voice surface', () => {
-  it('the in-view entry doorway shows the QUIET (static) Specky, not the neutral glyph (ac-8 / ac-1 entry)', () => {
+  it('the in-view entry doorway shows the ANIMATED (alive) Specky, not the neutral glyph (ac-8 / ac-1 entry)', () => {
     tagAc(AC_QUIET_ENTRY);
     tagAc(AC_IDENTITY);
     renderVoice(REGISTERED);
@@ -86,9 +86,11 @@ describe('spec-197 wiring — Specky in the spec-190 voice surface', () => {
     // Specky is the identity (an <img>), replacing the placeholder sound-wave glyph.
     expect(img).not.toBeNull();
     expect(affordance.querySelector('svg')).toBeNull(); // the neutral DefaultMark <svg> is gone
-    // ...and it is the STATIC variant — a quiet doorway, not the wobbling idle loop.
-    expect(isStatic(img)).toBe(true);
-    expect(isAnimated(img)).toBe(false);
+    // ...and it is the ANIMATED idle-loop variant — an alive, inviting doorway
+    // (dec-2 revised 2026-06-08; the static frame is now used only for the
+    // reduced-motion freeze inside the SVG, not as a separate quiet doorway).
+    expect(isAnimated(img)).toBe(true);
+    expect(isStatic(img)).toBe(false);
   });
 
   it('one click opens the session AND surfaces the ANIMATED Specky avatar in the pill (ac-2 / ac-9 / ac-1 pill)', async () => {

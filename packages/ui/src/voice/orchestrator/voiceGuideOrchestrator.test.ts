@@ -79,23 +79,37 @@ function fakeGraph(behaviour: (cb: Record<string, (...a: never[]) => void>) => v
   } as unknown as ReturnType<typeof import('../guideGraph').createGuideGraph>;
 }
 
-function hooks(): OrchestratorHooks & { states: string[]; earcons: string[]; errors: string[] } {
+function hooks(): OrchestratorHooks & {
+  states: string[];
+  earcons: string[];
+  errors: string[];
+  turnCompletes: number;
+} {
   const states: string[] = [];
   const earcons: string[] = [];
   const errors: string[] = [];
+  const box = { turnCompletes: 0 };
   return {
     states,
     earcons,
     errors,
+    get turnCompletes() {
+      return box.turnCompletes;
+    },
     setLoopState: (s) => states.push(s),
     playEarcon: (e) => earcons.push(e),
     onError: (m) => errors.push(m),
     onEnded: () => {},
+    onTurnComplete: () => {
+      box.turnCompletes += 1;
+    },
   };
 }
 
 const react = {
   navigate: vi.fn(),
+  advanceDemo: vi.fn(),
+  startWalkthrough: vi.fn(),
   authToken: () => 'tok',
   tenantBase: () => '/api/ns/mx',
   origin: 'http://localhost',
@@ -211,6 +225,112 @@ describe('voice orchestrator wiring (ac-11)', () => {
     // Playback finishes → now we return to listening.
     playback.drain();
     expect(h.states[h.states.length - 1]).toBe('listening');
+  });
+
+  it('seeds a proactive opening turn from openingContext on ws ready (spec-200 t-7 / ac-15)', async () => {
+    tagAc('mindset-prod/memex-building-itself/specs/spec-200/acs/ac-15');
+    const sock = fakeSocket();
+    const graph = fakeGraph((cb) => cb.onTextDelta?.('This update lets you see what shipped.' as never));
+    const h = hooks();
+    const orch = createVoiceOrchestratorFactory(react, {
+      socketFactory: sock.factory,
+      vadEngine: fakeVad().engine,
+      capture: fakeCapture(),
+      playback: fakePlayback(),
+      graph,
+      newId: () => 'seed-1',
+    })(h);
+
+    const seed = "What's New — See what shipped. What shipped: A feed. Why it matters: You stay current.";
+    await orch.start(fakeStream, seed);
+
+    // ws ready → the guide opens PROACTIVELY (no transcript), grounded on the seed.
+    sock.sock.onmessage?.({ data: JSON.stringify({ type: 'ready' }) });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(graph.invoke).toHaveBeenCalledTimes(1);
+    const input = graph.invoke.mock.calls[0][0] as { guideContext: string[] };
+    expect(input.guideContext).toEqual([seed]); // entry text seeded for Specky to explain
+    const spoke = sock.sent.map((s) => (typeof s === 'string' ? JSON.parse(s) : null)).find((m) => m?.type === 'speak');
+    expect(spoke?.text).toContain('see what shipped');
+  });
+
+  it('narratePhase drives a proactive turn seeded with the phase beat, and speaks (spec-211 ac-7)', async () => {
+    tagAc('mindset-prod/memex-building-itself/specs/spec-211/acs/ac-7');
+    const sock = fakeSocket();
+    const graph = fakeGraph((cb) => cb.onTextDelta?.('This spec is in draft — it captures the why.' as never));
+    const h = hooks();
+    const orch = createVoiceOrchestratorFactory(react, {
+      socketFactory: sock.factory,
+      vadEngine: fakeVad().engine,
+      capture: fakeCapture(),
+      playback: fakePlayback(),
+      graph,
+      newId: () => 'narrate-1',
+    })(h);
+    await orch.start(fakeStream);
+    sock.sock.onmessage?.({ data: JSON.stringify({ type: 'ready' }) });
+
+    const beat = '**Specify the why.** The idea is captured as a Spec.';
+    orch.narratePhase(beat);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // A proactive turn ran with the beat as guideContext (no user transcript).
+    expect(graph.invoke).toHaveBeenCalledTimes(1);
+    const input = graph.invoke.mock.calls[0][0] as { guideContext: string[] };
+    expect(input.guideContext).toEqual([beat]);
+    const spoke = sock.sent.map((s) => (typeof s === 'string' ? JSON.parse(s) : null)).find((m) => m?.type === 'speak');
+    expect(spoke?.text).toContain('draft');
+  });
+
+  it('fires onTurnComplete when the narration turn finishes playing (spec-211 ac-8)', async () => {
+    tagAc('mindset-prod/memex-building-itself/specs/spec-211/acs/ac-8');
+    const sock = fakeSocket();
+    const graph = fakeGraph((cb) => cb.onTextDelta?.('Draft captures the why.' as never));
+    const playback = fakePlayback();
+    const h = hooks();
+    const orch = createVoiceOrchestratorFactory(react, {
+      socketFactory: sock.factory,
+      vadEngine: fakeVad().engine,
+      capture: fakeCapture(),
+      playback,
+      graph,
+      newId: () => 'narrate-1',
+    })(h);
+    await orch.start(fakeStream);
+    sock.sock.onmessage?.({ data: JSON.stringify({ type: 'ready' }) });
+
+    orch.narratePhase('beat');
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // Speaking, not yet complete — the signal must wait for playback to drain.
+    expect(h.turnCompletes).toBe(0);
+    sock.sock.onmessage?.({ data: JSON.stringify({ type: 'audio', requestId: 'narrate-1', audio: '', isFinal: true }) });
+    expect(h.turnCompletes).toBe(0); // final chunk received, audio still playing
+    playback.drain(); // audio finished playing out
+    expect(h.turnCompletes).toBe(1);
+  });
+
+  it('does NOT seed an opening turn without openingContext (additive — ac-15)', async () => {
+    tagAc('mindset-prod/memex-building-itself/specs/spec-200/acs/ac-15');
+    const sock = fakeSocket();
+    const graph = fakeGraph(() => {});
+    const orch = createVoiceOrchestratorFactory(react, {
+      socketFactory: sock.factory,
+      vadEngine: fakeVad().engine,
+      capture: fakeCapture(),
+      playback: fakePlayback(),
+      graph,
+      newId: () => 'id',
+    })(hooks());
+    await orch.start(fakeStream); // no opening context — today's behaviour
+    sock.sock.onmessage?.({ data: JSON.stringify({ type: 'ready' }) });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(graph.invoke).not.toHaveBeenCalled(); // waits for the user to speak
   });
 
   it('dispatches a navigate UI tool through the app router', async () => {

@@ -12,10 +12,41 @@ import {
 
 const AC26 = 'mindset-prod/memex-building-itself/specs/spec-190/acs/ac-26';
 const AC28 = 'mindset-prod/memex-building-itself/specs/spec-190/acs/ac-28';
+// spec-206 t-4: the synced-walkthrough advance tool.
+const AC206_7 = 'mindset-prod/memex-building-itself/specs/spec-206/acs/ac-7';
 
 describe('guide toolset — no product-data tools (ac-28)', () => {
-  it('contains exactly highlight, navigate, search_guide and nothing else', () => {
-    expect([...GUIDE_TOOL_NAMES].sort()).toEqual(['highlight', 'navigate', 'search_guide']);
+  it('contains exactly the UI/guide tools and nothing else', () => {
+    // spec-206 added advance_demo, spec-211 added start_walkthrough — both pure UI
+    // affordances (no tenant data).
+    expect([...GUIDE_TOOL_NAMES].sort()).toEqual([
+      'advance_demo',
+      'highlight',
+      'navigate',
+      'search_guide',
+      'start_walkthrough',
+    ]);
+  });
+
+  it('exposes start_walkthrough and neutralises advance_demo so the guide never self-advances (spec-211 ac-15)', () => {
+    const start = GUIDE_TOOLS.find((t) => t.name === 'start_walkthrough');
+    expect(start).toBeDefined();
+    expect(start!.description.toLowerCase()).toContain('accept');
+    expect(start!.description.toLowerCase()).toContain('do not advance the board yourself');
+
+    // advance_demo is kept on the rail but must NOT instruct the guide to call it
+    // per phase (that was the burst); its description tells the guide NOT to call it.
+    const advance = GUIDE_TOOLS.find((t) => t.name === 'advance_demo');
+    expect(advance!.description.toLowerCase()).toContain('do not call this');
+    tagAc('mindset-prod/memex-building-itself/specs/spec-211/acs/ac-15');
+  });
+
+  it('exposes advance_demo for the demo-specs walkthrough (spec-206 ac-7)', () => {
+    const tool = GUIDE_TOOLS.find((t) => t.name === 'advance_demo');
+    expect(tool).toBeDefined();
+    expect(tool!.description.toLowerCase()).toContain('walkthrough');
+    expect(tool!.input_schema.type).toBe('object');
+    tagAc(AC206_7);
   });
 
   it('contains NO product-data / tenant-content tool', () => {

@@ -10,6 +10,7 @@ import { test as base, expect as pwExpect, type Page } from "@playwright/test";
 import {
   ensureUser,
   setUserName,
+  setOnboardingGreeted,
   clearOrgMemberships,
   cleanup,
 } from "./seed.js";
@@ -44,6 +45,11 @@ export const test = base.extend<{ resources: TestResources }>({
     await ensureUser(DEV_EMAIL);
     await clearOrgMemberships(DEV_EMAIL);
     await setUserName(DEV_EMAIL, DEV_NAME);
+    // spec-206: pre-stamp the dev user as already greeted so Specky's first-run
+    // auto-greeting never fires unexpectedly on a journey's first board load
+    // (it would otherwise trigger wherever a mic is available, e.g. journey-21).
+    // The onboarding journey explicitly un-greets to drive the auto-greeting.
+    await setOnboardingGreeted(DEV_EMAIL, true);
 
     const uniq = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
     const namespaceSlugs: string[] = [];

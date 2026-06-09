@@ -688,8 +688,17 @@ export async function resolveDecision(
     );
   }
 
-  if (chosenOptionIndex !== undefined) {
-    validateChosenIndex(decision.options as DecisionOption[] | null, chosenOptionIndex);
+  // spec-209 dec-1: graceful-degrade. A chosenOptionIndex is meaningless on a
+  // decision with no options (the common `open`, prose-resolved case), and
+  // throwing there was the dominant resolve_decision failure (88% of its errors
+  // on prod). Drop the index and resolve on the prose instead. An index on a
+  // decision that DOES have options is still validated (out-of-bounds errors).
+  // Scoped here only — validateChosenIndex and update_decision are untouched.
+  const hasOptions =
+    Array.isArray(decision.options) && (decision.options as DecisionOption[]).length > 0;
+  const effectiveChosenIndex = hasOptions ? chosenOptionIndex : undefined;
+  if (effectiveChosenIndex !== undefined) {
+    validateChosenIndex(decision.options as DecisionOption[] | null, effectiveChosenIndex);
   }
 
   const now = new Date();
@@ -708,7 +717,7 @@ export async function resolveDecision(
           status: "resolved",
           resolution,
           resolvedAt: now,
-          ...(chosenOptionIndex !== undefined ? { chosenOptionIndex } : {}),
+          ...(effectiveChosenIndex !== undefined ? { chosenOptionIndex: effectiveChosenIndex } : {}),
         })
         .where(and(eq(decisions.id, id), eq(decisions.memexId, memexId)))
         .returning();

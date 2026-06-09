@@ -24,6 +24,11 @@ export type {
 export { toolManifest } from './tool-manifest.js';
 export type { ToolManifestEntry } from './tool-manifest.js';
 
+// spec-201 dec-3: the per-language AC-emitter adapter catalogue (single source
+// for the Integrations install matrix).
+export { acEmitterManifest, AC_EMITTER_STATUSES } from './ac-emitter-manifest.js';
+export type { AcEmitterEntry, AcEmitterStatus } from './ac-emitter-manifest.js';
+
 // b-68 t-1: the scaffold model. The base scaffold DATA (records) will be
 // added in t-2 as `scaffold-data.ts`; this export surface is the shape +
 // projection contract everything else builds against.
@@ -35,6 +40,8 @@ export {
   toRubric,
   toInitPromptRef,
   toButtonPrompt,
+  toHandoffEssence,
+  HANDOFF_BUTTON_BY_PHASE,
 } from './scaffold-model.js';
 export type {
   Phase,
@@ -82,6 +89,7 @@ export { BASE_REVIEW } from './scaffold-data.js';
 // spec-150 dec-6: the clause-translator system prompt (std-15 — one home; shared by
 // the server migration and spec-142's admin standards agent).
 export { CLAUSE_TRANSLATOR_PROMPT } from './scaffold-data.js';
+export { WHATS_NEW_SYSTEM_PROMPT } from './scaffold-data.js';
 // spec-143 t-4 (dec-6) — drift-agent mode block, injected by buildSystemBlocks
 // when the per-request driftMode flag is set (the React UI's Drift Inbox sets
 // mode "drift"). Lives in the scaffold model (one home, std-15/std-16), not as a

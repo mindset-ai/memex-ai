@@ -30,6 +30,7 @@
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { eq, inArray } from "drizzle-orm";
+import { FOOTER_DELIMITER } from "./footer-delimiter.js";
 import { db } from "../db/connection.js";
 import {
   memexes,
@@ -406,7 +407,14 @@ describe("mcp/tools: verbose:true escape hatch reproduces direct-handler output 
       { ref, content: "Parity probe body." },
       ctxVerbose(memexId),
     );
-    expect(stripUrls(viaMcp.content[0].text)).toBe(stripUrls(viaCtx));
+    // spec-203 ac-15: the footer now rides the single choke point
+    // (runToolWithSpecTraffic), not the handler. So the MCP response is the
+    // direct-handler BODY (byte-for-byte) plus the platform footer the seat
+    // attaches. The direct handler call bypasses the choke point, so it carries
+    // no footer — compare the bodies, and confirm the footer is the MCP addition.
+    const [mcpBody] = viaMcp.content[0].text.split(FOOTER_DELIMITER);
+    expect(stripUrls(mcpBody).trimEnd()).toBe(stripUrls(viaCtx).trimEnd());
+    expect(viaMcp.content[0].text).toContain(FOOTER_DELIMITER);
   });
 });
 

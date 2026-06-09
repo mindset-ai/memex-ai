@@ -9,9 +9,9 @@
 // db.transaction() so the log and its derived summary can never diverge on a
 // crash. Both functions take the active connection/transaction as `conn`.
 
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { type Db } from "../db/connection.js";
-import { testEventLatest } from "../db/schema.js";
+import { testEvents, testEventLatest } from "../db/schema.js";
 
 export interface EmissionForSummary {
   acUid: string;
@@ -84,4 +84,81 @@ export async function removeSummaryForPair(
         eq(testEventLatest.testIdentifier, testIdentifier ?? ""),
       ),
     );
+}
+
+/**
+ * Rebuild the test_event_latest row for a (ac_uid, test_identifier) pair from
+ * the non-hidden rows currently in the append-only log (spec-127 dec-1).
+ *
+ * Used by the RESTORE/unhide path: flipping `hidden` back to false on the log
+ * does NOT re-add the summary row (the upsert only fires on emission), so the
+ * badge would stay stale. This re-derives the pair's latest-non-hidden status,
+ * latest_run_at, and run_count straight from the log and re-upserts — or
+ * deletes the summary row if no non-hidden rows remain (mirroring
+ * removeSummaryForPair, so a pair that was emitted only-hidden stays off the
+ * badge). The '' coercion for the null test_identifier mirrors the write path.
+ *
+ * Unlike applyEmissionToSummary this is a full recompute, not an incremental
+ * upsert — correctness over a soft-hide/restore cycle matters more than the
+ * single-row touch, and restore is rare. Wrap the log UPDATE and this call in
+ * one db.transaction() (the caller does) so they cannot diverge.
+ */
+export async function recomputeSummaryForPair(
+  conn: Db,
+  acUid: string,
+  testIdentifier: string | null,
+): Promise<void> {
+  const key = testIdentifier ?? "";
+  const identifierCond =
+    testIdentifier === null
+      ? isNull(testEvents.testIdentifier)
+      : eq(testEvents.testIdentifier, testIdentifier);
+
+  const rows = await conn
+    .select({ status: testEvents.status, createdAt: testEvents.createdAt })
+    .from(testEvents)
+    .where(
+      and(
+        eq(testEvents.acUid, acUid),
+        identifierCond,
+        eq(testEvents.hidden, false),
+      ),
+    );
+
+  if (rows.length === 0) {
+    await conn
+      .delete(testEventLatest)
+      .where(
+        and(
+          eq(testEventLatest.acUid, acUid),
+          eq(testEventLatest.testIdentifier, key),
+        ),
+      );
+    return;
+  }
+
+  // Newest-wins for the displayed status — mirror applyEmissionToSummary's
+  // GREATEST/CASE rule, computed in JS over the (small) per-pair row set.
+  let latest = rows[0];
+  for (const r of rows) {
+    if (r.createdAt > latest.createdAt) latest = r;
+  }
+
+  await conn
+    .insert(testEventLatest)
+    .values({
+      acUid,
+      testIdentifier: key,
+      latestStatus: latest.status,
+      latestRunAt: latest.createdAt,
+      runCount: rows.length,
+    })
+    .onConflictDoUpdate({
+      target: [testEventLatest.acUid, testEventLatest.testIdentifier],
+      set: {
+        latestStatus: latest.status,
+        latestRunAt: latest.createdAt,
+        runCount: rows.length,
+      },
+    });
 }

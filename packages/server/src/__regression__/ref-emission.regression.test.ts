@@ -153,6 +153,13 @@ const SKIPS = new Map<string, string>([
   ["memex__send_slack_message", "Slack delivery tool — returns ts/channel, not a memex entity ref"],
   // send_discord_message (spec-138) is the same shape via the org's webhook.
   ["memex__send_discord_message", "Discord delivery tool — returns a webhook delivery receipt, not a memex entity ref"],
+  // spec-127 test-event tools — all lead their response with the AC `ref:` and
+  // emit no UUID; that ref-emission is asserted directly in
+  // mcp/test-event-tools.integration. A dedicated probe here would need a
+  // throwaway AC + seeded test_events fixture.
+  ["get_test_matrix", "emits the AC ref:; ref-emission asserted in mcp/test-event-tools.integration"],
+  ["discontinue_test_events", "emits the AC ref:; ref-emission asserted in mcp/test-event-tools.integration"],
+  ["restore_test_events", "emits the AC ref:; ref-emission asserted in mcp/test-event-tools.integration"],
   // get_information returns prose (topic index or topic body), never an entity ref.
   ["get_information", "Read-only guidance tool — returns markdown prose, not a memex entity ref"],
   // export_doc (spec-100) returns a lossless full-document markdown export (every

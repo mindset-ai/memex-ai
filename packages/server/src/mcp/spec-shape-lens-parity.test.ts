@@ -7,18 +7,18 @@
 // "load-bearing parity guarantee"): both surfaces compose the phase-guidance
 // footer through the SAME path —
 //
-//   formatState → formatFullDocState → renderSpecPhaseGuidance → toNudge
+//   formatState → formatSpecGuidance → renderSpecPhaseGuidance → toNudge
 //
 // The only surface-specific input is the `NudgeContext` ({ tool, orgBlocks })
 // each ctx wiring produces:
 //   - MCP   (mcp/tools.ts:308-317): toolName = spec.name, getOrgBlocksForNudge
 //   - React (agent/tools.ts:360-406, buildAgentCtx): toolName, getOrgBlocksForNudge
 //
-// Both feed `{ tool: ctx.toolName, orgBlocks }` into `formatFullDocState`
+// Both feed `{ tool: ctx.toolName, orgBlocks }` into `formatSpecGuidance`
 // (agent/tool-specs.ts:396-408). So "both surfaces see the block" reduces to:
 // the lens block is `target:{phase:'specify'}` (phase-scoped, tool-agnostic), and
-// `formatFullDocState` for a specify-phase spec emits it regardless of which tool
-// name the surface supplies. We exercise the real `formatFullDocState` with
+// `formatSpecGuidance` for a specify-phase spec emits it regardless of which tool
+// name the surface supplies. We exercise the real `formatSpecGuidance` with
 // the NudgeContext each surface produces and assert the lens prose is present
 // in BOTH footers.
 //
@@ -27,7 +27,7 @@
 
 import { describe, it, expect } from "vitest";
 import { tagAc } from "@memex-ai-ac/vitest";
-import { formatFullDocState } from "./formatters.js";
+import { formatSpecGuidance } from "./formatters.js";
 import { BASE_SCAFFOLD } from "@memex/shared";
 import type { Doc, DocSection } from "../db/schema.js";
 
@@ -111,7 +111,7 @@ describe("spec-106 t-3 ac-13: lens-shape GuidanceBlock reaches both surfaces' to
   // birth that's `create_doc`; on a section edit it's `update_section`. The
   // React executor (buildAgentCtx) wires it identically. We model BOTH
   // surfaces by the NudgeContext each produces and run the SAME
-  // formatFullDocState path.
+  // formatSpecGuidance path.
   const SURFACES: { name: string; nudge: { tool?: string } }[] = [
     // MCP coding agent dispatching create_doc (Spec birth).
     { name: "MCP (create_doc)", nudge: { tool: "create_doc" } },
@@ -129,7 +129,7 @@ describe("spec-106 t-3 ac-13: lens-shape GuidanceBlock reaches both surfaces' to
       expect(LENS_BLOCK).toBeDefined();
 
       const spec = makePlanSpec();
-      const out = formatFullDocState(
+      const out = formatSpecGuidance(
         spec,
         [],
         [],
@@ -158,24 +158,16 @@ describe("spec-106 t-3 ac-13: lens-shape GuidanceBlock reaches both surfaces' to
 
     const spec = makePlanSpec();
     // MCP ctx wiring (create_doc at Spec birth).
-    const mcpFooter = formatFullDocState(
+    const mcpFooter = formatSpecGuidance(
       spec,
       [],
-      [],
-      undefined,
-      undefined,
-      undefined,
-      { tool: "create_doc" },
+      [], { tool: "create_doc" },
     );
     // React ctx wiring (doc-chat, e.g. update_section).
-    const reactFooter = formatFullDocState(
+    const reactFooter = formatSpecGuidance(
       spec,
       [],
-      [],
-      undefined,
-      undefined,
-      undefined,
-      { tool: "update_section" },
+      [], { tool: "update_section" },
     );
 
     // The lens block is `target:{phase:'specify'}` — tool-agnostic — so the SAME

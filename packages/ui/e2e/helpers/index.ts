@@ -18,6 +18,7 @@ export {
   ensureUser,
   setUserName,
   clearUserName,
+  setOnboardingGreeted,
   seedSpecInMemex,
   deleteDoc,
   clearOrgMemberships,
