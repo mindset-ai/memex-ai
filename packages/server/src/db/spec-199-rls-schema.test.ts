@@ -22,6 +22,7 @@ import { tagAc } from "@memex-ai-ac/vitest";
 //   NOBYPASSRLS to see the policies in action. The restricted role is created
 //   fresh in beforeAll and dropped in afterAll so the test is self-contained.
 
+const AC_15 = "mindset-prod/memex-building-itself/specs/spec-199/acs/ac-15";
 const AC_16 = "mindset-prod/memex-building-itself/specs/spec-199/acs/ac-16";
 const RLS_ROLE = "memex_rls_tester";
 const RLS_PASS = "memex_rls_test_only";
@@ -152,6 +153,7 @@ describe("spec-199 ac-16: RLS tenant isolation", () => {
   });
 
   it("ac-16: RLS is enabled and forced on all 14 tenant tables", async () => {
+    tagAc(AC_15);
     tagAc(AC_16);
 
     // pg_class has relrowsecurity + relforcerowsecurity (pg_tables lacks the latter)
@@ -192,6 +194,7 @@ describe("spec-199 ac-16: RLS tenant isolation", () => {
   });
 
   it("ac-16: all 14 tables have the memex_isolation policy covering ALL commands", async () => {
+    tagAc(AC_15);
     tagAc(AC_16);
 
     const rows = (await db.execute(sql`

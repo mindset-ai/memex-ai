@@ -16,6 +16,7 @@ import { tagAc } from "@memex-ai-ac/vitest";
 
 const AC_13 = "mindset-prod/memex-building-itself/specs/spec-199/acs/ac-13";
 const AC_14 = "mindset-prod/memex-building-itself/specs/spec-199/acs/ac-14";
+const AC_17 = "mindset-prod/memex-building-itself/specs/spec-199/acs/ac-17";
 
 // ── ac-13: AsyncLocalStorage ──────────────────────────────────────────────────
 
@@ -178,5 +179,48 @@ describe("spec-199 ac-14: db Proxy injects set_config per query", () => {
     });
 
     expect(captured).toBe(testId);
+  });
+});
+
+// ── ac-17: proxy causes no regressions in normal service queries ───────────────
+
+describe("spec-199 ac-17: rlsClient proxy causes no regressions", () => {
+  it("ac-17: db.execute() works without ALS context (superuser path, no GUC wrap)", async () => {
+    tagAc(AC_17);
+
+    // The proxy must fall through cleanly when no ALS context is active.
+    // A failing proxy would throw or return unexpected results here.
+    const rows = await db.execute(sql`SELECT 1 AS ping`);
+    expect((rows as unknown as Array<{ ping: number }>)[0]?.ping).toBe(1);
+  });
+
+  it("ac-17: db.execute() works inside runWithMemexId (proxied path, GUC set)", async () => {
+    tagAc(AC_17);
+
+    const testId = "17171717-1717-1717-1717-171717171717";
+    let ok = false;
+
+    await runWithMemexId(testId, async () => {
+      const rows = await db.execute(sql`SELECT 1 AS ping`);
+      ok = (rows as unknown as Array<{ ping: number }>)[0]?.ping === 1;
+    });
+
+    expect(ok).toBe(true);
+  });
+
+  it("ac-17: db.transaction() works inside runWithMemexId (begin() intercept path)", async () => {
+    tagAc(AC_17);
+
+    const testId = "17171717-1717-1717-1717-171717171718";
+    let ok = false;
+
+    await runWithMemexId(testId, async () => {
+      await db.transaction(async (tx) => {
+        const rows = await tx.execute(sql`SELECT 2 AS ping`);
+        ok = (rows as unknown as Array<{ ping: number }>)[0]?.ping === 2;
+      });
+    });
+
+    expect(ok).toBe(true);
   });
 });
