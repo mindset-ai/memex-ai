@@ -39,6 +39,7 @@ import { resolveRef as resolveCanonicalRef } from "../services/resolver.js";
 import { parseRef } from "../services/refs.js";
 import { logToolCall } from "../services/mcp-telemetry.js";
 import { runToolWithSpecTraffic } from "../services/spec-traffic.js";
+import { memexContext } from "../db/connection.js";
 import { bus } from "../services/bus.js";
 import { deriveActivity } from "../agent/derive-activity.js";
 import type { ToolSpec } from "../agent/tool-specs.js";
@@ -372,6 +373,11 @@ export function createMcpServer(
             );
             resolvedMemexId = memexId;
             enforceWriteGate(readOnly);
+            // spec-199 t-14: Cloud SQL postgres lacks BYPASSRLS, so FORCE ROW
+            // LEVEL SECURITY on tenant tables applies to every role. Set the
+            // ALS context so all subsequent DB calls in this handler execution
+            // have app.memex_id injected by the rlsClient proxy.
+            memexContext.enterWith({ memexId });
             return memexId;
           },
           resolveMemexFromEntity: async (kind, id) => {
@@ -383,12 +389,14 @@ export function createMcpServer(
             );
             resolvedMemexId = memexId;
             enforceWriteGate(readOnly);
+            memexContext.enterWith({ memexId });
             return memexId;
           },
           resolveRef: async (ref) => {
             const result = await resolveRefForUser(userId, ref, orgFilter);
             resolvedMemexId = result.memexId;
             enforceWriteGate(result.readOnly);
+            memexContext.enterWith({ memexId: result.memexId });
             return result;
           },
           workspaceUrl,
