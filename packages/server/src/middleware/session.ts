@@ -1,6 +1,6 @@
 import { createMiddleware } from "hono/factory";
 import { eq, and, sql } from "drizzle-orm";
-import { db } from "../db/connection.js";
+import { db, runWithMemexId } from "../db/connection.js";
 import { memexes, namespaces, orgs, orgMemberships } from "../db/schema.js";
 import { getUserByEmail, getUserById, listMemberships, upsertUserByEmail } from "../services/users.js";
 import { ensureUserNamespace } from "../services/user-namespaces.js";
@@ -297,7 +297,7 @@ export const sessionMiddleware = createMiddleware<SessionEnv>(async (c, next) =>
 
   const short = await establishUserSession(c, resolution.user);
   if (short) return short;
-  return next();
+  return runWithMemexId(c.get("currentMemexId"), next);
 });
 
 /**
@@ -342,7 +342,7 @@ export const publicSessionMiddleware = createMiddleware<SessionEnv>(async (c, ne
     c.set("currentMemexId", null);
     c.set("currentRole", null);
     c.set("currentAccessLevel", null);
-    return next();
+    return runWithMemexId(c.get("memex")?.id ?? null, next);
   }
 
   // A valid token resolved a user. Establish the full session, but DON'T let a
@@ -393,7 +393,7 @@ export const publicSessionMiddleware = createMiddleware<SessionEnv>(async (c, ne
     }
   }
 
-  return next();
+  return runWithMemexId(c.get("memex")?.id ?? c.get("currentMemexId"), next);
 });
 
 export { getUserByEmail };
