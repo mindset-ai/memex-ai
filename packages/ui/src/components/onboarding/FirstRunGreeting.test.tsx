@@ -26,12 +26,13 @@ const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-206/acs
 
 // Records the opening context the provider hands the orchestrator on start().
 let recordedOpening: string | undefined;
-const recordingFactory: OrchestratorFactory = () => ({
+const recordingFactory: OrchestratorFactory = (hooks) => ({
   start: async (_stream, opening) => {
     recordedOpening = opening;
   },
   interrupt: () => {},
   stop: () => {},
+  narratePhase: () => hooks.onTurnComplete?.(),
 });
 
 const fakeStream = { getTracks: () => [] } as unknown as MediaStream;

@@ -45,6 +45,9 @@ export interface VoiceOrchestratorReactDeps {
   /** spec-206 t-2/dec-1: advance the shared Handhold reveal pointer — the guide's
    *  `advance_demo` tool calls this to walk the demo board during the walkthrough. */
   advanceDemo: () => void;
+  /** spec-211 t-3 (dec-1): start the client demo-walkthrough sequencer — the
+   *  guide's `start_walkthrough` tool calls this when the user accepts the offer. */
+  startWalkthrough: () => void;
   getScreenContext: () => ScreenContext;
   /** Current session bearer token (for the WS connect-query + the SSE leg). */
   authToken: () => string | null;
@@ -235,6 +238,7 @@ class VoiceGuideOrchestrator implements VoiceOrchestrator {
                   memex,
                   navigate: this.react.navigate,
                   advanceDemo: this.react.advanceDemo,
+                  startWalkthrough: this.react.startWalkthrough,
                 });
               },
             },
@@ -244,6 +248,9 @@ class VoiceGuideOrchestrator implements VoiceOrchestrator {
     } catch (err) {
       this.hooks.onError(err instanceof Error ? err.message : String(err));
       this.hooks.setLoopState('listening');
+      // spec-211 t-1: settle the turn even on error so an awaiting sequencer
+      // (dec-1) never hangs.
+      this.hooks.onTurnComplete?.();
       return;
     }
 
@@ -260,6 +267,9 @@ class VoiceGuideOrchestrator implements VoiceOrchestrator {
       this.ws?.speak(requestId, assistantText);
     } else {
       this.hooks.setLoopState('listening');
+      // spec-211 t-1: no speech to play (empty/aborted) — settle immediately so an
+      // awaiting sequencer advances rather than hangs.
+      if (!this.stopped) this.hooks.onTurnComplete?.();
     }
   }
 
@@ -280,10 +290,30 @@ class VoiceGuideOrchestrator implements VoiceOrchestrator {
     this.barge?.endTurn();
     this.speakingRequestId = null;
     this.hooks.setLoopState('listening');
+    // spec-211 t-1: the agent's spoken turn has fully played out — signal the
+    // client tour sequencer so it can advance one phase (dec-1).
+    this.hooks.onTurnComplete?.();
   }
 
   interrupt(): void {
     this.barge?.tapInterrupt();
+  }
+
+  // spec-211 t-1 (dec-1): a proactive narration turn for the demo walkthrough.
+  // No user speech — mirrors the seeded-opening path (a synthetic prompt + the
+  // phase beat as guideContext). Completion is signalled via hooks.onTurnComplete
+  // (fired when playback drains, or immediately if there's no socket/speech), so
+  // the client sequencer advances one phase only after this narration finishes.
+  narratePhase(context: string): void {
+    if (this.stopped || !this.ws) {
+      // Nothing will speak → settle now so an awaiting sequencer doesn't hang.
+      if (!this.stopped) this.hooks.onTurnComplete?.();
+      return;
+    }
+    void this.runTurn(
+      'Narrate this walkthrough step for the user in a sentence or two, then give a short cue toward the next step.',
+      [context],
+    );
   }
 
   stop(): void {
