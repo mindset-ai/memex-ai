@@ -33,7 +33,9 @@ export class ShareTokenError extends ValidationError {
 
 // Default TTL for share tokens. Configurable via SHARE_TOKEN_TTL_DAYS; null = no expiry.
 function defaultExpiresAt(): Date | null {
-  const days = process.env.SHARE_TOKEN_TTL_DAYS ? parseInt(process.env.SHARE_TOKEN_TTL_DAYS, 10) : null;
+  const days = process.env.SHARE_TOKEN_TTL_DAYS
+    ? parseInt(process.env.SHARE_TOKEN_TTL_DAYS, 10)
+    : 90;
   if (!days || isNaN(days)) return null;
   const d = new Date();
   d.setDate(d.getDate() + days);

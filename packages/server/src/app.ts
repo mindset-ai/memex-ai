@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { secureHeaders } from "hono/secure-headers";
 import { errorHandler } from "./middleware/error-handler.js";
 import { sessionMiddleware } from "./middleware/session.js";
 import { memexesRouter } from "./routes/memexes.js";
@@ -73,6 +74,8 @@ const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
 
 // CORS policy lives in middleware/cors-policy.ts so it can be unit-tested without
 // pulling in the DB connection. See that file for the rationale on each entry.
+
+app.use("*", secureHeaders());
 
 app.use(
   "*",

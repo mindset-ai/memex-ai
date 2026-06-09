@@ -193,6 +193,29 @@ describe("spec-199 ac-16: RLS tenant isolation", () => {
     }
   });
 
+  it("ac-16: memex_app role without GUC sees 0 rows (SET LOCAL ROLE production path)", async () => {
+    tagAc(AC_15);
+    tagAc(AC_16);
+
+    // Switch to memex_app within a transaction using SET LOCAL ROLE. This drops
+    // BYPASSRLS for the duration of the transaction (memex_app has NOBYPASSRLS),
+    // so FORCE ROW LEVEL SECURITY applies and the USING clause blocks every row
+    // because no app.memex_id GUC is set. This simulates the production runtime
+    // path before t-14 (DATABASE_URL cutover) runs.
+    const dbUrl =
+      process.env.DATABASE_URL ?? "postgresql://postgres:postgres@localhost:5432/memex";
+    const superSql = postgres(dbUrl, { max: 1 });
+    try {
+      const rows = await superSql.begin(async (tx) => {
+        await tx.unsafe("SET LOCAL ROLE memex_app");
+        return tx.unsafe("SELECT id FROM documents LIMIT 10");
+      });
+      expect(rows).toHaveLength(0);
+    } finally {
+      await superSql.end({ timeout: 5 });
+    }
+  });
+
   it("ac-16: all 14 tables have the memex_isolation policy covering ALL commands", async () => {
     tagAc(AC_15);
     tagAc(AC_16);
