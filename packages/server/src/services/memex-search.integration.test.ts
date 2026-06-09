@@ -713,6 +713,50 @@ describe("searchMemex — cross-tenant isolation", () => {
       expect(h.path.startsWith(otherPrefix)).toBe(false);
     }
   });
+
+  // spec-199 t-8: the two existing cross-tenant tests both run with
+  // disableVector: true — this test executes the runSectionVector
+  // WHERE d.memex_id predicate that was previously untouched by tests.
+  // makeOrthogonalProvider gives deterministic distances: content containing
+  // "floornearmatch" embeds onto dim 0 (distance 0.0 to the query, well below
+  // the 0.65 floor) so the vector arm reliably returns it; other content lands
+  // on dim 1 (distance 1.0, filtered by the floor).
+  it("vector arm does not leak cross-tenant content", async () => {
+    const provider = makeOrthogonalProvider("fake-cross-tenant-vector-1536");
+
+    // Identical-topic content in both memexes — if the WHERE clause were absent
+    // the vector arm would surface otherMemexId's hit.
+    const inTenant = await seedStandard(
+      memexId,
+      "In-tenant vector isolation check",
+      [{ sectionType: "do", content: "floornearmatch veccrosstenantisolationx" }],
+      provider,
+    );
+    await seedStandard(
+      otherMemexId,
+      "Cross-tenant vector candidate",
+      [{ sectionType: "do", content: "floornearmatch veccrosstenantisolationx" }],
+      provider,
+    );
+
+    const otherRow = (await db.execute(sql`
+      SELECT n.slug AS namespace_slug, m.slug AS memex_slug
+      FROM memexes m INNER JOIN namespaces n ON n.id = m.namespace_id
+      WHERE m.id = ${otherMemexId}
+      LIMIT 1
+    `)) as unknown as Array<{ namespace_slug: string; memex_slug: string }>;
+    const otherPrefix = `${otherRow[0].namespace_slug}/${otherRow[0].memex_slug}/`;
+
+    // No disableVector — exercises runSectionVector's WHERE d.memex_id = ${memexId}.
+    const hits = await searchMemex(memexId, "floornearmatch", { provider });
+
+    // In-tenant content IS surfaced by the vector arm.
+    expect(hits.find((h) => h.id === inTenant.id)).toBeDefined();
+    // Cross-tenant content never leaks regardless of vector similarity.
+    for (const h of hits) {
+      expect(h.path.startsWith(otherPrefix)).toBe(false);
+    }
+  });
 });
 
 describe("searchMemex — defaults + edges", () => {

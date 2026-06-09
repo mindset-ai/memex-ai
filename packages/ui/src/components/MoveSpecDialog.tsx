@@ -160,7 +160,7 @@ export function MoveSpecDialog({
                 >
                   {destinations.map((m) => (
                     <option key={m.memexId} value={m.memexId}>
-                      {m.name} {m.kind === 'personal' ? '(personal)' : `· ${m.slug}`} — {m.role}
+                      {m.name} {m.kind === 'personal' ? '(personal)' : `· ${m.memexSlug}`}
                     </option>
                   ))}
                 </select>

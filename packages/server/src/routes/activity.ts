@@ -100,6 +100,27 @@ activity.get("/", async (c) => {
     briefId,
   });
 
+  // spec-199 t-6: project only whitelisted columns on the anonymous/non-member
+  // path (currentAccessLevel !== "write" covers anonymous callers, visited users,
+  // and token-bearing non-members). The sensitive columns — actorUserId, clientId,
+  // payload — carry PII and free-form data that must not be publicly readable.
+  const accessLevel = c.get("currentAccessLevel");
+  if (accessLevel !== "write") {
+    return c.json(
+      rows.map((row) => ({
+        id: row.id,
+        memexId: row.memexId,
+        briefId: row.briefId,
+        actorKind: row.actorKind,
+        channel: row.channel,
+        entity: row.entity,
+        action: row.action,
+        narrative: row.narrative,
+        createdAt: row.createdAt,
+      })),
+    );
+  }
+
   return c.json(rows);
 });
 

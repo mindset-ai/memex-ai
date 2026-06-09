@@ -48,7 +48,10 @@ import { addTaskComment } from "../services/comments.js";
 import { createShareToken, listShareTokensForDoc } from "../services/share-tokens.js";
 import { addSection } from "../services/sections.js";
 import { resolveRole } from "../services/doc-members.js";
-import { listAssignees } from "../services/doc-assignees.js";
+import { listAssignees, assign } from "../services/doc-assignees.js";
+import { updateMemexVisibility } from "../services/memexes.js";
+import { disableMembership } from "../services/org-memberships.js";
+import { persistEvent } from "../services/activity-log.js";
 
 const contentBlockSchema = z.union([
   z.object({ type: z.literal("text"), text: z.string() }),
@@ -206,6 +209,7 @@ const seedSpecSchema = z.object({
   memexId: z.string().uuid(),
   title: z.string(),
   purpose: z.string().optional(),
+  createdByUserId: z.string().uuid().optional(),
 });
 testOnlyRouter.post("/seed-spec", async (c) => {
   const body = await c.req.json().catch(() => null);
@@ -213,8 +217,8 @@ testOnlyRouter.post("/seed-spec", async (c) => {
   if (!parsed.success) {
     return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
   }
-  const { memexId, title, purpose = "Seeded purpose." } = parsed.data;
-  const result = await createDocDraft(memexId, title, purpose, "spec");
+  const { memexId, title, purpose = "Seeded purpose.", createdByUserId } = parsed.data;
+  const result = await createDocDraft(memexId, title, purpose, "spec", undefined, undefined, createdByUserId);
   // The first (overview/purpose) section id — handy for journeys that mutate a
   // section over the API (e.g. the reactivity round-trips in journey-16).
   return c.json({ docId: result.id, handle: result.handle, sectionId: result.sections[0]?.id ?? null });
@@ -706,6 +710,7 @@ testOnlyRouter.get("/latest-share-token", async (c) => {
 const seedShareSchema = z.object({
   memexId: z.string().uuid(),
   docId: z.string().uuid(),
+  createdByUserId: z.string().uuid().nullable().optional(),
 });
 testOnlyRouter.post("/seed-share-token", async (c) => {
   const body = await c.req.json().catch(() => null);
@@ -713,7 +718,7 @@ testOnlyRouter.post("/seed-share-token", async (c) => {
   if (!parsed.success) {
     return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
   }
-  const token = await createShareToken(parsed.data.memexId, parsed.data.docId);
+  const token = await createShareToken(parsed.data.memexId, parsed.data.docId, parsed.data.createdByUserId ?? null);
   return c.json({ shareId: token.id, token: token.token });
 });
 
@@ -921,4 +926,109 @@ testOnlyRouter.post("/seed-task", async (c) => {
     await updateTaskStatus(memexId, task.id, status);
   }
   return c.json({ taskId: task.id, seq: task.seq });
+});
+
+// spec-199 t-9: security journey seeds ──────────────────────────────────────
+
+// Seed an assignee on a Spec through the real assign service (so the bus emits
+// and schema drift breaks the server build, per spec-172 dec-2).
+const seedAssigneeSchema = z.object({
+  memexId: z.string().uuid(),
+  docId: z.string().uuid(),
+  userId: z.string().uuid(),
+});
+testOnlyRouter.post("/seed-assignee", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = seedAssigneeSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
+  }
+  const { memexId, docId, userId } = parsed.data;
+  const result = await assign(memexId, docId, userId, null);
+  return c.json({ assigneeId: result.id });
+});
+
+// Flip a Memex's visibility (public | private) through the real service.
+// Journeys that test the public-memex non-member path call this to make the
+// seeded memex reachable before asserting column redaction.
+const setMemexVisibilitySchema = z.object({
+  memexId: z.string().uuid(),
+  visibility: z.enum(["public", "private"]),
+});
+testOnlyRouter.post("/set-memex-visibility", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = setMemexVisibilitySchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
+  }
+  await updateMemexVisibility(parsed.data.memexId, parsed.data.visibility);
+  return c.json({ ok: true });
+});
+
+// Seed an activity_log row through the real persistEvent service. Used by the
+// spec-199 non-member redaction journey to plant a row with actorUserId +
+// clientId + payload set before asserting the public endpoint strips those columns.
+const seedActivitySchema = z.object({
+  memexId: z.string().uuid(),
+  actorUserId: z.string().uuid().nullable().optional(),
+  clientId: z.string().optional(),
+  payload: z.record(z.string(), z.unknown()).optional(),
+  narrative: z.string().optional(),
+});
+testOnlyRouter.post("/seed-activity", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = seedActivitySchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
+  }
+  const { memexId, actorUserId, clientId, payload, narrative } = parsed.data;
+  const row = await persistEvent({
+    memexId,
+    userId: actorUserId ?? undefined,
+    clientId: clientId ?? undefined,
+    channel: "rest_ui",
+    entity: "document",
+    action: "updated",
+    narrative: narrative ?? "seeded",
+    payload: payload ?? undefined,
+  });
+  if (!row) return c.json({ error: "Failed to insert activity row" }, 500);
+  return c.json({ activityId: row.id });
+});
+
+// Directly disable an org member and bulk-revoke their share tokens through the
+// real disableMembership service — bypasses sessionMiddleware/adminGate so the
+// test doesn't need to navigate auth. Caller must ensure a second admin exists
+// in the org (so the last-admin guard passes); tests that add dev as admin before
+// calling this satisfy that requirement automatically.
+const disableMemberSchema = z.object({
+  orgId: z.string().uuid(),
+  targetUserId: z.string().uuid(),
+});
+testOnlyRouter.post("/disable-member", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = disableMemberSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
+  }
+  const { orgId, targetUserId } = parsed.data;
+  // Find any other active admin to act as requester (satisfies the self-remove
+  // guard without needing a real session).
+  const admins = await db
+    .select({ userId: orgMemberships.userId })
+    .from(orgMemberships)
+    .where(
+      and(
+        eq(orgMemberships.orgId, orgId),
+        eq(orgMemberships.status, "active"),
+        eq(orgMemberships.role, "administrator"),
+      ),
+    )
+    .limit(5);
+  const requester = admins.find((r) => r.userId !== targetUserId);
+  if (!requester) {
+    return c.json({ error: "No other admin found to act as requester" }, 400);
+  }
+  await disableMembership(targetUserId, orgId, requester.userId);
+  return c.json({ ok: true });
 });

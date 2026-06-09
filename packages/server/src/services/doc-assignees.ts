@@ -44,7 +44,12 @@ export interface DocAssigneeView {
 
 // The current assignees of a Spec, joined to users for display. Ordered by
 // assigned_at so the board renders the longest-standing assignee first.
-export async function listAssignees(memexId: string, docId: string): Promise<DocAssigneeView[]> {
+// includeEmail must be false for anonymous/non-member callers (Finding #1, spec-199).
+export async function listAssignees(
+  memexId: string,
+  docId: string,
+  includeEmail = true,
+): Promise<DocAssigneeView[]> {
   const rows = await db
     .select({
       userId: docAssignees.userId,
@@ -56,7 +61,7 @@ export async function listAssignees(memexId: string, docId: string): Promise<Doc
     .innerJoin(users, eq(users.id, docAssignees.userId))
     .where(and(eq(docAssignees.memexId, memexId), eq(docAssignees.docId, docId)))
     .orderBy(docAssignees.assignedAt);
-  return rows;
+  return rows.map((r) => ({ ...r, email: includeEmail ? r.email : null }));
 }
 
 // Batch roll-up of assignees for many Specs at once — backs the board list

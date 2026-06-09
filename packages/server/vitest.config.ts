@@ -111,6 +111,12 @@ export default defineConfig({
     env: {
       SLACK_TOKEN_ENCRYPTION: "plaintext",
       GOOGLE_CLIENT_ID: "test-google-client-id",
+      // Pin the dev-mode user so local .env overrides (e.g. DEV_USER_EMAIL=frederic@mindset.ai)
+      // don't leak into tests. session.ts reads this constant at module load time; dotenv/config
+      // in connection.ts would otherwise set it from .env before session.ts is imported.
+      // makeTestMemexWithDevAdmin hardcodes "dev@memex.ai" for the admin enrollment — this
+      // must match what resolveDevUser() uses or listMemberships returns the wrong user.
+      DEV_USER_EMAIL: "dev@memex.ai",
       // Per-worktree DB isolation: applied to process.env before any test
       // module loads, so db/connection.ts connects to the isolated database
       // (see TEST_DATABASE_URL above). Replaces the old vitest.setup.ts

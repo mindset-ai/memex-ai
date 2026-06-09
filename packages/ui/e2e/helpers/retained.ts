@@ -181,6 +181,7 @@ export async function getLatestShareToken(
 export async function seedShareToken(opts: {
   memexId: string;
   docId: string;
+  createdByUserId?: string | null;
 }): Promise<{ shareId: string; token: string }> {
   return call("POST", "/seed-share-token", opts);
 }

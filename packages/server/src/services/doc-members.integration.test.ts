@@ -182,3 +182,31 @@ describe("spec-118 promote / demote (frictionless, reversible, no last-editor lo
     expect(await resolveRole(memexId, doc.id, human.id)).toBe("reviewer");
   });
 });
+
+const AC_199 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-199/acs/ac-${n}`;
+
+describe("spec-199 Finding #1 — email stripped from non-member/anonymous path (ac-1)", () => {
+  it("listEditors with includeEmail=false returns null email for every editor", async () => {
+    tagAc(AC_199(1));
+    const doc = await createDocDraft(memexId, "Email Strip Test", "purpose", "spec", undefined, undefined, human.id);
+    createdDocIds.push(doc.id);
+
+    const editors = await listEditors(memexId, doc.id, false);
+    expect(editors.length).toBeGreaterThan(0);
+    for (const e of editors) {
+      expect(e.email, "email must be null on the anonymous/non-member path").toBeNull();
+    }
+  });
+
+  it("listEditors with includeEmail=true (default) returns email for authenticated org members", async () => {
+    tagAc(AC_199(1));
+    const doc = await createDocDraft(memexId, "Email Present Test", "purpose", "spec", undefined, undefined, human.id);
+    createdDocIds.push(doc.id);
+
+    const editors = await listEditors(memexId, doc.id, true);
+    expect(editors.length).toBeGreaterThan(0);
+    for (const e of editors) {
+      expect(e.email, "email must be present for authenticated org members").not.toBeNull();
+    }
+  });
+});
