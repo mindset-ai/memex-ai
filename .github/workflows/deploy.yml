@@ -109,3 +109,30 @@ jobs:
           SMOKE_SESSION_TOKEN: ${{ secrets.SMOKE_SESSION_TOKEN }}
           MEMEX_EMIT_KEY: ${{ secrets.MEMEX_EMIT_KEY }}
         run: bash deploy.sh
+
+      # spec-243 dec-2: every deploy posts a friendly note to the matching
+      # env's Slack channel (#memex-prod-alerts / #memex-int-alerts), so each
+      # channel is the single timeline of "what changed and what broke" for
+      # its environment. Friendly register on success; a short red line when
+      # the deploy job itself fails (the canary covers what happens after).
+      - name: Notify Slack (deploy)
+        if: always()
+        env:
+          SLACK_WEBHOOK: ${{ env.ENV == 'prod' && secrets.SLACK_WEBHOOK_PROD || secrets.SLACK_WEBHOOK_INT }}
+          HOST: ${{ env.ENV == 'prod' && 'memex.ai' || 'int.memex.ai' }}
+          COMMIT_SUBJECT: ${{ github.event.head_commit.message }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          OUTCOME: ${{ job.status }}
+        run: |
+          if [ -z "$SLACK_WEBHOOK" ]; then
+            echo "::warning::SLACK_WEBHOOK_${ENV^^} not set — skipping deploy notification"
+            exit 0
+          fi
+          SUBJECT_FIRST_LINE="$(printf '%s' "$COMMIT_SUBJECT" | head -n 1)"
+          if [ "$OUTCOME" = "success" ]; then
+            TEXT="🚀 *${HOST}* just got a fresh deploy: \"${SUBJECT_FIRST_LINE}\" (by ${GITHUB_ACTOR}). Smoke is green. <${RUN_URL}|Details>"
+          else
+            TEXT="🛑 Deploy to *${HOST}* did not complete (\"${SUBJECT_FIRST_LINE}\", by ${GITHUB_ACTOR}). <${RUN_URL}|Run log>"
+          fi
+          jq -n --arg text "$TEXT" '{text: $text}' | \
+            curl -sS -X POST -H 'Content-type: application/json' -d @- "$SLACK_WEBHOOK"
