@@ -13,6 +13,7 @@ import type { OrchestratorHooks } from '../session/orchestrator';
 import type { NavigationAdapter, NavigateOutcome } from '../navigation/NavigationAdapter';
 
 const AC11 = 'mindset-prod/memex-building-itself/specs/spec-190/acs/ac-11';
+const AC23 = 'mindset-prod/memex-building-itself/specs/spec-222/acs/ac-23';
 
 function fakeSocket() {
   const sent: unknown[] = [];
@@ -455,6 +456,11 @@ describe('voice orchestrator wiring (ac-11)', () => {
 
   it('stop() tears down socket, vad, capture, and playback', async () => {
     tagAc(AC11);
+    // spec-222 ac-23: on a website cross-page nav the session ends CLEANLY — the WS
+    // is closed and the capture/VAD released (the mic-stream tracks are stopped by
+    // the session provider's releaseStream; the cross-page page-turn itself is the
+    // deferred performPageLoad of staticSiteNavigation, t-4). No session-resume.
+    tagAc(AC23);
     const sock = fakeSocket();
     const vad = fakeVad();
     const capture = fakeCapture();

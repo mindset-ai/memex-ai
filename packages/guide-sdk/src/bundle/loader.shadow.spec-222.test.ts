@@ -12,6 +12,7 @@ import { tagAc } from '@memex-ai-ac/vitest';
 import type { NavigationAdapter } from '../navigation/NavigationAdapter';
 
 const AC_7 = 'mindset-prod/memex-building-itself/specs/spec-222/acs/ac-7';
+const AC_23 = 'mindset-prod/memex-building-itself/specs/spec-222/acs/ac-23';
 
 /** A no-op navigation adapter standing in for staticSiteNavigation({...}). */
 function fakeNavigation(): NavigationAdapter {
@@ -64,6 +65,11 @@ describe('spec-222 t-5: embeddable bundle loader (ac-7)', () => {
 
   it('renders the at-rest Specky doorway INSIDE the shadow root, not the light DOM (ac-7)', async () => {
     tagAc(AC_7);
+    // spec-222 ac-23: per-page sessions — because the thin loader runs on EVERY
+    // page load and renders the at-rest doorway immediately, the doorway is present
+    // the instant the next page arrives after a cross-page nav (no engine fetch
+    // needed; the lazy engine loads only on the next click).
+    tagAc(AC_23);
     const { init } = await import('./loader');
     const host = init({
       surface: 'memex-website',
