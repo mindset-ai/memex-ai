@@ -404,6 +404,25 @@ export function createMcpServer(
             return memexId;
           },
           resolveRef: async (ref) => {
+            // spec-199 t-14: pre-populate rlsStore.memexId from the ref's
+            // namespace/memex slug before resolveRefForUser runs the canonical
+            // resolver, which queries the RLS-gated `documents` table.
+            // resolveWorkspaceForRead touches only non-RLS tables (namespaces,
+            // memexes, org_memberships, user_memex_access). Errors are swallowed
+            // — resolveRefForUser surfaces the authoritative failure.
+            const preParsed = parseRef(ref);
+            if (preParsed.ok) {
+              try {
+                const { memexId: preMemexId } = await resolveWorkspaceForRead(
+                  userId,
+                  `${preParsed.ref.namespace}/${preParsed.ref.memex}`,
+                  orgFilter,
+                );
+                rlsStore.memexId = preMemexId;
+              } catch {
+                // best-effort
+              }
+            }
             const result = await resolveRefForUser(userId, ref, orgFilter);
             resolvedMemexId = result.memexId;
             enforceWriteGate(result.readOnly);

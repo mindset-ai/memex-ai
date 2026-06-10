@@ -147,7 +147,7 @@ export function chunkMarkdown(body: string): MarkdownChunk[] {
   return chunks;
 }
 
-function hashContent(content: string): string {
+export function hashContent(content: string): string {
   return createHash("sha256").update(content).digest("hex");
 }
 
@@ -333,6 +333,9 @@ export async function importGuideContent(
       const chunk = file.chunks[index];
       summary.chunksSeen += 1;
       const input: GuideChunkInput = {
+        // spec-222 t-7 (dec-3): the existing import is the in-product app corpus.
+        // Website ingestion is a later task; this caller is always 'memex-app'.
+        surface: "memex-app",
         screenKey: file.screenKey,
         sourcePath: file.sourcePath,
         chunkIndex: index,
@@ -347,6 +350,140 @@ export async function importGuideContent(
     }
   }
 
-  summary.rowsPruned = await pruneGuideContent(keepPaths);
+  // Surface-scoped prune (spec-222 t-7/t-8): the app import owns ONLY the
+  // memex-app surface — it must never prune website rows (and vice versa).
+  summary.rowsPruned = await pruneGuideContent("memex-app", keepPaths);
+  return summary;
+}
+
+// ── Website corpus ingestion (spec-222 t-8, dec-3 → ac-13) ──────────────────
+//
+// The marketing site publishes a FLAT markdown artifact — `llms-full.txt` — with
+// NO screens/concepts frontmatter (unlike the app corpus). This path ingests that
+// single document into the SAME guide_content table under the SECOND surface,
+// `memex-website`, REUSING the existing pipeline primitives:
+//   * chunkMarkdown  — split the flat doc on heading boundaries (the same chunker
+//     the app import uses), so retrieval lands on coherent sections.
+//   * hashContent    — per-chunk change detection → idempotency (unchanged chunks
+//     are NEVER re-embedded; upsertGuideChunk returns "reused").
+//   * upsertGuideChunk — persist each chunk tagged `surface: "memex-website"`,
+//     screen_key NULL (the website has no app screens — every website chunk is
+//     search-only, never a Layer-1 screen pre-fetch).
+//   * pruneGuideContent("memex-website", …) — prune orphans SCOPED to the website
+//     surface only, so re-publishing a shorter doc removes stale website chunks
+//     WITHOUT ever touching the app corpus.
+//
+// The app's screens/concepts import (importGuideContent above) is untouched and
+// stays surface "memex-app"; the two ingestion paths share a table but never
+// each other's surface.
+
+/** Stable source_path for the single published website artifact (the upsert key,
+ *  with chunk_index). A constant — there's one flat doc, not a directory. */
+export const WEBSITE_CORPUS_SOURCE_PATH = "llms-full.txt";
+
+export interface WebsiteCorpusSource {
+  /** Fetch the published artifact from this URL (e.g. https://memex.ai/llms-full.txt). */
+  url?: string;
+  /** Read the artifact from this local file path. */
+  path?: string;
+  /** Use this raw markdown directly (tests / piped input). Wins over url/path. */
+  content?: string;
+  /** Override the source_path written to each row (defaults to WEBSITE_CORPUS_SOURCE_PATH). */
+  sourcePath?: string;
+}
+
+export interface WebsiteImportSummary {
+  source: string;
+  chunksSeen: number;
+  chunksEmbedded: number;
+  chunksReused: number;
+  chunksWithoutVector: number;
+  rowsPruned: number;
+  /** True when check mode ran (fetch + chunk only, no DB writes). */
+  checkOnly: boolean;
+}
+
+/** Resolve the website artifact's raw markdown from a string, local path, or URL. */
+async function loadWebsiteCorpus(
+  source: WebsiteCorpusSource,
+): Promise<{ raw: string; origin: string }> {
+  if (typeof source.content === "string") {
+    return { raw: source.content, origin: "inline" };
+  }
+  if (source.path) {
+    return { raw: await readFile(source.path, "utf-8"), origin: source.path };
+  }
+  if (source.url) {
+    const res = await fetch(source.url);
+    if (!res.ok) {
+      throw new Error(
+        `website corpus fetch failed: ${res.status} ${res.statusText} for ${source.url}`,
+      );
+    }
+    return { raw: await res.text(), origin: source.url };
+  }
+  throw new Error("importWebsiteCorpus: provide one of { content, path, url }.");
+}
+
+/**
+ * Ingest the website's flat `llms-full.txt` into guide_content under the
+ * `memex-website` surface (spec-222 t-8, dec-3 → ac-13). Idempotent via
+ * content_hash; prunes orphaned website chunks only. In check mode it fetches +
+ * chunks but writes nothing (a bounded, non-gating freshness probe).
+ */
+export async function importWebsiteCorpus(opts: {
+  source: WebsiteCorpusSource;
+  check?: boolean;
+  provider?: EmbeddingProvider | null;
+}): Promise<WebsiteImportSummary> {
+  const { raw, origin } = await loadWebsiteCorpus(opts.source);
+  const sourcePath = opts.source.sourcePath ?? WEBSITE_CORPUS_SOURCE_PATH;
+
+  // The flat artifact has no frontmatter — strip any (defensively) and chunk the
+  // whole body on heading boundaries, exactly as the app import does.
+  const { body } = parseFrontmatter(raw);
+  const chunks = chunkMarkdown(body);
+
+  const summary: WebsiteImportSummary = {
+    source: origin,
+    chunksSeen: chunks.length,
+    chunksEmbedded: 0,
+    chunksReused: 0,
+    chunksWithoutVector: 0,
+    rowsPruned: 0,
+    checkOnly: !!opts.check,
+  };
+
+  if (opts.check) return summary;
+
+  // Lazy DB import — mirrors importGuideContent so check mode needs no DATABASE_URL.
+  const { upsertGuideChunk, pruneGuideContentChunks } = await import("./guide-content.js");
+
+  for (let index = 0; index < chunks.length; index++) {
+    const chunk = chunks[index];
+    const input: GuideChunkInput = {
+      surface: "memex-website",
+      screenKey: null, // website chunks are search-only — no app screens
+      sourcePath,
+      chunkIndex: index,
+      heading: chunk.heading,
+      contentHash: hashContent(chunk.content),
+      content: chunk.content,
+    };
+    const res = await upsertGuideChunk(input, { provider: opts.provider });
+    if (res.status === "embedded") summary.chunksEmbedded += 1;
+    else if (res.status === "reused") summary.chunksReused += 1;
+    else if (res.status === "skipped-no-provider") summary.chunksWithoutVector += 1;
+  }
+
+  // Prune scoped to the website surface ONLY — re-publishing a SHORTER doc leaves
+  // stale tail rows (same source_path, higher chunk_index than the new count), so
+  // we prune by chunk_index within this surface+source. Never touches the app
+  // corpus (or any other website source).
+  summary.rowsPruned = await pruneGuideContentChunks(
+    "memex-website",
+    sourcePath,
+    chunks.length,
+  );
   return summary;
 }

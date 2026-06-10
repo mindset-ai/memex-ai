@@ -13,11 +13,14 @@ import type { WhatsNewEntry } from '../../api/whatsNew';
 
 const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-200/acs/ac-${n}`;
 
-// Controllable voice-session mock.
+// Controllable voice-session mock. spec-222: the voice surface now ships from
+// @memex/guide-sdk, so we override only useVoiceSession and keep the real Specky +
+// isAffordanceDisabled (the ribbon renders Specky; the gate uses the real helper).
 const startMock = vi.fn();
 let micAvailable = true;
 let status = 'inactive';
-vi.mock('../../voice/session/VoiceSessionContext', () => ({
+vi.mock('@memex/guide-sdk', async (orig) => ({
+  ...(await orig<typeof import('@memex/guide-sdk')>()),
   useVoiceSession: () => ({ start: startMock, micAvailable, status }),
 }));
 

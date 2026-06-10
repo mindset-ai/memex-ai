@@ -53,6 +53,14 @@ const UI_PORT = Number(process.env.VITE_PORT ?? 5173)
 
 export default defineConfig({
   plugins: [serveVadAssetsRaw, react()],
+  resolve: {
+    alias: {
+      // spec-222 (KEYSTONE): consume @memex/guide-sdk FROM SOURCE so Vite compiles
+      // its tsx + svg imports (the package ships .ts/.tsx, not a pre-built bundle).
+      // The app's own toolchain owns the build of the engine's UI surface.
+      '@memex/guide-sdk': join(__dirname, '../guide-sdk/src/index.ts'),
+    },
+  },
   define: {
     __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
   },

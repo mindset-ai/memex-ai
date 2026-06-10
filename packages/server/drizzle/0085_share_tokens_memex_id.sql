@@ -10,5 +10,9 @@ UPDATE share_tokens
   FROM documents
   WHERE share_tokens.document_id = documents.id;
 
+-- Purge orphaned tokens whose document was already deleted — they reference
+-- a non-existent document and are unusable. Required before the NOT NULL below.
+DELETE FROM share_tokens WHERE memex_id IS NULL;
+
 ALTER TABLE share_tokens
   ALTER COLUMN memex_id SET NOT NULL;

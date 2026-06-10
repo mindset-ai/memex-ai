@@ -78,4 +78,10 @@ export const AUTH_LIMITS = {
   passwordReset: { max: 3, windowMs: 60 * 60 * 1000 }, // 3 per hour per email
   probe: { max: 30, windowMs: 60 * 1000 }, // 30 per minute per IP — generous; controls enumeration speed
   oauthRegister: { max: 10, windowMs: 60 * 60 * 1000 }, // 10 per hour per IP — anonymous DCR endpoint
+  // spec-222 t-11 (dec-4 → ac-15): the anonymous /guide/v1/session mint is exposed
+  // to the open internet. IP-keyed so a single visitor opening a few sessions is
+  // fine, but a flood can't burn ElevenLabs/Anthropic budget. Shaped like
+  // oauthRegister (the other anonymous endpoint) but more generous — a legit
+  // visitor may legitimately re-mint per page (ac-23 per-page sessions).
+  guideSession: { max: 20, windowMs: 60 * 60 * 1000 }, // 20 per hour per IP — anonymous public guide
 } as const;

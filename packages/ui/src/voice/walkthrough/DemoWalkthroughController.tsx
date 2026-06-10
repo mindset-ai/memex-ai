@@ -4,7 +4,7 @@
 
 import { useCallback, useEffect, useRef, type MutableRefObject } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useVoiceSession } from '../session/VoiceSessionContext';
+import { useVoiceSession } from '@memex/guide-sdk';
 import { useHandholdRevealValue } from '../../hooks/HandholdRevealContext';
 import { REVEAL_PHASES, type RevealPhase } from '../../hooks/useHandholdReveal';
 import { fetchDocs } from '../../api/client';

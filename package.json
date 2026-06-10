@@ -8,7 +8,8 @@
     "dev:ui": "pnpm --filter @memex/ui dev",
     "build": "pnpm --filter @memex/server build && pnpm --filter @memex/ui build",
     "build:server": "pnpm --filter @memex/server build",
-    "build:ui": "pnpm --filter @memex/ui build"
+    "build:ui": "pnpm --filter @memex/ui build",
+    "release:sdk": "node scripts/release-sdk.mjs"
   },
   "pnpm": {
     "onlyBuiltDependencies": ["esbuild", "protobufjs"],
