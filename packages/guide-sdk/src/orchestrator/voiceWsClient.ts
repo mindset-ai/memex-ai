@@ -70,8 +70,15 @@ function toAlignment(raw: unknown): CharAlignment | undefined {
  * token. http(s) → ws(s); the token rides the connect query (the handshake can't
  * carry an Authorization header — routes/voice.ts authenticates it).
  */
-export function buildVoiceWsUrl(tenantBase: string, token: string, origin: string): string {
-  const u = new URL(`${tenantBase}/voice/session`, origin);
+export function buildVoiceWsUrl(
+  tenantBase: string,
+  token: string,
+  origin: string,
+  // The WS leg subpath. The Memex app's is `/voice/session` (default); the public
+  // website's is `/voice` (spec-222 t-10). Injected via the backend descriptor.
+  voicePath = '/voice/session',
+): string {
+  const u = new URL(`${tenantBase}${voicePath}`, origin);
   u.protocol = u.protocol === 'https:' ? 'wss:' : 'ws:';
   u.searchParams.set('token', token);
   return u.toString();

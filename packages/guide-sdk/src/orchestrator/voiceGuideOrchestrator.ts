@@ -24,6 +24,7 @@ import { createGuideGraph } from '../guideGraph';
 import { dispatchGuideUiTool } from '../guideTools';
 import type { GuideCapabilities } from '../guideTools';
 import { setGuideAuthToken } from '../guideLlmClient';
+import { getGuideBackend } from '../backend';
 import { openVoiceWs, buildVoiceWsUrl, type VoiceWsClient, type SocketFactory } from './voiceWsClient';
 import { makePcmCapture, type PcmCapture } from './micPcmCapture';
 import type {
@@ -156,7 +157,7 @@ class VoiceGuideOrchestrator implements VoiceOrchestrator {
     });
 
     this.ws = openVoiceWs(
-      buildVoiceWsUrl(base, token, this.react.origin),
+      buildVoiceWsUrl(base, token, this.react.origin, getGuideBackend().voicePath),
       {
         onReady: () => {
           this.ws?.startListening();

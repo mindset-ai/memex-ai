@@ -26,18 +26,52 @@ import { Specky } from '../components/Specky';
 import type { GuideBundleConfig, MountedEngine } from './types';
 
 /**
- * Mount the full voice engine into the loader's shadow root and hand back an
- * unmount handle. Called exactly once, on the first doorway click.
+ * Mint a short-lived anonymous guide session token from the public endpoint
+ * (POST `${backend}/session`). The browser's fetch carries the Origin header the
+ * endpoint gates on; the returned token binds the surface and is what the WS +
+ * SSE legs authenticate against (t-10). Returns null on any failure — the
+ * orchestrator then surfaces a clean "not authenticated" error.
  */
-export function mountEngine({
+async function mintAnonGuideToken(config: GuideBundleConfig): Promise<string | null> {
+  try {
+    const res = await fetch(`${config.backend}/session`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ surface: config.surface }),
+    });
+    if (!res.ok) return null;
+    const body = (await res.json()) as { token?: unknown };
+    return typeof body.token === 'string' ? body.token : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Mount the full voice engine into the loader's shadow root and hand back an
+ * unmount handle. Called exactly once, on the first doorway click. Async because
+ * it MINTS the anonymous session token before starting (the WS/SSE legs need it).
+ */
+export async function mountEngine({
   shadow,
   config,
 }: {
   shadow: ShadowRoot;
   config: GuideBundleConfig;
-}): MountedEngine {
-  // The injected backend (replaces the engine's old reach into the app's api/http).
-  setGuideBackend({ baseUrl: config.backend });
+}): Promise<MountedEngine> {
+  // The injected backend: the public endpoint's leg paths differ from the app's
+  // (the app authenticates the SSE leg with an Authorization header; the public
+  // endpoint reads `?token=` on BOTH legs — t-10).
+  setGuideBackend({
+    baseUrl: config.backend,
+    chatPath: '/chat',
+    voicePath: '/voice',
+    tokenInQuery: true,
+  });
+
+  // Mint the anon token BEFORE the session starts (AutoStart calls start() on
+  // mount, which reads authToken() synchronously to open the WS).
+  const token = await mintAnonGuideToken(config);
 
   const adapter = config.navigation;
 
@@ -50,8 +84,10 @@ export function mountEngine({
     capabilities: config.capabilities ?? {},
     advanceDemo: () => {},
     startWalkthrough: () => {},
-    authToken: () => null,
-    tenantBase: () => null,
+    // The anon token authenticates both the WS (?token=) and the SSE leg.
+    authToken: () => token,
+    // The WS base is the public endpoint base; voicePath ('/voice') is set above.
+    tenantBase: () => config.backend,
     origin: typeof window !== 'undefined' ? window.location.origin : '',
     getScreenContext: () => {
       const screenKey = adapter.currentScreenKey();

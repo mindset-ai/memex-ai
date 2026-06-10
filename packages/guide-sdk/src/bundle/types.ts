@@ -27,5 +27,5 @@ export interface MountedEngine {
 
 /** The engine chunk's public entry, resolved lazily by the loader (ac-8). */
 export interface EngineModule {
-  mountEngine: (args: { shadow: ShadowRoot; config: GuideBundleConfig }) => MountedEngine;
+  mountEngine: (args: { shadow: ShadowRoot; config: GuideBundleConfig }) => Promise<MountedEngine>;
 }

@@ -93,7 +93,8 @@ export function init(config: GuideBundleConfig): HTMLElement {
       const { mountEngine } = await import('./engine');
       // The doorway has done its job — the engine owns the affordance from here.
       doorway.style.display = 'none';
-      engine = mountEngine({ shadow, config });
+      // mountEngine is async (it mints the anon session token before starting).
+      engine = await mountEngine({ shadow, config });
     } finally {
       loading = false;
       doorway.removeAttribute('data-guide-loading');

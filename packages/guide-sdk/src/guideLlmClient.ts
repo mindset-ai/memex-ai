@@ -14,7 +14,7 @@
 // host injects the base URL + (optionally) a retrying fetch through the backend
 // descriptor (backend.ts); the app re-injects `fetchWithRetry` so the retry
 // behaviour is preserved app-side.
-import { getGuideBackend } from './backend';
+import { getGuideBackend, DEFAULT_CHAT_PATH } from './backend';
 import type { MessageParam, LlmProxyEvent } from './agent-types';
 
 /** A highlightable element on the current screen (subset of the dec-3 registry;
@@ -87,11 +87,17 @@ export async function* callGuideLlmProxy(
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
 
-  // spec-222 (ac-9): base URL + fetch come from the injected backend descriptor.
-  // The app re-injects a retrying fetchImpl, so the prior retry behaviour is kept
-  // host-side; a plain host gets a single global `fetch`.
-  const { baseUrl, fetchImpl } = getGuideBackend();
-  const res = await (fetchImpl ?? fetch)(`${baseUrl}/voice/guide-chat`, {
+  // spec-222 (ac-9): base URL + leg path + fetch come from the injected backend
+  // descriptor. The app re-injects a retrying fetchImpl and uses its default route
+  // (`/voice/guide-chat`, Authorization-header auth); the public website points at
+  // `/chat` and rides the anon token on the query (the endpoint reads `?token=` on
+  // both legs — t-10).
+  const { baseUrl, fetchImpl, chatPath, tokenInQuery } = getGuideBackend();
+  let url = `${baseUrl}${chatPath ?? DEFAULT_CHAT_PATH}`;
+  if (tokenInQuery && authToken) {
+    url += `${url.includes('?') ? '&' : '?'}token=${encodeURIComponent(authToken)}`;
+  }
+  const res = await (fetchImpl ?? fetch)(url, {
     method: 'POST',
     headers,
     body: JSON.stringify(input),
