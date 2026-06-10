@@ -22,6 +22,7 @@ import { BargeInController } from '../bargeIn';
 import type { PlaybackSink, CharAlignment } from '../bargeIn';
 import { createGuideGraph } from '../guideGraph';
 import { dispatchGuideUiTool } from '../guideTools';
+import type { GuideCapabilities } from '../guideTools';
 import { setGuideAuthToken } from '../guideLlmClient';
 import { openVoiceWs, buildVoiceWsUrl, type VoiceWsClient, type SocketFactory } from './voiceWsClient';
 import { makePcmCapture, type PcmCapture } from './micPcmCapture';
@@ -51,6 +52,9 @@ export interface VoiceOrchestratorReactDeps {
   /** spec-211 t-3 (dec-1): start the client demo-walkthrough sequencer — the
    *  guide's `start_walkthrough` tool calls this when the user accepts the offer. */
   startWalkthrough: () => void;
+  /** spec-222 t-6 (dec-5): host capability flags. The app sets `{ walkthrough: true }`;
+   *  the website omits it so the demo tools stay inert (ac-6, ac-18). */
+  capabilities?: GuideCapabilities;
   getScreenContext: () => ScreenContext;
   /** Current session bearer token (for the WS connect-query + the SSE leg). */
   authToken: () => string | null;
@@ -238,6 +242,7 @@ class VoiceGuideOrchestrator implements VoiceOrchestrator {
               onUiTool: (name: string, _id: string, input: Record<string, unknown>) => {
                 dispatchGuideUiTool(name, input, {
                   adapter: this.react.adapter,
+                  capabilities: this.react.capabilities,
                   advanceDemo: this.react.advanceDemo,
                   startWalkthrough: this.react.startWalkthrough,
                 });

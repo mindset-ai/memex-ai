@@ -255,20 +255,57 @@ export async function upsertGuideChunk(
  * Prune rows whose source file is no longer present in the import set (ac-18,
  * called by the t-7 importer after a full pass). Returns the number deleted.
  * Lives here next to the write primitive so the table's mutations are in one place.
+ *
+ * SURFACE-SCOPED (spec-222 t-7/t-8, dec-3): the prune is bounded to a single
+ * surface — the app importer prunes only orphaned app rows and the website
+ * importer only orphaned website rows. Two ingestion paths share one table; an
+ * unscoped prune would let either path wipe the other's corpus. The surface is
+ * server-supplied and validated (an unknown surface throws, never an unbounded
+ * delete). An empty keep-set deletes every row OF THAT SURFACE (not the table).
  */
-export async function pruneGuideContent(keepSourcePaths: string[]): Promise<number> {
+export async function pruneGuideContent(
+  surface: GuideSurface,
+  keepSourcePaths: string[],
+): Promise<number> {
+  const validSurface = assertGuideSurface(surface);
   if (keepSourcePaths.length === 0) {
     const deleted = (await db.execute(
-      sql`DELETE FROM guide_content RETURNING 1`,
+      sql`DELETE FROM guide_content WHERE surface = ${validSurface} RETURNING 1`,
     )) as unknown as unknown[];
     return deleted.length;
   }
   const deleted = (await db.execute(sql`
     DELETE FROM guide_content
-    WHERE source_path NOT IN (${sql.join(
-      keepSourcePaths.map((p) => sql`${p}`),
-      sql`, `,
-    )})
+    WHERE surface = ${validSurface}
+      AND source_path NOT IN (${sql.join(
+        keepSourcePaths.map((p) => sql`${p}`),
+        sql`, `,
+      )})
+    RETURNING 1
+  `)) as unknown as unknown[];
+  return deleted.length;
+}
+
+/**
+ * Prune stale tail chunks for a SINGLE source file on one surface (spec-222 t-8):
+ * delete every row for (surface, sourcePath) whose chunk_index is >= keepCount.
+ * The website corpus is one flat file re-chunked on each import, so when the
+ * published doc SHRINKS the orphans are higher chunk_indexes under the SAME
+ * source_path — which the file-level pruneGuideContent can't reach. Scoped to the
+ * given surface + source_path, so it never touches the app corpus (or any other
+ * website source). The surface is validated up front (unknown surface throws).
+ */
+export async function pruneGuideContentChunks(
+  surface: GuideSurface,
+  sourcePath: string,
+  keepCount: number,
+): Promise<number> {
+  const validSurface = assertGuideSurface(surface);
+  const deleted = (await db.execute(sql`
+    DELETE FROM guide_content
+    WHERE surface = ${validSurface}
+      AND source_path = ${sourcePath}
+      AND chunk_index >= ${keepCount}
     RETURNING 1
   `)) as unknown as unknown[];
   return deleted.length;

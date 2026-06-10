@@ -99,8 +99,11 @@ export {
   executeStartWalkthrough,
   dispatchGuideUiTool,
   GUIDE_CLIENT_TOOL_NAMES,
+  CORE_CLIENT_TOOL_NAMES,
+  WALKTHROUGH_CLIENT_TOOL_NAMES,
+  activeClientToolNames,
 } from './guideTools';
-export type { NavigateContext, HighlightResult, NavigateResult } from './guideTools';
+export type { NavigateContext, HighlightResult, NavigateResult, GuideCapabilities } from './guideTools';
 
 // --- element resolution + the guide-LLM proxy auth seam ---
 export { findGuideElement } from './guideElements';

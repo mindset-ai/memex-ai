@@ -34,11 +34,27 @@ export function executeHighlight(
   return { ok: true };
 }
 
+/**
+ * spec-222 t-6 (dec-5) — host capability flags. The SDK CORE ships only the
+ * reusable engine (highlight + navigate). The app-only demo-walkthrough tools
+ * (`advance_demo` / `start_walkthrough`, spec-211) activate ONLY when the host
+ * enables `walkthrough` — the Memex app sets it; the public website does NOT, so
+ * those tools are inert on the website even if the model emits them (ac-6, ac-18).
+ */
+export interface GuideCapabilities {
+  /** Enables the spec-211 demo-walkthrough client tools (advance_demo /
+   *  start_walkthrough). App-only; absent (false) on the website. */
+  walkthrough?: boolean;
+}
+
 export interface NavigateContext {
   /** spec-222 (ac-9): the injected navigation seam. It OWNS key→path validation
    *  and the actual navigation (the engine no longer touches react-router or
    *  `@memex/shared`). executeNavigate delegates to `adapter.navigate(screen)`. */
   adapter: NavigationAdapter;
+  /** spec-222 t-6: which optional host features are live. Walkthrough tools are
+   *  gated on `capabilities.walkthrough`. Absent → core-only (website posture). */
+  capabilities?: GuideCapabilities;
   /** spec-206 t-2/dec-1: advance the shared Handhold reveal pointer (board walks
    *  draft→specify→build→verify→done). Optional so callers that don't wire it
    *  (and tests) degrade to a no-op rather than throwing. */
@@ -82,38 +98,56 @@ export function executeNavigate(input: { screen?: string }, ctx: NavigateContext
   return ctx.adapter.navigate(input.screen);
 }
 
-/** The names the guide executes CLIENT-side. (search_guide is a SERVER tool,
- *  handled by the graph's tools node, not here.) */
-export const GUIDE_CLIENT_TOOL_NAMES: ReadonlySet<string> = new Set([
-  'highlight',
-  'navigate',
-  // spec-206 t-2 (dec-1): the synced-walkthrough advance. The graph emits it per
-  // narrated phase (t-4); React walks the shared reveal pointer here.
+/** The CORE client tools — always live in the SDK (the reusable engine, ac-6). */
+export const CORE_CLIENT_TOOL_NAMES: ReadonlySet<string> = new Set(['highlight', 'navigate']);
+
+/** The app-only demo-walkthrough client tools (spec-211) — live ONLY when the
+ *  host enables the `walkthrough` capability (ac-18). */
+export const WALKTHROUGH_CLIENT_TOOL_NAMES: ReadonlySet<string> = new Set([
   'advance_demo',
-  // spec-211 t-3 (dec-1): the guide calls this when the user accepts the demo
-  // walkthrough; the client sequencer then drives the speech-synced tour.
   'start_walkthrough',
 ]);
 
+/** Every client tool the engine CAN recognise (core ∪ capability-gated). The
+ *  ACTIVE set for a given host is `activeClientToolNames(capabilities)`. */
+export const GUIDE_CLIENT_TOOL_NAMES: ReadonlySet<string> = new Set([
+  ...CORE_CLIENT_TOOL_NAMES,
+  ...WALKTHROUGH_CLIENT_TOOL_NAMES,
+]);
+
+/** The client tools active for the given host capabilities (spec-222 t-6). Core
+ *  always; the walkthrough tools only when `capabilities.walkthrough` is set —
+ *  so the website (no capabilities) is core-only, the app (walkthrough:true) gets
+ *  the demo tools too. */
+export function activeClientToolNames(capabilities?: GuideCapabilities): ReadonlySet<string> {
+  if (!capabilities?.walkthrough) return CORE_CLIENT_TOOL_NAMES;
+  return GUIDE_CLIENT_TOOL_NAMES;
+}
+
 /**
- * Dispatch a guide UI tool emitted by the graph. Knows ONLY the client UI tools
- * (highlight / navigate / advance_demo) — any other tool name (including any
- * product-data tool) is not a client UI tool and is refused here (dec-4 / ac-28).
+ * Dispatch a guide UI tool emitted by the graph. Core tools (highlight/navigate)
+ * always run; the walkthrough tools (advance_demo/start_walkthrough) run ONLY when
+ * the host enabled the `walkthrough` capability (ac-18) — otherwise they are
+ * refused, inert on the website. Any other tool name (incl. a product-data tool)
+ * is not a client UI tool and is refused here (dec-4 / ac-28).
  */
 export function dispatchGuideUiTool(
   name: string,
   input: Record<string, unknown>,
   ctx: NavigateContext,
-): { ok: boolean; path?: string } {
+): { ok: boolean; path?: string; reason?: string } {
   switch (name) {
     case 'highlight':
       return executeHighlight(input as { elementId?: string });
     case 'navigate':
       return executeNavigate(input as { screen?: string }, ctx);
     case 'advance_demo':
-      return executeAdvanceDemo(ctx);
     case 'start_walkthrough':
-      return executeStartWalkthrough(ctx);
+      // Capability gate (ac-18): inert unless the host enabled the walkthrough.
+      if (!ctx.capabilities?.walkthrough) {
+        return { ok: false, reason: 'capability not enabled: walkthrough' };
+      }
+      return name === 'advance_demo' ? executeAdvanceDemo(ctx) : executeStartWalkthrough(ctx);
     default:
       return { ok: false };
   }

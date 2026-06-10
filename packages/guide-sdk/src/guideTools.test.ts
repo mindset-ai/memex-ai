@@ -113,24 +113,31 @@ describe('dispatchGuideUiTool — client toolset guard (ac-28)', () => {
     tagAc(AC28);
   });
 
+  // spec-222 t-6: the walkthrough tools require the host to enable the
+  // `walkthrough` capability (the Memex app does). All wired-callback assertions
+  // below pass it; the website (no capability) is covered by the t-6 test file.
+  const walk = { walkthrough: true } as const;
+
   it('routes advance_demo to the wired advance callback (spec-206 ac-8)', () => {
     const advanceDemo = vi.fn();
-    const r = dispatchGuideUiTool('advance_demo', {}, { ...ctx(), advanceDemo });
+    const r = dispatchGuideUiTool('advance_demo', {}, { ...ctx(), capabilities: walk, advanceDemo });
     expect(r.ok).toBe(true);
     expect(advanceDemo).toHaveBeenCalledTimes(1);
     tagAc(AC206_8);
   });
 
   it('advance_demo is a no-op (never throws) when no advance callback is wired', () => {
-    // ctx() has no advanceDemo — degrade gracefully rather than throw.
-    expect(dispatchGuideUiTool('advance_demo', {}, ctx()).ok).toBe(false);
+    // Capability enabled but no advanceDemo — degrade gracefully rather than throw.
+    expect(dispatchGuideUiTool('advance_demo', {}, { ...ctx(), capabilities: walk }).ok).toBe(false);
   });
 
   it('routes start_walkthrough to the wired sequencer trigger (spec-211 t-3)', () => {
     const startWalkthrough = vi.fn();
-    expect(dispatchGuideUiTool('start_walkthrough', {}, { ...ctx(), startWalkthrough }).ok).toBe(true);
+    expect(
+      dispatchGuideUiTool('start_walkthrough', {}, { ...ctx(), capabilities: walk, startWalkthrough }).ok,
+    ).toBe(true);
     expect(startWalkthrough).toHaveBeenCalledTimes(1);
     // No-op (never throws) when nothing is wired.
-    expect(dispatchGuideUiTool('start_walkthrough', {}, ctx()).ok).toBe(false);
+    expect(dispatchGuideUiTool('start_walkthrough', {}, { ...ctx(), capabilities: walk }).ok).toBe(false);
   });
 });

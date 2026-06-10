@@ -16,7 +16,7 @@
 // The cross-page EXECUTION TIMING is owned here (not the engine): t-4 wraps the
 // cross-page branch so a destructive page-turn is DEFERRED until playback drains.
 // For t-3 the cross-page branch performs the page load immediately; the seam
-// (`performPageLoad`) is injectable so t-4 can swap in the deferred strategy and
+// (`performPageLoad`) is injectable so t-4 can swap in the deferred page-turn and
 // so tests never trigger a real navigation.
 
 import type { GuideElement, GuideLocation, NavigateOutcome, NavigationAdapter } from './NavigationAdapter';

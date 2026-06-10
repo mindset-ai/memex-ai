@@ -326,7 +326,7 @@ describe("pruneGuideContent (orphan removal helper for the t-7 importer)", () =>
       }),
       { provider },
     );
-    const deleted = await pruneGuideContent(["screens/specs-list.md"]);
+    const deleted = await pruneGuideContent("memex-app", ["screens/specs-list.md"]);
     expect(deleted).toBe(1);
     expect(await readRow("screens/gone.md", 0)).toBeNull();
     expect(await readRow("screens/specs-list.md", 0)).not.toBeNull();

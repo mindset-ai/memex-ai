@@ -436,7 +436,13 @@ export function createVoiceRouter(upgradeWebSocket: UpgradeWebSocket): Hono<Env>
       guideContext,
     );
 
+    // spec-222 t-9 (dec-6 → ac-20): the persona is selected SERVER-side by surface.
+    // This authenticated in-app HTTP leg is always the 'memex-app' surface. No
+    // system/persona/prompt text is EVER read from the request body — guideChatSchema
+    // accepts only messages + screen context (any extra client field is stripped),
+    // and buildGuideSystemBlocks derives the prompt solely from this server surface.
     const systemBlocks = buildGuideSystemBlocks({
+      surface: "memex-app",
       screenKey: screenKey ?? null,
       screenRegistry: screenRegistry ?? [],
       guideContext: retrievedContext,

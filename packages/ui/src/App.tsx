@@ -269,6 +269,10 @@ function VoiceGuideMount({
       });
       return createVoiceOrchestratorFactory({
         adapter,
+        // spec-222 t-6: the Memex app enables the demo-walkthrough capability so
+        // advance_demo / start_walkthrough are live (spec-206/211). The public
+        // website omits this, so those tools stay inert there (ac-6, ac-18).
+        capabilities: { walkthrough: true },
         advanceDemo: () => liveRef.current.advanceDemo(),
         startWalkthrough: () => walkthroughStartRef.current(),
         authToken: () => liveRef.current.token,
