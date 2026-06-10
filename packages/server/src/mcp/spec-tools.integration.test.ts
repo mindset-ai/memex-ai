@@ -374,7 +374,7 @@ describe("MCP lifecycle nudges (doc-12 t-6)", () => {
     expect(reload!.status).toBe("done");
   });
 
-  it("update_doc verify→done returns the dec-3 verbatim warning when no recent assess", async () => {
+  it("update_doc verify→done delivers the done orientation", async () => {
     _clearRecentAssessments();
     const m = await createDocDraft(actor.account.id, "DoneWarn", "P", "spec");
     created.docs.push(m.id);
@@ -385,9 +385,7 @@ describe("MCP lifecycle nudges (doc-12 t-6)", () => {
       status: "done",
     });
     expect(result.isError).toBeFalsy();
-    expect(result.content[0].text).toContain(
-      "You just closed a Spec without running the verify→done readiness review",
-    );
+    expect(result.content[0].text).toContain("This spec is now done");
   });
 
   it("update_doc verify→done emits NO warning when assess was recent", async () => {
@@ -430,7 +428,7 @@ describe("MCP lifecycle nudges (doc-12 t-6)", () => {
     expect(reload!.status).toBe("done");
   });
 
-  it("forward specify→build without recent assess gets the softer tip", async () => {
+  it("forward specify→build delivers the build orientation", async () => {
     _clearRecentAssessments();
     const m = await createDocDraft(actor.account.id, "PlanBuildNudge", "P", "spec");
     created.docs.push(m.id);
@@ -441,8 +439,8 @@ describe("MCP lifecycle nudges (doc-12 t-6)", () => {
       status: "build",
     });
     expect(result.isError).toBeFalsy();
-    expect(result.content[0].text).toContain("ℹ Tip: run assess_spec");
-    expect(result.content[0].text).not.toContain("Strongly recommend");
+    expect(result.content[0].text).toContain("You are now in build.");
+    expect(result.content[0].text).not.toContain("ℹ Tip");
   });
 
   it("backward transitions (build→specify) get NO nudge", async () => {
@@ -586,7 +584,7 @@ describe("phase handoff full-vs-essence delivery (spec-203 Layer 2, ac-10)", () 
   // in the full text, never in the compressed essence.
   const FULL_MARKER = "You are working in Memex";
   const FULL_ONLY = "minting them is your job";
-  const ESSENCE_MARKER = 'BUILD handoff (full prompt: the "Build handoff" button)';
+  const ESSENCE_MARKER = 'You are now in build.';
 
   let buildSpecRef: string;
 

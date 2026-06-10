@@ -53,8 +53,8 @@ const rubric =
   BASE_SCAFFOLD.transitions.find((t) => t.transition === "build")?.text ?? "";
 
 describe("Channel A — resolve_decision JIT nudge", () => {
-  it("appends a 'next: author implementation AC(s)' nudge to the response", () => {
-    expect(toolSpecs).toMatch(/author the implementation AC\(s\)/);
+  it("appends a 'next: create implementation acceptance criteria' nudge to the response", () => {
+    expect(toolSpecs).toMatch(/create the implementation acceptance criteria/);
   });
 
   it("shows the create_ac syntax with parent_decision_ref pre-filled to the dec ref", () => {
