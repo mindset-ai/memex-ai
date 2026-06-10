@@ -34,3 +34,4 @@ _private/
 # `--incremental` is on (default for some configs). Per-machine artefact.
 *.tsbuildinfo
 packages/ui/public/assets/vad/
+release/
