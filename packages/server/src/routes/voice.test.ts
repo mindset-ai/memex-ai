@@ -40,6 +40,10 @@ const SPEC = "mindset-prod/memex-building-itself/specs/spec-190";
 const AC6 = `${SPEC}/acs/ac-6`;
 const AC7 = `${SPEC}/acs/ac-7`;
 const AC32 = `${SPEC}/acs/ac-32`;
+// spec-214 — half-duplex server backstop (dec-2).
+const SPEC214 = "mindset-prod/memex-building-itself/specs/spec-214";
+const AC214_5 = `${SPEC214}/acs/ac-5`;
+const AC214_9 = `${SPEC214}/acs/ac-9`;
 
 const OK_AUTH: VoiceAuthResult = { ok: true, userId: "u1", closeCode: 1000, closeReason: "ok" };
 
@@ -165,6 +169,55 @@ describe("ac-7 — streaming TTS through the server", () => {
     expect(typeof audio[0].audio).toBe("string");
     expect(Buffer.from(audio[0].audio ?? "", "base64").toString()).toContain("hello");
     tagAc(AC7);
+  });
+});
+
+describe("spec-214 dec-2 — server drops inbound audio while a TTS speak is in flight", () => {
+  beforeEach(() => {
+    process.env.MEMEX_ELEVENLABS_FAKE = "1";
+    __resetVoiceProviderForTests();
+    clearFakeVoiceQueue();
+  });
+
+  it("ignores captured echo while speaking, then accepts audio again once listening (ac-9, ac-5)", async () => {
+    // The fake STT emits one interim transcript per pushAudio — so an interim is
+    // proof a frame reached STT. We assert frames sent WHILE the agent is speaking
+    // produce none (dropped, ac-9), and a frame sent after produces one (the leg
+    // works — the drop is conditional on speaking, not a broken STT). This is the
+    // self-talk regression guard (ac-5): the agent's own echo can't be transcribed.
+    enqueueFakeTranscript({
+      events: [
+        { text: "echo one", isFinal: false },
+        { text: "echo one two", isFinal: false },
+        { text: "the user finally speaks", isFinal: true },
+      ],
+    });
+    const { sink, sent } = recordingSink();
+    const s = new VoiceSession(sink, { configured: true, auth: OK_AUTH });
+    s.open();
+    s.handleText(JSON.stringify({ type: "start_listening" }));
+
+    // Agent begins speaking — ttsAborts is populated synchronously by speak().
+    s.handleText(JSON.stringify({ type: "speak", requestId: "r1", text: "hello there friend how are you" }));
+    // Speaker output bleeds into the mic while the agent talks — these frames must
+    // be DROPPED (not appended to STT), so no interim transcript appears.
+    s.handleBinary(new Uint8Array([1, 2, 3]));
+    s.handleBinary(new Uint8Array([4, 5, 6]));
+    await flush();
+
+    const interimsWhileSpeaking = sent.filter((m) => m.type === "transcript" && !m.isFinal);
+    expect(interimsWhileSpeaking).toHaveLength(0); // echo never reached STT (ac-9)
+    // TTS still streamed out normally.
+    expect(sent.some((m) => m.type === "audio")).toBe(true);
+
+    // Speaking has finished (ttsAborts drained) — a genuine user frame now reaches
+    // STT and yields an interim, proving the gate is conditional, not a dead leg.
+    s.handleBinary(new Uint8Array([7, 8, 9]));
+    await flush();
+    expect(sent.filter((m) => m.type === "transcript" && !m.isFinal).length).toBeGreaterThanOrEqual(1);
+
+    tagAc(AC214_9);
+    tagAc(AC214_5);
   });
 });
 

@@ -282,9 +282,17 @@ export class VoiceSession {
     return false;
   }
 
-  /** A binary frame from the browser = a chunk of mic audio → STT. */
+  /** A binary frame from the browser = a chunk of mic audio → STT.
+   *
+   *  spec-214 dec-2 (server backstop): while a TTS `speak` is in flight for this
+   *  session, DROP inbound audio rather than appending it to STT. On a speaker-
+   *  equipped device the agent's own playback bleeds into the mic; forwarding it
+   *  would let STT transcribe Specky's own words and feed them back as a user turn
+   *  (the self-talk loop). The client also gates this (dec-1), but the server is
+   *  authoritative — it holds even if a client regresses. */
   handleBinary(bytes: Uint8Array): void {
     if (!this.active()) return;
+    if (this.ttsAborts.size > 0) return; // agent is speaking — ignore captured echo
     this.stt?.pushAudio(bytes);
   }
 
@@ -314,7 +322,8 @@ export class VoiceSession {
         break;
       }
       case "abort": {
-        // Barge-in cut (dec-8): abort the in-flight TTS for this request.
+        // Stop / new-turn supersede (spec-214 dec-4): abort the in-flight TTS for
+        // this request. (Was barge-in cut, dec-8 — voice barge-in now removed.)
         const ac = msg.requestId ? this.ttsAborts.get(msg.requestId) : undefined;
         ac?.abort();
         if (msg.requestId) this.ttsAborts.delete(msg.requestId);
