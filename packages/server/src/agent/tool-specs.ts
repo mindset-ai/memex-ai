@@ -775,8 +775,14 @@ async function renderFooterSignal(
       return undefined;
     }
     case "decision_created": {
-      const nudge = relatedIssuesNudge(signal.issueHits).trim();
-      return nudge.length > 0 ? nudge : undefined;
+      const cta =
+        `That's an open decision: a fork the work hinges on, now waiting to be settled. ` +
+        `Resolve it with resolve_decision once you have grounded the choice in the current source ` +
+        `and any prior resolutions or standards (search_memex, kind 'decision' or 'standard'). ` +
+        `If it is a load-bearing call only the user should make, leave it open and put the choice ` +
+        `to them rather than deciding for them.`;
+      const issues = relatedIssuesNudge(signal.issueHits).trim();
+      return [cta, issues].filter((s) => s.length > 0).join("\n\n");
     }
     case "ac_created": {
       if (signal.acKind === "implementation") {
