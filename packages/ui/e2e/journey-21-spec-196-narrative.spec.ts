@@ -13,8 +13,9 @@
 //
 // Seeding goes over the env-gated test surface (no raw SQL): seed-spec,
 // seed-open-decision, seed-ac, seed-task, set-doc-status, consolidate-narrative.
-// Navigation is path-based [per std-2]. The sub-tab reading "Spec" (t-1) is
-// asserted by journey-15's layout walk.
+// Navigation is path-based [per std-2]. The prose sub-tab reading "Narrative"
+// (spec-233 t-1, reversing spec-196 dec-1's "Spec") is asserted inline in the
+// gate test below; the layout walk also lives in journey-15.
 
 import {
   test,
@@ -34,11 +35,16 @@ import {
 } from "./helpers/retained.js";
 
 const SPEC196 = "mindset-prod/memex-building-itself/specs/spec-196";
+const SPEC233 = "mindset-prod/memex-building-itself/specs/spec-233";
 const ACS_BY_TEST: Record<string, string[]> = {
   "specify→build gate: stale narrative blocks the offer; consolidation restores it": [
     `${SPEC196}/acs/ac-3`,
     `${SPEC196}/acs/ac-4`,
     `${SPEC196}/acs/ac-9`,
+    // spec-233 t-1: the prose sub-tab reads "Narrative" and still routes (ac-2);
+    // no UI/flow asserts the old "Spec" label (ac-5).
+    `${SPEC233}/acs/ac-2`,
+    `${SPEC233}/acs/ac-5`,
   ],
   '"Read the spec" on a done Spec: full record inline, no reopen, no phase change': [
     `${SPEC196}/acs/ac-12`,
@@ -95,6 +101,21 @@ test("specify→build gate: stale narrative blocks the offer; consolidation rest
   const rubicon = page.getByTestId("transition-sentence");
   await expect(rubicon).toContainText(/1 Decision must be resolved/i, { timeout: 15_000 });
   await expect(rubicon).not.toContainText(/spec narrative/i);
+
+  // spec-233 t-1 (ac-2, ac-5): the prose sub-tab reads "Narrative", not "Spec"
+  // — "Spec" names the whole object. Clicking it opens the prose view, and the
+  // unchanged 'narrative' id keeps routing working (away to Decisions & ACs and
+  // back).
+  const subTabs = page.getByTestId("canvas");
+  const narrativeTab = subTabs.getByRole("button", { name: "Narrative", exact: true });
+  await expect(narrativeTab).toBeVisible({ timeout: 15_000 });
+  await expect(subTabs.getByRole("button", { name: "Spec", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: /Decisions & ACs/ }).click();
+  await expect(page.getByTestId("decision-panel")).toBeVisible({ timeout: 15_000 });
+  await narrativeTab.click();
+  await expect(page.getByText("Exercise the spec-narrative staleness gate.")).toBeVisible({
+    timeout: 15_000,
+  });
 
   // Resolve the decision through the real UI (editor posture required).
   await switchToEditing(page);
