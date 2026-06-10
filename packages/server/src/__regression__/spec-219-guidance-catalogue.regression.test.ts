@@ -22,7 +22,7 @@ const specTraffic = read(join("services", "spec-traffic.ts"));
 describe("ac-3 — terse embedded nudges KEPT", () => {
   it("create_doc still pushes scope ACs", () => {
     tagAc(AC(3));
-    expect(toolSpecs).toMatch(/author Scope ACs/);
+    expect(toolSpecs).toMatch(/scope-type acceptance criteria/);
   });
   it("resolve_decision still pushes implementation ACs", () => {
     tagAc(AC(3));

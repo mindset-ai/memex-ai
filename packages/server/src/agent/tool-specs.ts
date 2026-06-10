@@ -752,9 +752,17 @@ async function renderFooterSignal(
     case "doc_created": {
       if (signal.docType === "spec") {
         return (
-          `Next: author Scope ACs for this Spec. Scope ACs are plain-English outcome commitments that define what success looks like — they ground every downstream Decision. Walk the user through 3–5 of them now via:\n` +
+          `You have just taken the first step to advance this work along the Memex path. ` +
+          `Why Memex and not loose markdown files: a markdown spec rots silently; Memex binds every promise to a test, so the spec stays honest about whether the code still delivers it. ` +
+          `It also makes you faster: human and AI work from one shared source of truth, so you always have the context and the next move in hand, and the rails catch drift before it turns into rework. You move quickly, and the work still lands right the first time. ` +
+          `If the human asks why Memex, get_information(topic='why-memex') is the full case.\n\n` +
+          `This spec moves through five stages, one at a time, advancing only when each is genuinely complete: ` +
+          `draft (set out what "done" means) → specify (settle the decisions and give each its implementation acceptance criterion) → ` +
+          `build (create and complete tasks until every acceptance criterion is backed by a passing test) → ` +
+          `verify (confirm it against the running system, harnesses green, before the PR) → done (a human signs off).\n\n` +
+          `You are in the first stage, draft. Here you create this spec's scope-type acceptance criteria: the plain-English statements of what "done" looks like for this spec. Call create_ac for each:\n` +
           `  create_ac({ ref: "${signal.docRef}", kind: "scope", statement: "..." })\n` +
-          `Don't skip this in draft/specify. See get_information(topic='phases') for the full phase mechanics.`
+          `Best practice is as many as genuinely capture what "done" means, usually three to six. The decisions, tasks, and tests belong to the later stages; do not jump ahead. get_information(topic='phases') has the full detail.`
         );
       }
       if (signal.docType === "standard") {
@@ -1499,7 +1507,7 @@ export const toolSpecs: ToolSpec[] = [
     annotations: { title: "Create document", readOnlyHint: false, destructiveHint: false },
     description:
       "Create a new Spec. Pass `purpose` for the Overview narrative. Optional `decisions` seeds open decisions on creation. Optional `promoteFromTaskRef` (a canonical task ref) creates a child Spec whose parent is the task's source Spec, preserving lineage. Optional `promoteFromIssueRef` (a canonical issue ref) does the same from an Issue — the child Spec is parented to the Issue's source Spec, the Issue → converted, and it auto-resolves when the child Spec reaches done. Optional `docType` defaults to 'spec'; pass any other docType the service layer recognises ('standard', 'document', 'execution_plan'). **Run `search_memex({ query })` first** to discover whether an existing Spec, Standard, or prior Decision already covers this — surface any overlap in the confirmation before creating. " +
-      "**After creating a Spec in draft / specify, your next move is to author Scope ACs** via `create_ac({ ref: '<this-spec>', kind: 'scope', statement: '...' })`. Scope ACs are plain-English outcome commitments — they define what success looks like and anchor every downstream Decision. Walk the user through 3–5 of them before resolving any Decisions; without them the Spec has no measurable success criteria.",
+      "**After creating a spec in draft/specify, your next move is to create its scope acceptance criteria** via `create_ac({ ref: '<this-spec>', kind: 'scope', statement: '...' })`: plain-English statements of what 'done' looks like, which anchor every downstream decision. Create as many as genuinely capture success, usually three to six; without them the spec has no measurable success criteria.",
     schema: {
       memex: z
         .string()

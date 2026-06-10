@@ -72,7 +72,7 @@ async function callTool(userId: string, name: string, args: Record<string, unkno
 // update_doc coverage NUDGE ("AC coverage: X% …") is a handler's and IS.
 const HANDLER_GUIDANCE: Array<{ label: string; re: RegExp }> = [
   { label: "resolve_decision impl-AC push", re: /Next: author the implementation AC/i },
-  { label: "create_doc scope-AC push", re: /Next: author Scope ACs/i },
+  { label: "create_doc scope-AC push", re: /scope-type acceptance criteria/i },
   { label: "update_doc transition tip", re: /Tip:\s*run assess_spec/i },
   { label: "update_doc coverage nudge", re: /AC coverage:\s*\d+%/i },
   { label: "update_task completion nudge", re: /leave a `progress` comment/i },
