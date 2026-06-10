@@ -8,7 +8,7 @@
     "vad:assets": "node scripts/copy-vad-assets.mjs",
     "predev": "node scripts/copy-vad-assets.mjs",
     "dev": "vite",
-    "prebuild": "pnpm --filter @memex/shared build && node scripts/copy-vad-assets.mjs",
+    "prebuild": "pnpm --filter @memex/shared build && pnpm --filter @memex/guide-sdk build && node scripts/copy-vad-assets.mjs",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "test": "vitest run",
@@ -19,6 +19,7 @@
   "dependencies": {
     "@langchain/core": "^1.1.38",
     "@langchain/langgraph": "^1.2.6",
+    "@memex/guide-sdk": "workspace:*",
     "@memex/shared": "workspace:*",
     "@nivo/bar": "0.99.0",
     "@nivo/core": "0.99.0",

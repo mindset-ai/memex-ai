@@ -2033,6 +2033,13 @@ export const guideContent = pgTable(
   "guide_content",
   {
     id: uuid("id").primaryKey().defaultRandom(),
+    // spec-222 t-7 (dec-3): which product surface this chunk documents — the
+    // corpus-isolation key. 'memex-app' (the in-product app) or 'memex-website'
+    // (the public marketing site). Retrieval FILTERS every query by surface
+    // server-side so a website session can't see app content and vice versa
+    // (ac-4 / ac-11 / ac-12). Additive + backfilled: existing rows default to
+    // 'memex-app', so the established app retrieval path is unchanged.
+    surface: text("surface").notNull().default("memex-app"),
     // NULL for cross-screen concept chunks; set for per-screen chunks.
     screenKey: text("screen_key"),
     sourcePath: text("source_path").notNull(),
@@ -2054,6 +2061,11 @@ export const guideContent = pgTable(
     uniqueIndex("guide_content_source_path_chunk_idx").on(table.sourcePath, table.chunkIndex),
     // Layer-1 deterministic pre-fetch.
     index("guide_content_screen_key_idx").on(table.screenKey),
+    // spec-222 t-7 (dec-3): surface-keyed retrieval. Composite (surface,
+    // screen_key) serves the Layer-1 lookup; (surface) alone serves the
+    // Layer-2 search's surface filter.
+    index("guide_content_surface_screen_key_idx").on(table.surface, table.screenKey),
+    index("guide_content_surface_idx").on(table.surface),
     // Layer-2 FTS fallback.
     index("guide_content_content_tsv_idx").using("gin", table.contentTsv),
     // Model-scoped filter parity (HNSW vector index lives in the migration —

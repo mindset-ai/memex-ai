@@ -16,8 +16,7 @@
 // Renders nothing — it's a behavioural controller, like WhatsNewRibbonConnected.
 
 import { useEffect, useRef } from 'react';
-import { useVoiceSession } from '../../voice/session/VoiceSessionContext';
-import { isAffordanceDisabled } from '../../voice/session/voiceSessionModel';
+import { useVoiceSession, isAffordanceDisabled } from '@memex/guide-sdk';
 import { fetchGreetingGate, stampGreeting } from '../../api/client';
 
 /**

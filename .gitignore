@@ -1,5 +1,6 @@
 node_modules/
 dist/
+dist-bundle/
 # Secrets / local env. The bare `.env` (no leading slash) matches at EVERY depth,
 # so the repo-root shared-secret .env (MEMEX_EMIT_KEY etc.) AND each package's
 # .env (packages/*/.env) are all ignored — on every workstation, because this
@@ -33,3 +34,5 @@ _private/
 # `--incremental` is on (default for some configs). Per-machine artefact.
 *.tsbuildinfo
 packages/ui/public/assets/vad/
+release/
+local-embed-test/
