@@ -44,9 +44,12 @@ describe("ac-3 — verbose blocks CHANGED (centralized), not dropped", () => {
     tagAc(AC(3));
     expect(toolSpecs).toMatch(/ctx\.toolName === "get_doc"[\s\S]*?formatCoverageHeader\(/);
   });
-  it("the handler footer nudges route through the footer slot", () => {
+  it("the handler footer nudges route through the footer slot as structured signals", () => {
     tagAc(AC(3));
-    expect(toolSpecs).toMatch(/ctx\.footerSlot\.content =/);
+    // spec-219 Phase 2 (sole-author): handlers no longer author footer prose;
+    // they park a structured signal and composeGuidanceEnvelope owns the words.
+    expect(toolSpecs).toMatch(/ctx\.footerSlot\.signal =/);
+    expect(toolSpecs).not.toMatch(/ctx\.footerSlot\.content =/);
     expect(specTraffic).toMatch(/footerSlot/);
   });
   it("the InjectedBlock zone plumbing is KEPT (inert) — still present in the composer", () => {

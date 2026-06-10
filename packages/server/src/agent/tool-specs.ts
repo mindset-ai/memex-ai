@@ -240,6 +240,32 @@ export interface ResolvedRef {
   slugs: { namespace: string; memex: string };
 }
 
+/**
+ * spec-219 Phase 2 (sole-author): the structured signal a handler parks in
+ * `ctx.footerSlot` to tell `composeGuidanceEnvelope` WHAT just happened. The
+ * handler passes DATA only; `composeGuidanceEnvelope` (via `renderFooterSignal`)
+ * owns every WORD. New event shapes get a new variant here — never prose in a
+ * handler.
+ */
+export type FooterSignal =
+  | {
+      kind: "decision_resolved";
+      decRef: string;
+      linkedAcs: SketchAc[];
+      issueHits: Awaited<ReturnType<typeof relatedIssuesForDecision>>;
+    }
+  | { kind: "task_completed" }
+  | { kind: "doc_transition"; beforeStatus: string; target: string; docType: string }
+  | { kind: "doc_created"; docRef: string; docType: string }
+  | { kind: "decision_created"; issueHits: Awaited<ReturnType<typeof relatedIssuesForDecision>> };
+
+/** The single channel from a handler to `composeGuidanceEnvelope`: a structured
+ *  `signal` carrying the DATA of what just happened. composeGuidanceEnvelope
+ *  (renderFooterSignal) owns the words. A handler never puts prose here. */
+export interface FooterSlot {
+  signal?: FooterSignal;
+}
+
 export interface ToolCtx {
   userId: string;
   /**
@@ -351,7 +377,14 @@ export interface ToolCtx {
    * test ctxes that bypass the choke — there the nugget is simply not delivered,
    * exactly as any footer needs the choke to attach it.
    */
-  footerSlot?: { content?: string };
+  footerSlot?: FooterSlot;
+  /**
+   * spec-219 Phase 2: a creating tool (e.g. `create_doc`) records the doc it
+   * just made so the choke point runs `composeGuidanceEnvelope` for it — the
+   * tool resolved no ref, so the normal `resolveRef` target capture never fired.
+   * The choke sets this; handlers call it.
+   */
+  recordCreatedDoc?: (memexId: string, docId: string) => void;
 }
 
 /**
@@ -673,6 +706,72 @@ function composeToolSteer(toolName: string | undefined, phase: Phase): string | 
   return STEER_BY_TOOL[toolName]?.(phase);
 }
 
+/**
+ * spec-219 Phase 2 (sole-author): `composeGuidanceEnvelope` is the ONLY place
+ * footer prose is authored. Handlers park a structured `FooterSignal` (data);
+ * this turns it into words. Keep-and-relocate: the copy below is the handlers'
+ * former copy verbatim — only its AUTHOR and PLACEMENT (now the footer) change.
+ */
+async function renderFooterSignal(
+  signal: FooterSignal,
+  memexId: string,
+  docId: string,
+): Promise<string | undefined> {
+  switch (signal.kind) {
+    case "decision_resolved": {
+      const sketchBlock = buildSketchBlock(signal.linkedAcs);
+      const acNudge =
+        sketchBlock.length > 0
+          ? sketchBlock
+          : `Next: author the implementation AC(s) this decision will be verified by — ` +
+            `\`create_ac({ ref: '<this-spec>', kind: 'implementation', parent_decision_ref: '${signal.decRef}', statement: '...' })\`. ` +
+            `One decision typically spawns 2-5 implementation ACs (one per distinct behavioural claim). ` +
+            `See \`get_information(topic='decisions-need-acs')\` for the full discipline. ` +
+            `Without these, build-readiness will refuse the specify→build move.`;
+      const issuesNudge = relatedIssuesNudge(signal.issueHits);
+      const out = [acNudge, issuesNudge]
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0)
+        .join("\n\n");
+      return out.length > 0 ? out : undefined;
+    }
+    case "task_completed":
+      return COMPLETION_NUDGE;
+    case "doc_transition": {
+      const nudge = (
+        await nudgeForTransition(
+          memexId,
+          docId,
+          signal.beforeStatus,
+          signal.target,
+          signal.docType,
+        )
+      ).trim();
+      return nudge.length > 0 ? nudge : undefined;
+    }
+    case "doc_created": {
+      if (signal.docType === "spec") {
+        return (
+          `Next: author Scope ACs for this Spec. Scope ACs are plain-English outcome commitments that define what success looks like — they ground every downstream Decision. Walk the user through 3–5 of them now via:\n` +
+          `  create_ac({ ref: "${signal.docRef}", kind: "scope", statement: "..." })\n` +
+          `Don't skip this in draft/specify. See get_information(topic='phases') for the full phase mechanics.`
+        );
+      }
+      if (signal.docType === "standard") {
+        return (
+          `This standard is born with no body section — standards are authored as clauses, not prose. BEFORE adding content, read get_information(topic='authoring-standards') for what makes a good standard and a good clause, plus the full add_section(clauses) / add_clause / edit_clause / delete_clause flow. Then author the first section via:\n` +
+          `  add_section({ ref: "${signal.docRef}", sectionType: "rule", clauses: ["<one aspect>", "<one aspect>"] })`
+        );
+      }
+      return undefined;
+    }
+    case "decision_created": {
+      const nudge = relatedIssuesNudge(signal.issueHits).trim();
+      return nudge.length > 0 ? nudge : undefined;
+    }
+  }
+}
+
 export async function composeGuidanceEnvelope(
   memexId: string,
   docId: string,
@@ -684,8 +783,17 @@ export async function composeGuidanceEnvelope(
   // guidance, matching the order it had on the body side — so the choke point
   // lands it past the delimiter and the telemetry split persists it (ac-9). The
   // handler kept its own DB read; the seat only composes (ac-8).
-  const slotRaw = ctx.footerSlot?.content;
-  const slot = slotRaw && slotRaw.trim().length > 0 ? slotRaw : undefined;
+  // spec-219 Phase 2 (sole-author): a handler hands us a structured signal (the
+  // DATA of what just happened); composeGuidanceEnvelope owns the words, via
+  // renderFooterSignal. No handler authors footer text.
+  let slot: string | undefined;
+  try {
+    slot = ctx.footerSlot?.signal
+      ? await renderFooterSignal(ctx.footerSlot.signal, memexId, docId)
+      : undefined;
+  } catch {
+    slot = undefined;
+  }
   const compose = (
     header: string | undefined,
     footer: string | undefined,
@@ -775,8 +883,16 @@ export async function composeGuidanceEnvelope(
     // plus, in build, the AC nag — the highest-value methodology steer. The body
     // is DELIMITER-LESS (spec-219 ac-7): the choke point frames it.
     const lines: string[] = [];
-    const essence = toHandoffEssence(BASE_SCAFFOLD, phase);
-    if (essence) lines.push(essence);
+    // spec-219 Phase 2b (comb-through): a surgical per-(tool, transition) steer —
+    // a slot signal or a STEER_BY_TOOL entry — REPLACES the generic phase essence.
+    // The agent gets told its NEXT MOVE, not re-lectured on the whole phase on
+    // every call. The essence remains as the FALLBACK only when this (tool, phase)
+    // has no surgical steer of its own.
+    const hasSurgicalSteer = Boolean(slot) || Boolean(toolSteer);
+    if (!hasSurgicalSteer) {
+      const essence = toHandoffEssence(BASE_SCAFFOLD, phase);
+      if (essence) lines.push(essence);
+    }
     if (phase === "build") {
       const nag = await craftUntestedAcNag(memexId, docId);
       if (nag) lines.push(nag);
@@ -1511,20 +1627,16 @@ export const toolSpecs: ToolSpec[] = [
       }
       const slugs = await memexSlugsById(memexId);
       const docRef = slugs ? buildDocRef(slugs, doc) : doc.handle;
-      // The next-step nudge after create_doc — activation-moment guidance,
-      // delivered while the agent is reading the response and deciding what
-      // to do next. Specs in draft/specify should be authored with their
-      // Scope ACs together; the agent forgetting this is a real, observed
-      // failure mode. Skipped for non-spec docTypes (standards, etc.)
-      // where Scope ACs don't apply.
-      const isSpec = docType === "spec";
-      const isStandard = docType === "standard";
-      const nudge = isSpec
-        ? `\n\nNext: author Scope ACs for this Spec. Scope ACs are plain-English outcome commitments that define what success looks like — they ground every downstream Decision. Walk the user through 3–5 of them now via:\n  create_ac({ ref: "${docRef}", kind: "scope", statement: "..." })\nDon't skip this in draft/specify. See get_information(topic='phases') for the full phase mechanics.`
-        : isStandard
-          ? `\n\nThis standard is born with no body section — standards are authored as clauses, not prose. BEFORE adding content, read get_information(topic='authoring-standards') for what makes a good standard and a good clause, plus the full add_section(clauses) / add_clause / edit_clause / delete_clause flow. Then author the first section via:\n  add_section({ ref: "${docRef}", sectionType: "rule", clauses: ["<one aspect>", "<one aspect>"] })`
-          : "";
-      return `Spec created: ref: ${docRef} "${doc.title}".${nudge}`;
+      // spec-219 Phase 2 (sole-author): create_doc resolves no ref, so the choke
+      // never set a target. Record the just-created doc so composeGuidanceEnvelope
+      // runs for it (like every other Spec-resolving tool), and signal the event
+      // — the activation-moment scope-AC / standard-clauses guidance is authored
+      // by composeGuidanceEnvelope, not here.
+      ctx.recordCreatedDoc?.(memexId, doc.id);
+      if (ctx.footerSlot) {
+        ctx.footerSlot.signal = { kind: "doc_created", docRef, docType };
+      }
+      return `Spec created: ref: ${docRef} "${doc.title}".`;
     },
   },
   {
@@ -1582,10 +1694,19 @@ export const toolSpecs: ToolSpec[] = [
       }
       const { memexId, doc: before, slugs } = resolved;
 
-      let nudge = "";
       if (status !== undefined) {
         await updateDocStatus(memexId, before.id, status);
-        nudge = await nudgeForTransition(memexId, before.id, before.status, status, before.docType);
+        // spec-219 Phase 2 (sole-author): the transition guidance (assess_spec
+        // tip + coverage nudge) is owned by composeGuidanceEnvelope; signal the
+        // transition, don't author it here.
+        if (ctx.footerSlot) {
+          ctx.footerSlot.signal = {
+            kind: "doc_transition",
+            beforeStatus: before.status,
+            target: status,
+            docType: before.docType,
+          };
+        }
       }
       if (title !== undefined) {
         await updateDocTitle(memexId, before.id, title);
@@ -1625,12 +1746,11 @@ export const toolSpecs: ToolSpec[] = [
       if (ctx.verbose) {
         const state = await fullDocState(memexId, before.id);
         const url = await ctx.workspaceUrl(memexId);
-        // spec-219 dec-3 (t-3): park the tag summary + transition nudge in the
-        // footer slot; the single seat folds them into the footer (after the
-        // delimiter, so they persist to footer_text — they never did while they
-        // rode the body). The handler keeps its own reads.
-        if (ctx.footerSlot) ctx.footerSlot.content = `${tagSuffix}${nudge}`;
-        return await formatState(url, state, ctx);
+        // spec-219 Phase 2 (sole-author): the transition guidance is signalled
+        // above; composeGuidanceEnvelope authors it. `tagSuffix` is a FACT
+        // (result-reporting), so it rides the body, not the footer.
+        const body = await formatState(url, state, ctx);
+        return tagSuffix ? `${body}\n${tagSuffix.trim()}` : body;
       }
       const fresh = await getDoc(memexId, before.id);
       // Per dec-1: on a status change include the deterministic phase header so
@@ -1641,7 +1761,7 @@ export const toolSpecs: ToolSpec[] = [
           : null;
       const phaseSuffix = phaseLine ? ` ${phaseLine}` : "";
       const freshRef = buildDocRef(slugs, fresh);
-      return `ref: ${freshRef} updated.${tagSuffix}${phaseSuffix}${nudge}`;
+      return `ref: ${freshRef} updated.${tagSuffix}${phaseSuffix}`;
     },
   },
 
@@ -2047,8 +2167,12 @@ export const toolSpecs: ToolSpec[] = [
         `${decision.title}\n\n${context ?? ""}`,
         resolveEmbeddingProvider(),
       );
-      const issuesNudge = relatedIssuesNudge(issueHits);
-      return `Decision created: ref: ${decRef} "${decision.title}"${issuesNudge}`;
+      // spec-219 Phase 2 (sole-author): hand the data to composeGuidanceEnvelope;
+      // it authors the related-issues nudge. No guidance crafted here.
+      if (ctx.footerSlot) {
+        ctx.footerSlot.signal = { kind: "decision_created", issueHits };
+      }
+      return `Decision created: ref: ${decRef} "${decision.title}"`;
     },
   },
   {
@@ -2284,10 +2408,15 @@ export const toolSpecs: ToolSpec[] = [
       // Reuses the same ac_parent_links traversal decisionAcCoverage walks
       // (dec-6); a decision with zero linked implementation ACs yields no block
       // (ac-19) and we fall back to the generic author-your-ACs nudge.
-      let sketchBlock = "";
+      // Gather the DATA for the post-resolve guidance (linked implementation
+      // ACs → test-shape sketch; semantically-related Issues). These are reads,
+      // not prose. spec-219 Phase 2: we hand the data to composeGuidanceEnvelope
+      // and it authors the impl-AC push + related-issues nudge. No guidance is
+      // crafted in this handler.
+      let linkedAcs: SketchAc[] = [];
       try {
         const acRows = await listAcsForBriefWithVerification(memexId, decision.docId);
-        const linked: SketchAc[] = acRows
+        linkedAcs = acRows
           .filter(
             (r) =>
               r.ac.kind === "implementation" &&
@@ -2298,29 +2427,22 @@ export const toolSpecs: ToolSpec[] = [
             statement: r.ac.statement,
             canonicalRef: r.canonicalRef,
           }));
-        sketchBlock = buildSketchBlock(linked);
       } catch {
-        sketchBlock = "";
+        linkedAcs = [];
       }
-      const acNudge =
-        sketchBlock.length > 0
-          ? sketchBlock
-          : `\n\nNext: author the implementation AC(s) this decision will be verified by — ` +
-            `\`create_ac({ ref: '<this-spec>', kind: 'implementation', parent_decision_ref: '${decRef}', statement: '...' })\`. ` +
-            `One decision typically spawns 2-5 implementation ACs (one per distinct behavioural claim). ` +
-            `See \`get_information(topic='decisions-need-acs')\` for the full discipline. ` +
-            `Without these, build-readiness will refuse the specify→build move.`;
       // spec-112 (ac-4 / ac-15): auto-surface related Issues whose semantic
       // overlap with the decision clears the relevance threshold. Reuses the
       // same searchMemex(kind:'issue') machinery; informational only, never
-      // blocks. Below threshold this appends nothing.
+      // blocks. Below threshold composeGuidanceEnvelope appends nothing.
       const issueHits = await relatedIssuesForDecision(
         memexId,
         `${decision.title}\n\n${decision.resolution ?? ""}`,
         resolveEmbeddingProvider(),
       );
-      const issuesNudge = relatedIssuesNudge(issueHits);
-      return `Decision resolved: ref: ${decRef} "${decision.title}" — ${decision.resolution}.${hint}${acNudge}${issuesNudge}`;
+      if (ctx.footerSlot) {
+        ctx.footerSlot.signal = { kind: "decision_resolved", decRef, linkedAcs, issueHits };
+      }
+      return `Decision resolved: ref: ${decRef} "${decision.title}" — ${decision.resolution}.${hint}`;
     },
   },
   {
@@ -3208,9 +3330,11 @@ export const toolSpecs: ToolSpec[] = [
       if (status !== undefined) {
         const updated = await updateTaskStatus(memexId, taskUuid, status);
         let unblockedHint = "";
-        let completionNudge = "";
         // Per dec-1: when completing a task unblocks dependents, name them so
-        // the agent skips the follow-up `list_tasks(readyOnly:true)` call.
+        // the agent skips the follow-up `list_tasks(readyOnly:true)` call. This
+        // is RESULT-REPORTING (a fact about what the call did), so it stays in
+        // the handler. The "leave a progress comment" STEER is guidance, owned by
+        // composeGuidanceEnvelope — we signal the event, not the words.
         if (status === "complete") {
           const unblocked = await findNewlyUnblockedDependents(memexId, taskUuid);
           if (unblocked.length > 0) {
@@ -3218,11 +3342,11 @@ export const toolSpecs: ToolSpec[] = [
               .map((u) => `t-${u.seq}`)
               .join(", ")}.`;
           }
-          completionNudge = ` ${COMPLETION_NUDGE}`;
+          if (ctx.footerSlot) ctx.footerSlot.signal = { kind: "task_completed" };
         }
         const taskRef = buildChildRef(slugs, doc, { type: "tasks", seq: updated.seq });
         messages.push(
-          `Task ref: ${taskRef} status → "${updated.status}".${unblockedHint}${completionNudge}`,
+          `Task ref: ${taskRef} status → "${updated.status}".${unblockedHint}`,
         );
       }
       if (addBRef !== undefined) {
@@ -3248,12 +3372,9 @@ export const toolSpecs: ToolSpec[] = [
         const fresh = await getTask(memexId, taskUuid);
         const state = await fullDocState(memexId, fresh.docId);
         const url = await ctx.workspaceUrl(memexId);
-        // spec-219 dec-3 (t-3): park the completion nudge in the footer slot
-        // (only when the task was completed); the seat folds it into the footer,
-        // past the delimiter, so it persists to footer_text.
-        if (status === "complete" && ctx.footerSlot) {
-          ctx.footerSlot.content = `> ${COMPLETION_NUDGE}`;
-        }
+        // spec-219 Phase 2 (sole-author): the completion steer is already
+        // signalled above (kind:'task_completed'); composeGuidanceEnvelope owns
+        // the prose for terse AND verbose. Nothing to park here.
         return await formatState(url, state, ctx);
       }
 
@@ -3700,14 +3821,20 @@ export const toolSpecs: ToolSpec[] = [
       const beforeStatus = doc.status;
       const target = status ?? "specify";
       await updateDocStatus(memexId, doc.id, target);
-      const nudge = await nudgeForTransition(memexId, doc.id, beforeStatus, target, doc.docType);
+      // spec-219 Phase 2 (sole-author): signal the transition; composeGuidanceEnvelope
+      // owns the transition guidance prose.
+      if (ctx.footerSlot) {
+        ctx.footerSlot.signal = {
+          kind: "doc_transition",
+          beforeStatus,
+          target,
+          docType: doc.docType,
+        };
+      }
 
       if (ctx.verbose) {
         const state = await fullDocState(memexId, doc.id);
         const url = await ctx.workspaceUrl(memexId);
-        // spec-219 dec-3 (t-3): park the transition nudge in the footer slot; the
-        // seat folds it into the footer, past the delimiter, so it persists.
-        if (ctx.footerSlot) ctx.footerSlot.content = nudge;
         return await formatState(url, state, ctx);
       }
       const fresh = await getDoc(memexId, doc.id);
@@ -3715,7 +3842,7 @@ export const toolSpecs: ToolSpec[] = [
       // phase header so the agent always learns the new "Allowed now".
       const phaseLine = formatTerseSpecPhase(fresh.status) ?? "";
       const freshRef = buildDocRef(slugs, fresh);
-      return `Spec ref: ${freshRef} published to "${fresh.status}". ${phaseLine}${nudge}`.trim();
+      return `Spec ref: ${freshRef} published to "${fresh.status}". ${phaseLine}`.trim();
     },
   },
 
