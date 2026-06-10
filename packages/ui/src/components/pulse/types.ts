@@ -92,6 +92,14 @@ export interface ActivityRow {
   briefId: string | null;
   /** The acting human user, or null for agent/system activity. */
   actorUserId: string | null;
+  /**
+   * spec-122 ac-12 / ac-4 — the denormalised display name of WHO acted, resolved
+   * server-side at write time. A human's display name ("Barrie"); an agent's
+   * client label ("Claude Code (Barrie)"); or a free-form CI string ("CI · abc")
+   * that matched no user. Null on rows that predate the threading — the UI then
+   * falls back to the client label, NEVER to "You".
+   */
+  actorName: string | null;
   /** WHO acted (derived from channel). */
   actorKind: ActorKind;
   /** THROUGH WHAT surface it arrived. */
@@ -108,6 +116,55 @@ export interface ActivityRow {
   payload: Record<string, unknown> | null;
   /** ISO-8601 timestamp the activity was recorded. */
   createdAt: string;
+}
+
+/**
+ * spec-122 (dec-4, ac-1) — a single "who's here NOW" presence row, as returned
+ * by `GET /api/<ns>/<mx>/presence?ref=<spec>`. The ephemeral present-tense twin
+ * of {@link ActivityRow}: it says who is THERE on a spec right now (decaying
+ * ~30s), not what changed. Mirrors the server's `PresentRow`
+ * (packages/server/src/services/presence.ts).
+ */
+export interface PresentRow {
+  /** Tenancy scope. */
+  memexId: string;
+  /** The spec doc this presence is on. */
+  docId: string;
+  /** The present human/agent's user id. */
+  actorUserId: string;
+  /** The present worker's display name ("Barrie" / "Claude Code (Barrie)"). */
+  actorName: string | null;
+  /** WHO is here (human vs agent). */
+  actorKind: ActorKind;
+  /** THROUGH WHAT surface they're here. */
+  channel: ActivityChannel;
+  /** Per-client discriminator (browser session / MCP session id). */
+  clientId: string;
+  /** ISO-8601 of the worker's most recent beat — drives "how long since". */
+  lastSeenAt: string;
+  /** Whether the row came from an explicit heartbeat or the passive floor. */
+  source: 'heartbeat' | 'floor';
+}
+
+/**
+ * spec-122 ac-1 — the "What's moving" zone shows STATE-CHANGING activity only:
+ * the verbs that mean work advanced (created/updated/deleted/resolved/approved/
+ * verified/…). It NEVER shows the ambient read actions (viewed/searched/assessed/
+ * called) — those are a wall of low-value noise a manager glancing at the board
+ * shouldn't have to wade through. We allowlist by EXCLUSION: anything that isn't
+ * a known read action counts as "moving", so a new server-side mutation verb is
+ * surfaced by default rather than silently dropped.
+ */
+const READ_ONLY_ACTIONS: ReadonlySet<string> = new Set([
+  'viewed',
+  'searched',
+  'assessed',
+  'called',
+]);
+
+/** True when an activity row represents a state-changing ("moving") action. */
+export function isStateChanging(row: Pick<ActivityRow, 'action'>): boolean {
+  return !READ_ONLY_ACTIONS.has(row.action);
 }
 
 /**

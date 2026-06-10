@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { restCtx } from "./_actor-ctx.js";
 import {
   createTask,
   listTasks,
@@ -73,7 +74,7 @@ tasksRouter.post("/doc/:docId", async (c) => {
     acceptanceCriteria?: AcceptanceCriterion[];
     sectionRef?: string;
   }>();
-  const result = await createTask(memexId, docId, title, description, acceptanceCriteria, sectionRef);
+  const result = await createTask(memexId, docId, title, description, acceptanceCriteria, sectionRef, restCtx(c));
   return c.json(result, 201);
 });
 
@@ -90,7 +91,7 @@ tasksRouter.post("/:id/update", async (c) => {
     acceptanceCriteria?: AcceptanceCriterion[];
     sectionRef?: string | null;
   }>();
-  const result = await updateTask(memexId, id, body);
+  const result = await updateTask(memexId, id, body, restCtx(c));
   return c.json(result);
 });
 
@@ -113,7 +114,7 @@ tasksRouter.post("/:id/status", async (c) => {
   const memexId = requireMemexId(c);
   const id = c.req.param("id");
   const { status } = await c.req.json<{ status: string }>();
-  const result = await updateTaskStatus(memexId, id, status);
+  const result = await updateTaskStatus(memexId, id, status, restCtx(c));
   return c.json(result);
 });
 

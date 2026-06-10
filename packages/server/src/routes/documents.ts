@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { listDocs, getDoc, updateDocStatus, updateDocTitle, archiveDoc, pauseDoc, unpauseDoc } from "../services/documents.js";
+import { restCtx } from "./_actor-ctx.js";
 import { moveDoc, ForbiddenError } from "../services/doc-move.js";
 import { splitSection, updateSection } from "../services/sections.js";
 import { listDecisions } from "../services/decisions.js";
@@ -232,7 +233,8 @@ docs.post("/:id/status", async (c) => {
   if (typeof status !== "string") {
     throw new ValidationError("Body must include a 'status' string");
   }
-  const updated = await updateDocStatus(memexId, id, status);
+  // spec-122 dec-3 — carry the actor/channel onto the status_changed journal row.
+  const updated = await updateDocStatus(memexId, id, status, { source: "rest", ctx: restCtx(c) });
   return c.json(updated);
 });
 
@@ -367,7 +369,7 @@ docs.post("/sections/:sectionId", async (c) => {
   if (typeof content !== "string") {
     throw new ValidationError("Body must include a 'content' string");
   }
-  const updated = await updateSection(memexId, sectionId, content);
+  const updated = await updateSection(memexId, sectionId, content, {}, restCtx(c));
   return c.json(updated);
 });
 

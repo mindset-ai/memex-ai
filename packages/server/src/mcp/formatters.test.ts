@@ -60,6 +60,9 @@ function makeSection(overrides: Partial<DocSection> = {}): DocSection {
     previousStatus: null,
     createdAt: baseDate,
     updatedAt: baseDate,
+    actorUserId: null,
+    actorName: null,
+    channel: null,
     ...overrides,
   };
 }
@@ -88,6 +91,7 @@ function makeComment(overrides: Partial<DocComment> = {}): DocComment {
     anchorSnippet: null,
     audience: "all",
     actions: null,
+    channel: null,
     createdAt: baseDate,
     ...overrides,
   };
@@ -159,6 +163,7 @@ describe("formatFullDocState", () => {
       status: "open", options: null, chosenOptionIndex: null,
       source: "human" as const,
       resolution: null, resolvedAt: null, previousStatus: null, createdAt: baseDate,
+      actorUserId: null, actorName: null, channel: null,
     }];
     const result = formatSpecGuidance(doc, decs, []);
 
@@ -195,6 +200,9 @@ describe("formatFullDocState", () => {
       blocked: false,
       blockedByDecisions: [],
       blockedByTasks: [],
+      actorUserId: null,
+      actorName: null,
+      channel: null,
     };
     const comments = {
       sections: [],
@@ -235,6 +243,9 @@ describe("formatFullDocState", () => {
       blocked: false,
       blockedByDecisions: [],
       blockedByTasks: [],
+      actorUserId: null,
+      actorName: null,
+      channel: null,
     };
     const result = formatFullDocState(doc, [], [task], undefined, {
       sections: [],
@@ -577,6 +588,9 @@ describe("formatDecision (b-97)", () => {
       resolvedAt: null,
       previousStatus: null,
       createdAt: baseDate,
+      actorUserId: null,
+      actorName: null,
+      channel: null,
       ...overrides,
     };
   }

@@ -69,6 +69,9 @@ const SECTION_ROW = {
   previousStatus: null,
   createdAt: baseDate,
   updatedAt: baseDate,
+  actorUserId: null,
+  actorName: null,
+  channel: null,
 };
 const DECISION_ROW = {
   id: TEST_DECISION_ID,
@@ -568,7 +571,7 @@ describe("MCP Tool handlers via HTTP", () => {
 
     const response = await mcpCall("update_doc", { ref: TEST_DOC_REF, status: "review" });
 
-    expect(updateDocStatus).toHaveBeenCalledWith(TEST_MEMEX_ID, TEST_DOC_ID, "review");
+    expect(updateDocStatus).toHaveBeenCalledWith(TEST_MEMEX_ID, TEST_DOC_ID, "review", expect.anything());
     expect(response.result.content[0].text).toContain("[REVIEW]");
   });
 
@@ -609,7 +612,7 @@ describe("MCP Tool handlers via HTTP", () => {
       content: "Risk content",
     });
 
-    expect(addSection).toHaveBeenCalledWith(TEST_MEMEX_ID, TEST_DOC_ID, "risks", "Risk content", undefined, undefined);
+    expect(addSection).toHaveBeenCalledWith(TEST_MEMEX_ID, TEST_DOC_ID, "risks", "Risk content", undefined, undefined, expect.anything());
   });
 
   // spec-161 (ac-11): clause-grain tools are standards-only and cross-redirect.
@@ -670,7 +673,7 @@ describe("MCP Tool handlers via HTTP", () => {
     expect(updateSection).toHaveBeenCalledWith(TEST_MEMEX_ID, TEST_SECTION_ID, "Updated", {
       sectionType: undefined,
       description: undefined,
-    });
+    }, expect.anything());
     expect(response.result.content[0].text).toContain("Updated");
   });
 
@@ -714,6 +717,7 @@ describe("MCP Tool handlers via HTTP", () => {
               anchorSnippet: null,
               audience: "all" as const,
               actions: null,
+              channel: null,
               createdAt: baseDate,
             },
           ],

@@ -2,12 +2,15 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
+import { tagAc } from '@memex-ai-ac/vitest';
 import {
   ActivityRow,
   linkifyNarrative,
   stripRedundantContext,
 } from './ActivityRow';
 import type { ActivityRow as ActivityRowData } from './types';
+
+const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-122/acs/ac-${n}`;
 
 // ActivityRow renders react-router <Link>s for Spec/Standard handles, so every
 // render goes through a MemoryRouter. tenantPath() reads window.location (no
@@ -27,6 +30,7 @@ function row(overrides: Partial<ActivityRowData> = {}): ActivityRowData {
     memexId: 'mx-1',
     briefId: 'sb-12',
     actorUserId: 'u-1',
+    actorName: 'Barrie',
     actorKind: 'human',
     channel: 'rest_ui',
     clientId: null,
@@ -106,37 +110,60 @@ describe('ActivityRow — dec-10 information hierarchy', () => {
     expect(rendered).toHaveAttribute('data-action', 'created');
   });
 
-  describe('actor rendering (§2)', () => {
-    it('renders a human actor as the bare "You" stand-in (no parens)', () => {
-      renderRow({ row: row({ actorKind: 'human' }) });
+  describe('actor rendering — person + surface (spec-122 ac-4)', () => {
+    it('renders a human actor as their resolved name, never "You"', () => {
+      tagAc(AC(4));
+      renderRow({ row: row({ actorKind: 'human', actorName: 'Barrie' }) });
       const rendered = screen.getByTestId('activity-row');
-      expect(within(rendered).getByText('You')).toBeInTheDocument();
-      expect(rendered.textContent).not.toContain('(You)');
+      expect(within(rendered).getByText('Barrie')).toBeInTheDocument();
+      expect(rendered.textContent).not.toContain('You');
     });
 
-    it('renders an mcp_agent as "<client> (You)" — client leads, user in parens', () => {
+    it('renders an agent verbatim from its server-resolved "<name>\'s <client>" actorName', () => {
+      tagAc(AC(4));
       renderRow({
-        row: row({ actorKind: 'mcp_agent', clientId: 'Claude Code' }),
+        row: row({
+          actorKind: 'mcp_agent',
+          clientId: 'sess-abc123',
+          channel: 'mcp',
+          actorName: 'Claude Code (Barrie)',
+        }),
       });
       const rendered = screen.getByTestId('activity-row');
-      expect(within(rendered).getByText('Claude Code')).toBeInTheDocument();
-      expect(within(rendered).getByText('(You)')).toBeInTheDocument();
+      expect(within(rendered).getByText('Claude Code (Barrie)')).toBeInTheDocument();
+      expect(rendered.textContent).not.toContain('You');
     });
 
-    it('renders an in_app_agent the same agent way ("<client> (You)")', () => {
+    it('falls back to the channel client label (not "You") for an agent with no actorName', () => {
+      tagAc(AC(4));
       renderRow({
-        row: row({ actorKind: 'in_app_agent', clientId: 'Web Agent' }),
+        row: row({
+          actorKind: 'mcp_agent',
+          clientId: 'sess-abc123',
+          channel: 'mcp',
+          actorName: null,
+        }),
       });
       const rendered = screen.getByTestId('activity-row');
-      expect(within(rendered).getByText('Web Agent')).toBeInTheDocument();
-      expect(within(rendered).getByText('(You)')).toBeInTheDocument();
+      // clientLabel('mcp', 'sess-abc123') → "MCP · sess-a"
+      expect(within(rendered).getByText(/MCP ·/)).toBeInTheDocument();
+      expect(rendered.textContent).not.toContain('You');
     });
 
-    it('falls back to "Agent" when an agent row carries no clientId', () => {
+    it('renders a raw CI actor string VERBATIM and never collapses it to "You"', () => {
+      tagAc(AC(4));
+      // A free-form CI actor: no actorUserId, name arrives as the raw string.
       renderRow({
-        row: row({ actorKind: 'mcp_agent', clientId: null }),
+        row: row({
+          actorKind: 'human',
+          actorUserId: null,
+          clientId: null,
+          actorName: 'CI · abc123',
+        }),
       });
-      expect(screen.getByText('Agent')).toBeInTheDocument();
+      const rendered = screen.getByTestId('activity-row');
+      expect(within(rendered).getByText('CI · abc123')).toBeInTheDocument();
+      expect(rendered.textContent).not.toContain('You');
     });
 
     it('renders system activity as a plain "System" — no parens, no client', () => {
@@ -144,6 +171,43 @@ describe('ActivityRow — dec-10 information hierarchy', () => {
       const rendered = screen.getByTestId('activity-row');
       expect(within(rendered).getByText('System')).toBeInTheDocument();
       expect(rendered.textContent).not.toContain('(');
+    });
+  });
+
+  describe('presence-aware regression flag (spec-122 ac-2)', () => {
+    it('mutes the REGRESSED flag while the spec has an active worker (expected churn)', () => {
+      tagAc(AC(2));
+      renderRow({ row: row(), regressed: true, regressionMuted: true });
+      const flag = screen.getByTestId('regressed-flag');
+      expect(flag).toHaveAttribute('data-muted', 'true');
+      expect(flag.className).toContain('text-muted/70');
+    });
+
+    it('renders the EARNED alarm flag on a quiet (unworked) regression', () => {
+      tagAc(AC(2));
+      renderRow({ row: row(), regressed: true, regressionMuted: false });
+      const flag = screen.getByTestId('regressed-flag');
+      expect(flag).toHaveAttribute('data-muted', 'false');
+      expect(flag.className).toContain('text-status-danger-text');
+    });
+
+    it('renders the two states DIFFERENTLY (class + aria)', () => {
+      tagAc(AC(2));
+      const { unmount } = renderRow({ row: row(), regressed: true, regressionMuted: true });
+      const mutedFlag = screen.getByTestId('regressed-flag');
+      const mutedClass = mutedFlag.className;
+      const mutedAria = mutedFlag.getAttribute('aria-label');
+      unmount();
+
+      renderRow({ row: row(), regressed: true, regressionMuted: false });
+      const alarmFlag = screen.getByTestId('regressed-flag');
+      expect(alarmFlag.className).not.toBe(mutedClass);
+      expect(alarmFlag.getAttribute('aria-label')).not.toBe(mutedAria);
+    });
+
+    it('renders no flag when the row is not a regression', () => {
+      renderRow({ row: row(), regressed: false });
+      expect(screen.queryByTestId('regressed-flag')).toBeNull();
     });
   });
 
