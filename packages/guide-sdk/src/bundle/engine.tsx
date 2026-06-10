@@ -23,6 +23,7 @@ import {
 import { VoiceSessionPill } from '../session/VoiceSessionPill';
 import { VoiceIcon } from '../session/VoiceIcon';
 import { Specky } from '../components/Specky';
+import { ENGINE_CSS } from './engineStyles';
 import type { GuideBundleConfig, MountedEngine } from './types';
 
 /**
@@ -100,6 +101,17 @@ export async function mountEngine({
       };
     },
   });
+
+  // The session UI is authored with the app's Tailwind classes + design-token CSS
+  // vars; inside this shadow root there's no Tailwind and host CSS can't reach in
+  // (ac-7), so without this the pill/icon/recovery card would render as unstyled
+  // browser-default boxes. Ship the matching styles WITH this (already lazy) engine
+  // chunk by injecting them into the same shadow root — declaring the dark-theme
+  // tokens on :host and implementing the exact utility classes the components use.
+  const engineStyle = document.createElement('style');
+  engineStyle.setAttribute('data-memex-guide', 'engine-style');
+  engineStyle.textContent = ENGINE_CSS;
+  shadow.appendChild(engineStyle);
 
   // A dedicated mount container inside the shadow root keeps the React tree's DOM
   // isolated from the loader's doorway node (ac-7).

@@ -35,3 +35,4 @@ _private/
 *.tsbuildinfo
 packages/ui/public/assets/vad/
 release/
+local-embed-test/
