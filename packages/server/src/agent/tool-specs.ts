@@ -249,7 +249,7 @@ export type FooterSignal =
       linkedAcs: SketchAc[];
       issueHits: Awaited<ReturnType<typeof relatedIssuesForDecision>>;
     }
-  | { kind: "task_completed" }
+  | { kind: "task_completed"; allComplete: boolean; remaining: number }
   | { kind: "doc_transition"; beforeStatus: string; target: string; docType: string }
   | { kind: "doc_created"; docRef: string; docType: string }
   | { kind: "decision_created"; issueHits: Awaited<ReturnType<typeof relatedIssuesForDecision>> }
@@ -491,7 +491,7 @@ const COMMENT_TYPE_DESC =
 const TASK_STATUS = ["not_started", "in_progress", "complete"] as const;
 
 export const COMPLETION_NUDGE =
-  "Before moving on, leave a `progress` comment using the standard handoff schema (What landed / Contract / Surprises / For downstream).";
+  "Leave a `progress` comment for whoever picks this up next: what landed, the contract it honours, any surprises, and what is left for downstream.";
 
 // ══════════════════════════════════════
 // Helpers
@@ -739,8 +739,16 @@ async function renderFooterSignal(
         .join("\n\n");
       return out.length > 0 ? out : undefined;
     }
-    case "task_completed":
-      return COMPLETION_NUDGE;
+    case "task_completed": {
+      if (signal.allComplete) {
+        return (
+          `${COMPLETION_NUDGE}\n\n` +
+          `That was the last task. Once the tests are green, move the spec to verify with update_doc({status:'verify'}).`
+        );
+      }
+      const r = signal.remaining;
+      return `${COMPLETION_NUDGE}\n\n${r} task${r === 1 ? "" : "s"} still open in build; keep going.`;
+    }
     case "doc_transition": {
       // spec-219 comb-through: the transition footer's job is to ORIENT the agent
       // to the phase it just entered, not to nag (too late) about the one it left.
@@ -3336,7 +3344,19 @@ export const toolSpecs: ToolSpec[] = [
               .map((u) => `t-${u.seq}`)
               .join(", ")}.`;
           }
-          if (ctx.footerSlot) ctx.footerSlot.signal = { kind: "task_completed" };
+          if (ctx.footerSlot) {
+            // spec-219 comb-through: park the build-completion picture so the
+            // footer can push toward verify the moment the last task is done
+            // (the build->verify analogue of create_ac's build-push).
+            const open = (await listTasks(memexId, doc.id)).filter(
+              (t) => t.status !== "complete",
+            ).length;
+            ctx.footerSlot.signal = {
+              kind: "task_completed",
+              allComplete: open === 0,
+              remaining: open,
+            };
+          }
         }
         const taskRef = buildChildRef(slugs, doc, { type: "tasks", seq: updated.seq });
         messages.push(

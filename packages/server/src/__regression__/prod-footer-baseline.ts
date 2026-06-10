@@ -86,7 +86,10 @@ export const PROD_FOOTER_BASELINE: ProdGuidanceBaseline[] = [
     tool: "update_task",
     prodPosition: "result-before-delimiter",
     stableSubstrings: [
-      "leave a `progress` comment using the standard handoff schema",
+      // spec-219 comb-through: COMPLETION_NUDGE de-jargoned BEYOND the prod copy
+      // (enhancement), so this pins the ENHANCED wording, not the prod verbatim
+      // in `captured` below.
+      "comment for whoever picks this up next",
     ],
     captured:
       "Before moving on, leave a `progress` comment using the standard handoff " +
