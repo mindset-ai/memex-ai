@@ -109,6 +109,10 @@ const RESERVED_API_ROOTS = new Set([
   "llm",
   "drift",
   "__test__",
+  // spec-222 t-10: the public voice-guide backend mounts at /guide/v1 (versioned,
+  // tenant-less). Without this, parseMemexPath would read "/guide/v1/…" as
+  // namespace=guide / memex=v1 and 404 before the public router ever runs.
+  "guide",
 ]);
 
 // Parses `/<namespace>/<memex>/...` or `/api/<namespace>/<memex>/...` from a
