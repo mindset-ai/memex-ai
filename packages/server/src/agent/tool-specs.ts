@@ -257,7 +257,8 @@ export type FooterSignal =
   | { kind: "task_completed" }
   | { kind: "doc_transition"; beforeStatus: string; target: string; docType: string }
   | { kind: "doc_created"; docRef: string; docType: string }
-  | { kind: "decision_created"; issueHits: Awaited<ReturnType<typeof relatedIssuesForDecision>> };
+  | { kind: "decision_created"; issueHits: Awaited<ReturnType<typeof relatedIssuesForDecision>> }
+  | { kind: "ac_created"; acKind: AcKind; sameKindCount: number };
 
 /** The single channel from a handler to `composeGuidanceEnvelope`: a structured
  *  `signal` carrying the DATA of what just happened. composeGuidanceEnvelope
@@ -776,6 +777,29 @@ async function renderFooterSignal(
     case "decision_created": {
       const nudge = relatedIssuesNudge(signal.issueHits).trim();
       return nudge.length > 0 ? nudge : undefined;
+    }
+    case "ac_created": {
+      if (signal.acKind === "implementation") {
+        return (
+          `That implementation acceptance criterion is the testable claim the code must satisfy; ` +
+          `it earns a tagged, passing test in build. Make sure each resolved decision has the ` +
+          `implementation ACs that pin its claims before this spec moves toward build.`
+        );
+      }
+      const n = signal.sameKindCount;
+      const noun = n === 1 ? "scope acceptance criterion" : "scope acceptance criteria";
+      if (n < 6) {
+        return (
+          `That makes ${n} ${noun} so far. Write one for each distinct part of what "done" means ` +
+          `for this spec, to fit the spec rather than to reach a number; there is usually more to ` +
+          `"done" than a first pass catches. Keep going while it has more to capture.`
+        );
+      }
+      return (
+        `That makes ${n} ${noun}, a full set that likely captures what "done" means. If it does, ` +
+        `check with the user that the success criteria are complete, then move on to the decisions ` +
+        `the work hinges on (create_decision). If "done" still has more to it, keep going.`
+      );
     }
   }
 }
@@ -2603,6 +2627,18 @@ export const toolSpecs: ToolSpec[] = [
         status,
         parent,
       });
+
+      // spec-219 comb-through: count-aware AC call-to-action. The handler parks
+      // DATA only (kind + live same-kind active count); renderFooterSignal owns
+      // every word. Net-new guidance — prod had no create_ac footer.
+      if (ctx.footerSlot) {
+        const sameKind = await listAcsForBrief(memexId, doc.id, { kind, status: "active" });
+        ctx.footerSlot.signal = {
+          kind: "ac_created",
+          acKind: kind,
+          sameKindCount: sameKind.length,
+        };
+      }
 
       const acRef = buildChildRef(slugs, doc, { type: "acs", seq: ac.seq });
       if (ctx.verbose) {
