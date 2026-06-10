@@ -56,6 +56,20 @@ rmSync(outDir, { recursive: true, force: true });
 mkdirSync(outDir, { recursive: true });
 cpSync(bundleDir, outDir, { recursive: true });
 
+// The engine's Silero VAD loads its ONNX model + onnxruntime WASM from
+// /assets/vad/ (micVad.ts default). The website must serve those alongside the
+// bundle, so vendor them too. They stage under packages/ui/public/assets/vad via
+// the ui `vad:assets` script (the canonical copy of the @ricky0123/vad-web +
+// onnxruntime-web binaries); ensure they're present, then copy into the release.
+const vadSrc = resolve(repoRoot, 'packages/ui/public/assets/vad');
+if (!existsSync(vadSrc) || readdirSync(vadSrc).length === 0) {
+  console.log('release:sdk · staging VAD assets (ui vad:assets)…');
+  execSync('pnpm --filter @memex/ui vad:assets', { cwd: repoRoot, stdio: 'inherit' });
+}
+const vadOut = resolve(outDir, 'assets/vad');
+mkdirSync(vadOut, { recursive: true });
+cpSync(vadSrc, vadOut, { recursive: true });
+
 const pkg = JSON.parse(
   readFileSync(resolve(repoRoot, 'packages/guide-sdk/package.json'), 'utf8'),
 );
@@ -82,6 +96,9 @@ const provenance = {
   // The serving contract (dec-9): marketing bucket, same-origin, NOT the SPA bucket.
   servedFrom: 'gs://memex-ai-prod-marketing → https://www.memex.ai/js/ (marketing bucket; NOT memex-app-spa-backend)',
   embed: '<script type="module" src="/js/memex-guide.js"></script>',
+  // The engine's Silero VAD loads these same-origin from /assets/vad/ (micVad
+  // default); vendor assets/vad/ alongside the bundle into the website's /assets/.
+  vadAssets: 'assets/vad/ → served same-origin at /assets/vad/',
 };
 writeFileSync(resolve(outDir, 'provenance.json'), `${JSON.stringify(provenance, null, 2)}\n`);
 
