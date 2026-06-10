@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { GoogleOAuthProvider, GoogleLogin, type CredentialResponse } from '@react-oauth/google';
 import { Input } from './ui/Input';
 import { Button } from './ui/Button';
+import { Logo } from './Logo';
 import { probeAuthApi, AuthApiError } from '../api/client';
 // t-23 of doc-15: Google SSO is on a single origin under the path-based
 // router. The previous cross-subdomain bounce (sign in on memex.ai then return
@@ -44,7 +45,7 @@ export function LoginScreen(props: LoginScreenProps) {
       <div className="max-w-sm w-full">
         <div className="text-center mb-8">
           <h1 className="text-2xl font-semibold tracking-tight text-heading">
-            memex<span className="text-[#7b93b8]">.ai</span>
+            <Logo className="h-7" />
           </h1>
         </div>
         <LoginCard {...props} />

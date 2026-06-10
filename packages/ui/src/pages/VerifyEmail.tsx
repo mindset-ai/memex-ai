@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth, computeDefaultLanding } from '../components/AuthContext';
+import { Logo } from '../components/Logo';
 import { verifyEmailApi, AuthApiError } from '../api/client';
 import { Spinner } from '../components/Spinner';
 import { Confetti } from '../components/Confetti';
@@ -103,13 +104,13 @@ function VerifySuccess({ email, landing }: { email?: string; landing: string | n
           <p className="text-sm text-secondary">
             {email ? (
               <>
-                <span className="text-primary">{email}</span> is verified. Welcome to
-                memex<span className="text-[#7b93b8]">.ai</span>.
+                <span className="text-primary">{email}</span> is verified. Welcome to{' '}
+                <Logo className="h-3.5 align-[-0.2em]" />.
               </>
             ) : (
               <>
-                Your email is verified. Welcome to memex
-                <span className="text-[#7b93b8]">.ai</span>.
+                Your email is verified. Welcome to{' '}
+                <Logo className="h-3.5 align-[-0.2em]" />.
               </>
             )}
           </p>

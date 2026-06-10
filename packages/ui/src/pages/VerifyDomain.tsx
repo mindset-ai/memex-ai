@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { Button } from '../components/ui/Button';
+import { Logo } from '../components/Logo';
 import { consumeDomainVerificationApi, OrgApiError } from '../api/client';
 
 type Status = 'idle' | 'verifying' | 'success' | 'error';
@@ -41,8 +42,8 @@ export function VerifyDomain() {
   return (
     <div className="min-h-screen bg-page flex items-center justify-center p-6">
       <div className="max-w-md w-full text-center space-y-4">
-        <h1 className="text-2xl font-semibold text-heading mb-4">
-          memex<span className="text-[#7b93b8]">.ai</span>
+        <h1 className="text-2xl font-semibold text-heading mb-4 flex justify-center">
+          <Logo className="h-7" />
         </h1>
         {!token && (
           <p className="text-sm text-secondary">This URL is missing the verification token.</p>
