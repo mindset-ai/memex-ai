@@ -151,28 +151,33 @@ describe("ac-9 — the parked nugget lands after the delimiter and persists", ()
   });
 });
 
-describe("ac-8 — a handler hands the seat its dynamic footer content via the slot", () => {
-  it("verbose update_doc tagging routes the tag summary through the slot into the footer", async () => {
+describe("ac-8 — a handler hands the seat a structured signal via the slot", () => {
+  it("verbose update_doc routes transition GUIDANCE to the footer and the tag FACT to the body", async () => {
     tagAc(AC(8));
     const doc = await createDocDraft(actor.memexId, "Slot Tag Spec", "Purpose.", "spec");
     created.docs.push(doc.id);
-    await db.update(documents).set({ status: "build" }).where(eq(documents.id, doc.id));
+    await db.update(documents).set({ status: "specify" }).where(eq(documents.id, doc.id));
     const ref = `${actor.nsSlug}/main/specs/${doc.handle}`;
 
     const res = await callTool(actor.user.id, "update_doc", {
       ref,
+      status: "build",
       tags: ["priority::high"],
       verbose: true,
     });
     const text = res.content.map((c) => c.text).join("\n");
+    const { body, footer } = splitToolResult(text);
 
-    // The handler did its OWN tag write/read and parked the resulting summary in
-    // the slot; the seat folded it into the footer (after the delimiter).
-    const { footer } = splitToolResult(text);
-    expect(footer).toContain("tagged priority::high");
-    // And the handler's write actually landed (its read/mutation stayed in the
-    // handler — the seat only composed the string).
+    // spec-219 Phase 2 (sole-author): the handler signalled the transition (the
+    // DATA — its own status write stayed in the handler); composeGuidanceEnvelope
+    // authored the transition GUIDANCE, which rides the footer past the delimiter.
+    expect(footer).toMatch(/assess_spec/);
+    // The tag summary is RESULT-REPORTING (a fact), so it rides the body, never
+    // the footer.
+    expect(body).toContain("tagged priority::high");
+    expect(footer).not.toContain("tagged priority::high");
+    // And the handler's write actually landed.
     const fresh = await db.query.documents.findFirst({ where: eq(documents.id, doc.id) });
-    expect(fresh).toBeTruthy();
+    expect(fresh?.status).toBe("build");
   });
 });

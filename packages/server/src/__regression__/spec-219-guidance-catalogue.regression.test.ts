@@ -22,11 +22,11 @@ const specTraffic = read(join("services", "spec-traffic.ts"));
 describe("ac-3 — terse embedded nudges KEPT", () => {
   it("create_doc still pushes scope ACs", () => {
     tagAc(AC(3));
-    expect(toolSpecs).toMatch(/author Scope ACs/);
+    expect(toolSpecs).toMatch(/scope-type acceptance criteria/);
   });
   it("resolve_decision still pushes implementation ACs", () => {
     tagAc(AC(3));
-    expect(toolSpecs).toMatch(/author the implementation AC/);
+    expect(toolSpecs).toMatch(/create the implementation acceptance criteria/);
   });
   it("create_ac still reminds about ac-emission tagging", () => {
     tagAc(AC(3));
@@ -44,9 +44,12 @@ describe("ac-3 — verbose blocks CHANGED (centralized), not dropped", () => {
     tagAc(AC(3));
     expect(toolSpecs).toMatch(/ctx\.toolName === "get_doc"[\s\S]*?formatCoverageHeader\(/);
   });
-  it("the handler footer nudges route through the footer slot", () => {
+  it("the handler footer nudges route through the footer slot as structured signals", () => {
     tagAc(AC(3));
-    expect(toolSpecs).toMatch(/ctx\.footerSlot\.content =/);
+    // spec-219 Phase 2 (sole-author): handlers no longer author footer prose;
+    // they park a structured signal and composeGuidanceEnvelope owns the words.
+    expect(toolSpecs).toMatch(/ctx\.footerSlot\.signal =/);
+    expect(toolSpecs).not.toMatch(/ctx\.footerSlot\.content =/);
     expect(specTraffic).toMatch(/footerSlot/);
   });
   it("the InjectedBlock zone plumbing is KEPT (inert) — still present in the composer", () => {

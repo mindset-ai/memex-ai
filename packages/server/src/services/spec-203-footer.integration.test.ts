@@ -107,7 +107,7 @@ describe("ac-14 — the footer rides terse Spec-resolving responses", () => {
     // Lean terse footer = the phase essence, authored by the seat.
     const footer = splitToolResult(text).footer;
     expect(footer).toBeTruthy();
-    expect(footer).toMatch(/BUILD handoff/);
+    expect(footer).toMatch(/You are now in build/);
   });
 
   it("the seat crafts the lean AC-nag when the build Spec has untested ACs", async () => {
@@ -143,6 +143,6 @@ describe("ac-17 — footer emitted ⇒ footer persisted", () => {
 
     const persisted = await pollFooter(sessionId);
     expect(persisted).toBeTruthy();
-    expect(persisted).toMatch(/BUILD handoff/);
+    expect(persisted).toMatch(/You are now in build/);
   });
 });

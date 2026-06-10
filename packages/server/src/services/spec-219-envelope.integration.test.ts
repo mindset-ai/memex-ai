@@ -109,7 +109,7 @@ describe("ac-6 — the seat composes an ENVELOPE { header?, footer? }, delimiter
     // single delimiter.
     expect(env.footer).toBeTruthy();
     expect(env.footer).not.toContain(FOOTER_DELIMITER);
-    expect(env.footer).toMatch(/BUILD handoff/);
+    expect(env.footer).toMatch(/You are now in build/);
   });
 
   it("returns an empty envelope for a non-Spec target (nothing to compose)", async () => {
@@ -141,7 +141,7 @@ describe("ac-7 — the choke point assembles body + FOOTER_DELIMITER + footer", 
     const { body, footer } = splitToolResult(text);
     expect(body.length).toBeGreaterThan(0);
     expect(body).not.toContain(FOOTER_DELIMITER); // body is delimiter-less
-    expect(footer).toMatch(/BUILD handoff/); // footer sits after the delimiter
+    expect(footer).toMatch(/You are now in build/); // footer sits after the delimiter
   });
 });
 
@@ -156,8 +156,8 @@ describe("ac-1 — all platform guidance is composed in ONE place, addressed by 
     expect(build.split(FOOTER_DELIMITER).length - 1).toBe(1);
     // Addressed by TOOL: get_doc carries the coverage header …
     expect(build).toContain("**AC coverage:**");
-    // … addressed by LIVE STATE (phase): build surfaces the BUILD handoff.
-    expect(splitToolResult(build).footer).toMatch(/BUILD handoff/);
+    // … addressed by LIVE STATE (phase): build surfaces the You are now in build.
+    expect(splitToolResult(build).footer).toMatch(/You are now in build/);
 
     // Addressed by TOOL: list_acs on the same Spec/phase gets no header.
     const list = textOf(await callTool(actor.user.id, "list_acs", { ref, verbose: true }));
@@ -167,7 +167,7 @@ describe("ac-1 — all platform guidance is composed in ONE place, addressed by 
     await db.update(documents).set({ status: "verify" }).where(eq(documents.id, id));
     const verifyFooter =
       splitToolResult(textOf(await callTool(actor.user.id, "get_doc", { ref, verbose: true }))).footer ?? "";
-    expect(verifyFooter).not.toMatch(/BUILD handoff/);
+    expect(verifyFooter).not.toMatch(/You are now in build/);
   });
 });
 

@@ -65,40 +65,40 @@ describe("formatFullDocState — phase handoff essence in the footer (spec-203)"
   it("emits the BUILD handoff essence on a build-phase Spec", () => {
     tagAc(AC(7));
     const out = formatSpecGuidance(makeSpec("build"), [], []);
-    expect(out).toContain('BUILD handoff (full prompt: the "Build handoff" button)');
-    expect(out).toContain("deriving the task graph");
-    expect(out).toContain("recommend `verify`");
+    expect(out).toContain("You are now in build.");
+    expect(out).toContain("break the work into tasks");
+    expect(out).toContain("update_doc({status:'verify'})");
   });
 
   it("emits the SPECIFY handoff essence on a specify-phase Spec", () => {
     tagAc(AC(7));
     tagAc(AC(4)); // scope: phase-general (specify gets its handoff)
     const out = formatSpecGuidance(makeSpec("specify"), [], []);
-    expect(out).toContain('SPECIFY handoff (full prompt: the "Plan handoff" button)');
+    expect(out).toContain("You are now in specify.");
   });
 
   it("emits the VERIFY handoff essence on a verify-phase Spec", () => {
     const out = formatSpecGuidance(makeSpec("verify"), [], []);
-    expect(out).toContain('VERIFY handoff (full prompt: the "Verify handoff" button)');
+    expect(out).toContain("You are now in verify.");
   });
 
   it("emits NO handoff essence on a draft-phase Spec", () => {
     tagAc(AC(7));
     const out = formatSpecGuidance(makeSpec("draft"), [], []);
-    expect(out).not.toContain("handoff (full prompt:");
+    expect(out).not.toContain("You are now in");
   });
 
   it("emits NO handoff essence on a done-phase Spec", () => {
     tagAc(AC(7));
     tagAc(AC(4)); // scope: phase-general (done surfaces none)
     const out = formatSpecGuidance(makeSpec("done"), [], []);
-    expect(out).not.toContain("handoff (full prompt:");
+    expect(out).not.toContain("You are now in");
   });
 
   it("places the essence after the footer delimiter (in the footer, not the body)", () => {
     const out = formatSpecGuidance(makeSpec("build"), [], []);
     const delimIdx = out.indexOf(FOOTER_DELIMITER);
-    const essenceIdx = out.indexOf("BUILD handoff (full prompt:");
+    const essenceIdx = out.indexOf("You are now in build.");
     expect(delimIdx).toBeGreaterThanOrEqual(0);
     expect(essenceIdx).toBeGreaterThan(delimIdx);
   });

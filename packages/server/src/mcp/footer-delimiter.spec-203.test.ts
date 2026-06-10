@@ -84,7 +84,7 @@ describe("formatSpecGuidance — footer delimiter boundary (spec-203 dec-3)", ()
     // services/spec-footer-on-terse.integration.test.ts.)
     expect(out.startsWith(FOOTER_DELIMITER)).toBe(true);
     const { footer } = splitToolResult(out);
-    expect(footer).toContain("BUILD handoff (full prompt:");
+    expect(footer).toContain("You are now in build.");
   });
 
   it("emits NO delimiter for a non-Spec doc (no footer to separate)", () => {
