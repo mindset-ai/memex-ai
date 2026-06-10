@@ -184,20 +184,15 @@ import {
 import { resolveEmbeddingProvider } from "../services/embedding-provider.js";
 import {
   assessPhaseTransition,
-  computeReadinessForSpec,
   formatPhaseAssessment,
   isPhaseTarget,
-  wasRecentlyAssessed,
-  type PhaseTarget,
 } from "../services/phase-assessment.js";
 import {
-  blockerLines,
   toolManifest,
   BASE_SCAFFOLD,
   HANDOFF_BUTTON_BY_PHASE,
   toButtonPrompt,
   toHandoffEssence,
-  type SpecPhase,
   type Phase,
   type GuidanceBlock,
 } from "@memex/shared";
@@ -747,16 +742,20 @@ async function renderFooterSignal(
     case "task_completed":
       return COMPLETION_NUDGE;
     case "doc_transition": {
-      const nudge = (
-        await nudgeForTransition(
-          memexId,
-          docId,
-          signal.beforeStatus,
-          signal.target,
-          signal.docType,
-        )
-      ).trim();
-      return nudge.length > 0 ? nudge : undefined;
+      // spec-219 comb-through: the transition footer's job is to ORIENT the agent
+      // to the phase it just entered, not to nag (too late) about the one it left.
+      // Deliver the target phase's essence; `done` is terminal and carries none.
+      void docId;
+      const target = signal.target as Phase;
+      const essence = toHandoffEssence(BASE_SCAFFOLD, target);
+      if (essence) return essence;
+      if (target === "done") {
+        return (
+          `This spec is now done: closed and read-only for normal work. ` +
+          `Reopen it (update_doc) only if something genuinely needs to change.`
+        );
+      }
+      return undefined;
     }
     case "doc_created": {
       if (signal.docType === "spec") {
@@ -1021,108 +1020,6 @@ function handoffInterpolationContext(
     // only fires for specs, so the path segment is fixed.
     url: `${workspaceUrl}/specs/${doc.handle}`,
   };
-}
-
-// Per doc-12 t-6 / t-7 — soft guidance nudge appended to forward Spec
-// transitions when the agent hasn't recently called assess_spec. Identical
-// behaviour on both surfaces; the difference is purely the wrapping response.
-async function nudgeForTransition(
-  memexId: string,
-  missionId: string,
-  beforeStatus: string,
-  targetStatus: string,
-  docType: string,
-): Promise<string> {
-  if (docType !== "spec") return "";
-  if (beforeStatus === targetStatus) return "";
-  const transition = `${beforeStatus}→${targetStatus}`;
-  const isForwardWithRubric =
-    transition === "specify→build" ||
-    transition === "build→verify" ||
-    transition === "verify→done";
-  if (!isForwardWithRubric) return "";
-  if (!isPhaseTarget(targetStatus)) return "";
-  if (wasRecentlyAssessed(missionId, targetStatus as PhaseTarget)) return "";
-
-  const header =
-    transition === "verify→done"
-      ? "\n\n⚠ You just closed a Spec without running the verify→done readiness review. Strongly recommend confirming with the user that this was intentional."
-      : "\n\nℹ Tip: run assess_spec({mode:'phase'}) before transitioning forward — it surfaces open decisions, incomplete work, and drift you might miss.";
-
-  let blockerSection = "";
-  try {
-    const readiness = await computeReadinessForSpec(
-      memexId,
-      missionId,
-      targetStatus as SpecPhase,
-    );
-    const lines = blockerLines(readiness);
-    if (lines.length > 0) {
-      blockerSection = `\n\nOutstanding work:\n${lines.map((l) => `- ${l}`).join("\n")}`;
-    }
-  } catch {
-    // Best-effort.
-  }
-
-  // Coverage-gap nudge on specify→build and build→verify. Build is where tagged
-  // tests get written; verify is where you should not arrive with untested
-  // ACs. Channel 2 of the test-coverage-discipline trio (the others live on
-  // list_acs and in the test-coverage guidance topic).
-  const coverageSection = await formatCoverageNudge(memexId, missionId, transition);
-  return `${header}${blockerSection}${coverageSection}`;
-}
-
-/**
- * Build a coverage-status nudge for the phase transition. Returns "" when
- * the Spec has no ACs (no signal to report) or the transition isn't one
- * where coverage discipline applies.
- *
- * The shape:
- *   "AC coverage: X% (covered/total active ACs have ≥1 tagged test; N untested).
- *    [transition-specific advice]"
- *
- * Phase-specific framing:
- *   - specify→build: coverage is usually 0% here; the message frames build as
- *     the phase where tagged tests get written.
- *   - build→verify: untested ACs are the audit-trail gap; the message names
- *     them as silent gaps and points at the test-coverage topic.
- */
-async function formatCoverageNudge(
-  memexId: string,
-  briefId: string,
-  transition: string,
-): Promise<string> {
-  if (transition !== "specify→build" && transition !== "build→verify") return "";
-  try {
-    const rows = await listAcsForBriefWithVerification(memexId, briefId);
-    const active = rows.filter((r) => r.ac.status === "active");
-    if (active.length === 0) return "";
-    const covered = active.filter((r) => r.tests.length > 0).length;
-    const total = active.length;
-    const untested = total - covered;
-    const pct = total === 0 ? 0 : Math.round((covered / total) * 100);
-
-    let head = `\n\nAC coverage: ${pct}% (${covered}/${total} active ACs have ≥1 tagged test`;
-    if (untested > 0) head += `; ${untested} untested`;
-    head += "). ";
-
-    let advice = "";
-    if (transition === "specify→build") {
-      advice =
-        "Build is where tagged tests get written — every active AC should have at least one tagged test before verify, not just the ones you happen to implement this turn. See get_information(topic='test-coverage').";
-    } else if (transition === "build→verify") {
-      if (untested > 0) {
-        advice =
-          `${untested} active AC${untested === 1 ? " is" : "s are"} still untested — silent gaps in the verification story. ` +
-          "Consider writing RED tagged tests for them before declaring verify-ready, even if the production code is intended to land in a later task. See get_information(topic='test-coverage').";
-      } else {
-        advice = "All active ACs have at least one tagged test. ";
-      }
-    }
-    return `${head}${advice}`;
-  } catch {
-    return "";
-  }
 }
 
 /**
