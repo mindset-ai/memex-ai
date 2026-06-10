@@ -1311,6 +1311,13 @@ export const orgScaffoldAdditions = pgTable(
     orgId: uuid("org_id")
       .notNull()
       .references(() => orgs.id, { onDelete: "cascade" }),
+    // spec-193 t-5 (dec-6 grain): optional per-memex scope. NULL = account-wide
+    // — applies to every memex in the Org's namespace (existing behaviour, the
+    // default for security / house-style blocks). Set = applies ONLY to that
+    // memex (the override). Resolution merges account-wide + per-memex at query
+    // time. ON DELETE CASCADE so deleting a memex drops its scoped overrides;
+    // account-wide rows (NULL) are untouched.
+    memexId: uuid("memex_id").references(() => memexes.id, { onDelete: "cascade" }),
     // Phase the block attaches to. NULL = matches every phase.
     targetPhase: text("target_phase"),
     // Tool name the block attaches to. NULL = matches every tool.
@@ -1354,6 +1361,10 @@ export const orgScaffoldAdditions = pgTable(
       sql`${table.emphasis} IS NULL OR ${table.emphasis} IN ('do', 'dont')`
     ),
     index("org_scaffold_additions_org_id_idx").on(table.orgId),
+    // spec-193 t-5: the per-memex merge reads `WHERE org_id = ? AND (memex_id
+    // IS NULL OR memex_id = ?)`; index (org_id, memex_id) so account-wide +
+    // per-memex resolution stays an index scan.
+    index("org_scaffold_additions_org_id_memex_id_idx").on(table.orgId, table.memexId),
     index("org_scaffold_additions_org_id_target_idx").on(
       table.orgId,
       table.targetPhase,
@@ -1369,9 +1380,14 @@ export const shareTokens = pgTable("share_tokens", {
   documentId: uuid("document_id")
     .notNull()
     .references(() => documents.id, { onDelete: "cascade" }),
+  memexId: uuid("memex_id")
+    .notNull()
+    .references(() => memexes.id, { onDelete: "cascade" }),
   token: text("token").notNull().unique(),
   revoked: boolean("revoked").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  createdByUserId: uuid("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
 });
 
 // Long-lived MCP API tokens issued per (user × device). Token value `mxt_<random>` is

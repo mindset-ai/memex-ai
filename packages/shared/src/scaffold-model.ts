@@ -151,6 +151,14 @@ export interface GuidanceBlock extends BaseNodeShape {
   order: number;
   // Org rows only — undefined on `source: 'base'` records.
   orgId?: string;
+  /** spec-193 t-5 (dec-6 grain): the workspace this Org row is scoped to.
+   *  `undefined` / NULL = account-wide — applies to every memex in the Org's
+   *  namespace (the existing default, kept for security / house-style blocks).
+   *  Set = applies ONLY to that memex (the override). Resolution merges
+   *  account-wide + per-memex at query time. Rationale: you can aggregate
+   *  account-wide items up, you cannot disaggregate a shared list back down per
+   *  memex. Org rows only — undefined on `source: 'base'` records. */
+  memexId?: string;
   authorId?: string;
   createdAt?: string;
   updatedAt?: string;

@@ -1,6 +1,6 @@
 import { createMiddleware } from "hono/factory";
 import { eq, and, sql } from "drizzle-orm";
-import { db } from "../db/connection.js";
+import { db, runWithMemexId } from "../db/connection.js";
 import { memexes, namespaces, orgs, orgMemberships } from "../db/schema.js";
 import { getUserByEmail, getUserById, listMemberships, upsertUserByEmail } from "../services/users.js";
 import { ensureUserNamespace } from "../services/user-namespaces.js";
@@ -30,6 +30,10 @@ export type SessionEnv = {
     // multiple memexes and the request didn't say which one (std-5).
     currentMemexId: string | null;
     currentRole: "member" | "administrator" | null;
+    // spec-199 t-5: "read" for visited/anonymous subscribers (user_memex_access
+    // rows), "write" for real org members. Only "write" may request include=all
+    // on SSE streams. Absent from the strict path until a membership is resolved.
+    currentAccessLevel: "read" | "write" | null;
     // Set by memexResolver when the request URL carries a /<namespace>/<memex>/
     // prefix. Routes that need a memex without one in the URL must either be
     // entity-keyed (UUID lookup) or accept the std-5 ambiguity error.
@@ -228,7 +232,7 @@ async function establishUserSession(
   //      return a structured error per std-5.
   const pathMemex = c.get("memex");
 
-  let chosen: { memexId: string; role: "member" | "administrator" } | null = null;
+  let chosen: { memexId: string; role: "member" | "administrator"; accessLevel: "read" | "write" } | null = null;
   if (pathMemex) {
     // Find the matching membership to capture role.
     const memberships = await listMemberships(user.id);
@@ -245,12 +249,12 @@ async function establishUserSession(
       // unresolved-by-membership and defers the visibility decision to the gate.
       return c.json({ error: "Not found" }, 404);
     }
-    chosen = { memexId: match.memexId, role: match.role };
+    chosen = { memexId: match.memexId, role: match.role, accessLevel: match.accessLevel ?? "write" };
   } else {
     const memberships = await listMemberships(user.id);
     if (memberships.length === 1) {
       const only = memberships[0];
-      chosen = { memexId: only.memexId, role: only.role };
+      chosen = { memexId: only.memexId, role: only.role, accessLevel: only.accessLevel ?? "write" };
     } else if (memberships.length > 1) {
       // b-38 F-6 — auto-resolve is ambiguous. Stamp the available memexes on
       // context so downstream routes can return a structured 409 (instead of
@@ -266,6 +270,7 @@ async function establishUserSession(
 
   c.set("currentMemexId", chosen?.memexId ?? null);
   c.set("currentRole", chosen?.role ?? null);
+  c.set("currentAccessLevel", chosen?.accessLevel ?? null);
   return null;
 }
 
@@ -292,7 +297,7 @@ export const sessionMiddleware = createMiddleware<SessionEnv>(async (c, next) =>
 
   const short = await establishUserSession(c, resolution.user);
   if (short) return short;
-  return next();
+  return runWithMemexId(c.get("currentMemexId"), next);
 });
 
 /**
@@ -336,7 +341,8 @@ export const publicSessionMiddleware = createMiddleware<SessionEnv>(async (c, ne
     c.set("currentUserId", null);
     c.set("currentMemexId", null);
     c.set("currentRole", null);
-    return next();
+    c.set("currentAccessLevel", null);
+    return runWithMemexId(c.get("memex")?.id ?? null, next);
   }
 
   // A valid token resolved a user. Establish the full session, but DON'T let a
@@ -365,25 +371,29 @@ export const publicSessionMiddleware = createMiddleware<SessionEnv>(async (c, ne
     if (match) {
       c.set("currentMemexId", match.memexId);
       c.set("currentRole", match.role);
+      c.set("currentAccessLevel", match.accessLevel ?? "write");
     } else {
       // Token-bearing non-member on a path memex. Do NOT 404 here — defer to
       // canReadMemex (t-2/t-5), which grants read on public memexes and 404s on
       // private ones (std-7). Leave membership-derived context null.
       c.set("currentMemexId", null);
       c.set("currentRole", null);
+      c.set("currentAccessLevel", null);
     }
   } else {
     if (memberships.length === 1) {
       c.set("currentMemexId", memberships[0].memexId);
       c.set("currentRole", memberships[0].role);
+      c.set("currentAccessLevel", memberships[0].accessLevel ?? "write");
     } else {
       if (memberships.length > 1) c.set("availableMemexes", memberships);
       c.set("currentMemexId", null);
       c.set("currentRole", null);
+      c.set("currentAccessLevel", null);
     }
   }
 
-  return next();
+  return runWithMemexId(c.get("memex")?.id ?? c.get("currentMemexId"), next);
 });
 
 export { getUserByEmail };

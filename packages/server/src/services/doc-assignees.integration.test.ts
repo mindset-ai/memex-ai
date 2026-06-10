@@ -103,3 +103,33 @@ describe("spec-118 assignment emits on the unified bus (ac-20)", () => {
     expect(mine.map((e) => e.action)).toEqual(["created", "deleted"]);
   });
 });
+
+const AC_199 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-199/acs/ac-${n}`;
+
+describe("spec-199 Finding #1 — email stripped from non-member/anonymous path (ac-1)", () => {
+  it("listAssignees with includeEmail=false returns null email for every assignee", async () => {
+    tagAc(AC_199(1));
+    const doc = await createDocDraft(memexId, "Assignee Email Strip Test", "purpose", "spec");
+    createdDocIds.push(doc.id);
+    await assign(memexId, doc.id, alice.id, actor.id);
+
+    const assignees = await listAssignees(memexId, doc.id, false);
+    expect(assignees.length).toBeGreaterThan(0);
+    for (const a of assignees) {
+      expect(a.email, "email must be null on the anonymous/non-member path").toBeNull();
+    }
+  });
+
+  it("listAssignees with includeEmail=true (default) returns email for authenticated org members", async () => {
+    tagAc(AC_199(1));
+    const doc = await createDocDraft(memexId, "Assignee Email Present Test", "purpose", "spec");
+    createdDocIds.push(doc.id);
+    await assign(memexId, doc.id, alice.id, actor.id);
+
+    const assignees = await listAssignees(memexId, doc.id, true);
+    expect(assignees.length).toBeGreaterThan(0);
+    for (const a of assignees) {
+      expect(a.email, "email must be present for authenticated org members").not.toBeNull();
+    }
+  });
+});

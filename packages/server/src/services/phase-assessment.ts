@@ -14,6 +14,7 @@ import { NotFoundError, ValidationError } from "../types/errors.js";
 import { getReadyTasks } from "./tasks.js";
 import { parsePhaseDescriptions } from "../mcp/phase-descriptions.js";
 import { listOrgScaffoldAdditionsCached } from "./scaffold-additions-cache.js";
+import { filterOrgBlocksForMemex } from "./scaffold-additions.js";
 import { orgIdForMemex } from "./shared/memex-ownership.js";
 import {
   BASE_SCAFFOLD,
@@ -649,8 +650,14 @@ export async function assessPhaseTransition(
   // and we project against base data only — keeps the projection contract
   // working uniformly across surfaces.
   const orgId = await orgIdForMemex(memexId);
+  // spec-193 t-5: filter the Org overlay to this memex's view (account-wide +
+  // rows scoped to THIS memex) so a per-memex override never bleeds into a
+  // sibling memex's transition rubric.
   const orgBlocks: readonly GuidanceBlock[] = orgId
-    ? await listOrgScaffoldAdditionsCached(orgId, { enabledOnly: true })
+    ? filterOrgBlocksForMemex(
+        await listOrgScaffoldAdditionsCached(orgId, { enabledOnly: true }),
+        memexId,
+      )
     : [];
   const rubricProse = toRubric({
     dataset: BASE_SCAFFOLD,

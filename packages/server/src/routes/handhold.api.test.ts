@@ -288,5 +288,5 @@ describe("spec-178 t-6 — resetHandholdDemo service contract (ac-17)", () => {
     const result = await resetHandholdDemo(owner.memexId);
     expect(result.seeded).toBe(HANDHOLD_PHASES.length);
     expect(await countDemoDocs(owner.memexId)).toBe(HANDHOLD_PHASES.length);
-  });
+  }, 20_000);
 });

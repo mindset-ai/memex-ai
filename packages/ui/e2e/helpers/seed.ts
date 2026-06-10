@@ -102,6 +102,7 @@ export async function seedSpecInMemex(opts: {
   memexId: string;
   title: string;
   purpose?: string;
+  createdByUserId?: string;
 }): Promise<{ docId: string; handle: string }> {
   return call<{ docId: string; handle: string }>("POST", "/seed-spec", opts);
 }
@@ -327,6 +328,46 @@ export async function seedTestEvent(opts: {
   testIdentifier?: string;
 }): Promise<void> {
   await call("POST", "/seed-test-event", opts);
+}
+
+// ── spec-199 t-9: security journey seeds ────────────────────────────────────
+
+/** Seed an assignee on a Spec through the real assign service. */
+export async function seedAssignee(opts: {
+  memexId: string;
+  docId: string;
+  userId: string;
+}): Promise<{ assigneeId: string }> {
+  return call("POST", "/seed-assignee", opts);
+}
+
+/** Flip a Memex's visibility to public or private. */
+export async function setMemexVisibility(opts: {
+  memexId: string;
+  visibility: "public" | "private";
+}): Promise<void> {
+  await call("POST", "/set-memex-visibility", opts);
+}
+
+/** Disable an org member and bulk-revoke their share tokens via the real
+ *  disableMembership service. Caller must ensure a second admin exists in the
+ *  org first (so the last-admin guard passes). */
+export async function disableMember(opts: {
+  orgId: string;
+  targetUserId: string;
+}): Promise<void> {
+  await call("POST", "/disable-member", opts);
+}
+
+/** Seed a raw activity_log row with optional sensitive fields. */
+export async function seedActivityRow(opts: {
+  memexId: string;
+  actorUserId?: string | null;
+  clientId?: string;
+  payload?: unknown;
+  narrative?: string;
+}): Promise<{ activityId: string }> {
+  return call("POST", "/seed-activity", opts);
 }
 
 /** Seed a Task on a Spec (spec-188: drives the Build-tab completion Metric

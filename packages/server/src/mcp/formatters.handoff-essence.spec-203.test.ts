@@ -10,7 +10,13 @@
 
 import { describe, it, expect } from "vitest";
 import { tagAc } from "@memex-ai-ac/vitest";
-import { formatFullDocState } from "./formatters.js";
+// spec-203 ac-15: the footer is no longer composed inside formatFullDocState —
+// the single seat `composeGuidanceEnvelope` (spec-219) authors it via the
+// exported `formatSpecGuidance` / `formatSpecGuidanceBody` composer. These tests
+// exercise that composer directly (the footer content is unchanged); the seat +
+// choke-point delivery is covered by the integration tests in
+// services/spec-203-footer.integration.test.ts.
+import { formatSpecGuidance } from "./formatters.js";
 import { FOOTER_DELIMITER } from "./footer-delimiter.js";
 import type { Doc, DocSection } from "../db/schema.js";
 
@@ -58,7 +64,7 @@ function makeSpec(status: string): Doc & { sections: DocSection[] } {
 describe("formatFullDocState — phase handoff essence in the footer (spec-203)", () => {
   it("emits the BUILD handoff essence on a build-phase Spec", () => {
     tagAc(AC(7));
-    const out = formatFullDocState(makeSpec("build"), [], []);
+    const out = formatSpecGuidance(makeSpec("build"), [], []);
     expect(out).toContain('BUILD handoff (full prompt: the "Build handoff" button)');
     expect(out).toContain("deriving the task graph");
     expect(out).toContain("recommend `verify`");
@@ -67,30 +73,30 @@ describe("formatFullDocState — phase handoff essence in the footer (spec-203)"
   it("emits the SPECIFY handoff essence on a specify-phase Spec", () => {
     tagAc(AC(7));
     tagAc(AC(4)); // scope: phase-general (specify gets its handoff)
-    const out = formatFullDocState(makeSpec("specify"), [], []);
+    const out = formatSpecGuidance(makeSpec("specify"), [], []);
     expect(out).toContain('SPECIFY handoff (full prompt: the "Plan handoff" button)');
   });
 
   it("emits the VERIFY handoff essence on a verify-phase Spec", () => {
-    const out = formatFullDocState(makeSpec("verify"), [], []);
+    const out = formatSpecGuidance(makeSpec("verify"), [], []);
     expect(out).toContain('VERIFY handoff (full prompt: the "Verify handoff" button)');
   });
 
   it("emits NO handoff essence on a draft-phase Spec", () => {
     tagAc(AC(7));
-    const out = formatFullDocState(makeSpec("draft"), [], []);
+    const out = formatSpecGuidance(makeSpec("draft"), [], []);
     expect(out).not.toContain("handoff (full prompt:");
   });
 
   it("emits NO handoff essence on a done-phase Spec", () => {
     tagAc(AC(7));
     tagAc(AC(4)); // scope: phase-general (done surfaces none)
-    const out = formatFullDocState(makeSpec("done"), [], []);
+    const out = formatSpecGuidance(makeSpec("done"), [], []);
     expect(out).not.toContain("handoff (full prompt:");
   });
 
   it("places the essence after the footer delimiter (in the footer, not the body)", () => {
-    const out = formatFullDocState(makeSpec("build"), [], []);
+    const out = formatSpecGuidance(makeSpec("build"), [], []);
     const delimIdx = out.indexOf(FOOTER_DELIMITER);
     const essenceIdx = out.indexOf("BUILD handoff (full prompt:");
     expect(delimIdx).toBeGreaterThanOrEqual(0);

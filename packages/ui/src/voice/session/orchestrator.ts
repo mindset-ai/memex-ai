@@ -14,6 +14,10 @@ export interface OrchestratorHooks {
   onError: (message: string) => void;
   /** The loop ended on its own (not a user `end()`); fold back to inactive. */
   onEnded: () => void;
+  /** spec-211 t-1 (dec-1): an agent turn has fully played out (or settled with no
+   *  speech / an error) and the loop is back to listening. The client tour
+   *  sequencer awaits this to advance one phase only after narration finishes. */
+  onTurnComplete?: () => void;
 }
 
 export interface VoiceOrchestrator {
@@ -29,6 +33,11 @@ export interface VoiceOrchestrator {
   interrupt(): void;
   /** Full teardown — close sockets, stop playback, release nodes. */
   stop(): void;
+  /** spec-211 t-1 (dec-1): trigger a PROACTIVE narration turn (no user speech) for
+   *  the demo walkthrough — `context` is the phase's fixture beat, fed to the guide
+   *  as guideContext. Completion is signalled via `onTurnComplete`. No-op once
+   *  stopped or while a session isn't running. */
+  narratePhase(context: string): void;
 }
 
 export type OrchestratorFactory = (hooks: OrchestratorHooks) => VoiceOrchestrator;
@@ -39,8 +48,11 @@ export type OrchestratorFactory = (hooks: OrchestratorHooks) => VoiceOrchestrato
  * With the stub a started session sits in `listening` until the user ends it —
  * enough to build + demo the icon/pill (and wire Specky) ahead of the loop.
  */
-export const stubOrchestratorFactory: OrchestratorFactory = () => ({
+export const stubOrchestratorFactory: OrchestratorFactory = (hooks) => ({
   start: () => {},
   interrupt: () => {},
   stop: () => {},
+  // The stub has no audio loop, so a requested narration "completes" immediately
+  // — keeps a client sequencer driving the stub from hanging on the await.
+  narratePhase: () => hooks.onTurnComplete?.(),
 });

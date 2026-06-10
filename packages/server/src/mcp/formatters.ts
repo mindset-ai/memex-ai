@@ -220,10 +220,13 @@ export function formatFullDocState(
     lines.push("");
   }
 
-  // Phase-aware guidance (Spec docs) — the machine's own always-on footer.
-  if (doc.docType === "spec") {
-    lines.push(formatSpecGuidance(doc, decisions, tasks, nudge, acVerifications));
-  }
+  // spec-203 ac-15: the footer is NO LONGER composed here. There is exactly one
+  // seat that decides and attaches the footer — `decideFooter`, invoked at the
+  // single choke point (`runToolWithSpecTraffic`) on EVERY Spec-resolving call,
+  // terse and verbose alike. The doc body this function renders carries no
+  // footer of its own; the choke point appends whatever the seat returns. (The
+  // `nudge` / `acVerifications` params remain on the signature for the seat's
+  // own composition path, which calls `formatSpecGuidance` directly.)
 
   // spec-203 dec-3 (t-3): the envelope. Header blocks wrap above the doc, footer
   // blocks after the machine footer, placement by zone alone. Joining each zone
@@ -1047,18 +1050,43 @@ export function renderAcNagFooter(
   return lines.join("\n");
 }
 
-function formatSpecGuidance(
+// spec-203 ac-15 / spec-219 ac-6: exported so the single footer seat
+// (`composeGuidanceEnvelope`) can author the FULL phase footer through this
+// composer. The seat remains the sole author/decider; no other code path
+// composes a footer. `formatFullDocState` no longer calls it (the body carries
+// no footer of its own).
+//
+// spec-219 ac-6/ac-7: `formatSpecGuidanceBody` returns the DELIMITER-LESS footer
+// body — the single `FOOTER_DELIMITER` is owned by the choke point
+// (`runToolWithSpecTraffic`), which writes it exactly once when it assembles
+// `header + body + FOOTER_DELIMITER + footer`. The seat returns this body as the
+// `footer` of its envelope. `formatSpecGuidance` is kept as a thin wrapper that
+// prefixes the one delimiter, preserving its self-contained contract for direct
+// callers/tests (returns `null`-free, leads with the delimiter for a Spec).
+export function formatSpecGuidanceBody(
+  doc: Doc,
+  decs: Decision[],
+  tasksList: TaskWithBlockers[],
+  nudge?: NudgeContext,
+  acVerifications?: AcWithVerification[],
+): string | null {
+  if (doc.docType === "spec") {
+    const phase = phaseFromStatus(doc.status);
+    if (phase)
+      return renderSpecPhaseGuidance(doc, phase, decs, tasksList, nudge, acVerifications);
+  }
+  return null;
+}
+
+export function formatSpecGuidance(
   doc: Doc,
   decs: Decision[],
   tasksList: TaskWithBlockers[],
   nudge?: NudgeContext,
   acVerifications?: AcWithVerification[],
 ): string {
-  if (doc.docType === "spec") {
-    const phase = phaseFromStatus(doc.status);
-    if (phase)
-      return renderSpecPhaseGuidance(doc, phase, decs, tasksList, nudge, acVerifications);
-  }
+  const body = formatSpecGuidanceBody(doc, decs, tasksList, nudge, acVerifications);
+  if (body !== null) return `${FOOTER_DELIMITER}\n${body}`;
   return formatLegacyDataShapeGuidance(doc, decs, tasksList);
 }
 
@@ -1084,11 +1112,11 @@ function renderSpecPhaseGuidance(
   nudge?: NudgeContext,
   acVerifications?: AcWithVerification[],
 ): string {
-  // spec-203 dec-3: the footer boundary. Replaces the ambiguous markdown `---`
-  // with the single FOOTER_DELIMITER constant so the platform footer is
-  // machine-separable from the tool's real output (audit trail) and visibly
-  // marked for the agent. One knob — see footer-delimiter.ts.
-  const lines: string[] = [FOOTER_DELIMITER];
+  // spec-219 ac-6/ac-7: the footer body is DELIMITER-LESS. The single
+  // FOOTER_DELIMITER (spec-203 dec-3) is no longer emitted here — the choke
+  // point owns it and writes it exactly once between body and footer. See
+  // formatSpecGuidanceBody / runToolWithSpecTraffic.
+  const lines: string[] = [];
   const openDecs = decs.filter((d) => d.status === "open");
   const resolvedDecs = decs.filter((d) => d.status === "resolved");
   const ready = tasksList.filter((t) => !t.blocked && t.status === "not_started");

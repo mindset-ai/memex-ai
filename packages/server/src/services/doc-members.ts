@@ -76,7 +76,12 @@ export interface DocMemberView {
 
 // The explicit (elevated) members of a Spec — the editors. Reviewers are implicit
 // and never listed here (they have no row). Joined to users for display.
-export async function listEditors(memexId: string, docId: string): Promise<DocMemberView[]> {
+// includeEmail must be false for anonymous/non-member callers (Finding #1, spec-199).
+export async function listEditors(
+  memexId: string,
+  docId: string,
+  includeEmail = true,
+): Promise<DocMemberView[]> {
   const rows = await db
     .select({
       userId: docMembers.userId,
@@ -90,7 +95,7 @@ export async function listEditors(memexId: string, docId: string): Promise<DocMe
   return rows.map((r) => ({
     userId: r.userId,
     name: r.name,
-    email: r.email,
+    email: includeEmail ? r.email : null,
     role: isDocRole(r.role) ? r.role : "editor",
   }));
 }

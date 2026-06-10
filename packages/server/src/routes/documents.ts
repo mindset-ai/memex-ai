@@ -378,7 +378,8 @@ docs.post("/sections/:sectionId", async (c) => {
 docs.post("/:docId/share", async (c) => {
   const memexId = requireMemexId(c);
   const docId = c.req.param("docId");
-  const share = await createShareToken(memexId, docId);
+  const createdByUserId = (c.get("currentUserId") as string | null) ?? null;
+  const share = await createShareToken(memexId, docId, createdByUserId);
   return c.json(share, 201);
 });
 

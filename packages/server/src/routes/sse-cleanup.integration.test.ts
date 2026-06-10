@@ -64,8 +64,10 @@ describe("SSE handler tears down bus subscriptions on abort", () => {
     }
 
     // Give the streamSSE handler a tick to register its bus.subscribe call.
+    // Each connection opens 2 subscriptions: one for doc changes, one for the
+    // org_membership revoke signal added in spec-199 t-4.
     await new Promise((r) => setTimeout(r, 50));
-    expect(bus._listenerCount()).toBe(baseline + N);
+    expect(bus._listenerCount()).toBe(baseline + N * 2);
 
     // Cancel each response body — this triggers stream.onAbort which calls the
     // unsubscribe returned by bus.subscribe.
@@ -88,8 +90,9 @@ describe("SSE handler tears down bus subscriptions on abort", () => {
       responses.push(await app.request("/api/docs/events"));
     }
 
+    // Each connection opens 2 subscriptions (memex stream + org_membership revoke).
     await new Promise((r) => setTimeout(r, 50));
-    expect(bus._listenerCount()).toBe(baseline + N);
+    expect(bus._listenerCount()).toBe(baseline + N * 2);
 
     for (const res of responses) {
       await res.body!.cancel();

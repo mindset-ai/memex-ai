@@ -42,6 +42,7 @@ function fakeOrchestrator(): {
       start: () => { calls.push('start'); },
       interrupt: () => { calls.push('interrupt'); },
       stop: () => { calls.push('stop'); },
+      narratePhase: () => { calls.push('narratePhase'); hooks.onTurnComplete?.(); },
     };
   };
   return { factory, hooks: () => captured!, calls };

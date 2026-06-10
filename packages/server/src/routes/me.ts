@@ -46,7 +46,18 @@ meRouter.get("/events", (c) => {
   const user = c.get("user");
 
   return streamSSE(c, async (stream) => {
+    // Resolvable promise: holds the stream open. Resolves when the user's
+    // membership is revoked (spec-199 t-4) or the client disconnects.
+    let close!: () => void;
+    const done = new Promise<void>((resolve) => { close = resolve; });
+
     const handler = (event: ChangeEvent) => {
+      // spec-199 t-4: close stream silently on membership revocation — do not
+      // forward the event to the client (clean disconnect, no error sent).
+      if (event.entity === "org_membership" && event.action === "deleted") {
+        close();
+        return;
+      }
       stream.writeSSE({
         event: "user_change",
         data: JSON.stringify(event),
@@ -79,9 +90,12 @@ meRouter.get("/events", (c) => {
     stream.onAbort(() => {
       clearInterval(keepalive);
       unsubscribe();
+      close(); // Resolve done so the callback exits cleanly on client disconnect
     });
 
-    await new Promise(() => {});
+    await done;
+    clearInterval(keepalive);
+    unsubscribe();
   });
 });
 

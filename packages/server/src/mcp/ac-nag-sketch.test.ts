@@ -4,7 +4,7 @@
 //
 // Pure-function behaviour (renderAcNagFooter, sketch matcher) is asserted
 // directly; the renderSpecPhaseGuidance composition is exercised through the
-// exported formatFullDocState; the resolve_decision + drift invariants are
+// exported formatSpecGuidance; the resolve_decision + drift invariants are
 // pinned with source-text assertions (the pattern the existing
 // test-coverage-nudges / scaffold-drift-guard regressions use).
 
@@ -13,7 +13,7 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tagAc } from "@memex-ai-ac/vitest";
-import { formatFullDocState, renderAcNagFooter } from "./formatters.js";
+import { formatSpecGuidance, renderAcNagFooter } from "./formatters.js";
 import { sketchShapeForStatement, buildSketchBlock } from "./ac-test-sketch.js";
 import { BUILD_AC_NAG_PROSE, toNudge, BASE_SCAFFOLD } from "@memex/shared";
 import type { Doc, DocSection } from "../db/schema.js";
@@ -203,13 +203,13 @@ describe("mechanism 1 — renderAcNagFooter", () => {
 
 // ──────────────────────────────────────────────────────────────────────────
 // Mechanism 1 — composition through renderSpecPhaseGuidance (via the exported
-// formatFullDocState), and the toNudge channel (dec-2/dec-6 reuse).
+// formatSpecGuidance), and the toNudge channel (dec-2/dec-6 reuse).
 // ──────────────────────────────────────────────────────────────────────────
 describe("mechanism 1 — composition in build-phase doc state", () => {
   it("computes and appends the nag inside the build-phase guidance", () => {
     tagAc(acRef(8));
     const doc = makeSpecDoc();
-    const out = formatFullDocState(doc, [], [], undefined, undefined, undefined, undefined, [
+    const out = formatSpecGuidance(doc, [], [], undefined, [
       makeAc({ seq: 1, kind: "implementation", state: "untested" }),
     ]);
     expect(out).toContain("not verified");
@@ -222,7 +222,7 @@ describe("mechanism 1 — composition in build-phase doc state", () => {
   it("rides the toNudge channel — nag composes with phase guidance in one response", () => {
     tagAc(acRef(20));
     const doc = makeSpecDoc();
-    const out = formatFullDocState(doc, [], [], undefined, undefined, undefined, undefined, [
+    const out = formatSpecGuidance(doc, [], [], undefined, [
       makeAc({ seq: 1, kind: "implementation", state: "untested" }),
     ]);
     // toNudge-sourced build prose AND the nag are in the SAME rendered string.
@@ -234,7 +234,7 @@ describe("mechanism 1 — composition in build-phase doc state", () => {
 
   it("emits nothing when every AC is verified (footer fully clears)", () => {
     const doc = makeSpecDoc();
-    const out = formatFullDocState(doc, [], [], undefined, undefined, undefined, undefined, [
+    const out = formatSpecGuidance(doc, [], [], undefined, [
       makeAc({ seq: 1, kind: "implementation", state: "verified" }),
     ]);
     expect(out).not.toContain("not verified");
@@ -383,15 +383,10 @@ describe("integration — both mechanisms ship together (ac-6)", () => {
     tagAc(acRef(6));
     // Mechanism 1: a not-verified AC makes the nag appear in the doc response.
     const doc = makeSpecDoc();
-    const docState = formatFullDocState(
+    const docState = formatSpecGuidance(
       doc,
       [],
-      [],
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      [makeAc({ seq: 6, kind: "implementation", state: "untested" })],
+      [], undefined, [makeAc({ seq: 6, kind: "implementation", state: "untested" })],
     );
     expect(docState).toContain("not verified");
     expect(docState).toContain("ac-6");

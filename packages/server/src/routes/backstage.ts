@@ -3,14 +3,11 @@ import { sql, desc, eq, and } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import { memexes, namespaces, orgs, orgMemberships, documents } from "../db/schema.js";
 import { upsertUserByEmail } from "../services/users.js";
+import { isDevMode } from "../middleware/session.js";
 
 const DEV_USER_EMAIL = "dev@memex.ai";
 
 const backstageRouter = new Hono();
-
-function isDevMode(): boolean {
-  return !process.env.GOOGLE_CLIENT_ID;
-}
 
 // GET /api/backstage/accounts — returns every Memex with membership + doc counts so the
 // backstage list can show useful context at a glance. Personal Memexes (user-owned

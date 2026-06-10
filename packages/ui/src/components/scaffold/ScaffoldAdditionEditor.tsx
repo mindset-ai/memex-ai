@@ -17,18 +17,32 @@ interface SubmitInput {
   text: string;
   rationale: string;
   emphasis?: GuidanceEmphasis;
+  // spec-193 t-5: per-memex scope. Omitted = account-wide; a memex UUID scopes
+  // the block to that one memex.
+  memexId?: string;
 }
 
 interface Props {
   initialTarget: GuidanceBlock['target'];
   onSubmit: (input: SubmitInput) => Promise<void>;
   label?: string;
+  // spec-193 t-5: the memex this Inspect page is anchored to. When present, the
+  // editor offers a Scope control (account-wide vs this memex). Absent (e.g. an
+  // org with no resolved memex) → the control hides and blocks are account-wide.
+  currentMemexId?: string | null;
+  currentMemexLabel?: string;
 }
 
 const PHASES: Phase[] = ['draft', 'specify', 'build', 'verify', 'done'];
 const TRANSITIONS: Transition[] = ['specify', 'build', 'verify', 'done'];
 
-export function ScaffoldAdditionEditor({ initialTarget, onSubmit, label = 'Add guidance' }: Props) {
+export function ScaffoldAdditionEditor({
+  initialTarget,
+  onSubmit,
+  label = 'Add guidance',
+  currentMemexId,
+  currentMemexLabel,
+}: Props) {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState('');
   const [rationale, setRationale] = useState('');
@@ -36,6 +50,9 @@ export function ScaffoldAdditionEditor({ initialTarget, onSubmit, label = 'Add g
   const [phase, setPhase] = useState<Phase | ''>(initialTarget.phase ?? '');
   const [tool, setTool] = useState<string>(initialTarget.tool ?? '');
   const [transition, setTransition] = useState<Transition | ''>(initialTarget.transition ?? '');
+  // spec-193 t-5: 'account' = account-wide (memexId NULL); 'memex' = this memex.
+  // Defaults to account-wide so the existing behaviour is the no-op path.
+  const [scope, setScope] = useState<'account' | 'memex'>('account');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -46,6 +63,7 @@ export function ScaffoldAdditionEditor({ initialTarget, onSubmit, label = 'Add g
     setPhase(initialTarget.phase ?? '');
     setTool(initialTarget.tool ?? '');
     setTransition(initialTarget.transition ?? '');
+    setScope('account');
     setError(null);
   }
 
@@ -76,6 +94,9 @@ export function ScaffoldAdditionEditor({ initialTarget, onSubmit, label = 'Add g
         rationale: rationale.trim(),
       };
       if (emphasis) input.emphasis = emphasis;
+      // spec-193 t-5: only attach a memexId when the admin picked "this memex"
+      // AND a memex is resolved; otherwise the block stays account-wide.
+      if (scope === 'memex' && currentMemexId) input.memexId = currentMemexId;
       await onSubmit(input);
       reset();
       setOpen(false);
@@ -188,6 +209,26 @@ export function ScaffoldAdditionEditor({ initialTarget, onSubmit, label = 'Add g
           <option value="dont">don&apos;t</option>
         </select>
       </label>
+
+      {/* spec-193 t-5: per-memex scope. Only offered when a memex is resolved;
+          account-wide stays the default. Account-wide applies to every memex in
+          the namespace; "this memex" scopes the block to the current one. */}
+      {currentMemexId ? (
+        <label className="text-xs block">
+          <span className="block text-secondary mb-1">Scope</span>
+          <select
+            value={scope}
+            onChange={(e) => setScope(e.target.value === 'memex' ? 'memex' : 'account')}
+            className="text-xs border rounded px-2 py-1"
+            data-testid="scaffold-add-scope"
+          >
+            <option value="account">Account-wide (all memexes)</option>
+            <option value="memex">
+              This memex only{currentMemexLabel ? ` (${currentMemexLabel})` : ''}
+            </option>
+          </select>
+        </label>
+      ) : null}
 
       {error ? (
         <div data-testid="scaffold-add-error" className="text-xs text-red-700">

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { eq, inArray } from "drizzle-orm";
+import { tagAc } from "@memex-ai-ac/vitest";
 
 // Force dev-mode auth so app.request() can hit session-gated routes without
 // minting a JWT (same shape as aggregates.integration.test.ts).
@@ -30,6 +31,7 @@ type Row = {
   entity: string;
   action: string;
   narrative: string;
+  payload: unknown;
   createdAt: string;
 };
 
@@ -310,5 +312,28 @@ describe("GET /api/<ns>/<mx>/activity (Pulse history — b-60 t-12)", () => {
       withApexHost(),
     );
     expect(res.status).toBe(400);
+  });
+
+  // spec-199 t-6: authenticated org member receives all columns (no over-blocking).
+  it("authenticated org member receives all columns including actorUserId, clientId, payload", async () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-199/acs/ac-6");
+    // Seed a row with all sensitive fields populated.
+    const row = await seedActivity({
+      memexId: memexA,
+      actorUserId: alice,
+      clientId: "member-proj-test-client",
+      payload: { detail: "internal data" },
+      narrative: "member projection test",
+    });
+
+    const res = await app.request(`${pathA}/activity?limit=200`, withApexHost());
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Row[];
+    const found = body.find((r) => r.id === row.id);
+    expect(found).toBeDefined();
+    // Members must receive all three sensitive columns.
+    expect(found).toHaveProperty("actorUserId", alice);
+    expect(found).toHaveProperty("clientId", "member-proj-test-client");
+    expect(found).toHaveProperty("payload");
   });
 });

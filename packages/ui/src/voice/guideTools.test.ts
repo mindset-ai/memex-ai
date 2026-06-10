@@ -92,4 +92,12 @@ describe('dispatchGuideUiTool — client toolset guard (ac-28)', () => {
     // ctx() has no advanceDemo — degrade gracefully rather than throw.
     expect(dispatchGuideUiTool('advance_demo', {}, ctx()).ok).toBe(false);
   });
+
+  it('routes start_walkthrough to the wired sequencer trigger (spec-211 t-3)', () => {
+    const startWalkthrough = vi.fn();
+    expect(dispatchGuideUiTool('start_walkthrough', {}, { ...ctx(), startWalkthrough }).ok).toBe(true);
+    expect(startWalkthrough).toHaveBeenCalledTimes(1);
+    // No-op (never throws) when nothing is wired.
+    expect(dispatchGuideUiTool('start_walkthrough', {}, ctx()).ok).toBe(false);
+  });
 });

@@ -87,19 +87,17 @@ describe("Channel 2 — phase-transition advice carries a coverage paragraph", (
     expect(toolSpecs).toMatch(/\*\*AC coverage:\*\*/);
   });
 
-  it("verbose get_doc prepends the coverage header for Specs", () => {
-    // The wiring lives inside the get_doc handler — assert the helper is
-    // called there and its result reaches the composer as a header-zone block.
+  it("verbose get_doc prepends the coverage header via the one seat (spec-219 ac-10)", () => {
+    // spec-219: the wiring moved OUT of the get_doc handler INTO the single seat
+    // (composeGuidanceEnvelope), which composes the header — verbose AND get_doc
+    // only — and the choke point prepends it above the body. Behaviour (and the
+    // byte output) is preserved; this guard pins the new location.
     expect(toolSpecs).toMatch(
-      /const coverageHeader = await formatCoverageHeader\([\s\S]*?doc\.docType,[\s\S]*?\);/,
+      /ctx\.toolName === "get_doc"[\s\S]*?formatCoverageHeader\(/,
     );
-    // spec-203 t-3: the coverage header is now passed to formatState as a
-    // header-zone InjectedBlock (the composer places it above the doc), not
-    // string-concatenated at the call site. Output is byte-identical; this
-    // guard pins the new wiring.
-    expect(toolSpecs).toMatch(
-      /\{ zone: "header", content: coverageHeader \}/,
-    );
+    // The header is no longer injected as a header-zone block inside the get_doc
+    // handler — re-introducing that would re-fragment the one-seat composer.
+    expect(toolSpecs).not.toMatch(/\{ zone: "header", content: coverageHeader \}/);
   });
 });
 

@@ -13,6 +13,9 @@ import { HANDHOLD_PHASES } from "../../db/handhold-demo.fixture.js";
 
 const AC = (n: number) =>
   `mindset-prod/memex-building-itself/specs/spec-206/acs/ac-${n}`;
+// spec-211 t-4 reworked the walkthrough prompt — those assertions tag spec-211.
+const AC211 = (n: number) =>
+  `mindset-prod/memex-building-itself/specs/spec-211/acs/ac-${n}`;
 
 const blocks = buildGuideSystemBlocks({
   screenKey: "specs-list",
@@ -48,8 +51,19 @@ describe("guide system prompt — demo walkthrough beats (spec-206 t-4)", () => 
     tagAc(AC(4));
   });
 
-  it("instructs the guide to advance the demo board during the walkthrough", () => {
-    expect(text).toContain("advance_demo");
-    expect(text.toLowerCase()).toContain("walkthrough");
+  it("instructs the guide to hand the walkthrough to the app, not self-advance (spec-211 ac-15 / ac-6)", () => {
+    const lower = text.toLowerCase();
+    // The guide hands off via start_walkthrough...
+    expect(text).toContain("start_walkthrough");
+    // ...and is explicitly told NOT to drive the board itself.
+    expect(lower).toContain("do not advance the board yourself");
+    expect(lower).toContain("never call `advance_demo`");
+    // The OLD burst instruction is gone.
+    expect(text).not.toContain("After you finish narrating each phase, call `advance_demo`");
+    expect(text).not.toContain("Narrate these five phases in order when the user accepts");
+    // The beats are still single-sourced from the fixture (ac-6).
+    for (const p of HANDHOLD_PHASES) expect(text).toContain(p.valueCallout);
+    tagAc(AC211(15));
+    tagAc(AC211(6));
   });
 });
