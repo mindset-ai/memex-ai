@@ -10,6 +10,7 @@ import { createVoiceOrchestratorFactory } from './voiceGuideOrchestrator';
 import type { SocketLike, SocketFactory } from './voiceWsClient';
 import type { VadEngine } from '../micVad';
 import type { OrchestratorHooks } from '../session/orchestrator';
+import type { NavigationAdapter, NavigateOutcome } from '../navigation/NavigationAdapter';
 
 const AC11 = 'mindset-prod/memex-building-itself/specs/spec-190/acs/ac-11';
 
@@ -106,8 +107,22 @@ function hooks(): OrchestratorHooks & {
   };
 }
 
+// spec-222 (ac-9): the orchestrator navigates ONLY through the injected adapter.
+// This fake stands in for the app's react-router-backed adapter; its `navigate`
+// spy maps the known screen key to the path the old react-router navigate received,
+// so the delegation assertion is preserved (was `react.navigate('/ns/mx/standards')`).
+const navSpy = vi.fn((screen: string): NavigateOutcome =>
+  screen === 'standards-list' ? { ok: true, path: '/ns/mx/standards' } : { ok: false, reason: 'not a navigable screen' },
+);
+const adapter: NavigationAdapter = {
+  resolveScreenKey: () => null,
+  currentScreenKey: () => 'specs-list',
+  findElement: (id) => document.querySelector<HTMLElement>(`[data-guide-id="${id}"]`),
+  navigate: navSpy,
+};
+
 const react = {
-  navigate: vi.fn(),
+  adapter,
   advanceDemo: vi.fn(),
   startWalkthrough: vi.fn(),
   authToken: () => 'tok',
@@ -225,6 +240,35 @@ describe('voice orchestrator wiring (ac-11)', () => {
     // Playback finishes → now we return to listening.
     playback.drain();
     expect(h.states[h.states.length - 1]).toBe('listening');
+  });
+
+  it('flushes the adapter\'s deferred navigation ONLY on playback drain, never synchronously (spec-222 ac-22)', async () => {
+    tagAc('mindset-prod/memex-building-itself/specs/spec-222/acs/ac-22');
+    // An adapter that DEFERS (like the website's staticSiteNavigation): its
+    // onPlaybackDrained hook is the seam the engine calls when the turn finishes.
+    const drainSpy = vi.fn();
+    const deferringAdapter: NavigationAdapter = { ...adapter, onPlaybackDrained: drainSpy };
+    const sock = fakeSocket();
+    const graph = fakeGraph((cb) => cb.onTextDelta?.('Opening the docs for you.' as never));
+    const playback = fakePlayback();
+    const orch = createVoiceOrchestratorFactory({ ...react, adapter: deferringAdapter }, {
+      socketFactory: sock.factory,
+      vadEngine: fakeVad().engine,
+      capture: fakeCapture(),
+      playback,
+      graph,
+      newId: () => 'req-nav',
+    })(hooks());
+    await orch.start(fakeStream);
+    sock.sock.onmessage?.({ data: JSON.stringify({ type: 'transcript', text: 'take me to the docs', isFinal: true }) });
+    await Promise.resolve();
+    await Promise.resolve();
+    // Final chunk received but audio still playing — the page-turn must NOT fire yet.
+    sock.sock.onmessage?.({ data: JSON.stringify({ type: 'audio', requestId: 'req-nav', audio: '', isFinal: true }) });
+    expect(drainSpy).not.toHaveBeenCalled();
+    // Speech drains → the engine flushes the deferred turn exactly once.
+    playback.drain();
+    expect(drainSpy).toHaveBeenCalledTimes(1);
   });
 
   it('seeds a proactive opening turn from openingContext on ws ready (spec-200 t-7 / ac-15)', async () => {
@@ -348,7 +392,9 @@ describe('voice orchestrator wiring (ac-11)', () => {
     await orch.start(fakeStream);
     sock.sock.onmessage?.({ data: JSON.stringify({ type: 'transcript', text: 'take me to standards', isFinal: true }) });
     await Promise.resolve();
-    expect(react.navigate).toHaveBeenCalledWith('/ns/mx/standards');
+    // The engine delegates to the adapter by SCREEN KEY; the adapter (app-side)
+    // owns key→path resolution and returns the outcome.
+    expect(navSpy).toHaveBeenCalledWith('standards-list');
   });
 
   it('end-of-utterance commits STT, plays the ack ping, and shows thinking', async () => {

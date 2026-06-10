@@ -14,7 +14,7 @@
 // way t-1's provider and the Silero engine are. All browser glue is injectable so
 // the orchestration logic is exercised without real Web Audio / sockets.
 
-import type { GuideElement } from '@memex/shared';
+import type { GuideElement, NavigationAdapter } from '../navigation/NavigationAdapter';
 import { SileroWorkletVadEngine } from '../micVad';
 import type { VadEngine } from '../micVad';
 import { WebAudioPlayback } from '../playbackQueue';
@@ -41,7 +41,10 @@ export interface ScreenContext {
 
 /** React-bound deps the factory needs (only resolvable inside the router tree). */
 export interface VoiceOrchestratorReactDeps {
-  navigate: (path: string) => void;
+  /** spec-222 (ac-9): the injected navigation seam. The host supplies a
+   *  react-router-backed adapter; the engine never imports react-router/@memex/shared.
+   *  The guide's `navigate` tool delegates to `adapter.navigate(screen)`. */
+  adapter: NavigationAdapter;
   /** spec-206 t-2/dec-1: advance the shared Handhold reveal pointer — the guide's
    *  `advance_demo` tool calls this to walk the demo board during the walkthrough. */
   advanceDemo: () => void;
@@ -218,7 +221,7 @@ class VoiceGuideOrchestrator implements VoiceOrchestrator {
     this.playback?.flush();
     this.barge?.endTurn();
 
-    const { screenKey, screenRegistry, namespace, memex } = this.react.getScreenContext();
+    const { screenKey, screenRegistry } = this.react.getScreenContext();
     this.turnAbort = new AbortController();
     let assistantText = '';
     try {
@@ -234,9 +237,7 @@ class VoiceGuideOrchestrator implements VoiceOrchestrator {
               },
               onUiTool: (name: string, _id: string, input: Record<string, unknown>) => {
                 dispatchGuideUiTool(name, input, {
-                  namespace,
-                  memex,
-                  navigate: this.react.navigate,
+                  adapter: this.react.adapter,
                   advanceDemo: this.react.advanceDemo,
                   startWalkthrough: this.react.startWalkthrough,
                 });
@@ -293,6 +294,11 @@ class VoiceGuideOrchestrator implements VoiceOrchestrator {
     // spec-211 t-1: the agent's spoken turn has fully played out — signal the
     // client tour sequencer so it can advance one phase (dec-1).
     this.hooks.onTurnComplete?.();
+    // spec-222 t-4 (dec-8): flush any DEFERRED destructive navigation the adapter
+    // queued during this turn (the website's staticSiteNavigation defers a
+    // cross-page page-turn to here, so Specky finishes speaking before the reload).
+    // The app's react-router adapter omits this hook → immediate soft-nav, unchanged.
+    this.react.adapter.onPlaybackDrained?.();
   }
 
   interrupt(): void {

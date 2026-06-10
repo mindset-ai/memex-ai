@@ -1,0 +1,41 @@
+{
+  "name": "@memex/guide-sdk",
+  "version": "0.1.0",
+  "license": "SEE LICENSE IN LICENSE.md",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "prepare": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@langchain/core": "^1.1.38",
+    "@langchain/langgraph": "^1.2.6",
+    "@ricky0123/vad-web": "^0.0.30",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@memex-ai-ac/vitest": "workspace:*",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "jsdom": "^29.0.1",
+    "typescript": "~5.7.2",
+    "vite": "^6.0.5",
+    "vitest": "^4.1.1"
+  }
+}

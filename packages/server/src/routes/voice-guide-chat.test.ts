@@ -128,9 +128,11 @@ describe("POST /voice/guide-chat — server-side retrieval runs every turn (ac-1
       messages: [{ role: "user", content: "how do phases work?" }],
       screenKey: "specs-list",
     });
-    // Layer 1 keyed on the screen; Layer 2 on the finalized utterance.
-    expect(retrieval.prefetch).toHaveBeenCalledWith("specs-list");
+    // Layer 1 keyed on the screen + surface (spec-222 t-7); Layer 2 on the
+    // finalized utterance, scoped to the 'memex-app' surface.
+    expect(retrieval.prefetch).toHaveBeenCalledWith("specs-list", "memex-app");
     expect(retrieval.search.mock.calls[0][0]).toBe("how do phases work?");
+    expect(retrieval.search.mock.calls[0][1]).toMatchObject({ surface: "memex-app" });
     const system = JSON.stringify(streamArgs.last?.system ?? []);
     expect(system).toContain("SCREEN: the Specs board");
     expect(system).toContain("SEARCH: phases are draft");

@@ -18,9 +18,11 @@ vi.mock('../../api/client', () => ({
 }));
 
 import { FirstRunGreeting, buildOnboardingOpeningContext } from './FirstRunGreeting';
-import { VoiceSessionProvider } from '../../voice/session/VoiceSessionContext';
-import { noopEarconPlayer } from '../../voice/session/earcons';
-import type { OrchestratorFactory } from '../../voice/session/orchestrator';
+import {
+  VoiceSessionProvider,
+  noopEarconPlayer,
+  type OrchestratorFactory,
+} from '@memex/guide-sdk';
 
 const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-206/acs/ac-${n}`;
 

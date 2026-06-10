@@ -7,8 +7,8 @@
 // reversible). The guide NEVER client-executes a product-data tool (dec-4 /
 // ac-28): dispatchGuideUiTool only knows highlight + navigate.
 
-import { screenKeyToPath } from '@memex/shared';
 import { findGuideElement } from './guideElements';
+import type { NavigationAdapter, NavigateOutcome } from './navigation/NavigationAdapter';
 
 const HIGHLIGHT_CLASS = 'guide-highlight';
 const DEFAULT_HIGHLIGHT_MS = 2500;
@@ -35,11 +35,10 @@ export function executeHighlight(
 }
 
 export interface NavigateContext {
-  /** Tenant scope from the CURRENT route — never resolved from product data. */
-  namespace: string;
-  memex: string;
-  /** The app router's navigate (react-router). */
-  navigate: (path: string) => void;
+  /** spec-222 (ac-9): the injected navigation seam. It OWNS key→path validation
+   *  and the actual navigation (the engine no longer touches react-router or
+   *  `@memex/shared`). executeNavigate delegates to `adapter.navigate(screen)`. */
+  adapter: NavigationAdapter;
   /** spec-206 t-2/dec-1: advance the shared Handhold reveal pointer (board walks
    *  draft→specify→build→verify→done). Optional so callers that don't wire it
    *  (and tests) degrade to a no-op rather than throwing. */
@@ -70,22 +69,17 @@ export function executeStartWalkthrough(ctx: NavigateContext): { ok: boolean } {
   return { ok: true };
 }
 
-export interface NavigateResult {
-  ok: boolean;
-  path?: string;
-  reason?: string;
-}
+export type NavigateResult = NavigateOutcome;
 
-/** Navigate to a registered, navigable screen. The screen key is validated
- *  against the registry BEFORE the router is touched (ac-26): an unregistered or
- *  detail-only (entity-requiring) destination is rejected without navigating. */
+/** Navigate to a registered, navigable screen. spec-222 (ac-9): the validate-then-
+ *  navigate decision now lives in the injected adapter — it owns key→path
+ *  resolution and the actual navigation, and returns the NavigateOutcome so the
+ *  ok/path/reason contract is preserved (an unregistered / detail-only destination
+ *  is rejected WITHOUT navigating, ac-26). The engine only guards the missing-screen
+ *  case before delegating. */
 export function executeNavigate(input: { screen?: string }, ctx: NavigateContext): NavigateResult {
-  const screen = input?.screen;
-  if (!screen) return { ok: false, reason: 'missing screen' };
-  const path = screenKeyToPath(screen, { namespace: ctx.namespace, memex: ctx.memex });
-  if (!path) return { ok: false, reason: 'not a navigable screen' };
-  ctx.navigate(path); // runs in the user's authed session via the app router
-  return { ok: true, path };
+  if (!input?.screen) return { ok: false, reason: 'missing screen' };
+  return ctx.adapter.navigate(input.screen);
 }
 
 /** The names the guide executes CLIENT-side. (search_guide is a SERVER tool,

@@ -333,6 +333,9 @@ export async function importGuideContent(
       const chunk = file.chunks[index];
       summary.chunksSeen += 1;
       const input: GuideChunkInput = {
+        // spec-222 t-7 (dec-3): the existing import is the in-product app corpus.
+        // Website ingestion is a later task; this caller is always 'memex-app'.
+        surface: "memex-app",
         screenKey: file.screenKey,
         sourcePath: file.sourcePath,
         chunkIndex: index,

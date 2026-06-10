@@ -15,7 +15,7 @@
 import { Annotation, StateGraph, MemorySaver } from '@langchain/langgraph';
 import type { RunnableConfig } from '@langchain/core/runnables';
 import { callGuideLlmProxy, type GuideScreenElement } from './guideLlmClient';
-import type { MessageParam, ContentBlock, ToolUseBlock } from '../agent/types';
+import type { MessageParam, ContentBlock, ToolUseBlock } from './agent-types';
 
 /** Tools the guide executes CLIENT-side (React performs them): highlight a
  *  registry element, navigate to a registry screen (dec-4, t-5), and advance the

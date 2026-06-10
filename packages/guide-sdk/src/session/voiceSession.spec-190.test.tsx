@@ -4,13 +4,23 @@
 // not load; denied recovery; disabled when no mic; no transcript; earcons via app
 // playback). All injectable deps are faked so the flow runs in jsdom with no real
 // Web Audio / mic / orchestrator.
+//
+// spec-222 (ac-9): this test moved into guide-sdk with the engine, so it can no
+// longer import the app-only VoiceLayer (which uses react-router + @memex/shared).
+// Instead a tiny in-test harness replicates VoiceLayer's render decision — show the
+// pill when active, the recovery card on denied/error, else the in-view icon ONLY
+// on a "registered" screen — driving the screen gating through an injected current
+// path (the same seam the real VoiceLayer reads via resolveScreenKey). Every
+// assertion + tagAc is preserved.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
-import { MemoryRouter, useNavigate } from 'react-router-dom';
 import { tagAc } from '@memex-ai-ac/vitest';
-import { VoiceSessionProvider } from './VoiceSessionContext';
-import { VoiceLayer } from './VoiceLayer';
+import { useState } from 'react';
+import { VoiceSessionProvider, useVoiceSession } from './VoiceSessionContext';
+import { VoiceIcon } from './VoiceIcon';
+import { VoiceSessionPill } from './VoiceSessionPill';
+import { Specky } from '../components/Specky';
 import type { EarconPlayer } from './earcons';
 import type { Earcon } from './voiceSessionModel';
 import type { OrchestratorFactory, OrchestratorHooks } from './orchestrator';
@@ -22,6 +32,45 @@ const AC31 = 'mindset-prod/memex-building-itself/specs/spec-190/acs/ac-31';
 // journey-21; tagged here too so they verify off the deterministic unit tests.
 const AC1 = 'mindset-prod/memex-building-itself/specs/spec-190/acs/ac-1';
 const AC5 = 'mindset-prod/memex-building-itself/specs/spec-190/acs/ac-5';
+
+const ANCHOR = 'fixed bottom-6 right-6 z-50';
+
+// A registered-screen predicate standing in for the app's resolveScreenKey: any
+// path that isn't the explicit "not-a-registered-screen" sentinel is registered.
+function screenKeyFor(path: string): string | null {
+  return path.includes('not-a-registered-screen') ? null : 'specs-list';
+}
+
+// The in-test VoiceLayer: mirrors the real component's decision tree, but gates the
+// icon on the injected current path instead of react-router's useLocation.
+function VoiceLayerHarness({ path }: { path: string }): React.JSX.Element | null {
+  const session = useVoiceSession();
+  if (session.status === 'active') {
+    return (
+      <div className={ANCHOR}>
+        <VoiceSessionPill />
+      </div>
+    );
+  }
+  if (session.status === 'permission_denied' || session.status === 'error') {
+    return (
+      <div className={ANCHOR} data-voice-recovery data-recovery-kind={session.status}>
+        <button type="button" data-voice-retry onClick={() => void session.retryPermission()}>
+          Retry
+        </button>
+        <button type="button" data-voice-dismiss onClick={session.end}>
+          Dismiss
+        </button>
+      </div>
+    );
+  }
+  if (screenKeyFor(path) === null) return null;
+  return (
+    <div className={ANCHOR}>
+      <VoiceIcon mark={<Specky size={40} />} />
+    </div>
+  );
+}
 
 function recordingEarcons(): EarconPlayer & { played: Earcon[] } {
   const played: Earcon[] = [];
@@ -48,13 +97,6 @@ function fakeOrchestrator(): {
   return { factory, hooks: () => captured!, calls };
 }
 
-// A tiny nav control so we can change routes WITHOUT remounting the provider
-// (proving the pill persists across route changes).
-function Nav({ to }: { to: string }) {
-  const navigate = useNavigate();
-  return <button data-testid={`nav-${to}`} onClick={() => navigate(to)}>go</button>;
-}
-
 interface HarnessOpts {
   initialPath?: string;
   getUserMedia?: (c: MediaStreamConstraints) => Promise<MediaStream>;
@@ -63,22 +105,27 @@ interface HarnessOpts {
   factory?: OrchestratorFactory;
 }
 
-function renderVoice(opts: HarnessOpts = {}) {
+// A tiny route control so we can change the "screen" WITHOUT remounting the
+// provider (proving the pill persists across route changes).
+function Harness({ opts }: { opts: HarnessOpts }): React.JSX.Element {
+  const [path, setPath] = useState(opts.initialPath ?? '/ns/mx/specs');
   const earcons = opts.earcons ?? recordingEarcons();
-  return render(
-    <MemoryRouter initialEntries={[opts.initialPath ?? '/ns/mx/specs']}>
-      <VoiceSessionProvider
-        earcons={earcons}
-        getUserMedia={opts.getUserMedia ?? (async () => fakeStream())}
-        detectMic={opts.detectMic ?? (() => true)}
-        orchestratorFactory={opts.factory}
-      >
-        <VoiceLayer />
-        <Nav to="/ns/mx/standards" />
-        <Nav to="/ns/mx/not-a-registered-screen" />
-      </VoiceSessionProvider>
-    </MemoryRouter>,
+  return (
+    <VoiceSessionProvider
+      earcons={earcons}
+      getUserMedia={opts.getUserMedia ?? (async () => fakeStream())}
+      detectMic={opts.detectMic ?? (() => true)}
+      orchestratorFactory={opts.factory}
+    >
+      <VoiceLayerHarness path={path} />
+      <button data-testid="nav-/ns/mx/standards" onClick={() => setPath('/ns/mx/standards')}>go</button>
+      <button data-testid="nav-/ns/mx/not-a-registered-screen" onClick={() => setPath('/ns/mx/not-a-registered-screen')}>go</button>
+    </VoiceSessionProvider>
   );
+}
+
+function renderVoice(opts: HarnessOpts = {}) {
+  return render(<Harness opts={opts} />);
 }
 
 function fakeStream(): MediaStream {

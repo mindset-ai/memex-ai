@@ -14,7 +14,7 @@ vi.mock('./guideLlmClient', () => ({
 
 import { createGuideGraph, GUIDE_CLIENT_TOOLS } from './guideGraph';
 import { callGuideLlmProxy, type GuideLlmInput } from './guideLlmClient';
-import type { ContentBlock } from '../agent/types';
+import type { ContentBlock } from './agent-types';
 
 const AC11 = 'mindset-prod/memex-building-itself/specs/spec-190/acs/ac-11';
 // Scope ac-4: the guide's context follows navigation — screens are STATE, refreshed

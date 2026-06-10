@@ -1,23 +1,26 @@
 // spec-197 Slice 2 wiring (t-2 / t-3 / t-4) — Specky filling spec-190's voice
-// surface. These tests need spec-190's VoiceLayer/VoiceIcon/VoiceSessionPill on
-// develop (now merged via #67). The standalone renderer + idle-only/no-Lottie
-// guarantees are covered by Specky.test.tsx (t-5); here we assert the WIRING:
-//   - entry doorway shows the QUIET (static) Specky, not the neutral glyph and
-//     not the wobbling idle loop (dec-2 / ac-8, ac-1 entry side);
+// surface. The standalone renderer + idle-only/no-Lottie guarantees are covered by
+// Specky.test.tsx (t-5); here we assert the WIRING:
+//   - entry doorway shows the ANIMATED (alive) Specky, not the neutral glyph
+//     (dec-2 revised / ac-8, ac-1 entry side);
 //   - one click opens the session and surfaces the ANIMATED Specky in the pill
 //     (dec-1 / ac-2, ac-9, ac-1 pill side);
 //   - the SAME character serves both surfaces (ac-1);
 //   - where the guide is absent (unregistered screen), no Specky appears (ac-6).
 //
-// Harness mirrors voiceSession.spec-190.test.tsx: all session deps are faked so
-// the inactive→active flow runs in jsdom with no real mic/audio/orchestrator.
+// spec-222 (ac-9): moved into guide-sdk with the engine, so it no longer imports
+// the app-only VoiceLayer (react-router + @memex/shared). A tiny in-test harness
+// replicates VoiceLayer's render decision, gating the icon on an injected path
+// (the same seam the real VoiceLayer reads via resolveScreenKey). Every assertion +
+// tagAc is preserved.
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
 import { tagAc } from '@memex-ai-ac/vitest';
-import { VoiceSessionProvider } from './VoiceSessionContext';
-import { VoiceLayer } from './VoiceLayer';
+import { VoiceSessionProvider, useVoiceSession } from './VoiceSessionContext';
+import { VoiceIcon } from './VoiceIcon';
+import { VoiceSessionPill } from './VoiceSessionPill';
+import { Specky } from '../components/Specky';
 
 const AC_IDENTITY = 'mindset-prod/memex-building-itself/specs/spec-197/acs/ac-1';
 const AC_CLICK_OPENS = 'mindset-prod/memex-building-itself/specs/spec-197/acs/ac-2';
@@ -28,21 +31,44 @@ const AC_ONE_GESTURE = 'mindset-prod/memex-building-itself/specs/spec-197/acs/ac
 const REGISTERED = '/ns/mx/specs';
 const UNREGISTERED = '/ns/mx/not-a-registered-screen';
 
+const ANCHOR = 'fixed bottom-6 right-6 z-50';
+
+function isRegistered(path: string): boolean {
+  return !path.includes('not-a-registered-screen');
+}
+
+// In-test VoiceLayer: pill when active, else the in-view icon ONLY on a registered
+// screen — mirrors the real component's decision tree without react-router.
+function VoiceLayerHarness({ path }: { path: string }): React.JSX.Element | null {
+  const session = useVoiceSession();
+  if (session.status === 'active') {
+    return (
+      <div className={ANCHOR}>
+        <VoiceSessionPill />
+      </div>
+    );
+  }
+  if (!isRegistered(path)) return null;
+  return (
+    <div className={ANCHOR}>
+      <VoiceIcon mark={<Specky size={40} />} />
+    </div>
+  );
+}
+
 function fakeStream(): MediaStream {
   return { getTracks: () => [{ stop: () => {} }] } as unknown as MediaStream;
 }
 
 function renderVoice(initialPath = REGISTERED) {
   return render(
-    <MemoryRouter initialEntries={[initialPath]}>
-      <VoiceSessionProvider
-        getUserMedia={async () => fakeStream()}
-        detectMic={() => true}
-        earcons={{ play: () => {}, dispose: () => {} }}
-      >
-        <VoiceLayer />
-      </VoiceSessionProvider>
-    </MemoryRouter>,
+    <VoiceSessionProvider
+      getUserMedia={async () => fakeStream()}
+      detectMic={() => true}
+      earcons={{ play: () => {}, dispose: () => {} }}
+    >
+      <VoiceLayerHarness path={initialPath} />
+    </VoiceSessionProvider>,
   );
 }
 

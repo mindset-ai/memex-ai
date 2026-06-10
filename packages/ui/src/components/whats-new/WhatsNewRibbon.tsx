@@ -9,7 +9,7 @@
 // explain it (t-7 wires onExplain).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Specky } from '../Specky';
+import { Specky } from '@memex/guide-sdk';
 import { Confetti } from './Confetti';
 import { fetchWhatsNew, type WhatsNewEntry } from '../../api/whatsNew';
 

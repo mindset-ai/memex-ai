@@ -101,10 +101,16 @@ async function assembleGuideContext(
   utterance: string,
   clientContext: string[] | undefined,
 ): Promise<string[]> {
+  // spec-222 t-7 (dec-3): retrieval is surface-keyed. This authenticated in-app
+  // voice path reads the 'memex-app' corpus only — behaviour unchanged. The
+  // website path (and binding the surface from the signed anon session token)
+  // arrives in a later task; the surface is a SERVER-supplied argument, never
+  // client free input.
+  const surface = "memex-app" as const;
   const [screenChunks, searchHits] = await Promise.all([
-    screenKey ? prefetchScreenContent(screenKey).catch(() => []) : Promise.resolve<string[]>([]),
+    screenKey ? prefetchScreenContent(screenKey, surface).catch(() => []) : Promise.resolve<string[]>([]),
     utterance.trim()
-      ? searchGuideContent(utterance, { limit: 4 }).then((h) => h.map((x) => x.content)).catch(() => [])
+      ? searchGuideContent(utterance, { surface, limit: 4 }).then((h) => h.map((x) => x.content)).catch(() => [])
       : Promise.resolve<string[]>([]),
   ]);
   const seen = new Set<string>();

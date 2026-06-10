@@ -12,10 +12,15 @@
 
 import { useLocation } from 'react-router-dom';
 import { resolveScreenKey } from '@memex/shared';
-import { useVoiceSession } from './VoiceSessionContext';
-import { VoiceIcon } from './VoiceIcon';
-import { VoiceSessionPill } from './VoiceSessionPill';
-import { Specky } from '../../components/Specky';
+// spec-222: the voice surface components now ship from @memex/guide-sdk. VoiceLayer
+// itself STAYS app-side because it reads the route (useLocation) + the registry
+// (resolveScreenKey) to gate the icon — the app-only coupling the engine sheds.
+import {
+  useVoiceSession,
+  VoiceIcon,
+  VoiceSessionPill,
+  Specky,
+} from '@memex/guide-sdk';
 
 const ANCHOR = 'fixed bottom-6 right-6 z-50';
 

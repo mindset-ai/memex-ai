@@ -9,7 +9,7 @@
 
 import { useVoiceSession } from './VoiceSessionContext';
 import { loopStateLabel } from './voiceSessionModel';
-import { Specky } from '../../components/Specky';
+import { Specky } from '../components/Specky';
 
 export function VoiceSessionPill(): React.JSX.Element {
   const session = useVoiceSession();

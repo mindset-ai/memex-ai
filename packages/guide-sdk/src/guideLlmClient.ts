@@ -10,9 +10,12 @@
 // elements + pre-fetched guide-content chunks). The guide teaches the product;
 // it never reads tenant data (dec-4).
 
-import { fetchWithRetry } from '../api/client';
-import { tenantBase, BASE_URL } from '../api/http';
-import type { MessageParam, LlmProxyEvent } from '../agent/types';
+// spec-222 (ac-9): the engine no longer reaches into the app's `../api/*`. The
+// host injects the base URL + (optionally) a retrying fetch through the backend
+// descriptor (backend.ts); the app re-injects `fetchWithRetry` so the retry
+// behaviour is preserved app-side.
+import { getGuideBackend } from './backend';
+import type { MessageParam, LlmProxyEvent } from './agent-types';
 
 /** A highlightable element on the current screen (subset of the dec-3 registry;
  *  t-4 provides the canonical type in @memex/shared). */
@@ -34,10 +37,6 @@ export interface GuideLlmInput {
 let authToken: string | null = null;
 export function setGuideAuthToken(token: string | null): void {
   authToken = token;
-}
-
-function guideBase(): string {
-  return tenantBase() ?? BASE_URL;
 }
 
 /** Parse the server's SSE stream into typed guide-LLM events (shared shape with
@@ -88,7 +87,11 @@ export async function* callGuideLlmProxy(
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
 
-  const res = await fetchWithRetry(`${guideBase()}/voice/guide-chat`, {
+  // spec-222 (ac-9): base URL + fetch come from the injected backend descriptor.
+  // The app re-injects a retrying fetchImpl, so the prior retry behaviour is kept
+  // host-side; a plain host gets a single global `fetch`.
+  const { baseUrl, fetchImpl } = getGuideBackend();
+  const res = await (fetchImpl ?? fetch)(`${baseUrl}/voice/guide-chat`, {
     method: 'POST',
     headers,
     body: JSON.stringify(input),

@@ -28,13 +28,15 @@ const AC_ASSET_HOME = 'mindset-prod/memex-building-itself/specs/spec-197/acs/ac-
 const AC_RASTER_REGEN = 'mindset-prod/memex-building-itself/specs/spec-197/acs/ac-12'; // dec-4 reproducible rasters
 const AC_REDUCED_MOTION_IMPL = 'mindset-prod/memex-building-itself/specs/spec-197/acs/ac-13'; // dec-5 static, not hidden
 
-const SRC_DIR = dirname(fileURLToPath(import.meta.url)); // packages/ui/src
-const UI_ROOT = join(SRC_DIR, '..'); // packages/ui
+// spec-222: Specky moved into @memex/guide-sdk; the bundler-imported copy now
+// lives under packages/guide-sdk/src/assets (these paths track that home).
+const SRC_DIR = dirname(fileURLToPath(import.meta.url)); // packages/guide-sdk/src
+const PKG_ROOT = join(SRC_DIR, '..'); // packages/guide-sdk
 const REPO_ROOT = join(SRC_DIR, '..', '..', '..'); // repo root
 
 const CANONICAL_SVG = join(REPO_ROOT, 'assets', 'specky', 'specky.svg');
 const UI_ASSET_SVG = join(SRC_DIR, 'assets', 'specky.svg'); // bundler-imported
-const PUBLIC_SVG = join(UI_ROOT, 'public', 'specky.svg'); // the WRONG (unrouted) place
+const PUBLIC_SVG = join(PKG_ROOT, 'public', 'specky.svg'); // the WRONG (unrouted) place
 const CANONICAL_STATIC = join(REPO_ROOT, 'assets', 'specky', 'specky-static.svg');
 const UI_STATIC_SVG = join(SRC_DIR, 'assets', 'specky-static.svg'); // quiet-doorway variant
 const MAKE_RASTER = join(REPO_ROOT, 'assets', 'specky', 'make_raster.py');
