@@ -1,22 +1,30 @@
 // SpecHealthIndicator — per-card AC-health visual treatment for the Specs
-// board (b-66). Three layered signals so the card reads at every zoom level:
+// board (b-66). Two layered signals so the card reads at every zoom level:
 //
-//   1. Thin left-border accent (3px) — state-coded; scan-distance signal
-//   2. Horizontal progress strip along the bottom (2px) — four-way breakdown
-//   3. Tiny coverage chip in the bottom-right — exact numbers
+//   1. Horizontal progress strip along the bottom (4px) — the dominant signal,
+//      a proportional breakdown of the active ACs. Full card width; its ends
+//      curve with the card so the bottom edge reads as one clean bar.
+//   2. Tiny coverage chip in the bottom-right — exact numbers.
+//
+// The left-border accent that earlier carried the scan-distance signal was
+// removed (design review, Jun 2026): the bottom strip alone is the prominent
+// health read, so the two-bars-meeting-at-the-corner mess is gone with it.
+// NOTE: this supersedes b-66 dec-1 (three signals) and the "border is the
+// alarm" half of b-66 dec-2 — the spec text needs revising to match.
 //
 // Reuses STATE_DOT / STATE_PILL / STATE_LABEL from AcPill.tsx — does NOT
 // define a parallel state→colour mapping (b-66 ac-2).
 //
-// Card-level palette has four buckets (verified / failing / partial-amber /
-// no-commitments). The four-way breakdown survives one level down on the
-// progress strip, where it pulls AcPill's per-state colours directly so the
-// AC tab's vocabulary holds (b-66 dec-3).
+// Strip palette: verified=green, failing=rose, and everything not yet backed
+// by a passing test (stale + untested) reads as YELLOW (amber-400). There is
+// deliberately NO grey on the strip (design review, Jun 2026): an untested AC
+// is a real "needs a test" commitment, so it warns yellow rather than reading
+// as dead/absent. This supersedes b-66 dec-3's zinc-300 untested segment.
 //
-// Failing-wins semantics (b-66 dec-2): any `failing > 0` paints the border red
-// and the chip shows the failing count, even if 49 of 50 ACs are verified.
-// The strip still shows the green/red proportion so the manager can read
-// "1 of 50" without clicking in. Border is the alarm; strip is the detail.
+// Failing-wins semantics (b-66 dec-2): any `failing > 0` still sizes the chip
+// to the failing count ("1 failing", not "49/50 verified"). The strip carries
+// the green/red proportion so the manager can read "1 of 50" without clicking
+// in. The chip is now the alarm; the strip is the detail.
 //
 // Absence-of-signal rule (b-66 ac-4): when `health` is undefined or
 // `totalActive === 0`, every sub-component returns null. The caller can render
@@ -47,18 +55,6 @@ export function deriveCardHealthState(health: AcHealth | undefined): CardHealthS
   return 'partial';
 }
 
-// Card-level palette. Border classes only — kept narrow on purpose so the
-// dominant state is legible at scan distance without making the verified
-// case feel like a celebration (b-66 ac-5: "verified is the calm default").
-// Verified deliberately uses a softer green (green-500/60 vs green-500) so
-// a fully-green board doesn't feel loud; failing keeps full intensity
-// because that's the alarm.
-const BORDER_BY_STATE: Record<Exclude<CardHealthState, 'no-commitments'>, string> = {
-  verified: 'border-l-[3px] border-l-green-500/60',
-  failing: 'border-l-[3px] border-l-rose-500',
-  partial: 'border-l-[3px] border-l-amber-400/80',
-};
-
 // Chip palette. Mirrors AcPill's chipByState tones (bg-{colour}/10 +
 // text-{colour}-700/dark:text-{colour}-400) so the chip on the card reads
 // the same as a pill on the AC tab. Verified chip is intentionally muted —
@@ -71,17 +67,6 @@ const CHIP_BY_STATE: Record<Exclude<CardHealthState, 'no-commitments'>, string> 
 
 interface SpecHealthIndicatorProps {
   health: AcHealth | undefined;
-}
-
-/**
- * Returns the Tailwind border class to apply to the card's root element.
- * Empty string when there's no signal — caller spreads it into className
- * unconditionally and the card renders exactly as today.
- */
-export function borderClassForHealth(health: AcHealth | undefined): string {
-  const state = deriveCardHealthState(health);
-  if (state === 'no-commitments') return '';
-  return BORDER_BY_STATE[state];
 }
 
 /**
@@ -118,10 +103,11 @@ export function SpecHealthChip({ health }: SpecHealthIndicatorProps) {
 }
 
 /**
- * The bottom progress strip. 2px tall, full card width, divided into four
- * proportional segments (verified / failing / stale / untested) using
- * AcPill's per-state colours so the strip reads as a horizontal flattening
- * of the AC tab's pills.
+ * The bottom progress strip. 4px tall, full card width, divided into
+ * proportional segments. Verified is green and failing is rose (AcPill's
+ * colours); stale and untested both read YELLOW (amber-400) — anything not
+ * yet backed by a passing test is one "needs a test" warning band, with no
+ * grey on the strip (design review, Jun 2026; supersedes b-66 dec-3).
  *
  * Renders null when health is absent or totalActive is 0 — the absence-
  * of-signal rule (b-66 ac-4).
@@ -137,14 +123,14 @@ export function SpecHealthStrip({ health }: SpecHealthIndicatorProps) {
   const verifiedPct = Math.round((health.verified / total) * 100);
   const failingPct = Math.round((health.failing / total) * 100);
   const stalePct = Math.round((health.stale / total) * 100);
-  // Residual goes to untested so the four segments always sum to exactly
-  // 100% regardless of rounding direction. Untested is the visual "rest"
-  // bucket anyway, so the residual lands in the most-honest place.
+  // Residual goes to untested so the segments always sum to exactly 100%
+  // regardless of rounding direction. Untested is the visual "rest" bucket
+  // anyway, so the residual lands in the most-honest place.
   const untestedPct = Math.max(0, 100 - verifiedPct - failingPct - stalePct);
   return (
     <div
       data-testid="spec-health-strip"
-      className="absolute inset-x-0 bottom-0 h-[2px] flex overflow-hidden rounded-b-md"
+      className="absolute inset-x-0 bottom-0 h-[4px] flex overflow-hidden rounded-b-md"
       aria-hidden="true"
     >
       {verifiedPct > 0 && (
@@ -171,7 +157,7 @@ export function SpecHealthStrip({ health }: SpecHealthIndicatorProps) {
       {untestedPct > 0 && (
         <div
           data-testid="spec-health-strip-untested"
-          className="bg-zinc-300"
+          className="bg-amber-400"
           style={{ width: `${untestedPct}%` }}
         />
       )}

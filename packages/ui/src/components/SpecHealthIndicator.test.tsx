@@ -5,7 +5,6 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import {
-  borderClassForHealth,
   SpecHealthChip,
   SpecHealthStrip,
   deriveCardHealthState,
@@ -67,38 +66,6 @@ describe('deriveCardHealthState', () => {
   });
 });
 
-describe('borderClassForHealth', () => {
-  it('returns an empty string when there are no commitments (absence is the signal)', () => {
-    // b-66 ac-4: card renders exactly as today when totalActive === 0.
-    tagAc(`${B66}/acs/ac-4`);
-    expect(borderClassForHealth(undefined)).toBe('');
-    expect(borderClassForHealth(makeHealth({ totalActive: 0 }))).toBe('');
-  });
-
-  it('returns a red border class on failing (one failing out of ten)', () => {
-    tagAc(`${B66}/acs/ac-1`);
-    tagAc(`${B66}/acs/ac-2`); // visual vocabulary matches AcPill's rose-500
-    const cls = borderClassForHealth(makeHealth({ totalActive: 10, verified: 9, failing: 1 }));
-    expect(cls).toContain('border-l-rose-500');
-  });
-
-  it('returns a softer green border on verified — the calm default', () => {
-    // b-66 ac-5: verified is the calm default, not the celebration. We
-    // assert the muted variant (green-500/60) over full green-500 — keeps
-    // a fully-green board from feeling loud.
-    tagAc(`${B66}/acs/ac-5`);
-    const cls = borderClassForHealth(makeHealth({ totalActive: 3, verified: 3 }));
-    expect(cls).toContain('border-l-green-500/60');
-    expect(cls).not.toContain('border-l-green-500 ');
-  });
-
-  it('returns an amber border on partial', () => {
-    tagAc(`${B66}/acs/ac-1`);
-    const cls = borderClassForHealth(makeHealth({ totalActive: 5, verified: 3, untested: 2 }));
-    expect(cls).toContain('border-l-amber-400');
-  });
-});
-
 describe('SpecHealthChip', () => {
   it('renders nothing when there are no commitments', () => {
     // b-66 ac-4
@@ -146,10 +113,12 @@ describe('SpecHealthStrip', () => {
     expect(c2).toBeEmptyDOMElement();
   });
 
-  it('reuses AcPill colours for the four segments (no parallel mapping)', () => {
-    // b-66 ac-2: visual vocabulary identical to AcPill. AcPill uses
-    // bg-green-500 / bg-rose-500 / bg-amber-400 / bg-zinc-300 on the
-    // STATE_DOT map — assert the strip pulls the same.
+  it('reuses AcPill colours for verified/failing; stale + untested both read yellow', () => {
+    // b-66 ac-2: verified/failing keep AcPill's green-500/rose-500. Stale and
+    // untested both render amber-400 (yellow) — design review (Jun 2026)
+    // removed grey from the strip so anything not backed by a passing test
+    // reads as one "needs a test" warning band. Supersedes b-66 dec-3's
+    // zinc-300 untested segment.
     tagAc(`${B66}/acs/ac-2`);
     render(
       <SpecHealthStrip
@@ -165,7 +134,18 @@ describe('SpecHealthStrip', () => {
     expect(screen.getByTestId('spec-health-strip-verified')).toHaveClass('bg-green-500');
     expect(screen.getByTestId('spec-health-strip-failing')).toHaveClass('bg-rose-500');
     expect(screen.getByTestId('spec-health-strip-stale')).toHaveClass('bg-amber-400');
-    expect(screen.getByTestId('spec-health-strip-untested')).toHaveClass('bg-zinc-300');
+    expect(screen.getByTestId('spec-health-strip-untested')).toHaveClass('bg-amber-400');
+    // No grey anywhere on the strip — the affront the design review removed.
+    expect(screen.getByTestId('spec-health-strip-untested')).not.toHaveClass('bg-zinc-300');
+  });
+
+  it('is 4px tall — the dominant, prominent health signal (left border removed)', () => {
+    // Design review (Jun 2026): the bottom strip is now the sole AC-health
+    // bar (the left-border accent was dropped), bumped 2px -> 4px so it reads
+    // as something you're meant to look at.
+    tagAc(`${B66}/acs/ac-2`);
+    render(<SpecHealthStrip health={makeHealth({ totalActive: 4, verified: 4 })} />);
+    expect(screen.getByTestId('spec-health-strip')).toHaveClass('h-[4px]');
   });
 
   it('shows the green/red proportion on a failing card (strip is the detail)', () => {
@@ -216,18 +196,14 @@ describe('SpecHealthStrip', () => {
 // resolution has a verifying test in the codebase.
 // ──────────────────────────────────────────────────────────────────────────
 
-describe('dec-1 (Option 5: border + strip + chip) — all three signals render together', () => {
-  it('renders all three signals when health is present with totalActive > 0', () => {
-    // dec-1: the resolved decision picked Option 5 specifically because it
-    // reads at every zoom level — colour at scan, breakdown at 100%, number
-    // close-up. Each signal must be present; missing any one degrades the
-    // resolution silently.
+describe('dec-1 (strip + chip) — both signals render together', () => {
+  // SUPERSEDES b-66 dec-1's Option 5 (border + strip + chip). The left-border
+  // accent was removed in the Jun 2026 design review; the card now carries
+  // two signals — the 4px bottom strip (breakdown) and the chip (number).
+  // Spec text needs revising to match.
+  it('renders both signals when health is present with totalActive > 0', () => {
     tagAc(`${B66}/acs/ac-6`);
     const health = makeHealth({ totalActive: 4, verified: 4 });
-
-    // Border signal — non-empty class string is the trigger BriefList uses
-    // when concatenating into the card's className.
-    expect(borderClassForHealth(health)).not.toBe('');
 
     // Strip signal.
     const stripRender = render(<SpecHealthStrip health={health} />);
@@ -240,14 +216,10 @@ describe('dec-1 (Option 5: border + strip + chip) — all three signals render t
     chipRender.unmount();
   });
 
-  it('none of the three signals render when there are no commitments', () => {
-    // Same decision, inverse case: Option 5 is the steady state of a card
-    // WITH commitments. A no-commitments Spec must not show any of the
-    // three signals (b-66 Scope AC-4 — absence-of-signal). dec-1's
-    // resolution doesn't override that.
+  it('neither signal renders when there are no commitments', () => {
+    // Inverse case: a no-commitments Spec must not show the strip or the chip
+    // (b-66 Scope AC-4 — absence-of-signal).
     tagAc(`${B66}/acs/ac-6`);
-    expect(borderClassForHealth(undefined)).toBe('');
-
     const stripRender = render(<SpecHealthStrip health={undefined} />);
     expect(stripRender.container).toBeEmptyDOMElement();
     stripRender.unmount();
@@ -258,27 +230,22 @@ describe('dec-1 (Option 5: border + strip + chip) — all three signals render t
   });
 });
 
-describe('dec-2 (failing-wins, not proportional) — one failing AC paints the card red', () => {
-  it('paints the border red, sizes the chip to "N failing", AND keeps the green segment proportional', () => {
-    // dec-2: "The border is the alarm, the strip is the detail."
-    // Border + chip BOTH go to the alarm semantic; the strip keeps the
-    // proportional truth. Test all three behaviours on the same input so
-    // the resolution can't be partially-implemented (e.g. chip but no red
-    // border) without this test failing.
+describe('dec-2 (failing-wins, not proportional) — one failing AC is the alarm', () => {
+  // SUPERSEDES the "border is the alarm" half of b-66 dec-2: with the left
+  // border gone, the chip carries the alarm and the strip keeps the detail.
+  it('sizes the chip to "N failing" AND keeps the strip green/red proportional', () => {
     tagAc(`${B66}/acs/ac-7`);
     const health = makeHealth({ totalActive: 50, verified: 49, failing: 1 });
 
-    // 1. Border → red (alarm)
-    expect(borderClassForHealth(health)).toContain('border-l-rose-500');
-
-    // 2. Chip → "1 failing", not "49/50 verified" (alarm)
+    // 1. Chip → "1 failing", not "49/50 verified" (the alarm)
     const chipRender = render(<SpecHealthChip health={health} />);
     const chip = chipRender.getByTestId('spec-health-chip');
     expect(chip).toHaveTextContent('1 failing');
     expect(chip).not.toHaveTextContent('49/50 verified');
+    expect(chip).toHaveAttribute('data-health-state', 'failing');
     chipRender.unmount();
 
-    // 3. Strip → green dominates, red sliver visible (detail)
+    // 2. Strip → green dominates, red sliver visible (the detail)
     const stripRender = render(<SpecHealthStrip health={health} />);
     const green = stripRender.getByTestId('spec-health-strip-verified');
     const red = stripRender.getByTestId('spec-health-strip-failing');
@@ -287,38 +254,37 @@ describe('dec-2 (failing-wins, not proportional) — one failing AC paints the c
     stripRender.unmount();
   });
 
-  it('does not promote to red when failing is 0 (alarm is bound to failing, not partial)', () => {
-    // Inverse case: a partial card (untested or stale, no failing) does
-    // NOT get the failing-wins treatment. The alarm is specifically tied
-    // to failing > 0, not to "anything less than fully verified".
+  it('does not promote the chip to failing when failing is 0 (alarm is bound to failing, not partial)', () => {
+    // Inverse case: a partial card (untested or stale, no failing) does NOT
+    // get the failing alarm. It's specifically tied to failing > 0, not to
+    // "anything less than fully verified".
     tagAc(`${B66}/acs/ac-7`);
     const partial = makeHealth({ totalActive: 5, verified: 3, untested: 2 });
-    expect(borderClassForHealth(partial)).not.toContain('rose-500');
-    expect(borderClassForHealth(partial)).toContain('amber-400');
+    expect(deriveCardHealthState(partial)).toBe('partial');
+    const chipRender = render(<SpecHealthChip health={partial} />);
+    expect(chipRender.getByTestId('spec-health-chip')).toHaveAttribute('data-health-state', 'partial');
+    chipRender.unmount();
   });
 });
 
-describe('dec-3 (amber-collapse) — card-level palette has four states, strip carries the four-way split', () => {
+describe('dec-3 (amber-collapse) — card-level palette has four states; strip is verified/failing/yellow', () => {
   it('stale-only and untested-only Specs render the same card-level state (both → partial)', () => {
     // dec-3: stale and untested collapse into one card-level amber state.
     // The promise is that a manager scanning the board only learns four
-    // colours — not five — and the strip carries the underlying detail.
-    // Failure mode this catches: someone adds a fifth state because
-    // "stale should look softer" without first updating dec-3.
+    // colours — not five.
     tagAc(`${B66}/acs/ac-8`);
     const allStale = makeHealth({ totalActive: 3, verified: 0, stale: 3 });
     const allUntested = makeHealth({ totalActive: 3, verified: 0, untested: 3 });
     expect(deriveCardHealthState(allStale)).toBe('partial');
     expect(deriveCardHealthState(allUntested)).toBe('partial');
-    // And they produce the same border class — not just the same state name.
-    expect(borderClassForHealth(allStale)).toBe(borderClassForHealth(allUntested));
+    // And they produce the same card-level state — not just by coincidence.
+    expect(deriveCardHealthState(allStale)).toBe(deriveCardHealthState(allUntested));
   });
 
-  it('strip preserves the four-way split using AcPill colours (stale ≠ untested ON THE STRIP)', () => {
-    // The card-level collapse to amber is intentional; the strip is where
-    // dec-3 promises the detail survives. Render a mixed strip with both
-    // stale AND untested and verify both segments appear with their
-    // distinct AcPill colours (amber-400 for stale, zinc-300 for untested).
+  it('strip renders stale AND untested both as yellow (no grey — supersedes dec-3 zinc split)', () => {
+    // The Jun 2026 design review removed grey from the strip: stale and
+    // untested now share amber-400 so the bottom bar never reads as dead.
+    // This deliberately collapses dec-3's stale≠untested strip distinction.
     tagAc(`${B66}/acs/ac-8`);
     render(
       <SpecHealthStrip
@@ -326,7 +292,8 @@ describe('dec-3 (amber-collapse) — card-level palette has four states, strip c
       />,
     );
     expect(screen.getByTestId('spec-health-strip-stale')).toHaveClass('bg-amber-400');
-    expect(screen.getByTestId('spec-health-strip-untested')).toHaveClass('bg-zinc-300');
+    expect(screen.getByTestId('spec-health-strip-untested')).toHaveClass('bg-amber-400');
+    expect(screen.getByTestId('spec-health-strip-untested')).not.toHaveClass('bg-zinc-300');
   });
 
   it('the card-level palette has exactly four named states, no fifth', () => {

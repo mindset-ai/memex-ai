@@ -25,7 +25,6 @@ import { CreateOrgBanner } from '../components/CreateOrgBanner';
 import { PageHeader } from '../components/PageHeader';
 import { SearchTrigger } from '../components/SearchTrigger';
 import {
-  borderClassForHealth,
   SpecHealthChip,
   SpecHealthStrip,
 } from '../components/SpecHealthIndicator';
@@ -202,9 +201,8 @@ function KanbanColumn(props: KanbanColumnProps) {
           // b-66: per-card AC-health treatment. `acHealth` is populated by the
           // server-side aggregator behind `?include=acHealth`; undefined means
           // either the request omitted the include flag, or the Spec has zero
-          // active ACs. Both collapse to "no commitments" — no border, no
-          // chip, no strip (b-66 Scope AC-4).
-          const healthBorder = borderClassForHealth(d.acHealth);
+          // active ACs. Both collapse to "no commitments" — no chip, no strip
+          // (b-66 Scope AC-4).
           return (
             <div key={d.id} className="relative group">
               <Link
@@ -214,7 +212,7 @@ function KanbanColumn(props: KanbanColumnProps) {
                 onDragEnd={canWrite ? onDragEnd : undefined}
                 className={`block border rounded-md p-3 pr-9 transition-all bg-panel border-edge-subtle hover:border-edge hover:bg-card-hover ${
                   draggingId === d.id ? 'opacity-40' : ''
-                } ${isPaused ? 'opacity-60' : ''} ${healthBorder}`}
+                } ${isPaused ? 'opacity-60' : ''}`}
               >
                 <div className="flex items-start gap-2 mb-2">
                   <h3 className="flex-1 text-sm font-medium text-heading leading-snug">
