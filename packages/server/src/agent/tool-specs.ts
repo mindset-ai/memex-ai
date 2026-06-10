@@ -724,11 +724,11 @@ async function renderFooterSignal(
       const acNudge =
         sketchBlock.length > 0
           ? sketchBlock
-          : `Next: author the implementation AC(s) this decision will be verified by — ` +
-            `\`create_ac({ ref: '<this-spec>', kind: 'implementation', parent_decision_ref: '${signal.decRef}', statement: '...' })\`. ` +
-            `One decision typically spawns 2-5 implementation ACs (one per distinct behavioural claim). ` +
-            `See \`get_information(topic='decisions-need-acs')\` for the full discipline. ` +
-            `Without these, build-readiness will refuse the specify→build move.`;
+          : `Next: create the implementation acceptance criteria this decision will be verified by, ` +
+            `usually several, one for each distinct behavioural claim the resolution makes:\n` +
+            `  create_ac({ ref: '<this-spec>', kind: 'implementation', parent_decision_ref: '${signal.decRef}', statement: '...' })\n` +
+            `See get_information(topic='decisions-need-acs') for the discipline. ` +
+            `Until this decision has them, the spec can't move into build.`;
       const issuesNudge = relatedIssuesNudge(signal.issueHits);
       const out = [acNudge, issuesNudge]
         .map((s) => s.trim())

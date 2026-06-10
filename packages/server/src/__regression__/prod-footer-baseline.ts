@@ -46,8 +46,11 @@ export const PROD_FOOTER_BASELINE: ProdGuidanceBaseline[] = [
     tool: "resolve_decision",
     prodPosition: "result-before-delimiter",
     stableSubstrings: [
-      "Next: author the implementation AC(s) this decision will be verified by",
-      "build-readiness will refuse the specify→build move",
+      // spec-219 comb-through: resolve_decision was de-jargoned BEYOND the prod
+      // copy (enhancement, not faithful relocation), so these pin the ENHANCED
+      // copy, not the prod verbatim recorded in `captured` below.
+      "Next: create the implementation acceptance criteria this decision will be verified by",
+      "the spec can't move into build",
     ],
     captured:
       "Next: author the implementation AC(s) this decision will be verified by — " +

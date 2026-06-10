@@ -26,7 +26,7 @@ describe("ac-3 — terse embedded nudges KEPT", () => {
   });
   it("resolve_decision still pushes implementation ACs", () => {
     tagAc(AC(3));
-    expect(toolSpecs).toMatch(/author the implementation AC/);
+    expect(toolSpecs).toMatch(/create the implementation acceptance criteria/);
   });
   it("create_ac still reminds about ac-emission tagging", () => {
     tagAc(AC(3));
