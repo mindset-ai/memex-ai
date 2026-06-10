@@ -258,7 +258,15 @@ export type FooterSignal =
   | { kind: "doc_transition"; beforeStatus: string; target: string; docType: string }
   | { kind: "doc_created"; docRef: string; docType: string }
   | { kind: "decision_created"; issueHits: Awaited<ReturnType<typeof relatedIssuesForDecision>> }
-  | { kind: "ac_created"; acKind: AcKind; sameKindCount: number };
+  | {
+      kind: "ac_created";
+      acKind: AcKind;
+      sameKindCount: number;
+      // implementation-kind only: the build-gate picture, so the footer can push
+      // toward build the moment every resolved decision is covered (and name the
+      // remaining gaps until then). open/uncovered are dec-N handles.
+      coverage?: { phase: string; resolvedCount: number; uncovered: string[]; open: string[] };
+    };
 
 /** The single channel from a handler to `composeGuidanceEnvelope`: a structured
  *  `signal` carrying the DATA of what just happened. composeGuidanceEnvelope
@@ -786,10 +794,27 @@ async function renderFooterSignal(
     }
     case "ac_created": {
       if (signal.acKind === "implementation") {
+        const cov = signal.coverage;
+        if (!cov || cov.phase === "build") {
+          return `Implementation acceptance criterion created; it earns a tagged, passing test here in build.`;
+        }
+        const covered = cov.resolvedCount - cov.uncovered.length;
+        const gaps = [
+          ...cov.open.map((h) => `${h} (still open)`),
+          ...cov.uncovered.map((h) => `${h} (no implementation ACs yet)`),
+        ];
+        if (gaps.length > 0) {
+          return (
+            `Implementation acceptance criterion created. Decision coverage: ${covered} of ${cov.resolvedCount} ` +
+            `resolved decisions now have implementation ACs. Still to close before build: ${gaps.join(", ")}. ` +
+            `Stay in specify and fill those; don't start writing code yet.`
+          );
+        }
         return (
-          `That implementation acceptance criterion is the testable claim the code must satisfy; ` +
-          `it earns a tagged, passing test in build. Make sure each resolved decision has the ` +
-          `implementation ACs that pin its claims before this spec moves toward build.`
+          `That closes the last gap: all ${cov.resolvedCount} resolved decisions now have implementation ACs and ` +
+          `nothing is open. This is the moment to move to build, before you write any code, so the spec's phase ` +
+          `matches what you are about to do. Run assess_spec({mode:'phase', target:'build'}); unless it flags ` +
+          `something, advance now with update_doc({status:'build'}).`
         );
       }
       const n = signal.sameKindCount;
@@ -2635,14 +2660,36 @@ export const toolSpecs: ToolSpec[] = [
       });
 
       // spec-219 comb-through: count-aware AC call-to-action. The handler parks
-      // DATA only (kind + live same-kind active count); renderFooterSignal owns
-      // every word. Net-new guidance — prod had no create_ac footer.
+      // DATA only; renderFooterSignal owns every word. For implementation ACs it
+      // also parks the build-gate picture (resolved-decision coverage + open
+      // decisions) so the footer can push toward build the moment it's earned —
+      // the only phone-home Memex has for "stop lingering in specify while code is
+      // being written". Sourced from the rubric's own coverage helper so the
+      // footer and assess_spec speak with one voice. Net-new guidance.
       if (ctx.footerSlot) {
         const sameKind = await listAcsForBrief(memexId, doc.id, { kind, status: "active" });
+        let coverage:
+          | { phase: string; resolvedCount: number; uncovered: string[]; open: string[] }
+          | undefined;
+        if (kind === "implementation") {
+          const [allDecs, cov] = await Promise.all([
+            listDecisions(memexId, doc.id),
+            listResolvedDecisionImplAcCoverage(memexId, doc.id),
+          ]);
+          coverage = {
+            phase: doc.status,
+            resolvedCount: cov.length,
+            uncovered: cov
+              .filter((c) => c.implementationAcCount === 0)
+              .map((c) => c.decisionHandle),
+            open: allDecs.filter((d) => d.status === "open").map((d) => `dec-${d.seq}`),
+          };
+        }
         ctx.footerSlot.signal = {
           kind: "ac_created",
           acKind: kind,
           sameKindCount: sameKind.length,
+          coverage,
         };
       }
 

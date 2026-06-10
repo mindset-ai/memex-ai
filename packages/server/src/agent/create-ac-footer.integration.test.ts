@@ -17,6 +17,7 @@ import {
   orgMemberships,
   documents,
   acs,
+  decisions,
   users,
 } from "../db/schema.js";
 import { createMcpServer } from "../mcp/tools.js";
@@ -27,6 +28,7 @@ const created = { users: [] as string[], memexes: [] as string[], docs: [] as st
 afterAll(async () => {
   if (created.docs.length) {
     await db.delete(acs).where(inArray(acs.briefId, created.docs)).catch(() => {});
+    await db.delete(decisions).where(inArray(decisions.docId, created.docs)).catch(() => {});
     await db.delete(documents).where(inArray(documents.id, created.docs)).catch(() => {});
   }
   if (created.memexes.length)
@@ -99,5 +101,46 @@ describe("create_ac count-aware scope footer", () => {
     expect(footer).toContain("likely captures what \"done\" means");
     expect(footer).toContain("check with the user");
     expect(footer).toContain("create_decision");
+  });
+});
+
+describe("create_ac implementation footer: coverage-aware build push", () => {
+  it("names the gap, then pushes to build once every resolved decision is covered", async () => {
+    const actor = await setupActor("impl-ac-footer");
+    const out = await callTool(actor.user.id, "create_doc", {
+      memex: `${actor.nsSlug}/main`,
+      title: "Impl coverage probe",
+      purpose: "Probe.",
+    });
+    const handle = out.match(/specs\/(spec-\d+)/)?.[1];
+    const doc = await db.query.documents.findFirst({ where: eq(documents.handle, handle!) });
+    created.docs.push(doc!.id);
+    const ref = `${actor.nsSlug}/main/specs/${handle}`;
+
+    // a scope AC moves draft -> specify; then two decisions, both resolved.
+    await callTool(actor.user.id, "create_ac", { ref, kind: "scope", statement: "Done means X." });
+    const d1 = (await callTool(actor.user.id, "create_decision", { ref, title: "Fork one." })).match(/decisions\/(dec-\d+)/)![1];
+    const d2 = (await callTool(actor.user.id, "create_decision", { ref, title: "Fork two." })).match(/decisions\/(dec-\d+)/)![1];
+    await callTool(actor.user.id, "resolve_decision", { ref: `${ref}/decisions/${d1}`, resolution: "Chosen one." });
+    await callTool(actor.user.id, "resolve_decision", { ref: `${ref}/decisions/${d2}`, resolution: "Chosen two." });
+
+    // cover dec-1: the gap message names the still-bare dec-2 and holds in specify
+    const gap = splitToolResult(await callTool(actor.user.id, "create_ac", {
+      ref, kind: "implementation", statement: "Pins claim of fork one.",
+      parent_decision_ref: `${ref}/decisions/${d1}`,
+    })).footer ?? "";
+    expect(gap).toContain("1 of 2 resolved decisions");
+    expect(gap).toContain(`${d2} (no implementation ACs yet)`);
+    expect(gap).toContain("Stay in specify");
+    expect(gap).not.toContain("update_doc");
+
+    // cover dec-2: the build push fires
+    const push = splitToolResult(await callTool(actor.user.id, "create_ac", {
+      ref, kind: "implementation", statement: "Pins claim of fork two.",
+      parent_decision_ref: `${ref}/decisions/${d2}`,
+    })).footer ?? "";
+    expect(push).toContain("closes the last gap");
+    expect(push).toContain("move to build, before you write any code");
+    expect(push).toContain("update_doc({status:'build'})");
   });
 });
