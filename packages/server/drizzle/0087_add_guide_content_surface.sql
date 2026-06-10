@@ -22,7 +22,7 @@
 -- Idempotent: IF NOT EXISTS guards on the column and indexes, so re-running is a
 -- no-op (the hand-migration tracker also runs each file once per DB).
 --
--- Revert: drizzle/reverts/0085_add_guide_content_surface.revert.sql.
+-- Revert: drizzle/reverts/0087_add_guide_content_surface.revert.sql.
 
 ALTER TABLE "guide_content"
   ADD COLUMN IF NOT EXISTS "surface" text NOT NULL DEFAULT 'memex-app';
