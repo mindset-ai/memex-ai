@@ -36,6 +36,7 @@ import {
   type ToolSpec,
   type EntityKind,
 } from "./tool-specs.js";
+import { toolManifest } from "@memex/shared";
 import { parseRef } from "../services/refs.js";
 import { resolveRef as resolveCanonicalRef } from "../services/resolver.js";
 import { emitInAppAgentActivity } from "../services/conversations.js";
@@ -382,22 +383,50 @@ export function isDriftModeTool(name: string): boolean {
   return DRIFT_SERVER_TOOLS.has(name);
 }
 
-/** Tool definitions for the document creation phase — create_doc + add_section +
- *  search_memex (b-34 D-7: creation-phase agent needs semantic search to spot
- *  overlap before authoring a new Spec) + UI tools. */
+// spec-230 t-1 (ac-7): read tools the creation agent needs for orientation —
+// search_memex (b-34 D-7: spot overlap before authoring a new Spec) and get_doc
+// (read a related Spec / Standard body the Overview should honour). These are
+// manifest `group: 'read'`, so they're added to the spec-authoring surface
+// explicitly rather than via the planning/specify predicate below.
+const CREATION_READ_TOOLS = new Set<string>(["search_memex", "get_doc"]);
+
+/** spec-230 t-1 (ac-7): the set of server-tool NAMES the in-app creation path
+ *  exposes, derived from the @memex/shared manifest (std-16) so it can never
+ *  drift back to a hand-maintained list. Parity with the MCP coding agent's
+ *  spec-authoring surface = every tool whose manifest `group` is 'planning'
+ *  (sections / decisions / doc lifecycle) OR whose `trafficClass` is 'specify'
+ *  (decision + AC authoring — this pulls create_ac / update_ac / delete_ac /
+ *  link_ac_to_decision out of the 'build' group), plus the read tools above.
+ *  Build-phase task verbs (create_task / update_task / delete_task — group
+ *  'build', trafficClass 'build') are correctly excluded: the creation agent
+ *  authors a Spec's plan, it does not run the build. */
+function creationServerToolNames(): Set<string> {
+  const names = new Set<string>();
+  for (const entry of toolManifest) {
+    if (
+      entry.group === "planning" ||
+      entry.trafficClass === "specify" ||
+      CREATION_READ_TOOLS.has(entry.name)
+    ) {
+      names.add(entry.name);
+    }
+  }
+  return names;
+}
+
+/** Tool definitions for the document creation phase. spec-230 t-1: widened from
+ *  the old Overview-only 3-tool surface (create_doc + add_section + search_memex)
+ *  to the full MCP spec-authoring surface so a substantial input fleshes out
+ *  into a rich, multi-section Spec — body sections, decisions, AND acceptance
+ *  criteria — matching what the same input produces through the Memex MCP. The
+ *  set is single-sourced from the manifest (std-16); render_* UI tools (incl.
+ *  the render_confirmation mutation gate) always ride along. */
 export function getCreationToolDefinitions(): Tool[] {
-  const createDocSpec = toolSpecs.find((s) => s.name === "create_doc");
-  const addSectionSpec = toolSpecs.find((s) => s.name === "add_section");
-  const searchMemexSpec = toolSpecs.find((s) => s.name === "search_memex");
-  if (!createDocSpec) throw new Error("create_doc tool not found");
-  if (!addSectionSpec) throw new Error("add_section tool not found");
-  if (!searchMemexSpec) throw new Error("search_memex tool not found");
-  const allTools: Tool[] = [
-    buildToolFromSpec(createDocSpec),
-    buildToolFromSpec(addSectionSpec),
-    buildToolFromSpec(searchMemexSpec),
-    ...uiTools,
-  ];
+  const allowed = creationServerToolNames();
+  const serverTools = toolSpecs
+    .filter((s) => allowed.has(s.name))
+    .map(buildToolFromSpec);
+  const allTools: Tool[] = [...serverTools, ...uiTools];
   const last = allTools[allTools.length - 1];
   (last as Tool & { cache_control?: { type: string } }).cache_control = { type: "ephemeral" };
   return allTools;

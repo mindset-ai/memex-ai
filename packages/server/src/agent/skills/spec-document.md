@@ -26,14 +26,14 @@ Every Spec has these parts. Only the **Overview** is created up-front during the
 
 2. **Body sections** — discrete sections, one concern each. They must be independently resolvable: it should be possible to comment on, argue about, or rewrite one body section without touching the others. Give each a short, specific title.
 
-   **Important: do not auto-add body sections during creation.** Create the Overview, then ASK the user which sections they want. Suggest the spine below as defaults — but the user picks; we don't scaffold without consent.
+   **Author the sections the input supports — don't pad, don't cap (web ↔ MCP parity, spec-230).** When the user gives a substantial document, flesh out the body sections, decisions, and acceptance criteria it warrants — the same way the MCP coding agent would, capturing the source's structure and intent. When they give a vague idea or a one-liner, keep it light: the Overview and only what carries real content. The guardrail is *content, not consent* — never add empty or premature stub sections to fill a template (the spec-5 Issue-4 failure), but don't artificially cap a rich source at a thin Overview either.
 
-   **Default spine — suggest these three when asking the user, and include them when they add real value:**
+   **Default spine — reach for these three when the source supports them, and include them only when they carry real content:**
    - **Design** — UX and visual design. Flows, surfaces, states, visual language.
    - **Architecture** — how this fits into the existing system. Boundaries, data model, services, contracts, notable trade-offs.
    - **Testing** — the test plan across unit, integration, and end-to-end tiers.
 
-   Beyond the spine, add any further sections the initiative needs *if the user asks for them* (e.g. "Scope", "Data model", "Rollout", "Risks", "Open questions", "Migration"). Aim for a total that's right-sized for the work: 2–3 body sections for a tight, focused initiative; 4–7 for a larger one.
+   Beyond the spine, add any further sections the initiative needs when the source warrants them (e.g. "Scope", "Data model", "Rollout", "Risks", "Open questions", "Migration"). Aim for a total that's right-sized for the work: 2–3 body sections for a tight, focused initiative; 4–7 for a larger one.
 
 3. **Acceptance criteria** — typically the final section, when the user includes it. A concrete definition of done: what is true when this Spec is complete. Usually a markdown checklist of verifiable outcomes. Someone reading this list should be able to check each item and conclude, without judgement, whether the Spec is done. Keep the criteria within what *this* Spec delivers — don't reach into outcomes that belong to a different feature or concept's Spec.
 
@@ -119,8 +119,8 @@ Ask yourself:
 - **Identify the *one thing* it is about.** If you find multiple distinct features/concepts, name each in one sentence, then use `render_confirmation` to ask whether to create one Spec for each.
 - **Write the Overview first**, in the user's vocabulary. If you cannot write it as one focused paragraph, the scope is wrong — split.
 - **Confirm only the title and Overview before calling create_doc** — `render_confirmation` should propose the title and a one-line overview. Don't list body-section titles in the confirmation; that decision happens after the Overview lands.
-- **After create_doc returns, ASK the user which sections they want.** Use phrasing like "Would you like me to add Scope, Design, Architecture, Testing, and Acceptance criteria sections, or specific ones?". Wait for an answer before any add_section call.
-- **Add only the sections the user asks for.** Reuse their terms. Short, specific titles. Don't pad with stubs; don't add the spine without consent.
+- **After create_doc returns, flesh out the Spec from the source.** Author the body sections, decisions, and acceptance criteria the input warrants — one tool call at a time — letting a substantial document produce a rich Spec and a vague idea stay light. Don't pause to ask permission for each section; the input is your guide.
+- **Add the sections the content earns — never stubs.** Reuse the user's terms. Short, specific titles. Don't pad with empty stubs, and don't cap a rich source at a thin Overview.
 - **Write acceptance criteria** that are verifiable and stay within what this Spec delivers — only when the user asks for that section.
 
 ## Background — surface only when a user asks
