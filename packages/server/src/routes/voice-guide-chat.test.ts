@@ -27,9 +27,9 @@ vi.mock("../services/guide-content.js", () => ({
   // guide-prompt.ts (spec-222 t-9) imports the surface validator from here; the
   // route builds the system prompt via buildGuideSystemBlocks, so the mock must
   // provide it (real validation — the app/website surfaces and the throw).
-  GUIDE_SURFACES: ["memex-app", "memex-website"],
+  GUIDE_SURFACES: ["memex-app", "memex-website", "mindset-website"],
   assertGuideSurface: (s: string) => {
-    if (s === "memex-app" || s === "memex-website") return s;
+    if (s === "memex-app" || s === "memex-website" || s === "mindset-website") return s;
     throw new Error(`Unknown guide surface "${s}"`);
   },
 }));

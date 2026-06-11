@@ -34,6 +34,12 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const GUIDE_SYSTEM_BY_SURFACE: Record<GuideSurface, string> = {
   "memex-app": readFileSync(resolve(__dirname, "guide-system.md"), "utf8"),
   "memex-website": readFileSync(resolve(__dirname, "guide-system.website.md"), "utf8"),
+  // spec-251: Specky on the mindset.ai marketing site — same identity, third
+  // surface. No walkthrough beats (the beats block below is memex-app-only).
+  "mindset-website": readFileSync(
+    resolve(__dirname, "guide-system.mindset-website.md"),
+    "utf8",
+  ),
 };
 
 // spec-206 t-4 / spec-211 t-4 (dec-1 / ac-6 / ac-9): the demo walkthrough beats,

@@ -1,0 +1,106 @@
+# spec-251 t-5 (dec-1) — cross-repo corpus refresh for the mindset.ai surface.
+#
+# When the mindset-website repo deploys new content (its CI fires a GitHub
+# `repository_dispatch` of type `mindset-website-content-changed` into THIS repo),
+# refresh the memex-ai `guide_content` Postgres corpus for surface=mindset-website
+# from the site's published llms-full.txt — WITHOUT waiting for a memex-ai deploy.
+#
+# A deliberate SIBLING of guide-content-website-refresh.yml (spec-251 dec-1 chose
+# clone over generalise — the proven memex-website path carries zero diff). One
+# deliberate difference: mindset.ai has NO int variant, so the source URL is the
+# live https://www.mindset.ai/llms-full.txt for BOTH target envs (the env choice
+# selects only which DB the corpus lands in).
+#
+# This trigger is PRIVILEGED + AUTHENTICATED (Workload Identity Federation + the
+# Cloud SQL proxy, exactly like deploy.yml per std-26) — it is NEVER the public
+# anonymous /guide/v1 endpoint. The import is BOUNDED (`timeout`) + NON-GATING
+# (`|| echo`) + IDEMPOTENT (upsert skips unchanged content_hash, prunes stale
+# mindset-website-surface chunks only), so a re-trigger or a hiccup is always safe.
+
+name: guide-content mindset-website refresh
+
+on:
+  # Fired by the mindset-website repo's deploy CI (privileged cross-repo dispatch).
+  repository_dispatch:
+    types: [mindset-website-content-changed]
+  # Manual re-trigger (always safe — idempotent).
+  workflow_dispatch:
+    inputs:
+      env:
+        description: Target environment
+        type: choice
+        options: [prod, int]
+        default: prod
+
+concurrency:
+  group: guide-content-mindset-website-refresh-${{ github.event.client_payload.env || inputs.env || 'prod' }}
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Picks the per-environment DEPLOY_ENV_FILE secret (DB coordinates), exactly
+    # like deploy.yml. prod → memex.ai, int → int.memex.ai.
+    environment:
+      name: ${{ github.event.client_payload.env || inputs.env || 'prod' }}
+    env:
+      ENV: ${{ github.event.client_payload.env || inputs.env || 'prod' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Authenticate to GCP (Workload Identity Federation)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOYER_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Install cloud-sql-proxy
+        run: |
+          curl -fsSL -o /usr/local/bin/cloud-sql-proxy \
+            https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.14.2/cloud-sql-proxy.linux.amd64
+          chmod +x /usr/local/bin/cloud-sql-proxy
+
+      - name: Write per-env deploy config
+        env:
+          DEPLOY_ENV_FILE: ${{ secrets.DEPLOY_ENV_FILE }}
+        run: |
+          if [ -z "$DEPLOY_ENV_FILE" ]; then
+            echo "::error::DEPLOY_ENV_FILE secret is not set on the '${ENV}' environment"
+            exit 1
+          fi
+          printf '%s\n' "$DEPLOY_ENV_FILE" > "scripts/deploy.${ENV}.env"
+
+      - name: Refresh mindset-website corpus (surface=mindset-website)
+        # Mirrors deploy.sh's proxy + DB_URL construction (PROXY_PORT=15432), then
+        # runs the spec-251 mindset-website import against the site's published
+        # llms-full.txt (same URL for both envs — mindset.ai has no int variant).
+        # Bounded + non-gating: a timeout (124) or any error is swallowed so a
+        # hiccup never wedges the refresh — the next trigger resumes.
+        run: |
+          set -a; . "scripts/deploy.${ENV}.env"; set +a
+          PROXY_PORT=15432
+          cloud-sql-proxy "${CLOUD_SQL_INSTANCE_CONN}" --port ${PROXY_PORT} &
+          PROXY_PID=$!
+          sleep 5
+          DB_PASS_ENC=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "${DB_PASS}")
+          DB_URL="postgresql://${DB_USER}:${DB_PASS_ENC}@localhost:${PROXY_PORT}/${DB_NAME}"
+          SRC="https://www.mindset.ai/llms-full.txt"
+          DATABASE_URL="${DB_URL}" timeout 600 \
+            pnpm --filter @memex/server exec tsx scripts/import-guide-content.ts \
+              --surface=mindset-website --source="${SRC}" \
+            || echo "⚠ mindset-website corpus refresh timed out or failed (non-gating, exit $?) — safe to re-trigger (idempotent)."
+          kill $PROXY_PID 2>/dev/null || true
