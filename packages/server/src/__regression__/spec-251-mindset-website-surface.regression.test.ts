@@ -75,6 +75,18 @@ describe("guide-content-mindset-website-refresh.yml (spec-251 t-5, dec-1)", () =
     // the public endpoint (the only /guide/v1 mention is the explanatory comment).
     expect(wf).not.toMatch(/curl[^\n]*\/guide\/v1/);
   });
+
+  it("BOTH refresh workflows grant id-token: write — WIF cannot mint an OIDC token without it", () => {
+    tagAc(AC7);
+    // Found by spec-251's first live dispatch: the spec-222 workflow shipped
+    // without a permissions block and had never run; every WIF auth failed.
+    for (const path of [MINDSET_WF, MEMEX_WF]) {
+      const wf = read(path);
+      expect(wf, `${path} must grant id-token: write for WIF`).toMatch(
+        /permissions:\s*\n\s*contents: read\s*\n\s*id-token: write/,
+      );
+    }
+  });
 });
 
 describe("the memex-website refresh path is untouched (spec-251 dec-1 → ac-9)", () => {
