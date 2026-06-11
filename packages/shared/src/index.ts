@@ -124,3 +124,17 @@ export {
   screenKeyToPath,
 } from './guide-tools.js';
 export type { GuideToolDefinition } from './guide-tools.js';
+
+// spec-244 (dec-5): the usage-event registry — the typed allowlist both the
+// client (track()) and the server (POST /telemetry + the dec-8 back-end
+// whitelist) import. The machine half of the event contract; the public event
+// Standard is the human half, kept in sync by a CI parity check (t-7).
+export {
+  USAGE_EVENT_REGISTRY,
+  isRegisteredEvent,
+  getUsageEventDef,
+  isFrontendEvent,
+  BACKEND_EVENT_NAMES,
+  sanitizeUsageProps,
+} from './usage-events-registry.js';
+export type { UsageEventDef, UsageEventSource, RegisteredEventName } from './usage-events-registry.js';

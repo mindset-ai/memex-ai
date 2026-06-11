@@ -8,6 +8,7 @@ import {
   initiateDomainVerificationApi,
   type OrgSummaryDto,
 } from '../../api/client';
+import { TelemetryOptOut } from '../TelemetryOptOut';
 
 // Settings tab inside Org Configuration (t-8 / t-11 of doc-15). Replaces the standalone
 // /account page from t-6 — same content, no outer page chrome.
@@ -57,6 +58,7 @@ export function SettingsTab() {
 
       <DomainsSection org={org} token={token} onRefresh={refresh} setError={setError} />
       <AutoGroupingSection org={org} token={token} onRefresh={refresh} setError={setError} />
+      <TelemetryOptOut />
     </div>
   );
 }
@@ -253,6 +255,7 @@ function AutoGroupingSection({
             onChange={onToggle}
             disabled={disabled}
             className="h-4 w-4"
+            data-testid="autogrouping-toggle"
           />
           <span className={`text-sm ${disabled ? 'text-muted' : 'text-primary'}`}>
             {org.autoGroupingEnabled ? 'Auto-grouping enabled' : 'Enable auto-grouping'}

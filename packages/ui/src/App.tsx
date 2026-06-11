@@ -47,6 +47,7 @@ import {
 import { VoiceLayer } from './voice/session/VoiceLayer';
 import { createReactRouterNavigationAdapter } from './voice/reactRouterNavigationAdapter';
 import { HandholdRevealProvider, useHandholdRevealValue } from './hooks/HandholdRevealContext';
+import { useTrackRouteChange } from './hooks/useTelemetry';
 import { tenantBase, BASE_URL, fetchWithRetry } from './api/http';
 import { SearchProvider } from './components/SearchContext';
 import { WhatsNewRibbonConnected } from './components/whats-new/WhatsNewRibbonConnected';
@@ -113,6 +114,11 @@ function TenantLayout() {
   const { session, isAuthenticated } = useAuth();
   const location = useLocation();
   const anonymous = !isAuthenticated && !session;
+
+  // spec-244 t-6: front-end engagement capture. Fire nav.route_changed (template
+  // only — no ids/query) as the user moves through the app. Disabled for anonymous
+  // visitors; honours Do-Not-Track / opt-out inside the hook.
+  useTrackRouteChange(anonymous ? null : location.pathname);
 
   // spec-111 t-8 (ac-6/ac-7/ac-10): an ANONYMOUS visitor (no token, no session)
   // on a PUBLIC-Memex tenant route gets the read-only public shell. AppShell

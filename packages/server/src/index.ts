@@ -6,6 +6,8 @@ import { cleanupExpiredDomainVerificationTokens } from "./services/domain-verifi
 import { warnIfLlmNotConfigured } from "./agent/anthropic-client.js";
 import { startBusObservability } from "./services/bus-observability.js";
 import { startActivityLogSink } from "./services/activity-log.js";
+import { startUsageBackendSink } from "./services/usage-backend-sink.js";
+import { startUsageForwarder } from "./services/usage-forwarder.js";
 import { startActivityLogSweep } from "./services/activity-log-sweep.js";
 import { startScaffoldAdditionsCacheInvalidation } from "./services/scaffold-additions-cache.js";
 import { startBusRelay } from "./services/bus-relay.js";
@@ -32,6 +34,15 @@ const server = serve({ fetch: app.fetch, port }, (info) => {
   // interaction for Pulse. Advisory: insert failures are swallowed, writes are
   // detached from the emit path.
   startActivityLogSink();
+  // spec-244 t-3 (dec-8): the back-end outcome sink — a second bus subscriber that
+  // mirrors whitelisted mutate() outcomes (document.created, …) into usage_events,
+  // so analytics funnels see confirmed outcomes, not just front-end intents.
+  startUsageBackendSink();
+  // spec-244 t-5 (dec-3): the outbox forwarder — drains usage_events to the
+  // configured AnalyticsSink (Mixpanel by default). No-op when MIXPANEL_TOKEN is
+  // unset (rollout step one: capture-only, events queryable in SQL). Per-env token
+  // (dec-9) gives the int→memex-int / prod→memex-prod project separation.
+  startUsageForwarder();
   // b-68 t-11: short-TTL projection cache for per-Org scaffold additions, with
   // bus-driven invalidation so admin edits become visible without a process
   // restart. Single subscriber filtered on `org_scaffold_addition`.

@@ -120,6 +120,11 @@ const ALLOWLIST: Record<string, string> = {
   // ── Bus sink ────────────────────────────────────────────────────────────
   "services/activity-log.ts":
     "bus sink — wrapping would recurse on emit. persistEvent() is the single subscriber that writes activity_log rows in response to a bus event; routing its insert through mutate() would emit another event, which the sink would persist, which would emit again. Must stay outside mutate() by construction.",
+  // ── Usage-events telemetry store (spec-244) ───────────────────────────────
+  "services/usage-events.ts":
+    "Product-engagement telemetry store (spec-244). Append-only usage_events rows written advisorily by the POST /telemetry route (front-end) and the dec-8 back-end bus subscriber. Same category as services/activity-log.ts: no usage_events ChangeEntity in the bus taxonomy, no SSE subscriber, and the back-end writer runs FROM the bus dispatch path — routing it through mutate() would recurse on emit. Telemetry is advisory and must not emit.",
+  "services/usage-forwarder.ts":
+    "Outbox forwarder (spec-244 dec-3). A background drain that UPDATEs usage_events.forwarded_at after shipping a batch to the analytics sink. Cross-tenant by design (drains every memex's undrained rows), no bus entity, no SSE subscriber — the forwarded_at cursor is internal outbox bookkeeping, not tenant-doc content. Same append-only/log category as services/usage-events.ts.",
   // ── Ephemeral presence (spec-122 dec-4) ───────────────────────────────────
   "services/presence.ts":
     "presence — ephemeral, decaying heartbeat store (spec-122 dec-4). markPresent() is a silent/out-of-band upsert keyed by (doc_id, actor_user_id, channel, client_id) that bumps last_seen_at on each beat: it is NOT a 'what's moving' activity line (ac-17 — reads/presence must never produce an activity-stream row), no UI subscriber cares about last_seen_at drift, and routing it through mutate() would spam the bus with a heartbeat every ~15s per viewer. Same silent-allowed category as the std-32 contract describes for the presence plane; classified silent-allowed in std-8 §table-by-table.",

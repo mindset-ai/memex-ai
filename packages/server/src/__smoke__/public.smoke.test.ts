@@ -15,7 +15,8 @@
 // with a clearly-invalid token (asserting the public, non-5xx behaviour).
 
 import { describe, it, expect } from "vitest";
-import { SMOKE_BASE_URL, SMOKE_MCP_URL } from "./smoke-env.js";
+import { tagAc } from "@memex-ai-ac/vitest";
+import { SMOKE_BASE_URL, SMOKE_MCP_URL, SMOKE_NAMESPACE } from "./smoke-env.js";
 
 describe(`public smoke @ ${SMOKE_BASE_URL}`, () => {
   it("GET /api/health → 200 {status:ok}", async () => {
@@ -66,5 +67,21 @@ describe(`public smoke @ ${SMOKE_BASE_URL}`, () => {
     const body = (await res.json()) as { reason?: string };
     // The route distinguishes unknown vs revoked; an invalid token reads as unknown.
     expect(body.reason).toBe("unknown");
+  });
+
+  // spec-244 t-8 (std-17) — the front-end telemetry capture endpoint is deployed
+  // and wired. Anonymous POST is a no-op by design (204); an unprovisioned smoke
+  // memex resolves to 404. Either way the route must respond WITHOUT a 5xx and
+  // without an auth wall — proving the deploy carried the route and it handles a
+  // body without crashing.
+  it("POST /api/<ns>/telemetry (anonymous) → controlled response, never 5xx", async () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-244/acs/ac-11");
+    const res = await fetch(`${SMOKE_BASE_URL}/api/${SMOKE_NAMESPACE}/telemetry`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "spec.create_clicked" }),
+    });
+    expect(res.status).toBeLessThan(500);
+    expect([204, 404]).toContain(res.status);
   });
 });
