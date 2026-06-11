@@ -94,6 +94,13 @@ jobs:
         # llms-full.txt (same URL for both envs — mindset.ai has no int variant).
         # Bounded + non-gating: a timeout (124) or any error is swallowed so a
         # hiccup never wedges the refresh — the next trigger resumes.
+        #
+        # The artifact is PRE-FETCHED with curl and handed to the import as a
+        # local file: Node's fetch gets an immediate ECONNRESET from the site's
+        # LB on GitHub runners (found on the first live dispatches, runs
+        # 27348502690/27348600975) while curl succeeds. curl also gives us
+        # retries and a loud, distinct failure message. An empty body refuses
+        # to import (never ingest an error page).
         run: |
           set -a; . "scripts/deploy.${ENV}.env"; set +a
           PROXY_PORT=15432
@@ -103,8 +110,19 @@ jobs:
           DB_PASS_ENC=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "${DB_PASS}")
           DB_URL="postgresql://${DB_USER}:${DB_PASS_ENC}@localhost:${PROXY_PORT}/${DB_NAME}"
           SRC="https://www.mindset.ai/llms-full.txt"
+          LOCAL=/tmp/llms-full.txt
+          if ! curl -fsSL --retry 5 --retry-all-errors -A "memex-guide-content-refresh" -o "${LOCAL}" "${SRC}"; then
+            echo "⚠ fetch of ${SRC} failed (non-gating) — corpus untouched; safe to re-trigger."
+            kill $PROXY_PID 2>/dev/null || true
+            exit 0
+          fi
+          if ! test -s "${LOCAL}"; then
+            echo "⚠ fetched an EMPTY body from ${SRC} (non-gating) — refusing to import; corpus untouched."
+            kill $PROXY_PID 2>/dev/null || true
+            exit 0
+          fi
           DATABASE_URL="${DB_URL}" timeout 600 \
             pnpm --filter @memex/server exec tsx scripts/import-guide-content.ts \
-              --surface=mindset-website --source="${SRC}" \
+              --surface=mindset-website --source="${LOCAL}" \
             || echo "⚠ mindset-website corpus refresh timed out or failed (non-gating, exit $?) — safe to re-trigger (idempotent)."
           kill $PROXY_PID 2>/dev/null || true
