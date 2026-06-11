@@ -3,7 +3,7 @@ import { tagAc } from '@memex-ai-ac/vitest';
 import {
   rankHotSpecs,
   specState,
-  quietLabel,
+  coolingLabel,
   type HotState,
 } from './pulseDerive';
 import type { ActivityRow, ActorKind, PresentRow } from './types';
@@ -83,24 +83,24 @@ describe('Hot Specs heat (spec-255)', () => {
     expect(ranked[2].hasPresence).toBe(false);
   });
 
-  it('classifies each spec into exactly one of hot | cooling | quiet', () => {
+  it('classifies each spec into exactly one of hot | cooling', () => {
     tagAc(AC(16));
     expect(specState(true, 9 * MIN)).toBe('hot'); // presence overrides age
-    expect(specState(false, 30_000)).toBe('hot'); // activity < 60s
-    expect(specState(false, 3 * MIN)).toBe('cooling'); // 60s..5min
-    expect(specState(false, 7 * MIN)).toBe('quiet'); // > 5min
+    expect(specState(false, 30_000)).toBe('hot'); // active < 5min
+    expect(specState(false, 3 * MIN)).toBe('hot'); // still active (< 5min)
+    expect(specState(false, 7 * MIN)).toBe('cooling'); // 5..10min, drops at 10min
   });
 
-  it('renders the honest-floor quiet label "quiet Nm"', () => {
+  it('renders the honest-floor cooling label "cooling Nm"', () => {
     tagAc(AC(12));
-    expect(quietLabel(6 * MIN + 5_000)).toBe('quiet 6m');
-    expect(quietLabel(1 * MIN)).toBe('quiet 1m');
-    expect(quietLabel(30_000)).toBe('quiet 1m'); // floors to >= 1
+    expect(coolingLabel(6 * MIN + 5_000)).toBe('cooling 6m');
+    expect(coolingLabel(1 * MIN)).toBe('cooling 1m');
+    expect(coolingLabel(30_000)).toBe('cooling 1m'); // floors to >= 1
   });
 
   it('never produces a "waiting"/"awaiting" state or label', () => {
     tagAc(AC(13));
-    const valid: HotState[] = ['hot', 'cooling', 'quiet'];
+    const valid: HotState[] = ['hot', 'cooling'];
     for (const s of [
       specState(true, null),
       specState(false, 30_000),
@@ -110,8 +110,8 @@ describe('Hot Specs heat (spec-255)', () => {
       expect(valid).toContain(s);
     }
     for (const ms of [1 * MIN, 6 * MIN, 20 * MIN]) {
-      expect(quietLabel(ms)).toMatch(/^quiet \d+m$/);
-      expect(quietLabel(ms)).not.toMatch(/wait/i);
+      expect(coolingLabel(ms)).toMatch(/^cooling \d+m$/);
+      expect(coolingLabel(ms)).not.toMatch(/wait/i);
     }
     const ranked = rankHotSpecs(
       [present('doc-X')],

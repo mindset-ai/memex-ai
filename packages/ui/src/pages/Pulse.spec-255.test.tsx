@@ -218,7 +218,7 @@ describe('Pulse enhancement layout (spec-255)', () => {
     expect(ids).toContain('sb-L');
   });
 
-  it('surfaces a quiet spec as "quiet Nm" and counts only meaningful events', async () => {
+  it('surfaces a cooling spec as "cooling Nm" and counts only meaningful events', async () => {
     tagAc(AC(6));
     fetchDocsMock.mockResolvedValue([
       spec({ id: 'sb-Q', handle: 'spec-q' }),
@@ -228,7 +228,7 @@ describe('Pulse enhancement layout (spec-255)', () => {
     usePulseHistoryMock.mockReturnValue(
       history({
         rows: [
-          // sb-Q: last meaningful event 7 min ago → quiet, still inside the 10-min band.
+          // sb-Q: last meaningful event 7 min ago → cooling (5-10min), still in the 10-min band.
           row({ briefId: 'sb-Q', entity: 'task', action: 'updated', createdAt: new Date(Date.now() - 7 * 60_000).toISOString() }),
           // sb-R: only a READ action → not meaningful → must NOT become a hot spec.
           row({ briefId: 'sb-R', entity: 'document', action: 'viewed', createdAt: new Date(Date.now() - 30_000).toISOString() }),
@@ -242,7 +242,7 @@ describe('Pulse enhancement layout (spec-255)', () => {
     const ids = cards.map((c) => c.getAttribute('data-doc-id'));
     expect(ids).toContain('sb-Q');
     expect(ids).not.toContain('sb-R'); // read-only activity excluded
-    const quietCard = cards.find((c) => c.getAttribute('data-doc-id') === 'sb-Q')!;
-    expect(within(quietCard).getByTestId('hot-spec-state')).toHaveTextContent('quiet 7m');
+    const coolingCard = cards.find((c) => c.getAttribute('data-doc-id') === 'sb-Q')!;
+    expect(within(coolingCard).getByTestId('hot-spec-state')).toHaveTextContent('cooling 7m');
   });
 });

@@ -8,6 +8,7 @@
 // PRESENTATIONAL. The derived workers + spec resolvers arrive via props; the
 // Pulse page owns the polling + derivation.
 
+import { Link } from 'react-router-dom';
 import { LiveDot } from './LiveDot';
 import { TimeAgo } from './TimeAgo';
 import { clientLabel } from './clientLabel';
@@ -21,6 +22,8 @@ export interface WorkingNowProps {
   loading?: boolean;
   specHandle?: (docId: string) => string | undefined;
   specTitle?: (docId: string) => string | undefined;
+  /** Resolve a `spec-N` handle → its href, so the handle renders as a link. */
+  specHref?: (handle: string) => string;
   /** docId → ISO of that spec's most recent state-changing activity. */
   lastActivityAt?: (docId: string) => string | undefined;
   /** docId → present-tense narrative of its most recent event. */
@@ -45,6 +48,11 @@ function channelGlyph(channel: ActivityChannel): string {
 
 function workerName(w: Worker): string {
   if (w.actorName) return w.actorName;
+  // An agent with no resolved name shows "Claude Code" / "In-app agent" — never
+  // the opaque "MCP · <id>" client label (spec-255 int feedback): a worker is
+  // always a real person or that person's agent.
+  if (w.actorKind === 'mcp_agent') return 'Claude Code';
+  if (w.actorKind === 'in_app_agent') return 'In-app agent';
   if (w.clientId) return clientLabel(w.channel, w.clientId);
   return 'Someone';
 }
@@ -54,6 +62,7 @@ export function WorkingNow({
   loading = false,
   specHandle,
   specTitle,
+  specHref,
   lastActivityAt,
   lastNarrative,
 }: WorkingNowProps) {
@@ -63,7 +72,10 @@ export function WorkingNow({
       data-testid="working-now"
       className="flex-none rounded-lg border border-edge-subtle bg-surface/40 overflow-hidden mb-4"
     >
-      <div className="flex items-center gap-2 px-3 py-2 text-xs text-secondary border-b border-edge-subtle">
+      <div
+        className="flex items-center gap-2 px-3 py-2 text-xs text-secondary border-b border-edge-subtle cursor-help"
+        title="Working now — everyone who's been active on a spec in the last 5 minutes (a live heartbeat or recent work). A pulsing green dot is active right now; a grey dot is idle but still here."
+      >
         <LiveDot live={anyLive} size="sm" />
         <span className="font-medium text-primary">Working now</span>
         <span className="opacity-40">&middot;</span>
@@ -107,7 +119,13 @@ export function WorkingNow({
                 )}
                 <span className="font-medium text-primary">{workerName(w)}</span>
                 <span className="text-muted">on</span>
-                <span className="font-mono text-xs font-semibold text-accent">{handle ?? 'a spec'}</span>
+                {handle && specHref ? (
+                  <Link to={specHref(handle)} className="font-mono text-xs font-semibold text-accent hover:underline">
+                    {handle}
+                  </Link>
+                ) : (
+                  <span className="font-mono text-xs font-semibold text-accent">{handle ?? 'a spec'}</span>
+                )}
                 {title ? <span className="text-muted text-xs">{title}</span> : null}
                 <span
                   data-testid="worker-channel"
