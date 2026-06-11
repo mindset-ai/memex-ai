@@ -86,10 +86,13 @@ describe('HotSpecs band (spec-255)', () => {
     expect(first.getByTestId('phase-chip')).toHaveTextContent('build');
     expect(first.getByTestId('hot-spec-line')).toHaveTextContent('AC-7 went green');
     expect(first.getByTestId('hot-spec-avatars')).toBeInTheDocument();
-    // live AC progress bar (reused SpecHealthStrip) — green + rose present.
-    expect(first.getByTestId('spec-health-strip')).toBeInTheDocument();
-    expect(first.getByTestId('spec-health-strip-verified')).toBeInTheDocument();
-    expect(first.getByTestId('spec-health-strip-failing')).toBeInTheDocument();
+    // per-spec line sparkline present.
+    expect(first.getByTestId('sparkline')).toBeInTheDocument();
+    // live AC cells — one per AC: HEALTH has 8 verified, 1 failing, 1 untested.
+    const cells = first.getByTestId('ac-cells');
+    expect(cells.querySelectorAll('[data-cell="verified"]')).toHaveLength(8);
+    expect(cells.querySelectorAll('[data-cell="failing"]')).toHaveLength(1);
+    expect(cells.querySelectorAll('[data-cell="untested"]')).toHaveLength(1);
   });
 
   it('clicking a card navigates to that spec via its path-based route', () => {

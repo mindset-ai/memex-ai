@@ -6,6 +6,7 @@
 import { useMemo } from 'react';
 import { useChartPalette } from '../insights/theme';
 import { activeNow, tempoSeries } from './pulseDerive';
+import { Sparkline } from './Sparkline';
 import type { ActivityRow, PresentRow } from './types';
 
 export interface VitalsStripProps {
@@ -32,7 +33,6 @@ export function VitalsStrip({ present, activity, now, windowMin = 30 }: VitalsSt
     [activity, clock, windowMin],
   );
   const total = series.reduce((a, b) => a + b, 0);
-  const peak = Math.max(1, ...series);
   const perMin = Math.round(total / windowMin);
 
   return (
@@ -43,25 +43,15 @@ export function VitalsStrip({ present, activity, now, windowMin = 30 }: VitalsSt
       {/* Tempo — ONE aggregate series (dec-5). */}
       <div className="flex items-center gap-2">
         <span className="text-[0.65rem] uppercase tracking-wide text-muted">Tempo</span>
-        <div
-          data-testid="tempo-sparkline"
-          className="flex items-end gap-px"
-          style={{ height: SPARK_HEIGHT, width: windowMin * 3 }}
-          role="img"
-          aria-label={`${total} meaningful events over the last ${windowMin} minutes`}
-        >
-          {series.map((n, i) => (
-            <span
-              key={i}
-              className="flex-1"
-              style={{
-                minWidth: 1,
-                height: Math.max(n === 0 ? 1 : 2, (n / peak) * SPARK_HEIGHT),
-                background: n === 0 ? EMPTY_BAR : palette.accent,
-                borderRadius: 1,
-              }}
-            />
-          ))}
+        <div data-testid="tempo-sparkline" className="text-accent">
+          <Sparkline
+            values={series}
+            color={palette.accent}
+            width={windowMin * 3}
+            height={SPARK_HEIGHT}
+            live={total > 0}
+            title={`${total} meaningful events over the last ${windowMin} minutes`}
+          />
         </div>
         <span className="text-xs text-secondary tabular-nums">{perMin}/min</span>
       </div>

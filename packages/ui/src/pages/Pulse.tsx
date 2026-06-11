@@ -45,7 +45,7 @@ import { useTestSignalPulse } from '../hooks/useTestSignalPulse';
 import { TestSignalsMonitor } from '../components/pulse/TestSignalsMonitor';
 import { TestSignalCounter } from '../components/pulse/TestSignalCounter';
 import { mergeTestSignals, type LiveTestSignal } from '../components/pulse/testSignals';
-import { isStateChanging } from '../components/pulse/types';
+import { isMeaningfulWork } from '../components/pulse/pulseDerive';
 import type { ActivityRow, PulseConnectionStatus } from '../components/pulse/types';
 
 // spec-122 ac-2 — detect a REGRESSION on a moving line: a previously-verified AC
@@ -114,28 +114,24 @@ export function Pulse() {
     [setSearchParams],
   );
 
-  // ── Spec list for the picker (reuse SpecList's fetchDocs('spec') path). ──
+  // ── Spec list for the picker + the Hot Specs / Vitals bands. Refetched on a
+  // short poll AND on reconnect so phase + AC health stay LIVE (spec-255): a
+  // one-shot fetch left the cards frozen (phase chip never popped, new ACs never
+  // showed) until a full page reload. ──
   const [specDocs, setSpecDocs] = useState<DocSummary[]>([]);
   const [specsLoading, setSpecsLoading] = useState(true);
-  useEffect(() => {
-    let cancelled = false;
-    setSpecsLoading(true);
+  const refreshSpecs = useCallback(() => {
     fetchDocs('spec', { include: ['acHealth'] })
-      .then((docs) => {
-        if (!cancelled) setSpecDocs(docs);
-      })
-      .catch(() => {
-        // Non-fatal: the picker just shows "No Specs". Errors here shouldn't
-        // take down the feed, which is the page's primary surface.
-        if (!cancelled) setSpecDocs([]);
-      })
-      .finally(() => {
-        if (!cancelled) setSpecsLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
+      .then((docs) => setSpecDocs(docs))
+      // Non-fatal: keep the last-known list rather than blanking the bands.
+      .catch(() => {})
+      .finally(() => setSpecsLoading(false));
   }, []);
+  useEffect(() => {
+    refreshSpecs();
+    const id = setInterval(refreshSpecs, 15_000);
+    return () => clearInterval(id);
+  }, [refreshSpecs]);
 
   const pickerSpecs: SpecPickerSpec[] = useMemo(
     () => specDocs.map((d) => ({ handle: d.handle, title: d.title })),
@@ -249,7 +245,8 @@ export function Pulse() {
   const handleReconnect = useCallback(() => {
     void refresh();
     void refreshTestSignals();
-  }, [refresh, refreshTestSignals]);
+    refreshSpecs();
+  }, [refresh, refreshTestSignals, refreshSpecs]);
 
   const { status } = usePulseStream({ onRow: handleRow, onReconnect: handleReconnect });
 
@@ -325,7 +322,7 @@ export function Pulse() {
   // test_event rows persisted BEFORE the sink stopped writing them still live in
   // activity_log, so filter them out here too until they age off the window.
   const movingRows = useMemo(
-    () => mergedRows.filter((r) => r.entity !== 'test_event' && isStateChanging(r)),
+    () => mergedRows.filter((r) => isMeaningfulWork(r)),
     [mergedRows],
   );
 
@@ -480,7 +477,7 @@ export function Pulse() {
               proves liveness without dominating the page (spec-255 dec-1 / ac-2). */}
           <div
             data-testid="live-band"
-            className="flex-none max-h-72 min-h-0 flex flex-col rounded-lg border border-edge-subtle bg-surface/40 overflow-hidden"
+            className="flex-none max-h-72 min-h-0 mb-4 flex flex-col rounded-lg border border-edge-subtle bg-surface/40 overflow-hidden"
           >
             <ActivityFeed
               rows={movingRows}
