@@ -15,6 +15,7 @@
 //   - OAUTH_ENABLED=1 — the test sets this in beforeAll.
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { tagAc } from "@memex-ai-ac/vitest";
 import { createHash, randomBytes } from "node:crypto";
 import { inArray } from "drizzle-orm";
 import { db } from "../db/connection.js";
@@ -26,6 +27,15 @@ import {
 } from "../db/schema.js";
 import { upsertUserByEmail } from "../services/users.js";
 import { signSessionToken } from "../services/auth-jwt.js";
+
+// spec-31 ac-1 — "Anthropic reviewers can complete the full OAuth flow
+// (discover → register client → authorize → receive tokens → call MCP tools)
+// without manual intervention or token copy-pasting." This single test drives
+// every leg programmatically: it discovers the endpoints from the .well-known
+// metadata, then uses ONLY those discovered URLs for register/authorize/token,
+// and finally authenticates a real /mcp tools/list with the minted access
+// token — no human step, no copy-paste.
+const SPEC_31_AC_1 = "mindset-prod/memex-building-itself/specs/spec-31/acs/ac-1";
 
 const originalFlag = process.env.OAUTH_ENABLED;
 
@@ -57,9 +67,57 @@ afterAll(async () => {
 });
 
 describe("OAuth e2e — full connector flow", () => {
-  it("register → authorize → token → /mcp → refresh → reuse → revoke", async () => {
+  it("discover → register → authorize → token → /mcp → refresh → reuse → revoke", async () => {
+    tagAc(SPEC_31_AC_1);
     // Lazy-import the app so OAUTH_ENABLED is read after beforeAll set it.
     const { app } = await import("../app.js");
+
+    // ── 0. Discovery (RFC 8414 + RFC 9728) ───────────────────────────────
+    // A real connector starts here: it reads the protected-resource metadata
+    // off /mcp, follows it to the authorization-server metadata, and learns
+    // the endpoint URLs. The rest of the flow uses ONLY these discovered
+    // values — nothing is hardcoded by the client.
+    const prRes = await app.fetch(
+      new Request("https://memex.ai/.well-known/oauth-protected-resource/mcp"),
+    );
+    expect(prRes.status).toBe(200);
+    const pr = (await prRes.json()) as {
+      resource: string;
+      authorization_servers: string[];
+    };
+    // Resource metadata points at /mcp and names its authorization server. We
+    // assert internal consistency (resource → auth server share one origin)
+    // rather than a literal scheme — publicBaseUrl derives the origin from the
+    // request, so the deployment's own scheme/host flows through.
+    expect(pr.resource.endsWith("/mcp")).toBe(true);
+    const authServer = pr.authorization_servers[0];
+    expect(authServer).toBe(new URL(pr.resource).origin);
+
+    const asRes = await app.fetch(
+      new Request(`${authServer}/.well-known/oauth-authorization-server`),
+    );
+    expect(asRes.status).toBe(200);
+    const meta = (await asRes.json()) as {
+      issuer: string;
+      registration_endpoint: string;
+      authorization_endpoint: string;
+      token_endpoint: string;
+      revocation_endpoint: string;
+      code_challenge_methods_supported: string[];
+    };
+    // The endpoints the rest of this test drives are exactly the ones a
+    // reviewer's client would have discovered — all hanging off the same
+    // discovered issuer/base, no client-side hardcoding.
+    const registrationEndpoint = meta.registration_endpoint;
+    const authorizationEndpoint = meta.authorization_endpoint;
+    const tokenEndpoint = meta.token_endpoint;
+    const revocationEndpoint = meta.revocation_endpoint;
+    expect(meta.issuer).toBe(authServer);
+    expect(registrationEndpoint).toBe(`${authServer}/api/oauth/register`);
+    expect(authorizationEndpoint).toBe(`${authServer}/api/oauth/authorize`);
+    expect(tokenEndpoint).toBe(`${authServer}/api/oauth/token`);
+    expect(revocationEndpoint).toBe(`${authServer}/api/oauth/revoke`);
+    expect(meta.code_challenge_methods_supported).toContain("S256");
 
     // Seed a user + session.
     const user = await upsertUserByEmail(`oauth-e2e-${Date.now()}@test.dev`);
@@ -68,7 +126,7 @@ describe("OAuth e2e — full connector flow", () => {
 
     // ── 1. POST /api/oauth/register ──────────────────────────────────────
     const regRes = await app.fetch(
-      new Request("https://memex.ai/api/oauth/register", {
+      new Request(registrationEndpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -104,7 +162,7 @@ describe("OAuth e2e — full connector flow", () => {
       state: "test-state",
     });
     const previewRes = await app.fetch(
-      new Request(`https://memex.ai/api/oauth/authorize/preview?${qs}`, {
+      new Request(`${authorizationEndpoint}/preview?${qs}`, {
         headers: { Authorization: `Bearer ${sessionJwt}` },
       }),
     );
@@ -121,7 +179,7 @@ describe("OAuth e2e — full connector flow", () => {
 
     // ── 3. POST /api/oauth/authorize { decision: "allow" } ───────────────
     const authRes = await app.fetch(
-      new Request("https://memex.ai/api/oauth/authorize", {
+      new Request(authorizationEndpoint, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -148,7 +206,7 @@ describe("OAuth e2e — full connector flow", () => {
 
     // ── 4. POST /api/oauth/token (authorization_code) ────────────────────
     const tokenRes = await app.fetch(
-      new Request("https://memex.ai/api/oauth/token", {
+      new Request(tokenEndpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -177,7 +235,7 @@ describe("OAuth e2e — full connector flow", () => {
 
     // ── 5. POST /mcp with Bearer <access_token> ──────────────────────────
     const mcpRes = await app.fetch(
-      new Request("https://memex.ai/mcp", {
+      new Request(pr.resource, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -197,7 +255,7 @@ describe("OAuth e2e — full connector flow", () => {
 
     // ── 6. POST /api/oauth/token (refresh_token) — rotation ──────────────
     const refresh1Res = await app.fetch(
-      new Request("https://memex.ai/api/oauth/token", {
+      new Request(tokenEndpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -218,7 +276,7 @@ describe("OAuth e2e — full connector flow", () => {
 
     // ── 7. Replay original refresh_token → 401 + chain revoke ────────────
     const reuseRes = await app.fetch(
-      new Request("https://memex.ai/api/oauth/token", {
+      new Request(tokenEndpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -236,7 +294,7 @@ describe("OAuth e2e — full connector flow", () => {
     // After reuse detection, ALL tokens in the chain must be revoked —
     // including the legitimately-rotated `refreshed.refresh_token`.
     const reusedRefreshRes = await app.fetch(
-      new Request("https://memex.ai/api/oauth/token", {
+      new Request(tokenEndpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -253,7 +311,7 @@ describe("OAuth e2e — full connector flow", () => {
 
     // ── 8. POST /api/oauth/revoke — RFC 7009 always returns 200 ──────────
     const revokeRes = await app.fetch(
-      new Request("https://memex.ai/api/oauth/revoke", {
+      new Request(revocationEndpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

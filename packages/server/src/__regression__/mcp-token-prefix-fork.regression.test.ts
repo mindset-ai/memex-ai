@@ -1,4 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { tagAc } from "@memex-ai-ac/vitest";
+
+// spec-31 ac-5 — "Existing mxt_ PAT users experience zero regression." The two
+// mxt_ branches below pin that a PAT routes ONLY through verifyMcpToken and
+// passes orgFilter=undefined (the full legacy surface, no Org-scope filter) —
+// identical behaviour whether OAuth is off or on.
+const SPEC_31_AC_5 = "mindset-prod/memex-building-itself/specs/spec-31/acs/ac-5";
 
 // b-31 W1 t-4 — the /mcp route accepts both `Bearer mxt_...` (existing) and
 // OAuth JWTs (when OAUTH_ENABLED=1). This regression test pins the four
@@ -84,6 +91,7 @@ describe("regression: /mcp token-prefix fork (b-31 t-4)", () => {
   });
 
   it("mxt_ token → verifyMcpToken only, OAuth verifier untouched", async () => {
+    tagAc(SPEC_31_AC_5);
     delete process.env.OAUTH_ENABLED;
     verifyMcpToken.mockResolvedValue({ id: "tok-1", userId: "u-1" });
     const res = await postMcp("Bearer mxt_validtoken");
@@ -97,6 +105,7 @@ describe("regression: /mcp token-prefix fork (b-31 t-4)", () => {
   });
 
   it("mxt_ token works even when OAUTH_ENABLED is on (coexistence)", async () => {
+    tagAc(SPEC_31_AC_5);
     process.env.OAUTH_ENABLED = "1";
     verifyMcpToken.mockResolvedValue({ id: "tok-2", userId: "u-2" });
     const res = await postMcp("Bearer mxt_alsovalid");
