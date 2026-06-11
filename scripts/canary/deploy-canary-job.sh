@@ -53,15 +53,22 @@ gcloud storage buckets add-iam-policy-binding "gs://${BUCKET}" --project "$PROJE
 for S in canary-emit-key-prod canary-emit-key-int \
          canary-mcp-token-prod canary-mcp-token-int \
          slack-webhook-prod slack-webhook-int; do
+  # Org policy (constraints/gcp.resourceLocations) forbids 'global' secrets, so
+  # pin replication to the project region with a user-managed policy.
   gcloud secrets describe "$S" --project "$PROJECT" >/dev/null 2>&1 || \
-    gcloud secrets create "$S" --project "$PROJECT" --replication-policy automatic
+    gcloud secrets create "$S" --project "$PROJECT" \
+      --replication-policy user-managed --locations "$REGION"
   gcloud secrets add-iam-policy-binding "$S" --project "$PROJECT" \
     --member "serviceAccount:${SA}" --role roles/secretmanager.secretAccessor >/dev/null
 done
 
 # ── Build + push the image ──────────────────────────────────────────────────
 echo "▸ building image ${IMAGE}"
-gcloud builds submit "$REPO_ROOT" --project "$PROJECT" \
+# --default-buckets-behavior=regional-user-owned-bucket forces a regional
+# staging bucket — the org policy constraints/gcp.resourceLocations blocks the
+# default multi-region 'us' Cloud Build bucket. Mirrors packages/server/deploy.sh.
+gcloud builds submit "$REPO_ROOT" --project "$PROJECT" --region "$REGION" \
+  --default-buckets-behavior=regional-user-owned-bucket \
   --config /dev/stdin <<YAML
 steps:
   - name: gcr.io/cloud-builders/docker
@@ -90,16 +97,23 @@ gcloud run jobs "$JOB_ACTION" "$JOB" --project "$PROJECT" --region "$REGION" \
   --set-secrets "$SECRETS"
 
 # ── Cloud Scheduler → Job (every 10 min, off-round minutes to dodge load) ────
-gcloud run jobs add-iam-policy-binding "$JOB" --project "$PROJECT" --region "$REGION" \
-  --member "serviceAccount:${SCHED_SA}" --role roles/run.invoker >/dev/null
-RUN_URI="https://${REGION}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${PROJECT}/jobs/${JOB}:run"
-SCHED_ACTION=update
-gcloud scheduler jobs describe "$SCHED" --project "$PROJECT" --location "$REGION" >/dev/null 2>&1 || SCHED_ACTION=create
-echo "▸ ${SCHED_ACTION} Cloud Scheduler ${SCHED}"
-gcloud scheduler jobs "$SCHED_ACTION" http "$SCHED" --project "$PROJECT" --location "$REGION" \
-  --schedule "2,12,22,32,42,52 * * * *" \
-  --uri "$RUN_URI" --http-method POST \
-  --oauth-service-account-email "$SCHED_SA"
+# Skippable during first provisioning (SKIP_SCHEDULER=1) so the canary doesn't
+# start firing — and claxoning about half-seeded secrets — before a manual
+# execute has confirmed it green. Create the schedule once secrets are in.
+if [ "${SKIP_SCHEDULER:-0}" != "1" ]; then
+  gcloud run jobs add-iam-policy-binding "$JOB" --project "$PROJECT" --region "$REGION" \
+    --member "serviceAccount:${SCHED_SA}" --role roles/run.invoker >/dev/null
+  RUN_URI="https://${REGION}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${PROJECT}/jobs/${JOB}:run"
+  SCHED_ACTION=update
+  gcloud scheduler jobs describe "$SCHED" --project "$PROJECT" --location "$REGION" >/dev/null 2>&1 || SCHED_ACTION=create
+  echo "▸ ${SCHED_ACTION} Cloud Scheduler ${SCHED}"
+  gcloud scheduler jobs "$SCHED_ACTION" http "$SCHED" --project "$PROJECT" --location "$REGION" \
+    --schedule "2,12,22,32,42,52 * * * *" \
+    --uri "$RUN_URI" --http-method POST \
+    --oauth-service-account-email "$SCHED_SA"
+else
+  echo "▸ SKIP_SCHEDULER=1 — scheduler not created (seed secrets + verify a manual execute first)"
+fi
 
 cat <<NOTE
 
