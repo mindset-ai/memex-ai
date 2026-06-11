@@ -148,7 +148,7 @@ function follows(a: HTMLElement, b: HTMLElement): boolean {
 }
 
 describe('Pulse enhancement layout (spec-255)', () => {
-  it('orders the bands Vitals -> Hot Specs -> Live -> Working Now', async () => {
+  it('orders the bands Vitals -> Hot Specs -> Working Now -> Live', async () => {
     tagAc(AC(7));
     fetchDocsMock.mockResolvedValue([spec({ id: 'sb-1', handle: 'spec-1' })]);
     usePresenceMock.mockReturnValue({ rows: [present({ docId: 'sb-1' })], loading: false });
@@ -158,11 +158,11 @@ describe('Pulse enhancement layout (spec-255)', () => {
     renderPulse();
     const vitals = await screen.findByTestId('vitals-strip');
     const hot = screen.getByTestId('hot-specs');
-    const live = screen.getByTestId('live-band');
     const working = screen.getByTestId('working-now');
+    const live = screen.getByTestId('live-band');
     expect(follows(vitals, hot)).toBe(true);
-    expect(follows(hot, live)).toBe(true);
-    expect(follows(live, working)).toBe(true);
+    expect(follows(hot, working)).toBe(true);
+    expect(follows(working, live)).toBe(true);
   });
 
   it('shows BOTH bands at once, with no lens toggle (two bands, dec-6)', async () => {
@@ -183,15 +183,18 @@ describe('Pulse enhancement layout (spec-255)', () => {
     expect(screen.getByTestId('working-now')).toBeInTheDocument();
   });
 
-  it('demotes + shrinks the Live log (bounded height, not the page-filling band)', async () => {
+  it('puts the Live log at the bottom, allowed to grow tall (not capped)', async () => {
     tagAc(AC(2));
     renderPulse();
     const live = await screen.findByTestId('live-band');
-    expect(live.className).toMatch(/max-h-/);
-    expect(live.className).not.toMatch(/flex-1/);
+    // Live is the LAST band, below Working Now...
+    expect(follows(screen.getByTestId('working-now'), live)).toBe(true);
+    // ...and grows to fill the remaining height (flex-1), not capped small.
+    expect(live.className).toMatch(/flex-1/);
+    expect(live.className).not.toMatch(/max-h-/);
   });
 
-  it('ranks Hot Specs from PERSISTED history, not the live SSE buffer', async () => {
+  it('reflects LIVE events in Hot Specs immediately (merged live + history)', async () => {
     tagAc(AC(17));
     fetchDocsMock.mockResolvedValue([
       spec({ id: 'sb-H', handle: 'spec-h' }),
@@ -202,19 +205,17 @@ describe('Pulse enhancement layout (spec-255)', () => {
     );
     renderPulse();
     await screen.findByTestId('hot-specs');
-    // Persisted spec is a card.
-    expect(screen.getByTestId('hot-spec-card')).toHaveAttribute('data-doc-id', 'sb-H');
+    expect(screen.getAllByTestId('hot-spec-card').map((c) => c.getAttribute('data-doc-id'))).toEqual(['sb-H']);
 
-    // Push a LIVE-only row for a different spec through the stream callback.
+    // A live event for a DIFFERENT spec must surface it immediately — a live
+    // board reflects what is happening now, not only the last history fetch.
     act(() => {
       capturedOnRow?.(row({ id: 'live-L', briefId: 'sb-L', createdAt: new Date().toISOString() }));
     });
 
-    // Hot Specs still ranks only the persisted spec — the live buffer did not
-    // create a card (heat reads activity_log, not the SSE buffer).
-    const cards = screen.getAllByTestId('hot-spec-card');
-    expect(cards).toHaveLength(1);
-    expect(cards[0]).toHaveAttribute('data-doc-id', 'sb-H');
+    const ids = screen.getAllByTestId('hot-spec-card').map((c) => c.getAttribute('data-doc-id'));
+    expect(ids).toContain('sb-H');
+    expect(ids).toContain('sb-L');
   });
 
   it('surfaces a quiet spec as "quiet Nm" and counts only meaningful events', async () => {
@@ -227,7 +228,7 @@ describe('Pulse enhancement layout (spec-255)', () => {
     usePulseHistoryMock.mockReturnValue(
       history({
         rows: [
-          // sb-Q: last meaningful event 7 min ago → quiet, still in band.
+          // sb-Q: last meaningful event 7 min ago → quiet, still inside the 10-min band.
           row({ briefId: 'sb-Q', entity: 'task', action: 'updated', createdAt: new Date(Date.now() - 7 * 60_000).toISOString() }),
           // sb-R: only a READ action → not meaningful → must NOT become a hot spec.
           row({ briefId: 'sb-R', entity: 'document', action: 'viewed', createdAt: new Date(Date.now() - 30_000).toISOString() }),

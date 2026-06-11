@@ -88,11 +88,11 @@ describe('HotSpecs band (spec-255)', () => {
     expect(first.getByTestId('hot-spec-avatars')).toBeInTheDocument();
     // per-spec line sparkline present.
     expect(first.getByTestId('sparkline')).toBeInTheDocument();
-    // live AC cells — one per AC: HEALTH has 8 verified, 1 failing, 1 untested.
+    // live AC bar — one continuous proportional bar (HEALTH: 8 verified, 1 failing, 1 untested).
     const cells = first.getByTestId('ac-cells');
-    expect(cells.querySelectorAll('[data-cell="verified"]')).toHaveLength(8);
-    expect(cells.querySelectorAll('[data-cell="failing"]')).toHaveLength(1);
-    expect(cells.querySelectorAll('[data-cell="untested"]')).toHaveLength(1);
+    expect(cells.querySelector('[data-cell="verified"]')).toBeTruthy();
+    expect(cells.querySelector('[data-cell="failing"]')).toBeTruthy();
+    expect(cells).toHaveTextContent('8/10');
   });
 
   it('clicking a card navigates to that spec via its path-based route', () => {
