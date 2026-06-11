@@ -307,6 +307,35 @@
   }
 }
 
+/* spec-255 — Hot Specs phase chip "pop" when a spec advances a stage. A brief
+   one-shot scale + glow so a phase change announces itself on the board. */
+@keyframes phase-pop {
+  0% {
+    transform: scale(1);
+  }
+  25% {
+    transform: scale(1.35);
+    box-shadow: 0 0 0 0 rgb(var(--color-status-success-text) / 0.5);
+  }
+  60% {
+    box-shadow: 0 0 0 8px rgb(var(--color-status-success-text) / 0);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgb(var(--color-status-success-text) / 0);
+  }
+}
+
+.animate-phase-pop {
+  animation: phase-pop 0.9s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-phase-pop {
+    animation: none;
+  }
+}
+
 /* spec-123 (Option C): the opening-turn status indicator's three bouncing dots.
    A subtle "live" affordance under the cycling honest status lines while the
    agent's greeting streams. Pure CSS — no deps. Each dot is staggered so the

@@ -29,6 +29,27 @@ export interface WorkingNowProps {
    * "last moved <ago>" clock per active spec.
    */
   lastActivityAt?: (docId: string) => string | undefined;
+  /**
+   * spec-255 ac-5 — resolve a spec doc id → the present-tense narrative of its
+   * most recent event ("wiring the mic prompt"), for the per-worker line.
+   */
+  lastNarrative?: (docId: string) => string | undefined;
+}
+
+/** spec-255 ac-5 — compact glyph for the surface a worker is on. */
+function channelGlyph(channel: PresentRow['channel']): string {
+  switch (channel) {
+    case 'rest_ui':
+      return 'web';
+    case 'mcp':
+      return 'MCP';
+    case 'in_app_agent':
+      return 'in-app';
+    case 'server':
+      return 'server';
+    default:
+      return channel;
+  }
 }
 
 /** Display name for a present worker — their resolved name, else surface label. */
@@ -44,6 +65,7 @@ export function WorkingNow({
   specHandle,
   specTitle,
   lastActivityAt,
+  lastNarrative,
 }: WorkingNowProps) {
   return (
     <section
@@ -73,6 +95,7 @@ export function WorkingNow({
             const handle = specHandle?.(row.docId);
             const title = specTitle?.(row.docId);
             const lastAt = lastActivityAt?.(row.docId);
+            const narrative = lastNarrative?.(row.docId);
             return (
               <li
                 key={`${row.actorUserId}-${row.clientId}-${row.docId}`}
@@ -87,10 +110,28 @@ export function WorkingNow({
                   {handle ?? 'a spec'}
                 </span>
                 {title ? <span className="text-muted text-xs">{title}</span> : null}
+                {/* spec-255 ac-5 — the surface they're on (web / MCP / in-app). */}
+                <span
+                  data-testid="worker-channel"
+                  className="font-mono text-[0.65rem] uppercase tracking-wide text-muted/80 border border-edge-subtle rounded px-1"
+                >
+                  {channelGlyph(row.channel)}
+                </span>
                 {/* How long since this worker's last beat. */}
                 <span className="ml-auto text-xs text-muted tabular-nums" data-testid="worker-last-beat">
                   <TimeAgo value={row.lastSeenAt} />
                 </span>
+                {/* spec-255 ac-5 — present-tense line: what they're doing now.
+                    NO per-person intensity sparkline here by design (a per-human
+                    "how hard are they grinding" graph reads as surveillance). */}
+                {narrative ? (
+                  <span
+                    className="basis-full pl-5 text-xs text-secondary italic"
+                    data-testid="worker-line"
+                  >
+                    &ldquo;{narrative}&rdquo;
+                  </span>
+                ) : null}
                 {/* How long since this spec last MOVED (state-changing event). */}
                 {lastAt ? (
                   <span

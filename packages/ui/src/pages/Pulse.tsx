@@ -31,6 +31,8 @@ import { PageHeader } from '../components/PageHeader';
 import { LiveDot } from '../components/pulse/LiveDot';
 import { ActivityFeed } from '../components/pulse/ActivityFeed';
 import { WorkingNow } from '../components/pulse/WorkingNow';
+import { VitalsStrip } from '../components/pulse/VitalsStrip';
+import { HotSpecs } from '../components/pulse/HotSpecs';
 import { NeedsAttentionTray } from '../components/pulse/NeedsAttentionTray';
 import { SpecPicker, type SpecPickerSpec } from '../components/pulse/SpecPicker';
 import { ScopeToggle, type PulseScope } from '../components/pulse/ScopeToggle';
@@ -118,7 +120,7 @@ export function Pulse() {
   useEffect(() => {
     let cancelled = false;
     setSpecsLoading(true);
-    fetchDocs('spec')
+    fetchDocs('spec', { include: ['acHealth'] })
       .then((docs) => {
         if (!cancelled) setSpecDocs(docs);
       })
@@ -344,6 +346,36 @@ export function Pulse() {
     [lastActivityByDocId],
   );
 
+  // ── spec-255 resolvers for the Vitals + Hot Specs bands. ──────────────────
+  const specPhaseByDocId = useCallback(
+    (docId: string): string | undefined => specDocs.find((d) => d.id === docId)?.status,
+    [specDocs],
+  );
+  const specAcHealthByDocId = useCallback(
+    (docId: string) => specDocs.find((d) => d.id === docId)?.acHealth,
+    [specDocs],
+  );
+  // docId → the present-tense narrative of that spec's most recent moving event,
+  // for the Hot Specs card + Working Now line.
+  const lastNarrativeByDocId = useMemo(() => {
+    const map = new Map<string, { at: number; text: string }>();
+    for (const r of movingRows) {
+      if (!r.briefId) continue;
+      const t = rowMs(r);
+      const prev = map.get(r.briefId);
+      if (!prev || t > prev.at) map.set(r.briefId, { at: t, text: r.narrative });
+    }
+    return map;
+  }, [movingRows]);
+  const specNarrativeByDocId = useCallback(
+    (docId: string): string | undefined => lastNarrativeByDocId.get(docId)?.text,
+    [lastNarrativeByDocId],
+  );
+  const specHref = useCallback(
+    (handle: string) => `/${namespace}/${memex}/specs/${handle}`,
+    [namespace, memex],
+  );
+
   // ── eventsLastHour for the feed status line, from the moving set. ───────────
   const eventsLastHour = useMemo(() => {
     const cutoff = Date.now() - ONE_HOUR_MS;
@@ -425,21 +457,31 @@ export function Pulse() {
           column; the Needs-attention tray keeps its place on the right. */}
       <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 min-h-0 flex flex-col">
-          {/* Live test-signal heartbeat next to who's working. */}
+          {/* spec-255 — Vitals strip (graphics) then the Hot Specs hero band. */}
+          <VitalsStrip present={presentRows} activity={historyRows} />
+          <HotSpecs
+            present={presentRows}
+            activity={historyRows}
+            specHandle={specHandleByDocId}
+            specTitle={specTitleByDocId}
+            specPhase={specPhaseByDocId}
+            specNarrative={specNarrativeByDocId}
+            specAcHealth={specAcHealthByDocId}
+            specHref={specHref}
+          />
+          {/* Live test-signal heartbeat. */}
           <TestSignalCounter
             total={mergedTestSignals.totals.total}
             windowMinutes={mergedTestSignals.windowMinutes}
             failing={mergedTestSignals.failing}
             liveDelta={liveTestSignals.length}
           />
-          <WorkingNow
-            present={displayedPresent}
-            loading={presenceLoading}
-            specHandle={specHandleByDocId}
-            specTitle={specTitleByDocId}
-            lastActivityAt={lastActivityAt}
-          />
-          <div className="min-h-0 flex-1 flex flex-col rounded-lg border border-edge-subtle bg-surface/40 overflow-hidden">
+          {/* Live event log — demoted directly under Hot Specs and shrunk so it
+              proves liveness without dominating the page (spec-255 dec-1 / ac-2). */}
+          <div
+            data-testid="live-band"
+            className="flex-none max-h-72 min-h-0 flex flex-col rounded-lg border border-edge-subtle bg-surface/40 overflow-hidden"
+          >
             <ActivityFeed
               rows={movingRows}
               status={status}
@@ -453,6 +495,15 @@ export function Pulse() {
               specHasActiveWorker={specHasActiveWorker}
             />
           </div>
+          {/* Working Now — by person, demoted to the bottom (spec-255 dec-1). */}
+          <WorkingNow
+            present={displayedPresent}
+            loading={presenceLoading}
+            specHandle={specHandleByDocId}
+            specTitle={specTitleByDocId}
+            lastActivityAt={lastActivityAt}
+            lastNarrative={specNarrativeByDocId}
+          />
         </div>
         <div className="lg:col-span-1 min-h-0 overflow-y-auto">
           {/* Test-signal volume graphic — the firehose as a live sparkline,
