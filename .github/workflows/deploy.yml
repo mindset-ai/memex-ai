@@ -109,3 +109,19 @@ jobs:
           SMOKE_SESSION_TOKEN: ${{ secrets.SMOKE_SESSION_TOKEN }}
           MEMEX_EMIT_KEY: ${{ secrets.MEMEX_EMIT_KEY }}
         run: bash deploy.sh
+
+      # spec-243 dec-2 / ac-6: every deploy posts a friendly note to the matching
+      # env's Slack channel (#memex-prod-alerts / #memex-int-alerts), so each
+      # channel is the single timeline of "what changed and what broke" for its
+      # environment. Enriched with the specs + PRs that shipped (Option B —
+      # clickable spec links derived from the commit list, zero API calls so a
+      # Memex outage can never slow or break this). Friendly on success, a short
+      # red line if the deploy job itself failed; never fails the deploy.
+      - name: Notify Slack (deploy)
+        if: always()
+        env:
+          SLACK_WEBHOOK: ${{ env.ENV == 'prod' && secrets.SLACK_WEBHOOK_PROD || secrets.SLACK_WEBHOOK_INT }}
+          HOST: ${{ env.ENV == 'prod' && 'memex.ai' || 'int.memex.ai' }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          OUTCOME: ${{ job.status }}
+        run: node scripts/canary/deploy-notify.mjs
