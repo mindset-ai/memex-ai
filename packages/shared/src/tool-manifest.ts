@@ -257,8 +257,8 @@ export const toolManifest: ToolManifestEntry[] = [
   {
     name: 'resolve_decision',
     summary:
-      'Resolve a decision with an explanation; may unblock waiting tasks. chosenOptionIndex marks a structured option.',
-    args: 'resolve_decision(ref, resolution, chosenOptionIndex?)',
+      'Resolve a decision; may unblock waiting tasks. chosenOptionIndex marks a structured option — resolution is then optional (defaults to its label). Re-resolving updates the choice in place.',
+    args: 'resolve_decision(ref, resolution?, chosenOptionIndex?)',
     group: 'planning',
     readOnlyHint: false,
     trafficClass: 'specify',

@@ -5,18 +5,18 @@ import { rehypeRefLinkifier } from './chat/refLinkifier';
 import { phaseDisplayName } from '../utils/phaseDisplay';
 import type { Decision, Comment } from '../api/types';
 import {
-  approveDecisionApi,
-  rejectDecisionApi,
   resolveDecisionApi,
   createDecisionComment,
   fetchAcsForBrief,
   type AcWithVerification,
 } from '../api/client';
+import type { GuidanceBlock } from '@memex/shared';
 import { useAuth } from './AuthContext';
 import { useChat } from './ChatContext';
 import { CommentTray } from './CommentTray';
 import { Badge, Button, Tabs } from './ui';
 import { DecisionAcStrip } from './DecisionAcStrip';
+import { PromptButton } from './PromptButton';
 import { TextArea } from './ui/TextArea';
 
 interface DecisionPanelProps {
@@ -35,20 +35,18 @@ interface DecisionPanelProps {
   onJumpToAc?: (acId: string) => void;
   /**
    * spec-111 t-8: when false (non-member reading a public Memex), every
-   * mutation control is suppressed — approve/reject/flag on candidates, the
-   * resolve action on open decisions, and the comment composer in each tray.
-   * The decision content stays fully readable. Defaults to true so member
-   * call sites are unchanged.
+   * mutation control is suppressed — the option picker on open decisions and
+   * the comment composer in each tray. The decision content stays fully
+   * readable. Defaults to true so member call sites are unchanged.
    */
   canWrite?: boolean;
   /**
    * spec-118 t-6: when false (a reviewer — write access to the Memex but a
    * reviewer posture on this Spec), the forward-driving controls are
-   * suppressed (approve/reject/flag on candidates, resolve on open decisions,
-   * and the resolution textareas) while the comment composer in each tray —
-   * gated on `canWrite`, not `canEdit` — stays available so reviewers can
-   * still comment and @mention. Defaults to true so existing editor call
-   * sites are unchanged.
+   * suppressed (the answering option picker and re-select) while
+   * the comment composer in each tray — gated on `canWrite`, not `canEdit` —
+   * stays available so reviewers can still comment and @mention. Defaults to
+   * true so existing editor call sites are unchanged.
    */
   canEdit?: boolean;
   /**
@@ -67,11 +65,19 @@ interface DecisionPanelProps {
    * them would dead-end. Defaults to false (real specs keep auto-linking).
    */
   isDemo?: boolean;
+  /**
+   * spec-247 dec-4: interpolation context ({namespace}/{memex}/{handle}/…) for
+   * the boundary-handoff PromptButtons (candidate review). Absent (e.g. in
+   * isolated tests) the marker lines are omitted.
+   */
+  promptContext?: Record<string, unknown>;
+  /** Org scaffold appends threaded into toButtonPrompt (spec-159 ac-17). */
+  orgBlocks?: readonly GuidanceBlock[];
 }
 
 type TabId = 'candidates' | 'open' | 'resolved';
 
-export function DecisionPanel({ docId, decisions, commentsByDecision = {}, forceShowComments: _forceShowComments, onCommentsChange, onUpdate, highlightDecisionHandle, onJumpToAc, canWrite = true, canEdit = true, specPhase, isDemo = false }: DecisionPanelProps) {
+export function DecisionPanel({ docId, decisions, commentsByDecision = {}, forceShowComments: _forceShowComments, onCommentsChange, onUpdate, highlightDecisionHandle, onJumpToAc, canWrite = true, canEdit = true, specPhase, isDemo = false, promptContext, orgBlocks }: DecisionPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   // spec-178 ac-24: suppress handle auto-linking inside a frozen demo spec's
   // decision prose. Mirrors SectionCard's rehypePlugins switch.
@@ -84,26 +90,34 @@ export function DecisionPanel({ docId, decisions, commentsByDecision = {}, force
   const [showCommentsFor, setShowCommentsFor] = useState<string | null>(null);
   const [collapsedOpen, setCollapsedOpen] = useState<Set<string>>(new Set());
 
-  // Per-candidate UI state for the Candidates tab. Each candidate may have a
-  // selected radio option, a pending reject reason, a pending flag-for-discussion
-  // body, plus a "busy" flag while the API call is in flight. Keeping these
-  // keyed by decision id (not in a single object) keeps the rerender surface
-  // tight when only one candidate's state changes.
-  const [chosenByCandidate, setChosenByCandidate] = useState<Record<string, number>>({});
-  const [rejectReasonByCandidate, setRejectReasonByCandidate] = useState<Record<string, string>>({});
-  const [showRejectFor, setShowRejectFor] = useState<string | null>(null);
+  // Per-candidate UI state. spec-247 dec-6: candidates are VIEW-ONLY on the
+  // web — no option radios, no Approve/Reject. The only candidate-side write
+  // left is "Flag for discussion" (a question-typed comment, not part of the
+  // approval process — approving/rejecting happens from the coding agent).
   const [flagBodyByCandidate, setFlagBodyByCandidate] = useState<Record<string, string>>({});
   const [showFlagFor, setShowFlagFor] = useState<string | null>(null);
   const [busyCandidate, setBusyCandidate] = useState<string | null>(null);
 
-  // Per-open-decision UI state for the resolution option picker (only relevant
-  // when `decision.options` is non-null). Selecting a radio captures
-  // `chosenOptionIndex`; clicking Resolve persists it via resolveDecisionApi
-  // and refreshes the doc through onUpdate().
+  // spec-247 dec-1/dec-5 (persist-on-select): clicking an option on an open
+  // decision IS the resolution — the click immediately calls the resolve API
+  // with that chosenOptionIndex (resolution prose defaults server-side to the
+  // option's label). `chosenByOpen` only carries the optimistic checked state
+  // while the call is in flight; the persisted truth arrives via onUpdate().
   const [chosenByOpen, setChosenByOpen] = useState<Record<string, number>>({});
-  const [resolutionDraftByOpen, setResolutionDraftByOpen] = useState<Record<string, string>>({});
-  const [showResolveFor, setShowResolveFor] = useState<string | null>(null);
   const [busyOpen, setBusyOpen] = useState<string | null>(null);
+  const [selectError, setSelectError] = useState<Record<string, string>>({});
+
+  // spec-247 dec-2: discussion comments live behind a per-card toggle on the
+  // answering path — never inline next to the picker.
+  const [discussionFor, setDiscussionFor] = useState<Set<string>>(new Set());
+
+  // spec-247 dec-5: re-select busy state on resolved decisions. There is NO
+  // reasoning input on the web — rationale, when wanted, comes from the agent
+  // side; the only web text action on a decision is a discussion comment.
+  const [busyResolved, setBusyResolved] = useState<string | null>(null);
+  // Optimistic checked state for re-select, mirroring chosenByOpen — the radio
+  // flips on click, not after the refetch round-trip.
+  const [reselectByResolved, setReselectByResolved] = useState<Record<string, number>>({});
 
   // ACs for the Spec — polled every 3s while the tab is visible so a new
   // test_event lands in the strip within ~3s without requiring tab nav.
@@ -216,34 +230,6 @@ export function DecisionPanel({ docId, decisions, commentsByDecision = {}, force
     return () => window.clearTimeout(handle);
   }, [highlightDecisionHandle, decisions]);
 
-  const handleApprove = async (decId: string) => {
-    setBusyCandidate(decId);
-    try {
-      await approveDecisionApi(decId);
-      onUpdate();
-    } finally {
-      setBusyCandidate(null);
-    }
-  };
-
-  const handleReject = async (decId: string) => {
-    const reason = (rejectReasonByCandidate[decId] ?? '').trim();
-    if (!reason) return;
-    setBusyCandidate(decId);
-    try {
-      await rejectDecisionApi(decId, reason);
-      setRejectReasonByCandidate((prev) => {
-        const next = { ...prev };
-        delete next[decId];
-        return next;
-      });
-      setShowRejectFor(null);
-      onUpdate();
-    } finally {
-      setBusyCandidate(null);
-    }
-  };
-
   const handleFlag = async (decId: string) => {
     const content = (flagBodyByCandidate[decId] ?? '').trim();
     if (!content) return;
@@ -265,30 +251,99 @@ export function DecisionPanel({ docId, decisions, commentsByDecision = {}, force
     }
   };
 
-  const handleResolveWithOption = async (decId: string) => {
-    const resolution = (resolutionDraftByOpen[decId] ?? '').trim();
-    if (!resolution) return;
-    const idx = chosenByOpen[decId];
-    setBusyOpen(decId);
+  // spec-247 dec-1/dec-5 — the option row is the only answering affordance:
+  // clicking persists immediately (no Save, no required prose, re-selectable).
+  const handleSelectOption = async (dec: Decision, idx: number) => {
+    if (!canEdit || busyOpen === dec.id) return;
+    setChosenByOpen((prev) => ({ ...prev, [dec.id]: idx }));
+    setSelectError((prev) => {
+      const next = { ...prev };
+      delete next[dec.id];
+      return next;
+    });
+    setBusyOpen(dec.id);
     try {
-      // resolveDecisionApi accepts an optional chosenOptionIndex; only pass it
-      // when a radio is selected, so decisions without options keep the
-      // existing 2-arg call shape.
-      await resolveDecisionApi(decId, resolution, idx);
-      setShowResolveFor(null);
-      setResolutionDraftByOpen((prev) => {
+      await resolveDecisionApi(dec.id, undefined, idx);
+      onUpdate();
+    } catch (err) {
+      // Roll the optimistic pick back and surface the failure on the card —
+      // a silent failure here would be the very silent-drop this Spec kills.
+      setChosenByOpen((prev) => {
         const next = { ...prev };
-        delete next[decId];
+        delete next[dec.id];
         return next;
       });
-      onUpdate();
+      setSelectError((prev) => ({
+        ...prev,
+        [dec.id]: err instanceof Error ? err.message : 'Failed to record the answer',
+      }));
     } finally {
       setBusyOpen(null);
     }
   };
 
+  // spec-247 dec-5 — re-select on an already-resolved decision updates the
+  // choice in place (the server allows re-resolve).
+  const handleReselect = async (dec: Decision, idx: number) => {
+    if (!canEdit || busyResolved === dec.id || dec.chosenOptionIndex === idx) return;
+    setReselectByResolved((prev) => ({ ...prev, [dec.id]: idx }));
+    setBusyResolved(dec.id);
+    try {
+      await resolveDecisionApi(dec.id, undefined, idx);
+      onUpdate();
+    } catch (err) {
+      console.error('Failed to re-select option:', err);
+      setReselectByResolved((prev) => {
+        const next = { ...prev };
+        delete next[dec.id];
+        return next;
+      });
+    } finally {
+      setBusyResolved(null);
+    }
+  };
+
+  const toggleDiscussion = (decId: string) =>
+    setDiscussionFor((prev) => {
+      const next = new Set(prev);
+      if (next.has(decId)) next.delete(decId);
+      else next.add(decId);
+      return next;
+    });
+
   const openCommentCount = (decId: string) =>
     commentsByDecision[decId]?.filter((c) => !c.resolvedAt).length ?? 0;
+
+  const allCommentCount = (decId: string) => commentsByDecision[decId]?.length ?? 0;
+
+  // spec-247 dec-2 — the Discussion toggle + tray. The label states the one
+  // thing the old inline box never said: comments never resolve a decision.
+  const discussionBlock = (dec: Decision) => (
+    <div className="mt-2 pt-2 border-t border-edge">
+      <button
+        type="button"
+        data-testid="decision-discussion-toggle"
+        onClick={() => toggleDiscussion(dec.id)}
+        className="text-xs text-muted hover:text-secondary transition-colors"
+      >
+        {discussionFor.has(dec.id) ? 'Hide discussion' : `Discussion (${allCommentCount(dec.id)})`}
+      </button>
+      {discussionFor.has(dec.id) && (
+        <div className="mt-2">
+          <p data-testid="discussion-disclaimer" className="text-[11px] text-muted mb-2">
+            Discussion only — comments never resolve a decision.
+          </p>
+          <CommentTray
+            targetType="decision"
+            targetId={dec.id}
+            comments={commentsByDecision[dec.id] ?? []}
+            onCommentsChange={onCommentsChange}
+            canWrite={canWrite}
+          />
+        </div>
+      )}
+    </div>
+  );
 
   const tabs: Array<{ id: TabId; label: string; count: number; countVariant?: 'default' | 'warning' | 'danger' }> = [
     { id: 'candidates', label: 'Candidates', count: candidates.length, countVariant: 'warning' },
@@ -343,9 +398,24 @@ export function DecisionPanel({ docId, decisions, commentsByDecision = {}, force
             </div>
           )}
 
+          {/* spec-247 dec-6 / ac-21 — the boundary marker: candidate review
+              (approve / reject) is coding-agent work, and the surface says so
+              instead of offering web buttons that half-implement it. */}
+          {candidates.length > 0 && promptContext && (
+            <div data-testid="candidate-mcp-marker" className="rounded-md border border-edge-subtle bg-overlay/30 px-3 py-2">
+              <PromptButton
+                buttonId="review-candidates"
+                context={promptContext}
+                orgBlocks={orgBlocks}
+                linkText="Review the candidate decisions"
+                sentence="— copy this prompt into your coding agent. Approving or rejecting candidates happens there, not in the browser."
+                sentenceLabel="Review the candidate decisions — copy this prompt into your coding agent. Approving or rejecting candidates happens there, not in the browser."
+              />
+            </div>
+          )}
+
           {candidates.map((dec) => {
             const isBusy = busyCandidate === dec.id;
-            const chosenIdx = chosenByCandidate[dec.id];
             return (
               <div
                 key={dec.id}
@@ -372,53 +442,36 @@ export function DecisionPanel({ docId, decisions, commentsByDecision = {}, force
                   </div>
                 )}
 
+                {/* spec-247 dec-6 — options render as INFORMATION on a
+                    candidate. No radios: nothing selectable means nothing can
+                    be silently dropped (the spec-93 Failure 1 bug class). */}
                 {dec.options && dec.options.length > 0 && (
-                  <fieldset
-                    className="mt-3 space-y-1.5"
-                    data-testid="candidate-options"
-                  >
-                    <legend className="text-[10px] uppercase tracking-wider text-muted font-medium">Options</legend>
+                  <div className="mt-3 space-y-1.5" data-testid="candidate-options">
+                    <div className="text-[10px] uppercase tracking-wider text-muted font-medium">Options</div>
                     {dec.options.map((opt, idx) => (
-                      <label
+                      <div
                         key={idx}
-                        className={`flex gap-2 items-start rounded-md border px-2 py-1.5 cursor-pointer transition-colors ${
-                          chosenIdx === idx
-                            ? 'border-edge-strong bg-overlay'
-                            : 'border-edge-subtle hover:bg-card-hover'
-                        }`}
+                        data-testid={`candidate-option-${idx}`}
+                        className="rounded-md border border-edge-subtle px-2 py-1.5"
                       >
-                        <input
-                          type="radio"
-                          name={`candidate-${dec.id}`}
-                          value={idx}
-                          checked={chosenIdx === idx}
-                          onChange={() =>
-                            setChosenByCandidate((prev) => ({ ...prev, [dec.id]: idx }))
-                          }
-                          data-testid={`candidate-option-${idx}`}
-                          className="mt-1"
-                        />
-                        <div className="flex-1 min-w-0">
-                          <div className="text-sm font-medium text-primary">{opt.label}</div>
-                          {opt.trade_offs && (
-                            <div className="text-xs text-muted mt-0.5 whitespace-pre-wrap">{opt.trade_offs}</div>
-                          )}
-                        </div>
-                      </label>
+                        <div className="text-sm font-medium text-primary">{opt.label}</div>
+                        {opt.trade_offs && (
+                          <div className="text-xs text-muted mt-0.5 whitespace-pre-wrap">{opt.trade_offs}</div>
+                        )}
+                      </div>
                     ))}
-                  </fieldset>
+                  </div>
                 )}
 
-                {/* Action row: Approve / Reject / Flag for discussion.
-                    Suppressed for read-only non-members (spec-111 t-8) and for
-                    reviewers (spec-118 t-6 — forward-driving, gated on canEdit). */}
+                {/* spec-247 dec-6: no Approve / Reject on the web — the
+                    approval process is MCP-only. The one remaining card
+                    action is Flag for discussion (a question comment). */}
                 {canEdit && (
                 <div className="mt-3 pt-2 border-t border-edge flex flex-wrap gap-2 justify-end">
                   <Button
                     data-testid="candidate-flag"
                     onClick={() => {
                       setShowFlagFor(showFlagFor === dec.id ? null : dec.id);
-                      setShowRejectFor(null);
                     }}
                     variant="ghost"
                     size="sm"
@@ -426,66 +479,7 @@ export function DecisionPanel({ docId, decisions, commentsByDecision = {}, force
                   >
                     Flag for discussion
                   </Button>
-                  <Button
-                    data-testid="candidate-reject"
-                    onClick={() => {
-                      setShowRejectFor(showRejectFor === dec.id ? null : dec.id);
-                      setShowFlagFor(null);
-                    }}
-                    variant="danger"
-                    size="sm"
-                    disabled={isBusy}
-                  >
-                    Reject
-                  </Button>
-                  <Button
-                    data-testid="candidate-approve"
-                    onClick={() => handleApprove(dec.id)}
-                    variant="success"
-                    size="sm"
-                    disabled={isBusy}
-                  >
-                    Approve
-                  </Button>
                 </div>
-                )}
-
-                {canEdit && showRejectFor === dec.id && (
-                  <div className="mt-2 pt-2 border-t border-edge space-y-2">
-                    <TextArea
-                      data-testid="candidate-reject-reason"
-                      value={rejectReasonByCandidate[dec.id] ?? ''}
-                      onChange={(e) =>
-                        setRejectReasonByCandidate((prev) => ({
-                          ...prev,
-                          [dec.id]: e.target.value,
-                        }))
-                      }
-                      placeholder="Reason for rejecting this candidate..."
-                      rows={2}
-                      textAreaSize="compact"
-                    />
-                    <div className="flex gap-2 justify-end">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setShowRejectFor(null)}
-                      >
-                        Cancel
-                      </Button>
-                      <Button
-                        data-testid="candidate-reject-confirm"
-                        type="button"
-                        variant="danger"
-                        size="sm"
-                        disabled={isBusy || !(rejectReasonByCandidate[dec.id] ?? '').trim()}
-                        onClick={() => handleReject(dec.id)}
-                      >
-                        Confirm reject
-                      </Button>
-                    </div>
-                  </div>
                 )}
 
                 {canEdit && showFlagFor === dec.id && (
@@ -525,15 +519,7 @@ export function DecisionPanel({ docId, decisions, commentsByDecision = {}, force
                   </div>
                 )}
 
-                <div className="mt-2 pt-2 border-t border-edge">
-                  <CommentTray
-                    targetType="decision"
-                    targetId={dec.id}
-                    comments={commentsByDecision[dec.id] ?? []}
-                    onCommentsChange={onCommentsChange}
-                    canWrite={canWrite}
-                  />
-                </div>
+                {discussionBlock(dec)}
               </div>
             );
           })}
@@ -546,7 +532,7 @@ export function DecisionPanel({ docId, decisions, commentsByDecision = {}, force
           {open.length === 0 && (
             <div className="text-sm text-muted space-y-1">
               <p>No open decisions.</p>
-              <p className="text-xs">Decisions move here when you approve a candidate raised by the agent. An open decision is an unresolved choice with options on the table — pick one with a rationale to resolve it.</p>
+              <p className="text-xs">Decisions move here once a candidate is confirmed from your coding agent. An open decision is an unresolved choice with options on the table — picking an option records your answer.</p>
             </div>
           )}
 
@@ -554,7 +540,6 @@ export function DecisionPanel({ docId, decisions, commentsByDecision = {}, force
             const isExpanded = !collapsedOpen.has(dec.id);
             const isBusy = busyOpen === dec.id;
             const chosenIdx = chosenByOpen[dec.id];
-            const showResolve = showResolveFor === dec.id;
             const hasOptions = dec.options !== null && dec.options.length > 0;
             return (
               <div
@@ -597,29 +582,34 @@ export function DecisionPanel({ docId, decisions, commentsByDecision = {}, force
                       </div>
                     )}
 
+                    {/* spec-247 dec-1/dec-5 — the option rows ARE the
+                        answering affordance. Clicking one records the answer
+                        immediately; there is no Resolve button, and the hint
+                        names the actual effect (ac-2: every control labelled
+                        by what it does). */}
                     {hasOptions && (
                       <fieldset
                         className="mt-3 space-y-1.5"
                         data-testid="open-options"
+                        disabled={!canEdit || isBusy}
                       >
                         <legend className="text-[10px] uppercase tracking-wider text-muted font-medium">Options</legend>
                         {dec.options!.map((opt, idx) => (
                           <label
                             key={idx}
-                            className={`flex gap-2 items-start rounded-md border px-2 py-1.5 cursor-pointer transition-colors ${
+                            className={`flex gap-2 items-start rounded-md border px-2 py-1.5 transition-colors ${
                               chosenIdx === idx
                                 ? 'border-edge-strong bg-overlay'
                                 : 'border-edge-subtle hover:bg-card-hover'
-                            }`}
+                            } ${canEdit ? 'cursor-pointer' : 'cursor-default'}`}
                           >
                             <input
                               type="radio"
                               name={`open-${dec.id}`}
                               value={idx}
                               checked={chosenIdx === idx}
-                              onChange={() =>
-                                setChosenByOpen((prev) => ({ ...prev, [dec.id]: idx }))
-                              }
+                              disabled={!canEdit || isBusy}
+                              onChange={() => void handleSelectOption(dec, idx)}
                               data-testid={`open-option-${idx}`}
                               className="mt-1"
                             />
@@ -631,88 +621,34 @@ export function DecisionPanel({ docId, decisions, commentsByDecision = {}, force
                             </div>
                           </label>
                         ))}
+                        {canEdit && (
+                          <p data-testid="persist-on-select-hint" className="text-[11px] text-muted">
+                            {isBusy
+                              ? 'Recording your answer…'
+                              : 'Picking an option records your answer — you can change it later.'}
+                          </p>
+                        )}
                       </fieldset>
                     )}
 
-                    <div className="mt-2 pt-2 border-t border-edge">
-                      <CommentTray
-                        targetType="decision"
-                        targetId={dec.id}
-                        comments={commentsByDecision[dec.id] ?? []}
-                        onCommentsChange={onCommentsChange}
-                        canWrite={canWrite}
-                      />
-                    </div>
-
-                    {canEdit && (
-                    <>
-                    <div className="mt-2 pt-2 border-t border-edge flex justify-end gap-2">
-                      {hasOptions ? (
-                        <Button
-                          data-testid="decision-resolve"
-                          onClick={() => {
-                            setShowResolveFor(showResolve ? null : dec.id);
-                          }}
-                          variant="success"
-                          size="sm"
-                          disabled={isBusy}
-                        >
-                          {showResolve ? 'Cancel' : 'Resolve'}
-                        </Button>
-                      ) : (
-                        <Button
-                          data-testid="decision-resolve"
-                          onClick={() => {
-                            chat.addContextChip({
-                              type: 'decision',
-                              id: dec.id,
-                              label: `Decision D-${dec.seq}`,
-                            });
-                            chat.sendMessage(`Resolve decision D-${dec.seq}`);
-                          }}
-                          variant="success"
-                          size="sm"
-                        >
-                          Resolve
-                        </Button>
-                      )}
-                    </div>
-
-                    {hasOptions && showResolve && (
-                      <div className="mt-2 pt-2 border-t border-edge space-y-2">
-                        <TextArea
-                          data-testid="open-resolution-text"
-                          value={resolutionDraftByOpen[dec.id] ?? ''}
-                          onChange={(e) =>
-                            setResolutionDraftByOpen((prev) => ({
-                              ...prev,
-                              [dec.id]: e.target.value,
-                            }))
-                          }
-                          placeholder="Why this option? (Required)"
-                          rows={2}
-                          textAreaSize="compact"
-                        />
-                        <div className="flex gap-2 justify-end">
-                          <Button
-                            data-testid="open-resolve-confirm"
-                            type="button"
-                            variant="success"
-                            size="sm"
-                            disabled={
-                              isBusy ||
-                              chosenIdx === undefined ||
-                              !(resolutionDraftByOpen[dec.id] ?? '').trim()
-                            }
-                            onClick={() => handleResolveWithOption(dec.id)}
-                          >
-                            Save resolution
-                          </Button>
-                        </div>
-                      </div>
+                    {selectError[dec.id] && (
+                      <p data-testid="select-error" className="mt-1 text-xs text-status-danger-text">
+                        {selectError[dec.id]}
+                      </p>
                     )}
-                    </>
+
+                    {/* spec-247 dec-1 — optionless decisions have NO resolve
+                        control on the web: answering happens in conversation
+                        with the spec assistant or from the coding agent. */}
+                    {!hasOptions && (
+                      <p data-testid="optionless-hint" className="mt-3 text-xs text-muted">
+                        This decision has no structured options. Answer it in
+                        conversation with the Spec assistant, or resolve it from
+                        your coding agent.
+                      </p>
                     )}
+
+                    {discussionBlock(dec)}
                   </>
                 )}
               </div>
@@ -727,12 +663,14 @@ export function DecisionPanel({ docId, decisions, commentsByDecision = {}, force
           {resolved.length === 0 && (
             <div className="text-sm text-muted space-y-1">
               <p>No resolved decisions yet.</p>
-              <p className="text-xs">Resolved decisions land here once an open decision has been answered with a chosen option and a rationale. They become the durable "this is how we decided" record for the spec.</p>
+              <p className="text-xs">Resolved decisions land here once an open decision has been answered by picking an option (or in conversation). They become the durable "this is how we decided" record for the spec.</p>
             </div>
           )}
 
           {resolved.map((dec) => {
             const decOpenComments = openCommentCount(dec.id) > 0;
+            const isBusy = busyResolved === dec.id;
+            const shownChosenIdx = reselectByResolved[dec.id] ?? dec.chosenOptionIndex;
             return (
               <div
                 key={dec.id}
@@ -795,14 +733,14 @@ export function DecisionPanel({ docId, decisions, commentsByDecision = {}, force
                   <span className="flex-none text-xs font-mono text-muted">dec-{dec.seq}</span>
                 </div>
 
-                {dec.options && dec.chosenOptionIndex !== null && dec.options[dec.chosenOptionIndex] && (
+                {dec.options && shownChosenIdx !== null && dec.options[shownChosenIdx] && (
                   <div className="mt-1 pl-6 text-xs text-muted">
                     <span className="font-medium text-status-success-text">Chose:</span>{' '}
-                    {dec.options[dec.chosenOptionIndex].label}
+                    {dec.options[shownChosenIdx].label}
                   </div>
                 )}
 
-                {(dec.context || dec.resolution) && (
+                {(dec.context || dec.resolution || (dec.options && dec.options.length > 0)) && (
                   <details className="mt-2 pl-2 border-l-2 border-edge-subtle" onClick={(e) => e.stopPropagation()}>
                     <summary className="text-[10px] uppercase tracking-wider text-muted font-medium cursor-pointer select-none hover:text-secondary">Context</summary>
                     <div className="mt-1 space-y-2">
@@ -819,11 +757,49 @@ export function DecisionPanel({ docId, decisions, commentsByDecision = {}, force
                           </div>
                         </div>
                       )}
-                      {dec.context && (
-                        <div className="prose-dark prose-sm opacity-80 [&>*]:my-1 [&_h1]:text-sm [&_h2]:text-sm [&_h3]:text-xs [&_h1]:font-semibold [&_h2]:font-semibold [&_h3]:font-medium">
-                          <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={decisionRehypePlugins}>{dec.context}</ReactMarkdown>
-                        </div>
+
+                      {/* spec-247 dec-5 — re-select: the options stay live on a
+                          resolved decision; clicking a different one updates
+                          the recorded choice in place. */}
+                      {dec.options && dec.options.length > 0 && (
+                        <fieldset
+                          className="space-y-1.5"
+                          data-testid="resolved-options"
+                          disabled={!canEdit || isBusy}
+                        >
+                          <legend className="text-[10px] uppercase tracking-wider text-muted font-medium">
+                            Options{canEdit ? ' — pick another to change the answer' : ''}
+                          </legend>
+                          {dec.options.map((opt, idx) => (
+                            <label
+                              key={idx}
+                              className={`flex gap-2 items-start rounded-md border px-2 py-1.5 transition-colors ${
+                                shownChosenIdx === idx
+                                  ? 'border-edge-strong bg-overlay'
+                                  : 'border-edge-subtle hover:bg-card-hover'
+                              } ${canEdit ? 'cursor-pointer' : 'cursor-default'}`}
+                            >
+                              <input
+                                type="radio"
+                                name={`resolved-${dec.id}`}
+                                value={idx}
+                                checked={shownChosenIdx === idx}
+                                disabled={!canEdit || isBusy}
+                                onChange={() => void handleReselect(dec, idx)}
+                                data-testid={`resolved-option-${idx}`}
+                                className="mt-1"
+                              />
+                              <div className="flex-1 min-w-0">
+                                <div className="text-sm font-medium text-primary">{opt.label}</div>
+                                {opt.trade_offs && (
+                                  <div className="text-xs text-muted mt-0.5 whitespace-pre-wrap">{opt.trade_offs}</div>
+                                )}
+                              </div>
+                            </label>
+                          ))}
+                        </fieldset>
                       )}
+
                     </div>
                   </details>
                 )}

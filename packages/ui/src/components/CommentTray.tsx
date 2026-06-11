@@ -261,12 +261,14 @@ export function CommentBubble({
         )}
       </p>
       <div className="mt-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+        {/* spec-247: "Resolve" alone reads as resolving the DECISION the
+            comment sits on — name the actual effect. */}
         {!isResolved && onResolve && (
           <button
             onClick={onResolve}
             className="text-xs text-status-success-text hover:text-status-success-text/80 transition-colors"
           >
-            Resolve
+            Resolve Comment
           </button>
         )}
         {isResolved && onUnresolve && (

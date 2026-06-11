@@ -1,9 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render as rtlRender, screen, within } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import userEvent from '@testing-library/user-event';
 import { tagAc } from '@memex-ai-ac/vitest';
-import { ChatPanel } from './ChatPanel';
+import { ChatPanel, makesCodeShapedClaims } from './ChatPanel';
 import type { ChatMessage } from '../api/types';
+import type { ReactElement } from 'react';
 
 // Mock useChat to control ChatPanel state
 const mockSendMessage = vi.fn();
@@ -47,6 +49,11 @@ vi.mock('./chat/ui-tools', () => ({
   UiToolRenderer: ({ toolName }: { toolName: string }) => <div data-testid="ui-tool">{toolName}</div>,
 }));
 
+// The grounding line's "connect a coding agent" link needs a router context.
+function render(ui: ReactElement) {
+  return rtlRender(<MemoryRouter>{ui}</MemoryRouter>);
+}
+
 describe('ChatPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -69,7 +76,11 @@ describe('ChatPanel', () => {
 
     mockChatState.docId = null;
     mockChatState.contextChips = [];
-    rerender(<ChatPanel />);
+    rerender(
+      <MemoryRouter>
+        <ChatPanel />
+      </MemoryRouter>,
+    );
     expect(screen.getByText('Open a Spec to start chatting')).toBeInTheDocument();
   });
 
@@ -145,7 +156,94 @@ describe('ChatPanel', () => {
 
     // Stop streaming
     mockChatState.isStreaming = false;
-    rerender(<ChatPanel />);
+    rerender(
+      <MemoryRouter>
+        <ChatPanel />
+      </MemoryRouter>,
+    );
     expect(screen.queryByTitle('Stop generating')).not.toBeInTheDocument();
+  });
+});
+
+// ── spec-247 dec-3: the assistant names itself and discloses its grounding ──
+describe('ChatPanel — Spec assistant naming + grounding (spec-247)', () => {
+  const AC247 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-247/acs/ac-${n}`;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockChatState = {
+      messages: [],
+      isStreaming: false,
+      error: null,
+      docId: 'doc-1',
+      doc: null,
+      openCommentCount: 0,
+      contextChips: [],
+      respondedToolIds: new Set(),
+      isDriftMode: false,
+    };
+  });
+
+  it('the header reads "Spec assistant · private chat" and "Private Agent" is gone (ac-11)', () => {
+    tagAc(AC247(11));
+    render(<ChatPanel />);
+
+    expect(screen.getByText('Spec assistant')).toBeInTheDocument();
+    expect(screen.getByText(/private chat/)).toBeInTheDocument();
+    expect(screen.queryByText('Private Agent')).not.toBeInTheDocument();
+  });
+
+  it('the signed-out placeholder uses the same heading — no "Private Agent" anywhere (ac-11)', () => {
+    tagAc(AC247(11));
+    render(<ChatPanel isAuthenticated={false} />);
+
+    expect(screen.getByText('Spec assistant')).toBeInTheDocument();
+    expect(screen.queryByText('Private Agent')).not.toBeInTheDocument();
+  });
+
+  it('a permanent grounding line is visible without interaction and links to the connect flow (ac-12)', () => {
+    tagAc(AC247(12));
+    render(<ChatPanel />);
+
+    const line = screen.getByTestId('chat-grounding-line');
+    expect(line).toHaveTextContent(/Works on this spec/);
+    expect(line).toHaveTextContent(/Hasn't read your code/);
+    expect(line).toHaveTextContent(/over MCP/);
+    const link = within(line).getByRole('link', { name: /connect a coding agent/i });
+    expect(link).toHaveAttribute('href', '/settings/integrations');
+  });
+
+  it('code-shaped assistant output carries an adjacent grounding disclosure (ac-13)', () => {
+    tagAc(AC247(13));
+    mockChatState.messages = [
+      {
+        id: '1',
+        role: 'assistant',
+        content: 'You should change `packages/server/src/services/decisions.ts` at the resolve guard.',
+        timestamp: new Date(),
+      },
+      {
+        id: '2',
+        role: 'assistant',
+        content: 'Sounds good — let me know if you want anything else.',
+        timestamp: new Date(),
+      },
+    ];
+
+    render(<ChatPanel />);
+
+    // Exactly one disclosure: adjacent to the code-shaped message only.
+    const disclosures = screen.getAllByTestId('code-claim-disclosure');
+    expect(disclosures).toHaveLength(1);
+    expect(disclosures[0]).toHaveTextContent(/hasn't read your code/i);
+  });
+
+  it('makesCodeShapedClaims: code fences, file paths and implementation-AC talk trigger; prose does not (ac-13)', () => {
+    tagAc(AC247(13));
+    expect(makesCodeShapedClaims('Here:\n```ts\nconst a = 1;\n```')).toBe(true);
+    expect(makesCodeShapedClaims('Edit src/components/AcPanel.tsx please')).toBe(true);
+    expect(makesCodeShapedClaims('The file decisions.ts holds the guard')).toBe(true);
+    expect(makesCodeShapedClaims('I created three implementation ACs for this decision')).toBe(true);
+    expect(makesCodeShapedClaims('The overview section could be clearer about scope.')).toBe(false);
   });
 });

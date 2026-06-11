@@ -2654,14 +2654,19 @@ export const toolSpecs: ToolSpec[] = [
     name: "resolve_decision",
     annotations: { title: "Resolve decision", readOnlyHint: false, destructiveHint: false },
     description:
-      "Resolve a decision with an explanation of the choice made. May unblock tasks waiting on it. Resolving the last open decision on a Spec in 'specify' unblocks the move to 'build'. If the decision has structured options, pass `chosenOptionIndex` to mark which one was selected.",
+      "Resolve a decision with an explanation of the choice made. May unblock tasks waiting on it. Resolving the last open decision on a Spec in 'specify' unblocks the move to 'build'. If the decision has structured options, pass `chosenOptionIndex` to mark which one was selected — `resolution` is then optional and defaults to that option's label. Re-resolving an already-resolved decision updates the choice in place (spec-247 dec-5).",
     schema: {
       ref: z
         .string()
         .describe(
           "Canonical ref to the decision, e.g. `mindset/main/specs/spec-3/decisions/dec-2`.",
         ),
-      resolution: z.string().describe("The resolution — what was decided and why"),
+      resolution: z
+        .string()
+        .optional()
+        .describe(
+          "The resolution — what was decided and why. Optional when chosenOptionIndex is supplied (defaults to the chosen option's label); required otherwise.",
+        ),
       chosenOptionIndex: z
         .number()
         .int()

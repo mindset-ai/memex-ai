@@ -5,12 +5,15 @@ import {
   queueAnthropicResponse,
 } from "./helpers/anthropic-fake.js";
 
-// Journey 14 (t-19 W5): Candidate decision approve/reject (covers t-16). The
-// agent extracts a decision via propose_decision; the UI shows the candidate
-// with options; the user clicks Approve; status flips to open and the panel
-// updates live via SSE.
+// Journey 14 (t-19 W5, rewritten under spec-247 dec-6): the candidate-decision
+// flow. The agent extracts a decision via create_decision(status:'candidate');
+// the UI shows the candidate VIEW-ONLY — options render as information (no
+// radios), there are no web Approve/Reject controls, and the card list carries
+// the coding-agent boundary marker (ac-20 / ac-21). Approval happens
+// agent-side (approve_candidate over the shared tool catalog); the panel
+// updates live via SSE when it does.
 
-test("agent proposes a candidate decision, user approves, status flips to open", async ({
+test("candidate decisions are view-only on the web; approval happens agent-side and the panel updates live", async ({
   page,
   resources,
 }) => {
@@ -63,31 +66,56 @@ test("agent proposes a candidate decision, user approves, status flips to open",
 
   await sendChat(page, "postgres or dynamodb for the catalog?");
 
-  // Two messages stream into the chat (user prompt + agent reply); the
-  // assistant's reply is the last chat-markdown node.
   await expect(page.getByTestId("chat-markdown").last()).toHaveText(/Candidate filed/i, {
     timeout: 15_000,
   });
 
-  // Open the Decisions & ACs sub-tab (the plan/Specify phase's second sub-tab,
-  // post spec-164 phase-tab redesign — was a bare "Decisions" tab pre-rebase).
-  // Rendered as a <button> by Tabs, not the ARIA `tab` role.
+  // Open the Decisions & ACs sub-tab and the Candidates sub-tab.
   await page.getByRole("button", { name: /^Decisions & ACs$/i }).click();
-
-  // DecisionPanel's `activeTab` initialises before the SSE-driven decisions
-  // refetch lands, so when the candidate arrives after the first paint the
-  // panel may still be on Open. Click into the Candidates sub-tab explicitly.
   await page.getByRole("button", { name: /^Candidates 1$/i }).click();
 
-  // Approve the candidate. Per t-16 the Approve button has data-testid="candidate-approve".
-  await page.getByTestId("candidate-approve").click();
+  const panel = page.getByTestId("decision-panel");
 
-  // The approval flips the decision candidate → open. The DecisionPanel re-fetches
-  // on the SSE `decision updated` event and auto-switches to the Open tab; the
-  // decision now renders there. The old raw-SQL status poll is dropped (the e2e
-  // package has no Postgres dependency, dec-2) — the UI surfacing the decision
-  // under Open is the server-backed proof the status flipped (the panel reads the
-  // API, not local state).
+  // spec-247 ac-20 — view-only: the options render as information…
+  await expect(panel.getByText("Postgres")).toBeVisible({ timeout: 15_000 });
+  await expect(panel.getByText(/Familiar; SQL/)).toBeVisible();
+  // …with NO selectable radios and NO web approval controls.
+  await expect(panel.getByRole("radio")).toHaveCount(0);
+  await expect(panel.getByTestId("candidate-approve")).toHaveCount(0);
+  await expect(panel.getByTestId("candidate-reject")).toHaveCount(0);
+
+  // spec-247 ac-21 — the boundary marker says where approval DOES happen.
+  const marker = panel.getByTestId("candidate-mcp-marker");
+  await expect(marker).toBeVisible();
+  await expect(marker).toContainText(/Review the candidate decisions/);
+  await expect(marker).toContainText(/not in the browser/i);
+
+  // Approval happens agent-side: the spec assistant (same tool catalog as the
+  // MCP coding agents, spec-14 dec-4) calls approve_candidate; the panel
+  // refetches on the SSE `decision updated` event and the decision surfaces
+  // under Open — the server-backed proof the status flipped.
+  await clearAnthropicQueue();
+  await queueAnthropicResponse({
+    textDeltas: ["Approving."],
+    content: [
+      { type: "text", text: "Approving." },
+      {
+        type: "tool_use",
+        id: "toolu_j14_appr",
+        name: "approve_candidate",
+        input: { ref: `${docRef}/decisions/dec-1` },
+      },
+    ],
+    stopReason: "tool_use",
+  });
+  await queueAnthropicResponse({
+    textDeltas: ["Approved — it's an open decision now."],
+    content: [{ type: "text", text: "Approved — it's an open decision now." }],
+    stopReason: "end_turn",
+  });
+
+  await sendChat(page, "yes, that's a real decision — approve it");
+
   await expect(page.getByRole("button", { name: /^Open 1$/i })).toBeVisible({
     timeout: 15_000,
   });
