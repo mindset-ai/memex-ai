@@ -2399,6 +2399,11 @@ export const usageEvents = pgTable(
     // WHO (the acting Memex user). Nullable: anonymous capture is a no-op so a
     // null actor only arises for system-originated backend events.
     actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+    // The anonymous-first identity join key (spec-254 dec-2). Plain uuid (no FK):
+    // a denormalised join column on a high-volume table, and an anonymous event can
+    // carry a visitor_id before any visitors row exists. NULL on rows captured
+    // before visitor_id plumbing reaches them. The funnel joins this to visitors.
+    visitorId: uuid("visitor_id"),
     // The registered event name, e.g. 'spec.create_clicked' or 'document.created'.
     // Validated against the in-code registry before insert (spec-244 dec-5).
     name: text("name").notNull(),
@@ -2433,6 +2438,46 @@ export const usageEvents = pgTable(
 );
 export type UsageEvent = InferSelectModel<typeof usageEvents>;
 export type UsageEventInsert = InferInsertModel<typeof usageEvents>;
+
+// ══════════════════════════════════════
+// Visitors — the anonymous-first identity spine (spec-254)
+// ══════════════════════════════════════
+//
+// One durable id per browser, minted at first touch BEFORE any sign-in, persisted
+// in a .memex.ai first-party cookie + localStorage mirror, and carried on every
+// event. At sign-in the anonymous visitor_id MERGES into the now-known user (the
+// analytics "identify" step): user_id + merged_at get stamped. This is the
+// browser-only slice (spec-254 dec-2) and the embryo of spec-125's dim_actor —
+// when 125's formal model lands, this table becomes or feeds it.
+//
+// The bind-once invariant (spec-254 dec-3): a visitor_id binds to at most one user,
+// ever. Re-identifying the same user is a no-op; a merge that would re-point an
+// already-bound id to a DIFFERENT user does NOT overwrite — the caller mints a
+// fresh visitor_id instead. Erasure-reversible: nulling the row breaks the link
+// without losing the anonymous arc (user delete → set null, not cascade).
+export const visitors = pgTable(
+  "visitors",
+  {
+    // The client-minted opaque id (crypto.randomUUID()); also the .memex.ai cookie value.
+    visitorId: uuid("visitor_id").primaryKey(),
+    // First time we saw this browser (pre-auth). Defaults to insert time.
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    // WHO this visitor turned out to be, stamped at the identify merge. NULL while
+    // still anonymous. set null on user delete keeps the visitor row.
+    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    // When the anon->known merge happened. NULL while still anonymous.
+    mergedAt: timestamp("merged_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // Reverse lookup: every visitor id that resolved to a given user (per-user
+    // journey reconstruction / cohort joins, spec-254 ac-3). Partial — only merged
+    // rows carry a user_id, so the index stays small.
+    index("visitors_user_id_idx").on(table.userId).where(sql`${table.userId} IS NOT NULL`),
+  ]
+);
+export type Visitor = InferSelectModel<typeof visitors>;
+export type VisitorInsert = InferInsertModel<typeof visitors>;
 
 // ══════════════════════════════════════
 // Presence (spec-122 dec-4)

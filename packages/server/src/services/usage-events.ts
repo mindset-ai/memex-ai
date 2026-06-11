@@ -45,6 +45,8 @@ export interface RecordUsageEventInput {
   memexId: string;
   /** WHO acted (resolved Memex user id). Null for system-originated backend events. */
   actorUserId?: string | null;
+  /** The anonymous-first identity join key (spec-254). Null when absent. */
+  visitorId?: string | null;
   /** The registered event name, e.g. 'spec.create_clicked' or 'document.created'. */
   name: string;
   /** Where the event was born. */
@@ -76,6 +78,7 @@ export async function recordUsageEvent(
       .values({
         memexId: input.memexId,
         actorUserId: input.actorUserId ?? null,
+        visitorId: input.visitorId ?? null,
         name: input.name,
         source: input.source,
         props: input.props ?? null,
