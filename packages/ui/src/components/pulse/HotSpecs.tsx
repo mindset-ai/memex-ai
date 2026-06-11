@@ -1,42 +1,37 @@
 // HotSpecs — spec-255: the HERO band. The specs being worked on RIGHT NOW,
 // grouped by spec and ranked by heat (presence-first, then decayed activity
-// tempo). Each card shows phase, who's on it (presence avatars), its live AC
-// progress (reusing SpecHealthStrip), and the present-tense narrative line.
-// Clicking a card goes to that spec; a phase change pops the phase chip.
+// tempo). Each card shows phase (with a phase-change pop), who's on it (presence
+// avatars), its live AC cells, a per-spec line sparkline, and the present-tense
+// narrative line. Clicking a card opens the spec.
 //
 // PRESENTATIONAL — rows + resolvers arrive via props.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { rankHotSpecs, quietLabel, type HotSpec } from './pulseDerive';
+import { rankHotSpecs, quietLabel, tempoSeries, type HotSpec } from './pulseDerive';
 import { useChartPalette, phaseLabel, type Phase } from '../insights/theme';
-import { SpecHealthStrip } from '../SpecHealthIndicator';
+import { AcCells } from './AcCells';
+import { Sparkline } from './Sparkline';
 import type { ActivityRow, ActorKind, PresentRow } from './types';
 import type { AcHealth } from '../../api/types';
 
 export interface HotSpecsProps {
-  /** Everyone present right now (presence plane), already merged. */
   present: PresentRow[];
-  /** Persisted activity rows (history), for tempo + last-activity. */
   activity: ActivityRow[];
-  /** Clock override for tests; defaults to Date.now(). */
   now?: number;
-  /** docId → `spec-N` handle. */
   specHandle: (docId: string) => string | undefined;
-  /** docId → human title. */
   specTitle?: (docId: string) => string | undefined;
-  /** docId → lifecycle phase (draft|specify|build|verify|done). */
   specPhase?: (docId: string) => string | undefined;
-  /** docId → present-tense narrative of the latest event. */
   specNarrative?: (docId: string) => string | undefined;
-  /** docId → AC health roll-up (for the live AC progress bar). */
   specAcHealth?: (docId: string) => AcHealth | undefined;
-  /** handle → route path for the card link. */
   specHref: (handle: string) => string;
 }
 
+const QUIET_COLOR = '#d97706'; // amber-600
+const COOLING_COLOR = 'rgba(148,163,184,0.7)';
+
 function actorColor(kind: ActorKind, palette: ReturnType<typeof useChartPalette>): string {
-  if (kind === 'system') return 'rgba(148,163,184,0.7)';
+  if (kind === 'system') return COOLING_COLOR;
   return palette.actor[kind];
 }
 
@@ -73,7 +68,7 @@ export function HotSpecs({
           No specs are being worked right now.
         </div>
       ) : (
-        <div className="flex gap-3 overflow-x-auto px-3 py-3">
+        <div className="flex flex-wrap gap-3 px-3 py-3">
           {ranked.map((spec) => (
             <HotSpecCard
               key={spec.docId}
@@ -84,6 +79,7 @@ export function HotSpecs({
               phase={specPhase?.(spec.docId)}
               narrative={specNarrative?.(spec.docId)}
               health={specAcHealth?.(spec.docId)}
+              spark={tempoSeries(activity, clock, 30, spec.docId)}
               specHref={specHref}
             />
           ))}
@@ -101,6 +97,7 @@ interface HotSpecCardProps {
   phase: string | undefined;
   narrative: string | undefined;
   health: AcHealth | undefined;
+  spark: number[];
   specHref: (handle: string) => string;
 }
 
@@ -112,6 +109,7 @@ function HotSpecCard({
   phase,
   narrative,
   health,
+  spark,
   specHref,
 }: HotSpecCardProps) {
   const palette = useChartPalette();
@@ -131,13 +129,23 @@ function HotSpecCard({
     prevPhase.current = phase;
   }, [phase]);
 
+  const sparkColor =
+    spec.state === 'quiet' ? QUIET_COLOR : spec.state === 'cooling' ? COOLING_COLOR : palette.accent;
+
+  const tint =
+    spec.state === 'quiet'
+      ? 'border-amber-300/60 bg-amber-50/40 dark:bg-amber-500/5'
+      : spec.state === 'cooling'
+      ? 'border-edge-subtle bg-surface/40 opacity-70'
+      : 'border-edge-subtle bg-surface/60';
+
   return (
     <Link
       to={href}
       data-testid="hot-spec-card"
       data-doc-id={spec.docId}
       data-state={spec.state}
-      className="relative block min-w-[200px] max-w-[240px] flex-none rounded-md border border-edge-subtle bg-surface/60 px-3 pt-2 pb-3 hover:border-edge transition-colors"
+      className={`block w-[230px] flex-none rounded-lg border p-3 hover:border-edge transition-colors ${tint}`}
     >
       <div className="flex items-center justify-between gap-2">
         <span className="font-mono text-xs font-semibold text-accent">{handle ?? 'a spec'}</span>
@@ -159,40 +167,61 @@ function HotSpecCard({
         <div className="mt-1 text-xs text-secondary line-clamp-2 min-h-[2rem]">{title}</div>
       ) : null}
 
-      {/* State / quiet label (honest floor: "quiet Nm", never "waiting"). */}
-      <div data-testid="hot-spec-state" className="mt-1 text-[0.7rem]">
-        {spec.state === 'quiet' && spec.ageMs != null ? (
-          <span className="text-status-warning-text">{quietLabel(spec.ageMs)}</span>
-        ) : spec.state === 'cooling' ? (
-          <span className="text-muted">cooling</span>
-        ) : (
-          <span className="text-status-success-text">active</span>
-        )}
+      {/* State (left) + per-spec line sparkline (right). */}
+      <div className="mt-2 flex items-center justify-between gap-2">
+        <span data-testid="hot-spec-state" className="inline-flex items-center gap-1.5 text-[0.7rem]">
+          <span
+            className="inline-block h-2 w-2 rounded-full"
+            style={{
+              background:
+                spec.state === 'quiet' ? QUIET_COLOR : spec.state === 'cooling' ? COOLING_COLOR : palette.testRun.pass,
+            }}
+          />
+          {spec.state === 'quiet' && spec.ageMs != null ? (
+            <span className="text-status-warning-text">{quietLabel(spec.ageMs)}</span>
+          ) : spec.state === 'cooling' ? (
+            <span className="text-muted">
+              cooling{spec.ageMs != null ? ` ${Math.max(1, Math.floor(spec.ageMs / 60_000))}m` : ''}
+            </span>
+          ) : (
+            <span className="text-status-success-text">active</span>
+          )}
+        </span>
+        <Sparkline values={spark} color={sparkColor} width={64} height={20} live={spec.state === 'hot'} />
       </div>
 
-      {/* Who's on it — presence avatars (human + agent), coloured by kind. */}
-      {workers.length > 0 ? (
-        <div className="mt-1.5 flex items-center" data-testid="hot-spec-avatars">
-          {workers.slice(0, 4).map((w, i) => (
-            <span
-              key={`${w.actorUserId}-${w.clientId}-${i}`}
-              className="h-4 w-4 rounded-full border border-surface -ml-1 first:ml-0"
-              style={{ background: actorColor(w.actorKind, palette) }}
-              title={w.actorName ?? w.actorKind}
-            />
-          ))}
-        </div>
-      ) : null}
+      {/* Live AC cells — one per AC (green / red / amber / grey). */}
+      <div className="mt-2">
+        <AcCells health={health} />
+      </div>
 
-      {/* Present-tense line (activity_log narrative). */}
-      {narrative ? (
-        <div data-testid="hot-spec-line" className="mt-1.5 text-[0.7rem] italic text-secondary line-clamp-1">
-          &ldquo;{narrative}&rdquo;
-        </div>
-      ) : null}
-
-      {/* Live AC progress — reuse the board's health strip (green/rose/amber). */}
-      <SpecHealthStrip health={health} />
+      {/* Who's on it (avatars) + present-tense work line. */}
+      <div className="mt-2 flex items-center justify-between gap-2 min-h-[1rem]">
+        {workers.length > 0 ? (
+          <div className="flex items-center" data-testid="hot-spec-avatars">
+            {workers.slice(0, 4).map((w, i) => (
+              <span
+                key={`${w.actorUserId}-${w.clientId}-${i}`}
+                className="flex h-4 w-4 items-center justify-center rounded-full border border-surface -ml-1 first:ml-0 text-[8px] font-semibold text-white"
+                style={{ background: actorColor(w.actorKind, palette) }}
+                title={w.actorName ?? w.actorKind}
+              >
+                {w.actorKind === 'human' ? (w.actorName?.[0]?.toUpperCase() ?? 'U') : ''}
+              </span>
+            ))}
+          </div>
+        ) : (
+          <span />
+        )}
+        {narrative ? (
+          <span
+            data-testid="hot-spec-line"
+            className="text-[0.7rem] italic text-secondary line-clamp-1 text-right"
+          >
+            &ldquo;{narrative}&rdquo;
+          </span>
+        ) : null}
+      </div>
     </Link>
   );
 }
