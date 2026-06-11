@@ -1,30 +1,20 @@
-# spec-243: continuous canary — authenticated probes against the live envs
-# every 10 minutes, claxons to the per-env Slack channel on 2 consecutive
-# failures, all-clear on recovery (dec-1/dec-2/dec-4).
+# spec-243: continuous canary — authenticated probes against the live envs,
+# claxons to the per-env Slack channel on 2 consecutive failures, all-clear on
+# recovery (dec-1/dec-2/dec-4).
 #
-# NOTE: GitHub only evaluates `schedule:` triggers on the DEFAULT branch
-# (develop). The canary starts ticking when this file lands there; nothing is
-# deployed. `workflow_dispatch` exists so it can be fired manually (including
-# from a branch) to test the pipe.
+# ⚠ THE SCHEDULE IS DEAD — the real runner is Cloud Run (dec-1, superseded
+# 2026-06-11). GitHub's `schedule:` trigger never fired (0 of 6 slots over 67
+# minutes; best-effort by design). The canary now runs as a Cloud Run Job +
+# Cloud Scheduler in memex-ai-prod (scripts/canary/run-job.mjs, deploy-canary-job.sh).
+# This workflow is kept ONLY as a manually-dispatchable backup probe; it has no
+# `schedule:` trigger so it does nothing unless someone clicks "Run workflow".
 #
-# Cost posture (dec-1): ~6 runs/hour × ~1 billed minute ≈ $25-35/month for the
-# private repo. The 10-minute cadence was chosen over 5 specifically to halve
-# this; revisit alongside issue-1 (Cloud Run port) if it creeps.
-#
-# Required repo secrets:
-#   SLACK_WEBHOOK_PROD / SLACK_WEBHOOK_INT      incoming webhooks (#memex-prod-alerts / #memex-int-alerts)
-#   CANARY_EMIT_KEY_PROD / CANARY_EMIT_KEY_INT  emission keys minted in the canary Memex
-#   CANARY_MCP_TOKEN_PROD / CANARY_MCP_TOKEN_INT  mxt_ tokens for the canary Memex
-# Required repo variables:
-#   CANARY_AC_UID_PROD / CANARY_AC_UID_INT      ac_uid the hidden emission targets
-#   CANARY_VERBOSE                              'true' → post a success line on every
-#                                               green run (rollout proof); flip off in
-#                                               the UI, no code change.
-name: canary
+# Required repo secrets / variables (for the manual backup path only):
+#   SLACK_WEBHOOK_{PROD,INT}, CANARY_EMIT_KEY_{PROD,INT}, CANARY_MCP_TOKEN_{PROD,INT}
+#   CANARY_AC_UID_{PROD,INT}, CANARY_VERBOSE
+name: canary (manual backup — Cloud Run is the real runner)
 
 on:
-  schedule:
-    - cron: "*/10 * * * *"
   workflow_dispatch:
 
 permissions:

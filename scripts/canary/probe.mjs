@@ -170,13 +170,11 @@ async function runProbe(name, fn, cfg, env) {
   }
 }
 
-async function main() {
-  const env = process.argv[2];
+// Run all probes for one env and return the summary. Reusable by both the CLI
+// (below) and the Cloud Run Job orchestrator (run-job.mjs).
+export async function runEnvProbes(env) {
   const cfg = ENVS[env];
-  if (!cfg) {
-    console.error(`usage: probe.mjs <${Object.keys(ENVS).join("|")}>`);
-    process.exit(2);
-  }
+  if (!cfg) throw new Error(`unknown env "${env}" (expected ${Object.keys(ENVS).join("|")})`);
 
   const results = {};
   for (const [name, fn] of PROBES) {
@@ -184,9 +182,20 @@ async function main() {
     results[name] = { ok: r.ok, detail: r.detail, body: r.body ?? "" };
     console.error(`[canary:${env}] ${r.ok ? "✅" : "❌"} ${name}: ${r.detail}`);
   }
-
   const allOk = Object.values(results).every((r) => r.ok);
-  const summary = { env, ok: allOk, results };
+  return { env, ok: allOk, results };
+}
+
+export { ENVS };
+
+async function main() {
+  const env = process.argv[2];
+  if (!ENVS[env]) {
+    console.error(`usage: probe.mjs <${Object.keys(ENVS).join("|")}>`);
+    process.exit(2);
+  }
+
+  const summary = await runEnvProbes(env);
   console.log(JSON.stringify(summary));
 
   if (process.env.GITHUB_OUTPUT) {
@@ -194,7 +203,11 @@ async function main() {
     appendFileSync(process.env.GITHUB_OUTPUT, `results=${JSON.stringify(summary)}\n`);
   }
 
-  process.exit(allOk ? 0 : 1);
+  process.exit(summary.ok ? 0 : 1);
 }
 
-main();
+// Only run the CLI when invoked directly, so run-job.mjs can import runEnvProbes
+// without triggering a probe pass + process.exit.
+if (process.argv[1] && process.argv[1].endsWith("probe.mjs")) {
+  main();
+}
