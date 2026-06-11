@@ -142,6 +142,53 @@ describe("regression: actor + channel threading [spec-122 t-2]", () => {
     expect(row.channel).toBe("rest_ui");
   });
 
+  // The sections + decisions BORN with a doc are inserted directly inside
+  // createDocDraft's mutate() — not via addSection/createDecision — so they need
+  // the contract columns stamped from the create ctx too. Without this every
+  // Spec's seed Overview landed unattributed (NULL actor, NULL channel = a
+  // silent 'server'), which std-32 calls a visible defect and which dropped the
+  // create out of Pulse's 'me' scope.
+  it("ac-20: createDocDraft stamps the contract columns on the seed section + decision", async () => {
+    tagAc(`${AC}/ac-20`);
+    const doc = await createDocDraft(
+      actor.memexId,
+      "Born attributed",
+      "Overview prose",
+      "spec",
+      [{ title: "seed decision", context: "ctx" }],
+      undefined,
+      actor.user.id,
+      { actorUserId: actor.user.id, channel: "in_app_agent" },
+    );
+    created.docs.push(doc.id);
+
+    const sections = await db.select().from(docSections).where(eq(docSections.docId, doc.id));
+    expect(sections.length).toBeGreaterThan(0);
+    for (const s of sections) {
+      expect(s.actorUserId).toBe(actor.user.id);
+      expect(s.actorName).toBe("Christine");
+      expect(s.channel).toBe("in_app_agent");
+    }
+
+    const decs = await db.select().from(decisions).where(eq(decisions.docId, doc.id));
+    expect(decs.length).toBe(1);
+    expect(decs[0].actorUserId).toBe(actor.user.id);
+    expect(decs[0].actorName).toBe("Christine");
+    expect(decs[0].channel).toBe("in_app_agent");
+  });
+
+  // Seed/system callers pass no ctx — the seed rows fall back to the legacy
+  // createdByUserId for WHO and an explicit channel='server' for HOW (never a
+  // silent NULL). A NULL channel would violate the doc_sections_channel_valid
+  // check anyway; this pins the fallback so it stays explicit.
+  it("ac-20: createDocDraft seed rows fall back to channel='server' when no ctx is passed", async () => {
+    tagAc(`${AC}/ac-20`);
+    const doc = await createDocDraft(actor.memexId, "No ctx", "Overview", "spec");
+    created.docs.push(doc.id);
+    const [section] = await db.select().from(docSections).where(eq(docSections.docId, doc.id));
+    expect(section.channel).toBe("server");
+  });
+
   // ── ac-10 ───────────────────────────────────────────────────────────────
   it("ac-10: actor_name is denormalised — a later user rename does not rewrite past attribution", async () => {
     tagAc(`${AC}/ac-10`);

@@ -496,6 +496,10 @@ describe("MCP Tool handlers via HTTP", () => {
       undefined,
       undefined,
       TEST_USER_ID,
+      // spec-122 dec-2/dec-5: the create now threads the activity contract
+      // (WHO + HOW) as the 8th arg so Pulse attributes the create to the human +
+      // the MCP surface.
+      { actorUserId: TEST_USER_ID, channel: "mcp" },
     );
     expect(response.result.content[0].text).toContain("Test Doc");
   });

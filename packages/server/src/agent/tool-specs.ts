@@ -1664,6 +1664,7 @@ export const toolSpecs: ToolSpec[] = [
           args.title,
           args.purpose,
           ctx.userId,
+          reqCtx(ctx),
         );
         // Issue → converted, record promoted_doc_id so the child-done hook resolves
         // it later (ac-24). NOT resolved now — only when the child Spec reaches done.
@@ -1690,6 +1691,7 @@ export const toolSpecs: ToolSpec[] = [
           args.title,
           args.purpose,
           ctx.userId,
+          reqCtx(ctx),
         );
         if (ctx.verbose) {
           const url = await ctx.workspaceUrl(resolved.memexId);
@@ -1714,6 +1716,7 @@ export const toolSpecs: ToolSpec[] = [
         args.decisions,
         undefined,
         ctx.userId,
+        reqCtx(ctx),
       );
       if (ctx.verbose) {
         const state = await fullDocState(memexId, doc.id);
@@ -4164,6 +4167,7 @@ export const toolSpecs: ToolSpec[] = [
           undefined,
           undefined,
           ctx.userId,
+          reqCtx(ctx),
         );
         const slugs = await memexSlugsById(memexId);
         const specRefOut = slugs ? buildDocRef(slugs, spec) : spec.handle;

@@ -164,10 +164,18 @@ export function Pulse() {
   // prop is the legacy name that we feed `specId` into — the underlying server
   // param hasn't been renamed yet. ────────────────────────────────────────────
   const actorUserId = scope === 'me' ? currentUserId ?? undefined : undefined;
+  // Under 'me' the actor filter is the session's user id. While the session is
+  // still resolving (currentUserId === null) we'd otherwise fetch UNFILTERED
+  // (actorUserId undefined → server returns everyone), flash those rows in, then
+  // refetch filtered once the id lands — the "appeared then disappeared" glitch.
+  // Gate the fetch until the id resolves so the page shows its spinner instead.
+  // 'everyone' has no such dependency, so it's always enabled.
+  const historyEnabled = scope !== 'me' || currentUserId !== null;
   const history = usePulseHistory({
     actorUserId,
     briefId: specId,
     clientId: clientId ?? undefined,
+    enabled: historyEnabled,
   });
   const { rows: historyRows, loading, hasMore, loadOlder, refresh } = history;
 
