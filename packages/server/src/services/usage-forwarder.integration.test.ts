@@ -80,6 +80,7 @@ describe("drainOnce — DB-as-outbox, pluggable sink (ac-4 / ac-14)", () => {
   it("forwards undrained rows to the sink and stamps forwarded_at, never re-sending", async () => {
     tagAc(`${AC}/ac-4`);
     tagAc(`${AC}/ac-14`);
+    tagAc(`${AC}/ac-15`); // dec-4: every captured row forwarded one-to-one, no per-event flag
     await seed(3);
     const sink = new FakeSink();
 

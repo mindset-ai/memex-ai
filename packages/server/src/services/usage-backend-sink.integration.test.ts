@@ -66,6 +66,7 @@ describe("back-end sink — mirrors whitelisted outcomes into usage_events (ac-1
   it("mirrors a whitelisted document.created, carrying the acting user", async () => {
     tagAc(`${AC}/ac-18`);
     tagAc(`${AC}/ac-1`);
+    tagAc(`${AC}/ac-12`); // dec-1: bus event → subscriber → usage_events, no spec-125 dep
     emit({ entity: "document", action: "created", docId: "spec-x" });
     const rows = await waitForRows("document.created");
     expect(rows.length).toBe(1);

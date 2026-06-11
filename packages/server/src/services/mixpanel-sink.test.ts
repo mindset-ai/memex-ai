@@ -46,6 +46,7 @@ describe("toMixpanelEvent — mapping (ac-13)", () => {
 describe("MixpanelSink.send — server-side HTTP, US host (ac-2 / ac-13)", () => {
   it("POSTs a JSON batch to the US /track endpoint with the token in the body", async () => {
     tagAc(`${AC}/ac-13`);
+    tagAc(`${AC}/ac-5`); // the curated forward set reaches Mixpanel in the default config
     const fetchImpl = vi.fn(async () => new Response("1", { status: 200 }));
     const sink = new MixpanelSink("PROD_TOKEN", fetchImpl as unknown as typeof fetch);
     await sink.send([row(), row({ id: "row-2", name: "cta.clicked" })]);
