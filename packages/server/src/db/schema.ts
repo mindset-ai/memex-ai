@@ -2373,6 +2373,68 @@ export const activityLog = pgTable(
 );
 
 // ══════════════════════════════════════
+// Usage events (spec-244) — product-engagement telemetry
+// ══════════════════════════════════════
+//
+// The durable store for front-end engagement telemetry and whitelisted back-end
+// outcomes. Deliberately SEPARATE from activity_log (spec-244 dec-1/§Architecture):
+// activity_log is the audit history of what CHANGED; usage_events is the
+// product-analytics feed of how people EXPERIENCE the product. Keeping them apart
+// stops high-volume usage from bloating the audit log.
+//
+// Two writers (spec-244 dec-4/dec-8): the POST /telemetry route (front-end
+// `track()` events, source='frontend') and a bus subscriber that mirrors
+// whitelisted mutate() outcomes (source='backend'). The forwarder (spec-244 dec-3)
+// tails this table — `forwarded_at` IS the outbox cursor: NULL until a row has been
+// shipped to the analytics sink, then stamped, giving at-least-once delivery that
+// survives a Cloud Run restart. `env` is the server-derived environment stamp
+// (spec-244 dec-9) so int and prod never co-mingle at the sink boundary.
+export const usageEvents = pgTable(
+  "usage_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    memexId: uuid("memex_id")
+      .notNull()
+      .references(() => memexes.id, { onDelete: "cascade" }),
+    // WHO (the acting Memex user). Nullable: anonymous capture is a no-op so a
+    // null actor only arises for system-originated backend events.
+    actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+    // The registered event name, e.g. 'spec.create_clicked' or 'document.created'.
+    // Validated against the in-code registry before insert (spec-244 dec-5).
+    name: text("name").notNull(),
+    // Where the event was born: 'frontend' (track()) or 'backend' (whitelisted mutate()).
+    source: text("source").notNull(),
+    // Sanitised structured props — IDs / enums / counts only, NEVER content or
+    // keystrokes (spec-244 §open-source-safe). jsonb, nullable.
+    props: jsonb("props"),
+    // Server-derived environment stamp (spec-244 dec-9). Unspoofable by the client.
+    env: text("env").notNull(),
+    // When the event occurred. Defaults to insert time; the route may supply the
+    // client-observed occurrence time for front-end events.
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
+    // Outbox cursor (spec-244 dec-3). NULL = not yet forwarded to the sink.
+    forwardedAt: timestamp("forwarded_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // Outbox tail: the forwarder scans undrained rows oldest-first. Partial index
+    // on the unforwarded set so the scan stays tiny once most rows are drained.
+    index("usage_events_unforwarded_idx")
+      .on(table.occurredAt)
+      .where(sql`${table.forwardedAt} IS NULL`),
+    // SQL analytics + per-memex queries (rollout step one: queryable before any sink).
+    index("usage_events_memex_id_occurred_at_idx").on(table.memexId, table.occurredAt),
+    check("usage_events_source_valid", sql`${table.source} IN ('frontend', 'backend')`),
+    check(
+      "usage_events_env_valid",
+      sql`${table.env} IN ('int', 'prod', 'local', 'test')`
+    ),
+  ]
+);
+export type UsageEvent = InferSelectModel<typeof usageEvents>;
+export type UsageEventInsert = InferInsertModel<typeof usageEvents>;
+
+// ══════════════════════════════════════
 // Presence (spec-122 dec-4)
 // ══════════════════════════════════════
 //
