@@ -188,6 +188,23 @@ describe("persistEvent — real Postgres write", () => {
     expect(rows[0].actorKind).toBe("system");
   });
 
+  it("does NOT persist a test_event — the CI firehose is kept out of the timeline", async () => {
+    // test_event is emitted on the bus (live consumers wake) but never written
+    // to activity_log: it's high-volume telemetry whose system of record is the
+    // test_events table. Excluding it keeps the Pulse Event Log readable.
+    const row = await persistEvent(
+      baseEvent({
+        entity: "test_event",
+        action: "created",
+        channel: "server",
+        payload: { status: "pass", acUid: "ns/mx/specs/spec-1/acs/ac-1" },
+      }),
+    );
+    expect(row).toBeNull();
+    const rows = await db.select().from(activityLog).where(eq(activityLog.memexId, memexId));
+    expect(rows, "a test_event must write no activity_log row").toHaveLength(0);
+  });
+
   it("skips (writes no row, does not throw) when memexId is blank", async () => {
     const row = await persistEvent({ ...baseEvent(), memexId: "" });
     expect(row).toBeNull();

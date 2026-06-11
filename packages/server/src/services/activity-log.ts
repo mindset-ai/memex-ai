@@ -144,6 +144,21 @@ function hasPersistableScope(event: ChangeEvent): boolean {
   return typeof event.memexId === "string" && event.memexId.length > 0;
 }
 
+// Entities whose bus events are deliberately NOT persisted to the activity_log
+// timeline. `test_event` is a high-volume CI telemetry firehose (one event per
+// AC per test run — thousands/day) whose system of record is already the
+// `test_events` table (+ test_event_latest summary). Mirroring it into the
+// human-readable activity_log floods the Pulse Event Log with unreadable line
+// noise and bloats the table for no benefit. The bus emission is KEPT (live SSE
+// subscribers — AC-health chips, and the Pulse "test signals" volume monitor —
+// still wake on it); only the durable activity_log row is suppressed. Test
+// signals surface in Pulse as an aggregate volume graphic, not per-line.
+// (Per-spec test outcomes still reach the agent's `── ACTIVITY ──` footer via
+// the activity_view's dedicated test_events arm, which reads the source table.)
+const NON_TIMELINE_ENTITIES: ReadonlySet<ChangeEvent["entity"]> = new Set([
+  "test_event",
+]);
+
 /**
  * Persist one event. Advisory: any failure is logged and swallowed so the
  * originating emitter is never affected. Returns the inserted row (or null when
@@ -154,6 +169,9 @@ export async function persistEvent(
   conn: Db = db,
 ): Promise<ActivityLog | null> {
   if (!hasPersistableScope(event)) return null;
+  // High-volume telemetry (test_event) is emitted on the bus for live consumers
+  // but never written to the activity_log timeline (see NON_TIMELINE_ENTITIES).
+  if (NON_TIMELINE_ENTITIES.has(event.entity)) return null;
   // ac-21 — surface a missing channel as a visible defect BEFORE the persist
   // step coerces it (the row is still written; the defect is no longer silent).
   flagAttributionDefect(event);
