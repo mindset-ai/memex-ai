@@ -14,7 +14,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { eq, inArray } from "drizzle-orm";
 import { tagAc } from "@memex-ai-ac/vitest";
 import { db } from "../db/connection.js";
-import { users, namespaces, orgs, orgMemberships, memexes, documents, acs } from "../db/schema.js";
+import { users, namespaces, orgs, orgMemberships, memexes, documents, acs, activityLog } from "../db/schema.js";
 import { createDocDraft } from "../services/documents.js";
 import { createAc } from "../services/acs.js";
 import { markPresent } from "../services/presence.js";
@@ -66,6 +66,11 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  if (created.memexes.length) {
+    // The b-36 test inserts an activity_log row directly; clear it before the
+    // memex delete so its FK doesn't block teardown.
+    await db.delete(activityLog).where(inArray(activityLog.memexId, created.memexes)).catch(() => {});
+  }
   if (created.docs.length) {
     await db.delete(acs).where(inArray(acs.briefId, created.docs)).catch(() => {});
     await db.delete(documents).where(inArray(documents.id, created.docs)).catch(() => {});
@@ -120,6 +125,32 @@ describe("get_doc ACTIVITY block [spec-122 t-8]", () => {
     const block = await craftActivityBlock(memexId, docId, userB);
     // recent line may still show B's own change, but never the collision warning.
     expect(block === null || !block.includes("⚠")).toBe(true);
+  });
+
+  // b-36 hard cut (authed.smoke.test.ts): get_doc must never emit a raw UUID.
+  // The footer replays IMMUTABLE activity_log narratives, so a row written before
+  // the spec-122 narrative fix can still read "created doc_member <uuid>" — the
+  // footer must strip it rather than leak it. Guards against the int smoke red.
+  it("b-36: a historical activity_log narrative carrying a raw UUID is stripped from the footer", async () => {
+    tagAc(`${AC}/ac-23`);
+    const leakedId = "322dda5d-b14c-4597-b106-c13b847905ac";
+    await db.insert(activityLog).values({
+      memexId,
+      briefId: docId,
+      actorKind: "system",
+      channel: "server",
+      entity: "doc_member",
+      action: "created",
+      narrative: `created doc_member ${leakedId}`,
+    });
+    const block = await craftActivityBlock(memexId, docId, userA);
+    expect(block).toBeTruthy();
+    expect(
+      block!,
+      "the ACTIVITY footer must never emit a raw UUID (b-36 no-UUIDs-out)",
+    ).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
+    // The readable remainder survives the strip — only the UUID token is removed.
+    expect(block!).toContain("doc_member");
   });
 
   it("ac-24: the call returns normally — advisory only, never blocks or throws", async () => {

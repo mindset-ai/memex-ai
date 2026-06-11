@@ -116,6 +116,7 @@ import {
 import type { RequestCtx } from "../services/mutate.js";
 import { listActivityView } from "../services/activity-view.js";
 import { resolveTestEventActors } from "../services/who-resolver.js";
+import { stripUuids, containsUuid } from "../services/shared/identifiers.js";
 import { listPresent } from "../services/presence.js";
 import {
   createIssue,
@@ -1023,6 +1024,21 @@ const MATERIAL_KINDS: ReadonlySet<string> = new Set([
   "test_event",
 ]);
 
+// The b-36 hard cut — canonical refs in, NO raw UUIDs out — is a live smoke
+// invariant (authed.smoke.test.ts). The ACTIVITY footer is composed from
+// activity_view, whose activity_log arm replays IMMUTABLE historical narratives:
+// a row written before the spec-122 narrative fix can still read "created
+// doc_member <uuid>", which a forward-only narrative fix can't rewrite. So the
+// footer guards itself via the shared stripUuids (below) and never lets a
+// UUID-bearing actor name through. Belt-and-suspenders for the invariant.
+//
+// A resolved actor name that contains a raw UUID (an unattributed actor_raw,
+// say) is not a name — drop it so the caller falls back to "someone".
+function sanitizeActorName(name: string | null): string | null {
+  if (!name) return null;
+  return containsUuid(name) ? null : name;
+}
+
 function agoLabel(at: Date, now: number): string {
   const ms = Math.max(0, now - at.getTime());
   const mins = Math.round(ms / 60000);
@@ -1063,7 +1079,7 @@ export async function craftActivityBlock(
     // Most recent material change + who.
     const recent = rows.find((r) => MATERIAL_KINDS.has(r.kind));
     if (recent) {
-      const who = whoOf(recent).name ?? "someone";
+      const who = sanitizeActorName(whoOf(recent).name) ?? "someone";
       const what = recent.narrative ?? `${recent.action ?? "changed"} ${recent.kind}`;
       lines.push(`recent: ${what} — ${who} ${agoLabel(recent.at, now)}`);
     }
@@ -1071,7 +1087,9 @@ export async function craftActivityBlock(
     // Live presence, excluding the caller.
     const others = present.filter((p) => p.actorUserId !== currentUserId);
     if (others.length > 0) {
-      const names = [...new Set(others.map((p) => p.actorName ?? "someone"))].join(", ");
+      const names = [
+        ...new Set(others.map((p) => sanitizeActorName(p.actorName) ?? "someone")),
+      ].join(", ");
       lines.push(`present now: ${names}`);
     }
 
@@ -1086,7 +1104,7 @@ export async function craftActivityBlock(
       return userId !== null && userId !== currentUserId;
     });
     if (advancing) {
-      const who = whoOf(advancing).name ?? "another session";
+      const who = sanitizeActorName(whoOf(advancing).name) ?? "another session";
       lines.push(
         `⚠ ${who} is actively advancing this spec right now — coordinate before you pick it up. ` +
           `(Advisory only; proceed if you mean to.)`,
@@ -1094,7 +1112,11 @@ export async function craftActivityBlock(
     }
 
     if (lines.length === 0) return null;
-    return ["── ACTIVITY ──", ...lines].join("\n");
+    // Final guarantee for the b-36 invariant: a historical activity_log narrative
+    // replayed here can still carry a raw UUID ("created doc_member <uuid>") that
+    // the per-field guards above don't own — strip any surviving UUID token from
+    // the composed block so get_doc never emits one (the authed smoke's hard cut).
+    return stripUuids(["── ACTIVITY ──", ...lines].join("\n"));
   } catch {
     return null;
   }
