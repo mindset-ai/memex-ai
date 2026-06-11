@@ -22,6 +22,7 @@ import { db, type Db } from "../db/connection.js";
 import { activityLog, documents } from "../db/schema.js";
 import type { ActivityLog, ActivityLogInsert } from "../db/schema.js";
 import { bus, type ChangeEvent, type Unsubscribe } from "./bus.js";
+import { stripUuids, containsUuid } from "./shared/identifiers.js";
 
 function log(...args: unknown[]): void {
   // eslint-disable-next-line no-console
@@ -265,7 +266,7 @@ export async function listActivity(
   // logic NULL only arises from the JOIN miss, already covered by the IS NULL arm.)
   conditions.push(or(isNull(activityLog.briefId), ne(documents.isDemo, true))!);
 
-  return conn
+  const rows = await conn
     // Project the activity_log columns explicitly so a joined SELECT still
     // returns a flat ActivityLog[] (a bare .select() over a join nests rows
     // under table keys).
@@ -291,4 +292,16 @@ export async function listActivity(
     // share a created_at (a burst of events in the same millisecond).
     .orderBy(desc(activityLog.createdAt), desc(activityLog.id))
     .limit(limit);
+
+  // b-36 (no raw UUIDs out): activity_log narratives are IMMUTABLE — a row
+  // written before the spec-122 narrative fix can still read "created doc_member
+  // <uuid>". Strip any surviving UUID at the read boundary so the Pulse feed
+  // never renders one, and drop a UUID-shaped actor_name (the feed falls back to
+  // a client label rather than showing a raw id). New rows are already clean
+  // (composeNarrative is UUID-guarded), so this only touches the historical tail.
+  return rows.map((r) => ({
+    ...r,
+    narrative: stripUuids(r.narrative),
+    actorName: r.actorName && containsUuid(r.actorName) ? null : r.actorName,
+  }));
 }
