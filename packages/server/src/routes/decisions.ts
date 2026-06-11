@@ -126,16 +126,14 @@ decisionsRouter.post("/doc/:docId", async (c) => {
 decisionsRouter.post("/:id/resolve", async (c) => {
   const memexId = requireMemexId(c);
   const id = c.req.param("id");
+  // spec-247 dec-5: `resolution` is optional — when omitted alongside a
+  // chosenOptionIndex, the service defaults the prose to the chosen option's
+  // label (persist-on-select sends only the index).
   const { resolution, chosenOptionIndex } = await c.req.json<{
-    resolution: string;
+    resolution?: string;
     chosenOptionIndex?: number;
   }>();
-  // Pass chosenOptionIndex only when supplied — preserves the existing 3-arg call shape
-  // for clients that don't use multi-option decisions.
-  const result =
-    chosenOptionIndex !== undefined
-      ? await resolveDecision(memexId, id, resolution, chosenOptionIndex, restCtx(c))
-      : await resolveDecision(memexId, id, resolution, undefined, restCtx(c));
+  const result = await resolveDecision(memexId, id, resolution, chosenOptionIndex, restCtx(c));
   return c.json(result);
 });
 

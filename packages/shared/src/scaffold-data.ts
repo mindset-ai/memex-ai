@@ -1983,6 +1983,64 @@ Give a verdict per chosen lens and an overall read, and list the comments and Is
       'std-22. Rendered as the reviewer handoff line on the Spec page ' +
       '(spec-159 ac-19).',
   },
+  // ── spec-247 dec-4 — web↔MCP boundary handoffs ─────────────────────────
+  // Surfaces whose NEXT STEP is MCP-only carry a PromptButton instead of copy
+  // that names MCP tools at a human (spec-157's leak, generalised). The
+  // get_information / tool mentions live HERE, agent-facing; the human-facing
+  // copy around the button stays tool-free. Portable per std-22.
+  {
+    kind: 'prompt_button',
+    id: 'wire-ac-tests',
+    label: 'Wire the AC tests',
+    text: `You are working in Memex ({namespace}/{memex}), with this project checked out and the Memex MCP tools available.
+
+Spec {handle} "{title}"
+URL: {url}
+
+Wire this Spec's acceptance criteria to real tests in this codebase. ACs are committed but unverified until a tagged test asserts each one — your job is to close that gap, using THIS project's own language, test runner, and conventions (discover them from the project; assume nothing).
+
+1. list_acs({ ref: '{namespace}/{memex}/specs/{handle}' }) — read every active AC (scope + implementation).
+2. Call get_information(topic='ac-emission') to learn how tests in this project tag ACs and emit verification events.
+3. For each AC, find or write the test that asserts its claim, tag it to the AC's canonical ref, and run it so the verification event lands.
+4. Re-read list_acs and report which ACs went green and which still need work (and why).`,
+    surfaces: ['ac-panel'],
+    rationale:
+      'spec-247 dec-4 / ac-14: the AC coverage panel boundary handoff. Wiring ' +
+      'tests is exclusively coding-agent work; the old panel copy told the ' +
+      'HUMAN to call get_information (an MCP tool a human cannot call — the ' +
+      'spec-157 leak). The MCP mentions now live in this prompt, behind the ' +
+      'PromptButton; the on-screen copy stays human-actionable.',
+  },
+  {
+    kind: 'prompt_button',
+    id: 'review-candidates',
+    label: 'Review candidate decisions',
+    text: `You are working in Memex ({namespace}/{memex}), with this project checked out and the Memex MCP tools available.
+
+Spec {handle} "{title}"
+URL: {url}
+
+Walk me through this Spec's CANDIDATE decisions — choices an agent extracted that need human confirmation before they become real, open decisions. For each candidate: summarise the question, the options and their trade-offs, ground it against the current code where it names code shape, and recommend whether it is a genuine decision worth keeping. Then, on my explicit call per candidate, either approve_candidate (it becomes an open decision) or reject_candidate with my reason. Do NOT resolve anything in this pass — confirming a decision exists and answering it are separate steps, and I answer open decisions myself on the Spec page.`,
+    surfaces: ['decision-panel'],
+    rationale:
+      'spec-247 dec-6 / ac-21: candidate curation (approve/reject) is ' +
+      'MCP-side — the web candidate cards are view-only and hand off here. ' +
+      'The prompt forbids resolution so curation and answering stay separate.',
+  },
+  {
+    kind: 'prompt_button',
+    id: 'decision-explain',
+    label: 'Explain this decision',
+    text: `Explain decision {decision} on this Spec to me. Summarise the question it asks, then walk through each option and its trade-offs in plain language, and say what you would recommend and why. Do NOT resolve the decision, and do NOT create or modify anything — I will pick an option myself on the decision card.`,
+    surfaces: ['decision-card'],
+    rationale:
+      'spec-247 dec-2 / ac-10: the decision card\'s "Ask for more ' +
+      'explanation" affordance. Seeded into the in-app spec assistant (the ' +
+      'opening-turn delivery mode) with the decision pre-scoped via context ' +
+      'chip. Explanation only — the prompt explicitly forbids resolving, so ' +
+      'the agent never answers on the answering path (dec-1: the option row ' +
+      'is the only answering affordance).',
+  },
 ];
 
 // ──────────────────────────────────────────────────────────────────────────

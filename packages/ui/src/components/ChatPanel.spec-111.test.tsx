@@ -1,7 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render as rtlRender, screen } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
+import type { ReactElement } from 'react';
 import { tagAc } from "@memex-ai-ac/vitest";
 import { ChatPanel } from './ChatPanel';
+
+// spec-247: the grounding line's "connect a coding agent" link needs a router.
+function render(ui: ReactElement) {
+  return rtlRender(<MemoryRouter>{ui}</MemoryRouter>);
+}
 import type { ChatMessage } from '../api/types';
 
 // spec-111 t-9 — agent panel access states (dec-2):
@@ -90,9 +97,9 @@ describe('ChatPanel access states (spec-111 t-9)', () => {
 
       // No sign-in placeholder — the agent is active.
       expect(screen.queryByTestId('chat-signin-placeholder')).not.toBeInTheDocument();
-      // Header is the standardized "Private Agent"; read-only is surfaced by the
+      // Header is the standardized "Spec assistant" (spec-247 dec-3); read-only is surfaced by the
       // banner (not the header), so this state still reads as read-only.
-      expect(screen.getByText('Private Agent')).toBeInTheDocument();
+      expect(screen.getByText('Spec assistant')).toBeInTheDocument();
       expect(screen.getByTestId('chat-readonly-banner')).toBeInTheDocument();
       // The agent still works — input + send are present and enabled
       // (reads/questions succeed; mutations are blocked server-side by t-4).
@@ -109,7 +116,7 @@ describe('ChatPanel access states (spec-111 t-9)', () => {
 
       expect(screen.queryByTestId('chat-signin-placeholder')).not.toBeInTheDocument();
       expect(screen.queryByTestId('chat-readonly-banner')).not.toBeInTheDocument();
-      expect(screen.getByText('Private Agent')).toBeInTheDocument();
+      expect(screen.getByText('Spec assistant')).toBeInTheDocument();
       expect(screen.getByTestId('chat-input')).toBeInTheDocument();
     });
   });
