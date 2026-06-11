@@ -10,6 +10,11 @@ import { getToolDefinitions } from "./tools.js";
 const AC = (n: number) =>
   `mindset-prod/memex-building-itself/specs/spec-68/acs/ac-${n}`;
 
+// spec-230 ac-10: the Overview-only regression assertions in this file were
+// flipped to the input-driven parity behaviour (no stale Overview-only left).
+const AC_SPEC230_REGRESSION =
+  "mindset-prod/memex-building-itself/specs/spec-230/acs/ac-10";
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PHASES_DIR = resolve(__dirname, "phases");
 
@@ -420,7 +425,7 @@ describe("spec-176: BASE_CREATE_FROM_DOC block — create-from-doc guidance", ()
   });
 });
 
-describe("buildCreationSystemBlocks (dec-1 Option A — Overview-only by default)", () => {
+describe("buildCreationSystemBlocks (spec-230 — input-driven parity, supersedes spec-5/dec-1 Overview-only)", () => {
   it("returns role + skill blocks", () => {
     const blocks = buildCreationSystemBlocks();
     expect(blocks).toHaveLength(2);
@@ -430,37 +435,47 @@ describe("buildCreationSystemBlocks (dec-1 Option A — Overview-only by default
     expect(blocks[1].cache_control).toEqual({ type: "ephemeral" });
   });
 
-  it("instructs the agent to create only the Overview from this modal", () => {
+  it("instructs input-driven authoring — flesh out a substantial doc, keep a vague idea light (spec-230)", () => {
+    tagAc(AC_SPEC230_REGRESSION);
     const role = buildCreationSystemBlocks()[0].text;
 
-    // The "create only Overview" rule is the heart of dec-1 Option A.
-    expect(role).toMatch(/only the Overview|Overview-only|create only the Overview/i);
-    expect(role).toMatch(/Design.*Architecture.*Testing.*Acceptance/i);
+    // spec-230 supersedes the old "create only the Overview" cap: richness now
+    // tracks the input, the way the MCP coding agent fleshes out any input.
+    expect(role).not.toMatch(/create only the Overview/i);
+    expect(role).toMatch(/flesh out/i);
+    expect(role).toMatch(/substantial (pasted )?document/i);
+    expect(role).toMatch(/rich, multi-section Spec/i);
+    expect(role).toMatch(/vague idea|keep it light|stays? (a )?light/i);
   });
 
   it("does NOT instruct the agent to pre-list body sections in the confirmation", () => {
     const role = buildCreationSystemBlocks()[0].text;
-    // The old prompt told the agent to render_confirmation with bulleted body
-    // sections up-front, which is exactly what dec-1 Option A bans.
+    // Even with parity, the confirmation step still proposes title + one-line
+    // overview only — body sections are authored AFTER create_doc, not pre-listed.
     expect(role).not.toMatch(/bulleted body-section titles/i);
     expect(role).not.toMatch(/show exactly the sections you intend to create/i);
   });
 
-  it("tells the agent to hand off (no in-modal offer to add sections)", () => {
+  it("tells the agent to author then land the user on the populated Spec — no dead-end, no Overview-only close-out", () => {
+    tagAc(AC_SPEC230_REGRESSION);
     const role = buildCreationSystemBlocks()[0].text;
-    // The modal closes once create_doc succeeds — the agent has no input
-    // affordance for follow-up. The post-create message must be a heads-up,
-    // not a question.
-    expect(role).toMatch(/closes|hand off|cannot reply|can't reply|heads-up/i);
+    // spec-230: the agent fleshes out the Spec from the source, then hands off
+    // with a heads-up (still not a question). The old "modal closes once the
+    // Spec is created / do not add more sections" dead-end is gone.
+    expect(role).toMatch(/flesh out the Spec from the source/i);
+    expect(role).toMatch(/heads-up/i);
     expect(role).toMatch(/agent inside|in-spec|chat panel/i);
+    expect(role).not.toMatch(/this modal closes once the Spec is created/i);
+    expect(role).not.toMatch(/Do NOT offer to add more sections/i);
     // It must NOT instruct the agent to ask "want me to" / "would you like".
     expect(role).not.toMatch(/Want me to add the standard sections/i);
     expect(role).not.toMatch(/Would you like me to add/i);
   });
 
-  it("references dec-1 / doc-5 so the rule is traceable", () => {
+  it("references spec-230 (and the superseded spec-5/dec-1) so the change is traceable", () => {
     const role = buildCreationSystemBlocks()[0].text;
-    expect(role).toMatch(/dec-1/i);
+    expect(role).toMatch(/spec-230/i);
+    expect(role).toMatch(/spec-5|dec-1/i);
   });
 
   // b-33: the first block must come from phases/creation/system.md (not

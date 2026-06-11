@@ -46,12 +46,15 @@ function makeSpec(status: string): Doc & { sections: DocSection[] } {
         previousStatus: null,
         createdAt: baseDate,
         updatedAt: baseDate,
+        actorUserId: null,
+        actorName: null,
+        channel: null,
       },
     ],
   };
 }
 
-const ESSENCE_MARKER = 'BUILD handoff (full prompt: the "Build handoff" button)';
+const ESSENCE_MARKER = 'You are now in build.';
 const FULL_SENTINEL = "FULL-HANDOFF-SENTINEL-You-are-working-in-Memex";
 
 describe("formatSpecGuidance — full-handoff vs essence in the footer (spec-203 L2)", () => {

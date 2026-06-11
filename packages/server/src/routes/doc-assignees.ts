@@ -3,6 +3,7 @@ import { assign, unassign, listAssignees } from "../services/doc-assignees.js";
 import { sessionMiddleware, publicSessionMiddleware, type SessionEnv } from "../middleware/session.js";
 import type { MemexResolverEnv } from "../middleware/memex-resolver.js";
 import { requireMemexId, resolveReadableMemexId } from "./shared.js";
+import { restCtx } from "./_actor-ctx.js";
 
 // Thin REST mirror of the assignment service (spec-118 t-4). Assignment is the
 // live responsibility pointer the board shows (dec-3); GET is permissive (the
@@ -30,7 +31,7 @@ docAssigneesRouter.post("/doc/:docId/assign", async (c) => {
   // Self-assign when userId is omitted ("Assign me" needs no client-side id).
   const userId = body.userId ?? assignedBy;
   if (!userId) return c.json({ error: "userId required" }, 400);
-  const result = await assign(memexId, docId, userId, assignedBy);
+  const result = await assign(memexId, docId, userId, assignedBy, restCtx(c));
   return c.json(result, 201);
 });
 
@@ -39,7 +40,7 @@ docAssigneesRouter.post("/doc/:docId/unassign", async (c) => {
   const docId = c.req.param("docId");
   const { userId } = await c.req.json<{ userId: string }>();
   if (!userId) return c.json({ error: "userId required" }, 400);
-  const result = await unassign(memexId, docId, userId);
+  const result = await unassign(memexId, docId, userId, restCtx(c));
   return c.json(result);
 });
 

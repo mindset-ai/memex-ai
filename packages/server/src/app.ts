@@ -20,8 +20,10 @@ import { executionPlans } from "./routes/execution-plans.js";
 import { llmRouter } from "./routes/llm.js";
 import { createNodeWebSocket } from "@hono/node-ws";
 import { createVoiceRouter } from "./routes/voice.js";
+import { createGuidePublicRouter } from "./routes/guide-public.js";
 import { docEventsRouter } from "./routes/doc-events.js";
 import { activity } from "./routes/activity.js";
+import { presenceRouter } from "./routes/presence.js";
 import { analytics } from "./routes/analytics.js";
 import { waitlist } from "./routes/waitlist.js";
 import { auth } from "./routes/auth.js";
@@ -240,6 +242,10 @@ app.route("/api/:namespace/:memex/issues-list", issuesList);
 // per-Memex, so there's no flat entity-keyed mount (a bare /api/activity has no
 // memex to scope to).
 app.route("/api/:namespace/:memex/activity", activity);
+// spec-122 t-7 (dec-4) — the ephemeral PRESENCE plane ("who's here now"). The
+// browser heartbeat POSTs here; the UI reads who's present per spec. Inherently
+// per-Memex (every presence row is tenancy-scoped), so path-prefixed only.
+app.route("/api/:namespace/:memex/presence", presenceRouter);
 // Spec analytics for the Insights page (spec-179). Path-prefixed only — the
 // aggregates are inherently per-Memex, same reasoning as /activity above.
 app.route("/api/:namespace/:memex/analytics", analytics);
@@ -301,6 +307,15 @@ app.route("/api/test-events", testEventsRouter);
 // /api/llm/* migrated to sessionMiddleware (t-13). Legacy middleware/auth.ts deleted.
 app.use("/api/llm/*", sessionMiddleware);
 app.route("/api/llm", llmRouter);
+
+// spec-222 t-10/t-11/t-12 (dec-4/dec-9): the PUBLIC anonymous voice-guide backend,
+// versioned under /guide/v1. Mounted WITHOUT sessionMiddleware and OUTSIDE the
+// tenant prefix (mirrors the public waitlist mount) — it has no login and no
+// tenant. /session mints a short-lived signed anon token; the WS (/voice) + SSE
+// (/chat) legs verify that token themselves (origin-gated, rate-limited, hard
+// per-session cap). It reuses the SAME ElevenLabs/Anthropic proxy + surface-keyed
+// corpus/persona as routes/voice.ts — only the auth source + abuse controls differ.
+app.route("/guide/v1", createGuidePublicRouter(upgradeWebSocket));
 
 // Caller-scoped + public surfaces — stay flat (no path prefix). These have no
 // per-memex semantics, so prefixing them would be noise.

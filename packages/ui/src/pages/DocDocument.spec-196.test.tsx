@@ -1,12 +1,20 @@
-// spec-196 t-1 — the Specify sub-tab label "Narrative" → "Spec".
+// spec-196 t-1 / spec-233 t-1 — the prose sub-tab label.
 //
-// dec-1: the rename is UI-label-only. The tab READS "Spec" (the prose sections
-// ARE the spec) while its id stays 'narrative' — internal vocabulary, deep
-// links, and comment routing are deliberately unchanged.
+// spec-196 dec-1 renamed "Narrative" → "Spec". spec-233 dec-1 REVERSES that
+// back to "Narrative": labelling one tab "Spec" misread as if that tab were the
+// whole object. The whole object is the Spec; this tab is the prose lens within
+// it. The rename stays UI-label-only — the id stays 'narrative', so internal
+// vocabulary, deep links, and comment routing are unchanged across both specs.
 //
-//   ac-1 : the sub-tab reads "Spec"; "Narrative" no longer appears in the UI.
-//   ac-5 : deep links / routing to the narrative tab keep working.
-//   ac-6 : label "Spec", id 'narrative' — both pinned.
+// The label-bearing assertions now tag spec-233 (it owns the current label);
+// the still-true id/routing invariant keeps tagging spec-196 ac-5.
+//
+//   spec-233 ac-1 : the sub-tab reads "Narrative"; no tab reads "Spec".
+//   spec-233 ac-2 : clicking it opens the prose view; routing is unchanged.
+//   spec-233 ac-4 : source pins label 'Narrative' with id 'narrative'.
+//   spec-233 ac-5 : no test/source pins the old "Spec" label.
+//   spec-196 ac-5 : deep links / routing to the narrative tab keep working.
+//   spec-196 ac-9 : the narrative-staleness Rubicon gate (label-independent).
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -19,6 +27,7 @@ import { tagAc } from '@memex-ai-ac/vitest';
 import type { DocWithGraph } from '../api/types';
 
 const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-196/acs/ac-${n}`;
+const AC233 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-233/acs/ac-${n}`;
 
 // ── Heavy children → identity markers (same trim as the spec-159 suite) ─────
 vi.mock('../components/DecisionPanel', () => ({
@@ -152,37 +161,37 @@ beforeEach(() => {
   docNarrativeConsolidatedAt = null;
 });
 
-describe('spec-196 t-1 — Specify sub-tab reads "Spec", id stays narrative', () => {
-  it('renders the sub-tab as "Spec"; "Narrative" appears nowhere; sections are the default view (ac-1, ac-6)', async () => {
-    tagAc(AC(1));
-    tagAc(AC(6));
+describe('spec-233 t-1 — prose sub-tab reads "Narrative", id stays narrative', () => {
+  it('renders the sub-tab as "Narrative"; no tab reads "Spec"; sections are the default view (ac-1, ac-4)', async () => {
+    tagAc(AC233(1));
+    tagAc(AC233(4));
     renderAt();
 
-    // The first sub-tab reads "Spec".
-    expect(await screen.findByRole('button', { name: 'Spec' })).toBeInTheDocument();
-    // The old label is gone from the rendered UI.
-    expect(screen.queryByText('Narrative')).not.toBeInTheDocument();
+    // The first sub-tab reads "Narrative".
+    expect(await screen.findByRole('button', { name: 'Narrative' })).toBeInTheDocument();
+    // No sub-tab is labelled "Spec" — "Spec" is reserved for the whole object.
+    expect(screen.queryByRole('button', { name: 'Spec' })).not.toBeInTheDocument();
     // It's still the default sub-tab: the narrative (section cards) renders.
     expect(screen.getByTestId('section-card')).toBeInTheDocument();
   });
 
-  it('the renamed tab still routes on the internal id — away to Decisions & ACs and back (ac-5, ac-6)', async () => {
+  it('the renamed tab still routes on the internal id — away to Decisions & ACs and back (spec-233 ac-2, spec-196 ac-5)', async () => {
+    tagAc(AC233(2));
     tagAc(AC(5));
-    tagAc(AC(6));
     const user = userEvent.setup();
     renderAt();
 
-    await screen.findByText('Spec');
+    await screen.findByText('Narrative');
 
     // Away: Decisions & ACs renders its two-column panels.
     await user.click(screen.getByText('Decisions & ACs'));
     expect(screen.getByTestId('decision-panel')).toBeInTheDocument();
     expect(screen.queryByTestId('section-card')).not.toBeInTheDocument();
 
-    // Back: the "Spec" tab routes to the narrative view via the unchanged
+    // Back: the "Narrative" tab routes to the prose view via the unchanged
     // 'narrative' id (deep-link integrity itself is covered by the spec-158 /
     // spec-100 suites, which key on these ids, not labels).
-    await user.click(screen.getByText('Spec'));
+    await user.click(screen.getByText('Narrative'));
     expect(screen.getByTestId('section-card')).toBeInTheDocument();
   });
 
@@ -226,15 +235,19 @@ describe('spec-196 t-1 — Specify sub-tab reads "Spec", id stays narrative', ()
     );
   });
 
-  it("source pins the pair: label 'Spec' with id 'narrative' (ac-6)", () => {
-    tagAc(AC(6));
+  it("source pins the pair: label 'Narrative' with id 'narrative' (ac-3, ac-4, ac-5)", () => {
+    tagAc(AC233(3));
+    tagAc(AC233(4));
+    tagAc(AC233(5));
     const src = readFileSync(
       join(dirname(fileURLToPath(import.meta.url)), 'DocDocument.tsx'),
       'utf8',
     );
-    // dec-1: the label renames, the id does not. A drive-by "consistency"
-    // rename of the id would break deep links and comment routing — fail here.
-    expect(src).toMatch(/id:\s*'narrative',\s*label:\s*'Spec'/);
-    expect(src).not.toMatch(/label:\s*'Narrative'/);
+    // spec-233 dec-1: the label renames back to "Narrative"; the id does not.
+    // A drive-by "consistency" rename of the id would break deep links and
+    // comment routing — fail here. And no source still pins the old "Spec"
+    // label (ac-5).
+    expect(src).toMatch(/id:\s*'narrative',\s*label:\s*'Narrative'/);
+    expect(src).not.toMatch(/label:\s*'Spec'/);
   });
 });

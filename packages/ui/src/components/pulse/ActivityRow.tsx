@@ -29,6 +29,7 @@ import type { ReactNode } from 'react';
 import { LiveDot } from './LiveDot';
 import { TimeAgo } from './TimeAgo';
 import { tenantPath } from '../../utils/tenantUrl';
+import { clientLabel } from './clientLabel';
 import type { ActivityRow as ActivityRowData } from './types';
 
 export interface ActivityRowProps {
@@ -59,6 +60,19 @@ export interface ActivityRowProps {
    * list it already fetches.
    */
   specTitle?: (handle: string) => string | undefined;
+  /**
+   * spec-122 ac-2 — when this moving line is a REGRESSION (a previously-verified
+   * AC going red), render the `⚠ REGRESSED` flag. The flag's WEIGHT is
+   * presence-aware: see {@link regressionMuted}.
+   */
+  regressed?: boolean;
+  /**
+   * spec-122 ac-2 — mute the regression flag while the spec is being actively
+   * worked (a worker is present in "Working now"): a red AC on a churning spec
+   * is expected development churn, not an alarm. Only an UNWORKED regression
+   * earns the alarming, full-weight flag. Ignored unless `regressed` is true.
+   */
+  regressionMuted?: boolean;
 }
 
 // std-1 handle grammar. We linkify Spec (`spec-N` / legacy `b-N`) and Standard
@@ -231,18 +245,22 @@ function capitalize(s: string): string {
 }
 
 /**
- * Render the actor (Line 1, trailing). dec-10 §2:
- *   human    → <user>
- *   agent    → <client> (<user>)   — client leads, user de-emphasised in parens
- *   system   → System              — no parens
+ * Render the actor as a PERSON and a SURFACE (spec-122 ac-4). The server already
+ * resolved most names into `row.actorName`; the UI renders what it's given and
+ * falls back to the client label — NEVER to "You" (which would silently collapse
+ * a teammate or a CI actor into the viewer).
  *
- * Display names aren't carried on the row, so for now we render the best
- * available identifier (clientId for agents, "You" as the human stand-in). The
- * page layer will pass resolved names once the lookup exists.
+ *   human  → their name ("Barrie")                — bare, no parens
+ *   agent  → "<name>'s <client>" form. The server's actorName for an agent is
+ *            already the "Claude Code (Barrie)" label; we render it verbatim. If
+ *            no actorName arrived, we build "<client> (<owner>)" from the channel
+ *            client label + any owner we can name (clientId), still never "You".
+ *   CI     → a free-form actor string with no actorUserId ("CI · abc123") renders
+ *            VERBATIM — it matched no user, so it must not be reshaped or
+ *            attributed to anyone.
+ *   system → "System"                             — no parens, no client
  */
 function ActorLabel({ row }: { row: ActivityRowData }) {
-  // TODO display-name lookup: resolve actorUserId → user name and clientId →
-  // a friendly client label once the Pulse page threads a name resolver in.
   if (row.actorKind === 'system') {
     return <span className="text-secondary">System</span>;
   }
@@ -250,23 +268,63 @@ function ActorLabel({ row }: { row: ActivityRowData }) {
   const isAgent =
     row.actorKind === 'mcp_agent' || row.actorKind === 'in_app_agent';
 
-  // The human stand-in: with no resolved display name we fall back to "You".
-  // (Pulse is scoped to the viewer's memex; the common human actor is the
-  // viewer until name resolution lands.)
-  const userName = 'You';
+  // The surface label (the CLIENT the action arrived through), keyed by channel.
+  const surface = row.clientId ? clientLabel(row.channel, row.clientId) : null;
 
   if (isAgent) {
-    const clientLabel = row.clientId ?? 'Agent';
-    return (
-      <span>
-        <span className="text-secondary">{clientLabel}</span>{' '}
-        <span className="text-muted">({userName})</span>
-      </span>
-    );
+    // The server resolves an agent's actorName to the "<name>'s <client>" /
+    // "Claude Code (Barrie)" form — render it verbatim when present.
+    if (row.actorName) {
+      return <span className="text-secondary">{row.actorName}</span>;
+    }
+    // No resolved name: synthesise "<client> (<owner>)". Owner falls back to the
+    // surface label rather than "You" — we never claim the viewer.
+    const clientText = surface ?? 'Agent';
+    return <span className="text-secondary">{clientText}</span>;
   }
 
-  // Human.
-  return <span className="text-secondary">{userName}</span>;
+  // Human (or a free-form CI actor that arrived as a raw human row). The
+  // resolved display name is authoritative — a CI string with no actorUserId
+  // arrives AS its actorName and renders verbatim ("CI · abc123"). When no name
+  // resolved at all, fall back to the surface label, never to "You".
+  const human = row.actorName ?? surface ?? 'Someone';
+  return <span className="text-secondary">{human}</span>;
+}
+
+/**
+ * spec-122 ac-2 — the `⚠ REGRESSED` flag on a moving line. Its weight is a
+ * function of PRESENCE, not just the event:
+ *   - muted (greyed) while the spec has an active worker — expected churn,
+ *     "active development not regression";
+ *   - EARNED (alarming, full-weight danger colour) once the regression has gone
+ *     quiet (no active worker on that spec).
+ * The two render differently: a `data-muted` flag + an aria suffix + colour, so
+ * a manager (and a test) can tell an alarm from churn at a glance.
+ */
+function RegressedFlag({ muted }: { muted: boolean }) {
+  return (
+    <span
+      data-testid="regressed-flag"
+      data-muted={muted ? 'true' : 'false'}
+      aria-label={
+        muted
+          ? 'Regressed while actively worked — expected churn'
+          : 'Regressed and quiet — needs attention'
+      }
+      title={
+        muted
+          ? 'A verified AC went red while this spec is being actively worked — expected churn.'
+          : 'A verified AC went red on a quiet spec — this is an alarm.'
+      }
+      className={`ml-2 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[0.65rem] font-semibold uppercase tracking-wide ${
+        muted
+          ? 'text-muted/70 bg-card-hover/40'
+          : 'text-status-danger-text bg-status-danger-bg'
+      }`}
+    >
+      <span aria-hidden="true">⚠</span> Regressed
+    </span>
+  );
 }
 
 export function ActivityRow({
@@ -277,6 +335,8 @@ export function ActivityRow({
   expanded = false,
   onToggleExpand,
   specTitle,
+  regressed = false,
+  regressionMuted = false,
 }: ActivityRowProps) {
   const isGroup = !!groupCount && groupCount > 1;
 
@@ -336,6 +396,7 @@ export function ActivityRow({
         <TimeAgo value={row.createdAt} className="tabular-nums" />
         <span className="opacity-40">&middot;</span>
         <ActorLabel row={row} />
+        {regressed ? <RegressedFlag muted={regressionMuted} /> : null}
         {isGroup && expanded ? (
           <button
             type="button"

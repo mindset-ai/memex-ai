@@ -36,7 +36,8 @@ import {
 } from "../db/schema.js";
 import type { InferSelectModel } from "drizzle-orm";
 import { ConflictError, NotFoundError, ValidationError } from "../types/errors.js";
-import { mutate, type Mutated } from "./mutate.js";
+import { mutate, type Mutated, type RequestCtx } from "./mutate.js";
+import { resolveActorColumns } from "./actor.js";
 import { removeSummaryForPair, recomputeSummaryForPair } from "./test-event-latest.js";
 import { nextSeq, withSeqRetry } from "./shared/sequence.js";
 
@@ -78,7 +79,10 @@ export interface CreateAcInput {
   parent?: { kind: ParentKind; id: string };
 }
 
-export async function createAc(input: CreateAcInput): Promise<Mutated<Ac>> {
+export async function createAc(
+  input: CreateAcInput,
+  ctx: RequestCtx = {},
+): Promise<Mutated<Ac>> {
   const { memexId, briefId, kind, statement, status = "active", parent } = input;
   if (!statement.trim()) {
     throw new ValidationError("AC statement is required");
@@ -88,7 +92,7 @@ export async function createAc(input: CreateAcInput): Promise<Mutated<Ac>> {
   // Allocate seq + insert under withSeqRetry, mirroring createDecision (b-38 F-3).
   // Concurrent creates under the same Spec shouldn't 23505 on the unique constraint.
   const result = await mutate(
-    {},
+    ctx,
     { memexId, docId: briefId, entity: "ac", action: "created" },
     async () =>
       withSeqRetry(
@@ -96,7 +100,8 @@ export async function createAc(input: CreateAcInput): Promise<Mutated<Ac>> {
           const seq = await nextSeq(acs, acs.seq, acs.briefId, briefId);
           const [row] = await db
             .insert(acs)
-            .values({ memexId, briefId, seq, kind, statement, status })
+            // spec-122 dec-2/dec-5 — stamp WHO + HOW at write time (ac-20).
+            .values({ memexId, briefId, seq, kind, statement, status, ...(await resolveActorColumns(ctx)) })
             .returning();
           if (parent) {
             await db.insert(acParentLinks).values({
@@ -173,18 +178,20 @@ export async function updateAc(
   memexId: string,
   acId: string,
   statement: string,
+  ctx: RequestCtx = {},
 ): Promise<Mutated<Ac>> {
   if (!statement.trim()) {
     throw new ValidationError("AC statement is required");
   }
   const ac = await getAc(memexId, acId); // tenancy check
   return mutate(
-    {},
+    ctx,
     { memexId, docId: ac.briefId, entity: "ac", action: "updated" },
     async () => {
       const [row] = await db
         .update(acs)
-        .set({ statement, updatedAt: new Date() })
+        // spec-122 dec-2/dec-5 — re-attribute on edit (who touched it last).
+        .set({ statement, updatedAt: new Date(), ...(await resolveActorColumns(ctx)) })
         .where(and(eq(acs.id, acId), eq(acs.memexId, memexId)))
         .returning();
       return row;

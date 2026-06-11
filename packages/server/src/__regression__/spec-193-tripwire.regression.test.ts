@@ -80,18 +80,18 @@ const TRIPWIRE_CATEGORIES = [
 describe("ac-1 — the trigger fires at two moments, both off the footer", () => {
   it("predictive pass rides the plan-handoff essence (classify the work AHEAD, cite standards)", () => {
     tagAc(AC(1));
-    expect(planEssence).toMatch(/PREDICTIVE/);
-    expect(planEssence).toMatch(/classify the work AHEAD/i);
-    expect(planEssence).toMatch(/tripwire/i);
+    expect(planEssence).toMatch(/Look ahead at standards/i);
+    expect(planEssence).toMatch(/which categories this work touches/i);
+    expect(planEssence).toMatch(/pull any governing standard/i);
     // It pulls the routed standards into context before coding.
-    expect(planEssence).toMatch(/standards into context BEFORE/i);
+    expect(planEssence).toMatch(/before you settle the plan/i);
   });
 
   it("confirmatory pass rides the verify-spec essence (classify the actual DIFF, re-check)", () => {
     tagAc(AC(1));
-    expect(verifyEssence).toMatch(/CONFIRMATORY/);
-    expect(verifyEssence).toMatch(/classify the actual DIFF/i);
-    expect(verifyEssence).toMatch(/tripwire/i);
+    expect(verifyEssence).toMatch(/Re-check standards against the real change/i);
+    expect(verifyEssence).toMatch(/which standard-prone categories the diff touches/i);
+    expect(verifyEssence).toMatch(/re-read the standards/i);
   });
 
   it("both passes are the footer essence projection (toHandoffEssence), not the copy button only", () => {
@@ -150,12 +150,12 @@ describe("ac-11 — three channels, emitted through renderSpecPhaseGuidance to b
 
   it("channel 2: the plan-handoff essence carries the predictive pass", () => {
     tagAc(AC(11));
-    expect(planEssence).toMatch(/PREDICTIVE/);
+    expect(planEssence).toMatch(/Look ahead at standards/i);
   });
 
   it("channel 3: the verify-spec essence carries the confirmatory pass", () => {
     tagAc(AC(11));
-    expect(verifyEssence).toMatch(/CONFIRMATORY/);
+    expect(verifyEssence).toMatch(/Re-check standards against the real change/i);
   });
 
   it("renderSpecPhaseGuidance composes BOTH toNudge and the handoff essence (one footer, both agents)", () => {
@@ -172,8 +172,8 @@ describe("ac-12 — a regression test pins each carrying channel", () => {
     // The pins above. This assertion documents that the three channels each have
     // a guard, mirroring test-coverage-nudges.regression.test.ts.
     expect(specifyNudge).toMatch(/Tripwires:/);
-    expect(planEssence).toMatch(/PREDICTIVE/);
-    expect(verifyEssence).toMatch(/CONFIRMATORY/);
+    expect(planEssence).toMatch(/Look ahead at standards/i);
+    expect(verifyEssence).toMatch(/Re-check standards against the real change/i);
   });
 });
 
@@ -194,8 +194,8 @@ describe("ac-5 — every footer channel pinned; MEMEX_AGENT_INSTRUCTIONS exclude
   it("base block + both essences are pinned, and the instructions blob is excluded", () => {
     tagAc(AC(5));
     expect(specifyNudge).toMatch(/Tripwires:/);
-    expect(planEssence).toMatch(/PREDICTIVE/);
-    expect(verifyEssence).toMatch(/CONFIRMATORY/);
+    expect(planEssence).toMatch(/Look ahead at standards/i);
+    expect(verifyEssence).toMatch(/Re-check standards against the real change/i);
     expect(mcpTools).not.toMatch(/tripwire/i);
   });
 });
@@ -245,7 +245,7 @@ describe("ac-15 — no new structural attestation; CI stays the gate, 193 is pro
       expect(src).not.toMatch(/harnessGreen|attestHarness|harness_attestation|harnessAttestation/i);
     }
     // The essence frames CI as the enforcement backstop, not an in-app gate.
-    expect(verifyEssence).toMatch(/CI is the enforcement backstop/i);
+    expect(verifyEssence).toMatch(/CI is the backstop/i);
   });
 });
 
@@ -398,7 +398,7 @@ describe("ac-7 / ac-20 — tenant extension flows through org_scaffold_additions
 describe("ac-3 — the e2e loop's product enablers (tenant std-28 + journey completes it)", () => {
   it("the predictive pass tells the agent to surface journey / test work up front", () => {
     tagAc(AC(3));
-    expect(planEssence).toMatch(/journey \/ test \/ migration work/i);
+    expect(planEssence).toMatch(/journey, test, and migration work/i);
   });
 
   it("the agent is told the harness must be green before the PR, and journeys are required where standards mandate", () => {

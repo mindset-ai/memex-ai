@@ -75,9 +75,54 @@ function resolveMaxVectorDistance(explicit?: number): number {
 
 const DEFAULT_SEARCH_LIMIT = 6;
 
+// ── Surface isolation (spec-222 t-7, dec-3) ─────────────────────────────────
+//
+// The corpus is SURFACE-KEYED: a public-website session retrieves ONLY website
+// content and an app session ONLY app content — the blast-radius isolation
+// boundary (ac-4 / ac-11 / ac-12). The server ENFORCES this: every read filters
+// `WHERE surface = $surface` and the surface is a server-supplied argument, NEVER
+// taken from client free input (the token-binding lands in t-10). An unknown /
+// unconfigured surface is REJECTED — we never silently fall back to reading the
+// whole corpus, which would defeat the isolation.
+
+/** The product surfaces the voice guide serves. */
+export const GUIDE_SURFACES = ["memex-app", "memex-website"] as const;
+export type GuideSurface = (typeof GUIDE_SURFACES)[number];
+
+/** Thrown when a retrieval / write is asked for a surface that isn't configured. */
+export class UnknownGuideSurfaceError extends Error {
+  readonly surface: string;
+  constructor(surface: string) {
+    super(
+      `Unknown guide surface "${surface}". Retrieval is surface-keyed and never ` +
+        `reads the whole corpus; configure one of: ${GUIDE_SURFACES.join(", ")}.`,
+    );
+    this.name = "UnknownGuideSurfaceError";
+    this.surface = surface;
+  }
+}
+
+/**
+ * Validate a server-supplied surface, throwing {@link UnknownGuideSurfaceError}
+ * for anything unrecognised. Called at the top of every read/write so an
+ * unknown surface can NEVER degrade into an unfiltered (cross-surface) query.
+ */
+export function assertGuideSurface(surface: string): GuideSurface {
+  if ((GUIDE_SURFACES as readonly string[]).includes(surface)) {
+    return surface as GuideSurface;
+  }
+  throw new UnknownGuideSurfaceError(surface);
+}
+
 // ── Write path (ac-13) ──────────────────────────────────────────────────────
 
 export interface GuideChunkInput {
+  /**
+   * Which product surface this chunk documents (spec-222 t-7, dec-3) — the
+   * corpus-isolation key. Required so a write can never land surface-less and
+   * leak across the app/website boundary at read time.
+   */
+  surface: GuideSurface;
   /** Screen the chunk documents, or null for a cross-screen concept chunk. */
   screenKey: string | null;
   /** Source markdown file the chunk came from (the upsert key, with chunkIndex). */
@@ -130,6 +175,9 @@ export async function upsertGuideChunk(
   chunk: GuideChunkInput,
   options: { provider?: EmbeddingProvider | null } = {},
 ): Promise<UpsertGuideChunkResult> {
+  // Surface is the isolation key — validate before any write touches the row.
+  const surface = assertGuideSurface(chunk.surface);
+
   const content = (chunk.content ?? "").trim();
   if (content.length === 0) {
     return { status: "skipped-empty" };
@@ -183,11 +231,12 @@ export async function upsertGuideChunk(
 
   await db.execute(sql`
     INSERT INTO guide_content
-      (screen_key, source_path, chunk_index, heading, content_hash, content, embedding, embedding_model, updated_at)
+      (surface, screen_key, source_path, chunk_index, heading, content_hash, content, embedding, embedding_model, updated_at)
     VALUES
-      (${chunk.screenKey}, ${chunk.sourcePath}, ${chunk.chunkIndex}, ${chunk.heading ?? null},
+      (${surface}, ${chunk.screenKey}, ${chunk.sourcePath}, ${chunk.chunkIndex}, ${chunk.heading ?? null},
        ${chunk.contentHash}, ${content}, ${embeddingExpr}, ${model}, now())
     ON CONFLICT (source_path, chunk_index) DO UPDATE SET
+      surface         = EXCLUDED.surface,
       screen_key      = EXCLUDED.screen_key,
       heading         = EXCLUDED.heading,
       content_hash    = EXCLUDED.content_hash,
@@ -206,20 +255,57 @@ export async function upsertGuideChunk(
  * Prune rows whose source file is no longer present in the import set (ac-18,
  * called by the t-7 importer after a full pass). Returns the number deleted.
  * Lives here next to the write primitive so the table's mutations are in one place.
+ *
+ * SURFACE-SCOPED (spec-222 t-7/t-8, dec-3): the prune is bounded to a single
+ * surface — the app importer prunes only orphaned app rows and the website
+ * importer only orphaned website rows. Two ingestion paths share one table; an
+ * unscoped prune would let either path wipe the other's corpus. The surface is
+ * server-supplied and validated (an unknown surface throws, never an unbounded
+ * delete). An empty keep-set deletes every row OF THAT SURFACE (not the table).
  */
-export async function pruneGuideContent(keepSourcePaths: string[]): Promise<number> {
+export async function pruneGuideContent(
+  surface: GuideSurface,
+  keepSourcePaths: string[],
+): Promise<number> {
+  const validSurface = assertGuideSurface(surface);
   if (keepSourcePaths.length === 0) {
     const deleted = (await db.execute(
-      sql`DELETE FROM guide_content RETURNING 1`,
+      sql`DELETE FROM guide_content WHERE surface = ${validSurface} RETURNING 1`,
     )) as unknown as unknown[];
     return deleted.length;
   }
   const deleted = (await db.execute(sql`
     DELETE FROM guide_content
-    WHERE source_path NOT IN (${sql.join(
-      keepSourcePaths.map((p) => sql`${p}`),
-      sql`, `,
-    )})
+    WHERE surface = ${validSurface}
+      AND source_path NOT IN (${sql.join(
+        keepSourcePaths.map((p) => sql`${p}`),
+        sql`, `,
+      )})
+    RETURNING 1
+  `)) as unknown as unknown[];
+  return deleted.length;
+}
+
+/**
+ * Prune stale tail chunks for a SINGLE source file on one surface (spec-222 t-8):
+ * delete every row for (surface, sourcePath) whose chunk_index is >= keepCount.
+ * The website corpus is one flat file re-chunked on each import, so when the
+ * published doc SHRINKS the orphans are higher chunk_indexes under the SAME
+ * source_path — which the file-level pruneGuideContent can't reach. Scoped to the
+ * given surface + source_path, so it never touches the app corpus (or any other
+ * website source). The surface is validated up front (unknown surface throws).
+ */
+export async function pruneGuideContentChunks(
+  surface: GuideSurface,
+  sourcePath: string,
+  keepCount: number,
+): Promise<number> {
+  const validSurface = assertGuideSurface(surface);
+  const deleted = (await db.execute(sql`
+    DELETE FROM guide_content
+    WHERE surface = ${validSurface}
+      AND source_path = ${sourcePath}
+      AND chunk_index >= ${keepCount}
     RETURNING 1
   `)) as unknown as unknown[];
   return deleted.length;
@@ -237,15 +323,21 @@ interface ContentRow {
  * plain indexed equality scan, cheap enough to run on every route change and
  * inject into the graph's guideContext before the next turn. Concept chunks
  * (screen_key NULL) are intentionally excluded — they are search-only (Layer 2).
+ *
+ * SURFACE-KEYED (spec-222 t-7, dec-3): the query is filtered by the server-supplied
+ * surface, so a website session can only pre-fetch website screens and an app
+ * session only app screens. An unknown surface throws — never an unfiltered scan.
  */
 export async function prefetchScreenContent(
   screenKey: string | null | undefined,
+  surface: GuideSurface,
 ): Promise<string[]> {
+  const validSurface = assertGuideSurface(surface);
   if (!screenKey) return [];
   const rows = (await db.execute(sql`
     SELECT content
     FROM guide_content
-    WHERE screen_key = ${screenKey}
+    WHERE surface = ${validSurface} AND screen_key = ${screenKey}
     ORDER BY source_path, chunk_index
   `)) as unknown as ContentRow[];
   return rows.map((r) => r.content);
@@ -288,15 +380,26 @@ interface FtsHitRow {
  * vectors (e.g. imported in degraded mode). The graph runs this every turn, so a
  * spoken question is answered from retrieved content without the agent having to
  * call the secondary `search_guide` tool.
+ *
+ * SURFACE-KEYED (spec-222 t-7, dec-3): BOTH arms (vector + FTS) filter
+ * `WHERE surface = $surface` with the server-supplied surface, so a website query
+ * can NEVER return app content even when the query text matches app chunks, and
+ * vice versa (ac-4 / ac-11 / ac-12). The surface is required and validated up
+ * front — an unknown surface throws rather than reading the whole corpus.
  */
 export async function searchGuideContent(
   query: string,
   options: {
+    /** Server-supplied corpus-isolation key — required. */
+    surface: GuideSurface;
     provider?: EmbeddingProvider | null;
     limit?: number;
     maxVectorDistance?: number;
-  } = {},
+  },
 ): Promise<GuideSearchHit[]> {
+  // Validate the isolation key before any query runs (rejects unknown surfaces).
+  const surface = assertGuideSurface(options.surface);
+
   const trimmed = (query ?? "").trim();
   if (trimmed.length === 0) return [];
 
@@ -315,7 +418,8 @@ export async function searchGuideContent(
           SELECT content, source_path, screen_key, heading,
                  (embedding <=> ${literal}::vector) AS distance
           FROM guide_content
-          WHERE embedding IS NOT NULL
+          WHERE surface = ${surface}
+            AND embedding IS NOT NULL
             AND embedding_model = ${provider.name}
             AND (embedding <=> ${literal}::vector) < ${maxDistance}
           ORDER BY embedding <=> ${literal}::vector
@@ -349,7 +453,8 @@ export async function searchGuideContent(
     SELECT content, source_path, screen_key, heading,
            ts_rank(content_tsv, plainto_tsquery('english', ${trimmed})) AS rank
     FROM guide_content
-    WHERE content_tsv @@ plainto_tsquery('english', ${trimmed})
+    WHERE surface = ${surface}
+      AND content_tsv @@ plainto_tsquery('english', ${trimmed})
     ORDER BY rank DESC
     LIMIT ${limit}
   `)) as unknown as FtsHitRow[];

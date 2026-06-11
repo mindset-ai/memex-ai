@@ -162,10 +162,18 @@ export const docSections = pgTable(
     // and read via raw SQL in services/memex-search.ts. Keeping them out
     // of the Drizzle schema preserves the InferSelectModel shape that every
     // existing DocSection fixture in the project expects.
+    // spec-122 dec-2/dec-5 — the activity contract (WHO + HOW). See acs above.
+    actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+    actorName: text("actor_name"),
+    channel: text("channel"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
+    check(
+      "doc_sections_channel_valid",
+      sql`${table.channel} IN ('rest_ui', 'mcp', 'in_app_agent', 'server')`,
+    ),
     // `seq` is the allocate-once identity (spec-150 dec-2): minted as MAX(seq)+1 and
     // never reused, so a deleted section's frozen seq can't collide with a live one.
     // (Partial index retained from spec-107; the allocate-once allocator now provides
@@ -293,6 +301,10 @@ export const docComments = pgTable(
     // memex's namespace). Nullable for legacy comments without attribution.
     authorUserId: uuid("author_user_id"),
     authorNamespaceId: uuid("author_namespace_id"),
+    // spec-122 dec-2/dec-5 — the activity contract's HOW. WHO already lives in
+    // author_user_id / author_name; channel completes the contract so the
+    // doc_comments arm of the activity view projects the same uniform shape.
+    channel: text("channel"),
     content: text("content").notNull(),
     // Typed-comment columns (Section 7 of doc-10):
     //   commentType — discussion (default, human freeform) | plan | progress | issue |
@@ -340,6 +352,10 @@ export const docComments = pgTable(
     check(
       "doc_comments_source_valid",
       sql`${table.source} IN ('human', 'agent')`
+    ),
+    check(
+      "doc_comments_channel_valid",
+      sql`${table.channel} IN ('rest_ui', 'mcp', 'in_app_agent', 'server')`
     ),
     // doc-26 t-4: cross_reference comments must point at exactly one target
     // kind (or zero, for legacy rows whose backfill couldn't resolve a
@@ -401,11 +417,19 @@ export const decisions = pgTable(
     // update_decision. Lets the restore path return the decision to its prior
     // state without the caller having to remember it.
     previousStatus: text("previous_status"),
+    // spec-122 dec-2/dec-5 — the activity contract (WHO + HOW). See acs above.
+    actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+    actorName: text("actor_name"),
+    channel: text("channel"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     unique("decisions_doc_id_seq_unique").on(table.docId, table.seq),
     index("decisions_memex_id_idx").on(table.memexId),
+    check(
+      "decisions_channel_valid",
+      sql`${table.channel} IN ('rest_ui', 'mcp', 'in_app_agent', 'server')`,
+    ),
     check(
       "decisions_status_valid",
       sql`${table.status} IN ('open', 'resolved', 'candidate', 'rejected', 'deleted')`
@@ -441,6 +465,10 @@ export const tasks = pgTable(
     executionPlanDocId: uuid("execution_plan_doc_id").references(() => documents.id, {
       onDelete: "set null",
     }),
+    // spec-122 dec-2/dec-5 — the activity contract (WHO + HOW). See acs above.
+    actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+    actorName: text("actor_name"),
+    channel: text("channel"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     startedAt: timestamp("started_at", { withTimezone: true }),
     completedAt: timestamp("completed_at", { withTimezone: true }),
@@ -448,6 +476,10 @@ export const tasks = pgTable(
   (table) => [
     unique("tasks_doc_id_seq_unique").on(table.docId, table.seq),
     index("tasks_memex_id_idx").on(table.memexId),
+    check(
+      "tasks_channel_valid",
+      sql`${table.channel} IN ('rest_ui', 'mcp', 'in_app_agent', 'server')`,
+    ),
   ]
 );
 
@@ -523,6 +555,14 @@ export const acs = pgTable(
     // never auto-deleted; un-accept nulls both columns.
     acceptedBy: text("accepted_by"),
     acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    // spec-122 dec-2/dec-5 — the activity contract (WHO + HOW), stamped at write
+    // time so the activity view (dec-1) projects one uniform shape across every
+    // arm. actor_name is denormalised so a later user rename/delete can't rewrite
+    // historical attribution (ac-10). All nullable: backfill-free — unknown on
+    // legacy rows and on any write that doesn't (yet) thread a RequestCtx.
+    actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+    actorName: text("actor_name"),
+    channel: text("channel"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -537,6 +577,13 @@ export const acs = pgTable(
     check(
       "acs_status_valid",
       sql`${table.status} IN ('proposed', 'active', 'rejected', 'superseded')`,
+    ),
+    // spec-122 dec-2 — channel is one of the four surfaces. NULL passes (a CHECK
+    // is satisfied when its predicate is NULL), so legacy / unthreaded writes are
+    // allowed while a stamped value is constrained to the contract's vocabulary.
+    check(
+      "acs_channel_valid",
+      sql`${table.channel} IN ('rest_ui', 'mcp', 'in_app_agent', 'server')`,
     ),
   ]
 );
@@ -2033,6 +2080,13 @@ export const guideContent = pgTable(
   "guide_content",
   {
     id: uuid("id").primaryKey().defaultRandom(),
+    // spec-222 t-7 (dec-3): which product surface this chunk documents — the
+    // corpus-isolation key. 'memex-app' (the in-product app) or 'memex-website'
+    // (the public marketing site). Retrieval FILTERS every query by surface
+    // server-side so a website session can't see app content and vice versa
+    // (ac-4 / ac-11 / ac-12). Additive + backfilled: existing rows default to
+    // 'memex-app', so the established app retrieval path is unchanged.
+    surface: text("surface").notNull().default("memex-app"),
     // NULL for cross-screen concept chunks; set for per-screen chunks.
     screenKey: text("screen_key"),
     sourcePath: text("source_path").notNull(),
@@ -2054,6 +2108,11 @@ export const guideContent = pgTable(
     uniqueIndex("guide_content_source_path_chunk_idx").on(table.sourcePath, table.chunkIndex),
     // Layer-1 deterministic pre-fetch.
     index("guide_content_screen_key_idx").on(table.screenKey),
+    // spec-222 t-7 (dec-3): surface-keyed retrieval. Composite (surface,
+    // screen_key) serves the Layer-1 lookup; (surface) alone serves the
+    // Layer-2 search's surface filter.
+    index("guide_content_surface_screen_key_idx").on(table.surface, table.screenKey),
+    index("guide_content_surface_idx").on(table.surface),
     // Layer-2 FTS fallback.
     index("guide_content_content_tsv_idx").using("gin", table.contentTsv),
     // Model-scoped filter parity (HNSW vector index lives in the migration —
@@ -2280,6 +2339,11 @@ export const activityLog = pgTable(
       .references(() => memexes.id, { onDelete: "cascade" }),
     briefId: uuid("brief_id").references(() => documents.id, { onDelete: "set null" }),
     actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+    // spec-122 dec-2/dec-3 (ac-12) — the denormalised display snapshot, so an
+    // activity_log row (the arm the view UNIONs for sourceless events: checkpoint
+    // beats + status_changed) carries the full contract {actor_user_id, actor_name,
+    // channel} and renders with no read-time join, surviving a later rename (ac-10).
+    actorName: text("actor_name"),
     actorKind: text("actor_kind").notNull(),
     channel: text("channel").notNull(),
     clientId: text("client_id"),
@@ -2304,6 +2368,76 @@ export const activityLog = pgTable(
     check(
       "activity_log_channel_valid",
       sql`${table.channel} IN ('rest_ui', 'mcp', 'in_app_agent', 'server')`
+    ),
+  ]
+);
+
+// ══════════════════════════════════════
+// Presence (spec-122 dec-4)
+// ══════════════════════════════════════
+//
+// The ephemeral "who's here now" plane — present-tense and decaying, NOT a
+// durable log. A row counts as "here" when last_seen_at is within the decay
+// window (~30s); the presence service prunes / ignores older rows. Distinct
+// from activity_log on purpose: activity is what CHANGED (durable), presence is
+// who is THERE (ephemeral). Writers upsert a single row per
+// (doc_id, actor_user_id, channel, client_id) and bump last_seen_at on each
+// beat — built writer-agnostic so the deferred checkpoint feed (spec-132, dec-9)
+// slots in additively alongside the passive-telemetry floor and the browser
+// heartbeat. Tenancy-scoped (memex_id) but written by heartbeats, so per std-8
+// it is silent-allowed: no UI subscriber cares about last_seen_at drift, the
+// Pulse "Working now" zone reads it directly.
+export const presence = pgTable(
+  "presence",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    memexId: uuid("memex_id")
+      .notNull()
+      .references(() => memexes.id, { onDelete: "cascade" }),
+    // The spec the actor is present IN (the "where"). FK to documents so a
+    // deleted spec drops its presence rows.
+    docId: uuid("doc_id")
+      .notNull()
+      .references(() => documents.id, { onDelete: "cascade" }),
+    // Presence always resolves to a known user: the browser heartbeat carries the
+    // authenticated session user, and the passive agent floor carries
+    // mcp_sessions.user_id (NOT NULL). ON DELETE CASCADE — presence is ephemeral,
+    // a deleted user simply stops being "here".
+    actorUserId: uuid("actor_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    // Denormalised display name (user.name ?? email), same posture as the
+    // activity contract: the "Working now" line renders with no read-time join.
+    actorName: text("actor_name"),
+    actorKind: text("actor_kind").notNull(),
+    channel: text("channel").notNull(),
+    // The per-client discriminator (MCP session id / browser session id). NOT
+    // NULL DEFAULT '' so the upsert conflict target never sees a NULL (which
+    // Postgres treats as distinct, defeating the upsert). Multiple sessions of
+    // the same user on the same spec are distinct presence rows.
+    clientId: text("client_id").notNull().default(""),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // One row per (doc, actor, channel, client) — the upsert conflict target.
+    unique("presence_doc_actor_channel_client_unique").on(
+      table.docId,
+      table.actorUserId,
+      table.channel,
+      table.clientId,
+    ),
+    // The "who's here in this spec, recently" read path: filter by doc, order by
+    // recency, drop rows past the decay window.
+    index("presence_doc_id_last_seen_at_idx").on(table.docId, table.lastSeenAt),
+    // The Memex-wide "Working now" sweep across all specs.
+    index("presence_memex_id_last_seen_at_idx").on(table.memexId, table.lastSeenAt),
+    check(
+      "presence_actor_kind_valid",
+      sql`${table.actorKind} IN ('human', 'mcp_agent', 'in_app_agent', 'system')`,
+    ),
+    check(
+      "presence_channel_valid",
+      sql`${table.channel} IN ('rest_ui', 'mcp', 'in_app_agent', 'server')`,
     ),
   ]
 );

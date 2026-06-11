@@ -1,6 +1,7 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { Link, NavLink, useLocation, useMatch } from 'react-router-dom';
 import { useAuth } from './AuthContext';
+import { Logo } from './Logo';
 import { useTheme } from './ThemeContext';
 import { useDriftInboxCount } from '../hooks/useDriftInboxCount';
 import { useMyIssuesCount } from '../hooks/useMyIssuesCount';
@@ -389,9 +390,9 @@ function DocPageHeader() {
       <div className="flex-1 min-w-0 flex items-center gap-8 px-6 py-3">
         <Link
           to={specsHref}
-          className="text-lg font-semibold tracking-tight text-heading hover:text-heading"
+          className="flex items-center text-heading hover:text-heading"
         >
-          memex<span className="text-[#7b93b8]">.ai</span>
+          <Logo className="h-5" />
         </Link>
         <Link
           to={specsHref}
@@ -510,9 +511,9 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="px-4 py-4">
           <Link
             to={resolveNavTo('/specs', location.pathname, session?.memberships)}
-            className="text-lg font-semibold tracking-tight text-heading hover:text-heading"
+            className="flex items-center text-heading hover:text-heading"
           >
-            memex<span className="text-[#7b93b8]">.ai</span>
+            <Logo className="h-5" />
           </Link>
         </div>
 

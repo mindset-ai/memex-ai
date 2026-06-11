@@ -716,6 +716,11 @@ export async function findStandardsAffectedByDecision(
       updatedAt: row.sectionUpdatedAt,
       status: row.sectionStatus,
       previousStatus: row.sectionPreviousStatus,
+      // spec-122 activity contract — not selected by the standards-drift match
+      // query (irrelevant to the affected-standards view), so null here.
+      actorUserId: null,
+      actorName: null,
+      channel: null,
     });
   }
   return Array.from(byDoc.values());

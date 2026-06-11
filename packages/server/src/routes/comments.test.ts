@@ -63,6 +63,9 @@ describe("GET /api/comments/doc/:docId", () => {
             previousStatus: null,
             createdAt: baseDate,
             updatedAt: baseDate,
+            actorUserId: null,
+            actorName: null,
+            channel: null,
           },
           comments: [
             {
@@ -88,6 +91,7 @@ describe("GET /api/comments/doc/:docId", () => {
               anchorSnippet: null,
               audience: "all" as const,
               actions: null,
+              channel: null,
               createdAt: baseDate,
             },
           ],
@@ -146,6 +150,7 @@ describe("GET /api/comments/section/:sectionId", () => {
         anchorSnippet: null,
         audience: "all" as const,
         actions: null,
+        channel: null,
         createdAt: baseDate,
       },
     ]);
@@ -186,6 +191,7 @@ describe("POST /api/comments/section/:sectionId", () => {
       anchorSnippet: null,
       audience: "all" as const,
       actions: null,
+      channel: null,
       createdAt: baseDate,
     }));
 
@@ -227,6 +233,7 @@ describe("POST /api/comments/section/:sectionId", () => {
       anchorSnippet: "the proxy emits llm_call events",
       audience: "all" as const,
       actions: null,
+      channel: null,
       createdAt: baseDate,
     }));
 
@@ -276,6 +283,7 @@ describe("POST /api/comments/section/:sectionId", () => {
       anchorSnippet: "Spec-by-Spec",
       audience: "all" as const,
       actions: null,
+      channel: null,
       createdAt: baseDate,
     }));
 
@@ -325,6 +333,7 @@ describe("POST /api/comments/:commentId/resolve", () => {
       anchorSnippet: null,
       audience: "all" as const,
       actions: null,
+      channel: null,
       createdAt: baseDate,
     }));
 
@@ -363,6 +372,7 @@ describe("POST /api/comments/:commentId/resolve", () => {
       anchorSnippet: null,
       audience: "all" as const,
       actions: null,
+      channel: null,
       createdAt: baseDate,
     }));
 
@@ -406,6 +416,7 @@ describe("POST /api/comments/:commentId/unresolve", () => {
       anchorSnippet: null,
       audience: "all" as const,
       actions: null,
+      channel: null,
       createdAt: baseDate,
     }));
 

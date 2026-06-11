@@ -113,6 +113,11 @@ import {
   deleteTask,
   getReadyTasks,
 } from "../services/tasks.js";
+import type { RequestCtx } from "../services/mutate.js";
+import { listActivityView } from "../services/activity-view.js";
+import { resolveTestEventActors } from "../services/who-resolver.js";
+import { stripUuids, containsUuid } from "../services/shared/identifiers.js";
+import { listPresent } from "../services/presence.js";
 import {
   createIssue,
   listIssuesForSpec,
@@ -184,20 +189,15 @@ import {
 import { resolveEmbeddingProvider } from "../services/embedding-provider.js";
 import {
   assessPhaseTransition,
-  computeReadinessForSpec,
   formatPhaseAssessment,
   isPhaseTarget,
-  wasRecentlyAssessed,
-  type PhaseTarget,
 } from "../services/phase-assessment.js";
 import {
-  blockerLines,
   toolManifest,
   BASE_SCAFFOLD,
   HANDOFF_BUTTON_BY_PHASE,
   toButtonPrompt,
   toHandoffEssence,
-  type SpecPhase,
   type Phase,
   type GuidanceBlock,
 } from "@memex/shared";
@@ -238,6 +238,41 @@ export interface ResolvedRef {
   doc: import("../db/schema.js").Doc;
   /** Namespace + memex slugs, ready to feed into `buildDocRef` / `buildChildRef`. */
   slugs: { namespace: string; memex: string };
+}
+
+/**
+ * spec-219 Phase 2 (sole-author): the structured signal a handler parks in
+ * `ctx.footerSlot` to tell `composeGuidanceEnvelope` WHAT just happened. The
+ * handler passes DATA only; `composeGuidanceEnvelope` (via `renderFooterSignal`)
+ * owns every WORD. New event shapes get a new variant here — never prose in a
+ * handler.
+ */
+export type FooterSignal =
+  | {
+      kind: "decision_resolved";
+      decRef: string;
+      linkedAcs: SketchAc[];
+      issueHits: Awaited<ReturnType<typeof relatedIssuesForDecision>>;
+    }
+  | { kind: "task_completed"; allComplete: boolean; remaining: number }
+  | { kind: "doc_transition"; beforeStatus: string; target: string; docType: string }
+  | { kind: "doc_created"; docRef: string; docType: string }
+  | { kind: "decision_created"; issueHits: Awaited<ReturnType<typeof relatedIssuesForDecision>> }
+  | {
+      kind: "ac_created";
+      acKind: AcKind;
+      sameKindCount: number;
+      // implementation-kind only: the build-gate picture, so the footer can push
+      // toward build the moment every resolved decision is covered (and name the
+      // remaining gaps until then). open/uncovered are dec-N handles.
+      coverage?: { phase: string; resolvedCount: number; uncovered: string[]; open: string[] };
+    };
+
+/** The single channel from a handler to `composeGuidanceEnvelope`: a structured
+ *  `signal` carrying the DATA of what just happened. composeGuidanceEnvelope
+ *  (renderFooterSignal) owns the words. A handler never puts prose here. */
+export interface FooterSlot {
+  signal?: FooterSignal;
 }
 
 export interface ToolCtx {
@@ -351,7 +386,31 @@ export interface ToolCtx {
    * test ctxes that bypass the choke — there the nugget is simply not delivered,
    * exactly as any footer needs the choke to attach it.
    */
-  footerSlot?: { content?: string };
+  footerSlot?: FooterSlot;
+  /**
+   * spec-219 Phase 2: a creating tool (e.g. `create_doc`) records the doc it
+   * just made so the choke point runs `composeGuidanceEnvelope` for it — the
+   * tool resolved no ref, so the normal `resolveRef` target capture never fired.
+   * The choke sets this; handlers call it.
+   */
+  recordCreatedDoc?: (memexId: string, docId: string) => void;
+}
+
+/**
+ * spec-122 dec-5 — turn a ToolCtx into the RequestCtx the source-table services
+ * thread into mutate() and stamp onto the activity contract columns. Carries WHO
+ * (actorUserId; actorName when the surface knows it — the in-app agent does, the
+ * MCP surface leaves it for the service to resolve) and HOW (channel defaults to
+ * 'mcp' for the same reason the dispatch layer does — a hand-rolled test ctx
+ * without a channel is the MCP server) plus the per-client session id.
+ */
+function reqCtx(ctx: ToolCtx): RequestCtx {
+  return {
+    actorUserId: ctx.userId,
+    ...(ctx.userName !== undefined ? { actorName: ctx.userName } : {}),
+    channel: ctx.channel ?? "mcp",
+    ...(ctx.sessionId !== undefined ? { clientId: ctx.sessionId } : {}),
+  };
 }
 
 /**
@@ -454,7 +513,7 @@ const COMMENT_TYPE_DESC =
 const TASK_STATUS = ["not_started", "in_progress", "complete"] as const;
 
 export const COMPLETION_NUDGE =
-  "Before moving on, leave a `progress` comment using the standard handoff schema (What landed / Contract / Surprises / For downstream).";
+  "Leave a `progress` comment for whoever picks this up next: what landed, the contract it honours, any surprises, and what is left for downstream.";
 
 // ══════════════════════════════════════
 // Helpers
@@ -673,6 +732,138 @@ function composeToolSteer(toolName: string | undefined, phase: Phase): string | 
   return STEER_BY_TOOL[toolName]?.(phase);
 }
 
+/**
+ * spec-219 Phase 2 (sole-author): `composeGuidanceEnvelope` is the ONLY place
+ * footer prose is authored. Handlers park a structured `FooterSignal` (data);
+ * this turns it into words. Keep-and-relocate: the copy below is the handlers'
+ * former copy verbatim — only its AUTHOR and PLACEMENT (now the footer) change.
+ */
+async function renderFooterSignal(
+  signal: FooterSignal,
+  memexId: string,
+  docId: string,
+): Promise<string | undefined> {
+  switch (signal.kind) {
+    case "decision_resolved": {
+      const sketchBlock = buildSketchBlock(signal.linkedAcs);
+      const acNudge =
+        sketchBlock.length > 0
+          ? sketchBlock
+          : `Next: create the implementation acceptance criteria this decision will be verified by, ` +
+            `usually several, one for each distinct behavioural claim the resolution makes:\n` +
+            `  create_ac({ ref: '<this-spec>', kind: 'implementation', parent_decision_ref: '${signal.decRef}', statement: '...' })\n` +
+            `See get_information(topic='decisions-need-acs') for the discipline. ` +
+            `Until this decision has them, the spec can't move into build.`;
+      const issuesNudge = relatedIssuesNudge(signal.issueHits);
+      const out = [acNudge, issuesNudge]
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0)
+        .join("\n\n");
+      return out.length > 0 ? out : undefined;
+    }
+    case "task_completed": {
+      if (signal.allComplete) {
+        return (
+          `${COMPLETION_NUDGE}\n\n` +
+          `That was the last task. Once the tests are green, move the spec to verify with update_doc({status:'verify'}).`
+        );
+      }
+      const r = signal.remaining;
+      return `${COMPLETION_NUDGE}\n\n${r} task${r === 1 ? "" : "s"} still open in build; keep going.`;
+    }
+    case "doc_transition": {
+      // spec-219 comb-through: the transition footer's job is to ORIENT the agent
+      // to the phase it just entered, not to nag (too late) about the one it left.
+      // Deliver the target phase's essence; `done` is terminal and carries none.
+      void docId;
+      const target = signal.target as Phase;
+      const essence = toHandoffEssence(BASE_SCAFFOLD, target);
+      if (essence) return essence;
+      if (target === "done") {
+        return (
+          `This spec is now done: closed and read-only for normal work. ` +
+          `Reopen it (update_doc) only if something genuinely needs to change.`
+        );
+      }
+      return undefined;
+    }
+    case "doc_created": {
+      if (signal.docType === "spec") {
+        return (
+          `You have just taken the first step to advance this work along the Memex path. ` +
+          `Why Memex and not loose markdown files: a markdown spec rots silently; Memex binds every promise to a test, so the spec stays honest about whether the code still delivers it. ` +
+          `It also makes you faster: human and AI work from one shared source of truth, so you always have the context and the next move in hand, and the rails catch drift before it turns into rework. You move quickly, and the work still lands right the first time. ` +
+          `If the human asks why Memex, get_information(topic='why-memex') is the full case.\n\n` +
+          `This spec moves through five stages, one at a time, advancing only when each is genuinely complete: ` +
+          `draft (set out what "done" means) → specify (settle the decisions and give each its implementation acceptance criterion) → ` +
+          `build (create and complete tasks until every acceptance criterion is backed by a passing test) → ` +
+          `verify (confirm it against the running system, harnesses green, before the PR) → done (a human signs off).\n\n` +
+          `You are in the first stage, draft. Here you create this spec's scope-type acceptance criteria: the plain-English statements of what "done" looks like for this spec. Call create_ac for each:\n` +
+          `  create_ac({ ref: "${signal.docRef}", kind: "scope", statement: "..." })\n` +
+          `Best practice is as many as genuinely capture what "done" means, usually three to six. The decisions, tasks, and tests belong to the later stages; do not jump ahead. get_information(topic='phases') has the full detail.`
+        );
+      }
+      if (signal.docType === "standard") {
+        return (
+          `This standard is born with no body section — standards are authored as clauses, not prose. BEFORE adding content, read get_information(topic='authoring-standards') for what makes a good standard and a good clause, plus the full add_section(clauses) / add_clause / edit_clause / delete_clause flow. Then author the first section via:\n` +
+          `  add_section({ ref: "${signal.docRef}", sectionType: "rule", clauses: ["<one aspect>", "<one aspect>"] })`
+        );
+      }
+      return undefined;
+    }
+    case "decision_created": {
+      const cta =
+        `That's an open decision: a fork the work hinges on, now waiting to be settled. ` +
+        `Resolve it with resolve_decision once you have grounded the choice in the current source ` +
+        `and any prior resolutions or standards (search_memex, kind 'decision' or 'standard'). ` +
+        `If it is a load-bearing call only the user should make, leave it open and put the choice ` +
+        `to them rather than deciding for them.`;
+      const issues = relatedIssuesNudge(signal.issueHits).trim();
+      return [cta, issues].filter((s) => s.length > 0).join("\n\n");
+    }
+    case "ac_created": {
+      if (signal.acKind === "implementation") {
+        const cov = signal.coverage;
+        if (!cov || cov.phase === "build") {
+          return `Implementation acceptance criterion created; it earns a tagged, passing test here in build.`;
+        }
+        const covered = cov.resolvedCount - cov.uncovered.length;
+        const gaps = [
+          ...cov.open.map((h) => `${h} (still open)`),
+          ...cov.uncovered.map((h) => `${h} (no implementation ACs yet)`),
+        ];
+        if (gaps.length > 0) {
+          return (
+            `Implementation acceptance criterion created. Decision coverage: ${covered} of ${cov.resolvedCount} ` +
+            `resolved decisions now have implementation ACs. Still to close before build: ${gaps.join(", ")}. ` +
+            `Stay in specify and fill those; don't start writing code yet.`
+          );
+        }
+        return (
+          `That closes the last gap: all ${cov.resolvedCount} resolved decisions now have implementation ACs and ` +
+          `nothing is open. This is the moment to move to build, before you write any code, so the spec's phase ` +
+          `matches what you are about to do. Run assess_spec({mode:'phase', target:'build'}); unless it flags ` +
+          `something, advance now with update_doc({status:'build'}).`
+        );
+      }
+      const n = signal.sameKindCount;
+      const noun = n === 1 ? "scope acceptance criterion" : "scope acceptance criteria";
+      if (n < 6) {
+        return (
+          `That makes ${n} ${noun} so far. Write one for each distinct part of what "done" means ` +
+          `for this spec, to fit the spec rather than to reach a number; there is usually more to ` +
+          `"done" than a first pass catches. Keep going while it has more to capture.`
+        );
+      }
+      return (
+        `That makes ${n} ${noun}, a full set that likely captures what "done" means. If it does, ` +
+        `check with the user that the success criteria are complete, then move on to the decisions ` +
+        `the work hinges on (create_decision). If "done" still has more to it, keep going.`
+      );
+    }
+  }
+}
+
 export async function composeGuidanceEnvelope(
   memexId: string,
   docId: string,
@@ -684,8 +875,17 @@ export async function composeGuidanceEnvelope(
   // guidance, matching the order it had on the body side — so the choke point
   // lands it past the delimiter and the telemetry split persists it (ac-9). The
   // handler kept its own DB read; the seat only composes (ac-8).
-  const slotRaw = ctx.footerSlot?.content;
-  const slot = slotRaw && slotRaw.trim().length > 0 ? slotRaw : undefined;
+  // spec-219 Phase 2 (sole-author): a handler hands us a structured signal (the
+  // DATA of what just happened); composeGuidanceEnvelope owns the words, via
+  // renderFooterSignal. No handler authors footer text.
+  let slot: string | undefined;
+  try {
+    slot = ctx.footerSlot?.signal
+      ? await renderFooterSignal(ctx.footerSlot.signal, memexId, docId)
+      : undefined;
+  } catch {
+    slot = undefined;
+  }
   const compose = (
     header: string | undefined,
     footer: string | undefined,
@@ -766,7 +966,14 @@ export async function composeGuidanceEnvelope(
         ctx.toolName === "get_doc"
           ? (await formatCoverageHeader(memexId, docId, state.doc.docType)) || undefined
           : undefined;
-      return compose(header, withSteer(footer ?? undefined));
+      // spec-122 dec-7 — the ACTIVITY/collision block rides this same footer seat
+      // (ac-23: no new MCP tool). Scoped to the get_doc ORIENT call agents make
+      // before picking up a task (dec-7), so a mutation's output contract is
+      // untouched. Appended to the guidance body so it flows through the one seat.
+      const activity =
+        ctx.toolName === "get_doc" ? await craftActivityBlock(memexId, docId, ctx.userId) : null;
+      const body = activity ? `${footer ?? ""}${footer ? "\n\n" : ""}${activity}` : footer;
+      return compose(header, withSteer(body ?? undefined));
     }
 
     // TERSE build-loop calls — author a LEAN, situational footer here. This is
@@ -775,15 +982,143 @@ export async function composeGuidanceEnvelope(
     // plus, in build, the AC nag — the highest-value methodology steer. The body
     // is DELIMITER-LESS (spec-219 ac-7): the choke point frames it.
     const lines: string[] = [];
-    const essence = toHandoffEssence(BASE_SCAFFOLD, phase);
-    if (essence) lines.push(essence);
+    // spec-219 Phase 2b (comb-through): a surgical per-(tool, transition) steer —
+    // a slot signal or a STEER_BY_TOOL entry — REPLACES the generic phase essence.
+    // The agent gets told its NEXT MOVE, not re-lectured on the whole phase on
+    // every call. The essence remains as the FALLBACK only when this (tool, phase)
+    // has no surgical steer of its own.
+    const hasSurgicalSteer = Boolean(slot) || Boolean(toolSteer);
+    if (!hasSurgicalSteer) {
+      const essence = toHandoffEssence(BASE_SCAFFOLD, phase);
+      if (essence) lines.push(essence);
+    }
     if (phase === "build") {
       const nag = await craftUntestedAcNag(memexId, docId);
       if (nag) lines.push(nag);
     }
+    // spec-122 dec-7 — the ACTIVITY/collision block (ac-23/ac-24), scoped to the
+    // get_doc orient call so mutation tools' terse footers are unchanged.
+    const activity =
+      ctx.toolName === "get_doc" ? await craftActivityBlock(memexId, docId, ctx.userId) : null;
+    if (activity) lines.push(activity);
     return compose(undefined, withSteer(lines.length > 0 ? lines.join("\n") : undefined));
   } catch {
     return compose(undefined, undefined);
+  }
+}
+
+// spec-122 dec-7 (ac-23 / ac-24) — compose the get_doc ACTIVITY/presence block:
+// the most recent MATERIAL change + who, who is live in the spec right now, and
+// an ADVISORY collision line when another session is materially advancing the
+// spec (an AC delta, a phase move, or task churn by a DIFFERENT actor recently).
+// Advisory only — never blocks, never aborts; best-effort, never throws.
+const ACTIVITY_RECENT_LIMIT = 8;
+const MATERIAL_WINDOW_MS = 10 * 60 * 1000; // "recently" for the collision predicate
+// Kinds whose appearance is MATERIAL advancement (vs. a comment / read). A phase
+// move shows up as an activity_log status_changed row (kind 'activity_log').
+const MATERIAL_KINDS: ReadonlySet<string> = new Set([
+  "ac",
+  "task",
+  "decision",
+  "activity_log",
+  "test_event",
+]);
+
+// The b-36 hard cut — canonical refs in, NO raw UUIDs out — is a live smoke
+// invariant (authed.smoke.test.ts). The ACTIVITY footer is composed from
+// activity_view, whose activity_log arm replays IMMUTABLE historical narratives:
+// a row written before the spec-122 narrative fix can still read "created
+// doc_member <uuid>", which a forward-only narrative fix can't rewrite. So the
+// footer guards itself via the shared stripUuids (below) and never lets a
+// UUID-bearing actor name through. Belt-and-suspenders for the invariant.
+//
+// A resolved actor name that contains a raw UUID (an unattributed actor_raw,
+// say) is not a name — drop it so the caller falls back to "someone".
+function sanitizeActorName(name: string | null): string | null {
+  if (!name) return null;
+  return containsUuid(name) ? null : name;
+}
+
+function agoLabel(at: Date, now: number): string {
+  const ms = Math.max(0, now - at.getTime());
+  const mins = Math.round(ms / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.round(hrs / 24)}d ago`;
+}
+
+export async function craftActivityBlock(
+  memexId: string,
+  docId: string,
+  currentUserId: string,
+): Promise<string | null> {
+  try {
+    const [rows, present] = await Promise.all([
+      listActivityView(memexId, { specRef: docId, limit: ACTIVITY_RECENT_LIMIT }),
+      listPresent(memexId, docId),
+    ]);
+    const now = Date.now();
+    const lines: string[] = [];
+
+    // spec-122 ac-25/26 — resolve each row's free-form test_events actor
+    // (actor_raw) to a display WHO + unifying user_id. Batched (one query) over
+    // the page; non-test arms already carry a write-time actor_name and skip the
+    // resolver. A match renders the user's display name and carries their user_id
+    // (ac-25); a miss renders the raw string verbatim, never collapsed (ac-26).
+    const whoByRaw = await resolveTestEventActors(rows.map((r) => r.actorRaw));
+    const whoOf = (
+      r: (typeof rows)[number],
+    ): { name: string | null; userId: string | null } => {
+      if (r.actorName) return { name: r.actorName, userId: r.actorUserId };
+      const w = r.actorRaw ? whoByRaw.get(r.actorRaw.trim()) : undefined;
+      return { name: w?.display ?? r.actorRaw ?? null, userId: w?.userId ?? r.actorUserId };
+    };
+
+    // Most recent material change + who.
+    const recent = rows.find((r) => MATERIAL_KINDS.has(r.kind));
+    if (recent) {
+      const who = sanitizeActorName(whoOf(recent).name) ?? "someone";
+      const what = recent.narrative ?? `${recent.action ?? "changed"} ${recent.kind}`;
+      lines.push(`recent: ${what} — ${who} ${agoLabel(recent.at, now)}`);
+    }
+
+    // Live presence, excluding the caller.
+    const others = present.filter((p) => p.actorUserId !== currentUserId);
+    if (others.length > 0) {
+      const names = [
+        ...new Set(others.map((p) => sanitizeActorName(p.actorName) ?? "someone")),
+      ].join(", ");
+      lines.push(`present now: ${names}`);
+    }
+
+    // The advisory collision line: a DIFFERENT actor materially advancing recently.
+    // A test_events flip carries no actor_user_id on the row, so resolve WHO first
+    // (ac-25): that both names the actor and lets a CI identity resolving to the
+    // CALLER be correctly excluded rather than mislabelled as "another session".
+    const advancing = rows.find((r) => {
+      if (!MATERIAL_KINDS.has(r.kind)) return false;
+      if (now - r.at.getTime() > MATERIAL_WINDOW_MS) return false;
+      const { userId } = whoOf(r);
+      return userId !== null && userId !== currentUserId;
+    });
+    if (advancing) {
+      const who = sanitizeActorName(whoOf(advancing).name) ?? "another session";
+      lines.push(
+        `⚠ ${who} is actively advancing this spec right now — coordinate before you pick it up. ` +
+          `(Advisory only; proceed if you mean to.)`,
+      );
+    }
+
+    if (lines.length === 0) return null;
+    // Final guarantee for the b-36 invariant: a historical activity_log narrative
+    // replayed here can still carry a raw UUID ("created doc_member <uuid>") that
+    // the per-field guards above don't own — strip any surviving UUID token from
+    // the composed block so get_doc never emits one (the authed smoke's hard cut).
+    return stripUuids(["── ACTIVITY ──", ...lines].join("\n"));
+  } catch {
+    return null;
   }
 }
 
@@ -842,108 +1177,6 @@ function handoffInterpolationContext(
     // only fires for specs, so the path segment is fixed.
     url: `${workspaceUrl}/specs/${doc.handle}`,
   };
-}
-
-// Per doc-12 t-6 / t-7 — soft guidance nudge appended to forward Spec
-// transitions when the agent hasn't recently called assess_spec. Identical
-// behaviour on both surfaces; the difference is purely the wrapping response.
-async function nudgeForTransition(
-  memexId: string,
-  missionId: string,
-  beforeStatus: string,
-  targetStatus: string,
-  docType: string,
-): Promise<string> {
-  if (docType !== "spec") return "";
-  if (beforeStatus === targetStatus) return "";
-  const transition = `${beforeStatus}→${targetStatus}`;
-  const isForwardWithRubric =
-    transition === "specify→build" ||
-    transition === "build→verify" ||
-    transition === "verify→done";
-  if (!isForwardWithRubric) return "";
-  if (!isPhaseTarget(targetStatus)) return "";
-  if (wasRecentlyAssessed(missionId, targetStatus as PhaseTarget)) return "";
-
-  const header =
-    transition === "verify→done"
-      ? "\n\n⚠ You just closed a Spec without running the verify→done readiness review. Strongly recommend confirming with the user that this was intentional."
-      : "\n\nℹ Tip: run assess_spec({mode:'phase'}) before transitioning forward — it surfaces open decisions, incomplete work, and drift you might miss.";
-
-  let blockerSection = "";
-  try {
-    const readiness = await computeReadinessForSpec(
-      memexId,
-      missionId,
-      targetStatus as SpecPhase,
-    );
-    const lines = blockerLines(readiness);
-    if (lines.length > 0) {
-      blockerSection = `\n\nOutstanding work:\n${lines.map((l) => `- ${l}`).join("\n")}`;
-    }
-  } catch {
-    // Best-effort.
-  }
-
-  // Coverage-gap nudge on specify→build and build→verify. Build is where tagged
-  // tests get written; verify is where you should not arrive with untested
-  // ACs. Channel 2 of the test-coverage-discipline trio (the others live on
-  // list_acs and in the test-coverage guidance topic).
-  const coverageSection = await formatCoverageNudge(memexId, missionId, transition);
-  return `${header}${blockerSection}${coverageSection}`;
-}
-
-/**
- * Build a coverage-status nudge for the phase transition. Returns "" when
- * the Spec has no ACs (no signal to report) or the transition isn't one
- * where coverage discipline applies.
- *
- * The shape:
- *   "AC coverage: X% (covered/total active ACs have ≥1 tagged test; N untested).
- *    [transition-specific advice]"
- *
- * Phase-specific framing:
- *   - specify→build: coverage is usually 0% here; the message frames build as
- *     the phase where tagged tests get written.
- *   - build→verify: untested ACs are the audit-trail gap; the message names
- *     them as silent gaps and points at the test-coverage topic.
- */
-async function formatCoverageNudge(
-  memexId: string,
-  briefId: string,
-  transition: string,
-): Promise<string> {
-  if (transition !== "specify→build" && transition !== "build→verify") return "";
-  try {
-    const rows = await listAcsForBriefWithVerification(memexId, briefId);
-    const active = rows.filter((r) => r.ac.status === "active");
-    if (active.length === 0) return "";
-    const covered = active.filter((r) => r.tests.length > 0).length;
-    const total = active.length;
-    const untested = total - covered;
-    const pct = total === 0 ? 0 : Math.round((covered / total) * 100);
-
-    let head = `\n\nAC coverage: ${pct}% (${covered}/${total} active ACs have ≥1 tagged test`;
-    if (untested > 0) head += `; ${untested} untested`;
-    head += "). ";
-
-    let advice = "";
-    if (transition === "specify→build") {
-      advice =
-        "Build is where tagged tests get written — every active AC should have at least one tagged test before verify, not just the ones you happen to implement this turn. See get_information(topic='test-coverage').";
-    } else if (transition === "build→verify") {
-      if (untested > 0) {
-        advice =
-          `${untested} active AC${untested === 1 ? " is" : "s are"} still untested — silent gaps in the verification story. ` +
-          "Consider writing RED tagged tests for them before declaring verify-ready, even if the production code is intended to land in a later task. See get_information(topic='test-coverage').";
-      } else {
-        advice = "All active ACs have at least one tagged test. ";
-      }
-    }
-    return `${head}${advice}`;
-  } catch {
-    return "";
-  }
 }
 
 /**
@@ -1383,7 +1616,7 @@ export const toolSpecs: ToolSpec[] = [
     annotations: { title: "Create document", readOnlyHint: false, destructiveHint: false },
     description:
       "Create a new Spec. Pass `purpose` for the Overview narrative. Optional `decisions` seeds open decisions on creation. Optional `promoteFromTaskRef` (a canonical task ref) creates a child Spec whose parent is the task's source Spec, preserving lineage. Optional `promoteFromIssueRef` (a canonical issue ref) does the same from an Issue — the child Spec is parented to the Issue's source Spec, the Issue → converted, and it auto-resolves when the child Spec reaches done. Optional `docType` defaults to 'spec'; pass any other docType the service layer recognises ('standard', 'document', 'execution_plan'). **Run `search_memex({ query })` first** to discover whether an existing Spec, Standard, or prior Decision already covers this — surface any overlap in the confirmation before creating. " +
-      "**After creating a Spec in draft / specify, your next move is to author Scope ACs** via `create_ac({ ref: '<this-spec>', kind: 'scope', statement: '...' })`. Scope ACs are plain-English outcome commitments — they define what success looks like and anchor every downstream Decision. Walk the user through 3–5 of them before resolving any Decisions; without them the Spec has no measurable success criteria.",
+      "**After creating a spec in draft/specify, your next move is to create its scope acceptance criteria** via `create_ac({ ref: '<this-spec>', kind: 'scope', statement: '...' })`: plain-English statements of what 'done' looks like, which anchor every downstream decision. Create as many as genuinely capture success, usually three to six; without them the spec has no measurable success criteria.",
     schema: {
       memex: z
         .string()
@@ -1453,6 +1686,7 @@ export const toolSpecs: ToolSpec[] = [
           args.title,
           args.purpose,
           ctx.userId,
+          reqCtx(ctx),
         );
         // Issue → converted, record promoted_doc_id so the child-done hook resolves
         // it later (ac-24). NOT resolved now — only when the child Spec reaches done.
@@ -1479,6 +1713,7 @@ export const toolSpecs: ToolSpec[] = [
           args.title,
           args.purpose,
           ctx.userId,
+          reqCtx(ctx),
         );
         if (ctx.verbose) {
           const url = await ctx.workspaceUrl(resolved.memexId);
@@ -1503,6 +1738,7 @@ export const toolSpecs: ToolSpec[] = [
         args.decisions,
         undefined,
         ctx.userId,
+        reqCtx(ctx),
       );
       if (ctx.verbose) {
         const state = await fullDocState(memexId, doc.id);
@@ -1511,20 +1747,16 @@ export const toolSpecs: ToolSpec[] = [
       }
       const slugs = await memexSlugsById(memexId);
       const docRef = slugs ? buildDocRef(slugs, doc) : doc.handle;
-      // The next-step nudge after create_doc — activation-moment guidance,
-      // delivered while the agent is reading the response and deciding what
-      // to do next. Specs in draft/specify should be authored with their
-      // Scope ACs together; the agent forgetting this is a real, observed
-      // failure mode. Skipped for non-spec docTypes (standards, etc.)
-      // where Scope ACs don't apply.
-      const isSpec = docType === "spec";
-      const isStandard = docType === "standard";
-      const nudge = isSpec
-        ? `\n\nNext: author Scope ACs for this Spec. Scope ACs are plain-English outcome commitments that define what success looks like — they ground every downstream Decision. Walk the user through 3–5 of them now via:\n  create_ac({ ref: "${docRef}", kind: "scope", statement: "..." })\nDon't skip this in draft/specify. See get_information(topic='phases') for the full phase mechanics.`
-        : isStandard
-          ? `\n\nThis standard is born with no body section — standards are authored as clauses, not prose. BEFORE adding content, read get_information(topic='authoring-standards') for what makes a good standard and a good clause, plus the full add_section(clauses) / add_clause / edit_clause / delete_clause flow. Then author the first section via:\n  add_section({ ref: "${docRef}", sectionType: "rule", clauses: ["<one aspect>", "<one aspect>"] })`
-          : "";
-      return `Spec created: ref: ${docRef} "${doc.title}".${nudge}`;
+      // spec-219 Phase 2 (sole-author): create_doc resolves no ref, so the choke
+      // never set a target. Record the just-created doc so composeGuidanceEnvelope
+      // runs for it (like every other Spec-resolving tool), and signal the event
+      // — the activation-moment scope-AC / standard-clauses guidance is authored
+      // by composeGuidanceEnvelope, not here.
+      ctx.recordCreatedDoc?.(memexId, doc.id);
+      if (ctx.footerSlot) {
+        ctx.footerSlot.signal = { kind: "doc_created", docRef, docType };
+      }
+      return `Spec created: ref: ${docRef} "${doc.title}".`;
     },
   },
   {
@@ -1582,10 +1814,22 @@ export const toolSpecs: ToolSpec[] = [
       }
       const { memexId, doc: before, slugs } = resolved;
 
-      let nudge = "";
       if (status !== undefined) {
-        await updateDocStatus(memexId, before.id, status);
-        nudge = await nudgeForTransition(memexId, before.id, before.status, status, before.docType);
+        // spec-122 dec-2/dec-5: thread the activity contract (WHO + HOW) onto the
+        // status transition so Pulse attributes the phase move to the human +
+        // surface.
+        await updateDocStatus(memexId, before.id, status, { ctx: reqCtx(ctx) });
+        // spec-219 Phase 2 (sole-author): the transition guidance (assess_spec
+        // tip + coverage nudge) is owned by composeGuidanceEnvelope; signal the
+        // transition, don't author it here.
+        if (ctx.footerSlot) {
+          ctx.footerSlot.signal = {
+            kind: "doc_transition",
+            beforeStatus: before.status,
+            target: status,
+            docType: before.docType,
+          };
+        }
       }
       if (title !== undefined) {
         await updateDocTitle(memexId, before.id, title);
@@ -1625,12 +1869,11 @@ export const toolSpecs: ToolSpec[] = [
       if (ctx.verbose) {
         const state = await fullDocState(memexId, before.id);
         const url = await ctx.workspaceUrl(memexId);
-        // spec-219 dec-3 (t-3): park the tag summary + transition nudge in the
-        // footer slot; the single seat folds them into the footer (after the
-        // delimiter, so they persist to footer_text — they never did while they
-        // rode the body). The handler keeps its own reads.
-        if (ctx.footerSlot) ctx.footerSlot.content = `${tagSuffix}${nudge}`;
-        return await formatState(url, state, ctx);
+        // spec-219 Phase 2 (sole-author): the transition guidance is signalled
+        // above; composeGuidanceEnvelope authors it. `tagSuffix` is a FACT
+        // (result-reporting), so it rides the body, not the footer.
+        const body = await formatState(url, state, ctx);
+        return tagSuffix ? `${body}\n${tagSuffix.trim()}` : body;
       }
       const fresh = await getDoc(memexId, before.id);
       // Per dec-1: on a status change include the deterministic phase header so
@@ -1641,7 +1884,7 @@ export const toolSpecs: ToolSpec[] = [
           : null;
       const phaseSuffix = phaseLine ? ` ${phaseLine}` : "";
       const freshRef = buildDocRef(slugs, fresh);
-      return `ref: ${freshRef} updated.${tagSuffix}${phaseSuffix}${nudge}`;
+      return `ref: ${freshRef} updated.${tagSuffix}${phaseSuffix}`;
     },
   },
 
@@ -1705,7 +1948,7 @@ export const toolSpecs: ToolSpec[] = [
       if (mode === "clauses") {
         // Born clause-first: create the (empty) section, then author its clauses; the
         // service regenerates content = clauses joined.
-        const sectionMut = await addSection(memexId, doc.id, sectionType, "", title, description);
+        const sectionMut = await addSection(memexId, doc.id, sectionType, "", title, description, reqCtx(ctx));
         const clauseMut = await addClausesToSection(memexId, sectionMut.id, clauses!);
         if (ctx.verbose) {
           const state = await fullDocState(memexId, doc.id);
@@ -1717,7 +1960,7 @@ export const toolSpecs: ToolSpec[] = [
         return `Added "${sectionMut.title ?? sectionType}" section (ref: ${sectionRef}) with ${clauseMut.length} clause(s): ${clauseRefs}.`;
       }
 
-      const section = await addSection(memexId, doc.id, sectionType, content!, title, description);
+      const section = await addSection(memexId, doc.id, sectionType, content!, title, description, reqCtx(ctx));
       if (ctx.verbose) {
         const state = await fullDocState(memexId, doc.id);
         const url = await ctx.workspaceUrl(memexId);
@@ -1767,7 +2010,7 @@ export const toolSpecs: ToolSpec[] = [
           "Standards are edited at the clause grain. Use add_clause / edit_clause / delete_clause, not update_section.",
         );
       }
-      const section = await updateSection(memexId, entity.row.id, content, { sectionType, description });
+      const section = await updateSection(memexId, entity.row.id, content, { sectionType, description }, reqCtx(ctx));
       if (ctx.verbose) {
         const state = await fullDocState(memexId, section.docId);
         const url = await ctx.workspaceUrl(memexId);
@@ -2030,7 +2273,7 @@ export const toolSpecs: ToolSpec[] = [
         return `Candidate decision proposed: ref: ${decRef} "${decision.title}" (${optCount} options).`;
       }
 
-      const decision = await createDecision(memexId, doc.id, title, context);
+      const decision = await createDecision(memexId, doc.id, title, context, "human", reqCtx(ctx));
       if (ctx.verbose) {
         const state = await fullDocState(memexId, doc.id);
         const url = await ctx.workspaceUrl(memexId);
@@ -2047,8 +2290,12 @@ export const toolSpecs: ToolSpec[] = [
         `${decision.title}\n\n${context ?? ""}`,
         resolveEmbeddingProvider(),
       );
-      const issuesNudge = relatedIssuesNudge(issueHits);
-      return `Decision created: ref: ${decRef} "${decision.title}"${issuesNudge}`;
+      // spec-219 Phase 2 (sole-author): hand the data to composeGuidanceEnvelope;
+      // it authors the related-issues nudge. No guidance crafted here.
+      if (ctx.footerSlot) {
+        ctx.footerSlot.signal = { kind: "decision_created", issueHits };
+      }
+      return `Decision created: ref: ${decRef} "${decision.title}"`;
     },
   },
   {
@@ -2253,7 +2500,7 @@ export const toolSpecs: ToolSpec[] = [
         );
       }
       const { memexId, doc, slugs, entity } = resolved;
-      const decision = await resolveDecision(memexId, entity.row.id, resolution, chosenOptionIndex);
+      const decision = await resolveDecision(memexId, entity.row.id, resolution, chosenOptionIndex, reqCtx(ctx));
       if (ctx.verbose) {
         const state = await fullDocState(memexId, decision.docId);
         const url = await ctx.workspaceUrl(memexId);
@@ -2284,10 +2531,15 @@ export const toolSpecs: ToolSpec[] = [
       // Reuses the same ac_parent_links traversal decisionAcCoverage walks
       // (dec-6); a decision with zero linked implementation ACs yields no block
       // (ac-19) and we fall back to the generic author-your-ACs nudge.
-      let sketchBlock = "";
+      // Gather the DATA for the post-resolve guidance (linked implementation
+      // ACs → test-shape sketch; semantically-related Issues). These are reads,
+      // not prose. spec-219 Phase 2: we hand the data to composeGuidanceEnvelope
+      // and it authors the impl-AC push + related-issues nudge. No guidance is
+      // crafted in this handler.
+      let linkedAcs: SketchAc[] = [];
       try {
         const acRows = await listAcsForBriefWithVerification(memexId, decision.docId);
-        const linked: SketchAc[] = acRows
+        linkedAcs = acRows
           .filter(
             (r) =>
               r.ac.kind === "implementation" &&
@@ -2298,29 +2550,22 @@ export const toolSpecs: ToolSpec[] = [
             statement: r.ac.statement,
             canonicalRef: r.canonicalRef,
           }));
-        sketchBlock = buildSketchBlock(linked);
       } catch {
-        sketchBlock = "";
+        linkedAcs = [];
       }
-      const acNudge =
-        sketchBlock.length > 0
-          ? sketchBlock
-          : `\n\nNext: author the implementation AC(s) this decision will be verified by — ` +
-            `\`create_ac({ ref: '<this-spec>', kind: 'implementation', parent_decision_ref: '${decRef}', statement: '...' })\`. ` +
-            `One decision typically spawns 2-5 implementation ACs (one per distinct behavioural claim). ` +
-            `See \`get_information(topic='decisions-need-acs')\` for the full discipline. ` +
-            `Without these, build-readiness will refuse the specify→build move.`;
       // spec-112 (ac-4 / ac-15): auto-surface related Issues whose semantic
       // overlap with the decision clears the relevance threshold. Reuses the
       // same searchMemex(kind:'issue') machinery; informational only, never
-      // blocks. Below threshold this appends nothing.
+      // blocks. Below threshold composeGuidanceEnvelope appends nothing.
       const issueHits = await relatedIssuesForDecision(
         memexId,
         `${decision.title}\n\n${decision.resolution ?? ""}`,
         resolveEmbeddingProvider(),
       );
-      const issuesNudge = relatedIssuesNudge(issueHits);
-      return `Decision resolved: ref: ${decRef} "${decision.title}" — ${decision.resolution}.${hint}${acNudge}${issuesNudge}`;
+      if (ctx.footerSlot) {
+        ctx.footerSlot.signal = { kind: "decision_resolved", decRef, linkedAcs, issueHits };
+      }
+      return `Decision resolved: ref: ${decRef} "${decision.title}" — ${decision.resolution}.${hint}`;
     },
   },
   {
@@ -2472,7 +2717,41 @@ export const toolSpecs: ToolSpec[] = [
         statement,
         status,
         parent,
-      });
+      }, reqCtx(ctx));
+
+      // spec-219 comb-through: count-aware AC call-to-action. The handler parks
+      // DATA only; renderFooterSignal owns every word. For implementation ACs it
+      // also parks the build-gate picture (resolved-decision coverage + open
+      // decisions) so the footer can push toward build the moment it's earned —
+      // the only phone-home Memex has for "stop lingering in specify while code is
+      // being written". Sourced from the rubric's own coverage helper so the
+      // footer and assess_spec speak with one voice. Net-new guidance.
+      if (ctx.footerSlot) {
+        const sameKind = await listAcsForBrief(memexId, doc.id, { kind, status: "active" });
+        let coverage:
+          | { phase: string; resolvedCount: number; uncovered: string[]; open: string[] }
+          | undefined;
+        if (kind === "implementation") {
+          const [allDecs, cov] = await Promise.all([
+            listDecisions(memexId, doc.id),
+            listResolvedDecisionImplAcCoverage(memexId, doc.id),
+          ]);
+          coverage = {
+            phase: doc.status,
+            resolvedCount: cov.length,
+            uncovered: cov
+              .filter((c) => c.implementationAcCount === 0)
+              .map((c) => c.decisionHandle),
+            open: allDecs.filter((d) => d.status === "open").map((d) => `dec-${d.seq}`),
+          };
+        }
+        ctx.footerSlot.signal = {
+          kind: "ac_created",
+          acKind: kind,
+          sameKindCount: sameKind.length,
+          coverage,
+        };
+      }
 
       const acRef = buildChildRef(slugs, doc, { type: "acs", seq: ac.seq });
       if (ctx.verbose) {
@@ -2935,7 +3214,7 @@ export const toolSpecs: ToolSpec[] = [
         );
       }
       const { memexId, doc, slugs, entity } = resolved;
-      const ac = await updateAc(memexId, entity.row.id, statement);
+      const ac = await updateAc(memexId, entity.row.id, statement, reqCtx(ctx));
       const acRef = buildChildRef(slugs, doc, { type: "acs", seq: ac.seq });
       if (ctx.verbose) {
         return `Updated ref: ${acRef} (seq=${ac.seq}, kind=${ac.kind}, status=${ac.status}): "${ac.statement}"`;
@@ -3094,6 +3373,7 @@ export const toolSpecs: ToolSpec[] = [
         description,
         acceptanceCriteria,
         sectionRef,
+        reqCtx(ctx),
       );
       if (ctx.verbose) {
         const state = await fullDocState(memexId, doc.id);
@@ -3201,16 +3481,18 @@ export const toolSpecs: ToolSpec[] = [
           description,
           acceptanceCriteria,
           sectionRef,
-        });
+        }, reqCtx(ctx));
         const taskRef = buildChildRef(slugs, doc, { type: "tasks", seq: updated.seq });
         messages.push(`Task ref: ${taskRef} fields updated.`);
       }
       if (status !== undefined) {
-        const updated = await updateTaskStatus(memexId, taskUuid, status);
+        const updated = await updateTaskStatus(memexId, taskUuid, status, reqCtx(ctx));
         let unblockedHint = "";
-        let completionNudge = "";
         // Per dec-1: when completing a task unblocks dependents, name them so
-        // the agent skips the follow-up `list_tasks(readyOnly:true)` call.
+        // the agent skips the follow-up `list_tasks(readyOnly:true)` call. This
+        // is RESULT-REPORTING (a fact about what the call did), so it stays in
+        // the handler. The "leave a progress comment" STEER is guidance, owned by
+        // composeGuidanceEnvelope — we signal the event, not the words.
         if (status === "complete") {
           const unblocked = await findNewlyUnblockedDependents(memexId, taskUuid);
           if (unblocked.length > 0) {
@@ -3218,11 +3500,23 @@ export const toolSpecs: ToolSpec[] = [
               .map((u) => `t-${u.seq}`)
               .join(", ")}.`;
           }
-          completionNudge = ` ${COMPLETION_NUDGE}`;
+          if (ctx.footerSlot) {
+            // spec-219 comb-through: park the build-completion picture so the
+            // footer can push toward verify the moment the last task is done
+            // (the build->verify analogue of create_ac's build-push).
+            const open = (await listTasks(memexId, doc.id)).filter(
+              (t) => t.status !== "complete",
+            ).length;
+            ctx.footerSlot.signal = {
+              kind: "task_completed",
+              allComplete: open === 0,
+              remaining: open,
+            };
+          }
         }
         const taskRef = buildChildRef(slugs, doc, { type: "tasks", seq: updated.seq });
         messages.push(
-          `Task ref: ${taskRef} status → "${updated.status}".${unblockedHint}${completionNudge}`,
+          `Task ref: ${taskRef} status → "${updated.status}".${unblockedHint}`,
         );
       }
       if (addBRef !== undefined) {
@@ -3248,12 +3542,9 @@ export const toolSpecs: ToolSpec[] = [
         const fresh = await getTask(memexId, taskUuid);
         const state = await fullDocState(memexId, fresh.docId);
         const url = await ctx.workspaceUrl(memexId);
-        // spec-219 dec-3 (t-3): park the completion nudge in the footer slot
-        // (only when the task was completed); the seat folds it into the footer,
-        // past the delimiter, so it persists to footer_text.
-        if (status === "complete" && ctx.footerSlot) {
-          ctx.footerSlot.content = `> ${COMPLETION_NUDGE}`;
-        }
+        // spec-219 Phase 2 (sole-author): the completion steer is already
+        // signalled above (kind:'task_completed'); composeGuidanceEnvelope owns
+        // the prose for terse AND verbose. Nothing to park here.
         return await formatState(url, state, ctx);
       }
 
@@ -3699,15 +3990,23 @@ export const toolSpecs: ToolSpec[] = [
       }
       const beforeStatus = doc.status;
       const target = status ?? "specify";
-      await updateDocStatus(memexId, doc.id, target);
-      const nudge = await nudgeForTransition(memexId, doc.id, beforeStatus, target, doc.docType);
+      // spec-122 dec-2/dec-5: thread the activity contract onto the publish
+      // transition so Pulse attributes the phase move to the human + surface.
+      await updateDocStatus(memexId, doc.id, target, { ctx: reqCtx(ctx) });
+      // spec-219 Phase 2 (sole-author): signal the transition; composeGuidanceEnvelope
+      // owns the transition guidance prose.
+      if (ctx.footerSlot) {
+        ctx.footerSlot.signal = {
+          kind: "doc_transition",
+          beforeStatus,
+          target,
+          docType: doc.docType,
+        };
+      }
 
       if (ctx.verbose) {
         const state = await fullDocState(memexId, doc.id);
         const url = await ctx.workspaceUrl(memexId);
-        // spec-219 dec-3 (t-3): park the transition nudge in the footer slot; the
-        // seat folds it into the footer, past the delimiter, so it persists.
-        if (ctx.footerSlot) ctx.footerSlot.content = nudge;
         return await formatState(url, state, ctx);
       }
       const fresh = await getDoc(memexId, doc.id);
@@ -3715,7 +4014,7 @@ export const toolSpecs: ToolSpec[] = [
       // phase header so the agent always learns the new "Allowed now".
       const phaseLine = formatTerseSpecPhase(fresh.status) ?? "";
       const freshRef = buildDocRef(slugs, fresh);
-      return `Spec ref: ${freshRef} published to "${fresh.status}". ${phaseLine}${nudge}`.trim();
+      return `Spec ref: ${freshRef} published to "${fresh.status}". ${phaseLine}`.trim();
     },
   },
 
@@ -3890,6 +4189,7 @@ export const toolSpecs: ToolSpec[] = [
           undefined,
           undefined,
           ctx.userId,
+          reqCtx(ctx),
         );
         const slugs = await memexSlugsById(memexId);
         const specRefOut = slugs ? buildDocRef(slugs, spec) : spec.handle;
@@ -4229,13 +4529,13 @@ export const toolSpecs: ToolSpec[] = [
       const who = target.email ?? "(unknown)";
       const specRef = buildDocRef(slugs, doc);
       if (role === "editor") {
-        await promoteToEditor(memexId, doc.id, target.id);
+        await promoteToEditor(memexId, doc.id, target.id, reqCtx(ctx));
         if (ctx.verbose) {
           return `Promoted ${who} to editor on ${specRef}.`;
         }
         return `ref: ${specRef} user=${who} role=editor`;
       }
-      await demoteToReviewer(memexId, doc.id, target.id);
+      await demoteToReviewer(memexId, doc.id, target.id, reqCtx(ctx));
       if (ctx.verbose) {
         return `Demoted ${who} to reviewer on ${specRef} (editor row removed; falls back to the reviewer default).`;
       }
@@ -4317,7 +4617,7 @@ export const toolSpecs: ToolSpec[] = [
         ? await resolveUserArg(userArg, "user")
         : { id: ctx.userId, email: null };
       const who = target.email ?? "(you)";
-      await assign(memexId, doc.id, target.id, ctx.userId);
+      await assign(memexId, doc.id, target.id, ctx.userId, reqCtx(ctx));
       const specRef = buildDocRef(slugs, doc);
       if (ctx.verbose) {
         return `Assigned ${who} to ${specRef}.`;
@@ -4350,7 +4650,7 @@ export const toolSpecs: ToolSpec[] = [
       const { memexId, doc, slugs } = resolved;
       const target = await resolveUserArg(input.user as string, "user");
       const who = target.email ?? "(unknown)";
-      await unassign(memexId, doc.id, target.id);
+      await unassign(memexId, doc.id, target.id, reqCtx(ctx));
       const specRef = buildDocRef(slugs, doc);
       if (ctx.verbose) {
         return `Unassigned ${who} from ${specRef}.`;

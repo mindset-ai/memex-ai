@@ -44,7 +44,7 @@ import { promoteToEditor } from "./doc-members.js";
 import { updateDocStatus } from "./documents.js";
 // Type-only imports — erased at compile time, so no runtime cycle with
 // agent/tool-specs.ts (which imports this module's consumers).
-import type { ToolCtx } from "../agent/tool-specs.js";
+import type { ToolCtx, FooterSlot } from "../agent/tool-specs.js";
 
 // One lookup table, built once from the single-source manifest (dec-4).
 const manifestByName: ReadonlyMap<string, ToolManifestEntry> = new Map(
@@ -91,8 +91,12 @@ export async function observeSpecTraffic(event: SpecTrafficEvent): Promise<void>
     // ── Auto-assignment + editor role (dec-6) ─────────────────────────
     if (entry.autoAssignExempt !== true) {
       try {
-        await assign(event.memexId, event.docId, event.userId, event.userId);
-        await promoteToEditor(event.memexId, event.docId, event.userId);
+        // spec-122 dec-5: attribute the traffic-driven assign/promote to the
+        // human who made the triggering call, on the surface it came in on
+        // (mcp / in_app_agent — guarded above) so Pulse shows them, not "System".
+        const trafficCtx = { actorUserId: event.userId, channel: event.channel };
+        await assign(event.memexId, event.docId, event.userId, event.userId, trafficCtx);
+        await promoteToEditor(event.memexId, event.docId, event.userId, trafficCtx);
       } catch (err) {
         console.warn(
           `[spec-traffic] auto-assign failed for ${event.toolName} on ${doc.handle}:`,
@@ -146,7 +150,7 @@ export async function runToolWithSpecTraffic(
   // footer nugget here; the seat (`composeGuidanceEnvelope`) reads it back and
   // folds it into the footer, so it lands AFTER the delimiter and is persisted.
   // One holder, threaded into the handler's ctx AND handed to the seat below.
-  const footerSlot: { content?: string } = {};
+  const footerSlot: FooterSlot = {};
   const wrappedCtx: ToolCtx = {
     ...ctx,
     footerSlot,
@@ -154,6 +158,11 @@ export async function runToolWithSpecTraffic(
       const result = await ctx.resolveRef(ref);
       target = { memexId: result.memexId, docId: result.doc.id };
       return result;
+    },
+    // spec-219 Phase 2: a creating tool resolves no ref, so capture the doc it
+    // made here — this is what lets composeGuidanceEnvelope run for create_doc.
+    recordCreatedDoc: (memexId, docId) => {
+      target = { memexId, docId };
     },
   };
   const text = await spec.handler(input, wrappedCtx);

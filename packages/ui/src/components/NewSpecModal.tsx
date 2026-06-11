@@ -7,6 +7,8 @@ import {
   type KeyboardEvent,
 } from 'react';
 import { createPortal } from 'react-dom';
+import { useNavigate } from 'react-router-dom';
+import { tenantPath } from '../utils/tenantUrl';
 import { useAgentGraph } from '../agent/useAgentGraph';
 import type { AgentCallbacks } from '../agent/graph';
 import type { ContentBlock, MessageParam, ToolUseBlock } from '../agent/types';
@@ -203,11 +205,25 @@ export function NewSpecModal({ open, onClose, prefill, onCreated }: NewSpecModal
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  const navigate = useNavigate();
+
   const handleClose = useCallback(() => {
     abortRef.current?.abort();
     abortRef.current = null;
     onClose();
   }, [onClose]);
+
+  // spec-230 t-3: the in-app creation flow now fleshes out the whole Spec, so
+  // the user's natural next move is to land ON the populated Spec — not hunt for
+  // it on the Kanban. Close the modal and navigate to the Spec page (in-Spec
+  // chat) so they can keep refining it.
+  const openSpec = useCallback(
+    (handle: string) => {
+      handleClose();
+      navigate(tenantPath(`/specs/${handle}`));
+    },
+    [handleClose, navigate]
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -545,8 +561,14 @@ export function NewSpecModal({ open, onClose, prefill, onCreated }: NewSpecModal
   // Creation is "done" once we've created at least one doc, streaming has
   // stopped, and no interactive UI tool is waiting on the user. At that point
   // the user's next move is to look at the Kanban — swap the input for Close.
-  const createdDocCount = messages.filter((m) => m.role === 'doc_created').length;
+  const createdDocMsgs = messages.filter((m) => m.role === 'doc_created');
+  const createdDocCount = createdDocMsgs.length;
   const hasCreatedDoc = createdDocCount > 0;
+  // spec-230 t-3: only offer a single-target "Open Spec" when exactly one Spec
+  // was created (multi-Spec creation is ambiguous — those land on the Kanban,
+  // each card a link).
+  const lastCreatedHandle =
+    createdDocCount === 1 ? createdDocMsgs[0].handle : undefined;
   const hasPendingInteractiveTool = messages.some(
     (m) =>
       m.role === 'ui_tool' &&
@@ -652,13 +674,30 @@ export function NewSpecModal({ open, onClose, prefill, onCreated }: NewSpecModal
             }
 
             if (msg.role === 'doc_created') {
-              return (
+              // spec-230 t-3: the card is the populated Spec — make it a link so
+              // the user lands on it (and the in-Spec chat) in one click.
+              const handle = msg.handle;
+              const card = (
+                <>
+                  <div className="text-xs text-muted font-mono">{handle}</div>
+                  <div className="text-sm font-medium text-heading truncate">{msg.title}</div>
+                </>
+              );
+              return handle ? (
+                <button
+                  key={msg.id}
+                  type="button"
+                  onClick={() => openSpec(handle)}
+                  className="block w-full text-left rounded-lg border border-status-success-border bg-status-success-bg/30 px-3 py-2 hover:bg-status-success-bg/50 transition-colors"
+                >
+                  {card}
+                </button>
+              ) : (
                 <div
                   key={msg.id}
                   className="rounded-lg border border-status-success-border bg-status-success-bg/30 px-3 py-2"
                 >
-                  <div className="text-xs text-muted font-mono">{msg.handle}</div>
-                  <div className="text-sm font-medium text-heading truncate">{msg.title}</div>
+                  {card}
                 </div>
               );
             }
@@ -689,9 +728,23 @@ export function NewSpecModal({ open, onClose, prefill, onCreated }: NewSpecModal
           {creationComplete ? (
             <div className="flex items-center justify-between gap-3">
               <div className="text-sm text-muted">
-                Your {createdDocCount > 1 ? 'specs are' : 'spec is'} ready on the Kanban below.
+                {createdDocCount > 1
+                  ? 'Your specs are ready — open one to keep refining it.'
+                  : 'Your spec is ready — open it to keep refining it.'}
               </div>
-              <Button onClick={handleClose}>Close</Button>
+              <div className="flex items-center gap-2">
+                {/* spec-230 t-3: single-spec → primary "Open Spec" navigates to the
+                    populated Spec; the old Close-only state was the dead-end. */}
+                {lastCreatedHandle && (
+                  <Button onClick={() => openSpec(lastCreatedHandle)}>Open Spec</Button>
+                )}
+                <Button
+                  variant={lastCreatedHandle ? 'secondary' : 'primary'}
+                  onClick={handleClose}
+                >
+                  Close
+                </Button>
+              </div>
             </div>
           ) : (
             <>

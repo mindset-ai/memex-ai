@@ -16,7 +16,7 @@ import { createDocDraft } from "../services/documents.js";
 import { createIssue } from "../services/issues.js";
 import { embedAndStoreIssue } from "../services/memex-embeddings.js";
 import { toolSpecs } from "./tool-specs.js";
-import { relatedIssuesForDecision } from "./tool-specs.js";
+import { relatedIssuesForDecision, relatedIssuesNudge } from "./tool-specs.js";
 import { parseRef } from "../services/refs.js";
 import { resolveRef as resolveCanonicalRef } from "../services/resolver.js";
 import { NotFoundError, ValidationError } from "../types/errors.js";
@@ -104,6 +104,9 @@ async function makeSpec(title: string): Promise<{ id: string; handle: string }> 
 function ctxFor(boundMemex: string, verbose: boolean): ToolCtx {
   return {
     userId: "00000000-0000-0000-0000-000000000000",
+    // spec-219 Phase 2: handlers park a structured signal here; the related-issue
+    // prose is authored by composeGuidanceEnvelope from signal.issueHits.
+    footerSlot: {},
     resolveMemexFromEntity: async () => boundMemex,
     resolveMemex: async () => boundMemex,
     resolveRef: async (ref: string) => {
@@ -245,7 +248,7 @@ describe("decision JIT nudge surfaces a cross-Spec related Issue (ac-4)", () => 
     // subset of the cross-Spec Issue's text so the FTS relevance gate fires.
     // (The handler searches title + context; both stay within the Issue's token
     // set so plainto_tsquery's AND semantics still match.)
-    const out = await spec("create_decision").handler(
+    await spec("create_decision").handler(
       {
         ref: decRefArg,
         title: "quibblewump indexer batch import rows",
@@ -254,13 +257,18 @@ describe("decision JIT nudge surfaces a cross-Spec related Issue (ac-4)", () => 
       ctx,
     );
 
-    // The related Issue from the OTHER Spec is surfaced informationally, with
-    // its cross-Spec ref, while this decision is being considered.
-    expect(out).toContain("Related Issues");
-    expect(out).toContain(`/specs/${issueHome.handle}/issues/issue-`);
-    expect(out).toContain("Quibblewump indexer drops rows");
+    // spec-219 Phase 2 (sole-author): the handler parks the related Issues as a
+    // structured signal; composeGuidanceEnvelope authors the prose via
+    // relatedIssuesNudge. The related Issue from the OTHER Spec is surfaced
+    // informationally, with its cross-Spec ref.
+    const signal = ctx.footerSlot?.signal;
+    expect(signal?.kind).toBe("decision_created");
+    const nudge = signal && "issueHits" in signal ? relatedIssuesNudge(signal.issueHits) : "";
+    expect(nudge).toContain("Related Issues");
+    expect(nudge).toContain(`/specs/${issueHome.handle}/issues/issue-`);
+    expect(nudge).toContain("Quibblewump indexer drops rows");
     // Informational only — the nudge says nothing was changed.
-    expect(out.toLowerCase()).toContain("nothing was changed");
+    expect(nudge.toLowerCase()).toContain("nothing was changed");
   });
 
   it("resolve_decision appends a related Issue raised on a DIFFERENT Spec", async () => {
@@ -295,7 +303,7 @@ describe("decision JIT nudge surfaces a cross-Spec related Issue (ac-4)", () => 
 
     // Resolution + title content tokens (flibbertron, retry, loop, storms, api,
     // backoff) are all a subset of the cross-Spec Issue's text → FTS gate fires.
-    const out = await spec("resolve_decision").handler(
+    await spec("resolve_decision").handler(
       {
         ref: decRef,
         resolution: "flibbertron retry loop storms api backoff",
@@ -303,8 +311,13 @@ describe("decision JIT nudge surfaces a cross-Spec related Issue (ac-4)", () => 
       ctx,
     );
 
-    expect(out).toContain("Related Issues");
-    expect(out).toContain(`/specs/${issueHome.handle}/issues/issue-`);
-    expect(out).toContain("Flibbertron retry storms the API");
+    // spec-219 Phase 2: the resolve handler parks a decision_resolved signal;
+    // composeGuidanceEnvelope authors the related-issues prose from issueHits.
+    const signal = ctx.footerSlot?.signal;
+    expect(signal?.kind).toBe("decision_resolved");
+    const nudge = signal && "issueHits" in signal ? relatedIssuesNudge(signal.issueHits) : "";
+    expect(nudge).toContain("Related Issues");
+    expect(nudge).toContain(`/specs/${issueHome.handle}/issues/issue-`);
+    expect(nudge).toContain("Flibbertron retry storms the API");
   });
 });

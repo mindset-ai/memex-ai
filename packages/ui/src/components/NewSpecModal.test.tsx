@@ -1,7 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';
+import type { ReactElement } from 'react';
 import { tagAc } from '@memex-ai-ac/vitest';
+
+// spec-230 t-3: the modal navigates to the created Spec via useNavigate, so the
+// component must render inside a Router. A bare <MemoryRouter> wrapper restores
+// the production context (the modal is always mounted under the app Router).
+function renderModal(ui: ReactElement) {
+  return render(<MemoryRouter>{ui}</MemoryRouter>);
+}
 
 // Mock ONLY the network boundary (same pattern as ChatContext.streaming.test.tsx):
 // the real useAgentGraph → graph → extractDocInfo path runs, so the doc_created
@@ -71,7 +80,7 @@ function queueCreateFlow() {
 }
 
 async function createSpecThroughModal() {
-  render(<NewSpecModal open onClose={vi.fn()} />);
+  renderModal(<NewSpecModal open onClose={vi.fn()} />);
   const user = userEvent.setup();
   await user.type(
     screen.getByPlaceholderText(/Describe the spec/i),
@@ -96,7 +105,7 @@ describe('NewSpecModal — completed-state polish (spec-155 i-1)', () => {
 
     await waitFor(() =>
       expect(
-        screen.getByText(/Your spec is ready on the Kanban below\./)
+        screen.getByText(/Your spec is ready — open it to keep refining it\./)
       ).toBeInTheDocument()
     );
   });
@@ -122,7 +131,7 @@ describe('NewSpecModal — completed-state polish (spec-155 i-1)', () => {
     vi.mocked(executeToolRemote).mockResolvedValue(SERVER_RESULT);
     const onCreated = vi.fn();
 
-    render(
+    renderModal(
       <NewSpecModal
         open
         onClose={vi.fn()}
@@ -172,7 +181,7 @@ describe('NewSpecModal — completed-state polish (spec-155 i-1)', () => {
     queueCreateFlow();
     vi.mocked(executeToolRemote).mockRejectedValue(new Error('boom'));
 
-    render(<NewSpecModal open onClose={vi.fn()} />);
+    renderModal(<NewSpecModal open onClose={vi.fn()} />);
     const user = userEvent.setup();
     await user.type(
       screen.getByPlaceholderText(/Describe the spec/i),
@@ -182,6 +191,87 @@ describe('NewSpecModal — completed-state polish (spec-155 i-1)', () => {
 
     await waitFor(() =>
       expect(screen.getByText(/Error: boom/)).toBeInTheDocument()
+    );
+  });
+});
+
+// spec-230 t-3 (ac-9): the post-creation state no longer dead-ends on a Close
+// button — the user lands on the populated Spec. A primary "Open Spec" action
+// (and the clickable doc_created card) navigate to /specs/<handle>.
+const AC_LAND_ON_SPEC =
+  'mindset-prod/memex-building-itself/specs/spec-230/acs/ac-9';
+
+describe('NewSpecModal — lands the user on the populated Spec (spec-230 t-3)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  function LocationProbe() {
+    const loc = useLocation();
+    return <div data-testid="loc">{loc.pathname}</div>;
+  }
+
+  it('offers "Open Spec" on completion and navigates to /specs/<handle>', async () => {
+    tagAc(AC_LAND_ON_SPEC);
+    queueCreateFlow();
+    vi.mocked(executeToolRemote).mockResolvedValue(SERVER_RESULT);
+
+    render(
+      <MemoryRouter initialEntries={['/start']}>
+        <NewSpecModal open onClose={vi.fn()} />
+        <Routes>
+          <Route path="*" element={<LocationProbe />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    const user = userEvent.setup();
+    await user.type(
+      screen.getByPlaceholderText(/Describe the spec/i),
+      'Create a spec called Polish Test',
+    );
+    await user.keyboard('{Enter}');
+
+    await waitFor(() => expect(screen.getByText('Polish Test')).toBeInTheDocument());
+
+    // The dead-end is gone: a primary "Open Spec" action is present.
+    const openBtn = await screen.findByRole('button', { name: /Open Spec/i });
+    expect(screen.getByTestId('loc')).toHaveTextContent('/start');
+
+    await user.click(openBtn);
+
+    // The created Spec's handle (spec-9, parsed from the server result) drives nav.
+    await waitFor(() =>
+      expect(screen.getByTestId('loc')).toHaveTextContent('/specs/spec-9'),
+    );
+  });
+
+  it('the doc_created card is itself a link to the populated Spec', async () => {
+    tagAc(AC_LAND_ON_SPEC);
+    queueCreateFlow();
+    vi.mocked(executeToolRemote).mockResolvedValue(SERVER_RESULT);
+
+    render(
+      <MemoryRouter initialEntries={['/start']}>
+        <NewSpecModal open onClose={vi.fn()} />
+        <Routes>
+          <Route path="*" element={<LocationProbe />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    const user = userEvent.setup();
+    await user.type(
+      screen.getByPlaceholderText(/Describe the spec/i),
+      'Create a spec called Polish Test',
+    );
+    await user.keyboard('{Enter}');
+
+    const card = await screen.findByRole('button', { name: /Polish Test/i });
+    await user.click(card);
+
+    await waitFor(() =>
+      expect(screen.getByTestId('loc')).toHaveTextContent('/specs/spec-9'),
     );
   });
 });

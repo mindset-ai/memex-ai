@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth, computeDefaultLanding } from '../components/AuthContext';
 import { passwordResetConfirmApi, AuthApiError } from '../api/client';
 import { Input } from '../components/ui/Input';
+import { Logo } from '../components/Logo';
 import { Button } from '../components/ui/Button';
 
 // Public page hit when the user clicks a password-reset link. Shows a new-password form,
@@ -50,7 +51,7 @@ export function ResetPassword() {
       <div className="max-w-sm w-full">
         <div className="text-center mb-8">
           <h1 className="text-2xl font-semibold tracking-tight text-heading">
-            memex<span className="text-[#7b93b8]">.ai</span>
+            <Logo className="h-7" />
           </h1>
         </div>
 

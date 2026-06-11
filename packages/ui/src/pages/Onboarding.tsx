@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { useAuth } from '../components/AuthContext';
+import { Logo } from '../components/Logo';
 import { updateProfileApi } from '../api/client';
 
 export function Onboarding() {
@@ -32,8 +33,8 @@ export function Onboarding() {
     <div className="min-h-screen bg-page flex items-center justify-center p-6">
       <div className="max-w-md w-full">
         <div className="text-center mb-8">
-          <h1 className="text-2xl font-semibold text-heading mb-2">
-            memex<span className="text-[#7b93b8]">.ai</span>
+          <h1 className="text-2xl font-semibold text-heading mb-2 flex justify-center">
+            <Logo className="h-7" />
           </h1>
           <p className="text-sm text-secondary">Welcome! Let's set up your profile.</p>
         </div>

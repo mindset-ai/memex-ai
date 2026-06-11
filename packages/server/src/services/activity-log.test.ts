@@ -267,6 +267,28 @@ describe("listActivity — filters + pagination", () => {
     expect(rows.every((r) => r.memexId === memexId)).toBe(true);
   });
 
+  // b-36 (no raw UUIDs out): a historical activity_log row written before the
+  // narrative fix can still read "created doc_member <uuid>". listActivity strips
+  // it at the read boundary so the Pulse feed never renders a raw id, and drops a
+  // UUID-shaped actor_name. New rows are already clean (composeNarrative-guarded).
+  it("strips a raw UUID from a historical narrative + actor_name (b-36)", async () => {
+    const uuid = "322dda5d-b14c-4597-b106-c13b847905ac";
+    await persistEvent(
+      baseEvent({
+        entity: "doc_member",
+        action: "created",
+        channel: "server",
+        narrative: `created doc_member ${uuid}`,
+        actorName: uuid, // an actor_name that is itself a bare UUID
+      }),
+    );
+    const rows = await listActivity({ memexId });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].narrative).toBe("created doc_member");
+    expect(rows[0].narrative).not.toMatch(/[0-9a-f-]{36}/i);
+    expect(rows[0].actorName, "a UUID actor_name is dropped to null").toBeNull();
+  });
+
   it("filters by briefId", async () => {
     await persistEvent(baseEvent({ docId: briefId, narrative: "on-spec" }));
     await persistEvent(baseEvent({ narrative: "no-spec" })); // briefId null

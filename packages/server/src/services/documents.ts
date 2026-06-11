@@ -5,6 +5,7 @@ import type { Doc, DocSection, Decision } from "../db/schema.js";
 import type { DocSummary } from "../types/index.js";
 import { NotFoundError, ValidationError } from "../types/errors.js";
 import { mutate, type ChangeKey, type Mutated, type RequestCtx } from "./mutate.js";
+import { resolveActorColumns } from "./actor.js";
 import { isUuid } from "./shared/identifiers.js";
 import { withSeqRetry } from "./shared/sequence.js";
 import { embedAndStoreSection, embedAndStoreDecision } from "./memex-embeddings.js";
@@ -94,6 +95,12 @@ export async function createDocDraft(
   decisionInputs?: DecisionInput[],
   extras?: CreateDocExtras,
   createdByUserId?: string,
+  // spec-122 dec-2/dec-5 — the activity contract (WHO + HOW). Threaded onto the
+  // 'document created' event so Pulse attributes the create to the human + the
+  // surface (in_app_agent / mcp / rest_ui). Defaults empty for seed/system
+  // callers; actorUserId falls back to createdByUserId so the human is still
+  // attributed even when a caller passes only the legacy id.
+  ctx: RequestCtx = {},
 ): Promise<Mutated<Doc & { sections: DocSection[]; decisions: Decision[] }>> {
   // Per b-105 and std-1 (canonical URL paths):
   //   - specs         → `spec-N`    via nextSpecHandle
@@ -111,7 +118,10 @@ export async function createDocDraft(
   // (`createStandard → nextStandardHandle`) were unaffected; MCP creates
   // route through this function and need the explicit branch.
   return mutate(
-    {},
+    // Attribute the create to the human (ctx.actorUserId, else the legacy
+    // createdByUserId) and the surface (ctx.channel). Without this the event
+    // reached the sink unattributed and Pulse's "Just me" scope dropped it.
+    { ...ctx, actorUserId: ctx.actorUserId ?? createdByUserId },
     // The new doc's id isn't known until the insert returns, so use a key
     // factory that reads it off the resolved result.
     (created) => ({ memexId, docId: created.id, entity: "document", action: "created" }),
@@ -203,13 +213,35 @@ export async function createDocDraft(
         });
       }
 
+      // spec-122 dec-2/dec-5 — the activity contract (WHO + HOW) for the section
+      // and decision rows born with the doc. `doc_sections` and `decisions` each
+      // carry their own actor_user_id / actor_name / channel (they're activity-
+      // bearing per std-32), so the create must stamp them just like the
+      // 'document created' event above — otherwise every Spec's seed sections land
+      // unattributed (NULL actor, NULL channel = a silent 'server', which std-32
+      // calls a visible defect) and the create drops out of Pulse's 'me' scope.
+      // resolveActorColumns denormalises actor_name at write (one PK lookup when
+      // the ctx didn't carry it, ac-10) and degrades a stale id to null rather
+      // than breaking the insert. actorUserId falls back to the legacy
+      // createdByUserId; channel falls back to an explicit 'server' for seed/
+      // system callers that pass no ctx (never a silent NULL).
+      const resolved = await resolveActorColumns({
+        ...ctx,
+        actorUserId: ctx.actorUserId ?? createdByUserId,
+      });
+      const bornAttribution = {
+        actorUserId: resolved.actorUserId,
+        actorName: resolved.actorName,
+        channel: resolved.channel ?? "server",
+      };
+
       // spec-150 (dec-2): at creation the display `position` equals the identity `seq`.
       // spec-161: a standard inserts zero sections (born sectionless).
       const insertedSections =
         rows.length > 0
           ? await db
               .insert(docSections)
-              .values(rows.map((r) => ({ ...r, position: r.seq })))
+              .values(rows.map((r) => ({ ...r, position: r.seq, ...bornAttribution })))
               .returning()
           : [];
 
@@ -225,6 +257,7 @@ export async function createDocDraft(
               title: d.title,
               context: d.context ?? null,
               status: "open",
+              ...bornAttribution,
             }))
           )
           .returning();
@@ -573,6 +606,11 @@ export async function promoteToSpec(
   title: string,
   purpose?: string,
   createdByUserId?: string,
+  // spec-122 dec-2/dec-5 — the activity contract (WHO + HOW), threaded onto BOTH
+  // the createDocDraft create AND the lineage re-emit below so a promoted Spec is
+  // attributed to the human + surface exactly like a fresh create. Defaults empty
+  // for seed/system callers.
+  ctx: RequestCtx = {},
 ): Promise<Mutated<Doc & { sections: DocSection[]; decisions: Decision[] }>> {
   const trimmedTitle = typeof title === "string" ? title.trim() : "";
   if (trimmedTitle.length === 0) {
@@ -594,13 +632,14 @@ export async function promoteToSpec(
     undefined,
     undefined,
     createdByUserId,
+    ctx,
   );
 
   // Re-emit on promotion specifically — createDocDraft already fired a "created" event,
   // but the lineage edge is what downstream UI/MCP cares about, so let consumers see
   // the linked state too.
   return mutate(
-    {},
+    { ...ctx, actorUserId: ctx.actorUserId ?? createdByUserId },
     { memexId, docId: child.id, entity: "document", action: "updated" },
     async () => {
       const [linked] = await db

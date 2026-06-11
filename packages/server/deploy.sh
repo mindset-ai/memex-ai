@@ -230,8 +230,17 @@ DATABASE_URL="${DB_URL}" timeout 600 pnpm db:import-guide-content \
 # cost is just today's promotions and the first backfill resumes idempotently.
 # A missing Anthropic key just means no drafts land (next deploy retries) — it
 # never fails the deploy.
+#
+# The Anthropic key is wired into the Cloud Run SERVICE at step 4 (--set-secrets),
+# but that wiring never reaches THIS migration-phase shell on the CI runner, where
+# the generation script actually runs. So fetch it from Secret Manager here, the
+# same way scripts/deploy-config.sh sources DB_PASS (`versions access`). Guarded
+# with `|| true` so a fetch hiccup can't trip `set -e` and abort the deploy — an
+# empty key just yields no drafts, exactly like the missing-key case above. The
+# secret's existence is already asserted in the pre-flight block.
+ANTHROPIC_API_KEY="$(gcloud secrets versions access latest --secret=anthropic-api-key --project="${GCP_PROJECT}" 2>/dev/null)" || true
 echo "  1f. What's New generation (spec-200 t-3 / ac-8)..."
-DATABASE_URL="${DB_URL}" timeout 600 pnpm db:generate-whats-new \
+DATABASE_URL="${DB_URL}" ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY}" timeout 600 pnpm db:generate-whats-new \
   || echo "  ⚠ What's New generation timed out or failed (non-gating, exit $?) — deploy continues; next deploy resumes (idempotent)."
 
 kill $PROXY_PID 2>/dev/null

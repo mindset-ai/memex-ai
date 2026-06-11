@@ -42,6 +42,9 @@
   --color-text-secondary: 148 163 184;                 /* slate-400 */
   --color-text-muted:     100 116 139;                 /* slate-500 */
 
+  /* Brand logo (spec-223) — near-white so the single-colour wordmark stays legible on the dark surface */
+  --color-logo:           241 245 249;                 /* slate-100 (~14:1 on the dark page) */
+
   /* Borders — neutral grays */
   --color-edge:           62 68 81;                    /* #3e4451 — Atom One Dark gutter */
   --color-edge-subtle:    rgba(62, 68, 81, 0.5);      /* #3e4451/50 */
@@ -108,6 +111,9 @@
   --color-text-primary:   30 41 59;                    /* slate-800 */
   --color-text-secondary: 100 116 139;                 /* slate-500 */
   --color-text-muted:     148 163 184;                 /* slate-400 */
+
+  /* Brand logo (spec-223) — brand navy so the single-colour wordmark stays legible on the light surface */
+  --color-logo:           14 17 43;                    /* #0E112B (~17:1 on white) */
 
   /* Borders */
   --color-edge:           226 232 240;                 /* slate-200 */

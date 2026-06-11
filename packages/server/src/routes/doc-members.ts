@@ -8,6 +8,7 @@ import {
 import { sessionMiddleware, publicSessionMiddleware, type SessionEnv } from "../middleware/session.js";
 import type { MemexResolverEnv } from "../middleware/memex-resolver.js";
 import { requireMemexId, resolveReadableMemexId } from "./shared.js";
+import { restCtx } from "./_actor-ctx.js";
 
 // Thin REST mirror of the per-Spec role service (spec-118 t-3). Roles gate
 // CAPABILITY + UI posture, never read access (dec-2) — so GET is permissive (the
@@ -43,7 +44,7 @@ docMembersRouter.post("/doc/:docId/promote", async (c) => {
   const body = await c.req.json<{ userId?: string }>().catch(() => ({}) as { userId?: string });
   const userId = body.userId ?? (c.get("currentUserId") as string | null);
   if (!userId) return c.json({ error: "userId required" }, 400);
-  const result = await promoteToEditor(memexId, docId, userId);
+  const result = await promoteToEditor(memexId, docId, userId, restCtx(c));
   return c.json(result);
 });
 
@@ -54,7 +55,7 @@ docMembersRouter.post("/doc/:docId/demote", async (c) => {
   const body = await c.req.json<{ userId?: string }>().catch(() => ({}) as { userId?: string });
   const userId = body.userId ?? (c.get("currentUserId") as string | null);
   if (!userId) return c.json({ error: "userId required" }, 400);
-  const result = await demoteToReviewer(memexId, docId, userId);
+  const result = await demoteToReviewer(memexId, docId, userId, restCtx(c));
   return c.json(result);
 });
 

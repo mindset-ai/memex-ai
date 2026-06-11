@@ -43,7 +43,7 @@ describe("scope-AC-after-create_doc nudges (real-agent regression)", () => {
     const src = readFileSync(sourcePath, "utf-8");
     // The nudge lives in the create_doc handler, just before the final
     // return. Match the diagnostic markers we put there.
-    expect(src).toMatch(/next:\s*author\s+scope\s+acs/i);
+    expect(src).toMatch(/scope-type acceptance criteria/i);
     expect(src).toMatch(/get_information\(topic='phases'\)/i);
     expect(src).toMatch(
       /kind:\s*["']scope["']/i,

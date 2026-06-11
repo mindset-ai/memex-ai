@@ -39,13 +39,15 @@ import { parseTenantFromPathname } from './utils/tenantUrl';
 import { isFeatureHidden } from './utils/featureFlags';
 import { probePublicMemex, type PublicMemexProbe } from './api/client';
 import { PublicMemexProvider } from './components/PublicMemexContext';
-import { VoiceSessionProvider } from './voice/session/VoiceSessionContext';
+import {
+  VoiceSessionProvider,
+  createVoiceOrchestratorFactory,
+  setGuideBackend,
+} from '@memex/guide-sdk';
 import { VoiceLayer } from './voice/session/VoiceLayer';
-import { createVoiceOrchestratorFactory } from './voice/orchestrator/voiceGuideOrchestrator';
-import { currentScreenKey } from './voice/guideElements';
-import { guideElementsForScreen } from '@memex/shared';
+import { createReactRouterNavigationAdapter } from './voice/reactRouterNavigationAdapter';
 import { HandholdRevealProvider, useHandholdRevealValue } from './hooks/HandholdRevealContext';
-import { tenantBase } from './api/http';
+import { tenantBase, BASE_URL, fetchWithRetry } from './api/http';
 import { SearchProvider } from './components/SearchContext';
 import { WhatsNewRibbonConnected } from './components/whats-new/WhatsNewRibbonConnected';
 import { FirstRunGreeting } from './components/onboarding/FirstRunGreeting';
@@ -252,26 +254,41 @@ function VoiceGuideMount({
   liveRef.current = { token, namespace, memex, navigate, advanceDemo };
 
   const factory = useMemo(
-    () =>
-      createVoiceOrchestratorFactory({
+    () => {
+      // spec-222 (ac-9): the engine navigates ONLY through the injected adapter.
+      // The app supplies its react-router + @memex/shared backed implementation;
+      // it reads live values via liveRef so the factory stays stable for the
+      // component's lifetime. The token-carrying guide-chat leg + the retrying
+      // fetch are injected via setGuideBackend (replaces the engine's old reach
+      // into ./api/http + ./api/client).
+      setGuideBackend({ baseUrl: tenantBase() ?? BASE_URL, fetchImpl: fetchWithRetry });
+      const adapter = createReactRouterNavigationAdapter({
         navigate: (path: string) => liveRef.current.navigate(path),
+        namespace: liveRef.current.namespace,
+        memex: liveRef.current.memex,
+      });
+      return createVoiceOrchestratorFactory({
+        adapter,
+        // spec-222 t-6: the Memex app enables the demo-walkthrough capability so
+        // advance_demo / start_walkthrough are live (spec-206/211). The public
+        // website omits this, so those tools stay inert there (ac-6, ac-18).
+        capabilities: { walkthrough: true },
         advanceDemo: () => liveRef.current.advanceDemo(),
         startWalkthrough: () => walkthroughStartRef.current(),
         authToken: () => liveRef.current.token,
         tenantBase: () => tenantBase(),
         origin: typeof window !== 'undefined' ? window.location.origin : '',
         getScreenContext: () => {
-          const screenKey = currentScreenKey(
-            typeof window !== 'undefined' ? window.location.pathname : '',
-          );
+          const screenKey = adapter.currentScreenKey();
           return {
             screenKey,
-            screenRegistry: screenKey ? guideElementsForScreen(screenKey) : [],
+            screenRegistry: adapter.elementsForScreen?.(screenKey) ?? [],
             namespace: liveRef.current.namespace,
             memex: liveRef.current.memex,
           };
         },
-      }),
+      });
+    },
     // Stable for the component's lifetime — live values are read via liveRef.
     [],
   );

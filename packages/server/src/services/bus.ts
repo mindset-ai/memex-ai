@@ -102,6 +102,14 @@ export interface ChangeEvent {
   userId?: string;
   entity: ChangeEntity;
   action: ChangeAction;
+  // spec-122 dec-3/dec-5 — the activity contract's WHO, propagated from the
+  // RequestCtx by mutate(). Distinct from `userId` (the /me/events fan-out
+  // target): `actorUserId` is WHO performed the action, written to
+  // activity_log.actor_user_id; `actorName` is the denormalised display snapshot
+  // (ac-12). The sink prefers actorUserId, falling back to userId for events that
+  // predate this threading.
+  actorUserId?: string;
+  actorName?: string;
   // Pulse (b-60). Human-readable one-line summary of the activity. Conceptually
   // required for read actions (viewed/searched/assessed/called) but typed
   // optional so existing mutation emits keep compiling unchanged.

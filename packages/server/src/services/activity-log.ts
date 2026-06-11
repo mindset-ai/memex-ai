@@ -22,6 +22,7 @@ import { db, type Db } from "../db/connection.js";
 import { activityLog, documents } from "../db/schema.js";
 import type { ActivityLog, ActivityLogInsert } from "../db/schema.js";
 import { bus, type ChangeEvent, type Unsubscribe } from "./bus.js";
+import { stripUuids, containsUuid } from "./shared/identifiers.js";
 
 function log(...args: unknown[]): void {
   // eslint-disable-next-line no-console
@@ -74,7 +75,10 @@ export function mapEventToRow(event: ChangeEvent): ActivityLogInsert {
   return {
     memexId: event.memexId,
     briefId: event.docId ?? null,
-    actorUserId: event.userId ?? null,
+    // spec-122 dec-3 — prefer the explicit actor (WHO performed it); fall back to
+    // the legacy userId fan-out target for events that predate actor propagation.
+    actorUserId: event.actorUserId ?? event.userId ?? null,
+    actorName: event.actorName ?? null,
     actorKind,
     channel,
     clientId: event.clientId ?? null,
@@ -83,6 +87,51 @@ export function mapEventToRow(event: ChangeEvent): ActivityLogInsert {
     narrative,
     payload: event.payload ?? null,
   };
+}
+
+// ── Missing-channel = a visible defect (spec-122 dec-5 / ac-21) ─────────────
+// A mutation that reaches the sink with NO channel is an attribution gap — some
+// write path didn't thread its RequestCtx. The old behaviour silently coerced it
+// to 'server' (mapEventToRow's `?? "server"`), which MASKS the gap: a real human
+// or agent write becomes indistinguishable from a background job. We still
+// persist the row (the sink is advisory — losing it is worse), but we SURFACE the
+// defect loudly: a structured error log + a process counter that metrics/tests
+// assert on. Reads (viewed/searched/assessed/called) legitimately may carry no
+// channel and are exempt; only state-changing actions are attribution-bearing.
+const ATTRIBUTION_BEARING_ACTIONS: ReadonlySet<ChangeEvent["action"]> = new Set([
+  "created",
+  "updated",
+  "deleted",
+  "status_changed",
+]);
+
+let unattributedMutations = 0;
+
+/** Process counter of attribution-bearing mutations that reached the sink with no channel (ac-21). */
+export function getUnattributedMutationCount(): number {
+  return unattributedMutations;
+}
+
+/** Test-only: reset the unattributed-mutation counter. */
+export function _resetUnattributedMutationCount(): void {
+  unattributedMutations = 0;
+}
+
+/**
+ * Surface a missing-channel mutation as a visible defect (ac-21). Returns true
+ * when the event is an unattributed mutation. Loud — never silent.
+ */
+export function flagAttributionDefect(event: ChangeEvent): boolean {
+  if (event.channel === undefined && ATTRIBUTION_BEARING_ACTIONS.has(event.action)) {
+    unattributedMutations++;
+    log(
+      `ATTRIBUTION DEFECT — ${event.action} ${event.entity} reached the activity sink with no channel ` +
+        `(memex=${event.memexId} doc=${event.docId ?? "-"}). A write path is not threading its RequestCtx; ` +
+        `attribution is masked. Fix the call site rather than relying on the 'server' fallback.`,
+    );
+    return true;
+  }
+  return false;
 }
 
 // Skip events with no memexId. memex_id is NOT NULL + an FK to memexes, so a
@@ -105,6 +154,9 @@ export async function persistEvent(
   conn: Db = db,
 ): Promise<ActivityLog | null> {
   if (!hasPersistableScope(event)) return null;
+  // ac-21 — surface a missing channel as a visible defect BEFORE the persist
+  // step coerces it (the row is still written; the defect is no longer silent).
+  flagAttributionDefect(event);
   try {
     const [row] = await conn.insert(activityLog).values(mapEventToRow(event)).returning();
     return row ?? null;
@@ -214,7 +266,7 @@ export async function listActivity(
   // logic NULL only arises from the JOIN miss, already covered by the IS NULL arm.)
   conditions.push(or(isNull(activityLog.briefId), ne(documents.isDemo, true))!);
 
-  return conn
+  const rows = await conn
     // Project the activity_log columns explicitly so a joined SELECT still
     // returns a flat ActivityLog[] (a bare .select() over a join nests rows
     // under table keys).
@@ -223,6 +275,7 @@ export async function listActivity(
       memexId: activityLog.memexId,
       briefId: activityLog.briefId,
       actorUserId: activityLog.actorUserId,
+      actorName: activityLog.actorName,
       actorKind: activityLog.actorKind,
       channel: activityLog.channel,
       clientId: activityLog.clientId,
@@ -239,4 +292,16 @@ export async function listActivity(
     // share a created_at (a burst of events in the same millisecond).
     .orderBy(desc(activityLog.createdAt), desc(activityLog.id))
     .limit(limit);
+
+  // b-36 (no raw UUIDs out): activity_log narratives are IMMUTABLE — a row
+  // written before the spec-122 narrative fix can still read "created doc_member
+  // <uuid>". Strip any surviving UUID at the read boundary so the Pulse feed
+  // never renders one, and drop a UUID-shaped actor_name (the feed falls back to
+  // a client label rather than showing a raw id). New rows are already clean
+  // (composeNarrative is UUID-guarded), so this only touches the historical tail.
+  return rows.map((r) => ({
+    ...r,
+    narrative: stripUuids(r.narrative),
+    actorName: r.actorName && containsUuid(r.actorName) ? null : r.actorName,
+  }));
 }
