@@ -875,10 +875,12 @@ export function DocDocument() {
 
   // Plan's three sub-tabs. Build / Verify carry no sub-tab bar (ac-11).
   const planSubTabs = [
-    /* spec-196 dec-1 / ac-1+ac-6: the label reads "Spec" (the prose sections ARE
-       the spec); the id stays 'narrative' — internal vocabulary and deep links
-       are deliberately unchanged. */
-    { id: 'narrative', label: 'Spec', count: sectionCommentCount, countVariant: 'warning' as const },
+    /* spec-233 dec-1 (supersedes spec-196 dec-1): the label reads "Narrative".
+       Calling this single tab "Spec" misread as if it WERE the whole spec — the
+       whole object is the Spec; this tab is the prose lens within it. The id
+       stays 'narrative' — internal vocabulary, deep links and comment routing
+       are deliberately unchanged (display-label-only). */
+    { id: 'narrative', label: 'Narrative', count: sectionCommentCount, countVariant: 'warning' as const },
     { id: 'decisions', label: 'Decisions & ACs', count: decisionCommentCount, countVariant: 'warning' as const },
     { id: 'comments', label: 'Comments', count: totalCommentCount, countVariant: 'warning' as const },
   ];
