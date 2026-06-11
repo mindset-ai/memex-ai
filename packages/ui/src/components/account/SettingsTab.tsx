@@ -255,6 +255,7 @@ function AutoGroupingSection({
             onChange={onToggle}
             disabled={disabled}
             className="h-4 w-4"
+            data-testid="autogrouping-toggle"
           />
           <span className={`text-sm ${disabled ? 'text-muted' : 'text-primary'}`}>
             {org.autoGroupingEnabled ? 'Auto-grouping enabled' : 'Enable auto-grouping'}
