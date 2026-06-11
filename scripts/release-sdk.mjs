@@ -119,13 +119,16 @@ if (openPr) {
   const branch = `sdk-release-${sourceCommit.slice(0, 12)}`;
   const jsDir = resolve(websiteRepo, 'js');
   mkdirSync(jsDir, { recursive: true });
-  // Vendor the whole dist (loader + hashed chunks + provenance) into js/.
+  // Vendor the dist: loader + hashed chunks + provenance into js/, and the VAD
+  // runtime assets into the site root's assets/ — the engine fetches them at
+  // the absolute /assets/vad/ default (micVad baseAssetPath), not under /js/.
   for (const f of readdirSync(outDir)) {
-    cpSync(resolve(outDir, f), resolve(jsDir, f));
+    const dest = f === 'assets' ? resolve(websiteRepo, 'assets') : resolve(jsDir, f);
+    cpSync(resolve(outDir, f), dest, { recursive: true });
   }
   const g = (cmd) => execSync(cmd, { cwd: websiteRepo, stdio: 'inherit' });
   g(`git checkout -b ${branch}`);
-  g('git add js/');
+  g('git add js/ assets/');
   g(`git commit -m "chore(sdk): vendor guide-sdk bundle @ ${sourceCommit.slice(0, 12)}"`);
   g(`git push -u origin ${branch}`);
   g(
