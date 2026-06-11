@@ -21,13 +21,17 @@
 // static import of './engine', React, or the orchestrator anywhere below; the
 // engine dependency-cut guard for this file is the ac-8 structural test.
 
-import speckyStatic from '../assets/specky-static.svg';
+// The ANIMATED Specky (idle bob/sway/blink loop) — its animation is CSS
+// keyframes INSIDE the SVG, which play in an <img> context, so the no-React
+// loader gets the same living mark the engine renders. The static frame made
+// the first paint look dead next to the engine's idle icon.
+import speckyAnimated from '../assets/specky.svg';
 import { staticSiteNavigation } from '../navigation/staticSiteNavigation';
 import type { GuideBundleConfig, MountedEngine } from './types';
 
 /** The doorway's host element id (so a double-init can't stack two doorways). */
 const HOST_ID = 'memex-guide-host';
-/** Intrinsic aspect ratio of specky-static.svg (viewBox "0 0 240 330"). */
+/** Intrinsic aspect ratio of specky.svg (viewBox "0 0 240 330"). */
 const SPECKY_ASPECT = 330 / 240;
 /**
  * DOORWAY PARITY CONTRACT (see doorwayParity.test.ts): the doorway is the
@@ -78,7 +82,7 @@ export function init(config: GuideBundleConfig): HTMLElement {
   doorway.title = 'Ask Specky';
 
   const img = document.createElement('img');
-  img.src = speckyStatic;
+  img.src = speckyAnimated;
   img.alt = '';
   img.width = MARK_PX;
   img.height = Math.round(MARK_PX * SPECKY_ASPECT);
