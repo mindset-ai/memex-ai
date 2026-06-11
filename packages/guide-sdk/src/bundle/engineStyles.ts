@@ -40,15 +40,19 @@ export const ENGINE_CSS = `
 }
 
 /* Reset the engine container's inherited box model (host pages vary wildly). */
-[data-memex-guide='engine'] *,
-[data-memex-guide='engine'] *::before,
-[data-memex-guide='engine'] *::after {
+:where([data-memex-guide='engine'] *),
+:where([data-memex-guide='engine'] *)::before,
+:where([data-memex-guide='engine'] *)::after {
   box-sizing: border-box;
 }
 
 /* Buttons inside the engine shed the host page's button chrome before our
-   utility classes paint them (background/border/font come from the classes). */
-[data-memex-guide='engine'] button {
+   utility classes paint them (background/border/font come from the classes).
+   :where() zeroes the reset's specificity — bare, this selector is (0,1,1)
+   and its background: none beats every single-class utility like .bg-surface
+   (0,1,0), leaving the idle icon and pill transparent on the host page (the
+   doorway-dark-then-light bug seen live on www.memex.ai). */
+:where([data-memex-guide='engine'] button) {
   margin: 0;
   font: inherit;
   color: inherit;
