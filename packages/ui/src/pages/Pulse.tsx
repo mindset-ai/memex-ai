@@ -405,13 +405,22 @@ export function Pulse() {
     setClientId((prev) => (prev === id ? null : id));
   }, []);
 
+  // Scope the presence plane to the active 'me'/'everyone' filter so the WHOLE
+  // board (Vitals active-now, Hot Specs, Working Now) honours "just me" — not
+  // only the activity-derived parts (spec-255 int feedback).
+  const scopedPresent = useMemo(() => {
+    if (scope !== 'me') return presentRows;
+    if (!currentUserId) return [];
+    return presentRows.filter((r) => r.actorUserId === currentUserId);
+  }, [presentRows, scope, currentUserId]);
+
   // When a spec is selected, narrow Working-now to it too (board scope is
   // consistent across both zones); otherwise it's the whole-Memex picture.
   const displayedPresent = useMemo(() => {
     const wantSpecId = selectedSpec?.id ?? null;
-    if (!wantSpecId) return presentRows;
-    return presentRows.filter((r) => r.docId === wantSpecId);
-  }, [presentRows, selectedSpec]);
+    if (!wantSpecId) return scopedPresent;
+    return scopedPresent.filter((r) => r.docId === wantSpecId);
+  }, [scopedPresent, selectedSpec]);
 
   // Working Now (spec-255 int feedback): everyone involved in the last ~5min —
   // presence ∪ recent meaningful activity — so reading a long spec doesn't drop
@@ -465,9 +474,9 @@ export function Pulse() {
               Fed from the MERGED live+history stream (movingRows) so live events
               move the sparklines and keep a spec hot the instant they land —
               not only after a periodic history refetch. */}
-          <VitalsStrip present={presentRows} activity={movingRows} />
+          <VitalsStrip present={scopedPresent} activity={movingRows} />
           <HotSpecs
-            present={presentRows}
+            present={scopedPresent}
             activity={movingRows}
             specHandle={specHandleByDocId}
             specTitle={specTitleByDocId}
@@ -482,6 +491,7 @@ export function Pulse() {
             loading={presenceLoading}
             specHandle={specHandleByDocId}
             specTitle={specTitleByDocId}
+            specHref={specHref}
             lastActivityAt={lastActivityAt}
             lastNarrative={specNarrativeByDocId}
           />
@@ -507,13 +517,17 @@ export function Pulse() {
         </div>
         <div className="lg:col-span-1 min-h-0 overflow-y-auto">
           {/* Test-signal volume graphic — the firehose as a live sparkline,
-              sitting ABOVE the needs-attention tray so the column reads
-              "real-time pulse → things to look at". */}
-          <TestSignalsMonitor
-            signals={mergedTestSignals}
-            loading={testSignalsLoading}
-            live={liveTestSignals.length > 0}
-          />
+              sitting ABOVE the needs-attention tray. It's a Memex-wide CI health
+              signal (test_events carry a free-text CI actor, not a user link),
+              so under 'me' it isn't personal — hide it to keep the board
+              consistently scoped to the active filter (spec-255 int feedback). */}
+          {scope !== 'me' && (
+            <TestSignalsMonitor
+              signals={mergedTestSignals}
+              loading={testSignalsLoading}
+              live={liveTestSignals.length > 0}
+            />
+          )}
           <NeedsAttentionTray briefId={selectedSpec?.id} />
         </div>
       </div>
