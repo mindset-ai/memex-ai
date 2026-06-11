@@ -61,6 +61,9 @@ import { useHandholdRevealValue } from '../hooks/HandholdRevealContext';
 import { BylineAssignees } from '../components/BylineAssignees';
 import { useDocRole } from '../hooks/useDocRole';
 import { useOrgScaffoldBlocks } from '../hooks/useOrgScaffoldBlocks';
+import { usePresenceHeartbeat } from '../hooks/usePresenceHeartbeat';
+import { usePresence } from '../hooks/usePresence';
+import { SpecPresenceIndicator } from '../components/pulse/SpecPresenceIndicator';
 
 export function DocDocument() {
   // spec-64 i-3: the Spec page is also mounted at the canonical Decision / Issue
@@ -397,6 +400,16 @@ export function DocDocument() {
 
   // Refetch when any source (agent, MCP, REST, other clients) mutates this document
   useDocChangeStream(doc?.id ?? null, reloadDoc);
+
+  // spec-122 ac-5 / ac-16: ambient presence on the spec/AC surface. A human
+  // VIEWING this spec marks themselves present via the heartbeat (15s while the
+  // tab is visible); the presence poll feeds the ambient "● who's working this"
+  // indicator on the header + AC tab. Specs only — the presence plane is keyed
+  // on spec refs (the endpoint rejects a non-spec ref). The bare handle is an
+  // accepted ref form for both endpoints.
+  const specRef = doc?.docType === 'spec' ? doc.handle : null;
+  usePresenceHeartbeat(specRef);
+  const { rows: presentRows } = usePresence(specRef);
 
   const headerActions = useMemo(() => {
     if (!doc) return null;
@@ -950,12 +963,21 @@ export function DocDocument() {
   );
 
   const acPanel = (
-    <AcPanel
-      docId={doc.id}
-      specPhase={phase}
-      focusedAcId={focusedAcId}
-      onFocusConsumed={() => setFocusedAcId(null)}
-    />
+    <div className="space-y-2">
+      {/* spec-122 ac-5: the AC-tab presence banner — a heads-up that ACs may
+          shift while someone (esp. an agent) is actively working the spec. */}
+      {presentRows.length > 0 && (
+        <div data-testid="ac-presence-banner">
+          <SpecPresenceIndicator present={presentRows} variant="ac" />
+        </div>
+      )}
+      <AcPanel
+        docId={doc.id}
+        specPhase={phase}
+        focusedAcId={focusedAcId}
+        onFocusConsumed={() => setFocusedAcId(null)}
+      />
+    </div>
   );
 
   const taskPanel = (
@@ -1107,6 +1129,13 @@ export function DocDocument() {
               <BylineAssignees docId={doc.id} />
               <span className="opacity-40">&middot;</span>
               <TagPicker docId={doc.id} tags={doc.tags ?? []} onTagsChange={handleTagsChange} />
+              {/* spec-122 ac-5: ambient presence — who's working this spec now. */}
+              {presentRows.length > 0 && (
+                <>
+                  <span className="opacity-40">&middot;</span>
+                  <SpecPresenceIndicator present={presentRows} variant="spec" />
+                </>
+              )}
             </>
           )}
         </div>

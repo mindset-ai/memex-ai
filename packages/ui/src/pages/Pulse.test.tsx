@@ -7,11 +7,13 @@ import {
   Route,
   useLocation,
 } from 'react-router-dom';
+import { tagAc } from '@memex-ai-ac/vitest';
 import type { DocSummary } from '../api/types';
-import type { ActivityRow } from '../components/pulse/types';
+import type { ActivityRow, PresentRow } from '../components/pulse/types';
 import type { UsePulseHistoryResult } from '../hooks/usePulseHistory';
 
 const CURRENT_USER = 'u-1';
+const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-122/acs/ac-${n}`;
 
 // ── Mock the data hooks + the spec-list fetch so the page is deterministic. ──
 
@@ -27,6 +29,13 @@ vi.mock('../hooks/usePulseStream', () => ({
 const usePulseHistoryMock = vi.hoisted(() => vi.fn());
 vi.mock('../hooks/usePulseHistory', () => ({
   usePulseHistory: (filters: unknown) => usePulseHistoryMock(filters),
+}));
+
+// usePresence: the presence poll feeding the "Working now" zone. Never opens a
+// real fetch; tests queue the present rows.
+const usePresenceMock = vi.hoisted(() => vi.fn());
+vi.mock('../hooks/usePresence', () => ({
+  usePresence: (refs: unknown) => usePresenceMock(refs),
 }));
 
 // The spec list the picker reads.
@@ -68,6 +77,7 @@ function row(overrides: Partial<ActivityRow> = {}): ActivityRow {
     memexId: 'mx-1',
     briefId: 'sb-1',
     actorUserId: CURRENT_USER,
+    actorName: 'Barrie',
     actorKind: 'human',
     channel: 'rest_ui',
     clientId: null,
@@ -111,6 +121,21 @@ function history(
   };
 }
 
+function present(overrides: Partial<PresentRow> = {}): PresentRow {
+  return {
+    memexId: 'mx-1',
+    docId: 'sb-12',
+    actorUserId: 'u-2',
+    actorName: 'Barrie',
+    actorKind: 'human',
+    channel: 'rest_ui',
+    clientId: 'sess-1',
+    lastSeenAt: new Date().toISOString(),
+    source: 'heartbeat',
+    ...overrides,
+  };
+}
+
 const EMPTY_ATTENTION = {
   unresolvedDecisions: { count: 0, items: [] },
   openQuestions: { count: 0, items: [] },
@@ -148,11 +173,13 @@ function renderPulse() {
 beforeEach(() => {
   usePulseStreamMock.mockReset();
   usePulseHistoryMock.mockReset();
+  usePresenceMock.mockReset();
   fetchDocsMock.mockReset();
   useNeedsAttentionMock.mockReset();
 
   usePulseStreamMock.mockReturnValue({ latest: null, status: 'connected' });
   useNeedsAttentionMock.mockReturnValue(EMPTY_ATTENTION);
+  usePresenceMock.mockReturnValue({ rows: [], loading: false });
   fetchDocsMock.mockResolvedValue([]);
   usePulseHistoryMock.mockReturnValue(history());
 });
@@ -297,6 +324,122 @@ describe('Pulse page', () => {
         const last = calls[calls.length - 1][0] as { clientId?: string };
         expect(last.clientId).toBeUndefined();
       });
+    });
+  });
+
+  describe('two-zone board (spec-122 ac-1)', () => {
+    it('shows Working-now with active workers (name + spec + time-since) and What\'s-moving with state-changing rows only', async () => {
+      tagAc(AC(1));
+      // A spec the worker is on, so the doc-id → handle/title resolve.
+      fetchDocsMock.mockResolvedValue([
+        spec({ id: 'sb-12', handle: 'spec-12', title: 'Auth migration' }),
+      ]);
+      // One active worker present on that spec.
+      usePresenceMock.mockReturnValue({
+        rows: [
+          present({
+            docId: 'sb-12',
+            actorName: 'Barrie',
+            actorKind: 'mcp_agent',
+            lastSeenAt: new Date(Date.now() - 5_000).toISOString(),
+          }),
+        ],
+        loading: false,
+      });
+      // History carries a MOVING row (decision updated) AND a read row (viewed) —
+      // only the moving one should reach the What's-moving stream.
+      usePulseHistoryMock.mockReturnValue(
+        history({
+          rows: [
+            row({
+              entity: 'decision',
+              action: 'updated',
+              narrative: 'Resolved dec-1 in spec-12',
+              briefId: 'sb-12',
+            }),
+            row({
+              entity: 'document',
+              action: 'viewed',
+              narrative: 'Viewed spec-12 Auth migration',
+              briefId: 'sb-12',
+            }),
+          ],
+        }),
+      );
+
+      renderPulse();
+
+      // Working-now shows the active worker on their spec.
+      const workingNow = await screen.findByTestId('working-now');
+      const worker = within(workingNow).getByTestId('working-now-worker');
+      expect(worker).toHaveTextContent('Barrie');
+      expect(worker).toHaveTextContent('spec-12');
+      // Time-since-last-beat is rendered (a <time> element).
+      expect(within(worker).getByTestId('worker-last-beat').querySelector('time')).toBeTruthy();
+
+      // What's-moving renders the state-changing row (its dec-1 handle is shown)…
+      const feed = screen.getByTestId('activity-feed');
+      expect(within(feed).getByText('dec-1')).toBeInTheDocument();
+      // …but NOT the `viewed` read action. The viewed row's narrative
+      // ("Viewed spec-12 …") never reaches the moving stream, so the only
+      // activity-row in the feed is the moving one.
+      expect(within(feed).getAllByTestId('activity-row')).toHaveLength(1);
+      expect(within(feed).queryByText(/Viewed/)).toBeNull();
+    });
+
+    it('renders an empty Working-now zone when no one is present, keeping the tray', async () => {
+      tagAc(AC(1));
+      usePresenceMock.mockReturnValue({ rows: [], loading: false });
+      renderPulse();
+      expect(await screen.findByTestId('working-now-empty')).toBeInTheDocument();
+      expect(screen.getByTestId('needs-attention-tray')).toBeInTheDocument();
+    });
+  });
+
+  describe('presence-aware regression (spec-122 ac-2)', () => {
+    it('mutes a regression on a worked spec and alarms on a quiet one', async () => {
+      tagAc(AC(2));
+      fetchDocsMock.mockResolvedValue([
+        spec({ id: 'sb-worked', handle: 'spec-20', title: 'Worked' }),
+        spec({ id: 'sb-quiet', handle: 'spec-21', title: 'Quiet' }),
+      ]);
+      // A worker is present ONLY on the worked spec.
+      usePresenceMock.mockReturnValue({
+        rows: [present({ docId: 'sb-worked', actorKind: 'mcp_agent' })],
+        loading: false,
+      });
+      // Two regression rows: one on the worked spec, one on the quiet spec.
+      usePulseHistoryMock.mockReturnValue(
+        history({
+          rows: [
+            row({
+              id: 'reg-worked',
+              entity: 'document',
+              action: 'updated',
+              narrative: 'ac-3 went red in spec-20',
+              briefId: 'sb-worked',
+              clientId: null,
+            }),
+            row({
+              id: 'reg-quiet',
+              entity: 'document',
+              action: 'updated',
+              narrative: 'ac-4 went red in spec-21',
+              briefId: 'sb-quiet',
+              clientId: null,
+            }),
+          ],
+        }),
+      );
+
+      renderPulse();
+
+      await screen.findByTestId('activity-feed');
+      const flags = screen.getAllByTestId('regressed-flag');
+      expect(flags).toHaveLength(2);
+      const muted = flags.map((f) => f.getAttribute('data-muted')).sort();
+      // One muted (worked), one alarming (quiet) — they render differently.
+      expect(muted).toEqual(['false', 'true']);
     });
   });
 });

@@ -30,13 +30,30 @@ import type { DocSummary } from '../api/types';
 import { PageHeader } from '../components/PageHeader';
 import { LiveDot } from '../components/pulse/LiveDot';
 import { ActivityFeed } from '../components/pulse/ActivityFeed';
+import { WorkingNow } from '../components/pulse/WorkingNow';
 import { NeedsAttentionTray } from '../components/pulse/NeedsAttentionTray';
 import { SpecPicker, type SpecPickerSpec } from '../components/pulse/SpecPicker';
 import { ScopeToggle, type PulseScope } from '../components/pulse/ScopeToggle';
 import { ClientChip } from '../components/pulse/ClientChip';
+import { clientLabel } from '../components/pulse/clientLabel';
 import { usePulseHistory } from '../hooks/usePulseHistory';
 import { usePulseStream } from '../hooks/usePulseStream';
+import { usePresence } from '../hooks/usePresence';
+import { isStateChanging } from '../components/pulse/types';
 import type { ActivityRow, PulseConnectionStatus } from '../components/pulse/types';
+
+// spec-122 ac-2 — detect a REGRESSION on a moving line: a previously-verified AC
+// going red. There's no dedicated server-side "regressed" action, so we read the
+// signal off the AC/verification activity narrative (red / regress / fail). Kept
+// deliberately narrow — only AC/document/standard_drift entities qualify, so a
+// task or comment mentioning "failed" never trips the alarm.
+const REGRESSION_NARRATIVE = /\b(regress|went red|now red|failing|failed|red)\b/i;
+function isRegressionRow(row: ActivityRow): boolean {
+  if (row.action !== 'updated' && row.action !== 'created') return false;
+  const e = row.entity;
+  if (e !== 'document' && e !== 'standard_drift') return false;
+  return REGRESSION_NARRATIVE.test(row.narrative);
+}
 
 // A client is shown as an active chip if it produced an event in this window…
 const ACTIVE_CLIENT_WINDOW_MS = 10 * 60 * 1000; // 10 minutes
@@ -50,26 +67,6 @@ const ONE_HOUR_MS = 60 * 60 * 1000;
 
 function rowMs(row: ActivityRow): number {
   return new Date(row.createdAt).getTime();
-}
-
-// dec-7: a client chip shows a human label by channel — never the raw clientId
-// (an opaque session hash / MCP token id / conversation id). The clientId is
-// still the filter key (chip toggle), just not the display text.
-function clientLabel(channel: ActivityRow['channel'] | undefined, clientId: string): string {
-  switch (channel) {
-    case 'server':
-      return 'System';
-    case 'in_app_agent':
-      return 'In-app agent';
-    case 'mcp':
-      // The MCP token's name isn't surfaced client-side yet (Wave-3 follow-up);
-      // fall back to a short, readable prefix rather than the full token id.
-      return `MCP · ${clientId.slice(0, 6)}`;
-    case 'rest_ui':
-      return 'This browser';
-    default:
-      return `Client · ${clientId.slice(0, 6)}`;
-  }
 }
 
 export function Pulse() {
@@ -167,10 +164,18 @@ export function Pulse() {
   // prop is the legacy name that we feed `specId` into — the underlying server
   // param hasn't been renamed yet. ────────────────────────────────────────────
   const actorUserId = scope === 'me' ? currentUserId ?? undefined : undefined;
+  // Under 'me' the actor filter is the session's user id. While the session is
+  // still resolving (currentUserId === null) we'd otherwise fetch UNFILTERED
+  // (actorUserId undefined → server returns everyone), flash those rows in, then
+  // refetch filtered once the id lands — the "appeared then disappeared" glitch.
+  // Gate the fetch until the id resolves so the page shows its spinner instead.
+  // 'everyone' has no such dependency, so it's always enabled.
+  const historyEnabled = scope !== 'me' || currentUserId !== null;
   const history = usePulseHistory({
     actorUserId,
     briefId: specId,
     clientId: clientId ?? undefined,
+    enabled: historyEnabled,
   });
   const { rows: historyRows, loading, hasMore, loadOlder, refresh } = history;
 
@@ -224,11 +229,68 @@ export function Pulse() {
     setLiveRows([]);
   }, [scope, specId, clientId]);
 
-  // ── eventsLastHour for the feed status line, from the merged set. ───────────
+  // ── Working-now zone (ac-1): presence across every spec. The presence GET
+  // endpoint is per-spec, so we poll it for each spec handle and the hook merges
+  // the results into one "who's here now" set. We pass bare `spec-N` handles —
+  // the endpoint accepts either a full ref or a bare handle. ───────────────────
+  const specRefs = useMemo(
+    () => specDocs.map((d) => d.handle),
+    [specDocs],
+  );
+  const { rows: presentRows, loading: presenceLoading } = usePresence(specRefs);
+
+  // docId → spec handle / title, for the Working-now lines (presence rows carry
+  // the spec's doc id; the spec list carries handle + title keyed by id).
+  const specHandleByDocId = useCallback(
+    (docId: string): string | undefined => specDocs.find((d) => d.id === docId)?.handle,
+    [specDocs],
+  );
+  const specTitleByDocId = useCallback(
+    (docId: string): string | undefined => specDocs.find((d) => d.id === docId)?.title,
+    [specDocs],
+  );
+
+  // The set of spec doc ids with an ACTIVE WORKER present — drives both the feed
+  // tray scope and ac-2's presence-aware regression muting.
+  const activeWorkerDocIds = useMemo(
+    () => new Set(presentRows.map((r) => r.docId)),
+    [presentRows],
+  );
+  const specHasActiveWorker = useCallback(
+    (briefId: string | null) => !!briefId && activeWorkerDocIds.has(briefId),
+    [activeWorkerDocIds],
+  );
+
+  // ── "What's moving" zone (ac-1): state-changing rows ONLY. The read actions
+  // (viewed/searched/assessed/called) are the ambient firehose — a manager
+  // glancing at the board shouldn't wade through them. ─────────────────────────
+  const movingRows = useMemo(
+    () => mergedRows.filter((r) => isStateChanging(r)),
+    [mergedRows],
+  );
+
+  // docId → ISO of that spec's most recent moving activity, for the Working-now
+  // "last moved <ago>" clock (ac-1: how long since each active spec last had
+  // activity).
+  const lastActivityByDocId = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const r of movingRows) {
+      if (!r.briefId) continue;
+      const prev = map.get(r.briefId);
+      if (!prev || rowMs(r) > new Date(prev).getTime()) map.set(r.briefId, r.createdAt);
+    }
+    return map;
+  }, [movingRows]);
+  const lastActivityAt = useCallback(
+    (docId: string): string | undefined => lastActivityByDocId.get(docId),
+    [lastActivityByDocId],
+  );
+
+  // ── eventsLastHour for the feed status line, from the moving set. ───────────
   const eventsLastHour = useMemo(() => {
     const cutoff = Date.now() - ONE_HOUR_MS;
-    return mergedRows.filter((r) => rowMs(r) >= cutoff).length;
-  }, [mergedRows]);
+    return movingRows.filter((r) => rowMs(r) >= cutoff).length;
+  }, [movingRows]);
 
   // ── Active-client chips (dec-7): distinct clientIds the *current user* drove
   // in the last ~10min, derived from the merged rows. Only rendered under 'me'. ─
@@ -256,6 +318,14 @@ export function Pulse() {
   const toggleClient = useCallback((id: string) => {
     setClientId((prev) => (prev === id ? null : id));
   }, []);
+
+  // When a spec is selected, narrow Working-now to it too (board scope is
+  // consistent across both zones); otherwise it's the whole-Memex picture.
+  const displayedPresent = useMemo(() => {
+    const wantSpecId = selectedSpec?.id ?? null;
+    if (!wantSpecId) return presentRows;
+    return presentRows.filter((r) => r.docId === wantSpecId);
+  }, [presentRows, selectedSpec]);
 
   const headerTitle = memexName ? `Pulse · ${memexName}` : 'Pulse';
 
@@ -292,19 +362,32 @@ export function Pulse() {
         </div>
       )}
 
-      {/* Two columns desktop (feed ~2fr, tray ~1fr); stacked on mobile. */}
+      {/* spec-122 ac-1: the two-zone board. WORKING NOW (presence) sits ABOVE
+          WHAT'S MOVING (the state-changing activity stream), spanning the feed
+          column; the Needs-attention tray keeps its place on the right. */}
       <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 min-h-0 flex flex-col rounded-lg border border-edge-subtle bg-surface/40 overflow-hidden">
-          <ActivityFeed
-            rows={mergedRows}
-            status={status}
-            eventsLastHour={eventsLastHour}
-            loading={loading}
-            hasMore={hasMore}
-            onLoadOlder={loadOlder}
-            contextBriefHandle={selectedSpec?.handle}
-            specTitle={specTitle}
+        <div className="lg:col-span-2 min-h-0 flex flex-col">
+          <WorkingNow
+            present={displayedPresent}
+            loading={presenceLoading}
+            specHandle={specHandleByDocId}
+            specTitle={specTitleByDocId}
+            lastActivityAt={lastActivityAt}
           />
+          <div className="min-h-0 flex-1 flex flex-col rounded-lg border border-edge-subtle bg-surface/40 overflow-hidden">
+            <ActivityFeed
+              rows={movingRows}
+              status={status}
+              eventsLastHour={eventsLastHour}
+              loading={loading}
+              hasMore={hasMore}
+              onLoadOlder={loadOlder}
+              contextBriefHandle={selectedSpec?.handle}
+              specTitle={specTitle}
+              isRegression={isRegressionRow}
+              specHasActiveWorker={specHasActiveWorker}
+            />
+          </div>
         </div>
         <div className="lg:col-span-1 min-h-0 overflow-y-auto">
           <NeedsAttentionTray briefId={selectedSpec?.id} />

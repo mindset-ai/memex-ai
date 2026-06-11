@@ -4,7 +4,8 @@ import { tasks, documents } from "../db/schema.js";
 import type { Task, Decision } from "../db/schema.js";
 import { ConflictError, NotFoundError, ValidationError } from "../types/errors.js";
 import { TASK_STATUSES, isTaskStatus } from "../types/roles.js";
-import { mutate, type Mutated } from "./mutate.js";
+import { mutate, type Mutated, type RequestCtx } from "./mutate.js";
+import { resolveActorColumns } from "./actor.js";
 import { getBlockersForTask, getBlockingGraphForDoc } from "./dependencies.js";
 import type { Blockers } from "./dependencies.js";
 import { nextSeq, withSeqRetry } from "./shared/sequence.js";
@@ -73,13 +74,14 @@ export async function createTask(
   title: string,
   description: string,
   acceptanceCriteria?: AcceptanceCriterion[],
-  sectionRef?: string
+  sectionRef?: string,
+  ctx: RequestCtx = {}
 ): Promise<Mutated<Task>> {
   await assertDocInAccount(memexId, docId);
   // b-38 F-3 — wrap allocator + insert in withSeqRetry so concurrent createTask
   // calls under the same doc don't 23505 on `tasks_doc_id_seq_unique`.
   return mutate(
-    {},
+    ctx,
     { memexId, docId, entity: "task", action: "created" },
     async () =>
       withSeqRetry(
@@ -96,6 +98,8 @@ export async function createTask(
               acceptanceCriteria: acceptanceCriteria ?? [],
               sectionRef: sectionRef ?? null,
               status: "not_started",
+              // spec-122 dec-2/dec-5 — stamp WHO + HOW at write time (ac-20).
+              ...(await resolveActorColumns(ctx)),
             })
             .returning();
           return item;
@@ -243,7 +247,8 @@ export async function getTask(
 export async function updateTaskStatus(
   memexId: string,
   id: string,
-  status: string
+  status: string,
+  ctx: RequestCtx = {}
 ): Promise<Mutated<Task>> {
   if (!isTaskStatus(status)) {
     throw new ValidationError(
@@ -260,7 +265,8 @@ export async function updateTaskStatus(
   }
 
   const now = new Date();
-  const updates: Partial<Task> = { status };
+  // spec-122 dec-2/dec-5 — re-attribute on status move (who advanced it).
+  const updates: Partial<Task> = { status, ...(await resolveActorColumns(ctx)) };
 
   if (status === "in_progress" && !item.startedAt) {
     updates.startedAt = now;
@@ -274,7 +280,7 @@ export async function updateTaskStatus(
   }
 
   const updated = await mutate(
-    {},
+    ctx,
     { memexId, docId: item.docId, entity: "task", action: "updated" },
     async () => {
       const [row] = await db
@@ -292,7 +298,7 @@ export async function updateTaskStatus(
   // (draft→specify, specify→build, verify→done) stay manual. updateDocStatus emits its
   // own document.updated event — independent invariant per dec-2 of doc-16.
   if (status === "complete") {
-    await maybeAutoPromoteToVerify(memexId, item.docId);
+    await maybeAutoPromoteToVerify(memexId, item.docId, ctx);
     // spec-112 ac-22: a `converted` Issue whose satisfying Task just completed
     // transitions → `resolved` IFF the verifying AC's latest test_event is a pass.
     // Best-effort: a failure here must not fail the task-status write (the Issue
@@ -302,7 +308,11 @@ export async function updateTaskStatus(
   return updated;
 }
 
-async function maybeAutoPromoteToVerify(memexId: string, docId: string): Promise<void> {
+async function maybeAutoPromoteToVerify(
+  memexId: string,
+  docId: string,
+  ctx: RequestCtx = {},
+): Promise<void> {
   const doc = await db.query.documents.findFirst({
     where: and(eq(documents.id, docId), eq(documents.memexId, memexId)),
   });
@@ -319,7 +329,9 @@ async function maybeAutoPromoteToVerify(memexId: string, docId: string): Promise
     .where(and(eq(tasks.docId, docId), ne(tasks.status, "complete")));
 
   if (Number(openCount) === 0) {
-    await updateDocStatus(memexId, docId, "verify");
+    // spec-122 dec-3 — carry the actor/channel onto the auto-promotion's
+    // status_changed journal row (t-4).
+    await updateDocStatus(memexId, docId, "verify", { ctx });
   }
 }
 
@@ -331,7 +343,8 @@ export async function updateTask(
     description?: string;
     acceptanceCriteria?: AcceptanceCriterion[];
     sectionRef?: string | null;
-  }
+  },
+  ctx: RequestCtx = {}
 ): Promise<Mutated<Task>> {
   const item = await db.query.tasks.findFirst({
     where: and(eq(tasks.id, id), eq(tasks.memexId, memexId)),
@@ -350,15 +363,18 @@ export async function updateTask(
     // silent: no caller-supplied fields means no DB write; brand the return so
     // the type contract still says this went through mutate().
     return mutate(
-      {},
+      ctx,
       { memexId, docId: item.docId, entity: "task", action: "updated" },
       async () => item,
       { silent: true },
     );
   }
 
+  // spec-122 dec-2/dec-5 — re-attribute on edit (who touched it last).
+  Object.assign(setValues, await resolveActorColumns(ctx));
+
   return mutate(
-    {},
+    ctx,
     { memexId, docId: item.docId, entity: "task", action: "updated" },
     async () => {
       const [updated] = await db

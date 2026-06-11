@@ -3,7 +3,8 @@ import { db } from "../db/connection.js";
 import { decisions, documents, docComments } from "../db/schema.js";
 import type { Decision } from "../db/schema.js";
 import { ConflictError, NotFoundError, ValidationError } from "../types/errors.js";
-import { mutate, type Mutated } from "./mutate.js";
+import { mutate, type Mutated, type RequestCtx } from "./mutate.js";
+import { resolveActorColumns } from "./actor.js";
 import { nextSeq, withSeqRetry } from "./shared/sequence.js";
 import { isUuid, parseHandle } from "./shared/identifiers.js";
 import { embedAndStoreDecision } from "./memex-embeddings.js";
@@ -126,6 +127,7 @@ export async function createDecision(
   title: string,
   context?: string,
   source: "human" | "agent" = "human",
+  ctx: RequestCtx = {},
 ): Promise<Mutated<Decision>> {
   await assertDocInAccount(memexId, docId);
   // createDecision is the direct (REST + create_decision MCP) path. Default 'human'
@@ -134,7 +136,7 @@ export async function createDecision(
   // b-38 F-3 — wrap allocator + insert in withSeqRetry so concurrent createDecision
   // calls under the same doc don't 23505 on `decisions_doc_id_seq_unique`.
   const result = await mutate(
-    {},
+    ctx,
     { memexId, docId, entity: "decision", action: "created" },
     async () =>
       withSeqRetry(
@@ -142,7 +144,8 @@ export async function createDecision(
           const seq = await nextSeq(decisions, decisions.seq, decisions.docId, docId);
           const [decision] = await db
             .insert(decisions)
-            .values({ memexId, docId, seq, title, context: context ?? null, status: "open", source })
+            // spec-122 dec-2/dec-5 — stamp WHO + HOW at write time (ac-20).
+            .values({ memexId, docId, seq, title, context: context ?? null, status: "open", source, ...(await resolveActorColumns(ctx)) })
             .returning();
           return decision;
         },
@@ -677,6 +680,7 @@ export async function resolveDecision(
   id: string,
   resolution: string,
   chosenOptionIndex?: number,
+  ctx: RequestCtx = {},
 ): Promise<Mutated<Decision>> {
   const decision = await loadOwnedDecision(memexId, id);
   // Strict transition: only `open` decisions can be resolved. Candidates need approval
@@ -708,7 +712,7 @@ export async function resolveDecision(
   // refetch the whole doc on the decision event, which pulls the new comment state too.
   // Both writes run in one mutate() so a failure in either path emits nothing.
   const updated = await mutate(
-    {},
+    ctx,
     { memexId, docId: decision.docId, entity: "decision", action: "updated" },
     async () => {
       const [row] = await db
@@ -717,6 +721,8 @@ export async function resolveDecision(
           status: "resolved",
           resolution,
           resolvedAt: now,
+          // spec-122 dec-2/dec-5 — record who resolved it, through which surface.
+          ...(await resolveActorColumns(ctx)),
           ...(effectiveChosenIndex !== undefined ? { chosenOptionIndex: effectiveChosenIndex } : {}),
         })
         .where(and(eq(decisions.id, id), eq(decisions.memexId, memexId)))

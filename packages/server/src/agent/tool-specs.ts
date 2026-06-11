@@ -113,6 +113,10 @@ import {
   deleteTask,
   getReadyTasks,
 } from "../services/tasks.js";
+import type { RequestCtx } from "../services/mutate.js";
+import { listActivityView } from "../services/activity-view.js";
+import { resolveTestEventActors } from "../services/who-resolver.js";
+import { listPresent } from "../services/presence.js";
 import {
   createIssue,
   listIssuesForSpec,
@@ -389,6 +393,23 @@ export interface ToolCtx {
    * The choke sets this; handlers call it.
    */
   recordCreatedDoc?: (memexId: string, docId: string) => void;
+}
+
+/**
+ * spec-122 dec-5 — turn a ToolCtx into the RequestCtx the source-table services
+ * thread into mutate() and stamp onto the activity contract columns. Carries WHO
+ * (actorUserId; actorName when the surface knows it — the in-app agent does, the
+ * MCP surface leaves it for the service to resolve) and HOW (channel defaults to
+ * 'mcp' for the same reason the dispatch layer does — a hand-rolled test ctx
+ * without a channel is the MCP server) plus the per-client session id.
+ */
+function reqCtx(ctx: ToolCtx): RequestCtx {
+  return {
+    actorUserId: ctx.userId,
+    ...(ctx.userName !== undefined ? { actorName: ctx.userName } : {}),
+    channel: ctx.channel ?? "mcp",
+    ...(ctx.sessionId !== undefined ? { clientId: ctx.sessionId } : {}),
+  };
 }
 
 /**
@@ -944,7 +965,14 @@ export async function composeGuidanceEnvelope(
         ctx.toolName === "get_doc"
           ? (await formatCoverageHeader(memexId, docId, state.doc.docType)) || undefined
           : undefined;
-      return compose(header, withSteer(footer ?? undefined));
+      // spec-122 dec-7 — the ACTIVITY/collision block rides this same footer seat
+      // (ac-23: no new MCP tool). Scoped to the get_doc ORIENT call agents make
+      // before picking up a task (dec-7), so a mutation's output contract is
+      // untouched. Appended to the guidance body so it flows through the one seat.
+      const activity =
+        ctx.toolName === "get_doc" ? await craftActivityBlock(memexId, docId, ctx.userId) : null;
+      const body = activity ? `${footer ?? ""}${footer ? "\n\n" : ""}${activity}` : footer;
+      return compose(header, withSteer(body ?? undefined));
     }
 
     // TERSE build-loop calls — author a LEAN, situational footer here. This is
@@ -967,9 +995,108 @@ export async function composeGuidanceEnvelope(
       const nag = await craftUntestedAcNag(memexId, docId);
       if (nag) lines.push(nag);
     }
+    // spec-122 dec-7 — the ACTIVITY/collision block (ac-23/ac-24), scoped to the
+    // get_doc orient call so mutation tools' terse footers are unchanged.
+    const activity =
+      ctx.toolName === "get_doc" ? await craftActivityBlock(memexId, docId, ctx.userId) : null;
+    if (activity) lines.push(activity);
     return compose(undefined, withSteer(lines.length > 0 ? lines.join("\n") : undefined));
   } catch {
     return compose(undefined, undefined);
+  }
+}
+
+// spec-122 dec-7 (ac-23 / ac-24) — compose the get_doc ACTIVITY/presence block:
+// the most recent MATERIAL change + who, who is live in the spec right now, and
+// an ADVISORY collision line when another session is materially advancing the
+// spec (an AC delta, a phase move, or task churn by a DIFFERENT actor recently).
+// Advisory only — never blocks, never aborts; best-effort, never throws.
+const ACTIVITY_RECENT_LIMIT = 8;
+const MATERIAL_WINDOW_MS = 10 * 60 * 1000; // "recently" for the collision predicate
+// Kinds whose appearance is MATERIAL advancement (vs. a comment / read). A phase
+// move shows up as an activity_log status_changed row (kind 'activity_log').
+const MATERIAL_KINDS: ReadonlySet<string> = new Set([
+  "ac",
+  "task",
+  "decision",
+  "activity_log",
+  "test_event",
+]);
+
+function agoLabel(at: Date, now: number): string {
+  const ms = Math.max(0, now - at.getTime());
+  const mins = Math.round(ms / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.round(hrs / 24)}d ago`;
+}
+
+export async function craftActivityBlock(
+  memexId: string,
+  docId: string,
+  currentUserId: string,
+): Promise<string | null> {
+  try {
+    const [rows, present] = await Promise.all([
+      listActivityView(memexId, { specRef: docId, limit: ACTIVITY_RECENT_LIMIT }),
+      listPresent(memexId, docId),
+    ]);
+    const now = Date.now();
+    const lines: string[] = [];
+
+    // spec-122 ac-25/26 — resolve each row's free-form test_events actor
+    // (actor_raw) to a display WHO + unifying user_id. Batched (one query) over
+    // the page; non-test arms already carry a write-time actor_name and skip the
+    // resolver. A match renders the user's display name and carries their user_id
+    // (ac-25); a miss renders the raw string verbatim, never collapsed (ac-26).
+    const whoByRaw = await resolveTestEventActors(rows.map((r) => r.actorRaw));
+    const whoOf = (
+      r: (typeof rows)[number],
+    ): { name: string | null; userId: string | null } => {
+      if (r.actorName) return { name: r.actorName, userId: r.actorUserId };
+      const w = r.actorRaw ? whoByRaw.get(r.actorRaw.trim()) : undefined;
+      return { name: w?.display ?? r.actorRaw ?? null, userId: w?.userId ?? r.actorUserId };
+    };
+
+    // Most recent material change + who.
+    const recent = rows.find((r) => MATERIAL_KINDS.has(r.kind));
+    if (recent) {
+      const who = whoOf(recent).name ?? "someone";
+      const what = recent.narrative ?? `${recent.action ?? "changed"} ${recent.kind}`;
+      lines.push(`recent: ${what} — ${who} ${agoLabel(recent.at, now)}`);
+    }
+
+    // Live presence, excluding the caller.
+    const others = present.filter((p) => p.actorUserId !== currentUserId);
+    if (others.length > 0) {
+      const names = [...new Set(others.map((p) => p.actorName ?? "someone"))].join(", ");
+      lines.push(`present now: ${names}`);
+    }
+
+    // The advisory collision line: a DIFFERENT actor materially advancing recently.
+    // A test_events flip carries no actor_user_id on the row, so resolve WHO first
+    // (ac-25): that both names the actor and lets a CI identity resolving to the
+    // CALLER be correctly excluded rather than mislabelled as "another session".
+    const advancing = rows.find((r) => {
+      if (!MATERIAL_KINDS.has(r.kind)) return false;
+      if (now - r.at.getTime() > MATERIAL_WINDOW_MS) return false;
+      const { userId } = whoOf(r);
+      return userId !== null && userId !== currentUserId;
+    });
+    if (advancing) {
+      const who = whoOf(advancing).name ?? "another session";
+      lines.push(
+        `⚠ ${who} is actively advancing this spec right now — coordinate before you pick it up. ` +
+          `(Advisory only; proceed if you mean to.)`,
+      );
+    }
+
+    if (lines.length === 0) return null;
+    return ["── ACTIVITY ──", ...lines].join("\n");
+  } catch {
+    return null;
   }
 }
 
@@ -1537,6 +1664,7 @@ export const toolSpecs: ToolSpec[] = [
           args.title,
           args.purpose,
           ctx.userId,
+          reqCtx(ctx),
         );
         // Issue → converted, record promoted_doc_id so the child-done hook resolves
         // it later (ac-24). NOT resolved now — only when the child Spec reaches done.
@@ -1563,6 +1691,7 @@ export const toolSpecs: ToolSpec[] = [
           args.title,
           args.purpose,
           ctx.userId,
+          reqCtx(ctx),
         );
         if (ctx.verbose) {
           const url = await ctx.workspaceUrl(resolved.memexId);
@@ -1587,6 +1716,7 @@ export const toolSpecs: ToolSpec[] = [
         args.decisions,
         undefined,
         ctx.userId,
+        reqCtx(ctx),
       );
       if (ctx.verbose) {
         const state = await fullDocState(memexId, doc.id);
@@ -1663,7 +1793,10 @@ export const toolSpecs: ToolSpec[] = [
       const { memexId, doc: before, slugs } = resolved;
 
       if (status !== undefined) {
-        await updateDocStatus(memexId, before.id, status);
+        // spec-122 dec-2/dec-5: thread the activity contract (WHO + HOW) onto the
+        // status transition so Pulse attributes the phase move to the human +
+        // surface.
+        await updateDocStatus(memexId, before.id, status, { ctx: reqCtx(ctx) });
         // spec-219 Phase 2 (sole-author): the transition guidance (assess_spec
         // tip + coverage nudge) is owned by composeGuidanceEnvelope; signal the
         // transition, don't author it here.
@@ -1793,7 +1926,7 @@ export const toolSpecs: ToolSpec[] = [
       if (mode === "clauses") {
         // Born clause-first: create the (empty) section, then author its clauses; the
         // service regenerates content = clauses joined.
-        const sectionMut = await addSection(memexId, doc.id, sectionType, "", title, description);
+        const sectionMut = await addSection(memexId, doc.id, sectionType, "", title, description, reqCtx(ctx));
         const clauseMut = await addClausesToSection(memexId, sectionMut.id, clauses!);
         if (ctx.verbose) {
           const state = await fullDocState(memexId, doc.id);
@@ -1805,7 +1938,7 @@ export const toolSpecs: ToolSpec[] = [
         return `Added "${sectionMut.title ?? sectionType}" section (ref: ${sectionRef}) with ${clauseMut.length} clause(s): ${clauseRefs}.`;
       }
 
-      const section = await addSection(memexId, doc.id, sectionType, content!, title, description);
+      const section = await addSection(memexId, doc.id, sectionType, content!, title, description, reqCtx(ctx));
       if (ctx.verbose) {
         const state = await fullDocState(memexId, doc.id);
         const url = await ctx.workspaceUrl(memexId);
@@ -1855,7 +1988,7 @@ export const toolSpecs: ToolSpec[] = [
           "Standards are edited at the clause grain. Use add_clause / edit_clause / delete_clause, not update_section.",
         );
       }
-      const section = await updateSection(memexId, entity.row.id, content, { sectionType, description });
+      const section = await updateSection(memexId, entity.row.id, content, { sectionType, description }, reqCtx(ctx));
       if (ctx.verbose) {
         const state = await fullDocState(memexId, section.docId);
         const url = await ctx.workspaceUrl(memexId);
@@ -2118,7 +2251,7 @@ export const toolSpecs: ToolSpec[] = [
         return `Candidate decision proposed: ref: ${decRef} "${decision.title}" (${optCount} options).`;
       }
 
-      const decision = await createDecision(memexId, doc.id, title, context);
+      const decision = await createDecision(memexId, doc.id, title, context, "human", reqCtx(ctx));
       if (ctx.verbose) {
         const state = await fullDocState(memexId, doc.id);
         const url = await ctx.workspaceUrl(memexId);
@@ -2345,7 +2478,7 @@ export const toolSpecs: ToolSpec[] = [
         );
       }
       const { memexId, doc, slugs, entity } = resolved;
-      const decision = await resolveDecision(memexId, entity.row.id, resolution, chosenOptionIndex);
+      const decision = await resolveDecision(memexId, entity.row.id, resolution, chosenOptionIndex, reqCtx(ctx));
       if (ctx.verbose) {
         const state = await fullDocState(memexId, decision.docId);
         const url = await ctx.workspaceUrl(memexId);
@@ -2562,7 +2695,7 @@ export const toolSpecs: ToolSpec[] = [
         statement,
         status,
         parent,
-      });
+      }, reqCtx(ctx));
 
       // spec-219 comb-through: count-aware AC call-to-action. The handler parks
       // DATA only; renderFooterSignal owns every word. For implementation ACs it
@@ -3059,7 +3192,7 @@ export const toolSpecs: ToolSpec[] = [
         );
       }
       const { memexId, doc, slugs, entity } = resolved;
-      const ac = await updateAc(memexId, entity.row.id, statement);
+      const ac = await updateAc(memexId, entity.row.id, statement, reqCtx(ctx));
       const acRef = buildChildRef(slugs, doc, { type: "acs", seq: ac.seq });
       if (ctx.verbose) {
         return `Updated ref: ${acRef} (seq=${ac.seq}, kind=${ac.kind}, status=${ac.status}): "${ac.statement}"`;
@@ -3218,6 +3351,7 @@ export const toolSpecs: ToolSpec[] = [
         description,
         acceptanceCriteria,
         sectionRef,
+        reqCtx(ctx),
       );
       if (ctx.verbose) {
         const state = await fullDocState(memexId, doc.id);
@@ -3325,12 +3459,12 @@ export const toolSpecs: ToolSpec[] = [
           description,
           acceptanceCriteria,
           sectionRef,
-        });
+        }, reqCtx(ctx));
         const taskRef = buildChildRef(slugs, doc, { type: "tasks", seq: updated.seq });
         messages.push(`Task ref: ${taskRef} fields updated.`);
       }
       if (status !== undefined) {
-        const updated = await updateTaskStatus(memexId, taskUuid, status);
+        const updated = await updateTaskStatus(memexId, taskUuid, status, reqCtx(ctx));
         let unblockedHint = "";
         // Per dec-1: when completing a task unblocks dependents, name them so
         // the agent skips the follow-up `list_tasks(readyOnly:true)` call. This
@@ -3834,7 +3968,9 @@ export const toolSpecs: ToolSpec[] = [
       }
       const beforeStatus = doc.status;
       const target = status ?? "specify";
-      await updateDocStatus(memexId, doc.id, target);
+      // spec-122 dec-2/dec-5: thread the activity contract onto the publish
+      // transition so Pulse attributes the phase move to the human + surface.
+      await updateDocStatus(memexId, doc.id, target, { ctx: reqCtx(ctx) });
       // spec-219 Phase 2 (sole-author): signal the transition; composeGuidanceEnvelope
       // owns the transition guidance prose.
       if (ctx.footerSlot) {
@@ -4031,6 +4167,7 @@ export const toolSpecs: ToolSpec[] = [
           undefined,
           undefined,
           ctx.userId,
+          reqCtx(ctx),
         );
         const slugs = await memexSlugsById(memexId);
         const specRefOut = slugs ? buildDocRef(slugs, spec) : spec.handle;

@@ -3,7 +3,8 @@ import { db } from "../db/connection.js";
 import { documents, docSections } from "../db/schema.js";
 import type { DocSection } from "../db/schema.js";
 import { NotFoundError, ValidationError } from "../types/errors.js";
-import { mutate, type Mutated } from "./mutate.js";
+import { mutate, type Mutated, type RequestCtx } from "./mutate.js";
+import { resolveActorColumns } from "./actor.js";
 import { nextSeq, withSeqRetry } from "./shared/sequence.js";
 import { embedAndStoreSection } from "./memex-embeddings.js";
 
@@ -82,6 +83,7 @@ export async function addSection(
   // spec-106 (ac-10): optional free-text section metadata captured at create
   // time. Omitting it leaves the column NULL (the "no description" sentinel).
   description?: string,
+  ctx: RequestCtx = {},
 ): Promise<Mutated<DocSection>> {
   const doc = await db.query.documents.findFirst({
     where: and(eq(documents.id, docId), eq(documents.memexId, memexId)),
@@ -95,7 +97,7 @@ export async function addSection(
     title ?? sectionType.charAt(0).toUpperCase() + sectionType.slice(1);
 
   const section = await mutate(
-    {},
+    ctx,
     { memexId, docId, entity: "section", action: "created" },
     async () =>
       withSeqRetry(
@@ -126,6 +128,8 @@ export async function addSection(
                 content,
                 seq,
                 position,
+                // spec-122 dec-2/dec-5 — stamp WHO + HOW at write time (ac-20).
+                ...(await resolveActorColumns(ctx)),
               })
               .returning();
             return row;
@@ -310,6 +314,7 @@ export async function updateSection(
   // spec-106: optional metadata written in the same mutation as the body so
   // update_section is the single writable surface for sectionType + description.
   metadata: SectionMetadataPatch = {},
+  ctx: RequestCtx = {},
 ): Promise<Mutated<DocSection>> {
   // Verify section's parent doc belongs to the account before update.
   const section = await db.query.docSections.findFirst({
@@ -328,7 +333,7 @@ export async function updateSection(
   const { sectionType, description } = metadata;
 
   const updated = await mutate(
-    {},
+    ctx,
     { memexId, docId: section.docId, entity: "section", action: "updated" },
     async () => {
       try {
@@ -341,6 +346,8 @@ export async function updateSection(
             ...(sectionType !== undefined ? { sectionType } : {}),
             ...(description !== undefined ? { description } : {}),
             updatedAt: new Date(),
+            // spec-122 dec-2/dec-5 — re-attribute on edit (who touched it last).
+            ...(await resolveActorColumns(ctx)),
           })
           .where(eq(docSections.id, sectionId))
           .returning();

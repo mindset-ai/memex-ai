@@ -48,6 +48,10 @@ interface ChangeEventWire {
   memexId: string;
   docId?: string;
   userId?: string;
+  // spec-122 dec-3/dec-5 (ac-4) — WHO performed the action and their resolved
+  // display name. Distinct from `userId` (the /me fan-out target).
+  actorUserId?: string;
+  actorName?: string;
   entity: string;
   action: string;
   narrative?: string;
@@ -75,7 +79,10 @@ export function changeEventToRow(event: ChangeEventWire): ActivityRow {
     id: `live-${Date.now()}-${synthSeq}`,
     memexId: event.memexId,
     briefId: event.docId ?? null,
-    actorUserId: event.userId ?? null,
+    // Prefer the explicit actorUserId (spec-122 threading); fall back to the
+    // legacy userId for events that predate it.
+    actorUserId: event.actorUserId ?? event.userId ?? null,
+    actorName: event.actorName ?? null,
     actorKind: CHANNEL_TO_ACTOR_KIND[channel],
     channel,
     clientId: event.clientId ?? null,

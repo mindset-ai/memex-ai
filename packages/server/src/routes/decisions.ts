@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { restCtx } from "./_actor-ctx.js";
 import {
   createDecision,
   listDecisions,
@@ -114,7 +115,7 @@ decisionsRouter.post("/doc/:docId", async (c) => {
   }>();
   const sourceArg: "human" | "agent" =
     source === "agent" ? "agent" : "human";
-  const result = await createDecision(memexId, docId, title, context, sourceArg);
+  const result = await createDecision(memexId, docId, title, context, sourceArg, restCtx(c));
   return c.json(result, 201);
 });
 
@@ -133,8 +134,8 @@ decisionsRouter.post("/:id/resolve", async (c) => {
   // for clients that don't use multi-option decisions.
   const result =
     chosenOptionIndex !== undefined
-      ? await resolveDecision(memexId, id, resolution, chosenOptionIndex)
-      : await resolveDecision(memexId, id, resolution);
+      ? await resolveDecision(memexId, id, resolution, chosenOptionIndex, restCtx(c))
+      : await resolveDecision(memexId, id, resolution, undefined, restCtx(c));
   return c.json(result);
 });
 

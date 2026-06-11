@@ -45,6 +45,9 @@ function makeSpec(): Doc & { sections: DocSection[] } {
         previousStatus: null,
         createdAt: baseDate,
         updatedAt: baseDate,
+        actorUserId: null,
+        actorName: null,
+        channel: null,
       },
     ],
   };

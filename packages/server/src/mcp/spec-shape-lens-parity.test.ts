@@ -133,9 +133,6 @@ describe("spec-106 t-3 ac-13: lens-shape GuidanceBlock reaches both surfaces' to
         spec,
         [],
         [],
-        undefined,
-        undefined,
-        undefined,
         surface.nudge,
       );
 

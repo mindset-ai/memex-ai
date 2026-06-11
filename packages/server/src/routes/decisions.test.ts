@@ -54,6 +54,9 @@ function makeDecision(overrides = {}) {
     // Captured at delete_decision time (b-97); null for non-deleted rows.
     previousStatus: null,
     createdAt: baseDate,
+    actorUserId: null,
+    actorName: null,
+    channel: null,
     ...overrides,
   };
 }
@@ -111,6 +114,7 @@ describe("POST /api/decisions/doc/:docId", () => {
       "Use REST or gRPC?",
       undefined,
       "human",
+      expect.anything(),
     );
   });
 
@@ -129,6 +133,7 @@ describe("POST /api/decisions/doc/:docId", () => {
       "Which DB?",
       "Need ACID",
       "human",
+      expect.anything(),
     );
   });
 
@@ -147,6 +152,7 @@ describe("POST /api/decisions/doc/:docId", () => {
       "Agent direct",
       undefined,
       "agent",
+      expect.anything(),
     );
   });
 });
@@ -166,7 +172,7 @@ describe("POST /api/decisions/:id/resolve", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.status).toBe("resolved");
-    expect(resolveDecision).toHaveBeenCalledWith(TEST_MEMEX_ID, "dec-uuid-1", "Go with REST");
+    expect(resolveDecision).toHaveBeenCalledWith(TEST_MEMEX_ID, "dec-uuid-1", "Go with REST", undefined, expect.anything());
   });
 
   it("returns 404 for non-existent decision", async () => {
