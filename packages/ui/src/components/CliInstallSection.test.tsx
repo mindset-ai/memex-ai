@@ -40,3 +40,20 @@ describe('spec-201 ac-16: claude.ai web + Cursor connect steps', () => {
     expect(screen.getAllByRole('button', { name: 'Copy' }).length).toBeGreaterThanOrEqual(2);
   });
 });
+
+// spec-253 t-5 (dec-3): the connect panel covers native IDEs beyond Cursor —
+// VS Code gets its own block, and the framing names the OAuth-on-connect set.
+// Smoke check that the artifact actually renders the new content.
+describe('spec-253: native-IDE OAuth connect steps (VS Code)', () => {
+  it('includes a VS Code connect block with the derived URL in its config', () => {
+    render(<CliInstallSection />);
+    expect(screen.getByRole('heading', { name: 'VS Code' })).toBeInTheDocument();
+    const vscodeConfig = screen.getByText(/"servers"[\s\S]*"memex"[\s\S]*\/mcp/);
+    expect(vscodeConfig.textContent).toContain(`${installBase}/mcp`);
+  });
+
+  it('frames the OAuth-on-connect clients as native IDEs (Cursor, VS Code, Windsurf, Zed)', () => {
+    render(<CliInstallSection />);
+    expect(screen.getByText(/Cursor, VS Code, Windsurf, Zed/)).toBeInTheDocument();
+  });
+});
