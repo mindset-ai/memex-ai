@@ -106,6 +106,14 @@ async function probeMcpRead(cfg) {
   if (!token) {
     return { ok: false, detail: `missing credential ${cfg.mcpTokenVar}`, body: "" };
   }
+  // mxt_ tokens are user-scoped, not Memex-scoped — so the read must name the
+  // canary Memex explicitly. Derive `<namespace>/<memex>` from the ac_uid the
+  // emission probe already targets; one config value drives both probes.
+  const acUid = process.env[cfg.acUidVar] ?? "";
+  const canaryMemex = acUid.split("/").slice(0, 2).join("/");
+  if (!canaryMemex.includes("/")) {
+    return { ok: false, detail: `cannot derive canary memex from ${cfg.acUidVar}`, body: "" };
+  }
   const res = await timedFetch(`${cfg.baseUrl}/mcp`, {
     method: "POST",
     headers: {
@@ -117,7 +125,7 @@ async function probeMcpRead(cfg) {
       jsonrpc: "2.0",
       id: 1,
       method: "tools/call",
-      params: { name: "list_docs", arguments: {} },
+      params: { name: "list_docs", arguments: { memex: canaryMemex } },
     }),
   });
   // The MCP streamable-HTTP transport may reply as plain JSON OR an SSE frame
