@@ -29,13 +29,34 @@ describe("mutate() success path", () => {
     expect(events).toHaveLength(1);
     // Pulse (b-60): the exact key shape is preserved and a human narrative is
     // layered on. No clientId/channel here — the ctx ({}) supplies neither.
+    // The row carries no handle/seq, so the narrative names no identifier —
+    // in production docId is a raw UUID, and b-36 forbids UUIDs in narratives
+    // (they surface in get_doc's activity block).
     expect(events[0]).toEqual({
       memexId: "m1",
       docId: "d1",
       entity: "task",
       action: "created",
-      narrative: 'created task d1 "hello"',
+      narrative: 'created task "hello"',
     });
+  });
+
+  it("never leaks a raw UUID into the narrative — b-36 (spec-122 int-smoke regression)", async () => {
+    const events = captureEmissions();
+    // A handle-less row (doc_member/doc_assignee shape): both the resolved docId
+    // and the row id are UUIDs. The narrative must degrade to verb + noun, not
+    // fall back to either UUID — get_doc's activity block surfaces it verbatim.
+    await mutate(
+      {},
+      {
+        memexId: "m1",
+        docId: "8198ba7e-d1d9-47e6-b585-67516a7b4d28",
+        entity: "doc_member",
+        action: "created",
+      },
+      async () => ({ id: "0b9f3c52-aaaa-bbbb-cccc-0123456789ab" }),
+    );
+    expect(events[0].narrative).toBe("created doc_member");
   });
 
   it("preserves the structural type of T (Mutated<T> is assignable to T)", async () => {
@@ -165,8 +186,9 @@ describe("mutate() key factory", () => {
       docId: "doc-xyz",
       entity: "document",
       action: "created",
-      // Identifier falls back to the resolved docId; no title on the result.
-      narrative: "created document doc-xyz",
+      // No handle/seq on the row (and ids are UUIDs in production — b-36 keeps
+      // them out of narratives), so the narrative is verb + noun only.
+      narrative: "created document",
     });
   });
 
@@ -257,7 +279,7 @@ describe("mutate() Pulse activity capture (b-60)", () => {
       async () => ({ id: "t-1", title: longTitle }),
     );
     expect(events).toHaveLength(1);
-    expect(events[0].narrative).toBe(`created task d1 "${"x".repeat(57)}…"`);
+    expect(events[0].narrative).toBe(`created task "${"x".repeat(57)}…"`);
   });
 
   it("degrades to verb + noun when no identifying fields are available", async () => {

@@ -141,8 +141,10 @@ function composeNarrative(resolved: ChangeKey, result: unknown): string {
   return parts.join(" ");
 }
 
-// Pull the best resource handle/id from the resolved key or the written row.
-// Prefers a human handle (`handle`, or `<prefix>-<seq>`) over a raw UUID.
+// Pull the best resource handle from the written row. Human handles only
+// (`handle`, or `<prefix>-<seq>`) — NEVER a raw UUID: narratives surface in
+// agent-facing output (get_doc's activity block), and b-36 forbids UUIDs there.
+// With no handle the narrative degrades to `<action> <entity>`.
 function resourceIdentifier(resolved: ChangeKey, result: unknown): string | undefined {
   const row = asRecord(result);
   if (row) {
@@ -150,9 +152,6 @@ function resourceIdentifier(resolved: ChangeKey, result: unknown): string | unde
     const prefix = HANDLE_PREFIX[resolved.entity];
     if (prefix && typeof row.seq === "number") return `${prefix}${row.seq}`;
   }
-  // Fall back to whatever id the key/row carries (UUIDs as a last resort).
-  if (resolved.docId) return resolved.docId;
-  if (row && typeof row.id === "string" && row.id) return row.id;
   return undefined;
 }
 
