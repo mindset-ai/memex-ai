@@ -4507,13 +4507,13 @@ export const toolSpecs: ToolSpec[] = [
       const who = target.email ?? "(unknown)";
       const specRef = buildDocRef(slugs, doc);
       if (role === "editor") {
-        await promoteToEditor(memexId, doc.id, target.id);
+        await promoteToEditor(memexId, doc.id, target.id, reqCtx(ctx));
         if (ctx.verbose) {
           return `Promoted ${who} to editor on ${specRef}.`;
         }
         return `ref: ${specRef} user=${who} role=editor`;
       }
-      await demoteToReviewer(memexId, doc.id, target.id);
+      await demoteToReviewer(memexId, doc.id, target.id, reqCtx(ctx));
       if (ctx.verbose) {
         return `Demoted ${who} to reviewer on ${specRef} (editor row removed; falls back to the reviewer default).`;
       }
@@ -4595,7 +4595,7 @@ export const toolSpecs: ToolSpec[] = [
         ? await resolveUserArg(userArg, "user")
         : { id: ctx.userId, email: null };
       const who = target.email ?? "(you)";
-      await assign(memexId, doc.id, target.id, ctx.userId);
+      await assign(memexId, doc.id, target.id, ctx.userId, reqCtx(ctx));
       const specRef = buildDocRef(slugs, doc);
       if (ctx.verbose) {
         return `Assigned ${who} to ${specRef}.`;
@@ -4628,7 +4628,7 @@ export const toolSpecs: ToolSpec[] = [
       const { memexId, doc, slugs } = resolved;
       const target = await resolveUserArg(input.user as string, "user");
       const who = target.email ?? "(unknown)";
-      await unassign(memexId, doc.id, target.id);
+      await unassign(memexId, doc.id, target.id, reqCtx(ctx));
       const specRef = buildDocRef(slugs, doc);
       if (ctx.verbose) {
         return `Unassigned ${who} from ${specRef}.`;

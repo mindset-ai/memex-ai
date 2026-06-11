@@ -156,8 +156,15 @@ describe("spec-118 promote / demote (frictionless, reversible, no last-editor lo
     createdDocIds.push(doc.id);
 
     const events = await captureEvents(memexId, async () => {
-      await promoteToEditor(memexId, doc.id, other.id);
-      await demoteToReviewer(memexId, doc.id, other.id);
+      // `human` performs the role change; ctx carries WHO + HOW (rest_ui).
+      await promoteToEditor(memexId, doc.id, other.id, {
+        actorUserId: human.id,
+        channel: "rest_ui",
+      });
+      await demoteToReviewer(memexId, doc.id, other.id, {
+        actorUserId: human.id,
+        channel: "rest_ui",
+      });
     });
     const mine = events.filter((e) => e.docId === doc.id && e.entity === "doc_member");
     expect(mine.map((e) => e.action)).toEqual(["created", "deleted"]);
@@ -170,6 +177,15 @@ describe("spec-118 promote / demote (frictionless, reversible, no last-editor lo
     expect(deleted.narrative).toBe(`demoted spec118-other@example.com to reviewer on ${doc.handle}`);
     for (const e of mine) {
       expect(e.narrative, "narrative must not contain the raw doc UUID").not.toContain(doc.id);
+    }
+
+    // spec-122 dec-5: ATTRIBUTED to the acting human + surface, not "System".
+    // channel is set and actor_name is resolved at write (creator has no name →
+    // his email).
+    for (const e of mine) {
+      expect(e.channel).toBe("rest_ui");
+      expect(e.actorUserId).toBe(human.id);
+      expect(e.actorName).toBe("spec118-creator@example.com");
     }
   });
 
