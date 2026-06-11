@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { tagAc } from '@memex-ai-ac/vitest';
 import { WorkingNow } from './WorkingNow';
 import type { Worker } from './pulseDerive';
@@ -14,7 +15,7 @@ function worker(p: Partial<Worker> & Pick<Worker, 'docId'>): Worker {
   return {
     key: p.key ?? `${p.actorUserId ?? 'u1'} ${p.actorKind ?? 'human'}`,
     actorUserId: p.actorUserId ?? 'u1',
-    actorName: p.actorName ?? 'Christine',
+    actorName: p.actorName === undefined ? 'Christine' : p.actorName,
     actorKind: p.actorKind ?? 'human',
     channel: p.channel ?? 'rest_ui',
     clientId: p.clientId ?? 'c1',
@@ -59,5 +60,35 @@ describe('WorkingNow enrichment (spec-255)', () => {
     tagAc(AC(5));
     render(<WorkingNow workers={[worker({ docId: 'd3', freshness: 'idle' })]} specHandle={() => 'spec-229'} />);
     expect(screen.getByTestId('worker-idle-dot')).toBeInTheDocument();
+  });
+
+  it('renders the spec handle as a clickable link when specHref is given', () => {
+    tagAc(AC(5));
+    render(
+      <MemoryRouter>
+        <WorkingNow
+          workers={[worker({ docId: 'd1' })]}
+          specHandle={() => 'spec-252'}
+          specHref={(h) => `/ns/mx/specs/${h}`}
+        />
+      </MemoryRouter>,
+    );
+    const link = screen.getByRole('link', { name: 'spec-252' });
+    expect(link).toHaveAttribute('href', '/ns/mx/specs/spec-252');
+  });
+
+  it('labels an unnamed MCP agent "Claude Code", never "MCP · <id>"', () => {
+    tagAc(AC(5));
+    render(
+      <WorkingNow
+        workers={[
+          worker({ docId: 'd1', actorKind: 'mcp_agent', channel: 'mcp', actorName: null, clientId: 'df1ba3deadbeef' }),
+        ]}
+        specHandle={() => 'spec-242'}
+      />,
+    );
+    const w = screen.getByTestId('working-now-worker');
+    expect(w).toHaveTextContent('Claude Code');
+    expect(w).not.toHaveTextContent('MCP · df1ba3');
   });
 });

@@ -76,6 +76,18 @@ describe('workingNow (spec-255)', () => {
     expect(workers).toHaveLength(1);
     expect(workers[0].freshness).toBe('live');
   });
+
+  it('keeps a resolved agent name even when the newest signal has none', () => {
+    tagAc(AC(5));
+    // The presence floor resolves "<user>'s Claude Code"; the newer MCP activity
+    // row lands with a null actor_name. The worker must keep the resolved name
+    // (not regress to the bare "MCP · <id>" fallback).
+    const named: PresentRow = { ...present('d1', 'u-agent', 30_000, 'mcp_agent'), actorName: "Christine's Claude Code" };
+    const newerNull: ActivityRow = { ...act('d1', 'u-agent', 5_000, 'mcp_agent'), actorName: null };
+    const workers = workingNow([named], [newerNull], NOW);
+    expect(workers).toHaveLength(1);
+    expect(workers[0].actorName).toBe("Christine's Claude Code");
+  });
 });
 
 describe('involvedOnSpec (spec-255)', () => {

@@ -8,7 +8,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { rankHotSpecs, quietLabel, tempoSeries, involvedOnSpec, type HotSpec, type Worker } from './pulseDerive';
+import { rankHotSpecs, coolingLabel, tempoSeries, involvedOnSpec, type HotSpec, type Worker } from './pulseDerive';
 import { useChartPalette, phaseLabel, type Phase } from '../insights/theme';
 import { AcCells } from './AcCells';
 import { Sparkline } from './Sparkline';
@@ -57,7 +57,10 @@ export function HotSpecs({
       data-testid="hot-specs"
       className="flex-none rounded-lg border border-edge-subtle bg-surface/40 overflow-hidden mb-4"
     >
-      <div className="flex items-center gap-2 px-3 py-2 text-xs text-secondary border-b border-edge-subtle">
+      <div
+        className="flex items-center gap-2 px-3 py-2 text-xs text-secondary border-b border-edge-subtle cursor-help"
+        title="Hot specs — the specs being worked right now, ranked by heat (who's present plus how recent and frequent the meaningful events are). A spec stays ACTIVE for 5 minutes after its last event, then COOLING, and drops off ~10 minutes after going quiet."
+      >
         <span className="font-medium text-primary">Hot specs</span>
         <span className="opacity-40">&middot;</span>
         <span>now</span>
@@ -129,14 +132,11 @@ function HotSpecCard({
     prevPhase.current = phase;
   }, [phase]);
 
-  const sparkColor =
-    spec.state === 'quiet' ? QUIET_COLOR : spec.state === 'cooling' ? COOLING_COLOR : palette.accent;
+  const sparkColor = spec.state === 'cooling' ? QUIET_COLOR : palette.accent;
 
   const tint =
-    spec.state === 'quiet'
-      ? 'border-amber-300/60 bg-amber-50/40 dark:bg-amber-500/5'
-      : spec.state === 'cooling'
-      ? 'border-edge-subtle bg-surface/40 opacity-70'
+    spec.state === 'cooling'
+      ? 'border-amber-300/60 bg-amber-50/40 dark:bg-amber-500/5 opacity-90'
       : 'border-edge-subtle bg-surface/60';
 
   return (
@@ -172,17 +172,10 @@ function HotSpecCard({
         <span data-testid="hot-spec-state" className="inline-flex items-center gap-1.5 text-[0.7rem]">
           <span
             className="inline-block h-2 w-2 rounded-full"
-            style={{
-              background:
-                spec.state === 'quiet' ? QUIET_COLOR : spec.state === 'cooling' ? COOLING_COLOR : palette.testRun.pass,
-            }}
+            style={{ background: spec.state === 'cooling' ? QUIET_COLOR : palette.testRun.pass }}
           />
-          {spec.state === 'quiet' && spec.ageMs != null ? (
-            <span className="text-status-warning-text">{quietLabel(spec.ageMs)}</span>
-          ) : spec.state === 'cooling' ? (
-            <span className="text-muted">
-              cooling{spec.ageMs != null ? ` ${Math.max(1, Math.floor(spec.ageMs / 60_000))}m` : ''}
-            </span>
+          {spec.state === 'cooling' && spec.ageMs != null ? (
+            <span className="text-status-warning-text">{coolingLabel(spec.ageMs)}</span>
           ) : (
             <span className="text-status-success-text">active</span>
           )}
