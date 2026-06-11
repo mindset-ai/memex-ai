@@ -40,6 +40,11 @@ async function computedLogoFill(page: import("@playwright/test").Page) {
 test("the logo fill inverts between dark and light theme (ac-2)", async ({ page }) => {
   // Force dark, then read the computed fill of the header wordmark.
   await page.goto(bareUrl("/"));
+  // "/" client-redirects to the default memex's specs page. Wait for that
+  // redirect to SETTLE before evaluating, otherwise the localStorage write
+  // races the navigation and Playwright throws "Execution context was
+  // destroyed, most likely because of a navigation".
+  await expect(page.getByRole("heading", { name: "Specs" })).toBeVisible({ timeout: 15_000 });
   await page.evaluate(() => localStorage.setItem("memex-theme", "dark"));
   await page.reload();
   await expect(page.getByRole("heading", { name: "Specs" })).toBeVisible({ timeout: 15_000 });
