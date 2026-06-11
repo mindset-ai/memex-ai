@@ -81,7 +81,7 @@ describe('spec-222 t-5: engine is lazy-loaded (ac-8)', () => {
     // Sanity: our scanner DOES see the legitimate static imports the loader keeps
     // (so a green result above isn't a parser miss). The svg + the nav adapter
     // + the type module are all static and engine-free.
-    expect(staticSpecs).toContain('../assets/specky-static.svg');
+    expect(staticSpecs).toContain('../assets/specky.svg');
     expect(staticSpecs).toContain('../navigation/staticSiteNavigation');
   });
 

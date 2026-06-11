@@ -107,6 +107,15 @@ describe('doorway parity: the loader doorway mirrors the engine idle treatment',
     }
   });
 
+  it('uses the ANIMATED Specky for the first paint (idle loop, not the static frame)', () => {
+    // The engine's idle VoiceIcon renders the animated Specky (default frame).
+    // The loader must match from first paint: specky.svg's idle animation is
+    // CSS keyframes inside the SVG, which play in an <img>, so no React is
+    // needed. A static first frame reads as "dead" next to the engine's icon.
+    expect(loaderSrc).toContain("from '../assets/specky.svg'");
+    expect(loaderSrc).not.toContain('specky-static.svg');
+  });
+
   it('renders the Specky mark at the engine idle mark size (40px wide)', () => {
     // The engine's idle mark width...
     const engineMark = engineSrc.match(/<VoiceIcon mark=\{<Specky size=\{(\d+)\} \/>\} \/>/)?.[1];
