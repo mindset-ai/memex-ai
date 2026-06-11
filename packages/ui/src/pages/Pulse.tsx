@@ -205,10 +205,14 @@ export function Pulse() {
     // test_event is the CI firehose — route it to the signal monitor, never the
     // feed. It carries its outcome on payload.status (server emit).
     if (row.entity === 'test_event') {
-      const status = row.payload?.status;
-      if (status === 'pass' || status === 'fail' || status === 'error') {
+      const raw = row.payload?.status;
+      // Explicitly typed (not relying on flow-narrowing surviving into the
+      // setState closure — the production tsc widens it back to string).
+      const status: LiveTestSignal['status'] | null =
+        raw === 'pass' || raw === 'fail' || raw === 'error' ? raw : null;
+      if (status) {
         setLiveTestSignals((prev) => {
-          const next = [...prev, { at: row.createdAt, status }];
+          const next: LiveTestSignal[] = [...prev, { at: row.createdAt, status }];
           return next.length > TEST_SIGNAL_BUFFER_CAP ? next.slice(-TEST_SIGNAL_BUFFER_CAP) : next;
         });
       }
