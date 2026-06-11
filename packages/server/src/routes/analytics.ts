@@ -15,6 +15,7 @@ import {
   acVerification,
   acsOverTime,
   testRunVolume,
+  testSignalPulse,
 } from "../services/analytics.js";
 import { standardsGraph, DEFAULT_SEMANTIC_THRESHOLD } from "../services/standards-graph.js";
 import { ValidationError } from "../types/errors.js";
@@ -83,6 +84,23 @@ analytics.get("/acs-over-time", async (c) => {
 analytics.get("/test-run-volume", async (c) => {
   const memexId = await resolveReadableMemexId(c);
   return c.json({ points: await testRunVolume(memexId) });
+});
+
+// GET /analytics/test-signal-pulse?windowMinutes=60 — minute-bucketed test
+// emission volume over a short rolling window, for the Pulse test-signal
+// monitor. The live SSE test_event stream increments on top of this baseline.
+analytics.get("/test-signal-pulse", async (c) => {
+  const memexId = await resolveReadableMemexId(c);
+  const raw = c.req.query("windowMinutes");
+  let windowMinutes: number | undefined;
+  if (raw !== undefined) {
+    const n = Number(raw);
+    if (!Number.isFinite(n) || !Number.isInteger(n) || n <= 0) {
+      throw new ValidationError("Query param 'windowMinutes' must be a positive integer");
+    }
+    windowMinutes = n;
+  }
+  return c.json(await testSignalPulse(memexId, { windowMinutes }));
 });
 
 // GET /analytics/standards-graph — nodes + mention edges (clause_refs joins,

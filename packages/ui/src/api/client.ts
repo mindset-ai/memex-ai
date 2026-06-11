@@ -723,15 +723,18 @@ export async function createDecision(docId: string, title: string): Promise<Deci
 /**
  * Resolve a decision. When the decision carries `options[]`, pass
  * `chosenOptionIndex` to record which option was selected — the server
- * persists it on the row (per t-5 / dec-8). Omit the index for free-text
- * resolutions on decisions without options.
+ * persists it on the row (per t-5 / dec-8). `resolution` is optional when an
+ * index is supplied (spec-247 dec-5: persist-on-select — the server defaults
+ * the prose to the chosen option's label). Re-resolving an already-resolved
+ * decision updates the choice in place.
  */
 export async function resolveDecisionApi(
   id: string,
-  resolution: string,
+  resolution?: string,
   chosenOptionIndex?: number,
 ): Promise<Decision> {
-  const body: { resolution: string; chosenOptionIndex?: number } = { resolution };
+  const body: { resolution?: string; chosenOptionIndex?: number } = {};
+  if (resolution !== undefined) body.resolution = resolution;
   if (chosenOptionIndex !== undefined) body.chosenOptionIndex = chosenOptionIndex;
   const res = await fetchWithRetry(`${tBase()}/decisions/${id}/resolve`, {
     method: 'POST',

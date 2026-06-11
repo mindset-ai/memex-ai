@@ -232,3 +232,141 @@ describe("corpus surface isolation — negative / rejection (ac-12)", () => {
     ).rejects.toBeInstanceOf(UnknownGuideSurfaceError);
   });
 });
+
+// ── spec-251: the THIRD surface (mindset-website) — isolation in ALL directions ──
+
+const S251_AC2 = "mindset-prod/memex-building-itself/specs/spec-251/acs/ac-2";
+
+describe("three-surface corpus isolation (spec-251 t-4 → ac-2)", () => {
+  const SURFACES = ["memex-app", "memex-website", "mindset-website"] as const;
+
+  async function seedAllThree(provider: EmbeddingProvider): Promise<void> {
+    // The SAME topic ("specs") under ALL THREE surfaces — identical one-hot
+    // vectors and overlapping FTS text, so nothing but the surface filter can
+    // keep any pair apart.
+    await upsertGuideChunk(
+      chunk({
+        surface: "memex-app",
+        sourcePath: "screens/specs-list.md",
+        contentHash: "app",
+        content: "APP: the in-product specs board.",
+      }),
+      { provider },
+    );
+    await upsertGuideChunk(
+      chunk({
+        surface: "memex-website",
+        sourcePath: "website/specs.md",
+        contentHash: "web",
+        content: "MEMEXWEB: marketing copy about specs on memex.ai.",
+      }),
+      { provider },
+    );
+    await upsertGuideChunk(
+      chunk({
+        surface: "mindset-website",
+        sourcePath: "mindset-website/specs.md",
+        contentHash: "mind",
+        content: "MINDSET: marketing copy about specs on mindset.ai.",
+      }),
+      { provider },
+    );
+  }
+
+  it("each surface's search returns ONLY its own chunk — full 3×3 matrix, vector arm", async () => {
+    tagAc(S251_AC2);
+    const provider = makeTopicProvider();
+    await seedAllThree(provider);
+
+    const markers: Record<(typeof SURFACES)[number], string> = {
+      "memex-app": "APP:",
+      "memex-website": "MEMEXWEB:",
+      "mindset-website": "MINDSET:",
+    };
+    for (const surface of SURFACES) {
+      const hits = await searchGuideContent("tell me about specs", { surface, provider });
+      expect(hits.length).toBe(1);
+      expect(hits[0].content).toContain(markers[surface]);
+      for (const other of SURFACES) {
+        if (other !== surface) expect(hits[0].content).not.toContain(markers[other]);
+      }
+    }
+  });
+
+  it("a mindset-website session can NEVER reach memex content, and neither memex surface can reach mindset content (FTS arm)", async () => {
+    tagAc(S251_AC2);
+    const provider = makeTopicProvider();
+
+    // Only the two MEMEX surfaces have content — a mindset query matching that
+    // text must come back empty in the FTS arm too.
+    await upsertGuideChunk(
+      chunk({
+        surface: "memex-app",
+        sourcePath: "screens/specs-list.md",
+        contentHash: "app",
+        content: "APP-ONLY: the specs board flow.",
+      }),
+      { provider },
+    );
+    await upsertGuideChunk(
+      chunk({
+        surface: "memex-website",
+        sourcePath: "website/specs.md",
+        contentHash: "web",
+        content: "MEMEXWEB-ONLY: the specs board story.",
+      }),
+      { provider },
+    );
+    expect(
+      await searchGuideContent("specs board", { surface: "mindset-website", provider: null }),
+    ).toEqual([]);
+    expect(
+      await searchGuideContent("specs board", { surface: "mindset-website", provider }),
+    ).toEqual([]);
+
+    // Now ONLY mindset has content; both memex surfaces must see nothing.
+    await clearCorpus();
+    await upsertGuideChunk(
+      chunk({
+        surface: "mindset-website",
+        sourcePath: "mindset-website/specs.md",
+        contentHash: "mind",
+        content: "MINDSET-ONLY: the specs board pitch.",
+      }),
+      { provider },
+    );
+    for (const surface of ["memex-app", "memex-website"] as const) {
+      expect(await searchGuideContent("specs board", { surface, provider: null })).toEqual([]);
+      expect(await searchGuideContent("specs board", { surface, provider })).toEqual([]);
+    }
+    // Sanity: the owner surface does see it.
+    const own = await searchGuideContent("specs board", {
+      surface: "mindset-website",
+      provider: null,
+    });
+    expect(own.length).toBe(1);
+  });
+
+  it("Layer-1 pre-fetch keeps all three surfaces apart on the SAME screen_key", async () => {
+    tagAc(S251_AC2);
+    for (const [surface, content] of [
+      ["memex-app", "APP home."],
+      ["memex-website", "MEMEXWEB home."],
+      ["mindset-website", "MINDSET home."],
+    ] as const) {
+      await upsertGuideChunk(
+        chunk({
+          surface,
+          screenKey: "home",
+          sourcePath: `${surface}/home.md`,
+          contentHash: surface,
+          content,
+        }),
+        { provider: null },
+      );
+    }
+    expect(await prefetchScreenContent("home", "memex-app")).toEqual(["APP home."]);
+    expect(await prefetchScreenContent("home", "memex-website")).toEqual(["MEMEXWEB home."]);
+    expect(await prefetchScreenContent("home", "mindset-website")).toEqual(["MINDSET home."]);
+  });
+});

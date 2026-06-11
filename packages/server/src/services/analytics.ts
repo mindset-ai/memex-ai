@@ -449,3 +449,96 @@ export async function testRunVolume(memexId: string): Promise<TestRunVolumePoint
   `)) as unknown as TestRunVolumePoint[];
   return rows;
 }
+
+// ── Test-signal pulse (Pulse test-signal monitor) ────────────────────────────
+
+/** One minute-bucket of test-emission volume, split by outcome. */
+export interface TestSignalBucket {
+  /** ISO-8601 UTC start of the minute bucket (e.g. "2026-06-11T12:03:00Z"). */
+  at: string;
+  pass: number;
+  fail: number;
+  error: number;
+}
+
+export interface TestSignalPulse {
+  /** The rolling window, in minutes, the buckets cover (ending now). */
+  windowMinutes: number;
+  /** Gapless minute buckets, oldest→newest, exactly `windowMinutes` of them. */
+  buckets: TestSignalBucket[];
+  /** Window totals, for the headline counter + green%. */
+  totals: { pass: number; fail: number; error: number; total: number };
+}
+
+const PULSE_DEFAULT_WINDOW_MIN = 60;
+const PULSE_MAX_WINDOW_MIN = 240;
+
+/**
+ * "Are test signals flowing right now?" — minute-bucketed emission volume over a
+ * short rolling window, split pass/fail/error, prefix-scoped to this memex's
+ * ac_uids (the memex is encoded in every ac_uid; no test_events.memex_id column
+ * needed). Powers the Pulse test-signal monitor's historical baseline; the live
+ * SSE `test_event.created` stream increments the current bucket on top of this.
+ *
+ * Hidden emissions COUNT toward volume (they're real runs) — mirrors
+ * `testRunVolume`. The window is gapless (every minute present, zero-filled) so
+ * the sparkline has a stable x-axis. Capped at PULSE_MAX_WINDOW_MIN.
+ */
+export async function testSignalPulse(
+  memexId: string,
+  opts: { windowMinutes?: number } = {},
+): Promise<TestSignalPulse> {
+  const windowMinutes = Math.max(
+    1,
+    Math.min(PULSE_MAX_WINDOW_MIN, Math.floor(opts.windowMinutes ?? PULSE_DEFAULT_WINDOW_MIN)),
+  );
+
+  const [slugs] = (await db.execute(sql`
+    SELECT n.slug AS ns, m.slug AS mx
+    FROM memexes m JOIN namespaces n ON n.id = m.namespace_id
+    WHERE m.id = ${memexId}
+  `)) as unknown as Array<{ ns: string; mx: string }>;
+  if (!slugs) {
+    return { windowMinutes, buckets: [], totals: { pass: 0, fail: 0, error: 0, total: 0 } };
+  }
+  const prefix = `${slugs.ns}/${slugs.mx}/`;
+
+  const buckets = (await db.execute(sql`
+    WITH per_bucket AS (
+      SELECT date_trunc('minute', created_at) AS bucket, status, count(*)::int AS n
+      FROM test_events
+      WHERE ac_uid LIKE ${prefix + "%"}
+        AND created_at >= now() - make_interval(mins => ${windowMinutes})
+      GROUP BY 1, 2
+    ),
+    grid AS (
+      SELECT generate_series(
+        date_trunc('minute', now()) - make_interval(mins => ${windowMinutes - 1}),
+        date_trunc('minute', now()),
+        interval '1 minute'
+      ) AS bucket
+    )
+    SELECT
+      to_char(grid.bucket AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS at,
+      COALESCE(sum(per_bucket.n) FILTER (WHERE per_bucket.status = 'pass'), 0)::int AS pass,
+      COALESCE(sum(per_bucket.n) FILTER (WHERE per_bucket.status = 'fail'), 0)::int AS fail,
+      COALESCE(sum(per_bucket.n) FILTER (WHERE per_bucket.status = 'error'), 0)::int AS error
+    FROM grid
+    LEFT JOIN per_bucket ON per_bucket.bucket = grid.bucket
+    GROUP BY grid.bucket
+    ORDER BY grid.bucket
+  `)) as unknown as TestSignalBucket[];
+
+  const totals = buckets.reduce(
+    (acc, b) => {
+      acc.pass += b.pass;
+      acc.fail += b.fail;
+      acc.error += b.error;
+      acc.total += b.pass + b.fail + b.error;
+      return acc;
+    },
+    { pass: 0, fail: 0, error: 0, total: 0 },
+  );
+
+  return { windowMinutes, buckets, totals };
+}

@@ -20,6 +20,7 @@ import { db } from "../db/connection.js";
 import {
   importWebsiteCorpus,
   WEBSITE_CORPUS_SOURCE_PATH,
+  WEBSITE_CORPUS_SOURCE_PATH_BY_SURFACE,
 } from "./guide-content-import.js";
 import {
   upsertGuideChunk,
@@ -242,5 +243,148 @@ Standards are durable rules — EDITED COPY for this run.
       provider: null,
     });
     expect(appStill.length).toBeGreaterThan(0);
+  });
+});
+
+// ── spec-251: the mindset-website surface rides the SAME pipeline ─────────────
+
+const SPEC251 = "mindset-prod/memex-building-itself/specs/spec-251";
+const S251_AC2 = `${SPEC251}/acs/ac-2`;
+const S251_AC5 = `${SPEC251}/acs/ac-5`;
+const S251_AC8 = `${SPEC251}/acs/ac-8`;
+
+// A mindset.ai-shaped flat artifact. Topic tokens deliberately OVERLAP the memex
+// fixture ("specs", "standards") so only the surface filter can separate them.
+const FIXTURE_MINDSET_LLMS_FULL = `# Mindset — Full Reference
+
+Mindset builds an agentic platform.
+
+## Specs
+
+MINDSET: how Mindset teams use specs with agents.
+
+## Standards
+
+MINDSET: the standards story on the Mindset platform.
+`;
+
+describe("mindset-website corpus ingestion (spec-251 t-2)", () => {
+  it("lands every chunk under surface mindset-website with the DISTINCT source_path", async () => {
+    tagAc(S251_AC5);
+    const provider = makeTopicProvider();
+    const summary = await importWebsiteCorpus({
+      source: { content: FIXTURE_MINDSET_LLMS_FULL },
+      surface: "mindset-website",
+      provider,
+    });
+    expect(summary.chunksSeen).toBe(3);
+
+    const rows = (await db.execute(sql`
+      SELECT surface, screen_key, source_path FROM guide_content ORDER BY chunk_index
+    `)) as unknown as Array<{ surface: string; screen_key: string | null; source_path: string }>;
+    expect(rows.length).toBe(3);
+    for (const r of rows) {
+      expect(r.surface).toBe("mindset-website");
+      expect(r.screen_key).toBeNull();
+      // The upsert key is (source_path, chunk_index) WITHOUT surface (0079), so
+      // the mindset corpus MUST live under its own path or it would overwrite
+      // the memex-website rows.
+      expect(r.source_path).toBe(WEBSITE_CORPUS_SOURCE_PATH_BY_SURFACE["mindset-website"]);
+      expect(r.source_path).not.toBe(WEBSITE_CORPUS_SOURCE_PATH);
+    }
+  });
+
+  it("a mindset-website import NEVER disturbs the memex-website corpus (and vice versa)", async () => {
+    tagAc(S251_AC5);
+    tagAc(S251_AC2);
+    const provider = makeTopicProvider();
+
+    // Both host corpora ingested into the one table.
+    await importWebsiteCorpus({ source: { content: FIXTURE_LLMS_FULL }, provider });
+    await importWebsiteCorpus({
+      source: { content: FIXTURE_MINDSET_LLMS_FULL },
+      surface: "mindset-website",
+      provider,
+    });
+    expect(await rowCount("memex-website")).toBe(4);
+    expect(await rowCount("mindset-website")).toBe(3);
+
+    // Re-running the mindset import (same content) prunes/overwrites NOTHING of
+    // the sibling's — both populations intact, mindset rows all reused.
+    const rerun = await importWebsiteCorpus({
+      source: { content: FIXTURE_MINDSET_LLMS_FULL },
+      surface: "mindset-website",
+      provider,
+    });
+    expect(rerun.chunksReused).toBe(3);
+    expect(rerun.rowsPruned).toBe(0);
+    expect(await rowCount("memex-website")).toBe(4);
+    expect(await rowCount("mindset-website")).toBe(3);
+
+    // And shrinking the MINDSET doc prunes only mindset tail rows.
+    const shorter = `# Mindset — Full Reference\n\nMindset builds an agentic platform.\n`;
+    const shrunk = await importWebsiteCorpus({
+      source: { content: shorter },
+      surface: "mindset-website",
+      provider,
+    });
+    expect(shrunk.chunksSeen).toBe(1);
+    expect(await rowCount("mindset-website")).toBe(1);
+    expect(await rowCount("memex-website")).toBe(4); // untouched
+  });
+
+  it("a re-run with unchanged content is idempotent for the mindset surface (refresh-safe)", async () => {
+    tagAc(S251_AC8);
+    tagAc(S251_AC5);
+    const provider = makeTopicProvider();
+    const first = await importWebsiteCorpus({
+      source: { content: FIXTURE_MINDSET_LLMS_FULL },
+      surface: "mindset-website",
+      provider,
+    });
+    expect(first.chunksEmbedded).toBe(3);
+    const callsAfterFirst = provider.calls;
+
+    const second = await importWebsiteCorpus({
+      source: { content: FIXTURE_MINDSET_LLMS_FULL },
+      surface: "mindset-website",
+      provider,
+    });
+    expect(second.chunksReused).toBe(3);
+    expect(second.chunksEmbedded).toBe(0);
+    expect(provider.calls).toBe(callsAfterFirst); // no re-embed
+    expect(await rowCount("mindset-website")).toBe(3);
+  });
+
+  it("retrieval: mindset chunks visible ONLY to mindset-website sessions", async () => {
+    tagAc(S251_AC2);
+    const provider = makeTopicProvider();
+    await importWebsiteCorpus({ source: { content: FIXTURE_LLMS_FULL }, provider });
+    await importWebsiteCorpus({
+      source: { content: FIXTURE_MINDSET_LLMS_FULL },
+      surface: "mindset-website",
+      provider,
+    });
+
+    // The SAME topical query on each surface returns only that surface's copy.
+    const mindsetHits = await searchGuideContent("tell me about standards", {
+      surface: "mindset-website",
+      provider,
+    });
+    expect(mindsetHits.length).toBeGreaterThan(0);
+    expect(mindsetHits.every((h) => h.content.includes("MINDSET:"))).toBe(true);
+
+    const memexHits = await searchGuideContent("tell me about standards", {
+      surface: "memex-website",
+      provider,
+    });
+    expect(memexHits.length).toBeGreaterThan(0);
+    expect(memexHits.every((h) => !h.content.includes("MINDSET:"))).toBe(true);
+
+    const appHits = await searchGuideContent("tell me about standards", {
+      surface: "memex-app",
+      provider,
+    });
+    expect(appHits).toEqual([]);
   });
 });

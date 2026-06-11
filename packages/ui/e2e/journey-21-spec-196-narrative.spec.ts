@@ -122,10 +122,9 @@ test("specify→build gate: stale narrative blocks the offer; consolidation rest
   await page.getByRole("button", { name: /Decisions & ACs/ }).click();
   const panel = page.getByTestId("decision-panel");
   await expect(panel).toContainText(/Pick the gate's colour/, { timeout: 15_000 });
+  // spec-247 dec-1/dec-5: picking an option IS the answer — the click persists
+  // immediately (no Resolve button, no rationale step).
   await panel.getByTestId("open-option-1").first().check();
-  await panel.getByTestId("decision-resolve").first().click();
-  await panel.getByTestId("open-resolution-text").first().fill("Green — we're confident.");
-  await panel.getByTestId("open-resolve-confirm").first().click();
   await expect(panel.getByRole("button", { name: /^Resolved 1$/ })).toBeVisible({
     timeout: 15_000,
   });

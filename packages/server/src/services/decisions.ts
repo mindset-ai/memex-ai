@@ -678,17 +678,18 @@ export async function setDecisionOptions(
 export async function resolveDecision(
   memexId: string,
   id: string,
-  resolution: string,
+  resolution?: string,
   chosenOptionIndex?: number,
   ctx: RequestCtx = {},
 ): Promise<Mutated<Decision>> {
   const decision = await loadOwnedDecision(memexId, id);
-  // Strict transition: only `open` decisions can be resolved. Candidates need approval
-  // first; rejected/resolved decisions can't transition into resolved without going via
-  // reopen → open.
-  if (decision.status !== "open") {
+  // spec-247 dec-5 (persist-on-select): `open` AND `resolved` decisions accept
+  // resolve — re-resolving updates chosenOptionIndex/resolution in place so a
+  // later option click is a one-step correction, no reopen round-trip.
+  // Candidates still need approval first; rejected stays terminal-until-restore.
+  if (decision.status !== "open" && decision.status !== "resolved") {
     throw new ValidationError(
-      `Only open decisions can be resolved (current status: ${decision.status})`,
+      `Only open or resolved decisions can be resolved (current status: ${decision.status})`,
     );
   }
 
@@ -705,6 +706,22 @@ export async function resolveDecision(
     validateChosenIndex(decision.options as DecisionOption[] | null, effectiveChosenIndex);
   }
 
+  // spec-247 dec-5: resolution is optional when an option is being picked —
+  // the prose defaults to the chosen option's label so a bare option click is
+  // a complete resolution. Prose-only resolves (no index) still require text:
+  // with neither an option nor prose there is no resolution content at all.
+  const trimmedResolution = typeof resolution === "string" ? resolution.trim() : "";
+  let effectiveResolution = trimmedResolution;
+  if (!effectiveResolution) {
+    if (effectiveChosenIndex !== undefined) {
+      effectiveResolution = (decision.options as DecisionOption[])[effectiveChosenIndex].label;
+    } else {
+      throw new ValidationError(
+        "resolution is required unless chosenOptionIndex picks an option (then it defaults to that option's label)",
+      );
+    }
+  }
+
   const now = new Date();
 
   // The cascading docComments update is treated as part of the decision-resolution
@@ -719,7 +736,7 @@ export async function resolveDecision(
         .update(decisions)
         .set({
           status: "resolved",
-          resolution,
+          resolution: effectiveResolution,
           resolvedAt: now,
           // spec-122 dec-2/dec-5 — record who resolved it, through which surface.
           ...(await resolveActorColumns(ctx)),

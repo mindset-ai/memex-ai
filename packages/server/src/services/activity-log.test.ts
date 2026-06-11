@@ -188,6 +188,23 @@ describe("persistEvent — real Postgres write", () => {
     expect(rows[0].actorKind).toBe("system");
   });
 
+  it("does NOT persist a test_event — the CI firehose is kept out of the timeline", async () => {
+    // test_event is emitted on the bus (live consumers wake) but never written
+    // to activity_log: it's high-volume telemetry whose system of record is the
+    // test_events table. Excluding it keeps the Pulse Event Log readable.
+    const row = await persistEvent(
+      baseEvent({
+        entity: "test_event",
+        action: "created",
+        channel: "server",
+        payload: { status: "pass", acUid: "ns/mx/specs/spec-1/acs/ac-1" },
+      }),
+    );
+    expect(row).toBeNull();
+    const rows = await db.select().from(activityLog).where(eq(activityLog.memexId, memexId));
+    expect(rows, "a test_event must write no activity_log row").toHaveLength(0);
+  });
+
   it("skips (writes no row, does not throw) when memexId is blank", async () => {
     const row = await persistEvent({ ...baseEvent(), memexId: "" });
     expect(row).toBeNull();
@@ -247,6 +264,28 @@ describe("startActivityLogSink — end-to-end bus → DB wiring", () => {
       bus.emit(baseEvent({ channel: "server", action: "updated", entity: "document" }));
       const rows = await waitForRows(memexId, 1);
       expect(rows).toHaveLength(1);
+    } finally {
+      _stopActivityLogSink();
+    }
+  });
+
+  it("persists a LOCAL emit but IGNORES a relayed (foreign) event — single-writer at origin (spec-122)", async () => {
+    // Regression for the "every event duplicated 3×" Pulse report. The spec-156
+    // cross-instance relay re-emits every event onto the local bus of the OTHER
+    // Cloud Run instances via emitRelayed(); if the sink persisted those too,
+    // each instance would write its own activity_log row (3 instances → 3 rows
+    // per logical event). The sink subscribes localOnly, so a relayed event must
+    // NOT produce a row — only the origin instance's emit() does.
+    startActivityLogSink();
+    try {
+      // A foreign event arriving via the relay: must NOT be persisted here.
+      bus.emitRelayed(baseEvent({ channel: "mcp", action: "created", narrative: "relayed — must not persist" }));
+      // A locally-originated emit: persisted exactly once.
+      bus.emit(baseEvent({ channel: "mcp", action: "created", narrative: "local — persisted once" }));
+
+      const rows = await waitForRows(memexId, 1);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].narrative).toBe("local — persisted once");
     } finally {
       _stopActivityLogSink();
     }

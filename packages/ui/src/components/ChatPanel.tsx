@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, type KeyboardEvent } from 'react';
+import { Link } from 'react-router-dom';
 import { useChat } from './ChatContext';
 import { ChatMarkdown } from './chat/ChatMarkdown';
 import { ContextChipBar } from './chat/ContextChipBar';
@@ -24,6 +25,54 @@ export interface ChatPanelProps {
   isAuthenticated?: boolean;
   /** True → signed-in non-member; agent runs read-only. Default false. */
   readOnly?: boolean;
+}
+
+// spec-247 dec-3 (ac-11): the panel header. "Spec assistant" names the job;
+// the "private chat" qualifier keeps the old name's privacy connotation.
+function AssistantHeading() {
+  return (
+    <h3 className="text-sm font-medium text-secondary">
+      Spec assistant{' '}
+      <span className="text-xs font-normal text-muted">· private chat</span>
+    </h3>
+  );
+}
+
+// spec-247 dec-3 (ac-12): the permanent grounding line — visible without any
+// interaction, under the header. Discloses GROUNDING, not capability (the web
+// agent shares the MCP tool catalog per spec-14 dec-4): it works on this spec
+// and has not read the user's code; code-grounded answers come from a
+// connected coding agent (the spec-201 setup surface).
+function GroundingLine() {
+  return (
+    <div
+      data-testid="chat-grounding-line"
+      className="flex-none px-4 py-1.5 border-b border-edge text-[11px] leading-snug text-muted"
+    >
+      Works on this spec. Hasn't read your code.{' '}
+      <Link
+        to="/settings/integrations"
+        className="underline underline-offset-2 hover:text-primary"
+      >
+        Connect a coding agent
+      </Link>{' '}
+      over MCP for code-grounded answers.
+    </div>
+  );
+}
+
+// spec-247 dec-3 (ac-13): detect code-shaped claims in assistant output so the
+// grounding disclosure can sit ADJACENT to exactly the messages that make
+// them. Deliberately conservative: fenced code blocks, file-extension paths,
+// or talk of implementation ACs — the moments a reader might take a code claim
+// on authority.
+export function makesCodeShapedClaims(content: string): boolean {
+  if (/```/.test(content)) return true;
+  // A path-like token ending in a code-file extension (src/foo/bar.ts, a.py).
+  if (/\b[\w.-]+(?:\/[\w.-]+)+\.[a-z]{1,8}\b/i.test(content)) return true;
+  if (/\b[\w-]+\.(ts|tsx|js|jsx|mjs|cjs|py|go|rb|java|rs|c|cpp|cs|php|swift|kt|sql|sh|yml|yaml|toml)\b/.test(content)) return true;
+  if (/implementation ac/i.test(content)) return true;
+  return false;
 }
 
 export function ChatPanel({ isAuthenticated = true, readOnly = false }: ChatPanelProps = {}) {
@@ -86,8 +135,9 @@ export function ChatPanel({ isAuthenticated = true, readOnly = false }: ChatPane
     return (
       <div className="flex flex-col h-full bg-surface" data-testid="chat-signin-placeholder">
         <div className="flex-none px-4 py-3 border-b border-edge flex items-center justify-between">
-          <h3 className="text-sm font-medium text-secondary">Private Agent</h3>
+          <AssistantHeading />
         </div>
+        <GroundingLine />
         <div className="flex-1 flex flex-col items-center justify-center px-6 text-center gap-3">
           <p className="text-sm font-medium text-primary">Sign in to chat</p>
           <p className="text-sm text-muted">
@@ -106,7 +156,7 @@ export function ChatPanel({ isAuthenticated = true, readOnly = false }: ChatPane
     <div className="flex flex-col h-full bg-surface">
       {/* Header */}
       <div className="flex-none px-4 py-3 border-b border-edge flex items-center justify-between">
-        <h3 className="text-sm font-medium text-secondary">Private Agent</h3>
+        <AssistantHeading />
         {messages.length > 0 && (
           <button
             onClick={clearChat}
@@ -116,6 +166,7 @@ export function ChatPanel({ isAuthenticated = true, readOnly = false }: ChatPane
           </button>
         )}
       </div>
+      <GroundingLine />
 
       {/* Messages */}
       <div
@@ -167,6 +218,18 @@ export function ChatPanel({ isAuthenticated = true, readOnly = false }: ChatPane
             return (
               <div key={msg.id} className="max-w-[95%]">
                 <ChatMarkdown content={msg.content} />
+                {/* spec-247 dec-3 (ac-13): when the answer makes code-shaped
+                    claims, the grounding disclosure sits next to THAT output,
+                    not only in the header. */}
+                {makesCodeShapedClaims(msg.content) && (
+                  <p
+                    data-testid="code-claim-disclosure"
+                    className="mt-1 text-[11px] italic text-muted"
+                  >
+                    Doc-grounded answer — this assistant hasn't read your code.
+                    Verify code specifics with your coding agent.
+                  </p>
+                )}
               </div>
             );
           }

@@ -185,18 +185,12 @@ test("lifecycle spine: org → memex → Spec → resolve decision → phase mov
   // Open the Decisions & ACs sub-tab (sub-tabs render as <button> with the label).
   await page.getByRole("button", { name: /Decisions & ACs/ }).click();
   // DecisionPanel defaults to the Open tab when no candidates exist; the seeded
-  // decision arrives over SSE. Pick option 0, open the resolve tray, write a
-  // rationale, and save.
+  // decision arrives over SSE. spec-247 dec-1/dec-5: picking an option IS the
+  // answer — the click persists immediately (no Resolve button, no rationale).
   const panel = page.getByTestId("decision-panel");
   await expect(panel).toContainText(/Pick the spine's datastore/, { timeout: 15_000 });
 
   await panel.getByTestId("open-option-0").first().check();
-  await panel.getByTestId("decision-resolve").first().click();
-  await panel
-    .getByTestId("open-resolution-text")
-    .first()
-    .fill("Postgres — it matches the rest of the stack.");
-  await panel.getByTestId("open-resolve-confirm").first().click();
 
   // Resolved: the decision moves to the Resolved tray. The specify→Build Decisions
   // blocker is now satisfied — but ACs still aren't created, so the Rubicon

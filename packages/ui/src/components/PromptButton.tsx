@@ -211,7 +211,15 @@ export function PromptButton({
             onClick={() => setOpen(true)}
             className="font-medium text-accent underline underline-offset-2 hover:text-accent-hover disabled:opacity-50 disabled:no-underline"
           >
-            {linkText}
+            {/* spec-247 ac-15 (c-4): the terminal glyph rides the link text so
+                every copy-prompt affordance is recognisable as one, even
+                mid-sentence. */}
+            <span className="inline-flex items-baseline gap-1">
+              <span className="self-center" aria-hidden="true">
+                <TerminalIcon />
+              </span>
+              {linkText}
+            </span>
           </button>{' '}
           {sentence}
         </p>

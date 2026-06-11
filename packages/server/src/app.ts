@@ -3,7 +3,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { secureHeaders } from "hono/secure-headers";
 import { errorHandler } from "./middleware/error-handler.js";
-import { sessionMiddleware } from "./middleware/session.js";
+import { sessionMiddleware, publicSessionMiddleware } from "./middleware/session.js";
 import { memexesRouter } from "./routes/memexes.js";
 import { docs } from "./routes/documents.js";
 import { comments } from "./routes/comments.js";
@@ -25,6 +25,7 @@ import { docEventsRouter } from "./routes/doc-events.js";
 import { activity } from "./routes/activity.js";
 import { presenceRouter } from "./routes/presence.js";
 import { analytics } from "./routes/analytics.js";
+import { telemetryRouter } from "./routes/telemetry.js";
 import { waitlist } from "./routes/waitlist.js";
 import { auth } from "./routes/auth.js";
 import { invitesAcceptRouter, invitesAdminRouter } from "./routes/invites.js";
@@ -249,6 +250,12 @@ app.route("/api/:namespace/:memex/presence", presenceRouter);
 // Spec analytics for the Insights page (spec-179). Path-prefixed only — the
 // aggregates are inherently per-Memex, same reasoning as /activity above.
 app.route("/api/:namespace/:memex/analytics", analytics);
+// spec-244 t-2 — front-end engagement capture. PERMISSIVE publicSessionMiddleware
+// so anonymous callers reach the handler and no-op (ac-7); an authenticated user
+// inside a resolved memex records a usage_events row. Path-prefixed only — every
+// event is inherently per-Memex.
+app.use("/api/:namespace/:memex/telemetry/*", publicSessionMiddleware);
+app.route("/api/:namespace/:memex/telemetry", telemetryRouter);
 // spec-178 t-6 — handhold onboarding demo reset. Path-prefixed only: the reset
 // is gated to the owner of a PERSONAL Memex (std-7 404 otherwise), so the memex
 // must come from the resolved /<ns>/<mx>/ path — there's no flat entity-keyed

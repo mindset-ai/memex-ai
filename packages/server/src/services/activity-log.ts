@@ -144,6 +144,21 @@ function hasPersistableScope(event: ChangeEvent): boolean {
   return typeof event.memexId === "string" && event.memexId.length > 0;
 }
 
+// Entities whose bus events are deliberately NOT persisted to the activity_log
+// timeline. `test_event` is a high-volume CI telemetry firehose (one event per
+// AC per test run — thousands/day) whose system of record is already the
+// `test_events` table (+ test_event_latest summary). Mirroring it into the
+// human-readable activity_log floods the Pulse Event Log with unreadable line
+// noise and bloats the table for no benefit. The bus emission is KEPT (live SSE
+// subscribers — AC-health chips, and the Pulse "test signals" volume monitor —
+// still wake on it); only the durable activity_log row is suppressed. Test
+// signals surface in Pulse as an aggregate volume graphic, not per-line.
+// (Per-spec test outcomes still reach the agent's `── ACTIVITY ──` footer via
+// the activity_view's dedicated test_events arm, which reads the source table.)
+const NON_TIMELINE_ENTITIES: ReadonlySet<ChangeEvent["entity"]> = new Set([
+  "test_event",
+]);
+
 /**
  * Persist one event. Advisory: any failure is logged and swallowed so the
  * originating emitter is never affected. Returns the inserted row (or null when
@@ -154,6 +169,9 @@ export async function persistEvent(
   conn: Db = db,
 ): Promise<ActivityLog | null> {
   if (!hasPersistableScope(event)) return null;
+  // High-volume telemetry (test_event) is emitted on the bus for live consumers
+  // but never written to the activity_log timeline (see NON_TIMELINE_ENTITIES).
+  if (NON_TIMELINE_ENTITIES.has(event.entity)) return null;
   // ac-21 — surface a missing channel as a visible defect BEFORE the persist
   // step coerces it (the row is still written; the defect is no longer silent).
   flagAttributionDefect(event);
@@ -185,6 +203,16 @@ export function startActivityLogSink(): Unsubscribe {
   if (unsubscribe) return unsubscribe;
   // Default-open filter: capture EVERY event (all memexes, all entities, all
   // actions — writes AND the b-60 read actions viewed/searched/assessed/called).
+  //
+  // localOnly (spec-122): persist ONLY locally-originated emits. The sink is a
+  // single-writer — the row must be written exactly once, at the instance that
+  // originated the mutation. The spec-156 cross-instance relay re-emits every
+  // event onto the local bus of the OTHER instances (via emitRelayed) so their
+  // SSE subscribers see it live; if the sink also fired on those relayed events,
+  // each of prod's 3 Cloud Run instances would persist its own copy — one
+  // activity_log row per instance (the "every event duplicated 3×" Pulse report).
+  // localOnly excludes relayed events, so persistence stays single-writer while
+  // live SSE delivery stays cross-instance.
   unsubscribe = bus.subscribe({}, (event) => {
     // Detached: persistEvent already swallows, but the extra .catch() guards
     // against any synchronous throw before the try/catch and keeps the bus
@@ -192,7 +220,7 @@ export function startActivityLogSink(): Unsubscribe {
     void persistEvent(event).catch((err) => {
       log("unexpected sink error (advisory — swallowed):", err);
     });
-  });
+  }, { localOnly: true });
   return unsubscribe;
 }
 

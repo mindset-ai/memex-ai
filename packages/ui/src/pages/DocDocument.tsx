@@ -959,6 +959,10 @@ export function DocDocument() {
       canEdit={canEdit}
       /* spec-178 ac-24: same handle auto-linking suppression for demo decisions. */
       isDemo={doc.isDemo ?? false}
+      /* spec-247 dec-4: context for the candidate-review handoff PromptButton
+         and the chat-seeded "Ask for more explanation" prompt. */
+      promptContext={handoffContext}
+      orgBlocks={orgBlocks}
     />
   );
 
@@ -976,6 +980,9 @@ export function DocDocument() {
         specPhase={phase}
         focusedAcId={focusedAcId}
         onFocusConsumed={() => setFocusedAcId(null)}
+        /* spec-247 dec-4: context for the "Wire the AC tests" handoff. */
+        promptContext={handoffContext}
+        orgBlocks={orgBlocks}
       />
     </div>
   );

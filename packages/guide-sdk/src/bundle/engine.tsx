@@ -95,6 +95,10 @@ export async function mountEngine({
       return {
         screenKey,
         screenRegistry: adapter.elementsForScreen?.(screenKey) ?? [],
+        // The complete site map (key + title + description per page) — sent
+        // every turn so the model knows definitively what pages exist and
+        // where it can navigate, instead of relying on retrieval.
+        screens: adapter.allScreens?.() ?? [],
         // The static site is not tenant-scoped; surface identifies the host.
         namespace: config.surface,
         memex: '',

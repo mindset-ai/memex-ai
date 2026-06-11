@@ -909,6 +909,17 @@ export async function composeGuidanceEnvelope(
     const withSteer = (footer: string | undefined): string | undefined =>
       [toolSteer, footer].filter((s): s is string => Boolean(s)).join("\n\n") || undefined;
 
+    // spec-249 — the live spec-status overview. Emitted for EVERY orientation read
+    // (get_doc / list_acs / assess_spec), independent of the verbose flag, and led
+    // into the footer below on BOTH branches (ac-2: the cold agent can be depended
+    // on neither to set verbose nor to read through one tool). Read-path only — a
+    // tool not in ORIENT_READ_TOOLS (every mutation) gets null and an untouched
+    // footer (ac-7).
+    const orientOverview =
+      ctx.toolName && ORIENT_READ_TOOLS.has(ctx.toolName)
+        ? await craftStatusOverview(memexId, docId, state, phase)
+        : null;
+
     // VERBOSE reads — the agent asked for the whole document, so author the FULL
     // phase footer via the shared composer (a pure helper; the seat still owns
     // the decision to return it).
@@ -973,7 +984,11 @@ export async function composeGuidanceEnvelope(
       const activity =
         ctx.toolName === "get_doc" ? await craftActivityBlock(memexId, docId, ctx.userId) : null;
       const body = activity ? `${footer ?? ""}${footer ? "\n\n" : ""}${activity}` : footer;
-      return compose(header, withSteer(body ?? undefined));
+      // spec-249 — the status overview LEADS the verbose footer too (flag-agnostic).
+      const bodyWithOverview =
+        [orientOverview, body].filter((s): s is string => Boolean(s)).join("\n\n") ||
+        undefined;
+      return compose(header, withSteer(bodyWithOverview));
     }
 
     // TERSE build-loop calls — author a LEAN, situational footer here. This is
@@ -982,6 +997,10 @@ export async function composeGuidanceEnvelope(
     // plus, in build, the AC nag — the highest-value methodology steer. The body
     // is DELIMITER-LESS (spec-219 ac-7): the choke point frames it.
     const lines: string[] = [];
+    // spec-249 — the status overview LEADS the terse footer (most prominent point
+    // of the guidance channel), on every orientation read. Flag-agnostic: the same
+    // overview the verbose branch leads with.
+    if (orientOverview) lines.push(orientOverview);
     // spec-219 Phase 2b (comb-through): a surgical per-(tool, transition) steer —
     // a slot signal or a STEER_BY_TOOL entry — REPLACES the generic phase essence.
     // The agent gets told its NEXT MOVE, not re-lectured on the whole phase on
@@ -1142,6 +1161,171 @@ async function craftUntestedAcNag(
       .join(", ");
     const plural = untested.length === 1 ? "" : "s";
     return `\n⚠ ${untested.length} untested acceptance criteri${untested.length === 1 ? "on" : "a"} (${handles}). Write the tagged test before you move on — don't go dark.`;
+  } catch {
+    return null;
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// spec-249 — the live spec-status overview that orients a cold picker-upper.
+//
+// One synthesized line — phase + a FULL state census + the single next action —
+// pushed onto EVERY orientation read (get_doc / list_acs / assess_spec), on both
+// terse and verbose reads (ORIENT_READ_TOOLS, below). It is PUSHED, not pulled:
+// the cold agent never opts in, and (the lesson that reopened this spec) cannot
+// be depended on to set `verbose` or to read through any one tool. Pure data,
+// read from current state, so the line is LIVE — it changes every call as
+// decisions resolve, tasks complete, and ACs pass or fail (ac-3). No phase prose
+// lives here; the phase essence in the same footer is the single source (ac-6).
+// ──────────────────────────────────────────────────────────────────────────
+
+/** The orientation READ surfaces the overview rides (ac-2). Every one of these
+ *  resolves a single Spec, so each already flows through this seat at the choke
+ *  point — the overview just needs to be emitted for them, on terse AND verbose.
+ *  A named set so the surface is one edit to widen. Mutations are deliberately
+ *  excluded: the overview is read-path only and never touches a mutation footer. */
+const ORIENT_READ_TOOLS: ReadonlySet<string> = new Set([
+  "get_doc",
+  "list_acs",
+  "assess_spec",
+]);
+
+export interface StatusFacts {
+  handle: string; // "spec-249"
+  phase: Phase;
+  decisionsTotal: number; // non-deleted decisions
+  decisionsUnresolved: number; // open + candidate
+  openDecisions: string[]; // dec-N handles, status open
+  /** resolved decisions with no active implementation AC hanging off them. */
+  resolvedDecisionsWithoutImplAc: string[]; // dec-N handles
+  scopeAcsActive: number;
+  tasksTotal: number;
+  incompleteTasks: string[]; // t-N handles, status !== complete
+  acsTotal: number; // active ACs
+  untestedAcs: string[]; // ac-N handles, verificationState 'untested' (no test)
+  failingAcs: string[]; // ac-N handles, verificationState 'failing' (red test)
+}
+
+/**
+ * spec-249 ac-5 — the single next ACTION, phase-aware and concrete. Derived from
+ * the most pressing GAP in state: a FAILING ac (a red test) is the loudest signal
+ * in any phase and outranks everything; then phase-shaped progression. When the
+ * spec is done it offers no forward action.
+ */
+function statusNextAction(f: StatusFacts): string {
+  // ac-4 — a regression reads louder than an absence: failing wins everywhere.
+  if (f.failingAcs.length > 0) {
+    return `fix the failing test for ${f.failingAcs[0]}`;
+  }
+  switch (f.phase) {
+    case "draft":
+    case "specify": {
+      if (f.openDecisions.length > 0) {
+        return `resolve ${f.openDecisions[0]}, then give it an implementation AC`;
+      }
+      if (f.resolvedDecisionsWithoutImplAc.length > 0) {
+        return `give ${f.resolvedDecisionsWithoutImplAc[0]} an implementation AC (create_ac kind:implementation)`;
+      }
+      if (f.scopeAcsActive === 0) {
+        return `pin down what "done" means as scope ACs (create_ac kind:scope)`;
+      }
+      return "move to build (update_doc status:build)";
+    }
+    case "build": {
+      if (f.tasksTotal === 0) {
+        return "break the narrative into tasks (create_task)";
+      }
+      if (f.incompleteTasks.length > 0) {
+        return `complete ${f.incompleteTasks[0]}`;
+      }
+      if (f.untestedAcs.length > 0) {
+        return `write the tagged test for ${f.untestedAcs[0]}`;
+      }
+      return "move to verify (update_doc status:verify)";
+    }
+    case "verify": {
+      if (f.untestedAcs.length > 0) {
+        return `write or run the tagged test for ${f.untestedAcs[0]}`;
+      }
+      return "run assess_spec target:done, then hand to a human to sign off";
+    }
+    case "done":
+      return "none — spec is done (reopen with update_doc only if something must change)";
+  }
+}
+
+/**
+ * spec-249 ac-1/ac-3/ac-4/ac-5 — synthesize the status overview line from the
+ * fact sheet. Pure (no DB, no clock): a deterministic projection of state, so it
+ * is unit-tested directly and is LIVE by construction. The census is FULL — every
+ * dimension every call (decisions total/unresolved, tasks total/incomplete, ACs
+ * total/untested/failing) — never a phase-narrowed subset (ac-1), with failing
+ * surfaced distinctly from untested (ac-4).
+ */
+export function composeStatusOverview(f: StatusFacts): string {
+  const census =
+    `decisions: ${f.decisionsTotal} (${f.decisionsUnresolved} unresolved)` +
+    ` · tasks: ${f.tasksTotal} (${f.incompleteTasks.length} incomplete)` +
+    ` · ACs: ${f.acsTotal} (${f.untestedAcs.length} untested, ${f.failingAcs.length} failing)`;
+  return `${f.handle} · ${f.phase} · ${census} · Next: ${statusNextAction(f)}.`;
+}
+
+/**
+ * spec-249 — gather the full census from current state and render the overview.
+ * Best-effort: any lookup miss returns null (the read simply omits the overview)
+ * rather than costing the tool its result. Called ONLY from
+ * composeGuidanceEnvelope (ac-6: the single seat).
+ */
+async function craftStatusOverview(
+  memexId: string,
+  docId: string,
+  state: FullDocState,
+  phase: Phase,
+): Promise<string | null> {
+  try {
+    const acRows = await listAcsForBriefWithVerification(memexId, docId);
+    const activeAcs = acRows.filter((r) => r.ac.status === "active");
+    const implAcs = activeAcs.filter((r) => r.ac.kind === "implementation");
+    const scopeAcs = activeAcs.filter((r) => r.ac.kind === "scope");
+    // ac-4 — 'untested' (no test yet) and 'failing' (a red test) are distinct
+    // census buckets; 'stale'/'verified' count as neither gap.
+    const untestedAcs = activeAcs
+      .filter((r) => r.verificationState === "untested")
+      .map((r) => `ac-${r.ac.seq}`);
+    const failingAcs = activeAcs
+      .filter((r) => r.verificationState === "failing")
+      .map((r) => `ac-${r.ac.seq}`);
+
+    // Which resolved decisions still have no implementation AC hanging off them.
+    const coveredDecisionIds = new Set(
+      implAcs.flatMap((r) =>
+        r.parents.filter((p) => p.kind === "decision").map((p) => p.id),
+      ),
+    );
+    const liveDecs = state.decs.filter((d) => d.status !== "deleted");
+    const facts: StatusFacts = {
+      handle: state.doc.handle,
+      phase,
+      decisionsTotal: liveDecs.length,
+      decisionsUnresolved: liveDecs.filter(
+        (d) => d.status === "open" || d.status === "candidate",
+      ).length,
+      openDecisions: state.decs
+        .filter((d) => d.status === "open")
+        .map((d) => `dec-${d.seq}`),
+      resolvedDecisionsWithoutImplAc: state.decs
+        .filter((d) => d.status === "resolved" && !coveredDecisionIds.has(d.id))
+        .map((d) => `dec-${d.seq}`),
+      scopeAcsActive: scopeAcs.length,
+      tasksTotal: state.tasks.length,
+      incompleteTasks: state.tasks
+        .filter((t) => t.status !== "complete")
+        .map((t) => `t-${t.seq}`),
+      acsTotal: activeAcs.length,
+      untestedAcs,
+      failingAcs,
+    };
+    return composeStatusOverview(facts);
   } catch {
     return null;
   }
@@ -2470,14 +2654,19 @@ export const toolSpecs: ToolSpec[] = [
     name: "resolve_decision",
     annotations: { title: "Resolve decision", readOnlyHint: false, destructiveHint: false },
     description:
-      "Resolve a decision with an explanation of the choice made. May unblock tasks waiting on it. Resolving the last open decision on a Spec in 'specify' unblocks the move to 'build'. If the decision has structured options, pass `chosenOptionIndex` to mark which one was selected.",
+      "Resolve a decision with an explanation of the choice made. May unblock tasks waiting on it. Resolving the last open decision on a Spec in 'specify' unblocks the move to 'build'. If the decision has structured options, pass `chosenOptionIndex` to mark which one was selected — `resolution` is then optional and defaults to that option's label. Re-resolving an already-resolved decision updates the choice in place (spec-247 dec-5).",
     schema: {
       ref: z
         .string()
         .describe(
           "Canonical ref to the decision, e.g. `mindset/main/specs/spec-3/decisions/dec-2`.",
         ),
-      resolution: z.string().describe("The resolution — what was decided and why"),
+      resolution: z
+        .string()
+        .optional()
+        .describe(
+          "The resolution — what was decided and why. Optional when chosenOptionIndex is supplied (defaults to the chosen option's label); required otherwise.",
+        ),
       chosenOptionIndex: z
         .number()
         .int()

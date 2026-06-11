@@ -6,12 +6,11 @@ import type { Decision } from '../api/types';
 import { tagAc } from '@memex-ai-ac/vitest';
 
 const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-118/acs/ac-${n}`;
+const AC247 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-247/acs/ac-${n}`;
 
 const mockAddContextChip = vi.fn();
 const mockSendMessage = vi.fn();
 const mockCreateDecision = vi.fn();
-const mockApproveDecisionApi = vi.fn();
-const mockRejectDecisionApi = vi.fn();
 const mockResolveDecisionApi = vi.fn();
 const mockCreateDecisionComment = vi.fn();
 
@@ -32,8 +31,6 @@ vi.mock('./AuthContext', () => ({
 
 vi.mock('../api/client', () => ({
   createDecision: (...args: unknown[]) => mockCreateDecision(...args),
-  approveDecisionApi: (...args: unknown[]) => mockApproveDecisionApi(...args),
-  rejectDecisionApi: (...args: unknown[]) => mockRejectDecisionApi(...args),
   resolveDecisionApi: (...args: unknown[]) => mockResolveDecisionApi(...args),
   createDecisionComment: (...args: unknown[]) => mockCreateDecisionComment(...args),
 }));
@@ -43,6 +40,14 @@ vi.mock('./CommentTray', () => ({
     <div data-testid="comment-tray-stub" data-target-id={targetId} />
   ),
 }));
+
+const PROMPT_CONTEXT = {
+  namespace: 'acme',
+  memex: 'main',
+  handle: 'spec-1',
+  title: 'A Spec',
+  url: 'https://memex.ai/acme/main/specs/spec-1',
+};
 
 function makeDecision(overrides: Partial<Decision> = {}): Decision {
   return {
@@ -60,6 +65,11 @@ function makeDecision(overrides: Partial<Decision> = {}): Decision {
     ...overrides,
   } as Decision;
 }
+
+const TWO_OPTIONS = [
+  { label: 'REST', trade_offs: 'Simple, well-known' },
+  { label: 'gRPC', trade_offs: 'Faster, harder tooling' },
+];
 
 beforeEach(() => vi.clearAllMocks());
 
@@ -101,12 +111,10 @@ describe('DecisionPanel', () => {
     expect(within(resolvedCard).getAllByText('Use HS256 JWT').length).toBeGreaterThan(0);
   });
 
-  it('a reviewer (canWrite true, canEdit false) sees the decision + its comment tray but no forward-driving controls (ac-9)', () => {
+  it('a reviewer (canWrite true, canEdit false) sees the decision but the option picker is disabled (ac-9)', () => {
     tagAc(AC(9));
-    // A single open decision so the panel defaults to the Open tab and the card
-    // (plus its forward-driving Resolve control) is on screen for a reviewer.
     const decisions = [
-      makeDecision({ id: 'd1', seq: 7, status: 'open', title: 'What stack?' }),
+      makeDecision({ id: 'd1', seq: 7, status: 'open', title: 'What stack?', options: TWO_OPTIONS }),
     ];
     render(
       <DecisionPanel
@@ -120,13 +128,10 @@ describe('DecisionPanel', () => {
 
     // The Spec content is fully readable — the decision card is present…
     expect(screen.getByText('What stack?')).toBeInTheDocument();
-    // …and the comment affordance (a tray) remains available to the reviewer
-    // because comments gate on canWrite, not canEdit.
-    expect(screen.getAllByTestId('comment-tray-stub').length).toBeGreaterThan(0);
-
-    // But the forward-driving control is suppressed: no Resolve on the open
-    // decision.
+    // …but the answering affordance (the option radios) is disabled for a
+    // reviewer, and there is no resolve CTA for anyone (spec-247 dec-1).
     expect(screen.queryByTestId('decision-resolve')).not.toBeInTheDocument();
+    expect((screen.getByTestId('open-option-0') as HTMLInputElement).disabled).toBe(true);
   });
 
   it('counts candidates / open / resolved in the header', () => {
@@ -146,32 +151,9 @@ describe('DecisionPanel', () => {
     expect(screen.getByText('1 candidate, 2 open, 1 resolved')).toBeInTheDocument();
   });
 
-  it('resolve button on an open decision (without options) sends a "Resolve decision …" chat message', async () => {
-    const user = userEvent.setup();
-    const decisions = [
-      makeDecision({ id: 'd1', seq: 7, status: 'open', title: 'What stack?' }),
-    ];
-    render(
-      <DecisionPanel
-        docId="doc-1"
-        decisions={decisions}
-        onUpdate={vi.fn()}
-      />
-    );
-
-    await user.click(screen.getByTestId('decision-resolve'));
-    expect(mockAddContextChip).toHaveBeenCalledWith({
-      type: 'decision',
-      id: 'd1',
-      label: 'Decision D-7',
-    });
-    expect(mockSendMessage).toHaveBeenCalledWith('Resolve decision D-7');
-  });
-
   // t-21 Issue 5: the manual "Add decision" UI is gone — decisions are agent-driven
-  // through the candidate flow (propose_decision → approve → resolve). REST/MCP
-  // power-user paths still create decisions for scripting, but the panel doesn't
-  // expose a button.
+  // through the candidate flow. REST/MCP power-user paths still create decisions
+  // for scripting, but the panel doesn't expose a button.
   it('does NOT render a manual "Add decision" button (per t-21 Issue 5)', () => {
     render(<DecisionPanel docId="doc-1" decisions={[]} onUpdate={vi.fn()} />);
     expect(
@@ -185,9 +167,9 @@ describe('DecisionPanel', () => {
   it('shows agent-driven empty-state copy when the list is empty', () => {
     render(<DecisionPanel docId="doc-1" decisions={[]} onUpdate={vi.fn()} />);
     // Default tab is 'open' when no candidates exist; the empty state explains
-    // the agent-driven flow (candidate → approve → open → resolve).
+    // where candidates are confirmed and that picking an option answers.
     expect(screen.getByText(/No open decisions/i)).toBeInTheDocument();
-    expect(screen.getByText(/approve a candidate raised by the agent/i)).toBeInTheDocument();
+    expect(screen.getByText(/picking an option records your answer/i)).toBeInTheDocument();
   });
 
   it('Candidates tab empty state explains the agent-driven candidate flow', async () => {
@@ -206,8 +188,6 @@ describe('DecisionPanel', () => {
     expect(screen.getByText(/durable .* record/i)).toBeInTheDocument();
   });
 
-  // ── Candidate workflow (t-16) ─────────────────────────────────
-
   it('defaults to the Candidates tab when any candidate exists', () => {
     const decisions = [
       makeDecision({
@@ -215,10 +195,7 @@ describe('DecisionPanel', () => {
         seq: 1,
         status: 'candidate',
         title: 'API style?',
-        options: [
-          { label: 'REST', trade_offs: 'Simple, well-known' },
-          { label: 'gRPC', trade_offs: 'Faster, harder tooling' },
-        ],
+        options: TWO_OPTIONS,
       }),
       makeDecision({ id: 'open-1', seq: 2, status: 'open', title: 'Other?' }),
     ];
@@ -229,50 +206,11 @@ describe('DecisionPanel', () => {
     expect(cards[0].getAttribute('data-decision-status')).toBe('candidate');
     expect(cards[0].getAttribute('data-decision-seq')).toBe('D-1');
 
-    // Both options render with their trade-offs.
+    // Both options render with their trade-offs (informational, spec-247 dec-6).
     expect(screen.getByText('REST')).toBeInTheDocument();
     expect(screen.getByText('Simple, well-known')).toBeInTheDocument();
     expect(screen.getByText('gRPC')).toBeInTheDocument();
     expect(screen.getByText('Faster, harder tooling')).toBeInTheDocument();
-  });
-
-  it('Approve button on a candidate calls approveDecisionApi and refreshes', async () => {
-    const user = userEvent.setup();
-    const onUpdate = vi.fn();
-    mockApproveDecisionApi.mockResolvedValue({});
-    const decisions = [
-      makeDecision({ id: 'cand-1', seq: 1, status: 'candidate', options: [] }),
-    ];
-    render(<DecisionPanel docId="doc-1" decisions={decisions} onUpdate={onUpdate} />);
-
-    await user.click(screen.getByTestId('candidate-approve'));
-    await waitFor(() => expect(mockApproveDecisionApi).toHaveBeenCalledWith('cand-1'));
-    expect(onUpdate).toHaveBeenCalled();
-  });
-
-  it('Reject flow requires a reason and calls rejectDecisionApi with it', async () => {
-    const user = userEvent.setup();
-    const onUpdate = vi.fn();
-    mockRejectDecisionApi.mockResolvedValue({});
-    const decisions = [
-      makeDecision({ id: 'cand-1', seq: 1, status: 'candidate', options: [] }),
-    ];
-    render(<DecisionPanel docId="doc-1" decisions={decisions} onUpdate={onUpdate} />);
-
-    await user.click(screen.getByTestId('candidate-reject'));
-    const reason = screen.getByTestId('candidate-reject-reason');
-    const confirm = screen.getByTestId('candidate-reject-confirm') as HTMLButtonElement;
-    // Empty reason disables the confirm button.
-    expect(confirm.disabled).toBe(true);
-
-    await user.type(reason, 'Out of scope for this spec');
-    expect((screen.getByTestId('candidate-reject-confirm') as HTMLButtonElement).disabled).toBe(false);
-    await user.click(screen.getByTestId('candidate-reject-confirm'));
-
-    await waitFor(() =>
-      expect(mockRejectDecisionApi).toHaveBeenCalledWith('cand-1', 'Out of scope for this spec'),
-    );
-    expect(onUpdate).toHaveBeenCalled();
   });
 
   it('"Flag for discussion" creates a question-typed comment on the candidate', async () => {
@@ -299,72 +237,6 @@ describe('DecisionPanel', () => {
     expect(onUpdate).toHaveBeenCalled();
   });
 
-  it('Resolve picker on an open decision with options persists chosenOptionIndex', async () => {
-    const user = userEvent.setup();
-    const onUpdate = vi.fn();
-    mockResolveDecisionApi.mockResolvedValue({});
-    const decisions = [
-      makeDecision({
-        id: 'open-1',
-        seq: 5,
-        status: 'open',
-        title: 'API?',
-        options: [
-          { label: 'REST', trade_offs: 'Simple' },
-          { label: 'gRPC', trade_offs: 'Faster' },
-        ],
-      }),
-    ];
-    render(<DecisionPanel docId="doc-1" decisions={decisions} onUpdate={onUpdate} />);
-
-    // Toggle the resolve picker on the open card.
-    await user.click(screen.getByTestId('decision-resolve'));
-
-    // Pick the second option.
-    await user.click(screen.getByTestId('open-option-1'));
-    await user.type(screen.getByTestId('open-resolution-text'), 'Going with gRPC for the perf');
-    await user.click(screen.getByTestId('open-resolve-confirm'));
-
-    await waitFor(() =>
-      expect(mockResolveDecisionApi).toHaveBeenCalledWith(
-        'open-1',
-        'Going with gRPC for the perf',
-        1,
-      ),
-    );
-    expect(onUpdate).toHaveBeenCalled();
-    // The chat-based resolve flow should NOT fire when options are present.
-    expect(mockSendMessage).not.toHaveBeenCalled();
-  });
-
-  it('Resolve picker requires both an option and a non-empty resolution', async () => {
-    const user = userEvent.setup();
-    const decisions = [
-      makeDecision({
-        id: 'open-1',
-        seq: 5,
-        status: 'open',
-        title: 'API?',
-        options: [
-          { label: 'REST', trade_offs: 'Simple' },
-          { label: 'gRPC', trade_offs: 'Faster' },
-        ],
-      }),
-    ];
-    render(<DecisionPanel docId="doc-1" decisions={decisions} onUpdate={vi.fn()} />);
-
-    await user.click(screen.getByTestId('decision-resolve'));
-    const confirm = screen.getByTestId('open-resolve-confirm') as HTMLButtonElement;
-    expect(confirm.disabled).toBe(true);
-
-    // Selecting an option alone is not enough — text is still required.
-    await user.click(screen.getByTestId('open-option-0'));
-    expect((screen.getByTestId('open-resolve-confirm') as HTMLButtonElement).disabled).toBe(true);
-
-    await user.type(screen.getByTestId('open-resolution-text'), 'REST it is');
-    expect((screen.getByTestId('open-resolve-confirm') as HTMLButtonElement).disabled).toBe(false);
-  });
-
   it('shows the chosen-option label on a resolved decision with options[]', async () => {
     const user = userEvent.setup();
     const decisions = [
@@ -386,7 +258,215 @@ describe('DecisionPanel', () => {
     // Switch to the Resolved tab.
     await user.click(screen.getByRole('button', { name: /^Resolved/ }));
     expect(screen.getByText(/Chose:/)).toBeInTheDocument();
-    expect(screen.getByText(/^JWT$/)).toBeInTheDocument();
+    expect(screen.getAllByText(/^JWT$/).length).toBeGreaterThan(0);
+  });
+});
+
+// ── spec-247: the decision card answers; everything else explains ──────────
+describe('DecisionPanel — one obvious place to answer (spec-247)', () => {
+  it('renders NO CTA button on an open decision card — the option rows are the only answering control (ac-6)', () => {
+    tagAc(AC247(6));
+    const decisions = [
+      makeDecision({ id: 'open-1', seq: 5, status: 'open', title: 'API?', options: TWO_OPTIONS }),
+    ];
+    render(<DecisionPanel docId="doc-1" decisions={decisions} onUpdate={vi.fn()} />);
+
+    expect(screen.queryByTestId('decision-resolve')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^resolve$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /save resolution/i })).not.toBeInTheDocument();
+    // The options are present and enabled — the answering affordance.
+    expect(screen.getByTestId('open-option-0')).toBeInTheDocument();
+    expect(screen.getByTestId('persist-on-select-hint')).toHaveTextContent(
+      /records your answer/i,
+    );
+  });
+
+  it('clicking an option records the answer immediately via the resolve API (ac-7)', async () => {
+    tagAc(AC247(7));
+    const user = userEvent.setup();
+    const onUpdate = vi.fn();
+    mockResolveDecisionApi.mockResolvedValue({});
+    const decisions = [
+      makeDecision({ id: 'open-1', seq: 5, status: 'open', title: 'API?', options: TWO_OPTIONS }),
+    ];
+    render(<DecisionPanel docId="doc-1" decisions={decisions} onUpdate={onUpdate} />);
+
+    await user.click(screen.getByTestId('open-option-1'));
+
+    await waitFor(() =>
+      expect(mockResolveDecisionApi).toHaveBeenCalledWith('open-1', undefined, 1),
+    );
+    expect(onUpdate).toHaveBeenCalled();
+    // No prose was demanded, no agent involved.
+    expect(mockSendMessage).not.toHaveBeenCalled();
+  });
+
+  it('re-selecting a different option on a RESOLVED decision updates the choice (ac-7)', async () => {
+    tagAc(AC247(7));
+    const user = userEvent.setup();
+    const onUpdate = vi.fn();
+    mockResolveDecisionApi.mockResolvedValue({});
+    const decisions = [
+      makeDecision({
+        id: 'res-1',
+        seq: 9,
+        status: 'resolved',
+        title: 'Auth?',
+        resolution: 'JWT',
+        options: [
+          { label: 'JWT', trade_offs: 'Stateless' },
+          { label: 'Sessions', trade_offs: 'Server load' },
+        ],
+        chosenOptionIndex: 0,
+      }),
+    ];
+    render(<DecisionPanel docId="doc-1" decisions={decisions} onUpdate={onUpdate} />);
+
+    await user.click(screen.getByRole('button', { name: /^Resolved/ }));
+    await user.click(screen.getByText('Context'));
+    await user.click(screen.getByTestId('resolved-option-1'));
+
+    await waitFor(() =>
+      expect(mockResolveDecisionApi).toHaveBeenCalledWith('res-1', undefined, 1),
+    );
+    expect(onUpdate).toHaveBeenCalled();
+  });
+
+  it('an optionless open decision has NO resolve control and NEVER dispatches an agent message (ac-8)', () => {
+    tagAc(AC247(8));
+    const decisions = [
+      makeDecision({ id: 'd1', seq: 7, status: 'open', title: 'What stack?', options: null }),
+    ];
+    render(<DecisionPanel docId="doc-1" decisions={decisions} onUpdate={vi.fn()} />);
+
+    expect(screen.queryByTestId('decision-resolve')).not.toBeInTheDocument();
+    expect(screen.getByTestId('optionless-hint')).toHaveTextContent(/coding agent/i);
+    expect(mockSendMessage).not.toHaveBeenCalled();
+    expect(mockResolveDecisionApi).not.toHaveBeenCalled();
+  });
+
+  it('no text input renders on the answering path; discussion sits behind a labelled toggle (ac-9)', async () => {
+    tagAc(AC247(9));
+    const user = userEvent.setup();
+    const decisions = [
+      makeDecision({ id: 'open-1', seq: 5, status: 'open', title: 'API?', options: TWO_OPTIONS }),
+    ];
+    render(<DecisionPanel docId="doc-1" decisions={decisions} onUpdate={vi.fn()} />);
+
+    // No textarea / comment composer inside the open card by default.
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('comment-tray-stub')).not.toBeInTheDocument();
+
+    // The Discussion toggle reveals the tray, labelled as never resolving.
+    await user.click(screen.getByTestId('decision-discussion-toggle'));
+    expect(screen.getByTestId('discussion-disclaimer')).toHaveTextContent(
+      /never resolve/i,
+    );
+    expect(screen.getByTestId('comment-tray-stub')).toBeInTheDocument();
+  });
+
+  it('the open card offers NO explanation affordance and never messages the agent (ac-10)', () => {
+    tagAc(AC247(10));
+    const decisions = [
+      makeDecision({ id: 'open-1', seq: 5, status: 'open', title: 'API?', options: TWO_OPTIONS }),
+    ];
+    render(
+      <DecisionPanel
+        docId="doc-1"
+        decisions={decisions}
+        onUpdate={vi.fn()}
+        promptContext={PROMPT_CONTEXT}
+      />,
+    );
+
+    // The card is question + context + options + discussion toggle — nothing else.
+    expect(screen.queryByTestId('decision-explain')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /explanation/i })).not.toBeInTheDocument();
+    expect(mockSendMessage).not.toHaveBeenCalled();
+    expect(mockAddContextChip).not.toHaveBeenCalled();
+  });
+
+  it('candidate cards are view-only: no radios, no Approve, no Reject (ac-20)', () => {
+    tagAc(AC247(20));
+    const decisions = [
+      makeDecision({
+        id: 'cand-1',
+        seq: 1,
+        status: 'candidate',
+        title: 'API style?',
+        options: TWO_OPTIONS,
+      }),
+    ];
+    render(<DecisionPanel docId="doc-1" decisions={decisions} onUpdate={vi.fn()} />);
+
+    // Options render as information — nothing selectable, nothing droppable.
+    expect(screen.getByText('REST')).toBeInTheDocument();
+    expect(screen.queryByRole('radio')).not.toBeInTheDocument();
+    // The approval process is not actionable on the web.
+    expect(screen.queryByTestId('candidate-approve')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('candidate-reject')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /approve/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^reject$/i })).not.toBeInTheDocument();
+  });
+
+  it('candidate list carries the coding-agent boundary marker (ac-21, ac-4)', () => {
+    tagAc(AC247(21));
+    // ac-4 (scope): the decision panel is the other named MCP-only surface — its
+    // candidate-review next step carries the coding-agent handoff marker.
+    tagAc(AC247(4));
+    const decisions = [
+      makeDecision({
+        id: 'cand-1',
+        seq: 1,
+        status: 'candidate',
+        title: 'API style?',
+        options: TWO_OPTIONS,
+      }),
+    ];
+    render(
+      <DecisionPanel
+        docId="doc-1"
+        decisions={decisions}
+        onUpdate={vi.fn()}
+        promptContext={PROMPT_CONTEXT}
+      />,
+    );
+
+    const marker = screen.getByTestId('candidate-mcp-marker');
+    expect(marker).toHaveTextContent(/Review the candidate decisions/);
+    expect(marker).toHaveTextContent(/coding agent/i);
+    expect(marker).toHaveTextContent(/not in the browser/i);
+  });
+
+  it('no reasoning input exists anywhere on a resolved decision — comments are the only web text action (ac-19)', async () => {
+    tagAc(AC247(19));
+    const user = userEvent.setup();
+    const decisions = [
+      makeDecision({
+        id: 'res-1',
+        seq: 9,
+        status: 'resolved',
+        title: 'Auth?',
+        resolution: 'JWT',
+        options: [
+          { label: 'JWT', trade_offs: 'Stateless' },
+          { label: 'Sessions', trade_offs: 'Server load' },
+        ],
+        chosenOptionIndex: 0,
+      }),
+    ];
+    render(<DecisionPanel docId="doc-1" decisions={decisions} onUpdate={vi.fn()} />);
+
+    await user.click(screen.getByRole('button', { name: /^Resolved/ }));
+    await user.click(screen.getByText('Context'));
+
+    // No reasoning affordance, expanded or otherwise.
+    expect(screen.queryByTestId('decision-add-reasoning')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('reasoning-text')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('reasoning-save')).not.toBeInTheDocument();
+    expect(screen.queryByText(/reasoning/i)).not.toBeInTheDocument();
+    // Re-select (the answering affordance) is still live.
+    expect(screen.getByTestId('resolved-option-0')).toBeInTheDocument();
   });
 });
 

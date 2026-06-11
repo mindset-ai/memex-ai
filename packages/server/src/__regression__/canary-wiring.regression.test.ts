@@ -40,16 +40,32 @@ const NOTIFY_MJS = readFileSync(
   join(REPO_ROOT, "scripts", "canary", "notify.mjs"),
   "utf-8",
 );
+const DEPLOY_SH = readFileSync(
+  join(REPO_ROOT, "scripts", "canary", "deploy-canary-job.sh"),
+  "utf-8",
+);
+const RUN_JOB_MJS = readFileSync(
+  join(REPO_ROOT, "scripts", "canary", "run-job.mjs"),
+  "utf-8",
+);
 
 describe("spec-243: canary wiring", () => {
-  it("ac-1: canary runs on a 10-minute schedule against both envs", () => {
+  it("ac-1: canary runs on a 10-minute Cloud Scheduler cron against both envs", () => {
     tagAc(`${SPEC}/acs/ac-1`);
 
-    expect(CANARY_YML).toContain('cron: "*/10 * * * *"');
-    expect(CANARY_YML).toContain("env: [prod, int]");
-    expect(CANARY_YML).toContain("node scripts/canary/probe.mjs");
-    // Manual trigger stays available for pipe-testing from branches.
+    // The real runner is Cloud Run + Cloud Scheduler (dec-1, superseded): every
+    // 10 min, off-round minutes. The GitHub schedule was killed (it never fired).
+    expect(DEPLOY_SH).toContain('"2,12,22,32,42,52 * * * *"');
+    expect(DEPLOY_SH).toContain("gcloud scheduler jobs");
+    // One Cloud Run Job execution probes BOTH envs.
+    expect(RUN_JOB_MJS).toContain('handleEnv("prod"');
+    expect(RUN_JOB_MJS).toContain('handleEnv("int"');
+    // The GitHub workflow is a manual backup only — no schedule trigger. (The
+    // word "schedule" still appears in the header comment explaining why it's
+    // gone, so assert on the trigger syntax, not the bare word.)
     expect(CANARY_YML).toContain("workflow_dispatch");
+    expect(CANARY_YML).not.toContain("- cron:");
+    expect(CANARY_YML).toMatch(/on:\s*\n\s*workflow_dispatch:/);
   });
 
   it("ac-1: the probes are real authenticated operations, not pings", () => {
@@ -82,8 +98,9 @@ describe("spec-243: canary wiring", () => {
 
     expect(NOTIFY_MJS).toContain("CANARY RED");
     expect(NOTIFY_MJS).toContain("All clear");
-    // The blip allowance: a red run after a green one stays silent.
-    expect(NOTIFY_MJS).toContain("staying silent per dec-4");
+    // The blip allowance lives in the pure decideNotification function now
+    // (covered in detail by canary-notify-decision.regression.test.ts).
+    expect(NOTIFY_MJS).toContain("decideNotification");
     // Per-env webhook routing in the workflow.
     expect(CANARY_YML).toContain(
       "matrix.env == 'prod' && secrets.SLACK_WEBHOOK_PROD || secrets.SLACK_WEBHOOK_INT",
@@ -92,11 +109,15 @@ describe("spec-243: canary wiring", () => {
     expect(CANARY_YML).toContain("if: always()");
   });
 
-  it("ac-3: the canary runs on GitHub-hosted runners, outside GCP", () => {
+  it("ac-3: the canary runs on a reliable scheduler (Cloud Run Job in-project)", () => {
     tagAc(`${SPEC}/acs/ac-3`);
 
-    expect(CANARY_YML).toContain("runs-on: ubuntu-latest");
-    expect(CANARY_YML).not.toContain("self-hosted");
+    // ac-3 rewritten (dec-1 superseded): fate-isolation was traded away for a
+    // dependable trigger. The runner is a Cloud Run Job in memex-ai-prod driven
+    // by Cloud Scheduler — not GitHub's best-effort schedule.
+    expect(DEPLOY_SH).toContain("gcloud run jobs");
+    expect(DEPLOY_SH).toContain('PROJECT="${PROJECT:-memex-ai-prod}"');
+    expect(DEPLOY_SH).toContain("gcloud scheduler jobs");
   });
 
   it("ac-4: canary emissions are hidden and marked as canary traffic", () => {
