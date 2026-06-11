@@ -2027,20 +2027,6 @@ Walk me through this Spec's CANDIDATE decisions — choices an agent extracted t
       'MCP-side — the web candidate cards are view-only and hand off here. ' +
       'The prompt forbids resolution so curation and answering stay separate.',
   },
-  {
-    kind: 'prompt_button',
-    id: 'decision-explain',
-    label: 'Explain this decision',
-    text: `Explain decision {decision} on this Spec to me. Summarise the question it asks, then walk through each option and its trade-offs in plain language, and say what you would recommend and why. Do NOT resolve the decision, and do NOT create or modify anything — I will pick an option myself on the decision card.`,
-    surfaces: ['decision-card'],
-    rationale:
-      'spec-247 dec-2 / ac-10: the decision card\'s "Ask for more ' +
-      'explanation" affordance. Seeded into the in-app spec assistant (the ' +
-      'opening-turn delivery mode) with the decision pre-scoped via context ' +
-      'chip. Explanation only — the prompt explicitly forbids resolving, so ' +
-      'the agent never answers on the answering path (dec-1: the option row ' +
-      'is the only answering affordance).',
-  },
 ];
 
 // ──────────────────────────────────────────────────────────────────────────

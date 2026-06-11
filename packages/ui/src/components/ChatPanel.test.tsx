@@ -208,6 +208,7 @@ describe('ChatPanel — Spec assistant naming + grounding (spec-247)', () => {
     const line = screen.getByTestId('chat-grounding-line');
     expect(line).toHaveTextContent(/Works on this spec/);
     expect(line).toHaveTextContent(/Hasn't read your code/);
+    expect(line).toHaveTextContent(/over MCP/);
     const link = within(line).getByRole('link', { name: /connect a coding agent/i });
     expect(link).toHaveAttribute('href', '/settings/integrations');
   });

@@ -10,7 +10,7 @@ import {
   fetchAcsForBrief,
   type AcWithVerification,
 } from '../api/client';
-import { BASE_SCAFFOLD, toButtonPrompt, type GuidanceBlock } from '@memex/shared';
+import type { GuidanceBlock } from '@memex/shared';
 import { useAuth } from './AuthContext';
 import { useChat } from './ChatContext';
 import { CommentTray } from './CommentTray';
@@ -43,7 +43,7 @@ interface DecisionPanelProps {
   /**
    * spec-118 t-6: when false (a reviewer — write access to the Memex but a
    * reviewer posture on this Spec), the forward-driving controls are
-   * suppressed (the answering option picker, re-select, Add reasoning) while
+   * suppressed (the answering option picker and re-select) while
    * the comment composer in each tray — gated on `canWrite`, not `canEdit` —
    * stays available so reviewers can still comment and @mention. Defaults to
    * true so existing editor call sites are unchanged.
@@ -67,10 +67,8 @@ interface DecisionPanelProps {
   isDemo?: boolean;
   /**
    * spec-247 dec-4: interpolation context ({namespace}/{memex}/{handle}/…) for
-   * the boundary-handoff PromptButtons (candidate review) and the chat-seeded
-   * "Ask for more explanation" prompt. Absent (e.g. in isolated tests) the
-   * marker lines are omitted and the explain affordance falls back to the
-   * decision handle alone.
+   * the boundary-handoff PromptButtons (candidate review). Absent (e.g. in
+   * isolated tests) the marker lines are omitted.
    */
   promptContext?: Record<string, unknown>;
   /** Org scaffold appends threaded into toButtonPrompt (spec-159 ac-17). */
@@ -113,10 +111,9 @@ export function DecisionPanel({ docId, decisions, commentsByDecision = {}, force
   // answering path — never inline next to the picker.
   const [discussionFor, setDiscussionFor] = useState<Set<string>>(new Set());
 
-  // spec-247 dec-5: optional, editable-after rationale on resolved decisions
-  // ("Add reasoning"), plus re-select busy state.
-  const [reasoningFor, setReasoningFor] = useState<string | null>(null);
-  const [reasoningDraft, setReasoningDraft] = useState<Record<string, string>>({});
+  // spec-247 dec-5: re-select busy state on resolved decisions. There is NO
+  // reasoning input on the web — rationale, when wanted, comes from the agent
+  // side; the only web text action on a decision is a discussion comment.
   const [busyResolved, setBusyResolved] = useState<string | null>(null);
   // Optimistic checked state for re-select, mirroring chosenByOpen — the radio
   // flips on click, not after the refetch round-trip.
@@ -304,54 +301,6 @@ export function DecisionPanel({ docId, decisions, commentsByDecision = {}, force
     } finally {
       setBusyResolved(null);
     }
-  };
-
-  // spec-247 dec-5 — optional rationale, editable after the fact. Saving rides
-  // the same resolve path (re-resolve with prose + the current option index).
-  const handleSaveReasoning = async (dec: Decision) => {
-    const text = (reasoningDraft[dec.id] ?? '').trim();
-    if (!text) return;
-    setBusyResolved(dec.id);
-    try {
-      await resolveDecisionApi(dec.id, text, dec.chosenOptionIndex ?? undefined);
-      setReasoningFor(null);
-      setReasoningDraft((prev) => {
-        const next = { ...prev };
-        delete next[dec.id];
-        return next;
-      });
-      onUpdate();
-    } catch (err) {
-      console.error('Failed to save reasoning:', err);
-    } finally {
-      setBusyResolved(null);
-    }
-  };
-
-  // spec-247 dec-2 — "Ask for more explanation": routes to the spec assistant
-  // with the decision pre-scoped (context chip) and seeds the Scaffold's
-  // explanation prompt (std-15: prose lives in scaffold-data, not here).
-  // Explanation only — the prompt forbids resolving.
-  const handleExplain = (dec: Decision) => {
-    chat.addContextChip({
-      type: 'decision',
-      id: dec.id,
-      label: `Decision D-${dec.seq}`,
-    });
-    const prompt = toButtonPrompt({
-      dataset: BASE_SCAFFOLD,
-      buttonId: 'decision-explain',
-      context: { ...(promptContext ?? {}), decision: `D-${dec.seq}` },
-      orgBlocks,
-    });
-    if (prompt === null) {
-      const message = 'DecisionPanel: no PromptButtonNode found for buttonId="decision-explain"';
-      if (import.meta.env.DEV) throw new Error(message);
-      // eslint-disable-next-line no-console
-      console.error(message);
-      return;
-    }
-    chat.sendMessage(prompt);
   };
 
   const toggleDiscussion = (decId: string) =>
@@ -699,21 +648,6 @@ export function DecisionPanel({ docId, decisions, commentsByDecision = {}, force
                       </p>
                     )}
 
-                    {/* spec-247 dec-2 — the explanation route: pre-scopes the
-                        spec assistant to this decision and asks it to explain
-                        the choice. It never resolves. */}
-                    <div className="mt-2 flex justify-end">
-                      <Button
-                        data-testid="decision-explain"
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleExplain(dec)}
-                      >
-                        Ask for more explanation
-                      </Button>
-                    </div>
-
                     {discussionBlock(dec)}
                   </>
                 )}
@@ -866,67 +800,6 @@ export function DecisionPanel({ docId, decisions, commentsByDecision = {}, force
                         </fieldset>
                       )}
 
-                      {/* spec-247 dec-5 — optional, editable-after rationale. */}
-                      {canEdit && (
-                        <div>
-                          {reasoningFor === dec.id ? (
-                            <div className="space-y-2">
-                              <TextArea
-                                data-testid="reasoning-text"
-                                value={reasoningDraft[dec.id] ?? ''}
-                                onChange={(e) =>
-                                  setReasoningDraft((prev) => ({
-                                    ...prev,
-                                    [dec.id]: e.target.value,
-                                  }))
-                                }
-                                placeholder="Why this option? (Optional — the answer is already recorded.)"
-                                rows={2}
-                                textAreaSize="compact"
-                              />
-                              <div className="flex gap-2 justify-end">
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => setReasoningFor(null)}
-                                >
-                                  Cancel
-                                </Button>
-                                <Button
-                                  data-testid="reasoning-save"
-                                  type="button"
-                                  size="sm"
-                                  disabled={isBusy || !(reasoningDraft[dec.id] ?? '').trim()}
-                                  onClick={() => void handleSaveReasoning(dec)}
-                                >
-                                  Save reasoning
-                                </Button>
-                              </div>
-                            </div>
-                          ) : (
-                            <button
-                              type="button"
-                              data-testid="decision-add-reasoning"
-                              onClick={() => {
-                                setReasoningDraft((prev) => ({
-                                  ...prev,
-                                  [dec.id]: prev[dec.id] ?? dec.resolution ?? '',
-                                }));
-                                setReasoningFor(dec.id);
-                              }}
-                              className="text-xs text-muted hover:text-secondary underline underline-offset-2 transition-colors"
-                            >
-                              {dec.resolution &&
-                              dec.options &&
-                              dec.chosenOptionIndex !== null &&
-                              dec.resolution !== dec.options[dec.chosenOptionIndex]?.label
-                                ? 'Edit reasoning'
-                                : 'Add reasoning'}
-                            </button>
-                          )}
-                        </div>
-                      )}
                     </div>
                   </details>
                 )}

@@ -365,9 +365,8 @@ describe('DecisionPanel — one obvious place to answer (spec-247)', () => {
     expect(screen.getByTestId('comment-tray-stub')).toBeInTheDocument();
   });
 
-  it('"Ask for more explanation" pre-scopes the assistant to the decision and only explains (ac-10)', async () => {
+  it('the open card offers NO explanation affordance and never messages the agent (ac-10)', () => {
     tagAc(AC247(10));
-    const user = userEvent.setup();
     const decisions = [
       makeDecision({ id: 'open-1', seq: 5, status: 'open', title: 'API?', options: TWO_OPTIONS }),
     ];
@@ -380,19 +379,11 @@ describe('DecisionPanel — one obvious place to answer (spec-247)', () => {
       />,
     );
 
-    await user.click(screen.getByTestId('decision-explain'));
-
-    expect(mockAddContextChip).toHaveBeenCalledWith({
-      type: 'decision',
-      id: 'open-1',
-      label: 'Decision D-5',
-    });
-    expect(mockSendMessage).toHaveBeenCalledTimes(1);
-    const prompt = mockSendMessage.mock.calls[0][0] as string;
-    expect(prompt).toMatch(/Explain decision D-5/);
-    expect(prompt).toMatch(/Do NOT resolve/i);
-    // Explanation never resolves.
-    expect(mockResolveDecisionApi).not.toHaveBeenCalled();
+    // The card is question + context + options + discussion toggle — nothing else.
+    expect(screen.queryByTestId('decision-explain')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /explanation/i })).not.toBeInTheDocument();
+    expect(mockSendMessage).not.toHaveBeenCalled();
+    expect(mockAddContextChip).not.toHaveBeenCalled();
   });
 
   it('candidate cards are view-only: no radios, no Approve, no Reject (ac-20)', () => {
@@ -444,18 +435,16 @@ describe('DecisionPanel — one obvious place to answer (spec-247)', () => {
     expect(marker).toHaveTextContent(/not in the browser/i);
   });
 
-  it('"Add reasoning" on a resolved decision saves optional prose via re-resolve (ac-19)', async () => {
+  it('no reasoning input exists anywhere on a resolved decision — comments are the only web text action (ac-19)', async () => {
     tagAc(AC247(19));
     const user = userEvent.setup();
-    const onUpdate = vi.fn();
-    mockResolveDecisionApi.mockResolvedValue({});
     const decisions = [
       makeDecision({
         id: 'res-1',
         seq: 9,
         status: 'resolved',
         title: 'Auth?',
-        resolution: 'JWT', // equals the chosen option's label → "Add reasoning"
+        resolution: 'JWT',
         options: [
           { label: 'JWT', trade_offs: 'Stateless' },
           { label: 'Sessions', trade_offs: 'Server load' },
@@ -463,23 +452,18 @@ describe('DecisionPanel — one obvious place to answer (spec-247)', () => {
         chosenOptionIndex: 0,
       }),
     ];
-    render(<DecisionPanel docId="doc-1" decisions={decisions} onUpdate={onUpdate} />);
+    render(<DecisionPanel docId="doc-1" decisions={decisions} onUpdate={vi.fn()} />);
 
     await user.click(screen.getByRole('button', { name: /^Resolved/ }));
     await user.click(screen.getByText('Context'));
-    await user.click(screen.getByTestId('decision-add-reasoning'));
-    await user.clear(screen.getByTestId('reasoning-text'));
-    await user.type(screen.getByTestId('reasoning-text'), 'Stateless wins for our edge nodes');
-    await user.click(screen.getByTestId('reasoning-save'));
 
-    await waitFor(() =>
-      expect(mockResolveDecisionApi).toHaveBeenCalledWith(
-        'res-1',
-        'Stateless wins for our edge nodes',
-        0,
-      ),
-    );
-    expect(onUpdate).toHaveBeenCalled();
+    // No reasoning affordance, expanded or otherwise.
+    expect(screen.queryByTestId('decision-add-reasoning')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('reasoning-text')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('reasoning-save')).not.toBeInTheDocument();
+    expect(screen.queryByText(/reasoning/i)).not.toBeInTheDocument();
+    // Re-select (the answering affordance) is still live.
+    expect(screen.getByTestId('resolved-option-0')).toBeInTheDocument();
   });
 });
 

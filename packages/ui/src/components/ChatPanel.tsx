@@ -49,14 +49,14 @@ function GroundingLine() {
       data-testid="chat-grounding-line"
       className="flex-none px-4 py-1.5 border-b border-edge text-[11px] leading-snug text-muted"
     >
-      Works on this spec. Hasn't read your code —{' '}
+      Works on this spec. Hasn't read your code.{' '}
       <Link
         to="/settings/integrations"
         className="underline underline-offset-2 hover:text-primary"
       >
-        connect a coding agent
+        Connect a coding agent
       </Link>{' '}
-      for code-grounded answers.
+      over MCP for code-grounded answers.
     </div>
   );
 }
