@@ -8,6 +8,7 @@ import {
   initiateDomainVerificationApi,
   type OrgSummaryDto,
 } from '../../api/client';
+import { TelemetryOptOut } from '../TelemetryOptOut';
 
 // Settings tab inside Org Configuration (t-8 / t-11 of doc-15). Replaces the standalone
 // /account page from t-6 — same content, no outer page chrome.
@@ -57,6 +58,7 @@ export function SettingsTab() {
 
       <DomainsSection org={org} token={token} onRefresh={refresh} setError={setError} />
       <AutoGroupingSection org={org} token={token} onRefresh={refresh} setError={setError} />
+      <TelemetryOptOut />
     </div>
   );
 }
