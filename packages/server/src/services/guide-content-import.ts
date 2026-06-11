@@ -422,6 +422,206 @@ export interface WebsiteImportSummary {
   rowsPruned: number;
   /** True when check mode ran (fetch + chunk only, no DB writes). */
   checkOnly: boolean;
+  /** Screen count when the source was a screen-keyed guide-corpus JSON artifact
+   *  (absent for the flat llms-full.txt path). */
+  screensSeen?: number;
+}
+
+// ── Screen-keyed guide-corpus JSON ingestion ─────────────────────────────────
+//
+// A host site may publish a SCREEN-KEYED guide-corpus.json instead of (or
+// alongside) the flat llms-full.txt:
+//
+//   { "surface": "mindset-website", "generatedAt": "<ISO>",
+//     "screens": [{ "key": "<screen-key>", "path": "/...", "title": "...",
+//                   "content": "<page text>" }] }
+//
+// Each screen's content is chunked with the SAME chunker and every chunk is
+// tagged screen_key = <screen.key>, so the voice guide's Layer-1 prefetch
+// (prefetchScreenContent — a surface + screen_key lookup) puts the CURRENT
+// page's content in every prompt, and Layer-2 hits carry the page they live on.
+// Each screen gets its own source_path (`<surface>/screens/<key>`) because the
+// upsert key is (source_path, chunk_index) WITHOUT surface — see the
+// WEBSITE_CORPUS_SOURCE_PATH_BY_SURFACE note above.
+
+export interface GuideCorpusScreen {
+  key: string;
+  path?: string;
+  title?: string;
+  content: string;
+}
+
+export interface GuideCorpus {
+  surface?: string;
+  generatedAt?: string;
+  screens: GuideCorpusScreen[];
+}
+
+/**
+ * Parse a raw artifact as guide-corpus JSON. Returns null when the text is not
+ * JSON or carries no `screens` array — the caller then falls back to the flat
+ * llms-full.txt path, which keeps every existing host artifact working. A
+ * document that IS a corpus but has malformed screen entries throws (a published
+ * artifact violating its own contract should fail loudly, not half-ingest).
+ */
+export function parseGuideCorpus(raw: string): GuideCorpus | null {
+  const trimmed = raw.trim();
+  if (!trimmed.startsWith("{")) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== "object" || parsed === null) return null;
+  const obj = parsed as { surface?: unknown; generatedAt?: unknown; screens?: unknown };
+  if (!Array.isArray(obj.screens)) return null;
+
+  const screens: GuideCorpusScreen[] = [];
+  const bad: number[] = [];
+  obj.screens.forEach((entry, i) => {
+    const s = entry as Partial<GuideCorpusScreen> | null;
+    if (
+      !s ||
+      typeof s !== "object" ||
+      typeof s.key !== "string" ||
+      s.key.trim().length === 0 ||
+      typeof s.content !== "string"
+    ) {
+      bad.push(i);
+      return;
+    }
+    screens.push({
+      key: s.key.trim(),
+      path: typeof s.path === "string" ? s.path : undefined,
+      title: typeof s.title === "string" ? s.title : undefined,
+      content: s.content,
+    });
+  });
+  if (bad.length > 0) {
+    throw new Error(
+      `guide-corpus JSON: screens[${bad.join(", ")}] must each carry a non-empty ` +
+        `string \`key\` and a string \`content\`.`,
+    );
+  }
+  return {
+    surface: typeof obj.surface === "string" ? obj.surface : undefined,
+    generatedAt: typeof obj.generatedAt === "string" ? obj.generatedAt : undefined,
+    screens,
+  };
+}
+
+/** Stable per-screen source_path for a screen-keyed corpus row (the upsert key,
+ *  with chunk_index — distinct per surface AND per screen, see the unique-index
+ *  note on WEBSITE_CORPUS_SOURCE_PATH_BY_SURFACE). */
+export function guideCorpusScreenSourcePath(
+  surface: WebsiteCorpusSurface,
+  screenKey: string,
+): string {
+  return `${surface}/screens/${screenKey}`;
+}
+
+/**
+ * Ingest a screen-keyed guide-corpus into guide_content under `surface`: each
+ * screen's content is heading-chunked and every chunk lands with
+ * screen_key = <screen.key>. Same idempotency (content_hash → "reused") and
+ * pruning semantics as the flat path, except the prune covers the WHOLE surface:
+ * screens dropped from the artifact — and any legacy flat llms-full.txt rows
+ * from before the host switched to the screen-keyed artifact — are removed,
+ * then per-screen stale tail chunks are pruned. Never touches other surfaces.
+ */
+async function importGuideCorpusScreens(opts: {
+  corpus: GuideCorpus;
+  surface: WebsiteCorpusSurface;
+  origin: string;
+  check?: boolean;
+  provider?: EmbeddingProvider | null;
+}): Promise<WebsiteImportSummary> {
+  const { corpus, surface, origin } = opts;
+
+  if (corpus.screens.length === 0) {
+    // An empty screens array would prune the surface's ENTIRE corpus — far more
+    // likely a broken publish than an intentional wipe. Refuse.
+    throw new Error(
+      `guide-corpus JSON from ${origin} has an empty \`screens\` array — refusing ` +
+        `to wipe the ${surface} corpus.`,
+    );
+  }
+  if (corpus.surface && corpus.surface !== surface) {
+    console.warn(
+      `[guide-content-import] guide-corpus from ${origin} declares surface ` +
+        `"${corpus.surface}" but is being imported under "${surface}".`,
+    );
+  }
+
+  // Dedupe by key (first occurrence wins) — duplicate keys would otherwise fight
+  // over the same (source_path, chunk_index) rows.
+  const byKey = new Map<string, GuideCorpusScreen>();
+  for (const screen of corpus.screens) {
+    if (!byKey.has(screen.key)) byKey.set(screen.key, screen);
+  }
+
+  const files = [...byKey.values()].map((screen) => ({
+    screen,
+    sourcePath: guideCorpusScreenSourcePath(surface, screen.key),
+    chunks: chunkMarkdown(screen.content),
+  }));
+
+  const summary: WebsiteImportSummary = {
+    source: origin,
+    chunksSeen: files.reduce((n, f) => n + f.chunks.length, 0),
+    chunksEmbedded: 0,
+    chunksReused: 0,
+    chunksWithoutVector: 0,
+    rowsPruned: 0,
+    checkOnly: !!opts.check,
+    screensSeen: files.length,
+  };
+
+  if (opts.check) return summary;
+
+  // Lazy DB import — mirrors the other importers so check mode needs no DATABASE_URL.
+  const { upsertGuideChunk, pruneGuideContent, pruneGuideContentChunks } = await import(
+    "./guide-content.js"
+  );
+
+  for (const file of files) {
+    for (let index = 0; index < file.chunks.length; index++) {
+      const chunk = file.chunks[index];
+      const input: GuideChunkInput = {
+        surface,
+        // THE point of the screen-keyed artifact: Layer-1 prefetch is a
+        // (surface, screen_key) lookup, so the chunk must carry its page's key.
+        screenKey: file.screen.key,
+        sourcePath: file.sourcePath,
+        chunkIndex: index,
+        heading: chunk.heading ?? file.screen.title ?? null,
+        contentHash: hashContent(chunk.content),
+        content: chunk.content,
+      };
+      const res = await upsertGuideChunk(input, { provider: opts.provider });
+      if (res.status === "embedded") summary.chunksEmbedded += 1;
+      else if (res.status === "reused") summary.chunksReused += 1;
+      else if (res.status === "skipped-no-provider") summary.chunksWithoutVector += 1;
+    }
+  }
+
+  // Prune stale rows of THIS surface not in this import: first whole source_paths
+  // (screens removed from the artifact + any legacy flat-artifact rows), then
+  // per-screen stale tail chunks (a screen whose content SHRANK keeps its
+  // source_path but loses high chunk_indexes). Both prunes are surface-scoped.
+  summary.rowsPruned = await pruneGuideContent(
+    surface,
+    files.map((f) => f.sourcePath),
+  );
+  for (const file of files) {
+    summary.rowsPruned += await pruneGuideContentChunks(
+      surface,
+      file.sourcePath,
+      file.chunks.length,
+    );
+  }
+  return summary;
 }
 
 /** Resolve the website artifact's raw markdown from a string, local path, or URL. */
@@ -447,12 +647,17 @@ async function loadWebsiteCorpus(
 }
 
 /**
- * Ingest a host site's flat `llms-full.txt` into guide_content under that
- * site's surface (spec-222 t-8, dec-3 → ac-13; generalised for spec-251).
+ * Ingest a host site's published artifact into guide_content under that site's
+ * surface (spec-222 t-8, dec-3 → ac-13; generalised for spec-251). Two artifact
+ * shapes are accepted:
+ *   * flat `llms-full.txt` markdown — chunked as one document, screen_key NULL
+ *     (search-only), pruning scoped to (surface, source_path);
+ *   * screen-keyed `guide-corpus.json` (detected by .json suffix or JSON shape)
+ *     — chunked per screen with screen_key set, enabling Layer-1 prefetch;
+ *     pruning covers the whole surface (see importGuideCorpusScreens).
  * Defaults to `memex-website` so existing callers keep their behaviour.
- * Idempotent via content_hash; prunes orphans scoped to (surface, source_path)
- * only. In check mode it fetches + chunks but writes nothing (a bounded,
- * non-gating freshness probe).
+ * Idempotent via content_hash either way. In check mode it fetches + chunks but
+ * writes nothing (a bounded, non-gating freshness probe).
  */
 export async function importWebsiteCorpus(opts: {
   source: WebsiteCorpusSource;
@@ -468,6 +673,28 @@ export async function importWebsiteCorpus(opts: {
     );
   }
   const { raw, origin } = await loadWebsiteCorpus(opts.source);
+
+  // Screen-keyed guide-corpus JSON path: detected by a .json source suffix or by
+  // the document parsing as JSON with a `screens` array. Anything else falls
+  // through to the flat llms-full.txt path below, unchanged.
+  const expectsJson = /\.json($|[?#])/i.test(opts.source.url ?? opts.source.path ?? "");
+  const corpus = parseGuideCorpus(raw);
+  if (expectsJson && !corpus) {
+    throw new Error(
+      `importWebsiteCorpus: ${origin} has a .json suffix but does not parse as a ` +
+        `guide-corpus document (JSON object with a \`screens\` array).`,
+    );
+  }
+  if (corpus) {
+    return importGuideCorpusScreens({
+      corpus,
+      surface,
+      origin,
+      check: opts.check,
+      provider: opts.provider,
+    });
+  }
+
   const sourcePath =
     opts.source.sourcePath ?? WEBSITE_CORPUS_SOURCE_PATH_BY_SURFACE[surface];
 

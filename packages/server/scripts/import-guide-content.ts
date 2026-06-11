@@ -13,8 +13,12 @@
 //     --surface=memex-website --source=https://memex.ai/llms-full.txt
 //   …--surface=mindset-website --source=https://www.mindset.ai/llms-full.txt
 //   …--surface=memex-website --source=/path/to/llms-full.txt   # local file
-// Each website import prunes orphans SCOPED to its own surface + source_path
-// only — it never touches the app corpus or another website surface.
+//   …--surface=mindset-website --source=https://www.mindset.ai/guide-corpus.json
+// A guide-corpus.json source (screen-keyed: { screens: [{ key, path, title,
+// content }] }) is ingested PER SCREEN — every chunk carries that screen's
+// screen_key so Layer-1 prefetch serves the current page's content.
+// Each website import prunes orphans SCOPED to its own surface only — it never
+// touches the app corpus or another website surface.
 //
 // Idempotent + non-destructive on content: upsertGuideChunk skips re-embedding
 // any chunk whose content_hash is unchanged, and orphan rows (whose source file
@@ -63,8 +67,10 @@ async function runWebsiteImport(
     surface,
     check,
   });
+  const screensNote =
+    summary.screensSeen !== undefined ? `${summary.screensSeen} screen(s), ` : "";
   console.log(
-    `[guide-content-import] ${surface} done — ${summary.chunksSeen} chunk(s): ` +
+    `[guide-content-import] ${surface} done — ${screensNote}${summary.chunksSeen} chunk(s): ` +
       `${summary.chunksEmbedded} embedded, ${summary.chunksReused} reused, ` +
       `${summary.chunksWithoutVector} without vector; ${summary.rowsPruned} orphan row(s) pruned.`,
   );

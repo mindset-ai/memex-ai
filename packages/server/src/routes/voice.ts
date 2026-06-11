@@ -51,6 +51,7 @@ import { logVoiceLatency } from "../agent/voice/latency-log.js";
 import {
   prefetchScreenContent,
   searchGuideContent,
+  type GuideSearchHit,
   type GuideSurface,
 } from "../services/guide-content.js";
 import { GUIDE_TOOLS } from "@memex/shared";
@@ -79,7 +80,9 @@ export const guideChatSchema = z.object({
       z.object({
         key: z.string().max(200),
         title: z.string().max(300),
-        description: z.string().max(500),
+        // Generous: descriptions carry SEO blurb + content outline + steering
+        // notes (~670 chars on the mindset site today). Hosts truncate at 900.
+        description: z.string().max(1000),
       }),
     )
     .max(200)
@@ -198,21 +201,36 @@ export async function assembleGuideContext(
   // signed session token. Either way the surface is a SERVER-supplied argument,
   // NEVER client free input.
   surface: GuideSurface = "memex-app",
+  /** Optional screen_key → human page name lookup (from the host's site map).
+   *  When provided, retrieval labels use the SPEAKABLE page name instead of
+   *  the machine key — spoken keys come out as gibberish through TTS. */
+  pageNameByKey?: Map<string, string>,
 ): Promise<string[]> {
   const [screenChunks, searchHits] = await Promise.all([
     screenKey ? prefetchScreenContent(screenKey, surface).catch(() => []) : Promise.resolve<string[]>([]),
     utterance.trim()
-      ? searchGuideContent(utterance, { surface, limit: 4 }).then((h) => h.map((x) => x.content)).catch(() => [])
-      : Promise.resolve<string[]>([]),
+      ? searchGuideContent(utterance, { surface, limit: 4 }).catch(() => [] as GuideSearchHit[])
+      : Promise.resolve<GuideSearchHit[]>([]),
   ]);
+  // Source-tag each chunk with where it lives, so the model can offer to
+  // navigate to a retrieved chunk's page (the screen_key doubles as the navigate
+  // key). Layer-1 chunks ARE the current page; Layer-2 hits carry their origin
+  // screen_key when one exists (concept / flat-corpus chunks have none). Dedup
+  // runs on the RAW chunk text, so a chunk that is both prefetched and searched
+  // appears once — with the Layer-1 label, by ordering.
   const seen = new Set<string>();
   const out: string[] = [];
-  for (const chunk of [...(clientContext ?? []), ...screenChunks, ...searchHits]) {
+  const push = (chunk: string, label: string | null): void => {
     const key = chunk.trim();
-    if (key && !seen.has(key)) {
-      seen.add(key);
-      out.push(chunk);
-    }
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    out.push(label ? `${label}\n${chunk}` : chunk);
+  };
+  for (const chunk of clientContext ?? []) push(chunk, null);
+  for (const chunk of screenChunks) push(chunk, "[this page]");
+  for (const hit of searchHits) {
+    const name = hit.screenKey ? (pageNameByKey?.get(hit.screenKey) ?? hit.screenKey) : null;
+    push(hit.content, name ? `[from page: "${name}"]` : null);
   }
   return out;
 }
@@ -628,6 +646,7 @@ export async function handleGuideChat(
     latestUserUtterance(messages),
     guideContext,
     surface,
+    screens ? new Map(screens.map((s) => [s.key, s.title])) : undefined,
   );
   const retrievalMs = Date.now() - tStart;
 

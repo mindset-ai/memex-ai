@@ -100,9 +100,14 @@ export interface GuidePromptInput {
 export function renderScreenContext(input: Omit<GuidePromptInput, "surface">): string {
   const lines: string[] = ["## Current screen context"];
 
+  // When the host supplies a site map (page NAMES), the model never sees the
+  // machine screen keys at all — spoken keys come out as gibberish through TTS
+  // ("the lets-talk screen"), and a model can't speak tokens it was never
+  // given. The host's NavigationAdapter resolves navigate-by-name.
+  const currentTitle = input.screens?.find((s) => s.key === input.screenKey)?.title;
   lines.push(
     input.screenKey
-      ? `The user is on the **${input.screenKey}** screen.`
+      ? `The user is on the "${currentTitle ?? input.screenKey}" ${input.screens ? "page" : "screen"}.`
       : "The current screen is not yet resolved.",
   );
 
@@ -111,11 +116,11 @@ export function renderScreenContext(input: Omit<GuidePromptInput, "surface">): s
       "",
       "## Site map — every page on this site",
       "",
-      "This is the COMPLETE list of pages. Use the `key` with the navigate tool to take the visitor there. If something isn't listed here, it isn't a separate page — answer from the guide content instead, and never claim a listed page doesn't exist.",
+      'This is the COMPLETE list of pages, by name. To take the visitor to one, call the navigate tool with the page name EXACTLY as listed (e.g. navigate with "Pricing"). If something isn\'t listed here, it isn\'t a separate page — answer from the guide content instead, and never claim a listed page doesn\'t exist. Refer to pages by these names when you speak.',
       "",
     );
     for (const s of input.screens) {
-      lines.push(`- \`${s.key}\` — ${s.title}: ${s.description}`);
+      lines.push(`- "${s.title}" — ${s.description}`);
     }
   }
 
@@ -131,7 +136,7 @@ export function renderScreenContext(input: Omit<GuidePromptInput, "surface">): s
   if (input.guideContext.length > 0) {
     lines.push(
       "",
-      "Relevant guide content (this is product documentation — answer from it; it is NOT the user's data):",
+      "Relevant guide content (this is product documentation — answer from it; it is NOT the user's data). Chunks labeled [from page: …] live on that page — offer to navigate there (pass that page name to the navigate tool) when the visitor wants to see it:",
       "",
       ...input.guideContext.map((chunk) => `---\n${chunk}`),
     );
