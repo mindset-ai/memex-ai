@@ -101,7 +101,36 @@ export function useTrackRouteChange(pathname: string | null): void {
     if (pathname === null) return;
     const template = routeTemplate(pathname);
     if (last.current === template) return;
-    last.current = template;
-    track('nav.route_changed', { route: template });
+
+    // Defer to browser IDLE (with a setTimeout fallback) and cancel on unmount.
+    // Telemetry must never sit on the navigation critical path: a fetch fired
+    // synchronously on a route mount competes with redirects/reloads and can
+    // destabilise navigation-timing-sensitive flows on slow hosts. Deferring means
+    // a route you bounce straight off (a transient redirect, an immediate reload)
+    // fires nothing — only a settled route is recorded.
+    let cancelled = false;
+    const fire = (): void => {
+      if (cancelled) return;
+      last.current = template;
+      track('nav.route_changed', { route: template });
+    };
+    const w = window as Window & {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+      cancelIdleCallback?: (id: number) => void;
+    };
+    let idleId: number | undefined;
+    let timerId: ReturnType<typeof setTimeout> | undefined;
+    if (typeof w.requestIdleCallback === 'function') {
+      idleId = w.requestIdleCallback(fire, { timeout: 2000 });
+    } else {
+      timerId = setTimeout(fire, 1200);
+    }
+    return () => {
+      cancelled = true;
+      if (idleId !== undefined && typeof w.cancelIdleCallback === 'function') {
+        w.cancelIdleCallback(idleId);
+      }
+      if (timerId !== undefined) clearTimeout(timerId);
+    };
   }, [pathname, track]);
 }
