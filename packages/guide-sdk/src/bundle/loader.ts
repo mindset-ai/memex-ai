@@ -29,7 +29,15 @@ import type { GuideBundleConfig, MountedEngine } from './types';
 const HOST_ID = 'memex-guide-host';
 /** Intrinsic aspect ratio of specky-static.svg (viewBox "0 0 240 330"). */
 const SPECKY_ASPECT = 330 / 240;
-const DOORWAY_PX = 56;
+/**
+ * DOORWAY PARITY CONTRACT (see doorwayParity.test.ts): the doorway is the
+ * loader's no-React replica of the engine's idle affordance — VoiceIcon
+ * (a 64px `h-16 w-16 rounded-full` circle, painted by DOORWAY_CSS below) with
+ * `mark={<Specky size={40} />}` — so the engine taking over on first click (and
+ * a session ending later) is visually seamless. MARK_PX pins the mark width to
+ * the engine idle branch's Specky size.
+ */
+const MARK_PX = 40; // engine.tsx idle branch: <Specky size={40} />
 
 /**
  * Mount the guide on a plain HTML page (ac-7). Creates a host element appended to
@@ -72,8 +80,8 @@ export function init(config: GuideBundleConfig): HTMLElement {
   const img = document.createElement('img');
   img.src = speckyStatic;
   img.alt = '';
-  img.width = DOORWAY_PX;
-  img.height = Math.round(DOORWAY_PX * SPECKY_ASPECT);
+  img.width = MARK_PX;
+  img.height = Math.round(MARK_PX * SPECKY_ASPECT);
   img.draggable = false;
   img.setAttribute('data-specky-doorway', '');
   doorway.appendChild(img);
@@ -105,7 +113,24 @@ export function init(config: GuideBundleConfig): HTMLElement {
   return host;
 }
 
-/** The doorway's self-contained CSS (scoped to the shadow root). */
+/**
+ * The doorway's self-contained CSS (scoped to the shadow root).
+ *
+ * DOORWAY PARITY: these declarations are the plain-CSS translation of the
+ * engine's idle VoiceIcon — `flex h-16 w-16 items-center justify-center
+ * rounded-full bg-surface shadow-lg ring-1 ring-border transition
+ * hover:scale-105` — as ENGINE_CSS (./engineStyles.ts) resolves those classes
+ * inside the shadow root. The loader has no Tailwind and no token vars, so the
+ * resolved values are hardcoded:
+ *   - background #1b1e24  = bg-surface  (token --color-surface: 27 30 36; the
+ *     engine always injects the DARK theme tokens on :host — not theme-aware)
+ *   - ring hairline #3e4451 = ring-border (token --color-edge: 62 68 81),
+ *     composed with shadow-lg exactly like ENGINE_CSS's `.ring-1.shadow-lg` rule
+ *   - 64px circle = h-16/w-16 + rounded-full
+ *   - transition  = ENGINE_CSS's `.transition` (150ms, same easing), transform-only
+ * Position (fixed bottom/right 24px, z 2147483000) mirrors the engine's
+ * ANCHOR_STYLE. Drift is guarded by doorwayParity.test.ts — keep them in sync.
+ */
 const DOORWAY_CSS = `
   :host { all: initial; }
   .memex-guide-doorway {
@@ -116,13 +141,18 @@ const DOORWAY_CSS = `
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    padding: 6px;
+    height: 64px;
+    width: 64px;
+    padding: 0;
     border: none;
     border-radius: 9999px;
-    background: #ffffff;
-    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+    background: #1b1e24;
+    box-shadow:
+      0 0 0 1px #3e4451,
+      0 10px 15px -3px rgba(0, 0, 0, 0.35),
+      0 4px 6px -4px rgba(0, 0, 0, 0.35);
     cursor: pointer;
-    transition: transform 120ms ease;
+    transition: transform 150ms cubic-bezier(0.4, 0, 0.2, 1);
   }
   .memex-guide-doorway:hover { transform: scale(1.05); }
   .memex-guide-doorway[data-guide-loading] { cursor: progress; opacity: 0.7; }
