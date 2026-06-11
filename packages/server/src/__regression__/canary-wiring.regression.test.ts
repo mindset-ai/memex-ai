@@ -124,8 +124,10 @@ describe("spec-243: canary wiring", () => {
     expect(DEPLOY_YML).toContain(
       "env.ENV == 'prod' && secrets.SLACK_WEBHOOK_PROD || secrets.SLACK_WEBHOOK_INT",
     );
-    // Friendly on success, short red line on a failed deploy, never skipped.
-    expect(DEPLOY_YML).toContain("🚀");
-    expect(DEPLOY_YML).toContain("🛑");
+    // The notifier always runs (even on a failed deploy) and delegates message
+    // composition to the enrichment script (message content is covered by
+    // deploy-notify.regression.test.ts).
+    expect(DEPLOY_YML).toContain("if: always()");
+    expect(DEPLOY_YML).toContain("node scripts/canary/deploy-notify.mjs");
   });
 });
