@@ -119,6 +119,25 @@ describe('doorway parity: the loader doorway mirrors the engine idle treatment',
     expect(loaderSrc).toContain('img.height = Math.round(MARK_PX * SPECKY_ASPECT)');
   });
 
+  it('engine resets are zero-specificity — utilities must win the cascade', () => {
+    // Live bug (spec-222): a bare [data-memex-guide='engine'] button reset is
+    // (0,1,1) and its `background: none` beats every single-class utility like
+    // .bg-surface (0,1,0) — the idle icon and pill painted transparent on the
+    // website (doorway dark on load, see-through after a session). Every reset
+    // selector that targets engine descendants must be wrapped in :where() so
+    // utility classes always out-rank it.
+    const noComments = ENGINE_CSS.replace(/\/\*[\s\S]*?\*\//g, '');
+    const resetSelectors = noComments.match(/^[^@{}]*\[data-memex-guide='engine'\][^{}]*(?={)/gm) ?? [];
+    expect(resetSelectors.length).toBeGreaterThan(0);
+    for (const sel of resetSelectors) {
+      for (const part of sel.split(',')) {
+        expect(part.trim(), `engine reset selector must be :where()-wrapped: ${part.trim()}`).toMatch(
+          /^:where\(/,
+        );
+      }
+    }
+  });
+
   it('mirrors the engine transition + anchor position', () => {
     // ENGINE_CSS `.transition`: 150ms cubic-bezier(0.4, 0, 0.2, 1); the loader
     // applies the same curve (transform-only — that is all the doorway animates).
