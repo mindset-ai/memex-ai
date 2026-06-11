@@ -165,9 +165,15 @@ describe("spec-199 ac-16: RLS tenant isolation", () => {
     ).rejects.toThrow();
   });
 
-  it("ac-16: RLS is enabled and forced on all 14 tenant tables", async () => {
+  it("ac-16: RLS is enabled and forced on all 13 tenant tables", async () => {
     tagAc(AC_15);
     tagAc(AC_16);
+
+    // memex_emission_keys is deliberately absent: it is an identity-
+    // establishment table (verifyEmissionKey runs before ALS context exists)
+    // and was excluded from RLS by migration 0087 after the 2026-06-10
+    // emission outage. See 0087_emission_keys_rls_exclusion.sql and
+    // __regression__/emission-key-contextless-verify.regression.test.ts.
 
     // pg_class has relrowsecurity + relforcerowsecurity (pg_tables lacks the latter)
     const rows = (await db.execute(sql`
@@ -181,7 +187,7 @@ describe("spec-199 ac-16: RLS tenant isolation", () => {
         AND c.relname IN (
           'documents', 'standard_clauses', 'clause_refs', 'doc_comments',
           'decisions', 'tasks', 'acs', 'issues', 'doc_members', 'doc_assignees',
-          'tags', 'document_tags', 'memex_emission_keys', 'repos'
+          'tags', 'document_tags', 'repos'
         )
       ORDER BY c.relname
     `)) as unknown as Array<{
@@ -193,7 +199,7 @@ describe("spec-199 ac-16: RLS tenant isolation", () => {
     const expected = [
       "acs", "clause_refs", "decisions", "doc_assignees", "doc_comments",
       "doc_members", "document_tags", "documents", "issues",
-      "memex_emission_keys", "repos", "standard_clauses", "tags", "tasks",
+      "repos", "standard_clauses", "tags", "tasks",
     ];
 
     expect(rows.length, "table count mismatch").toBe(expected.length);
@@ -229,10 +235,11 @@ describe("spec-199 ac-16: RLS tenant isolation", () => {
     }
   });
 
-  it("ac-16: all 14 tables have the memex_isolation policy covering ALL commands", async () => {
+  it("ac-16: all 13 tables have the memex_isolation policy covering ALL commands", async () => {
     tagAc(AC_15);
     tagAc(AC_16);
 
+    // memex_emission_keys excluded by migration 0087 (see the 13-table test above).
     const rows = (await db.execute(sql`
       SELECT tablename, policyname, cmd
       FROM pg_policies
@@ -240,7 +247,7 @@ describe("spec-199 ac-16: RLS tenant isolation", () => {
         AND tablename IN (
           'documents', 'standard_clauses', 'clause_refs', 'doc_comments',
           'decisions', 'tasks', 'acs', 'issues', 'doc_members', 'doc_assignees',
-          'tags', 'document_tags', 'memex_emission_keys', 'repos'
+          'tags', 'document_tags', 'repos'
         )
         AND policyname = tablename || '_memex_isolation'
       ORDER BY tablename
@@ -250,7 +257,7 @@ describe("spec-199 ac-16: RLS tenant isolation", () => {
       cmd: string;
     }>;
 
-    expect(rows.length, "policy count mismatch — some tables are missing their policy").toBe(14);
+    expect(rows.length, "policy count mismatch — some tables are missing their policy").toBe(13);
     for (const row of rows) {
       expect(row.cmd, `${row.tablename}: policy should cover ALL commands`).toBe("ALL");
     }
