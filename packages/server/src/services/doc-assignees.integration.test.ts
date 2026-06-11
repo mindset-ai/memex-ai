@@ -96,8 +96,13 @@ describe("spec-118 assignment emits on the unified bus (ac-20)", () => {
     createdDocIds.push(doc.id);
 
     const events = await captureEvents(memexId, async () => {
-      await assign(memexId, doc.id, bob.id, actor.id);
-      await unassign(memexId, doc.id, bob.id);
+      // ctx carries WHO (the assigner) + HOW (rest_ui). assignedBy is a separate
+      // column; the activity contract rides ctx.
+      await assign(memexId, doc.id, bob.id, actor.id, {
+        actorUserId: actor.id,
+        channel: "rest_ui",
+      });
+      await unassign(memexId, doc.id, bob.id, { actorUserId: actor.id, channel: "rest_ui" });
     });
     const mine = events.filter((e) => e.docId === doc.id && e.entity === "doc_assignee");
     expect(mine.map((e) => e.action)).toEqual(["created", "deleted"]);
@@ -110,6 +115,15 @@ describe("spec-118 assignment emits on the unified bus (ac-20)", () => {
     expect(deleted.narrative).toBe(`unassigned spec118-assignee-b@example.com from ${doc.handle}`);
     for (const e of mine) {
       expect(e.narrative, "narrative must not contain the raw doc UUID").not.toContain(doc.id);
+    }
+
+    // spec-122 dec-5: the events are ATTRIBUTED to the acting human + surface —
+    // not "System". channel is set (no fallback to 'server') and actor_name is
+    // resolved at write (the assigner has no name → his email).
+    for (const e of mine) {
+      expect(e.channel).toBe("rest_ui");
+      expect(e.actorUserId).toBe(actor.id);
+      expect(e.actorName).toBe("spec118-assigner@example.com");
     }
   });
 });

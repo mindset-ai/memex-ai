@@ -91,8 +91,12 @@ export async function observeSpecTraffic(event: SpecTrafficEvent): Promise<void>
     // ── Auto-assignment + editor role (dec-6) ─────────────────────────
     if (entry.autoAssignExempt !== true) {
       try {
-        await assign(event.memexId, event.docId, event.userId, event.userId);
-        await promoteToEditor(event.memexId, event.docId, event.userId);
+        // spec-122 dec-5: attribute the traffic-driven assign/promote to the
+        // human who made the triggering call, on the surface it came in on
+        // (mcp / in_app_agent — guarded above) so Pulse shows them, not "System".
+        const trafficCtx = { actorUserId: event.userId, channel: event.channel };
+        await assign(event.memexId, event.docId, event.userId, event.userId, trafficCtx);
+        await promoteToEditor(event.memexId, event.docId, event.userId, trafficCtx);
       } catch (err) {
         console.warn(
           `[spec-traffic] auto-assign failed for ${event.toolName} on ${doc.handle}:`,

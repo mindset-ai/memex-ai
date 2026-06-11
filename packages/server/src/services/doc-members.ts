@@ -23,8 +23,8 @@ import { db } from "../db/connection.js";
 import { docMembers, documents, users } from "../db/schema.js";
 import type { DocMember } from "../db/schema.js";
 import { NotFoundError } from "../types/errors.js";
-import { mutate, type Mutated } from "./mutate.js";
-import { actorName } from "./actor.js";
+import { mutate, type Mutated, type RequestCtx } from "./mutate.js";
+import { actorName, resolveActorColumns } from "./actor.js";
 
 export type { DocMember };
 
@@ -148,11 +148,17 @@ export async function promoteToEditor(
   memexId: string,
   docId: string,
   userId: string,
+  // spec-122 dec-5: the activity contract (WHO performed it + HOW). Without it
+  // the event reaches the sink with no channel → 'server' → actor "System".
+  // resolveActorColumns denormalises the actor's name at write so the Pulse feed
+  // names the human, not a client label. Defaults empty for unattributed callers.
+  ctx: RequestCtx = {},
 ): Promise<Mutated<DocMember>> {
   const handle = await assertSpecInMemex(memexId, docId);
   const who = await memberDisplayName(userId);
+  const actor = await resolveActorColumns(ctx);
   return mutate(
-    {},
+    { ...ctx, actorUserId: actor.actorUserId ?? undefined, actorName: actor.actorName ?? undefined },
     {
       memexId,
       docId,
@@ -191,11 +197,13 @@ export async function demoteToReviewer(
   memexId: string,
   docId: string,
   userId: string,
+  ctx: RequestCtx = {},
 ): Promise<Mutated<DemoteResult>> {
   const handle = await assertSpecInMemex(memexId, docId);
   const who = await memberDisplayName(userId);
+  const actor = await resolveActorColumns(ctx);
   return mutate(
-    {},
+    { ...ctx, actorUserId: actor.actorUserId ?? undefined, actorName: actor.actorName ?? undefined },
     {
       memexId,
       docId,

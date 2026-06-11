@@ -22,8 +22,8 @@ import { db } from "../db/connection.js";
 import { docAssignees, documents, users } from "../db/schema.js";
 import type { DocAssignee } from "../db/schema.js";
 import { NotFoundError } from "../types/errors.js";
-import { mutate, type Mutated } from "./mutate.js";
-import { actorName } from "./actor.js";
+import { mutate, type Mutated, type RequestCtx } from "./mutate.js";
+import { actorName, resolveActorColumns } from "./actor.js";
 
 export type { DocAssignee };
 
@@ -172,11 +172,15 @@ export async function assign(
   docId: string,
   userId: string,
   assignedBy: string | null,
+  // spec-122 dec-5: WHO performed it + HOW, so the assign event is attributed to
+  // the acting human (not "System") with their resolved name. Defaults empty.
+  ctx: RequestCtx = {},
 ): Promise<Mutated<DocAssignee>> {
   const handle = await assertSpecInMemex(memexId, docId);
   const who = await assigneeDisplayName(userId);
+  const actor = await resolveActorColumns(ctx);
   return mutate(
-    {},
+    { ...ctx, actorUserId: actor.actorUserId ?? undefined, actorName: actor.actorName ?? undefined },
     {
       memexId,
       docId,
@@ -213,11 +217,13 @@ export async function unassign(
   memexId: string,
   docId: string,
   userId: string,
+  ctx: RequestCtx = {},
 ): Promise<Mutated<UnassignResult>> {
   const handle = await assertSpecInMemex(memexId, docId);
   const who = await assigneeDisplayName(userId);
+  const actor = await resolveActorColumns(ctx);
   return mutate(
-    {},
+    { ...ctx, actorUserId: actor.actorUserId ?? undefined, actorName: actor.actorName ?? undefined },
     {
       memexId,
       docId,
