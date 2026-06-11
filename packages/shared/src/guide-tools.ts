@@ -43,11 +43,15 @@ export const GUIDE_TOOLS: GuideToolDefinition[] = [
   {
     name: 'navigate',
     description:
-      'Take the user to another screen of the app. Only registered screen keys are allowed. For a specific entity the user names by description, do NOT try to open it directly — navigate to the relevant list screen and highlight its search affordance so they can find it.',
+      'Take the user to another screen/page. Only destinations listed in your screen context are allowed — pass the target EXACTLY as it is listed there (the screen key, or on sites whose context lists page names, the page name). For a specific entity the user names by description, do NOT try to open it directly — navigate to the relevant list screen and highlight its search affordance so they can find it.',
     input_schema: {
       type: 'object',
       properties: {
-        screen: { type: 'string', description: 'A registered, navigable screen key (e.g. specs-list, standards-list).' },
+        screen: {
+          type: 'string',
+          description:
+            'The target, exactly as listed in your screen context (a screen key such as specs-list, or a page name such as "Pricing" when your context lists names).',
+        },
       },
       required: ['screen'],
     },

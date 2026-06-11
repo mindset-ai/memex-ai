@@ -24,7 +24,11 @@
 // the Silero engine are. All browser glue is injectable so the orchestration logic
 // is exercised without real Web Audio / sockets.
 
-import type { GuideElement, NavigationAdapter } from '../navigation/NavigationAdapter';
+import type {
+  GuideElement,
+  GuideScreenSummary,
+  NavigationAdapter,
+} from '../navigation/NavigationAdapter';
 import { SileroWorkletVadEngine } from '../micVad';
 import type { VadEngine } from '../micVad';
 import { WebAudioPlayback } from '../playbackQueue';
@@ -63,6 +67,9 @@ import type { VoiceLoopState } from '../session/voiceSessionModel';
 export interface ScreenContext {
   screenKey: string | null;
   screenRegistry: GuideElement[];
+  /** The host's complete navigable-screen list (site map), when the adapter
+   *  supplies allScreens(). Optional — the in-app host omits it. */
+  screens?: GuideScreenSummary[];
   namespace: string;
   memex: string;
 }
@@ -151,7 +158,13 @@ class VoiceGuideOrchestrator implements VoiceOrchestrator {
     // search_guide call is rarely needed; return a benign note rather than throw.
     this.graph =
       glue.graph ??
-      createGuideGraph({ executeServerTool: async () => '(guide content already retrieved for this turn)' });
+      createGuideGraph({
+        executeServerTool: async () => '(guide content already retrieved for this turn)',
+        // After a client tool runs (navigate can soft-nav an SPA host mid-turn),
+        // the graph re-reads the live screen so the post-tool LLM call carries
+        // the NEW screen's context, not the turn-start snapshot.
+        getScreenContext: () => this.react.getScreenContext(),
+      });
   }
 
   async start(stream: MediaStream, openingContext?: string): Promise<void> {
@@ -297,12 +310,18 @@ class VoiceGuideOrchestrator implements VoiceOrchestrator {
     }
     this.playback?.flush();
 
-    const { screenKey, screenRegistry } = this.react.getScreenContext();
+    const { screenKey, screenRegistry, screens } = this.react.getScreenContext();
     this.turnAbort = new AbortController();
     let assistantText = '';
     try {
       await this.graph.invoke(
-        { messages: [{ role: 'user', content: transcript }], screenKey, screenRegistry, guideContext },
+        {
+          messages: [{ role: 'user', content: transcript }],
+          screenKey,
+          screenRegistry,
+          screens: screens ?? [],
+          guideContext,
+        },
         {
           configurable: {
             thread_id: this.threadId,
@@ -311,14 +330,15 @@ class VoiceGuideOrchestrator implements VoiceOrchestrator {
               onTextDelta: (t: string) => {
                 assistantText += t;
               },
-              onUiTool: (name: string, _id: string, input: Record<string, unknown>) => {
+              onUiTool: (name: string, _id: string, input: Record<string, unknown>) =>
+                // Returned so the graph can serialize the real outcome (e.g.
+                // navigate's { ok, path }) into the tool_result.
                 dispatchGuideUiTool(name, input, {
                   adapter: this.react.adapter,
                   capabilities: this.react.capabilities,
                   advanceDemo: this.react.advanceDemo,
                   startWalkthrough: this.react.startWalkthrough,
-                });
-              },
+                }),
             },
           },
         },
