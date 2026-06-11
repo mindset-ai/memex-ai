@@ -78,6 +78,12 @@ export interface GuidePromptInput {
   screenKey: string | null;
   /** Highlightable elements on the current screen (dec-3 registry subset). */
   screenRegistry: GuideElement[];
+  /** The host's COMPLETE navigable-screen list (site map): key + title +
+   *  description per page. When present, rendered into the turn context so
+   *  "what pages exist / where can you take me" is answered from the prompt,
+   *  never left to retrieval. Config-data like screenRegistry, schema-capped
+   *  at the route. */
+  screens?: Array<{ key: string; title: string; description: string }>;
   /** Pre-fetched + per-turn retrieved guide-content chunks (dec-6). */
   guideContext: string[];
 }
@@ -99,6 +105,19 @@ export function renderScreenContext(input: Omit<GuidePromptInput, "surface">): s
       ? `The user is on the **${input.screenKey}** screen.`
       : "The current screen is not yet resolved.",
   );
+
+  if (input.screens && input.screens.length > 0) {
+    lines.push(
+      "",
+      "## Site map — every page on this site",
+      "",
+      "This is the COMPLETE list of pages. Use the `key` with the navigate tool to take the visitor there. If something isn't listed here, it isn't a separate page — answer from the guide content instead, and never claim a listed page doesn't exist.",
+      "",
+    );
+    for (const s of input.screens) {
+      lines.push(`- \`${s.key}\` — ${s.title}: ${s.description}`);
+    }
+  }
 
   if (input.screenRegistry.length > 0) {
     lines.push("", "Highlightable elements on this screen (use these ids with the highlight tool):");

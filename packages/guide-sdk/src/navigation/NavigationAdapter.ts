@@ -29,6 +29,19 @@ export interface GuideLocation {
   pathname: string;
 }
 
+/**
+ * One navigable screen, summarized for the model's prompt: the stable key the
+ * navigate tool accepts plus a human title/description. Hosts that supply
+ * `allScreens()` give the model a complete site map every turn, so "what pages
+ * exist / where can you take me" is answered from the prompt — not left to
+ * retrieval luck.
+ */
+export interface GuideScreenSummary {
+  key: string;
+  title: string;
+  description: string;
+}
+
 /** The outcome of a navigate request, preserving the engine's existing
  *  validate-then-navigate contract (guideTools.executeNavigate): an unregistered
  *  / non-navigable destination is rejected WITHOUT navigating. */
@@ -76,6 +89,14 @@ export interface NavigationAdapter {
    * that drive the registry through engine state may omit it.
    */
   elementsForScreen?(screenKey: string | null): GuideElement[];
+
+  /**
+   * The COMPLETE list of navigable screens (config-data), summarized for the
+   * model. Optional; when present the engine sends it with every turn so the
+   * prompt carries a definitive site map (key + title + description per page)
+   * instead of relying on retrieval to know what pages exist.
+   */
+  allScreens?(): GuideScreenSummary[];
 
   /**
    * spec-222 dec-8 (t-4) — the engine calls this when the spoken turn has fully
