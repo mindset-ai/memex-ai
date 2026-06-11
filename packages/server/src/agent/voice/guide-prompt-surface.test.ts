@@ -154,12 +154,14 @@ describe("mindset-website persona is surface-keyed (spec-251 t-1 → ac-3)", () 
     );
     expect(blocks[0].text).toBe(mindsetMd);
 
-    // Mindset-specific framing: speaks for Mindset, knows the showcase demos and
-    // the highlight affordance (spec-2 dec-2/dec-4 awareness).
-    expect(text).toContain("Specky");
+    // Mindset-specific framing: a DISTINCT identity ("the Mindset Guide", not
+    // Specky — that name stays inside Memex), aware of the showcase demos and
+    // the highlight + navigate affordances (spec-2 dec-2/dec-4 awareness).
+    expect(text).toContain("Mindset Guide");
     expect(text).toContain("Mindset");
     expect(text.toLowerCase()).toContain("showcase");
     expect(text.toLowerCase()).toContain("highlight");
+    expect(text.toLowerCase()).toContain("navigate");
 
     // No demo-walkthrough beats — capabilities are {} for this surface.
     expect(blocks.some((b) => b.text.startsWith("## Demo walkthrough beats"))).toBe(false);
