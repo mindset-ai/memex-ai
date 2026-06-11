@@ -82,8 +82,9 @@ describe("spec-243: canary wiring", () => {
 
     expect(NOTIFY_MJS).toContain("CANARY RED");
     expect(NOTIFY_MJS).toContain("All clear");
-    // The blip allowance: a red run after a green one stays silent.
-    expect(NOTIFY_MJS).toContain("staying silent per dec-4");
+    // The blip allowance lives in the pure decideNotification function now
+    // (covered in detail by canary-notify-decision.regression.test.ts).
+    expect(NOTIFY_MJS).toContain("decideNotification");
     // Per-env webhook routing in the workflow.
     expect(CANARY_YML).toContain(
       "matrix.env == 'prod' && secrets.SLACK_WEBHOOK_PROD || secrets.SLACK_WEBHOOK_INT",
