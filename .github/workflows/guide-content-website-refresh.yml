@@ -33,6 +33,13 @@ concurrency:
   group: guide-content-website-refresh-${{ github.event.client_payload.env || inputs.env || 'prod' }}
   cancel-in-progress: false
 
+# Without id-token: write the WIF auth step CANNOT mint an OIDC token and the
+# job fails at "Authenticate to GCP" (found 2026-06-11 by spec-251's first live
+# dispatch — this workflow had never actually run since spec-222 t-13 shipped it).
+permissions:
+  contents: read
+  id-token: write # OIDC token for Workload Identity Federation
+
 jobs:
   refresh:
     runs-on: ubuntu-latest

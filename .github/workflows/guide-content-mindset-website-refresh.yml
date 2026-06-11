@@ -36,6 +36,10 @@ concurrency:
   group: guide-content-mindset-website-refresh-${{ github.event.client_payload.env || inputs.env || 'prod' }}
   cancel-in-progress: false
 
+permissions:
+  contents: read
+  id-token: write # OIDC token for Workload Identity Federation
+
 jobs:
   refresh:
     runs-on: ubuntu-latest
