@@ -44,16 +44,17 @@ describe("toMixpanelEvent — mapping (ac-13)", () => {
 });
 
 describe("MixpanelSink.send — server-side HTTP, US host (ac-2 / ac-13)", () => {
-  it("POSTs a JSON batch to the US /track endpoint with the token in the body", async () => {
+  it("POSTs a JSON batch to the US /track (verbose) endpoint with the token in the body", async () => {
     tagAc(`${AC}/ac-13`);
     tagAc(`${AC}/ac-5`); // the curated forward set reaches Mixpanel in the default config
-    const fetchImpl = vi.fn(async () => new Response("1", { status: 200 }));
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ status: 1, error: null }), { status: 200 }));
     const sink = new MixpanelSink("PROD_TOKEN", fetchImpl as unknown as typeof fetch);
     await sink.send([row(), row({ id: "row-2", name: "cta.clicked" })]);
 
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe("https://api.mixpanel.com/track"); // US host (dec-9)
+    expect(url).toContain("api.mixpanel.com/track"); // US host (dec-9)
+    expect(url).toContain("verbose=1"); // so a status:0 rejection is detectable
     expect(init.method).toBe("POST");
     const body = JSON.parse(init.body as string);
     expect(Array.isArray(body)).toBe(true);
@@ -67,6 +68,17 @@ describe("MixpanelSink.send — server-side HTTP, US host (ac-2 / ac-13)", () =>
     const sink = new MixpanelSink("T", fetchImpl as unknown as typeof fetch);
     await expect(sink.send([row()])).rejects.toThrow(/503/);
   });
+
+  it("throws on HTTP 200 with status:0 (Mixpanel REJECTED the batch) so it retries, not silently drops (ac-6)", async () => {
+    tagAc(`${AC}/ac-6`);
+    // /track returns 200 even on rejection — the silent-loss trap. The verbose body
+    // carries status:0 + an error; send() must throw so forwarded_at stays NULL.
+    const fetchImpl = vi.fn(async () =>
+      new Response(JSON.stringify({ status: 0, error: "invalid token" }), { status: 200 }),
+    );
+    const sink = new MixpanelSink("BAD", fetchImpl as unknown as typeof fetch);
+    await expect(sink.send([row()])).rejects.toThrow(/rejected the batch.*invalid token/);
+  });
 });
 
 describe("per-env project separation (ac-19)", () => {
@@ -76,7 +88,7 @@ describe("per-env project separation (ac-19)", () => {
     const fetchImpl = vi.fn(async (_url: string, init: RequestInit) => {
       const body = JSON.parse(init.body as string);
       calls.push(body[0].properties.token);
-      return new Response("1", { status: 200 });
+      return new Response(JSON.stringify({ status: 1, error: null }), { status: 200 });
     });
     // The int service carries the memex-int token; prod carries memex-prod's. Same
     // code, different MIXPANEL_TOKEN value per env — the dec-9 separation mechanism.

@@ -51,14 +51,28 @@ export class MixpanelSink implements AnalyticsSink {
   async send(events: readonly UsageEvent[]): Promise<void> {
     if (events.length === 0) return;
     const payload = events.map((e) => toMixpanelEvent(e, this.token));
-    const res = await this.fetchImpl(MIXPANEL_TRACK_URL, {
+    // verbose=1 makes /track return a JSON {status, error} body instead of bare
+    // "1"/"0" text. This is load-bearing: /track signals an APPLICATION-level
+    // rejection (bad token, malformed property, rate limit) with HTTP 200 + a
+    // status:0 body — NOT a non-2xx. Without parsing the body, a rejected batch
+    // looks like success and is silently dropped (forwarded_at stamped, events lost).
+    const res = await this.fetchImpl(`${MIXPANEL_TRACK_URL}?verbose=1`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "text/plain" },
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify(payload),
     });
+    // Transport-level failure (non-2xx).
     if (!res.ok) {
-      // Throw so the forwarder leaves forwarded_at unset and retries (dec-3).
-      throw new Error(`Mixpanel /track returned ${res.status}`);
+      throw new Error(`Mixpanel /track returned HTTP ${res.status}`);
+    }
+    // Application-level failure: throw on a non-1 status so the forwarder leaves
+    // forwarded_at NULL and retries (dec-3), rather than stamping a lost batch as
+    // delivered.
+    const body = (await res.json().catch(() => null)) as { status?: number; error?: string } | null;
+    if (!body || body.status !== 1) {
+      throw new Error(
+        `Mixpanel /track rejected the batch (status ${body?.status ?? "?"}): ${body?.error ?? "unknown"}`,
+      );
     }
   }
 }
