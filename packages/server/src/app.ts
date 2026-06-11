@@ -42,6 +42,7 @@ import { onboarding } from "./routes/onboarding.js";
 import { testEventsRouter } from "./routes/test-events.js";
 import { testOnlyRouter } from "./routes/__test__.js";
 import { hostGuard, memexResolver } from "./middleware/memex-resolver.js";
+import { visitorMiddleware } from "./middleware/visitor.js";
 import { rewriteBriefPathToSpec } from "./services/redirects.js";
 import { isAllowedOrigin } from "./middleware/cors-policy.js";
 import { meRouter } from "./routes/me.js";
@@ -123,6 +124,13 @@ app.use("*", async (c, next) => {
 // to the request context. Authorization happens per-route. Routes that don't
 // carry the prefix (entity-keyed lookups, /api/health, etc.) are skipped.
 app.use("*", memexResolver);
+
+// spec-254 t-2 — expose the consented visitor_id (from the .memex.ai cookie, or an
+// inbound ?aid=) on the request context for the identify merge (auth routes) and
+// the /telemetry stamp. Pure reader: never mints, never Set-Cookie (the consented
+// client owns that, dec-4=B). Runs ahead of the per-route session middlewares so
+// authenticated AND anonymous /api requests carrying a cookie expose the id.
+app.use("/api/*", visitorMiddleware);
 
 app.get("/api/health", (c) => {
   // Cross-instance bus relay status (spec-156 ac-12). The std-17 post-deploy

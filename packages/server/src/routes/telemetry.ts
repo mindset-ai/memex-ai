@@ -61,6 +61,9 @@ telemetry.post("/", async (c) => {
   await recordUsageEvent({
     memexId,
     actorUserId: user.id,
+    // spec-254 — stamp the identity join key when a consented client carried it
+    // (read from the cookie by visitorMiddleware). Null otherwise.
+    visitorId: c.get("visitorId") ?? null,
     name: body.name,
     source: "frontend",
     props: sanitizeUsageProps(body.props),

@@ -52,6 +52,12 @@ export type SessionEnv = {
     currentNamespace?: Namespace;
     currentOrgId?: string;
     currentNamespaceRole?: "member" | "administrator";
+    // spec-254 — the anonymous-first visitor_id, read from the .memex.ai cookie
+    // (or an inbound ?aid=) by visitorMiddleware. Present only when a consented
+    // client has established it; undefined otherwise. Pure-reader: the server
+    // never mints or sets it (dec-4=B — minting server-side would bypass the
+    // client consent gate).
+    visitorId?: string;
   };
 };
 
