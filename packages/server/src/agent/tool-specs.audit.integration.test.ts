@@ -602,30 +602,45 @@ describe("audit: field names referenced in descriptions exist in the schema", ()
 // Probe 10: getCreationToolDefinitions surface
 // ──────────────────────────────────────────────────────────────────────────
 //
-// The creation phase intentionally limits the surface to {create_doc,
-// add_section, search_memex, render_*}. Drift here = the agent suddenly has
-// access to rename / decision / task tools during the New Spec modal flow,
-// which the React UI can't handle (modal closes after create_doc returns).
+// spec-230 t-1 (supersedes spec-5/dec-1): the creation phase NO LONGER limits
+// the surface to {create_doc, add_section, search_memex}. To reach web ↔ MCP
+// parity, the in-app creation agent now gets the full spec-authoring surface —
+// sections, decisions, AND acceptance criteria — so a substantial input fleshes
+// out into a rich, multi-section Spec instead of a thin Overview. The set is
+// single-sourced from the @memex/shared manifest (std-16): manifest
+// `group: 'planning'` OR `trafficClass: 'specify'`, plus the read tools
+// (search_memex, get_doc) and the render_* UI tools.
 //
-// search_memex was added per spec-34 D-7 so the creation-phase agent can spot
-// overlap with existing Specs / Standards / Decisions before authoring a
-// new one. It's a read-only tool — no risk of mid-modal mutation surprises.
+// The one hard exclusion that must NOT drift back in: build-phase task verbs
+// (create_task / update_task / delete_task) — the creation agent authors a
+// Spec's plan, it does not run the build. Exhaustive membership + manifest-
+// derivation are pinned in tools.creation-parity.test.ts; this probe guards the
+// load-bearing inclusions and the task-verb exclusion.
 
-describe("audit: creation-phase surface stays minimal", () => {
-  it("getCreationToolDefinitions exposes exactly create_doc + add_section + search_memex + 6 render_* UI tools", () => {
-    const names = getCreationToolDefinitions().map((t) => t.name).sort();
-    const expected = [
-      "add_section",
+describe("audit: creation-phase surface reaches MCP spec-authoring parity", () => {
+  it("getCreationToolDefinitions exposes section + decision + AC authoring, never build-phase task verbs", () => {
+    const names = getCreationToolDefinitions().map((t) => t.name);
+    // Spec-authoring surface present (sections, decisions, ACs).
+    for (const t of [
       "create_doc",
-      "render_action_buttons",
-      "render_callout",
-      "render_choices",
-      "render_confirmation",
-      "render_progress",
-      "render_steps",
+      "add_section",
+      "update_section",
+      "create_decision",
+      "resolve_decision",
+      "create_ac",
+      "link_ac_to_decision",
       "search_memex",
-    ].sort();
-    expect(names).toEqual(expected);
+      "get_doc",
+    ]) {
+      expect(names).toContain(t);
+    }
+    // The render_confirmation mutation gate (and the rest of the render_* UI
+    // family) ride along.
+    expect(names).toContain("render_confirmation");
+    // Build-phase task verbs stay OUT — the modal authors a plan, not a build.
+    expect(names).not.toContain("create_task");
+    expect(names).not.toContain("update_task");
+    expect(names).not.toContain("delete_task");
   });
 });
 
