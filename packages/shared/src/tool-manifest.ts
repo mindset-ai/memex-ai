@@ -472,6 +472,18 @@ export const toolManifest: ToolManifestEntry[] = [
     trafficClass: null,
   },
   {
+    // spec-234: agent-facing AC-emission onboarding. Mints an ephemeral, spec-scoped
+    // key AND returns the wire-it-up guidance in one call. trafficClass null — it sets
+    // up emission, it does not itself drive a Spec phase transition.
+    name: 'provision_ac_emission',
+    summary:
+      "Provision AC emission for the Spec you're working on, in one call: mints an ephemeral, spec-scoped emission key (use this session only, never persist it) AND returns the guidance to wire emission into whatever test runners the repo uses — native when no helper exists. No Settings detour, no install. CI keys are still human-minted.",
+    args: 'provision_ac_emission(ref)',
+    group: 'build',
+    readOnlyHint: false,
+    trafficClass: null,
+  },
+  {
     name: 'get_ac',
     summary: 'Get a single AC by canonical ref (returns kind, status, statement).',
     args: 'get_ac(ref)',

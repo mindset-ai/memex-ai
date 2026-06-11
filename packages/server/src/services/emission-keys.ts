@@ -1,5 +1,5 @@
 import { randomBytes, createHash } from "node:crypto";
-import { eq, and, isNull, desc, sql } from "drizzle-orm";
+import { eq, and, isNull, or, gt, desc, sql } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import {
   memexEmissionKeys,
@@ -41,29 +41,50 @@ export interface MintedEmissionKey {
   row: MemexEmissionKey;
 }
 
-// Mint a new emission key for a Memex. Returns the RAW key exactly once (ac-15): only the
-// SHA-256 hash + prefix are persisted, so the raw value cannot be recovered afterwards.
-// `createdByUserId` records the minting member (ac-21) — it is what the list/revoke paths
-// derive "own" from for the member-level access matrix (dec-8). Always set from the
-// authenticated session at the call site; the column is nullable only for legacy rows.
-export async function mintEmissionKey(
-  memexId: string,
-  name: string,
-  createdByUserId: string,
-): Promise<Mutated<MintedEmissionKey>> {
+// spec-234 dec-1: an agent-provisioned (ephemeral) key lives ~2h. Long enough to
+// outlast a run-and-debug loop wired into the test process env at startup, so a key
+// never expires mid-suite; short enough that the raw value — which does pass through
+// the agent's MCP transcript — is worthless within hours.
+export const EPHEMERAL_TTL_MS = 2 * 60 * 60 * 1000;
+
+// spec-234 dec-5: ephemeral keys are named to mark their origin and tie them to the
+// Spec, so a human auditing Settings → Emission Keys can tell them apart from durable
+// CI keys at a glance. `<date>` is the UTC mint day.
+export function ephemeralKeyName(specHandle: string, mintedAt: Date): string {
+  return `agent · ${specHandle} · ${mintedAt.toISOString().slice(0, 10)}`;
+}
+
+// Shared insert for both key types. A permanent (CI) key passes neither `expiresAt`
+// nor `scopedSpecHandle` (both NULL = today's spec-129 key). Returns the RAW key
+// exactly once (ac-15): only the SHA-256 hash + prefix are persisted, so the raw
+// value cannot be recovered afterwards.
+async function insertEmissionKey(values: {
+  memexId: string;
+  name: string;
+  createdByUserId: string;
+  expiresAt?: Date | null;
+  scopedSpecHandle?: string | null;
+}): Promise<Mutated<MintedEmissionKey>> {
   const raw = generateRawKey();
   return mutate(
     {},
-    { memexId, userId: createdByUserId, entity: "memex_emission_key", action: "created" },
+    {
+      memexId: values.memexId,
+      userId: values.createdByUserId,
+      entity: "memex_emission_key",
+      action: "created",
+    },
     async () => {
       const [row] = await db
         .insert(memexEmissionKeys)
         .values({
-          memexId,
-          name,
+          memexId: values.memexId,
+          name: values.name,
           hashedKey: hashKey(raw),
           prefix: displayPrefix(raw),
-          createdByUserId,
+          createdByUserId: values.createdByUserId,
+          expiresAt: values.expiresAt ?? null,
+          scopedSpecHandle: values.scopedSpecHandle ?? null,
         })
         .returning();
       return { raw, row };
@@ -71,10 +92,48 @@ export async function mintEmissionKey(
   );
 }
 
-// Returns the active key row if the raw key matches an unrevoked record (ac-13: a revoked
-// key — revokedAt set — never matches). Caller (the /api/test-events middleware) confirms
-// the row's memexId matches the ac_uid and bumps lastUsedAt. Returns null on any miss so
-// the caller can 401 uniformly.
+// Mint a new PERMANENT (CI) emission key for a Memex — no expiry, whole-memex scope.
+// This is the human-minted Settings-UI path (spec-129). `createdByUserId` records the
+// minting member (ac-21) — it is what the list/revoke paths derive "own" from for the
+// member-level access matrix (dec-8). Always set from the authenticated session at the
+// call site; the column is nullable only for legacy rows.
+export async function mintEmissionKey(
+  memexId: string,
+  name: string,
+  createdByUserId: string,
+): Promise<Mutated<MintedEmissionKey>> {
+  return insertEmissionKey({ memexId, name, createdByUserId });
+}
+
+// spec-234 dec-1: mint an EPHEMERAL (agent) emission key — short-lived (EPHEMERAL_TTL_MS)
+// and scoped to a single Spec. Minting NEVER revokes a prior key (non-exclusive): many
+// ephemeral keys may be live at once so parallel agent sessions on one Spec don't disable
+// each other, and TTL self-expiry — not revocation — keeps them from piling up. This is
+// the only key path the provision_ac_emission MCP tool uses.
+export async function mintEphemeralEmissionKey(
+  memexId: string,
+  specHandle: string,
+  createdByUserId: string,
+  opts: { now?: Date; ttlMs?: number } = {},
+): Promise<Mutated<MintedEmissionKey>> {
+  const now = opts.now ?? new Date();
+  const expiresAt = new Date(now.getTime() + (opts.ttlMs ?? EPHEMERAL_TTL_MS));
+  return insertEmissionKey({
+    memexId,
+    name: ephemeralKeyName(specHandle, now),
+    createdByUserId,
+    expiresAt,
+    scopedSpecHandle: specHandle,
+  });
+}
+
+// Returns the active key row if the raw key matches an unrevoked, UNEXPIRED record
+// (ac-13: a revoked key — revokedAt set — never matches; spec-234 ac-10: an expired key
+// — expiresAt in the past — never matches either). A NULL expiresAt is permanent and
+// always passes the expiry test, so spec-129 CI keys are unaffected. Caller (the
+// /api/test-events route) further confirms the row's memexId matches the ac_uid, applies
+// any spec scope, and bumps lastUsedAt. Returns null on any miss so the caller 401s
+// uniformly.
 export async function verifyEmissionKey(
   raw: string,
 ): Promise<MemexEmissionKey | null> {
@@ -84,6 +143,10 @@ export async function verifyEmissionKey(
     where: and(
       eq(memexEmissionKeys.hashedKey, hash),
       isNull(memexEmissionKeys.revokedAt),
+      or(
+        isNull(memexEmissionKeys.expiresAt),
+        gt(memexEmissionKeys.expiresAt, sql`now()`),
+      ),
     ),
   });
   return row ?? null;

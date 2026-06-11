@@ -104,6 +104,7 @@ import {
   type AcWithVerification,
 } from "../services/acs.js";
 import { listTopics, fetchTopic } from "../services/guidance.js";
+import { mintEphemeralEmissionKey } from "../services/emission-keys.js";
 import {
   createTask,
   listTasks,
@@ -2948,6 +2949,85 @@ export const toolSpecs: ToolSpec[] = [
           (parent ? ` linked to ${parent.kind}` : "");
       }
       return `ref: ${acRef} [${kind}, ${status}]`;
+    },
+  },
+  {
+    // spec-234: the agent-facing onboarding for AC emission. One call mints an
+    // ephemeral, spec-scoped key AND returns the integration guidance — replacing the
+    // "open Settings, mint a key, copy it, npm install a helper" detour. The key is
+    // short-lived (so it's safe to return through the MCP transcript, dec-1/dec-5) and
+    // scoped to this Spec. The guidance half is rendered from the SAME source as
+    // get_information(topic='ac-emission-bootstrap'), never hand-copied (std-22, ac-16).
+    name: "provision_ac_emission",
+    annotations: { title: "Provision AC emission", readOnlyHint: false, destructiveHint: false },
+    description:
+      "Provision AC emission for the Spec you are working on, in one call: (1) mints a " +
+      "working, ephemeral, spec-scoped emission key for this repo's Memex and returns the " +
+      "raw value once, and (2) returns markdown guidance for wiring emission into whatever " +
+      "test runner(s) the repo actually uses — authoring a native integration when no " +
+      "official helper exists for the stack. No Settings-UI detour and no package install " +
+      "are needed to start emitting. The key is short-lived (~2h) and may ONLY record " +
+      "emissions for this Spec; use it in the test process environment for THIS session and " +
+      "do not persist it — call again next session for a fresh key. For a long-lived CI key, " +
+      "a human mints one in Settings → Emission Keys (this tool does not produce CI keys).",
+    schema: {
+      ref: z.string().describe(
+        "Canonical ref to the Spec you are working on, e.g. `mindset/main/specs/spec-3`. " +
+          "The provisioned key is scoped to this Spec.",
+      ),
+      verbose: VERBOSE_FIELD,
+    },
+    async handler(input, ctx) {
+      const ref = input.ref as string;
+      const resolved = await resolveRefArg(ctx, ref);
+      if (!isDocLikeKind(resolved.entity.kind) || resolved.doc.docType !== "spec") {
+        throw new ValidationError(
+          `provision_ac_emission expects a Spec ref (e.g. .../specs/spec-N); got ${resolved.entity.kind}/${resolved.doc.docType}.`,
+        );
+      }
+      const { memexId, doc, slugs } = resolved;
+      const specHandle = doc.handle; // e.g. "spec-3" — matches the ac_uid's /specs/<handle>/ segment
+      const specRef = `${slugs.namespace}/${slugs.memex}/specs/${specHandle}`;
+
+      // Member-level authority (dec-5): resolveRef already asserted the caller is a member of
+      // this Memex, so minting here is the same authority as the Settings-UI mint. The minting
+      // user is recorded (created_by_user_id) for audit.
+      const minted = await mintEphemeralEmissionKey(memexId, specHandle, ctx.userId);
+      const expiresAt = minted.row.expiresAt!; // always set for an ephemeral key
+
+      // Render the protocol from the shared guidance source — NOT a hand-copied duplicate
+      // (ac-16). This is the same body get_information(topic='ac-emission-bootstrap') serves.
+      const bootstrap = await fetchTopic("ac-emission-bootstrap");
+
+      return [
+        `# AC emission provisioned for \`${specRef}\``,
+        "",
+        "## 1. Your emission key (use this session only — do NOT save it to disk)",
+        "",
+        "```",
+        `MEMEX_EMIT_KEY=${minted.raw}`,
+        "```",
+        "",
+        `- **Ephemeral:** this key expires at ${expiresAt.toISOString()} (~2h). It is **scoped to \`${specHandle}\`** — it can only record emissions for this Spec, nothing else on the board.`,
+        "- **Do not persist it.** Export it into the environment of the test process for THIS session only " +
+          "(e.g. `MEMEX_EMIT_KEY=… <run your tests>`). Do not write it to `.env`, CI config, or any file — " +
+          "it will be expired by next session. When you start a fresh session, call `provision_ac_emission` " +
+          "again for a new key.",
+        "- **CI is different:** a long-lived key for a CI pipeline is minted by a human in Settings → Emission " +
+          "Keys and stored as a CI secret. This tool only provisions the short-lived agent key.",
+        "",
+        "## 2. Wire emission into the repo's test runner(s)",
+        "",
+        "Detect the test runner(s) **this** repo actually uses (do not assume one). For each suite: if an " +
+          "official Memex helper exists for that stack, prefer it; otherwise hand-roll the native emitter using " +
+          "the protocol below. A repo with multiple suites (e.g. a web suite plus a mobile/native suite) wires " +
+          "emission into **every** suite, not just one. Tag each test with the AC ref it verifies and the emitter " +
+          "POSTs the result — no package install is required to begin.",
+        "",
+        "---",
+        "",
+        bootstrap.body,
+      ].join("\n");
     },
   },
   {

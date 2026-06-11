@@ -162,6 +162,10 @@ const SKIPS = new Map<string, string>([
   ["restore_test_events", "emits the AC ref:; ref-emission asserted in mcp/test-event-tools.integration"],
   // get_information returns prose (topic index or topic body), never an entity ref.
   ["get_information", "Read-only guidance tool — returns markdown prose, not a memex entity ref"],
+  // provision_ac_emission (spec-234) returns a raw emission key + the integration
+  // guidance markdown — deliberately NOT a terse `ref:` confirmation. Exercised in
+  // agent/spec-234-provision-ac-emission.integration.
+  ["provision_ac_emission", "returns an emission key + guidance markdown, not an entity ref; covered by spec-234-provision-ac-emission.integration"],
   // export_doc (spec-100) returns a lossless full-document markdown export (every
   // comment thread expanded inline), not a terse per-entity confirmation — the
   // b-36 D-8 ref:/no-UUID terseness invariant doesn't apply. Exercised in

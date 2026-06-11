@@ -40,6 +40,25 @@ function formatAbsolute(iso: string | null): string {
   return new Date(iso).toLocaleString();
 }
 
+// spec-234: a key is ephemeral (agent-provisioned, short-lived, spec-scoped) when it
+// carries an expiry; otherwise it is a permanent CI key. This is the discriminator the
+// Settings UI renders so a human can tell durable infra credentials from throwaway agent
+// keys at a glance (ac-8).
+type KeyKind = 'permanent' | 'ephemeral';
+function keyKind(k: EmissionKeySummary): KeyKind {
+  return k.expiresAt ? 'ephemeral' : 'permanent';
+}
+
+// Expiry, relative and human (ac-20). Shown only for ephemeral keys.
+function formatExpiry(iso: string | null): string {
+  if (!iso) return '—';
+  const ms = new Date(iso).getTime() - Date.now();
+  if (ms <= 0) return 'expired';
+  const min = Math.round(ms / 60_000);
+  if (min < 60) return `in ${min}m`;
+  return `in ${Math.round(min / 60)}h`;
+}
+
 export function EmissionKeysSection() {
   const { token } = useAuth();
   const [keys, setKeys] = useState<EmissionKeySummary[]>([]);
@@ -134,6 +153,12 @@ export function EmissionKeysSection() {
           only for this Memex, and you can keep several live at once and revoke them
           independently (rotate without breaking CI).
         </p>
+        <p className="text-sm text-secondary mt-2">
+          Keys you generate here are <strong>permanent</strong> (they last until you revoke
+          them) — the kind to set in CI. Short-lived <strong>agent</strong> keys, provisioned
+          automatically by a coding agent and scoped to a single Spec, also appear below,
+          marked with their expiry.
+        </p>
       </div>
 
       {error && <p className="text-sm text-error">{error}</p>}
@@ -211,6 +236,7 @@ export function EmissionKeysSection() {
               <thead>
                 <tr className="border-b border-edge">
                   <th className="text-left px-4 py-2.5 font-medium text-secondary">Name</th>
+                  <th className="text-left px-4 py-2.5 font-medium text-secondary">Type</th>
                   <th className="text-left px-4 py-2.5 font-medium text-secondary">Key</th>
                   <th className="text-left px-4 py-2.5 font-medium text-secondary">Last used</th>
                   <th className="text-left px-4 py-2.5 font-medium text-secondary">Created</th>
@@ -218,9 +244,28 @@ export function EmissionKeysSection() {
                 </tr>
               </thead>
               <tbody>
-                {active.map((k) => (
+                {active.map((k) => {
+                  const kind = keyKind(k);
+                  return (
                   <tr key={k.id} className="border-b last:border-0 border-edge-subtle">
                     <td className="px-4 py-2.5 text-primary">{k.name}</td>
+                    <td className="px-4 py-2.5" data-testid="emission-key-type" data-kind={kind}>
+                      {kind === 'ephemeral' ? (
+                        <span className="inline-flex items-center gap-1.5">
+                          <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-warning-subtle text-warning">
+                            Agent
+                          </span>
+                          <span className="text-xs text-muted">
+                            {k.scopedSpecHandle ? `${k.scopedSpecHandle} · ` : ''}
+                            expires {formatExpiry(k.expiresAt)}
+                          </span>
+                        </span>
+                      ) : (
+                        <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-info-subtle text-info">
+                          CI
+                        </span>
+                      )}
+                    </td>
                     <td className="px-4 py-2.5 font-mono text-xs text-muted">{k.prefix}…</td>
                     <td className="px-4 py-2.5 text-secondary" title={formatAbsolute(k.lastUsedAt)}>
                       {formatRelative(k.lastUsedAt)}
@@ -239,7 +284,8 @@ export function EmissionKeysSection() {
                       </Button>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
