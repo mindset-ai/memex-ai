@@ -454,11 +454,14 @@ export function Pulse() {
           column; the Needs-attention tray keeps its place on the right. */}
       <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 min-h-0 flex flex-col">
-          {/* spec-255 — Vitals strip (graphics) then the Hot Specs hero band. */}
-          <VitalsStrip present={presentRows} activity={historyRows} />
+          {/* spec-255 — Vitals strip (graphics) then the Hot Specs hero band.
+              Fed from the MERGED live+history stream (movingRows) so live events
+              move the sparklines and keep a spec hot the instant they land —
+              not only after a periodic history refetch. */}
+          <VitalsStrip present={presentRows} activity={movingRows} />
           <HotSpecs
             present={presentRows}
-            activity={historyRows}
+            activity={movingRows}
             specHandle={specHandleByDocId}
             specTitle={specTitleByDocId}
             specPhase={specPhaseByDocId}
@@ -473,11 +476,20 @@ export function Pulse() {
             failing={mergedTestSignals.failing}
             liveDelta={liveTestSignals.length}
           />
-          {/* Live event log — demoted directly under Hot Specs and shrunk so it
-              proves liveness without dominating the page (spec-255 dec-1 / ac-2). */}
+          {/* Working Now — by person, ABOVE the Live log. */}
+          <WorkingNow
+            present={displayedPresent}
+            loading={presenceLoading}
+            specHandle={specHandleByDocId}
+            specTitle={specTitleByDocId}
+            lastActivityAt={lastActivityAt}
+            lastNarrative={specNarrativeByDocId}
+          />
+          {/* Live event log — the BOTTOM band, allowed to grow tall (off-screen
+              is fine): it fills the remaining height and scrolls internally. */}
           <div
             data-testid="live-band"
-            className="flex-none max-h-72 min-h-0 mb-4 flex flex-col rounded-lg border border-edge-subtle bg-surface/40 overflow-hidden"
+            className="flex-1 min-h-0 flex flex-col rounded-lg border border-edge-subtle bg-surface/40 overflow-hidden"
           >
             <ActivityFeed
               rows={movingRows}
@@ -492,15 +504,6 @@ export function Pulse() {
               specHasActiveWorker={specHasActiveWorker}
             />
           </div>
-          {/* Working Now — by person, demoted to the bottom (spec-255 dec-1). */}
-          <WorkingNow
-            present={displayedPresent}
-            loading={presenceLoading}
-            specHandle={specHandleByDocId}
-            specTitle={specTitleByDocId}
-            lastActivityAt={lastActivityAt}
-            lastNarrative={specNarrativeByDocId}
-          />
         </div>
         <div className="lg:col-span-1 min-h-0 overflow-y-auto">
           {/* Test-signal volume graphic — the firehose as a live sparkline,
