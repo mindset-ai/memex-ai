@@ -184,6 +184,16 @@ export function startActivityLogSink(): Unsubscribe {
   if (unsubscribe) return unsubscribe;
   // Default-open filter: capture EVERY event (all memexes, all entities, all
   // actions — writes AND the b-60 read actions viewed/searched/assessed/called).
+  //
+  // localOnly (spec-122): persist ONLY locally-originated emits. The sink is a
+  // single-writer — the row must be written exactly once, at the instance that
+  // originated the mutation. The spec-156 cross-instance relay re-emits every
+  // event onto the local bus of the OTHER instances (via emitRelayed) so their
+  // SSE subscribers see it live; if the sink also fired on those relayed events,
+  // each of prod's 3 Cloud Run instances would persist its own copy — one
+  // activity_log row per instance (the "every event duplicated 3×" Pulse report).
+  // localOnly excludes relayed events, so persistence stays single-writer while
+  // live SSE delivery stays cross-instance.
   unsubscribe = bus.subscribe({}, (event) => {
     // Detached: persistEvent already swallows, but the extra .catch() guards
     // against any synchronous throw before the try/catch and keeps the bus
@@ -191,7 +201,7 @@ export function startActivityLogSink(): Unsubscribe {
     void persistEvent(event).catch((err) => {
       log("unexpected sink error (advisory — swallowed):", err);
     });
-  });
+  }, { localOnly: true });
   return unsubscribe;
 }
 

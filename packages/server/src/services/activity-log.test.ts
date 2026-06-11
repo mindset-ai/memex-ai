@@ -251,6 +251,28 @@ describe("startActivityLogSink — end-to-end bus → DB wiring", () => {
       _stopActivityLogSink();
     }
   });
+
+  it("persists a LOCAL emit but IGNORES a relayed (foreign) event — single-writer at origin (spec-122)", async () => {
+    // Regression for the "every event duplicated 3×" Pulse report. The spec-156
+    // cross-instance relay re-emits every event onto the local bus of the OTHER
+    // Cloud Run instances via emitRelayed(); if the sink persisted those too,
+    // each instance would write its own activity_log row (3 instances → 3 rows
+    // per logical event). The sink subscribes localOnly, so a relayed event must
+    // NOT produce a row — only the origin instance's emit() does.
+    startActivityLogSink();
+    try {
+      // A foreign event arriving via the relay: must NOT be persisted here.
+      bus.emitRelayed(baseEvent({ channel: "mcp", action: "created", narrative: "relayed — must not persist" }));
+      // A locally-originated emit: persisted exactly once.
+      bus.emit(baseEvent({ channel: "mcp", action: "created", narrative: "local — persisted once" }));
+
+      const rows = await waitForRows(memexId, 1);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].narrative).toBe("local — persisted once");
+    } finally {
+      _stopActivityLogSink();
+    }
+  });
 });
 
 describe("listActivity — filters + pagination", () => {
