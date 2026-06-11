@@ -1,8 +1,10 @@
 // spec-190 t-3 (dec-1/dec-6) — assemble the voice guide's system prompt for the
-// /voice/guide-chat SSE proxy. Mirrors agent/system-prompt.ts: a STATIC
-// instruction block (cache_control: ephemeral — the prompt-cache breakpoint) plus
-// a PER-REQUEST screen-context block (no cache_control, so it resolves fresh each
-// turn as the screen / retrieved content changes).
+// /voice/guide-chat SSE proxy. The system blocks are STATIC per surface/deploy
+// (persona + in-app walkthrough beats, cache_control: ephemeral — the
+// prompt-cache breakpoint). The PER-TURN screen-context text is rendered by
+// renderScreenContext() and injected into the final user message by the chat
+// handler — keeping volatile content out of the system prefix so the
+// conversation history caches across turns (spec-222 latency follow-up).
 //
 // The static prompt is markdown (std-15) and lives in agent/voice/guide-system.md
 // — deliberately OUTSIDE phases/ (the b-68 drift guard forbids new prose markdown
@@ -74,8 +76,16 @@ export interface GuidePromptInput {
   guideContext: string[];
 }
 
-/** Render the per-request screen-context block the model reads each turn. */
-function renderScreenContext(input: GuidePromptInput): string {
+/**
+ * Render the per-turn screen-context text the model reads each turn.
+ *
+ * Exported (spec-222 latency follow-up): this volatile text is injected into the
+ * FINAL user message by the chat handler, NOT emitted as a trailing system block.
+ * A volatile system block sits between the cached persona and the message
+ * history, so every turn it invalidated the conversation prefix — moving it
+ * after the history lets the whole prior conversation be served from cache.
+ */
+export function renderScreenContext(input: Omit<GuidePromptInput, "surface">): string {
   const lines: string[] = ["## Current screen context"];
 
   lines.push(
@@ -106,9 +116,10 @@ function renderScreenContext(input: GuidePromptInput): string {
 }
 
 /**
- * Build the Anthropic `system` blocks for a guide turn. Block 1 is the static
- * persona/instruction prompt (cached), SELECTED BY SURFACE; block 2 is the fresh
- * per-turn screen context.
+ * Build the Anthropic `system` blocks for a guide turn — STATIC content only:
+ * the persona/instruction prompt (cached), SELECTED BY SURFACE, plus the in-app
+ * walkthrough beats. The fresh per-turn screen context is rendered separately
+ * (renderScreenContext) and rides the final user message, not system.
  *
  * spec-222 t-9 (dec-6 → ac-19/ac-20): the persona is chosen SOLELY from the
  * server-supplied surface — "memex-website" gets the website persona and NO
@@ -141,6 +152,10 @@ export function buildGuideSystemBlocks(input: GuidePromptInput): GuideSystemBloc
     });
   }
 
-  blocks.push({ type: "text", text: renderScreenContext(input) });
+  // NOTE (spec-222 latency follow-up): the per-turn screen context is NOT a
+  // system block any more. System renders before messages, so a volatile block
+  // here re-keyed the prefix every turn and made the conversation history
+  // uncacheable. The handler injects renderScreenContext() into the final user
+  // message instead — system is now fully static per surface/deploy.
   return blocks;
 }

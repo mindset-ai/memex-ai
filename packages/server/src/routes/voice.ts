@@ -46,7 +46,8 @@ import {
   type SttSession,
 } from "../agent/elevenlabs-client.js";
 import { getAnthropicClient, LlmNotConfiguredError } from "../agent/anthropic-client.js";
-import { buildGuideSystemBlocks } from "../agent/voice/guide-prompt.js";
+import { buildGuideSystemBlocks, renderScreenContext } from "../agent/voice/guide-prompt.js";
+import { logVoiceLatency } from "../agent/voice/latency-log.js";
 import {
   prefetchScreenContent,
   searchGuideContent,
@@ -91,6 +92,60 @@ export function latestUserUtterance(messages: Array<{ role: string; content: unk
     return "";
   }
   return "";
+}
+
+type GuideChatMessage = { role: "user" | "assistant"; content: unknown };
+type GuideTextBlock = { type: "text"; text: string; cache_control?: { type: "ephemeral" } };
+
+/**
+ * Decorate the FINAL user message with the per-turn screen context, and drop a
+ * prompt-cache breakpoint on the last block of the message BEFORE it (the end of
+ * the stable conversation prefix). Spec-222 latency follow-up:
+ *
+ *   - The client resends the history as plain utterances every turn. Injecting
+ *     volatile context only into the LATEST user message keeps every prior
+ *     message byte-identical request-over-request, so tools + system + history
+ *     up to the breakpoint is a growing, cache-served prefix.
+ *   - The breakpoint goes on the PREVIOUS message (not the final one): the final
+ *     message carries this turn's injected context, which never recurs — the
+ *     client's next request contains this utterance WITHOUT the injection, so a
+ *     breakpoint there would never be read back.
+ *
+ * Pure function: never mutates the parsed request body.
+ */
+export function injectTurnContext(
+  messages: GuideChatMessage[],
+  contextText: string,
+): GuideChatMessage[] {
+  const lastUser = messages.map((m) => m.role).lastIndexOf("user");
+  if (lastUser === -1) return messages;
+
+  const toBlocks = (content: unknown): GuideTextBlock[] =>
+    typeof content === "string"
+      ? [{ type: "text", text: content }]
+      : Array.isArray(content)
+        ? (content as GuideTextBlock[]).map((b) => ({ ...b }))
+        : [];
+
+  return messages.map((m, i) => {
+    if (i === lastUser) {
+      return {
+        role: m.role,
+        content: [{ type: "text", text: contextText }, ...toBlocks(m.content)],
+      };
+    }
+    if (i === lastUser - 1) {
+      const blocks = toBlocks(m.content);
+      if (blocks.length > 0) {
+        blocks[blocks.length - 1] = {
+          ...blocks[blocks.length - 1],
+          cache_control: { type: "ephemeral" },
+        };
+        return { role: m.role, content: blocks };
+      }
+    }
+    return m;
+  });
 }
 
 /**
@@ -370,6 +425,9 @@ export class VoiceSession {
     void (async () => {
       try {
         for await (const t of session.transcripts()) {
+          // std-14 latency log: a FINAL transcript is the turn's starting gun —
+          // the gap to the next llm_turn line is endpointing + client round-trip.
+          if (t.isFinal) logVoiceLatency("stt_final", { chars: t.text.length });
           this.send({ type: "transcript", text: t.text, isFinal: t.isFinal });
         }
       } catch {
@@ -382,11 +440,18 @@ export class VoiceSession {
     const provider = resolveVoiceProvider();
     const ac = new AbortController();
     this.ttsAborts.set(requestId, ac);
+    const tTts = Date.now();
+    let firstChunk = true;
     try {
       // Forward each TTS chunk the instant it arrives so playback can start
       // before synthesis finishes (ac-7); alignment rides along for dec-8.
       for await (const chunk of provider.synthesize(text, { signal: ac.signal })) {
         if (ac.signal.aborted) break;
+        if (firstChunk) {
+          firstChunk = false;
+          // std-14 latency log: time to first audible audio for this reply.
+          logVoiceLatency("tts_first_chunk", { ms: Date.now() - tTts, chars: text.length });
+        }
         this.send({
           type: "audio",
           requestId,
@@ -395,6 +460,7 @@ export class VoiceSession {
           isFinal: chunk.isFinal,
         });
       }
+      logVoiceLatency("tts_complete", { ms: Date.now() - tTts, aborted: ac.signal.aborted });
     } catch {
       // A barge-in / Stop aborts the synthesize() generator mid-stream, which
       // surfaces here as a throw — that is INTENTIONAL, not a failure. Sending an
@@ -524,12 +590,14 @@ export async function handleGuideChat(
 
   // Layer 1 + Layer 2 retrieval, server-side, every turn (ac-15), scoped to the
   // server-supplied surface (ac-4 / ac-11 / ac-12 corpus isolation).
+  const tStart = Date.now();
   const retrievedContext = await assembleGuideContext(
     screenKey ?? null,
     latestUserUtterance(messages),
     guideContext,
     surface,
   );
+  const retrievalMs = Date.now() - tStart;
 
   // spec-222 t-9 (dec-6 → ac-20): the persona is selected SERVER-side by surface.
   // No system/persona/prompt text is EVER read from the request body.
@@ -540,23 +608,57 @@ export async function handleGuideChat(
     guideContext: retrievedContext,
   });
 
+  // Volatile per-turn context rides the FINAL user message (after the stable
+  // history), so the tools+system+history prefix stays byte-identical across
+  // turns and can be served from the prompt cache. The client resends history
+  // as plain utterances each turn — we only ever decorate the LATEST user
+  // message, never rewrite prior ones, so the prefix keeps matching.
+  const contextText = renderScreenContext({
+    screenKey: screenKey ?? null,
+    screenRegistry: screenRegistry ?? [],
+    guideContext: retrievedContext,
+  });
+  const outMessages = injectTurnContext(messages, contextText);
+
   // Defeat reverse-proxy buffering so SSE deltas flush as they arrive.
   c.header("Cache-Control", "no-cache, no-transform");
   c.header("X-Accel-Buffering", "no");
 
   return streamSSE(c, async (stream) => {
     try {
+      const tLlm = Date.now();
+      let ttftMs: number | null = null;
       const anthropicStream = anthropic.messages.stream({
         model: GUIDE_MODEL,
         max_tokens: 1024,
         system: systemBlocks as Anthropic.TextBlockParam[],
         tools: GUIDE_TOOLS as unknown as Anthropic.Tool[],
-        messages: messages as MessageParam[],
+        messages: outMessages as MessageParam[],
       });
       anthropicStream.on("text", (text: string) => {
+        if (ttftMs === null) ttftMs = Date.now() - tLlm;
         stream.writeSSE({ event: "text_delta", data: JSON.stringify({ text }) });
       });
       const final = await anthropicStream.finalMessage();
+      // std-14 latency log — one line per LLM turn. usage's cache_* fields are
+      // the ground truth on whether the prompt cache engaged for this turn.
+      logVoiceLatency("llm_turn", {
+        surface,
+        screenKey: screenKey ?? null,
+        messageCount: messages.length,
+        retrievedChunks: retrievedContext.length,
+        retrievalMs,
+        ttftMs,
+        llmMs: Date.now() - tLlm,
+        totalMs: Date.now() - tStart,
+        stopReason: final.stop_reason,
+        usage: {
+          input: final.usage?.input_tokens ?? null,
+          output: final.usage?.output_tokens ?? null,
+          cacheRead: final.usage?.cache_read_input_tokens ?? 0,
+          cacheWrite: final.usage?.cache_creation_input_tokens ?? 0,
+        },
+      });
       await stream.writeSSE({
         event: "message_complete",
         data: JSON.stringify({
