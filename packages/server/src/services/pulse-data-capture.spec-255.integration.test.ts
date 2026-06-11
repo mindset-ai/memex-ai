@@ -13,6 +13,7 @@ import { db } from "../db/connection.js";
 import { documents } from "../db/schema.js";
 import { createDocDraft } from "./documents.js";
 import { promoteToEditor } from "./doc-members.js";
+import { assign } from "./doc-assignees.js";
 import { listPresent } from "./presence.js";
 import { observeSpecTraffic } from "./spec-traffic.js";
 import { upsertUserByEmail } from "./users.js";
@@ -82,5 +83,23 @@ describe("spec-255 — in_app_agent traffic marks presence", () => {
     const inApp = present.find((p) => p.channel === "in_app_agent" && p.actorUserId === human.id);
     expect(inApp).toBeTruthy();
     expect(inApp!.actorKind).toBe("in_app_agent");
+  });
+});
+
+describe("spec-255 — no-op assign does not emit", () => {
+  it("re-assigning an already-assigned user emits NO doc_assignee event; a new assignee emits exactly one", async () => {
+    const doc = await createDocDraft(memexId, "Assign no-op", "purpose", "spec", undefined, undefined, human.id);
+    createdDocIds.push(doc.id);
+
+    const events = await captureEvents(memexId, async () => {
+      // First assign of `other` → a real change → exactly one event.
+      await assign(memexId, doc.id, other.id, human.id, { channel: "in_app_agent", actorUserId: human.id });
+      // Re-assign the SAME user → no-op → silent (this was firing on every turn).
+      await assign(memexId, doc.id, other.id, human.id, { channel: "in_app_agent", actorUserId: human.id });
+    });
+
+    const assigneeEvents = events.filter((e) => e.entity === "doc_assignee");
+    expect(assigneeEvents).toHaveLength(1);
+    expect(assigneeEvents[0]!.docId).toBe(doc.id);
   });
 });

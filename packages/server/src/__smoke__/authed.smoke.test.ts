@@ -46,6 +46,29 @@ function parseRef(text: string): string | null {
   return m ? m[1] : null;
 }
 
+/**
+ * Poll get_doc (verbose) until its text satisfies `ok`, or timeout. int runs
+ * MULTIPLE Cloud Run instances, so a read issued immediately after a write can
+ * land on an instance whose cache hasn't been invalidated yet (spec-156) — the
+ * just-changed section lingers for a beat. Polling makes the lifecycle smoke
+ * assert EVENTUAL convergence instead of a racy single read; the original
+ * assertions still run on the final text, so a genuine failure still fails.
+ */
+async function getDocTextUntil(
+  ref: string,
+  ok: (text: string) => boolean,
+  timeoutMs = 12_000,
+): Promise<string> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const text = mcpTextPayload(
+      (await callMcpTool("get_doc", { ref, verbose: true })).body,
+    );
+    if (ok(text) || Date.now() >= deadline) return text;
+    await new Promise((r) => setTimeout(r, 600));
+  }
+}
+
 // Refs we create during the journey, newest-deletable-first, swept in afterAll
 // so a mid-journey failure can't leave the throwaway namespace dirty.
 const createdTaskRefs: string[] = [];
@@ -352,8 +375,9 @@ describe.skipIf(!SMOKE_MCP_TOKEN)(
 
       // READ — heading + marker are present. Terse get_doc omits section
       // bodies, so these lifecycle reads use verbose mode.
-      let docText = mcpTextPayload(
-        (await callMcpTool("get_doc", { ref: docRef!, verbose: true })).body,
+      let docText = await getDocTextUntil(
+        docRef!,
+        (t) => t.includes("Smoke Lens") && t.includes(marker),
       );
       expect(docText).toContain("Smoke Lens");
       expect(docText).toContain(marker);
@@ -364,9 +388,7 @@ describe.skipIf(!SMOKE_MCP_TOKEN)(
         title: "Smoke Lens Renamed",
       });
       expect(retitled.body.result?.isError).toBeFalsy();
-      docText = mcpTextPayload(
-        (await callMcpTool("get_doc", { ref: docRef!, verbose: true })).body,
-      );
+      docText = await getDocTextUntil(docRef!, (t) => t.includes("Smoke Lens Renamed"));
       expect(docText).toContain("Smoke Lens Renamed");
       expect(docText).toContain(marker);
 
@@ -374,11 +396,15 @@ describe.skipIf(!SMOKE_MCP_TOKEN)(
       // (exercises the read-path filtering on the deployed image).
       const deleted = await callMcpTool("delete_section", { ref: sectionRef! });
       expect(deleted.body.result?.isError).toBeFalsy();
-      docText = mcpTextPayload(
-        (await callMcpTool("get_doc", { ref: docRef!, verbose: true })).body,
-      );
+      // After delete, the section's unique body MARKER must be gone — that is
+      // the proof the section content was dropped from the read path. We do NOT
+      // assert the section TITLE is absent: spec-249's read-surface activity
+      // overview legitimately reports `deleted section … "Smoke Lens Renamed"`
+      // in the get_doc footer, so the title persists in that recent-activity
+      // line by design (a substring match over the whole doc would always hit
+      // it). Poll the marker to absorb cross-instance read lag (spec-156).
+      docText = await getDocTextUntil(docRef!, (t) => !t.includes(marker));
       expect(docText).not.toContain(marker);
-      expect(docText).not.toContain("Smoke Lens Renamed");
     });
 
     // ── spec-189: traffic-driven phase advancement on the LIVE /mcp surface.

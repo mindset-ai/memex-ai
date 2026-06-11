@@ -8,7 +8,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { rankHotSpecs, quietLabel, tempoSeries, type HotSpec } from './pulseDerive';
+import { rankHotSpecs, quietLabel, tempoSeries, involvedOnSpec, type HotSpec, type Worker } from './pulseDerive';
 import { useChartPalette, phaseLabel, type Phase } from '../insights/theme';
 import { AcCells } from './AcCells';
 import { Sparkline } from './Sparkline';
@@ -73,7 +73,7 @@ export function HotSpecs({
             <HotSpecCard
               key={spec.docId}
               spec={spec}
-              present={present}
+              involved={involvedOnSpec(present, activity, spec.docId, clock)}
               handle={specHandle(spec.docId)}
               title={specTitle?.(spec.docId)}
               phase={specPhase?.(spec.docId)}
@@ -91,7 +91,7 @@ export function HotSpecs({
 
 interface HotSpecCardProps {
   spec: HotSpec;
-  present: PresentRow[];
+  involved: Worker[];
   handle: string | undefined;
   title: string | undefined;
   phase: string | undefined;
@@ -103,7 +103,7 @@ interface HotSpecCardProps {
 
 function HotSpecCard({
   spec,
-  present,
+  involved,
   handle,
   title,
   phase,
@@ -114,7 +114,7 @@ function HotSpecCard({
 }: HotSpecCardProps) {
   const palette = useChartPalette();
   const href = handle ? specHref(handle) : '#';
-  const workers = present.filter((p) => p.docId === spec.docId);
+  const workers = involved;
 
   // Phase-pop (ac-18): when the phase changes, pop the chip once.
   const prevPhase = useRef<string | undefined>(phase);

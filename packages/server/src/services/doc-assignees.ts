@@ -179,6 +179,19 @@ export async function assign(
   const handle = await assertSpecInMemex(memexId, docId);
   const who = await assigneeDisplayName(userId);
   const actor = await resolveActorColumns(ctx);
+
+  // Already assigned? The write is a no-op, so emit NOTHING (std-32: an event
+  // must reflect a REAL change). spec-189's traffic-driven assignment calls this
+  // on every agent tool call, so emitting on an idempotent re-assign spammed the
+  // feed with "assigned X to Y" on every conversation turn.
+  const existing = await db.query.docAssignees.findFirst({
+    where: and(
+      eq(docAssignees.memexId, memexId),
+      eq(docAssignees.docId, docId),
+      eq(docAssignees.userId, userId),
+    ),
+  });
+
   return mutate(
     { ...ctx, actorUserId: actor.actorUserId ?? undefined, actorName: actor.actorName ?? undefined },
     {
@@ -203,6 +216,8 @@ export async function assign(
       });
       return row!;
     },
+    // No real change ⇒ no emission. A genuine first-time assign still announces.
+    { silent: !!existing },
   );
 }
 

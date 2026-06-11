@@ -43,9 +43,8 @@ import { usePulseStream } from '../hooks/usePulseStream';
 import { usePresence } from '../hooks/usePresence';
 import { useTestSignalPulse } from '../hooks/useTestSignalPulse';
 import { TestSignalsMonitor } from '../components/pulse/TestSignalsMonitor';
-import { TestSignalCounter } from '../components/pulse/TestSignalCounter';
 import { mergeTestSignals, type LiveTestSignal } from '../components/pulse/testSignals';
-import { isMeaningfulWork } from '../components/pulse/pulseDerive';
+import { isMeaningfulWork, workingNow } from '../components/pulse/pulseDerive';
 import type { ActivityRow, PulseConnectionStatus } from '../components/pulse/types';
 
 // spec-122 ac-2 — detect a REGRESSION on a moving line: a previously-verified AC
@@ -414,6 +413,14 @@ export function Pulse() {
     return presentRows.filter((r) => r.docId === wantSpecId);
   }, [presentRows, selectedSpec]);
 
+  // Working Now (spec-255 int feedback): everyone involved in the last ~5min —
+  // presence ∪ recent meaningful activity — so reading a long spec doesn't drop
+  // you the instant your heartbeat lapses. Freshness graded live vs idle.
+  const workers = useMemo(
+    () => workingNow(displayedPresent, movingRows, Date.now()),
+    [displayedPresent, movingRows],
+  );
+
   const headerTitle = memexName ? `Pulse · ${memexName}` : 'Pulse';
 
   return (
@@ -454,11 +461,14 @@ export function Pulse() {
           column; the Needs-attention tray keeps its place on the right. */}
       <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 min-h-0 flex flex-col">
-          {/* spec-255 — Vitals strip (graphics) then the Hot Specs hero band. */}
-          <VitalsStrip present={presentRows} activity={historyRows} />
+          {/* spec-255 — Vitals strip (graphics) then the Hot Specs hero band.
+              Fed from the MERGED live+history stream (movingRows) so live events
+              move the sparklines and keep a spec hot the instant they land —
+              not only after a periodic history refetch. */}
+          <VitalsStrip present={presentRows} activity={movingRows} />
           <HotSpecs
             present={presentRows}
-            activity={historyRows}
+            activity={movingRows}
             specHandle={specHandleByDocId}
             specTitle={specTitleByDocId}
             specPhase={specPhaseByDocId}
@@ -466,18 +476,20 @@ export function Pulse() {
             specAcHealth={specAcHealthByDocId}
             specHref={specHref}
           />
-          {/* Live test-signal heartbeat. */}
-          <TestSignalCounter
-            total={mergedTestSignals.totals.total}
-            windowMinutes={mergedTestSignals.windowMinutes}
-            failing={mergedTestSignals.failing}
-            liveDelta={liveTestSignals.length}
+          {/* Working Now — by person, ABOVE the Live log. */}
+          <WorkingNow
+            workers={workers}
+            loading={presenceLoading}
+            specHandle={specHandleByDocId}
+            specTitle={specTitleByDocId}
+            lastActivityAt={lastActivityAt}
+            lastNarrative={specNarrativeByDocId}
           />
-          {/* Live event log — demoted directly under Hot Specs and shrunk so it
-              proves liveness without dominating the page (spec-255 dec-1 / ac-2). */}
+          {/* Live event log — the BOTTOM band, allowed to grow tall (off-screen
+              is fine): it fills the remaining height and scrolls internally. */}
           <div
             data-testid="live-band"
-            className="flex-none max-h-72 min-h-0 mb-4 flex flex-col rounded-lg border border-edge-subtle bg-surface/40 overflow-hidden"
+            className="flex-1 min-h-0 flex flex-col rounded-lg border border-edge-subtle bg-surface/40 overflow-hidden"
           >
             <ActivityFeed
               rows={movingRows}
@@ -492,15 +504,6 @@ export function Pulse() {
               specHasActiveWorker={specHasActiveWorker}
             />
           </div>
-          {/* Working Now — by person, demoted to the bottom (spec-255 dec-1). */}
-          <WorkingNow
-            present={displayedPresent}
-            loading={presenceLoading}
-            specHandle={specHandleByDocId}
-            specTitle={specTitleByDocId}
-            lastActivityAt={lastActivityAt}
-            lastNarrative={specNarrativeByDocId}
-          />
         </div>
         <div className="lg:col-span-1 min-h-0 overflow-y-auto">
           {/* Test-signal volume graphic — the firehose as a live sparkline,

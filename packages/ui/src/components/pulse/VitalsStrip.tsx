@@ -33,16 +33,21 @@ export function VitalsStrip({ present, activity, now, windowMin = 30 }: VitalsSt
     [activity, clock, windowMin],
   );
   const total = series.reduce((a, b) => a + b, 0);
-  const perMin = Math.round(total / windowMin);
 
   return (
     <section
       data-testid="vitals-strip"
       className="flex-none flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg border border-edge-subtle bg-surface/40 px-3 py-2 mb-4"
     >
-      {/* Tempo — ONE aggregate series (dec-5). */}
-      <div className="flex items-center gap-2">
-        <span className="text-[0.65rem] uppercase tracking-wide text-muted">Tempo</span>
+      {/* Activity level — the sparkline IS the indicator (line = trend, breathing
+          dot = right now). No rate number: a 30-min average was too slow to agree
+          with the live dot, and the discrepancy read as confusing. A hover
+          explains what the line is. */}
+      <div
+        className="flex items-center gap-2 cursor-help"
+        title={`Activity level: meaningful work events over the last ${windowMin} minutes — AC changes, task/decision/section edits, phase moves. The line is the recent trend; the pulsing dot is the latest moment. Reads and plumbing are excluded.`}
+      >
+        <span className="text-[0.65rem] uppercase tracking-wide text-muted">Activity level</span>
         <div data-testid="tempo-sparkline" className="text-accent">
           <Sparkline
             values={series}
@@ -50,10 +55,9 @@ export function VitalsStrip({ present, activity, now, windowMin = 30 }: VitalsSt
             width={windowMin * 3}
             height={SPARK_HEIGHT}
             live={total > 0}
-            title={`${total} meaningful events over the last ${windowMin} minutes`}
+            title={`${total} meaningful events in the last ${windowMin} minutes`}
           />
         </div>
-        <span className="text-xs text-secondary tabular-nums">{perMin}/min</span>
       </div>
 
       {/* Active now — from the presence plane, split human vs agent. */}
