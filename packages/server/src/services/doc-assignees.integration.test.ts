@@ -101,6 +101,16 @@ describe("spec-118 assignment emits on the unified bus (ac-20)", () => {
     });
     const mine = events.filter((e) => e.docId === doc.id && e.entity === "doc_assignee");
     expect(mine.map((e) => e.action)).toEqual(["created", "deleted"]);
+
+    // spec-122: the Pulse narrative names the spec handle + the assignee, and
+    // NEVER leaks the raw doc UUID (the "doc_assignee 322dda5d-…" bug report).
+    // bob has no display name → actor_name falls back to his email.
+    const [created, deleted] = mine;
+    expect(created.narrative).toBe(`assigned ${doc.handle} to spec118-assignee-b@example.com`);
+    expect(deleted.narrative).toBe(`unassigned spec118-assignee-b@example.com from ${doc.handle}`);
+    for (const e of mine) {
+      expect(e.narrative, "narrative must not contain the raw doc UUID").not.toContain(doc.id);
+    }
   });
 });
 
