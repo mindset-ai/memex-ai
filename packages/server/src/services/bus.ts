@@ -168,6 +168,18 @@ export interface SubscribeOpts {
    * `doc-events.ts → bus` bridge installed during the t-1/t-2 migration window.
    */
   permanent?: boolean;
+  /**
+   * Single-writer persistence sink (spec-122). Deliver ONLY locally-originated
+   * `emit()`s — NEVER foreign events re-emitted from the cross-instance relay
+   * (`emitRelayed`). A durable-write subscriber (the activity-log sink) must run
+   * exactly ONCE per logical event, at the origin instance. Without this, the
+   * spec-156 relay fans every event out to all 3 Cloud Run instances and each
+   * instance's sink persists its own copy — one `activity_log` row PER INSTANCE
+   * (the "every event duplicated 3×" Pulse report). Live-delivery subscribers
+   * (SSE streams, cache invalidation) leave this UNSET so they DO receive relayed
+   * events — that cross-instance delivery is the relay's entire purpose.
+   */
+  localOnly?: boolean;
 }
 
 /**
@@ -186,6 +198,12 @@ export interface BusRelay {
 export class ChangeBus {
   private listeners = new Set<Listener>();
   private permanent = new Set<Listener>();
+  // Single-writer persistence sinks (spec-122). These receive ONLY
+  // locally-originated emits — `emitRelayed` (foreign events from the
+  // cross-instance relay) deliberately skips them so a durable write happens
+  // exactly once, at the origin instance, rather than once per Cloud Run
+  // instance the relay fans out to.
+  private localOnlyListeners = new Set<Listener>();
 
   // Cross-instance relay (spec-156). Optional — undefined means single-process
   // behaviour (the historical default, and the posture under test). Set once at
@@ -210,7 +228,10 @@ export class ChangeBus {
   }
 
   emit(event: ChangeEvent): void {
-    this.dispatch(event);
+    // Locally-originated emit: this instance is the ORIGIN, so it dispatches to
+    // every subscriber INCLUDING single-writer persistence sinks (localOnly) —
+    // it owns the one durable write for this event.
+    this.dispatch(event, true);
     // Forward to the cross-instance relay AFTER local dispatch. This is the
     // write-path NOTIFY (std-8 §6 read-emission posture): advisory, and the
     // relay swallows its own failures, so a relay problem can never disturb
@@ -235,15 +256,24 @@ export class ChangeBus {
    * relay's LISTEN handler (spec-156 ac-6/ac-7).
    */
   emitRelayed(event: ChangeEvent): void {
-    this.dispatch(event);
+    // Foreign event from another instance via the relay: dispatch for LIVE
+    // delivery (SSE streams, cache invalidation) but NOT to localOnly persistence
+    // sinks — those persist exactly once, at the origin instance. Re-persisting a
+    // relayed event here is the cross-instance multi-write (one row per instance)
+    // that spec-122 surfaced once Pulse rendered activity_log (spec-156 relay ×
+    // the b-60 sink).
+    this.dispatch(event, false);
   }
 
-  private dispatch(event: ChangeEvent): void {
+  private dispatch(event: ChangeEvent, includeLocalOnly: boolean): void {
     this.emits++;
     // Snapshot before iterating so a listener that unsubscribes itself (or
     // another) during dispatch doesn't perturb the iteration order or skip
-    // subscribers that were live at emit time.
-    const snapshot = [...this.listeners, ...this.permanent];
+    // subscribers that were live at emit time. localOnly sinks are included only
+    // for locally-originated emits (see emit/emitRelayed).
+    const snapshot = includeLocalOnly
+      ? [...this.listeners, ...this.permanent, ...this.localOnlyListeners]
+      : [...this.listeners, ...this.permanent];
     for (const listener of snapshot) {
       try {
         listener(event);
@@ -266,7 +296,7 @@ export class ChangeBus {
     return {
       emits: this.emits,
       subscriberErrors: this.subscriberErrors,
-      listenerCount: this.listeners.size + this.permanent.size,
+      listenerCount: this.listeners.size + this.permanent.size + this.localOnlyListeners.size,
     };
   }
 
@@ -293,7 +323,13 @@ export class ChangeBus {
       if (actionAllow !== undefined && !actionAllow.has(event.action)) return;
       handler(event);
     };
-    const target = opts?.permanent ? this.permanent : this.listeners;
+    // localOnly wins over permanent: the only localOnly subscriber today (the
+    // activity-log sink) is re-registered per process lifetime, never permanent.
+    const target = opts?.localOnly
+      ? this.localOnlyListeners
+      : opts?.permanent
+        ? this.permanent
+        : this.listeners;
     target.add(listener);
     return () => {
       target.delete(listener);
@@ -308,6 +344,7 @@ export class ChangeBus {
   /** @internal test reset; production code must never call this. Permanent subscribers are preserved. */
   _reset(): void {
     this.listeners.clear();
+    this.localOnlyListeners.clear();
   }
 
   /** @internal test introspection — whether a cross-instance relay is attached. */
