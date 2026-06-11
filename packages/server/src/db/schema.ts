@@ -1490,6 +1490,22 @@ export const memexEmissionKeys = pgTable(
     }),
     lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    // spec-234: the two-key model. Both columns are nullable and a NULL pair is
+    // exactly today's permanent / CI key (human-minted, whole-memex, never
+    // expires) — so existing rows keep working unchanged.
+    //   expires_at         — when set, the key stops authorising emissions once
+    //                        now() passes it (verifyEmissionKey gate), with no
+    //                        human revoke. NULL = permanent. Agent keys set it
+    //                        ~2h ahead (dec-1).
+    //   scoped_spec_handle — when set, the key may ONLY emit for ACs of this Spec
+    //                        (the `spec-N` handle from the ac_uid's
+    //                        `/specs/<handle>/` segment, matched in the
+    //                        /api/test-events gate). NULL = whole-memex
+    //                        authorisation (the spec-129 default).
+    // The pair is the discriminator the Settings UI reads (ac-8): ephemeral =
+    // either column non-null. No separate `kind` column needed.
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    scopedSpecHandle: text("scoped_spec_handle"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [

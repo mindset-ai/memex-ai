@@ -778,6 +778,8 @@ const TOOL_RATIONALES: Record<string, string> = {
     'List ACs on a Spec — filter by kind/status. Every cell shows verification state derived from `test_events`.',
   get_ac:
     'Fetch a single AC by canonical ref.',
+  provision_ac_emission:
+    "Provision AC emission for the Spec you're working on: mints an ephemeral, spec-scoped emission key (use it this session only, never persist it) AND returns the guidance to wire emission into whatever test runners the repo uses, native when no official helper exists. Replaces the open-Settings/mint/copy/install detour for agents; long-lived CI keys are still human-minted.",
   get_test_matrix:
     "Read an AC's per-test_identifier test-event digest by ref — latest status, emission count, and PINNING (holds the AC red) / retired (hidden) flags. The way to find which identifier is responsible for a failing/stale AC.",
   discontinue_test_events:

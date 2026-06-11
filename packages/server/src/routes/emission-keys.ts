@@ -47,6 +47,12 @@ function toSafe(row: MemexEmissionKey) {
     lastUsedAt: row.lastUsedAt,
     revokedAt: row.revokedAt,
     createdAt: row.createdAt,
+    // spec-234: surface the two-key discriminator so the Settings UI can tell a durable
+    // CI / permanent key from a transient agent / ephemeral one and show its expiry
+    // (ac-8). `expiresAt != null` ⇒ ephemeral; `scopedSpecHandle` names the one Spec an
+    // ephemeral key may emit for. Neither leaks a secret.
+    expiresAt: row.expiresAt,
+    scopedSpecHandle: row.scopedSpecHandle,
   };
 }
 

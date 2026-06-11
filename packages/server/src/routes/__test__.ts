@@ -31,6 +31,7 @@ import { hashPassword } from "../services/passwords.js";
 import { issueAuthToken } from "../services/auth-tokens.js";
 import { mutate } from "../services/mutate.js";
 import { createOrgWithMemexForUser } from "../services/__test__/seed-org.js";
+import { mintEmissionKey, mintEphemeralEmissionKey } from "../services/emission-keys.js";
 import { updateOrgSettings } from "../services/orgs.js";
 import { createInviteToken } from "../services/invite-tokens.js";
 import { createDomainVerificationToken } from "../services/domain-verification.js";
@@ -902,6 +903,31 @@ testOnlyRouter.post("/seed-test-event", async (c) => {
     });
   });
   return c.json({ ok: true });
+});
+
+// spec-234 t-3: seed an emission key (permanent or ephemeral) through the real mint
+// services, so the Settings → Emission Keys journey can assert the two-key
+// differentiation. Ephemeral keys are normally minted over MCP (provision_ac_emission);
+// there is no UI path to create one, hence this seed.
+const seedEmissionKeySchema = z.object({
+  memexId: z.string().uuid(),
+  createdByUserId: z.string().uuid(),
+  kind: z.enum(["permanent", "ephemeral"]),
+  name: z.string().min(1).optional(),
+  specHandle: z.string().min(1).optional(),
+});
+testOnlyRouter.post("/seed-emission-key", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = seedEmissionKeySchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
+  }
+  const { memexId, createdByUserId, kind, name, specHandle } = parsed.data;
+  const minted =
+    kind === "ephemeral"
+      ? await mintEphemeralEmissionKey(memexId, specHandle ?? "spec-1", createdByUserId)
+      : await mintEmissionKey(memexId, name ?? "ci", createdByUserId);
+  return c.json({ id: minted.row.id, prefix: minted.row.prefix });
 });
 
 // Seed a Task on a Spec through the real service (spec-188 t-7: drives the

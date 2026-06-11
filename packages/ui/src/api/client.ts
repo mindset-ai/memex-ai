@@ -2024,6 +2024,11 @@ export interface EmissionKeySummary {
   lastUsedAt: string | null;
   revokedAt: string | null;
   createdAt: string;
+  // spec-234: the two-key discriminator. A permanent / CI key (human-minted) has both
+  // null. An ephemeral / agent key (minted by provision_ac_emission over MCP) carries an
+  // `expiresAt` and is `scopedSpecHandle`-locked to a single Spec.
+  expiresAt: string | null;
+  scopedSpecHandle: string | null;
 }
 
 /** Generate response — carries the raw `key` exactly once (never returned again). */
