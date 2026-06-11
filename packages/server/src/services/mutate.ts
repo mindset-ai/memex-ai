@@ -12,6 +12,7 @@
 // `services/__test__/mutate-helpers.ts` (`testMutate()`).
 
 import { bus, type ChangeAction, type ChangeEntity, type ChangeEvent } from "./bus.js";
+import { isUuid } from "./shared/identifiers.js";
 
 declare const __mutated: unique symbol;
 
@@ -150,9 +151,13 @@ function resourceIdentifier(resolved: ChangeKey, result: unknown): string | unde
     const prefix = HANDLE_PREFIX[resolved.entity];
     if (prefix && typeof row.seq === "number") return `${prefix}${row.seq}`;
   }
-  // Fall back to whatever id the key/row carries (UUIDs as a last resort).
-  if (resolved.docId) return resolved.docId;
-  if (row && typeof row.id === "string" && row.id) return row.id;
+  // Last resort: an id off the key/row — but NEVER a raw UUID. A bare UUID in the
+  // Pulse feed reads as line noise ("created doc_member 322dda5d-…", spec-122
+  // bug report); better to omit the identifier entirely (→ "created doc_member")
+  // and let the emit site supply a human narrative naming the spec handle. Only
+  // a human handle (spec-N / std-N / doc-N) is ever surfaced here.
+  if (resolved.docId && !isUuid(resolved.docId)) return resolved.docId;
+  if (row && typeof row.id === "string" && row.id && !isUuid(row.id)) return row.id;
   return undefined;
 }
 

@@ -161,6 +161,16 @@ describe("spec-118 promote / demote (frictionless, reversible, no last-editor lo
     });
     const mine = events.filter((e) => e.docId === doc.id && e.entity === "doc_member");
     expect(mine.map((e) => e.action)).toEqual(["created", "deleted"]);
+
+    // spec-122: readable Pulse narrative naming the spec handle + member, never
+    // the raw doc UUID (the "doc_member 322dda5d-…" bug report). `other` has no
+    // display name → actor_name falls back to the email.
+    const [created, deleted] = mine;
+    expect(created.narrative).toBe(`promoted spec118-other@example.com to editor on ${doc.handle}`);
+    expect(deleted.narrative).toBe(`demoted spec118-other@example.com to reviewer on ${doc.handle}`);
+    for (const e of mine) {
+      expect(e.narrative, "narrative must not contain the raw doc UUID").not.toContain(doc.id);
+    }
   });
 
   it("a teammate can promote another member, and demoting the LAST editor succeeds (zero editors allowed) (ac-16)", async () => {

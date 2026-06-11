@@ -23,16 +23,30 @@ import { docAssignees, documents, users } from "../db/schema.js";
 import type { DocAssignee } from "../db/schema.js";
 import { NotFoundError } from "../types/errors.js";
 import { mutate, type Mutated } from "./mutate.js";
+import { actorName } from "./actor.js";
 
 export type { DocAssignee };
 
-async function assertSpecInMemex(memexId: string, docId: string): Promise<void> {
+// Returns the Spec's handle (404 on a cross-tenant miss, std-7) so callers can
+// name it in the Pulse narrative instead of leaking the raw doc UUID (spec-122).
+async function assertSpecInMemex(memexId: string, docId: string): Promise<string> {
   const doc = await db.query.documents.findFirst({
     where: and(eq(documents.id, docId), eq(documents.memexId, memexId)),
+    columns: { handle: true },
   });
   if (!doc) {
     throw new NotFoundError(`Spec ${docId} not found in memex ${memexId}`);
   }
+  return doc.handle;
+}
+
+// The assignee's display snapshot for the Pulse narrative. spec-122.
+async function assigneeDisplayName(userId: string): Promise<string> {
+  const u = await db.query.users.findFirst({
+    where: eq(users.id, userId),
+    columns: { name: true, email: true },
+  });
+  return u ? actorName(u) : "a member";
 }
 
 export interface DocAssigneeView {
@@ -159,10 +173,18 @@ export async function assign(
   userId: string,
   assignedBy: string | null,
 ): Promise<Mutated<DocAssignee>> {
-  await assertSpecInMemex(memexId, docId);
+  const handle = await assertSpecInMemex(memexId, docId);
+  const who = await assigneeDisplayName(userId);
   return mutate(
     {},
-    { memexId, docId, entity: "doc_assignee", action: "created" },
+    {
+      memexId,
+      docId,
+      entity: "doc_assignee",
+      action: "created",
+      // spec-122: name the spec + assignee instead of leaking the doc UUID.
+      narrative: `assigned ${handle} to ${who}`,
+    },
     async () => {
       await db
         .insert(docAssignees)
@@ -192,10 +214,17 @@ export async function unassign(
   docId: string,
   userId: string,
 ): Promise<Mutated<UnassignResult>> {
-  await assertSpecInMemex(memexId, docId);
+  const handle = await assertSpecInMemex(memexId, docId);
+  const who = await assigneeDisplayName(userId);
   return mutate(
     {},
-    { memexId, docId, entity: "doc_assignee", action: "deleted" },
+    {
+      memexId,
+      docId,
+      entity: "doc_assignee",
+      action: "deleted",
+      narrative: `unassigned ${who} from ${handle}`,
+    },
     async () => {
       await db
         .delete(docAssignees)
