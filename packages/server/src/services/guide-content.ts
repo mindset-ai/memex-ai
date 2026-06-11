@@ -85,8 +85,9 @@ const DEFAULT_SEARCH_LIMIT = 6;
 // unconfigured surface is REJECTED — we never silently fall back to reading the
 // whole corpus, which would defeat the isolation.
 
-/** The product surfaces the voice guide serves. */
-export const GUIDE_SURFACES = ["memex-app", "memex-website"] as const;
+/** The product surfaces the voice guide serves. mindset-website is the third
+ *  host surface (spec-251) — the mindset.ai marketing site's Specky embed. */
+export const GUIDE_SURFACES = ["memex-app", "memex-website", "mindset-website"] as const;
 export type GuideSurface = (typeof GUIDE_SURFACES)[number];
 
 /** Thrown when a retrieval / write is asked for a surface that isn't configured. */
