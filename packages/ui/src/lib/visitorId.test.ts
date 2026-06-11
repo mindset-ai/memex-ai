@@ -69,6 +69,7 @@ describe('consent-gated mint (ac-7 client arm, ac-12)', () => {
   it('mints an opaque UUID and persists to cookie + localStorage after consent', () => {
     tagAc(`${AC}/ac-7`);
     tagAc(`${AC}/ac-12`);
+    tagAc(`${AC}/ac-5`); // opt-in gated, opaque random UUID — no content, no 3rd-party id
     grant();
     const id = resolveVisitorIdWithConsent();
     expect(id).toMatch(UUID_RE);
@@ -78,6 +79,7 @@ describe('consent-gated mint (ac-7 client arm, ac-12)', () => {
 
   it('is stable across reloads — a second resolve returns the same id', () => {
     tagAc(`${AC}/ac-7`);
+    tagAc(`${AC}/ac-1`); // durable id stable across reloads / sessions
     grant();
     const first = resolveVisitorIdWithConsent();
     const second = resolveVisitorIdWithConsent(); // simulates a later page load
