@@ -1001,6 +1001,19 @@ export async function composeGuidanceEnvelope(
     const activity =
       ctx.toolName === "get_doc" ? await craftActivityBlock(memexId, docId, ctx.userId) : null;
     if (activity) lines.push(activity);
+    // spec-249 — the live NEXT-MOVE line. get_doc is the one call a cold
+    // picker-upper is guaranteed to make, so orientation is PUSHED here rather
+    // than left behind a flag the cold agent never sets (ac-5: no new flag/tool).
+    // One synthesized line: phase + a state fact sheet + the single next action,
+    // in the spec-219 forward voice. Composed in THIS seat (ac-4), reusing the
+    // phase essence already pushed above it (single-sourced — no third copy of
+    // phase prose) plus the fact sheet, so it changes every call as decisions
+    // resolve, ACs get tested, and tasks complete (ac-2). get_doc + terse only —
+    // verbose already dumps the full state, and mutation footers are out of scope.
+    if (ctx.toolName === "get_doc") {
+      const nextMove = await craftNextMoveLine(memexId, docId, state, phase);
+      if (nextMove) lines.push(`\n${nextMove}`);
+    }
     return compose(undefined, withSteer(lines.length > 0 ? lines.join("\n") : undefined));
   } catch {
     return compose(undefined, undefined);
@@ -1142,6 +1155,193 @@ async function craftUntestedAcNag(
       .join(", ");
     const plural = untested.length === 1 ? "" : "s";
     return `\n⚠ ${untested.length} untested acceptance criteri${untested.length === 1 ? "on" : "a"} (${handles}). Write the tagged test before you move on — don't go dark.`;
+  } catch {
+    return null;
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// spec-249 — the live next-move line for get_doc.
+//
+// The fact sheet a cold agent's next move is synthesized FROM. Pure data read
+// from current spec state, so the line it yields is LIVE: it changes as
+// decisions resolve, ACs get tested, and tasks complete (ac-2). No phase prose
+// lives here — the phase essence pushed above the line in the same terse footer
+// is the single source for that (ac-4).
+// ──────────────────────────────────────────────────────────────────────────
+export interface NextMoveFacts {
+  handle: string; // "spec-249"
+  phase: Phase;
+  openDecisions: string[]; // dec-N handles, status open
+  /** resolved decisions with no active implementation AC hanging off them. */
+  resolvedDecisionsWithoutImplAc: string[]; // dec-N handles
+  implAcsActive: number;
+  scopeAcsActive: number;
+  /** active ACs (any kind) not in the `verified` state. */
+  untestedAcs: string[]; // ac-N handles
+  incompleteTasks: string[]; // t-N handles, status !== complete
+  taskCount: number;
+}
+
+const pluralWord = (n: number, one: string, many = `${one}s`): string =>
+  n === 1 ? one : many;
+
+/**
+ * spec-249 ac-1 — the headline state fragment: the counts that matter for the
+ * current phase (open decisions / implementation ACs in specify; incomplete
+ * tasks / untested ACs in build & verify). Phase-shaped, never a phase
+ * description.
+ */
+function nextMoveFactSheet(f: NextMoveFacts): string {
+  switch (f.phase) {
+    case "draft":
+    case "specify": {
+      const decs =
+        f.openDecisions.length > 0
+          ? `${f.openDecisions.length} open ${pluralWord(f.openDecisions.length, "decision")} (${f.openDecisions.join(", ")})`
+          : "0 open decisions";
+      return `${decs}, ${f.implAcsActive} implementation ${pluralWord(f.implAcsActive, "AC")}`;
+    }
+    case "build": {
+      const tasks =
+        f.incompleteTasks.length > 0
+          ? `${f.incompleteTasks.length} incomplete ${pluralWord(f.incompleteTasks.length, "task")} (${f.incompleteTasks.join(", ")})`
+          : "0 incomplete tasks";
+      const acs =
+        f.untestedAcs.length > 0
+          ? `${f.untestedAcs.length} untested ${pluralWord(f.untestedAcs.length, "AC")} (${f.untestedAcs.join(", ")})`
+          : "0 untested ACs";
+      return `${tasks}, ${acs}`;
+    }
+    case "verify": {
+      const acs =
+        f.untestedAcs.length > 0
+          ? `${f.untestedAcs.length} unverified ${pluralWord(f.untestedAcs.length, "AC")} (${f.untestedAcs.join(", ")})`
+          : "all ACs verified";
+      const tasks =
+        f.incompleteTasks.length > 0
+          ? `, ${f.incompleteTasks.length} incomplete ${pluralWord(f.incompleteTasks.length, "task")} (${f.incompleteTasks.join(", ")})`
+          : "";
+      return `${acs}${tasks}`;
+    }
+    case "done":
+      return "closed";
+  }
+}
+
+/**
+ * spec-249 ac-1 — the single next ACTION, in the spec-219 forward voice. Derived
+ * from the most pressing GAP in the fact sheet (state), not from the phase: an
+ * open decision outranks an uncovered one, an incomplete task outranks an
+ * untested AC. When no gap remains the action is the forward phase move.
+ */
+function nextMoveAction(f: NextMoveFacts): string {
+  switch (f.phase) {
+    case "draft":
+    case "specify": {
+      if (f.openDecisions.length > 0) {
+        const tail =
+          f.resolvedDecisionsWithoutImplAc.length > 0 || f.implAcsActive === 0
+            ? ", then give it an implementation AC"
+            : "";
+        return `resolve ${f.openDecisions[0]}${tail}`;
+      }
+      if (f.resolvedDecisionsWithoutImplAc.length > 0) {
+        return `give ${f.resolvedDecisionsWithoutImplAc[0]} an implementation AC (create_ac kind:implementation)`;
+      }
+      if (f.scopeAcsActive === 0) {
+        return `pin down what "done" means as scope ACs (create_ac kind:scope)`;
+      }
+      return "move to build (update_doc status:build)";
+    }
+    case "build": {
+      if (f.taskCount === 0) {
+        return "break the narrative into tasks (create_task)";
+      }
+      if (f.incompleteTasks.length > 0) {
+        return `complete ${f.incompleteTasks[0]}`;
+      }
+      if (f.untestedAcs.length > 0) {
+        return `write the tagged test for ${f.untestedAcs[0]}`;
+      }
+      return "move to verify (update_doc status:verify)";
+    }
+    case "verify": {
+      if (f.untestedAcs.length > 0) {
+        return `verify ${f.untestedAcs[0]} against the running system`;
+      }
+      return "run assess_spec target:done, then hand it to a human to sign off";
+    }
+    case "done":
+      return "reopen with update_doc only if something genuinely needs to change";
+  }
+}
+
+/**
+ * spec-249 ac-1/ac-2/ac-3 — synthesize the ONE next-move line from the fact
+ * sheet. Pure (no DB, no clock): a deterministic projection of state, unit-tested
+ * directly. The verbose POINTER (ac-3) is itself live — gated on real hidden
+ * state (open decisions, incomplete tasks, or untested ACs), so a trivial spec
+ * gets no pointer and the channel never carries a standing "try verbose" nag.
+ */
+export function composeNextMove(f: NextMoveFacts): string {
+  const hasMaterialHidden =
+    f.openDecisions.length > 0 ||
+    f.incompleteTasks.length > 0 ||
+    f.untestedAcs.length > 0;
+  const pointer = hasMaterialHidden
+    ? " (get_doc verbose for the full decision/task text.)"
+    : "";
+  return `${f.handle} · ${f.phase} · ${nextMoveFactSheet(f)}. Next: ${nextMoveAction(f)}.${pointer}`;
+}
+
+/**
+ * spec-249 — gather the fact sheet from current state and render the next-move
+ * line. Best-effort: any lookup miss returns null (the footer simply omits the
+ * line) rather than costing get_doc its result. Called ONLY from
+ * composeGuidanceEnvelope (ac-4: the single seat).
+ */
+async function craftNextMoveLine(
+  memexId: string,
+  docId: string,
+  state: FullDocState,
+  phase: Phase,
+): Promise<string | null> {
+  try {
+    const acRows = await listAcsForBriefWithVerification(memexId, docId);
+    const activeAcs = acRows.filter((r) => r.ac.status === "active");
+    const implAcs = activeAcs.filter((r) => r.ac.kind === "implementation");
+    const scopeAcs = activeAcs.filter((r) => r.ac.kind === "scope");
+    const untestedAcs = activeAcs
+      .filter((r) => r.verificationState !== "verified")
+      .map((r) => `ac-${r.ac.seq}`);
+
+    // Which resolved decisions still have no implementation AC hanging off them.
+    const coveredDecisionIds = new Set(
+      implAcs.flatMap((r) =>
+        r.parents.filter((p) => p.kind === "decision").map((p) => p.id),
+      ),
+    );
+    const resolvedDecisionsWithoutImplAc = state.decs
+      .filter((d) => d.status === "resolved" && !coveredDecisionIds.has(d.id))
+      .map((d) => `dec-${d.seq}`);
+
+    const facts: NextMoveFacts = {
+      handle: state.doc.handle,
+      phase,
+      openDecisions: state.decs
+        .filter((d) => d.status === "open")
+        .map((d) => `dec-${d.seq}`),
+      resolvedDecisionsWithoutImplAc,
+      implAcsActive: implAcs.length,
+      scopeAcsActive: scopeAcs.length,
+      untestedAcs,
+      incompleteTasks: state.tasks
+        .filter((t) => t.status !== "complete")
+        .map((t) => `t-${t.seq}`),
+      taskCount: state.tasks.length,
+    };
+    return composeNextMove(facts);
   } catch {
     return null;
   }
