@@ -391,7 +391,9 @@ describe('Pulse page', () => {
 
       // Working-now shows the active worker on their spec.
       const workingNow = await screen.findByTestId('working-now');
-      const worker = within(workingNow).getByTestId('working-now-worker');
+      // Working Now now unions presence with recent activity (spec-255), so the
+      // present worker plus the decision-author both show — assert the present one.
+      const worker = within(workingNow).getAllByTestId('working-now-worker')[0];
       expect(worker).toHaveTextContent('Barrie');
       expect(worker).toHaveTextContent('spec-12');
       // Time-since-last-beat is rendered (a <time> element).

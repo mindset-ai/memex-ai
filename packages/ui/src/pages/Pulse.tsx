@@ -43,9 +43,8 @@ import { usePulseStream } from '../hooks/usePulseStream';
 import { usePresence } from '../hooks/usePresence';
 import { useTestSignalPulse } from '../hooks/useTestSignalPulse';
 import { TestSignalsMonitor } from '../components/pulse/TestSignalsMonitor';
-import { TestSignalCounter } from '../components/pulse/TestSignalCounter';
 import { mergeTestSignals, type LiveTestSignal } from '../components/pulse/testSignals';
-import { isMeaningfulWork } from '../components/pulse/pulseDerive';
+import { isMeaningfulWork, workingNow } from '../components/pulse/pulseDerive';
 import type { ActivityRow, PulseConnectionStatus } from '../components/pulse/types';
 
 // spec-122 ac-2 — detect a REGRESSION on a moving line: a previously-verified AC
@@ -414,6 +413,14 @@ export function Pulse() {
     return presentRows.filter((r) => r.docId === wantSpecId);
   }, [presentRows, selectedSpec]);
 
+  // Working Now (spec-255 int feedback): everyone involved in the last ~5min —
+  // presence ∪ recent meaningful activity — so reading a long spec doesn't drop
+  // you the instant your heartbeat lapses. Freshness graded live vs idle.
+  const workers = useMemo(
+    () => workingNow(displayedPresent, movingRows, Date.now()),
+    [displayedPresent, movingRows],
+  );
+
   const headerTitle = memexName ? `Pulse · ${memexName}` : 'Pulse';
 
   return (
@@ -469,16 +476,9 @@ export function Pulse() {
             specAcHealth={specAcHealthByDocId}
             specHref={specHref}
           />
-          {/* Live test-signal heartbeat. */}
-          <TestSignalCounter
-            total={mergedTestSignals.totals.total}
-            windowMinutes={mergedTestSignals.windowMinutes}
-            failing={mergedTestSignals.failing}
-            liveDelta={liveTestSignals.length}
-          />
           {/* Working Now — by person, ABOVE the Live log. */}
           <WorkingNow
-            present={displayedPresent}
+            workers={workers}
             loading={presenceLoading}
             specHandle={specHandleByDocId}
             specTitle={specTitleByDocId}
