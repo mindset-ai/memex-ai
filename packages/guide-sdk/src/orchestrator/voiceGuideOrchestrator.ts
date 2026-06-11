@@ -4,23 +4,48 @@
 //   - voiceWsClient   — the audio-leg WS (mic PCM up; transcript + TTS audio down)
 //   - micPcmCapture   — 16 kHz PCM frames from the granted stream
 //   - SileroWorkletVadEngine — local speech onset/end (ac-23)
-//   - BargeInController + WebAudioPlayback — duck-then-cut + gapless playback (dec-8)
+//   - WebAudioPlayback — gapless TTS playback
 //   - guideGraph      — the client LangGraph turn (calls the /voice/guide-chat SSE leg)
 //   - dispatchGuideUiTool — highlight / navigate (dec-4)
 //
+// spec-214 (dec-1/dec-3/dec-4): the loop is HALF-DUPLEX. Mic PCM is forwarded to
+// the STT leg ONLY while the loop is `listening` (dec-1) — Specky's own speech can
+// never be transcribed and answered, which was the self-talk loop. A fresh STT
+// session is opened per human turn (dec-2). Voice barge-in is REMOVED (dec-4,
+// supersedes spec-190/dec-8): the VAD no longer ducks/cuts the agent; it endpoints
+// only the user's turn during `listening`. Stop (interrupt) is the sole
+// interruption — it halts TTS and returns to listening, session live. A self-echo
+// guard (dec-3) drops any committed transcript that echoes the just-spoken reply
+// within a short cooldown, covering the momentary drain→listening tail window.
+//
 // PATH 1 status: the STRUCTURE + wiring are here and unit-tested with fakes; the
-// live loop (real audio timing, interim-transcript handling, partial-text TTS,
-// cut-truncation into graph state) is tuned + validated ON-DEVICE (t-9), the same
-// way t-1's provider and the Silero engine are. All browser glue is injectable so
-// the orchestration logic is exercised without real Web Audio / sockets.
+// live loop (real audio timing, interim-transcript handling, partial-text TTS) is
+// tuned + validated ON-DEVICE (t-9 / spec-214 t-4), the same way t-1's provider and
+// the Silero engine are. All browser glue is injectable so the orchestration logic
+// is exercised without real Web Audio / sockets.
 
 import type { GuideElement, NavigationAdapter } from '../navigation/NavigationAdapter';
 import { SileroWorkletVadEngine } from '../micVad';
 import type { VadEngine } from '../micVad';
 import { WebAudioPlayback } from '../playbackQueue';
-import { BargeInController } from '../bargeIn';
-import type { PlaybackSink, CharAlignment } from '../bargeIn';
+import type { PlaybackSink } from '../bargeIn';
 import { createGuideGraph } from '../guideGraph';
+
+// spec-214 dec-3 — self-echo guard tuning. A committed transcript is dropped as the
+// agent's own echo ONLY when BOTH hold: it lands within the cooldown after speaking
+// ended, AND a high fraction of its tokens appear in the just-spoken reply. Both
+// gates together keep a genuine (dissimilar) user turn that happens to land in the
+// window — and a similar one that lands much later — from being swallowed.
+const SELF_ECHO_COOLDOWN_MS = 1500;
+const SELF_ECHO_CONTAINMENT_THRESHOLD = 0.6;
+
+/** Normalise to lowercase alphanumeric word tokens for the self-echo containment check. */
+function tokenize(text: string): string[] {
+  return text
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+}
 import { dispatchGuideUiTool } from '../guideTools';
 import type { GuideCapabilities } from '../guideTools';
 import { setGuideAuthToken } from '../guideLlmClient';
@@ -32,6 +57,7 @@ import type {
   OrchestratorHooks,
   VoiceOrchestrator,
 } from '../session/orchestrator';
+import type { VoiceLoopState } from '../session/voiceSessionModel';
 
 /** Live screen context, read fresh each turn (screens are state — ac-11). */
 export interface ScreenContext {
@@ -71,6 +97,8 @@ export interface VoiceOrchestratorGlue {
   capture?: PcmCapture;
   graph?: ReturnType<typeof createGuideGraph>;
   newId?: () => string;
+  /** Injectable clock for the self-echo cooldown (dec-3); defaults to Date.now. */
+  now?: () => number;
 }
 
 type PlaybackImpl = PlaybackSink & {
@@ -92,16 +120,23 @@ class VoiceGuideOrchestrator implements VoiceOrchestrator {
   private vad: VadEngine | null = null;
   private playback: PlaybackImpl | null = null;
   private capture: PcmCapture | null = null;
-  private barge: BargeInController | null = null;
   private graph: ReturnType<typeof createGuideGraph>;
   private readonly threadId: string;
   private turnAbort: AbortController | null = null;
   private speakingRequestId: string | null = null;
   private stopped = false;
+  // spec-214 dec-1: the live loop state, tracked here so the mic→STT gate can read
+  // it synchronously. Mic PCM is forwarded to STT ONLY while this is 'listening'.
+  private loopState: VoiceLoopState = 'idle';
+  // spec-214 dec-3: token set of the reply most recently spoken, + when speaking
+  // last ended — together they drive the self-echo guard's containment + cooldown.
+  private lastSpokenTokens: Set<string> = new Set();
+  private speakingEndedAt: number | null = null;
   // spec-200 t-7: a one-shot opening context (a What's New entry) the guide
   // explains proactively on session start. Consumed on ws ready, then cleared.
   private openingContext: string | null = null;
   private readonly newId: () => string;
+  private readonly now: () => number;
 
   constructor(
     private readonly hooks: OrchestratorHooks,
@@ -109,6 +144,7 @@ class VoiceGuideOrchestrator implements VoiceOrchestrator {
     private readonly glue: VoiceOrchestratorGlue,
   ) {
     this.newId = glue.newId ?? (() => crypto.randomUUID());
+    this.now = glue.now ?? (() => Date.now());
     this.threadId = this.newId();
     // The graph touches no browser API, so it's safe at construction.
     // Layer-2 retrieval runs server-side every turn (ac-15), so an explicit
@@ -139,46 +175,44 @@ class VoiceGuideOrchestrator implements VoiceOrchestrator {
     // Capture non-null locals — TS resets instance-field narrowing after the
     // openVoiceWs / vad.start calls below.
     const vad = (this.vad = this.glue.vadEngine ?? new SileroWorkletVadEngine());
-    const playback = (this.playback = this.glue.playback ?? (new WebAudioPlayback() as PlaybackImpl));
+    this.playback = this.glue.playback ?? (new WebAudioPlayback() as PlaybackImpl);
     const capture = (this.capture = this.glue.capture ?? makePcmCapture());
-
-    // Barge-in over the playback sink (dec-8).
-    this.barge = new BargeInController(playback, {
-      abortTts: () => {
-        if (this.speakingRequestId) this.ws?.abort(this.speakingRequestId);
-      },
-      abortLlm: () => this.turnAbort?.abort(),
-      onCut: () => {
-        // The user cut in — stop speaking and return to listening. Truncating the
-        // assistant turn into graph state to the spoken prefix is on-device work.
-        this.speakingRequestId = null;
-        this.hooks.setLoopState('listening');
-      },
-    });
 
     this.ws = openVoiceWs(
       buildVoiceWsUrl(base, token, this.react.origin, getGuideBackend().voicePath),
       {
         onReady: () => {
-          this.ws?.startListening();
           // spec-200 t-7: if seeded, the guide opens by explaining the entry —
           // a proactive first turn grounded on the entry text (guideContext),
-          // requiring no user speech. Consumed once.
+          // requiring no user speech. Consumed once. While it speaks the mic→STT
+          // gate (dec-1) is closed, so the opening monologue can't be self-heard.
           const seed = this.openingContext;
           this.openingContext = null;
           if (seed && !this.stopped) {
             void this.runTurn('Tell me what this update is and why it matters, in a sentence or two.', [seed]);
+          } else if (!this.stopped) {
+            // No opening turn — open the first human-turn STT session and listen.
+            this.beginListeningTurn();
           }
         },
         onTranscript: (text, isFinal) => {
           if (!isFinal) return;
-          if (text.trim()) void this.runTurn(text);
+          const t = text.trim();
+          // spec-214 dec-3: drop the agent's own echo — a transcript that lands in
+          // the post-speaking cooldown AND largely repeats the just-spoken reply is
+          // the speaker tail bleeding into the fresh listening window, not the user.
+          if (t && this.isSelfEcho(t)) {
+            if (!this.stopped) this.beginListeningTurn();
+            return;
+          }
+          if (t) void this.runTurn(t);
           // Empty committed transcript (a throat-clear / noise tripped the VAD but
           // STT recognized no words). onSpeechEnd already moved us to 'thinking';
-          // with no turn to run we'd hang there forever. Recover to listening.
-          else if (!this.stopped) this.hooks.setLoopState('listening');
+          // with no turn to run we'd hang there forever. Recover to listening
+          // (re-opening the STT session for the next human turn — dec-2).
+          else if (!this.stopped) this.beginListeningTurn();
         },
-        onAudio: (_requestId, audio, alignment, isFinal) => this.onAudio(audio, alignment, isFinal),
+        onAudio: (_requestId, audio, _alignment, isFinal) => this.onAudio(audio, isFinal),
         onError: (message) => this.hooks.onError(message),
         onClose: () => {
           if (!this.stopped) this.hooks.onEnded();
@@ -188,43 +222,80 @@ class VoiceGuideOrchestrator implements VoiceOrchestrator {
     );
 
     await vad.start(stream, (speaking) => (speaking ? this.onSpeechStart() : this.onSpeechEnd()));
-    capture.start(stream, (pcm) => this.ws?.sendAudio(pcm));
-    this.hooks.setLoopState('listening');
+    // spec-214 dec-1: half-duplex gate. Forward mic PCM to the STT leg ONLY while
+    // the loop is `listening`. While the agent is speaking/thinking, its own
+    // speaker output (echo) is captured but never sent upstream — so it cannot be
+    // transcribed and answered (the self-talk loop). The local VAD still runs over
+    // the full stream for user-turn endpointing.
+    capture.start(stream, (pcm) => {
+      if (this.loopState === 'listening') this.ws?.sendAudio(pcm);
+    });
+    // Initial state: `listening` so onSpeechEnd endpoints and the gate is open
+    // before the ws `ready` frame arrives (ready then re-opens the STT session via
+    // beginListeningTurn, or runs the seeded opening turn).
+    this.enterState('listening');
+  }
+
+  /** spec-214 dec-1/dec-2: enter the live loop state and keep the internal
+   *  `loopState` (which the mic→STT gate reads) in lockstep with the pill's. */
+  private enterState(state: VoiceLoopState): void {
+    this.loopState = state;
+    this.hooks.setLoopState(state);
+  }
+
+  /** spec-214 dec-2: begin a human turn — open a FRESH STT session for it (so each
+   *  utterance is bounded to one human turn and never carries agent audio) and
+   *  enter `listening` (opening the mic→STT gate). */
+  private beginListeningTurn(): void {
+    if (this.stopped) return;
+    this.ws?.startListening();
+    this.enterState('listening');
   }
 
   private onSpeechStart(): void {
-    // If the agent is mid-speech, this ducks + arms the cut (dec-8). If idle, it's
-    // the user starting their turn — inert for barge-in.
-    const wasSpeaking = this.barge?.state === 'speaking' || this.barge?.state === 'ducked';
-    this.barge?.onSpeechStart();
-    if (wasSpeaking) this.hooks.setLoopState('ducked');
+    // spec-214 dec-4: voice barge-in is removed (supersedes spec-190/dec-8). While
+    // the agent is speaking, a VAD onset is IGNORED — no duck, no cut; the turn
+    // plays to completion. During `listening` it's the user starting their turn;
+    // the commit happens on speech END (onSpeechEnd). Nothing to do on onset.
   }
 
   private onSpeechEnd(): void {
-    const wasInterrupting = this.barge?.state === 'ducked';
-    this.barge?.onSpeechEnd();
-    if (wasInterrupting) return; // transient over agent speech — bargeIn restored it
+    // Only a speech-end DURING the user's listening turn ends an utterance. An onset/
+    // end while the agent is speaking or thinking is echo or noise (the gate already
+    // dropped its audio) — ignore it so it can't commit a turn (dec-1/dec-4).
+    if (this.loopState !== 'listening') return;
     // Genuine end of the user's turn: commit STT, ack ping immediately (masks the
     // retrieval + LLM latency, dec-6), and show "thinking".
     this.ws?.endUtterance();
     this.hooks.playEarcon('ping');
-    this.hooks.setLoopState('acknowledged');
-    this.hooks.setLoopState('thinking');
+    this.enterState('acknowledged');
+    this.enterState('thinking');
+  }
+
+  /** spec-214 dec-3: is this committed transcript the agent's own echo? True only
+   *  when it lands within the cooldown after speaking ended AND a high fraction of
+   *  its tokens appear in the just-spoken reply. Both gates required so a genuine,
+   *  dissimilar user turn in the window — or a similar turn long after — survives. */
+  private isSelfEcho(committed: string): boolean {
+    if (this.speakingEndedAt === null) return false;
+    if (this.now() - this.speakingEndedAt > SELF_ECHO_COOLDOWN_MS) return false;
+    if (this.lastSpokenTokens.size === 0) return false;
+    const tokens = tokenize(committed);
+    if (tokens.length === 0) return false;
+    let inSpoken = 0;
+    for (const tok of tokens) if (this.lastSpokenTokens.has(tok)) inSpoken++;
+    return inSpoken / tokens.length >= SELF_ECHO_CONTAINMENT_THRESHOLD;
   }
 
   private async runTurn(transcript: string, guideContext: string[] = []): Promise<void> {
-    // A new user turn supersedes any in-flight agent speech (barge-in, or a fast
-    // follow-up before the previous reply finished): stop the old TTS leg and flush
-    // its already-queued audio so the previous answer doesn't keep playing over this
-    // one. The duck-then-cut timer (dec-8) only fires on SUSTAINED speech; a short
-    // interjection ("standards", "stop") ends before it, so without this the old
-    // audio plays on. endTurn() resets barge state for the fresh turn.
+    // A new turn supersedes any in-flight agent speech (a fast follow-up before the
+    // previous reply finished, or a Stop→ask): stop the old TTS leg and flush its
+    // already-queued audio so the previous answer doesn't keep playing over this one.
     if (this.speakingRequestId) {
       this.ws?.abort(this.speakingRequestId);
       this.speakingRequestId = null;
     }
     this.playback?.flush();
-    this.barge?.endTurn();
 
     const { screenKey, screenRegistry } = this.react.getScreenContext();
     this.turnAbort = new AbortController();
@@ -254,7 +325,9 @@ class VoiceGuideOrchestrator implements VoiceOrchestrator {
       );
     } catch (err) {
       this.hooks.onError(err instanceof Error ? err.message : String(err));
-      this.hooks.setLoopState('listening');
+      // spec-214 dec-1/dec-2: recover through beginListeningTurn so the internal
+      // gate state (and a fresh STT session) follow the pill back to listening.
+      this.beginListeningTurn();
       // spec-211 t-1: settle the turn even on error so an awaiting sequencer
       // (dec-1) never hangs.
       this.hooks.onTurnComplete?.();
@@ -264,39 +337,42 @@ class VoiceGuideOrchestrator implements VoiceOrchestrator {
     if (assistantText.trim() && !this.stopped) {
       const requestId = this.newId();
       this.speakingRequestId = requestId;
-      // Reset the playback turn alongside the barge turn: this restores the gain to
-      // full (a prior barge-in duck-then-cut leaves it attenuated) and re-bases the
-      // played-ms clock used for truncation. Without it every reply after the first
-      // interruption plays at the ducked volume.
+      // spec-214 dec-3: remember what we're about to say so the self-echo guard can
+      // recognise this reply bleeding back into the mic after it plays out.
+      this.lastSpokenTokens = new Set(tokenize(assistantText));
+      // Re-base the playback turn (full gain + fresh played-ms clock).
       this.playback?.startTurn();
-      this.barge?.startTurn();
-      this.hooks.setLoopState('speaking');
+      // spec-214 dec-1: entering `speaking` closes the mic→STT gate — captured echo
+      // is no longer forwarded upstream.
+      this.enterState('speaking');
       this.ws?.speak(requestId, assistantText);
     } else {
-      this.hooks.setLoopState('listening');
-      // spec-211 t-1: no speech to play (empty/aborted) — settle immediately so an
-      // awaiting sequencer advances rather than hangs.
+      // No speech to play (empty/aborted). spec-214 dec-2: re-open the STT session
+      // for the next human turn. spec-211 t-1: settle so an awaiting sequencer
+      // advances rather than hangs.
+      this.beginListeningTurn();
       if (!this.stopped) this.hooks.onTurnComplete?.();
     }
   }
 
-  private onAudio(audio: ArrayBuffer, alignment: CharAlignment | undefined, isFinal: boolean): void {
+  private onAudio(audio: ArrayBuffer, isFinal: boolean): void {
     void this.playback?.enqueue(audio);
-    this.barge?.appendChunk(alignment);
     // isFinal marks the last chunk RECEIVED, but the audio is still playing out of
-    // the queue. Stay in 'speaking' — barge armed, the Stop control visible — until
-    // playback actually drains, so the user can interrupt for as long as they can
-    // hear the agent. onDrain fires immediately if nothing is queued.
+    // the queue. Stay in 'speaking' — the Stop control visible — until playback
+    // actually drains, so the user can hit Stop for as long as they hear the agent.
+    // onDrain fires immediately if nothing is queued.
     if (isFinal) this.playback?.onDrain(() => this.onPlaybackDrained());
   }
 
-  /** The agent's speech has fully played out (no interruption). Now — not on the
-   *  final-chunk receipt — return to listening and disarm the barge. */
+  /** The agent's speech has fully played out. Now — not on the final-chunk receipt
+   *  — return to listening (opening a fresh STT session for the next human turn). */
   private onPlaybackDrained(): void {
     if (this.stopped) return;
-    this.barge?.endTurn();
     this.speakingRequestId = null;
-    this.hooks.setLoopState('listening');
+    // spec-214 dec-3: mark when speaking ended so the self-echo guard's cooldown can
+    // catch the speaker tail bleeding into the start of this listening window.
+    this.speakingEndedAt = this.now();
+    this.beginListeningTurn();
     // spec-211 t-1: the agent's spoken turn has fully played out — signal the
     // client tour sequencer so it can advance one phase (dec-1).
     this.hooks.onTurnComplete?.();
@@ -307,8 +383,19 @@ class VoiceGuideOrchestrator implements VoiceOrchestrator {
     this.react.adapter.onPlaybackDrained?.();
   }
 
+  // spec-214 dec-4: Stop is the SOLE interruption (voice barge-in removed). Halt the
+  // in-flight LLM turn + TTS, flush queued audio, and return to listening with the
+  // session + mic still open (halt-and-stay, NOT end-and-restart).
   interrupt(): void {
-    this.barge?.tapInterrupt();
+    if (this.stopped) return;
+    this.turnAbort?.abort();
+    if (this.speakingRequestId) {
+      this.ws?.abort(this.speakingRequestId);
+      this.speakingRequestId = null;
+    }
+    this.playback?.flush();
+    this.speakingEndedAt = this.now();
+    this.beginListeningTurn();
   }
 
   // spec-211 t-1 (dec-1): a proactive narration turn for the demo walkthrough.
@@ -339,7 +426,6 @@ class VoiceGuideOrchestrator implements VoiceOrchestrator {
     this.capture?.stop();
     this.vad?.stop();
     this.playback?.dispose();
-    this.barge?.dispose();
   }
 }
 
