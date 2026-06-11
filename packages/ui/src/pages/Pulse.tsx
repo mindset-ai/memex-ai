@@ -39,6 +39,10 @@ import { clientLabel } from '../components/pulse/clientLabel';
 import { usePulseHistory } from '../hooks/usePulseHistory';
 import { usePulseStream } from '../hooks/usePulseStream';
 import { usePresence } from '../hooks/usePresence';
+import { useTestSignalPulse } from '../hooks/useTestSignalPulse';
+import { TestSignalsMonitor } from '../components/pulse/TestSignalsMonitor';
+import { TestSignalCounter } from '../components/pulse/TestSignalCounter';
+import { mergeTestSignals, type LiveTestSignal } from '../components/pulse/testSignals';
 import { isStateChanging } from '../components/pulse/types';
 import type { ActivityRow, PulseConnectionStatus } from '../components/pulse/types';
 
@@ -63,6 +67,9 @@ const CLIENT_LIVE_WINDOW_MS = 30 * 1000; // 30 seconds
 // unbounded. The feed only ever needs the most recent live rows; older ones
 // have long since been superseded by paged-in history.
 const LIVE_BUFFER_CAP = 200;
+// Live test-signal buffer cap — the firehose can be busy; we only need enough to
+// bridge the ~45s between baseline refetches. Older ones have been folded in.
+const TEST_SIGNAL_BUFFER_CAP = 1000;
 const ONE_HOUR_MS = 60 * 60 * 1000;
 
 function rowMs(row: ActivityRow): number {
@@ -82,8 +89,10 @@ export function Pulse() {
     return m?.memexName ?? m?.name ?? null;
   }, [session, namespace, memex]);
 
-  // ── Scope (dec-7): default 'me'. ────────────────────────────────────────────
-  const [scope, setScope] = useState<PulseScope>('me');
+  // ── Scope: default 'everyone'. The board is a shared situational picture —
+  // you want the whole Memex's activity first, then narrow to 'me' on demand
+  // (dec-7's 'me' default read as too narrow for a glance-at-the-board surface).
+  const [scope, setScope] = useState<PulseScope>('everyone');
 
   // ── Per-Spec filter (dec-9), reflected through `?spec=spec-N`. ───────────────
   const [searchParams, setSearchParams] = useSearchParams();
@@ -187,14 +196,60 @@ export function Pulse() {
   const selectedSpecIdRef = useRef<string | null>(null);
   selectedSpecIdRef.current = selectedSpec?.id ?? null;
 
+  // Live test-emission signals, distilled from the SSE `test_event` firehose.
+  // These NEVER enter the event-log feed (they're aggregate telemetry); they
+  // feed the test-signal monitor + counter only.
+  const [liveTestSignals, setLiveTestSignals] = useState<LiveTestSignal[]>([]);
+
   const handleRow = useCallback((row: ActivityRow) => {
+    // test_event is the CI firehose — route it to the signal monitor, never the
+    // feed. It carries its outcome on payload.status (server emit).
+    if (row.entity === 'test_event') {
+      const raw = row.payload?.status;
+      // Explicitly typed (not relying on flow-narrowing surviving into the
+      // setState closure — the production tsc widens it back to string).
+      const status: LiveTestSignal['status'] | null =
+        raw === 'pass' || raw === 'fail' || raw === 'error' ? raw : null;
+      if (status) {
+        setLiveTestSignals((prev) => {
+          const next: LiveTestSignal[] = [...prev, { at: row.createdAt, status }];
+          return next.length > TEST_SIGNAL_BUFFER_CAP ? next.slice(-TEST_SIGNAL_BUFFER_CAP) : next;
+        });
+      }
+      return;
+    }
     setLiveRows((prev) => {
       const next = [row, ...prev];
       return next.length > LIVE_BUFFER_CAP ? next.slice(0, LIVE_BUFFER_CAP) : next;
     });
   }, []);
 
-  const { status } = usePulseStream({ onRow: handleRow, onReconnect: refresh });
+  // ── Test-signal monitor (right column) + counter (working-now). Baseline from
+  // the analytics endpoint; live SSE frames top it up between refetches. ────────
+  const {
+    pulse: testSignalPulse,
+    loading: testSignalsLoading,
+    fetchedAt: testSignalsFetchedAt,
+    refresh: refreshTestSignals,
+  } = useTestSignalPulse(60);
+  // Every successful baseline refetch already includes the signals we buffered
+  // live, so drop the buffer to avoid double-counting them (the "+N new" resets).
+  useEffect(() => {
+    setLiveTestSignals([]);
+  }, [testSignalsFetchedAt]);
+  const mergedTestSignals = useMemo(
+    () => mergeTestSignals(testSignalPulse, liveTestSignals),
+    [testSignalPulse, liveTestSignals],
+  );
+
+  // On SSE reconnect, refetch BOTH the activity history and the test-signal
+  // baseline so any gap during the outage converges.
+  const handleReconnect = useCallback(() => {
+    void refresh();
+    void refreshTestSignals();
+  }, [refresh, refreshTestSignals]);
+
+  const { status } = usePulseStream({ onRow: handleRow, onReconnect: handleReconnect });
 
   // Filter the accumulated live rows by the active scope/spec/client. Live rows
   // carry the same fields as history rows (changeEventToRow normalises them), so
@@ -264,8 +319,11 @@ export function Pulse() {
   // ── "What's moving" zone (ac-1): state-changing rows ONLY. The read actions
   // (viewed/searched/assessed/called) are the ambient firehose — a manager
   // glancing at the board shouldn't wade through them. ─────────────────────────
+  // test_event is routed to the signal monitor, never the feed — but historical
+  // test_event rows persisted BEFORE the sink stopped writing them still live in
+  // activity_log, so filter them out here too until they age off the window.
   const movingRows = useMemo(
-    () => mergedRows.filter((r) => isStateChanging(r)),
+    () => mergedRows.filter((r) => r.entity !== 'test_event' && isStateChanging(r)),
     [mergedRows],
   );
 
@@ -367,6 +425,13 @@ export function Pulse() {
           column; the Needs-attention tray keeps its place on the right. */}
       <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 min-h-0 flex flex-col">
+          {/* Live test-signal heartbeat next to who's working. */}
+          <TestSignalCounter
+            total={mergedTestSignals.totals.total}
+            windowMinutes={mergedTestSignals.windowMinutes}
+            failing={mergedTestSignals.failing}
+            liveDelta={liveTestSignals.length}
+          />
           <WorkingNow
             present={displayedPresent}
             loading={presenceLoading}
@@ -390,6 +455,14 @@ export function Pulse() {
           </div>
         </div>
         <div className="lg:col-span-1 min-h-0 overflow-y-auto">
+          {/* Test-signal volume graphic — the firehose as a live sparkline,
+              sitting ABOVE the needs-attention tray so the column reads
+              "real-time pulse → things to look at". */}
+          <TestSignalsMonitor
+            signals={mergedTestSignals}
+            loading={testSignalsLoading}
+            live={liveTestSignals.length > 0}
+          />
           <NeedsAttentionTray briefId={selectedSpec?.id} />
         </div>
       </div>

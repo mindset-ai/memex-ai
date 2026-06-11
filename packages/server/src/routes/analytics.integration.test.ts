@@ -351,3 +351,55 @@ describe("GET /analytics/acs-over-time and /analytics/test-run-volume", () => {
     expect(vol.find((p) => p.day === "2026-06-03")).toMatchObject({ pass: 1, fail: 0, error: 0 });
   });
 });
+
+describe("GET /analytics/test-signal-pulse", () => {
+  it("returns gapless minute buckets + window totals for recent test emissions", async () => {
+    const m = await makeTestMemexWithDevAdmin("analyt-pulse");
+    memexIds.push(m.memexId);
+    const path = `/api/${m.slug}/main`;
+
+    const prefix = `${m.slug}/main/specs/spec-pulse/acs`;
+    // Emit a handful of recent events (default createdAt = now()), so they land
+    // in the current minute bucket of the rolling window.
+    const emitNow = (acN: number, status: string, hidden = false) =>
+      db.insert(testEvents).values({
+        acUid: `${prefix}/ac-${acN}`,
+        status,
+        testIdentifier: `t-${acN}`,
+        hidden,
+      });
+    await emitNow(1, "pass");
+    await emitNow(1, "pass");
+    await emitNow(2, "fail");
+    await emitNow(3, "error");
+    await emitNow(4, "pass", true); // hidden pass — still counts as volume
+
+    const res = await app.request(`${path}/analytics/test-signal-pulse?windowMinutes=15`, withApexHost());
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      windowMinutes: number;
+      buckets: Array<{ at: string; pass: number; fail: number; error: number }>;
+      totals: { pass: number; fail: number; error: number; total: number };
+    };
+    expect(body.windowMinutes).toBe(15);
+    expect(body.buckets).toHaveLength(15); // gapless, one per minute
+    // Totals across the window: 3 pass (2 visible + 1 hidden), 1 fail, 1 error.
+    expect(body.totals).toEqual({ pass: 3, fail: 1, error: 1, total: 5 });
+    // The window sum of bucket columns matches the totals (no row dropped).
+    const summed = body.buckets.reduce(
+      (a, b) => ({ pass: a.pass + b.pass, fail: a.fail + b.fail, error: a.error + b.error }),
+      { pass: 0, fail: 0, error: 0 },
+    );
+    expect(summed).toEqual({ pass: 3, fail: 1, error: 1 });
+  });
+
+  it("rejects a non-positive-integer windowMinutes with 400", async () => {
+    const m = await makeTestMemexWithDevAdmin("analyt-pulse-bad");
+    memexIds.push(m.memexId);
+    const res = await app.request(
+      `/api/${m.slug}/main/analytics/test-signal-pulse?windowMinutes=0`,
+      withApexHost(),
+    );
+    expect(res.status).toBe(400);
+  });
+});

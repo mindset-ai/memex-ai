@@ -290,6 +290,15 @@ testEventsRouter.post("/", async (c) => {
       memexId: targetMemexId,
       entity: TEST_EVENT_ENTITY,
       action: "created",
+      // Carry the outcome on the event so the Pulse test-signal volume monitor
+      // can colour the live tick (pass/fail/error) and surface failures in real
+      // time. test_event is NOT persisted to activity_log (it's the firehose),
+      // so this payload only ever rides the live SSE frame.
+      payload: {
+        status: insertValues.status,
+        acUid: insertValues.acUid,
+        hidden: insertValues.hidden,
+      },
     },
     // spec-162 dec-1: append the log row AND upsert the test_event_latest
     // summary in one transaction so the two can't diverge on a crash. The

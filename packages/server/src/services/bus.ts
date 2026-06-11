@@ -45,6 +45,13 @@ export type ChangeEntity =
   // invocation fallback when no more specific entity applies.
   | "query"
   | "tool_call"
+  // CI test telemetry (spec-115/spec-162). A `test_event` created event fires on
+  // every accepted POST /api/test-events so live consumers (AC-health chips, the
+  // Pulse test-signal volume monitor) wake instantly. Memex-scoped (memexId set,
+  // no docId). Deliberately NOT persisted to activity_log — it's a high-volume
+  // firehose whose system of record is the test_events table (see
+  // services/activity-log.ts NON_TIMELINE_ENTITIES).
+  | "test_event"
   // Wave 3 — non-doc tenancy resources; `docId` is undefined for these
   | "org"
   | "org_membership"

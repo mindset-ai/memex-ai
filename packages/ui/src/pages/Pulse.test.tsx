@@ -38,6 +38,13 @@ vi.mock('../hooks/usePresence', () => ({
   usePresence: (refs: unknown) => usePresenceMock(refs),
 }));
 
+// useTestSignalPulse: the test-signal monitor's baseline fetch. Stub it empty so
+// the monitor renders its "no signals" state and no real fetch fires.
+const useTestSignalPulseMock = vi.hoisted(() => vi.fn());
+vi.mock('../hooks/useTestSignalPulse', () => ({
+  useTestSignalPulse: (windowMinutes?: number) => useTestSignalPulseMock(windowMinutes),
+}));
+
 // The spec list the picker reads.
 const fetchDocsMock = vi.hoisted(() => vi.fn());
 vi.mock('../api/client', () => ({
@@ -176,12 +183,20 @@ beforeEach(() => {
   usePresenceMock.mockReset();
   fetchDocsMock.mockReset();
   useNeedsAttentionMock.mockReset();
+  useTestSignalPulseMock.mockReset();
 
   usePulseStreamMock.mockReturnValue({ latest: null, status: 'connected' });
   useNeedsAttentionMock.mockReturnValue(EMPTY_ATTENTION);
   usePresenceMock.mockReturnValue({ rows: [], loading: false });
   fetchDocsMock.mockResolvedValue([]);
   usePulseHistoryMock.mockReturnValue(history());
+  useTestSignalPulseMock.mockReturnValue({
+    pulse: null,
+    loading: false,
+    error: null,
+    fetchedAt: 0,
+    refresh: vi.fn(),
+  });
 });
 
 describe('Pulse page', () => {
@@ -205,24 +220,24 @@ describe('Pulse page', () => {
     expect(await screen.findByTestId('pulse-empty')).toBeInTheDocument();
   });
 
-  describe('ScopeToggle (dec-7)', () => {
-    it('defaults to "me" and pins the history filter to the current user', async () => {
+  describe('ScopeToggle', () => {
+    it('defaults to "everyone" and applies no actor filter', async () => {
       renderPulse();
 
-      // 'me' segment is selected by default.
-      const me = screen.getByRole('radio', { name: 'Just me' });
-      expect(me).toHaveAttribute('aria-checked', 'true');
+      // 'Everyone' segment is selected by default — the board is a shared view.
+      const everyone = screen.getByRole('radio', { name: 'Everyone' });
+      expect(everyone).toHaveAttribute('aria-checked', 'true');
 
-      // Under 'me', usePulseHistory is called with actorUserId = current user.
+      // Default scope applies no actorUserId filter (the whole Memex's activity).
       await waitFor(() => {
         const calls = usePulseHistoryMock.mock.calls;
         const last = calls[calls.length - 1][0] as { actorUserId?: string };
-        expect(last.actorUserId).toBe(CURRENT_USER);
+        expect(last.actorUserId).toBeUndefined();
       });
     });
 
-    it('clears the actorUserId filter when toggled to "everyone"', async () => {
-      // Seed a client-chip-eligible row so we can also assert chips disappear.
+    it('toggling to "me" pins the actor filter + shows client chips; back to "everyone" clears them', async () => {
+      // Seed a client-chip-eligible row so we can assert chips appear/disappear.
       usePulseHistoryMock.mockReturnValue(
         history({
           rows: [
@@ -238,24 +253,26 @@ describe('Pulse page', () => {
 
       renderPulse();
 
-      // The active-client chip is visible under 'me'.
-      expect(
-        await screen.findByRole('button', { name: /MCP/i }),
-      ).toBeInTheDocument();
+      // Default 'everyone' → no client chips.
+      expect(screen.queryByRole('button', { name: /MCP/i })).toBeNull();
 
+      // Toggle to 'me' → actorUserId pins to the current user and the chip shows.
+      await userEvent.click(screen.getByRole('radio', { name: 'Just me' }));
+      await waitFor(() => {
+        const calls = usePulseHistoryMock.mock.calls;
+        const last = calls[calls.length - 1][0] as { actorUserId?: string };
+        expect(last.actorUserId).toBe(CURRENT_USER);
+      });
+      expect(await screen.findByRole('button', { name: /MCP/i })).toBeInTheDocument();
+
+      // Back to 'everyone' → filter lifts and chips hide again.
       await userEvent.click(screen.getByRole('radio', { name: 'Everyone' }));
-
-      // actorUserId lifts to undefined under 'everyone'.
       await waitFor(() => {
         const calls = usePulseHistoryMock.mock.calls;
         const last = calls[calls.length - 1][0] as { actorUserId?: string };
         expect(last.actorUserId).toBeUndefined();
       });
-
-      // Client chips are hidden outside 'me'.
-      expect(
-        screen.queryByRole('button', { name: /MCP/i }),
-      ).toBeNull();
+      expect(screen.queryByRole('button', { name: /MCP/i })).toBeNull();
     });
   });
 
@@ -302,6 +319,9 @@ describe('Pulse page', () => {
       );
 
       renderPulse();
+
+      // Client chips render under 'me' scope only — switch to it first.
+      await userEvent.click(screen.getByRole('radio', { name: 'Just me' }));
 
       const chip = await screen.findByRole('button', { name: /MCP/i });
       expect(chip).toHaveAttribute('aria-pressed', 'false');
