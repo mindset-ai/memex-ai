@@ -104,7 +104,7 @@ describe("POST /voice/guide-chat — guide LLM text leg (ac-11)", () => {
     expect(text).toContain("event: message_complete");
   });
 
-  it("injects the screen context (screenKey + elements + guide content) into the system prompt", async () => {
+  it("injects the screen context (screenKey + elements + guide content) into the final user message", async () => {
     tagAc(AC11);
     tagAc(AC2); // scope: answers what-is/how-do-I for the current screen
 
@@ -114,10 +114,17 @@ describe("POST /voice/guide-chat — guide LLM text leg (ac-11)", () => {
       screenRegistry: [{ id: "new-spec-button", description: "Creates a new Spec." }],
       guideContext: ["The Specs board lists every active spec."],
     });
+    // The volatile per-turn context rides the FINAL user message, not system —
+    // a trailing volatile system block would re-key the prompt-cache prefix
+    // every turn (spec-222 latency follow-up). System stays static.
+    const msgs = (streamArgs.last?.messages ?? []) as Array<{ role: string; content: unknown }>;
+    const lastUser = JSON.stringify(msgs[msgs.length - 1] ?? {});
+    expect(lastUser).toContain("specs-list");
+    expect(lastUser).toContain("new-spec-button");
+    expect(lastUser).toContain("lists every active spec");
+    expect(lastUser).toContain("explain"); // the utterance survives the injection
     const system = JSON.stringify(streamArgs.last?.system ?? []);
-    expect(system).toContain("specs-list");
-    expect(system).toContain("new-spec-button");
-    expect(system).toContain("lists every active spec");
+    expect(system).not.toContain("new-spec-button");
   });
 
   it("rejects a malformed body with 400", async () => {
@@ -141,9 +148,41 @@ describe("POST /voice/guide-chat — server-side retrieval runs every turn (ac-1
     expect(retrieval.prefetch).toHaveBeenCalledWith("specs-list", "memex-app");
     expect(retrieval.search.mock.calls[0][0]).toBe("how do phases work?");
     expect(retrieval.search.mock.calls[0][1]).toMatchObject({ surface: "memex-app" });
-    const system = JSON.stringify(streamArgs.last?.system ?? []);
-    expect(system).toContain("SCREEN: the Specs board");
-    expect(system).toContain("SEARCH: phases are draft");
+    // Both layers land in the final user message (see ac-11 test above).
+    const msgs = (streamArgs.last?.messages ?? []) as Array<{ role: string; content: unknown }>;
+    const lastUser = JSON.stringify(msgs[msgs.length - 1] ?? {});
+    expect(lastUser).toContain("SCREEN: the Specs board");
+    expect(lastUser).toContain("SEARCH: phases are draft");
+  });
+
+  it("multi-turn: prior history is untouched and the pre-final message carries the prompt-cache breakpoint", async () => {
+    tagAc(AC15);
+    await postGuideChat({
+      messages: [
+        { role: "user", content: "what is a spec?" },
+        { role: "assistant", content: "A Spec is a living document." },
+        { role: "user", content: "and a standard?" },
+      ],
+      screenKey: "specs-list",
+    });
+    const msgs = (streamArgs.last?.messages ?? []) as Array<{
+      role: string;
+      content: Array<{ type: string; text?: string; cache_control?: unknown }> | string;
+    }>;
+    // Turn 1 is byte-identical to what the client sent — rewriting history
+    // would re-key the cached conversation prefix on every request.
+    expect(msgs[0]).toEqual({ role: "user", content: "what is a spec?" });
+    // The message BEFORE the final user turn ends the stable prefix — its last
+    // block carries the cache breakpoint (the final message holds this turn's
+    // injected context, which never recurs, so a marker there is never read).
+    const breakpointMsg = msgs[1];
+    const blocks = Array.isArray(breakpointMsg.content) ? breakpointMsg.content : [];
+    expect(blocks[blocks.length - 1]?.cache_control).toEqual({ type: "ephemeral" });
+    // The final user message = injected context block + the original utterance.
+    const last = msgs[msgs.length - 1];
+    const lastBlocks = Array.isArray(last.content) ? last.content : [];
+    expect(lastBlocks[0]?.text).toContain("Current screen context");
+    expect(lastBlocks[lastBlocks.length - 1]?.text).toBe("and a standard?");
   });
 
   it("does not depend on the agent calling search_guide — Layer 2 runs unconditionally", async () => {
