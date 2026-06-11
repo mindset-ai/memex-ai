@@ -601,8 +601,11 @@ describe('AcPanel — coding-agent boundary markers (spec-247)', () => {
     url: 'https://memex.ai/acme/main/specs/spec-1',
   };
 
-  it('the all-untested explainer is human-actionable and hands off via the Wire-the-AC-tests PromptButton (ac-14)', async () => {
+  it('the all-untested explainer is human-actionable and hands off via the Wire-the-AC-tests PromptButton (ac-14, ac-4)', async () => {
     tagAc(AC247(14));
+    // ac-4 (scope): this AC coverage rail is the named starting surface for the
+    // "every MCP-only next step carries a coding-agent handoff marker" rule.
+    tagAc(AC247(4));
     vi.mocked(fetchAcsForBrief).mockResolvedValue([
       makeAc(1, 'scope', 'untested'),
       makeAc(2, 'implementation', 'untested'),
@@ -641,8 +644,9 @@ describe('AcPanel — coding-agent boundary markers (spec-247)', () => {
     expect(dialog.textContent).toMatch(/acme\/main\/specs\/spec-1/);
   });
 
-  it('a partially-covered panel still offers the handoff for the uncovered ACs (ac-14)', async () => {
+  it('a partially-covered panel still offers the handoff for the uncovered ACs (ac-14, ac-4)', async () => {
     tagAc(AC247(14));
+    tagAc(AC247(4));
     vi.mocked(fetchAcsForBrief).mockResolvedValue([
       makeAc(1, 'scope', 'verified'),
       makeAc(2, 'implementation', 'untested'),

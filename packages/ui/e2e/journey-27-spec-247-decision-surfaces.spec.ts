@@ -1,10 +1,34 @@
-import { test, expect, tenantPath, switchToEditing } from "./helpers/index.js";
+import {
+  test,
+  expect,
+  tenantPath,
+  switchToEditing,
+  emitAcEvents,
+} from "./helpers/index.js";
 import {
   seedOrgTenant,
   seedSpec,
   setDocStatus,
   seedOpenDecision,
 } from "./helpers/retained.js";
+
+// The ACs this end-to-end journey genuinely exercises against the running app.
+// Behaviour units (DecisionPanel/ChatPanel) also cover ac-6/7/9/11/12; the
+// reload-survival path (ac-18, ac-22) and the scope-level "one obvious place /
+// honest labels / grounded panel" outcomes (ac-1, ac-2, ac-3) have NO other
+// verifying test — this journey is their only proof, so it must emit.
+const AC = (n: number) =>
+  `mindset-prod/memex-building-itself/specs/spec-247/acs/ac-${n}`;
+const ACS = [1, 2, 3, 6, 7, 9, 11, 12, 18, 22].map(AC);
+
+test.afterEach(async ({}, testInfo) => {
+  await emitAcEvents(
+    ACS,
+    testInfo.status === "passed" ? "pass" : "fail",
+    `packages/ui/e2e/journey-27-spec-247-decision-surfaces.spec.ts::${testInfo.title}`,
+    testInfo.duration,
+  );
+});
 
 // Journey 27 — spec-247: resolving a decision has ONE obvious place to answer.
 //

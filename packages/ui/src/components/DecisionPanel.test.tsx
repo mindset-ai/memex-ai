@@ -409,8 +409,11 @@ describe('DecisionPanel — one obvious place to answer (spec-247)', () => {
     expect(screen.queryByRole('button', { name: /^reject$/i })).not.toBeInTheDocument();
   });
 
-  it('candidate list carries the coding-agent boundary marker (ac-21)', () => {
+  it('candidate list carries the coding-agent boundary marker (ac-21, ac-4)', () => {
     tagAc(AC247(21));
+    // ac-4 (scope): the decision panel is the other named MCP-only surface — its
+    // candidate-review next step carries the coding-agent handoff marker.
+    tagAc(AC247(4));
     const decisions = [
       makeDecision({
         id: 'cand-1',
