@@ -737,6 +737,10 @@ const REF_PROBE_SKIP = new Map<string, string>([
   ["memex__send_discord_message", "external-action tool — output confirms webhook delivery, not a memex entity ref; requires live Discord webhook"],
   // get_information returns prose (topic index or topic body), never an entity ref.
   ["get_information", "Read-only guidance tool — returns markdown prose, not a memex entity ref"],
+  // provision_ac_emission (spec-234) returns a raw emission key + integration guidance
+  // markdown, not a terse `ref:` entity confirmation. Exercised end-to-end in
+  // agent/spec-234-provision-ac-emission.integration.
+  ["provision_ac_emission", "returns an emission key + guidance markdown, not a memex entity ref; covered by spec-234-provision-ac-emission.integration"],
   // spec-127 test-event tools all lead with the AC `ref:` and emit no UUID; that
   // ref-emission is asserted directly in mcp/test-event-tools.integration. A
   // dedicated probe here would need a throwaway AC + seeded test_events fixture.
