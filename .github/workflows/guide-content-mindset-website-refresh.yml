@@ -103,10 +103,29 @@ jobs:
         # to import (never ingest an error page).
         run: |
           set -a; . "scripts/deploy.${ENV}.env"; set +a
+          # CLOUD_SQL_INSTANCE_CONN is a DERIVED value — scripts/deploy-config.sh
+          # composes it from these three parts; it is NOT a key in the deploy env
+          # body, so we must compose it here. Omitting this left it empty and the
+          # proxy failed with `connection name = ""`, which the non-gating import
+          # below swallowed into a false green (found 2026-06-12, spec-251 — the
+          # silent-success that masked an un-ingested mindset-website corpus).
+          if [ -z "${GCP_PROJECT}" ] || [ -z "${REGION}" ] || [ -z "${CLOUD_SQL_INSTANCE_NAME}" ]; then
+            echo "::error::deploy env is missing GCP_PROJECT/REGION/CLOUD_SQL_INSTANCE_NAME — cannot reach the DB"
+            exit 1
+          fi
+          CLOUD_SQL_INSTANCE_CONN="${GCP_PROJECT}:${REGION}:${CLOUD_SQL_INSTANCE_NAME}"
           PROXY_PORT=15432
           cloud-sql-proxy "${CLOUD_SQL_INSTANCE_CONN}" --port ${PROXY_PORT} &
           PROXY_PID=$!
-          sleep 5
+          # An unreachable DB is an INFRA failure and must fail LOUDLY (exit 1),
+          # unlike a content/network hiccup in the import below (deliberately
+          # non-gating). Wait for the proxy to actually accept connections; without
+          # this gate an unreachable DB rides the `|| echo` to a false green.
+          if ! timeout 30 bash -c "until (echo > /dev/tcp/localhost/${PROXY_PORT}) 2>/dev/null; do sleep 1; done"; then
+            echo "::error::cloud-sql-proxy never became reachable on localhost:${PROXY_PORT} (instance=${CLOUD_SQL_INSTANCE_CONN}) — DB unreachable, refusing to report success"
+            kill $PROXY_PID 2>/dev/null || true
+            exit 1
+          fi
           DB_PASS_ENC=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "${DB_PASS}")
           DB_URL="postgresql://${DB_USER}:${DB_PASS_ENC}@localhost:${PROXY_PORT}/${DB_NAME}"
           SRC="https://www.mindset.ai/llms-full.txt"
