@@ -133,6 +133,10 @@ jobs:
         with:
           name: server-coverage-blob-${{ matrix.shard }}
           path: packages/server/.vitest-reports/
+          # REQUIRED: vitest writes the blob to `.vitest-reports/` (a dot-dir), and
+          # upload-artifact@v4 excludes hidden files by default — without this the
+          # upload silently finds nothing and server-result fails closed on 0 blobs.
+          include-hidden-files: true
           retention-days: 14
 
   # Merge the 3 shard coverage blobs and enforce the t-17 thresholds on the MERGED

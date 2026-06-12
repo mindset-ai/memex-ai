@@ -76,6 +76,11 @@ describe("spec-276 — the server suite is sharded but the coverage gate is inta
     // The blob is uploaded as an artifact for the merge job to pick up.
     expect(server, "shard uploads its coverage blob").toMatch(/upload-artifact/);
     expect(server).toMatch(/\.vitest-reports/);
+    // MUST include hidden files: vitest writes the blob into `.vitest-reports/`
+    // (a dot-dir) and upload-artifact@v4 excludes hidden files by default — without
+    // this the upload finds nothing and server-result fails closed on 0 blobs.
+    // (Caught by PR #169's first CI run; this assertion pins the fix.)
+    expect(server, "blob upload includes hidden files").toMatch(/include-hidden-files:\s*true/);
   });
 
   it("ac-8: server-result merges the blobs and enforces the threshold on MERGED coverage", () => {
