@@ -8,7 +8,8 @@ import { phaseDisplayName } from '../utils/phaseDisplay';
 //   1. CURRENT PHASE — the filled pill driven by the Spec's actual phase. It
 //      persists regardless of what the user has clicked. `draft` lights up a
 //      dedicated grey Draft pill at the far left (NOT the Specify tab); `done`
-//      lights up no tab (a "✓ Done" marker renders beside the bar instead).
+//      lights up no tab — but the bar is hidden entirely once phase==='done'
+//      (DoneSummary takes over), so a Done tab, when shown, is never current.
 //   2. SELECTED — the underline accent driven by clicks. It renders ONLY when
 //      the selected tab differs from the current one (when they coincide the
 //      pill alone carries the state — stacking both reads as clutter).
@@ -25,7 +26,11 @@ import { phaseDisplayName } from '../utils/phaseDisplay';
 // (draft's home), exactly like clicking Specify. While in draft no Specify/Build/
 // Verify tab is current, so Specify may still wear the selected underline.
 
-const TABS = ['specify', 'build', 'verify'] as const;
+// spec-258: the bar completes the pipeline — Specify → Build → Verify → Done.
+// The Done tab is what lets a user SELECT `done` (the verify→done move's missing
+// affordance); it is never the *current* pill because the bar is gated out once
+// phase==='done' (DocDocument.tsx), so `done` only ever wears resting/selected.
+const TABS = ['specify', 'build', 'verify', 'done'] as const;
 export type PhaseTab = (typeof TABS)[number];
 
 // spec-181: labels come from the shared phase display-name layer, which is now a
@@ -35,6 +40,7 @@ const TAB_LABELS: Record<PhaseTab, string> = {
   specify: phaseDisplayName('specify'),
   build: phaseDisplayName('build'),
   verify: phaseDisplayName('verify'),
+  done: phaseDisplayName('done'),
 };
 
 // Per-tab fill, reusing the canonical statusVariant → status-* token classes
@@ -49,10 +55,10 @@ const VARIANT_FILL: Record<ReturnType<typeof statusVariant>, string> = {
   neutral: 'bg-status-neutral-bg text-status-neutral-text border-status-neutral-border',
 };
 
-/** The Specify/Build/Verify tab a given Spec phase makes "current". `draft` and
- * `done` make NO tab current — `draft` lights up the dedicated Draft pill,
- * `done` the ✓ Done marker (the two are told apart by the `isDraft` flag, not
- * by this null). */
+/** The tab a given Spec phase makes "current" (the filled pill). `draft` and
+ * `done` make NO tab current: `draft` lights up the dedicated Draft pill
+ * instead, and `done` is never seen here because the whole bar is hidden once
+ * phase==='done' — so the Done tab only ever renders resting/selected (dec-4). */
 function currentTabFor(phase: SpecStatus): PhaseTab | null {
   switch (phase) {
     case 'specify':
@@ -78,13 +84,14 @@ export interface PhaseTabBarProps {
 
 export function PhaseTabBar({ currentPhase, selectedTab, onSelect }: PhaseTabBarProps) {
   const currentTab = currentTabFor(currentPhase);
-  // `draft` and `done` both make no Plan/Build/Verify tab current — `isDraft`
-  // tells them apart so the Draft pill and the ✓ Done marker never collide.
+  // `draft` makes no tab current — it lights up the dedicated Draft pill. (`done`
+  // also makes none, but the bar is gated out at phase==='done' upstream.)
   const isDraft = currentPhase === 'draft';
   const tabRefs = useRef<Record<PhaseTab, HTMLButtonElement | null>>({
     specify: null,
     build: null,
     verify: null,
+    done: null,
   });
 
   // Roving keyboard nav mirroring ui/Tabs conventions: Arrow keys move focus
@@ -185,15 +192,6 @@ export function PhaseTabBar({ currentPhase, selectedTab, onSelect }: PhaseTabBar
           );
         })}
       </div>
-      {currentTab === null && !isDraft && (
-        <span
-          data-testid="done-marker"
-          className="inline-flex items-center gap-1 text-xs font-medium text-status-success-text"
-        >
-          <span aria-hidden="true">✓</span>
-          Done
-        </span>
-      )}
     </div>
   );
 }

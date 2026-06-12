@@ -130,12 +130,16 @@ test("specify→build gate: stale narrative blocks the offer; consolidation rest
   });
 
   // All decisions resolved + AC present + never consolidated → the Rubicon
-  // states the staleness condition WITH the how-to tail, and offers no move.
+  // states the staleness condition WITH the how-to tail. spec-258/dec-5: an
+  // editor also gets the "Move this spec to Build anyway?" override [Yes] — the
+  // staleness gate informs but no longer dead-ends the editor (consolidation is
+  // still the clean path, exercised next).
   await expect(rubicon).toContainText(
     /The spec narrative must be updated to reflect the resolved decisions before this spec can move to Build — use the refresh action to generate the update prompt\./,
     { timeout: 15_000 }
   );
-  await expect(rubicon.getByRole("button", { name: /^Yes$/ })).toHaveCount(0);
+  await expect(rubicon).toContainText(/Move this spec to Build anyway\?/i);
+  await expect(rubicon.getByRole("button", { name: /^Yes$/ })).toHaveCount(1);
 
   // Consolidate (what assess_spec({mode:'consolidate'}) stamps) → the live
   // change stream refreshes the doc and the advancement offer appears.

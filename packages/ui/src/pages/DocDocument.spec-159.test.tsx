@@ -234,8 +234,8 @@ describe('spec-159 t-6 — DocDocument phase layouts', () => {
 
     // No sub-tab bar: the Specify sub-tab labels are absent.
     expect(screen.queryByText('Decisions & ACs')).not.toBeInTheDocument();
-    // The only tablist on the page is the phase bar (3 tabs), not a sub-tab bar.
-    expect(screen.getAllByRole('tab')).toHaveLength(3);
+    // The only tablist on the page is the phase bar (4 tabs, spec-258), not a sub-tab bar.
+    expect(screen.getAllByRole('tab')).toHaveLength(4);
   });
 
   it('Verify renders AC | Issues with NO sub-tab bar (ac-5, ac-11)', async () => {
@@ -246,7 +246,7 @@ describe('spec-159 t-6 — DocDocument phase layouts', () => {
     await screen.findByTestId('ac-panel');
     expect(screen.getByTestId('issue-panel')).toBeInTheDocument();
     expect(screen.queryByTestId('task-panel')).not.toBeInTheDocument();
-    expect(screen.getAllByRole('tab')).toHaveLength(3);
+    expect(screen.getAllByRole('tab')).toHaveLength(4);
   });
 
   it('Done replaces the content area with the DoneSummary report (ac-5)', async () => {
@@ -303,7 +303,13 @@ describe('spec-159 t-6 — DocDocument phase layouts', () => {
     await screen.findByTestId('ac-panel');
 
     const sentence = screen.getByTestId('transition-sentence');
-    const yes = await within(sentence).findByRole('button', { name: 'Yes' });
+    // Wait for the async AC fetch to settle so verify is CLEAN and the line shows
+    // the ready advancement offer — not the transient spec-258/dec-5 blocked
+    // override (which renders a Yes during the pre-fetch unverified window).
+    await waitFor(() =>
+      expect(sentence).toHaveTextContent(/Do you want to move this spec to Done\?/),
+    );
+    const yes = within(sentence).getByRole('button', { name: 'Yes' });
     await user.click(yes);
 
     // Directly transitioned — no confirm dialog was ever mounted.
@@ -317,15 +323,17 @@ describe('spec-159 t-6 — DocDocument phase layouts', () => {
 // browsing forward → summary + Are-you-sure Yes/No. The in-situ ⚠ directives
 // above the lists are unchanged.
 describe('spec-159 — Rubicon line + in-situ directives', () => {
-  it('specify with open decisions: line states the blocker with no buttons; directive sits above Decisions (ac-3, ac-13)', async () => {
+  it('specify with open decisions: line states the blocker + editor override; directive sits above Decisions (ac-3, ac-13, spec-258)', async () => {
     tagAc(AC(3));
     tagAc(AC(13));
+    tagAc('mindset-prod/memex-building-itself/specs/spec-258/acs/ac-9');
     const user = userEvent.setup();
     docDecisions = [decision('d-1', 'open'), decision('d-2', 'open')];
     docAcs = [{ ac: { status: 'active' }, verificationState: 'untested' }];
     renderAt('specify');
 
-    // Current tab + blocked rubric → the exact condition, no Yes to press.
+    // Current tab + blocked rubric → the exact condition, plus the spec-258/dec-5
+    // editor override "Move … anyway?" [Yes] (canEdit is true in this render).
     // (waitFor: the AC fetch resolving flips `hasAcceptanceCriteria` async.)
     const sentence = await screen.findByTestId('transition-sentence');
     await waitFor(() =>
@@ -333,7 +341,8 @@ describe('spec-159 — Rubicon line + in-situ directives', () => {
         '2 Decisions must be resolved before this spec can move to Build.',
       ),
     );
-    expect(within(sentence).queryByRole('button')).not.toBeInTheDocument();
+    expect(sentence.textContent).toContain('Move this spec to Build anyway?');
+    expect(within(sentence).getByRole('button', { name: 'Yes' })).toBeInTheDocument();
 
     // The directive renders in-situ on the Decisions & ACs sub-tab.
     await user.click(screen.getByText('Decisions & ACs'));
@@ -401,8 +410,9 @@ describe('spec-159 — Rubicon line + in-situ directives', () => {
     expect(text).toContain('2 Decisions must be resolved before this spec can move to Build.');
   });
 
-  it('build with open tasks: directive above Tasks; Rubicon line states it with no buttons (ac-13)', async () => {
+  it('build with open tasks: directive above Tasks; Rubicon line states it + editor override (ac-13, spec-258)', async () => {
     tagAc(AC(13));
+    tagAc('mindset-prod/memex-building-itself/specs/spec-258/acs/ac-9');
     docTasks = [{ id: 't-1', status: 'in_progress' }, { id: 't-2', status: 'complete' }];
     renderAt('build');
 
@@ -414,12 +424,14 @@ describe('spec-159 — Rubicon line + in-situ directives', () => {
     expect(text).toContain(
       '1 Task must be completed (or kicked to Issues) before this spec can move to Verify.',
     );
-    // Current tab + open task → the Rubicon line states it, no buttons.
+    // Current tab + open task → the Rubicon line states it, plus the spec-258/dec-5
+    // editor override "Move … anyway?" [Yes].
     const sentence = screen.getByTestId('transition-sentence');
     expect(sentence.textContent).toContain(
       '1 Task must be completed before this spec can move to Verify.',
     );
-    expect(within(sentence).queryByRole('button')).not.toBeInTheDocument();
+    expect(sentence.textContent).toContain('Move this spec to Verify anyway?');
+    expect(within(sentence).getByRole('button', { name: 'Yes' })).toBeInTheDocument();
   });
 
   it('verify with unverified ACs: directive above the AC column (ac-13)', async () => {
@@ -496,7 +508,7 @@ describe('spec-159 — Rubicon line + in-situ directives', () => {
     await screen.findByText('Narrative');
 
     // Editors still get the PhaseTabBar (3 phase tabs) and the Rubicon line.
-    expect(screen.getAllByRole('tab')).toHaveLength(3);
+    expect(screen.getAllByRole('tab')).toHaveLength(4);
     expect(screen.getByTestId('transition-sentence')).toBeInTheDocument();
     // spec-182 dec-3 + issue-3: at Specify the editor keeps ACCESS to the
     // review actions, but behind a collapsed-by-default disclosure.
@@ -554,7 +566,7 @@ describe('spec-182 — unified reviewer phase block', () => {
 
     await screen.findByTestId('review-action-row');
     // The PhaseTabBar renders for reviewers too (dec-1) — browse-only.
-    expect(screen.getAllByRole('tab')).toHaveLength(3);
+    expect(screen.getAllByRole('tab')).toHaveLength(4);
     // The Rubicon line renders status-only: present, but no [Yes] (dec-2).
     const sentence = screen.getByTestId('transition-sentence');
     expect(within(sentence).queryByRole('button', { name: 'Yes' })).not.toBeInTheDocument();
@@ -672,7 +684,7 @@ describe('spec-182 — unified reviewer phase block', () => {
     await screen.findByTestId('task-panel');
     expect(screen.getByTestId('issue-panel')).toBeInTheDocument();
     // dec-1: the tab bar renders for reviewers; dec-3: no review row off-Specify.
-    expect(screen.getAllByRole('tab')).toHaveLength(3);
+    expect(screen.getAllByRole('tab')).toHaveLength(4);
     expect(screen.queryByTestId('review-action-row')).not.toBeInTheDocument();
     expect(screen.queryByTestId('review-handoff-line')).not.toBeInTheDocument();
   });
