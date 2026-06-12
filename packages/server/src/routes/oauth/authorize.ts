@@ -202,11 +202,23 @@ authorize.post("/", async (c) => {
   }
 
   const state = typeof md.state === "string" ? md.state : "";
-  const stateParam = state ? `&state=${encodeURIComponent(state)}` : "";
+
+  // Build the callback by MERGING params into the registered redirect_uri via
+  // URLSearchParams — never string-concat `?…`. A redirect_uri may legally carry
+  // its own query string (RFC 6749 §3.1.2 forbids only fragments, which DCR
+  // already rejects), so a naive `${uri}?code=` produced `…?tenant=acme?code=…`
+  // and broke the client's parse (spec-275). `md.redirect_uri` is already
+  // validated (clientRedirectAllowed + absolute-URI at registration), so
+  // `new URL()` cannot throw here.
+  const buildRedirect = (params: Record<string, string>): string => {
+    const url = new URL(md.redirect_uri as string);
+    for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
+    return url.toString();
+  };
 
   if (md.decision === "deny") {
     return c.json({
-      redirect: `${md.redirect_uri}?error=access_denied${stateParam}`,
+      redirect: buildRedirect({ error: "access_denied", ...(state ? { state } : {}) }),
     });
   }
 
@@ -263,6 +275,6 @@ authorize.post("/", async (c) => {
   });
 
   return c.json({
-    redirect: `${md.redirect_uri}?code=${encodeURIComponent(minted.code)}${stateParam}`,
+    redirect: buildRedirect({ code: minted.code, ...(state ? { state } : {}) }),
   });
 });
