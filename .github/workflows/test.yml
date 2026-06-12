@@ -36,15 +36,33 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Full server suite (unit + integration + security + regression + api) with
-  # the t-17 coverage thresholds enforced in the same run.
+  # Full server suite (unit + integration + security + regression + api), SHARDED
+  # across 3 runners (spec-276). The single un-sharded job was the merge-gate long
+  # pole (~6m17s; ~72% of it module-import under v8 coverage instrumentation, and
+  # core-starved at ~2 workers on a 2-core runner). Three shards each run ~1/3 of
+  # the files, so import + test time divide → ~2.5min, and total CI drops to ~3min
+  # (now gated by ui/e2e). The t-17 coverage gate is NOT weakened: it moves intact
+  # to the `server-result` merge job below, which enforces 80/80/70/80 on the
+  # MERGED full-suite coverage. Mirrors the e2e matrix + e2e-result aggregator.
+  #
+  # WHY the shard step forces every coverage threshold to 0: in vitest 4.1.1 the
+  # blob reporter does NOT defer threshold evaluation (verified empirically,
+  # spec-276 — confirmed in @vitest/coverage-v8 generateReports→reportThresholds).
+  # A shard running --coverage with the config thresholds live would run
+  # checkThresholds against its OWN partial ~1/3 coverage and exit 1. So shards are
+  # collect-only (thresholds 0); the merge job is the SOLE place the real gate fires.
   server:
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
     # Postgres side-car. Same major version we run locally (schema.ts uses features
     # introduced in 13+; production is Cloud SQL 16). Health check blocks `steps` from
-    # starting until the server is ready.
+    # starting until the server is ready. Each shard gets its OWN service, so the
+    # per-worker DB clones (vitest.worker-db.setup.ts) never collide across shards.
     services:
       postgres:
         # pgvector-bundled Postgres 16 — migration 0023 (codebase intelligence)
@@ -95,17 +113,112 @@ jobs:
             psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f "$f"
           done
 
-      - name: Server suite + coverage gate (fails if services drop below threshold)
-        run: pnpm --filter @memex/server test:coverage
+      - name: Server suite shard ${{ matrix.shard }}/3 (collect coverage, NO threshold gate)
+        # --reporter=blob writes packages/server/.vitest-reports/blob-<shard>-3.json.
+        # The four --coverage.thresholds.*=0 flags make this shard collect-only — the
+        # gate is enforced once, on merged coverage, in server-result (see header).
+        run: |
+          pnpm --filter @memex/server exec vitest run \
+            --shard=${{ matrix.shard }}/3 \
+            --coverage --reporter=blob \
+            --coverage.thresholds.lines=0 \
+            --coverage.thresholds.functions=0 \
+            --coverage.thresholds.branches=0 \
+            --coverage.thresholds.statements=0
 
-      - name: Upload coverage report
-        # Always upload — even on failure — so reviewers can diagnose threshold breaches.
+      - name: Upload coverage blob (shard ${{ matrix.shard }})
+        # Always upload so server-result can merge; a missing blob fails that job closed.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-coverage-blob-${{ matrix.shard }}
+          path: packages/server/.vitest-reports/
+          retention-days: 14
+
+  # Merge the 3 shard coverage blobs and enforce the t-17 thresholds on the MERGED
+  # full-suite coverage (spec-276 dec-2). This job's name is the STABLE required
+  # check for branch protection — the matrix leg names ("server (1)" …) shift with
+  # the shard count and must NOT be required directly (the e2e-result precedent).
+  # Fail-closed: a cancelled/failed shard (needs.server.result != success) or a
+  # missing blob fails the gate rather than passing on partial coverage.
+  server-result:
+    needs: [server]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      MEMEX_EMIT_KEY: ${{ secrets.MEMEX_EMIT_KEY }}
+
+    steps:
+      # Fail closed FIRST: if any shard was cancelled or failed, never merge — a
+      # partial shard set must not produce a green coverage gate.
+      - name: Fail if any server shard did not succeed
+        if: needs.server.result != 'success'
+        run: |
+          echo "server shards result: ${{ needs.server.result }}"
+          exit 1
+
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Download all shard coverage blobs
+        uses: actions/download-artifact@v4
+        with:
+          pattern: server-coverage-blob-*
+          path: /tmp/server-blobs
+          merge-multiple: true
+
+      - name: Stage blobs and fail closed on a missing shard
+        # vitest --merge-reports reads .vitest-reports/ relative to CWD (= the server
+        # package under the pnpm filter), so stage the downloaded blobs there.
+        run: |
+          mkdir -p packages/server/.vitest-reports
+          cp /tmp/server-blobs/*.json packages/server/.vitest-reports/ 2>/dev/null || true
+          count=$(ls packages/server/.vitest-reports/blob-*.json 2>/dev/null | wc -l)
+          echo "shard blobs found: $count"
+          if [ "$count" -ne 3 ]; then
+            echo "Expected 3 shard coverage blobs, found $count — failing closed (partial coverage must not pass the gate)."
+            exit 1
+          fi
+
+      - name: Merge coverage + enforce t-17 thresholds on the MERGED suite
+        id: merge
+        # No --reporter=blob here: vitest errors "Cannot merge reports when
+        # --reporter=blob is used". The config thresholds (80/80/70/80) apply to the
+        # merged coverage map — this is the one and only coverage gate.
+        run: pnpm --filter @memex/server exec vitest --merge-reports --coverage run
+
+      - name: Upload merged coverage report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: server-coverage
           path: packages/server/coverage/
           retention-days: 14
+
+      # spec-276: self-report the runtime-only AC from the live run — the structural
+      # regression test asserts the workflow INVOKES the merge gate, but only the
+      # real run proves the threshold fired on merged coverage. Mirrors how
+      # e2e-result emits spec-172 ac-1: pass AND fail alike, non-blocking (|| true),
+      # skipped silently when no key is configured.
+      - name: Emit spec-276 ac-3 (threshold enforced on merged coverage)
+        if: always()
+        run: |
+          STATUS=$([ "${{ steps.merge.outcome }}" = "success" ] && echo pass || echo fail)
+          if [ -z "$MEMEX_EMIT_KEY" ]; then
+            echo "MEMEX_EMIT_KEY unset — skipping ac-3 emission (status would be: $STATUS)"
+          else
+            curl -sS -X POST "https://memex.ai/api/test-events" \
+              -H "Authorization: Bearer $MEMEX_EMIT_KEY" \
+              -H "Content-Type: application/json" \
+              -d "{\"ac_uid\":\"mindset-prod/memex-building-itself/specs/spec-276/acs/ac-3\",\"status\":\"$STATUS\",\"test_identifier\":\".github/workflows/test.yml::server-result\",\"actor\":\"${{ github.actor }}\",\"metadata\":{\"branch\":\"${{ github.ref_name }}\",\"commit\":\"${{ github.sha }}\",\"run_id\":\"${{ github.run_id }}\"}}" \
+              && echo "ac-3 emitted: $STATUS" || echo "ac-3 emission failed (non-blocking)"
+          fi
 
   # Production build gate (std-17 §6 / cl-55): `make build` is what the deploy
   # actually runs, and vitest does NOT typecheck — a green test matrix can hide
