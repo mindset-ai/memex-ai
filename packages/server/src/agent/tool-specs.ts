@@ -43,6 +43,7 @@ import {
   deleteSection,
   resolveSectionWriteMode,
 } from "../services/sections.js";
+import { appendQaReport } from "../services/qa-reports.js";
 import {
   addClausesToSection,
   createClause,
@@ -2153,6 +2154,54 @@ export const toolSpecs: ToolSpec[] = [
       }
       const sectionRef = buildChildRef(slugs, doc, { type: "sections", seq: section.seq });
       return `Added "${section.title ?? section.sectionType}" section (ref: ${sectionRef}).`;
+    },
+  },
+  {
+    name: "write_qa_report",
+    annotations: { title: "Write QA report", readOnlyHint: false, destructiveHint: false },
+    description:
+      "Persist a QA Report on a Spec at the build→verify hand-off — a human-readable record of what THIS build session actually changed, written for a reviewer who was not in the session (including a non-developer owner). Organise it so each audience finds its part: (1) Front-end / user-affecting changes in plain language, (2) Back-end changes (routes, schema/migrations, services, auth/tenancy, agent behaviour), (3) Testing created and run (which tests, which suites, what passed, what was skipped or left red — tie back to the Spec's ACs), (4) Known gaps & follow-ups (also captured via register_issue todos), (5) Deviations from the plan, (6) Dependencies & integration points, (7) Migration/deployment notes, (8) Open questions. Ground every claim in the changes you made this session and the tests you ran — never restate the plan. Each call APPENDS a new dated version (qa_report, qa_report-2, …); it never overwrites a prior session's report. Read-only once written.",
+    schema: {
+      ref: z
+        .string()
+        .describe("Canonical ref to the Spec the report is for, e.g. `mindset/main/specs/spec-3`."),
+      content: z
+        .string()
+        .describe(
+          "Markdown body of the report, structured into the front-end / back-end / testing / gaps / deviations / dependencies / deploy-notes / open-questions sections described above. Grounded in this session's actual changes — not a restatement of the plan.",
+        ),
+      title: z
+        .string()
+        .optional()
+        .describe("Optional heading for the report row. Defaults to 'QA Report'."),
+      verbose: VERBOSE_FIELD,
+    },
+    async handler(input, ctx) {
+      const ref = input.ref as string;
+      const content = input.content as string;
+      const title = input.title as string | undefined;
+
+      const resolved = await resolveRefArg(ctx, ref);
+      if (!isDocLikeKind(resolved.entity.kind)) {
+        throw new ValidationError(
+          `write_qa_report expects a Spec ref; got ${resolved.entity.kind}.`,
+        );
+      }
+      const { memexId, doc, slugs } = resolved;
+      if (doc.docType !== "spec") {
+        throw new ValidationError(
+          "QA Reports attach to Specs only — pass a `spec-N` ref.",
+        );
+      }
+
+      const section = await appendQaReport(memexId, doc.id, content, title, reqCtx(ctx));
+      if (ctx.verbose) {
+        const state = await fullDocState(memexId, doc.id);
+        const url = await ctx.workspaceUrl(memexId);
+        return await formatState(url, state, ctx);
+      }
+      const sectionRef = buildChildRef(slugs, doc, { type: "sections", seq: section.seq });
+      return `Wrote QA Report "${section.sectionType}" (ref: ${sectionRef}) for ${doc.handle}. Each build session appends a new version — prior reports are preserved.`;
     },
   },
   {

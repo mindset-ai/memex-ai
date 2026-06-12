@@ -768,6 +768,8 @@ const TOOL_RATIONALES: Record<string, string> = {
     'The omnibus task mutator: status, title, description, acceptanceCriteria, sectionRef, add/removeBlockerRef. One field or several per call.',
   delete_task:
     'Hard-delete a task. Cascades blockers and dependencies; prefer marking out-of-scope where the work was considered but dropped.',
+  write_qa_report:
+    "Persist the build→verify hand-off summary as a durable QA Report section on the Spec, instead of letting it evaporate into chat. Reviewer-facing, grounded in the session's real changes, appended as a new dated version each build session (spec-260).",
   flag_drift:
     "Flag drift on a standard section: post a typed `drift` comment (sourced 'agent') when the rule is right but the codebase has diverged from it. Surfaces in the Drift Inbox; use propose_standard_change instead when the rule itself is wrong.",
   propose_standard_change:
@@ -1631,6 +1633,27 @@ const TRANSITIONS: TransitionRubric[] = [
 // (dec-4: v1 reuses today's behaviours unchanged; spec-123 ac-11). Single-source
 // per std-15/std-16 — the inline component constants are now redundant copies of
 // these nodes.
+
+// spec-260 (dec-2, dec-3): the QA-report generation instruction — STEP 6 of the
+// build handoff. Persists the STEP-5 closing summary as a durable, versioned
+// `qa_report` section via write_qa_report instead of letting it evaporate into
+// chat. Exported so the spec-260 prompt tests can assert its contract directly:
+// it REQUIRES grounding in the session's actual changes + tests/test-events
+// (ac-15), and per std-22 it is VCS-agnostic — "the changes you made this
+// session", never a version-control-specific literal (ac-16). (The capability-
+// gated worktree mention in STEP 4 predates this and is std-22-compliant; this
+// constant is the QA-report generation prompt ac-16 scopes.)
+export const QA_REPORT_GENERATION_INSTRUCTION = `Persist that closing summary as the Spec's QA Report — call write_qa_report({ ref: '{namespace}/{memex}/specs/{handle}', content }) before you finish. Generating the report IS part of completing build, not a separate request: it is the record the verifier starts from, and it must survive this chat. Write it for a reviewer who was NOT in this session and may not read code — including a non-developer owner — and organise it as:
+  1. Front-end / user-affecting changes — what a user would now see or do differently (screens, flows, copy, interactions, states), in plain language a non-developer can speak to.
+  2. Back-end changes — routes, schema/migrations, services, data shape, auth/tenancy, agent behaviour, and anything with operational or security implications.
+  3. Testing created and run — which tests you added or changed, which suites you executed, what passed, and honestly what was skipped or left failing; tie back to the Spec's acceptance criteria where relevant.
+  4. Known gaps & follow-ups — what this session deliberately skipped or left incomplete; capture each as register_issue({ type: 'todo' }) and reference those issues from the report, so an incomplete build is never read as complete.
+  5. Deviations from the plan — where the implementation diverged from the Spec's sections or resolved decisions ("we resolved X for approach Y but ended up implementing Z").
+  6. Dependencies & integration points — new or changed packages, services, or external APIs, and any cross-spec / cross-system integration with coordination or breaking-change implications.
+  7. Migration / deployment notes — schema migrations to run, flags to toggle, manual steps, data backfills: the operational actions required to deploy this work safely (name THAT a step is needed; never embed secrets).
+  8. Open questions — knowledge gaps surfaced during build that the verifier should know about, captured as agent-sourced issues and referenced here.
+GROUNDING IS MANDATORY: base sections 1–2 on the changes you made this session — the actual files and behaviour you touched, re-read rather than recalled — and section 3 on the tests you actually ran and the test events you emitted, cross-referenced to their acceptance criteria. The report records what THIS session actually changed, never a restatement of the plan; where reality diverged from the plan, the report says so. Each build session's report is appended as a new dated version — write_qa_report never overwrites a prior session's record.`;
+
 const OPENING_TURN_PROMPT_BUTTONS: PromptButtonNode[] = [
   {
     kind: 'prompt_button',
@@ -1739,16 +1762,19 @@ PARALLELISE ONLY WHEN IT PAYS. If you can spawn sub-agents / run workflows AND t
   • Verify each AC in the shape of its claim: a mechanism AC via its tagged test; an outcome / scope AC via the broadest honest verification available (integration / e2e, or a real-use exercise for non-code artifacts). If an AC genuinely can't be pinned to an automated check, recommend \`verify\` with it flagged for manual sign-off rather than flipping its badge with a thin test.
   • Run assess_spec({ ref: '...', mode: 'phase', target: 'verify' }) and walk its fact sheet.
   • If everything is green or consciously signed off, recommend moving to \`verify\` — you do NOT move it, and you never move to \`done\`; both are the human's call. If anything is unverified, leave those tasks open and report exactly what remains and why.
-Finish with a summary: per-task outcome, AC verification state, any new decisions you surfaced, and any standards drift or decision-vs-code mismatches you found.`,
+Finish with a summary: per-task outcome, AC verification state, any new decisions you surfaced, and any standards drift or decision-vs-code mismatches you found.
+
+── STEP 6: persist the QA Report — the hand-off artifact ──
+${QA_REPORT_GENERATION_INSTRUCTION}`,
     surfaces: ['opening-turn'],
     // spec-203 dec-1: the compressed footer projection of this build handoff —
     // the in-chat essence a chat-driven agent gets on every spec-tool response.
     // spec-219 comb-through: de-jargoned + active. Orients the agent to the build
     // phase (its main home is now the doc_transition footer, on entry); the agent
     // MOVES the spec forward (update_doc), it doesn't just recommend. Token-free.
-    essence: `You are now in build. This is the phase where the actual creation happens: tasks get created and code gets written. The plan is settled, so build it end to end, don't sketch it. Starting with no tasks and untested acceptance criteria is normal; your job here is to break the work into tasks drawn from the narrative (create_task). When the plan names a specific function, file, or endpoint, check it still exists by that name in the current code before you touch it; if it has been renamed or moved, flag the mismatch rather than silently working on whatever is there now, because it means the plan and the code have drifted apart. Verify each task the way its claim demands: for behaviour, write the test first (watch it fail, then pass) and tag it to its acceptance criterion; for prose or config, exercise the actual artifact. Mark a task complete only when its verification actually ran clean. When every task is green (or consciously signed off), move the spec on with update_doc({status:'verify'}); don't jump to done, that's the user's call. Hit a fork the plan didn't settle? Raise it with create_decision rather than inventing the answer.`,
+    essence: `You are now in build. This is the phase where the actual creation happens: tasks get created and code gets written. The plan is settled, so build it end to end, don't sketch it. Starting with no tasks and untested acceptance criteria is normal; your job here is to break the work into tasks drawn from the narrative (create_task). When the plan names a specific function, file, or endpoint, check it still exists by that name in the current code before you touch it; if it has been renamed or moved, flag the mismatch rather than silently working on whatever is there now, because it means the plan and the code have drifted apart. Verify each task the way its claim demands: for behaviour, write the test first (watch it fail, then pass) and tag it to its acceptance criterion; for prose or config, exercise the actual artifact. Mark a task complete only when its verification actually ran clean. Before you hand off, persist your closing summary as the Spec's QA Report (write_qa_report) — what this session actually changed (front-end in plain language, back-end, testing run, gaps, deviations, deploy notes), grounded in the changes you made this session, written for a reviewer who wasn't here; each session appends a new version. When every task is green (or consciously signed off), move the spec on with update_doc({status:'verify'}); don't jump to done, that's the user's call. Hit a fork the plan didn't settle? Raise it with create_decision rather than inventing the answer.`,
     rationale:
-      'Hand a build-phase Spec to a coding agent to build it end-to-end: ground the resolved decisions against current source, derive the task graph from the narrative, implement and verify in the shape of each task, and recommend `verify` (never close — that is the human\'s call). Portable per std-22 — every tooling-specific step gated on "if the project has it". Authored and hardened via spec-149 across four read-only dry-runs. Rendered as the build "Build handoff" action on the opening turn.',
+      'Hand a build-phase Spec to a coding agent to build it end-to-end: ground the resolved decisions against current source, derive the task graph from the narrative, implement and verify in the shape of each task, persist the closing summary as the Spec\'s QA Report (write_qa_report, spec-260 — versioned per session, grounded in the session\'s real changes), and recommend `verify` (never close — that is the human\'s call). Portable per std-22 — every tooling-specific step gated on "if the project has it"; the QA-report instruction is VCS-agnostic ("the changes you made this session"). Authored and hardened via spec-149 across four read-only dry-runs; STEP 6 added by spec-260. Rendered as the build "Build handoff" action on the opening turn.',
   },
   {
     kind: 'prompt_button',

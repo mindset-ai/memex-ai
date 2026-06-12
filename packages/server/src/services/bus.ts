@@ -74,6 +74,10 @@ export type ChangeEntity =
   | "cli_auth_request"
   | "invite_token"
   | "slack_user_cache"
+  // spec-260 (dec-6): per-user QA-Reports read-state marker (qa_report_views
+  // upsert). Memex-scoped, per-user, silent-allowed per std-8 §6 — viewing a
+  // feed is not collaborative content; the badge zeroes client-locally.
+  | "qa_report_view"
   // OAuth 2.1 token-lifecycle entities (b-31). User/Org-scoped infrastructure
   // with no memexId — silent-allowed per std-8 §6, same as the auth_token group.
   // They flow through mutate({silent:true}) so the Mutated<T> brand and the

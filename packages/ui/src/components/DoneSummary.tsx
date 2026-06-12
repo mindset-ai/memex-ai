@@ -30,9 +30,11 @@ import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
+import { isQaReportSectionType } from '@memex/shared';
 import type { Decision, Task, Issue, DocWithGraph } from '../api/types';
 import type { AcWithVerification, DocAssigneeView } from '../api/client';
 import { Button, Card } from './ui';
+import { QaReportCard, selectQaReports } from './QaReportCard';
 import { phaseDisplayName } from '../utils/phaseDisplay';
 
 interface DoneSummaryProps {
@@ -66,6 +68,15 @@ interface DoneSummaryProps {
    * refetch) — DoneSummary itself still makes no network call (ac-9).
    */
   onReopen?: () => void | Promise<void>;
+  /**
+   * spec-258/dec-3: when DoneSummary is the Done-TAB preview (the spec is NOT
+   * yet closed — browsing Done before the move), the headline reads forward
+   * ("This spec will be completed") instead of the retrospective past tense, and
+   * carries no completion date — nothing has happened yet. The post-close report
+   * (default, `preview` false) reads "This spec was completed on …". Defaults to
+   * false.
+   */
+  preview?: boolean;
 }
 
 // One date, spelled the way the sketch shows it ("12 June 2026").
@@ -118,6 +129,7 @@ export function DoneSummary({
   people,
   canReopen = false,
   onReopen,
+  preview = false,
 }: DoneSummaryProps) {
   // spec-164 dec-5: two-step confirm, inline (mirrors the transition
   // sentence's no-modal posture). 'idle' → button; 'confirming' → question +
@@ -128,6 +140,10 @@ export function DoneSummary({
   // retrospective stays the landing state; expanding is pure presentation
   // (no fetch, no phase change).
   const [readOpen, setReadOpen] = useState(false);
+  // spec-260 (dec-1): the Done seat — the QA report sits behind a gated button
+  // modelled on the "Read the spec" toggle, keeping the Done screen clean while
+  // the full build record stays one click away.
+  const [qaOpen, setQaOpen] = useState(false);
 
   const handleReopenYes = async () => {
     setReopenState('submitting');
@@ -174,16 +190,25 @@ export function DoneSummary({
   const totalDays = daysBetween(doc.createdAt, completedAt);
 
   // spec-196 dec-4: the full record, from data already in hand.
-  const sortedSections = [...(doc.sections ?? [])].sort((a, b) => a.seq - b.seq);
+  // spec-260 ac-12: qa_report sections are build output, not plan prose — they
+  // render behind their own gated button below, never inside the spec read view.
+  const sortedSections = [...(doc.sections ?? [])]
+    .sort((a, b) => a.seq - b.seq)
+    .filter((s) => !isQaReportSectionType(s.sectionType));
+  const qaReports = selectQaReports(doc.sections ?? []);
   const recordHeading = 'text-sm font-semibold text-muted tracking-wide mb-3';
 
   return (
     <Card variant="panel" data-testid="done-summary" className="max-w-3xl mx-auto">
-      {/* Headline — the conclusion. ✓ + completion date + how long ago. */}
+      {/* Headline — the conclusion. As the post-close report: ✓ + completion
+          date + how long ago. As the Done-tab PREVIEW (spec-258/dec-3, not yet
+          closed): forward tense, no date — nothing has happened yet. */}
       <div className="text-center py-4">
         <p className="text-lg text-status-success-text">
           <span aria-hidden="true">✓ </span>
-          This spec was completed on {formatDate(completedAt)} ({relativeDays(completedAt)})
+          {preview
+            ? 'This spec will be completed'
+            : `This spec was completed on ${formatDate(completedAt)} (${relativeDays(completedAt)})`}
         </p>
       </div>
 
@@ -241,6 +266,21 @@ export function DoneSummary({
             {readOpen ? 'Hide the spec' : 'Read the spec'}
           </Button>
 
+          {/* spec-260: the QA report behind its own gated toggle — only offered
+              when a build session actually wrote one. */}
+          {qaReports.length > 0 && (
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              data-testid="done-qa-report"
+              aria-expanded={qaOpen}
+              onClick={() => setQaOpen((v) => !v)}
+            >
+              {qaOpen ? 'Hide the QA report' : 'QA report'}
+            </Button>
+          )}
+
           {canReopen &&
             (reopenState === 'idle' ? (
               <Button
@@ -280,6 +320,12 @@ export function DoneSummary({
               </span>
             ))}
         </div>
+
+        {qaOpen && (
+          <div data-testid="done-qa-report-body" className="mt-6 text-left">
+            <QaReportCard reports={qaReports} bare />
+          </div>
+        )}
 
         {readOpen && (
           <div data-testid="done-read-spec-body" className="mt-6 space-y-8 text-left">
