@@ -128,9 +128,10 @@ beforeEach(() => {
 });
 
 describe('spec-159 — zero-state holes block at the page level (ac-3, ac-13)', () => {
-  it('build with ZERO tasks: in-situ ⚠ directive states the hole; Rubicon line blocks with no buttons', async () => {
+  it('build with ZERO tasks: in-situ ⚠ directive states the hole; Rubicon line blocks + editor override (spec-258)', async () => {
     tagAc(AC(3));
     tagAc(AC(13));
+    tagAc('mindset-prod/memex-building-itself/specs/spec-258/acs/ac-9');
     // No tasks at all — the zero-task hole (an empty build hasn't built anything).
     docTasks = [];
     renderAt('build');
@@ -142,17 +143,20 @@ describe('spec-159 — zero-state holes block at the page level (ac-3, ac-13)', 
         'Tasks must be created and completed before this spec can move to Verify.',
       ),
     );
-    // The Rubicon line states the same hole and offers nothing to press.
+    // The Rubicon line states the same hole and — spec-258/dec-5, editor — offers
+    // the "Move … anyway?" override [Yes].
     const sentence = screen.getByTestId('transition-sentence');
     expect(sentence.textContent).toContain(
       'Tasks must be created and completed before this spec can move to Verify.',
     );
-    expect(within(sentence).queryByRole('button')).not.toBeInTheDocument();
+    expect(sentence.textContent).toContain('Move this spec to Verify anyway?');
+    expect(within(sentence).getByRole('button', { name: 'Yes' })).toBeInTheDocument();
   });
 
-  it('verify with NO active ACs: in-situ ⚠ directive states the hole; Rubicon line blocks with no buttons', async () => {
+  it('verify with NO active ACs: in-situ ⚠ directive states the hole; Rubicon line blocks + editor override (spec-258)', async () => {
     tagAc(AC(3));
     tagAc(AC(13));
+    tagAc('mindset-prod/memex-building-itself/specs/spec-258/acs/ac-9');
     // No active ACs — nothing to verify against (the verify→done hole).
     docAcs = [];
     renderAt('verify');
@@ -167,7 +171,8 @@ describe('spec-159 — zero-state holes block at the page level (ac-3, ac-13)', 
     expect(sentence.textContent).toContain(
       'Acceptance Criteria (ACs) must be created and verified before this spec can move to Done.',
     );
-    expect(within(sentence).queryByRole('button')).not.toBeInTheDocument();
+    expect(sentence.textContent).toContain('Move this spec to Done anyway?');
+    expect(within(sentence).getByRole('button', { name: 'Yes' })).toBeInTheDocument();
   });
 
   it('an inactive (non-active) AC does NOT satisfy the verify hole — still blocked', async () => {
@@ -186,9 +191,14 @@ describe('spec-159 — zero-state holes block at the page level (ac-3, ac-13)', 
   });
 });
 
-describe('spec-159 — blocked current phase withholds Yes for an editor (ac-3)', () => {
-  it('editor on a dirty plan (open decision): the line states the blocker, no Yes', async () => {
+// spec-258/dec-5 amends spec-159/dec-4: a blocked current tab now offers the
+// EDITOR a "Move … anyway?" override (the move is forceable from the kanban, so
+// the spec page shouldn't be the lone surface that withholds it). A non-editor's
+// blocked state stays status-only (spec-182/dec-2) — covered in spec-258 specs.
+describe('spec-258 — blocked current phase offers an editor the override (dec-5)', () => {
+  it('editor on a dirty plan (open decision): the line states the blocker AND the "Move … anyway?" override', async () => {
     tagAc(AC(3));
+    tagAc('mindset-prod/memex-building-itself/specs/spec-258/acs/ac-9');
     mockRole = 'editor';
     docDecisions = [
       {
@@ -209,13 +219,14 @@ describe('spec-159 — blocked current phase withholds Yes for an editor (ac-3)'
     renderAt('specify');
 
     const sentence = await screen.findByTestId('transition-sentence');
-    // Even with an editor posture (canTransition true) a dirty rubric on the
-    // current tab shows the condition, never a Yes.
+    // Editor posture (canTransition true): the dirty rubric on the current tab
+    // shows the condition AND the dec-5 override [Yes].
     await waitFor(() =>
       expect(sentence.textContent).toContain(
         '1 Decision must be resolved before this spec can move to Build.',
       ),
     );
-    expect(within(sentence).queryByRole('button')).not.toBeInTheDocument();
+    expect(sentence.textContent).toContain('Move this spec to Build anyway?');
+    expect(within(sentence).getByRole('button', { name: 'Yes' })).toBeInTheDocument();
   });
 });

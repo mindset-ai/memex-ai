@@ -204,17 +204,22 @@ test("lifecycle spine: org → memex → Spec → resolve decision → phase mov
     { timeout: 15_000 }
   );
 
-  // ── 6. Phase move specify → build, gate-aware ─────────────────────────────────
+  // ── 6. Phase move specify → build: gate holds, but the editor gets the override ─
   // specify→build is gated on Decisions resolved AND ACs created. We've resolved
   // the decision but deliberately have no ACs (AC authoring is the agent/MCP
-  // surface, out of this spine's scope) — so the rubric correctly REFUSES the
-  // forward move: NO Yes button on the current Specify tab. That refusal IS the
-  // phase-gated affordance — the spine asserts the gate holds. (Driving the move
-  // all the way to verify needs the AC-create + task-complete surfaces, which
-  // journey-11 and the build/verify journeys own.)
-  await expect(
-    page.getByTestId("transition-sentence").getByRole("button", { name: /^Yes$/ })
-  ).toHaveCount(0);
+  // surface, out of this spine's scope) — so the rubric still NAMES the open AC
+  // gate (it doesn't advance silently). spec-258/dec-5 amends spec-159/dec-4: on
+  // a blocked current tab an EDITOR additionally gets a "Move this spec to Build
+  // anyway?" override [Yes], because the move is already forceable from the
+  // kanban. So the affordance is no longer a dead end — the gate informs, and the
+  // editor has an escape hatch.
+  const rubicon = page.getByTestId("transition-sentence");
+  await expect(rubicon).toContainText(
+    /Acceptance Criteria \(ACs\)[\s\S]*must be created/i,
+    { timeout: 15_000 }
+  );
+  await expect(rubicon).toContainText(/Move this spec to Build anyway\?/i);
+  await expect(rubicon.getByRole("button", { name: /^Yes$/ })).toHaveCount(1);
 });
 
 // ── The signup-as-new-user leg (see file header) ─────────────────────────────

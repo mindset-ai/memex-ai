@@ -66,6 +66,15 @@ interface DoneSummaryProps {
    * refetch) — DoneSummary itself still makes no network call (ac-9).
    */
   onReopen?: () => void | Promise<void>;
+  /**
+   * spec-258/dec-3: when DoneSummary is the Done-TAB preview (the spec is NOT
+   * yet closed — browsing Done before the move), the headline reads forward
+   * ("This spec will be completed") instead of the retrospective past tense, and
+   * carries no completion date — nothing has happened yet. The post-close report
+   * (default, `preview` false) reads "This spec was completed on …". Defaults to
+   * false.
+   */
+  preview?: boolean;
 }
 
 // One date, spelled the way the sketch shows it ("12 June 2026").
@@ -118,6 +127,7 @@ export function DoneSummary({
   people,
   canReopen = false,
   onReopen,
+  preview = false,
 }: DoneSummaryProps) {
   // spec-164 dec-5: two-step confirm, inline (mirrors the transition
   // sentence's no-modal posture). 'idle' → button; 'confirming' → question +
@@ -179,11 +189,15 @@ export function DoneSummary({
 
   return (
     <Card variant="panel" data-testid="done-summary" className="max-w-3xl mx-auto">
-      {/* Headline — the conclusion. ✓ + completion date + how long ago. */}
+      {/* Headline — the conclusion. As the post-close report: ✓ + completion
+          date + how long ago. As the Done-tab PREVIEW (spec-258/dec-3, not yet
+          closed): forward tense, no date — nothing has happened yet. */}
       <div className="text-center py-4">
         <p className="text-lg text-status-success-text">
           <span aria-hidden="true">✓ </span>
-          This spec was completed on {formatDate(completedAt)} ({relativeDays(completedAt)})
+          {preview
+            ? 'This spec will be completed'
+            : `This spec was completed on ${formatDate(completedAt)} (${relativeDays(completedAt)})`}
         </p>
       </div>
 

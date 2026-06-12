@@ -14,10 +14,13 @@ import { Button } from './ui';
 //
 //   1. CURRENT tab, rubric clean → the advancement offer + [Yes].
 //      "Do you wish to move this spec to Build?"
-//   2. CURRENT tab, rubric blocked → the outstanding work, stated plainly, NO
-//      buttons — when the work is obvious there is nothing to confirm.
+//   2. CURRENT tab, rubric blocked → the outstanding work, stated plainly.
 //      "**4 Decisions** must be resolved and **Acceptance Criteria (ACs)**
 //       must be created before this spec can move to Build."
+//      spec-258/dec-5 (amends spec-159/dec-4): for an EDITOR the line ALSO
+//      offers a "Move this spec to {Phase} anyway?" override [Yes] — the move is
+//      forceable from the kanban, so the spec page shouldn't withhold it. A
+//      non-editor still sees the blocker statement alone (no question, no button).
 //   3. BROWSING another tab → an explicit confirm: [Yes] [No]. Forward+blocked
 //      leads with the blocker summary (which names the target) and asks "Move
 //      this spec anyway?" — the deliberate-friction escape hatch. No returns
@@ -271,12 +274,24 @@ export function TransitionSentence({
   // Shape 1/2 — viewing the current phase's own tab.
   if (viewingCurrentTab) {
     if (blockers.length > 0) {
-      // Blocked: state the exact rubric condition. The work is obvious — no
-      // buttons to press.
+      // Blocked: always state the exact rubric condition. spec-258/dec-5: an
+      // EDITOR additionally gets a "Move … anyway?" override — phase gates are
+      // soft (spec-12/dec-6) and the move is already forceable from the kanban,
+      // so the spec page shouldn't be the lone surface that withholds it. The
+      // override is phase-generic, so it covers specify→build, build→verify and
+      // verify→done alike. A non-editor (canTransition === false) keeps the
+      // status-only blocker text — no question, no button (spec-182/dec-2).
       return (
         <p className="text-sm text-secondary" data-testid="transition-sentence">
           {renderBlockers(blockers)} before this spec can move to {phaseDisplayName(target)}
           {refreshTail}.
+          {canTransition && (
+            <>
+              {' '}
+              Move this spec to {phaseDisplayName(target)} anyway? {yesButton}
+              {errorNote}
+            </>
+          )}
         </p>
       );
     }

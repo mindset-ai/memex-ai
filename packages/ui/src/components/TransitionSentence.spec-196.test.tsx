@@ -58,7 +58,10 @@ describe('spec-196 — Rubicon narrative-staleness blocker at specify→build', 
     tagAc(AC(8));
     tagAc(AC(9));
     tagAc(AC(10));
-    render(<TransitionSentence {...baseProps({ narrativeStale: true })} />);
+    // Non-editor view: the blocker sentence stands alone (the spec-258/dec-5
+    // editor override would otherwise append "Move … anyway?"). The dec-3
+    // sentence itself is posture-independent — this pins its exact text.
+    render(<TransitionSentence {...baseProps({ narrativeStale: true, canTransition: false })} />);
 
     // The exact dec-3 sentence.
     expect(text()).toBe(
@@ -91,9 +94,10 @@ describe('spec-196 — Rubicon narrative-staleness blocker at specify→build', 
 
   it('composes with the AC fragment under the shared renderer (ac-8)', () => {
     tagAc(AC(8));
+    // Non-editor view pins the exact composed sentence (see above re: dec-5).
     render(
       <TransitionSentence
-        {...baseProps({ narrativeStale: true, hasAcceptanceCriteria: false })}
+        {...baseProps({ narrativeStale: true, hasAcceptanceCriteria: false, canTransition: false })}
       />,
     );
     expect(text()).toBe(

@@ -1070,10 +1070,17 @@ export function DocDocument() {
   );
 
   // ── The declarative phase → layout map (spec-159: explicitly a plain data
-  //    structure so the per-phase composition is cheap to rearrange). `done`
-  //    isn't here — DoneSummary replaces the whole content area below. `draft`
+  //    structure so the per-phase composition is cheap to rearrange). `draft`
   //    shares the `specify` layout (its home tab). Each entry says whether the
-  //    phase carries a sub-tab bar and what it renders. ──────────────────────
+  //    phase carries a sub-tab bar and what it renders.
+  //
+  //    spec-258/dec-3: the `done` entry is the Done TAB's content — a read-only
+  //    DoneSummary *preview* shown while browsing Done before the spec is closed.
+  //    It is fed from the same on-page props as the post-close report (doc /
+  //    decisions / tasks / acs / issues / people) but carries NO Reopen or
+  //    mutation affordance (canReopen omitted) — browsing never mutates phase.
+  //    Once the spec is actually `done`, the bar is hidden and the real
+  //    DoneSummary (with Reopen) takes over the whole area below. ─────────────
   const PHASE_LAYOUTS: Record<PhaseTab, { hasSubTabs: boolean; render: () => React.ReactNode }> = {
     specify: {
       hasSubTabs: true,
@@ -1108,6 +1115,22 @@ export function DocDocument() {
             {verifyTaskEcho}
           </>,
         ),
+    },
+    // spec-258/dec-3: browsing the Done tab previews the retrospective the move
+    // will produce — the same fetch-free DoneSummary, minus Reopen/mutation.
+    done: {
+      hasSubTabs: false,
+      render: () => (
+        <DoneSummary
+          doc={doc}
+          decisions={decs}
+          tasks={ts}
+          acs={acs}
+          issues={issues}
+          people={assignees}
+          preview
+        />
+      ),
     },
   };
 
