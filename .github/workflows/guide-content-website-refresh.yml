@@ -119,6 +119,22 @@ jobs:
             kill $PROXY_PID 2>/dev/null || true
             exit 1
           fi
+          # Embedding provider — fetch openai-api-key from Secret Manager (same
+          # identity that already reads the deploy-env + DB_PASS secrets) so the
+          # import EMBEDS rather than landing vectorless. OpenAI specifically (not
+          # Cohere): the running server resolves OpenAI at query time and the
+          # vector arm filters `embedding_model = provider.name`, so the corpus
+          # MUST be embedded with the same provider or the vectors never match.
+          # A missing/unreadable key is a config error → fail LOUDLY (the whole
+          # point of this run is to produce vectors). A transient OpenAI API error
+          # mid-import stays non-gating: upsertGuideChunk upserts vectorless and a
+          # re-run backfills (FTS covers in the meantime).
+          if ! OPENAI_API_KEY="$(gcloud secrets versions access latest --secret=openai-api-key --project="${GCP_PROJECT}")"; then
+            echo "::error::could not read openai-api-key from Secret Manager (project=${GCP_PROJECT}) — refusing a vectorless import"
+            kill $PROXY_PID 2>/dev/null || true
+            exit 1
+          fi
+          export OPENAI_API_KEY
           DB_PASS_ENC=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "${DB_PASS}")
           DB_URL="postgresql://${DB_USER}:${DB_PASS_ENC}@localhost:${PROXY_PORT}/${DB_NAME}"
           if [ "${ENV}" = "prod" ]; then SRC="https://memex.ai/llms-full.txt"; else SRC="https://int.memex.ai/llms-full.txt"; fi
