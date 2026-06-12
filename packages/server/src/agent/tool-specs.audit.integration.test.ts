@@ -1009,6 +1009,17 @@ describe("audit: b-36 D-8 — every terse mutation/list response emits `ref:` an
         },
       ],
       [
+        // spec-260: appends a versioned qa_report section; the terse response
+        // carries the new section's child ref.
+        "write_qa_report",
+        {
+          input: () => ({
+            ref: docRef(slugs, docHandle),
+            content: "Probe QA report body.",
+          }),
+        },
+      ],
+      [
         "update_section",
         {
           input: () => ({

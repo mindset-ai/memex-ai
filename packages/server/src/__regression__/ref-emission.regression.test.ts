@@ -413,6 +413,17 @@ describe("regression: every entity-acting MCP tool emits `ref:` and no raw UUID 
         },
       ],
       [
+        // spec-260: appends a versioned qa_report section; the terse response
+        // carries the new section's child ref.
+        "write_qa_report",
+        {
+          input: () => ({
+            ref: refForDoc(slugs, docHandle),
+            content: "Probe QA report body.",
+          }),
+        },
+      ],
+      [
         "update_section",
         {
           input: () => ({
