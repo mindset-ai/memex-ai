@@ -27,6 +27,15 @@ const AC_16 = "mindset-prod/memex-building-itself/specs/spec-199/acs/ac-16";
 // spec-257 dec-3: the dynamic FORCE guard — no RLS-enabled table may be FORCE'd.
 const AC_257_FORCE_GUARD =
   "mindset-prod/memex-building-itself/specs/spec-257/acs/ac-11";
+// spec-257 dec-1: the NO-FORCE posture (RLS enabled, FORCE off) is spec-257's
+// contract now — it inverts spec-199's original "enabled AND forced", so the
+// posture assertion below re-tags here rather than emitting a contradictory
+// pass to the done spec-199 ACs (the pure cross-tenant isolation/policy tests
+// keep AC_15/AC_16 — those claims are unchanged).
+const AC_257_POSTURE =
+  "mindset-prod/memex-building-itself/specs/spec-257/acs/ac-7";
+const AC_257_MEMEX_APP_SUBJECT =
+  "mindset-prod/memex-building-itself/specs/spec-257/acs/ac-9";
 const RLS_ROLE = "memex_rls_tester";
 const RLS_PASS = "memex_rls_test_only";
 
@@ -168,9 +177,8 @@ describe("spec-199 ac-16: RLS tenant isolation", () => {
     ).rejects.toThrow();
   });
 
-  it("ac-16: RLS is enabled but NOT forced on all 13 tenant tables (owner-bypass posture, spec-257 dec-1)", async () => {
-    tagAc(AC_15);
-    tagAc(AC_16);
+  it("ac-7: RLS is enabled but NOT forced on all 13 tenant tables (owner-bypass posture, spec-257 dec-1)", async () => {
+    tagAc(AC_257_POSTURE);
 
     // memex_emission_keys is deliberately absent: it is an identity-
     // establishment table (verifyEmissionKey runs before ALS context exists)
@@ -286,9 +294,8 @@ describe("spec-199 ac-16: RLS tenant isolation", () => {
     }
   });
 
-  it("ac-16: memex_app role without GUC sees 0 rows (SET LOCAL ROLE production path)", async () => {
-    tagAc(AC_15);
-    tagAc(AC_16);
+  it("ac-9: memex_app role without GUC sees 0 rows (SET LOCAL ROLE production path)", async () => {
+    tagAc(AC_257_MEMEX_APP_SUBJECT);
 
     // Switch to memex_app within a transaction using SET LOCAL ROLE. memex_app
     // is a NON-OWNER role (postgres owns these tables) with NOBYPASSRLS, so
