@@ -26,6 +26,12 @@ import {
 } from "../db/schema.js";
 import { upsertUserByEmail } from "../services/users.js";
 import { signSessionToken } from "../services/auth-jwt.js";
+import { tagAc } from "@memex-ai-ac/vitest";
+
+// spec-275 — the authorize redirect must MERGE params into a redirect_uri that
+// already carries a query string, not blindly concatenate `?code=`.
+const SPEC275_AC_1 = "mindset-prod/memex-building-itself/specs/spec-275/acs/ac-1";
+const SPEC275_AC_2 = "mindset-prod/memex-building-itself/specs/spec-275/acs/ac-2";
 
 const originalFlag = process.env.OAUTH_ENABLED;
 
@@ -293,5 +299,73 @@ describe("OAuth e2e — full connector flow", () => {
     const refreshes = await db.select().from(oauthRefreshTokens).limit(1);
     expect(Array.isArray(codes)).toBe(true);
     expect(Array.isArray(refreshes)).toBe(true);
+  });
+});
+
+describe("OAuth e2e — query-bearing redirect_uri merge (spec-275)", () => {
+  // A redirect_uri with an existing query string is legal (RFC 6749 §3.1.2 bans
+  // only fragments). The authorize handler must MERGE code/state/error into it,
+  // not concat `?code=` (which produced `…?tenant=acme?code=…` and broke parsing).
+  async function registerAndAuthorize(redirectUri: string, decision: "allow" | "deny"): Promise<string> {
+    const { app } = await import("../app.js");
+    const user = await upsertUserByEmail(`oauth-q-${decision}-${Date.now()}-${Math.random()}@test.dev`);
+    userIds.push(user.id);
+    const sessionJwt = signSessionToken(user.id);
+
+    const regRes = await app.fetch(
+      new Request("https://memex.ai/api/oauth/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ client_name: "spec-275 query redirect", redirect_uris: [redirectUri] }),
+      }),
+    );
+    expect(regRes.status).toBe(201);
+    const reg = (await regRes.json()) as { client_id: string };
+    const [client] = await db
+      .select()
+      .from(oauthClients)
+      .where(inArray(oauthClients.clientId, [reg.client_id]));
+    clientRowIds.push(client.id);
+
+    const { challenge } = makePkce();
+    const authRes = await app.fetch(
+      new Request("https://memex.ai/api/oauth/authorize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${sessionJwt}` },
+        body: JSON.stringify({
+          response_type: "code",
+          client_id: reg.client_id,
+          redirect_uri: redirectUri,
+          code_challenge: challenge,
+          code_challenge_method: "S256",
+          state: "test-state",
+          decision,
+        }),
+      }),
+    );
+    expect(authRes.status).toBe(200);
+    const { redirect } = (await authRes.json()) as { redirect: string };
+    return redirect;
+  }
+
+  it("ac-1/ac-2: grant merges code+state into an existing query string (no double-?)", async () => {
+    tagAc(SPEC275_AC_1);
+    tagAc(SPEC275_AC_2);
+    const redirect = await registerAndAuthorize("https://test.example/callback?tenant=acme", "allow");
+    expect(redirect.split("?").length).toBe(2); // exactly one '?' — merged, not concatenated
+    const u = new URL(redirect);
+    expect(u.searchParams.get("tenant")).toBe("acme"); // original param preserved, intact
+    expect(u.searchParams.get("code")).toBeTruthy(); // merged & individually parseable
+    expect(u.searchParams.get("state")).toBe("test-state");
+  });
+
+  it("ac-1: deny merges error+state into an existing query string (no double-?)", async () => {
+    tagAc(SPEC275_AC_1);
+    const redirect = await registerAndAuthorize("https://test.example/callback?tenant=acme", "deny");
+    expect(redirect.split("?").length).toBe(2);
+    const u = new URL(redirect);
+    expect(u.searchParams.get("tenant")).toBe("acme");
+    expect(u.searchParams.get("error")).toBe("access_denied");
+    expect(u.searchParams.get("state")).toBe("test-state");
   });
 });
