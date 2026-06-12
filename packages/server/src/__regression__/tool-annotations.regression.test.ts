@@ -41,6 +41,9 @@ const READ_ONLY = new Set<string>([
   // export_doc (spec-100): reads a doc and renders lossless export markdown —
   // no mutation, so readOnlyHint: true.
   "export_doc",
+  // get_prompt (spec-263): reads a Spec and composes the phase handoff prompt
+  // from the shared Scaffold — no mutation, so readOnlyHint: true.
+  "get_prompt",
   // Issues (spec-112): the read side of the issue tool surface.
   "list_issues",
   "get_issue",

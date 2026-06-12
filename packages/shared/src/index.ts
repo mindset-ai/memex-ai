@@ -77,6 +77,7 @@ export {
   BASE_SCAFFOLD,
   SPEC_SHAPE_MISSING_LENS_WARNING,
   BUILD_AC_NAG_PROSE,
+  GET_PROMPT_PROSE,
 } from './scaffold-data.js';
 // spec-111 t-9 — read-only agent block, injected by buildSystemBlocks when the
 // per-request readOnly flag is set. Lives in the scaffold model (b-68 dec-6),

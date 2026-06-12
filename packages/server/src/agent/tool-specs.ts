@@ -200,6 +200,7 @@ import {
   HANDOFF_BUTTON_BY_PHASE,
   toButtonPrompt,
   toHandoffEssence,
+  GET_PROMPT_PROSE,
   type Phase,
   type GuidanceBlock,
 } from "@memex/shared";
@@ -780,7 +781,10 @@ async function renderFooterSignal(
       void docId;
       const target = signal.target as Phase;
       const essence = toHandoffEssence(BASE_SCAFFOLD, target);
-      if (essence) return essence;
+      // spec-263 dec-4 (ac-11): landing in the new phase is exactly when the
+      // new phase's full handoff becomes relevant — the one-line get_prompt
+      // pointer rides the essence (prose lives in scaffold-data, std-15).
+      if (essence) return `${essence}\n${GET_PROMPT_PROSE.pointer}`;
       if (target === "done") {
         return (
           `This spec is now done: closed and read-only for normal work. ` +
@@ -941,11 +945,15 @@ export async function composeGuidanceEnvelope(
           handoffContext &&
           claimFullHandoffDelivery(ctx.userId, ctx.sessionId, state.doc.id, state.doc.status)
         ) {
+          // spec-263 dec-2 (ac-9): compose WITH the Org appends already fetched
+          // above — the same composition the UI button and get_prompt use, so
+          // there is exactly one server-side behaviour for the handoff prompt.
           fullHandoff =
             toButtonPrompt({
               dataset: BASE_SCAFFOLD,
               buttonId: handoffButtonId,
               context: handoffContext,
+              orgBlocks,
             }) ?? undefined;
         }
       }
@@ -1011,7 +1019,14 @@ export async function composeGuidanceEnvelope(
     const hasSurgicalSteer = Boolean(slot) || Boolean(toolSteer);
     if (!hasSurgicalSteer) {
       const essence = toHandoffEssence(BASE_SCAFFOLD, phase);
-      if (essence) lines.push(essence);
+      if (essence) {
+        lines.push(essence);
+        // spec-263 dec-4 (ac-11): the get_prompt pointer rides the essence
+        // line — this terse seat covers the get_doc orient call AND the
+        // assess_spec phase-mode response (neither has a surgical steer).
+        // Suppressed on get_prompt's own responses: the body IS the prompt.
+        if (ctx.toolName !== "get_prompt") lines.push(GET_PROMPT_PROSE.pointer);
+      }
     }
     if (phase === "build") {
       const nag = await craftUntestedAcNag(memexId, docId);
@@ -1770,6 +1785,67 @@ export const toolSpecs: ToolSpec[] = [
       const tagSuffix =
         docTags.length > 0 ? ` Tags: ${docTags.map(formatTag).join(", ")}.` : "";
       return `ref: ${docRef} "${doc.title}" [${doc.docType}, ${doc.status}].${tagSuffix}`;
+    },
+  },
+  {
+    // spec-263 — the phase handoff prompt, fetched from inside the coding
+    // session. Same scaffold node, same composition path, same Org appends as
+    // the web UI's copy-prompt button: the two surfaces cannot drift (std-23).
+    name: "get_prompt",
+    annotations: { title: "Get handoff prompt", readOnlyHint: true, destructiveHint: false },
+    description:
+      "Get the handoff prompt for a Spec's CURRENT phase — the exact text the web UI's copy-prompt button produces (specify → plan handoff, build → build handoff, verify → verify handoff), composed from the shared Scaffold with your Org's additions included. " +
+      "Call it after orienting on a Spec or right after a phase transition, when you need the full handoff prompt to act on. " +
+      "Phases with no handoff (draft, done) return an explanation, never an error. Spec-only.",
+    schema: {
+      ref: z
+        .string()
+        .describe("Canonical ref to the Spec, e.g. `mindset/main/specs/spec-3`."),
+      verbose: VERBOSE_FIELD,
+    },
+    async handler(input, ctx) {
+      const ref = input.ref as string;
+      const resolved = await resolveRefArg(ctx, ref);
+      if (!isDocLikeKind(resolved.entity.kind)) {
+        throw new ValidationError(
+          `get_prompt expects a doc-level Spec ref; got ${resolved.entity.kind}.`,
+        );
+      }
+      const { memexId, doc } = resolved;
+      if (doc.docType !== "spec") {
+        throw new ValidationError(
+          `get_prompt expects a Spec; ${doc.handle} is a ${doc.docType}. Handoff prompts exist only on Specs.`,
+        );
+      }
+      // dec-1: select for the CURRENT phase through the SAME map the UI copy
+      // button and the footer essence select through (spec-203 dec-1) — node
+      // selection is single-source by construction. draft/done carry no node;
+      // explain, never throw or return empty (ac-7 / scope ac-4).
+      const phase = doc.status as Phase;
+      const buttonId = HANDOFF_BUTTON_BY_PHASE[phase];
+      if (!buttonId) return GET_PROMPT_PROSE.noHandoff(phase);
+      const baseUrl = await ctx.workspaceUrl(memexId);
+      const context = handoffInterpolationContext(baseUrl, doc);
+      if (!context) return GET_PROMPT_PROSE.noContext;
+      // dec-2: Org appends ride the composition, so the returned text is
+      // byte-identical to the UI button's clipboard output (PromptButton.tsx
+      // threads orgBlocks the same way).
+      const orgBlocks = ctx.getOrgBlocksForNudge
+        ? await ctx.getOrgBlocksForNudge()
+        : undefined;
+      const prompt = toButtonPrompt({
+        dataset: BASE_SCAFFOLD,
+        buttonId,
+        context,
+        orgBlocks,
+      });
+      if (prompt === null) {
+        // Unreachable while every HANDOFF_BUTTON_BY_PHASE id has a node in
+        // BASE_SCAFFOLD (pinned by shared tests) — a missing node is scaffold
+        // corruption, not a caller error.
+        throw new Error(`No PromptButtonNode found for buttonId="${buttonId}".`);
+      }
+      return prompt;
     },
   },
   {

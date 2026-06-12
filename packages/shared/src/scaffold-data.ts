@@ -720,6 +720,8 @@ const TOOL_RATIONALES: Record<string, string> = {
     'Spec discovery within a Memex — shows active Specs with decision/task counts and lineage. Returns no archived/paused content by default.',
   get_doc:
     'The primary read tool. Returns the full Spec picture — sections, decisions, tasks, comments, blockers, phase-aware guidance — in one call.',
+  get_prompt:
+    "spec-263: the phase handoff prompt fetched from inside the coding session — composes the SAME scaffold node the web UI's copy-prompt button projects (HANDOFF_BUTTON_BY_PHASE + toButtonPrompt, Org appends included), so no context switch to the browser and no drift between the two surfaces.",
   export_doc:
     'spec-100 lossless export. Renders the whole Spec as markdown with every comment thread expanded inline at its anchor (HTML-comment-delimited block-quotes) — the form to paste into an external LLM/editor or feed the side agent, with the conversation intact.',
   list_tasks:
@@ -2086,6 +2088,37 @@ export const BUILD_AC_NAG_PROSE = {
   failingInstruction: '→ fix the code or the test, then re-run',
   /** Copy-pasteable emission call against a canonical AC ref. */
   tagAcCall: (canonicalRef: string): string => `tagAc('${canonicalRef}')`,
+} as const;
+
+// ──────────────────────────────────────────────────────────────────────────
+// spec-263 — get_prompt: fetch the phase handoff prompt over MCP.
+//
+// The *static* prose for the get_prompt tool's two text surfaces lives here,
+// in the Scaffold (std-15/std-23: prompt prose has one home; same "templated
+// const consumed by server code" shape as BUILD_AC_NAG_PROSE). The tool itself
+// composes the actual handoff via `toButtonPrompt` + `HANDOFF_BUTTON_BY_PHASE`
+// — no prompt text is duplicated here, only the wrapper prose around it.
+export const GET_PROMPT_PROSE = {
+  /** dec-4: the one-line pointer that rides the handoff-essence footer sites
+   *  (get_doc essence line, assess_spec phase-mode footer, update_doc
+   *  forward-transition footer). Token-free like the essence itself — the
+   *  footer header already carries the Spec ref. */
+  pointer:
+    "For this phase's full handoff prompt, call get_prompt({ ref: '<this-spec>' }) — the same text the web UI's copy-prompt button produces.",
+  /** dec-1 / scope ac-4: returned (never thrown) when the Spec's current phase
+   *  carries no handoff node. Names the phases that do, so an agent can relay
+   *  it usefully rather than treating it as a failure. */
+  noHandoff: (phase: string): string =>
+    `This Spec is in '${phase}', a phase that carries no handoff prompt. ` +
+    `Handoff prompts exist for specify (plan the work), build (build it end-to-end), and verify (check it against the running system) — ` +
+    `call get_prompt again once the Spec enters one of those phases. ` +
+    `draft carries none by design (the next step is shaping the Spec and moving it to specify); done is terminal — the work is closed.`,
+  /** Returned (never thrown) when the surface can't build the interpolation
+   *  context (no parseable workspace URL — e.g. the in-app agent seat). The
+   *  un-interpolated template would be worse than no prompt. */
+  noContext:
+    'The handoff prompt could not be composed on this surface (no workspace URL to interpolate the prompt context from). ' +
+    'Fetch it over MCP from a coding session, or use the copy-prompt button on the Spec page in the web UI.',
 } as const;
 
 /** The BASE scaffold dataset. No `source: 'org'` rows live here — Org

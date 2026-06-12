@@ -737,6 +737,10 @@ const REF_PROBE_SKIP = new Map<string, string>([
   ["memex__send_discord_message", "external-action tool — output confirms webhook delivery, not a memex entity ref; requires live Discord webhook"],
   // get_information returns prose (topic index or topic body), never an entity ref.
   ["get_information", "Read-only guidance tool — returns markdown prose, not a memex entity ref"],
+  // get_prompt (spec-263) returns the composed handoff prompt (or a no-handoff
+  // explanation) — prompt prose interpolated from slugs/handles, never a UUID.
+  // Output asserted byte-for-byte in agent/get-prompt.spec-263.integration.
+  ["get_prompt", "Read-only prompt tool — returns handoff prompt prose, not a memex entity ref; covered by get-prompt.spec-263.integration"],
   // provision_ac_emission (spec-234) returns a raw emission key + integration guidance
   // markdown, not a terse `ref:` entity confirmation. Exercised end-to-end in
   // agent/spec-234-provision-ac-emission.integration.

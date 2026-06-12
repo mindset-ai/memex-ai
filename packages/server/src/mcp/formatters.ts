@@ -19,6 +19,7 @@ import { formatRef } from "../services/refs.js";
 import {
   BASE_SCAFFOLD,
   BUILD_AC_NAG_PROSE,
+  GET_PROMPT_PROSE,
   toNudge,
   toHandoffEssence,
   type GuidanceBlock,
@@ -1151,6 +1152,12 @@ function renderSpecPhaseGuidance(
   if (handoffBlock) {
     lines.push("");
     lines.push(handoffBlock);
+    // spec-263 dec-4 (ac-11): when the block is the compressed ESSENCE (not the
+    // once-per-session full embed, which IS the prompt), the one-line get_prompt
+    // pointer rides it — suppressed on get_prompt's own responses.
+    if (!nudge?.fullHandoff && nudge?.tool !== "get_prompt") {
+      lines.push(GET_PROMPT_PROSE.pointer);
+    }
   }
 
   // Dynamic per-Spec counts — stay in code because they're derived from the
