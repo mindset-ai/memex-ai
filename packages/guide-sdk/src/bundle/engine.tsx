@@ -12,7 +12,7 @@
 // It REUSES the engine's existing exports (createVoiceOrchestratorFactory, the
 // session provider/pill, Specky) — no duplicated engine logic (dec-5).
 
-import { StrictMode, useEffect, useRef } from 'react';
+import { StrictMode, useEffect, useLayoutEffect, useRef } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { setGuideBackend } from '../backend';
 import { createVoiceOrchestratorFactory } from '../orchestrator/voiceGuideOrchestrator';
@@ -56,9 +56,15 @@ async function mintAnonGuideToken(config: GuideBundleConfig): Promise<string | n
 export async function mountEngine({
   shadow,
   config,
+  onFirstPaint,
 }: {
   shadow: ShadowRoot;
   config: GuideBundleConfig;
+  /** spec-264 t-1 (dec-1): fired after the engine commits its FIRST frame (its idle
+   *  Specky icon is now in the shadow DOM). The loader hides its hand-off doorway
+   *  here — not before mountEngine — so the two overlap in one paint and the launcher
+   *  never blinks out of existence between "doorway gone" and "engine painted". */
+  onFirstPaint?: () => void;
 }): Promise<MountedEngine> {
   // The injected backend: the public endpoint's leg paths differ from the app's
   // (the app authenticates the SSE leg with an Authorization header; the public
@@ -131,6 +137,9 @@ export async function mountEngine({
             so auto-start the session once on mount (the engine's icon doorway then
             re-appears if the user ends the session). */}
         <AutoStart />
+        {/* spec-264 t-1: signal first paint so the loader hides its doorway only once
+            the engine's affordance is on screen (no flicker). */}
+        <FirstPaintSignal onPainted={onFirstPaint} />
         <GuideOverlay />
       </VoiceSessionProvider>
     </StrictMode>,
@@ -156,6 +165,22 @@ function AutoStart(): null {
     // Run once; `session.start` identity is stable for the provider's lifetime.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  return null;
+}
+
+/** spec-264 t-1 (dec-1): fire `onPainted` once, after the engine's first commit. A
+ *  `useLayoutEffect` runs synchronously after React mutates the DOM but BEFORE the
+ *  browser paints — so at this point the engine's idle Specky icon is already in the
+ *  shadow root. The loader hides its doorway in this callback, so the doorway removal
+ *  and the engine's appearance land in the SAME paint: no empty frame, no flicker.
+ *  Renders nothing. */
+function FirstPaintSignal({ onPainted }: { onPainted?: () => void }): null {
+  const fired = useRef(false);
+  useLayoutEffect(() => {
+    if (fired.current) return; // StrictMode double-invokes effects; fire only once
+    fired.current = true;
+    onPainted?.();
+  }, [onPainted]);
   return null;
 }
 

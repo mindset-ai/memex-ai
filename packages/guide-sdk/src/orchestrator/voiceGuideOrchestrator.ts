@@ -34,6 +34,7 @@ import type { VadEngine } from '../micVad';
 import { WebAudioPlayback } from '../playbackQueue';
 import type { PlaybackSink } from '../bargeIn';
 import { createGuideGraph } from '../guideGraph';
+import type { MessageParam, ContentBlock } from '../agent-types';
 
 // spec-214 dec-3 — self-echo guard tuning. A committed transcript is dropped as the
 // agent's own echo ONLY when BOTH hold: it lands within the cooldown after speaking
@@ -132,6 +133,18 @@ class VoiceGuideOrchestrator implements VoiceOrchestrator {
   private turnAbort: AbortController | null = null;
   private speakingRequestId: string | null = null;
   private stopped = false;
+  // spec-264 t-2 (dec-2): the orchestrator OWNS the committed conversation history —
+  // the user+assistant of COMPLETED turns only. Each turn invokes the graph with a
+  // FRESH per-turn thread and this history as input, then commits the turn's messages
+  // only if it finished without being interrupted/superseded. So a Stop (or a fast
+  // follow-up) drops the in-flight turn entirely and the next utterance starts clean,
+  // with no dangling user turn left in a checkpoint for the model to keep answering.
+  private committedMessages: MessageParam[] = [];
+  // Monotonic turn id. runTurn stamps `currentTurnId` at entry; interrupt() clears it
+  // and a superseding runTurn replaces it, so an in-flight turn can detect (after its
+  // async graph.invoke resolves) that it was abandoned and neither speak nor commit.
+  private turnSeq = 0;
+  private currentTurnId: number | null = null;
   // spec-214 dec-1: the live loop state, tracked here so the mic→STT gate can read
   // it synchronously. Mic PCM is forwarded to STT ONLY while this is 'listening'.
   private loopState: VoiceLoopState = 'idle';
@@ -225,7 +238,7 @@ class VoiceGuideOrchestrator implements VoiceOrchestrator {
           // (re-opening the STT session for the next human turn — dec-2).
           else if (!this.stopped) this.beginListeningTurn();
         },
-        onAudio: (_requestId, audio, _alignment, isFinal) => this.onAudio(audio, isFinal),
+        onAudio: (requestId, audio, _alignment, isFinal) => this.onAudio(requestId, audio, isFinal),
         onError: (message) => this.hooks.onError(message),
         onClose: () => {
           if (!this.stopped) this.hooks.onEnded();
@@ -310,13 +323,25 @@ class VoiceGuideOrchestrator implements VoiceOrchestrator {
     }
     this.playback?.flush();
 
+    // spec-264 t-2 (dec-2): claim this turn. A later interrupt() (Stop) or a
+    // superseding runTurn moves `currentTurnId`, so when THIS invoke resolves we can
+    // tell it was abandoned and skip both speaking and committing it to history.
+    const turnId = ++this.turnSeq;
+    this.currentTurnId = turnId;
+    const userMessage: MessageParam = { role: 'user', content: transcript };
+
     const { screenKey, screenRegistry, screens } = this.react.getScreenContext();
     this.turnAbort = new AbortController();
     let assistantText = '';
+    let finalAssistantContent: ContentBlock[] | null = null;
     try {
       await this.graph.invoke(
         {
-          messages: [{ role: 'user', content: transcript }],
+          // spec-264 t-2 (dec-2): the orchestrator-owned history is the cross-turn
+          // source of truth — send prior COMPLETED turns + this user turn on a FRESH
+          // per-turn thread, so the graph checkpointer only carries this turn's own
+          // tool loop and an aborted turn can leave no dangling user message behind.
+          messages: [...this.committedMessages, userMessage],
           screenKey,
           screenRegistry,
           screens: screens ?? [],
@@ -324,11 +349,16 @@ class VoiceGuideOrchestrator implements VoiceOrchestrator {
         },
         {
           configurable: {
-            thread_id: this.threadId,
+            thread_id: `${this.threadId}-${turnId}`,
             signal: this.turnAbort.signal,
             callbacks: {
               onTextDelta: (t: string) => {
                 assistantText += t;
+              },
+              // The final assistant message (the loop only ends on __end__, so it
+              // carries no pending tool_use). Captured for the committed history.
+              onAssistantTurnComplete: (content: ContentBlock[]) => {
+                finalAssistantContent = content;
               },
               onUiTool: (name: string, _id: string, input: Record<string, unknown>) =>
                 // Returned so the graph can serialize the real outcome (e.g.
@@ -344,6 +374,10 @@ class VoiceGuideOrchestrator implements VoiceOrchestrator {
         },
       );
     } catch (err) {
+      // spec-264 t-2 (dec-2): an interrupt (Stop) or a superseding turn aborts the
+      // in-flight graph call. Drop that throw SILENTLY — the turn is abandoned, so we
+      // must not flip to an error state; interrupt()/the new turn owns what's next.
+      if (this.currentTurnId !== turnId) return;
       this.hooks.onError(err instanceof Error ? err.message : String(err));
       // spec-214 dec-1/dec-2: recover through beginListeningTurn so the internal
       // gate state (and a fresh STT session) follow the pill back to listening.
@@ -354,7 +388,18 @@ class VoiceGuideOrchestrator implements VoiceOrchestrator {
       return;
     }
 
-    if (assistantText.trim() && !this.stopped) {
+    // spec-264 t-2 (dec-2): a Stop (interrupt) or a superseding turn moved on while we
+    // awaited the reply — abandon this turn entirely. Do NOT speak its answer and do
+    // NOT commit it, so the next utterance is handled clean with no tail of this one.
+    if (this.currentTurnId !== turnId || this.stopped) return;
+
+    if (assistantText.trim()) {
+      // The turn completed cleanly: commit user + assistant to the owned history so
+      // the NEXT turn carries this exchange (completed prior turns are preserved).
+      this.committedMessages.push(userMessage, {
+        role: 'assistant',
+        content: finalAssistantContent ?? [{ type: 'text', text: assistantText }],
+      });
       const requestId = this.newId();
       this.speakingRequestId = requestId;
       // spec-214 dec-3: remember what we're about to say so the self-echo guard can
@@ -367,15 +412,20 @@ class VoiceGuideOrchestrator implements VoiceOrchestrator {
       this.enterState('speaking');
       this.ws?.speak(requestId, assistantText);
     } else {
-      // No speech to play (empty/aborted). spec-214 dec-2: re-open the STT session
-      // for the next human turn. spec-211 t-1: settle so an awaiting sequencer
-      // advances rather than hangs.
+      // No speech to play (empty). spec-214 dec-2: re-open the STT session for the
+      // next human turn. spec-211 t-1: settle so an awaiting sequencer advances.
       this.beginListeningTurn();
-      if (!this.stopped) this.hooks.onTurnComplete?.();
+      this.hooks.onTurnComplete?.();
     }
   }
 
-  private onAudio(audio: ArrayBuffer, isFinal: boolean): void {
+  private onAudio(requestId: string, audio: ArrayBuffer, isFinal: boolean): void {
+    // spec-264 t-2 (dec-2): drop audio from a turn we've moved on from. After a Stop
+    // (interrupt nulls speakingRequestId) or a superseding turn (a new requestId), TTS
+    // chunks the server had ALREADY sent for the old request keep arriving over the
+    // WS — without this guard they enqueue and play out the tail of the abandoned
+    // answer ("it finishes the previous sentence"). Only the current request plays.
+    if (requestId !== this.speakingRequestId) return;
     void this.playback?.enqueue(audio);
     // isFinal marks the last chunk RECEIVED, but the audio is still playing out of
     // the queue. Stay in 'speaking' — the Stop control visible — until playback
@@ -408,6 +458,11 @@ class VoiceGuideOrchestrator implements VoiceOrchestrator {
   // session + mic still open (halt-and-stay, NOT end-and-restart).
   interrupt(): void {
     if (this.stopped) return;
+    // spec-264 t-2 (dec-2): abandon the in-flight turn. Clearing currentTurnId means
+    // that when its graph.invoke resolves (or its abort throws) it neither speaks nor
+    // commits to history — the partial/aborted turn is dropped ENTIRELY, so the next
+    // utterance starts clean instead of the model resuming the interrupted answer.
+    this.currentTurnId = null;
     this.turnAbort?.abort();
     if (this.speakingRequestId) {
       this.ws?.abort(this.speakingRequestId);
