@@ -327,6 +327,15 @@ export const toolManifest: ToolManifestEntry[] = [
     readOnlyHint: false,
     trafficClass: 'build',
   },
+  {
+    name: 'write_qa_report',
+    summary:
+      'Persist a QA Report on a Spec at the build→verify hand-off — a reviewer-facing record of what this build session changed (front-end, back-end, testing, gaps, deviations, deploy notes). Appends a new dated version; never overwrites.',
+    args: 'write_qa_report(ref, content, title?)',
+    group: 'build',
+    readOnlyHint: false,
+    trafficClass: null,
+  },
 
   // ── Standards protocol (build) ────────────────────────────
   // Restored by spec-143 dec-1 (the half of spec-63 dec-6 that was blocked on
@@ -477,7 +486,7 @@ export const toolManifest: ToolManifestEntry[] = [
     // up emission, it does not itself drive a Spec phase transition.
     name: 'provision_ac_emission',
     summary:
-      "Provision AC emission for the Spec you're working on, in one call: mints an ephemeral, spec-scoped emission key (use this session only, never persist it) AND returns the guidance to wire emission into whatever test runners the repo uses — native when no helper exists. No Settings detour, no install. CI keys are still human-minted.",
+      "Provision AC emission for this Spec in one call: mints an ephemeral, spec-scoped emission key (session-only, never persist) and returns the wiring guidance for the repo's test runners. No Settings detour; CI keys stay human-minted.",
     args: 'provision_ac_emission(ref)',
     group: 'build',
     readOnlyHint: false,

@@ -2,6 +2,7 @@ import { Fragment, useState, useEffect, useRef, useMemo, type ReactNode } from '
 import { Routes, Route, useLocation, useParams, useNavigate, Navigate, Outlet } from 'react-router-dom';
 import { Pulse } from './pages/Pulse';
 import { Insights } from './pages/Insights';
+import { QaReports } from './pages/QaReports';
 import { Decisions } from './pages/Decisions';
 import { SpecList } from './pages/SpecList';
 import { IssuesList } from './pages/IssuesList';
@@ -384,6 +385,11 @@ export function PostLoginRouter() {
             server-driven gate mechanism as /pulse above. */}
         {!isFeatureHidden(session, 'insights') && (
           <Route path="insights" element={<Insights />} />
+        )}
+        {/* spec-260 (dec-5): QA Reports — the workspace feed of build-session
+            QA reports. Same server-driven hiddenFeatures gate as /pulse. */}
+        {!isFeatureHidden(session, 'qa-reports') && (
+          <Route path="qa-reports" element={<QaReports />} />
         )}
         <Route path="decisions" element={<Decisions />} />
         <Route path="specs" element={<SpecList />} />

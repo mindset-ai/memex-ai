@@ -138,3 +138,11 @@ export {
   sanitizeUsageProps,
 } from './usage-events-registry.js';
 export type { UsageEventDef, UsageEventSource, RegisteredEventName } from './usage-events-registry.js';
+
+// spec-260: the QA-report section-type vocabulary (qa_report / qa_report-N) —
+// one grammar shared by the server write/read paths and the UI render seats.
+export {
+  QA_REPORT_SECTION_PREFIX,
+  isQaReportSectionType,
+  qaReportVersion,
+} from './qa-report.js';

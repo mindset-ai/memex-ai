@@ -23,6 +23,7 @@ import { createVoiceRouter } from "./routes/voice.js";
 import { createGuidePublicRouter } from "./routes/guide-public.js";
 import { docEventsRouter } from "./routes/doc-events.js";
 import { activity } from "./routes/activity.js";
+import { qaReports } from "./routes/qa-reports.js";
 import { presenceRouter } from "./routes/presence.js";
 import { analytics } from "./routes/analytics.js";
 import { telemetryRouter } from "./routes/telemetry.js";
@@ -243,6 +244,10 @@ app.route("/api/:namespace/:memex/issues-list", issuesList);
 // per-Memex, so there's no flat entity-keyed mount (a bare /api/activity has no
 // memex to scope to).
 app.route("/api/:namespace/:memex/activity", activity);
+// spec-260 (dec-5/dec-6) — the cross-Spec QA Reports feed + per-user unread
+// counter. Path-prefixed only — inherently per-Memex, same reasoning as
+// /activity above.
+app.route("/api/:namespace/:memex/qa-reports", qaReports);
 // spec-122 t-7 (dec-4) — the ephemeral PRESENCE plane ("who's here now"). The
 // browser heartbeat POSTs here; the UI reads who's present per spec. Inherently
 // per-Memex (every presence row is tenancy-scoped), so path-prefixed only.

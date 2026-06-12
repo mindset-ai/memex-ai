@@ -85,6 +85,9 @@ const MUTATING_MCP_TOOLS: Record<string, ToolMutation[]> = {
   update_section: [{ entity: "section", action: "updated" }],
   retitle_section: [{ entity: "section", action: "updated" }],
   delete_section: [{ entity: "section", action: "deleted" }],
+  // qa-reports.ts (spec-260) — appendQaReport rides addSection's mutate() path,
+  // so each versioned QA report lands as a section.created on the bus.
+  write_qa_report: [{ entity: "section", action: "created" }],
   // clauses.ts (spec-161) — every clause write dual-emits the clause key and the
   // owning section's `section.updated` (the section's derived content regenerates).
   add_clause: [

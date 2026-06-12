@@ -40,7 +40,9 @@ import {
   toButtonPrompt,
   BASE_SCAFFOLD,
   HANDOFF_BUTTON_BY_PHASE,
+  isQaReportSectionType,
 } from '@memex/shared';
+import { QaReportCard, selectQaReports } from '../components/QaReportCard';
 import { useDocChangeStream } from '../hooks/useDocChangeStream';
 import { COMMENT_PARAM, parseCommentParam, commentAnchorId } from '../utils/commentDeepLink';
 import { phaseDisplayName } from '../utils/phaseDisplay';
@@ -141,8 +143,8 @@ export function DocDocument() {
   // (that's TransitionSentence's [Yes]); it only changes what's shown.
   // `null` defers to the doc's current phase, computed once the doc loads.
   const [selectedTab, setSelectedTab] = useState<PhaseTab | null>(null);
-  // Plan's sub-tab (Narrative / Decisions & ACs / Comments). Build and Verify
-  // have no sub-tabs. A deep-link to a decision/issue/comment picks the relevant
+  // Plan's sub-tab (Narrative / Decisions & ACs / Comments). Verify has no
+  // sub-tabs. A deep-link to a decision/issue/comment picks the relevant
   // landing point below once the doc resolves.
   const [planSubTab, setPlanSubTab] = useState<'narrative' | 'decisions' | 'comments'>(
     initialCommentSeq != null
@@ -151,6 +153,11 @@ export function DocDocument() {
         ? 'decisions'
         : 'narrative',
   );
+  // spec-260 (dec-1): Build's sub-tab — the Tasks │ Issues working view stays
+  // the default; "QA Report" is a secondary tab so the per-session report stays
+  // out of the builder's primary workspace. (An intentional evolution of the
+  // single-view Build layout spec-159/spec-164 set.)
+  const [buildSubTab, setBuildSubTab] = useState<'work' | 'qa-report'>('work');
   // spec-182 issue-3: for EDITORS the Specify review affordances sit behind a
   // collapsed-by-default "Review actions" disclosure — the reviewer workflow
   // shouldn't visually dominate the editor's page. Reviewers see them expanded
@@ -307,6 +314,13 @@ export function DocDocument() {
   const sortedSections = doc
     ? [...doc.sections].sort((a, b) => a.seq - b.seq)
     : [];
+
+  // spec-260 (dec-1): qa_report sections are a build OUTPUT, not plan prose —
+  // they render through the QaReportCard seats (Verify card / Build sub-tab /
+  // Done button) and are excluded from the Specify "Narrative" sub-tab so they
+  // never read as frozen plan intent (ac-12).
+  const qaReports = selectQaReports(sortedSections);
+  const narrativeSections = sortedSections.filter((s) => !isQaReportSectionType(s.sectionType));
 
   // Comment counts (across all entity types)
   const commentCounts: Record<string, number> = {};
@@ -886,7 +900,9 @@ export function DocDocument() {
     'done',
   );
 
-  // Plan's three sub-tabs. Build / Verify carry no sub-tab bar (ac-11).
+  // Plan's three sub-tabs. Verify carries no sub-tab bar; Build gained a
+  // secondary "QA Report" tab in spec-260 (an intentional evolution of
+  // spec-159 ac-11's single-view Build).
   const planSubTabs = [
     /* spec-233 dec-1 (supersedes spec-196 dec-1): the label reads "Narrative".
        Calling this single tab "Spec" misread as if it WERE the whole spec — the
@@ -914,7 +930,8 @@ export function DocDocument() {
             </button>
           </div>
         )}
-        {sortedSections.map((section, index) => (
+        {/* spec-260 ac-12: qa_report sections are excluded — build output, not plan prose. */}
+        {narrativeSections.map((section, index) => (
           <SectionCard
             key={section.id}
             section={section}
@@ -936,7 +953,7 @@ export function DocDocument() {
       <aside className="w-48 shrink-0 hidden lg:block sticky top-4 self-start max-h-[calc(100vh-6rem)] overflow-y-auto">
         <DocOutline
           doc={doc}
-          sections={sortedSections}
+          sections={narrativeSections}
           activeSectionId={selectedSectionId}
           commentCounts={commentCounts}
           onSectionClick={handleSelectSection}
@@ -1101,20 +1118,50 @@ export function DocDocument() {
       ),
     },
     build: {
-      hasSubTabs: false,
-      render: () => twoCol(taskPanel, issuePanel(true), buildDirective),
+      // spec-260 (dec-1): Build gains a tab bar — the Tasks │ Issues two-column
+      // stays the default tab; "QA Report" is a second tab, empty until the
+      // first build→verify hand-off writes one. (Intentional evolution of the
+      // single-view Build layout from spec-159/spec-164.)
+      hasSubTabs: true,
+      render: () => (
+        <>
+          <Tabs
+            tabs={[
+              { id: 'work', label: 'Tasks & Issues' },
+              { id: 'qa-report', label: 'QA Report', count: qaReports.length || undefined },
+            ]}
+            activeTab={buildSubTab}
+            onChange={(t) => setBuildSubTab(t as typeof buildSubTab)}
+            variant="underline"
+          />
+          {buildSubTab === 'work' && twoCol(taskPanel, issuePanel(true), buildDirective)}
+          {buildSubTab === 'qa-report' && (
+            <QaReportCard
+              reports={qaReports}
+              emptyState="No QA report yet — generated when build hands off to verify"
+            />
+          )}
+        </>
+      ),
     },
     verify: {
       hasSubTabs: false,
-      render: () =>
-        twoCol(
-          acPanel,
-          issuePanel(false),
-          <>
-            {verifyDirective}
-            {verifyTaskEcho}
-          </>,
-        ),
+      render: () => (
+        <>
+          {/* spec-260 (dec-1): the QA Report card is front-loaded ABOVE the
+              ACs │ Issues columns so a verifier arriving cold reads it first;
+              collapsible so it folds away once read. */}
+          <QaReportCard reports={qaReports} />
+          {twoCol(
+            acPanel,
+            issuePanel(false),
+            <>
+              {verifyDirective}
+              {verifyTaskEcho}
+            </>,
+          )}
+        </>
+      ),
     },
     // spec-258/dec-3: browsing the Done tab previews the retrospective the move
     // will produce — the same fetch-free DoneSummary, minus Reopen/mutation.

@@ -223,7 +223,12 @@ describe('spec-159 t-6 — DocDocument phase layouts', () => {
     expect(screen.getByTestId('all-comments')).toBeInTheDocument();
   });
 
-  it('Build renders Tasks | Issues with NO sub-tab bar (ac-5, ac-11)', async () => {
+  // spec-260 evolved this layout: Build now carries a secondary "QA Report"
+  // sub-tab (deliberate structural change, spec-260 dec-1). What survives of
+  // ac-11 here: the Tasks | Issues two-column stays Build's DEFAULT view and
+  // Specify's sub-tabs never leak into it. The QA-report tab itself is covered
+  // by DocDocument.spec-260.test.tsx.
+  it('Build defaults to Tasks | Issues; Specify sub-tabs never leak in (ac-5, ac-11)', async () => {
     tagAc(AC(5));
     tagAc(AC(11));
     renderAt('build');
@@ -232,7 +237,7 @@ describe('spec-159 t-6 — DocDocument phase layouts', () => {
     expect(screen.getByTestId('issue-panel')).toBeInTheDocument();
     expect(screen.queryByTestId('ac-panel')).not.toBeInTheDocument();
 
-    // No sub-tab bar: the Specify sub-tab labels are absent.
+    // The Specify sub-tab labels are absent.
     expect(screen.queryByText('Decisions & ACs')).not.toBeInTheDocument();
     // The only tablist on the page is the phase bar (4 tabs, spec-258), not a sub-tab bar.
     expect(screen.getAllByRole('tab')).toHaveLength(4);
