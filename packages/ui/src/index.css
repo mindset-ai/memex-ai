@@ -94,6 +94,29 @@
   --color-status-neutral-bg:     rgba(62, 68, 81, 0.5);   /* #3e4451/50 */
   --color-status-neutral-text:   148 163 184;              /* slate-400 */
   --color-status-neutral-border: 75 82 95;                 /* #4b525f */
+
+  /* Phase palette (spec-252 dec-1) — Spec-view header only: phase-bar current
+     pill + coloured container. Dedicated tokens, decoupled from statusVariant
+     so the phase hues never recolour the shared `warning`/status consumers.
+     Each phase = ONE base hue at two opacities (pill = hue @ 80%, container =
+     hue @ 10%, exact Figma values), composited live over the page so the same
+     values serve both themes. 950-level dark text keeps every pill clear of
+     WCAG AA in both modes (a hue @ 80% over the dark page is a mid-tone, so the
+     text must be near-black). draft has no Figma hue yet → keeps the neutral
+     pill + a per-mode container. */
+  --color-phase-specify-bg:        rgba(228, 165, 245, 0.8); /* #E4A5F5 @ 80% */
+  --color-phase-specify-text:      46 16 101;                /* purple-950 */
+  --color-phase-specify-border:    228 165 245;
+  --color-phase-specify-container: rgba(228, 165, 245, 0.1); /* #E4A5F5 @ 10% */
+  --color-phase-build-bg:          rgba(123, 198, 252, 0.8); /* #7BC6FC @ 80% */
+  --color-phase-build-text:        8 47 73;                  /* sky-950 */
+  --color-phase-build-border:      123 198 252;
+  --color-phase-build-container:   rgba(123, 198, 252, 0.1); /* #7BC6FC @ 10% */
+  --color-phase-verify-bg:         rgba(93, 192, 166, 0.8);  /* #5DC0A6 @ 80% */
+  --color-phase-verify-text:       2 44 34;                  /* emerald-950 */
+  --color-phase-verify-border:     93 192 166;
+  --color-phase-verify-container:  rgba(93, 192, 166, 0.1);  /* #5DC0A6 @ 10% */
+  --color-phase-draft-container:   rgba(148, 163, 184, 0.10);/* slate wash — draft keeps the neutral pill */
 }
 
 .light {
@@ -164,6 +187,23 @@
   --color-status-neutral-bg:     rgba(226, 232, 240, 1);  /* slate-200 */
   --color-status-neutral-text:   71 85 105;                /* slate-600 */
   --color-status-neutral-border: 203 213 225;              /* slate-300 */
+
+  /* Phase palette (spec-252) — see the .dark block for the rationale. The phase
+     hues use the same hue-at-opacity values in both themes (composited over the
+     page live); only draft's neutral container differs per mode. */
+  --color-phase-specify-bg:        rgba(228, 165, 245, 0.8); /* #E4A5F5 @ 80% */
+  --color-phase-specify-text:      46 16 101;               /* purple-950 */
+  --color-phase-specify-border:    228 165 245;
+  --color-phase-specify-container: rgba(228, 165, 245, 0.1);/* #E4A5F5 @ 10% */
+  --color-phase-build-bg:          rgba(123, 198, 252, 0.8);/* #7BC6FC @ 80% */
+  --color-phase-build-text:        8 47 73;                 /* sky-950 */
+  --color-phase-build-border:      123 198 252;
+  --color-phase-build-container:   rgba(123, 198, 252, 0.1);/* #7BC6FC @ 10% */
+  --color-phase-verify-bg:         rgba(93, 192, 166, 0.8); /* #5DC0A6 @ 80% */
+  --color-phase-verify-text:       2 44 34;                 /* emerald-950 */
+  --color-phase-verify-border:     93 192 166;
+  --color-phase-verify-container:  rgba(93, 192, 166, 0.1); /* #5DC0A6 @ 10% */
+  --color-phase-draft-container:   rgba(241, 245, 249, 1);  /* slate-100 — draft keeps the neutral pill */
 }
 
 @layer base {
