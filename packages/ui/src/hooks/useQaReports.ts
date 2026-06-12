@@ -118,20 +118,51 @@ export function useQaReportsFeed(limit = DEFAULT_LIMIT): UseQaReportsFeedResult 
   return { rows, loading, error, hasMore, loadOlder, refresh };
 }
 
+export interface QaReportsViewReceipt {
+  /** The marker just written. */
+  lastViewedAt: string;
+  /**
+   * The marker BEFORE this view (null = first-ever view). This is the unread
+   * boundary the badge was counting against — returned because opening the
+   * page is exactly what resets the marker, so the page couldn't otherwise
+   * know which rows were unread (ac-24).
+   */
+  previousLastViewedAt: string | null;
+}
+
+// One view-POST at a time. React StrictMode double-mounts effects in dev, so
+// the page would otherwise fire TWO immediate POSTs — and the second receipt's
+// "previous" marker would be the first POST's just-written now(), classifying
+// every row as read and collapsing the lot (ac-24). Concurrent callers share
+// the in-flight call; it clears on settle so a later real revisit POSTs fresh.
+let viewInFlight: Promise<QaReportsViewReceipt | null> | null = null;
+
 /**
  * Record that the current user viewed the QA Reports feed now. Upserts the
- * per-(user, memex) last_viewed_at marker server-side and broadcasts
- * QA_REPORTS_VIEWED_EVENT so the nav badge zeroes immediately.
+ * per-(user, memex) last_viewed_at marker server-side, broadcasts
+ * QA_REPORTS_VIEWED_EVENT so the nav badge zeroes immediately, and returns the
+ * view receipt (incl. the PREVIOUS marker). Returns null when the marker can't
+ * be written (no tenant context, anonymous viewer, network failure) — the
+ * caller falls back to collapsed rows.
  */
-export async function recordQaReportsView(): Promise<void> {
-  const base = tenantBase();
-  if (!base) return;
-  try {
-    const res = await fetchWithRetry(`${base}/qa-reports/view`, { method: 'POST' });
-    if (res.ok) window.dispatchEvent(new Event(QA_REPORTS_VIEWED_EVENT));
-  } catch {
-    // Best-effort: a failed marker write leaves the badge stale, never breaks the page.
-  }
+export function recordQaReportsView(): Promise<QaReportsViewReceipt | null> {
+  if (viewInFlight) return viewInFlight;
+  viewInFlight = (async () => {
+    const base = tenantBase();
+    if (!base) return null;
+    try {
+      const res = await fetchWithRetry(`${base}/qa-reports/view`, { method: 'POST' });
+      if (!res.ok) return null;
+      window.dispatchEvent(new Event(QA_REPORTS_VIEWED_EVENT));
+      return (await res.json()) as QaReportsViewReceipt;
+    } catch {
+      // Best-effort: a failed marker write leaves the badge stale, never breaks the page.
+      return null;
+    } finally {
+      viewInFlight = null;
+    }
+  })();
+  return viewInFlight;
 }
 
 /**

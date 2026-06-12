@@ -86,18 +86,54 @@ describe('useQaReportsUnreadCount (dec-6 badge)', () => {
 });
 
 describe('recordQaReportsView', () => {
-  it('ac-10: POSTs the view marker and broadcasts the zeroing event', async () => {
+  it('ac-10/ac-24: POSTs the view marker, broadcasts the zeroing event, and returns the receipt with the PREVIOUS marker', async () => {
     tagAc(AC(10));
-    fetchMock.mockResolvedValue(jsonResponse({ lastViewedAt: '2026-06-12T00:00:00Z' }));
+    tagAc(AC(24));
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        lastViewedAt: '2026-06-12T00:00:00Z',
+        previousLastViewedAt: '2026-06-10T00:00:00Z',
+      }),
+    );
     const heard = vi.fn();
     window.addEventListener(QA_REPORTS_VIEWED_EVENT, heard);
     try {
-      await recordQaReportsView();
+      const receipt = await recordQaReportsView();
       expect(fetchMock).toHaveBeenCalledWith('/api/acme/main/qa-reports/view', { method: 'POST' });
       expect(heard).toHaveBeenCalledTimes(1);
+      // ac-24: the previous marker is the unread boundary the feed page uses
+      // to render unread rows expanded.
+      expect(receipt).toEqual({
+        lastViewedAt: '2026-06-12T00:00:00Z',
+        previousLastViewedAt: '2026-06-10T00:00:00Z',
+      });
     } finally {
       window.removeEventListener(QA_REPORTS_VIEWED_EVENT, heard);
     }
+  });
+
+  it('returns null on a failed write — the page falls back to collapsed rows', async () => {
+    fetchMock.mockRejectedValue(new Error('boom'));
+    expect(await recordQaReportsView()).toBeNull();
+  });
+
+  it('ac-24: concurrent calls share one POST — StrictMode double-mount cannot burn the previous marker', async () => {
+    tagAc(AC(24));
+    // If the double-mounted effect fired two posts, the second would see the
+    // first's just-written marker as "previous" and collapse everything.
+    let resolveFetch!: (r: Response) => void;
+    fetchMock.mockReturnValue(new Promise<Response>((r) => (resolveFetch = r)));
+
+    const first = recordQaReportsView();
+    const second = recordQaReportsView();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    resolveFetch(
+      jsonResponse({ lastViewedAt: '2026-06-12T00:00:00Z', previousLastViewedAt: null }),
+    );
+    const [a, b] = await Promise.all([first, second]);
+    expect(a).toEqual(b);
+    expect(a?.previousLastViewedAt).toBeNull();
   });
 });
 

@@ -13,6 +13,13 @@ import { inArray } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import { oauthClients } from "../db/schema.js";
 import { resetRateLimits } from "../services/auth-rate-limit.js";
+import { tagAc } from "@memex-ai-ac/vitest";
+
+// spec-253 ac-11 — DCR abuse controls (IP rate-limit) stay enforced after the
+// validator was widened to accept custom-scheme redirect_uris.
+const AC_11 = "mindset-prod/memex-building-itself/specs/spec-253/acs/ac-11";
+// spec-253 scope ac-5 — the DCR rate-limit is part of the preserved security posture.
+const AC_5 = "mindset-prod/memex-building-itself/specs/spec-253/acs/ac-5";
 
 const originalFlag = process.env.OAUTH_ENABLED;
 
@@ -57,6 +64,8 @@ async function registerFromIp(ip: string, label: string): Promise<Response> {
 
 describe("security: POST /api/oauth/register rate-limit", () => {
   it("allows 10 registrations per hour per IP, blocks the 11th, isolates by IP", async () => {
+    tagAc(AC_11);
+    tagAc(AC_5); // scope ac-5: DCR rate-limit still holds (security posture preserved)
     const ipA = "203.0.113.10"; // RFC 5737 documentation range
     const ipB = "203.0.113.11";
 

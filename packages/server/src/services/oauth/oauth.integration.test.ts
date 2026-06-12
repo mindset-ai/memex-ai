@@ -25,6 +25,23 @@ import {
   __setRotateMintHook,
 } from "./refresh-tokens.js";
 import { createHash, randomBytes } from "node:crypto";
+import { tagAc } from "@memex-ai-ac/vitest";
+
+// spec-253 dec-1 — DCR must accept RFC 8252 §7.1 private-use URI schemes
+// (cursor://, vscode://, …) while still rejecting dangerous web schemes.
+const AC_6 = "mindset-prod/memex-building-itself/specs/spec-253/acs/ac-6";
+const AC_7 = "mindset-prod/memex-building-itself/specs/spec-253/acs/ac-7";
+// spec-253 dec-3 — VS Code's https://vscode.dev/redirect relay registers unchanged.
+const AC_10 = "mindset-prod/memex-building-itself/specs/spec-253/acs/ac-10";
+// spec-253 dec-1/dec-4 — PKCE stays mandatory; DCR abuse controls hold for custom schemes.
+const AC_8 = "mindset-prod/memex-building-itself/specs/spec-253/acs/ac-8";
+const AC_11 = "mindset-prod/memex-building-itself/specs/spec-253/acs/ac-11";
+// spec-253 scope ACs — the manager-level outcomes these mechanism tests collectively
+// prove. A test may tag both its implementation AC and the scope AC it satisfies.
+const AC_1 = "mindset-prod/memex-building-itself/specs/spec-253/acs/ac-1";
+const AC_2 = "mindset-prod/memex-building-itself/specs/spec-253/acs/ac-2";
+const AC_3 = "mindset-prod/memex-building-itself/specs/spec-253/acs/ac-3";
+const AC_5 = "mindset-prod/memex-building-itself/specs/spec-253/acs/ac-5";
 
 // PKCE helpers (RFC 7636 §4).
 function makePkce(): { verifier: string; challenge: string } {
@@ -60,6 +77,7 @@ async function registerAndTrack(input: Parameters<typeof registerClient>[0]) {
 
 describe("OAuth integration: client registration (DCR)", () => {
   it("registers a confidential client and stores a hashed secret", async () => {
+    tagAc(AC_2); // scope ac-2: https:// registration unchanged
     const { reg, client } = await registerAndTrack({
       clientName: "Test client",
       redirectUris: ["https://example.com/cb"],
@@ -97,6 +115,7 @@ describe("OAuth integration: client registration (DCR)", () => {
   });
 
   it("accepts http://localhost loopback (Claude Desktop pattern)", async () => {
+    tagAc(AC_2); // scope ac-2: loopback registration unchanged
     await expect(
       registerAndTrack({
         clientName: "Loopback",
@@ -132,6 +151,133 @@ describe("OAuth integration: client registration (DCR)", () => {
         redirectUris: tooMany,
       }),
     ).rejects.toThrow(/maximum of 10/);
+  });
+
+  // spec-253 dec-1 / dec-3: native IDEs (Cursor, VS Code, Windsurf, Zed)
+  // register an RFC 8252 §7.1 private-use URI scheme as their OAuth callback.
+  // DCR must accept these (and VS Code's https relay) while still rejecting
+  // dangerous web schemes and malformed URIs.
+  const ACCEPTED_REDIRECTS: Array<[string, string]> = [
+    ["cursor (private-use scheme)", "cursor://anysphere.cursor-mcp/oauth/callback"],
+    ["vscode (private-use scheme)", "vscode://anysphere.augment/auth/callback"],
+    ["windsurf (private-use scheme)", "windsurf://codeium.windsurf/callback"],
+    ["reverse-DNS scheme", "com.example.app:/oauth/cb"],
+  ];
+  for (const [label, uri] of ACCEPTED_REDIRECTS) {
+    it(`ac-6: accepts ${label} at registration`, async () => {
+      tagAc(AC_6);
+      tagAc(AC_1); // scope ac-1: a native IDE's private-use scheme registers at DCR
+      const { reg } = await registerAndTrack({
+        clientName: `Native ${label}`,
+        redirectUris: [uri],
+        tokenEndpointAuthMethod: "none",
+      });
+      expect(reg.clientId).toBeTruthy();
+    });
+  }
+
+  it("ac-10: accepts VS Code's https://vscode.dev/redirect relay unchanged", async () => {
+    tagAc(AC_10);
+    const { reg } = await registerAndTrack({
+      clientName: "VS Code relay",
+      redirectUris: ["https://vscode.dev/redirect"],
+      tokenEndpointAuthMethod: "none",
+    });
+    expect(reg.clientId).toBeTruthy();
+  });
+
+  const REJECTED_REDIRECTS: Array<[string, string, RegExp]> = [
+    ["javascript: scheme", "javascript:alert(1)", /private-use URI scheme/],
+    ["data: scheme", "data:text/html,<b>x</b>", /private-use URI scheme/],
+    ["file: scheme", "file:///etc/passwd", /private-use URI scheme/],
+    ["vbscript: scheme", "vbscript:msgbox(1)", /private-use URI scheme/],
+    ["ms-msdt: scheme (Follina handler)", "ms-msdt:/id PCWDiagnostic", /private-use URI scheme/],
+    ["intent: scheme (Android)", "intent://evil/#Intent;scheme=x;end", /private-use URI scheme|fragment/],
+    ["bare http to non-loopback host", "http://evil.example.com/cb", /must be https/],
+    ["a non-absolute string", "/relative/callback", /absolute URI/],
+  ];
+  for (const [label, uri, matcher] of REJECTED_REDIRECTS) {
+    it(`ac-7: rejects ${label}`, async () => {
+      tagAc(AC_7);
+      tagAc(AC_3); // scope ac-3: dangerous/malformed redirect URIs rejected with a clear error
+      await expect(
+        registerClient({ clientName: `Bad ${label}`, redirectUris: [uri] }),
+      ).rejects.toThrow(matcher);
+    });
+  }
+
+  it("ac-6: new URL() parses a private-use scheme without throwing (parse-behaviour lock)", () => {
+    tagAc(AC_6);
+    const parsed = new URL("cursor://anysphere.cursor-mcp/oauth/callback");
+    expect(parsed.protocol).toBe("cursor:");
+    expect(parsed.hash).toBe("");
+  });
+
+  it("ac-11: the 10-redirect_uri cap still applies to custom-scheme URIs", async () => {
+    tagAc(AC_11);
+    tagAc(AC_5); // scope ac-5: the 10-redirect_uri cap still holds
+    const tooMany = Array.from({ length: 11 }, (_, i) => `cursor://anysphere.cursor-mcp/cb${i}`);
+    await expect(
+      registerClient({ clientName: "Too many custom schemes", redirectUris: tooMany }),
+    ).rejects.toThrow(/maximum of 10/);
+  });
+});
+
+// spec-253 ac-8: widening the redirect_uri validator must not weaken PKCE —
+// S256 stays mandatory at both mint and consume, which is the control that
+// makes custom-scheme redirects safe (RFC 8252 §8.6).
+describe("OAuth integration: PKCE stays mandatory after custom-scheme widening (spec-253 ac-8)", () => {
+  it("ac-8: mintAuthCode rejects a non-S256 (plain) code_challenge_method", async () => {
+    tagAc(AC_8);
+    tagAc(AC_5); // scope ac-5: PKCE S256 stays mandatory
+
+    const userId = await makeTestUser();
+    const { client } = await registerAndTrack({
+      clientName: "PKCE plain reject",
+      redirectUris: ["cursor://anysphere.cursor-mcp/oauth/callback"],
+      tokenEndpointAuthMethod: "none",
+    });
+    await expect(
+      mintAuthCode({
+        clientId: client.id,
+        userId,
+        orgId: null,
+        redirectUri: "cursor://anysphere.cursor-mcp/oauth/callback",
+        codeChallenge: "abc",
+        codeChallengeMethod: "plain",
+        scopes: ["memex.full"],
+      }),
+    ).rejects.toThrow(/S256/);
+  });
+
+  it("ac-8: consumeAuthCode rejects a mismatched PKCE verifier (custom-scheme client)", async () => {
+    tagAc(AC_8);
+    tagAc(AC_5); // scope ac-5: PKCE S256 verification stays mandatory
+
+    const userId = await makeTestUser();
+    const { client } = await registerAndTrack({
+      clientName: "PKCE verify custom",
+      redirectUris: ["cursor://anysphere.cursor-mcp/oauth/callback"],
+      tokenEndpointAuthMethod: "none",
+    });
+    const { challenge } = makePkce();
+    const minted = await mintAuthCode({
+      clientId: client.id,
+      userId,
+      orgId: null,
+      redirectUri: "cursor://anysphere.cursor-mcp/oauth/callback",
+      codeChallenge: challenge,
+      codeChallengeMethod: "S256",
+      scopes: ["memex.full"],
+    });
+    await expect(
+      consumeAuthCode({
+        code: minted.code,
+        codeVerifier: randomBytes(32).toString("base64url"),
+        expectedClientId: client.id,
+        expectedRedirectUri: "cursor://anysphere.cursor-mcp/oauth/callback",
+      }),
+    ).rejects.toThrow(/PKCE verifier mismatch/);
   });
 });
 

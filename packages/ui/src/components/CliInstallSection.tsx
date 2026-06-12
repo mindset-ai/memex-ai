@@ -20,10 +20,24 @@ const PS_COMMAND = `irm ${installBase}/install.ps1 | iex`;
 const MCP_URL = `${installBase}/mcp`;
 
 // Cursor MCP config — remote server over HTTP. url-only is correct for dynamic
-// OAuth (spec-31): Cursor runs the sign-in flow on connect (no static token).
+// OAuth (spec-31 / spec-253): Cursor runs the sign-in flow on connect (no static
+// token). Cursor's OAuth callback is a private-use scheme (cursor://…), which the
+// DCR endpoint accepts per spec-253.
 const CURSOR_CONFIG = `{
   "mcpServers": {
     "memex": {
+      "url": "${MCP_URL}"
+    }
+  }
+}`;
+
+// VS Code MCP config — `.vscode/mcp.json` uses `servers` (not `mcpServers`) with
+// an explicit `type`. url-only = OAuth on connect (spec-253). VS Code may use a
+// loopback (127.0.0.1), an https relay, or a vscode:// callback; all are accepted.
+const VSCODE_CONFIG = `{
+  "servers": {
+    "memex": {
+      "type": "http",
       "url": "${MCP_URL}"
     }
   }
@@ -52,7 +66,7 @@ export function CliInstallSection() {
       <p className="mb-8 text-secondary">
         Connect Memex to Claude Code and Claude Desktop. The installer opens your browser
         once to authorize this device — after that it works without ever expiring. Using
-        claude.ai (web) or Cursor instead? See <a href="#other-clients" className="underline hover:text-primary">Other clients</a> below.
+        claude.ai (web) or a native IDE like Cursor or VS Code instead? See <a href="#other-clients" className="underline hover:text-primary">Other clients</a> below.
       </p>
 
       <div className="mb-10">
@@ -85,8 +99,9 @@ export function CliInstallSection() {
       <div id="other-clients" className="mb-10">
         <h3 className="text-base font-medium mb-3 text-heading">Other clients</h3>
         <p className="text-sm mb-3 text-secondary">
-          claude.ai (web) and Cursor connect to the same endpoint and sign in over OAuth —
-          no token to paste. Your MCP URL:
+          claude.ai (web) and native IDEs — Cursor, VS Code, Windsurf, Zed — connect to the
+          same endpoint and sign in over OAuth, so there's no token to paste. Add the server
+          with the URL below, then complete the sign-in your client prompts for. Your MCP URL:
         </p>
         <CodeBlock code={MCP_URL} />
 
@@ -108,6 +123,21 @@ export function CliInstallSection() {
               complete the OAuth sign-in:
             </p>
             <CodeBlock code={CURSOR_CONFIG} />
+          </div>
+          <div>
+            <h4 className="text-sm font-medium mb-2 text-heading">VS Code</h4>
+            <p className="text-xs mb-2 text-secondary">
+              Add to <InlineCode>.vscode/mcp.json</InlineCode>, then run{' '}
+              <InlineCode>MCP: List Servers</InlineCode> → <strong>Start</strong> and complete the
+              sign-in. VS Code completes OAuth automatically over whichever callback it picks
+              (a loopback address, its <InlineCode>vscode.dev</InlineCode> relay, or a{' '}
+              <InlineCode>vscode://</InlineCode> handler) — all are accepted:
+            </p>
+            <CodeBlock code={VSCODE_CONFIG} />
+            <p className="text-xs mt-2 text-muted">
+              Windsurf and Zed use the same URL in their own MCP config and sign in over OAuth
+              the same way — no token required.
+            </p>
           </div>
         </div>
       </div>

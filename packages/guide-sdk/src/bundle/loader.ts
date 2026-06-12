@@ -103,10 +103,18 @@ export function init(config: GuideBundleConfig): HTMLElement {
       // interaction. Keeping this the ONLY reference to ./engine is what makes the
       // initial loader thin (ac-8). Do NOT convert this to a static import.
       const { mountEngine } = await import('./engine');
-      // The doorway has done its job — the engine owns the affordance from here.
-      doorway.style.display = 'none';
       // mountEngine is async (it mints the anon session token before starting).
-      engine = await mountEngine({ shadow, config });
+      // spec-264 t-1 (dec-1): hand off WITHOUT a flicker. The doorway is hidden ONLY
+      // from `onFirstPaint` — fired once the engine has committed its first frame, so
+      // its idle Specky icon is already on screen. Hiding the doorway before this (the
+      // old behaviour) left an empty frame between "doorway gone" and "engine painted".
+      engine = await mountEngine({
+        shadow,
+        config,
+        onFirstPaint: () => {
+          doorway.style.display = 'none';
+        },
+      });
     } finally {
       loading = false;
       doorway.removeAttribute('data-guide-loading');
@@ -114,7 +122,73 @@ export function init(config: GuideBundleConfig): HTMLElement {
   };
   doorway.addEventListener('click', () => void onFirstClick());
 
+  // spec-264 t-3 (dec-3): first-load "Click me to ask anything" hint, shown once per
+  // browser session (sessionStorage), auto-dismissed after 10s and on first click.
+  maybeShowHintBubble(shadow, doorway);
+
   return host;
+}
+
+/** sessionStorage key for the once-per-session first-load hint (spec-264 dec-3). */
+const HINT_SHOWN_KEY = 'memex-guide-hint-shown';
+/** How long the hint stays before auto-dismissing (dec-3: 10 seconds). */
+const HINT_TIMEOUT_MS = 10_000;
+
+/**
+ * Has the hint already been shown this browser session? Reads sessionStorage —
+ * chosen (dec-3) because it survives in-tab page navigation on the multi-page
+ * mindset-website (so the hint never re-nags as a visitor browses) yet re-appears in
+ * a fresh tab / after the tab closes. A throwing/disabled store (private mode,
+ * sandboxed iframe) DEGRADES TO "already shown" so we quietly skip the hint rather
+ * than crash the loader — never showing twice is the safe failure.
+ */
+function hintAlreadyShown(): boolean {
+  try {
+    return window.sessionStorage.getItem(HINT_SHOWN_KEY) !== null;
+  } catch {
+    return true;
+  }
+}
+
+/** Mark the hint shown for this session (best-effort; a throwing store is ignored). */
+function markHintShown(): void {
+  try {
+    window.sessionStorage.setItem(HINT_SHOWN_KEY, '1');
+  } catch {
+    /* storage disabled — the hint simply isn't suppressed across reloads */
+  }
+}
+
+/**
+ * Render the first-load hint bubble into the shadow root, anchored above the doorway
+ * (spec-264 t-3 / dec-3). Shows ONLY on the first init of a browser session; sets the
+ * session flag immediately so a per-page SDK remount (multi-page site) does not
+ * re-show it. Dismisses after HINT_TIMEOUT_MS, and immediately on the first doorway
+ * click. No-op when already shown this session (or when storage is unavailable).
+ */
+function maybeShowHintBubble(shadow: ShadowRoot, doorway: HTMLElement): void {
+  if (hintAlreadyShown()) return;
+  markHintShown();
+
+  const bubble = document.createElement('div');
+  bubble.className = 'memex-guide-hint';
+  bubble.setAttribute('data-guide-hint', '');
+  bubble.setAttribute('role', 'status');
+  bubble.textContent = 'Click me to ask anything';
+  shadow.appendChild(bubble);
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let dismissed = false;
+  const dismiss = () => {
+    if (dismissed) return;
+    dismissed = true;
+    if (timer !== undefined) clearTimeout(timer);
+    doorway.removeEventListener('click', dismiss);
+    bubble.remove();
+  };
+  timer = setTimeout(dismiss, HINT_TIMEOUT_MS);
+  // Opening the chat kills the hint instantly (it has served its purpose).
+  doorway.addEventListener('click', dismiss);
 }
 
 /**
@@ -161,6 +235,43 @@ const DOORWAY_CSS = `
   .memex-guide-doorway:hover { transform: scale(1.05); }
   .memex-guide-doorway[data-guide-loading] { cursor: progress; opacity: 0.7; }
   .memex-guide-doorway img { display: block; pointer-events: none; }
+
+  /* spec-264 t-3 (dec-3): the first-load hint — a yellow speech bubble sitting just
+     above the 64px doorway (bottom 24px + 64px + an 12px gap = 100px), with a small
+     downward tail pointing at it. ':host { all: initial }' wipes inherited type, so
+     the font is declared explicitly. */
+  .memex-guide-hint {
+    position: fixed;
+    right: 24px;
+    bottom: 100px;
+    z-index: 2147483000;
+    max-width: 220px;
+    padding: 8px 12px;
+    border-radius: 10px;
+    background: #fde047;
+    color: #1b1e24;
+    font: 500 14px/1.3 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    box-shadow:
+      0 10px 15px -3px rgba(0, 0, 0, 0.35),
+      0 4px 6px -4px rgba(0, 0, 0, 0.35);
+    cursor: default;
+    animation: memex-guide-hint-in 200ms ease-out;
+  }
+  .memex-guide-hint::after {
+    content: "";
+    position: absolute;
+    right: 22px;
+    bottom: -5px;
+    width: 11px;
+    height: 11px;
+    background: #fde047;
+    transform: rotate(45deg);
+    border-bottom-right-radius: 2px;
+  }
+  @keyframes memex-guide-hint-in {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
 `;
 
 // The global the static site calls. Registered eagerly on load (this is the whole
