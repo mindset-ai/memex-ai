@@ -165,7 +165,7 @@ describe("spec-199 ac-16: RLS tenant isolation", () => {
     ).rejects.toThrow();
   });
 
-  it("ac-16: RLS is enabled and forced on all 13 tenant tables", async () => {
+  it("ac-16: RLS is enabled but NOT forced on all 13 tenant tables (owner-bypass posture, spec-257 dec-1)", async () => {
     tagAc(AC_15);
     tagAc(AC_16);
 
@@ -174,6 +174,15 @@ describe("spec-199 ac-16: RLS tenant isolation", () => {
     // and was excluded from RLS by migration 0087 after the 2026-06-10
     // emission outage. See 0087_emission_keys_rls_exclusion.sql and
     // __regression__/emission-key-contextless-verify.regression.test.ts.
+    //
+    // Posture: RLS is ENABLED (relrowsecurity=t) but NOT FORCED
+    // (relforcerowsecurity=f) — migration 0091 dropped FORCE per spec-257 dec-1.
+    // FORCE only affects the table OWNER; on Cloud SQL the deploy/migration role
+    // is `postgres` (the owner, NOBYPASSRLS), so FORCE filtered every contextless
+    // migration/deploy-script query to zero rows (the 2026-06-10 emission and
+    // 2026-06-11 What's New outages). NO FORCE lets the owner bypass while the
+    // non-owner runtime role `memex_app` stays subject to RLS — verified by the
+    // memex_app SET LOCAL ROLE test below, which still sees 0 rows without a GUC.
 
     // pg_class has relrowsecurity + relforcerowsecurity (pg_tables lacks the latter)
     const rows = (await db.execute(sql`
@@ -208,7 +217,10 @@ describe("spec-199 ac-16: RLS tenant isolation", () => {
       const row = byTable.get(table);
       expect(row, `${table}: not found in pg_class`).toBeDefined();
       expect(row!.rowsecurity, `${table}: rowsecurity not enabled`).toBe(true);
-      expect(row!.forcerowsecurity, `${table}: forcerowsecurity not enabled`).toBe(true);
+      expect(
+        row!.forcerowsecurity,
+        `${table}: FORCE must be OFF (owner-bypass posture, spec-257 dec-1 / migration 0091)`,
+      ).toBe(false);
     }
   });
 
@@ -216,11 +228,13 @@ describe("spec-199 ac-16: RLS tenant isolation", () => {
     tagAc(AC_15);
     tagAc(AC_16);
 
-    // Switch to memex_app within a transaction using SET LOCAL ROLE. This drops
-    // BYPASSRLS for the duration of the transaction (memex_app has NOBYPASSRLS),
-    // so FORCE ROW LEVEL SECURITY applies and the USING clause blocks every row
-    // because no app.memex_id GUC is set. This simulates the production runtime
-    // path before t-14 (DATABASE_URL cutover) runs.
+    // Switch to memex_app within a transaction using SET LOCAL ROLE. memex_app
+    // is a NON-OWNER role (postgres owns these tables) with NOBYPASSRLS, so
+    // ENABLE ROW LEVEL SECURITY alone subjects it to the policies — FORCE is NOT
+    // needed (FORCE only governs the table OWNER, which is why 0091 could drop it
+    // without weakening runtime isolation, spec-257 dec-1). With no app.memex_id
+    // GUC set, the USING clause blocks every row. This is the production runtime
+    // path (DATABASE_URL = memex_app since t-14).
     const dbUrl =
       process.env.DATABASE_URL ?? "postgresql://postgres:postgres@localhost:5432/memex";
     const superSql = postgres(dbUrl, { max: 1 });
