@@ -195,9 +195,22 @@ export async function countUnreadQaReports(memexId: string, userId: string): Pro
   return row?.count ?? 0;
 }
 
+export interface QaReportsViewReceipt {
+  /** The marker just written — "now". */
+  lastViewedAt: Date;
+  /**
+   * The marker BEFORE this view, or null on first-ever view. This is the
+   * unread boundary the badge was counting against, returned so the feed page
+   * can render unread rows expanded (ac-24) even though opening the page is
+   * exactly what resets the marker.
+   */
+  previousLastViewedAt: Date | null;
+}
+
 /**
  * Record that `userId` viewed the memex's QA Reports feed NOW — upserts the
- * (user, memex) marker, zeroing the unread badge. Returns the new marker time.
+ * (user, memex) marker, zeroing the unread badge — and returns the PREVIOUS
+ * marker alongside, so the caller can still classify what was unread.
  *
  * Goes through mutate() per std-8, but SILENT: the marker is per-user
  * read-state (an idempotent re-write of "when did I last look"), not
@@ -205,8 +218,15 @@ export async function countUnreadQaReports(memexId: string, userId: string): Pro
  * badge's own zeroing is client-local (the page that posted the view already
  * knows). std-32's activity columns don't apply to this table by design.
  */
-export async function recordQaReportsView(memexId: string, userId: string): Promise<Date> {
+export async function recordQaReportsView(
+  memexId: string,
+  userId: string,
+): Promise<QaReportsViewReceipt> {
   const now = new Date();
+  const [prior] = await db
+    .select({ lastViewedAt: qaReportViews.lastViewedAt })
+    .from(qaReportViews)
+    .where(and(eq(qaReportViews.userId, userId), eq(qaReportViews.memexId, memexId)));
   await mutate(
     {},
     { memexId, entity: "qa_report_view", action: "updated" },
@@ -220,5 +240,5 @@ export async function recordQaReportsView(memexId: string, userId: string): Prom
         }),
     { silent: true },
   );
-  return now;
+  return { lastViewedAt: now, previousLastViewedAt: prior?.lastViewedAt ?? null };
 }
