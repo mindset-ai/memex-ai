@@ -50,7 +50,13 @@ test("the logo fill inverts between dark and light theme (ac-2)", async ({ page 
   await expect(page.getByRole("heading", { name: "Specs" })).toBeVisible({ timeout: 15_000 });
   await expect(page.getByTestId("memex-logo").first()).toBeVisible();
 
-  const darkFill = await computedLogoFill(page);
+  // Poll, don't sample once: the logo can be visible a frame before its path fill
+  // resolves the --color-logo CSS variable, so getComputedStyle().fill reads "" for
+  // a moment (spec-278/issue-1 — the journey reddened on that empty read, all 3
+  // Playwright retries). expect.poll retries until the dark token settles. Asserting
+  // each theme resolves to its own distinct token also proves the recolour inverts
+  // (DARK_FILL !== LIGHT_FILL by construction) — stronger than a bare not-equal.
+  await expect.poll(() => computedLogoFill(page), { timeout: 10_000 }).toBe(DARK_FILL);
 
   // Switch to light and re-read.
   await page.evaluate(() => localStorage.setItem("memex-theme", "light"));
@@ -58,12 +64,6 @@ test("the logo fill inverts between dark and light theme (ac-2)", async ({ page 
   await expect(page.getByRole("heading", { name: "Specs" })).toBeVisible({ timeout: 15_000 });
   await expect(page.getByTestId("memex-logo").first()).toBeVisible();
 
-  const lightFill = await computedLogoFill(page);
-
-  // The recolour is real: the two themes resolve different fills...
-  expect(darkFill).not.toBe(lightFill);
-  // ...and each matches its theme token (so dark is the legible near-white, never
-  // the old #0E112B navy that was invisible on the dark surface).
-  expect(darkFill).toBe(DARK_FILL);
-  expect(lightFill).toBe(LIGHT_FILL);
+  // ...and the light token settles to the navy (#0E112B was the old invisible-on-dark bug).
+  await expect.poll(() => computedLogoFill(page), { timeout: 10_000 }).toBe(LIGHT_FILL);
 });
