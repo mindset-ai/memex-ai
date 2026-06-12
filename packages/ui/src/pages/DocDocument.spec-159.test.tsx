@@ -14,7 +14,7 @@
 //   ac-6  : the transition flow mounts no modal — Yes transitions directly.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor, within, cleanup } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { tagAc } from '@memex-ai-ac/vitest';
@@ -22,6 +22,7 @@ import type { ReactNode } from 'react';
 import type { DocWithGraph } from '../api/types';
 
 const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-159/acs/ac-${n}`;
+const AC252 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-252/acs/ac-${n}`;
 
 // ── Heavy children → identity markers so we can see which panel rendered ────
 vi.mock('../components/DecisionPanel', () => ({
@@ -580,18 +581,21 @@ describe('spec-182 — unified reviewer phase block', () => {
     expect(screen.queryByTestId('review-actions-toggle')).not.toBeInTheDocument();
   });
 
-  it('header pill reads "You are reviewing"; picking Editing promotes to editor', async () => {
+  it('posture pill reads "You are reviewing"; picking Editing promotes to editor', async () => {
     tagAc(AC(19));
+    tagAc(AC252(9)); // spec-252 dec-2: pill relocated into the phase container
+    tagAc(AC252(10)); // spec-252: this header-slot assertion updated to the new location
     const user = userEvent.setup();
     renderAt('specify');
     await screen.findByTestId('review-action-row');
 
-    // The pill renders in the header slot, not the page body — and the old
-    // posture sentence is gone. findByRole: the slot populates via a
-    // useHeaderSlot effect a tick after the body renders (same async class
-    // as i-2 / the editor-pill variant below).
+    // spec-252 dec-2: the pill moved OUT of the header slot INTO the in-page
+    // phase container, left of the phase bar. It is no longer in the header
+    // slot, and sits inside data-testid="phase-container".
     const header = screen.getByTestId('header-slot');
-    const pill = await within(header).findByRole('button', { name: /You are reviewing/ });
+    const container = screen.getByTestId('phase-container');
+    const pill = await within(container).findByRole('button', { name: /You are reviewing/ });
+    expect(within(header).queryByRole('button', { name: /You are reviewing/ })).not.toBeInTheDocument();
     expect(screen.queryByText(/You are a reviewer of this spec/)).not.toBeInTheDocument();
 
     await user.click(pill);
@@ -602,18 +606,17 @@ describe('spec-182 — unified reviewer phase block', () => {
     expect(refetchRole).toHaveBeenCalled();
   });
 
-  it('editor: header pill reads "You are editing"; picking Reviewing demotes to reviewer', async () => {
+  it('editor: posture pill reads "You are editing"; picking Reviewing demotes to reviewer', async () => {
     tagAc(AC(19));
+    tagAc(AC252(10)); // spec-252: header-slot assertion updated to the in-container location
     mockRole = 'editor';
     const user = userEvent.setup();
     renderAt('specify');
     await screen.findByText('Narrative');
 
-    const header = screen.getByTestId('header-slot');
-    // findByRole: the header slot populates via a useHeaderSlot effect a tick
-    // after the page body renders — under full-suite load the pill can land
-    // after 'Spec' is already visible (same async class as i-2).
-    await user.click(await within(header).findByRole('button', { name: /You are editing/ }));
+    // spec-252 dec-2: the pill is in the in-page phase container, not the header.
+    const container = screen.getByTestId('phase-container');
+    await user.click(await within(container).findByRole('button', { name: /You are editing/ }));
     await user.click(screen.getByRole('menuitemradio', { name: /Reviewing/ }));
     // useSwitchPosture → demoteToReviewer(docId) then a role refetch.
     await waitFor(() => expect(demoteToReviewer).toHaveBeenCalledWith('doc-uuid'));
@@ -866,5 +869,107 @@ describe('spec-164 issue-1 — draft hides the create-Decisions-and-ACs handoff'
     expect(line.textContent).toContain(
       'Copy the Specify prompt into your coding agent to create Decisions and ACs.',
     );
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// spec-252 — coloured phase container + relocated posture pill. Reuses this
+// file's DocDocument harness (renderAt / HeaderSink).
+// ───────────────────────────────────────────────────────────────────────────
+describe('spec-252 — coloured phase container', () => {
+  // Reviewer posture: canWrite (pill shows) but !canEdit, so the review-action
+  // row + handoff render expanded (no collapse toggle) — the ac-11 wrap check
+  // needs them visible. The global beforeEach otherwise defaults to editor.
+  beforeEach(() => {
+    mockRole = 'reviewer';
+  });
+
+  it('wraps the phase block in a container carrying the current phase colour, per phase (ac-1, ac-2, ac-4)', async () => {
+    tagAc(AC252(1));
+    tagAc(AC252(2));
+    tagAc(AC252(4)); // theme-aware token class → both modes; contrast proven by ac-8
+    const cases = [
+      ['draft', 'bg-phase-draft-container'],
+      ['specify', 'bg-phase-specify-container'],
+      ['build', 'bg-phase-build-container'],
+      ['verify', 'bg-phase-verify-container'],
+    ] as const;
+    for (const [status, cls] of cases) {
+      renderAt(status);
+      const container = await screen.findByTestId('phase-container');
+      // ac-1: the phase bar lives inside the container.
+      expect(
+        within(container).getByRole('tablist', { name: /Spec phase view/i }),
+      ).toBeInTheDocument();
+      // ac-2 / ac-4: the bg is this phase's theme-aware token.
+      expect(container.className, `${status} container colour`).toContain(cls);
+      cleanup();
+    }
+  });
+
+  it('renders NO phase container at done — the done treatment is unchanged (ac-2)', async () => {
+    tagAc(AC252(2));
+    renderAt('done');
+    await screen.findByTestId('done-summary');
+    expect(screen.queryByTestId('phase-container')).not.toBeInTheDocument();
+  });
+
+  it('wraps exactly the phase block (pill, bar, transition, review actions) and excludes the title + content Tabs (ac-11)', async () => {
+    tagAc(AC252(11));
+    renderAt('specify'); // default role = reviewer (canWrite, !canEdit) → review row expanded
+    const container = await screen.findByTestId('phase-container');
+    await within(container).findByTestId('review-handoff-line');
+
+    // INSIDE the container.
+    expect(within(container).getByRole('button', { name: /You are reviewing/ })).toBeInTheDocument();
+    expect(within(container).getByRole('tablist', { name: /Spec phase view/i })).toBeInTheDocument();
+    expect(within(container).getByTestId('transition-sentence')).toBeInTheDocument();
+    expect(within(container).getByTestId('review-action-row')).toBeInTheDocument();
+    expect(within(container).getByTestId('review-handoff-line')).toBeInTheDocument();
+
+    // OUTSIDE: the doc title (no heading inside) and the content Tabs row.
+    expect(within(container).queryByRole('heading')).not.toBeInTheDocument();
+    expect(within(container).queryByText('Decisions & ACs')).not.toBeInTheDocument();
+  });
+
+  it('places the posture pill LEFT of the phase bar, as the only posture switch (ac-3, ac-9, ac-11)', async () => {
+    tagAc(AC252(3)); // scope: edit/review dropdown sits inside the container, left of the phase bar
+    tagAc(AC252(9));
+    tagAc(AC252(11));
+    renderAt('specify');
+    const container = await screen.findByTestId('phase-container');
+    const pill = await within(container).findByRole('button', { name: /You are reviewing/ });
+    const tablist = within(container).getByRole('tablist', { name: /Spec phase view/i });
+    // Exactly one posture switch on the page (spec-182/dec-6 preserved).
+    expect(screen.getAllByRole('button', { name: /You are (reviewing|editing)/ })).toHaveLength(1);
+    // DOM order: the pill precedes (sits left of) the phase bar on the shared row.
+    expect(
+      pill.compareDocumentPosition(tablist) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it('introduces no new functionality — phase indicator, review actions, and CTAs are intact and still work (ac-5)', async () => {
+    tagAc(AC252(5));
+    const user = userEvent.setup();
+    renderAt('specify'); // reviewer: review row + handoff render expanded
+    await screen.findByTestId('review-action-row');
+
+    // Phase progress indicator — unchanged: the four-tab pipeline, specify
+    // current with its ● dot, browse-only behaviour preserved.
+    expect(screen.getAllByRole('tab')).toHaveLength(4);
+    expect(phaseTab('specify')).toHaveAttribute('data-current', 'true');
+    expect(phaseTab('specify').textContent).toContain('●');
+
+    // Review actions — unchanged: the four review buttons still render…
+    const row = screen.getByTestId('review-action-row');
+    for (const label of ['Summarise Spec', 'Security review', 'Design review', 'Architecture review']) {
+      expect(within(row).getByRole('button', { name: label })).toBeInTheDocument();
+    }
+    // …and still behave: clicking one sends its scaffold prompt through chat.
+    await user.click(within(row).getByRole('button', { name: 'Summarise Spec' }));
+    await waitFor(() => expect(chat.sendMessage).toHaveBeenCalled());
+
+    // Calls-to-action — unchanged: the review handoff "copy prompt" line is present.
+    expect(screen.getByTestId('review-handoff-line')).toBeInTheDocument();
   });
 });

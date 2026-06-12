@@ -37,24 +37,27 @@ describe('PhaseTabBar', () => {
     const buildTab = tab('build');
     expect(buildTab).toHaveAttribute('data-current', 'true');
     expect(buildTab).toHaveAttribute('aria-current', 'step');
-    // build → info blue token fill.
-    expect(buildTab.className).toContain('bg-status-info-bg');
+    // build → dedicated phase blue token fill (spec-252).
+    expect(buildTab.className).toContain('bg-phase-build-bg');
     // ● current-dot present only on the current tab.
     expect(buildTab.textContent).toContain('●');
     expect(tab('specify').textContent).not.toContain('●');
     expect(tab('specify')).not.toHaveAttribute('data-current');
   });
 
-  it('uses the amber warning fill for the specify tab when current', () => {
+  it('uses the dedicated purple phase fill for the specify tab when current (spec-252)', () => {
     tagAc(AC(2));
     render(<PhaseTabBar currentPhase="specify" selectedTab="specify" onSelect={onSelect} />);
-    expect(tab('specify').className).toContain('bg-status-warning-bg');
+    // spec-252 dec-1: specify is purple via its own token, NOT the shared
+    // `warning` variant (which still colours open/review amber).
+    expect(tab('specify').className).toContain('bg-phase-specify-bg');
+    expect(tab('specify').className).not.toContain('bg-status-warning-bg');
   });
 
-  it('uses the green success fill for the verify tab when current', () => {
+  it('uses the dedicated green phase fill for the verify tab when current (spec-252)', () => {
     tagAc(AC(2));
     render(<PhaseTabBar currentPhase="verify" selectedTab="verify" onSelect={onSelect} />);
-    expect(tab('verify').className).toContain('bg-status-success-bg');
+    expect(tab('verify').className).toContain('bg-phase-verify-bg');
   });
 
   it("renders a grey Draft pill as current for phase 'draft'; Specify is NOT current", () => {
@@ -161,7 +164,7 @@ describe('PhaseTabBar', () => {
     // verify carries the CURRENT treatment (filled pill + dot) but is NOT selected.
     const verifyTab = tab('verify');
     expect(verifyTab).toHaveAttribute('data-current', 'true');
-    expect(verifyTab.className).toContain('bg-status-success-bg');
+    expect(verifyTab.className).toContain('bg-phase-verify-bg');
     expect(verifyTab.textContent).toContain('●');
     expect(verifyTab).toHaveAttribute('aria-selected', 'false');
 
