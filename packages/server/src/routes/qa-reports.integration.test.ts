@@ -25,6 +25,7 @@ import { upsertUserByEmail } from "../services/users.js";
 
 const AC_19 = "mindset-prod/memex-building-itself/specs/spec-260/acs/ac-19";
 const AC_22 = "mindset-prod/memex-building-itself/specs/spec-260/acs/ac-22";
+const AC_24 = "mindset-prod/memex-building-itself/specs/spec-260/acs/ac-24";
 
 type FeedRow = {
   id: string;
@@ -189,15 +190,24 @@ describe("GET /api/<ns>/<mx>/qa-reports (workspace feed — dec-5)", () => {
 describe("unread counter + view marker (dec-6)", () => {
   it("ac-22: unread counts ALL reports newer than the marker (no marker → all), and viewing zeroes it", async () => {
     tagAc(AC_22);
+    tagAc(AC_24);
 
     // Never viewed → every report in the memex counts (3 in memex A).
     const before = await app.request(`${pathA}/qa-reports/unread`, withApexHost());
     expect(before.status).toBe(200);
     expect(await before.json()).toEqual({ count: 3 });
 
-    // Viewing the feed upserts last_viewed_at = now() → badge zeroes.
+    // Viewing the feed upserts last_viewed_at = now() → badge zeroes. The
+    // receipt carries the PREVIOUS marker (ac-24): null on first-ever view —
+    // the unread boundary the feed page uses to render unread rows expanded.
     const view = await app.request(`${pathA}/qa-reports/view`, withApexHost({ method: "POST" }));
     expect(view.status).toBe(200);
+    const firstReceipt = (await view.json()) as {
+      lastViewedAt: string;
+      previousLastViewedAt: string | null;
+    };
+    expect(firstReceipt.previousLastViewedAt).toBeNull();
+    expect(new Date(firstReceipt.lastViewedAt).getTime()).toBeGreaterThan(0);
 
     const after = await app.request(`${pathA}/qa-reports/unread`, withApexHost());
     expect(await after.json()).toEqual({ count: 0 });
@@ -214,9 +224,16 @@ describe("unread counter + view marker (dec-6)", () => {
     const grown = await app.request(`${pathA}/qa-reports/unread`, withApexHost());
     expect(await grown.json()).toEqual({ count: 1 });
 
-    // Re-viewing resets again (the upsert path, not a second insert).
+    // Re-viewing resets again (the upsert path, not a second insert) — and the
+    // receipt now carries the FIRST view's marker as the previous boundary
+    // (ac-24): a row created after it classifies as unread, one before it as read.
     const reView = await app.request(`${pathA}/qa-reports/view`, withApexHost({ method: "POST" }));
     expect(reView.status).toBe(200);
+    const secondReceipt = (await reView.json()) as {
+      lastViewedAt: string;
+      previousLastViewedAt: string | null;
+    };
+    expect(secondReceipt.previousLastViewedAt).toBe(firstReceipt.lastViewedAt);
     const zeroed = await app.request(`${pathA}/qa-reports/unread`, withApexHost());
     expect(await zeroed.json()).toEqual({ count: 0 });
   });

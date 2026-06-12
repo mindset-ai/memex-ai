@@ -38,6 +38,7 @@ const ACS_BY_TITLE: Record<string, string[]> = {
     AC(8),
     AC(9),
     AC(10),
+    AC(24),
   ],
 };
 
@@ -193,16 +194,31 @@ test.describe("spec-260 — Build QA Report", () => {
       new RegExp(`/specs/${specB.handle}$`),
     );
 
-    // The report body opens on demand.
-    await rows.nth(0).getByTestId("qa-report-row-toggle").click();
+    // ac-24: a first-ever view has no previous marker → EVERY row is unread and
+    // arrives expanded, no click needed.
     await expect(rows.nth(0).getByTestId("qa-report-row-body")).toContainText(
       "Beta build session report.",
+    );
+    await expect(rows.nth(1).getByTestId("qa-report-row-body")).toContainText(
+      "Alpha build session report.",
     );
 
     // ── Viewing the feed zeroed the badge (count-everything → 0 after view). ──
     await page.goto(tenantPath(tenant.namespaceSlug, tenant.memexSlug, "/specs"));
     await expect(page.getByRole("link", { name: "QA Reports" })).toBeVisible({ timeout: 15_000 });
     await expect(page.getByTestId("qa-reports-nav-badge")).toHaveCount(0);
+
+    // ac-24: revisiting — both reports are now READ → they render collapsed.
+    await page.getByRole("link", { name: "QA Reports" }).click();
+    const readRows = page.getByTestId("qa-report-row");
+    await expect(readRows).toHaveCount(2, { timeout: 15_000 });
+    await expect(readRows.nth(0).getByTestId("qa-report-row-body")).toHaveCount(0);
+    await expect(readRows.nth(1).getByTestId("qa-report-row-body")).toHaveCount(0);
+    // The toggle still opens a read row on demand.
+    await readRows.nth(0).getByTestId("qa-report-row-toggle").click();
+    await expect(readRows.nth(0).getByTestId("qa-report-row-body")).toContainText(
+      "Beta build session report.",
+    );
 
     // A THIRD report lands (a new build session elsewhere) → the badge returns.
     await seedSection({
@@ -214,5 +230,15 @@ test.describe("spec-260 — Build QA Report", () => {
     });
     await page.goto(tenantPath(tenant.namespaceSlug, tenant.memexSlug, "/specs"));
     await expect(page.getByTestId("qa-reports-nav-badge")).toHaveText("1", { timeout: 15_000 });
+
+    // ac-24: only the NEW report is unread → it alone arrives expanded.
+    await page.getByRole("link", { name: "QA Reports" }).click();
+    const mixedRows = page.getByTestId("qa-report-row");
+    await expect(mixedRows).toHaveCount(3, { timeout: 15_000 });
+    await expect(mixedRows.nth(0).getByTestId("qa-report-row-body")).toContainText(
+      "Alpha session two report.",
+    );
+    await expect(mixedRows.nth(1).getByTestId("qa-report-row-body")).toHaveCount(0);
+    await expect(mixedRows.nth(2).getByTestId("qa-report-row-body")).toHaveCount(0);
   });
 });

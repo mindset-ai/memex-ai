@@ -90,13 +90,17 @@ qaReports.get("/unread", async (c) => {
 
 // POST /api/<ns>/<mx>/qa-reports/view — "I viewed the feed now". Strict session
 // (anonymous callers never reach here); the memex must be readable by the caller
-// (std-7 → 404 otherwise).
+// (std-7 → 404 otherwise). Returns the PREVIOUS marker too (null on first view)
+// — the unread boundary the page uses to render unread rows expanded (ac-24).
 qaReports.post("/view", async (c) => {
   const memexId = await resolveReadableMemexId(c);
   const userId = (c.get("currentUserId") as string | null) ?? null;
   if (!userId) throw new NotFoundError("Not found");
-  const lastViewedAt = await recordQaReportsView(memexId, userId);
-  return c.json({ lastViewedAt: lastViewedAt.toISOString() });
+  const receipt = await recordQaReportsView(memexId, userId);
+  return c.json({
+    lastViewedAt: receipt.lastViewedAt.toISOString(),
+    previousLastViewedAt: receipt.previousLastViewedAt?.toISOString() ?? null,
+  });
 });
 
 export { qaReports };

@@ -35,8 +35,10 @@ function executorLabel(row: QaReportFeedRow): string {
   return kind || 'unknown';
 }
 
-function FeedRow({ row }: { row: QaReportFeedRow }) {
-  const [open, setOpen] = useState(false);
+function FeedRow({ row, defaultOpen = false }: { row: QaReportFeedRow; defaultOpen?: boolean }) {
+  // ac-24: unread rows arrive expanded; read rows collapsed. Initial state
+  // only — the user's own toggling always wins afterwards.
+  const [open, setOpen] = useState(defaultOpen);
   return (
     <li
       data-testid="qa-report-row"
@@ -80,11 +82,37 @@ function FeedRow({ row }: { row: QaReportFeedRow }) {
 export function QaReports() {
   const { rows, loading, error, hasMore, loadOlder, refresh } = useQaReportsFeed();
 
+  // ac-24: the unread boundary — the viewer's PREVIOUS last_viewed_at, captured
+  // from the view receipt (opening the page is what resets the marker, so the
+  // receipt is the only place the old value survives).
+  //   undefined        → receipt still in flight (hold the list so rows don't
+  //                      initialise collapsed and then refuse to open)
+  //   { prev: null }   → first-ever view: everything is unread → all open
+  //   { prev: ISO }    → rows newer than it are unread → open
+  //   { prev: 'all' }  → marker unavailable (anonymous / failure): no per-user
+  //                      unread concept → all collapsed
+  const [boundary, setBoundary] = useState<{ prev: string | null | 'all' } | undefined>(undefined);
+
   // Opening the page = viewing the feed: upsert the per-user marker (dec-6),
-  // which zeroes the nav badge.
+  // which zeroes the nav badge, and keep its receipt as the unread boundary.
   useEffect(() => {
-    void recordQaReportsView();
+    let cancelled = false;
+    void recordQaReportsView().then((receipt) => {
+      if (cancelled) return;
+      setBoundary(receipt ? { prev: receipt.previousLastViewedAt } : { prev: 'all' });
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
+
+  // Both ISO-8601 UTC strings from the same serializer, so lexicographic
+  // comparison is chronological.
+  const isUnread = (row: QaReportFeedRow): boolean => {
+    if (!boundary || boundary.prev === 'all') return false;
+    if (boundary.prev === null) return true;
+    return row.createdAt > boundary.prev;
+  };
 
   // Live updates: a new report lands on the std-8 bus as a section event —
   // refetch the first page so it appears without a reload (debounced upstream).
@@ -104,7 +132,7 @@ export function QaReports() {
         </div>
       )}
 
-      {loading && rows.length === 0 ? (
+      {(loading && rows.length === 0) || boundary === undefined ? (
         <div data-testid="qa-reports-loading" className="text-sm text-muted py-8 text-center">
           Loading…
         </div>
@@ -116,7 +144,7 @@ export function QaReports() {
       ) : (
         <ul data-testid="qa-reports-list" className="space-y-3">
           {rows.map((row) => (
-            <FeedRow key={row.id} row={row} />
+            <FeedRow key={row.id} row={row} defaultOpen={isUnread(row)} />
           ))}
         </ul>
       )}

@@ -93,7 +93,9 @@ beforeEach(() => {
     refresh: vi.fn().mockResolvedValue(undefined),
   };
   useQaReportsFeedMock.mockImplementation(() => feed);
-  recordViewMock.mockResolvedValue(undefined);
+  // Default: marker unavailable → all rows collapsed; the ac-24 tests
+  // override with a real receipt.
+  recordViewMock.mockResolvedValue(null);
 });
 
 function renderPage() {
@@ -105,11 +107,11 @@ function renderPage() {
 }
 
 describe('spec-260 — QA Reports feed page', () => {
-  it('ac-8: lists reports newest-first and Load More fetches older entries', () => {
+  it('ac-8: lists reports newest-first and Load More fetches older entries', async () => {
     tagAc(AC(8));
     renderPage();
 
-    const rows = screen.getAllByTestId('qa-report-row');
+    const rows = await screen.findAllByTestId('qa-report-row');
     expect(rows).toHaveLength(3);
     // Newest-first: the order the hook returned is preserved.
     expect(within(rows[0]).getByTestId('qa-report-row-spec')).toHaveTextContent('spec-9');
@@ -120,12 +122,12 @@ describe('spec-260 — QA Reports feed page', () => {
     expect(feed.loadOlder).toHaveBeenCalledTimes(1);
   });
 
-  it('ac-9/ac-20: each row shows WHEN, WHICH Spec (linked), and WHO executed it', () => {
+  it('ac-9/ac-20: each row shows WHEN, WHICH Spec (linked), and WHO executed it', async () => {
     tagAc(AC(9));
     tagAc(AC(20));
     renderPage();
 
-    const rows = screen.getAllByTestId('qa-report-row');
+    const rows = await screen.findAllByTestId('qa-report-row');
 
     // WHICH — the parent Spec, linked.
     const specLink = within(rows[0]).getByTestId('qa-report-row-spec');
@@ -161,16 +163,68 @@ describe('spec-260 — QA Reports feed page', () => {
     expect(recordViewMock).toHaveBeenCalledTimes(1);
   });
 
-  it('renders the row body on demand (read-only markdown)', () => {
+  it('renders the row body on demand (read-only markdown)', async () => {
     renderPage();
-    const first = screen.getAllByTestId('qa-report-row')[0];
+    const first = (await screen.findAllByTestId('qa-report-row'))[0];
     fireEvent.click(within(first).getByTestId('qa-report-row-toggle'));
     expect(within(first).getByTestId('qa-report-row-body')).toHaveTextContent('NEWEST report body');
   });
 
-  it('shows the quiet empty state when no reports exist', () => {
+  it('shows the quiet empty state when no reports exist', async () => {
     feed = { ...feed, rows: [], hasMore: false };
     renderPage();
-    expect(screen.getByTestId('qa-reports-empty')).toBeInTheDocument();
+    expect(await screen.findByTestId('qa-reports-empty')).toBeInTheDocument();
+  });
+
+  // ── ac-24: unread rows open, read rows closed ────────────────────────────
+  // The unread boundary is the PREVIOUS last_viewed_at from the view receipt
+  // (opening the page resets the marker, so the receipt is the only place the
+  // old value survives). Fixture times: r-3 = 03 Jun, r-2 = 02 Jun, r-1 = 01 Jun.
+
+  it('ac-24: rows newer than the previous marker render expanded; read rows collapsed', async () => {
+    tagAc(AC(24));
+    recordViewMock.mockResolvedValue({
+      lastViewedAt: '2026-06-12T00:00:00Z',
+      previousLastViewedAt: '2026-06-01T12:00:00Z', // after r-1, before r-2/r-3
+    });
+    renderPage();
+
+    const rows = await screen.findAllByTestId('qa-report-row');
+    // Unread (r-3, r-2): expanded on arrival.
+    expect(within(rows[0]).getByTestId('qa-report-row-body')).toHaveTextContent(
+      'NEWEST report body',
+    );
+    expect(within(rows[1]).queryByTestId('qa-report-row-body')).toBeInTheDocument();
+    // Read (r-1): collapsed.
+    expect(within(rows[2]).queryByTestId('qa-report-row-body')).not.toBeInTheDocument();
+
+    // The user's own toggle still wins: collapsing an unread row works.
+    fireEvent.click(within(rows[0]).getByTestId('qa-report-row-toggle'));
+    expect(within(rows[0]).queryByTestId('qa-report-row-body')).not.toBeInTheDocument();
+  });
+
+  it('ac-24: first-ever view (no previous marker) → every row is unread and expanded', async () => {
+    tagAc(AC(24));
+    recordViewMock.mockResolvedValue({
+      lastViewedAt: '2026-06-12T00:00:00Z',
+      previousLastViewedAt: null,
+    });
+    renderPage();
+
+    const rows = await screen.findAllByTestId('qa-report-row');
+    for (const row of rows) {
+      expect(within(row).queryByTestId('qa-report-row-body')).toBeInTheDocument();
+    }
+  });
+
+  it('ac-24: marker unavailable (anonymous / failed write) → all rows collapsed', async () => {
+    tagAc(AC(24));
+    recordViewMock.mockResolvedValue(null);
+    renderPage();
+
+    const rows = await screen.findAllByTestId('qa-report-row');
+    for (const row of rows) {
+      expect(within(row).queryByTestId('qa-report-row-body')).not.toBeInTheDocument();
+    }
   });
 });
