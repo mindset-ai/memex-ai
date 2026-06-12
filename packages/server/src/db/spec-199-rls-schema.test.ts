@@ -24,6 +24,26 @@ import { tagAc } from "@memex-ai-ac/vitest";
 
 const AC_15 = "mindset-prod/memex-building-itself/specs/spec-199/acs/ac-15";
 const AC_16 = "mindset-prod/memex-building-itself/specs/spec-199/acs/ac-16";
+// spec-257 dec-3: the dynamic FORCE guard — no RLS-enabled table may be FORCE'd.
+const AC_257_FORCE_GUARD =
+  "mindset-prod/memex-building-itself/specs/spec-257/acs/ac-11";
+// spec-257 dec-1: the NO-FORCE posture (RLS enabled, FORCE off) is spec-257's
+// contract now — it inverts spec-199's original "enabled AND forced", so the
+// posture assertion below re-tags here rather than emitting a contradictory
+// pass to the done spec-199 ACs (the pure cross-tenant isolation/policy tests
+// keep AC_15/AC_16 — those claims are unchanged).
+const AC_257_POSTURE =
+  "mindset-prod/memex-building-itself/specs/spec-257/acs/ac-7";
+const AC_257_MEMEX_APP_SUBJECT =
+  "mindset-prod/memex-building-itself/specs/spec-257/acs/ac-9";
+// spec-257 dec-1: owner-bypass mechanism (ac-8), the scope isolation outcome
+// (ac-1), and the structural-guard scope outcome (ac-4).
+const AC_257_OWNER_BYPASS =
+  "mindset-prod/memex-building-itself/specs/spec-257/acs/ac-8";
+const AC_257_SCOPE_ISOLATION =
+  "mindset-prod/memex-building-itself/specs/spec-257/acs/ac-1";
+const AC_257_SCOPE_GUARD =
+  "mindset-prod/memex-building-itself/specs/spec-257/acs/ac-4";
 const RLS_ROLE = "memex_rls_tester";
 const RLS_PASS = "memex_rls_test_only";
 
@@ -165,9 +185,8 @@ describe("spec-199 ac-16: RLS tenant isolation", () => {
     ).rejects.toThrow();
   });
 
-  it("ac-16: RLS is enabled but NOT forced on all 13 tenant tables (owner-bypass posture, spec-257 dec-1)", async () => {
-    tagAc(AC_15);
-    tagAc(AC_16);
+  it("ac-7: RLS is enabled but NOT forced on all 13 tenant tables (owner-bypass posture, spec-257 dec-1)", async () => {
+    tagAc(AC_257_POSTURE);
 
     // memex_emission_keys is deliberately absent: it is an identity-
     // establishment table (verifyEmissionKey runs before ALS context exists)
@@ -176,7 +195,7 @@ describe("spec-199 ac-16: RLS tenant isolation", () => {
     // __regression__/emission-key-contextless-verify.regression.test.ts.
     //
     // Posture: RLS is ENABLED (relrowsecurity=t) but NOT FORCED
-    // (relforcerowsecurity=f) — migration 0091 dropped FORCE per spec-257 dec-1.
+    // (relforcerowsecurity=f) — migration 0093 dropped FORCE per spec-257 dec-1.
     // FORCE only affects the table OWNER; on Cloud SQL the deploy/migration role
     // is `postgres` (the owner, NOBYPASSRLS), so FORCE filtered every contextless
     // migration/deploy-script query to zero rows (the 2026-06-10 emission and
@@ -219,14 +238,138 @@ describe("spec-199 ac-16: RLS tenant isolation", () => {
       expect(row!.rowsecurity, `${table}: rowsecurity not enabled`).toBe(true);
       expect(
         row!.forcerowsecurity,
-        `${table}: FORCE must be OFF (owner-bypass posture, spec-257 dec-1 / migration 0091)`,
+        `${table}: FORCE must be OFF (owner-bypass posture, spec-257 dec-1 / migration 0093)`,
       ).toBe(false);
     }
   });
 
-  it("ac-16: memex_app role without GUC sees 0 rows (SET LOCAL ROLE production path)", async () => {
-    tagAc(AC_15);
-    tagAc(AC_16);
+  // spec-257 dec-3 / ac-11 — the DYNAMIC FORCE guard. The test above pins the
+  // known set; this one is the structural backstop: it queries pg_class for
+  // EVERY RLS-enabled table (no hardcoded list) and fails if any is FORCE'd —
+  // so a future ENABLE+FORCE on a brand-new tenant table (exactly what spec-260's
+  // 0092 did days after the outages) trips CI immediately, with no test edit.
+  it("ac-11: NO RLS-enabled table is FORCE'd — dynamic guard against future ENABLE+FORCE", async () => {
+    tagAc(AC_257_FORCE_GUARD);
+    tagAc(AC_257_SCOPE_GUARD);
+
+    const forced = (await db.execute(sql`
+      SELECT c.relname AS tablename
+      FROM pg_class c
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = 'public'
+        AND c.relkind = 'r'
+        AND c.relrowsecurity
+        AND c.relforcerowsecurity
+      ORDER BY c.relname
+    `)) as unknown as Array<{ tablename: string }>;
+
+    expect(
+      forced.map((r) => r.tablename),
+      "tables with FORCE ROW LEVEL SECURITY (must be none — spec-257 dec-1: " +
+        "owner-bypass requires NO FORCE; add an ALTER TABLE … NO FORCE migration " +
+        "for any table listed here)",
+    ).toEqual([]);
+  });
+
+  // Red-proof: the guard query is not vacuous — it actually detects a FORCE'd
+  // table. Creates a throwaway table with ENABLE+FORCE, asserts the guard query
+  // surfaces it, then drops it. If this passed with an empty result the guard
+  // above would be meaningless.
+  it("ac-11: the FORCE guard is not vacuous — a FORCE'd table IS detected", async () => {
+    tagAc(AC_257_FORCE_GUARD);
+
+    const probe = "rls_force_guard_probe";
+    try {
+      await db.execute(sql.raw(`CREATE TABLE IF NOT EXISTS ${probe} (id int)`));
+      await db.execute(sql.raw(`ALTER TABLE ${probe} ENABLE ROW LEVEL SECURITY`));
+      await db.execute(sql.raw(`ALTER TABLE ${probe} FORCE ROW LEVEL SECURITY`));
+
+      const forced = (await db.execute(sql`
+        SELECT c.relname AS tablename
+        FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'public'
+          AND c.relkind = 'r'
+          AND c.relrowsecurity
+          AND c.relforcerowsecurity
+      `)) as unknown as Array<{ tablename: string }>;
+
+      expect(
+        forced.map((r) => r.tablename),
+        "guard query failed to detect a deliberately FORCE'd table",
+      ).toContain(probe);
+    } finally {
+      await db.execute(sql.raw(`DROP TABLE IF EXISTS ${probe}`));
+    }
+  });
+
+  // spec-257 dec-1 / ac-8 + ac-1 — the OWNER-BYPASS mechanism, reproduced
+  // locally. The whole fix rests on: a table OWNER bypasses RLS under NO FORCE
+  // but is subject under FORCE. CI's `postgres` is a real superuser (bypasses
+  // regardless), which is exactly why this never reproduced in CI before — so we
+  // make a dedicated NON-superuser role OWN a probe table (mirroring Cloud SQL,
+  // where `postgres` is not a superuser) and assert both branches of the matrix.
+  it("ac-8: a non-superuser table OWNER bypasses RLS under NO FORCE, is filtered under FORCE", async () => {
+    tagAc(AC_257_OWNER_BYPASS);
+    tagAc(AC_257_SCOPE_ISOLATION);
+
+    const ownerRole = "rls_owner_probe_role";
+    const ownerPass = "rls_owner_probe_only";
+    const tbl = "rls_owner_probe_tbl";
+    // Setup as the privileged `db` connection: create the non-super role + table,
+    // hand OWNERSHIP to that role, enable RLS with a policy that blocks rows when
+    // no app.memex_id GUC is set.
+    await db.execute(sql.raw(`DROP TABLE IF EXISTS ${tbl}`));
+    await db.execute(sql.raw(`DROP OWNED BY ${ownerRole} CASCADE`)).catch(() => {});
+    await db.execute(sql.raw(`DROP ROLE IF EXISTS ${ownerRole}`));
+    await db.execute(
+      sql.raw(
+        `CREATE ROLE ${ownerRole} LOGIN PASSWORD '${ownerPass}' NOSUPERUSER NOBYPASSRLS`,
+      ),
+    );
+    await db.execute(sql.raw(`GRANT USAGE ON SCHEMA public TO ${ownerRole}`));
+    await db.execute(sql.raw(`CREATE TABLE ${tbl} (id int)`));
+    await db.execute(sql.raw(`INSERT INTO ${tbl} VALUES (1)`));
+    await db.execute(sql.raw(`ALTER TABLE ${tbl} OWNER TO ${ownerRole}`));
+    await db.execute(sql.raw(`ALTER TABLE ${tbl} ENABLE ROW LEVEL SECURITY`));
+    await db.execute(
+      sql.raw(
+        `CREATE POLICY ${tbl}_iso ON ${tbl} USING (current_setting('app.memex_id', true) IS NOT NULL)`,
+      ),
+    );
+
+    const dbUrl =
+      process.env.DATABASE_URL ?? "postgresql://postgres:postgres@localhost:5432/memex";
+    const ownerUrl = new URL(dbUrl);
+    ownerUrl.username = ownerRole;
+    ownerUrl.password = ownerPass;
+    const ownerSql = postgres(ownerUrl.toString(), { max: 1 });
+    try {
+      // NO FORCE (the 0093 posture): the owner bypasses → sees the row with no GUC.
+      const noForce = await ownerSql.unsafe(`SELECT id FROM ${tbl}`);
+      expect(
+        noForce,
+        "non-super OWNER under NO FORCE must bypass RLS and see the row (this is what 0093 restored)",
+      ).toHaveLength(1);
+
+      // FORCE (the 0081 bug): the owner becomes subject → filtered to 0 rows with no GUC.
+      await db.execute(sql.raw(`ALTER TABLE ${tbl} FORCE ROW LEVEL SECURITY`));
+      const forced = await ownerSql.unsafe(`SELECT id FROM ${tbl}`);
+      expect(
+        forced,
+        "non-super OWNER under FORCE must be filtered to 0 rows (this is the 2026-06-10/06-11 outage mechanism)",
+      ).toHaveLength(0);
+    } finally {
+      await ownerSql.end({ timeout: 5 });
+      await db.execute(sql.raw(`DROP TABLE IF EXISTS ${tbl}`));
+      await db.execute(sql.raw(`DROP OWNED BY ${ownerRole} CASCADE`)).catch(() => {});
+      await db.execute(sql.raw(`DROP ROLE IF EXISTS ${ownerRole}`));
+    }
+  });
+
+  it("ac-9: memex_app role without GUC sees 0 rows (SET LOCAL ROLE production path)", async () => {
+    tagAc(AC_257_MEMEX_APP_SUBJECT);
+    tagAc(AC_257_SCOPE_ISOLATION);
 
     // Switch to memex_app within a transaction using SET LOCAL ROLE. memex_app
     // is a NON-OWNER role (postgres owns these tables) with NOBYPASSRLS, so
