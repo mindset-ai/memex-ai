@@ -65,6 +65,13 @@ describe("spec-276 — the server suite is sharded but the coverage gate is inta
     const server = jobBlock("server");
     expect(server, "shard runs under coverage").toMatch(/--coverage\b/);
     expect(server, "shard emits a blob report").toMatch(/--reporter=blob\b/);
+    // Dual reporter: blob alone suppresses console output, so a red shard names no
+    // failing test in CI logs (spec-276 issue-2 — the first develop flake was only
+    // diagnosable by downloading + replaying the blob). A second console reporter
+    // restores in-log failures. Don't let it regress to blob-only.
+    expect(server, "shard also runs a console reporter (not blob-only)").toMatch(
+      /--reporter=blob\s+--reporter=\w/,
+    );
     // Collect-only: all four metric thresholds forced to 0 so a shard does NOT
     // gate on its partial coverage. (Drop any one and that shard reds out.)
     for (const metric of ["lines", "functions", "branches", "statements"]) {

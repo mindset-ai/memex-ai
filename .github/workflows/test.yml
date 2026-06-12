@@ -115,12 +115,18 @@ jobs:
 
       - name: Server suite shard ${{ matrix.shard }}/3 (collect coverage, NO threshold gate)
         # --reporter=blob writes packages/server/.vitest-reports/blob-<shard>-3.json.
+        # --reporter=default ALSO prints the pass/fail test tree to the console:
+        # blob alone suppresses the console reporter, so a red shard would name no failing
+        # test in the logs — undiagnosable. The dual reporter restores that (the blob is
+        # still written for the merge; verified the two coexist). Do NOT drop the second
+        # reporter — spec-276 issue-2: the first develop flake was un-diagnosable from logs
+        # and only recovered by downloading + replaying the shard blob artifact.
         # The four --coverage.thresholds.*=0 flags make this shard collect-only — the
         # gate is enforced once, on merged coverage, in server-result (see header).
         run: |
           pnpm --filter @memex/server exec vitest run \
             --shard=${{ matrix.shard }}/3 \
-            --coverage --reporter=blob \
+            --coverage --reporter=blob --reporter=default \
             --coverage.thresholds.lines=0 \
             --coverage.thresholds.functions=0 \
             --coverage.thresholds.branches=0 \
