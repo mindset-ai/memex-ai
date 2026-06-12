@@ -24,6 +24,9 @@ import { tagAc } from "@memex-ai-ac/vitest";
 
 const AC_15 = "mindset-prod/memex-building-itself/specs/spec-199/acs/ac-15";
 const AC_16 = "mindset-prod/memex-building-itself/specs/spec-199/acs/ac-16";
+// spec-257 dec-3: the dynamic FORCE guard — no RLS-enabled table may be FORCE'd.
+const AC_257_FORCE_GUARD =
+  "mindset-prod/memex-building-itself/specs/spec-257/acs/ac-11";
 const RLS_ROLE = "memex_rls_tester";
 const RLS_PASS = "memex_rls_test_only";
 
@@ -176,7 +179,7 @@ describe("spec-199 ac-16: RLS tenant isolation", () => {
     // __regression__/emission-key-contextless-verify.regression.test.ts.
     //
     // Posture: RLS is ENABLED (relrowsecurity=t) but NOT FORCED
-    // (relforcerowsecurity=f) — migration 0091 dropped FORCE per spec-257 dec-1.
+    // (relforcerowsecurity=f) — migration 0093 dropped FORCE per spec-257 dec-1.
     // FORCE only affects the table OWNER; on Cloud SQL the deploy/migration role
     // is `postgres` (the owner, NOBYPASSRLS), so FORCE filtered every contextless
     // migration/deploy-script query to zero rows (the 2026-06-10 emission and
@@ -219,8 +222,67 @@ describe("spec-199 ac-16: RLS tenant isolation", () => {
       expect(row!.rowsecurity, `${table}: rowsecurity not enabled`).toBe(true);
       expect(
         row!.forcerowsecurity,
-        `${table}: FORCE must be OFF (owner-bypass posture, spec-257 dec-1 / migration 0091)`,
+        `${table}: FORCE must be OFF (owner-bypass posture, spec-257 dec-1 / migration 0093)`,
       ).toBe(false);
+    }
+  });
+
+  // spec-257 dec-3 / ac-11 — the DYNAMIC FORCE guard. The test above pins the
+  // known set; this one is the structural backstop: it queries pg_class for
+  // EVERY RLS-enabled table (no hardcoded list) and fails if any is FORCE'd —
+  // so a future ENABLE+FORCE on a brand-new tenant table (exactly what spec-260's
+  // 0092 did days after the outages) trips CI immediately, with no test edit.
+  it("ac-11: NO RLS-enabled table is FORCE'd — dynamic guard against future ENABLE+FORCE", async () => {
+    tagAc(AC_257_FORCE_GUARD);
+
+    const forced = (await db.execute(sql`
+      SELECT c.relname AS tablename
+      FROM pg_class c
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = 'public'
+        AND c.relkind = 'r'
+        AND c.relrowsecurity
+        AND c.relforcerowsecurity
+      ORDER BY c.relname
+    `)) as unknown as Array<{ tablename: string }>;
+
+    expect(
+      forced.map((r) => r.tablename),
+      "tables with FORCE ROW LEVEL SECURITY (must be none — spec-257 dec-1: " +
+        "owner-bypass requires NO FORCE; add an ALTER TABLE … NO FORCE migration " +
+        "for any table listed here)",
+    ).toEqual([]);
+  });
+
+  // Red-proof: the guard query is not vacuous — it actually detects a FORCE'd
+  // table. Creates a throwaway table with ENABLE+FORCE, asserts the guard query
+  // surfaces it, then drops it. If this passed with an empty result the guard
+  // above would be meaningless.
+  it("ac-11: the FORCE guard is not vacuous — a FORCE'd table IS detected", async () => {
+    tagAc(AC_257_FORCE_GUARD);
+
+    const probe = "rls_force_guard_probe";
+    try {
+      await db.execute(sql.raw(`CREATE TABLE IF NOT EXISTS ${probe} (id int)`));
+      await db.execute(sql.raw(`ALTER TABLE ${probe} ENABLE ROW LEVEL SECURITY`));
+      await db.execute(sql.raw(`ALTER TABLE ${probe} FORCE ROW LEVEL SECURITY`));
+
+      const forced = (await db.execute(sql`
+        SELECT c.relname AS tablename
+        FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'public'
+          AND c.relkind = 'r'
+          AND c.relrowsecurity
+          AND c.relforcerowsecurity
+      `)) as unknown as Array<{ tablename: string }>;
+
+      expect(
+        forced.map((r) => r.tablename),
+        "guard query failed to detect a deliberately FORCE'd table",
+      ).toContain(probe);
+    } finally {
+      await db.execute(sql.raw(`DROP TABLE IF EXISTS ${probe}`));
     }
   });
 
