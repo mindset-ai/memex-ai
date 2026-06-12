@@ -112,6 +112,9 @@ const MUTATING_MCP_TOOLS: Record<string, ToolMutation[]> = {
   delete_task: [{ entity: "task", action: "deleted" }],
   // acs.ts
   create_ac: [{ entity: "ac", action: "created" }],
+  // spec-234: provision_ac_emission mints an emission key → memex_emission_key.created
+  // on the bus (the same mutate() path mintEmissionKey uses for the Settings-UI mint).
+  provision_ac_emission: [{ entity: "memex_emission_key", action: "created" }],
   update_ac: [{ entity: "ac", action: "updated" }],
   delete_ac: [{ entity: "ac", action: "deleted" }],
   link_ac_to_decision: [{ entity: "ac", action: "updated" }],

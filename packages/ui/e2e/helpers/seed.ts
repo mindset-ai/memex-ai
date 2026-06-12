@@ -330,6 +330,22 @@ export async function seedTestEvent(opts: {
   await call("POST", "/seed-test-event", opts);
 }
 
+/**
+ * spec-234: seed an emission key (permanent CI or ephemeral agent) for a Memex,
+ * attributed to a user so it shows in that member's key list. Ephemeral keys are
+ * normally minted over MCP (provision_ac_emission) — there's no UI to create one — so
+ * the differentiation journey seeds both kinds here.
+ */
+export async function seedEmissionKey(opts: {
+  memexId: string;
+  createdByUserId: string;
+  kind: "permanent" | "ephemeral";
+  name?: string;
+  specHandle?: string;
+}): Promise<{ id: string; prefix: string }> {
+  return call("POST", "/seed-emission-key", opts);
+}
+
 // ── spec-199 t-9: security journey seeds ────────────────────────────────────
 
 /** Seed an assignee on a Spec through the real assign service. */

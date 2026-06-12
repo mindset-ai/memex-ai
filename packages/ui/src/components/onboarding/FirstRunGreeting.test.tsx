@@ -1,65 +1,23 @@
-// spec-206 t-3 — the first-run greeting controller.
+// spec-206 t-3 — the onboarding opening-context builder.
 //
 // Unit: the opening-context builder carries the required beats (ac-2/3/10/11).
-// Integration: against a REAL VoiceSessionProvider (injected mic/orchestrator), the
-// controller auto-starts on a first session with no tap (ac-1), stamps only once the
-// session reaches `active` (ac-16), and no-ops when audio is unavailable (ac-15).
+// The builder survives the spec-242 rework unchanged — spec-229 hands it to
+// `session.start()` when the user presses Turn on Mic, so these beats are still
+// exactly what the guide speaks.
+//
+// The spec-206 CONTROLLER tests that lived here (auto-start on first session /
+// no-op without audio / stamp-on-active — ac-1, ac-15, ac-16) are GONE with the
+// behaviour they proved: spec-242 dec-2 superseded the auto-start (Specky now
+// opens in text via the SpeckyDialogue card; voice begins only on the explicit
+// Turn on Mic press). The replacement behaviour is proven in
+// FirstRunGreeting.spec-242.test.tsx.
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { tagAc } from '@memex-ai-ac/vitest';
-import { render, waitFor } from '@testing-library/react';
 
-// Mock the user-level greeting API the controller calls.
-const fetchGreetingGate = vi.fn();
-const stampGreeting = vi.fn();
-vi.mock('../../api/client', () => ({
-  fetchGreetingGate: () => fetchGreetingGate(),
-  stampGreeting: () => stampGreeting(),
-}));
-
-import { FirstRunGreeting, buildOnboardingOpeningContext } from './FirstRunGreeting';
-import {
-  VoiceSessionProvider,
-  noopEarconPlayer,
-  type OrchestratorFactory,
-} from '@memex/guide-sdk';
+import { buildOnboardingOpeningContext } from './FirstRunGreeting';
 
 const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-206/acs/ac-${n}`;
-
-// Records the opening context the provider hands the orchestrator on start().
-let recordedOpening: string | undefined;
-const recordingFactory: OrchestratorFactory = (hooks) => ({
-  start: async (_stream, opening) => {
-    recordedOpening = opening;
-  },
-  interrupt: () => {},
-  stop: () => {},
-  narratePhase: () => hooks.onTurnComplete?.(),
-});
-
-const fakeStream = { getTracks: () => [] } as unknown as MediaStream;
-
-function renderController(opts: { micAvailable: boolean; grant?: boolean }) {
-  return render(
-    <VoiceSessionProvider
-      orchestratorFactory={recordingFactory}
-      earcons={noopEarconPlayer}
-      detectMic={() => opts.micAvailable}
-      getUserMedia={async () => {
-        if (opts.grant === false) throw new Error('denied');
-        return fakeStream;
-      }}
-    >
-      <FirstRunGreeting />
-    </VoiceSessionProvider>,
-  );
-}
-
-beforeEach(() => {
-  fetchGreetingGate.mockReset();
-  stampGreeting.mockReset();
-  recordedOpening = undefined;
-});
 
 describe('buildOnboardingOpeningContext (spec-206 ac-2/3/10/11)', () => {
   it('greets by first name and carries the value prop, orientation, invite, and offer', () => {
@@ -81,57 +39,5 @@ describe('buildOnboardingOpeningContext (spec-206 ac-2/3/10/11)', () => {
     expect(ctx).not.toMatch(/\bnull\b/); // never a placeholder/empty name
     expect(ctx).not.toContain('undefined');
     tagAc(AC(11));
-  });
-});
-
-describe('FirstRunGreeting controller', () => {
-  it('auto-starts the greeting on a first session (no tap) and stamps once active', async () => {
-    fetchGreetingGate.mockResolvedValue({ greet: true, firstName: 'Ryan' });
-    stampGreeting.mockResolvedValue(undefined);
-
-    renderController({ micAvailable: true, grant: true });
-
-    // No user interaction — the controller drives it (ac-1).
-    await waitFor(() => expect(fetchGreetingGate).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(recordedOpening).toContain('Ryan'));
-    // Session reached `active` → the flag is stamped exactly once (ac-16).
-    await waitFor(() => expect(stampGreeting).toHaveBeenCalledTimes(1));
-    tagAc(AC(1));
-    tagAc(AC(16));
-  });
-
-  it('no-ops when audio is unavailable — never greets, never stamps (ac-15)', async () => {
-    fetchGreetingGate.mockResolvedValue({ greet: true, firstName: 'Ryan' });
-
-    renderController({ micAvailable: false });
-
-    // Give any async effects a chance to (not) run.
-    await new Promise((r) => setTimeout(r, 20));
-    expect(fetchGreetingGate).not.toHaveBeenCalled(); // gate not even hit
-    expect(recordedOpening).toBeUndefined(); // session never started
-    expect(stampGreeting).not.toHaveBeenCalled(); // one-shot preserved
-    tagAc(AC(15));
-  });
-
-  it('does not greet a returning user (greet=false) and does not stamp', async () => {
-    fetchGreetingGate.mockResolvedValue({ greet: false, firstName: 'Ryan' });
-
-    renderController({ micAvailable: true, grant: true });
-
-    await waitFor(() => expect(fetchGreetingGate).toHaveBeenCalledTimes(1));
-    await new Promise((r) => setTimeout(r, 20));
-    expect(recordedOpening).toBeUndefined();
-    expect(stampGreeting).not.toHaveBeenCalled();
-  });
-
-  it('does not stamp the one-shot when mic permission is denied (ac-16)', async () => {
-    fetchGreetingGate.mockResolvedValue({ greet: true, firstName: 'Ryan' });
-
-    renderController({ micAvailable: true, grant: false });
-
-    await waitFor(() => expect(fetchGreetingGate).toHaveBeenCalledTimes(1));
-    await new Promise((r) => setTimeout(r, 20));
-    // start() was attempted but permission was denied → never `active` → no stamp.
-    expect(stampGreeting).not.toHaveBeenCalled();
   });
 });
