@@ -70,9 +70,10 @@ test("candidate decisions are view-only on the web; approval happens agent-side 
     timeout: 15_000,
   });
 
-  // Open the Decisions & ACs sub-tab and the Candidates sub-tab.
+  // Open the Decisions & ACs sub-tab. spec-247 dec-7: there are no longer
+  // Candidates/Open/Resolved tabs — every decision renders in one grouped list,
+  // so the candidate card is visible directly.
   await page.getByRole("button", { name: /^Decisions & ACs$/i }).click();
-  await page.getByRole("button", { name: /^Candidates 1$/i }).click();
 
   const panel = page.getByTestId("decision-panel");
 
@@ -116,10 +117,11 @@ test("candidate decisions are view-only on the web; approval happens agent-side 
 
   await sendChat(page, "yes, that's a real decision — approve it");
 
-  await expect(page.getByRole("button", { name: /^Open 1$/i })).toBeVisible({
-    timeout: 15_000,
-  });
-  await page.getByRole("button", { name: /^Open 1$/i }).click();
+  // spec-247 dec-7: no tabs — the approved decision surfaces directly as an
+  // open card in the unified list.
+  await expect(
+    page.locator('[data-decision-status="open"]').first(),
+  ).toBeVisible({ timeout: 15_000 });
   await expect(page.getByText("Pick database").first()).toBeVisible({
     timeout: 15_000,
   });

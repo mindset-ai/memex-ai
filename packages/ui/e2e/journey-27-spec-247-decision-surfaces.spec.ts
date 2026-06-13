@@ -103,19 +103,19 @@ test("answer-by-click persists across reload, re-select updates, discussion is t
   await panel.getByRole("button", { name: /Hide discussion/ }).click();
 
   // ── Answer by clicking an option — that IS the resolution ──
+  // spec-247 dec-7: no tabs — the decision becomes a resolved card in place.
   await panel.getByTestId("open-option-1").first().check();
-  await expect(panel.getByRole("button", { name: /^Resolved 1$/ })).toBeVisible({
-    timeout: 15_000,
-  });
+  await expect(
+    panel.locator('[data-decision-status="resolved"]').first(),
+  ).toBeVisible({ timeout: 15_000 });
 
   // ── The answer survives a full reload (the agent-craft prod scenario) ──
   await page.reload();
   await page.getByRole("button", { name: /Decisions & ACs/ }).click();
   const panelAfter = page.getByTestId("decision-panel");
-  await expect(panelAfter.getByRole("button", { name: /^Resolved 1$/ })).toBeVisible({
-    timeout: 15_000,
-  });
-  await panelAfter.getByRole("button", { name: /^Resolved 1$/ }).click();
+  await expect(
+    panelAfter.locator('[data-decision-status="resolved"]').first(),
+  ).toBeVisible({ timeout: 15_000 });
   await expect(panelAfter).toContainText(/Chose:/, { timeout: 15_000 });
   await expect(panelAfter).toContainText(/In-process LRU/);
 
