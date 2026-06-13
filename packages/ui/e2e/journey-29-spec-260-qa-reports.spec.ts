@@ -71,15 +71,17 @@ test.describe("spec-260 — Build QA Report", () => {
     });
 
     // ── Build, BEFORE any hand-off: the QA Report sub-tab exists with a quiet
-    // empty state; Tasks & Issues stays the default view. ──
+    // empty state (spec-282: it's one tab in the unified control, reachable in
+    // every phase). ──
     await setDocStatus({ memexId: tenant.memexId, docId, status: "build" });
     await page.goto(tenantPath(tenant.namespaceSlug, tenant.memexSlug, `/docs/${docId}`));
     await expect(
       page.getByRole("heading", { name: "QA Report Seats Spec", level: 1 }),
     ).toBeVisible({ timeout: 15_000 });
 
-    // Default tab: the working two-column (Tasks panel present).
-    await expect(page.getByText("Tasks & Issues")).toBeVisible();
+    // spec-282 dec-2: the work view is now "Agent Tasks & Issues"; the QA Report
+    // tab is present alongside it (build lands on Decisions & ACs by default).
+    await expect(page.getByText("Agent Tasks & Issues")).toBeVisible();
     await page.getByText("QA Report", { exact: true }).click();
     await expect(page.getByTestId("qa-report-empty")).toContainText(
       "No QA report yet — generated when build hands off to verify",

@@ -224,35 +224,50 @@ describe('spec-159 t-6 — DocDocument phase layouts', () => {
     expect(screen.getByTestId('all-comments')).toBeInTheDocument();
   });
 
-  // spec-260 evolved this layout: Build now carries a secondary "QA Report"
-  // sub-tab (deliberate structural change, spec-260 dec-1). What survives of
-  // ac-11 here: the Tasks | Issues two-column stays Build's DEFAULT view and
-  // Specify's sub-tabs never leak into it. The QA-report tab itself is covered
-  // by DocDocument.spec-260.test.tsx.
-  it('Build defaults to Tasks | Issues; Specify sub-tabs never leak in (ac-5, ac-11)', async () => {
+  // spec-282 (dec-1/dec-2/dec-3) supersedes the spec-159/spec-260 per-phase
+  // layouts: ONE persistent sub-tab control carries the full inventory in every
+  // phase. Build LANDS on Decisions & ACs (dec-3); the Agent Tasks & Issues tab
+  // reveals the work view. (The old "Build/Verify carry no sub-tab bar" ac-11 is
+  // superseded; the QA-report tab is covered in DocDocument.spec-260.test.tsx.)
+  it('Build lands on Decisions & ACs; the full sub-tab inventory is present (ac-5)', async () => {
     tagAc(AC(5));
-    tagAc(AC(11));
+    const user = userEvent.setup();
     renderAt('build');
 
-    await screen.findByTestId('task-panel');
-    expect(screen.getByTestId('issue-panel')).toBeInTheDocument();
-    expect(screen.queryByTestId('ac-panel')).not.toBeInTheDocument();
+    // The unified control carries the full inventory.
+    await screen.findByText('Narrative');
+    expect(screen.getByText('Comments')).toBeInTheDocument();
+    expect(screen.getByText('Decisions & ACs')).toBeInTheDocument();
+    expect(screen.getByText('Agent Tasks & Issues')).toBeInTheDocument();
+    expect(screen.getByText('QA Report')).toBeInTheDocument();
 
-    // The Specify sub-tab labels are absent.
-    expect(screen.queryByText('Decisions & ACs')).not.toBeInTheDocument();
-    // The only tablist on the page is the phase bar (4 tabs, spec-258), not a sub-tab bar.
+    // Build's default landing is Decisions & ACs (decision + AC panels).
+    expect(screen.getByTestId('decision-panel')).toBeInTheDocument();
+    expect(screen.getByTestId('ac-panel')).toBeInTheDocument();
+
+    // The work view is one click away.
+    await user.click(screen.getByText('Agent Tasks & Issues'));
+    expect(screen.getByTestId('task-panel')).toBeInTheDocument();
+    expect(screen.getByTestId('issue-panel')).toBeInTheDocument();
+
+    // The phase bar is still the only role=tab tablist (4 phase tabs).
     expect(screen.getAllByRole('tab')).toHaveLength(4);
   });
 
-  it('Verify renders AC | Issues with NO sub-tab bar (ac-5, ac-11)', async () => {
+  it('Verify lands on Decisions & ACs when no report exists; the work tab stays reachable (ac-5)', async () => {
     tagAc(AC(5));
-    tagAc(AC(11));
+    const user = userEvent.setup();
     renderAt('verify');
 
+    // No QA report seeded → verify falls back to Decisions & ACs (dec-3).
     await screen.findByTestId('ac-panel');
-    expect(screen.getByTestId('issue-panel')).toBeInTheDocument();
-    expect(screen.queryByTestId('task-panel')).not.toBeInTheDocument();
+    expect(screen.getByText('QA Report')).toBeInTheDocument();
     expect(screen.getAllByRole('tab')).toHaveLength(4);
+
+    // Agent Tasks & Issues remains reachable in verify (accretion never removes it).
+    await user.click(screen.getByText('Agent Tasks & Issues'));
+    expect(screen.getByTestId('task-panel')).toBeInTheDocument();
+    expect(screen.getByTestId('issue-panel')).toBeInTheDocument();
   });
 
   it('Done replaces the content area with the DoneSummary report (ac-5)', async () => {
@@ -271,16 +286,15 @@ describe('spec-159 t-6 — DocDocument phase layouts', () => {
     const user = userEvent.setup();
     renderAt('build');
 
-    await screen.findByTestId('task-panel');
+    await screen.findByTestId('decision-panel'); // build lands on Decisions & ACs
     // build is the current phase.
     expect(phaseTab('build')).toHaveAttribute('data-current', 'true');
 
     // Browse the Verify view.
     await user.click(phaseTab('verify'));
 
-    // The view switched (AC | Issues now render)…
-    expect(screen.getByTestId('ac-panel')).toBeInTheDocument();
-    // …but the current-phase highlight is STILL on build, and no status mutation fired.
+    // The current-phase highlight is STILL on build; verify is only selected,
+    // and no status mutation fired.
     expect(phaseTab('build')).toHaveAttribute('data-current', 'true');
     expect(phaseTab('verify')).not.toHaveAttribute('data-current');
     expect(phaseTab('verify')).toHaveAttribute('data-selected', 'true');
@@ -302,18 +316,18 @@ describe('spec-159 t-6 — DocDocument phase layouts', () => {
   it('the transition flow mounts no modal — Yes calls updateDocStatus directly (ac-6)', async () => {
     tagAc(AC(6));
     const user = userEvent.setup();
-    // verify → done is a forward step; with every active AC verified it offers
-    // Yes (an AC-less verify is blocked — covered in the Rubicon describe).
+    // verify → done is a forward step; with every active AC verified the browse-
+    // forward confirm offers Yes (an AC-less verify is blocked).
     docAcs = [{ ac: { status: 'active' }, verificationState: 'verified' }];
     renderAt('verify');
     await screen.findByTestId('ac-panel');
 
+    // spec-282/dec-4: the advance [Yes] lives on the browse-forward confirm, not
+    // the current tab. Browse the Done tab; verify is clean → "Are you sure…?".
+    await user.click(phaseTab('done'));
     const sentence = screen.getByTestId('transition-sentence');
-    // Wait for the async AC fetch to settle so verify is CLEAN and the line shows
-    // the ready advancement offer — not the transient spec-258/dec-5 blocked
-    // override (which renders a Yes during the pre-fetch unverified window).
     await waitFor(() =>
-      expect(sentence).toHaveTextContent(/Do you want to move this spec to Done\?/),
+      expect(sentence).toHaveTextContent(/Are you sure you want to move this spec to Done\?/),
     );
     const yes = within(sentence).getByRole('button', { name: 'Yes' });
     await user.click(yes);
@@ -329,26 +343,25 @@ describe('spec-159 t-6 — DocDocument phase layouts', () => {
 // browsing forward → summary + Are-you-sure Yes/No. The in-situ ⚠ directives
 // above the lists are unchanged.
 describe('spec-159 — Rubicon line + in-situ directives', () => {
-  it('specify with open decisions: line states the blocker + editor override; directive sits above Decisions (ac-3, ac-13, spec-258)', async () => {
+  it('specify with open decisions: the current-tab line is status-only; directive sits above Decisions (ac-3, ac-13)', async () => {
     tagAc(AC(3));
     tagAc(AC(13));
-    tagAc('mindset-prod/memex-building-itself/specs/spec-258/acs/ac-9');
     const user = userEvent.setup();
     docDecisions = [decision('d-1', 'open'), decision('d-2', 'open')];
     docAcs = [{ ac: { status: 'active' }, verificationState: 'untested' }];
     renderAt('specify');
 
-    // Current tab + blocked rubric → the exact condition, plus the spec-258/dec-5
-    // editor override "Move … anyway?" [Yes] (canEdit is true in this render).
-    // (waitFor: the AC fetch resolving flips `hasAcceptanceCriteria` async.)
+    // spec-282/dec-4: the current tab states the exact rubric condition but is
+    // STATUS-ONLY — no override, no button. (waitFor: the AC fetch resolving
+    // flips `hasAcceptanceCriteria` async.)
     const sentence = await screen.findByTestId('transition-sentence');
     await waitFor(() =>
       expect(sentence.textContent).toContain(
         '2 Decisions must be resolved before this spec can move to Build.',
       ),
     );
-    expect(sentence.textContent).toContain('Move this spec to Build anyway?');
-    expect(within(sentence).getByRole('button', { name: 'Yes' })).toBeInTheDocument();
+    expect(sentence.textContent).not.toContain('anyway?');
+    expect(within(sentence).queryByRole('button')).not.toBeInTheDocument();
 
     // The directive renders in-situ on the Decisions & ACs sub-tab.
     await user.click(screen.getByText('Decisions & ACs'));
@@ -416,12 +429,15 @@ describe('spec-159 — Rubicon line + in-situ directives', () => {
     expect(text).toContain('2 Decisions must be resolved before this spec can move to Build.');
   });
 
-  it('build with open tasks: directive above Tasks; Rubicon line states it + editor override (ac-13, spec-258)', async () => {
+  it('build with open tasks: directive above the work view; current-tab line is status-only (ac-13)', async () => {
     tagAc(AC(13));
-    tagAc('mindset-prod/memex-building-itself/specs/spec-258/acs/ac-9');
+    const user = userEvent.setup();
     docTasks = [{ id: 't-1', status: 'in_progress' }, { id: 't-2', status: 'complete' }];
     renderAt('build');
 
+    // The build directive renders on the Agent Tasks & Issues tab.
+    await screen.findByTestId('decision-panel'); // build landing
+    await user.click(screen.getByText('Agent Tasks & Issues'));
     await screen.findByTestId('task-panel');
     const text = screen
       .getAllByTestId('phase-directive')
@@ -430,14 +446,14 @@ describe('spec-159 — Rubicon line + in-situ directives', () => {
     expect(text).toContain(
       '1 Task must be completed (or kicked to Issues) before this spec can move to Verify.',
     );
-    // Current tab + open task → the Rubicon line states it, plus the spec-258/dec-5
-    // editor override "Move … anyway?" [Yes].
+    // spec-282/dec-4: the current-tab line states the condition but is status-only
+    // — no override, no button.
     const sentence = screen.getByTestId('transition-sentence');
     expect(sentence.textContent).toContain(
       '1 Task must be completed before this spec can move to Verify.',
     );
-    expect(sentence.textContent).toContain('Move this spec to Verify anyway?');
-    expect(within(sentence).getByRole('button', { name: 'Yes' })).toBeInTheDocument();
+    expect(sentence.textContent).not.toContain('anyway?');
+    expect(within(sentence).queryByRole('button')).not.toBeInTheDocument();
   });
 
   it('verify with unverified ACs: directive above the AC column (ac-13)', async () => {
@@ -463,18 +479,18 @@ describe('spec-159 — Rubicon line + in-situ directives', () => {
     });
   });
 
-  it('directives belong to the CURRENT phase only — browsing another layout shows none (ac-13)', async () => {
+  it("directives are keyed to the spec's actual phase, not the browsed tab — the build directive stays silent in specify (ac-13)", async () => {
     tagAc(AC(13));
     const user = userEvent.setup();
-    // Current phase specify (with open decisions); browse the Build layout —
-    // the build directive must NOT fire (its gate is about specify→build, not
-    // the browsed view).
+    // Current phase specify (with open decisions + tasks); the Agent Tasks &
+    // Issues tab must NOT show the build→verify directive (its gate is the build
+    // phase, not the browsed sub-tab).
     docDecisions = [decision('d-1', 'open')];
     docTasks = [{ id: 't-1', status: 'in_progress' }];
     renderAt('specify');
     await screen.findByText('Narrative');
 
-    await user.click(phaseTab('build'));
+    await user.click(screen.getByText('Agent Tasks & Issues'));
     await screen.findByTestId('task-panel');
     expect(screen.queryAllByTestId('phase-directive')).toHaveLength(0);
   });
@@ -487,7 +503,7 @@ describe('spec-159 — Rubicon line + in-situ directives', () => {
     // current phase's home tab and the layout shows Specify's content — not the
     // stale browsed pin.
     renderAt('build');
-    await screen.findByTestId('task-panel');
+    await screen.findByTestId('decision-panel'); // build lands on Decisions & ACs
 
     await user.click(phaseTab('specify'));
     await screen.findByText('Narrative');
@@ -671,7 +687,7 @@ describe('spec-182 — unified reviewer phase block', () => {
     tagAc(AC182(17));
     renderAt('build');
 
-    await screen.findByTestId('task-panel');
+    await screen.findByTestId('decision-panel'); // build lands on Decisions & ACs
     expect(screen.queryByTestId('phase-handoff-line')).not.toBeInTheDocument();
     expect(screen.queryByTestId('review-handoff-line')).not.toBeInTheDocument();
   });
@@ -687,9 +703,12 @@ describe('spec-182 — unified reviewer phase block', () => {
   it('build: tabs render, panels render, and NO review actions outside Specify', async () => {
     tagAc(AC182(10));
     tagAc(AC182(3));
+    const user = userEvent.setup();
     renderAt('build');
 
-    await screen.findByTestId('task-panel');
+    await screen.findByTestId('decision-panel'); // build lands on Decisions & ACs
+    await user.click(screen.getByText('Agent Tasks & Issues'));
+    expect(screen.getByTestId('task-panel')).toBeInTheDocument();
     expect(screen.getByTestId('issue-panel')).toBeInTheDocument();
     // dec-1: the tab bar renders for reviewers; dec-3: no review row off-Specify.
     expect(screen.getAllByRole('tab')).toHaveLength(4);
@@ -712,8 +731,8 @@ describe('spec-182 — unified reviewer phase block', () => {
     const user = userEvent.setup();
     renderAt('build');
 
-    await screen.findByTestId('task-panel');
-    // Click the Verify tab — the verify layout renders, the phase is untouched.
+    await screen.findByTestId('decision-panel'); // build lands on Decisions & ACs
+    // Click the Verify tab — the verify view renders, the phase is untouched.
     await user.click(screen.getAllByRole('tab').find((t) => t.getAttribute('data-tab') === 'verify')!);
     await screen.findByTestId('ac-panel');
     expect(updateDocStatus).not.toHaveBeenCalled();
@@ -778,7 +797,7 @@ describe('spec-159 ac-17 — next-action handoff line', () => {
     tagAc(AC(17));
     renderAt('build');
 
-    await screen.findByTestId('task-panel');
+    await screen.findByTestId('decision-panel'); // build lands on Decisions & ACs
     const line = screen.getByTestId('phase-handoff-line');
     expect(line.textContent).toContain(
       'Copy the Build prompt into your coding agent to complete the Tasks and build this spec.',

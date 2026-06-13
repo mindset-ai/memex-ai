@@ -147,16 +147,22 @@ test("editor override: a blocked forward move offers 'Move … anyway?' and forc
   ).toBeVisible({ timeout: 15_000 });
   await switchToEditing(page);
 
-  // ── ac-8: the blocked current tab names what's open AND offers the editor the
-  //    "Move this spec to Verify anyway?" override. ───────────────────────────
+  // ── ac-8 (via spec-282/dec-4): the blocked CURRENT tab is status-only — it
+  //    names what's open but offers NO override button. The editor's force-
+  //    forward capability relocates to the browse-forward confirm. ────────────
   const sentence = page.getByTestId("transition-sentence");
   await expect(sentence).toContainText(
     /Task must be completed[\s\S]*before this spec can move to Verify/i,
     { timeout: 15_000 }
   );
-  await expect(sentence).toContainText(/Move this spec to Verify anyway\?/i);
+  await expect(sentence).not.toContainText(/anyway\?/i);
+  await expect(sentence.getByRole("button", { name: /^Yes$/ })).toHaveCount(0);
 
-  // Forcing it advances the spec the kanban already permits (soft gates).
+  // Browse the Verify phase tab → the dec-5 capability lives here now: the
+  // forward+blocked confirm offers "Move this spec anyway?" and forces the move
+  // the kanban already permits (soft gates).
+  await page.locator('[role="tab"][data-tab="verify"]').click();
+  await expect(sentence).toContainText(/Move this spec anyway\?/i, { timeout: 15_000 });
   await sentence.getByRole("button", { name: /^Yes$/ }).click();
   await expect(
     page.locator('[role="tab"][data-tab="verify"][data-current="true"]')

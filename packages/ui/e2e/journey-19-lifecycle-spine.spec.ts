@@ -204,21 +204,26 @@ test("lifecycle spine: org → memex → Spec → resolve decision → phase mov
     { timeout: 15_000 }
   );
 
-  // ── 6. Phase move specify → build: gate holds, but the editor gets the override ─
+  // ── 6. Phase move specify → build: the gate holds; the editor's escape hatch
+  // relocates to the browse-forward confirm (spec-282/dec-4) ──────────────────
   // specify→build is gated on Decisions resolved AND ACs created. We've resolved
   // the decision but deliberately have no ACs (AC authoring is the agent/MCP
   // surface, out of this spine's scope) — so the rubric still NAMES the open AC
-  // gate (it doesn't advance silently). spec-258/dec-5 amends spec-159/dec-4: on
-  // a blocked current tab an EDITOR additionally gets a "Move this spec to Build
-  // anyway?" override [Yes], because the move is already forceable from the
-  // kanban. So the affordance is no longer a dead end — the gate informs, and the
-  // editor has an escape hatch.
+  // gate (it doesn't advance silently). spec-282/dec-4: the current tab is
+  // STATUS-ONLY (no override button); the editor forces a blocked forward move
+  // by browsing the Build tab and confirming "Move this spec anyway?".
   const rubicon = page.getByTestId("transition-sentence");
   await expect(rubicon).toContainText(
     /Acceptance Criteria \(ACs\)[\s\S]*must be created/i,
     { timeout: 15_000 }
   );
-  await expect(rubicon).toContainText(/Move this spec to Build anyway\?/i);
+  await expect(rubicon).not.toContainText(/anyway\?/i);
+  await expect(rubicon.getByRole("button", { name: /^Yes$/ })).toHaveCount(0);
+
+  // The escape hatch lives on the browse-forward confirm: browse Build → the
+  // "Move this spec anyway?" override [Yes].
+  await page.locator('[role="tab"][data-tab="build"]').click();
+  await expect(rubicon).toContainText(/Move this spec anyway\?/i, { timeout: 15_000 });
   await expect(rubicon.getByRole("button", { name: /^Yes$/ })).toHaveCount(1);
 });
 

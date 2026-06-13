@@ -129,22 +129,22 @@ test("specify→build gate: stale narrative blocks the offer; consolidation rest
     timeout: 15_000,
   });
 
-  // All decisions resolved + AC present + never consolidated → the Rubicon
-  // states the staleness condition WITH the how-to tail. spec-258/dec-5: an
-  // editor also gets the "Move this spec to Build anyway?" override [Yes] — the
-  // staleness gate informs but no longer dead-ends the editor (consolidation is
-  // still the clean path, exercised next).
+  // All decisions resolved + AC present + never consolidated → the current-tab
+  // Rubicon states the staleness condition WITH the how-to tail. spec-282/dec-4:
+  // the current tab is STATUS-ONLY — the blocker informs but carries no button.
   await expect(rubicon).toContainText(
     /The spec narrative must be updated to reflect the resolved decisions before this spec can move to Build — use the refresh action to generate the update prompt\./,
     { timeout: 15_000 }
   );
-  await expect(rubicon).toContainText(/Move this spec to Build anyway\?/i);
-  await expect(rubicon.getByRole("button", { name: /^Yes$/ })).toHaveCount(1);
+  await expect(rubicon.getByRole("button", { name: /^Yes$/ })).toHaveCount(0);
 
-  // Consolidate (what assess_spec({mode:'consolidate'}) stamps) → the live
-  // change stream refreshes the doc and the advancement offer appears.
+  // Consolidate (what assess_spec({mode:'consolidate'}) stamps) → the live change
+  // stream refreshes the doc and the staleness clears. The advance is reachable
+  // on the browse-forward confirm (spec-282/dec-4): browse the Build tab → the
+  // clean "Are you sure…?", with no staleness text.
   await consolidateNarrative({ memexId: tenant.memexId, docId: spec.docId });
-  await expect(rubicon).toContainText(/Do you wish to move this spec to Build\?/, {
+  await page.locator('[role="tab"][data-tab="build"]').click();
+  await expect(rubicon).toContainText(/Are you sure you want to move this spec to Build\?/, {
     timeout: 15_000,
   });
   await expect(rubicon).not.toContainText(/spec narrative/i);
