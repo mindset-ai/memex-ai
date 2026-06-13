@@ -88,8 +88,8 @@ export function WhatsNewRibbon({
 
   const ribbonRef = useRef<HTMLDivElement>(null);
   const dismissingRef = useRef(false);
-  const dismissTimer = useRef<ReturnType<typeof setTimeout>>();
-  const flyTimer = useRef<ReturnType<typeof setTimeout>>();
+  const dismissTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const flyTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
     let alive = true;
