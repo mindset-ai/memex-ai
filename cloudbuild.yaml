@@ -1,0 +1,45 @@
+# spec-281 Fix 2 — layer-cached server image build.
+#
+# `gcloud builds submit --tag "${IMAGE}"` runs on a clean Cloud Build worker with
+# no Docker layer cache, so the expensive `deps` stage (`pnpm install` of the whole
+# workspace) re-ran on every deploy even when only source files changed — ~2min of
+# pure waste on BOTH int and prod. The root Dockerfile is already staged so that
+# `deps` stays cacheable when only source changes (see its comments); this config
+# is what finally gives the build a cache to reuse.
+#
+# How it works: pull the previously-pushed image to seed BuildKit's layer cache
+# (`--cache-from`), build with `BUILDKIT_INLINE_CACHE=1` so THIS image carries the
+# cache metadata the NEXT deploy will pull, then push. The first build after this
+# lands (or any build where no prior image exists) finds nothing to pull and builds
+# cold — `|| echo` keeps that non-fatal.
+#
+# Env-agnostic: invoked from the shared packages/server/deploy.sh with `_IMAGE`
+# substituted per environment, so int and prod build identically (spec-281 ac-5).
+# `${IMAGE}` (deploy-config.sh) is the untagged Artifact Registry repo path, so
+# `:latest` is the stable cache tag, matching what Cloud Run deploys (`--image
+# "${IMAGE}"` resolves `:latest`).
+
+steps:
+  # 1. Seed the cache from the last image (cold/first build: nothing to pull).
+  - name: gcr.io/cloud-builders/docker
+    entrypoint: bash
+    args:
+      - -c
+      - docker pull "${_IMAGE}:latest" || echo "no prior image — building cold"
+
+  # 2. Build, reusing unchanged layers from the pulled image and stamping inline
+  #    cache metadata so the next deploy can reuse THIS build's layers in turn.
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --tag=${_IMAGE}:latest
+      - --cache-from=${_IMAGE}:latest
+      - --build-arg=BUILDKIT_INLINE_CACHE=1
+      - --file=Dockerfile
+      - .
+    env:
+      - DOCKER_BUILDKIT=1
+
+# Push the freshly-built (cache-stamped) image.
+images:
+  - ${_IMAGE}:latest
