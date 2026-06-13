@@ -68,6 +68,32 @@ import { usePresenceHeartbeat } from '../hooks/usePresenceHeartbeat';
 import { usePresence } from '../hooks/usePresence';
 import { SpecPresenceIndicator } from '../components/pulse/SpecPresenceIndicator';
 
+// spec-282 (dec-1/dec-2): the SINGLE, ordered inventory of sub-tabs the unified
+// control carries in EVERY phase (Narrative · Comments · Decisions & ACs · Agent
+// Tasks & Issues · QA Report). One constant set means the control is never
+// swapped out as the phase changes (ac-1) and the set never shrinks (ac-2);
+// tabs whose artifact doesn't exist yet render an honest empty state (ac-3).
+type SubTab = 'narrative' | 'comments' | 'decisions' | 'work' | 'qa-report';
+
+// spec-282 (dec-3): each phase's preferred LANDING sub-tab. Selecting any other
+// tab is always free — this is only the default applied when the user navigates
+// to a phase. Verify prefers the QA Report (what a cold verifier reads first),
+// falling back to Decisions & ACs when no report exists yet. `done` has no
+// sub-tab control (it renders the DoneSummary), so it returns null.
+function defaultSubTabForTab(tab: PhaseTab, hasQaReport: boolean): SubTab | null {
+  switch (tab) {
+    case 'specify':
+      return 'narrative';
+    case 'build':
+      return 'decisions';
+    case 'verify':
+      return hasQaReport ? 'qa-report' : 'decisions';
+    case 'done':
+    default:
+      return null;
+  }
+}
+
 export function DocDocument() {
   // spec-64 i-3: the Spec page is also mounted at the canonical Decision / Issue
   // deep-links `specs/:id/decisions/:decId` and `specs/:id/issues/:issueId` (the
@@ -144,21 +170,22 @@ export function DocDocument() {
   // (that's TransitionSentence's [Yes]); it only changes what's shown.
   // `null` defers to the doc's current phase, computed once the doc loads.
   const [selectedTab, setSelectedTab] = useState<PhaseTab | null>(null);
-  // Plan's sub-tab (Narrative / Decisions & ACs / Comments). Verify has no
-  // sub-tabs. A deep-link to a decision/issue/comment picks the relevant
-  // landing point below once the doc resolves.
-  const [planSubTab, setPlanSubTab] = useState<'narrative' | 'decisions' | 'comments'>(
+  // spec-282 (dec-1/dec-2/dec-3): ONE sub-tab state for the unified control that
+  // persists across Specify/Build/Verify (it replaces the old disjoint
+  // `planSubTab` + `buildSubTab`). `null` means "use the current phase's default
+  // landing tab" (defaultSubTabForTab) — so navigating to a phase lands on its
+  // default, and an explicit selection (non-null) is respected until the next
+  // phase navigation resets it to null. A deep-link to a decision/issue/comment
+  // sets the relevant landing tab up front.
+  const [subTab, setSubTab] = useState<SubTab | null>(
     initialCommentSeq != null
       ? 'comments'
       : initialDecisionHandle
         ? 'decisions'
-        : 'narrative',
+        : initialIssueHandle
+          ? 'work'
+          : null,
   );
-  // spec-260 (dec-1): Build's sub-tab — the Tasks │ Issues working view stays
-  // the default; "QA Report" is a secondary tab so the per-session report stays
-  // out of the builder's primary workspace. (An intentional evolution of the
-  // single-view Build layout spec-159/spec-164 set.)
-  const [buildSubTab, setBuildSubTab] = useState<'work' | 'qa-report'>('work');
   // spec-182 issue-3: for EDITORS the Specify review affordances sit behind a
   // collapsed-by-default "Review actions" disclosure — the reviewer workflow
   // shouldn't visually dominate the editor's page. Reviewers see them expanded
@@ -211,14 +238,14 @@ export function DocDocument() {
   // — if the target is filtered out (e.g. resolved under the default open
   // filter) it simply won't be found.
   useEffect(() => {
-    if (initialCommentSeq == null || planSubTab !== 'comments') return;
+    if (initialCommentSeq == null || subTab !== 'comments') return;
     const el = document.getElementById(commentAnchorId(initialCommentSeq));
     if (!el) return;
     el.scrollIntoView({ behavior: 'smooth', block: 'center' });
     el.classList.add('ring-2', 'ring-accent', 'rounded-md');
     const t = setTimeout(() => el.classList.remove('ring-2', 'ring-accent', 'rounded-md'), 2000);
     return () => clearTimeout(t);
-  }, [initialCommentSeq, planSubTab, commentsBySection, commentsByDecision, commentsByTask]);
+  }, [initialCommentSeq, subTab, commentsBySection, commentsByDecision, commentsByTask]);
 
   useEffect(() => {
     if (!id) return;
@@ -348,7 +375,7 @@ export function DocDocument() {
   const handleSelectSection = useCallback((sectionId: string) => {
     // The Narrative lives under the Specify view's first sub-tab.
     setSelectedTab('specify');
-    setPlanSubTab('narrative');
+    setSubTab('narrative');
     setSelectedSectionId(sectionId);
     const index = sortedSections.findIndex((s) => s.id === sectionId);
     if (index >= 0) {
@@ -363,8 +390,8 @@ export function DocDocument() {
   // route them there (Narrative for sections, Decisions & ACs for decisions).
   const handleTabChange = useCallback((tab: string) => {
     setSelectedTab('specify');
-    if (tab === 'decisions') setPlanSubTab('decisions');
-    else if (tab === 'document') setPlanSubTab('narrative');
+    if (tab === 'decisions') setSubTab('decisions');
+    else if (tab === 'document') setSubTab('narrative');
   }, []);
 
   // Cross-view nav for the DecisionAcStrip pills: when a pill is clicked in the
@@ -375,7 +402,7 @@ export function DocDocument() {
   const handleJumpToAc = useCallback((acId: string) => {
     setFocusedAcId(acId);
     setSelectedTab('specify');
-    setPlanSubTab('decisions');
+    setSubTab('decisions');
   }, []);
 
   const handleSectionCommentsChange = useCallback(
@@ -896,18 +923,28 @@ export function DocDocument() {
     'done',
   );
 
-  // Plan's three sub-tabs. Verify carries no sub-tab bar; Build gained a
-  // secondary "QA Report" tab in spec-260 (an intentional evolution of
-  // spec-159 ac-11's single-view Build).
-  const planSubTabs = [
+  // spec-282 (dec-2): the ONE ordered sub-tab inventory the unified control
+  // carries in every phase — Narrative · Comments · Decisions & ACs · Agent
+  // Tasks & Issues · QA Report. (Supersedes the disjoint spec-260 per-phase sets:
+  // the old `planSubTabs` Narrative/Decisions/Comments AND the Build
+  // Tasks&Issues/QA-Report tabs collapse into this single bar.)
+  const subTabs = [
     /* spec-233 dec-1 (supersedes spec-196 dec-1): the label reads "Narrative".
        Calling this single tab "Spec" misread as if it WERE the whole spec — the
        whole object is the Spec; this tab is the prose lens within it. The id
        stays 'narrative' — internal vocabulary, deep links and comment routing
        are deliberately unchanged (display-label-only). */
     { id: 'narrative', label: 'Narrative', count: sectionCommentCount, countVariant: 'warning' as const },
-    { id: 'decisions', label: 'Decisions & ACs', count: decisionCommentCount, countVariant: 'warning' as const },
+    /* spec-282 dec-2: Comments placed second (after Narrative) as a persistent
+       companion view, not an end-of-line afterthought. */
     { id: 'comments', label: 'Comments', count: totalCommentCount, countVariant: 'warning' as const },
+    { id: 'decisions', label: 'Decisions & ACs', count: decisionCommentCount, countVariant: 'warning' as const },
+    /* spec-282 dec-2: "Agent Tasks & Issues" preserves the spec-260 Tasks │
+       Issues two-column and names the agent's execution layer explicitly. */
+    { id: 'work', label: 'Agent Tasks & Issues' },
+    /* spec-282 dec-1: QA Report is present in every phase; before a report
+       exists it renders an honest empty-state placeholder (ac-3). */
+    { id: 'qa-report', label: 'QA Report', count: qaReports.length || undefined },
   ];
 
   // ── Reusable content fragments — each phase layout below composes these ─────
@@ -1082,100 +1119,80 @@ export function DocDocument() {
     </>
   );
 
-  // ── The declarative phase → layout map (spec-159: explicitly a plain data
-  //    structure so the per-phase composition is cheap to rearrange). `draft`
-  //    shares the `specify` layout (its home tab). Each entry says whether the
-  //    phase carries a sub-tab bar and what it renders.
-  //
-  //    spec-258/dec-3: the `done` entry is the Done TAB's content — a read-only
-  //    DoneSummary *preview* shown while browsing Done before the spec is closed.
-  //    It is fed from the same on-page props as the post-close report (doc /
-  //    decisions / tasks / acs / issues / people) but carries NO Reopen or
-  //    mutation affordance (canReopen omitted) — browsing never mutates phase.
-  //    Once the spec is actually `done`, the bar is hidden and the real
-  //    DoneSummary (with Reopen) takes over the whole area below. ─────────────
-  const PHASE_LAYOUTS: Record<PhaseTab, { hasSubTabs: boolean; render: () => React.ReactNode }> = {
-    specify: {
-      hasSubTabs: true,
-      render: () => (
-        <>
-          {/* Classic underline tabs (full-width baseline + active bar) — the
-              pill variant read as buttons, not tabs. */}
-          <Tabs
-            tabs={planSubTabs}
-            activeTab={planSubTab}
-            onChange={(t) => setPlanSubTab(t as typeof planSubTab)}
-            variant="underline"
-          />
-          {planSubTab === 'narrative' && narrativeView}
-          {planSubTab === 'decisions' && twoCol(decisionPanel, acPanel, planDirective)}
-          {planSubTab === 'comments' && allCommentsView}
-        </>
-      ),
-    },
-    build: {
-      // spec-260 (dec-1): Build gains a tab bar — the Tasks │ Issues two-column
-      // stays the default tab; "QA Report" is a second tab, empty until the
-      // first build→verify hand-off writes one. (Intentional evolution of the
-      // single-view Build layout from spec-159/spec-164.)
-      hasSubTabs: true,
-      render: () => (
-        <>
-          <Tabs
-            tabs={[
-              { id: 'work', label: 'Tasks & Issues' },
-              { id: 'qa-report', label: 'QA Report', count: qaReports.length || undefined },
-            ]}
-            activeTab={buildSubTab}
-            onChange={(t) => setBuildSubTab(t as typeof buildSubTab)}
-            variant="underline"
-          />
-          {buildSubTab === 'work' && twoCol(taskPanel, issuePanel(true), buildDirective)}
-          {buildSubTab === 'qa-report' && (
-            <QaReportCard
-              reports={qaReports}
-              emptyState="No QA report yet — generated when build hands off to verify"
-            />
-          )}
-        </>
-      ),
-    },
-    verify: {
-      hasSubTabs: false,
-      render: () => (
-        <>
-          {/* spec-260 (dec-1): the QA Report card is front-loaded ABOVE the
-              ACs │ Issues columns so a verifier arriving cold reads it first;
-              collapsible so it folds away once read. */}
-          <QaReportCard reports={qaReports} />
-          {twoCol(
-            acPanel,
-            issuePanel(false),
-            <>
-              {verifyDirective}
-              {verifyTaskEcho}
-            </>,
-          )}
-        </>
-      ),
-    },
-    // spec-258/dec-3: browsing the Done tab previews the retrospective the move
-    // will produce — the same fetch-free DoneSummary, minus Reopen/mutation.
-    done: {
-      hasSubTabs: false,
-      render: () => (
-        <DoneSummary
-          doc={doc}
-          decisions={decs}
-          tasks={ts}
-          acs={acs}
-          issues={issues}
-          people={assignees}
-          preview
+  // ── spec-282: ONE persistent sub-tab control for Specify/Build/Verify ──────
+  //    (dec-1/dec-2/dec-3, supersedes the spec-159/spec-260 per-phase PHASE_LAYOUTS
+  //    map). The control's tab inventory is CONSTANT across phases, so it is never
+  //    swapped out as the phase changes (ac-1) and the set never shrinks (ac-2).
+  //    `effectiveSubTab` is the explicit selection (`subTab`) when set, else the
+  //    current viewed phase's default landing tab (dec-3) — `null` collapses to
+  //    Narrative, which only matters for `done` (which renders its own view).
+  const effectiveSubTab: SubTab =
+    subTab ?? defaultSubTabForTab(viewedTab, qaReports.length > 0) ?? 'narrative';
+
+  const unifiedSubTabView = (
+    <>
+      {/* Classic underline tabs (full-width baseline + active bar). */}
+      <Tabs
+        tabs={subTabs}
+        activeTab={effectiveSubTab}
+        onChange={(t) => setSubTab(t as SubTab)}
+        variant="underline"
+      />
+      {effectiveSubTab === 'narrative' && narrativeView}
+      {effectiveSubTab === 'comments' && allCommentsView}
+      {effectiveSubTab === 'decisions' &&
+        // planDirective / verifyDirective are each phase-gated (null off-phase),
+        // so at most one renders above the Decisions & ACs two-column.
+        twoCol(
+          decisionPanel,
+          acPanel,
+          <>
+            {planDirective}
+            {verifyDirective}
+          </>,
+        )}
+      {effectiveSubTab === 'work' &&
+        // spec-188 dec-4: convert-to-task is a BUILD affordance only (it mints an
+        // incomplete build-phase task), gated on the Spec's actual phase, not the
+        // viewed tab. The verify-phase task-completion echo only shows in verify.
+        twoCol(
+          taskPanel,
+          issuePanel(phase === 'build'),
+          <>
+            {buildDirective}
+            {/* The verify task-completion echo is a verify-VIEW element (it shows
+                whenever the verify tab is browsed, as the old verify layout did),
+                so it keys on the viewed tab, not the Spec's actual phase. */}
+            {viewedTab === 'verify' && verifyTaskEcho}
+          </>,
+        )}
+      {effectiveSubTab === 'qa-report' && (
+        // spec-282 dec-1/ac-3: present in every phase; before a report exists the
+        // empty-state names when it's produced. (spec-260 front-loaded it in
+        // verify; here it's one tab in the persistent control.)
+        <QaReportCard
+          reports={qaReports}
+          emptyState="No QA report yet — generated when build hands off to verify"
         />
-      ),
-    },
-  };
+      )}
+    </>
+  );
+
+  // spec-258/dec-3: browsing the Done tab previews the retrospective the move
+  // will produce — the same fetch-free DoneSummary, minus Reopen/mutation. Shown
+  // while browsing Done before the spec is closed; once the spec is actually
+  // `done` the real DoneSummary (with Reopen) takes over the whole area below.
+  const doneTabView = (
+    <DoneSummary
+      doc={doc}
+      decisions={decs}
+      tasks={ts}
+      acs={acs}
+      issues={issues}
+      people={assignees}
+      preview
+    />
+  );
 
   return (
     <div className="px-6 py-4">
@@ -1316,7 +1333,13 @@ export function DocDocument() {
               <PhaseTabBar
                 currentPhase={phase}
                 selectedTab={viewedTab}
-                onSelect={(t) => setSelectedTab(t)}
+                onSelect={(t) => {
+                  // spec-282 dec-3: landing on a phase applies that phase's
+                  // default sub-tab — reset the explicit selection to null so
+                  // `effectiveSubTab` falls back to defaultSubTabForTab(t).
+                  setSelectedTab(t);
+                  setSubTab(null);
+                }}
               />
             </div>
             <TransitionSentence
@@ -1334,8 +1357,10 @@ export function DocDocument() {
               onTransitioned={() => {
                 // The view follows the move: clear the browsed-tab pin so
                 // `viewedTab` falls back to the (re-fetched) current phase's
-                // home tab.
+                // home tab, and reset the sub-tab to that phase's default
+                // landing tab (spec-282 dec-3).
                 setSelectedTab(null);
+                setSubTab(null);
                 reloadDoc();
               }}
               onCancelBrowse={() => setSelectedTab(null)}
@@ -1420,6 +1445,10 @@ export function DocDocument() {
                   buttonId={handoff.buttonId}
                   context={handoffContext}
                   orgBlocks={orgBlocks}
+                  /* spec-282 dec-5(A): the three phase handoffs copy a short
+                     get_prompt stub — the coding agent fetches the full prompt
+                     itself. The review handoff above is NOT stubbed. */
+                  stub
                   sentence={handoff.sentence}
                   linkText={handoff.linkText}
                   sentenceLabel={handoff.sentenceLabel}
@@ -1430,9 +1459,10 @@ export function DocDocument() {
         )}
 
       {/* Content area. `done` → the retrospective report replaces it entirely;
-          every other phase renders its declarative layout. Non-Spec docs (no
-          phase layer) fall back to the Narrative view. Every posture browses
-          via the tab bar above (spec-182 dec-1). */}
+          browsing the Done tab (while not yet done) shows its read-only preview;
+          every other phase view renders the ONE persistent sub-tab control
+          (spec-282). Non-Spec docs (no phase layer) fall back to the Narrative
+          view. Every posture browses via the tab bar above (spec-182 dec-1). */}
       {doc.docType === 'spec' && phase === 'done' ? (
         <DoneSummary
           doc={doc}
@@ -1456,8 +1486,10 @@ export function DocDocument() {
         />
       ) : doc.docType !== 'spec' ? (
         narrativeView
+      ) : viewedTab === 'done' ? (
+        doneTabView
       ) : (
-        PHASE_LAYOUTS[viewedTab].render()
+        unifiedSubTabView
       )}
 
       {showDownloadDialog && (

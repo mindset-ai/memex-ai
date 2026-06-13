@@ -84,8 +84,9 @@ describe('PromptButton copy (ac-4, ac-8)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Copy prompt' }));
 
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(expected));
-    // visible confirmation, not a silent write
-    await waitFor(() => expect(screen.getByRole('button', { name: /Copied/ })).toBeTruthy());
+    // visible confirmation, not a silent write — the copy action resolves into
+    // a "Copied. Now go and paste" message beside a Close button.
+    await waitFor(() => expect(screen.getByTestId('copy-confirmation')).toBeTruthy());
   });
 
   it('performs exactly one action — copy — with no execute-here control (ac-8)', async () => {
@@ -169,6 +170,68 @@ describe('PromptButton sentence form (spec-159 ac-17)', () => {
     fireEvent.click(screen.getByRole('button', { name: `Copy ${SENTENCE}` }));
     fireEvent.click(screen.getByRole('button', { name: 'Copy prompt' }));
     await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy());
+  });
+});
+
+// spec-282 dec-5 — (A) the three phase handoffs copy a SHORT get_prompt stub
+// instead of the full scaffold (the coding agent fetches the full prompt via
+// get_prompt; the scaffold node text is untouched so get_prompt parity holds);
+// (B) after a successful copy the dialog shows clear paste guidance beside the
+// action and the copy button BECOMES a Close button (one obvious click to
+// dismiss); the prompt itself sits on its own bordered canvas, not the guidance.
+describe('PromptButton stub mode + copy feedback (spec-282 dec-5, ac-12)', () => {
+  const AC12 = 'mindset-prod/memex-building-itself/specs/spec-282/acs/ac-12';
+  // verify-spec → "Verify handoff" label → phase word "verify".
+  const STUB =
+    'Use memex spec: https://memex.ai/mindset-prod/memex-building-itself/specs/spec-103\n' +
+    'Get the verify prompt from memex and ask the user how they want to proceed.';
+
+  it('stub mode copies the short get_prompt stub, NOT the full scaffold prompt', async () => {
+    tagAc(AC12);
+    const full = toButtonPrompt({ dataset: BASE_SCAFFOLD, buttonId: 'verify-spec', context: CTX });
+    render(<PromptButton buttonId="verify-spec" context={CTX} stub />);
+
+    fireEvent.click(screen.getByRole('button', { name: OPEN_LABEL }));
+    fireEvent.click(screen.getByRole('button', { name: 'Copy prompt' }));
+
+    // The clipboard receives the short stub verbatim — not the long scaffold.
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(STUB));
+    expect(writeText).not.toHaveBeenCalledWith(full);
+    // The stub is meaningfully shorter than the full scaffold payload.
+    expect(STUB.length).toBeLessThan(full.length);
+  });
+
+  it('without stub the full scaffold prompt is still copied (get_prompt parity preserved)', async () => {
+    tagAc(AC12);
+    const full = toButtonPrompt({ dataset: BASE_SCAFFOLD, buttonId: 'verify-spec', context: CTX });
+    render(<PromptButton buttonId="verify-spec" context={CTX} />);
+
+    fireEvent.click(screen.getByRole('button', { name: OPEN_LABEL }));
+    fireEvent.click(screen.getByRole('button', { name: 'Copy prompt' }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(full));
+  });
+
+  it('after copy the confirmation shows and the copy button becomes Close', async () => {
+    tagAc(AC12);
+    render(<PromptButton buttonId="verify-spec" context={CTX} stub />);
+
+    fireEvent.click(screen.getByRole('button', { name: OPEN_LABEL }));
+    fireEvent.click(screen.getByRole('button', { name: 'Copy prompt' }));
+
+    await waitFor(() =>
+      expect(screen.getByTestId('copy-confirmation')).toHaveTextContent(
+        'Copied. Now go to your coding agent and paste.',
+      ),
+    );
+    // The copy action is gone — the copy button has become a Close button, so
+    // dismissing is a single obvious click (the header X also reads "Close").
+    expect(screen.queryByRole('button', { name: /Copy prompt/ })).toBeNull();
+    expect(screen.getAllByRole('button', { name: 'Close' }).length).toBeGreaterThan(0);
+
+    // And clicking that footer Close actually dismisses the dialog.
+    const footerClose = screen.getAllByRole('button', { name: 'Close' }).at(-1)!;
+    fireEvent.click(footerClose);
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   });
 });
 

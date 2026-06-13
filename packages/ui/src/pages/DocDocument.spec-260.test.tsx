@@ -158,23 +158,23 @@ beforeEach(() => {
 });
 
 describe('spec-260 — QA Report render seats', () => {
-  it('ac-12: Verify front-loads a collapsible QA Report card ABOVE the ACs│Issues columns', async () => {
+  it('ac-12 (spec-282 dec-3): Verify lands on the QA Report tab; the card shows the latest session', async () => {
     tagAc(AC(12));
     renderAt('verify');
 
-    const card = await screen.findByTestId('qa-report-card');
-    const acPanel = await screen.findByTestId('ac-panel');
-    expect(screen.getByTestId('issue-panel')).toBeInTheDocument();
-
-    // Front-loaded: the card precedes the two-column area in document order.
-    expect(card.compareDocumentPosition(acPanel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-
-    // Expanded by default (the cold verifier reads it first) — latest session shows.
+    // spec-282 dec-3: Verify's default landing IS the QA Report (replaces
+    // spec-260's front-loaded card) — the card renders with the latest session
+    // expanded for the cold verifier.
+    await screen.findByTestId('qa-report-card');
     expect(screen.getByTestId('qa-report-content')).toHaveTextContent('Session TWO report body.');
 
     // Collapsible: it folds away once read.
     fireEvent.click(screen.getByTestId('qa-report-toggle'));
     expect(screen.queryByTestId('qa-report-content')).not.toBeInTheDocument();
+
+    // The ACs view lives one tab away (Decisions & ACs).
+    fireEvent.click(screen.getByText('Decisions & ACs'));
+    expect(screen.getByTestId('ac-panel')).toBeInTheDocument();
   });
 
   it('ac-12 (dec-2 display): prior build sessions stay reachable through the version switcher', async () => {
@@ -187,27 +187,26 @@ describe('spec-260 — QA Report render seats', () => {
     expect(screen.getByTestId('qa-report-content')).toHaveTextContent('Session ONE report body.');
   });
 
-  it('ac-12: Build carries a QA Report sub-tab; Tasks│Issues stays the default view', async () => {
+  it('ac-12: the QA Report tab is reachable in Build and shows the latest report', async () => {
     tagAc(AC(12));
     renderAt('build');
 
-    // Default tab: the working two-column, no report content.
-    await screen.findByTestId('task-panel');
-    expect(screen.getByTestId('issue-panel')).toBeInTheDocument();
+    // Build lands on Decisions & ACs (spec-282 dec-3), not the report.
+    await screen.findByTestId('decision-panel');
     expect(screen.queryByTestId('qa-report-content')).not.toBeInTheDocument();
 
-    // The secondary tab reveals the report.
+    // The QA Report tab reveals the report.
     fireEvent.click(screen.getByText('QA Report'));
     expect(screen.getByTestId('qa-report-content')).toHaveTextContent('Session TWO report body.');
-    expect(screen.queryByTestId('task-panel')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('decision-panel')).not.toBeInTheDocument();
   });
 
-  it('ac-12: before the first hand-off the Build tab shows a quiet empty state', async () => {
+  it('ac-12: before the first hand-off the QA Report tab shows a quiet empty state', async () => {
     tagAc(AC(12));
     withReports = false;
     renderAt('build');
 
-    await screen.findByTestId('task-panel');
+    await screen.findByTestId('decision-panel'); // build lands on Decisions & ACs
     fireEvent.click(screen.getByText('QA Report'));
     expect(screen.getByTestId('qa-report-empty')).toHaveTextContent(
       'No QA report yet — generated when build hands off to verify',
