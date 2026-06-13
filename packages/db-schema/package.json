@@ -1,0 +1,45 @@
+{
+  "name": "@mindset-ai/db-schema",
+  "version": "0.1.0",
+  "description": "Standalone Drizzle schema for the Memex database — the single cross-repo artifact the Backstage operator control plane consumes (spec-279).",
+  "license": "SEE LICENSE IN LICENSE.md",
+  "type": "module",
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mindset-ai/memex-ai.git",
+    "directory": "packages/db-schema"
+  },
+  "scripts": {
+    "build": "tsup",
+    "prepare": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.39.0"
+  },
+  "devDependencies": {
+    "@memex-ai-ac/vitest": "workspace:*",
+    "@types/node": "22.19.15",
+    "postgres": "^3.4.5",
+    "tsup": "^8.3.5",
+    "typescript": "^5.7.0",
+    "vitest": "4.1.1"
+  }
+}

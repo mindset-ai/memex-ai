@@ -1,0 +1,47 @@
+name: publish-db-schema
+
+# Publishes @mindset-ai/db-schema to GitHub Packages on the release line (push
+# to main, per std-21/std-26). The publish script's content-hash guard means an
+# unchanged packages/server/src/db/schema.ts produces NO new version, so this is
+# safe to run on every main push. Auth is the built-in GITHUB_TOKEN only — no
+# extra registry secret. Consumed only by the in-org Backstage repo. spec-279.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "packages/server/src/db/schema.ts"
+      - "packages/db-schema/**"
+      - ".github/workflows/publish-db-schema.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: publish-db-schema
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write # GITHUB_TOKEN needs this to publish to GitHub Packages
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          # Writes an .npmrc scoping @mindset-ai to GitHub Packages and reading
+          # the token from NODE_AUTH_TOKEN (set below to the built-in token).
+          registry-url: "https://npm.pkg.github.com"
+          scope: "@mindset-ai"
+      - run: pnpm install --frozen-lockfile
+      - name: Build the package
+        run: pnpm --filter @mindset-ai/db-schema build
+      - name: Publish if the schema changed
+        run: node packages/db-schema/scripts/publish.mjs
+        env:
+          # The built-in token — no PAT, no NPM_TOKEN, no org secret.
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
