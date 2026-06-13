@@ -68,8 +68,16 @@ export const memexContext = new AsyncLocalStorage<MemexRequestContext>();
  *
  * When memexId is null/undefined (anonymous public read, no resolved tenant),
  * fn runs without an ALS context — the IS NOT NULL guard in each RLS policy
- * blocks cross-tenant reads on the restricted role, and the superuser role
- * bypasses RLS unconditionally.
+ * blocks cross-tenant reads on the restricted runtime role `memex_app`.
+ *
+ * NOTE (spec-257 dec-1 / std-36): the OWNER role bypasses RLS only because the
+ * tenant tables are `ENABLE` + `NO FORCE` (migration 0093) — NOT via a BYPASSRLS
+ * attribute. On Cloud SQL `postgres` is not a real superuser and has neither
+ * `rolsuper` nor `rolbypassrls` (verified prod+int 2026-06-11); under the old
+ * `FORCE` it was filtered to zero rows, which caused the 2026-06-10 emission and
+ * 2026-06-11 What's New outages. The runtime connects as the non-owner `memex_app`
+ * and is always subject to RLS; only owner-role paths (migrations, deploy/admin
+ * scripts) bypass.
  */
 export function runWithMemexId<T>(
   memexId: string | null | undefined,

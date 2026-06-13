@@ -7,7 +7,7 @@
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { tagAc } from "@memex-ai-ac/vitest";
-import { eq, inArray } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import { activityLog, documents, memexes, namespaces } from "../db/schema.js";
 import { makeTestMemex } from "./test-helpers.js";
@@ -45,19 +45,27 @@ beforeEach(async () => {
   await db.delete(activityLog).where(eq(activityLog.memexId, memexId));
 });
 
-// Poll until at least `expected` matching rows land (the sink persists on a
-// detached promise off the synchronous emit path), or time out.
-async function waitForStatusRows(expected: number, timeoutMs = 2000) {
+// Poll until THIS document's rows satisfy `ready`, then return only that
+// document's rows. The activity sink persists on a detached promise off the
+// synchronous emit path (async), so two failure modes lurk if you filter by
+// memexId alone (spec-179/issue-1, the flake this scoping fixes):
+//   1. a PRIOR test's detached write can land after beforeEach's delete and
+//      inflate a memexId-wide count;
+//   2. this op's own row may not have landed yet when the assertion runs.
+// Scoping every query by briefId (each test uses a fresh, unique doc id) makes a
+// test immune to (1), and gating on a per-doc `ready` predicate handles (2).
+async function waitForDocRows(
+  briefId: string,
+  ready: (rows: (typeof activityLog.$inferSelect)[]) => boolean,
+  timeoutMs = 2000,
+) {
   const start = Date.now();
   // eslint-disable-next-line no-constant-condition
   while (true) {
-    const rows = await db
-      .select()
-      .from(activityLog)
-      .where(eq(activityLog.memexId, memexId));
-    const statusRows = rows.filter((r) => r.action === "status_changed");
-    if (statusRows.length >= expected) return { rows, statusRows };
-    if (Date.now() - start > timeoutMs) return { rows, statusRows };
+    const rows = (
+      await db.select().from(activityLog).where(eq(activityLog.memexId, memexId))
+    ).filter((r) => r.briefId === briefId);
+    if (ready(rows) || Date.now() - start > timeoutMs) return rows;
     await new Promise((r) => setTimeout(r, 25));
   }
 }
@@ -69,7 +77,10 @@ describe("updateDocStatus — document/status_changed emission (spec-179 ac-5)",
 
     await updateDocStatus(memexId, spec.id, "specify");
 
-    const { statusRows } = await waitForStatusRows(1);
+    const rows = await waitForDocRows(spec.id, (rs) =>
+      rs.some((r) => r.action === "status_changed"),
+    );
+    const statusRows = rows.filter((r) => r.action === "status_changed");
     expect(statusRows).toHaveLength(1);
     expect(statusRows[0]).toMatchObject({
       memexId,
@@ -87,7 +98,15 @@ describe("updateDocStatus — document/status_changed emission (spec-179 ac-5)",
 
     await updateDocStatus(memexId, spec.id, "build");
 
-    const { rows, statusRows } = await waitForStatusRows(1);
+    // A spec flip emits BOTH an `updated` and a `status_changed` row (two detached
+    // writes); wait for both to land for THIS doc before asserting their counts.
+    const rows = await waitForDocRows(
+      spec.id,
+      (rs) =>
+        rs.some((r) => r.action === "status_changed") &&
+        rs.some((r) => r.action === "updated"),
+    );
+    const statusRows = rows.filter((r) => r.action === "status_changed");
     expect(statusRows).toHaveLength(1);
     expect(statusRows[0].payload).toEqual({ from: "specify", to: "build" });
     expect(rows.filter((r) => r.action === "updated")).toHaveLength(1);
@@ -99,14 +118,9 @@ describe("updateDocStatus — document/status_changed emission (spec-179 ac-5)",
 
     await updateDocStatus(memexId, doc.id, "approved");
 
-    // Wait for the guaranteed "updated" row, then confirm no status_changed.
-    const start = Date.now();
-    let rows: (typeof activityLog.$inferSelect)[] = [];
-    while (Date.now() - start < 2000) {
-      rows = await db.select().from(activityLog).where(eq(activityLog.memexId, memexId));
-      if (rows.some((r) => r.action === "updated")) break;
-      await new Promise((r) => setTimeout(r, 25));
-    }
+    // Wait for THIS doc's guaranteed "updated" row, then confirm no status_changed
+    // for it — scoped by briefId so a sibling test's late detached write can't bleed in.
+    const rows = await waitForDocRows(doc.id, (rs) => rs.some((r) => r.action === "updated"));
     expect(rows.some((r) => r.action === "updated")).toBe(true);
     expect(rows.filter((r) => r.action === "status_changed")).toHaveLength(0);
   });
@@ -117,13 +131,9 @@ describe("updateDocStatus — document/status_changed emission (spec-179 ac-5)",
 
     await updateDocStatus(memexId, spec.id, "build");
 
-    const start = Date.now();
-    let rows: (typeof activityLog.$inferSelect)[] = [];
-    while (Date.now() - start < 2000) {
-      rows = await db.select().from(activityLog).where(eq(activityLog.memexId, memexId));
-      if (rows.some((r) => r.action === "updated")) break;
-      await new Promise((r) => setTimeout(r, 25));
-    }
+    // Same-status write still emits `updated`; wait for THIS doc's updated row, then
+    // confirm no status_changed for it — scoped by briefId to stay sibling-immune.
+    const rows = await waitForDocRows(spec.id, (rs) => rs.some((r) => r.action === "updated"));
     expect(rows.some((r) => r.action === "updated")).toBe(true);
     expect(rows.filter((r) => r.action === "status_changed")).toHaveLength(0);
   });

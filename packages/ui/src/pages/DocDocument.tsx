@@ -26,6 +26,7 @@ import { IssuePanel } from '../components/IssuePanel';
 import { AllComments } from '../components/AllComments';
 import { AcPanel } from '../components/AcPanel';
 import { PhaseTabBar, type PhaseTab } from '../components/PhaseTabBar';
+import { phaseColors } from '../components/phaseColors';
 import { TransitionSentence } from '../components/TransitionSentence';
 import { DoneSummary } from '../components/DoneSummary';
 import { Badge, Button, Tabs } from '../components/ui';
@@ -451,16 +452,11 @@ export function DocDocument() {
             phase-control affordance no longer live in the header. The PhaseDropdown
             is gone, replaced by the in-page PhaseTabBar + TransitionSentence below
             the role controls; the page itself carries readiness + handoffs. The
-            header keeps the posture pill + Share / Download / menu (all on
-            canWrite). */}
-        {/* spec-159 ac-19 (amended): MY posture on this Spec — a Google-Docs-
-            style Editing / Reviewing mode pill. Page-global (it gates decision
-            resolution, phase moves, AC mutations on every tab), hence header
-            chrome rather than the phase block. Gated on the role having
-            resolved so the pill never flashes the wrong mode. */}
-        {doc.docType === 'spec' && !roleLoading && (
-          <PostureDropdown myRole={myRole} onSelect={(target) => switchPosture(target)} />
-        )}
+            header keeps Share / Download / menu (all on canWrite). The posture
+            pill moved OUT of the header into the in-page phase container
+            (spec-252 dec-2): it now sits left of the phase bar and scrolls with
+            the page. spec-182/dec-6 is preserved — still the only posture
+            switch, it just relocated. */}
         {/* Share — the Spec's canonical URL with a Copy button. Pill chrome
             shared with the posture dropdown so the header controls match. */}
         <button type="button" className={HEADER_PILL_CLASS} onClick={() => setShareLinkOpen(true)}>
@@ -514,7 +510,7 @@ export function DocDocument() {
         />
       </>
     );
-  }, [doc, reloadDoc, navigate, totalCommentCount, canWrite, canEdit, myRole, roleLoading, switchPosture]);
+  }, [doc, reloadDoc, navigate, totalCommentCount, canWrite, canEdit]);
 
   useHeaderSlot(headerActions);
 
@@ -1306,12 +1302,23 @@ export function DocDocument() {
           was removed). `done` collapses both into the DoneSummary for everyone. */}
       {doc.docType === 'spec' &&
         phase !== 'done' && (
-          <div className="mb-4 space-y-2">
-            <PhaseTabBar
-              currentPhase={phase}
-              selectedTab={viewedTab}
-              onSelect={(t) => setSelectedTab(t)}
-            />
+          <div
+            data-testid="phase-container"
+            className={`mb-4 rounded-lg p-3 space-y-2 ${phaseColors(phase)?.container ?? ''}`}
+          >
+            {/* spec-252 dec-2/dec-3: the posture pill sits inside the container,
+                left of the phase bar, on a shared row (it moved out of the app
+                header). Gated on canWrite — read-only viewers can't switch. */}
+            <div className="flex items-center gap-3">
+              {canWrite && !roleLoading && (
+                <PostureDropdown myRole={myRole} onSelect={(target) => switchPosture(target)} />
+              )}
+              <PhaseTabBar
+                currentPhase={phase}
+                selectedTab={viewedTab}
+                onSelect={(t) => setSelectedTab(t)}
+              />
+            </div>
             <TransitionSentence
               doc={{ id: doc.id }}
               currentPhase={phase}
