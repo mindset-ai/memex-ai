@@ -124,6 +124,16 @@ export async function seedSection(opts: {
   return call("POST", "/seed-section", opts);
 }
 
+/** spec-286: apply `scope::value`/flat tags to a Spec through applyTagStrings —
+ *  the tags the QA Reports feed rail filters + counts on. */
+export async function seedTags(opts: {
+  memexId: string;
+  docId: string;
+  tags: string[];
+}): Promise<{ applied: { id: string; scope: string | null; value: string }[] }> {
+  return call("POST", "/seed-tags", opts);
+}
+
 /** Seed an OPEN decision (with options) onto a doc through createDecision.
  *  Returns the decision id + its per-doc seq (the N in the `dec-N` handle). */
 export async function seedOpenDecision(opts: {

@@ -21,21 +21,48 @@ const DEFAULT_LIMIT = 50;
 // activity), so without this the badge would stay stale until the next event.
 export const QA_REPORTS_VIEWED_EVENT = 'memex:qa-reports-viewed';
 
+/** A tag carried on a report's owning Spec — feeds the rail chips (spec-286). */
+export interface QaReportTagRef {
+  id: string;
+  scope: string | null;
+  value: string;
+}
+
 /** Wire shape of GET /api/<ns>/<mx>/qa-reports rows (server QaReportFeedRow). */
 export interface QaReportFeedRow {
   id: string;
   docId: string;
   docHandle: string;
   docTitle: string;
+  /** Owning Spec's current phase — drives the phase pill (spec-286). */
+  phase: string;
   sectionType: string;
   version: number;
   title: string | null;
   content: string;
+  /** The Spec author (creator). Absent on the public-read projection (spec-286). */
+  authorUserId?: string | null;
+  authorName?: string | null;
+  /** std-32 actor = the implementer of this build session. */
   actorUserId?: string | null;
   actorName?: string | null;
   actorKind: 'human' | 'mcp_agent' | 'in_app_agent' | 'system';
   channel: string | null;
+  /** Owning Spec's tags — the rail filter chips (spec-286). */
+  tags: QaReportTagRef[];
   createdAt: string;
+}
+
+/**
+ * Server-parameterised feed filters (spec-286 dec-2). A tag id and a date window,
+ * composing with AND. Undefined fields are omitted from the query → unfiltered.
+ */
+export interface QaReportFilters {
+  tagId?: string;
+  /** ISO-8601 lower bound (inclusive) on report createdAt. */
+  from?: string;
+  /** ISO-8601 upper bound (inclusive) on report createdAt. */
+  to?: string;
 }
 
 export interface UseQaReportsFeedResult {
@@ -47,7 +74,10 @@ export interface UseQaReportsFeedResult {
   refresh: () => Promise<void>;
 }
 
-export function useQaReportsFeed(limit = DEFAULT_LIMIT): UseQaReportsFeedResult {
+export function useQaReportsFeed(
+  filters: QaReportFilters = {},
+  limit = DEFAULT_LIMIT,
+): UseQaReportsFeedResult {
   const [rows, setRows] = useState<QaReportFeedRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -60,6 +90,10 @@ export function useQaReportsFeed(limit = DEFAULT_LIMIT): UseQaReportsFeedResult 
   rowsRef.current = rows;
   const loadingOlderRef = useRef(false);
 
+  // Destructure so the fetch callback depends on primitive values, not the object
+  // identity — a caller passing a fresh `{}` each render must not re-trigger fetches.
+  const { tagId, from, to } = filters;
+
   const fetchPage = useCallback(
     async (since: string | undefined): Promise<QaReportFeedRow[]> => {
       const base = tenantBase();
@@ -69,11 +103,16 @@ export function useQaReportsFeed(limit = DEFAULT_LIMIT): UseQaReportsFeedResult 
       const params = new URLSearchParams();
       params.set('limit', String(limit));
       if (since) params.set('since', since);
+      // The spec-286 filters ride alongside the keyset cursor, so a filtered
+      // "Load More" returns the strictly-older filtered page.
+      if (tagId) params.set('tag', tagId);
+      if (from) params.set('from', from);
+      if (to) params.set('to', to);
       const res = await fetchWithRetry(`${base}/qa-reports?${params.toString()}`);
       if (!res.ok) throw new Error(`Failed to load QA reports (${res.status})`);
       return (await res.json()) as QaReportFeedRow[];
     },
-    [limit],
+    [limit, tagId, from, to],
   );
 
   const refresh = useCallback(async () => {
@@ -116,6 +155,81 @@ export function useQaReportsFeed(limit = DEFAULT_LIMIT): UseQaReportsFeedResult 
   }, [refresh]);
 
   return { rows, loading, error, hasMore, loadOlder, refresh };
+}
+
+// ── Tag facets for the filter rail (spec-286 dec-2) ────────────────────────────
+
+export interface QaReportTagFacet extends QaReportTagRef {
+  count: number;
+}
+
+export interface QaReportFacets {
+  /** Total reports in the corpus (the "All" node count). */
+  total: number;
+  tags: QaReportTagFacet[];
+}
+
+export interface UseQaReportTagFacetsResult {
+  facets: QaReportFacets;
+  loading: boolean;
+  error: string | null;
+  refresh: () => Promise<void>;
+}
+
+const EMPTY_FACETS: QaReportFacets = { total: 0, tags: [] };
+
+/**
+ * The rail's tag tree (spec-286): every tag carried by a Spec with reports, each
+ * with its whole-corpus report count, plus the "All" total. Honours an optional
+ * date window so the counts stay consistent with an active date filter. Refreshes
+ * live off the std-8 bus the way the feed does — a new report changes the counts.
+ */
+export function useQaReportTagFacets(
+  window: { from?: string; to?: string } = {},
+): UseQaReportTagFacetsResult {
+  const [facets, setFacets] = useState<QaReportFacets>(EMPTY_FACETS);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const reqToken = useRef(0);
+
+  const { from, to } = window;
+
+  const refresh = useCallback(async () => {
+    const myReq = ++reqToken.current;
+    const base = tenantBase();
+    if (!base) {
+      setError('QA Reports requires tenant context (no namespace/memex in the URL).');
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      const params = new URLSearchParams();
+      if (from) params.set('from', from);
+      if (to) params.set('to', to);
+      const qs = params.toString();
+      const res = await fetchWithRetry(`${base}/qa-reports/facets${qs ? `?${qs}` : ''}`);
+      if (!res.ok) throw new Error(`Failed to load tag facets (${res.status})`);
+      const body = (await res.json()) as QaReportFacets;
+      if (myReq !== reqToken.current) return; // superseded
+      setFacets(body);
+    } catch (err) {
+      if (myReq !== reqToken.current) return;
+      setError(err instanceof Error ? err.message : 'Failed to load tag facets');
+    } finally {
+      if (myReq === reqToken.current) setLoading(false);
+    }
+  }, [from, to]);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  // Live: a freshly written report rides the std-8 bus → recompute counts.
+  useDocChangeStream(null, refresh);
+
+  return { facets, loading, error, refresh };
 }
 
 export interface QaReportsViewReceipt {
