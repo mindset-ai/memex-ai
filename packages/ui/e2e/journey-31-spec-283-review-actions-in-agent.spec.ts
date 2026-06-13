@@ -87,6 +87,10 @@ test("review actions live in the agent idle state, not on the Spec page", async 
 
   // ── The Spec page no longer carries the disclosure or the button row, but the
   //    review-handoff copy line stays (ac-3, dec-4) ──
+  // A freshly-seeded spec is viewed in the default REVIEWING posture, so under
+  // spec-287's per-posture gating (dec-2) the reviewer still sees the review
+  // handoff — this assertion holds unchanged. (spec-287's own per-posture e2e,
+  // covering the editor side, is journey-32.)
   await expect(page.getByTestId("review-actions-toggle")).toHaveCount(0);
   await expect(page.getByTestId("review-action-row")).toHaveCount(0);
   await expect(page.getByTestId("review-handoff-line")).toBeVisible({ timeout: 15_000 });
