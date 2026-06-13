@@ -18,7 +18,9 @@ let mockChatState: {
   isStreaming: boolean;
   error: string | null;
   docId: string | null;
-  doc: null;
+  // spec-283: ChatPanel reads `doc.status` (the Spec phase) to gate the idle
+  // review-action block. Only the status field is exercised here.
+  doc: { status: string } | null;
   openCommentCount: number;
   contextChips: { type: string; id: string; label: string }[];
   respondedToolIds: Set<string>;
@@ -34,6 +36,14 @@ vi.mock('./ChatContext', () => ({
     clearChat: mockClearChat,
     respondToUiTool: mockRespondToUiTool,
   }),
+}));
+
+// spec-283: the idle review block composes its prompts through the real
+// scaffold (toButtonPrompt + BASE_SCAFFOLD), but the Org-append fetch is mocked
+// to an empty array so no network is touched (the hook's live path is covered
+// by useOrgScaffoldBlocks.test.tsx).
+vi.mock('../hooks/useOrgScaffoldBlocks', () => ({
+  useOrgScaffoldBlocks: () => [],
 }));
 
 // Mock child components to avoid rendering full markdown/UI tool trees
@@ -245,5 +255,111 @@ describe('ChatPanel — Spec assistant naming + grounding (spec-247)', () => {
     expect(makesCodeShapedClaims('The file decisions.ts holds the guard')).toBe(true);
     expect(makesCodeShapedClaims('I created three implementation ACs for this decision')).toBe(true);
     expect(makesCodeShapedClaims('The overview section could be clearer about scope.')).toBe(false);
+  });
+});
+
+// ── spec-283: the four review actions live in the agent idle state ──────────
+// Re-homed off the Spec page (DocDocument) into the ChatPanel empty state.
+// Gated purely on the Spec phase (doc.status==='specify') + an idle
+// conversation (messages.length===0), with no posture input (dec-1), no
+// posture-specific chrome (dec-2), and shown to every viewer incl. read-only
+// non-members (dec-3).
+describe('ChatPanel — review actions in the agent idle state (spec-283)', () => {
+  const AC283 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-283/acs/ac-${n}`;
+  const REVIEW_LABELS = ['Summarise Spec', 'Security review', 'Design review', 'Architecture review'];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockChatState = {
+      messages: [],
+      isStreaming: false,
+      error: null,
+      docId: 'doc-1',
+      doc: { status: 'specify' },
+      openCommentCount: 0,
+      contextChips: [],
+      respondedToolIds: new Set(),
+      isDriftMode: false,
+    };
+  });
+
+  it('in Specify, idle: the four review buttons render under the lead; clicking one sends a real scaffold prompt (ac-1)', async () => {
+    tagAc(AC283(1));
+    const user = userEvent.setup();
+    render(<ChatPanel />);
+
+    const block = screen.getByTestId('agent-review-actions');
+    expect(within(block).getByText('Ask a question, or start with a review:')).toBeInTheDocument();
+    for (const label of REVIEW_LABELS) {
+      expect(within(block).getByRole('button', { name: label })).toBeInTheDocument();
+    }
+
+    await user.click(within(block).getByRole('button', { name: 'Security review' }));
+    expect(mockSendMessage).toHaveBeenCalledTimes(1);
+    const prompt = mockSendMessage.mock.calls[0][0] as string;
+    expect(typeof prompt).toBe('string');
+    expect(prompt.length).toBeGreaterThan(20);
+    expect(prompt).toContain('security');
+  });
+
+  it('the block is absent outside Specify and once a conversation has started (ac-2)', () => {
+    tagAc(AC283(2));
+    // Other phase → no block, plain placeholder instead.
+    mockChatState.doc = { status: 'build' };
+    const { rerender } = render(<ChatPanel />);
+    expect(screen.queryByTestId('agent-review-actions')).not.toBeInTheDocument();
+    expect(screen.getByText('Ask a question about this Spec...')).toBeInTheDocument();
+
+    // Back in Specify but with messages → block disappears with the empty state.
+    mockChatState.doc = { status: 'specify' };
+    mockChatState.messages = [{ id: '1', role: 'user', content: 'hi', timestamp: new Date() }];
+    rerender(
+      <MemoryRouter>
+        <ChatPanel />
+      </MemoryRouter>,
+    );
+    expect(screen.queryByTestId('agent-review-actions')).not.toBeInTheDocument();
+  });
+
+  it('gating needs no posture: default-props ChatPanel (no canEdit) renders the block from doc.status + idle alone (ac-6)', () => {
+    tagAc(AC283(6));
+    // No posture/canEdit prop exists on ChatPanel — rendering with defaults and
+    // only the mocked doc.status + empty messages must be enough to show it.
+    render(<ChatPanel />);
+    expect(screen.getByTestId('agent-review-actions')).toBeInTheDocument();
+  });
+
+  it('no posture-specific copy: read-only and writable viewers see an identical block, no "switch to Editing" note (ac-7, ac-4)', () => {
+    tagAc(AC283(7));
+    tagAc(AC283(4));
+    const { unmount } = render(<ChatPanel />);
+    const writableButtons = screen
+      .getByTestId('agent-review-actions')
+      .querySelectorAll('button');
+    const writableLabels = Array.from(writableButtons).map((b) => b.textContent);
+    expect(screen.queryByText(/switch to editing/i)).not.toBeInTheDocument();
+    unmount();
+
+    render(<ChatPanel readOnly />);
+    const readonlyButtons = screen
+      .getByTestId('agent-review-actions')
+      .querySelectorAll('button');
+    const readonlyLabels = Array.from(readonlyButtons).map((b) => b.textContent);
+    // Identical button set regardless of posture, and still no reviewer nudge.
+    expect(readonlyLabels).toEqual(writableLabels);
+    expect(readonlyLabels).toEqual(REVIEW_LABELS);
+    expect(screen.queryByText(/switch to editing/i)).not.toBeInTheDocument();
+  });
+
+  it('a read-only viewer sees the buttons and clicking one fires sendMessage (ac-8)', async () => {
+    tagAc(AC283(8));
+    const user = userEvent.setup();
+    render(<ChatPanel readOnly />);
+
+    const block = screen.getByTestId('agent-review-actions');
+    expect(within(block).getByRole('button', { name: 'Summarise Spec' })).toBeInTheDocument();
+    await user.click(within(block).getByRole('button', { name: 'Summarise Spec' }));
+    expect(mockSendMessage).toHaveBeenCalledTimes(1);
+    expect(typeof mockSendMessage.mock.calls[0][0]).toBe('string');
   });
 });

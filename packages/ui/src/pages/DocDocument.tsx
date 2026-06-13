@@ -29,7 +29,7 @@ import { PhaseTabBar, type PhaseTab } from '../components/PhaseTabBar';
 import { phaseColors } from '../components/phaseColors';
 import { TransitionSentence } from '../components/TransitionSentence';
 import { DoneSummary } from '../components/DoneSummary';
-import { Badge, Button, Tabs } from '../components/ui';
+import { Badge, Tabs } from '../components/ui';
 import { DownloadMdDialog } from '../components/DownloadMdDialog';
 import { InitPromptDialog } from '../components/InitPromptDialog';
 import { useChat } from '../components/ChatContext';
@@ -38,8 +38,6 @@ import { PostureDropdown, HEADER_PILL_CLASS } from '../components/PostureDropdow
 import {
   countUnresolvedDecisions,
   isSpecNarrativeStale,
-  toButtonPrompt,
-  BASE_SCAFFOLD,
   HANDOFF_BUTTON_BY_PHASE,
   isQaReportSectionType,
 } from '@memex/shared';
@@ -186,11 +184,6 @@ export function DocDocument() {
           ? 'work'
           : null,
   );
-  // spec-182 issue-3: for EDITORS the Specify review affordances sit behind a
-  // collapsed-by-default "Review actions" disclosure — the reviewer workflow
-  // shouldn't visually dominate the editor's page. Reviewers see them expanded
-  // (no disclosure chrome): it's their workflow.
-  const [reviewActionsOpen, setReviewActionsOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [shareLinkOpen, setShareLinkOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
@@ -666,34 +659,11 @@ export function DocDocument() {
     navigate(tenantPath('/specs'));
   };
 
-  // ── spec-159 ac-19: the writable reviewer's review-action row ──────────────
-  // The same four scaffold chat prompts the OpeningTurn reviewer set surfaces
-  // (Summarise / Security / Design / Architecture). Each resolves its prose from
-  // BASE_SCAFFOLD via toButtonPrompt (interpolating the same context the handoff
-  // line uses) and sends it through the existing chat — mirroring how
-  // OpeningTurn's chat_prompt arm threads onSendPrompt → sendMessage.
-  const REVIEW_ACTIONS: { label: string; buttonId: string }[] = [
-    { label: 'Summarise Spec', buttonId: 'opening-review-summarise' },
-    { label: 'Security review', buttonId: 'opening-review-security' },
-    { label: 'Design review', buttonId: 'opening-review-design' },
-    { label: 'Architecture review', buttonId: 'opening-review-architecture' },
-  ];
-  const sendReviewPrompt = (buttonId: string) => {
-    const prompt = toButtonPrompt({
-      dataset: BASE_SCAFFOLD,
-      buttonId,
-      context: handoffContext,
-      orgBlocks,
-    });
-    if (prompt === null) {
-      const message = `DocDocument: no PromptButtonNode found for buttonId="${buttonId}"`;
-      if (import.meta.env.DEV) throw new Error(message);
-      // eslint-disable-next-line no-console
-      console.error(message);
-      return;
-    }
-    chat.sendMessage(prompt);
-  };
+  // spec-283 dec-4: the four review-ACTION buttons (Summarise / Security /
+  // Design / Architecture) that used to live here have moved into the agent's
+  // idle/empty state (ChatPanel) — they're static scaffold prompts that need no
+  // page context, so the agent fires them directly. Only the review-HANDOFF
+  // line (below) stays on the page, because it interpolates page-level context.
 
   // spec-203 dec-1: the handoff node id is sourced from the single shared
   // HANDOFF_BUTTON_BY_PHASE map — the SAME map the in-chat footer projection
@@ -1365,72 +1335,27 @@ export function DocDocument() {
               }}
               onCancelBrowse={() => setSelectedTab(null)}
             />
-            {/* spec-182 dec-3: the review actions are a SPECIFY-phase fixture
-                for BOTH postures — review is a planning act (you review the
-                decisions and narrative before they harden), so the row keys on
-                the Spec's phase, not the viewer's posture. No other phase
-                (draft included) shows it. The four buttons resolve their
-                prompts from the Scaffold (std-23) and send through the chat.
-                spec-182 issue-3: for EDITORS the row + review handoff sit
-                behind a collapsed-by-default disclosure — access survives,
-                but the reviewer workflow no longer dominates the editor's
-                page. Reviewers get them expanded, no chrome. */}
+            {/* spec-283 dec-4: the four review ACTIONS have moved off the page
+                into the agent's idle/empty state (ChatPanel) — the page no
+                longer carries the "Review actions" disclosure or the button
+                row. What STAYS is the coding-agent review-HANDOFF line: it
+                interpolates {namespace}/{memex}/{handle}/{title}/{url} — page
+                context the generic agent panel doesn't carry — and serves the
+                distinct "conduct the review in your own coding agent" workflow.
+                It renders in Specify for BOTH postures, ungated (no longer
+                behind the deleted editor disclosure). spec-182 issue-4: the
+                link leads each line and names its prompt. */}
             {phase === 'specify' && (
-              <>
-                {canEdit && (
-                  <button
-                    type="button"
-                    data-testid="review-actions-toggle"
-                    aria-expanded={reviewActionsOpen}
-                    onClick={() => setReviewActionsOpen((v) => !v)}
-                    className="flex items-center gap-1 pt-1 text-sm text-secondary hover:text-heading transition-colors"
-                  >
-                    <svg
-                      className={`w-3 h-3 transition-transform ${reviewActionsOpen ? 'rotate-90' : ''}`}
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                      strokeWidth={2}
-                    >
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-                    </svg>
-                    Review actions
-                  </button>
-                )}
-                {(!canEdit || reviewActionsOpen) && (
-                  <>
-                    <div
-                      data-testid="review-action-row"
-                      className="flex flex-wrap items-center gap-2 pt-1"
-                    >
-                      {REVIEW_ACTIONS.map((action) => (
-                        <Button
-                          key={action.buttonId}
-                          type="button"
-                          variant="secondary"
-                          size="sm"
-                          onClick={() => sendReviewPrompt(action.buttonId)}
-                        >
-                          {action.label}
-                        </Button>
-                      ))}
-                    </div>
-                    {/* Review handoff line — copy a coding-agent prompt to conduct
-                        the review from there. Specify-only, like the row (dec-3).
-                        The link leads and names the prompt (issue-4). */}
-                    <div data-testid="review-handoff-line">
-                      <PromptButton
-                        buttonId="review-handoff"
-                        context={handoffContext}
-                        orgBlocks={orgBlocks}
-                        linkText="Copy the review prompt"
-                        sentence="into your coding agent if you prefer to conduct the review from there."
-                        sentenceLabel="Copy the review prompt into your coding agent if you prefer to conduct the review from there."
-                      />
-                    </div>
-                  </>
-                )}
-              </>
+              <div data-testid="review-handoff-line">
+                <PromptButton
+                  buttonId="review-handoff"
+                  context={handoffContext}
+                  orgBlocks={orgBlocks}
+                  linkText="Copy the review prompt"
+                  sentence="into your coding agent if you prefer to conduct the review from there."
+                  sentenceLabel="Copy the review prompt into your coding agent if you prefer to conduct the review from there."
+                />
+              </div>
             )}
             {/* spec-159 ac-17: the next-action handoff line — a "Copy a prompt
                 to …" sentence keyed to the CURRENT phase; absent at `done`.
