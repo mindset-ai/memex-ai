@@ -1342,18 +1342,23 @@ export function DocDocument() {
                 interpolates {namespace}/{memex}/{handle}/{title}/{url} — page
                 context the generic agent panel doesn't carry — and serves the
                 distinct "conduct the review in your own coding agent" workflow.
-                It renders in Specify for BOTH postures, ungated (no longer
-                behind the deleted editor disclosure). spec-182 issue-4: the
-                link leads each line and names its prompt. */}
-            {phase === 'specify' && (
+                spec-287 dec-2 SUPERSEDES spec-283 dec-4's "ungated, both
+                postures" clause: one prompt per posture in Specify. The review
+                handoff is now gated to NON-editors (!canEdit) — reviewers and
+                read-only viewers — while the editor sees the phase handoff
+                below (canEdit) and NOT this line. spec-287 dec-1: the link is
+                Title Case ("Copy the Review prompt"), matching the
+                Specify/Build/Verify family. spec-182 issue-4: the link leads
+                each line and names its prompt. */}
+            {phase === 'specify' && !canEdit && (
               <div data-testid="review-handoff-line">
                 <PromptButton
                   buttonId="review-handoff"
                   context={handoffContext}
                   orgBlocks={orgBlocks}
-                  linkText="Copy the review prompt"
+                  linkText="Copy the Review prompt"
                   sentence="into your coding agent if you prefer to conduct the review from there."
-                  sentenceLabel="Copy the review prompt into your coding agent if you prefer to conduct the review from there."
+                  sentenceLabel="Copy the Review prompt into your coding agent if you prefer to conduct the review from there."
                 />
               </div>
             )}
