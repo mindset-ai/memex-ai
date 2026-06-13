@@ -25,10 +25,12 @@ beforeAll(() => {
   const ping = spawnSync("pg_isready", ["-h", "localhost", "-p", "5432"]);
   if (ping.status !== 0) throw new Error("Postgres must be running on localhost:5432 for the consumer integration test");
 
-  // Build + pack the real artifact.
-  execFileSync("pnpm", ["build"], { cwd: PKG_DIR, stdio: "ignore" });
-  const packed = JSON.parse(execFileSync("npm", ["pack", "--json", "--ignore-scripts"], { cwd: PKG_DIR, encoding: "utf8" }));
-  tarball = join(PKG_DIR, packed[0].filename);
+  // Pack the real artifact. `npm pack` runs `prepare` (tsup) to build a fresh
+  // dist; we derive the deterministic tarball name rather than parsing pack's
+  // stdout (tsup's banner pollutes it).
+  execFileSync("npm", ["pack"], { cwd: PKG_DIR, stdio: "ignore" });
+  const pkgJson = JSON.parse(readFileSync(join(PKG_DIR, "package.json"), "utf8"));
+  tarball = join(PKG_DIR, `${pkgJson.name.replace(/^@/, "").replace("/", "-")}-${pkgJson.version}.tgz`);
 
   // Fresh out-of-workspace consumer project; install the tarball + its peers.
   proj = mkdtempSync(join(tmpdir(), "db-schema-consumer-"));

@@ -21,14 +21,19 @@ const pkgJson = JSON.parse(readFileSync(join(PKG_DIR, "package.json"), "utf8"));
 let tarballPath: string;
 
 beforeAll(() => {
-  // Build a fresh dist first, then pack with --ignore-scripts so the tsup build
-  // logs don't pollute the --json stdout we parse for the produced filename.
-  execFileSync("pnpm", ["build"], { cwd: PKG_DIR, stdio: "ignore" });
-  const out = execFileSync("npm", ["pack", "--json", "--ignore-scripts"], { cwd: PKG_DIR, encoding: "utf8" });
-  const filename = JSON.parse(out)[0].filename;
-  tarballPath = join(PKG_DIR, filename);
-  expect(existsSync(tarballPath), `tarball ${filename} should exist`).toBe(true);
+  // `npm pack` runs `prepare` (tsup), which builds a fresh dist into the
+  // tarball. We do NOT parse its stdout (tsup's CLI banner pollutes it, and
+  // --ignore-scripts isn't honoured uniformly across npm versions); instead we
+  // derive the deterministic tarball name from name@version.
+  execFileSync("npm", ["pack"], { cwd: PKG_DIR, stdio: "ignore" });
+  tarballPath = join(PKG_DIR, tarballName(pkgJson));
+  expect(existsSync(tarballPath), `tarball ${tarballName(pkgJson)} should exist`).toBe(true);
 }, 120_000);
+
+/** npm's tarball name for a (scoped) package: `@scope/name@x.y.z` → `scope-name-x.y.z.tgz`. */
+function tarballName(manifest: { name: string; version: string }): string {
+  return `${manifest.name.replace(/^@/, "").replace("/", "-")}-${manifest.version}.tgz`;
+}
 
 describe("ac-7 — built from schema.ts (single source), exports tables + inferred types as ESM + d.ts", () => {
   it("re-exports the single source (no second schema copy) and emits ESM + d.ts", async () => {
