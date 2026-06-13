@@ -1,0 +1,67 @@
+name: db-schema-drift
+
+# Drift gate: fail CI when @mindset-ai/db-schema no longer matches the real
+# migrated database, so a pinned consumer (Backstage, spec-280) can never
+# silently run against a stale schema (std-20). Migrates a cold DB, then diffs
+# every table/column the package declares against it. spec-279 ac-3/ac-10.
+on:
+  push:
+    branches: [main, develop]
+    paths: &drift_paths
+      - "packages/server/src/db/schema.ts"
+      - "packages/server/drizzle/**"
+      - "packages/db-schema/**"
+      - ".github/workflows/db-schema-drift.yml"
+  pull_request:
+    branches: [main, develop]
+    paths: *drift_paths
+  workflow_dispatch:
+
+concurrency:
+  group: db-schema-drift-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        # pgvector-bundled Postgres 16 — the hand migrations CREATE EXTENSION
+        # vector, absent from the stock postgres image (mirrors test.yml).
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: memex
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/memex
+      # AC emission to the prod Memex (spec-129). Value lives in the
+      # MEMEX_EMIT_KEY repo secret; empty until set (harmless pre-enforcement).
+      MEMEX_EMIT_KEY: ${{ secrets.MEMEX_EMIT_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Build the schema package
+        run: pnpm --filter @mindset-ai/db-schema build
+      - name: Migrate a cold database
+        working-directory: packages/server
+        run: pnpm db:migrate
+      - name: Run the drift gate
+        run: node packages/db-schema/scripts/drift-gate.mjs
+      # The package's own suite (build/publish-guard/drift/consumer). The
+      # integration tests create + migrate their own throwaway databases.
+      - name: Run the db-schema package tests
+        run: pnpm --filter @mindset-ai/db-schema test
