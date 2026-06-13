@@ -22,6 +22,13 @@ const recordViewMock = vi.hoisted(() => vi.fn());
 vi.mock('../hooks/useQaReports', () => ({
   useQaReportsFeed: (...a: unknown[]) => useQaReportsFeedMock(...a),
   recordQaReportsView: (...a: unknown[]) => recordViewMock(...a),
+  // spec-286: the redesigned page also reads the tag facets for the rail.
+  useQaReportTagFacets: () => ({
+    facets: { total: 0, tags: [] },
+    loading: false,
+    error: null,
+    refresh: vi.fn(),
+  }),
   QA_REPORTS_VIEWED_EVENT: 'memex:qa-reports-viewed',
 }));
 
@@ -45,6 +52,7 @@ function row(over: Partial<QaReportFeedRow>): QaReportFeedRow {
     docId: 'd-1',
     docHandle: 'spec-1',
     docTitle: 'Some Spec',
+    phase: 'verify',
     sectionType: 'qa_report',
     version: 1,
     title: 'QA Report',
@@ -52,6 +60,7 @@ function row(over: Partial<QaReportFeedRow>): QaReportFeedRow {
     actorName: 'Claude Code',
     actorKind: 'mcp_agent',
     channel: 'mcp',
+    tags: [],
     createdAt: '2026-06-03T00:00:00Z',
     ...over,
   };
@@ -129,18 +138,23 @@ describe('spec-260 — QA Reports feed page', () => {
 
     const rows = await screen.findAllByTestId('qa-report-row');
 
-    // WHICH — the parent Spec, linked.
+    // WHICH — the parent Spec, linked. (spec-286 dropped the `·` separator; the
+    // handle + title now lead as the card heading.)
     const specLink = within(rows[0]).getByTestId('qa-report-row-spec');
-    expect(specLink).toHaveTextContent('spec-9 · Newest Spec');
+    expect(specLink).toHaveTextContent('spec-9');
+    expect(specLink).toHaveTextContent('Newest Spec');
     expect(specLink.closest('a')).toHaveAttribute('href', expect.stringContaining('/specs/spec-9'));
 
-    // WHEN — the report row's generation time.
-    expect(within(rows[0]).getByTestId('qa-report-row-when')).toHaveTextContent('3 Jun 2026');
+    // WHEN — the report row's generation time, now shown as relative time (spec-286).
+    expect(within(rows[0]).getByTestId('qa-report-row-when')).toHaveTextContent(/ago|just now|\d{4}/);
 
-    // WHO — the std-32 actor; an mcp_agent executor is labelled as an agent,
-    // a human executor by name.
-    expect(within(rows[0]).getByTestId('qa-report-row-who')).toHaveTextContent('Claude Code (agent)');
-    expect(within(rows[1]).getByTestId('qa-report-row-who')).toHaveTextContent('Barrie');
+    // WHO executed it — the std-32 actor, now the IMPLEMENTER (spec-286). These
+    // fixtures carry no author, so the implementer (the actor) is shown: an
+    // mcp_agent labelled as an agent, a human by name.
+    expect(within(rows[0]).getByTestId('qa-report-row-implementer')).toHaveTextContent(
+      'Claude Code (agent)',
+    );
+    expect(within(rows[1]).getByTestId('qa-report-row-implementer')).toHaveTextContent('Barrie');
 
     // A versioned session is identified.
     expect(rows[0]).toHaveTextContent('session 2');

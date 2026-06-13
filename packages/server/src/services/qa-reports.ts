@@ -1,14 +1,22 @@
-import { and, desc, eq, gt, lt, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, inArray, lt, lte, ne, sql } from "drizzle-orm";
 import {
   QA_REPORT_SECTION_PREFIX,
   isQaReportSectionType,
   qaReportVersion,
 } from "@memex/shared";
 import { db } from "../db/connection.js";
-import { docSections, documents, qaReportViews } from "../db/schema.js";
+import {
+  docSections,
+  documents,
+  documentTags,
+  qaReportViews,
+  tags,
+  users,
+} from "../db/schema.js";
 import type { DocSection } from "../db/schema.js";
 import { mutate, type Mutated, type RequestCtx } from "./mutate.js";
 import { addSection } from "./sections.js";
+import { listDocTagsForDocs } from "./tags.js";
 
 // spec-260 (dec-1, dec-2): a QA report is a read-only `doc_sections` row with
 // section_type='qa_report'. Each build session APPENDS a distinct, dated version
@@ -94,6 +102,13 @@ const CHANNEL_TO_ACTOR_KIND: Record<string, QaReportFeedRow["actorKind"]> = {
   server: "system",
 };
 
+/** A tag carried on a feed row's owning Spec — the rail-facing subset (spec-286). */
+export interface QaReportTagRef {
+  id: string;
+  scope: string | null;
+  value: string;
+}
+
 export interface QaReportFeedRow {
   /** The qa_report doc_sections row id. */
   id: string;
@@ -101,16 +116,27 @@ export interface QaReportFeedRow {
   /** Parent Spec handle (`spec-N`) + title, for the WHICH-Spec column + link. */
   docHandle: string;
   docTitle: string;
+  /** The owning Spec's current phase (documents.status) — drives the phase pill (spec-286). */
+  phase: string;
   /** `qa_report` / `qa_report-2` / … — encodes the build-session version. */
   sectionType: string;
   version: number;
   title: string | null;
   content: string;
-  /** std-32 WHO columns, stamped at write time. */
+  /**
+   * The Spec's AUTHOR (spec-286 dec-1): the creator (documents.created_by_user_id,
+   * seeded as the editor — there is no distinct owner role). Distinct from the
+   * IMPLEMENTER below, which is whoever ran this build session.
+   */
+  authorUserId: string | null;
+  authorName: string | null;
+  /** std-32 WHO columns, stamped at write time — the IMPLEMENTER of this session. */
   actorUserId: string | null;
   actorName: string | null;
   actorKind: "human" | "mcp_agent" | "in_app_agent" | "system";
   channel: string | null;
+  /** The owning Spec's tags — feeds the rail filter chips (spec-286). */
+  tags: QaReportTagRef[];
   createdAt: Date;
 }
 
@@ -120,21 +146,49 @@ export interface ListQaReportsOptions {
   limit?: number;
   /** Keyset boundary: return rows strictly OLDER than this timestamp. */
   since?: Date;
+  /** spec-286: restrict to reports whose owning Spec carries this tag (by id). */
+  tagId?: string;
+  /** spec-286: restrict to reports generated at/after this instant (date filter). */
+  from?: Date;
+  /** spec-286: restrict to reports generated at/before this instant (date filter). */
+  to?: Date;
 }
 
-export async function listQaReports(opts: ListQaReportsOptions): Promise<QaReportFeedRow[]> {
-  const limit = Math.max(1, Math.min(MAX_LIMIT, Math.floor(opts.limit ?? DEFAULT_LIMIT)));
-
-  const conditions = [
-    eq(documents.memexId, opts.memexId),
-    // QA reports attach to Specs only (the write path enforces it); demo Specs
-    // are excluded from the feed like they are from the Pulse timeline.
+// The conditions shared by the feed, the unread counter, and the facets: a
+// qa_report* section on a non-demo Spec in this memex, not soft-deleted. Factored
+// out (spec-286) so the feed query, the facet counts, and the total all scope an
+// identical corpus — the rail counts can't drift from what the feed actually lists.
+function feedBaseConditions(memexId: string) {
+  return [
+    eq(documents.memexId, memexId),
     eq(documents.docType, "spec"),
     ne(documents.isDemo, true),
     ne(docSections.status, "deleted"),
     qaReportSectionPredicate(),
   ];
+}
+
+export async function listQaReports(opts: ListQaReportsOptions): Promise<QaReportFeedRow[]> {
+  const limit = Math.max(1, Math.min(MAX_LIMIT, Math.floor(opts.limit ?? DEFAULT_LIMIT)));
+
+  const conditions = feedBaseConditions(opts.memexId);
+  // Keyset boundary ("Load More") + the spec-286 filters, all ANDed so a filtered
+  // page is itself keyset-paginated correctly (the cursor composes with the filters).
   if (opts.since !== undefined) conditions.push(lt(docSections.createdAt, opts.since));
+  if (opts.from !== undefined) conditions.push(gte(docSections.createdAt, opts.from));
+  if (opts.to !== undefined) conditions.push(lte(docSections.createdAt, opts.to));
+  if (opts.tagId !== undefined) {
+    // Restrict to reports whose owning Spec carries the tag — an EXISTS-style
+    // subquery on the bridge, tenant-scoped. A semijoin (not an inner join on
+    // documentTags) so a Spec with the tag still yields exactly one row per report.
+    const taggedDocIds = db
+      .select({ id: documentTags.docId })
+      .from(documentTags)
+      .where(
+        and(eq(documentTags.memexId, opts.memexId), eq(documentTags.tagId, opts.tagId)),
+      );
+    conditions.push(inArray(documents.id, taggedDocIds));
+  }
 
   const rows = await db
     .select({
@@ -142,9 +196,14 @@ export async function listQaReports(opts: ListQaReportsOptions): Promise<QaRepor
       docId: docSections.docId,
       docHandle: documents.handle,
       docTitle: documents.title,
+      phase: documents.status,
       sectionType: docSections.sectionType,
       title: docSections.title,
       content: docSections.content,
+      // The Spec author (creator → seeded editor); LEFT-joined so a legacy Spec
+      // with a null creator still lists (authorName just renders empty).
+      authorUserId: documents.createdByUserId,
+      authorName: users.name,
       actorUserId: docSections.actorUserId,
       actorName: docSections.actorName,
       channel: docSections.channel,
@@ -152,16 +211,92 @@ export async function listQaReports(opts: ListQaReportsOptions): Promise<QaRepor
     })
     .from(docSections)
     .innerJoin(documents, eq(docSections.docId, documents.id))
+    .leftJoin(users, eq(users.id, documents.createdByUserId))
     .where(and(...conditions))
     // Newest-first with a deterministic tiebreaker (the listActivity convention).
     .orderBy(desc(docSections.createdAt), desc(docSections.id))
     .limit(limit);
 
+  // Attach each owning Spec's tags in one batched round-trip (no N+1), reusing the
+  // same query the Specs board uses. Docs absent from the map carry no tags.
+  const tagsByDoc = await listDocTagsForDocs(
+    opts.memexId,
+    [...new Set(rows.map((r) => r.docId))],
+  );
+
   return rows.map((row) => ({
     ...row,
     version: qaReportVersion(row.sectionType) ?? 1,
     actorKind: CHANNEL_TO_ACTOR_KIND[row.channel ?? "server"] ?? "system",
+    tags: (tagsByDoc.get(row.docId) ?? []).map(({ id, scope, value }) => ({
+      id,
+      scope,
+      value,
+    })),
   }));
+}
+
+// ── Tag facets for the filter rail (spec-286 dec-2) ────────────────────────────
+//
+// The rail's tag tree shows every tag carried by a Spec with at least one QA
+// report, each with the COUNT of reports under it, plus an "All" total. Computed
+// server-side across the WHOLE corpus (not the loaded page) so the counts are
+// correct regardless of how far the client has paged. Honours the date window so
+// the counts stay consistent with an active date filter (AND semantics, dec-3).
+
+export interface QaReportTagFacet extends QaReportTagRef {
+  /** Number of qa_report* sections whose owning Spec carries this tag. */
+  count: number;
+}
+
+export interface QaReportFacets {
+  /** Total qa_report* sections in the corpus (the "All" node count). */
+  total: number;
+  tags: QaReportTagFacet[];
+}
+
+export interface QaReportFacetsOptions {
+  memexId: string;
+  from?: Date;
+  to?: Date;
+}
+
+export async function qaReportTagFacets(
+  opts: QaReportFacetsOptions,
+): Promise<QaReportFacets> {
+  const conditions = feedBaseConditions(opts.memexId);
+  if (opts.from !== undefined) conditions.push(gte(docSections.createdAt, opts.from));
+  if (opts.to !== undefined) conditions.push(lte(docSections.createdAt, opts.to));
+
+  // The "All" total: every matching report section, tag or not.
+  const [totalRow] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(docSections)
+    .innerJoin(documents, eq(docSections.docId, documents.id))
+    .where(and(...conditions));
+
+  // Per-tag counts: one report can sit under several tags (its Spec's tags), so a
+  // report is counted once per tag it carries — that's the intended "reports under
+  // this tag" semantic, and the per-tag counts can sum to more than `total`.
+  const tagRows = await db
+    .select({
+      id: tags.id,
+      scope: tags.scope,
+      value: tags.value,
+      count: sql<number>`count(*)::int`,
+    })
+    .from(docSections)
+    .innerJoin(documents, eq(docSections.docId, documents.id))
+    .innerJoin(
+      documentTags,
+      and(eq(documentTags.docId, documents.id), eq(documentTags.memexId, opts.memexId)),
+    )
+    .innerJoin(tags, eq(tags.id, documentTags.tagId))
+    .where(and(...conditions))
+    .groupBy(tags.id, tags.scope, tags.value)
+    .orderBy(desc(sql`count(*)`), asc(tags.scope), asc(tags.value));
+
+  return { total: totalRow?.count ?? 0, tags: tagRows };
 }
 
 // ── Per-user unread counter (dec-6) ────────────────────────────────────────────

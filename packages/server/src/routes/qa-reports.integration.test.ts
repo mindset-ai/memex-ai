@@ -10,10 +10,11 @@ vi.hoisted(() => {
 });
 
 import { db } from "../db/connection.js";
-import { docSections, documents, memexes, qaReportViews } from "../db/schema.js";
+import { docSections, documents, memexes, qaReportViews, users } from "../db/schema.js";
 import { app } from "../app.js";
 import { createDocDraft } from "../services/documents.js";
 import { appendQaReport } from "../services/qa-reports.js";
+import { applyTagString } from "../services/tags.js";
 import { makeTestMemexWithDevAdmin } from "../services/test-helpers.js";
 import { upsertUserByEmail } from "../services/users.js";
 
@@ -243,5 +244,179 @@ describe("unread counter + view marker (dec-6)", () => {
     expect(resB.status).toBe(200);
     // Memex B has exactly one report and dev has never viewed B's feed.
     expect(await resB.json()).toEqual({ count: 1 });
+  });
+});
+
+// ─── spec-286: feed enrichment (phase/author/tags) + tag/date filters + facets ───
+//
+// A DEDICATED memex so the spec-260 ordering/count assertions above stay intact.
+// ac-6: each row enriched with phase, author (creator), and tags.
+// ac-8: tag + date-range query params, composing with the keyset `since` cursor.
+// ac-9: /facets returns whole-corpus per-tag counts + the "All" total.
+
+const AC_286_6 = "mindset-prod/memex-building-itself/specs/spec-286/acs/ac-6";
+const AC_286_8 = "mindset-prod/memex-building-itself/specs/spec-286/acs/ac-8";
+const AC_286_9 = "mindset-prod/memex-building-itself/specs/spec-286/acs/ac-9";
+
+type FeedRow286 = FeedRow & {
+  phase: string;
+  authorUserId: string | null;
+  authorName: string | null;
+  tags: { id: string; scope: string | null; value: string }[];
+};
+
+type Facets = {
+  total: number;
+  tags: { id: string; scope: string | null; value: string; count: number }[];
+};
+
+describe("spec-286: enriched feed + tag/date filters + facets", () => {
+  let path: string;
+  let authorUserId: string;
+  let frontendTagId: string;
+  let bugTagId: string;
+  // specT (frontend + bug) reports, specU (frontend) report.
+  let rT1: string; // 2026-03-01 — specT
+  let rU1: string; // 2026-03-02 — specU
+  let rT2: string; // 2026-03-03 — specT (newest)
+
+  beforeAll(async () => {
+    const m = await makeTestMemexWithDevAdmin("qa-feed-286");
+    path = `/api/${m.slug}/main`;
+    memexIds.push(m.memexId);
+
+    // A distinct AUTHOR with a known name — different from the build IMPLEMENTER,
+    // so the author≠implementer distinction is observable.
+    const author = await upsertUserByEmail("author286@memex.ai");
+    authorUserId = author.id;
+    await db.update(users).set({ name: "Ada Author" }).where(eq(users.id, author.id));
+
+    const specT = await createDocDraft(
+      m.memexId, "Spec T", "Purpose", "spec", undefined, undefined, author.id,
+    );
+    const specU = await createDocDraft(
+      m.memexId, "Spec U", "Purpose", "spec", undefined, undefined, author.id,
+    );
+    createdDocIds.push(specT.id, specU.id);
+
+    const frontend = await applyTagString({}, m.memexId, specT.id, "area::frontend", author.id);
+    bugTagId = (await applyTagString({}, m.memexId, specT.id, "bug", author.id)).id;
+    frontendTagId = frontend.id;
+    await applyTagString({}, m.memexId, specU.id, "area::frontend", author.id);
+
+    const builder = { actorUserId: undefined, actorName: "Builder Bot" };
+    rT1 = await seedReport(m.memexId, specT.id, "T session 1", new Date("2026-03-01T00:00:00Z"), builder);
+    rU1 = await seedReport(m.memexId, specU.id, "U session 1", new Date("2026-03-02T00:00:00Z"), builder);
+    rT2 = await seedReport(m.memexId, specT.id, "T session 2", new Date("2026-03-03T00:00:00Z"), builder);
+  });
+
+  // upsertUserByEmail inserts this author WITHOUT a namespace (it leaves that to
+  // the auth service), so leaving it behind would trip migration-smoke's
+  // "every active user has namespace_id" invariant on a shared worker clone.
+  // The docs that reference it are dropped by the file-level afterAll (FK SET NULL).
+  afterAll(async () => {
+    await db.delete(users).where(eq(users.id, authorUserId)).catch(() => {});
+  });
+
+  it("ac-6: each row carries phase, author (creator), and the owning Spec's tags", async () => {
+    tagAc(AC_286_6);
+
+    const res = await app.request(`${path}/qa-reports`, withApexHost());
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as FeedRow286[];
+    expect(body.map((r) => r.id)).toEqual([rT2, rU1, rT1]);
+
+    const top = body[0]!; // rT2 on specT
+    expect(top.phase).toBe("draft"); // createDocDraft → draft
+    expect(top.authorName).toBe("Ada Author"); // the creator
+    expect(top.actorName).toBe("Builder Bot"); // the implementer — distinct from author
+    expect(top.tags.map((t) => (t.scope ? `${t.scope}::${t.value}` : t.value)).sort()).toEqual(
+      ["area::frontend", "bug"],
+    );
+
+    // specU's report carries only the frontend tag.
+    const uRow = body.find((r) => r.id === rU1)!;
+    expect(uRow.tags.map((t) => `${t.scope}::${t.value}`)).toEqual(["area::frontend"]);
+  });
+
+  it("ac-8: tag filter narrows to reports whose Spec carries the tag, and composes with keyset `since`", async () => {
+    tagAc(AC_286_8);
+
+    // Filter by `bug` → only specT's two reports, newest-first.
+    const bugRes = await app.request(`${path}/qa-reports?tag=${bugTagId}`, withApexHost());
+    expect(bugRes.status).toBe(200);
+    expect(((await bugRes.json()) as FeedRow286[]).map((r) => r.id)).toEqual([rT2, rT1]);
+
+    // Filtered Load More: limit=1 then since=boundary stays within the filter.
+    const page1 = (await (
+      await app.request(`${path}/qa-reports?tag=${bugTagId}&limit=1`, withApexHost())
+    ).json()) as FeedRow286[];
+    expect(page1.map((r) => r.id)).toEqual([rT2]);
+    const since = page1[0]!.createdAt;
+    const page2 = (await (
+      await app.request(
+        `${path}/qa-reports?tag=${bugTagId}&limit=1&since=${encodeURIComponent(since)}`,
+        withApexHost(),
+      )
+    ).json()) as FeedRow286[];
+    expect(page2.map((r) => r.id)).toEqual([rT1]);
+
+    // Frontend tag spans both Specs → all three reports.
+    const feRes = await app.request(`${path}/qa-reports?tag=${frontendTagId}`, withApexHost());
+    expect(((await feRes.json()) as FeedRow286[]).map((r) => r.id)).toEqual([rT2, rU1, rT1]);
+  });
+
+  it("ac-8: date window (from/to) narrows the feed and ANDs with the tag filter", async () => {
+    tagAc(AC_286_8);
+
+    // from = 2026-03-02 → drops rT1 (03-01).
+    const fromRes = await app.request(
+      `${path}/qa-reports?from=${encodeURIComponent("2026-03-02T00:00:00Z")}`,
+      withApexHost(),
+    );
+    expect(((await fromRes.json()) as FeedRow286[]).map((r) => r.id)).toEqual([rT2, rU1]);
+
+    // tag=bug AND from=2026-03-02 → only rT2 (rT1 is bug but pre-window; rU1 in window but not bug).
+    const andRes = await app.request(
+      `${path}/qa-reports?tag=${bugTagId}&from=${encodeURIComponent("2026-03-02T00:00:00Z")}`,
+      withApexHost(),
+    );
+    expect(((await andRes.json()) as FeedRow286[]).map((r) => r.id)).toEqual([rT2]);
+  });
+
+  it("ac-9: /facets returns whole-corpus per-tag counts and the All total", async () => {
+    tagAc(AC_286_9);
+
+    const res = await app.request(`${path}/qa-reports/facets`, withApexHost());
+    expect(res.status).toBe(200);
+    const facets = (await res.json()) as Facets;
+
+    // All = every report in the corpus (3), independent of pagination.
+    expect(facets.total).toBe(3);
+
+    const byKey = new Map(
+      facets.tags.map((t) => [t.scope ? `${t.scope}::${t.value}` : t.value, t.count]),
+    );
+    // frontend on specT(2)+specU(1) = 3; bug on specT(2) = 2.
+    expect(byKey.get("area::frontend")).toBe(3);
+    expect(byKey.get("bug")).toBe(2);
+    // Ordered by count desc → frontend before bug.
+    expect(facets.tags[0]!.value).toBe("frontend");
+  });
+
+  it("ac-9: facet counts honour the date window (consistent with an active date filter)", async () => {
+    tagAc(AC_286_9);
+
+    const res = await app.request(
+      `${path}/qa-reports/facets?from=${encodeURIComponent("2026-03-02T00:00:00Z")}`,
+      withApexHost(),
+    );
+    const facets = (await res.json()) as Facets;
+    expect(facets.total).toBe(2); // rU1 + rT2
+    const byKey = new Map(
+      facets.tags.map((t) => [t.scope ? `${t.scope}::${t.value}` : t.value, t.count]),
+    );
+    expect(byKey.get("area::frontend")).toBe(2); // rU1 + rT2
+    expect(byKey.get("bug")).toBe(1); // rT2 only
   });
 });

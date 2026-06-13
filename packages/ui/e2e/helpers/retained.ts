@@ -60,6 +60,8 @@ export async function seedSpec(opts: {
   memexId: string;
   title: string;
   purpose?: string;
+  /** Attribute the spec to a creator — surfaces as the QA Reports author (spec-286). */
+  createdByUserId?: string;
 }): Promise<{ docId: string; handle: string; sectionId: string }> {
   return call("POST", "/seed-spec", opts);
 }
@@ -122,6 +124,16 @@ export async function seedSection(opts: {
   sectionType?: string;
 }): Promise<{ sectionId: string; seq: number }> {
   return call("POST", "/seed-section", opts);
+}
+
+/** spec-286: apply `scope::value`/flat tags to a Spec through applyTagStrings —
+ *  the tags the QA Reports feed rail filters + counts on. */
+export async function seedTags(opts: {
+  memexId: string;
+  docId: string;
+  tags: string[];
+}): Promise<{ applied: { id: string; scope: string | null; value: string }[] }> {
+  return call("POST", "/seed-tags", opts);
 }
 
 /** Seed an OPEN decision (with options) onto a doc through createDecision.

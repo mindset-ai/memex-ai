@@ -119,8 +119,11 @@ describe('phase colour palette (spec-252 dec-1)', () => {
     expect(phaseColors('verify')!.pill).toContain('bg-phase-verify-bg');
     // draft has no Figma hue yet → keeps the neutral status token.
     expect(phaseColors('draft')!.pill).toContain('bg-status-neutral-bg');
-    // done keeps its current treatment — no phase colour.
-    expect(phaseColors('done')).toBeNull();
+    // spec-286 gave `done` a neutral GREY pill (no longer null), but spec-252's
+    // guarantee still holds: done gets no coloured CONTAINER wash — its container
+    // stays empty, so the DocDocument header surface is unchanged at done.
+    expect(phaseColors('done')!.pill).toContain('bg-status-neutral-bg');
+    expect(phaseColors('done')!.container).toBe('');
     // The shared statusVariant is untouched: specify/review/open stay amber, so
     // board column headers and issue badges do not recolour.
     expect(statusVariant('specify')).toBe('warning');

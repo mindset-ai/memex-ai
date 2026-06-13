@@ -286,6 +286,31 @@
 .prose-content em, .prose-dark em { color: rgb(var(--color-text-primary)); }
 .prose-content img, .prose-dark img { @apply rounded-lg my-4 max-w-full; }
 
+/*
+ * spec-286: subordinate prose for the QA Reports feed. `.prose-qa` layers ON TOP
+ * of `.prose-dark` (use both classes together) and DEMOTES the markdown heading
+ * scale so a report's internal headings sit BELOW the card's spec-name heading
+ * (which is text-lg) instead of dwarfing it — `.prose-dark h1` is text-3xl, larger
+ * than the card title, which was the inverted-hierarchy bug. Headings here cap at
+ * text-base and tighten their vertical rhythm; everything else inherits prose-dark.
+ */
+.prose-qa h1 { @apply text-base font-semibold mt-4 mb-2; }
+.prose-qa h2 { @apply text-sm font-semibold mt-3 mb-1.5; }
+.prose-qa h3 { @apply text-sm font-medium mt-3 mb-1; }
+.prose-qa h4 { @apply text-xs font-semibold uppercase tracking-wide mt-2 mb-1; }
+.prose-qa h5, .prose-qa h6 { @apply text-xs font-medium mt-2 mb-1; }
+/* Body copy a touch smaller than the card chrome so the heading still leads. */
+.prose-qa p, .prose-qa li { @apply text-sm; }
+
+/*
+ * spec-286: the QA Reports rail date inputs. In dark mode the browser's native
+ * `<input type="date">` calendar-picker glyph defaults to a dark icon that
+ * disappears against the dark surface. Adopting the dark `color-scheme` under the
+ * `.dark` theme makes the UA paint that glyph (and the input's internals) light —
+ * the idiomatic, cross-browser fix. Light theme keeps the default dark glyph.
+ */
+.dark .qa-date-input { color-scheme: dark; }
+
 @keyframes slide-in-right {
   from {
     transform: translateX(100%);

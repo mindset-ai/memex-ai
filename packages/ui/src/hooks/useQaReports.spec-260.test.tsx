@@ -147,7 +147,8 @@ describe('useQaReportsFeed (dec-5 keyset Load More)', () => {
     const page2 = [{ id: 'r-0', createdAt: '2026-05-30T00:00:00Z' }];
     fetchMock.mockResolvedValueOnce(jsonResponse(page1));
 
-    const { result } = renderHook(() => useQaReportsFeed(2), { wrapper });
+    // spec-286 moved the page-size to the 2nd arg (1st is now the filter object).
+    const { result } = renderHook(() => useQaReportsFeed({}, 2), { wrapper });
     await waitFor(() => expect(result.current.rows).toHaveLength(2));
     // A full page (length == limit) keeps Load More enabled.
     expect(result.current.hasMore).toBe(true);
