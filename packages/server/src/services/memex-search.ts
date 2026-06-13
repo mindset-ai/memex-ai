@@ -186,6 +186,19 @@ export interface MemexSearchHit {
    *  used to detect self-hits when the caller passes `currentDocId` to the
    *  formatter. */
   parentDocId: string;
+  /** WHO — best-effort display name of who authored / last touched this hit
+   *  (spec-285 dec-1). For decision/section hits this is the denormalised
+   *  std-32 `actor_name` where present (rename-proof); for document and issue
+   *  hits, the `created_by_user_id` resolved to `users.name ?? users.email`.
+   *  null when nothing resolved (a system write, a deleted user, a legacy
+   *  unattributed row). Navigation-only lanes (jump / assigned) leave it null. */
+  authorName: string | null;
+  /** WHEN — ISO-8601 timestamp of when this hit was last changed (spec-285
+   *  dec-2): the row's last-modified where it has one (`doc_sections`/`issues`
+   *  `updated_at`), falling back to `created_at` where it does not (decisions
+   *  carry no `updated_at`). null only when no timestamp was selected
+   *  (navigation-only lanes). */
+  lastUpdatedAt: string | null;
 }
 
 export interface SearchMemexOptions {
@@ -225,6 +238,11 @@ interface SectionRow {
   doc_title: string;
   doc_status: string;
   doc_type: string;
+  // spec-285: WHO/WHEN. `author_name` is computed in SQL — the section's
+  // denormalised actor_name (std-32) preferred, else the parent doc's resolved
+  // creator. `updated_at` is the section's own last-modified.
+  author_name: string | null;
+  updated_at: string | Date;
   rank?: number; // FTS ts_rank
   distance?: number; // vector cosine distance
 }
@@ -240,6 +258,11 @@ interface DecisionRow {
   dec_context: string | null;
   dec_resolution: string | null;
   dec_status: string;
+  // spec-285: WHO/WHEN. `author_name` = decision's denormalised actor_name
+  // (std-32) preferred, else the actor_user_id resolved to a user. `created_at`
+  // is the only timestamp decisions carry (no updated_at — dec-2 fallback).
+  author_name: string | null;
+  created_at: string | Date;
   rank?: number;
   distance?: number;
 }
@@ -255,6 +278,11 @@ interface IssueRow {
   issue_body: string | null;
   issue_type: string;
   issue_status: string;
+  // spec-285: WHO/WHEN. Issues carry no actor_name (std-32 hasn't reached the
+  // issues table) — `author_name` is the created_by_user_id resolved to a user.
+  // `updated_at` is the issue's own last-modified.
+  author_name: string | null;
+  updated_at: string | Date;
   rank?: number;
   distance?: number;
 }
@@ -324,6 +352,15 @@ function inScopeDocTypes(kind: MemexSearchKind | undefined): string[] | null {
   // section query short-circuits to nothing.
   if (kind === "decision" || kind === "issue") return null;
   return DOC_TYPES_BY_KIND[kind];
+}
+
+// spec-285: normalise a timestamptz coming back from the driver (Date or ISO
+// string depending on the column path) to a stable ISO-8601 string for the hit
+// shape. null/invalid → null so the formatter and REST JSON degrade gracefully.
+function toIso(value: string | Date | null | undefined): string | null {
+  if (value == null) return null;
+  const d = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }
 
 // ── Public entry point ─────────────────────────────────
@@ -459,23 +496,51 @@ async function lookupByHandle(
       s.section_type  AS section_type,
       s.title         AS section_title,
       s.content       AS section_content,
+      s.actor_name    AS section_actor_name,
+      s.updated_at    AS section_updated_at,
       s.doc_id        AS doc_id,
       d.handle        AS doc_handle,
       d.title         AS doc_title,
       d.status        AS doc_status,
-      d.doc_type      AS doc_type
+      d.doc_type      AS doc_type,
+      d.created_at        AS doc_created_at,
+      d.status_changed_at AS doc_status_changed_at,
+      du.name         AS doc_author_name,
+      du.email        AS doc_author_email
     FROM documents d
     LEFT JOIN doc_sections s ON s.doc_id = d.id
+    LEFT JOIN users du ON du.id = d.created_by_user_id
     WHERE d.memex_id = ${memexId}
       ${archivedClause}
       AND d.is_demo IS NOT TRUE
       AND d.handle = ${query.toLowerCase()}
     ORDER BY s.seq
-  `)) as unknown as SectionRow[];
+  `)) as unknown as HandleRow[];
 
   if (rows.length === 0) return null;
 
   const first = rows[0];
+
+  // WHO/WHEN for a handle hit (spec-285): the heading is the DOCUMENT, so
+  // attribute it from the most-recently-updated section (denormalised
+  // actor_name, std-32), falling back to the doc's resolved creator. WHEN is the
+  // latest section's updated_at, else the doc's own status_changed_at/created_at.
+  const sections = rows.filter((r) => r.section_id != null);
+  let latest: HandleRow | null = null;
+  for (const r of sections) {
+    if (!latest || toMillis(r.section_updated_at) > toMillis(latest.section_updated_at)) {
+      latest = r;
+    }
+  }
+  const docAuthorFallback =
+    first.doc_author_name?.trim() || first.doc_author_email?.trim() || null;
+  const sectionActor = latest?.section_actor_name?.trim() || null;
+  const authorName = sectionActor ?? docAuthorFallback;
+  const lastUpdatedAt =
+    toIso(latest?.section_updated_at) ??
+    toIso(first.doc_status_changed_at) ??
+    toIso(first.doc_created_at);
+
   return {
     id: first.doc_id,
     parentDocId: first.doc_id,
@@ -485,16 +550,44 @@ async function lookupByHandle(
     status: first.doc_status,
     score: 1,
     strategies: ["handle"],
-    matchingSections: rows
-      .filter((r) => r.section_id != null)
-      .map((r) => ({
-        id: r.section_id,
-        sectionType: r.section_type,
-        title: r.section_title,
-        content: r.section_content,
-        matchedVia: "handle",
-      })),
+    authorName,
+    lastUpdatedAt,
+    matchingSections: sections.map((r) => ({
+      id: r.section_id,
+      sectionType: r.section_type,
+      title: r.section_title,
+      content: r.section_content,
+      matchedVia: "handle",
+    })),
   };
+}
+
+// Row shape for lookupByHandle's documents⨝sections⨝users projection (spec-285).
+interface HandleRow {
+  section_id: string;
+  section_type: string;
+  section_title: string | null;
+  section_content: string;
+  section_actor_name: string | null;
+  section_updated_at: string | Date | null;
+  doc_id: string;
+  doc_handle: string;
+  doc_title: string;
+  doc_status: string;
+  doc_type: string;
+  doc_created_at: string | Date | null;
+  doc_status_changed_at: string | Date | null;
+  doc_author_name: string | null;
+  doc_author_email: string | null;
+}
+
+// spec-285: epoch millis for comparing two timestamptz values; missing/invalid
+// sorts oldest so a real timestamp always wins the "latest section" pick.
+function toMillis(value: string | Date | null | undefined): number {
+  if (value == null) return -Infinity;
+  const d = value instanceof Date ? value : new Date(value);
+  const t = d.getTime();
+  return Number.isNaN(t) ? -Infinity : t;
 }
 
 // ── Jump-to lane (spec-64 t-2) ─────────────────────────
@@ -636,6 +729,10 @@ export async function resolveJumpTo(
       // so it ranks below the handle hit but is still a deliberate jump target.
       score: 0.5,
       strategies: ["handle"],
+      // Navigation-only lane (⌘K jump tier) — WHO/WHEN isn't rendered here
+      // (spec-285 dec-3 defers palette metadata), so leave them null.
+      authorName: null,
+      lastUpdatedAt: null,
       matchingSections: [],
     });
   }
@@ -695,6 +792,9 @@ export async function resolveAssignedSpecs(
         // tier, so we reuse it rather than widening the SearchStrategy union for
         // a lane the formatter never renders.
         strategies: ["handle"],
+        // Navigation-only lane — WHO/WHEN unrendered here (spec-285 dec-3).
+        authorName: null,
+        lastUpdatedAt: null,
         matchingSections: [],
       });
     }
@@ -724,6 +824,8 @@ async function runSectionFts(
       s.title         AS section_title,
       s.content       AS section_content,
       s.doc_id        AS doc_id,
+      s.updated_at    AS updated_at,
+      COALESCE(NULLIF(TRIM(s.actor_name), ''), NULLIF(TRIM(du.name), ''), du.email) AS author_name,
       d.handle        AS doc_handle,
       d.title         AS doc_title,
       d.status        AS doc_status,
@@ -731,6 +833,7 @@ async function runSectionFts(
       ts_rank(s.content_tsv, plainto_tsquery('english', ${query})) AS rank
     FROM doc_sections s
     INNER JOIN documents d ON d.id = s.doc_id
+    LEFT JOIN users du ON du.id = d.created_by_user_id
     WHERE d.memex_id = ${memexId}
       AND d.doc_type IN ${sql.raw(`(${docTypes.map((t) => `'${t}'`).join(",")})`)}
       ${archivedClause}
@@ -778,6 +881,8 @@ async function runSectionVector(
       s.title         AS section_title,
       s.content       AS section_content,
       s.doc_id        AS doc_id,
+      s.updated_at    AS updated_at,
+      COALESCE(NULLIF(TRIM(s.actor_name), ''), NULLIF(TRIM(du.name), ''), du.email) AS author_name,
       d.handle        AS doc_handle,
       d.title         AS doc_title,
       d.status        AS doc_status,
@@ -785,6 +890,7 @@ async function runSectionVector(
       (s.embedding <=> ${literal}::vector) AS distance
     FROM doc_sections s
     INNER JOIN documents d ON d.id = s.doc_id
+    LEFT JOIN users du ON du.id = d.created_by_user_id
     WHERE d.memex_id = ${memexId}
       AND d.doc_type IN ${sql.raw(`(${docTypes.map((t) => `'${t}'`).join(",")})`)}
       ${archivedClause}
@@ -826,6 +932,8 @@ async function runDecisionFts(
       dec.context     AS dec_context,
       dec.resolution  AS dec_resolution,
       dec.status      AS dec_status,
+      dec.created_at  AS created_at,
+      COALESCE(NULLIF(TRIM(dec.actor_name), ''), NULLIF(TRIM(au.name), ''), au.email) AS author_name,
       d.handle        AS doc_handle,
       d.title         AS doc_title,
       d.doc_type      AS doc_type,
@@ -838,6 +946,7 @@ async function runDecisionFts(
       ) AS rank
     FROM decisions dec
     INNER JOIN documents d ON d.id = dec.doc_id
+    LEFT JOIN users au ON au.id = dec.actor_user_id
     WHERE dec.memex_id = ${memexId}
       ${archivedClause}
       AND d.is_demo IS NOT TRUE
@@ -888,12 +997,15 @@ async function runDecisionVector(
       dec.context     AS dec_context,
       dec.resolution  AS dec_resolution,
       dec.status      AS dec_status,
+      dec.created_at  AS created_at,
+      COALESCE(NULLIF(TRIM(dec.actor_name), ''), NULLIF(TRIM(au.name), ''), au.email) AS author_name,
       d.handle        AS doc_handle,
       d.title         AS doc_title,
       d.doc_type      AS doc_type,
       (dec.embedding <=> ${literal}::vector) AS distance
     FROM decisions dec
     INNER JOIN documents d ON d.id = dec.doc_id
+    LEFT JOIN users au ON au.id = dec.actor_user_id
     WHERE dec.memex_id = ${memexId}
       ${archivedClause}
       AND d.is_demo IS NOT TRUE
@@ -936,6 +1048,8 @@ async function runIssueFts(
       iss.body        AS issue_body,
       iss.type        AS issue_type,
       iss.status      AS issue_status,
+      iss.updated_at  AS updated_at,
+      COALESCE(NULLIF(TRIM(au.name), ''), au.email) AS author_name,
       d.handle        AS doc_handle,
       d.title         AS doc_title,
       d.doc_type      AS doc_type,
@@ -947,6 +1061,7 @@ async function runIssueFts(
       ) AS rank
     FROM issues iss
     INNER JOIN documents d ON d.id = iss.doc_id
+    LEFT JOIN users au ON au.id = iss.created_by_user_id
     WHERE iss.memex_id = ${memexId}
       ${archivedClause}
       AND d.is_demo IS NOT TRUE
@@ -996,12 +1111,15 @@ async function runIssueVector(
       iss.body        AS issue_body,
       iss.type        AS issue_type,
       iss.status      AS issue_status,
+      iss.updated_at  AS updated_at,
+      COALESCE(NULLIF(TRIM(au.name), ''), au.email) AS author_name,
       d.handle        AS doc_handle,
       d.title         AS doc_title,
       d.doc_type      AS doc_type,
       (iss.embedding <=> ${literal}::vector) AS distance
     FROM issues iss
     INNER JOIN documents d ON d.id = iss.doc_id
+    LEFT JOIN users au ON au.id = iss.created_by_user_id
     WHERE iss.memex_id = ${memexId}
       ${archivedClause}
       AND d.is_demo IS NOT TRUE
@@ -1032,6 +1150,14 @@ interface AccumulatorEntry {
   issueSnippet?: string;
   issueMatchedVia?: SearchStrategy;
   issueType?: string;
+  // spec-285 WHO/WHEN. For a doc hit these track the most-recently-updated
+  // matched section (so `authorAt` is the latest-section comparison key); for
+  // decision/issue hits they're set once from the atomic row.
+  authorName: string | null;
+  lastUpdatedAt: string | null;
+  /** Epoch millis of `lastUpdatedAt`, kept only to pick the latest matched
+   *  section across the FTS + vector arms. Not emitted. */
+  authorAtMillis: number;
 }
 
 function pickDecisionSnippet(r: DecisionRow): string {
@@ -1082,11 +1208,25 @@ function mergeWithRrf(
           score: 0,
           strategies: new Set<SearchStrategy>(),
           sectionsByVia: new Map(),
+          authorName: null,
+          lastUpdatedAt: null,
+          authorAtMillis: -Infinity,
         };
         acc.set(`doc:${r.doc_id}`, entry);
       }
       entry.score += rrfContribution;
       entry.strategies.add(via);
+
+      // WHO/WHEN (spec-285): a doc hit groups many matched sections (and arrives
+      // across the FTS + vector arms in rank order, not time order). Attribute
+      // the doc to its MOST-RECENTLY-UPDATED matched section, so authorName +
+      // lastUpdatedAt answer "who last changed this and when".
+      const rowMillis = toMillis(r.updated_at);
+      if (rowMillis > entry.authorAtMillis) {
+        entry.authorAtMillis = rowMillis;
+        entry.authorName = r.author_name?.trim() || null;
+        entry.lastUpdatedAt = toIso(r.updated_at);
+      }
 
       // Keep the FIRST `via` that surfaced each section so a section seen by
       // both FTS and vector reports the higher-confidence search method.
@@ -1120,6 +1260,12 @@ function mergeWithRrf(
           sectionsByVia: new Map(),
           decisionSnippet: pickDecisionSnippet(r),
           decisionMatchedVia: via,
+          // WHO/WHEN (spec-285): a decision is atomic, so set once. authorName =
+          // denormalised actor_name (or resolved actor), lastUpdatedAt =
+          // created_at (decisions carry no updated_at — dec-2 fallback).
+          authorName: r.author_name?.trim() || null,
+          lastUpdatedAt: toIso(r.created_at),
+          authorAtMillis: toMillis(r.created_at),
         };
         acc.set(`dec:${r.decision_id}`, entry);
       } else {
@@ -1150,6 +1296,11 @@ function mergeWithRrf(
           issueSnippet: pickIssueSnippet(r),
           issueMatchedVia: via,
           issueType: r.issue_type,
+          // WHO/WHEN (spec-285): atomic, set once. Issues have no actor_name, so
+          // authorName is the resolved created_by user; lastUpdatedAt = updated_at.
+          authorName: r.author_name?.trim() || null,
+          lastUpdatedAt: toIso(r.updated_at),
+          authorAtMillis: toMillis(r.updated_at),
         };
         acc.set(`iss:${r.issue_id}`, entry);
       } else {
@@ -1183,6 +1334,8 @@ function mergeWithRrf(
     issueSnippet: e.issueSnippet,
     issueMatchedVia: e.issueMatchedVia,
     issueType: e.issueType,
+    authorName: e.authorName,
+    lastUpdatedAt: e.lastUpdatedAt,
   }));
 
   results.sort((a, b) => b.score - a.score);
@@ -1225,6 +1378,20 @@ export interface FormatOptions {
   currentDocId?: string;
 }
 
+// spec-285: the WHO/WHEN byline appended to a hit's heading, e.g.
+// ` · Ryan Soosayraj, 2026-05-28`. Legible to a human and parseable by an agent
+// (` · <author>, <YYYY-MM-DD>`). Degrades gracefully: author-only, date-only, or
+// nothing at all when neither resolved. The date is the calendar day of the ISO
+// timestamp — enough for "when it last changed" without clock noise.
+function formatHitByline(hit: MemexSearchHit): string {
+  const author = hit.authorName?.trim() || null;
+  const date = hit.lastUpdatedAt ? hit.lastUpdatedAt.slice(0, 10) : null;
+  if (author && date) return ` · ${author}, ${date}`;
+  if (author) return ` · ${author}`;
+  if (date) return ` · ${date}`;
+  return "";
+}
+
 function isHitOnCurrentDoc(hit: MemexSearchHit, currentDocId: string): boolean {
   // parentDocId is the doc UUID for section/doc hits and the parent Spec's
   // UUID for decision hits. Matching here means the hit belongs to the
@@ -1254,7 +1421,11 @@ export function formatSearchResults(
     // so a reader can tell a bug from a todo at a glance (spec-112 t-4).
     const kindLabel =
       hit.kind === "issue" && hit.issueType ? `issue/${hit.issueType}` : hit.kind;
-    lines.push(`### ${hit.path} — "${hit.title}" (${kindLabel}, ${hit.status})${selfTag}${scoreSuffix}`);
+    // spec-285: WHO/WHEN byline sits after the (kind, status) segment and before
+    // the [current doc] / verbose-score suffixes, so an agent reading the result
+    // can attribute the hit ("who, when") without opening it.
+    const byline = formatHitByline(hit);
+    lines.push(`### ${hit.path} — "${hit.title}" (${kindLabel}, ${hit.status})${byline}${selfTag}${scoreSuffix}`);
     if (hit.kind === "decision") {
       const via = hit.decisionMatchedVia ?? "fts";
       const snippet = hit.decisionSnippet ?? "";

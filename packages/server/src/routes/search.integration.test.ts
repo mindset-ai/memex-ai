@@ -53,6 +53,9 @@ interface ContentHit {
   matchingSections: Array<{ id: string; sectionType: string }>;
   id?: unknown;
   parentDocId?: unknown;
+  // spec-285: WHO/WHEN ride through the Omit projection into the wire shape.
+  authorName?: string | null;
+  lastUpdatedAt?: string | null;
 }
 
 interface SearchEnvelope {
@@ -402,5 +405,48 @@ describe("spec-191 — number jump is additive to jumpTo; content tier unchanged
       h.path.endsWith(`/specs/${numSpec.handle}`),
     );
     expect(inContent).toBeUndefined();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// spec-285 ac-3: the WHO/WHEN metadata added to MemexSearchHit rides through
+// the REST route's `SearchContentHit = Omit<MemexSearchHit, "id"|"parentDocId">`
+// projection with NO route change — every content hit exposes `authorName` and
+// `lastUpdatedAt`, and a resolvable created_by surfaces a real name + ISO date.
+// ─────────────────────────────────────────────────────────────────────────
+const SPEC285_AC = (n: number) =>
+  `mindset-prod/memex-building-itself/specs/spec-285/acs/ac-${n}`;
+
+describe("spec-285 — REST search inherits author + timestamp (ac-3)", () => {
+  it("every content hit exposes authorName + lastUpdatedAt, populated from created_by", async () => {
+    tagAc(SPEC285_AC(3));
+    const devUser = await upsertUserByEmail("dev@memex.ai");
+    const expectedDisplay = devUser.name?.trim() || devUser.email;
+
+    // Stamp a resolvable author on the token-bearing docs so the resolution path
+    // (created_by_user_id → users.name ?? email) produces a concrete value.
+    await db
+      .update(documents)
+      .set({ createdByUserId: devUser.id })
+      .where(inArray(documents.id, createdDocIds));
+
+    const res = await req(searchUrl({ q: TOKEN }));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as SearchEnvelope & {
+      content: Array<ContentHit & { authorName?: unknown; lastUpdatedAt?: unknown }>;
+    };
+    expect(body.content.length).toBeGreaterThan(0);
+
+    for (const hit of body.content) {
+      // Inheritance through Omit: the new fields are present on the wire shape.
+      expect(hit).toHaveProperty("authorName");
+      expect(hit).toHaveProperty("lastUpdatedAt");
+    }
+
+    // At least one hit resolved the stamped author to a concrete display + ISO date.
+    const populated = body.content.find((h) => h.authorName === expectedDisplay);
+    expect(populated).toBeDefined();
+    expect(typeof populated!.lastUpdatedAt).toBe("string");
+    expect(() => new Date(populated!.lastUpdatedAt as string).toISOString()).not.toThrow();
   });
 });

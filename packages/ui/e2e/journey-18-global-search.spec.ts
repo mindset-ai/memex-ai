@@ -1,6 +1,7 @@
 import { test, expect, bareUrl } from "./helpers/index.js";
 import {
   getPersonalMemexByEmail,
+  ensureUser,
   setUserName,
   seedSpecInMemex,
   deleteDoc,
@@ -53,6 +54,9 @@ test.describe("Journey 18 — global ⌘K search palette", () => {
     // Give it a name so we land on the Specs board. (The shared account-based
     // fixture that normally does this writes to the dropped pre-0038 schema.)
     await setUserName("dev@memex.ai", "Dev User");
+    // spec-285: stamp the seeded Spec's author so the content row's WHO/WHEN
+    // byline resolves deterministically to "Dev User" (the name set just above).
+    const devUserId = await ensureUser("dev@memex.ai");
     // The seed service mints the handle (`spec-N`) via createDocDraft and returns
     // it — we navigate/assert against the SERVER-chosen handle rather than a
     // self-picked one (the new HTTP seed surface owns handle allocation, dec-2).
@@ -60,6 +64,7 @@ test.describe("Journey 18 — global ⌘K search palette", () => {
       memexId: memex.memexId,
       title: SPEC_TITLE,
       purpose: "Zephyr Quokka Search Beacon — purpose body for the global search journey.",
+      createdByUserId: devUserId,
     }));
   });
 
@@ -135,6 +140,18 @@ test.describe("Journey 18 — global ⌘K search palette", () => {
     // The hit's canonical path is built server-side from the memex slugs.
     const expectedPath = `/${nsSlug}/${mxSlug}/specs/${specHandle}`;
     await expect(specRow).toHaveAttribute("data-path", `${nsSlug}/${mxSlug}/specs/${specHandle}`);
+
+    // ── spec-285: the content-tier row carries a WHO/WHEN byline ─────────────
+    // The same Spec surfaces in the content tier (FTS on its title/body); that
+    // row renders "<author> · <YYYY-MM-DD>" from the author/timestamp the REST
+    // route now returns. We stamped created_by = Dev User in beforeEach, so the
+    // byline resolves to that name. (jumpTo rows carry no byline — content only.)
+    const byline = dialog
+      .locator('[data-testid="search-byline"]')
+      .filter({ hasText: "Dev User" })
+      .first();
+    await expect(byline).toBeVisible({ timeout: 10_000 });
+    await expect(byline).toContainText(/Dev User · \d{4}-\d{2}-\d{2}/);
 
     // ── ac-10: ArrowDown moves the roving selection, Enter navigates ─────────
     // cmdk auto-selects the first option; ArrowDown proves the roving selection

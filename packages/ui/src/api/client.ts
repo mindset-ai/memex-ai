@@ -125,6 +125,11 @@ export interface SearchHit {
   matchingSections: SearchMatchingSection[];
   decisionSnippet?: string;
   decisionMatchedVia?: SearchStrategy;
+  /** WHO — best-effort display name of who authored / last touched this hit
+   *  (spec-285). null/absent on navigation-only lanes (jumpTo/assigned). */
+  authorName?: string | null;
+  /** WHEN — ISO-8601 timestamp of when this hit was last changed (spec-285). */
+  lastUpdatedAt?: string | null;
 }
 
 /** The `{ jumpTo, assigned, content }` envelope (spec-64 t-1 ac-6). */

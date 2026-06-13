@@ -89,6 +89,18 @@ function handleFromPath(path: string): string {
   return path.split('/').filter((seg) => HANDLE_SEGMENT.test(seg)).join('/');
 }
 
+// spec-285: the WHO/WHEN byline for a content row — "<author> · <YYYY-MM-DD>".
+// Mirrors the agent-facing markdown byline (formatSearchResults) so the palette
+// tells a human who last touched a result and when, without opening it. Degrades
+// to author-only / date-only / nothing when a field is absent (navigation lanes
+// carry neither). The date is the calendar day of the ISO timestamp.
+function bylineText(hit: SearchHit): string | null {
+  const author = hit.authorName?.trim() || null;
+  const date = hit.lastUpdatedAt ? hit.lastUpdatedAt.slice(0, 10) : null;
+  if (author && date) return `${author} · ${date}`;
+  return author ?? date;
+}
+
 // spec-64 t-4 (ac-9): every row carries a kind badge + a status badge. The kind
 // badge reuses the neutral Badge styling with an explicit label so it reads
 // "Spec" / "Standard" / … rather than a status colour.
@@ -118,6 +130,10 @@ function ResultRow({
     lane === 'content' && hit.matchingSections.length > 0
       ? snippetText(hit.matchingSections[0].content, SNIPPET_MAX)
       : null;
+
+  // spec-285: content rows carry a WHO/WHEN byline (navigation lanes don't —
+  // their hits carry no author/timestamp).
+  const byline = lane === 'content' ? bylineText(hit) : null;
 
   // The handle (spec-N / std-N / …) renders next to the title so the user can
   // tell WHICH spec a row is without opening it — titles alone are ambiguous.
@@ -154,6 +170,11 @@ function ResultRow({
       {snippet && (
         <span className="truncate text-xs text-secondary" data-testid="search-snippet">
           {snippet}
+        </span>
+      )}
+      {byline && (
+        <span className="truncate text-xs text-muted" data-testid="search-byline">
+          {byline}
         </span>
       )}
     </Command.Item>
