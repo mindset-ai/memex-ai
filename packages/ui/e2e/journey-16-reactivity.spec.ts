@@ -203,9 +203,11 @@ test.describe("doc-16 Wave 1 reactivity journeys", () => {
     await tab.goto(tenantPath(tenant, `docs/${spec.docId}`));
     // Wait for the page to mount before driving the phase tab.
     await expect(tab.getByText("Reactive tasks").first()).toBeVisible({ timeout: 15_000 });
-    // Tasks live under the Build PHASE (post spec-164 redesign — no standalone
-    // "Tasks" tab). Click the Build phase tab to mount the TaskPanel.
+    // Tasks live under the Build PHASE. spec-282: the Build view lands on the
+    // Decisions & ACs sub-tab, so open the unified "Agent Tasks & Issues" sub-tab
+    // to mount the TaskPanel.
     await tab.getByRole("tab", { name: "Build" }).click();
+    await tab.getByRole("button", { name: /Agent Tasks & Issues/ }).click();
 
     // Create a task via the REST surface (the agent's `create_task` tool calls
     // the same `services/tasks.ts::createTask` function — the bus emission is identical).

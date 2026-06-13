@@ -52,15 +52,8 @@ function text() {
   return (screen.getByTestId('transition-sentence').textContent ?? '').trim();
 }
 
-describe('Rubicon line — shape 1: current tab, rubric clean → offer + Yes', () => {
-  it('carries NO status lead — the tab bar already names the current phase', () => {
-    tagAc(AC(3));
-    render(<TransitionSentence {...baseProps({ currentPhase: 'build', viewedTab: 'build' })} />);
-    expect(text()).not.toContain('currently in');
-    expect(text()).toContain('Do you want to move this spec to Verify?');
-  });
-
-  it('draft → offers specify (draft is never gated)', () => {
+describe('Rubicon line — current tab is status-only (spec-282/dec-4); draft keeps its publish offer', () => {
+  it('draft → offers specify (the single publish moment, never gated)', () => {
     tagAc(AC(3));
     tagAc(AC(13));
     render(
@@ -78,41 +71,30 @@ describe('Rubicon line — shape 1: current tab, rubric clean → offer + Yes', 
     expect(screen.queryByRole('button', { name: 'No' })).toBeNull();
   });
 
-  it('specify (clean) → "Do you wish to move this spec to Build?" + Yes', () => {
-    tagAc(AC(3));
-    tagAc(AC(13));
+  it('specify (clean, current tab) → renders nothing (no standing offer)', () => {
     render(<TransitionSentence {...baseProps()} />);
-    expect(text()).toContain('Do you wish to move this spec to Build?');
-    expect(screen.getByRole('button', { name: 'Yes' })).toBeTruthy();
+    expect(screen.queryByTestId('transition-sentence')).toBeNull();
+    expect(screen.queryByRole('button')).toBeNull();
   });
 
-  it('build (clean) → "Do you want to move this spec to Verify?" + Yes', () => {
-    tagAc(AC(3));
-    tagAc(AC(13));
+  it('build (clean, current tab) → renders nothing', () => {
     render(<TransitionSentence {...baseProps({ currentPhase: 'build', viewedTab: 'build' })} />);
-    expect(text()).toContain('Do you want to move this spec to Verify?');
-    expect(screen.getByRole('button', { name: 'Yes' })).toBeTruthy();
+    expect(screen.queryByTestId('transition-sentence')).toBeNull();
   });
 
-  it('verify (clean) → "Do you want to move this spec to Done?" + Yes', () => {
-    tagAc(AC(3));
-    tagAc(AC(13));
+  it('verify (clean, current tab) → renders nothing', () => {
     render(<TransitionSentence {...baseProps({ currentPhase: 'verify', viewedTab: 'verify' })} />);
-    expect(text()).toContain('Do you want to move this spec to Done?');
-    expect(screen.getByRole('button', { name: 'Yes' })).toBeTruthy();
+    expect(screen.queryByTestId('transition-sentence')).toBeNull();
   });
 });
 
-// spec-258/dec-5 amended shape 2: the blocked current tab still states the exact
-// rubric condition (spec-159 ac-13), and now an EDITOR additionally gets a "Move
-// this spec to {Phase} anyway?" override [Yes]. A non-editor still sees the
-// blocker statement alone (spec-182/dec-2). The blocker-text assertions below
-// keep ac-13 covered; the override assertions cover spec-258 ac-9 / ac-8.
-describe('Rubicon line — shape 2: current tab, blocked → exact status + editor override (spec-258)', () => {
-  it('specify with no decisions and no ACs → combined summary + editor override', () => {
-    tagAc(AC(3));
+// spec-282/dec-4: the blocked current tab is STATUS-ONLY — it states the exact
+// rubric condition (spec-159 ac-13) but carries NO advance question and NO
+// button (the spec-258/dec-5 editor override relocates to the browse-forward
+// confirm — see the relocated describe block at the end of this file).
+describe('Rubicon line — current tab, blocked → status-only rubric statement (no offer; spec-282/dec-4)', () => {
+  it('specify with no decisions and no ACs → combined summary, no question, no button', () => {
     tagAc(AC(13));
-    tagAc(S258(9));
     render(
       <TransitionSentence
         {...baseProps({ totalDecisionCount: 0, hasAcceptanceCriteria: false })}
@@ -121,19 +103,16 @@ describe('Rubicon line — shape 2: current tab, blocked → exact status + edit
     expect(text()).toContain(
       'Decisions and Acceptance Criteria (ACs) must be created before this spec can move to Build.',
     );
-    // dec-5: the editor override appears on the blocked current tab.
-    expect(text()).toContain('Move this spec to Build anyway?');
-    expect(screen.getByRole('button', { name: 'Yes' })).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'No' })).toBeNull();
+    expect(text()).not.toContain('anyway?');
+    expect(screen.queryByRole('button')).toBeNull();
   });
 
-  it('specify with open decisions and ACs present → decisions-only summary + override', () => {
+  it('specify with open decisions and ACs present → decisions-only summary, no button', () => {
     tagAc(AC(13));
-    tagAc(S258(9));
     render(<TransitionSentence {...baseProps({ openDecisionCount: 4 })} />);
     expect(text()).toContain('4 Decisions must be resolved before this spec can move to Build.');
-    expect(text()).toContain('Move this spec to Build anyway?');
-    expect(screen.getByRole('button', { name: 'Yes' })).toBeTruthy();
+    expect(text()).not.toContain('anyway?');
+    expect(screen.queryByRole('button')).toBeNull();
   });
 
   it('singular grammar: 1 open decision → "1 Decision must be resolved"', () => {
@@ -142,33 +121,29 @@ describe('Rubicon line — shape 2: current tab, blocked → exact status + edit
     expect(text()).toContain('1 Decision must be resolved before this spec can move to Build.');
   });
 
-  it('build with open tasks → "{N} Tasks must be completed…" + override to Verify', () => {
+  it('build with open tasks → "{N} Tasks must be completed…", no button', () => {
     tagAc(AC(13));
-    tagAc(S258(9));
     render(
       <TransitionSentence
         {...baseProps({ currentPhase: 'build', viewedTab: 'build', openTaskCount: 2 })}
       />,
     );
     expect(text()).toContain('2 Tasks must be completed before this spec can move to Verify.');
-    expect(text()).toContain('Move this spec to Verify anyway?');
-    expect(screen.getByRole('button', { name: 'Yes' })).toBeTruthy();
+    expect(screen.queryByRole('button')).toBeNull();
   });
 
-  it('verify with unverified ACs → "{N} Acceptance Criteria (ACs) must be verified…" + override to Done', () => {
+  it('verify with unverified ACs → "{N} Acceptance Criteria (ACs) must be verified…", no button', () => {
     tagAc(AC(13));
-    tagAc(S258(9));
     render(
       <TransitionSentence
         {...baseProps({ currentPhase: 'verify', viewedTab: 'verify', unverifiedAcCount: 3 })}
       />,
     );
     expect(text()).toContain('3 Acceptance Criteria (ACs) must be verified before this spec can move to Done.');
-    expect(text()).toContain('Move this spec to Done anyway?');
-    expect(screen.getByRole('button', { name: 'Yes' })).toBeTruthy();
+    expect(screen.queryByRole('button')).toBeNull();
   });
 
-  it('build with ZERO tasks is blocked — an empty build still offers the editor override', () => {
+  it('build with ZERO tasks is blocked — status statement, no button', () => {
     tagAc(AC(13));
     render(
       <TransitionSentence
@@ -181,7 +156,7 @@ describe('Rubicon line — shape 2: current tab, blocked → exact status + edit
       />,
     );
     expect(text()).toContain('Tasks must be created and completed before this spec can move to Verify.');
-    expect(text()).toContain('Move this spec to Verify anyway?');
+    expect(screen.queryByRole('button')).toBeNull();
   });
 
   it('verify with NO active ACs is blocked — nothing to verify against', () => {
@@ -312,12 +287,13 @@ describe('Rubicon line — posture (i-1) and the Yes mutation', () => {
 
   it('pressing Yes calls updateDocStatus(docId, target) immediately, no dialog (ac-6)', async () => {
     tagAc(AC(6));
-    tagAc(AC(13));
     const user = userEvent.setup();
     const onTransitioned = vi.fn();
+    // spec-282/dec-4: the advance [Yes] now lives on the browse-forward confirm,
+    // not the current tab. Browse Verify from Build (clean) → "Are you sure…?".
     render(
       <TransitionSentence
-        {...baseProps({ currentPhase: 'build', viewedTab: 'build', onTransitioned })}
+        {...baseProps({ currentPhase: 'build', viewedTab: 'verify', onTransitioned })}
       />,
     );
     expect(screen.queryByRole('dialog')).toBeNull();
@@ -353,13 +329,15 @@ describe('no switch-to-Editing nag (spec-182 dec-6, amended)', () => {
   });
 });
 
-// spec-258/dec-5 — the editor override on a blocked current tab, end to end. The
-// override is phase-generic, so it must work on every forward axis; pressing its
-// [Yes] forces the move through the existing updateDocStatus(target) call (the
-// move the server already accepts — soft gates, spec-12/dec-6). A non-editor's
-// blocked current tab stays status-only (spec-182/dec-2). Covers ac-9 / ac-8.
-describe('Rubicon line — editor override on a blocked current tab (spec-258 dec-5)', () => {
-  it('verify→done: blocked editor presses "Move … anyway?" → updateDocStatus(doc, "done") (the issue-3 close)', async () => {
+// spec-258/dec-5 via spec-282/dec-4 — the editor's force-forward capability is
+// PRESERVED but RELOCATED: it no longer sits on the blocked current tab, it
+// lives on the browse-forward confirm. An editor advances a blocked spec by
+// clicking the forward phase pill and pressing "Move this spec anyway? [Yes]",
+// which forces the move through the existing updateDocStatus(target) call (the
+// move the server already accepts — soft gates, spec-12/dec-6). A non-editor
+// browsing forward while blocked stays status-only. Covers ac-9 / ac-8.
+describe('Rubicon line — editor force-forward relocates to the browse-forward confirm (spec-258 dec-5 / spec-282 dec-4)', () => {
+  it('verify→done: editor browses the Done tab while blocked → "Move … anyway?" → updateDocStatus(doc, "done")', async () => {
     tagAc(S258(9));
     tagAc(S258(8));
     const user = userEvent.setup();
@@ -368,58 +346,59 @@ describe('Rubicon line — editor override on a blocked current tab (spec-258 de
       <TransitionSentence
         {...baseProps({
           currentPhase: 'verify',
-          viewedTab: 'verify',
+          viewedTab: 'done',
           unverifiedAcCount: 3,
           onTransitioned,
         })}
       />,
     );
-    expect(text()).toContain('Move this spec to Done anyway?');
+    expect(text()).toContain('Move this spec anyway?');
     await user.click(screen.getByRole('button', { name: 'Yes' }));
     await waitFor(() => expect(updateDocStatus).toHaveBeenCalledWith('doc-1', 'done'));
     await waitFor(() => expect(onTransitioned).toHaveBeenCalledWith('done'));
   });
 
-  it('build→verify: blocked editor override forces the move via updateDocStatus(doc, "verify")', async () => {
+  it('build→verify: editor browses Verify while blocked → updateDocStatus(doc, "verify")', async () => {
     tagAc(S258(9));
     const user = userEvent.setup();
     render(
       <TransitionSentence
-        {...baseProps({ currentPhase: 'build', viewedTab: 'build', openTaskCount: 2 })}
+        {...baseProps({ currentPhase: 'build', viewedTab: 'verify', openTaskCount: 2 })}
       />,
     );
+    expect(text()).toContain('Move this spec anyway?');
     await user.click(screen.getByRole('button', { name: 'Yes' }));
     await waitFor(() => expect(updateDocStatus).toHaveBeenCalledWith('doc-1', 'verify'));
   });
 
-  it('specify→build: blocked editor override forces the move via updateDocStatus(doc, "build")', async () => {
+  it('specify→build: editor browses Build while blocked → updateDocStatus(doc, "build")', async () => {
     tagAc(S258(9));
     const user = userEvent.setup();
-    render(<TransitionSentence {...baseProps({ openDecisionCount: 4 })} />);
+    render(<TransitionSentence {...baseProps({ viewedTab: 'build', openDecisionCount: 4 })} />);
+    expect(text()).toContain('Move this spec anyway?');
     await user.click(screen.getByRole('button', { name: 'Yes' }));
     await waitFor(() => expect(updateDocStatus).toHaveBeenCalledWith('doc-1', 'build'));
   });
 
-  it('non-editor blocked current tab stays status-only on every axis — no override (ac-8, spec-182/dec-2)', () => {
+  it('non-editor browsing forward while blocked stays status-only on every axis — no override (ac-8)', () => {
     tagAc(S258(8));
     const axes = [
-      { props: { openDecisionCount: 4 }, phase: 'Build' },
-      { props: { currentPhase: 'build' as SpecStatus, viewedTab: 'build' as SpecStatus, openTaskCount: 2 }, phase: 'Verify' },
+      { props: { viewedTab: 'build' as SpecStatus, openDecisionCount: 4 } },
+      { props: { currentPhase: 'build' as SpecStatus, viewedTab: 'verify' as SpecStatus, openTaskCount: 2 } },
       {
         props: {
           currentPhase: 'verify' as SpecStatus,
-          viewedTab: 'verify' as SpecStatus,
+          viewedTab: 'done' as SpecStatus,
           unverifiedAcCount: 3,
         },
-        phase: 'Done',
       },
     ];
-    for (const { props, phase } of axes) {
+    for (const { props } of axes) {
       const { unmount } = render(
         <TransitionSentence {...baseProps({ ...props, canTransition: false })} />,
       );
       expect(text()).toContain('must be');
-      expect(text()).not.toContain(`Move this spec to ${phase} anyway?`);
+      expect(text()).not.toContain('anyway?');
       expect(screen.queryByRole('button')).toBeNull();
       unmount();
     }

@@ -43,6 +43,18 @@ export interface PromptButtonProps {
   sentenceLabel?: string;
   /** Enabled Org appends for this button (delivered with the session; t-4). */
   orgBlocks?: readonly GuidanceBlock[];
+  /**
+   * spec-282 dec-5(A): stub mode for the three phase handoffs. When true the
+   * dialog shows + the clipboard receives a SHORT, human-readable stub (the Spec
+   * URL + a phase-specific "Get the <phase> prompt from memex…" instruction)
+   * instead of the full scaffold payload — the coding agent fetches the full
+   * prompt itself via the `get_prompt` MCP tool. The scaffold node
+   * `text` is deliberately untouched: `get_prompt` (spec-263) projects that same
+   * node and must keep serving the full prompt with byte-parity, so the stub is
+   * a UI-layer projection only. The canonical ref + title + URL are read from
+   * `context` (the handoff context already carries namespace/memex/handle/...).
+   */
+  stub?: boolean;
   disabled?: boolean;
   variant?: 'primary' | 'secondary' | 'ghost' | 'agent';
   /** Fired with the composed prompt after a successful copy. */
@@ -69,6 +81,25 @@ function TerminalIcon() {
   );
 }
 
+// spec-282 dec-5(A): the short get_prompt stub that the three phase-handoff copy
+// actions place on the clipboard. Deliberately human-readable — a person reading
+// it learns how to drive Memex from their coding agent: point the agent at the
+// Spec URL and tell it to fetch the phase prompt from Memex (which the agent does
+// via the `get_prompt` MCP tool, deriving the ref from the URL path). The agent
+// calls `get_prompt` to fetch the full scaffold (Org appends included), so this
+// stays a UI-layer projection and the scaffold node text is never edited
+// (get_prompt byte-parity, spec-263). The second line is PHASE-SPECIFIC: the
+// phase word is the lowercased first word of the handoff node `label` (e.g.
+// "Build handoff" → "build"), so each of the three handoffs names its own prompt.
+function buildHandoffStub(context: Record<string, unknown>, label: string): string {
+  const str = (k: string) => String(context[k] ?? '');
+  const phase = (label.trim().split(/\s+/)[0] ?? '').toLowerCase();
+  return [
+    `Use memex spec: ${str('url')}`,
+    `Get the ${phase} prompt from memex and ask the user how they want to proceed.`,
+  ].join('\n');
+}
+
 function PromptDialog({
   label,
   prompt,
@@ -87,8 +118,11 @@ function PromptDialog({
     try {
       await navigator.clipboard.writeText(prompt);
       setCopyFailed(false);
+      // spec-282 dec-5(B): the copied state is STICKY (no auto-reset) — once the
+      // clipboard is loaded the dialog stays in its "Copied. Now go and paste"
+      // state: the confirmation sits next to the action and the copy button has
+      // become a Close button (one obvious click to dismiss).
       setCopied(true);
-      window.setTimeout(() => setCopied(false), 2500);
       onCopy?.(prompt);
     } catch {
       // Clipboard blocked (NotAllowedError / non-HTTPS): the prompt is already
@@ -127,13 +161,14 @@ function PromptDialog({
           </button>
         </div>
 
-        {/* Guidance — the whole point of the dialog: copy this, paste into a
-            coding agent. */}
-        <div className="mx-5 mt-4 rounded-md border border-edge bg-overlay/40 px-3 py-2 text-xs text-secondary">
+        {/* Guidance — plain prose, deliberately NOT boxed (spec-282 dec-5): the
+            bordered "canvas" treatment is reserved for the prompt artifact
+            below, so the thing you copy is the thing that looks liftable. */}
+        <p className="mx-5 mt-4 text-xs text-secondary">
           <span className="font-medium text-heading">Copy this prompt and paste it into a coding-agent session</span>{' '}
           (e.g. Claude Code) to hand the work off. It's also a template — read it to learn the
           prompting pattern.
-        </div>
+        </p>
 
         {copyFailed && (
           <p role="alert" className="px-5 pt-3 text-xs text-status-danger-text">
@@ -141,19 +176,41 @@ function PromptDialog({
           </p>
         )}
 
-        {/* Read-only (D-1): the prompt is shown verbatim and is selectable, but
-            not editable — Copy emits exactly this text. */}
-        <pre className="flex-1 overflow-auto mx-5 my-4 p-3 rounded-md bg-overlay/30 text-xs text-secondary whitespace-pre-wrap break-words select-text">
+        {/* The prompt sits on its own canvas — a bordered, inset surface
+            distinct from the dialog chrome — so it reads as the artifact to
+            copy (spec-282 dec-5). Read-only (D-1): shown verbatim and selectable
+            but not editable; Copy emits exactly this text. */}
+        <pre className="flex-1 overflow-auto mx-5 my-4 p-4 rounded-lg border border-edge bg-surface text-xs text-secondary whitespace-pre-wrap break-words select-text">
           {prompt}
         </pre>
 
-        <div className="flex justify-end gap-2 px-5 py-3 border-t border-edge">
-          <Button type="button" variant="secondary" size="sm" onClick={onClose}>
-            Close
-          </Button>
-          <Button type="button" variant="agent" size="sm" onClick={handleCopy}>
-            {copied ? 'Copied ✓' : 'Copy prompt'}
-          </Button>
+        {/* spec-282 dec-5(B): once copied, the confirmation sits right next to
+            the action and the copy button has BECOME the Close button — one
+            obvious click to dismiss and get back to the coding agent. */}
+        <div className="flex items-center justify-end gap-3 px-5 py-3 border-t border-edge">
+          {copied ? (
+            <>
+              <p
+                role="status"
+                data-testid="copy-confirmation"
+                className="text-xs font-medium text-heading"
+              >
+                Copied. Now go to your coding agent and paste.
+              </p>
+              <Button type="button" variant="agent" size="sm" onClick={onClose} autoFocus>
+                Close
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button type="button" variant="secondary" size="sm" onClick={onClose}>
+                Close
+              </Button>
+              <Button type="button" variant="agent" size="sm" onClick={handleCopy}>
+                Copy prompt
+              </Button>
+            </>
+          )}
         </div>
       </div>
     </div>,
@@ -170,6 +227,7 @@ export function PromptButton({
   linkText = 'Copy',
   sentenceLabel,
   orgBlocks,
+  stub = false,
   disabled = false,
   variant = 'agent',
   onCopy,
@@ -180,7 +238,9 @@ export function PromptButton({
   const prompt = node ? toButtonPrompt({ dataset: BASE_SCAFFOLD, buttonId, context, orgBlocks }) : null;
 
   // Missing-node policy (D-4): a typo'd buttonId is a wiring bug — loud in
-  // dev/test, invisible in prod.
+  // dev/test, invisible in prod. (We still resolve the node in stub mode — it
+  // supplies the dialog label — even though the stub, not the node's full text,
+  // is what the clipboard receives.)
   if (!node || prompt === null) {
     const message = `<PromptButton>: no PromptButtonNode found for buttonId="${buttonId}"`;
     if (import.meta.env.DEV) throw new Error(message);
@@ -188,6 +248,10 @@ export function PromptButton({
     console.error(message);
     return null;
   }
+
+  // spec-282 dec-5(A): in stub mode the dialog shows + copies the short
+  // get_prompt stub; otherwise the full scaffold prompt.
+  const dialogPrompt = stub ? buildHandoffStub(context, node.label) : prompt;
 
   // spec-159 ac-17 — the sentence form. The clickable words (`linkText`, default
   // "Copy") render as a hyperlink-styled <button> (it performs an action, not
@@ -227,7 +291,7 @@ export function PromptButton({
         {open && (
           <PromptDialog
             label={node.label}
-            prompt={prompt}
+            prompt={dialogPrompt}
             onCopy={onCopy}
             onClose={() => setOpen(false)}
           />
@@ -258,7 +322,7 @@ export function PromptButton({
       {open && (
         <PromptDialog
           label={node.label}
-          prompt={prompt}
+          prompt={dialogPrompt}
           onCopy={onCopy}
           onClose={() => setOpen(false)}
         />
