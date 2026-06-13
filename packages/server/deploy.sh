@@ -280,8 +280,15 @@ echo "Building container image (${IMAGE})..."
 # Submit from the repo root so the build context includes packages/shared
 # (workspace dep of @memex/server). The Dockerfile at the repo root is
 # workspace-aware; .gcloudignore there keeps the upload lean.
+#
+# spec-281 Fix 2: build via cloudbuild.yaml (not bare `--tag`) so the build reuses
+# cached layers from the previously-pushed image (`--cache-from` + BuildKit inline
+# cache). `--tag` gives the clean Cloud Build worker no cache, so the pnpm-install
+# `deps` layer rebuilt every deploy even when only source changed (~2min wasted on
+# int + prod). `_IMAGE` is env-keyed, so this lands identically on both.
 ( cd "${REPO_ROOT}" && gcloud builds submit \
-  --tag "${IMAGE}" \
+  --config cloudbuild.yaml \
+  --substitutions "_IMAGE=${IMAGE}" \
   --project "${GCP_PROJECT}" \
   --region "${REGION}" \
   --default-buckets-behavior=regional-user-owned-bucket )
