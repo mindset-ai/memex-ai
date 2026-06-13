@@ -125,9 +125,10 @@ test("specify→build gate: stale narrative blocks the offer; consolidation rest
   // spec-247 dec-1/dec-5: picking an option IS the answer — the click persists
   // immediately (no Resolve button, no rationale step).
   await panel.getByTestId("open-option-1").first().check();
-  await expect(panel.getByRole("button", { name: /^Resolved 1$/ })).toBeVisible({
-    timeout: 15_000,
-  });
+  // spec-247 dec-7: the decision becomes a resolved card in the unified list.
+  await expect(
+    panel.locator('[data-decision-status="resolved"]').first(),
+  ).toBeVisible({ timeout: 15_000 });
 
   // All decisions resolved + AC present + never consolidated → the current-tab
   // Rubicon states the staleness condition WITH the how-to tail. spec-282/dec-4:

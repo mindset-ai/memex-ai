@@ -74,8 +74,7 @@ const TWO_OPTIONS = [
 beforeEach(() => vi.clearAllMocks());
 
 describe('DecisionPanel', () => {
-  it('renders open + resolved decisions with the right status attributes', async () => {
-    const user = userEvent.setup();
+  it('renders open + resolved decisions with the right status attributes', () => {
     const decisions = [
       makeDecision({ id: 'd-open', seq: 1, title: 'Which DB?', status: 'open' }),
       makeDecision({
@@ -94,20 +93,16 @@ describe('DecisionPanel', () => {
       />
     );
 
-    // Default tab is 'open' when no candidates exist; the open card is visible.
-    let cards = screen.getAllByTestId('decision-card');
-    expect(cards).toHaveLength(1);
+    // spec-247 dec-7: both cards render together in one list, grouped by state
+    // (open before resolved) — there is no tab to switch.
+    const cards = screen.getAllByTestId('decision-card');
+    expect(cards).toHaveLength(2);
     expect(cards[0].getAttribute('data-decision-status')).toBe('open');
     expect(cards[0].getAttribute('data-decision-seq')).toBe('D-1');
-
-    // Switch to the Resolved tab and check the resolved card.
-    await user.click(screen.getByRole('button', { name: /^Resolved/ }));
-    cards = screen.getAllByTestId('decision-card');
-    expect(cards).toHaveLength(1);
-    const resolvedCard = cards[0];
+    const resolvedCard = cards[1];
     expect(resolvedCard.getAttribute('data-decision-status')).toBe('resolved');
     expect(resolvedCard.getAttribute('data-decision-seq')).toBe('D-2');
-    // Resolution appears twice — once in the compact row, once in the expandable <details>.
+    // Resolution appears in the compact row (and again in the expandable <details>).
     expect(within(resolvedCard).getAllByText('Use HS256 JWT').length).toBeGreaterThan(0);
   });
 
@@ -166,30 +161,17 @@ describe('DecisionPanel', () => {
 
   it('shows agent-driven empty-state copy when the list is empty', () => {
     render(<DecisionPanel docId="doc-1" decisions={[]} onUpdate={vi.fn()} />);
-    // Default tab is 'open' when no candidates exist; the empty state explains
-    // where candidates are confirmed and that picking an option answers.
-    expect(screen.getByText(/No open decisions/i)).toBeInTheDocument();
-    expect(screen.getByText(/picking an option records your answer/i)).toBeInTheDocument();
-  });
-
-  it('Candidates tab empty state explains the agent-driven candidate flow', async () => {
-    const user = userEvent.setup();
-    render(<DecisionPanel docId="doc-1" decisions={[]} onUpdate={vi.fn()} />);
-    await user.click(screen.getByRole('button', { name: /Candidates/i }));
-    expect(screen.getByText(/No candidate decisions yet/i)).toBeInTheDocument();
+    // spec-247 dec-7: one unified invitation, not a per-tab empty lane.
+    expect(screen.getByTestId('decision-empty')).toBeInTheDocument();
+    expect(screen.getByText(/No decisions yet/i)).toBeInTheDocument();
     expect(screen.getByText(/agent watches for choices with multiple options/i)).toBeInTheDocument();
   });
 
-  it('Resolved tab empty state explains the resolution flow', async () => {
-    const user = userEvent.setup();
-    render(<DecisionPanel docId="doc-1" decisions={[]} onUpdate={vi.fn()} />);
-    await user.click(screen.getByRole('button', { name: /Resolved/i }));
-    expect(screen.getByText(/No resolved decisions yet/i)).toBeInTheDocument();
-    expect(screen.getByText(/durable .* record/i)).toBeInTheDocument();
-  });
-
-  it('defaults to the Candidates tab when any candidate exists', () => {
+  it('renders every decision in one list, grouped candidates → open → resolved, each pilled (spec-247 dec-7, ac-23)', () => {
+    tagAc(AC247(23));
+    // Passed in a deliberately jumbled order — the panel regroups by state.
     const decisions = [
+      makeDecision({ id: 'open-1', seq: 2, status: 'open', title: 'Other?' }),
       makeDecision({
         id: 'cand-1',
         seq: 1,
@@ -197,19 +179,25 @@ describe('DecisionPanel', () => {
         title: 'API style?',
         options: TWO_OPTIONS,
       }),
-      makeDecision({ id: 'open-1', seq: 2, status: 'open', title: 'Other?' }),
+      makeDecision({ id: 'res-1', seq: 3, status: 'resolved', title: 'Done?', resolution: 'Yes' }),
     ];
     render(<DecisionPanel docId="doc-1" decisions={decisions} onUpdate={vi.fn()} />);
 
+    // No tabs — every decision is visible at once, grouped by state.
+    expect(screen.queryByRole('button', { name: /^Candidates/ })).not.toBeInTheDocument();
     const cards = screen.getAllByTestId('decision-card');
-    expect(cards).toHaveLength(1);
-    expect(cards[0].getAttribute('data-decision-status')).toBe('candidate');
-    expect(cards[0].getAttribute('data-decision-seq')).toBe('D-1');
+    expect(cards.map((c) => c.getAttribute('data-decision-status'))).toEqual([
+      'candidate',
+      'open',
+      'resolved',
+    ]);
+    // Each card carries a state pill (the <Badge>).
+    expect(within(cards[0]).getByText('candidate')).toBeInTheDocument();
+    expect(within(cards[1]).getByText('open')).toBeInTheDocument();
+    expect(within(cards[2]).getByText('resolved')).toBeInTheDocument();
 
-    // Both options render with their trade-offs (informational, spec-247 dec-6).
+    // The candidate's options still render with their trade-offs (spec-247 dec-6).
     expect(screen.getByText('REST')).toBeInTheDocument();
-    expect(screen.getByText('Simple, well-known')).toBeInTheDocument();
-    expect(screen.getByText('gRPC')).toBeInTheDocument();
     expect(screen.getByText('Faster, harder tooling')).toBeInTheDocument();
   });
 
@@ -237,8 +225,7 @@ describe('DecisionPanel', () => {
     expect(onUpdate).toHaveBeenCalled();
   });
 
-  it('shows the chosen-option label on a resolved decision with options[]', async () => {
-    const user = userEvent.setup();
+  it('shows the chosen-option label on a resolved decision with options[]', () => {
     const decisions = [
       makeDecision({
         id: 'res-1',
@@ -255,8 +242,7 @@ describe('DecisionPanel', () => {
     ];
     render(<DecisionPanel docId="doc-1" decisions={decisions} onUpdate={vi.fn()} />);
 
-    // Switch to the Resolved tab.
-    await user.click(screen.getByRole('button', { name: /^Resolved/ }));
+    // The resolved card renders directly — no tab to switch.
     expect(screen.getByText(/Chose:/)).toBeInTheDocument();
     expect(screen.getAllByText(/^JWT$/).length).toBeGreaterThan(0);
   });
@@ -322,7 +308,6 @@ describe('DecisionPanel — one obvious place to answer (spec-247)', () => {
     ];
     render(<DecisionPanel docId="doc-1" decisions={decisions} onUpdate={onUpdate} />);
 
-    await user.click(screen.getByRole('button', { name: /^Resolved/ }));
     await user.click(screen.getByText('Context'));
     await user.click(screen.getByTestId('resolved-option-1'));
 
@@ -457,7 +442,6 @@ describe('DecisionPanel — one obvious place to answer (spec-247)', () => {
     ];
     render(<DecisionPanel docId="doc-1" decisions={decisions} onUpdate={vi.fn()} />);
 
-    await user.click(screen.getByRole('button', { name: /^Resolved/ }));
     await user.click(screen.getByText('Context'));
 
     // No reasoning affordance, expanded or otherwise.
@@ -502,12 +486,14 @@ describe('DecisionPanel — draft-phase gating (spec-164)', () => {
     expect(screen.getByText('Which DB?')).toBeInTheDocument();
   });
 
-  it('specify + zero decisions → behaviour unchanged (tabs scaffolding, no directive)', () => {
+  it('specify + zero decisions → behaviour unchanged (unified list scaffolding, no directive)', () => {
     tagAc(AC164(18));
     render(
       <DecisionPanel docId="doc-1" decisions={[]} onUpdate={vi.fn()} specPhase="specify" />,
     );
     expect(screen.queryByTestId('decision-draft-directive')).not.toBeInTheDocument();
-    expect(screen.getByText('No open decisions.')).toBeInTheDocument();
+    // spec-247 dec-7: specify renders the standard panel — its unified empty-state
+    // invitation (not the draft directive).
+    expect(screen.getByTestId('decision-empty')).toBeInTheDocument();
   });
 });

@@ -192,13 +192,13 @@ test("lifecycle spine: org → memex → Spec → resolve decision → phase mov
 
   await panel.getByTestId("open-option-0").first().check();
 
-  // Resolved: the decision moves to the Resolved tray. The specify→Build Decisions
-  // blocker is now satisfied — but ACs still aren't created, so the Rubicon
-  // STILL blocks on ACs (the affordance reflects the remaining gate, proving the
-  // phase-gated state is live, not static).
-  await expect(panel.getByRole("button", { name: /^Resolved 1$/ })).toBeVisible({
-    timeout: 15_000,
-  });
+  // Resolved: the decision becomes a resolved card in the unified list (spec-247
+  // dec-7). The specify→Build Decisions blocker is now satisfied — but ACs still
+  // aren't created, so the Rubicon STILL blocks on ACs (the affordance reflects
+  // the remaining gate, proving the phase-gated state is live, not static).
+  await expect(
+    panel.locator('[data-decision-status="resolved"]').first(),
+  ).toBeVisible({ timeout: 15_000 });
   await expect(page.getByTestId("transition-sentence")).toContainText(
     /Acceptance Criteria \(ACs\)[\s\S]*must be created[\s\S]*before this spec can move to Build/i,
     { timeout: 15_000 }
