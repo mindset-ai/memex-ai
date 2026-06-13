@@ -13,6 +13,7 @@ import { PublicAuthButtons, ReadOnlyBadge } from './PublicAccessControls';
 import { useMemexAccess } from '../hooks/useMemexAccess';
 import { HeaderSlotProvider, useHeaderSlotContent } from './HeaderSlot';
 import { SearchTrigger } from './SearchTrigger';
+import { useWhatsNew } from './whats-new/WhatsNewContext';
 import {
   getCurrentTenant,
   parseTenantFromPathname,
@@ -199,6 +200,14 @@ function SidebarUserCard({
 }) {
   const [open, setOpen] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
+  // spec-200: this card is the fly-home target for the What's New ribbon, and
+  // hosts the "What's New" menu item that re-opens the popup.
+  const { available: whatsNewAvailable, openPopup: openWhatsNew, registerMenuAnchor } = useWhatsNew();
+
+  useEffect(() => {
+    registerMenuAnchor(wrapperRef.current);
+    return () => registerMenuAnchor(null);
+  }, [registerMenuAnchor]);
 
   useEffect(() => {
     if (!open) return;
@@ -258,6 +267,19 @@ function SidebarUserCard({
       </button>
       {open && (
         <div className="absolute left-0 right-0 bottom-full mb-2 z-40 rounded-lg shadow-xl py-1 border bg-card-hover border-edge">
+          {whatsNewAvailable && (
+            <button
+              data-testid="user-menu-whats-new"
+              onClick={() => {
+                setOpen(false);
+                openWhatsNew();
+              }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors text-secondary hover:text-primary hover:bg-overlay"
+            >
+              <span aria-hidden="true">🎁</span>
+              What's New
+            </button>
+          )}
           {showMemexSettings && (
             <Link
               to={memexSettingsHref}
