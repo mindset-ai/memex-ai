@@ -162,6 +162,10 @@ const SKIPS = new Map<string, string>([
   ["restore_test_events", "emits the AC ref:; ref-emission asserted in mcp/test-event-tools.integration"],
   // get_information returns prose (topic index or topic body), never an entity ref.
   ["get_information", "Read-only guidance tool — returns markdown prose, not a memex entity ref"],
+  // get_prompt (spec-263) returns the composed handoff prompt (or a no-handoff
+  // explanation) — prompt prose interpolated from slugs/handles, never a UUID.
+  // Output asserted byte-for-byte in agent/get-prompt.spec-263.integration.
+  ["get_prompt", "Read-only prompt tool — returns handoff prompt prose, not a memex entity ref; covered by get-prompt.spec-263.integration"],
   // provision_ac_emission (spec-234) returns a raw emission key + the integration
   // guidance markdown — deliberately NOT a terse `ref:` confirmation. Exercised in
   // agent/spec-234-provision-ac-emission.integration.

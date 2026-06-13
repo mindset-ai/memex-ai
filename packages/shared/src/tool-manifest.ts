@@ -100,6 +100,18 @@ export const toolManifest: ToolManifestEntry[] = [
     trafficClass: null,
   },
   {
+    // spec-263 dec-3/dec-4: the when-to-call lives in the summary, not just the
+    // what — the tool meets the agent at the handoff moments (orienting on a
+    // Spec, landing in a new phase).
+    name: 'get_prompt',
+    summary:
+      "Get the handoff prompt for a Spec's current phase — the exact text the web UI's copy-prompt button produces (specify/build/verify; draft/done carry none). Call after orienting on a Spec or right after a phase transition.",
+    args: 'get_prompt(ref)',
+    group: 'read',
+    readOnlyHint: true,
+    trafficClass: null,
+  },
+  {
     name: 'export_doc',
     summary:
       'Export a spec as lossless markdown with every comment thread expanded inline at its anchor (for paste into an external LLM/editor).',
