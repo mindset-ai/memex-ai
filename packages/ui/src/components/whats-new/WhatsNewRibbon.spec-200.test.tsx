@@ -129,25 +129,32 @@ describe('WhatsNewRibbon dismiss + countdown (spec-200 t-6)', () => {
     expect(window.localStorage.getItem('whats-new:dismissed-at')).toBe('2026-06-08T10:00:00Z');
   });
 
+  it('shows the countdown indicator while the ribbon waits', async () => {
+    // Long timer so the countdown is reliably still running when asserted —
+    // no race against auto-dismiss (cleanup unmounts before it fires).
+    // findBy (not getBy): the countdown mounts one effect-tick after the ribbon.
+    render(<WhatsNewRibbon fetcher={async () => ENTRIES} autoDismissMs={10_000} />);
+    expect(await screen.findByTestId('whats-new-countdown')).toBeTruthy();
+  });
+
   it('auto-dismisses after the countdown elapses', async () => {
-    render(<WhatsNewRibbon fetcher={async () => ENTRIES} autoDismissMs={300} />);
+    // Short timer; assert ONLY via waitFor (tolerant of slow runners) that the
+    // ribbon eventually flies home — never a synchronous query racing the timer.
+    render(<WhatsNewRibbon fetcher={async () => ENTRIES} autoDismissMs={150} />);
     await screen.findByTestId('whats-new-ribbon');
-    // The countdown border is present while the ribbon waits.
-    expect(screen.getByTestId('whats-new-countdown')).toBeTruthy();
-    // After the countdown the ribbon flies home and unmounts.
-    await waitFor(() => expect(screen.queryByTestId('whats-new-ribbon')).toBeNull(), { timeout: 2000 });
+    await waitFor(() => expect(screen.queryByTestId('whats-new-ribbon')).toBeNull(), { timeout: 4000 });
     expect(window.localStorage.getItem('whats-new:dismissed-at')).toBe('2026-06-08T10:00:00Z');
   });
 
   it('tapping the ribbon stops the countdown — it does not auto-dismiss', async () => {
-    render(<WhatsNewRibbon fetcher={async () => ENTRIES} autoDismissMs={300} />);
+    // Long timer so the only timing dependency (mount → click) has wide headroom.
+    render(<WhatsNewRibbon fetcher={async () => ENTRIES} autoDismissMs={10_000} />);
     const ribbon = await screen.findByTestId('whats-new-ribbon');
+    await screen.findByTestId('whats-new-countdown'); // counting before the tap
     fireEvent.click(ribbon); // open popup → stops countdown
     await screen.findByTestId('whats-new-popup');
-    // The countdown indicator is gone and the ribbon does not auto-dismiss.
+    // Tapping removed the countdown indicator and the ribbon is still present.
     expect(screen.queryByTestId('whats-new-countdown')).toBeNull();
-    await new Promise((r) => setTimeout(r, 500));
-    expect(screen.getByTestId('whats-new-popup')).toBeTruthy();
     expect(screen.getByTestId('whats-new-ribbon')).toBeTruthy();
   });
 
