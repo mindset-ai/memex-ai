@@ -60,6 +60,8 @@ export async function seedSpec(opts: {
   memexId: string;
   title: string;
   purpose?: string;
+  /** Attribute the spec to a creator — surfaces as the QA Reports author (spec-286). */
+  createdByUserId?: string;
 }): Promise<{ docId: string; handle: string; sectionId: string }> {
   return call("POST", "/seed-spec", opts);
 }

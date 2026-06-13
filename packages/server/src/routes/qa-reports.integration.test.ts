@@ -272,6 +272,7 @@ type Facets = {
 
 describe("spec-286: enriched feed + tag/date filters + facets", () => {
   let path: string;
+  let authorUserId: string;
   let frontendTagId: string;
   let bugTagId: string;
   // specT (frontend + bug) reports, specU (frontend) report.
@@ -287,6 +288,7 @@ describe("spec-286: enriched feed + tag/date filters + facets", () => {
     // A distinct AUTHOR with a known name — different from the build IMPLEMENTER,
     // so the author≠implementer distinction is observable.
     const author = await upsertUserByEmail("author286@memex.ai");
+    authorUserId = author.id;
     await db.update(users).set({ name: "Ada Author" }).where(eq(users.id, author.id));
 
     const specT = await createDocDraft(
@@ -306,6 +308,14 @@ describe("spec-286: enriched feed + tag/date filters + facets", () => {
     rT1 = await seedReport(m.memexId, specT.id, "T session 1", new Date("2026-03-01T00:00:00Z"), builder);
     rU1 = await seedReport(m.memexId, specU.id, "U session 1", new Date("2026-03-02T00:00:00Z"), builder);
     rT2 = await seedReport(m.memexId, specT.id, "T session 2", new Date("2026-03-03T00:00:00Z"), builder);
+  });
+
+  // upsertUserByEmail inserts this author WITHOUT a namespace (it leaves that to
+  // the auth service), so leaving it behind would trip migration-smoke's
+  // "every active user has namespace_id" invariant on a shared worker clone.
+  // The docs that reference it are dropped by the file-level afterAll (FK SET NULL).
+  afterAll(async () => {
+    await db.delete(users).where(eq(users.id, authorUserId)).catch(() => {});
   });
 
   it("ac-6: each row carries phase, author (creator), and the owning Spec's tags", async () => {
