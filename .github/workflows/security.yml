@@ -1,0 +1,69 @@
+# Security — Semgrep OSS static-analysis gate on develop.
+#
+# Complements CodeQL (codeql.yml): CodeQL is the deep dataflow engine, Semgrep
+# adds fast pattern-based rules (incl. a broad secrets pack) from the public
+# registry. Gates `develop` so issues are caught before promotion to main/prod.
+#
+# RATCHET, not big-bang: the repo has pre-existing findings (tracked separately).
+# We scan diff-aware against the PR base (--baseline-commit) so the check fails
+# only on findings a PR *introduces* — new security debt is blocked, legacy debt
+# is burned down on its own track without holding every PR hostage. Semgrep runs
+# on source only (no pnpm install needed); findings surface in the Actions log.
+name: Security
+
+on:
+  pull_request:
+    branches: [develop]
+  workflow_dispatch:
+
+# Least-privilege default for GITHUB_TOKEN.
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  semgrep:
+    name: semgrep
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so --baseline-commit can diff against the PR base.
+          fetch-depth: 0
+
+      # pipx is preinstalled on GitHub-hosted ubuntu runners; isolates semgrep
+      # from system Python (avoids PEP-668 "externally managed" errors).
+      - name: Install Semgrep (OSS)
+        run: pipx install semgrep
+
+      # Public registry packs for this repo's stack (TS/JS/React/Node + GitHub
+      # Actions) plus generic security + secret detection. --error fails on a
+      # NEW finding (relative to the baseline); --metrics off keeps it offline.
+      # The base SHA goes through an env var, never inline ${{…}} in run: (that's
+      # the very shell-injection pattern these rules flag).
+      - name: Semgrep diff scan (gate on new findings)
+        env:
+          SEMGREP_BASELINE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          BASELINE_ARG=""
+          if [ -n "$SEMGREP_BASELINE" ]; then
+            git fetch --no-tags --depth=1 origin "$SEMGREP_BASELINE" 2>/dev/null || true
+            BASELINE_ARG="--baseline-commit $SEMGREP_BASELINE"
+          fi
+          semgrep scan \
+            --config p/security-audit \
+            --config p/secrets \
+            --config p/javascript \
+            --config p/typescript \
+            --config p/react \
+            --config p/nodejs \
+            --config p/github-actions \
+            --error \
+            --metrics off \
+            --exclude dist \
+            --exclude coverage \
+            --exclude '**/drizzle/**' \
+            $BASELINE_ARG
