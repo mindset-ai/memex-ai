@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "@memex/server": "workspace:*",
-    "dotenv": "^16.4.7",
+    "dotenv": "^17.4.2",
     "drizzle-orm": "^0.45.2",
     "postgres": "^3.4.5",
     "tree-sitter-wasms": "^0.1.12",
