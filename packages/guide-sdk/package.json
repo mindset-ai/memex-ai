@@ -21,8 +21,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@langchain/core": "^1.1.38",
-    "@langchain/langgraph": "^1.2.6",
+    "@langchain/core": "^1.1.49",
+    "@langchain/langgraph": "^1.4.2",
     "@ricky0123/vad-web": "^0.0.30",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
@@ -31,12 +31,12 @@
     "@memex-ai-ac/vitest": "workspace:*",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
-    "@types/react": "^19.0.0",
+    "@types/react": "^19.2.17",
     "@types/react-dom": "^19.0.0",
-    "@vitejs/plugin-react": "^4.3.4",
+    "@vitejs/plugin-react": "^6.0.2",
     "jsdom": "^29.0.1",
     "typescript": "~5.7.2",
-    "vite": "^6.0.5",
-    "vitest": "^4.1.1"
+    "vite": "^8.0.16",
+    "vitest": "^4.1.8"
   }
 }

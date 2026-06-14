@@ -89,7 +89,7 @@ jobs:
       MEMEX_EMIT_KEY: ${{ secrets.MEMEX_EMIT_KEY }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       # No `version:` here — pnpm/action-setup@v4 reads the pinned version from
       # the root package.json `packageManager` field and errors if both are set.
@@ -135,7 +135,7 @@ jobs:
       - name: Upload coverage blob (shard ${{ matrix.shard }})
         # Always upload so server-result can merge; a missing blob fails that job closed.
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: server-coverage-blob-${{ matrix.shard }}
           path: packages/server/.vitest-reports/
@@ -168,7 +168,7 @@ jobs:
           echo "server shards result: ${{ needs.server.result }}"
           exit 1
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
@@ -177,7 +177,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - name: Download all shard coverage blobs
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: server-coverage-blob-*
           path: /tmp/server-blobs
@@ -205,7 +205,7 @@ jobs:
 
       - name: Upload merged coverage report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: server-coverage
           path: packages/server/coverage/
@@ -240,7 +240,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
@@ -255,7 +255,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       # No `version:` here — pnpm/action-setup@v4 reads the pinned version from
       # the root package.json `packageManager` field and errors if both are set.
       - uses: pnpm/action-setup@v4
@@ -268,7 +268,7 @@ jobs:
         run: pnpm --filter @memex/ui test:coverage
       - name: Upload UI coverage report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ui-coverage
           path: packages/ui/coverage/
@@ -280,7 +280,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       # No `version:` here — pnpm/action-setup@v4 reads the pinned version from
       # the root package.json `packageManager` field and errors if both are set.
       - uses: pnpm/action-setup@v4
@@ -354,7 +354,7 @@ jobs:
       MEMEX_ANTHROPIC_FAKE: "1"
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       # No `version:` here — pnpm/action-setup@v4 reads the pinned version from
       # the root package.json `packageManager` field and errors if both are set.
       - uses: pnpm/action-setup@v4
@@ -370,7 +370,7 @@ jobs:
       # Playwright version is pinned there, so a version bump busts the cache.
       - name: Cache Playwright browsers
         id: playwright-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-playwright-${{ hashFiles('pnpm-lock.yaml') }}
@@ -384,7 +384,7 @@ jobs:
         run: pnpm --filter @memex/ui test:e2e --shard=${{ matrix.shard }}/3
       - name: Upload Playwright trace on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-traces-shard-${{ matrix.shard }}
           path: packages/ui/test-results/
@@ -460,7 +460,7 @@ jobs:
       MEMEX_EMIT_KEY: ${{ secrets.MEMEX_EMIT_KEY }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       # No `version:` here — pnpm/action-setup@v4 reads the pinned version from
       # the root package.json `packageManager` field and errors if both are set.
       - uses: pnpm/action-setup@v4

@@ -47,7 +47,7 @@ jobs:
       # MEMEX_EMIT_KEY repo secret; empty until set (harmless pre-enforcement).
       MEMEX_EMIT_KEY: ${{ secrets.MEMEX_EMIT_KEY }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
