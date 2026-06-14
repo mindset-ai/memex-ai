@@ -20,7 +20,7 @@
     "web-tree-sitter": "^0.25.1"
   },
   "devDependencies": {
-    "@types/node": "^22.0.0",
+    "@types/node": "^25.9.3",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0",
     "vitest": "^4.1.1"

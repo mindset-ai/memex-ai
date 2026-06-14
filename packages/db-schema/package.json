@@ -36,7 +36,7 @@
   },
   "devDependencies": {
     "@memex-ai-ac/vitest": "workspace:*",
-    "@types/node": "22.19.15",
+    "@types/node": "25.9.3",
     "postgres": "^3.4.5",
     "tsup": "^8.3.5",
     "typescript": "^5.7.0",
