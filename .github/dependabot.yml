@@ -18,6 +18,17 @@ updates:
       # security updates still arrive individually + promptly.
       npm-minor-and-patch:
         update-types: ["minor", "patch"]
+    ignore:
+      # Deferred breaking migrations — each owned by a Spec, so dependabot must
+      # not re-propose them (a plain bump fails CI and churns the merge gate).
+      # Remove the matching ignore when its Spec lands, to resume normal bumps.
+      - dependency-name: "tailwindcss" # spec-290 owns the v3 → v4 migration
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "web-tree-sitter" # spec-292 owns the 0.25 → 0.26 ABI migration
+        # 0.x: dependabot classifies 0.25 → 0.26 as "minor" (which is why it slipped
+        # into npm-minor-and-patch), so ignore minor + major to keep it out until 292.
+        update-types:
+          ["version-update:semver-minor", "version-update:semver-major"]
 
   - package-ecosystem: "github-actions"
     directory: "/"
