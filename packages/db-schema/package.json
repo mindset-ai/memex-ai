@@ -32,7 +32,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "drizzle-orm": "^0.39.0"
+    "drizzle-orm": "^0.45.2"
   },
   "devDependencies": {
     "@memex-ai-ac/vitest": "workspace:*",
@@ -40,6 +40,6 @@
     "postgres": "^3.4.5",
     "tsup": "^8.3.5",
     "typescript": "^5.7.0",
-    "vitest": "4.1.1"
+    "vitest": "4.1.8"
   }
 }

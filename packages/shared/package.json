@@ -22,6 +22,6 @@
   "devDependencies": {
     "@memex-ai-ac/vitest": "workspace:*",
     "typescript": "^5.7.0",
-    "vitest": "^4.1.1"
+    "vitest": "^4.1.8"
   }
 }
