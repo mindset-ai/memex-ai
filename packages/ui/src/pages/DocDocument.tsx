@@ -1272,7 +1272,7 @@ export function DocDocument() {
           title={doc.title}
           decisionCount={decs.length}
           taskCount={ts.length}
-          sectionCommentCount={sectionCommentCount}
+          commentCount={totalCommentCount}
           onClose={() => setMoveOpen(false)}
         />
       )}
