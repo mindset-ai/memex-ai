@@ -5,7 +5,7 @@ import { closeDb } from "@memex/server/db/connection";
 
 function usage(): never {
   console.log("Usage:");
-  console.log("  tsx src/index.ts --account <accountId> <repo_name> <folder_path> [<folder_path2> ...]");
+  console.log("  tsx src/index.ts --memex <memexId> <repo_name> <folder_path> [<folder_path2> ...]");
   console.log("");
   console.log("Environment:");
   console.log("  DATABASE_URL   Memex Postgres connection string (required)");
@@ -16,19 +16,19 @@ async function main() {
   const argv = process.argv.slice(2);
   if (argv.length < 3) usage();
 
-  let accountId: string | null = null;
+  let memexId: string | null = null;
   const positional: string[] = [];
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]!;
-    if (arg === "--account") {
-      accountId = argv[++i] ?? null;
+    if (arg === "--memex") {
+      memexId = argv[++i] ?? null;
     } else {
       positional.push(arg);
     }
   }
 
-  if (!accountId) {
-    console.error("Missing required --account <accountId>");
+  if (!memexId) {
+    console.error("Missing required --memex <memexId>");
     usage();
   }
 
@@ -45,7 +45,7 @@ async function main() {
     }
   }
 
-  await ingest({ accountId, repoName, folderPaths: folders });
+  await ingest({ memexId, repoName, folderPaths: folders });
 }
 
 main()

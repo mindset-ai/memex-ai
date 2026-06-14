@@ -58,7 +58,7 @@ const EXPORTED_KINDS: ReadonlySet<string> = new Set([
 ]);
 
 export interface IngestInput {
-  accountId: string;
+  memexId: string;
   repoName: string;
   folderPaths: string[];
   /** Optional progress callback. Fired at each phase boundary. */
@@ -98,7 +98,7 @@ interface FileSlot {
 }
 
 export async function ingest(input: IngestInput): Promise<void> {
-  const { accountId, repoName, folderPaths, onProgress } = input;
+  const { memexId, repoName, folderPaths, onProgress } = input;
   const startedAt = Date.now();
   const tick = (phase: ProgressEvent["phase"], message: string) =>
     onProgress?.({ phase, message, elapsedMs: Date.now() - startedAt });
@@ -174,7 +174,7 @@ export async function ingest(input: IngestInput): Promise<void> {
   // left in whatever state it was in before this call.
   await db.transaction(async (tx) => {
     const { repo, created } = await getOrCreateRepo(
-      { accountId, name: repoName, url: repoUrl },
+      { memexId, name: repoName, url: repoUrl },
       tx,
     );
     if (!created) await clearRepoData(repo.id, tx);
