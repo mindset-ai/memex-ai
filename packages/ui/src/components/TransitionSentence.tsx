@@ -286,8 +286,24 @@ export function TransitionSentence({
     // anyway? [Yes]" still forces a blocked move.
     if (currentPhase !== 'draft') {
       if (blockers.length === 0) {
+        // spec-259 ac-5 (additive): with a CLEAN rubric at specify, the standing
+        // line is the comments-aware ADVISORY — the web is a viewing + low-friction
+        // surface and does NOT hard-gate the specify→build move (spec-247 / std-34;
+        // comments flag, never gate, per dec-1/ac-6). It reflects comments as a
+        // rubric item without overriding the spec-282/196 blocker reporting, which
+        // still leads while the rubric is blocked (below). Other phases keep the
+        // spec-282 "nothing when clean".
+        if (currentPhase === 'specify') {
+          return (
+            <p className="text-sm text-secondary" data-testid="transition-sentence">
+              You can advance to Build when all open decisions are resolved and all
+              comments are addressed.
+            </p>
+          );
+        }
         return null;
       }
+      // Blocked: spec-282/196 status-only blocker reporting (unchanged).
       return (
         <p className="text-sm text-secondary" data-testid="transition-sentence">
           {renderBlockers(blockers)} before this spec can move to {phaseDisplayName(target)}

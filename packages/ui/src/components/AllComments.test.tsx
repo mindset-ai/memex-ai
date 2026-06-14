@@ -361,4 +361,103 @@ describe('AllComments', () => {
     expect(writeText).toHaveBeenCalledTimes(1);
     expect(writeText.mock.calls[0][0]).toContain('comment=c-7');
   });
+
+  // spec-259 ac-5 — the web Specify Comments surface shows the SAME open-comment
+  // picture the MCP agent renders: counts, anchor-kind split (decision-anchored
+  // vs section-anchored, where tasks fold into section-anchored), the oldest
+  // relative age, and a per-comment WHO/WHEN byline (via the shared timeAgo).
+  const AC259_5 = 'mindset-prod/memex-building-itself/specs/spec-259/acs/ac-5';
+  // Recent timestamps so the shared `timeAgo` stays in its relative window
+  // ("Nd ago") rather than falling back to an absolute date (>8w).
+  const HOUR_MS = 60 * 60 * 1000;
+  const hoursAgo = (h: number) => new Date(Date.now() - h * HOUR_MS).toISOString();
+
+  it('renders the open-comment summary: counts + anchor-kind split + oldest age', () => {
+    tagAc(AC259_5);
+    const section = makeSection();
+    const decision = makeDecision();
+    const task = makeTask();
+    render(
+      <AllComments
+        sections={[section]}
+        decisions={[decision]}
+        tasks={[task]}
+        // 1 decision-anchored; 2 section-anchored (1 section + 1 task). The
+        // section comment is the oldest open one.
+        commentsBySection={{
+          [section.id]: [
+            makeComment({ id: 'c-sec', content: 'section comment', createdAt: hoursAgo(50) }),
+          ],
+        }}
+        commentsByDecision={{
+          [decision.id]: [makeComment({ id: 'c-dec', content: 'decision comment', createdAt: hoursAgo(2) })],
+        }}
+        commentsByTask={{
+          [task.id]: [makeComment({ id: 'c-task', content: 'task comment', createdAt: hoursAgo(3) })],
+        }}
+        onNavigateToSection={vi.fn()}
+      />
+    );
+
+    const summary = screen.getByTestId('open-comments-summary');
+    expect(summary.textContent).toContain('3 open comments');
+    expect(summary.textContent).toContain('1 decision-anchored');
+    expect(summary.textContent).toContain('2 section-anchored');
+    // Oldest age is a relative phrase from the shared helper (the 50h-old one).
+    expect(screen.getByTestId('open-comments-oldest').textContent).toContain('ago');
+  });
+
+  it('the summary counts OPEN comments only and is singular for one', () => {
+    tagAc(AC259_5);
+    const section = makeSection();
+    render(
+      <AllComments
+        sections={[section]}
+        commentsBySection={{
+          [section.id]: [
+            makeComment({ id: 'c-open', content: 'open' }),
+            makeComment({ id: 'c-done', content: 'done', resolvedAt: '2025-02-01T00:00:00Z' }),
+          ],
+        }}
+        onNavigateToSection={vi.fn()}
+      />
+    );
+    expect(screen.getByTestId('open-comments-summary').textContent).toContain(
+      '1 open comment'
+    );
+    // No summary band when there are zero open comments.
+  });
+
+  it('omits the summary band when there are no open comments', () => {
+    tagAc(AC259_5);
+    const section = makeSection();
+    render(
+      <AllComments
+        sections={[section]}
+        commentsBySection={{
+          [section.id]: [makeComment({ id: 'c-done', resolvedAt: '2025-02-01T00:00:00Z' })],
+        }}
+        onNavigateToSection={vi.fn()}
+      />
+    );
+    expect(screen.queryByTestId('open-comments-summary')).not.toBeInTheDocument();
+  });
+
+  it('each comment row carries a WHO + WHEN byline (author + relative time)', () => {
+    tagAc(AC259_5);
+    const section = makeSection();
+    render(
+      <AllComments
+        sections={[section]}
+        commentsBySection={{
+          [section.id]: [
+            makeComment({ id: 'c-1', authorName: 'Alice', content: 'hi', createdAt: hoursAgo(5) }),
+          ],
+        }}
+        onNavigateToSection={vi.fn()}
+      />
+    );
+    expect(screen.getByTestId('comment-byline-author').textContent).toBe('Alice');
+    expect(screen.getByTestId('comment-byline-when').textContent).toContain('ago');
+  });
 });

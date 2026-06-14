@@ -71,9 +71,13 @@ describe('Rubicon line — current tab is status-only (spec-282/dec-4); draft ke
     expect(screen.queryByRole('button', { name: 'No' })).toBeNull();
   });
 
-  it('specify (clean, current tab) → renders nothing (no standing offer)', () => {
+  it('specify (clean, current tab) → comments-aware advisory, no button (spec-259 ac-5)', () => {
+    // spec-259 ac-5 (additive): a CLEAN specify current tab carries the
+    // comments-aware advisory (no standing offer/button — still status-only).
     render(<TransitionSentence {...baseProps()} />);
-    expect(screen.queryByTestId('transition-sentence')).toBeNull();
+    expect(screen.getByTestId('transition-sentence').textContent).toContain(
+      'You can advance to Build when all open decisions are resolved and all comments are addressed.',
+    );
     expect(screen.queryByRole('button')).toBeNull();
   });
 
@@ -243,10 +247,15 @@ describe('Rubicon line — posture (i-1) and the Yes mutation', () => {
     expect(screen.queryByRole('button')).toBeNull();
   });
 
-  it('canTransition=false on the current tab with a clean rubric renders NOTHING — no offer', () => {
+  it('canTransition=false on a clean specify current tab → comments-aware advisory (status-only), no buttons', () => {
     tagAc(AC182_9);
+    // spec-259 ac-5 (additive): the clean specify advisory is STATUS, not an
+    // offer, so it shows for non-editors too — but never a button.
     render(<TransitionSentence {...baseProps({ canTransition: false })} />);
-    expect(screen.queryByTestId('transition-sentence')).toBeNull();
+    expect(screen.getByTestId('transition-sentence').textContent).toContain(
+      'You can advance to Build when all open decisions are resolved and all comments are addressed.',
+    );
+    expect(screen.queryByRole('button')).toBeNull();
   });
 
   it('canTransition=false on the current tab, blocked → the rubric condition, no buttons', () => {
@@ -313,11 +322,11 @@ describe('no switch-to-Editing nag (spec-182 dec-6, amended)', () => {
   it('a non-transitioning viewer sees a clean status line — no nag in any sentence shape', () => {
     tagAc(AC182(14));
     tagAc(AC182(6));
-    // Clean offer shape — renders nothing at all for a non-editor
-    // (spec-182 issue-1), so trivially no nag.
+    // Clean specify shape — a non-editor sees the spec-259 comments-aware
+    // advisory (status-only), and crucially NO switch-to-Editing nag.
     const { unmount } = render(<TransitionSentence {...baseProps()} canTransition={false} />);
     expect(screen.queryByTestId('switch-to-editing')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('transition-sentence')).toBeNull();
+    expect(text()).not.toContain("You're reviewing");
     unmount();
 
     // Blocked shape — the status line renders, nag-free.

@@ -45,7 +45,7 @@ import { createIssue } from "../services/issues.js";
 import { testEvents } from "../db/schema.js";
 import { applyEmissionToSummary } from "../services/test-event-latest.js";
 import { createExecutionPlan } from "../services/execution_plans.js";
-import { addTaskComment } from "../services/comments.js";
+import { addTaskComment, addComment, addDecisionComment } from "../services/comments.js";
 import { createShareToken, listShareTokensForDoc } from "../services/share-tokens.js";
 import { addSection } from "../services/sections.js";
 import { applyTagStrings } from "../services/tags.js";
@@ -778,6 +778,38 @@ testOnlyRouter.post("/seed-section", async (c) => {
   const { memexId, docId, title, content = "", sectionType = "context" } = parsed.data;
   const section = await addSection(memexId, docId, sectionType, content, title);
   return c.json({ sectionId: section.id, seq: section.seq });
+});
+
+// spec-259 t-5: seed an OPEN comment on a section / decision / task through the
+// real comment services (so it emits on the bus [per std-8] and the
+// SSE-reactive UI under test sees it like a real comment). Backs the
+// Specify-phase open-comment parity journey, which asserts the open-comment
+// summary + per-comment WHO/WHEN byline render on the Comments surface.
+const seedCommentSchema = z.object({
+  memexId: z.string().uuid(),
+  target: z.enum(["section", "decision", "task"]),
+  targetId: z.string().uuid(),
+  authorName: z.string().default("Casey Reviewer"),
+  content: z.string().default("Please double-check this before we advance."),
+  commentType: z.string().optional(),
+});
+testOnlyRouter.post("/seed-comment", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = seedCommentSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
+  }
+  const { memexId, target, targetId, authorName, content, commentType } = parsed.data;
+  const extras = commentType
+    ? ({ type: commentType } as Parameters<typeof addComment>[4])
+    : undefined;
+  const comment =
+    target === "section"
+      ? await addComment(memexId, targetId, authorName, content, extras)
+      : target === "decision"
+        ? await addDecisionComment(memexId, targetId, authorName, content, extras)
+        : await addTaskComment(memexId, targetId, authorName, content, extras);
+  return c.json({ commentId: comment.id, seq: comment.seq });
 });
 
 // spec-286: apply `scope::value`/flat tags to a Spec through the real

@@ -50,8 +50,12 @@ function text() {
 }
 
 describe('spec-282 ac-5/ac-11 — the current phase tab carries no advance offer', () => {
-  // Ready state: every current-phase tab renders nothing — no question, no button.
-  for (const phase of ['specify', 'build', 'verify'] as const) {
+  // Ready state: build/verify current tabs render nothing — no question, no
+  // button. (spec-259 ac-5: a clean specify current tab now carries a
+  // comments-aware ADVISORY sentence — still no question and no button, so the
+  // spec-282 "no advance offer on the current tab" invariant holds; its own case
+  // below.)
+  for (const phase of ['build', 'verify'] as const) {
     it(`${phase} ready, current tab → nothing renders (no offer, no button)`, () => {
       tagAc(AC(5));
       tagAc(AC(11));
@@ -60,6 +64,17 @@ describe('spec-282 ac-5/ac-11 — the current phase tab carries no advance offer
       expect(screen.queryByRole('button')).toBeNull();
     });
   }
+
+  it('specify ready, current tab → comments-aware advisory, but NO question and NO button (spec-259 ac-5)', () => {
+    tagAc(AC(5));
+    tagAc(AC(11));
+    render(<TransitionSentence {...baseProps({ currentPhase: 'specify', viewedTab: 'specify' })} />);
+    expect(text()).toBe(
+      'You can advance to Build when all open decisions are resolved and all comments are addressed.',
+    );
+    expect(text()).not.toContain('?');
+    expect(screen.queryByRole('button')).toBeNull();
+  });
 
   // Blocked state: the rubric statement renders, but there is NO question and NO
   // button — status-only — for editors and non-editors alike.

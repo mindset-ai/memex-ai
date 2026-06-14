@@ -147,3 +147,9 @@ export {
   isQaReportSectionType,
   qaReportVersion,
 } from './qa-report.js';
+
+// spec-259 dec-5: the one canonical relative-age helper (server MCP/agent surfaces
+// + UI), injectable `now` for deterministic output. Wire forms keep absolute ISO.
+export { timeAgo } from './relative-time.js';
+// spec-259 dec-4: conservative display-name capitalization, render-layer only.
+export { capitalizeDisplayName } from './display-name.js';

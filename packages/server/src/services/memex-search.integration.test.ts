@@ -13,12 +13,13 @@
 import { describe, it, expect, afterAll, beforeAll } from "vitest";
 import { inArray, sql, eq } from "drizzle-orm";
 import { db } from "../db/connection.js";
-import { documents } from "../db/schema.js";
+import { documents, docSections } from "../db/schema.js";
 import { createStandard } from "./standards.js";
 import { createDocDraft } from "./documents.js";
 import { addSection } from "./sections.js";
 import { createDecision, resolveDecision } from "./decisions.js";
 import { createIssue, type IssueType } from "./issues.js";
+import { addComment, resolveComment } from "./comments.js";
 import { upsertUserByEmail } from "./users.js";
 import {
   embedAndStoreDoc,
@@ -803,6 +804,8 @@ describe("formatSearchResults — b-34 D-4 spec", () => {
             title: "Overview",
             content: "Some matching content goes here.",
             matchedVia: "vector",
+            authorName: null,
+            lastUpdatedAt: null,
           },
         ],
       },
@@ -872,6 +875,8 @@ describe("formatSearchResults — b-34 D-4 spec", () => {
           title: null,
           content: long,
           matchedVia: "fts",
+          authorName: null,
+          lastUpdatedAt: null,
         },
       ],
     };
@@ -1000,6 +1005,8 @@ describe("formatSearchResults — [current doc] tag (includeCurrentDoc opt-in)",
           title: "Overview",
           content: "Content.",
           matchedVia: "fts",
+          authorName: null,
+          lastUpdatedAt: null,
         },
       ],
     };
@@ -1247,12 +1254,19 @@ describe("formatSearchResults — WHO/WHEN byline (spec-285 ac-8)", () => {
     lastUpdatedAt: null,
   };
 
-  it("renders ` · <author>, <YYYY-MM-DD>` when both are present", () => {
+  // spec-259 dec-5 moved the RENDERED timestamp from absolute YYYY-MM-DD to a
+  // relative `timeAgo()` ("Nd ago"). A fixed `now` keeps the age deterministic;
+  // the structured `lastUpdatedAt` stays absolute ISO (asserted in ac-6/ac-7).
+  const NOW_285 = new Date("2026-05-31T09:30:00.000Z");
+
+  it("renders ` · <author>, <relative-age>` when both are present (dec-5)", () => {
     tagAc(SPEC285_AC(8));
-    const out = formatSearchResults("q", [
-      { ...base, authorName: "Ada Lovelace", lastUpdatedAt: "2026-05-28T09:30:00.000Z" },
-    ]);
-    expect(out).toContain(`(spec, build) · Ada Lovelace, 2026-05-28`);
+    const out = formatSearchResults(
+      "q",
+      [{ ...base, authorName: "Ada Lovelace", lastUpdatedAt: "2026-05-28T09:30:00.000Z" }],
+      { now: NOW_285 },
+    );
+    expect(out).toContain(`(spec, build) · Ada Lovelace, 3d ago`);
     // No UUIDs in the rendered output (b-36 D-7 still holds).
     const uuidRegex = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
     expect(out).not.toMatch(uuidRegex);
@@ -1262,15 +1276,17 @@ describe("formatSearchResults — WHO/WHEN byline (spec-285 ac-8)", () => {
     tagAc(SPEC285_AC(8));
     const out = formatSearchResults("q", [{ ...base, authorName: "Grace Hopper" }]);
     expect(out).toContain(`(spec, build) · Grace Hopper`);
-    expect(out).not.toContain("Grace Hopper,"); // no trailing comma/date
+    expect(out).not.toContain("Grace Hopper,"); // no trailing comma/age
   });
 
-  it("renders the date alone when there is no author", () => {
+  it("renders the relative age alone when there is no author (dec-5)", () => {
     tagAc(SPEC285_AC(8));
-    const out = formatSearchResults("q", [
-      { ...base, lastUpdatedAt: "2026-01-02T00:00:00.000Z" },
-    ]);
-    expect(out).toContain(`(spec, build) · 2026-01-02`);
+    const out = formatSearchResults(
+      "q",
+      [{ ...base, lastUpdatedAt: "2026-05-28T09:30:00.000Z" }],
+      { now: NOW_285 },
+    );
+    expect(out).toContain(`(spec, build) · 3d ago`);
   });
 
   it("emits NO byline when neither author nor timestamp is set", () => {
@@ -1425,7 +1441,9 @@ describe("searchMemex → formatSearchResults — end-to-end byline (spec-285 ac
     });
     const out = formatSearchResults("authore2euniquetokenx", hits);
     expect(out).toContain("Ada Lovelace");
-    expect(out).toMatch(/· Ada Lovelace, \d{4}-\d{2}-\d{2}/);
+    // spec-259 dec-5: rendered timestamp is now a relative age ("just now" /
+    // "Nm ago" / "Nh ago" / "Nd ago"), not an absolute YYYY-MM-DD.
+    expect(out).toMatch(/· Ada Lovelace, (just now|\d+[mhd] ago)/);
   });
 });
 
@@ -1450,6 +1468,8 @@ describe("spec-285 — additive, non-breaking, single-source (ac-4)", () => {
           title: "Do",
           content: "Some rule.",
           matchedVia: "fts",
+          authorName: null,
+          lastUpdatedAt: null,
         },
       ],
       authorName: null,
@@ -1508,13 +1528,95 @@ describe("spec-285 — legible in both surfaces: markdown AND structured (ac-5)"
       lastUpdatedAt: "2026-05-28T12:00:00.000Z",
     };
 
-    // Surface 1 — the MCP/React-agent markdown: human-readable "name, date".
-    const md = formatSearchResults("q", [hit]);
-    expect(md).toMatch(/· Ryan Soosayraj, 2026-05-28/);
+    // Surface 1 — the MCP/React-agent markdown: human-readable "name, age".
+    // spec-259 dec-5: the rendered timestamp is now a relative age, with a fixed
+    // `now` for determinism (2026-05-31 → "3d ago").
+    const md = formatSearchResults("q", [hit], { now: new Date("2026-05-31T12:00:00.000Z") });
+    expect(md).toMatch(/· Ryan Soosayraj, 3d ago/);
 
     // Surface 2 — the structured field the React agent / REST consume: discrete,
-    // not buried in prose. An agent can cite "<name>, <date>" without parsing.
+    // not buried in prose, and STILL absolute ISO (the wire field is unchanged).
     expect(hit.authorName).toBe("Ryan Soosayraj");
     expect(hit.lastUpdatedAt!.slice(0, 10)).toBe("2026-05-28");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// spec-259 ac-12 — open-comment indicator (DB-backed). Exercises the grouped
+// doc_comments query (loadOpenCommentSummaries via searchMemex → attachOpenComments):
+//   - only UNRESOLVED comments (resolved_at IS NULL) count
+//   - the count + oldest open comment surface on the hit's `openComments`
+//   - a hit with zero open comments leaves `openComments` undefined
+//   - the indicator renders in the markdown formatter (no comment content)
+// DB-NEEDED: run serially by the orchestrator (creates docs/sections/comments).
+// ═══════════════════════════════════════════════════════════════════════════
+describe("searchMemex — open-comment indicator (spec-259 ac-12)", () => {
+  it("counts only UNRESOLVED comments and surfaces the oldest open one", async () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-259/acs/ac-12");
+    const provider = makeFakeProvider("fake-open-comments");
+    const spec = await seedSpec(
+      memexId,
+      "Open comment host",
+      "opencommentuniquetokenx overview body.",
+      [],
+      provider,
+    );
+    // Grab a section to anchor comments on (the overview seed creates one).
+    const section = await db.query.docSections.findFirst({
+      where: eq(docSections.docId, spec.id),
+    });
+    expect(section).toBeDefined();
+
+    // Two open comments + one that we then resolve (must NOT count).
+    await addComment(memexId, section!.id, "Ada", "first open");
+    await addComment(memexId, section!.id, "Grace", "second open");
+    const toResolve = await addComment(memexId, section!.id, "Alan", "will resolve");
+    await resolveComment(memexId, toResolve.id, "done");
+
+    const hits = await searchMemex(memexId, "opencommentuniquetokenx", {
+      provider,
+      kind: "spec",
+      disableVector: true,
+    });
+    const hit = hits.find((h) => h.id === spec.id);
+    expect(hit).toBeDefined();
+    expect(hit!.openComments).toBeDefined();
+    expect(hit!.openComments!.count).toBe(2); // the resolved one is excluded
+    // oldestCreatedAt is absolute ISO on the structured object.
+    expect(hit!.openComments!.oldestCreatedAt).toMatch(ISO_RE);
+
+    // Markdown renders the indicator line — count + relative age, no content.
+    // (Freshly-seeded comments render "just now"; the exact "Nd ago" formatting is
+    // proven deterministically with an injected `now` in memex-search-byline.test.ts.)
+    const out = formatSearchResults("opencommentuniquetokenx", [hit!]);
+    expect(out).toMatch(/- \(2 open comments, oldest .+\)/);
+    expect(out).not.toContain("first open");
+    expect(out).not.toContain("second open");
+  });
+
+  it("leaves openComments undefined when the doc has no open comments", async () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-259/acs/ac-12");
+    const provider = makeFakeProvider("fake-no-open-comments");
+    const spec = await seedSpec(
+      memexId,
+      "No open comment host",
+      "nocommentuniquetokenx overview body.",
+      [],
+      provider,
+    );
+
+    const hits = await searchMemex(memexId, "nocommentuniquetokenx", {
+      provider,
+      kind: "spec",
+      disableVector: true,
+    });
+    const hit = hits.find((h) => h.id === spec.id);
+    expect(hit).toBeDefined();
+    expect(hit!.openComments).toBeUndefined();
+
+    // No indicator line in the rendered markdown. (Match the indicator PATTERN, not
+    // the bare substring "open comment" — this hit's title is "No open comment host".)
+    const out = formatSearchResults("nocommentuniquetokenx", [hit!]);
+    expect(out).not.toMatch(/\(\d+ open comments?, oldest/);
   });
 });

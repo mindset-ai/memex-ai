@@ -15,6 +15,9 @@ import { CommentTypePill } from './CommentTypePill';
 import { CommentSourceAvatar } from './CommentSourceAvatar';
 import { DecisionLink, TaskLink, parseEntityRefs } from './DecisionLink';
 import { commentTypeAccentBorder } from '../utils/commentStyles';
+// spec-259 ac-5: render WHEN as the SAME relative phrase the MCP/agent surface
+// uses ("3d ago") so the web Specify readiness picture matches the agent's.
+import { timeAgo } from '../utils/timeAgo';
 
 interface CommentTrayProps {
   targetType: CommentTargetType;
@@ -213,12 +216,15 @@ export function CommentBubble({
   const isResolved = !!comment.resolvedAt;
   const isAgent = comment.source === 'agent';
   const accent = isAgent ? `border-l-2 ${commentTypeAccentBorder(comment.commentType)}` : '';
-  const date = new Date(comment.createdAt).toLocaleDateString('en-US', {
+  const absoluteDate = new Date(comment.createdAt).toLocaleDateString('en-US', {
     month: 'short',
     day: 'numeric',
     hour: 'numeric',
     minute: '2-digit',
   });
+  // spec-259 ac-5: WHEN is a relative phrase matching the agent surface; the
+  // exact timestamp stays available on hover.
+  const relative = timeAgo(comment.createdAt);
 
   return (
     <div
@@ -242,10 +248,21 @@ export function CommentBubble({
       <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-1.5 min-w-0">
           <CommentSourceAvatar source={comment.source} authorName={comment.authorName} />
-          <span className="text-xs font-medium text-primary truncate">{comment.authorName}</span>
+          <span
+            className="text-xs font-medium text-primary truncate"
+            data-testid="comment-byline-author"
+          >
+            {comment.authorName}
+          </span>
           <CommentTypePill type={comment.commentType} hideForDiscussion />
         </div>
-        <span className="text-xs text-muted shrink-0">{date}</span>
+        <span
+          className="text-xs text-muted shrink-0"
+          title={absoluteDate}
+          data-testid="comment-byline-when"
+        >
+          {relative}
+        </span>
       </div>
       <p className="text-sm text-primary whitespace-pre-wrap">
         {parseEntityRefs(comment.content).map((seg, i) =>

@@ -201,6 +201,8 @@ import {
   toButtonPrompt,
   toHandoffEssence,
   GET_PROMPT_PROSE,
+  timeAgo,
+  capitalizeDisplayName,
   type Phase,
   type GuidanceBlock,
 } from "@memex/shared";
@@ -4233,7 +4235,7 @@ export const toolSpecs: ToolSpec[] = [
         );
       }
       const { memexId, doc, slugs, entity } = resolved;
-      const comment = await resolveComment(memexId, entity.row.id, resolution);
+      const comment = await resolveComment(memexId, entity.row.id, resolution, reqCtx(ctx));
       if (ctx.verbose) {
         return `${formatDocStatusHeader(doc)}\n\nComment resolved.\n${formatComment(comment)}`;
       }
@@ -4341,7 +4343,7 @@ export const toolSpecs: ToolSpec[] = [
           for (const c of status.comments) {
             const targetTitle = c.target.title ? ` "${c.target.title}"` : "";
             lines.push(
-              `- [${c.type}] on ${c.target.kind} ${c.target.handle}${targetTitle} by ${c.author} (${c.createdAt.toISOString()}): ${c.contentSnippet}`,
+              `- [${c.type}] on ${c.target.kind} ${c.target.handle}${targetTitle} by ${capitalizeDisplayName(c.author)} (${timeAgo(c.createdAt)}): ${c.contentSnippet}`,
             );
           }
         }
