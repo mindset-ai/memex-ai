@@ -65,8 +65,8 @@ importers:
         specifier: workspace:*
         version: link:../server
       dotenv:
-        specifier: ^16.4.7
-        version: 16.6.1
+        specifier: ^17.4.2
+        version: 17.4.2
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(gel@2.2.0)(postgres@3.4.9)
@@ -169,8 +169,8 @@ importers:
         specifier: ^7.21.0
         version: 7.21.0
       dotenv:
-        specifier: ^16.4.7
-        version: 16.6.1
+        specifier: ^17.4.2
+        version: 17.4.2
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(gel@2.2.0)(postgres@3.4.9)
@@ -2571,8 +2571,8 @@ packages:
   dom-accessibility-api@0.6.3:
     resolution: {integrity: sha512-7ZgogeTnjuHbo+ct10G9Ffp0mif17idi0IyWNVA/wcwcm7NPOD/WEHVP3n7n3MhXqxoIYm8d6MuZohYWIZ4T3w==}
 
-  dotenv@16.6.1:
-    resolution: {integrity: sha512-uBq4egWHTcTt33a72vpSG0z3HnPuIl6NqYcTrKEg2azoEyl2hpW0zqlxysq2pK9HlDIHyHyakeYaYnSAwd8bow==}
+  dotenv@17.4.2:
+    resolution: {integrity: sha512-nI4U3TottKAcAD9LLud4Cb7b2QztQMUEfHbvhTH09bqXTxnSie8WnjPALV/WMCrJZ6UV/qHJ6L03OqO3LcdYZw==}
     engines: {node: '>=12'}
 
   drizzle-kit@0.31.10:
@@ -4039,6 +4039,11 @@ packages:
 
   semver@7.8.1:
     resolution: {integrity: sha512-rkVq3IXh+4FDGch+KwzX3aV9W3kO54GyEgpvBzSyctDA6Xtd7RJQV1xmXbeQp5v7+VzLOfVqiutSE6GICgPFvg==}
+    engines: {node: '>=10'}
+    hasBin: true
+
+  semver@7.8.4:
+    resolution: {integrity: sha512-rUCObTnP32Q08R2uuIrt7r9PlEonuTmtuXYcW6s5kjdlj3xbnwe+21yXptAUYcMAABLkYYTtnmzb3w3EDZfueA==}
     engines: {node: '>=10'}
     hasBin: true
 
@@ -6631,7 +6636,7 @@ snapshots:
 
   dom-accessibility-api@0.6.3: {}
 
-  dotenv@16.6.1: {}
+  dotenv@17.4.2: {}
 
   drizzle-kit@0.31.10:
     dependencies:
@@ -7006,7 +7011,7 @@ snapshots:
       '@petamoriken/float16': 3.9.3
       debug: 4.4.3
       env-paths: 3.0.0
-      semver: 7.8.1
+      semver: 7.8.4
       shell-quote: 1.8.4
       which: 4.0.0
     transitivePeerDependencies:
@@ -8406,6 +8411,9 @@ snapshots:
   scheduler@0.27.0: {}
 
   semver@7.8.1: {}
+
+  semver@7.8.4:
+    optional: true
 
   send@1.2.1:
     dependencies:
