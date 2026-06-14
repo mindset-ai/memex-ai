@@ -61,7 +61,7 @@
     "@slack/web-api": "^7.16.0",
     "cohere-ai": "^7.21.0",
     "dotenv": "^16.4.7",
-    "drizzle-orm": "^0.39.0",
+    "drizzle-orm": "^0.45.2",
     "google-auth-library": "^10.6.2",
     "hono": "^4.7.0",
     "openai": "^4.104.0",
