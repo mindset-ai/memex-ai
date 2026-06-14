@@ -13,15 +13,27 @@ async function ensureInitialized(): Promise<void> {
   if (initialized) return;
   // Point the runtime at the WASM binary shipped with the npm package so
   // we don't rely on the default (which assumes a browser/Emscripten path).
-  const wasmPath = require.resolve("web-tree-sitter/tree-sitter.wasm");
+  // web-tree-sitter 0.26 renamed this binary (tree-sitter.wasm → web-tree-sitter.wasm).
+  const wasmPath = require.resolve("web-tree-sitter/web-tree-sitter.wasm");
   await Parser.init({
     locateFile: () => wasmPath,
   });
   initialized = true;
 }
 
+// Grammar wasm is sourced from the official per-grammar packages, which ship
+// prebuilt .wasm that is ABI-compatible with web-tree-sitter 0.26 (the legacy
+// `tree-sitter-wasms` bundle is built against the 0.25-era ABI and fails
+// Language.load on 0.26 — spec-292 dec-1).
+const GRAMMAR_WASM: Record<string, string> = {
+  python: "tree-sitter-python/tree-sitter-python.wasm",
+  typescript: "tree-sitter-typescript/tree-sitter-typescript.wasm",
+};
+
 function grammarPath(name: string): string {
-  return require.resolve(`tree-sitter-wasms/out/tree-sitter-${name}.wasm`);
+  const subpath = GRAMMAR_WASM[name];
+  if (!subpath) throw new Error(`No grammar wasm registered for '${name}'`);
+  return require.resolve(subpath);
 }
 
 let pyLanguage: Language | null = null;
