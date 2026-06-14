@@ -10,6 +10,7 @@ overrides:
   '@types/node': 25.9.3
   react: 19.2.7
   react-dom: 19.2.7
+  typescript: 6.0.3
 
 importers:
 
@@ -21,8 +22,8 @@ importers:
         specifier: 25.9.3
         version: 25.9.3
       typescript:
-        specifier: ^5.7.0
-        version: 5.7.3
+        specifier: 6.0.3
+        version: 6.0.3
       vitest:
         specifier: 4.1.8
         version: 4.1.8(@types/node@25.9.3)(@vitest/coverage-v8@4.1.8)(jsdom@29.1.1)(vite@8.0.16(@types/node@25.9.3)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.4))
@@ -50,10 +51,10 @@ importers:
         version: 3.4.9
       tsup:
         specifier: ^8.3.5
-        version: 8.5.1(jiti@1.21.7)(postcss@8.5.15)(tsx@4.22.4)(typescript@5.7.3)
+        version: 8.5.1(jiti@1.21.7)(postcss@8.5.15)(tsx@4.22.4)(typescript@6.0.3)
       typescript:
-        specifier: ^5.7.0
-        version: 5.7.3
+        specifier: 6.0.3
+        version: 6.0.3
       vitest:
         specifier: 4.1.8
         version: 4.1.8(@types/node@25.9.3)(@vitest/coverage-v8@4.1.8)(jsdom@29.1.1)(vite@8.0.16(@types/node@25.9.3)(esbuild@0.27.7)(jiti@1.21.7)(tsx@4.22.4))
@@ -86,8 +87,8 @@ importers:
         specifier: ^4.19.0
         version: 4.22.4
       typescript:
-        specifier: ^5.7.0
-        version: 5.7.3
+        specifier: 6.0.3
+        version: 6.0.3
       vitest:
         specifier: 4.1.8
         version: 4.1.8(@types/node@25.9.3)(@vitest/coverage-v8@4.1.8)(jsdom@29.1.1)(vite@8.0.16(@types/node@25.9.3)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.4))
@@ -132,8 +133,8 @@ importers:
         specifier: ^29.0.1
         version: 29.1.1
       typescript:
-        specifier: ~5.7.2
-        version: 5.7.3
+        specifier: 6.0.3
+        version: 6.0.3
       vite:
         specifier: ^8.0.16
         version: 8.0.16(@types/node@25.9.3)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.4)
@@ -211,8 +212,8 @@ importers:
         specifier: ^4.19.0
         version: 4.22.4
       typescript:
-        specifier: ^5.7.0
-        version: 5.7.3
+        specifier: 6.0.3
+        version: 6.0.3
       vitest:
         specifier: 4.1.8
         version: 4.1.8(@types/node@25.9.3)(@vitest/coverage-v8@4.1.8)(jsdom@29.1.1)(vite@8.0.16(@types/node@25.9.3)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.4))
@@ -223,8 +224,8 @@ importers:
         specifier: workspace:*
         version: link:../ac-emit-vitest
       typescript:
-        specifier: ^5.7.0
-        version: 5.7.3
+        specifier: 6.0.3
+        version: 6.0.3
       vitest:
         specifier: 4.1.8
         version: 4.1.8(@types/node@25.9.3)(@vitest/coverage-v8@4.1.8)(jsdom@29.1.1)(vite@8.0.16(@types/node@25.9.3)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.4))
@@ -350,8 +351,8 @@ importers:
         specifier: ^3.4.17
         version: 3.4.19(tsx@4.22.4)
       typescript:
-        specifier: ~5.7.2
-        version: 5.7.3
+        specifier: 6.0.3
+        version: 6.0.3
       vite:
         specifier: ^8.0.16
         version: 8.0.16(@types/node@25.9.3)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.4)
@@ -4272,7 +4273,7 @@ packages:
       '@microsoft/api-extractor': ^7.36.0
       '@swc/core': ^1
       postcss: ^8.4.12
-      typescript: '>=4.5.0'
+      typescript: 6.0.3
     peerDependenciesMeta:
       '@microsoft/api-extractor':
         optional: true
@@ -4292,8 +4293,8 @@ packages:
     resolution: {integrity: sha512-faYHw0anBbc/kWF3zFTEnxSFOAGUX9GFbOBthvDdLsIlEoWOFOtS0zgCiQYwIskL9iGXZL3kAXD8OoZ4GmMATA==}
     engines: {node: '>= 18'}
 
-  typescript@5.7.3:
-    resolution: {integrity: sha512-84MVSjMEHP+FQRPy3pX9sTVV/INIex71s9TL2Gm5FG/WG1SqXeKyZ0k7/blY/4FdOzI12CBy1vGc4og/eus0fw==}
+  typescript@6.0.3:
+    resolution: {integrity: sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw==}
     engines: {node: '>=14.17'}
     hasBin: true
 
@@ -8663,7 +8664,7 @@ snapshots:
 
   tslib@2.8.1: {}
 
-  tsup@8.5.1(jiti@1.21.7)(postcss@8.5.15)(tsx@4.22.4)(typescript@5.7.3):
+  tsup@8.5.1(jiti@1.21.7)(postcss@8.5.15)(tsx@4.22.4)(typescript@6.0.3):
     dependencies:
       bundle-require: 5.1.0(esbuild@0.27.7)
       cac: 6.7.14
@@ -8684,7 +8685,7 @@ snapshots:
       tree-kill: 1.2.2
     optionalDependencies:
       postcss: 8.5.15
-      typescript: 5.7.3
+      typescript: 6.0.3
     transitivePeerDependencies:
       - jiti
       - supports-color
@@ -8703,7 +8704,7 @@ snapshots:
       media-typer: 1.1.0
       mime-types: 3.0.2
 
-  typescript@5.7.3: {}
+  typescript@6.0.3: {}
 
   ufo@1.6.4: {}
 
