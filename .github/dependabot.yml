@@ -1,0 +1,26 @@
+# Dependabot version updates. Pairs with Dependabot alerts + security updates
+# (already active on this repo) for the dependency-vuln half. The npm ecosystem
+# covers the pnpm workspace; weekly cadence + grouping keeps PR volume manageable.
+#
+# Note std-24: shared libraries are single-versioned across the workspace via
+# pnpm.overrides in the root package.json — when a grouped bump touches one of
+# those families (vitest, @vitest/coverage-v8, @types/node), the override must be
+# updated too or the bump won't take effect. Review those PRs with that in mind.
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    groups:
+      # Batch routine minor/patch bumps into one PR to cut review churn;
+      # security updates still arrive individually + promptly.
+      npm-minor-and-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
