@@ -52,7 +52,7 @@
     "@types/d3-force": "3.0.10",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
-    "@vitejs/plugin-react": "^4.3.4",
+    "@vitejs/plugin-react": "^6.0.2",
     "@vitest/coverage-v8": "^4.1.4",
     "autoprefixer": "^10.4.20",
     "jsdom": "^29.0.1",
