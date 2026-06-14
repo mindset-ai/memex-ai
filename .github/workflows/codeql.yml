@@ -27,6 +27,11 @@ concurrency:
   group: codeql-${{ github.ref }}
   cancel-in-progress: true
 
+# Least-privilege default for every job's GITHUB_TOKEN; the analyze job widens it
+# to what CodeQL upload needs. (Flagged by CodeQL's own actions query otherwise.)
+permissions:
+  contents: read
+
 jobs:
   analyze:
     name: Analyze (${{ matrix.language }})
