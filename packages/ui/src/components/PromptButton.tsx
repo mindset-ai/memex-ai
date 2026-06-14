@@ -10,7 +10,7 @@
 
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
-import { BASE_SCAFFOLD, toButtonPrompt, type GuidanceBlock } from '@memex/shared';
+import { BASE_SCAFFOLD, toButtonPrompt, HANDOFF_BUTTON_BY_PHASE, type GuidanceBlock } from '@memex/shared';
 import { Button } from './ui';
 
 export interface PromptButtonProps {
@@ -89,11 +89,17 @@ function TerminalIcon() {
 // calls `get_prompt` to fetch the full scaffold (Org appends included), so this
 // stays a UI-layer projection and the scaffold node text is never edited
 // (get_prompt byte-parity, spec-263). The second line is PHASE-SPECIFIC: the
-// phase word is the lowercased first word of the handoff node `label` (e.g.
-// "Build handoff" → "build"), so each of the three handoffs names its own prompt.
-function buildHandoffStub(context: Record<string, unknown>, label: string): string {
+// phase word is the CANONICAL phase name, looked up from HANDOFF_BUTTON_BY_PHASE
+// (phase→buttonId) inverted. It must NOT come from the node `label`: the specify
+// handoff is historically labelled "Plan handoff", so a label-first-word
+// derivation mislabels the specify phase as "plan" — the phase is `specify`.
+const PHASE_BY_HANDOFF_BUTTON: Readonly<Record<string, string>> = Object.fromEntries(
+  Object.entries(HANDOFF_BUTTON_BY_PHASE).map(([phase, id]) => [id, phase]),
+);
+
+function buildHandoffStub(context: Record<string, unknown>, buttonId: string): string {
   const str = (k: string) => String(context[k] ?? '');
-  const phase = (label.trim().split(/\s+/)[0] ?? '').toLowerCase();
+  const phase = PHASE_BY_HANDOFF_BUTTON[buttonId] ?? '';
   return [
     `Use memex spec: ${str('url')}`,
     `Get the ${phase} prompt from memex and ask the user how they want to proceed.`,
@@ -251,7 +257,7 @@ export function PromptButton({
 
   // spec-282 dec-5(A): in stub mode the dialog shows + copies the short
   // get_prompt stub; otherwise the full scaffold prompt.
-  const dialogPrompt = stub ? buildHandoffStub(context, node.label) : prompt;
+  const dialogPrompt = stub ? buildHandoffStub(context, buttonId) : prompt;
 
   // spec-159 ac-17 — the sentence form. The clickable words (`linkText`, default
   // "Copy") render as a hyperlink-styled <button> (it performs an action, not

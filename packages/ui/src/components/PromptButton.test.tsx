@@ -181,7 +181,8 @@ describe('PromptButton sentence form (spec-159 ac-17)', () => {
 // dismiss); the prompt itself sits on its own bordered canvas, not the guidance.
 describe('PromptButton stub mode + copy feedback (spec-282 dec-5, ac-12)', () => {
   const AC12 = 'mindset-prod/memex-building-itself/specs/spec-282/acs/ac-12';
-  // verify-spec → "Verify handoff" label → phase word "verify".
+  // The phase word is the canonical phase name from HANDOFF_BUTTON_BY_PHASE
+  // (inverted) — verify-spec → 'verify'. NOT the node label.
   const STUB =
     'Use memex spec: https://memex.ai/mindset-prod/memex-building-itself/specs/spec-103\n' +
     'Get the verify prompt from memex and ask the user how they want to proceed.';
@@ -199,6 +200,24 @@ describe('PromptButton stub mode + copy feedback (spec-282 dec-5, ac-12)', () =>
     expect(writeText).not.toHaveBeenCalledWith(full);
     // The stub is meaningfully shorter than the full scaffold payload.
     expect(STUB.length).toBeLessThan(full.length);
+  });
+
+  it('the specify handoff names the "specify" phase, not "plan" (the label says "Plan handoff")', async () => {
+    tagAc(AC12);
+    // Regression: deriving the phase word from the node label gave "plan" for
+    // the specify handoff (labelled "Plan handoff"); it must be the canonical
+    // phase name "specify".
+    const OPEN_PLAN = 'Show the Plan handoff prompt to copy into a coding agent';
+    render(<PromptButton buttonId="plan-handoff" context={CTX} stub />);
+
+    fireEvent.click(screen.getByRole('button', { name: OPEN_PLAN }));
+    fireEvent.click(screen.getByRole('button', { name: 'Copy prompt' }));
+
+    const expected =
+      'Use memex spec: https://memex.ai/mindset-prod/memex-building-itself/specs/spec-103\n' +
+      'Get the specify prompt from memex and ask the user how they want to proceed.';
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(expected));
+    expect(writeText).not.toHaveBeenCalledWith(expect.stringContaining('Get the plan prompt'));
   });
 
   it('without stub the full scaffold prompt is still copied (get_prompt parity preserved)', async () => {

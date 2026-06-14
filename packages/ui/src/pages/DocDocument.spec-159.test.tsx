@@ -23,6 +23,13 @@ import type { DocWithGraph } from '../api/types';
 
 const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-159/acs/ac-${n}`;
 const AC252 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-252/acs/ac-${n}`;
+// spec-283 relocates the review actions off the page; these tests verify the
+// page-side removal (ac-3/ac-9) — the agent-side arrival is in ChatPanel.test.tsx.
+const AC283 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-283/acs/ac-${n}`;
+// spec-287: one prompt per posture in Specify — the review handoff is re-gated
+// to non-editors (!canEdit), and its link is Title Case ("Copy the Review
+// prompt"). Supersedes spec-283 dec-4's "ungated, both postures" clause.
+const AC287 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-287/acs/ac-${n}`;
 
 // ── Heavy children → identity markers so we can see which panel rendered ────
 vi.mock('../components/DecisionPanel', () => ({
@@ -67,9 +74,13 @@ vi.mock('../components/DoneSummary', () => ({
 // ── Hooks: write access + a configurable posture (i-1: the sentence renders
 //    for reviewers too; only the Yes gates on editor posture) ────────────────
 let mockRole: 'editor' | 'reviewer' = 'editor';
+// spec-287: a read-only (non-member) viewer has canWrite=false → canEdit=false,
+// so they fall on the non-editor side of the review-handoff gate. Mutable so a
+// test can drop write access without re-mocking the module.
+let mockCanWrite = true;
 const refetchRole = vi.fn();
 vi.mock('../hooks/useMemexAccess', () => ({
-  useMemexAccess: () => ({ canWrite: true, isReadOnly: false }),
+  useMemexAccess: () => ({ canWrite: mockCanWrite, isReadOnly: !mockCanWrite }),
 }));
 vi.mock('../hooks/useDocRole', () => ({
   useDocRole: () => ({ myRole: mockRole, editors: [], loading: false, refetch: refetchRole }),
@@ -184,6 +195,7 @@ beforeEach(() => {
   promoteToEditor.mockResolvedValue(undefined);
   demoteToReviewer.mockResolvedValue(undefined);
   mockRole = 'editor';
+  mockCanWrite = true;
   docDecisions = [];
   docTasks = [];
   docAcs = [];
@@ -525,6 +537,7 @@ describe('spec-159 — Rubicon line + in-situ directives', () => {
 
   it('editor keeps the phase block — tabs + the Rubicon transition sentence (ac-19)', async () => {
     tagAc(AC(19));
+    tagAc(AC287(1));
     mockRole = 'editor';
     renderAt('specify');
     await screen.findByText('Narrative');
@@ -532,38 +545,38 @@ describe('spec-159 — Rubicon line + in-situ directives', () => {
     // Editors still get the PhaseTabBar (3 phase tabs) and the Rubicon line.
     expect(screen.getAllByRole('tab')).toHaveLength(4);
     expect(screen.getByTestId('transition-sentence')).toBeInTheDocument();
-    // spec-182 dec-3 + issue-3: at Specify the editor keeps ACCESS to the
-    // review actions, but behind a collapsed-by-default disclosure.
-    expect(screen.getByTestId('review-actions-toggle')).toBeInTheDocument();
+    // spec-283 dec-4: the "Review actions" disclosure + button row are GONE
+    // from the page (relocated to the agent's idle state). spec-287 dec-2: the
+    // review-handoff line is now NON-editor-only — an editor sees neither the
+    // toggle, the row, NOR the review handoff. One prompt per posture: the
+    // editor's single Specify-phase prompt is the phase handoff below.
+    expect(screen.queryByTestId('review-actions-toggle')).not.toBeInTheDocument();
     expect(screen.queryByTestId('review-action-row')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('review-handoff-line')).not.toBeInTheDocument();
   });
 
-  // spec-182 issue-3 — the editor's Specify view was visually dominated by the
-  // reviewer workflow (four review buttons + two handoff lines). The user's
-  // call (2026-06-05): collapse, don't remove — editors keep dec-3's access
-  // behind a "Review actions" disclosure; reviewers see it expanded, no chrome.
-  it('editor at Specify: the disclosure expands to the review row + review handoff, and collapses again (issue-3)', async () => {
-    tagAc(AC182(10));
-    tagAc(AC182(11));
+  // spec-283 dec-4 — the "Review actions" disclosure (spec-182 ac-10/ac-11) is
+  // RETIRED: the toggle and the four-button row are deleted from the page (the
+  // actions moved to the agent's idle state). spec-287 dec-2 then SUPERSEDES
+  // spec-283's "review handoff ungated for both postures": one prompt per
+  // posture. For the editor that single prompt is the phase handoff — the
+  // review handoff is NOT shown. (The toggle/row-gone half of spec-283 ac-9
+  // still holds and is still tagged here.)
+  it('editor at Specify: no review disclosure/row, and the review-handoff line is NOT shown — only the phase handoff (spec-287 ac-1/ac-8, supersedes spec-283 dec-4 for editors)', async () => {
+    tagAc(AC283(9));
+    tagAc(AC287(1));
+    tagAc(AC287(8));
+    tagAc(AC287(9)); // the editor's phase handoff still renders (canEdit && handoff)
     mockRole = 'editor';
-    const user = userEvent.setup();
     renderAt('specify');
 
-    const toggle = await screen.findByTestId('review-actions-toggle');
-    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await screen.findByText('Narrative');
+    expect(screen.queryByTestId('review-actions-toggle')).not.toBeInTheDocument();
     expect(screen.queryByTestId('review-action-row')).not.toBeInTheDocument();
+    // spec-287: the review handoff is non-editor-only — absent for the editor.
     expect(screen.queryByTestId('review-handoff-line')).not.toBeInTheDocument();
-    // The editor's own phase handoff is NOT behind the disclosure.
+    // The editor's single Specify-phase prompt: the phase handoff.
     expect(screen.getByTestId('phase-handoff-line')).toBeInTheDocument();
-
-    await user.click(toggle);
-    expect(toggle).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByTestId('review-action-row')).toBeInTheDocument();
-    expect(screen.getByTestId('review-handoff-line')).toBeInTheDocument();
-
-    await user.click(toggle);
-    expect(screen.queryByTestId('review-action-row')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('review-handoff-line')).not.toBeInTheDocument();
   });
 });
 
@@ -586,14 +599,15 @@ describe('spec-182 — unified reviewer phase block', () => {
     tagAc('mindset-prod/memex-building-itself/specs/spec-182/acs/ac-2');
     renderAt('specify');
 
-    await screen.findByTestId('review-action-row');
+    // spec-283: the review-action row is gone; the review-handoff line is the
+    // stable Specify-phase reviewer affordance to anchor on.
+    await screen.findByTestId('review-handoff-line');
     // The PhaseTabBar renders for reviewers too (dec-1) — browse-only.
     expect(screen.getAllByRole('tab')).toHaveLength(4);
     // The Rubicon line renders status-only: present, but no [Yes] (dec-2).
     const sentence = screen.getByTestId('transition-sentence');
     expect(within(sentence).queryByRole('button', { name: 'Yes' })).not.toBeInTheDocument();
-    // issue-3: the collapse disclosure is editor chrome — reviewers get the
-    // row expanded directly, no toggle.
+    // spec-283 dec-4: the "Review actions" disclosure toggle is deleted.
     expect(screen.queryByTestId('review-actions-toggle')).not.toBeInTheDocument();
   });
 
@@ -603,7 +617,7 @@ describe('spec-182 — unified reviewer phase block', () => {
     tagAc(AC252(10)); // spec-252: this header-slot assertion updated to the new location
     const user = userEvent.setup();
     renderAt('specify');
-    await screen.findByTestId('review-action-row');
+    await screen.findByTestId('review-handoff-line');
 
     // spec-252 dec-2: the pill moved OUT of the header slot INTO the in-page
     // phase container, left of the phase bar. It is no longer in the header
@@ -640,46 +654,40 @@ describe('spec-182 — unified reviewer phase block', () => {
     expect(refetchRole).toHaveBeenCalled();
   });
 
-  it('renders the four review-action buttons; clicking one sends the scaffold prompt through chat', async () => {
-    tagAc(AC182(10));
-    tagAc(AC182(11));
-    tagAc(AC182(3));
-    const user = userEvent.setup();
+  // spec-283 ac-3 (retires spec-182 ac-3): the four review buttons are gone
+  // from the page — their behaviour ("clicking one sends the scaffold prompt
+  // through chat") is re-verified on the AGENT surface in ChatPanel.test.tsx.
+  it('reviewer at Specify: no review buttons remain on the page; only the review-handoff line (spec-283 ac-3)', async () => {
+    tagAc(AC283(3));
     renderAt('specify');
 
-    const row = await screen.findByTestId('review-action-row');
+    await screen.findByTestId('review-handoff-line');
+    expect(screen.queryByTestId('review-action-row')).not.toBeInTheDocument();
     for (const label of ['Summarise Spec', 'Security review', 'Design review', 'Architecture review']) {
-      expect(within(row).getByRole('button', { name: label })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: label })).not.toBeInTheDocument();
     }
-
-    await user.click(within(row).getByRole('button', { name: 'Security review' }));
-    expect(chat.sendMessage).toHaveBeenCalledTimes(1);
-    const prompt = chat.sendMessage.mock.calls[0][0] as string;
-    // Non-empty prose resolved from the scaffold, interpolated with the Spec's
-    // own context (the handle appears in the security-review prompt's body? it
-    // references the Spec generically — assert it's a real, non-trivial string).
-    expect(typeof prompt).toBe('string');
-    expect(prompt.length).toBeGreaterThan(20);
-    expect(prompt).toContain('security');
   });
 
-  it('renders the reviewer handoff line — "Copy the review prompt …conduct the review from there."', async () => {
+  it('renders the reviewer handoff line — "Copy the Review prompt …conduct the review from there." (spec-287 ac-2/ac-3/ac-7)', async () => {
     tagAc(AC182(11));
+    tagAc(AC287(2));
+    tagAc(AC287(3));
+    tagAc(AC287(7));
     renderAt('specify');
 
     const line = await screen.findByTestId('review-handoff-line');
+    // spec-287 dec-1: Title Case, matching the Specify/Build/Verify family.
     expect(line.textContent).toContain(
-      'Copy the review prompt into your coding agent if you prefer to conduct the review from there.',
+      'Copy the Review prompt into your coding agent if you prefer to conduct the review from there.',
     );
     // issue-4: the clickable words LEAD the line and NAME the prompt, so
     // adjacent handoff lines are distinguishable from the link text alone.
     const copyButton = within(line).getByRole('button', {
-      name: /^Copy the review prompt/,
+      name: /^Copy the Review prompt/,
     });
-    expect(copyButton.textContent).toBe('Copy the review prompt');
-    // spec-182 issue-2: the phase handoff is an editor affordance — its prompt
-    // drives state changes and building. A reviewer gets the review handoff
-    // ONLY (amends ac-17's "renders for every viewer").
+    expect(copyButton.textContent).toBe('Copy the Review prompt');
+    // spec-182 issue-2 + spec-287 dec-2: a reviewer gets the review handoff
+    // ONLY — one prompt per posture, so the editor's phase handoff is absent.
     expect(screen.queryByTestId('phase-handoff-line')).not.toBeInTheDocument();
   });
 
@@ -823,18 +831,35 @@ describe('spec-159 ac-17 — next-action handoff line', () => {
     expect(screen.queryByTestId('phase-handoff-line')).not.toBeInTheDocument();
   });
 
-  it('a writable reviewer at Specify gets the review handoff ONLY — no phase handoff (spec-182 issue-2)', async () => {
+  it('a writable reviewer at Specify gets the review handoff ONLY — no phase handoff (spec-182 issue-2, spec-287 ac-2)', async () => {
     tagAc(AC182(17));
     tagAc(AC182(11));
+    tagAc(AC287(2));
+    tagAc(AC287(9)); // reviewer sees review-handoff, NOT phase-handoff
     mockRole = 'reviewer';
     renderAt('specify');
 
-    // spec-182 issue-2: the phase handoff is canEdit-gated — the reviewer
-    // keeps dec-3's review handoff at Specify and nothing else.
+    // spec-182 issue-2 + spec-287 dec-2: the phase handoff is canEdit-gated —
+    // the reviewer keeps the review handoff at Specify and nothing else.
     const line = await screen.findByTestId('review-handoff-line');
     expect(line.textContent).toContain(
-      'Copy the review prompt into your coding agent if you prefer to conduct the review from there.',
+      'Copy the Review prompt into your coding agent if you prefer to conduct the review from there.',
     );
+    expect(screen.queryByTestId('phase-handoff-line')).not.toBeInTheDocument();
+  });
+
+  // spec-287 ac-2: a READ-ONLY viewer (non-member: canWrite=false → canEdit=
+  // false) falls on the non-editor side of the gate — they see the review
+  // handoff and NOT the editor's phase handoff, same as a reviewer.
+  it('a read-only viewer at Specify sees the review handoff ONLY — no phase handoff (spec-287 ac-2/ac-9)', async () => {
+    tagAc(AC287(2));
+    tagAc(AC287(9));
+    mockCanWrite = false;
+    mockRole = 'reviewer';
+    renderAt('specify');
+
+    const line = await screen.findByTestId('review-handoff-line');
+    expect(line.textContent).toContain('Copy the Review prompt');
     expect(screen.queryByTestId('phase-handoff-line')).not.toBeInTheDocument();
   });
 });
@@ -933,9 +958,9 @@ describe('spec-252 — coloured phase container', () => {
     expect(screen.queryByTestId('phase-container')).not.toBeInTheDocument();
   });
 
-  it('wraps exactly the phase block (pill, bar, transition, review actions) and excludes the title + content Tabs (ac-11)', async () => {
+  it('wraps exactly the phase block (pill, bar, transition, review handoff) and excludes the title + content Tabs (ac-11)', async () => {
     tagAc(AC252(11));
-    renderAt('specify'); // default role = reviewer (canWrite, !canEdit) → review row expanded
+    renderAt('specify'); // default role = reviewer (canWrite, !canEdit)
     const container = await screen.findByTestId('phase-container');
     await within(container).findByTestId('review-handoff-line');
 
@@ -943,7 +968,9 @@ describe('spec-252 — coloured phase container', () => {
     expect(within(container).getByRole('button', { name: /You are reviewing/ })).toBeInTheDocument();
     expect(within(container).getByRole('tablist', { name: /Spec phase view/i })).toBeInTheDocument();
     expect(within(container).getByTestId('transition-sentence')).toBeInTheDocument();
-    expect(within(container).getByTestId('review-action-row')).toBeInTheDocument();
+    // spec-283 dec-4: the review-action row left the page; the review-handoff
+    // line remains inside the phase container.
+    expect(within(container).queryByTestId('review-action-row')).not.toBeInTheDocument();
     expect(within(container).getByTestId('review-handoff-line')).toBeInTheDocument();
 
     // OUTSIDE: the doc title (no heading inside) and the content Tabs row.
@@ -967,11 +994,10 @@ describe('spec-252 — coloured phase container', () => {
     ).toBeTruthy();
   });
 
-  it('introduces no new functionality — phase indicator, review actions, and CTAs are intact and still work (ac-5)', async () => {
+  it('introduces no new functionality — phase indicator and the review-handoff CTA are intact (ac-5)', async () => {
     tagAc(AC252(5));
-    const user = userEvent.setup();
-    renderAt('specify'); // reviewer: review row + handoff render expanded
-    await screen.findByTestId('review-action-row');
+    renderAt('specify'); // reviewer: the review-handoff line renders
+    await screen.findByTestId('review-handoff-line');
 
     // Phase progress indicator — unchanged: the four-tab pipeline, specify
     // current with its ● dot, browse-only behaviour preserved.
@@ -979,16 +1005,11 @@ describe('spec-252 — coloured phase container', () => {
     expect(phaseTab('specify')).toHaveAttribute('data-current', 'true');
     expect(phaseTab('specify').textContent).toContain('●');
 
-    // Review actions — unchanged: the four review buttons still render…
-    const row = screen.getByTestId('review-action-row');
-    for (const label of ['Summarise Spec', 'Security review', 'Design review', 'Architecture review']) {
-      expect(within(row).getByRole('button', { name: label })).toBeInTheDocument();
-    }
-    // …and still behave: clicking one sends its scaffold prompt through chat.
-    await user.click(within(row).getByRole('button', { name: 'Summarise Spec' }));
-    await waitFor(() => expect(chat.sendMessage).toHaveBeenCalled());
-
-    // Calls-to-action — unchanged: the review handoff "copy prompt" line is present.
+    // spec-283 dec-4: the four review BUTTONS moved to the agent's idle state —
+    // they no longer render on the page. Their click-sends-a-prompt behaviour is
+    // re-verified on the agent surface (ChatPanel.test.tsx). The review-handoff
+    // "copy prompt" CTA stays on the page.
+    expect(screen.queryByTestId('review-action-row')).not.toBeInTheDocument();
     expect(screen.getByTestId('review-handoff-line')).toBeInTheDocument();
   });
 });

@@ -1,4 +1,4 @@
-import { test, expect, tenantPath, emitAcEvents } from "./helpers/index.js";
+import { test, expect, tenantPath, emitAcEvents, ensureUser } from "./helpers/index.js";
 import {
   seedOrgTenant,
   seedSpec,
@@ -145,16 +145,21 @@ test.describe("spec-260 — Build QA Report", () => {
   }) => {
     const slug = resources.slug("j29b");
     const tenant = await seedOrgTenant({ slug });
+    // Attribute the specs to the dev user so the redesigned card's author renders
+    // (spec-286 shows the author; the std-260 "WHO" coverage moves onto it).
+    const devUserId = await ensureUser("dev@memex.ai");
 
     const specA = await seedSpec({
       memexId: tenant.memexId,
       title: "Feed Spec Alpha",
       purpose: "First spec with a QA report.",
+      createdByUserId: devUserId,
     });
     const specB = await seedSpec({
       memexId: tenant.memexId,
       title: "Feed Spec Beta",
       purpose: "Second spec with a QA report.",
+      createdByUserId: devUserId,
     });
 
     // Sequential seeds → distinct created_at → deterministic newest-first.
@@ -188,9 +193,10 @@ test.describe("spec-260 — Build QA Report", () => {
     await expect(rows.nth(0).getByTestId("qa-report-row-spec")).toContainText("Feed Spec Beta");
     await expect(rows.nth(1).getByTestId("qa-report-row-spec")).toContainText("Feed Spec Alpha");
 
-    // WHEN + WHO render on every row; WHICH links to the parent Spec.
+    // WHEN + WHO render on every row; WHICH links to the parent Spec. (spec-286
+    // renders WHO as the author/implementer attribution — here the seeded author.)
     await expect(rows.nth(0).getByTestId("qa-report-row-when")).not.toBeEmpty();
-    await expect(rows.nth(0).getByTestId("qa-report-row-who")).not.toBeEmpty();
+    await expect(rows.nth(0).getByTestId("qa-report-row-author")).not.toBeEmpty();
     await expect(rows.nth(0).getByTestId("qa-report-row-spec")).toHaveAttribute(
       "href",
       new RegExp(`/specs/${specB.handle}$`),

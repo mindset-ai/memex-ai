@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import {
   countUnreadQaReports,
   listQaReports,
+  qaReportTagFacets,
   recordQaReportsView,
 } from "../services/qa-reports.js";
 import { NotFoundError, ValidationError } from "../types/errors.js";
@@ -44,38 +45,64 @@ function parsePositiveInt(raw: string | undefined, field: string): number | unde
   return n;
 }
 
-function parseSince(raw: string | undefined): Date | undefined {
+function parseTimestamp(raw: string | undefined, field: string): Date | undefined {
   if (raw === undefined) return undefined;
   const d = new Date(raw);
   if (Number.isNaN(d.getTime())) {
-    throw new ValidationError("Query param 'since' must be an ISO-8601 timestamp");
+    throw new ValidationError(`Query param '${field}' must be an ISO-8601 timestamp`);
   }
   return d;
 }
 
 // GET /api/<ns>/<mx>/qa-reports — the feed.
 //
-// Query params (both optional):
-//   limit — page size (default 50, capped 200 by listQaReports)
-//   since — ISO-8601 keyset boundary; returns rows strictly OLDER ("Load More")
+// Query params (all optional):
+//   limit      — page size (default 50, capped 200 by listQaReports)
+//   since      — ISO-8601 keyset boundary; returns rows strictly OLDER ("Load More")
+//   tag        — tag id; restrict to reports whose owning Spec carries it (spec-286)
+//   from / to  — ISO-8601 date window; restrict to reports generated within it
+//                (spec-286). tag + (from/to) compose with AND.
 qaReports.get("/", async (c) => {
   const memexId = await resolveReadableMemexId(c);
   const limit = parsePositiveInt(c.req.query("limit"), "limit");
-  const since = parseSince(c.req.query("since"));
+  const since = parseTimestamp(c.req.query("since"), "since");
+  const tagId = c.req.query("tag") || undefined;
+  const from = parseTimestamp(c.req.query("from"), "from");
+  const to = parseTimestamp(c.req.query("to"), "to");
 
-  const rows = await listQaReports({ memexId, limit, since });
+  const rows = await listQaReports({ memexId, limit, since, tagId, from, to });
 
   // Anonymous / non-member projection (the routes/activity.ts convention):
-  // actor_user_id is PII and actor_name a display identity — both are dropped
-  // on the public-read path; actorKind keeps the row legible.
+  // actor_*/author_* are PII / display identity — dropped on the public-read path;
+  // actorKind, phase, and tags stay so the row is still legible + filterable.
   const accessLevel = c.get("currentAccessLevel");
   if (accessLevel !== "write") {
     return c.json(
-      rows.map(({ actorUserId: _u, actorName: _n, ...row }) => row),
+      rows.map(
+        ({
+          actorUserId: _au,
+          actorName: _an,
+          authorUserId: _ru,
+          authorName: _rn,
+          ...row
+        }) => row,
+      ),
     );
   }
 
   return c.json(rows);
+});
+
+// GET /api/<ns>/<mx>/qa-reports/facets — the filter rail's tag tree (spec-286).
+// Returns { total, tags: [{ id, scope, value, count }] } over the WHOLE corpus
+// (not the loaded page), honouring an optional from/to window so the counts stay
+// consistent with an active date filter (AND semantics).
+qaReports.get("/facets", async (c) => {
+  const memexId = await resolveReadableMemexId(c);
+  const from = parseTimestamp(c.req.query("from"), "from");
+  const to = parseTimestamp(c.req.query("to"), "to");
+  const facets = await qaReportTagFacets({ memexId, from, to });
+  return c.json(facets);
 });
 
 // GET /api/<ns>/<mx>/qa-reports/unread — the caller's unread count. Per-user by

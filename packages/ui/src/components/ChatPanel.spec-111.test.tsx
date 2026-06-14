@@ -41,6 +41,13 @@ vi.mock('./ChatContext', () => ({
   }),
 }));
 
+// spec-283: ChatPanel now resolves Org scaffold appends for the idle review
+// block via useOrgScaffoldBlocks (which calls useAuth). These access-state tests
+// render ChatPanel without an AuthProvider, so mock the hook to an empty array.
+vi.mock('../hooks/useOrgScaffoldBlocks', () => ({
+  useOrgScaffoldBlocks: () => [],
+}));
+
 vi.mock('./chat/ChatMarkdown', () => ({
   ChatMarkdown: ({ content }: { content: string }) => <div>{content}</div>,
 }));

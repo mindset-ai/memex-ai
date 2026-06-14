@@ -14,7 +14,7 @@ import type { GuidanceBlock } from '@memex/shared';
 import { useAuth } from './AuthContext';
 import { useChat } from './ChatContext';
 import { CommentTray } from './CommentTray';
-import { Badge, Button, Tabs } from './ui';
+import { Badge, Button } from './ui';
 import { DecisionAcStrip } from './DecisionAcStrip';
 import { PromptButton } from './PromptButton';
 import { TextArea } from './ui/TextArea';
@@ -74,8 +74,6 @@ interface DecisionPanelProps {
   /** Org scaffold appends threaded into toButtonPrompt (spec-159 ac-17). */
   orgBlocks?: readonly GuidanceBlock[];
 }
-
-type TabId = 'candidates' | 'open' | 'resolved';
 
 export function DecisionPanel({ docId, decisions, commentsByDecision = {}, forceShowComments: _forceShowComments, onCommentsChange, onUpdate, highlightDecisionHandle, onJumpToAc, canWrite = true, canEdit = true, specPhase, isDemo = false, promptContext, orgBlocks }: DecisionPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null);
@@ -190,17 +188,15 @@ export function DecisionPanel({ docId, decisions, commentsByDecision = {}, force
     [decisions],
   );
 
-  // Default the visible tab to Candidates when any exist (per t-16 AC), else
-  // Open. We re-evaluate on each render only via the initial state — once the
-  // user clicks a tab their selection wins.
-  const [activeTab, setActiveTab] = useState<TabId>(
-    candidates.length > 0 ? 'candidates' : 'open',
-  );
+  // spec-247 dec-7: the Candidates / Open / Resolved tabs are gone — every
+  // decision renders in one list grouped by state, each card pilled with its
+  // status. No active-tab state to track.
 
-  // ?decision=D-N (or legacy `dec-N` from standard content) — switch to the right
-  // tab for the matching decision's status, then scroll its card into view and
-  // pulse a highlight ring for ~2s. (t-19 W3.1; case-insensitive after doc-26
-  // rename so legacy `[per dec-N]` standard cites still deep-link.)
+  // ?decision=D-N (or legacy `dec-N` from standard content) — scroll the matching
+  // decision card into view and pulse a highlight ring for ~2s. (t-19 W3.1;
+  // case-insensitive after doc-26 rename so legacy `[per dec-N]` standard cites
+  // still deep-link.) Every card is always rendered now (spec-247 dec-7), so
+  // there is no tab to switch first.
   // Re-runs whenever the deep-link handle or the decisions array changes (e.g. SSE
   // refetch updates the list). The highlight clears itself; if the user's already
   // looking at the row, the short ring is the only visual change.
@@ -212,11 +208,7 @@ export function DecisionPanel({ docId, decisions, commentsByDecision = {}, force
     const target = decisions.find((d) => d.seq === seq);
     if (!target) return;
 
-    if (target.status === 'candidate') setActiveTab('candidates');
-    else if (target.status === 'open') setActiveTab('open');
-    else if (target.status === 'resolved') setActiveTab('resolved');
-
-    // Defer to next tick so the tab change has rendered the matching card.
+    // Defer to next tick so any state-driven re-render has settled the card.
     const handle = window.setTimeout(() => {
       const card = panelRef.current?.querySelector<HTMLElement>(
         `[data-decision-seq="D-${seq}"]`,
@@ -345,12 +337,6 @@ export function DecisionPanel({ docId, decisions, commentsByDecision = {}, force
     </div>
   );
 
-  const tabs: Array<{ id: TabId; label: string; count: number; countVariant?: 'default' | 'warning' | 'danger' }> = [
-    { id: 'candidates', label: 'Candidates', count: candidates.length, countVariant: 'warning' },
-    { id: 'open', label: 'Open', count: open.length, countVariant: 'warning' },
-    { id: 'resolved', label: 'Resolved', count: resolved.length },
-  ];
-
   // spec-164 dec-3: gate the invitation, never the content — a draft Spec
   // with zero decisions invites the move to Specify instead of presenting
   // empty tabs. Any existing decisions fall through to the normal render.
@@ -386,22 +372,24 @@ export function DecisionPanel({ docId, decisions, commentsByDecision = {}, force
         </span>
       </div>
 
-      <Tabs tabs={tabs} activeTab={activeTab} onChange={(id) => setActiveTab(id as TabId)} />
+      {/* spec-247 dec-7: ONE list, grouped by state (candidates → open →
+          resolved), each card pilled with its status — no Candidates / Open /
+          Resolved tabs. A truly empty Spec shows one invitation, not three
+          empty lanes. */}
+      {decisions.length === 0 && (
+        <div data-testid="decision-empty" className="text-sm text-muted space-y-1">
+          <p>No decisions yet.</p>
+          <p className="text-xs">While you discuss the spec in chat, the agent watches for choices with multiple options and trade-offs and proposes them as candidates for you to review.</p>
+        </div>
+      )}
 
-      {/* ── Candidates tab ─────────────────────────────────────── */}
-      {activeTab === 'candidates' && (
+      {/* ── Candidates ─────────────────────────────────────────── */}
+      {candidates.length > 0 && (
         <div className="space-y-2 mb-4">
-          {candidates.length === 0 && (
-            <div className="text-sm text-muted space-y-1">
-              <p>No candidate decisions yet.</p>
-              <p className="text-xs">Decisions surface here automatically. While you discuss the spec in chat, the agent watches for choices with multiple options and trade-offs and proposes them as candidates for you to review.</p>
-            </div>
-          )}
-
           {/* spec-247 dec-6 / ac-21 — the boundary marker: candidate review
               (approve / reject) is coding-agent work, and the surface says so
               instead of offering web buttons that half-implement it. */}
-          {candidates.length > 0 && promptContext && (
+          {promptContext && (
             <div data-testid="candidate-mcp-marker" className="rounded-md border border-edge-subtle bg-overlay/30 px-3 py-2">
               <PromptButton
                 buttonId="review-candidates"
@@ -527,15 +515,9 @@ export function DecisionPanel({ docId, decisions, commentsByDecision = {}, force
       )}
 
       {/* ── Open tab ───────────────────────────────────────────── */}
-      {activeTab === 'open' && (
+      {/* ── Open ───────────────────────────────────────────────── */}
+      {open.length > 0 && (
         <div className="space-y-2 mb-4">
-          {open.length === 0 && (
-            <div className="text-sm text-muted space-y-1">
-              <p>No open decisions.</p>
-              <p className="text-xs">Decisions move here once a candidate is confirmed from your coding agent. An open decision is an unresolved choice with options on the table — picking an option records your answer.</p>
-            </div>
-          )}
-
           {open.map((dec) => {
             const isExpanded = !collapsedOpen.has(dec.id);
             const isBusy = busyOpen === dec.id;
@@ -657,16 +639,9 @@ export function DecisionPanel({ docId, decisions, commentsByDecision = {}, force
         </div>
       )}
 
-      {/* ── Resolved tab ───────────────────────────────────────── */}
-      {activeTab === 'resolved' && (
+      {/* ── Resolved ───────────────────────────────────────────── */}
+      {resolved.length > 0 && (
         <div className="space-y-2 mb-4">
-          {resolved.length === 0 && (
-            <div className="text-sm text-muted space-y-1">
-              <p>No resolved decisions yet.</p>
-              <p className="text-xs">Resolved decisions land here once an open decision has been answered by picking an option (or in conversation). They become the durable "this is how we decided" record for the spec.</p>
-            </div>
-          )}
-
           {resolved.map((dec) => {
             const decOpenComments = openCommentCount(dec.id) > 0;
             const isBusy = busyResolved === dec.id;

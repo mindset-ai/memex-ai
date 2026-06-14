@@ -176,12 +176,11 @@ test.describe("doc-16 Wave 1 reactivity journeys", () => {
     expect(resolveResp.ok()).toBeTruthy();
 
     // The decision panel should reflect the resolved state via SSE refetch.
-    // Wait for the Resolved sub-tab's count to land (SSE delivered the event),
-    // then click into it to read the resolution body.
-    await expect(tab.getByRole("button", { name: /^Resolved 1$/ })).toBeVisible({
-      timeout: 15_000,
-    });
-    await tab.getByRole("button", { name: /^Resolved 1$/ }).click();
+    // spec-247 dec-7: no tabs — the resolved decision surfaces directly as a
+    // resolved card whose compact row shows the resolution body.
+    await expect(
+      tab.locator('[data-decision-status="resolved"]').first(),
+    ).toBeVisible({ timeout: 15_000 });
     await expect(tab.getByText("Postgres it is.").first()).toBeVisible({ timeout: 15_000 });
 
     await ctx.close();

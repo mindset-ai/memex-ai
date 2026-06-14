@@ -48,6 +48,7 @@ import { createExecutionPlan } from "../services/execution_plans.js";
 import { addTaskComment } from "../services/comments.js";
 import { createShareToken, listShareTokensForDoc } from "../services/share-tokens.js";
 import { addSection } from "../services/sections.js";
+import { applyTagStrings } from "../services/tags.js";
 import { resolveRole } from "../services/doc-members.js";
 import { listAssignees, assign } from "../services/doc-assignees.js";
 import { updateMemexVisibility } from "../services/memexes.js";
@@ -777,6 +778,25 @@ testOnlyRouter.post("/seed-section", async (c) => {
   const { memexId, docId, title, content = "", sectionType = "context" } = parsed.data;
   const section = await addSection(memexId, docId, sectionType, content, title);
   return c.json({ sectionId: section.id, seq: section.seq });
+});
+
+// spec-286: apply `scope::value`/flat tags to a Spec through the real
+// applyTagStrings service (create-or-pick + per-scope exclusivity), so the QA
+// Reports feed journey can seed the tags its rail filters on without raw SQL.
+const seedTagsSchema = z.object({
+  memexId: z.string().uuid(),
+  docId: z.string().uuid(),
+  tags: z.array(z.string()).min(1),
+});
+testOnlyRouter.post("/seed-tags", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = seedTagsSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
+  }
+  const { memexId, docId, tags } = parsed.data;
+  const applied = await applyTagStrings({ channel: "rest_ui" }, memexId, docId, tags, null);
+  return c.json({ applied: applied.map((t) => ({ id: t.id, scope: t.scope, value: t.value })) });
 });
 
 // Resolve a user's role on a doc (editor / reviewer) through resolveRole — the

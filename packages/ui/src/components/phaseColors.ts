@@ -24,7 +24,7 @@ export interface PhaseColor {
   container: string;
 }
 
-const PALETTE: Record<'draft' | 'specify' | 'build' | 'verify', PhaseColor> = {
+const PALETTE: Record<'draft' | 'specify' | 'build' | 'verify' | 'done', PhaseColor> = {
   draft: {
     pill: 'bg-status-neutral-bg text-status-neutral-text border-status-neutral-border',
     container: 'bg-phase-draft-container',
@@ -41,11 +41,22 @@ const PALETTE: Record<'draft' | 'specify' | 'build' | 'verify', PhaseColor> = {
     pill: 'bg-phase-verify-bg text-phase-verify-text border-phase-verify-border',
     container: 'bg-phase-verify-container',
   },
+  // spec-286 dec-3: `done` is terminal, so it gets a calm NEUTRAL GREY pill
+  // (reusing the same status-neutral tokens as draft) — distinct from the live
+  // build (blue) / verify (teal) hues. The container stays EMPTY: the only
+  // pre-spec-286 caller that reads `.container` is the DocDocument header wash,
+  // where done is handled by DoneSummary, so '' preserves that surface's existing
+  // no-wash behaviour. The feed (spec-286) uses `.pill` only.
+  done: {
+    pill: 'bg-status-neutral-bg text-status-neutral-text border-status-neutral-border',
+    container: '',
+  },
 };
 
 /**
- * The phase's pill + container colours, or `null` for `done` — which keeps its
- * current treatment (the phase bar is hidden at done; DoneSummary takes over).
+ * The phase's pill + container colours. Returns a value for every spec phase
+ * including `done` (spec-286 added the neutral grey done pill); `null` only for
+ * an unknown / non-spec status.
  */
 export function phaseColors(phase: SpecStatus): PhaseColor | null {
   return PALETTE[phase as keyof typeof PALETTE] ?? null;
