@@ -29,6 +29,11 @@ updates:
         # into npm-minor-and-patch), so ignore minor + major to keep it out until 292.
         update-types:
           ["version-update:semver-minor", "version-update:semver-major"]
+      - dependency-name: "@hono/node-server" # 2.x unsupported by @hono/node-ws (voice WS adapter)
+        # #221 over-bumped node-server to 2.0 ahead of its WS adapter (no @hono/node-ws
+        # release peers node-server@2 yet). Reverted to 1.x; ignore major re-proposals
+        # until @hono/node-ws ships 2.x support, then remove this. (spec-292 issue-1)
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "github-actions"
     directory: "/"
