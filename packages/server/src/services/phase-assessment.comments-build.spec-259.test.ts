@@ -42,7 +42,7 @@ function mkComment(o: {
 
 function mkCommentsStatus(comments: OpenComment[]): CommentsStatus {
   return {
-    briefId: "brief-uuid",
+    briefId: "doc-uuid",
     specHandle: "spec-259",
     specTitle: "Surface open comments",
     totalOpen: comments.length,
@@ -54,7 +54,7 @@ function mkCommentsStatus(comments: OpenComment[]): CommentsStatus {
 
 function mkBuildAssessment(over: Partial<PhaseAssessment> = {}): PhaseAssessment {
   return {
-    briefId: "brief-uuid",
+    briefId: "doc-uuid",
     specHandle: "spec-259",
     specTitle: "Surface open comments",
     currentPhase: "specify",
