@@ -52,7 +52,7 @@ jobs:
       ENV: ${{ github.event.client_payload.env || inputs.env || 'prod' }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: pnpm/action-setup@v4
 

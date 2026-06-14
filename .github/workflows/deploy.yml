@@ -49,7 +49,7 @@ jobs:
       ENV: ${{ github.ref_name == 'main' && 'prod' || 'int' }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       # No `version:` here — pnpm/action-setup@v4 reads the pinned version from
       # the root package.json `packageManager` field and errors if both are set.

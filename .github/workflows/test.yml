@@ -89,7 +89,7 @@ jobs:
       MEMEX_EMIT_KEY: ${{ secrets.MEMEX_EMIT_KEY }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       # No `version:` here — pnpm/action-setup@v4 reads the pinned version from
       # the root package.json `packageManager` field and errors if both are set.
@@ -168,7 +168,7 @@ jobs:
           echo "server shards result: ${{ needs.server.result }}"
           exit 1
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
@@ -240,7 +240,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
@@ -255,7 +255,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       # No `version:` here — pnpm/action-setup@v4 reads the pinned version from
       # the root package.json `packageManager` field and errors if both are set.
       - uses: pnpm/action-setup@v4
@@ -280,7 +280,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       # No `version:` here — pnpm/action-setup@v4 reads the pinned version from
       # the root package.json `packageManager` field and errors if both are set.
       - uses: pnpm/action-setup@v4
@@ -354,7 +354,7 @@ jobs:
       MEMEX_ANTHROPIC_FAKE: "1"
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       # No `version:` here — pnpm/action-setup@v4 reads the pinned version from
       # the root package.json `packageManager` field and errors if both are set.
       - uses: pnpm/action-setup@v4
@@ -460,7 +460,7 @@ jobs:
       MEMEX_EMIT_KEY: ${{ secrets.MEMEX_EMIT_KEY }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       # No `version:` here — pnpm/action-setup@v4 reads the pinned version from
       # the root package.json `packageManager` field and errors if both are set.
       - uses: pnpm/action-setup@v4
