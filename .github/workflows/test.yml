@@ -87,6 +87,14 @@ jobs:
       # never in this file; empty until set (harmless pre-enforcement), and what
       # greens the spec-129 ac-5 gate once configured.
       MEMEX_EMIT_KEY: ${{ secrets.MEMEX_EMIT_KEY }}
+      # Dependabot PR runs do NOT receive repo secrets, so MEMEX_EMIT_KEY is empty
+      # for them — which made spec-129-ci-emission-key.test.ts fail closed (emission
+      # ON + no key) and blocked EVERY dependabot PR on the required server-result
+      # check. Dependabot runs aren't an authoritative emission context anyway, so
+      # turn emission OFF for them: the spec-129 test then skips by design
+      # (it.skipIf(!isEmissionEnabled())) and no bogus unauthenticated emission is
+      # attempted. Non-dependabot runs are unchanged (emission on, real key).
+      MEMEX_EMIT: ${{ github.actor == 'dependabot[bot]' && 'false' || '' }}
 
     steps:
       - uses: actions/checkout@v6
@@ -458,6 +466,14 @@ jobs:
       # never in this file; empty until set (harmless pre-enforcement), and what
       # greens the spec-129 ac-5 gate once configured.
       MEMEX_EMIT_KEY: ${{ secrets.MEMEX_EMIT_KEY }}
+      # Dependabot PR runs do NOT receive repo secrets, so MEMEX_EMIT_KEY is empty
+      # for them — which made spec-129-ci-emission-key.test.ts fail closed (emission
+      # ON + no key) and blocked EVERY dependabot PR on the required server-result
+      # check. Dependabot runs aren't an authoritative emission context anyway, so
+      # turn emission OFF for them: the spec-129 test then skips by design
+      # (it.skipIf(!isEmissionEnabled())) and no bogus unauthenticated emission is
+      # attempted. Non-dependabot runs are unchanged (emission on, real key).
+      MEMEX_EMIT: ${{ github.actor == 'dependabot[bot]' && 'false' || '' }}
 
     steps:
       - uses: actions/checkout@v6
