@@ -16,8 +16,9 @@
     "dotenv": "^17.4.2",
     "drizzle-orm": "^0.45.2",
     "postgres": "^3.4.5",
-    "tree-sitter-wasms": "^0.1.12",
-    "web-tree-sitter": "^0.25.1"
+    "tree-sitter-python": "^0.25.0",
+    "tree-sitter-typescript": "^0.23.2",
+    "web-tree-sitter": "^0.26.9"
   },
   "devDependencies": {
     "@types/node": "^25.9.3",
