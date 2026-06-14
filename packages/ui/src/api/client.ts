@@ -411,15 +411,13 @@ export async function stampGreeting(): Promise<void> {
   if (!res.ok) throw new Error(`Failed to stamp greeting: ${res.status}`);
 }
 
+// spec-293 dec-2/dec-3: a move is always whole — no per-artifact opt-out flags.
 export interface MoveDocInput {
   targetMemexId: string;
-  includeDecisions: boolean;
-  includeTasks: boolean;
-  includeSectionComments: boolean;
 }
 
 export interface MoveDocResponse {
-  doc: { id: string; handle: string; memexId: string; title: string };
+  docId: string;
   fromMemexId: string;
   toMemexId: string;
   newHandle: string;

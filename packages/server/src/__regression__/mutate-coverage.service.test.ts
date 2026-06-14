@@ -246,17 +246,25 @@ describe("doc-16 t-12: service coverage — every Mutated<T> service emits on th
     const toMemex = await makeTestMemex("mvto");
     const doc = await documentsSvc.createDocDraft(fromMemex, "To move", "Move me", "spec");
 
-    // Enrol the dev user as administrator on the target org so the permission check passes.
+    // Enrol the dev user on BOTH org(s) — spec-293's move_doc checks membership in
+    // the source AND target memex (the request path gates source via session
+    // middleware, but the service contract enforces both).
     const { upsertUserByEmail } = await import("../services/users.js");
     const { orgMemberships, memexes, namespaces } = await import("../db/schema.js");
-    const targetMemexRow = await db.query.memexes.findFirst({ where: eq(memexes.id, toMemex) });
-    const targetNs = await db.query.namespaces.findFirst({
-      where: eq(namespaces.id, targetMemexRow!.namespaceId),
-    });
+    const orgIdOf = async (memexId: string): Promise<string> => {
+      const m = await db.query.memexes.findFirst({ where: eq(memexes.id, memexId) });
+      const ns = await db.query.namespaces.findFirst({
+        where: eq(namespaces.id, m!.namespaceId),
+      });
+      return ns!.ownerOrgId!;
+    };
     const dev = await upsertUserByEmail("dev@memex.ai");
     await db
       .insert(orgMemberships)
-      .values({ userId: dev.id, orgId: targetNs!.ownerOrgId!, role: "administrator" })
+      .values([
+        { userId: dev.id, orgId: await orgIdOf(fromMemex), role: "administrator" },
+        { userId: dev.id, orgId: await orgIdOf(toMemex), role: "administrator" },
+      ])
       .onConflictDoNothing();
 
     const seen: { memexId: string; entity: ChangeEntity; action: ChangeAction }[] = [];
@@ -266,10 +274,10 @@ describe("doc-16 t-12: service coverage — every Mutated<T> service emits on th
       }
     });
     try {
-      await docMoveSvc.moveDoc(fromMemex, doc.id, toMemex, dev.id, {
-        includeDecisions: false,
-        includeTasks: false,
-        includeSectionComments: false,
+      await docMoveSvc.moveDoc(fromMemex, doc.id, toMemex, {
+        actorUserId: dev.id,
+        actorName: "dev",
+        channel: "rest_ui",
       });
     } finally {
       unsubscribe();
