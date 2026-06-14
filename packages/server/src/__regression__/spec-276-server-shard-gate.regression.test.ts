@@ -84,7 +84,7 @@ describe("spec-276 — the server suite is sharded but the coverage gate is inta
     expect(server, "shard uploads its coverage blob").toMatch(/upload-artifact/);
     expect(server).toMatch(/\.vitest-reports/);
     // MUST include hidden files: vitest writes the blob into `.vitest-reports/`
-    // (a dot-dir) and upload-artifact@v4 excludes hidden files by default — without
+    // (a dot-dir) and upload-artifact excludes hidden files by default — without
     // this the upload finds nothing and server-result fails closed on 0 blobs.
     // (Caught by PR #169's first CI run; this assertion pins the fix.)
     expect(server, "blob upload includes hidden files").toMatch(/include-hidden-files:\s*true/);

@@ -17,8 +17,8 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
-    "@langchain/core": "^1.1.38",
-    "@langchain/langgraph": "^1.2.6",
+    "@langchain/core": "^1.1.49",
+    "@langchain/langgraph": "^1.4.2",
     "@memex/guide-sdk": "workspace:*",
     "@memex/shared": "workspace:*",
     "@nivo/bar": "0.99.0",
@@ -35,9 +35,9 @@
     "pixi.js": "8.19.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "react-markdown": "^9.0.1",
+    "react-markdown": "^10.1.0",
     "react-resizable-panels": "^4.8.0",
-    "react-router-dom": "^7.1.0",
+    "react-router-dom": "^7.17.0",
     "rehype-highlight": "^7.0.1",
     "rehype-raw": "^7.0.0",
     "remark-breaks": "^4.0.0",
@@ -50,16 +50,16 @@
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
     "@types/d3-force": "3.0.10",
-    "@types/react": "^19.0.0",
+    "@types/react": "^19.2.17",
     "@types/react-dom": "^19.0.0",
-    "@vitejs/plugin-react": "^4.3.4",
-    "@vitest/coverage-v8": "^4.1.4",
+    "@vitejs/plugin-react": "^6.0.2",
+    "@vitest/coverage-v8": "^4.1.8",
     "autoprefixer": "^10.4.20",
     "jsdom": "^29.0.1",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.17",
     "typescript": "~5.7.2",
-    "vite": "^6.0.5",
-    "vitest": "^4.1.1"
+    "vite": "^8.0.16",
+    "vitest": "^4.1.8"
   }
 }

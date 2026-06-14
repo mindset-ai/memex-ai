@@ -29,7 +29,7 @@ jobs:
     name: semgrep
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           # Full history so --baseline-commit can diff against the PR base.
           fetch-depth: 0
