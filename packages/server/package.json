@@ -59,7 +59,7 @@
     "@memex/shared": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.27.1",
     "@slack/web-api": "^7.17.0",
-    "cohere-ai": "^7.21.0",
+    "cohere-ai": "^8.0.0",
     "dotenv": "^17.4.2",
     "drizzle-orm": "^0.45.2",
     "google-auth-library": "^10.7.0",
