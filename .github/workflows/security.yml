@@ -2,16 +2,16 @@
 #
 # Complements CodeQL (codeql.yml): CodeQL is the deep dataflow engine, Semgrep
 # adds fast pattern-based rules (incl. a broad secrets pack) from the public
-# registry. Both gate `develop` — the integration branch — so issues are caught
-# before work is promoted to main/prod (std-21), not after.
+# registry. Gates `develop` so issues are caught before promotion to main/prod.
 #
-# Semgrep runs on source only (no pnpm install needed); --error fails the job on
-# a finding, surfaced in the Actions log.
+# RATCHET, not big-bang: the repo has pre-existing findings (tracked separately).
+# We scan diff-aware against the PR base (--baseline-commit) so the check fails
+# only on findings a PR *introduces* — new security debt is blocked, legacy debt
+# is burned down on its own track without holding every PR hostage. Semgrep runs
+# on source only (no pnpm install needed); findings surface in the Actions log.
 name: Security
 
 on:
-  push:
-    branches: [develop]
   pull_request:
     branches: [develop]
   workflow_dispatch:
@@ -20,7 +20,6 @@ on:
 permissions:
   contents: read
 
-# One run per ref; supersede an in-flight run when a newer commit lands.
 concurrency:
   group: security-${{ github.ref }}
   cancel-in-progress: true
@@ -31,6 +30,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history so --baseline-commit can diff against the PR base.
+          fetch-depth: 0
 
       # pipx is preinstalled on GitHub-hosted ubuntu runners; isolates semgrep
       # from system Python (avoids PEP-668 "externally managed" errors).
@@ -39,11 +41,18 @@ jobs:
 
       # Public registry packs for this repo's stack (TS/JS/React/Node + GitHub
       # Actions) plus generic security + secret detection. --error fails on a
-      # finding; --metrics off keeps it offline-friendly. node_modules and
-      # .gitignored paths are skipped automatically; generated/output dirs and
-      # the e2e fixtures are excluded to cut noise.
-      - name: Semgrep scan (gate on findings)
+      # NEW finding (relative to the baseline); --metrics off keeps it offline.
+      # The base SHA goes through an env var, never inline ${{…}} in run: (that's
+      # the very shell-injection pattern these rules flag).
+      - name: Semgrep diff scan (gate on new findings)
+        env:
+          SEMGREP_BASELINE: ${{ github.event.pull_request.base.sha }}
         run: |
+          BASELINE_ARG=""
+          if [ -n "$SEMGREP_BASELINE" ]; then
+            git fetch --no-tags --depth=1 origin "$SEMGREP_BASELINE" 2>/dev/null || true
+            BASELINE_ARG="--baseline-commit $SEMGREP_BASELINE"
+          fi
           semgrep scan \
             --config p/security-audit \
             --config p/secrets \
@@ -56,4 +65,5 @@ jobs:
             --metrics off \
             --exclude dist \
             --exclude coverage \
-            --exclude '**/drizzle/**'
+            --exclude '**/drizzle/**' \
+            $BASELINE_ARG
