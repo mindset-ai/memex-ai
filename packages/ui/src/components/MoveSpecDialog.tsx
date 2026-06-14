@@ -34,16 +34,29 @@ export function MoveSpecDialog({
   const { session } = useAuth();
   const currentTenant = getCurrentTenant();
   const currentNamespace = currentTenant?.namespace ?? null;
+  const currentMemexSlug = currentTenant?.memex ?? null;
 
   const destinations = useMemo<MembershipSummary[]>(() => {
     if (!session) return [];
+    if (currentNamespace === null) return []; // not in a tenant — refuse all
     return session.memberships.filter((m) => {
-      // Exclude the memex we're currently on.
-      if (currentNamespace === null) return false; // not in a tenant — refuse all
-      if (m.slug === currentNamespace) return false;
+      // Exclude only the exact memex we're currently on. A namespace slug is
+      // shared by every memex in an org, so matching on slug alone would drop
+      // all the org's other memexes — match on (namespace + memex) instead, the
+      // same key MemexSwitcher uses to identify the current memex.
+      if (
+        m.slug === currentNamespace &&
+        (m.memexSlug ?? null) === currentMemexSlug
+      ) {
+        return false;
+      }
+      // Move requires write access on the destination; visited (read-only)
+      // memexes can't be move targets. Read-only is opt-in via an explicit
+      // 'read'/'visited' — an absent accessLevel means full access (std-4).
+      if (m.accessLevel === 'read' || m.source === 'visited') return false;
       return true;
     });
-  }, [session, currentNamespace]);
+  }, [session, currentNamespace, currentMemexSlug]);
 
   const [targetMemexId, setTargetMemexId] = useState<string>(
     destinations[0]?.memexId ?? '',
@@ -61,6 +74,15 @@ export function MoveSpecDialog({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose, submitting]);
+
+  // Keep a valid destination selected once the membership list resolves (the
+  // session can load after mount, leaving the initial state empty).
+  useEffect(() => {
+    if (destinations.length === 0) return;
+    if (!destinations.some((m) => m.memexId === targetMemexId)) {
+      setTargetMemexId(destinations[0].memexId);
+    }
+  }, [destinations, targetMemexId]);
 
   const chosen = destinations.find((m) => m.memexId === targetMemexId);
 
