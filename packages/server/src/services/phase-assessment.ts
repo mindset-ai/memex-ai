@@ -11,6 +11,7 @@ import {
   STALE_THRESHOLD_DAYS,
 } from "./acs.js";
 import { NotFoundError, ValidationError } from "../types/errors.js";
+import { assessCommentsStatus, type CommentsStatus } from "./comment-assessment.js";
 import { getReadyTasks } from "./tasks.js";
 import { parsePhaseDescriptions } from "../mcp/phase-descriptions.js";
 import { listOrgScaffoldAdditionsCached } from "./scaffold-additions-cache.js";
@@ -23,6 +24,8 @@ import {
   computeSpecReadiness,
   isForwardTransition,
   toRubric,
+  timeAgo,
+  capitalizeDisplayName,
   type SpecPhase,
   type SpecReadiness,
   type GuidanceBlock,
@@ -324,6 +327,16 @@ export interface PhaseAssessment {
    * verbatim prompt under `## Code grounding`.
    */
   codeGroundingPromptPending?: boolean;
+  /**
+   * spec-259 t-3: the open-comment survey for this Spec (anchor-kind grouping +
+   * per-comment WHO/WHEN), populated ONLY on the specify→build transition so
+   * `formatPhaseAssessment` can render an enriched "## Open comments" block
+   * (grouped by anchor kind, oldest age per group, per-comment author + age +
+   * anchor + snippet) without a second DB call. `undefined` for other targets,
+   * keeping their fact sheet counts-only. The render is purely a function of
+   * this snapshot, so the formatter stays DB-free and unit-testable.
+   */
+  openCommentsDetail?: CommentsStatus;
 }
 
 // spec-120 ac-3: open-comments on a Spec, both as a total AND broken down by
@@ -628,6 +641,17 @@ export async function assessPhaseTransition(
     taskIdSet,
   );
 
+  // spec-259 t-3: on the specify→build gate, pull the full open-comment survey
+  // (anchor-kind grouping + per-comment WHO/WHEN) so the rendered block can
+  // surface WHO raised WHAT and HOW STALE it is, not just a count. Scoped to
+  // `build` so other transitions keep their counts-only fact sheet and skip the
+  // extra query. The total here matches `openComments.total` (same open-set
+  // basis: resolved_at IS NULL).
+  const openCommentsDetail =
+    targetPhase === "build"
+      ? await assessCommentsStatus(memexId, briefId)
+      : undefined;
+
   // spec-120 ac-1: AC verification roll-up drawn from the same `test_events`
   // derivation `list_acs` uses, so the gate and `list_acs` can never silently
   // disagree. Drives the `done` hold signal below (ac-2) and the fact sheet.
@@ -761,6 +785,26 @@ export async function assessPhaseTransition(
     }
   }
 
+  // spec-259 t-3: open-comment SOFT nudge on the specify→build gate (ac-6).
+  // Advancing into build while comments are still open means unanswered
+  // questions / unresolved notes ride into execution unseen. SOFT only — it
+  // adds a nudge that NAMES the count + oldest age but NEVER holds the
+  // transition (update_doc({status:'build'}) still succeeds, ac-11), mirroring
+  // the firmness of the open-Issues-at-done and missing-core-lens warnings, NOT
+  // the naked-decision hold. Fires only when open comments exist; 0 open → no
+  // nudge. specDrift's hard verify-scope is left untouched — this is the
+  // build-phase analogue.
+  if (targetPhase === "build" && openCommentsDetail && openCommentsDetail.totalOpen > 0) {
+    const n = openCommentsDetail.totalOpen;
+    const oldest = openCommentsDetail.comments[0]?.createdAt ?? null;
+    const oldestAge = oldest ? timeAgo(oldest) : "unknown age";
+    nudges.push(
+      `There ${n === 1 ? "is" : "are"} ${n} open comment${n === 1 ? "" : "s"} on this Spec ` +
+        `(oldest ${oldestAge}). Walk the user through them before build — answer the questions, ` +
+        `fold accepted notes into the narrative, and resolve them — or proceed if they're not blockers.`,
+    );
+  }
+
   // Code-grounding self-classification (doc-27). Only applies on the
   // specify→build transition (`target === 'build'`). On other targets the
   // parameter is silently ignored — no prompt, no nudge, no behaviour change.
@@ -838,6 +882,7 @@ export async function assessPhaseTransition(
     nudges,
     codeGrounding: effectiveCodeGrounding,
     codeGroundingPromptPending: codeGroundingPromptPending || undefined,
+    openCommentsDetail,
   };
 }
 
@@ -887,6 +932,28 @@ export function formatPhaseAssessment(assessment: PhaseAssessment): string {
     for (const [type, count] of byType) {
       lines.push(`  - ${type}: ${count}`);
     }
+  }
+  // spec-259 t-3: on the specify→build gate, enrich the open-comment block —
+  // grouped by anchor kind (decision-anchored vs section-anchored), oldest age
+  // per group via timeAgo, and a per-comment WHO/WHEN list (author + age +
+  // anchor handle/title + snippet). Rendered ONLY when `openCommentsDetail` is
+  // present (build target) and there are open comments; other targets keep the
+  // counts-only view above (ac-1).
+  if (assessment.openCommentsDetail && assessment.openCommentsDetail.totalOpen > 0) {
+    const groups = assessment.openCommentsDetail.byAnchorKind;
+    const renderGroup = (label: string, g: typeof groups.decision): void => {
+      if (g.count === 0) return;
+      const age = g.oldestCreatedAt ? timeAgo(g.oldestCreatedAt) : "unknown age";
+      lines.push(`  - ${label}: ${g.count} (oldest ${age})`);
+      for (const c of g.comments) {
+        const targetTitle = c.target.title ? ` "${c.target.title}"` : "";
+        lines.push(
+          `    - ${capitalizeDisplayName(c.author)} ${timeAgo(c.createdAt)} on ${c.target.kind} ${c.target.handle}${targetTitle} [${c.type}]: ${c.contentSnippet}`,
+        );
+      }
+    };
+    renderGroup("Decision-anchored", groups.decision);
+    renderGroup("Section-anchored", groups.section);
   }
   lines.push(`- Open/converted Issues: ${f.openIssuesCount}`);
   // spec-120 ac-1: AC verification state, from the same test_events derivation

@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { listDocs, getDoc, updateDocStatus, updateDocTitle, archiveDoc, pauseDoc, unpauseDoc } from "../services/documents.js";
 import { restCtx } from "./_actor-ctx.js";
-import { moveDoc, ForbiddenError } from "../services/doc-move.js";
+import { moveDoc } from "../services/doc-move.js";
 import { splitSection, updateSection } from "../services/sections.js";
 import { listDecisions } from "../services/decisions.js";
 import { listTasks } from "../services/tasks.js";
@@ -261,13 +261,9 @@ docs.post("/:id/unpause", async (c) => {
 
 docs.post("/:id/move", async (c) => {
   const memexId = requireMemexId(c);
-  const user = c.get("user");
   const id = c.req.param("id");
   const body = (await c.req.json().catch(() => null)) as {
     targetMemexId?: unknown;
-    includeDecisions?: unknown;
-    includeTasks?: unknown;
-    includeSectionComments?: unknown;
   } | null;
 
   const targetMemexId = body?.targetMemexId;
@@ -275,19 +271,12 @@ docs.post("/:id/move", async (c) => {
     throw new ValidationError("Body must include a 'targetMemexId' string");
   }
 
-  try {
-    const result = await moveDoc(memexId, id, targetMemexId, user.id, {
-      includeDecisions: Boolean(body?.includeDecisions),
-      includeTasks: Boolean(body?.includeTasks),
-      includeSectionComments: Boolean(body?.includeSectionComments),
-    });
-    return c.json(result);
-  } catch (err) {
-    if (err instanceof ForbiddenError) {
-      return c.json({ error: "Forbidden", message: err.message }, 403);
-    }
-    throw err;
-  }
+  // spec-293 dec-2/dec-3: a move is always whole — no per-artifact opt-out. The
+  // RequestCtx carries the actor + rest_ui channel onto both emitted events
+  // (dec-5). Authorization/not-found are raised inside move_doc and surfaced as
+  // 404 (std-7) by moveDoc's translation — no special-casing here.
+  const result = await moveDoc(memexId, id, targetMemexId, restCtx(c));
+  return c.json(result);
 });
 
 docs.post("/:id/title", async (c) => {

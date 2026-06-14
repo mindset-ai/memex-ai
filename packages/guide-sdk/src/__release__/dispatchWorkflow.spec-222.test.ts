@@ -42,7 +42,7 @@ describe('spec-222 t-13: cross-repo corpus refresh workflow (ac-21)', () => {
     expect(yaml).toMatch(/repository_dispatch:/);
     expect(yaml).toMatch(/website-content-changed/);
     // Privileged auth (CI/WIF), exactly like deploy.yml.
-    expect(yaml).toMatch(/google-github-actions\/auth@v2/);
+    expect(yaml).toMatch(/google-github-actions\/auth@v3/);
     expect(yaml).toMatch(/workload_identity_provider/);
     // It must NOT call the public anonymous routes (dec-4) — it refreshes via the
     // privileged import script over the Cloud SQL proxy, not an HTTP hit on the endpoint.

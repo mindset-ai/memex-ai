@@ -27,6 +27,7 @@ import {
   validateSlugFormat,
 } from "./shared/slug.js";
 import { ConflictError, ValidationError } from "../types/errors.js";
+import { pgError } from "./shared/pg-error.js";
 import { isFreeEmailDomain } from "./free-email-domains.js";
 import { mutate, type Mutated } from "./mutate.js";
 import { primaryMemexIdForOrg } from "./shared/memex-ownership.js";
@@ -137,7 +138,7 @@ export async function createOrgWithOwner(
           return { org, namespace: updatedNamespace, membership };
         });
       } catch (err) {
-        if (err && typeof err === "object" && "code" in err && (err as { code?: string }).code === "23505") {
+        if (pgError(err)?.code === "23505") {
           throw new ConflictError(`Slug '${slug}' is already taken`);
         }
         throw err;

@@ -22,6 +22,8 @@ import {
   GET_PROMPT_PROSE,
   toNudge,
   toHandoffEssence,
+  timeAgo,
+  capitalizeDisplayName,
   type GuidanceBlock,
   type PhaseNode,
 } from "@memex/shared";
@@ -476,7 +478,10 @@ export function formatComment(
     headerLines.push(`ref: ${ref}`);
   }
   headerLines.push(
-    `${status}${badge} **${comment.authorName}** (${formatDate(comment.createdAt)}):`,
+    // spec-259 t-3: comment byline shows WHO (title-cased) + WHEN (relative) —
+    // `timeAgo` surfaces staleness at a glance; `formatDate` stays for the
+    // non-comment callers above.
+    `${status}${badge} **${capitalizeDisplayName(comment.authorName)}** (${timeAgo(comment.createdAt)}):`,
     comment.content,
   );
   const refLine = commentReferenceLine(comment, lookup);

@@ -50,6 +50,7 @@
 // but IS NOT TRUE is robust against any legacy NULL and reads as the intent).
 
 import { sql } from "drizzle-orm";
+import { timeAgo, capitalizeDisplayName } from "@memex/shared";
 import { db } from "../db/connection.js";
 import {
   resolveEmbeddingProvider,
@@ -151,6 +152,15 @@ export interface MatchingSection {
   content: string;
   /** Which search method surfaced this section first. */
   matchedVia: SearchStrategy;
+  /** WHO — best-effort display name of who last touched THIS section (spec-259
+   *  ac-9). Carried per-section so a multi-section doc hit surfaces each
+   *  matched section's own creator, not just the doc-level latest. Same SQL
+   *  COALESCE(actor_name, users.name, users.email) resolution as the doc-level
+   *  WHO. null when nothing resolved. Wire/structured value — kept absolute. */
+  authorName: string | null;
+  /** WHEN — ISO-8601 last-modified of THIS section (spec-259 ac-9). Absolute
+   *  ISO on the structured object; rendered relative via timeAgo(). */
+  lastUpdatedAt: string | null;
 }
 
 export interface MemexSearchHit {
@@ -199,6 +209,12 @@ export interface MemexSearchHit {
    *  carry no `updated_at`). null only when no timestamp was selected
    *  (navigation-only lanes). */
   lastUpdatedAt: string | null;
+  /** Open (unresolved) comments anchored on this hit's doc (spec-259 ac-12). A
+   *  lightweight indicator only — count + oldest open comment's age — never the
+   *  comment content. `oldestCreatedAt` is absolute ISO on the structured
+   *  object; rendered relative via timeAgo(). Omitted (undefined) when the hit
+   *  has zero open comments, so the formatter renders no indicator line. */
+  openComments?: { count: number; oldestCreatedAt: string };
 }
 
 export interface SearchMemexOptions {
@@ -363,6 +379,64 @@ function toIso(value: string | Date | null | undefined): string | null {
   return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }
 
+// spec-259 ac-12: batch-load the open (unresolved) comment count + oldest open
+// comment timestamp for a set of doc ids, in ONE grouped query (no N+1). Keyed
+// by doc_id — a comment transitively belongs to a doc via its section/decision/
+// task target, but doc_id is denormalised on the row (schema comment), so we
+// group on it directly. `resolved_at IS NULL` is the open predicate. Returns a
+// Map doc_id → { count, oldestCreatedAt(ISO) }; absent keys have zero open
+// comments. No comment CONTENT is selected — indicator only.
+interface OpenCommentRow {
+  doc_id: string;
+  open_count: number | string;
+  oldest_created_at: string | Date;
+}
+
+async function loadOpenCommentSummaries(
+  docIds: string[],
+): Promise<Map<string, { count: number; oldestCreatedAt: string }>> {
+  const summaries = new Map<string, { count: number; oldestCreatedAt: string }>();
+  if (docIds.length === 0) return summaries;
+  // De-dupe the id set (decision/section hits can share a parent doc) so the
+  // IN-list is minimal.
+  const uniqueIds = Array.from(new Set(docIds));
+  const idList = sql.join(
+    uniqueIds.map((id) => sql`${id}::uuid`),
+    sql`, `,
+  );
+  const rows = (await db.execute(sql`
+    SELECT
+      doc_id                AS doc_id,
+      COUNT(*)              AS open_count,
+      MIN(created_at)       AS oldest_created_at
+    FROM doc_comments
+    WHERE doc_id IN (${idList})
+      AND resolved_at IS NULL
+    GROUP BY doc_id
+  `)) as unknown as OpenCommentRow[];
+  for (const r of rows) {
+    const count = Number(r.open_count);
+    const oldestCreatedAt = toIso(r.oldest_created_at);
+    if (count > 0 && oldestCreatedAt) {
+      summaries.set(r.doc_id, { count, oldestCreatedAt });
+    }
+  }
+  return summaries;
+}
+
+// spec-259 ac-12: attach the open-comment indicator to each hit by its parent
+// doc. Mutates in place and returns the same array. A decision/section hit
+// inherits its parent doc's open-comment summary (the indicator is doc-scoped).
+async function attachOpenComments(hits: MemexSearchHit[]): Promise<MemexSearchHit[]> {
+  if (hits.length === 0) return hits;
+  const summaries = await loadOpenCommentSummaries(hits.map((h) => h.parentDocId));
+  for (const hit of hits) {
+    const summary = summaries.get(hit.parentDocId);
+    if (summary) hit.openComments = summary;
+  }
+  return hits;
+}
+
 // ── Public entry point ─────────────────────────────────
 
 export async function searchMemex(
@@ -386,7 +460,7 @@ export async function searchMemex(
   //    through to FTS/vector.)
   if (HANDLE_REGEX.test(trimmed)) {
     const direct = await lookupByHandle(memexId, slugs, trimmed, includeArchived);
-    if (direct) return [direct];
+    if (direct) return attachOpenComments([direct]);
     // Fall through to fuzzy search if nothing matched (the user might have
     // typed a handle that doesn't exist; better to show paraphrase candidates
     // than an empty result).
@@ -469,7 +543,7 @@ export async function searchMemex(
     issueTasks[1],
   ]);
 
-  return mergeWithRrf(
+  const merged = mergeWithRrf(
     sectionFts as SectionRow[],
     sectionVector as SectionRow[],
     decisionFts as DecisionRow[],
@@ -479,6 +553,10 @@ export async function searchMemex(
     slugs,
     limit,
   );
+
+  // spec-259 ac-12: enrich the (already-capped) result set with open-comment
+  // indicators in one grouped query — batched over the result docs, never N+1.
+  return attachOpenComments(merged);
 }
 
 // ── Direct lookup ──────────────────────────────────────
@@ -558,6 +636,11 @@ async function lookupByHandle(
       title: r.section_title,
       content: r.section_content,
       matchedVia: "handle",
+      // spec-259 ac-9: per-section WHO/WHEN. The handle row has no resolved
+      // creator fallback per-section, so use the section's denormalised
+      // actor_name (std-32), else the doc-level resolved creator fallback.
+      authorName: r.section_actor_name?.trim() || docAuthorFallback,
+      lastUpdatedAt: toIso(r.section_updated_at),
     })),
   };
 }
@@ -1237,6 +1320,10 @@ function mergeWithRrf(
           title: r.section_title,
           content: r.section_content,
           matchedVia: via,
+          // spec-259 ac-9: per-section WHO/WHEN so each matched section's own
+          // creator surfaces, not just the doc-level most-recent one.
+          authorName: r.author_name?.trim() || null,
+          lastUpdatedAt: toIso(r.updated_at),
         });
       }
     }
@@ -1376,20 +1463,48 @@ export interface FormatOptions {
    *  `includeCurrentDoc: true` (the default excludes the current doc from
    *  results entirely, so this never fires). */
   currentDocId?: string;
+  /** Injectable "now" for relative-age rendering (spec-259 dec-5). Tests pass a
+   *  fixed clock so `timeAgo()` output is deterministic; production omits it and
+   *  the helpers default to the real wall clock. */
+  now?: Date;
 }
 
-// spec-285: the WHO/WHEN byline appended to a hit's heading, e.g.
-// ` · Ryan Soosayraj, 2026-05-28`. Legible to a human and parseable by an agent
-// (` · <author>, <YYYY-MM-DD>`). Degrades gracefully: author-only, date-only, or
-// nothing at all when neither resolved. The date is the calendar day of the ISO
-// timestamp — enough for "when it last changed" without clock noise.
-function formatHitByline(hit: MemexSearchHit): string {
-  const author = hit.authorName?.trim() || null;
-  const date = hit.lastUpdatedAt ? hit.lastUpdatedAt.slice(0, 10) : null;
-  if (author && date) return ` · ${author}, ${date}`;
+// spec-285 + spec-259: the WHO/WHEN byline appended to a hit's heading, e.g.
+// ` · Ryan Soosayraj, 3d ago`. Legible to a human and parseable by an agent
+// (` · <author>, <relative-age>`). Degrades gracefully: author-only, age-only,
+// or nothing at all when neither resolved. spec-259 dec-5 moved the RENDERED
+// timestamp from an absolute YYYY-MM-DD to a relative `timeAgo()` ("Nd ago");
+// the structured `hit.lastUpdatedAt`/`hit.authorName` stay absolute ISO. The
+// author is run through capitalizeDisplayName (spec-259 ac-9) because the SQL
+// WHO-resolver returns raw names that bypass the shared who-resolver. `now` is
+// injectable so unit tests are deterministic.
+function formatWhoWhenByline(
+  authorName: string | null,
+  lastUpdatedAt: string | null,
+  now?: Date,
+): string {
+  const raw = authorName?.trim() || null;
+  const author = raw ? capitalizeDisplayName(raw) : null;
+  const age = lastUpdatedAt ? timeAgo(lastUpdatedAt, now) : null;
+  if (author && age) return ` · ${author}, ${age}`;
   if (author) return ` · ${author}`;
-  if (date) return ` · ${date}`;
+  if (age) return ` · ${age}`;
   return "";
+}
+
+function formatHitByline(hit: MemexSearchHit, now?: Date): string {
+  return formatWhoWhenByline(hit.authorName, hit.lastUpdatedAt, now);
+}
+
+// spec-259 ac-12: the open-comment indicator appended as its own line under a
+// hit, e.g. `- (2 open comments, oldest 3d ago)`. Indicator only — no comment
+// content. Returns null when the hit has zero open comments so the caller emits
+// no line. `now` injectable for deterministic tests.
+function formatOpenCommentsLine(hit: MemexSearchHit, now?: Date): string | null {
+  const oc = hit.openComments;
+  if (!oc || oc.count <= 0) return null;
+  const noun = oc.count === 1 ? "open comment" : "open comments";
+  return `- (${oc.count} ${noun}, oldest ${timeAgo(oc.oldestCreatedAt, now)})`;
 }
 
 function isHitOnCurrentDoc(hit: MemexSearchHit, currentDocId: string): boolean {
@@ -1410,6 +1525,7 @@ export function formatSearchResults(
 
   const verbose = options.verbose === true;
   const currentDocId = options.currentDocId;
+  const now = options.now;
   const lines: string[] = [`## Search results for "${query}" (${hits.length} hit${hits.length === 1 ? "" : "s"})`];
 
   for (const hit of hits) {
@@ -1424,7 +1540,7 @@ export function formatSearchResults(
     // spec-285: WHO/WHEN byline sits after the (kind, status) segment and before
     // the [current doc] / verbose-score suffixes, so an agent reading the result
     // can attribute the hit ("who, when") without opening it.
-    const byline = formatHitByline(hit);
+    const byline = formatHitByline(hit, now);
     lines.push(`### ${hit.path} — "${hit.title}" (${kindLabel}, ${hit.status})${byline}${selfTag}${scoreSuffix}`);
     if (hit.kind === "decision") {
       const via = hit.decisionMatchedVia ?? "fts";
@@ -1438,10 +1554,18 @@ export function formatSearchResults(
       for (const sec of hit.matchingSections) {
         const titleSeg = sec.title ? `"${sec.title}"` : `(${sec.sectionType})`;
         const snippet = truncate((sec.content ?? "").trim(), SNIPPET_MAX_CHARS);
-        lines.push(`- Section ${titleSeg} (${sec.matchedVia}):`);
+        // spec-259 ac-9: per-section WHO/WHEN so a multi-section doc hit surfaces
+        // each matched section's own creator + relative age, not just the
+        // doc-level latest. Same capitalize + timeAgo treatment as the heading.
+        const secByline = formatWhoWhenByline(sec.authorName, sec.lastUpdatedAt, now);
+        lines.push(`- Section ${titleSeg} (${sec.matchedVia})${secByline}:`);
         lines.push(`  > ${snippet}`);
       }
     }
+    // spec-259 ac-12: one lightweight open-comment indicator line per hit (after
+    // the snippet block). Rendered only when the hit has open comments.
+    const openCommentsLine = formatOpenCommentsLine(hit, now);
+    if (openCommentsLine) lines.push(openCommentsLine);
   }
 
   return lines.join("\n");

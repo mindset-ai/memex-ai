@@ -14,9 +14,9 @@
   "pnpm": {
     "onlyBuiltDependencies": ["esbuild", "protobufjs"],
     "overrides": {
-      "vitest": "4.1.1",
-      "@vitest/coverage-v8": "4.1.1",
-      "@types/node": "22.19.15",
+      "vitest": "4.1.8",
+      "@vitest/coverage-v8": "4.1.8",
+      "@types/node": "25.9.3",
       "react": "19.2.7",
       "react-dom": "19.2.7"
     }

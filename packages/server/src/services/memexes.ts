@@ -9,6 +9,7 @@ import { db } from "../db/connection.js";
 import { memexes, namespaces } from "../db/schema.js";
 import type { Memex } from "../db/schema.js";
 import { validateSlugFormat, type SlugFormatError } from "./shared/slug.js";
+import { pgError } from "./shared/pg-error.js";
 import { ConflictError, ValidationError } from "../types/errors.js";
 import { mutate, type Mutated, type RequestCtx } from "./mutate.js";
 
@@ -194,10 +195,7 @@ export async function createMemex(
       },
     );
   } catch (err) {
-    if (
-      err && typeof err === "object" && "code" in err &&
-      (err as { code?: string }).code === "23505"
-    ) {
+    if (pgError(err)?.code === "23505") {
       throw new ConflictError(`Slug '${slug}' is already taken in this namespace`);
     }
     throw err;

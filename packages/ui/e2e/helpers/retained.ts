@@ -126,6 +126,21 @@ export async function seedSection(opts: {
   return call("POST", "/seed-section", opts);
 }
 
+/** spec-259 t-5: seed an OPEN comment on a section / decision / task through the
+ *  real comment services (emits on the bus). Backs the Specify-phase
+ *  open-comment parity journey — the summary band + per-comment WHO/WHEN byline
+ *  render off comments seeded this way. */
+export async function seedComment(opts: {
+  memexId: string;
+  target: "section" | "decision" | "task";
+  targetId: string;
+  authorName?: string;
+  content?: string;
+  commentType?: string;
+}): Promise<{ commentId: string; seq: number }> {
+  return call("POST", "/seed-comment", opts);
+}
+
 /** spec-286: apply `scope::value`/flat tags to a Spec through applyTagStrings —
  *  the tags the QA Reports feed rail filters + counts on. */
 export async function seedTags(opts: {
