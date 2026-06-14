@@ -1,0 +1,77 @@
+# CodeQL — advanced setup (replaces GitHub default setup).
+#
+# Why advanced, not default: default setup can't restrict its triggers, so it
+# also ran on push to `main` — too late, since merging develop→main auto-deploys
+# to prod (std-21). This runs on `develop` (push + PRs into it) so the security
+# gate fires at integration, BEFORE work can be promoted to main/prod. The
+# `codeql-result` aggregate is the single required status check (same pattern as
+# test.yml's server-result / e2e-result); require THAT on the develop branch so a
+# CodeQL failure blocks the merge into develop.
+#
+# Languages are pinned to what the repo actually contains (TS/JS, Python, GitHub
+# Actions). Ruby is deliberately absent — default setup had a stale `language:ruby`
+# config that failed with "No Ruby code found"; there is no Ruby in this repo.
+name: CodeQL
+
+on:
+  push:
+    branches: [develop]
+  pull_request:
+    branches: [develop]
+  schedule:
+    # Weekly baseline so alerts stay fresh even without merges.
+    - cron: "27 3 * * 1"
+
+# One run per ref; supersede an in-flight run when a newer commit lands.
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least-privilege default for every job's GITHUB_TOKEN; the analyze job widens it
+# to what CodeQL upload needs. (Flagged by CodeQL's own actions query otherwise.)
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      packages: read
+      actions: read
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        # All three are interpreted / no-compile, so build-mode: none is correct.
+        language: [actions, javascript-typescript, python]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"
+
+  # Single, stable status context to require on the develop branch — green only
+  # when every language analysis succeeded.
+  codeql-result:
+    needs: [analyze]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail unless all CodeQL analyses succeeded
+        if: needs.analyze.result != 'success'
+        run: |
+          echo "CodeQL analyze result: ${{ needs.analyze.result }}"
+          exit 1
+      - name: All CodeQL analyses green
+        run: echo "CodeQL passed for all languages."
