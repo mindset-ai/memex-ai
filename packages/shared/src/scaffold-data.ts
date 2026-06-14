@@ -354,9 +354,10 @@ const PHASE_PLAN_INTENT: PromptBlockNode = {
     'What to do next depends on the decision state:\n' +
     '- **No decisions yet** — surface the decisions this work hinges on; capture the choices that have been hand-waved as `create_decision`.\n' +
     '- **Open decisions remain** — drive each unresolved decision to resolution: summarise its context, options and trade-offs, recommend where you can, and resolve it on the user\'s call.\n' +
-    '- **All decisions resolved** — the spec is settled. Make sure each resolution is reflected in the narrative, then point the user at a team review (share the Spec) or moving into `build`.',
+    '- **All decisions resolved** — the spec is settled. Make sure each resolution is reflected in the narrative, then point the user at a team review (share the Spec) or moving into `build`.\n\n' +
+    'Before advancing specify→build, walk the user through any open comments (`assess_spec({mode:\'comments\'})` lists them oldest-first, with WHO raised each and how stale it is) — answer the questions, fold accepted notes into the narrative, and resolve them, just as you walk decision/narrative freshness before a forward move. Open comments do not block the build transition; flag them and let the human decide.',
   rationale:
-    'What the specify phase IS for. Tells the agent that draft+specify share semantics and the work is decision resolution + narrative shaping. Mirrors the opening "## Phase: specify (and draft)" block of `specify/system.md`.',
+    'What the specify phase IS for. Tells the agent that draft+specify share semantics and the work is decision resolution + narrative shaping, and (spec-259 t-3) to walk the user through open comments before specify→build — mirroring the mode=\'narrative\' freshness walkthrough. Mirrors the opening "## Phase: specify (and draft)" block of `specify/system.md`.',
 };
 
 const PHASE_PLAN_DISCIPLINE: PromptBlockNode = {

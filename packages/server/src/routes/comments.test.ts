@@ -8,6 +8,10 @@ import { testMutate } from "../services/__test__/mutate-helpers.js";
 // and Resolve ('resolved') are distinguishable in history.
 const AC_RESOLUTION_THREADING =
   "mindset-prod/memex-building-itself/specs/spec-143/acs/ac-12";
+// spec-259 ac-4: the resolve route threads the acting user's RequestCtx so the
+// resolution carries WHO (proven end-to-end in comment-resolution-attribution.spec-259).
+const AC_RESOLVE_ATTRIBUTION =
+  "mindset-prod/memex-building-itself/specs/spec-259/acs/ac-4";
 
 // Mock session middleware (t-13) so the route's `.use()` is a pass-through and the stubbed
 // currentAccount/user from `makeTestAppWithTenant` reach the handler intact.
@@ -310,6 +314,7 @@ describe("POST /api/comments/:commentId/resolve", () => {
 
   it("resolves a comment without resolution", async () => {
     tagAc(AC_RESOLUTION_THREADING);
+    tagAc(AC_RESOLVE_ATTRIBUTION);
     vi.mocked(resolveComment).mockResolvedValue(testMutate({
       id: "c1",
       memexId: "test-account",
@@ -344,11 +349,19 @@ describe("POST /api/comments/:commentId/resolve", () => {
 
     const body = await res.json();
     expect(body.resolvedAt).toBeTruthy();
-    expect(resolveComment).toHaveBeenCalledWith(TEST_MEMEX_ID, "c1", undefined);
+    // spec-259 ac-4: the route threads the acting user's ctx (restCtx) as the 4th
+    // arg so the resolution carries WHO (channel rest_ui + actorUserId).
+    expect(resolveComment).toHaveBeenCalledWith(
+      TEST_MEMEX_ID,
+      "c1",
+      undefined,
+      expect.objectContaining({ channel: "rest_ui" }),
+    );
   });
 
   it("resolves a comment with resolution", async () => {
     tagAc(AC_RESOLUTION_THREADING);
+    tagAc(AC_RESOLVE_ATTRIBUTION);
     vi.mocked(resolveComment).mockResolvedValue(testMutate({
       id: "c1",
       memexId: "test-account",
@@ -385,7 +398,12 @@ describe("POST /api/comments/:commentId/resolve", () => {
 
     const body = await res.json();
     expect(body.resolution).toBe("Added details");
-    expect(resolveComment).toHaveBeenCalledWith(TEST_MEMEX_ID, "c1", "Added details");
+    expect(resolveComment).toHaveBeenCalledWith(
+      TEST_MEMEX_ID,
+      "c1",
+      "Added details",
+      expect.objectContaining({ channel: "rest_ui" }),
+    );
   });
 });
 

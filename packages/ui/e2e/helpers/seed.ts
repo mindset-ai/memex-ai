@@ -103,8 +103,12 @@ export async function seedSpecInMemex(opts: {
   title: string;
   purpose?: string;
   createdByUserId?: string;
-}): Promise<{ docId: string; handle: string }> {
-  return call<{ docId: string; handle: string }>("POST", "/seed-spec", opts);
+}): Promise<{ docId: string; handle: string; sectionId: string | null }> {
+  return call<{ docId: string; handle: string; sectionId: string | null }>(
+    "POST",
+    "/seed-spec",
+    opts,
+  );
 }
 
 /**
@@ -396,4 +400,21 @@ export async function seedTask(opts: {
   status?: "not_started" | "in_progress" | "complete";
 }): Promise<{ taskId: string; seq: number }> {
   return call("POST", "/seed-task", opts);
+}
+
+/**
+ * spec-259 t-5: seed an OPEN comment on a section / decision / task through the
+ * real comment services (so it emits on the bus [per std-8]). Backs the
+ * Specify-phase open-comment parity journey — the open-comment summary and the
+ * per-comment WHO/WHEN byline render off comments seeded this way.
+ */
+export async function seedComment(opts: {
+  memexId: string;
+  target: "section" | "decision" | "task";
+  targetId: string;
+  authorName?: string;
+  content?: string;
+  commentType?: string;
+}): Promise<{ commentId: string; seq: number }> {
+  return call("POST", "/seed-comment", opts);
 }
