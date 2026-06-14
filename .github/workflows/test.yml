@@ -135,7 +135,7 @@ jobs:
       - name: Upload coverage blob (shard ${{ matrix.shard }})
         # Always upload so server-result can merge; a missing blob fails that job closed.
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: server-coverage-blob-${{ matrix.shard }}
           path: packages/server/.vitest-reports/
@@ -205,7 +205,7 @@ jobs:
 
       - name: Upload merged coverage report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: server-coverage
           path: packages/server/coverage/
@@ -268,7 +268,7 @@ jobs:
         run: pnpm --filter @memex/ui test:coverage
       - name: Upload UI coverage report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ui-coverage
           path: packages/ui/coverage/
@@ -384,7 +384,7 @@ jobs:
         run: pnpm --filter @memex/ui test:e2e --shard=${{ matrix.shard }}/3
       - name: Upload Playwright trace on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-traces-shard-${{ matrix.shard }}
           path: packages/ui/test-results/
