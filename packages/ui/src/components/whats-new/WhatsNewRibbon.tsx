@@ -308,7 +308,7 @@ export function WhatsNewRibbon({
           <div
             data-testid="whats-new-scrim"
             onClick={closePopup}
-            className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm"
+            className="fixed inset-0 z-40 bg-black/50 backdrop-blur-xs"
           />
           <div
             role="dialog"

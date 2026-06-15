@@ -33,7 +33,7 @@ export function TestSignalCounter({ total, windowMinutes, failing, liveDelta }: 
       {liveDelta > 0 && (
         <span
           data-testid="test-signal-delta"
-          className="inline-flex items-center rounded bg-status-success-text/10 px-1.5 py-0.5 font-semibold text-status-success-text tabular-nums animate-pulse-arrive"
+          className="inline-flex items-center rounded-sm bg-status-success-text/10 px-1.5 py-0.5 font-semibold text-status-success-text tabular-nums animate-pulse-arrive"
         >
           +{liveDelta.toLocaleString()} new
         </span>

@@ -97,7 +97,7 @@ function BreadcrumbLink({ to, children }: { to: string; children: ReactNode }) {
   return (
     <Link
       to={to}
-      className="hover:text-primary transition-colors truncate max-w-[12rem]"
+      className="hover:text-primary transition-colors truncate max-w-48"
     >
       {children}
     </Link>

@@ -2,7 +2,7 @@
 // the shape of statusStyles.ts so adding a new role variant happens in one place.
 //
 // Usage:
-//   <span className={`text-xs px-2 py-0.5 rounded ${roleClasses(member.role)}`}>{member.role}</span>
+//   <span className={`text-xs px-2 py-0.5 rounded-sm ${roleClasses(member.role)}`}>{member.role}</span>
 //
 // Replaces inline ternaries like
 //   isAdmin ? 'bg-status-success-bg text-status-success-text' : 'bg-btn-secondary text-secondary'

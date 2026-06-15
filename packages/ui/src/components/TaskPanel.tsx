@@ -160,7 +160,7 @@ export function TaskPanel({ docId: _docId, doc: _doc, tasks, onUpdate, canWrite:
                       label: `Task T-${t.seq}`,
                     })
                   }
-                  className="flex-none opacity-0 group-hover/task:opacity-100 transition-opacity p-0.5 rounded hover:bg-card-hover -ml-1"
+                  className="flex-none opacity-0 group-hover/task:opacity-100 transition-opacity p-0.5 rounded-sm hover:bg-card-hover -ml-1"
                   title="Focus chat on this task"
                 >
                   <svg className="w-3 h-3 text-secondary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>

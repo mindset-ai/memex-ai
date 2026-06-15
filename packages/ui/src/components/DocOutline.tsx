@@ -41,8 +41,8 @@ export function DocOutline({
               className={`
                 flex items-center gap-2 pl-3 pr-2 py-1 -ml-px border-l transition-colors no-underline
                 ${isActive
-                  ? '!text-primary font-medium border-primary'
-                  : '!text-muted hover:!text-secondary border-transparent'
+                  ? 'text-primary! font-medium border-primary'
+                  : 'text-muted! hover:text-secondary! border-transparent'
                 }
               `}
             >

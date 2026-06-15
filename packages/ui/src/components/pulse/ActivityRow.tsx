@@ -351,7 +351,7 @@ export function ActivityRow({
         onClick={onToggleExpand}
         data-testid="activity-row-group"
         aria-expanded={false}
-        className="group flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-muted hover:bg-card-hover rounded transition-colors"
+        className="group flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-muted hover:bg-card-hover rounded-sm transition-colors"
       >
         <LiveDot live={isLive} size="sm" />
         <span className="text-muted/70">&hellip;</span>

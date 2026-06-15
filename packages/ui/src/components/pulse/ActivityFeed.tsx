@@ -229,7 +229,7 @@ export function ActivityFeed({
               onClick={onLoadOlder}
               disabled={loading}
               data-testid="load-older"
-              className="rounded border border-edge-subtle px-3 py-1 text-xs text-secondary hover:bg-card-hover hover:text-primary transition-colors disabled:opacity-60"
+              className="rounded-sm border border-edge-subtle px-3 py-1 text-xs text-secondary hover:bg-card-hover hover:text-primary transition-colors disabled:opacity-60"
             >
               {loading ? 'Loading…' : 'Load older'}
             </button>
@@ -366,9 +366,9 @@ function SkeletonRows() {
         <li key={i} className="px-3 py-2">
           <div className="flex items-center gap-2">
             <span className="h-1.5 w-1.5 rounded-full bg-card-hover animate-pulse" />
-            <span className="h-2 w-16 rounded bg-card-hover animate-pulse" />
+            <span className="h-2 w-16 rounded-sm bg-card-hover animate-pulse" />
           </div>
-          <span className="mt-1.5 block h-3 w-3/4 rounded bg-card-hover animate-pulse" />
+          <span className="mt-1.5 block h-3 w-3/4 rounded-sm bg-card-hover animate-pulse" />
         </li>
       ))}
     </ul>

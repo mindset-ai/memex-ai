@@ -61,7 +61,7 @@ export function DeleteTestEventsDialog({
       role="dialog"
       aria-modal="true"
       aria-labelledby="delete-test-events-title"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs"
       onClick={(e) => {
         // Backdrop click closes — same friction-aware behaviour as Cancel.
         if (e.target === e.currentTarget && !submitting) onClose();

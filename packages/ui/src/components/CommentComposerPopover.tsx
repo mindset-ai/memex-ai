@@ -66,7 +66,7 @@ export function CommentComposerPopover({
             }
           }}
           placeholder="Add a comment…"
-          className="flex-1 resize-none bg-transparent text-sm text-primary placeholder:text-muted focus:outline-none leading-6 max-h-[200px]"
+          className="flex-1 resize-none bg-transparent text-sm text-primary placeholder:text-muted focus:outline-hidden leading-6 max-h-[200px]"
         />
         <button
           type="button"

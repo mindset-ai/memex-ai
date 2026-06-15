@@ -101,7 +101,7 @@ function AssigneeAvatars({ assignees }: { assignees?: DocSummaryAssignee[] }) {
         )}
       </div>
       {assignees.length === 1 && (
-        <span className="text-xs text-secondary truncate max-w-[8rem]">{personLabel(shown[0]!)}</span>
+        <span className="text-xs text-secondary truncate max-w-32">{personLabel(shown[0]!)}</span>
       )}
     </div>
   );
@@ -773,7 +773,7 @@ export function SpecList() {
                 value={assigneeFilter}
                 onChange={(e) => setAssigneeFilter(e.target.value)}
                 aria-label="Filter by assignee"
-                className="bg-surface border border-edge-subtle rounded px-1.5 py-1 text-xs text-primary cursor-pointer"
+                className="bg-surface border border-edge-subtle rounded-sm px-1.5 py-1 text-xs text-primary cursor-pointer"
               >
                 <option value="all">All</option>
                 <option value="me">Assigned to me</option>
@@ -861,7 +861,7 @@ export function SpecList() {
             onDragOver={handleDragOver}
             onDragLeave={() => setDragOverColumn((c) => (c === col.id ? null : c))}
             onDrop={handleDrop}
-            className="flex-1 min-w-[14rem]"
+            className="flex-1 min-w-56"
             onAddSpec={col.id === 'draft' ? () => setModalOpen(true) : undefined}
             revealNextPhase={revealNextPhase}
             onAdvanceDemo={onAdvanceDemo}
@@ -874,7 +874,7 @@ export function SpecList() {
             leaves (handleDrop / handleDragEnd / dragLeave clear dragOverColumn).
             Drop targets stay live in the collapsed state too. */}
         {(doneExpanded || (draggingId !== null && dragOverColumn === 'done')) ? (
-          <div className="flex-1 min-w-[14rem] flex flex-col min-h-0">
+          <div className="flex-1 min-w-56 flex flex-col min-h-0">
             <KanbanColumn
               id="done"
               label="Done"

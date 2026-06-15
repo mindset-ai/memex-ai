@@ -113,7 +113,7 @@ export function ScaffoldAdditionEditor({
         type="button"
         data-testid="scaffold-add-guidance-trigger"
         onClick={() => setOpen(true)}
-        className="mt-3 text-sm border border-default rounded px-3 py-1 hover:bg-muted/30"
+        className="mt-3 text-sm border border-default rounded-sm px-3 py-1 hover:bg-muted/30"
       >
         + {label}
       </button>
@@ -124,7 +124,7 @@ export function ScaffoldAdditionEditor({
     <form
       data-testid="scaffold-add-guidance-form"
       onSubmit={handleSubmit}
-      className="mt-3 space-y-3 rounded border border-default p-3 bg-muted/10"
+      className="mt-3 space-y-3 rounded-sm border border-default p-3 bg-muted/10"
     >
       <div className="text-sm font-semibold">{label}</div>
 
@@ -134,7 +134,7 @@ export function ScaffoldAdditionEditor({
           <select
             value={phase}
             onChange={(e) => setPhase((e.target.value || '') as Phase | '')}
-            className="w-full text-xs border rounded px-2 py-1"
+            className="w-full text-xs border rounded-sm px-2 py-1"
             data-testid="scaffold-add-target-phase"
           >
             <option value="">(any)</option>
@@ -152,7 +152,7 @@ export function ScaffoldAdditionEditor({
             value={tool}
             onChange={(e) => setTool(e.target.value)}
             placeholder="(any)"
-            className="w-full text-xs border rounded px-2 py-1"
+            className="w-full text-xs border rounded-sm px-2 py-1"
             data-testid="scaffold-add-target-tool"
           />
         </label>
@@ -161,7 +161,7 @@ export function ScaffoldAdditionEditor({
           <select
             value={transition}
             onChange={(e) => setTransition((e.target.value || '') as Transition | '')}
-            className="w-full text-xs border rounded px-2 py-1"
+            className="w-full text-xs border rounded-sm px-2 py-1"
             data-testid="scaffold-add-target-transition"
           >
             <option value="">(none)</option>
@@ -180,7 +180,7 @@ export function ScaffoldAdditionEditor({
           value={text}
           onChange={(e) => setText(e.target.value)}
           rows={3}
-          className="w-full text-xs border rounded px-2 py-1 font-mono"
+          className="w-full text-xs border rounded-sm px-2 py-1 font-mono"
           data-testid="scaffold-add-text"
         />
       </label>
@@ -191,7 +191,7 @@ export function ScaffoldAdditionEditor({
           value={rationale}
           onChange={(e) => setRationale(e.target.value)}
           rows={2}
-          className="w-full text-xs border rounded px-2 py-1"
+          className="w-full text-xs border rounded-sm px-2 py-1"
           data-testid="scaffold-add-rationale"
         />
       </label>
@@ -201,7 +201,7 @@ export function ScaffoldAdditionEditor({
         <select
           value={emphasis}
           onChange={(e) => setEmphasis((e.target.value || '') as GuidanceEmphasis | '')}
-          className="text-xs border rounded px-2 py-1"
+          className="text-xs border rounded-sm px-2 py-1"
           data-testid="scaffold-add-emphasis"
         >
           <option value="">(none)</option>
@@ -219,7 +219,7 @@ export function ScaffoldAdditionEditor({
           <select
             value={scope}
             onChange={(e) => setScope(e.target.value === 'memex' ? 'memex' : 'account')}
-            className="text-xs border rounded px-2 py-1"
+            className="text-xs border rounded-sm px-2 py-1"
             data-testid="scaffold-add-scope"
           >
             <option value="account">Account-wide (all memexes)</option>
@@ -241,7 +241,7 @@ export function ScaffoldAdditionEditor({
           type="submit"
           disabled={submitting}
           data-testid="scaffold-add-submit"
-          className="text-sm border border-default rounded px-3 py-1 hover:bg-muted/30 disabled:opacity-50"
+          className="text-sm border border-default rounded-sm px-3 py-1 hover:bg-muted/30 disabled:opacity-50"
         >
           {submitting ? 'Saving…' : 'Save'}
         </button>
@@ -251,7 +251,7 @@ export function ScaffoldAdditionEditor({
             reset();
             setOpen(false);
           }}
-          className="text-sm border border-default rounded px-3 py-1 hover:bg-muted/30"
+          className="text-sm border border-default rounded-sm px-3 py-1 hover:bg-muted/30"
         >
           Cancel
         </button>

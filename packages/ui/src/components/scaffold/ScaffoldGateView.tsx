@@ -162,7 +162,7 @@ export function ScaffoldGateView({
         </p>
         <pre
           data-testid="scaffold-gate-live-preview-text"
-          className="text-xs whitespace-pre-wrap bg-muted/30 p-3 rounded border border-default"
+          className="text-xs whitespace-pre-wrap bg-muted/30 p-3 rounded-sm border border-default"
         >
           {composed || '(empty)'}
         </pre>

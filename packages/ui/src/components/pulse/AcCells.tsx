@@ -19,7 +19,7 @@ export function AcCells({ health }: { health: AcHealth | undefined }) {
     <div className="flex items-center gap-2" data-testid="ac-cells">
       {/* One continuous bar; coloured regions are proportional widths. */}
       <div
-        className="flex flex-1 h-2 rounded-sm overflow-hidden"
+        className="flex flex-1 h-2 rounded-xs overflow-hidden"
         role="img"
         aria-label={`${passing} of ${totalActive} acceptance criteria passing${failing ? `, ${failing} failing` : ''}${untested ? `, ${untested} untested` : ''}`}
       >

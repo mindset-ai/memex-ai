@@ -172,7 +172,7 @@ export function TagFilter({ selected, onChange, className = '' }: TagFilterProps
               placeholder="Filter tags…"
               data-testid="tag-filter-search"
               aria-label="Filter tags"
-              className="w-full bg-input border border-edge text-primary placeholder-muted focus:outline-none focus:ring-1 focus:ring-edge-strong focus:border-edge-strong px-2 py-1 text-xs rounded"
+              className="w-full bg-input border border-edge text-primary placeholder-muted focus:outline-hidden focus:ring-1 focus:ring-edge-strong focus:border-edge-strong px-2 py-1 text-xs rounded-sm"
             />
             {/* ac-3: spell out the AND-across-scopes / OR-within-scope semantics. */}
             <p className="mt-1 text-[10px] leading-tight text-muted">

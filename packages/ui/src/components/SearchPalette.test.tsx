@@ -186,10 +186,10 @@ describe('SearchPalette', () => {
     expect(groups.length).toBe(4);
     for (const g of groups) {
       const cls = g.getAttribute('class') ?? '';
-      expect(cls).toContain('[&_[cmdk-group-heading]]:border-t');
-      expect(cls).toContain('[&_[cmdk-group-heading]]:font-bold');
+      expect(cls).toContain('**:[[cmdk-group-heading]]:border-t');
+      expect(cls).toContain('**:[[cmdk-group-heading]]:font-bold');
       // The old faint treatment is gone.
-      expect(cls).not.toContain('[&_[cmdk-group-heading]]:text-muted');
+      expect(cls).not.toContain('**:[[cmdk-group-heading]]:text-muted');
     }
   });
 

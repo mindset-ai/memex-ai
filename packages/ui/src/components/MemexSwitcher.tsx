@@ -25,7 +25,7 @@ export function MemexSwitcher({ variant = 'topbar' }: { variant?: 'topbar' | 'si
   const [open, setOpen] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
 
-  // The header has `backdrop-blur-sm` which creates a containing block, so a
+  // The header has `backdrop-blur-xs` which creates a containing block, so a
   // `fixed inset-0` backdrop ends up constrained to the header — clicks below
   // it never close the menu. Listen on document instead.
   useEffect(() => {
@@ -141,7 +141,7 @@ export function MemexSwitcher({ variant = 'topbar' }: { variant?: 'topbar' | 'si
     : 'absolute right-0 top-10 z-40 w-72 rounded-lg shadow-xl py-1 border bg-card-hover border-edge';
   const labelClass = isSidebar
     ? 'font-medium truncate flex-1 text-left'
-    : 'font-medium truncate max-w-[10rem]';
+    : 'font-medium truncate max-w-40';
 
   return (
     <div className="relative" ref={wrapperRef}>
@@ -184,10 +184,10 @@ export function MemexSwitcher({ variant = 'topbar' }: { variant?: 'topbar' | 'si
                   return (
                     <div key={nsSlug} className="pb-1">
                       <div className="px-3 pt-2 pb-0.5">
-                        <div className="text-sm font-medium text-secondary break-words leading-snug">
+                        <div className="text-sm font-medium text-secondary wrap-break-word leading-snug">
                           {group.name}
                         </div>
-                        <div className="text-xs text-muted break-words leading-snug">
+                        <div className="text-xs text-muted wrap-break-word leading-snug">
                           {group.role}
                         </div>
                       </div>
@@ -287,9 +287,9 @@ function SwitcherRow({
           : 'text-secondary hover:text-primary hover:bg-overlay'
       }`}
     >
-      <span className="block break-words leading-snug">{title}</span>
+      <span className="block wrap-break-word leading-snug">{title}</span>
       {subtitle && (
-        <span className="block text-xs text-muted break-words leading-snug">{subtitle}</span>
+        <span className="block text-xs text-muted wrap-break-word leading-snug">{subtitle}</span>
       )}
     </button>
   );

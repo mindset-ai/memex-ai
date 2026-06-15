@@ -456,7 +456,7 @@ function ConfirmDialog({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4"
       onClick={onCancel}
     >
       <div
@@ -664,7 +664,7 @@ function FilterCheckbox({
         data-testid={testid}
         checked={checked}
         onChange={onChange}
-        className="h-3.5 w-3.5 rounded border-edge text-accent focus:ring-accent"
+        className="h-3.5 w-3.5 rounded-sm border-edge text-accent focus:ring-accent"
       />
       <span className="capitalize">{label}</span>
     </label>

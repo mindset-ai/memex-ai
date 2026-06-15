@@ -53,7 +53,7 @@ export function MarkdownText({
 
   return (
     <div
-      className={`${className} [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 [&_p]:my-2 [&_ul]:my-2 [&_ol]:my-2 [&_li]:my-0.5 [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded [&_code]:bg-overlay [&_code]:text-xs`}
+      className={`${className} [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 [&_p]:my-2 [&_ul]:my-2 [&_ol]:my-2 [&_li]:my-0.5 [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded-sm [&_code]:bg-overlay [&_code]:text-xs`}
     >
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
