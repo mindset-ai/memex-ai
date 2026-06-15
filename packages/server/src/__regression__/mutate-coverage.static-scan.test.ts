@@ -109,6 +109,8 @@ const ALLOWLIST: Record<string, string> = {
     "users table — identity rows (profile, password hash, email verification). No memex_id, no bus entity; user identity is not Memex-scoped tenant content. Memex-creation side effects (memex/created) are emitted by services/user-namespaces.ts and services/users.ts's namespace-provisioning path, not by these raw identity writes.",
   "services/verified-domains.ts":
     "verified_domains + orgs config (domain auto-grouping). Org-level configuration rows, no memex_id, no bus entity — not Memex-scoped tenant content.",
+  "services/visitors.ts":
+    "Anonymous-first identity spine (spec-254). visitors holds one opaque visitor_id per browser + the user_id it merges to at sign-in — a CROSS-TENANT identity dimension (no memex_id, no bus entity, RLS-excluded like usage_events / activity_log) written ADVISORILY from pre-auth middleware and the auth chokepoint. The bus is keyed on memexId for tenant SSE fan-out; a pre-auth visitor row has no tenancy and no subscriber to wake. Same category as services/users.ts and services/usage-events.ts — identity/telemetry rows that must not emit.",
   "services/domain-verification.ts":
     "domain_verification_tokens — short-lived DNS-verification challenge rows. No memex_id, no bus entity; an auth/verification artifact, not tenant content.",
   "services/shared/slug.ts":

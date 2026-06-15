@@ -9,6 +9,7 @@ vi.mock('../api/http', () => ({
 }));
 
 import { fetchWithRetry } from '../api/http';
+import { setConsent } from '../lib/visitorConsent';
 import { useTelemetry, isOptedOut, routeTemplate } from './useTelemetry';
 
 const AC = 'mindset-prod/memex-building-itself/specs/spec-244/acs';
@@ -21,6 +22,11 @@ beforeEach(() => {
   vi.clearAllMocks();
   localStorage.clear();
   setDnt('0');
+  // spec-254 dec-4: telemetry is now consent-gated (opt-in) — track() no-ops
+  // until the visitor explicitly accepts. A consented visitor is the baseline for
+  // these spec-244 track() tests; the opt-out / DNT cases below each then prove
+  // their gate ON TOP of consent (DNT in particular overrides a 'granted' choice).
+  setConsent('granted');
 });
 
 describe('routeTemplate — never a concrete id or query (ac-7)', () => {

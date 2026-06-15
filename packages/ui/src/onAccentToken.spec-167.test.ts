@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { tagAc } from '@memex-ai-ac/vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { dirname, join, sep } from 'node:path';
 
 // spec-167 — verify-phase coverage for the `on-accent` foreground token.
 // These assert the SOURCE of truth (the token definitions + the single consumer)
@@ -75,17 +75,25 @@ describe('spec-167: on-accent foreground token', () => {
     expect(oauth).not.toMatch(/style=\{\{[^}]*color:/); // no inline colour override
   });
 
-  it('ac-3: no regression — `text-on-accent` has exactly one consumer and the existing accent values are unchanged', () => {
+  it('ac-3: no regression — `text-on-accent` is limited to its known consumers and the existing accent values are unchanged', () => {
     tagAc(AC(3));
     // Existing accent fills untouched (blue-400 dark / blue-600 light).
     expect(rgbVar(dark, 'accent')).toEqual([96, 165, 250]);
     expect(rgbVar(light, 'accent')).toEqual([37, 99, 235]);
-    // Exactly one component consumes the utility.
+    // text-on-accent is a deliberately REUSABLE token (ac-2). Its known, intended
+    // consumers are the OAuth Allow button (spec-167) and the visitor-consent
+    // Accept button (spec-254 t-3) — both render text on a bg-accent fill, the
+    // exact contrast case the token solves. The set stays CLOSED so an accidental
+    // new consumer (or a hard-coded colour) still trips this guard.
     const files = readdirSync(SRC_DIR, { recursive: true }) as string[];
     const consumers = files
       .filter((f) => /\.(ts|tsx)$/.test(f) && !/\.test\.(ts|tsx)$/.test(f))
-      .filter((f) => readFileSync(join(SRC_DIR, f), 'utf8').includes('text-on-accent'));
-    expect(consumers).toEqual(['pages/OauthAuthorize.tsx']);
+      .filter((f) => readFileSync(join(SRC_DIR, f), 'utf8').includes('text-on-accent'))
+      .map((f) => f.split(sep).join('/'))
+      .sort();
+    expect(consumers).toEqual(
+      ['components/VisitorConsent.tsx', 'pages/OauthAuthorize.tsx'].sort(),
+    );
   });
 
   it('ac-4: --color-on-accent is slate-900 in .dark and white in .light', () => {
