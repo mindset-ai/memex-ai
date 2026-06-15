@@ -91,6 +91,26 @@ else
   echo "  ⚠ elevenlabs-api-key not found — voice guide disabled (spec-190)"
   HAS_ELEVENLABS=0
 fi
+# MIXPANEL_TOKEN is optional (spec-244 analytics forwarder, dec-2/dec-9). Wired ONLY
+# if the secret exists, so a deploy never breaks before it's provisioned — the
+# forwarder simply stays in capture-only mode (events land in usage_events and are
+# queryable in SQL; nothing forwards) until the secret lands. Same two-step
+# provisioning as ELEVENLABS above (NO further code change): create the per-env
+# secret AND grant the Cloud Run runtime SA read access. The per-env separation
+# (dec-9) is the VALUE — the int secret holds the memex-int Mixpanel project token,
+# prod holds memex-prod's — so int events never reach the prod project.
+#   printf %s "<project-token>" | gcloud secrets create memex-mixpanel-token --data-file=- \
+#     --project "${GCP_PROJECT}" --replication-policy=user-managed --locations=us-east4
+#   gcloud secrets add-iam-policy-binding memex-mixpanel-token --project "${GCP_PROJECT}" \
+#     --member="serviceAccount:<cloud-run-runtime-SA>" \
+#     --role="roles/secretmanager.secretAccessor"
+if gcloud secrets describe memex-mixpanel-token --project "${GCP_PROJECT}" >/dev/null 2>&1; then
+  echo "  ✓ memex-mixpanel-token present — analytics forwarder enabled"
+  HAS_MIXPANEL=1
+else
+  echo "  ⚠ memex-mixpanel-token not found — analytics forwarder in capture-only mode (spec-244)"
+  HAS_MIXPANEL=0
+fi
 
 # ── KMS prerequisite ─────────────────────────────────────────
 # The Slack token encryption path (services/slack/crypto.ts) requires a
@@ -260,8 +280,15 @@ echo "Building container image (${IMAGE})..."
 # Submit from the repo root so the build context includes packages/shared
 # (workspace dep of @memex/server). The Dockerfile at the repo root is
 # workspace-aware; .gcloudignore there keeps the upload lean.
+#
+# spec-281 Fix 2: build via cloudbuild.yaml (not bare `--tag`) so the build reuses
+# cached layers from the previously-pushed image (`--cache-from` + BuildKit inline
+# cache). `--tag` gives the clean Cloud Build worker no cache, so the pnpm-install
+# `deps` layer rebuilt every deploy even when only source changed (~2min wasted on
+# int + prod). `_IMAGE` is env-keyed, so this lands identically on both.
 ( cd "${REPO_ROOT}" && gcloud builds submit \
-  --tag "${IMAGE}" \
+  --config cloudbuild.yaml \
+  --substitutions "_IMAGE=${IMAGE}" \
   --project "${GCP_PROJECT}" \
   --region "${REGION}" \
   --default-buckets-behavior=regional-user-owned-bucket )
@@ -285,6 +312,9 @@ if [ "$HAS_COHERE" = "1" ]; then
 fi
 if [ "$HAS_ELEVENLABS" = "1" ]; then
   SECRETS_WIRING+=",ELEVENLABS_API_KEY=elevenlabs-api-key:latest"
+fi
+if [ "$HAS_MIXPANEL" = "1" ]; then
+  SECRETS_WIRING+=",MIXPANEL_TOKEN=memex-mixpanel-token:latest"
 fi
 
 # HIDDEN_FEATURES is appended to --update-env-vars ONLY when it is set (see

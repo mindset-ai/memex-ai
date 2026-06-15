@@ -31,6 +31,7 @@ import { hashPassword } from "../services/passwords.js";
 import { issueAuthToken } from "../services/auth-tokens.js";
 import { mutate } from "../services/mutate.js";
 import { createOrgWithMemexForUser } from "../services/__test__/seed-org.js";
+import { mintEmissionKey, mintEphemeralEmissionKey } from "../services/emission-keys.js";
 import { updateOrgSettings } from "../services/orgs.js";
 import { createInviteToken } from "../services/invite-tokens.js";
 import { createDomainVerificationToken } from "../services/domain-verification.js";
@@ -44,9 +45,10 @@ import { createIssue } from "../services/issues.js";
 import { testEvents } from "../db/schema.js";
 import { applyEmissionToSummary } from "../services/test-event-latest.js";
 import { createExecutionPlan } from "../services/execution_plans.js";
-import { addTaskComment } from "../services/comments.js";
+import { addTaskComment, addComment, addDecisionComment } from "../services/comments.js";
 import { createShareToken, listShareTokensForDoc } from "../services/share-tokens.js";
 import { addSection } from "../services/sections.js";
+import { applyTagStrings } from "../services/tags.js";
 import { resolveRole } from "../services/doc-members.js";
 import { listAssignees, assign } from "../services/doc-assignees.js";
 import { updateMemexVisibility } from "../services/memexes.js";
@@ -778,6 +780,57 @@ testOnlyRouter.post("/seed-section", async (c) => {
   return c.json({ sectionId: section.id, seq: section.seq });
 });
 
+// spec-259 t-5: seed an OPEN comment on a section / decision / task through the
+// real comment services (so it emits on the bus [per std-8] and the
+// SSE-reactive UI under test sees it like a real comment). Backs the
+// Specify-phase open-comment parity journey, which asserts the open-comment
+// summary + per-comment WHO/WHEN byline render on the Comments surface.
+const seedCommentSchema = z.object({
+  memexId: z.string().uuid(),
+  target: z.enum(["section", "decision", "task"]),
+  targetId: z.string().uuid(),
+  authorName: z.string().default("Casey Reviewer"),
+  content: z.string().default("Please double-check this before we advance."),
+  commentType: z.string().optional(),
+});
+testOnlyRouter.post("/seed-comment", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = seedCommentSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
+  }
+  const { memexId, target, targetId, authorName, content, commentType } = parsed.data;
+  const extras = commentType
+    ? ({ type: commentType } as Parameters<typeof addComment>[4])
+    : undefined;
+  const comment =
+    target === "section"
+      ? await addComment(memexId, targetId, authorName, content, extras)
+      : target === "decision"
+        ? await addDecisionComment(memexId, targetId, authorName, content, extras)
+        : await addTaskComment(memexId, targetId, authorName, content, extras);
+  return c.json({ commentId: comment.id, seq: comment.seq });
+});
+
+// spec-286: apply `scope::value`/flat tags to a Spec through the real
+// applyTagStrings service (create-or-pick + per-scope exclusivity), so the QA
+// Reports feed journey can seed the tags its rail filters on without raw SQL.
+const seedTagsSchema = z.object({
+  memexId: z.string().uuid(),
+  docId: z.string().uuid(),
+  tags: z.array(z.string()).min(1),
+});
+testOnlyRouter.post("/seed-tags", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = seedTagsSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
+  }
+  const { memexId, docId, tags } = parsed.data;
+  const applied = await applyTagStrings({ channel: "rest_ui" }, memexId, docId, tags, null);
+  return c.json({ applied: applied.map((t) => ({ id: t.id, scope: t.scope, value: t.value })) });
+});
+
 // Resolve a user's role on a doc (editor / reviewer) through resolveRole — the
 // schema-current equivalent of journey-17's dbDocRole raw-SQL read. A seeded doc
 // has no doc_members editor row, so dev resolves to 'reviewer' until the UI's
@@ -902,6 +955,31 @@ testOnlyRouter.post("/seed-test-event", async (c) => {
     });
   });
   return c.json({ ok: true });
+});
+
+// spec-234 t-3: seed an emission key (permanent or ephemeral) through the real mint
+// services, so the Settings → Emission Keys journey can assert the two-key
+// differentiation. Ephemeral keys are normally minted over MCP (provision_ac_emission);
+// there is no UI path to create one, hence this seed.
+const seedEmissionKeySchema = z.object({
+  memexId: z.string().uuid(),
+  createdByUserId: z.string().uuid(),
+  kind: z.enum(["permanent", "ephemeral"]),
+  name: z.string().min(1).optional(),
+  specHandle: z.string().min(1).optional(),
+});
+testOnlyRouter.post("/seed-emission-key", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = seedEmissionKeySchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
+  }
+  const { memexId, createdByUserId, kind, name, specHandle } = parsed.data;
+  const minted =
+    kind === "ephemeral"
+      ? await mintEphemeralEmissionKey(memexId, specHandle ?? "spec-1", createdByUserId)
+      : await mintEmissionKey(memexId, name ?? "ci", createdByUserId);
+  return c.json({ id: minted.row.id, prefix: minted.row.prefix });
 });
 
 // Seed a Task on a Spec through the real service (spec-188 t-7: drives the

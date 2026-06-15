@@ -85,6 +85,9 @@ const MUTATING_MCP_TOOLS: Record<string, ToolMutation[]> = {
   update_section: [{ entity: "section", action: "updated" }],
   retitle_section: [{ entity: "section", action: "updated" }],
   delete_section: [{ entity: "section", action: "deleted" }],
+  // qa-reports.ts (spec-260) — appendQaReport rides addSection's mutate() path,
+  // so each versioned QA report lands as a section.created on the bus.
+  write_qa_report: [{ entity: "section", action: "created" }],
   // clauses.ts (spec-161) — every clause write dual-emits the clause key and the
   // owning section's `section.updated` (the section's derived content regenerates).
   add_clause: [
@@ -112,6 +115,9 @@ const MUTATING_MCP_TOOLS: Record<string, ToolMutation[]> = {
   delete_task: [{ entity: "task", action: "deleted" }],
   // acs.ts
   create_ac: [{ entity: "ac", action: "created" }],
+  // spec-234: provision_ac_emission mints an emission key → memex_emission_key.created
+  // on the bus (the same mutate() path mintEmissionKey uses for the Settings-UI mint).
+  provision_ac_emission: [{ entity: "memex_emission_key", action: "created" }],
   update_ac: [{ entity: "ac", action: "updated" }],
   delete_ac: [{ entity: "ac", action: "deleted" }],
   link_ac_to_decision: [{ entity: "ac", action: "updated" }],

@@ -51,6 +51,7 @@ import { logVoiceLatency } from "../agent/voice/latency-log.js";
 import {
   prefetchScreenContent,
   searchGuideContent,
+  type GuideSearchHit,
   type GuideSurface,
 } from "../services/guide-content.js";
 import { GUIDE_TOOLS } from "@memex/shared";
@@ -71,6 +72,21 @@ export const guideChatSchema = z.object({
   screenRegistry: z
     .array(z.object({ id: z.string(), description: z.string() }))
     .optional(),
+  // The host's complete navigable-screen list (site map) — rendered into the
+  // turn context so the model knows what pages exist. Hard-capped (anonymous
+  // endpoint): at most 200 screens, strings bounded.
+  screens: z
+    .array(
+      z.object({
+        key: z.string().max(200),
+        title: z.string().max(300),
+        // Generous: descriptions carry SEO blurb + content outline + steering
+        // notes (~670 chars on the mindset site today). Hosts truncate at 900.
+        description: z.string().max(1000),
+      }),
+    )
+    .max(200)
+    .optional(),
   guideContext: z.array(z.string()).optional(),
 });
 
@@ -84,12 +100,16 @@ export function latestUserUtterance(messages: Array<{ role: string; content: unk
     if (m.role !== "user") continue;
     if (typeof m.content === "string") return m.content;
     if (Array.isArray(m.content)) {
-      return m.content
+      const text = m.content
         .filter((b): b is { type: string; text: string } => !!b && (b as { type?: string }).type === "text")
         .map((b) => b.text)
         .join(" ");
+      // Mid tool-loop the final user message is tool_result blocks with no
+      // text — keep scanning back to the visitor's actual utterance so the
+      // per-turn retrieval query isn't empty on tool turns.
+      if (text) return text;
+      continue;
     }
-    return "";
   }
   return "";
 }
@@ -129,9 +149,24 @@ export function injectTurnContext(
 
   return messages.map((m, i) => {
     if (i === lastUser) {
+      // Anthropic requires tool_result blocks to be the FIRST content of the
+      // user message that answers a tool_use — text before them 400s
+      // ("tool_use ids were found without tool_result blocks immediately
+      // after"). Mid tool-loop the final user message IS the tool_result
+      // carrier, so the per-turn context slots in AFTER any leading
+      // tool_result blocks, not at the front.
+      const blocks = toBlocks(m.content);
+      const firstNonToolResult = blocks.findIndex(
+        (b) => (b as { type?: string }).type !== "tool_result",
+      );
+      const insertAt = firstNonToolResult === -1 ? blocks.length : firstNonToolResult;
       return {
         role: m.role,
-        content: [{ type: "text", text: contextText }, ...toBlocks(m.content)],
+        content: [
+          ...blocks.slice(0, insertAt),
+          { type: "text", text: contextText },
+          ...blocks.slice(insertAt),
+        ],
       };
     }
     if (i === lastUser - 1) {
@@ -166,21 +201,36 @@ export async function assembleGuideContext(
   // signed session token. Either way the surface is a SERVER-supplied argument,
   // NEVER client free input.
   surface: GuideSurface = "memex-app",
+  /** Optional screen_key → human page name lookup (from the host's site map).
+   *  When provided, retrieval labels use the SPEAKABLE page name instead of
+   *  the machine key — spoken keys come out as gibberish through TTS. */
+  pageNameByKey?: Map<string, string>,
 ): Promise<string[]> {
   const [screenChunks, searchHits] = await Promise.all([
     screenKey ? prefetchScreenContent(screenKey, surface).catch(() => []) : Promise.resolve<string[]>([]),
     utterance.trim()
-      ? searchGuideContent(utterance, { surface, limit: 4 }).then((h) => h.map((x) => x.content)).catch(() => [])
-      : Promise.resolve<string[]>([]),
+      ? searchGuideContent(utterance, { surface, limit: 4 }).catch(() => [] as GuideSearchHit[])
+      : Promise.resolve<GuideSearchHit[]>([]),
   ]);
+  // Source-tag each chunk with where it lives, so the model can offer to
+  // navigate to a retrieved chunk's page (the screen_key doubles as the navigate
+  // key). Layer-1 chunks ARE the current page; Layer-2 hits carry their origin
+  // screen_key when one exists (concept / flat-corpus chunks have none). Dedup
+  // runs on the RAW chunk text, so a chunk that is both prefetched and searched
+  // appears once — with the Layer-1 label, by ordering.
   const seen = new Set<string>();
   const out: string[] = [];
-  for (const chunk of [...(clientContext ?? []), ...screenChunks, ...searchHits]) {
+  const push = (chunk: string, label: string | null): void => {
     const key = chunk.trim();
-    if (key && !seen.has(key)) {
-      seen.add(key);
-      out.push(chunk);
-    }
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    out.push(label ? `${label}\n${chunk}` : chunk);
+  };
+  for (const chunk of clientContext ?? []) push(chunk, null);
+  for (const chunk of screenChunks) push(chunk, "[this page]");
+  for (const hit of searchHits) {
+    const name = hit.screenKey ? (pageNameByKey?.get(hit.screenKey) ?? hit.screenKey) : null;
+    push(hit.content, name ? `[from page: "${name}"]` : null);
   }
   return out;
 }
@@ -576,7 +626,7 @@ export async function handleGuideChat(
   if (!parsed.success) {
     return c.json({ error: "Invalid request" }, 400);
   }
-  const { messages, screenKey, screenRegistry, guideContext } = parsed.data;
+  const { messages, screenKey, screenRegistry, screens, guideContext } = parsed.data;
 
   let anthropic: Anthropic;
   try {
@@ -596,6 +646,7 @@ export async function handleGuideChat(
     latestUserUtterance(messages),
     guideContext,
     surface,
+    screens ? new Map(screens.map((s) => [s.key, s.title])) : undefined,
   );
   const retrievalMs = Date.now() - tStart;
 
@@ -616,6 +667,7 @@ export async function handleGuideChat(
   const contextText = renderScreenContext({
     screenKey: screenKey ?? null,
     screenRegistry: screenRegistry ?? [],
+    screens,
     guideContext: retrievedContext,
   });
   const outMessages = injectTurnContext(messages, contextText);

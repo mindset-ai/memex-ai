@@ -92,18 +92,37 @@ describe('AppShell sidebar navigation', () => {
     expect(within(nav).getByRole('link', { name: 'Standards' })).toBeInTheDocument();
   });
 
-  // spec-158 t-4: the primary nav order is Specs → Issues → Pulse (Issues sits
-  // directly under Specs; Pulse drops to the bottom of the primary group).
-  it('orders the primary nav Specs → Issues → Pulse', () => {
+  // spec-260 t-11 (supersedes spec-158 t-4's Specs → Issues → Pulse order): the
+  // sidebar is two labelled groups — PRINCIPLES (Specs, Pulse, Standards,
+  // Insights, Scaffold) then IN-BOXES (Drift, Issues, QA Reports — the
+  // badge-carrying attention surfaces). Specs still leads the nav.
+  it('groups the nav into Principles then In-boxes, in order', () => {
     tagAc('mindset-prod/memex-building-itself/specs/spec-158/acs/ac-1');
     renderShell(['/specs']);
 
     const nav = screen.getByTestId('primary-nav');
+    expect(within(nav).getByText('Principles')).toBeInTheDocument();
+    expect(within(nav).getByText('In-boxes')).toBeInTheDocument();
+
+    const GROUPED = [
+      'Specs',
+      'Pulse',
+      'Standards',
+      'Insights',
+      'Scaffold',
+      'Drift',
+      'Issues',
+      'QA Reports',
+    ];
     const labels = within(nav)
       .getAllByRole('link')
-      .map((a) => a.textContent?.trim())
-      .filter((l): l is string => l === 'Specs' || l === 'Issues' || l === 'Pulse');
-    expect(labels).toEqual(['Specs', 'Issues', 'Pulse']);
+      .map((a) => a.textContent?.trim() ?? '')
+      // Badge counts render inside the link text — strip trailing digits.
+      .map((l) => l.replace(/\d+$/, '').trim())
+      // The sidebar also hosts the logo + auth links; assert only the groups.
+      .filter((l) => GROUPED.includes(l));
+    // No features hidden in this fixture, so every group member renders.
+    expect(labels).toEqual(GROUPED);
   });
 
   it('marks Issues active on /issues', () => {

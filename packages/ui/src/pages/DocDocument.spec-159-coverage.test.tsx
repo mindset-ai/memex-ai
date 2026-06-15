@@ -14,6 +14,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { tagAc } from '@memex-ai-ac/vitest';
 import type { DocWithGraph } from '../api/types';
@@ -128,36 +129,41 @@ beforeEach(() => {
 });
 
 describe('spec-159 — zero-state holes block at the page level (ac-3, ac-13)', () => {
-  it('build with ZERO tasks: in-situ ⚠ directive states the hole; Rubicon line blocks with no buttons', async () => {
+  it('build with ZERO tasks: in-situ ⚠ directive states the hole; current-tab line is status-only (ac-3, ac-13)', async () => {
     tagAc(AC(3));
     tagAc(AC(13));
+    const user = userEvent.setup();
     // No tasks at all — the zero-task hole (an empty build hasn't built anything).
     docTasks = [];
     renderAt('build');
 
+    // The in-situ directive sits above the work view (Agent Tasks & Issues tab).
+    await screen.findByTestId('decision-panel'); // build lands on Decisions & ACs
+    await user.click(screen.getByText('Agent Tasks & Issues'));
     await screen.findByTestId('task-panel');
-    // The in-situ directive sits above the Tasks column.
     await waitFor(() =>
       expect(directiveText()).toContain(
         'Tasks must be created and completed before this spec can move to Verify.',
       ),
     );
-    // The Rubicon line states the same hole and offers nothing to press.
+    // spec-282/dec-4: the Rubicon states the same hole but is status-only — no
+    // override, no button on the current tab.
     const sentence = screen.getByTestId('transition-sentence');
     expect(sentence.textContent).toContain(
       'Tasks must be created and completed before this spec can move to Verify.',
     );
+    expect(sentence.textContent).not.toContain('anyway?');
     expect(within(sentence).queryByRole('button')).not.toBeInTheDocument();
   });
 
-  it('verify with NO active ACs: in-situ ⚠ directive states the hole; Rubicon line blocks with no buttons', async () => {
+  it('verify with NO active ACs: in-situ ⚠ directive states the hole; current-tab line is status-only (ac-3, ac-13)', async () => {
     tagAc(AC(3));
     tagAc(AC(13));
     // No active ACs — nothing to verify against (the verify→done hole).
     docAcs = [];
     renderAt('verify');
 
-    await screen.findByTestId('ac-panel');
+    await screen.findByTestId('ac-panel'); // verify lands on Decisions & ACs (no report)
     await waitFor(() =>
       expect(directiveText()).toContain(
         'Acceptance Criteria (ACs) must be created and verified before this spec can move to Done.',
@@ -167,6 +173,7 @@ describe('spec-159 — zero-state holes block at the page level (ac-3, ac-13)', 
     expect(sentence.textContent).toContain(
       'Acceptance Criteria (ACs) must be created and verified before this spec can move to Done.',
     );
+    expect(sentence.textContent).not.toContain('anyway?');
     expect(within(sentence).queryByRole('button')).not.toBeInTheDocument();
   });
 
@@ -186,8 +193,12 @@ describe('spec-159 — zero-state holes block at the page level (ac-3, ac-13)', 
   });
 });
 
-describe('spec-159 — blocked current phase withholds Yes for an editor (ac-3)', () => {
-  it('editor on a dirty plan (open decision): the line states the blocker, no Yes', async () => {
+// spec-282/dec-4 supersedes spec-258/dec-5's CURRENT-TAB override: a blocked
+// current tab is status-only (no override, no button) for editors and reviewers
+// alike. The editor's force-forward capability relocates to the browse-forward
+// confirm (covered in TransitionSentence.spec-282.test.tsx).
+describe('spec-282 — blocked current phase is status-only (dec-4)', () => {
+  it('editor on a dirty plan (open decision): the line states the blocker, no override, no button', async () => {
     tagAc(AC(3));
     mockRole = 'editor';
     docDecisions = [
@@ -209,13 +220,14 @@ describe('spec-159 — blocked current phase withholds Yes for an editor (ac-3)'
     renderAt('specify');
 
     const sentence = await screen.findByTestId('transition-sentence');
-    // Even with an editor posture (canTransition true) a dirty rubric on the
-    // current tab shows the condition, never a Yes.
+    // Editor posture (canTransition true): the dirty rubric on the current tab
+    // shows the condition but is status-only — no override, no button (dec-4).
     await waitFor(() =>
       expect(sentence.textContent).toContain(
         '1 Decision must be resolved before this spec can move to Build.',
       ),
     );
+    expect(sentence.textContent).not.toContain('anyway?');
     expect(within(sentence).queryByRole('button')).not.toBeInTheDocument();
   });
 });

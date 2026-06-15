@@ -100,6 +100,18 @@ export const toolManifest: ToolManifestEntry[] = [
     trafficClass: null,
   },
   {
+    // spec-263 dec-3/dec-4: the when-to-call lives in the summary, not just the
+    // what — the tool meets the agent at the handoff moments (orienting on a
+    // Spec, landing in a new phase).
+    name: 'get_prompt',
+    summary:
+      "Get the handoff prompt for a Spec's current phase — the exact text the web UI's copy-prompt button produces (specify/build/verify; draft/done carry none). Call after orienting on a Spec or right after a phase transition.",
+    args: 'get_prompt(ref)',
+    group: 'read',
+    readOnlyHint: true,
+    trafficClass: null,
+  },
+  {
     name: 'export_doc',
     summary:
       'Export a spec as lossless markdown with every comment thread expanded inline at its anchor (for paste into an external LLM/editor).',
@@ -257,8 +269,8 @@ export const toolManifest: ToolManifestEntry[] = [
   {
     name: 'resolve_decision',
     summary:
-      'Resolve a decision with an explanation; may unblock waiting tasks. chosenOptionIndex marks a structured option.',
-    args: 'resolve_decision(ref, resolution, chosenOptionIndex?)',
+      'Resolve a decision; may unblock waiting tasks. chosenOptionIndex marks a structured option — resolution is then optional (defaults to its label). Re-resolving updates the choice in place.',
+    args: 'resolve_decision(ref, resolution?, chosenOptionIndex?)',
     group: 'planning',
     readOnlyHint: false,
     trafficClass: 'specify',
@@ -327,6 +339,15 @@ export const toolManifest: ToolManifestEntry[] = [
     readOnlyHint: false,
     trafficClass: 'build',
   },
+  {
+    name: 'write_qa_report',
+    summary:
+      'Persist a QA Report on a Spec at the build→verify hand-off — a reviewer-facing record of what this build session changed (front-end, back-end, testing, gaps, deviations, deploy notes). Appends a new dated version; never overwrites.',
+    args: 'write_qa_report(ref, content, title?)',
+    group: 'build',
+    readOnlyHint: false,
+    trafficClass: null,
+  },
 
   // ── Standards protocol (build) ────────────────────────────
   // Restored by spec-143 dec-1 (the half of spec-63 dec-6 that was blocked on
@@ -359,7 +380,12 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'register_issue(memex?, spec_ref?, title, body, type, severity?, promote_to_spec?)',
     group: 'build',
     readOnlyHint: false,
-    trafficClass: 'build',
+    // spec-295 dec-2: NON-ADVANCING. An Issue is the gate-neutral parking lot —
+    // raising one (a parked todo or a bug) must never auto-advance the Spec's
+    // phase, on any surface. Previously 'build', which shoved a specify Spec to
+    // build on capture, contradicting the "gate-neutral" framing. Issues are
+    // raiseable in any phase and move nothing.
+    trafficClass: null,
   },
   {
     name: 'list_issues',
@@ -469,6 +495,18 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'list_acs(ref, kind?, status?)',
     group: 'build',
     readOnlyHint: true,
+    trafficClass: null,
+  },
+  {
+    // spec-234: agent-facing AC-emission onboarding. Mints an ephemeral, spec-scoped
+    // key AND returns the wire-it-up guidance in one call. trafficClass null — it sets
+    // up emission, it does not itself drive a Spec phase transition.
+    name: 'provision_ac_emission',
+    summary:
+      "Provision AC emission for this Spec in one call: mints an ephemeral, spec-scoped emission key (session-only, never persist) and returns the wiring guidance for the repo's test runners. No Settings detour; CI keys stay human-minted.",
+    args: 'provision_ac_emission(ref)',
+    group: 'build',
+    readOnlyHint: false,
     trafficClass: null,
   },
   {

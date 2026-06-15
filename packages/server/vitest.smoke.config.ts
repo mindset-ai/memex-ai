@@ -18,6 +18,10 @@ export default defineConfig({
     // default vitest.config.ts. Needs MEMEX_EMIT_KEY in env to actually land —
     // the default smoke run (no key) just no-ops the emission per the helper.
     setupFiles: ["@memex-ai-ac/vitest/setup"],
+    // Wake + warm the freshly-deployed host ONCE before any test, so the timed
+    // MCP journeys don't pay Cloud Run cold-start latency (>30s) and time out.
+    // See warmup.global-setup.ts (std-17 / spec-243 smoke robustness).
+    globalSetup: ["./src/__smoke__/warmup.global-setup.ts"],
     // Live HTTP round-trips against a shared host — keep ordering deterministic
     // (the authed tier's create→read→delete journey is sequential).
     fileParallelism: false,
@@ -26,5 +30,9 @@ export default defineConfig({
     // The live host can be slow on a cold Cloud Run instance right after deploy.
     testTimeout: 30_000,
     hookTimeout: 30_000,
+    // Backstop to the warm-up: if a single test still trips the timeout on a cold
+    // first hit, retry once — by then the instance is warm. A genuine outage fails
+    // both attempts and still reds the smoke (no masking).
+    retry: 1,
   },
 });

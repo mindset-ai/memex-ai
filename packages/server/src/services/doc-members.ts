@@ -157,6 +157,22 @@ export async function promoteToEditor(
   const handle = await assertSpecInMemex(memexId, docId);
   const who = await memberDisplayName(userId);
   const actor = await resolveActorColumns(ctx);
+
+  // An activity event must reflect a REAL state change (std-32). spec-189's
+  // traffic-driven promotion calls this on every agent tool call that touches
+  // the Spec, so emitting on an idempotent re-promote spammed the feed with
+  // "promoted X to editor" no-ops on every conversation turn. Detect the
+  // already-an-editor case and write SILENTLY (no bus event, no activity row):
+  // the row already exists, nothing changed, so nothing should be announced.
+  const existing = await db.query.docMembers.findFirst({
+    where: and(
+      eq(docMembers.memexId, memexId),
+      eq(docMembers.docId, docId),
+      eq(docMembers.userId, userId),
+    ),
+  });
+  const alreadyEditor = !!existing && isDocRole(existing.role) && existing.role === "editor";
+
   return mutate(
     { ...ctx, actorUserId: actor.actorUserId ?? undefined, actorName: actor.actorName ?? undefined },
     {
@@ -182,6 +198,8 @@ export async function promoteToEditor(
       });
       return row!;
     },
+    // No real change ⇒ no emission. A genuine first-time promote still announces.
+    { silent: alreadyEditor },
   );
 }
 

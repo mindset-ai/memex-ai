@@ -13,6 +13,7 @@ import {
   oauthClient,
   googleClientId,
   DEV_USER_EMAIL,
+  setKnownCookie,
   withToken,
 } from "./helpers.js";
 import { applyVisitorMerge } from "../../middleware/visitor.js";
@@ -86,6 +87,7 @@ sso.post("/google", async (c) => {
         }
       }
     }
+    setKnownCookie(c);
     await applyVisitorMerge(c, session.user.id); // spec-254 — identify merge (SSO)
     return c.json(withToken(session));
   } catch (err) {

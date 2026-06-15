@@ -7,6 +7,7 @@ import {
   fetchDriftInbox,
 } from '../../../api/client';
 import type { Decision, Task } from '../../../api/types';
+import { tenantPath } from '../../../utils/tenantUrl';
 
 /**
  * useNeedsAttention — the data layer behind the Pulse (b-60) "Needs attention"
@@ -128,7 +129,7 @@ async function fetchScoped(briefId: string): Promise<NeedsAttentionData> {
       specHandle,
       briefId: resolvedBriefId,
       title: d.title,
-      href: `/specs/${resolvedBriefId}?decision=${encodeURIComponent(decHandle(d))}`,
+      href: tenantPath(`/specs/${resolvedBriefId}?decision=${encodeURIComponent(decHandle(d))}`),
     })),
   };
 
@@ -149,7 +150,7 @@ async function fetchScoped(briefId: string): Promise<NeedsAttentionData> {
       specHandle,
       briefId: resolvedBriefId,
       title: c.content,
-      href: `/specs/${resolvedBriefId}`,
+      href: tenantPath(`/specs/${resolvedBriefId}`),
     })),
   };
 
@@ -167,7 +168,7 @@ async function fetchScoped(briefId: string): Promise<NeedsAttentionData> {
       specHandle,
       briefId: resolvedBriefId,
       title: t.title,
-      href: `/specs/${resolvedBriefId}?tab=tasks&task=${encodeURIComponent(taskHandle(t))}`,
+      href: tenantPath(`/specs/${resolvedBriefId}?tab=tasks&task=${encodeURIComponent(taskHandle(t))}`),
     })),
   };
 
@@ -225,7 +226,7 @@ function driftSliceFrom(
       specHandle: null,
       briefId: null,
       title: item.doc.title,
-      href: `/standards/${item.doc.handle}`,
+      href: tenantPath(`/standards/${item.doc.handle}`),
     });
   }
   return {

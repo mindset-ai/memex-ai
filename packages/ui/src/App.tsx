@@ -2,6 +2,7 @@ import { Fragment, useState, useEffect, useRef, useMemo, type ReactNode } from '
 import { Routes, Route, useLocation, useParams, useNavigate, Navigate, Outlet } from 'react-router-dom';
 import { Pulse } from './pages/Pulse';
 import { Insights } from './pages/Insights';
+import { QaReports } from './pages/QaReports';
 import { Decisions } from './pages/Decisions';
 import { SpecList } from './pages/SpecList';
 import { IssuesList } from './pages/IssuesList';
@@ -51,6 +52,7 @@ import { useTrackRouteChange } from './hooks/useTelemetry';
 import { tenantBase, BASE_URL, fetchWithRetry } from './api/http';
 import { SearchProvider } from './components/SearchContext';
 import { WhatsNewRibbonConnected } from './components/whats-new/WhatsNewRibbonConnected';
+import { WhatsNewProvider } from './components/whats-new/WhatsNewContext';
 import { FirstRunGreeting } from './components/onboarding/FirstRunGreeting';
 import { DemoWalkthroughController } from './voice/walkthrough/DemoWalkthroughController';
 
@@ -208,18 +210,23 @@ function TenantLayout() {
             AppShell, so the shell needs no edit and the public branch — which never
             mounts VoiceGuideMount — has no voice surface. */}
         <VoiceGuideMount namespace={namespace ?? ''} memex={memex ?? ''}>
-          <OrgConsentDialog />
-          {/* spec-200: global What's New ribbon — authed shell only (inside
-              VoiceGuideMount so t-7's ear can reach the voice session). */}
-          <WhatsNewRibbonConnected />
-          {/* spec-206 t-3: first-run greeting controller — auto-starts Specky on
-              a user's first session (no modal, no tap). Renders nothing. */}
-          <FirstRunGreeting />
-          <AppShell>
-            <Fragment key={`${namespace}/${memex}`}>
-              <Outlet />
-            </Fragment>
-          </AppShell>
+          {/* spec-200: WhatsNewProvider lets the sidebar user menu re-open the
+              popup and gives the ribbon the menu anchor to animate "into" on
+              dismiss — so it wraps BOTH the ribbon and AppShell. */}
+          <WhatsNewProvider>
+            <OrgConsentDialog />
+            {/* spec-200: global What's New ribbon — authed shell only (inside
+                VoiceGuideMount so t-7's ear can reach the voice session). */}
+            <WhatsNewRibbonConnected />
+            {/* spec-206 t-3: first-run greeting controller — auto-starts Specky on
+                a user's first session (no modal, no tap). Renders nothing. */}
+            <FirstRunGreeting />
+            <AppShell>
+              <Fragment key={`${namespace}/${memex}`}>
+                <Outlet />
+              </Fragment>
+            </AppShell>
+          </WhatsNewProvider>
         </VoiceGuideMount>
       </HandholdRevealProvider>
     </ChatProvider>
@@ -384,6 +391,11 @@ export function PostLoginRouter() {
             server-driven gate mechanism as /pulse above. */}
         {!isFeatureHidden(session, 'insights') && (
           <Route path="insights" element={<Insights />} />
+        )}
+        {/* spec-260 (dec-5): QA Reports — the workspace feed of build-session
+            QA reports. Same server-driven hiddenFeatures gate as /pulse. */}
+        {!isFeatureHidden(session, 'qa-reports') && (
+          <Route path="qa-reports" element={<QaReports />} />
         )}
         <Route path="decisions" element={<Decisions />} />
         <Route path="specs" element={<SpecList />} />

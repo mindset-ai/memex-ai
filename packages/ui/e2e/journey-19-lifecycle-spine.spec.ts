@@ -185,42 +185,46 @@ test("lifecycle spine: org → memex → Spec → resolve decision → phase mov
   // Open the Decisions & ACs sub-tab (sub-tabs render as <button> with the label).
   await page.getByRole("button", { name: /Decisions & ACs/ }).click();
   // DecisionPanel defaults to the Open tab when no candidates exist; the seeded
-  // decision arrives over SSE. Pick option 0, open the resolve tray, write a
-  // rationale, and save.
+  // decision arrives over SSE. spec-247 dec-1/dec-5: picking an option IS the
+  // answer — the click persists immediately (no Resolve button, no rationale).
   const panel = page.getByTestId("decision-panel");
   await expect(panel).toContainText(/Pick the spine's datastore/, { timeout: 15_000 });
 
   await panel.getByTestId("open-option-0").first().check();
-  await panel.getByTestId("decision-resolve").first().click();
-  await panel
-    .getByTestId("open-resolution-text")
-    .first()
-    .fill("Postgres — it matches the rest of the stack.");
-  await panel.getByTestId("open-resolve-confirm").first().click();
 
-  // Resolved: the decision moves to the Resolved tray. The specify→Build Decisions
-  // blocker is now satisfied — but ACs still aren't created, so the Rubicon
-  // STILL blocks on ACs (the affordance reflects the remaining gate, proving the
-  // phase-gated state is live, not static).
-  await expect(panel.getByRole("button", { name: /^Resolved 1$/ })).toBeVisible({
-    timeout: 15_000,
-  });
+  // Resolved: the decision becomes a resolved card in the unified list (spec-247
+  // dec-7). The specify→Build Decisions blocker is now satisfied — but ACs still
+  // aren't created, so the Rubicon STILL blocks on ACs (the affordance reflects
+  // the remaining gate, proving the phase-gated state is live, not static).
+  await expect(
+    panel.locator('[data-decision-status="resolved"]').first(),
+  ).toBeVisible({ timeout: 15_000 });
   await expect(page.getByTestId("transition-sentence")).toContainText(
     /Acceptance Criteria \(ACs\)[\s\S]*must be created[\s\S]*before this spec can move to Build/i,
     { timeout: 15_000 }
   );
 
-  // ── 6. Phase move specify → build, gate-aware ─────────────────────────────────
+  // ── 6. Phase move specify → build: the gate holds; the editor's escape hatch
+  // relocates to the browse-forward confirm (spec-282/dec-4) ──────────────────
   // specify→build is gated on Decisions resolved AND ACs created. We've resolved
   // the decision but deliberately have no ACs (AC authoring is the agent/MCP
-  // surface, out of this spine's scope) — so the rubric correctly REFUSES the
-  // forward move: NO Yes button on the current Specify tab. That refusal IS the
-  // phase-gated affordance — the spine asserts the gate holds. (Driving the move
-  // all the way to verify needs the AC-create + task-complete surfaces, which
-  // journey-11 and the build/verify journeys own.)
-  await expect(
-    page.getByTestId("transition-sentence").getByRole("button", { name: /^Yes$/ })
-  ).toHaveCount(0);
+  // surface, out of this spine's scope) — so the rubric still NAMES the open AC
+  // gate (it doesn't advance silently). spec-282/dec-4: the current tab is
+  // STATUS-ONLY (no override button); the editor forces a blocked forward move
+  // by browsing the Build tab and confirming "Move this spec anyway?".
+  const rubicon = page.getByTestId("transition-sentence");
+  await expect(rubicon).toContainText(
+    /Acceptance Criteria \(ACs\)[\s\S]*must be created/i,
+    { timeout: 15_000 }
+  );
+  await expect(rubicon).not.toContainText(/anyway\?/i);
+  await expect(rubicon.getByRole("button", { name: /^Yes$/ })).toHaveCount(0);
+
+  // The escape hatch lives on the browse-forward confirm: browse Build → the
+  // "Move this spec anyway?" override [Yes].
+  await page.locator('[role="tab"][data-tab="build"]').click();
+  await expect(rubicon).toContainText(/Move this spec anyway\?/i, { timeout: 15_000 });
+  await expect(rubicon.getByRole("button", { name: /^Yes$/ })).toHaveCount(1);
 });
 
 // ── The signup-as-new-user leg (see file header) ─────────────────────────────

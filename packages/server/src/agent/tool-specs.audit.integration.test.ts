@@ -737,6 +737,14 @@ const REF_PROBE_SKIP = new Map<string, string>([
   ["memex__send_discord_message", "external-action tool — output confirms webhook delivery, not a memex entity ref; requires live Discord webhook"],
   // get_information returns prose (topic index or topic body), never an entity ref.
   ["get_information", "Read-only guidance tool — returns markdown prose, not a memex entity ref"],
+  // get_prompt (spec-263) returns the composed handoff prompt (or a no-handoff
+  // explanation) — prompt prose interpolated from slugs/handles, never a UUID.
+  // Output asserted byte-for-byte in agent/get-prompt.spec-263.integration.
+  ["get_prompt", "Read-only prompt tool — returns handoff prompt prose, not a memex entity ref; covered by get-prompt.spec-263.integration"],
+  // provision_ac_emission (spec-234) returns a raw emission key + integration guidance
+  // markdown, not a terse `ref:` entity confirmation. Exercised end-to-end in
+  // agent/spec-234-provision-ac-emission.integration.
+  ["provision_ac_emission", "returns an emission key + guidance markdown, not a memex entity ref; covered by spec-234-provision-ac-emission.integration"],
   // spec-127 test-event tools all lead with the AC `ref:` and emit no UUID; that
   // ref-emission is asserted directly in mcp/test-event-tools.integration. A
   // dedicated probe here would need a throwaway AC + seeded test_events fixture.
@@ -1001,6 +1009,17 @@ describe("audit: b-36 D-8 — every terse mutation/list response emits `ref:` an
             ref: docRef(slugs, docHandle),
             sectionType: `probe-section-${Math.random().toString(36).slice(2, 8)}`,
             content: "body",
+          }),
+        },
+      ],
+      [
+        // spec-260: appends a versioned qa_report section; the terse response
+        // carries the new section's child ref.
+        "write_qa_report",
+        {
+          input: () => ({
+            ref: docRef(slugs, docHandle),
+            content: "Probe QA report body.",
           }),
         },
       ],

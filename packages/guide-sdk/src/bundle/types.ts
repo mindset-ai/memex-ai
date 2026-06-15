@@ -27,5 +27,11 @@ export interface MountedEngine {
 
 /** The engine chunk's public entry, resolved lazily by the loader (ac-8). */
 export interface EngineModule {
-  mountEngine: (args: { shadow: ShadowRoot; config: GuideBundleConfig }) => Promise<MountedEngine>;
+  mountEngine: (args: {
+    shadow: ShadowRoot;
+    config: GuideBundleConfig;
+    /** spec-264 t-1 (dec-1): fired after the engine's first paint so the loader can
+     *  hide its doorway without a flicker. */
+    onFirstPaint?: () => void;
+  }) => Promise<MountedEngine>;
 }

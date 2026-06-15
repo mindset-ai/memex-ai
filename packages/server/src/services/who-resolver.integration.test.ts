@@ -26,6 +26,10 @@ const AC = "mindset-prod/memex-building-itself/specs/spec-122/acs";
 const created = { users: [] as string[], sessions: [] as string[] };
 const tag = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 const christineEmail = `christine-${tag}@memex.ai`;
+// spec-259 dec-4: the resolver now title-cases a RESOLVED user's display name. The
+// seed name is "Christine <tag>" with a lowercase tag, so the rendered display
+// capitalises the tag's leading letter too (digits are unaffected by toUpperCase).
+const christineDisplay = `Christine ${tag.charAt(0).toUpperCase()}${tag.slice(1)}`;
 let christineId: string;
 let twinAId: string;
 let twinBId: string;
@@ -63,14 +67,14 @@ describe("WHO resolver [spec-122 t-5]", () => {
     tagAc(`${AC}/ac-25`);
     const r = await resolveTestEventActor(christineEmail.toUpperCase()); // case-insensitive
     expect(r.userId).toBe(christineId);
-    expect(r.display).toBe(`Christine ${tag}`);
+    expect(r.display).toBe(christineDisplay);
   });
 
   it("ac-25: a test_events.actor matching a user's (unambiguous) name resolves + unifies", async () => {
     tagAc(`${AC}/ac-25`);
     const r = await resolveTestEventActor(`Christine ${tag}`);
     expect(r.userId).toBe(christineId);
-    expect(r.display).toBe(`Christine ${tag}`);
+    expect(r.display).toBe(christineDisplay);
   });
 
   it("ac-25: the batch resolver unifies email + name hits in one pass", async () => {
@@ -100,7 +104,7 @@ describe("WHO resolver [spec-122 t-5]", () => {
   it("ac-27: an agent clientId resolves \"<user name>'s <clientName>\"", async () => {
     tagAc(`${AC}/ac-27`);
     const label = await resolveAgentClientLabel(sessionId);
-    expect(label).toBe(`Christine ${tag}'s Claude Code`);
+    expect(label).toBe(`${christineDisplay}'s Claude Code`);
   });
 
   it("ac-27: an unknown clientId resolves to null (no fabricated label)", async () => {
@@ -122,6 +126,6 @@ describe("WHO resolver [spec-122 t-5]", () => {
     const byEmail = await resolveTestEventActor(christineEmail);
     expect(byEmail.userId).toBe(christineId);
     const label = await resolveAgentClientLabel(sessionId);
-    expect(label).toBe(`Christine ${tag}'s Claude Code`);
+    expect(label).toBe(`${christineDisplay}'s Claude Code`);
   });
 });

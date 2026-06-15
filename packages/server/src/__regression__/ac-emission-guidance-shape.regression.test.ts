@@ -98,10 +98,13 @@ describe("spec-129: ac-emission guidance covers the emission-key flow", () => {
     expect(topic.body).toMatch(/silently|never\s+fails?/i);
   });
 
-  it("instructs the agent it cannot mint a key and must ask the human (settings → Emission Keys)", () => {
-    expect(topic.body).toMatch(/cannot mint|must NOT.*mint|not.*mint/i);
-    expect(topic.body).toMatch(/ask the human/i);
-    expect(topic.body).toMatch(/Emission Keys/);
+  it("documents agent self-provisioning (provision_ac_emission) while keeping CI keys human-minted [spec-234]", () => {
+    // spec-234 reversed the old "an agent cannot mint a key" instruction: an agent now
+    // provisions its own short-lived key via provision_ac_emission; only long-lived CI
+    // keys are human-minted in Settings → Emission Keys.
+    expect(topic.body).toMatch(/provision_ac_emission/);
+    expect(topic.body).not.toMatch(/must NOT and CANNOT mint/i);
+    expect(topic.body).toMatch(/Emission Keys/); // CI path still points at Settings
   });
 
   it("does not regress the routing mental model (still leads the body)", () => {

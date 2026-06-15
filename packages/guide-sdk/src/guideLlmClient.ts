@@ -16,6 +16,9 @@
 // behaviour is preserved app-side.
 import { getGuideBackend, DEFAULT_CHAT_PATH } from './backend';
 import type { MessageParam, LlmProxyEvent } from './agent-types';
+import type { GuideScreenSummary } from './navigation/NavigationAdapter';
+
+export type { GuideScreenSummary } from './navigation/NavigationAdapter';
 
 /** A highlightable element on the current screen (subset of the dec-3 registry;
  *  t-4 provides the canonical type in @memex/shared). */
@@ -30,6 +33,11 @@ export interface GuideLlmInput {
   screenKey: string | null;
   /** The current screen's highlightable elements (dec-3). */
   screenRegistry: GuideScreenElement[];
+  /** The COMPLETE navigable-screen list (site map) when the host's adapter
+   *  supplies allScreens() — the server renders it into the turn context so the
+   *  model knows definitively what pages exist and where it can navigate,
+   *  instead of relying on retrieval to discover the site's shape. */
+  screens?: GuideScreenSummary[];
   /** Pre-fetched guide-content chunks for the current screen (dec-6, t-6). */
   guideContext: string[];
 }

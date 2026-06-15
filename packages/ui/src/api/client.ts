@@ -125,6 +125,11 @@ export interface SearchHit {
   matchingSections: SearchMatchingSection[];
   decisionSnippet?: string;
   decisionMatchedVia?: SearchStrategy;
+  /** WHO — best-effort display name of who authored / last touched this hit
+   *  (spec-285). null/absent on navigation-only lanes (jumpTo/assigned). */
+  authorName?: string | null;
+  /** WHEN — ISO-8601 timestamp of when this hit was last changed (spec-285). */
+  lastUpdatedAt?: string | null;
 }
 
 /** The `{ jumpTo, assigned, content }` envelope (spec-64 t-1 ac-6). */
@@ -406,15 +411,13 @@ export async function stampGreeting(): Promise<void> {
   if (!res.ok) throw new Error(`Failed to stamp greeting: ${res.status}`);
 }
 
+// spec-293 dec-2/dec-3: a move is always whole — no per-artifact opt-out flags.
 export interface MoveDocInput {
   targetMemexId: string;
-  includeDecisions: boolean;
-  includeTasks: boolean;
-  includeSectionComments: boolean;
 }
 
 export interface MoveDocResponse {
-  doc: { id: string; handle: string; memexId: string; title: string };
+  docId: string;
   fromMemexId: string;
   toMemexId: string;
   newHandle: string;
@@ -723,15 +726,18 @@ export async function createDecision(docId: string, title: string): Promise<Deci
 /**
  * Resolve a decision. When the decision carries `options[]`, pass
  * `chosenOptionIndex` to record which option was selected — the server
- * persists it on the row (per t-5 / dec-8). Omit the index for free-text
- * resolutions on decisions without options.
+ * persists it on the row (per t-5 / dec-8). `resolution` is optional when an
+ * index is supplied (spec-247 dec-5: persist-on-select — the server defaults
+ * the prose to the chosen option's label). Re-resolving an already-resolved
+ * decision updates the choice in place.
  */
 export async function resolveDecisionApi(
   id: string,
-  resolution: string,
+  resolution?: string,
   chosenOptionIndex?: number,
 ): Promise<Decision> {
-  const body: { resolution: string; chosenOptionIndex?: number } = { resolution };
+  const body: { resolution?: string; chosenOptionIndex?: number } = {};
+  if (resolution !== undefined) body.resolution = resolution;
   if (chosenOptionIndex !== undefined) body.chosenOptionIndex = chosenOptionIndex;
   const res = await fetchWithRetry(`${tBase()}/decisions/${id}/resolve`, {
     method: 'POST',
@@ -2021,6 +2027,11 @@ export interface EmissionKeySummary {
   lastUsedAt: string | null;
   revokedAt: string | null;
   createdAt: string;
+  // spec-234: the two-key discriminator. A permanent / CI key (human-minted) has both
+  // null. An ephemeral / agent key (minted by provision_ac_emission over MCP) carries an
+  // `expiresAt` and is `scopedSpecHandle`-locked to a single Spec.
+  expiresAt: string | null;
+  scopedSpecHandle: string | null;
 }
 
 /** Generate response — carries the raw `key` exactly once (never returned again). */

@@ -589,3 +589,100 @@ describe('AcPanel — draft-phase gating (spec-164)', () => {
     expect(screen.queryByTestId('ac-draft-directive')).not.toBeInTheDocument();
   });
 });
+
+// ── spec-247 dec-4: the web↔MCP boundary markers on the AC surfaces ─────────
+describe('AcPanel — coding-agent boundary markers (spec-247)', () => {
+  const AC247 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-247/acs/ac-${n}`;
+  const PROMPT_CONTEXT = {
+    namespace: 'acme',
+    memex: 'main',
+    handle: 'spec-1',
+    title: 'A Spec',
+    url: 'https://memex.ai/acme/main/specs/spec-1',
+  };
+
+  it('the all-untested explainer is human-actionable and hands off via the Wire-the-AC-tests PromptButton (ac-14, ac-4)', async () => {
+    tagAc(AC247(14));
+    // ac-4 (scope): this AC coverage rail is the named starting surface for the
+    // "every MCP-only next step carries a coding-agent handoff marker" rule.
+    tagAc(AC247(4));
+    vi.mocked(fetchAcsForBrief).mockResolvedValue([
+      makeAc(1, 'scope', 'untested'),
+      makeAc(2, 'implementation', 'untested'),
+    ]);
+    vi.mocked(fetchAcAlignmentHistory).mockResolvedValue([]);
+
+    render(<AcPanel docId="doc-1" promptContext={PROMPT_CONTEXT} />);
+
+    const copy = await screen.findByTestId('ac-untested-copy');
+    // No MCP tool names at the human — that mention moved into the prompt.
+    expect(copy.textContent).not.toMatch(/get_information/);
+    expect(copy.textContent).toMatch(/coding agent/i);
+
+    const marker = screen.getByTestId('ac-wire-tests-marker');
+    expect(
+      within(marker).getByRole('button', { name: /Wire the AC tests/i }),
+    ).toBeInTheDocument();
+  });
+
+  it('the action-first link opens the handoff dialog whose prompt carries the MCP steps (ac-15)', async () => {
+    tagAc(AC247(15));
+    const user = userEvent.setup();
+    vi.mocked(fetchAcsForBrief).mockResolvedValue([makeAc(1, 'scope', 'untested')]);
+    vi.mocked(fetchAcAlignmentHistory).mockResolvedValue([]);
+
+    render(<AcPanel docId="doc-1" promptContext={PROMPT_CONTEXT} />);
+
+    const marker = await screen.findByTestId('ac-wire-tests-marker');
+    // The highlighted link text names the ACTION (c-3), not "copy the prompt".
+    await user.click(within(marker).getByRole('button', { name: /Wire the AC tests/i }));
+
+    // The dialog shows the agent-facing prompt — the get_information mention
+    // lives THERE, behind the marker, never on the panel itself.
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog.textContent).toMatch(/get_information\(topic='ac-emission'\)/);
+    expect(dialog.textContent).toMatch(/acme\/main\/specs\/spec-1/);
+  });
+
+  it('a partially-covered panel still offers the handoff for the uncovered ACs (ac-14, ac-4)', async () => {
+    tagAc(AC247(14));
+    tagAc(AC247(4));
+    vi.mocked(fetchAcsForBrief).mockResolvedValue([
+      makeAc(1, 'scope', 'verified'),
+      makeAc(2, 'implementation', 'untested'),
+    ]);
+    vi.mocked(fetchAcAlignmentHistory).mockResolvedValue(makeHistory());
+
+    render(<AcPanel docId="doc-1" promptContext={PROMPT_CONTEXT} />);
+
+    const marker = await screen.findByTestId('ac-coverage-marker');
+    expect(marker.textContent).toMatch(/1 AC has no test yet/);
+    expect(
+      within(marker).getByRole('button', { name: /Wire the remaining AC tests/i }),
+    ).toBeInTheDocument();
+  });
+
+  it('without promptContext the markers are simply omitted (isolated render sites)', async () => {
+    vi.mocked(fetchAcsForBrief).mockResolvedValue([makeAc(1, 'scope', 'untested')]);
+    vi.mocked(fetchAcAlignmentHistory).mockResolvedValue([]);
+
+    render(<AcPanel docId="doc-1" />);
+
+    await screen.findByTestId('ac-untested-copy');
+    expect(screen.queryByTestId('ac-wire-tests-marker')).not.toBeInTheDocument();
+  });
+
+  it('"Mark as accepted" is visually marked as the human action beside test-fed states (ac-14)', async () => {
+    tagAc(AC247(14));
+    vi.mocked(fetchAcsForBrief).mockResolvedValue([makeAc(1, 'scope', 'verified')]);
+    vi.mocked(fetchAcAlignmentHistory).mockResolvedValue(makeHistory());
+
+    render(<AcPanel docId="doc-1" promptContext={PROMPT_CONTEXT} />);
+
+    const accept = await screen.findByTestId('ac-accept-button');
+    expect(accept.getAttribute('title')).toMatch(/Human action/i);
+    expect(accept.getAttribute('title')).toMatch(/coding agent/i);
+    // The person glyph marks the human-side affordance.
+    expect(accept.querySelector('svg')).not.toBeNull();
+  });
+});

@@ -35,6 +35,7 @@ vi.mock('react-router-dom', async () => {
 });
 
 const SPEC_64 = 'mindset-prod/memex-building-itself/specs/spec-64';
+const SPEC_285 = 'mindset-prod/memex-building-itself/specs/spec-285';
 
 function hit(over: Partial<SearchHit> = {}): SearchHit {
   return {
@@ -253,6 +254,83 @@ describe('SearchPalette', () => {
     expect((snippet as HTMLElement).querySelector('strong')).toBeNull();
     expect((snippet as HTMLElement).querySelector('a')).toBeNull();
     expect((snippet as HTMLElement).querySelector('img')).toBeNull();
+  });
+
+  it('content rows render a WHO/WHEN byline; navigation rows and metadata-less rows render none [spec-285]', async () => {
+    tagAc(`${SPEC_285}/acs/ac-9`);
+    const user = userEvent.setup();
+    renderOpen(
+      envelope({
+        jumpTo: [
+          hit({
+            kind: 'spec',
+            path: 'mindset-prod/memex-building-itself/specs/spec-64',
+            title: 'Jump spec',
+            status: 'build',
+            // A navigation hit may carry no metadata — and even if it did, the
+            // byline is content-lane only.
+            authorName: null,
+            lastUpdatedAt: null,
+          }),
+        ],
+        content: [
+          hit({
+            kind: 'spec',
+            path: 'mindset-prod/memex-building-itself/specs/spec-99',
+            title: 'Authored spec',
+            status: 'draft',
+            authorName: 'Ada Lovelace',
+            lastUpdatedAt: '2026-05-28T09:30:00.000Z',
+            matchingSections: [
+              {
+                id: 's1',
+                sectionType: 'purpose',
+                title: 'Purpose',
+                content: 'Body match.',
+                matchedVia: 'fts',
+              },
+            ],
+          }),
+          hit({
+            kind: 'standard',
+            path: 'mindset-prod/memex-building-itself/standards/std-7',
+            title: 'Metadata-less std',
+            status: 'active',
+            // No author/timestamp resolved → no byline.
+            matchingSections: [
+              {
+                id: 's2',
+                sectionType: 'rule',
+                title: 'Rule',
+                content: 'A rule.',
+                matchedVia: 'fts',
+              },
+            ],
+          }),
+        ],
+      }),
+    );
+
+    await user.type(screen.getByRole('combobox'), 'omni');
+    await screen.findByText('Authored spec');
+
+    // The content row shows "<author> · <YYYY-MM-DD>" — human-readable, derived
+    // from the structured authorName + lastUpdatedAt the REST route now carries.
+    const authoredRow = screen.getByText('Authored spec').closest('[cmdk-item]')!;
+    const byline = within(authoredRow as HTMLElement).getByTestId('search-byline');
+    expect(byline.textContent).toBe('Ada Lovelace · 2026-05-28');
+
+    // A content row with no resolved author/timestamp renders no byline element.
+    const bareRow = screen.getByText('Metadata-less std').closest('[cmdk-item]')!;
+    expect(
+      within(bareRow as HTMLElement).queryByTestId('search-byline'),
+    ).toBeNull();
+
+    // Navigation (jumpTo) rows never carry a byline.
+    const jumpRow = screen.getByText('Jump spec').closest('[cmdk-item]')!;
+    expect(
+      within(jumpRow as HTMLElement).queryByTestId('search-byline'),
+    ).toBeNull();
   });
 
   it('exposes role=dialog, role=listbox, and aria-selected on the active option [ac-15]', async () => {

@@ -1,26 +1,17 @@
 // spec-141 dec-3: MCP-token management, extracted from the standalone
 // `pages/SettingsTokens.tsx` into a section so the consolidated Integrations
-// page can compose it. Open core. Behaviour (banner, realtime refresh,
-// revoke) is unchanged; only the outer page wrapper became a <section> and
+// page can compose it. Open core. Behaviour (realtime refresh, revoke) is
+// unchanged; only the outer page wrapper became a <section> and
 // the cross-links to the installer now point at the in-page CLI section.
 
 import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from './AuthContext';
 import { useUserChangeStream } from '../hooks/useUserChangeStream';
-import { Alert } from './ui/Alert';
 import {
   listMcpTokensApi,
   revokeMcpTokenApi,
   type McpTokenSummary,
 } from '../api/client';
-
-// b-36 — one-time notice for the canonical-refs hard switch. The MCP tool
-// surface now takes single `ref` args and rejects UUID inputs; tests look for
-// "UUID inputs no longer accepted" in the structured error. The banner nudges
-// active token holders to reload their MCP client so they pick up the new
-// tool definitions. Dismissed flag persists in localStorage so we don't nag
-// after the user has acknowledged.
-const CANONICAL_REFS_BANNER_KEY = 'mcp-canonical-refs-banner-dismissed';
 
 function formatRelative(iso: string | null): string {
   if (!iso) return 'never';
@@ -45,14 +36,6 @@ export function McpTokensSection() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [revoking, setRevoking] = useState<string | null>(null);
-  const [bannerDismissed, setBannerDismissed] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return false;
-    try {
-      return window.localStorage.getItem(CANONICAL_REFS_BANNER_KEY) === '1';
-    } catch {
-      return false;
-    }
-  });
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -90,47 +73,8 @@ export function McpTokensSection() {
   const active = tokens.filter((t) => !t.revokedAt);
   const revoked = tokens.filter((t) => t.revokedAt);
 
-  function dismissBanner() {
-    try {
-      window.localStorage.setItem(CANONICAL_REFS_BANNER_KEY, '1');
-    } catch {
-      // Ignore — banner reappears next session if persistence fails.
-    }
-    setBannerDismissed(true);
-  }
-
   return (
     <section id="mcp-tokens" aria-labelledby="mcp-tokens-heading">
-      {!bannerDismissed && (
-        <Alert variant="info" size="md" className="mb-6">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="font-medium mb-1">
-                Heads up — MCP tool surface updated.
-              </p>
-              <p>
-                The MCP server has switched to canonical refs. Reload your MCP
-                client to pick up the new tool definitions.{' '}
-                <code className="font-mono text-xs">mcp-remote</code> reconnects
-                automatically on next request. Native HTTP clients (Claude Code,
-                Claude Desktop) pick up new schemas on next session start. UUID-shaped
-                inputs will return a structured error.
-              </p>
-            </div>
-            <button
-              type="button"
-              aria-label="Dismiss"
-              className="shrink-0 text-muted hover:text-primary transition-colors"
-              onClick={dismissBanner}
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-        </Alert>
-      )}
-
       <h2 id="mcp-tokens-heading" className="text-xl font-semibold mb-2 text-heading">MCP Tokens</h2>
       <p className="text-sm mb-6 text-secondary">
         Long-lived tokens that authorize the Memex installer / MCP clients on a device.

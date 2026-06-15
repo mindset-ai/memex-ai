@@ -36,7 +36,10 @@ export function TestSignalsMonitor({ signals, loading = false, live = false }: T
       className="flex-none rounded-lg border border-edge-subtle bg-surface/40 overflow-hidden mb-4"
     >
       {/* Header. */}
-      <div className="flex items-center gap-2 px-3 py-2 text-xs text-secondary border-b border-edge-subtle">
+      <div
+        className="flex items-center gap-2 px-3 py-2 text-xs text-secondary border-b border-edge-subtle cursor-help"
+        title="Test signals — the volume of automated test results (AC verifications) arriving from CI over the window, as a live rate and sparkline. Green is passing, red failing. It's a Memex-wide CI health signal, so it isn't shown under the 'just me' filter."
+      >
         <LiveDot live={live && hasData} size="sm" className="text-status-success-text" />
         <span className="font-medium text-primary">Test signals</span>
         <span className="opacity-40">&middot;</span>

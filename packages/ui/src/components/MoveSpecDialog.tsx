@@ -8,10 +8,10 @@ import { getCurrentTenant, tenantPathFor } from '../utils/tenantUrl';
 interface MoveSpecDialogProps {
   docId: string;
   title: string;
-  // Optional pre-computed counts so the dialog can show what will move.
+  // Optional pre-computed counts so the dialog can show what will travel.
   decisionCount?: number;
   taskCount?: number;
-  sectionCommentCount?: number;
+  commentCount?: number;
   onClose: () => void;
   // Called after a successful move, before the window redirects. Lets the caller clear
   // local state (e.g. remove the card from the kanban) in case the navigation is delayed.
@@ -19,38 +19,48 @@ interface MoveSpecDialogProps {
 }
 
 // Dialog for moving a Spec to a different Memex. Destination is any Memex the user
-// is an active member of besides the current one. Checkboxes let the user leave decisions,
-// tasks, and section-comments behind as orphans in the source Memex; unchecked items stay
-// on their old memex_id and re-attach if the spec is ever moved back.
+// is an active member of besides the current one. spec-293 (dec-2/dec-3): a Spec moves
+// WHOLE — every artifact and ALL comments travel with it — so there are no per-artifact
+// opt-outs; the dialog just shows what will move. Public share links are revoked.
 export function MoveSpecDialog({
   docId,
   title,
   decisionCount,
   taskCount,
-  sectionCommentCount,
+  commentCount,
   onClose,
   onMoved,
 }: MoveSpecDialogProps) {
   const { session } = useAuth();
   const currentTenant = getCurrentTenant();
   const currentNamespace = currentTenant?.namespace ?? null;
+  const currentMemexSlug = currentTenant?.memex ?? null;
 
   const destinations = useMemo<MembershipSummary[]>(() => {
     if (!session) return [];
+    if (currentNamespace === null) return []; // not in a tenant — refuse all
     return session.memberships.filter((m) => {
-      // Exclude the memex we're currently on.
-      if (currentNamespace === null) return false; // not in a tenant — refuse all
-      if (m.slug === currentNamespace) return false;
+      // Exclude only the exact memex we're currently on. A namespace slug is
+      // shared by every memex in an org, so matching on slug alone would drop
+      // all the org's other memexes — match on (namespace + memex) instead, the
+      // same key MemexSwitcher uses to identify the current memex.
+      if (
+        m.slug === currentNamespace &&
+        (m.memexSlug ?? null) === currentMemexSlug
+      ) {
+        return false;
+      }
+      // Move requires write access on the destination; visited (read-only)
+      // memexes can't be move targets. Read-only is opt-in via an explicit
+      // 'read'/'visited' — an absent accessLevel means full access (std-4).
+      if (m.accessLevel === 'read' || m.source === 'visited') return false;
       return true;
     });
-  }, [session, currentNamespace]);
+  }, [session, currentNamespace, currentMemexSlug]);
 
   const [targetMemexId, setTargetMemexId] = useState<string>(
     destinations[0]?.memexId ?? '',
   );
-  const [includeDecisions, setIncludeDecisions] = useState(true);
-  const [includeTasks, setIncludeTasks] = useState(true);
-  const [includeSectionComments, setIncludeSectionComments] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -62,6 +72,15 @@ export function MoveSpecDialog({
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose, submitting]);
 
+  // Keep a valid destination selected once the membership list resolves (the
+  // session can load after mount, leaving the initial state empty).
+  useEffect(() => {
+    if (destinations.length === 0) return;
+    if (!destinations.some((m) => m.memexId === targetMemexId)) {
+      setTargetMemexId(destinations[0].memexId);
+    }
+  }, [destinations, targetMemexId]);
+
   const chosen = destinations.find((m) => m.memexId === targetMemexId);
 
   async function handleMove() {
@@ -71,9 +90,6 @@ export function MoveSpecDialog({
     try {
       const result = await moveDocApi(docId, {
         targetMemexId: chosen.memexId,
-        includeDecisions,
-        includeTasks,
-        includeSectionComments,
       });
 
       // Compose a toast-worthy message if deps were pruned or share tokens revoked. We
@@ -120,7 +136,10 @@ export function MoveSpecDialog({
         if (e.target === e.currentTarget && !submitting) onClose();
       }}
     >
-      <div className="w-full max-w-lg rounded-xl border border-edge bg-panel shadow-2xl">
+      <div
+        data-testid="move-spec-dialog"
+        className="w-full max-w-lg rounded-xl border border-edge bg-panel shadow-2xl"
+      >
         <div className="px-6 py-4 border-b border-edge flex items-center justify-between">
           <h2 className="text-base font-semibold text-heading">Move spec</h2>
           <button
@@ -168,37 +187,25 @@ export function MoveSpecDialog({
 
               <div className="space-y-2">
                 <div className="text-xs font-medium uppercase tracking-wider text-muted">
-                  Also move
+                  What moves
                 </div>
-                <CheckboxRow
-                  checked={includeDecisions}
-                  onChange={setIncludeDecisions}
-                  disabled={submitting}
-                  label="Decisions"
-                  hint={typeof decisionCount === 'number' ? `${decisionCount} total` : undefined}
-                />
-                <CheckboxRow
-                  checked={includeTasks}
-                  onChange={setIncludeTasks}
-                  disabled={submitting}
-                  label="Tasks"
-                  hint={typeof taskCount === 'number' ? `${taskCount} total` : undefined}
-                />
-                <CheckboxRow
-                  checked={includeSectionComments}
-                  onChange={setIncludeSectionComments}
-                  disabled={submitting}
-                  label="Section comments"
-                  hint={
-                    typeof sectionCommentCount === 'number'
-                      ? `${sectionCommentCount} unresolved`
-                      : undefined
-                  }
-                />
+                <ul className="text-sm text-secondary space-y-1">
+                  <li>
+                    The whole Spec — its sections, ACs, QA report, issues, members and
+                    assignees.
+                  </li>
+                  <li>
+                    <MovePart label="Decisions" count={decisionCount} />
+                    {', '}
+                    <MovePart label="Tasks" count={taskCount} />
+                    {' and '}
+                    <MovePart label="Comments" count={commentCount} />
+                    {' travel with it.'}
+                  </li>
+                </ul>
                 <p className="text-xs text-muted pt-1">
-                  Unchecked items stay in this memex. They&apos;ll re-attach if the spec is
-                  moved back. Any blocker links between moved and unmoved items are removed.
-                  Public share links are revoked.
+                  The Spec&apos;s handle changes in the destination, and public share links
+                  are revoked.
                 </p>
               </div>
             </>
@@ -230,30 +237,13 @@ export function MoveSpecDialog({
   );
 }
 
-function CheckboxRow({
-  checked,
-  onChange,
-  disabled,
-  label,
-  hint,
-}: {
-  checked: boolean;
-  onChange: (v: boolean) => void;
-  disabled?: boolean;
-  label: string;
-  hint?: string;
-}) {
+// Renders "<count> <label>" when a count is known, else just the label — used in
+// the read-only "what moves" summary.
+function MovePart({ label, count }: { label: string; count?: number }) {
   return (
-    <label className={`flex items-center gap-2 text-sm ${disabled ? 'opacity-60' : ''}`}>
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={(e) => onChange(e.target.checked)}
-        disabled={disabled}
-        className="h-4 w-4 rounded border-edge bg-input text-accent focus:ring-0 focus:ring-offset-0"
-      />
-      <span className="text-primary">{label}</span>
-      {hint && <span className="text-muted">· {hint}</span>}
-    </label>
+    <span className="text-primary">
+      {typeof count === 'number' ? `${count} ` : ''}
+      {label}
+    </span>
   );
 }

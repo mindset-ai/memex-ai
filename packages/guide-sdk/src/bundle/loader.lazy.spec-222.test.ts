@@ -89,7 +89,12 @@ describe('spec-222 t-5: engine is lazy-loaded (ac-8)', () => {
     tagAc(AC_8);
 
     // Mock the engine module so we can observe exactly when it is pulled in.
-    const mountEngine = vi.fn(() => ({ unmount: vi.fn() }));
+    // spec-264 t-1: the engine signals first paint; the loader hides the doorway in
+    // that callback (no flicker). Fire it synchronously so the hand-off completes.
+    const mountEngine = vi.fn((args: { onFirstPaint?: () => void }) => {
+      args.onFirstPaint?.();
+      return { unmount: vi.fn() };
+    });
     vi.doMock('./engine', () => ({ mountEngine }));
 
     const { init } = await import('./loader');
@@ -121,7 +126,12 @@ describe('spec-222 t-5: engine is lazy-loaded (ac-8)', () => {
 
   it('(b) the engine loads at most once — repeated clicks do not re-import it', async () => {
     tagAc(AC_8);
-    const mountEngine = vi.fn(() => ({ unmount: vi.fn() }));
+    // spec-264 t-1: the engine signals first paint; the loader hides the doorway in
+    // that callback (no flicker). Fire it synchronously so the hand-off completes.
+    const mountEngine = vi.fn((args: { onFirstPaint?: () => void }) => {
+      args.onFirstPaint?.();
+      return { unmount: vi.fn() };
+    });
     vi.doMock('./engine', () => ({ mountEngine }));
 
     const { init } = await import('./loader');

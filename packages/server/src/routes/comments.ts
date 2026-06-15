@@ -27,6 +27,7 @@ import {
 } from "../middleware/session.js";
 import type { MemexResolverEnv } from "../middleware/memex-resolver.js";
 import { requireMemexId, resolveReadableMemexId } from "./shared.js";
+import { restCtx } from "./_actor-ctx.js";
 
 type Env = MemexResolverEnv & SessionEnv;
 const comments = new Hono<Env>();
@@ -191,7 +192,7 @@ comments.post("/:commentId/resolve", async (c) => {
   const memexId = requireMemexId(c);
   const commentId = c.req.param("commentId");
   const body = await c.req.json().catch(() => ({}));
-  const comment = await resolveComment(memexId, commentId, body.resolution);
+  const comment = await resolveComment(memexId, commentId, body.resolution, restCtx(c));
   return c.json(comment);
 });
 

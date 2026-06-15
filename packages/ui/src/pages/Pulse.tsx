@@ -31,6 +31,8 @@ import { PageHeader } from '../components/PageHeader';
 import { LiveDot } from '../components/pulse/LiveDot';
 import { ActivityFeed } from '../components/pulse/ActivityFeed';
 import { WorkingNow } from '../components/pulse/WorkingNow';
+import { VitalsStrip } from '../components/pulse/VitalsStrip';
+import { HotSpecs } from '../components/pulse/HotSpecs';
 import { NeedsAttentionTray } from '../components/pulse/NeedsAttentionTray';
 import { SpecPicker, type SpecPickerSpec } from '../components/pulse/SpecPicker';
 import { ScopeToggle, type PulseScope } from '../components/pulse/ScopeToggle';
@@ -41,9 +43,8 @@ import { usePulseStream } from '../hooks/usePulseStream';
 import { usePresence } from '../hooks/usePresence';
 import { useTestSignalPulse } from '../hooks/useTestSignalPulse';
 import { TestSignalsMonitor } from '../components/pulse/TestSignalsMonitor';
-import { TestSignalCounter } from '../components/pulse/TestSignalCounter';
 import { mergeTestSignals, type LiveTestSignal } from '../components/pulse/testSignals';
-import { isStateChanging } from '../components/pulse/types';
+import { isMeaningfulWork, workingNow } from '../components/pulse/pulseDerive';
 import type { ActivityRow, PulseConnectionStatus } from '../components/pulse/types';
 
 // spec-122 ac-2 — detect a REGRESSION on a moving line: a previously-verified AC
@@ -112,28 +113,24 @@ export function Pulse() {
     [setSearchParams],
   );
 
-  // ── Spec list for the picker (reuse SpecList's fetchDocs('spec') path). ──
+  // ── Spec list for the picker + the Hot Specs / Vitals bands. Refetched on a
+  // short poll AND on reconnect so phase + AC health stay LIVE (spec-255): a
+  // one-shot fetch left the cards frozen (phase chip never popped, new ACs never
+  // showed) until a full page reload. ──
   const [specDocs, setSpecDocs] = useState<DocSummary[]>([]);
   const [specsLoading, setSpecsLoading] = useState(true);
-  useEffect(() => {
-    let cancelled = false;
-    setSpecsLoading(true);
-    fetchDocs('spec')
-      .then((docs) => {
-        if (!cancelled) setSpecDocs(docs);
-      })
-      .catch(() => {
-        // Non-fatal: the picker just shows "No Specs". Errors here shouldn't
-        // take down the feed, which is the page's primary surface.
-        if (!cancelled) setSpecDocs([]);
-      })
-      .finally(() => {
-        if (!cancelled) setSpecsLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
+  const refreshSpecs = useCallback(() => {
+    fetchDocs('spec', { include: ['acHealth'] })
+      .then((docs) => setSpecDocs(docs))
+      // Non-fatal: keep the last-known list rather than blanking the bands.
+      .catch(() => {})
+      .finally(() => setSpecsLoading(false));
   }, []);
+  useEffect(() => {
+    refreshSpecs();
+    const id = setInterval(refreshSpecs, 15_000);
+    return () => clearInterval(id);
+  }, [refreshSpecs]);
 
   const pickerSpecs: SpecPickerSpec[] = useMemo(
     () => specDocs.map((d) => ({ handle: d.handle, title: d.title })),
@@ -247,7 +244,8 @@ export function Pulse() {
   const handleReconnect = useCallback(() => {
     void refresh();
     void refreshTestSignals();
-  }, [refresh, refreshTestSignals]);
+    refreshSpecs();
+  }, [refresh, refreshTestSignals, refreshSpecs]);
 
   const { status } = usePulseStream({ onRow: handleRow, onReconnect: handleReconnect });
 
@@ -323,7 +321,7 @@ export function Pulse() {
   // test_event rows persisted BEFORE the sink stopped writing them still live in
   // activity_log, so filter them out here too until they age off the window.
   const movingRows = useMemo(
-    () => mergedRows.filter((r) => r.entity !== 'test_event' && isStateChanging(r)),
+    () => mergedRows.filter((r) => isMeaningfulWork(r)),
     [mergedRows],
   );
 
@@ -342,6 +340,36 @@ export function Pulse() {
   const lastActivityAt = useCallback(
     (docId: string): string | undefined => lastActivityByDocId.get(docId),
     [lastActivityByDocId],
+  );
+
+  // ── spec-255 resolvers for the Vitals + Hot Specs bands. ──────────────────
+  const specPhaseByDocId = useCallback(
+    (docId: string): string | undefined => specDocs.find((d) => d.id === docId)?.status,
+    [specDocs],
+  );
+  const specAcHealthByDocId = useCallback(
+    (docId: string) => specDocs.find((d) => d.id === docId)?.acHealth,
+    [specDocs],
+  );
+  // docId → the present-tense narrative of that spec's most recent moving event,
+  // for the Hot Specs card + Working Now line.
+  const lastNarrativeByDocId = useMemo(() => {
+    const map = new Map<string, { at: number; text: string }>();
+    for (const r of movingRows) {
+      if (!r.briefId) continue;
+      const t = rowMs(r);
+      const prev = map.get(r.briefId);
+      if (!prev || t > prev.at) map.set(r.briefId, { at: t, text: r.narrative });
+    }
+    return map;
+  }, [movingRows]);
+  const specNarrativeByDocId = useCallback(
+    (docId: string): string | undefined => lastNarrativeByDocId.get(docId)?.text,
+    [lastNarrativeByDocId],
+  );
+  const specHref = useCallback(
+    (handle: string) => `/${namespace}/${memex}/specs/${handle}`,
+    [namespace, memex],
   );
 
   // ── eventsLastHour for the feed status line, from the moving set. ───────────
@@ -377,13 +405,30 @@ export function Pulse() {
     setClientId((prev) => (prev === id ? null : id));
   }, []);
 
+  // Scope the presence plane to the active 'me'/'everyone' filter so the WHOLE
+  // board (Vitals active-now, Hot Specs, Working Now) honours "just me" — not
+  // only the activity-derived parts (spec-255 int feedback).
+  const scopedPresent = useMemo(() => {
+    if (scope !== 'me') return presentRows;
+    if (!currentUserId) return [];
+    return presentRows.filter((r) => r.actorUserId === currentUserId);
+  }, [presentRows, scope, currentUserId]);
+
   // When a spec is selected, narrow Working-now to it too (board scope is
   // consistent across both zones); otherwise it's the whole-Memex picture.
   const displayedPresent = useMemo(() => {
     const wantSpecId = selectedSpec?.id ?? null;
-    if (!wantSpecId) return presentRows;
-    return presentRows.filter((r) => r.docId === wantSpecId);
-  }, [presentRows, selectedSpec]);
+    if (!wantSpecId) return scopedPresent;
+    return scopedPresent.filter((r) => r.docId === wantSpecId);
+  }, [scopedPresent, selectedSpec]);
+
+  // Working Now (spec-255 int feedback): everyone involved in the last ~5min —
+  // presence ∪ recent meaningful activity — so reading a long spec doesn't drop
+  // you the instant your heartbeat lapses. Freshness graded live vs idle.
+  const workers = useMemo(
+    () => workingNow(displayedPresent, movingRows, Date.now()),
+    [displayedPresent, movingRows],
+  );
 
   const headerTitle = memexName ? `Pulse · ${memexName}` : 'Pulse';
 
@@ -425,21 +470,37 @@ export function Pulse() {
           column; the Needs-attention tray keeps its place on the right. */}
       <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 min-h-0 flex flex-col">
-          {/* Live test-signal heartbeat next to who's working. */}
-          <TestSignalCounter
-            total={mergedTestSignals.totals.total}
-            windowMinutes={mergedTestSignals.windowMinutes}
-            failing={mergedTestSignals.failing}
-            liveDelta={liveTestSignals.length}
+          {/* spec-255 — Vitals strip (graphics) then the Hot Specs hero band.
+              Fed from the MERGED live+history stream (movingRows) so live events
+              move the sparklines and keep a spec hot the instant they land —
+              not only after a periodic history refetch. */}
+          <VitalsStrip present={scopedPresent} activity={movingRows} />
+          <HotSpecs
+            present={scopedPresent}
+            activity={movingRows}
+            specHandle={specHandleByDocId}
+            specTitle={specTitleByDocId}
+            specPhase={specPhaseByDocId}
+            specNarrative={specNarrativeByDocId}
+            specAcHealth={specAcHealthByDocId}
+            specHref={specHref}
           />
+          {/* Working Now — by person, ABOVE the Live log. */}
           <WorkingNow
-            present={displayedPresent}
+            workers={workers}
             loading={presenceLoading}
             specHandle={specHandleByDocId}
             specTitle={specTitleByDocId}
+            specHref={specHref}
             lastActivityAt={lastActivityAt}
+            lastNarrative={specNarrativeByDocId}
           />
-          <div className="min-h-0 flex-1 flex flex-col rounded-lg border border-edge-subtle bg-surface/40 overflow-hidden">
+          {/* Live event log — the BOTTOM band, allowed to grow tall (off-screen
+              is fine): it fills the remaining height and scrolls internally. */}
+          <div
+            data-testid="live-band"
+            className="flex-1 min-h-0 flex flex-col rounded-lg border border-edge-subtle bg-surface/40 overflow-hidden"
+          >
             <ActivityFeed
               rows={movingRows}
               status={status}
@@ -456,13 +517,17 @@ export function Pulse() {
         </div>
         <div className="lg:col-span-1 min-h-0 overflow-y-auto">
           {/* Test-signal volume graphic — the firehose as a live sparkline,
-              sitting ABOVE the needs-attention tray so the column reads
-              "real-time pulse → things to look at". */}
-          <TestSignalsMonitor
-            signals={mergedTestSignals}
-            loading={testSignalsLoading}
-            live={liveTestSignals.length > 0}
-          />
+              sitting ABOVE the needs-attention tray. It's a Memex-wide CI health
+              signal (test_events carry a free-text CI actor, not a user link),
+              so under 'me' it isn't personal — hide it to keep the board
+              consistently scoped to the active filter (spec-255 int feedback). */}
+          {scope !== 'me' && (
+            <TestSignalsMonitor
+              signals={mergedTestSignals}
+              loading={testSignalsLoading}
+              live={liveTestSignals.length > 0}
+            />
+          )}
           <NeedsAttentionTray briefId={selectedSpec?.id} />
         </div>
       </div>

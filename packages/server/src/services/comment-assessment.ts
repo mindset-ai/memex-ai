@@ -24,6 +24,27 @@ export interface OpenComment {
   createdAt: Date;
 }
 
+/**
+ * spec-259 t-3 — open comments grouped by ANCHOR KIND for the specify→build
+ * readiness surface. Comments are XOR-targeted at a section / decision / task;
+ * for the readiness view we collapse to two anchor groups the human cares
+ * about: decision-anchored (the comment hangs off a `dec-N`) and
+ * section-anchored (everything else — sections and tasks). Each group carries
+ * its member comments (oldest-first, inherited from the parent sort) plus the
+ * OLDEST createdAt across the group so a caller can render a "oldest Nd ago"
+ * age per group without re-walking the list.
+ */
+export type AnchorGroupKind = "decision" | "section";
+
+export interface CommentAnchorGroup {
+  kind: AnchorGroupKind;
+  count: number;
+  /** Oldest open-comment createdAt in this group, or null when empty. */
+  oldestCreatedAt: Date | null;
+  /** Member comments, oldest-first (same order as `comments`). */
+  comments: OpenComment[];
+}
+
 export interface CommentsStatus {
   briefId: string;
   specHandle: string;
@@ -40,6 +61,49 @@ export interface CommentsStatus {
   };
   /** Open comments, oldest-first. */
   comments: OpenComment[];
+  /**
+   * spec-259 t-3: the same open comments collapsed to two anchor groups
+   * (decision-anchored vs section-anchored), each with its member comments and
+   * the group's oldest createdAt. Backward-compatible add — existing callers
+   * that read `comments` / `byType` are untouched.
+   */
+  byAnchorKind: {
+    decision: CommentAnchorGroup;
+    section: CommentAnchorGroup;
+  };
+}
+
+/**
+ * spec-259 t-3: collapse a target kind to its anchor group. Decision targets
+ * are "decision-anchored"; sections and tasks are "section-anchored" (the
+ * narrative surface the human reviews). Pure — exported for unit testing.
+ */
+export function anchorKindForTarget(kind: CommentTargetKind): AnchorGroupKind {
+  return kind === "decision" ? "decision" : "section";
+}
+
+/**
+ * spec-259 t-3: group an oldest-first list of open comments by anchor kind,
+ * carrying per-group oldest createdAt. Input order is preserved within each
+ * group, so the first member of each group IS its oldest comment. Pure —
+ * exported for unit testing.
+ */
+export function groupCommentsByAnchorKind(
+  comments: readonly OpenComment[],
+): CommentsStatus["byAnchorKind"] {
+  const decisionComments = comments.filter((c) => anchorKindForTarget(c.target.kind) === "decision");
+  const sectionComments = comments.filter((c) => anchorKindForTarget(c.target.kind) === "section");
+  const group = (kind: AnchorGroupKind, members: OpenComment[]): CommentAnchorGroup => ({
+    kind,
+    count: members.length,
+    // Members inherit the parent oldest-first sort, so [0] is the oldest.
+    oldestCreatedAt: members.length > 0 ? members[0].createdAt : null,
+    comments: members,
+  });
+  return {
+    decision: group("decision", decisionComments),
+    section: group("section", sectionComments),
+  };
 }
 
 const SNIPPET_MAX = 120;
@@ -251,5 +315,6 @@ export async function assessCommentsStatus(
     totalOpen: comments.length,
     byType,
     comments,
+    byAnchorKind: groupCommentsByAnchorKind(comments),
   };
 }

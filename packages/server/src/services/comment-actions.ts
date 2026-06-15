@@ -30,7 +30,7 @@ import type { CommentAction } from "../types/roles.js";
 import { NotFoundError, ValidationError } from "../types/errors.js";
 import { resolveComment, unresolveComment } from "./comments.js";
 import { updateSection } from "./sections.js";
-import { mutate } from "./mutate.js";
+import { mutate, type RequestCtx } from "./mutate.js";
 import { hasAnchorMarker, extractMarkerSeqs, stripMarkersForSeq } from "./geo-anchor.js";
 
 // What the side agent is handed for an edit, and what it must return (new
@@ -46,6 +46,9 @@ export type AgentEditFn = (input: AgentEditInput) => Promise<string>;
 export interface ApplyActionDeps {
   runEdit: AgentEditFn;
   agentName?: string;
+  // spec-259 ac-4: the acting user, threaded to resolveComment so the ack/dismiss
+  // resolution carries WHO (std-32). Optional — defaults to unattributed.
+  ctx?: RequestCtx;
 }
 
 export interface ApplyActionResult {
@@ -115,7 +118,7 @@ export async function applyCommentAction(
   const action = findAction(comment, actionLabel);
 
   if (action.kind === "dismiss") {
-    const resolved = await resolveComment(memexId, commentId, `Dismissed via "${actionLabel}".`);
+    const resolved = await resolveComment(memexId, commentId, `Dismissed via "${actionLabel}".`, deps.ctx ?? {});
     return { kind: "dismiss", comment: resolved };
   }
 
@@ -167,6 +170,7 @@ export async function applyCommentAction(
       memexId,
       commentId,
       `Addressed via "${actionLabel}" by ${agentName}.`,
+      deps.ctx ?? {},
     );
 
     // Audit + undo record (spec §3 / ac-8). Wrapped in mutate({ silent: true })

@@ -3,6 +3,11 @@ import type { Comment, DocSection, Decision, Task } from '../api/types';
 import { CommentBubble } from './CommentTray';
 import { filterComments, type AuthorKindFilter, type StatusFilter } from '../utils/filterComments';
 import { commentAnchorId, buildCommentLink } from '../utils/commentDeepLink';
+// spec-259 ac-5: surface the SAME open-comment picture the MCP agent shows at
+// specify→build — counts, anchor-kind split (decision-anchored vs
+// section-anchored), and the oldest open comment's relative age. `timeAgo` is
+// the shared helper so the web phrasing matches the agent's.
+import { timeAgo } from '../utils/timeAgo';
 
 // spec-100 ac-6: wrap a comment with a stable scroll anchor (`comment-c-{seq}`)
 // and a copy-link button so a viewer can be taken straight to it.
@@ -157,8 +162,56 @@ export function AllComments({
     decisionEntries.reduce((n, e) => n + e.comments.length, 0) +
     taskEntries.reduce((n, e) => n + e.comments.length, 0);
 
+  // spec-259 ac-5: the readiness SUMMARY mirrors the agent's `assess_spec`
+  // ({mode:'comments'}) picture and is independent of the local filter chips —
+  // it always counts OPEN comments (no resolvedAt) across the doc and splits
+  // them by anchor kind. Per the server's `anchorKindForTarget`, decision
+  // comments are "decision-anchored"; sections AND tasks are "section-anchored"
+  // (the narrative surface the human reviews). The oldest open comment's
+  // createdAt drives the relative-age phrase.
+  const isOpen = (c: Comment) => !c.resolvedAt;
+  const openDecisionComments = Object.values(commentsByDecision)
+    .flat()
+    .filter(isOpen);
+  const openSectionAnchored = [
+    ...Object.values(commentsBySection).flat(),
+    ...Object.values(commentsByTask).flat(),
+  ].filter(isOpen);
+  const decisionAnchoredCount = openDecisionComments.length;
+  const sectionAnchoredCount = openSectionAnchored.length;
+  const totalOpenCount = decisionAnchoredCount + sectionAnchoredCount;
+  const oldestOpenAt = [...openDecisionComments, ...openSectionAnchored].reduce<
+    string | null
+  >((oldest, c) => {
+    if (!oldest) return c.createdAt;
+    return new Date(c.createdAt).getTime() < new Date(oldest).getTime()
+      ? c.createdAt
+      : oldest;
+  }, null);
+
   return (
     <div className="space-y-6 ml-8">
+      {totalOpenCount > 0 && (
+        <div
+          data-testid="open-comments-summary"
+          className="rounded-md border border-divider bg-overlay px-3 py-2 text-xs text-secondary"
+        >
+          <span className="font-medium text-primary">
+            {totalOpenCount} open comment{totalOpenCount === 1 ? '' : 's'}
+          </span>
+          <span className="text-muted">
+            {' '}— {decisionAnchoredCount} decision-anchored,{' '}
+            {sectionAnchoredCount} section-anchored
+          </span>
+          {oldestOpenAt && (
+            <span className="text-muted">
+              {' '}· oldest{' '}
+              <span data-testid="open-comments-oldest">{timeAgo(oldestOpenAt)}</span>
+            </span>
+          )}
+        </div>
+      )}
+
       {hasAnyComments && (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
           <SegmentedFilter

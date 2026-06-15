@@ -41,6 +41,7 @@ import { FOOTER_DELIMITER } from "../mcp/footer-delimiter.js";
 import { isSpecStatus } from "../types/roles.js";
 import { assign } from "./doc-assignees.js";
 import { promoteToEditor } from "./doc-members.js";
+import { markPresent } from "./presence.js";
 import { updateDocStatus } from "./documents.js";
 // Type-only imports — erased at compile time, so no runtime cycle with
 // agent/tool-specs.ts (which imports this module's consumers).
@@ -88,6 +89,26 @@ export async function observeSpecTraffic(event: SpecTrafficEvent): Promise<void>
     // Specs are inert to the whole agent surface (spec-178).
     if (!doc || doc.docType !== "spec" || doc.isDemo) return;
 
+    // ── Presence heartbeat (spec-255) ─────────────────────────────────
+    // Every agent tool call that touches a Spec marks the ACTOR present, so
+    // Pulse's "active now" reflects in-app agents too. The telemetry floor only
+    // sees the MCP surface (mcp_tool_calls); without this an in_app_agent
+    // conversation is invisible to presence (active-now showed 0 while a human
+    // was actively conversing). Silent / out-of-band (std-8), like the browser
+    // heartbeat. actorKind follows the surface; the human owns the row.
+    try {
+      await markPresent({
+        memexId: event.memexId,
+        docId: event.docId,
+        actorUserId: event.userId,
+        actorKind: event.channel === "in_app_agent" ? "in_app_agent" : "mcp_agent",
+        channel: event.channel,
+        clientId: event.channel,
+      });
+    } catch (err) {
+      console.warn("[spec-traffic] presence heartbeat failed:", err);
+    }
+
     // ── Auto-assignment + editor role (dec-6) ─────────────────────────
     if (entry.autoAssignExempt !== true) {
       try {
@@ -106,6 +127,14 @@ export async function observeSpecTraffic(event: SpecTrafficEvent): Promise<void>
     }
 
     // ── Phase advancement ─────────────────────────────────────────────
+    // spec-295 dec-3: the web AGENT must not silently move a Spec's phase.
+    // Only the `mcp` channel (an external coding agent driving the build)
+    // auto-advances; the `in_app_agent` channel (the creation modal + the
+    // in-app spec agent) is human-present and phase is the human's call —
+    // the same posture rest_ui already has. This revisits spec-189 dec-5,
+    // which had opted in_app_agent INTO advancement. Presence + auto-assign
+    // above still run for in_app_agent; only this phase move is excluded.
+    if (event.channel !== "mcp") return;
     // paused/archived are deliberate placements — auto-advance must not
     // fight them (same principle as dec-5's rest_ui exclusion). Traffic
     // never unflags; it also doesn't shuffle the phase underneath a flag.

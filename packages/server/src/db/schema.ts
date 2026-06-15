@@ -1147,6 +1147,34 @@ export const users = pgTable("users", {
   unique("users_namespace_id_unique").on(table.namespaceId),
 ]);
 
+// spec-260 t-1 (dec-6): per-user QA Reports read-state marker — the only net-new table
+// for the QA Report feature. One row per (user, memex) holding the last time the user
+// viewed the workspace QA Reports feed. Unread = count of qa_report* doc_sections in the
+// memex created after `lastViewedAt` (computed in the service layer, not stored). A
+// missing row means "never viewed" → every report counts.
+//
+// This is per-user state, NOT an activity-bearing doc table, so the std-32 activity-
+// contract columns (actor_*, channel) deliberately do NOT apply. Tenancy: it carries a
+// direct memex_id, so migration 0092 puts the same memex_isolation RLS policy on it as
+// the Phase-2 tenant tables (0081); per-user scoping is enforced at the service layer,
+// which always reads/writes the authenticated user's own row.
+export const qaReportViews = pgTable(
+  "qa_report_views",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    memexId: uuid("memex_id")
+      .notNull()
+      .references(() => memexes.id, { onDelete: "cascade" }),
+    lastViewedAt: timestamp("last_viewed_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.userId, table.memexId] })],
+);
+
+export type QaReportView = InferSelectModel<typeof qaReportViews>;
+export type NewQaReportView = InferInsertModel<typeof qaReportViews>;
+
 // Single-use tokens for email verification, magic-link login, and password reset.
 // Stored as a sha256 hash — the raw token is emailed and never persisted. `email` holds
 // the destination address so magic-link signups (user doesn't exist yet) still work.
@@ -1490,6 +1518,22 @@ export const memexEmissionKeys = pgTable(
     }),
     lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    // spec-234: the two-key model. Both columns are nullable and a NULL pair is
+    // exactly today's permanent / CI key (human-minted, whole-memex, never
+    // expires) — so existing rows keep working unchanged.
+    //   expires_at         — when set, the key stops authorising emissions once
+    //                        now() passes it (verifyEmissionKey gate), with no
+    //                        human revoke. NULL = permanent. Agent keys set it
+    //                        ~2h ahead (dec-1).
+    //   scoped_spec_handle — when set, the key may ONLY emit for ACs of this Spec
+    //                        (the `spec-N` handle from the ac_uid's
+    //                        `/specs/<handle>/` segment, matched in the
+    //                        /api/test-events gate). NULL = whole-memex
+    //                        authorisation (the spec-129 default).
+    // The pair is the discriminator the Settings UI reads (ac-8): ephemeral =
+    // either column non-null. No separate `kind` column needed.
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    scopedSpecHandle: text("scoped_spec_handle"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [

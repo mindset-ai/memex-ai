@@ -35,6 +35,7 @@ export {
   seedAc,
   seedIssue,
   seedTestEvent,
+  seedEmissionKey,
   seedTask,
   signupWithToken,
   seedAssignee,

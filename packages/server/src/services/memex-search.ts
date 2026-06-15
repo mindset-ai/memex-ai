@@ -50,6 +50,7 @@
 // but IS NOT TRUE is robust against any legacy NULL and reads as the intent).
 
 import { sql } from "drizzle-orm";
+import { timeAgo, capitalizeDisplayName } from "@memex/shared";
 import { db } from "../db/connection.js";
 import {
   resolveEmbeddingProvider,
@@ -151,6 +152,15 @@ export interface MatchingSection {
   content: string;
   /** Which search method surfaced this section first. */
   matchedVia: SearchStrategy;
+  /** WHO — best-effort display name of who last touched THIS section (spec-259
+   *  ac-9). Carried per-section so a multi-section doc hit surfaces each
+   *  matched section's own creator, not just the doc-level latest. Same SQL
+   *  COALESCE(actor_name, users.name, users.email) resolution as the doc-level
+   *  WHO. null when nothing resolved. Wire/structured value — kept absolute. */
+  authorName: string | null;
+  /** WHEN — ISO-8601 last-modified of THIS section (spec-259 ac-9). Absolute
+   *  ISO on the structured object; rendered relative via timeAgo(). */
+  lastUpdatedAt: string | null;
 }
 
 export interface MemexSearchHit {
@@ -186,6 +196,25 @@ export interface MemexSearchHit {
    *  used to detect self-hits when the caller passes `currentDocId` to the
    *  formatter. */
   parentDocId: string;
+  /** WHO — best-effort display name of who authored / last touched this hit
+   *  (spec-285 dec-1). For decision/section hits this is the denormalised
+   *  std-32 `actor_name` where present (rename-proof); for document and issue
+   *  hits, the `created_by_user_id` resolved to `users.name ?? users.email`.
+   *  null when nothing resolved (a system write, a deleted user, a legacy
+   *  unattributed row). Navigation-only lanes (jump / assigned) leave it null. */
+  authorName: string | null;
+  /** WHEN — ISO-8601 timestamp of when this hit was last changed (spec-285
+   *  dec-2): the row's last-modified where it has one (`doc_sections`/`issues`
+   *  `updated_at`), falling back to `created_at` where it does not (decisions
+   *  carry no `updated_at`). null only when no timestamp was selected
+   *  (navigation-only lanes). */
+  lastUpdatedAt: string | null;
+  /** Open (unresolved) comments anchored on this hit's doc (spec-259 ac-12). A
+   *  lightweight indicator only — count + oldest open comment's age — never the
+   *  comment content. `oldestCreatedAt` is absolute ISO on the structured
+   *  object; rendered relative via timeAgo(). Omitted (undefined) when the hit
+   *  has zero open comments, so the formatter renders no indicator line. */
+  openComments?: { count: number; oldestCreatedAt: string };
 }
 
 export interface SearchMemexOptions {
@@ -225,6 +254,11 @@ interface SectionRow {
   doc_title: string;
   doc_status: string;
   doc_type: string;
+  // spec-285: WHO/WHEN. `author_name` is computed in SQL — the section's
+  // denormalised actor_name (std-32) preferred, else the parent doc's resolved
+  // creator. `updated_at` is the section's own last-modified.
+  author_name: string | null;
+  updated_at: string | Date;
   rank?: number; // FTS ts_rank
   distance?: number; // vector cosine distance
 }
@@ -240,6 +274,11 @@ interface DecisionRow {
   dec_context: string | null;
   dec_resolution: string | null;
   dec_status: string;
+  // spec-285: WHO/WHEN. `author_name` = decision's denormalised actor_name
+  // (std-32) preferred, else the actor_user_id resolved to a user. `created_at`
+  // is the only timestamp decisions carry (no updated_at — dec-2 fallback).
+  author_name: string | null;
+  created_at: string | Date;
   rank?: number;
   distance?: number;
 }
@@ -255,6 +294,11 @@ interface IssueRow {
   issue_body: string | null;
   issue_type: string;
   issue_status: string;
+  // spec-285: WHO/WHEN. Issues carry no actor_name (std-32 hasn't reached the
+  // issues table) — `author_name` is the created_by_user_id resolved to a user.
+  // `updated_at` is the issue's own last-modified.
+  author_name: string | null;
+  updated_at: string | Date;
   rank?: number;
   distance?: number;
 }
@@ -326,6 +370,73 @@ function inScopeDocTypes(kind: MemexSearchKind | undefined): string[] | null {
   return DOC_TYPES_BY_KIND[kind];
 }
 
+// spec-285: normalise a timestamptz coming back from the driver (Date or ISO
+// string depending on the column path) to a stable ISO-8601 string for the hit
+// shape. null/invalid → null so the formatter and REST JSON degrade gracefully.
+function toIso(value: string | Date | null | undefined): string | null {
+  if (value == null) return null;
+  const d = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+// spec-259 ac-12: batch-load the open (unresolved) comment count + oldest open
+// comment timestamp for a set of doc ids, in ONE grouped query (no N+1). Keyed
+// by doc_id — a comment transitively belongs to a doc via its section/decision/
+// task target, but doc_id is denormalised on the row (schema comment), so we
+// group on it directly. `resolved_at IS NULL` is the open predicate. Returns a
+// Map doc_id → { count, oldestCreatedAt(ISO) }; absent keys have zero open
+// comments. No comment CONTENT is selected — indicator only.
+interface OpenCommentRow {
+  doc_id: string;
+  open_count: number | string;
+  oldest_created_at: string | Date;
+}
+
+async function loadOpenCommentSummaries(
+  docIds: string[],
+): Promise<Map<string, { count: number; oldestCreatedAt: string }>> {
+  const summaries = new Map<string, { count: number; oldestCreatedAt: string }>();
+  if (docIds.length === 0) return summaries;
+  // De-dupe the id set (decision/section hits can share a parent doc) so the
+  // IN-list is minimal.
+  const uniqueIds = Array.from(new Set(docIds));
+  const idList = sql.join(
+    uniqueIds.map((id) => sql`${id}::uuid`),
+    sql`, `,
+  );
+  const rows = (await db.execute(sql`
+    SELECT
+      doc_id                AS doc_id,
+      COUNT(*)              AS open_count,
+      MIN(created_at)       AS oldest_created_at
+    FROM doc_comments
+    WHERE doc_id IN (${idList})
+      AND resolved_at IS NULL
+    GROUP BY doc_id
+  `)) as unknown as OpenCommentRow[];
+  for (const r of rows) {
+    const count = Number(r.open_count);
+    const oldestCreatedAt = toIso(r.oldest_created_at);
+    if (count > 0 && oldestCreatedAt) {
+      summaries.set(r.doc_id, { count, oldestCreatedAt });
+    }
+  }
+  return summaries;
+}
+
+// spec-259 ac-12: attach the open-comment indicator to each hit by its parent
+// doc. Mutates in place and returns the same array. A decision/section hit
+// inherits its parent doc's open-comment summary (the indicator is doc-scoped).
+async function attachOpenComments(hits: MemexSearchHit[]): Promise<MemexSearchHit[]> {
+  if (hits.length === 0) return hits;
+  const summaries = await loadOpenCommentSummaries(hits.map((h) => h.parentDocId));
+  for (const hit of hits) {
+    const summary = summaries.get(hit.parentDocId);
+    if (summary) hit.openComments = summary;
+  }
+  return hits;
+}
+
 // ── Public entry point ─────────────────────────────────
 
 export async function searchMemex(
@@ -349,7 +460,7 @@ export async function searchMemex(
   //    through to FTS/vector.)
   if (HANDLE_REGEX.test(trimmed)) {
     const direct = await lookupByHandle(memexId, slugs, trimmed, includeArchived);
-    if (direct) return [direct];
+    if (direct) return attachOpenComments([direct]);
     // Fall through to fuzzy search if nothing matched (the user might have
     // typed a handle that doesn't exist; better to show paraphrase candidates
     // than an empty result).
@@ -432,7 +543,7 @@ export async function searchMemex(
     issueTasks[1],
   ]);
 
-  return mergeWithRrf(
+  const merged = mergeWithRrf(
     sectionFts as SectionRow[],
     sectionVector as SectionRow[],
     decisionFts as DecisionRow[],
@@ -442,6 +553,10 @@ export async function searchMemex(
     slugs,
     limit,
   );
+
+  // spec-259 ac-12: enrich the (already-capped) result set with open-comment
+  // indicators in one grouped query — batched over the result docs, never N+1.
+  return attachOpenComments(merged);
 }
 
 // ── Direct lookup ──────────────────────────────────────
@@ -459,23 +574,51 @@ async function lookupByHandle(
       s.section_type  AS section_type,
       s.title         AS section_title,
       s.content       AS section_content,
+      s.actor_name    AS section_actor_name,
+      s.updated_at    AS section_updated_at,
       s.doc_id        AS doc_id,
       d.handle        AS doc_handle,
       d.title         AS doc_title,
       d.status        AS doc_status,
-      d.doc_type      AS doc_type
+      d.doc_type      AS doc_type,
+      d.created_at        AS doc_created_at,
+      d.status_changed_at AS doc_status_changed_at,
+      du.name         AS doc_author_name,
+      du.email        AS doc_author_email
     FROM documents d
     LEFT JOIN doc_sections s ON s.doc_id = d.id
+    LEFT JOIN users du ON du.id = d.created_by_user_id
     WHERE d.memex_id = ${memexId}
       ${archivedClause}
       AND d.is_demo IS NOT TRUE
       AND d.handle = ${query.toLowerCase()}
     ORDER BY s.seq
-  `)) as unknown as SectionRow[];
+  `)) as unknown as HandleRow[];
 
   if (rows.length === 0) return null;
 
   const first = rows[0];
+
+  // WHO/WHEN for a handle hit (spec-285): the heading is the DOCUMENT, so
+  // attribute it from the most-recently-updated section (denormalised
+  // actor_name, std-32), falling back to the doc's resolved creator. WHEN is the
+  // latest section's updated_at, else the doc's own status_changed_at/created_at.
+  const sections = rows.filter((r) => r.section_id != null);
+  let latest: HandleRow | null = null;
+  for (const r of sections) {
+    if (!latest || toMillis(r.section_updated_at) > toMillis(latest.section_updated_at)) {
+      latest = r;
+    }
+  }
+  const docAuthorFallback =
+    first.doc_author_name?.trim() || first.doc_author_email?.trim() || null;
+  const sectionActor = latest?.section_actor_name?.trim() || null;
+  const authorName = sectionActor ?? docAuthorFallback;
+  const lastUpdatedAt =
+    toIso(latest?.section_updated_at) ??
+    toIso(first.doc_status_changed_at) ??
+    toIso(first.doc_created_at);
+
   return {
     id: first.doc_id,
     parentDocId: first.doc_id,
@@ -485,16 +628,49 @@ async function lookupByHandle(
     status: first.doc_status,
     score: 1,
     strategies: ["handle"],
-    matchingSections: rows
-      .filter((r) => r.section_id != null)
-      .map((r) => ({
-        id: r.section_id,
-        sectionType: r.section_type,
-        title: r.section_title,
-        content: r.section_content,
-        matchedVia: "handle",
-      })),
+    authorName,
+    lastUpdatedAt,
+    matchingSections: sections.map((r) => ({
+      id: r.section_id,
+      sectionType: r.section_type,
+      title: r.section_title,
+      content: r.section_content,
+      matchedVia: "handle",
+      // spec-259 ac-9: per-section WHO/WHEN. The handle row has no resolved
+      // creator fallback per-section, so use the section's denormalised
+      // actor_name (std-32), else the doc-level resolved creator fallback.
+      authorName: r.section_actor_name?.trim() || docAuthorFallback,
+      lastUpdatedAt: toIso(r.section_updated_at),
+    })),
   };
+}
+
+// Row shape for lookupByHandle's documents⨝sections⨝users projection (spec-285).
+interface HandleRow {
+  section_id: string;
+  section_type: string;
+  section_title: string | null;
+  section_content: string;
+  section_actor_name: string | null;
+  section_updated_at: string | Date | null;
+  doc_id: string;
+  doc_handle: string;
+  doc_title: string;
+  doc_status: string;
+  doc_type: string;
+  doc_created_at: string | Date | null;
+  doc_status_changed_at: string | Date | null;
+  doc_author_name: string | null;
+  doc_author_email: string | null;
+}
+
+// spec-285: epoch millis for comparing two timestamptz values; missing/invalid
+// sorts oldest so a real timestamp always wins the "latest section" pick.
+function toMillis(value: string | Date | null | undefined): number {
+  if (value == null) return -Infinity;
+  const d = value instanceof Date ? value : new Date(value);
+  const t = d.getTime();
+  return Number.isNaN(t) ? -Infinity : t;
 }
 
 // ── Jump-to lane (spec-64 t-2) ─────────────────────────
@@ -636,6 +812,10 @@ export async function resolveJumpTo(
       // so it ranks below the handle hit but is still a deliberate jump target.
       score: 0.5,
       strategies: ["handle"],
+      // Navigation-only lane (⌘K jump tier) — WHO/WHEN isn't rendered here
+      // (spec-285 dec-3 defers palette metadata), so leave them null.
+      authorName: null,
+      lastUpdatedAt: null,
       matchingSections: [],
     });
   }
@@ -695,6 +875,9 @@ export async function resolveAssignedSpecs(
         // tier, so we reuse it rather than widening the SearchStrategy union for
         // a lane the formatter never renders.
         strategies: ["handle"],
+        // Navigation-only lane — WHO/WHEN unrendered here (spec-285 dec-3).
+        authorName: null,
+        lastUpdatedAt: null,
         matchingSections: [],
       });
     }
@@ -724,6 +907,8 @@ async function runSectionFts(
       s.title         AS section_title,
       s.content       AS section_content,
       s.doc_id        AS doc_id,
+      s.updated_at    AS updated_at,
+      COALESCE(NULLIF(TRIM(s.actor_name), ''), NULLIF(TRIM(du.name), ''), du.email) AS author_name,
       d.handle        AS doc_handle,
       d.title         AS doc_title,
       d.status        AS doc_status,
@@ -731,6 +916,7 @@ async function runSectionFts(
       ts_rank(s.content_tsv, plainto_tsquery('english', ${query})) AS rank
     FROM doc_sections s
     INNER JOIN documents d ON d.id = s.doc_id
+    LEFT JOIN users du ON du.id = d.created_by_user_id
     WHERE d.memex_id = ${memexId}
       AND d.doc_type IN ${sql.raw(`(${docTypes.map((t) => `'${t}'`).join(",")})`)}
       ${archivedClause}
@@ -778,6 +964,8 @@ async function runSectionVector(
       s.title         AS section_title,
       s.content       AS section_content,
       s.doc_id        AS doc_id,
+      s.updated_at    AS updated_at,
+      COALESCE(NULLIF(TRIM(s.actor_name), ''), NULLIF(TRIM(du.name), ''), du.email) AS author_name,
       d.handle        AS doc_handle,
       d.title         AS doc_title,
       d.status        AS doc_status,
@@ -785,6 +973,7 @@ async function runSectionVector(
       (s.embedding <=> ${literal}::vector) AS distance
     FROM doc_sections s
     INNER JOIN documents d ON d.id = s.doc_id
+    LEFT JOIN users du ON du.id = d.created_by_user_id
     WHERE d.memex_id = ${memexId}
       AND d.doc_type IN ${sql.raw(`(${docTypes.map((t) => `'${t}'`).join(",")})`)}
       ${archivedClause}
@@ -826,6 +1015,8 @@ async function runDecisionFts(
       dec.context     AS dec_context,
       dec.resolution  AS dec_resolution,
       dec.status      AS dec_status,
+      dec.created_at  AS created_at,
+      COALESCE(NULLIF(TRIM(dec.actor_name), ''), NULLIF(TRIM(au.name), ''), au.email) AS author_name,
       d.handle        AS doc_handle,
       d.title         AS doc_title,
       d.doc_type      AS doc_type,
@@ -838,6 +1029,7 @@ async function runDecisionFts(
       ) AS rank
     FROM decisions dec
     INNER JOIN documents d ON d.id = dec.doc_id
+    LEFT JOIN users au ON au.id = dec.actor_user_id
     WHERE dec.memex_id = ${memexId}
       ${archivedClause}
       AND d.is_demo IS NOT TRUE
@@ -888,12 +1080,15 @@ async function runDecisionVector(
       dec.context     AS dec_context,
       dec.resolution  AS dec_resolution,
       dec.status      AS dec_status,
+      dec.created_at  AS created_at,
+      COALESCE(NULLIF(TRIM(dec.actor_name), ''), NULLIF(TRIM(au.name), ''), au.email) AS author_name,
       d.handle        AS doc_handle,
       d.title         AS doc_title,
       d.doc_type      AS doc_type,
       (dec.embedding <=> ${literal}::vector) AS distance
     FROM decisions dec
     INNER JOIN documents d ON d.id = dec.doc_id
+    LEFT JOIN users au ON au.id = dec.actor_user_id
     WHERE dec.memex_id = ${memexId}
       ${archivedClause}
       AND d.is_demo IS NOT TRUE
@@ -936,6 +1131,8 @@ async function runIssueFts(
       iss.body        AS issue_body,
       iss.type        AS issue_type,
       iss.status      AS issue_status,
+      iss.updated_at  AS updated_at,
+      COALESCE(NULLIF(TRIM(au.name), ''), au.email) AS author_name,
       d.handle        AS doc_handle,
       d.title         AS doc_title,
       d.doc_type      AS doc_type,
@@ -947,6 +1144,7 @@ async function runIssueFts(
       ) AS rank
     FROM issues iss
     INNER JOIN documents d ON d.id = iss.doc_id
+    LEFT JOIN users au ON au.id = iss.created_by_user_id
     WHERE iss.memex_id = ${memexId}
       ${archivedClause}
       AND d.is_demo IS NOT TRUE
@@ -996,12 +1194,15 @@ async function runIssueVector(
       iss.body        AS issue_body,
       iss.type        AS issue_type,
       iss.status      AS issue_status,
+      iss.updated_at  AS updated_at,
+      COALESCE(NULLIF(TRIM(au.name), ''), au.email) AS author_name,
       d.handle        AS doc_handle,
       d.title         AS doc_title,
       d.doc_type      AS doc_type,
       (iss.embedding <=> ${literal}::vector) AS distance
     FROM issues iss
     INNER JOIN documents d ON d.id = iss.doc_id
+    LEFT JOIN users au ON au.id = iss.created_by_user_id
     WHERE iss.memex_id = ${memexId}
       ${archivedClause}
       AND d.is_demo IS NOT TRUE
@@ -1032,6 +1233,14 @@ interface AccumulatorEntry {
   issueSnippet?: string;
   issueMatchedVia?: SearchStrategy;
   issueType?: string;
+  // spec-285 WHO/WHEN. For a doc hit these track the most-recently-updated
+  // matched section (so `authorAt` is the latest-section comparison key); for
+  // decision/issue hits they're set once from the atomic row.
+  authorName: string | null;
+  lastUpdatedAt: string | null;
+  /** Epoch millis of `lastUpdatedAt`, kept only to pick the latest matched
+   *  section across the FTS + vector arms. Not emitted. */
+  authorAtMillis: number;
 }
 
 function pickDecisionSnippet(r: DecisionRow): string {
@@ -1082,11 +1291,25 @@ function mergeWithRrf(
           score: 0,
           strategies: new Set<SearchStrategy>(),
           sectionsByVia: new Map(),
+          authorName: null,
+          lastUpdatedAt: null,
+          authorAtMillis: -Infinity,
         };
         acc.set(`doc:${r.doc_id}`, entry);
       }
       entry.score += rrfContribution;
       entry.strategies.add(via);
+
+      // WHO/WHEN (spec-285): a doc hit groups many matched sections (and arrives
+      // across the FTS + vector arms in rank order, not time order). Attribute
+      // the doc to its MOST-RECENTLY-UPDATED matched section, so authorName +
+      // lastUpdatedAt answer "who last changed this and when".
+      const rowMillis = toMillis(r.updated_at);
+      if (rowMillis > entry.authorAtMillis) {
+        entry.authorAtMillis = rowMillis;
+        entry.authorName = r.author_name?.trim() || null;
+        entry.lastUpdatedAt = toIso(r.updated_at);
+      }
 
       // Keep the FIRST `via` that surfaced each section so a section seen by
       // both FTS and vector reports the higher-confidence search method.
@@ -1097,6 +1320,10 @@ function mergeWithRrf(
           title: r.section_title,
           content: r.section_content,
           matchedVia: via,
+          // spec-259 ac-9: per-section WHO/WHEN so each matched section's own
+          // creator surfaces, not just the doc-level most-recent one.
+          authorName: r.author_name?.trim() || null,
+          lastUpdatedAt: toIso(r.updated_at),
         });
       }
     }
@@ -1120,6 +1347,12 @@ function mergeWithRrf(
           sectionsByVia: new Map(),
           decisionSnippet: pickDecisionSnippet(r),
           decisionMatchedVia: via,
+          // WHO/WHEN (spec-285): a decision is atomic, so set once. authorName =
+          // denormalised actor_name (or resolved actor), lastUpdatedAt =
+          // created_at (decisions carry no updated_at — dec-2 fallback).
+          authorName: r.author_name?.trim() || null,
+          lastUpdatedAt: toIso(r.created_at),
+          authorAtMillis: toMillis(r.created_at),
         };
         acc.set(`dec:${r.decision_id}`, entry);
       } else {
@@ -1150,6 +1383,11 @@ function mergeWithRrf(
           issueSnippet: pickIssueSnippet(r),
           issueMatchedVia: via,
           issueType: r.issue_type,
+          // WHO/WHEN (spec-285): atomic, set once. Issues have no actor_name, so
+          // authorName is the resolved created_by user; lastUpdatedAt = updated_at.
+          authorName: r.author_name?.trim() || null,
+          lastUpdatedAt: toIso(r.updated_at),
+          authorAtMillis: toMillis(r.updated_at),
         };
         acc.set(`iss:${r.issue_id}`, entry);
       } else {
@@ -1183,6 +1421,8 @@ function mergeWithRrf(
     issueSnippet: e.issueSnippet,
     issueMatchedVia: e.issueMatchedVia,
     issueType: e.issueType,
+    authorName: e.authorName,
+    lastUpdatedAt: e.lastUpdatedAt,
   }));
 
   results.sort((a, b) => b.score - a.score);
@@ -1223,6 +1463,48 @@ export interface FormatOptions {
    *  `includeCurrentDoc: true` (the default excludes the current doc from
    *  results entirely, so this never fires). */
   currentDocId?: string;
+  /** Injectable "now" for relative-age rendering (spec-259 dec-5). Tests pass a
+   *  fixed clock so `timeAgo()` output is deterministic; production omits it and
+   *  the helpers default to the real wall clock. */
+  now?: Date;
+}
+
+// spec-285 + spec-259: the WHO/WHEN byline appended to a hit's heading, e.g.
+// ` · Ryan Soosayraj, 3d ago`. Legible to a human and parseable by an agent
+// (` · <author>, <relative-age>`). Degrades gracefully: author-only, age-only,
+// or nothing at all when neither resolved. spec-259 dec-5 moved the RENDERED
+// timestamp from an absolute YYYY-MM-DD to a relative `timeAgo()` ("Nd ago");
+// the structured `hit.lastUpdatedAt`/`hit.authorName` stay absolute ISO. The
+// author is run through capitalizeDisplayName (spec-259 ac-9) because the SQL
+// WHO-resolver returns raw names that bypass the shared who-resolver. `now` is
+// injectable so unit tests are deterministic.
+function formatWhoWhenByline(
+  authorName: string | null,
+  lastUpdatedAt: string | null,
+  now?: Date,
+): string {
+  const raw = authorName?.trim() || null;
+  const author = raw ? capitalizeDisplayName(raw) : null;
+  const age = lastUpdatedAt ? timeAgo(lastUpdatedAt, now) : null;
+  if (author && age) return ` · ${author}, ${age}`;
+  if (author) return ` · ${author}`;
+  if (age) return ` · ${age}`;
+  return "";
+}
+
+function formatHitByline(hit: MemexSearchHit, now?: Date): string {
+  return formatWhoWhenByline(hit.authorName, hit.lastUpdatedAt, now);
+}
+
+// spec-259 ac-12: the open-comment indicator appended as its own line under a
+// hit, e.g. `- (2 open comments, oldest 3d ago)`. Indicator only — no comment
+// content. Returns null when the hit has zero open comments so the caller emits
+// no line. `now` injectable for deterministic tests.
+function formatOpenCommentsLine(hit: MemexSearchHit, now?: Date): string | null {
+  const oc = hit.openComments;
+  if (!oc || oc.count <= 0) return null;
+  const noun = oc.count === 1 ? "open comment" : "open comments";
+  return `- (${oc.count} ${noun}, oldest ${timeAgo(oc.oldestCreatedAt, now)})`;
 }
 
 function isHitOnCurrentDoc(hit: MemexSearchHit, currentDocId: string): boolean {
@@ -1243,6 +1525,7 @@ export function formatSearchResults(
 
   const verbose = options.verbose === true;
   const currentDocId = options.currentDocId;
+  const now = options.now;
   const lines: string[] = [`## Search results for "${query}" (${hits.length} hit${hits.length === 1 ? "" : "s"})`];
 
   for (const hit of hits) {
@@ -1254,7 +1537,11 @@ export function formatSearchResults(
     // so a reader can tell a bug from a todo at a glance (spec-112 t-4).
     const kindLabel =
       hit.kind === "issue" && hit.issueType ? `issue/${hit.issueType}` : hit.kind;
-    lines.push(`### ${hit.path} — "${hit.title}" (${kindLabel}, ${hit.status})${selfTag}${scoreSuffix}`);
+    // spec-285: WHO/WHEN byline sits after the (kind, status) segment and before
+    // the [current doc] / verbose-score suffixes, so an agent reading the result
+    // can attribute the hit ("who, when") without opening it.
+    const byline = formatHitByline(hit, now);
+    lines.push(`### ${hit.path} — "${hit.title}" (${kindLabel}, ${hit.status})${byline}${selfTag}${scoreSuffix}`);
     if (hit.kind === "decision") {
       const via = hit.decisionMatchedVia ?? "fts";
       const snippet = hit.decisionSnippet ?? "";
@@ -1267,10 +1554,18 @@ export function formatSearchResults(
       for (const sec of hit.matchingSections) {
         const titleSeg = sec.title ? `"${sec.title}"` : `(${sec.sectionType})`;
         const snippet = truncate((sec.content ?? "").trim(), SNIPPET_MAX_CHARS);
-        lines.push(`- Section ${titleSeg} (${sec.matchedVia}):`);
+        // spec-259 ac-9: per-section WHO/WHEN so a multi-section doc hit surfaces
+        // each matched section's own creator + relative age, not just the
+        // doc-level latest. Same capitalize + timeAgo treatment as the heading.
+        const secByline = formatWhoWhenByline(sec.authorName, sec.lastUpdatedAt, now);
+        lines.push(`- Section ${titleSeg} (${sec.matchedVia})${secByline}:`);
         lines.push(`  > ${snippet}`);
       }
     }
+    // spec-259 ac-12: one lightweight open-comment indicator line per hit (after
+    // the snippet block). Rendered only when the hit has open comments.
+    const openCommentsLine = formatOpenCommentsLine(hit, now);
+    if (openCommentsLine) lines.push(openCommentsLine);
   }
 
   return lines.join("\n");

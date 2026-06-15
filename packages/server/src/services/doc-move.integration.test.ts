@@ -1,5 +1,6 @@
 import { describe, it, expect, afterAll, beforeAll } from "vitest";
-import { and, eq, inArray } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
+import postgres from "postgres";
 import { db } from "../db/connection.js";
 import {
   memexes,
@@ -9,30 +10,43 @@ import {
   docComments,
   decisions,
   tasks,
-  decisionDeps,
-  taskDeps,
+  acs,
+  issues,
+  docMembers,
+  docAssignees,
+  qaReportViews,
   shareTokens,
 } from "../db/schema.js";
 import { NotFoundError, ValidationError } from "../types/errors.js";
 import { makeTestMemex } from "./test-helpers.js";
-import { createDocDraft, getDoc, listDocs } from "./documents.js";
+import { createDocDraft, getDoc } from "./documents.js";
 import { createDecision } from "./decisions.js";
 import { createTask } from "./tasks.js";
-import { addDecisionDep, addTaskDep } from "./dependencies.js";
 import { addComment, addDecisionComment, addTaskComment } from "./comments.js";
 import { upsertUserByEmail } from "./users.js";
 import { createShareToken } from "./share-tokens.js";
-import { moveDoc, ForbiddenError } from "./doc-move.js";
+import { moveDoc } from "./doc-move.js";
+import { bus } from "./bus.js";
+import type { RequestCtx } from "./mutate.js";
+import { tagAc } from "@memex-ai-ac/vitest";
 
-// doc-move: cross-account spec relocation. Tests both the data plane (child rows'
-// account_id updates on the options flags) and the structural invariants (orphans remain,
-// cross-account deps are pruned, share tokens revoked, reversibility).
+// spec-293: cross-tenant Spec move. The move re-points memex_id ACROSS the RLS
+// tenant wall (the prod-only 500 this Spec fixes) via the SECURITY DEFINER
+// move_doc() function (migration 0094). A Spec now moves WHOLE (dec-2) and ALL
+// comments travel with it (dec-3); there are no per-artifact opt-outs.
 
-let accountA: string;
-let accountB: string;
-let accountC: string;
+const SPEC = "mindset-prod/memex-building-itself/specs/spec-293";
+const ac = (n: number) => `${SPEC}/acs/ac-${n}`;
+
+let memexA: string;
+let memexB: string;
+let memexC: string;
 let userId: string;
 let outsiderUserId: string;
+
+function ctxFor(uid: string): RequestCtx {
+  return { actorUserId: uid, actorName: "Mover", channel: "rest_ui" };
+}
 
 async function orgIdForMemex(memexId: string): Promise<string> {
   const m = await db.query.memexes.findFirst({ where: eq(memexes.id, memexId) });
@@ -43,9 +57,9 @@ async function orgIdForMemex(memexId: string): Promise<string> {
 }
 
 beforeAll(async () => {
-  accountA = await makeTestMemex("mva");
-  accountB = await makeTestMemex("mvb");
-  accountC = await makeTestMemex("mvc");
+  memexA = await makeTestMemex("mva");
+  memexB = await makeTestMemex("mvb");
+  memexC = await makeTestMemex("mvc");
 
   const user = await upsertUserByEmail(`doc-move-member-${Date.now()}@memex.ai`);
   userId = user.id;
@@ -53,9 +67,8 @@ beforeAll(async () => {
   outsiderUserId = outsider.id;
 
   // Member of A and B, NOT C. outsider isn't a member of anything relevant.
-  // org_memberships keys on org.id (not memex.id) post-doc-15.
-  const orgIdA = await orgIdForMemex(accountA);
-  const orgIdB = await orgIdForMemex(accountB);
+  const orgIdA = await orgIdForMemex(memexA);
+  const orgIdB = await orgIdForMemex(memexB);
   await db
     .insert(orgMemberships)
     .values([
@@ -68,192 +81,91 @@ beforeAll(async () => {
 afterAll(async () => {
   await db
     .delete(memexes)
-    .where(inArray(memexes.id, [accountA, accountB, accountC]))
+    .where(inArray(memexes.id, [memexA, memexB, memexC]))
     .catch(() => {});
 });
 
-describe("moveDoc — happy path", () => {
-  it("moves the doc + all children when every flag is on", async () => {
-    const doc = await createDocDraft(accountA, "Full Move", "Purpose");
+describe("moveDoc — whole-Spec move (dec-2 / dec-3)", () => {
+  it("ac-2/ac-10/ac-11/ac-12: every doc-scoped artifact lands in the target; read-state stays", async () => {
+    tagAc(ac(2));
+    tagAc(ac(10));
+    tagAc(ac(11));
+    tagAc(ac(12));
+
+    const doc = await createDocDraft(memexA, "Whole Move", "Purpose");
     const section = doc.sections[0];
-    const dec = await createDecision(accountA, doc.id, "Decision 1");
-    const task = await createTask(accountA, doc.id, "Task 1", "");
-    await addComment(accountA, section.id, "u", "sec comment");
-    await addDecisionComment(accountA, dec.id, "u", "dec comment");
-    await addTaskComment(accountA, task.id, "u", "task comment");
+    const dec = await createDecision(memexA, doc.id, "Decision 1");
+    const task = await createTask(memexA, doc.id, "Task 1", "");
+    const secComment = await addComment(memexA, section.id, "u", "section comment");
+    const decComment = await addDecisionComment(memexA, dec.id, "u", "decision comment");
+    const taskComment = await addTaskComment(memexA, task.id, "u", "task comment");
 
-    const result = await moveDoc(accountA, doc.id, accountB, userId, {
-      includeDecisions: true,
-      includeTasks: true,
-      includeSectionComments: true,
-    });
+    // Artifacts with no convenient creation service — seeded directly in A.
+    const [acRow] = await db
+      .insert(acs)
+      .values({ memexId: memexA, briefId: doc.id, seq: 1, kind: "scope", statement: "must move" })
+      .returning({ id: acs.id });
+    const [issueRow] = await db
+      .insert(issues)
+      .values({ memexId: memexA, docId: doc.id, seq: 1, title: "Bug", body: "b", type: "bug" })
+      .returning({ id: issues.id });
+    await db.insert(docMembers).values({ memexId: memexA, docId: doc.id, userId, role: "editor" });
+    await db.insert(docAssignees).values({ memexId: memexA, docId: doc.id, userId });
 
-    expect(result.doc.memexId).toBe(accountB);
-    // createDocDraft defaults to docType="spec" (b-105) → spec-N handles.
+    // Per-user / per-Memex read-state — must NOT move (dec-2 / ac-11).
+    await db
+      .insert(qaReportViews)
+      .values({ userId, memexId: memexA })
+      .onConflictDoNothing();
+
+    const result = await moveDoc(memexA, doc.id, memexB, ctxFor(userId));
+
+    expect(result.docId).toBe(doc.id);
     expect(result.newHandle).toMatch(/^spec-\d+$/);
 
-    // Everything should now be findable in B and invisible in A.
-    await expect(getDoc(accountA, doc.id)).rejects.toThrow(NotFoundError);
-    const fetched = await getDoc(accountB, doc.id);
+    // The doc is gone from A and present in B at its new handle.
+    await expect(getDoc(memexA, doc.id)).rejects.toThrow(NotFoundError);
+    const fetched = await getDoc(memexB, doc.id);
     expect(fetched.id).toBe(doc.id);
     expect(fetched.handle).toBe(result.newHandle);
 
-    const decRows = await db.select().from(decisions).where(eq(decisions.docId, doc.id));
-    expect(decRows.every((d) => d.memexId === accountB)).toBe(true);
+    // Every memex_id-bearing doc-scoped artifact now reads memex_id = B.
+    const [decRow] = await db.select().from(decisions).where(eq(decisions.id, dec.id));
+    expect(decRow.memexId).toBe(memexB);
+    const [taskRow] = await db.select().from(tasks).where(eq(tasks.id, task.id));
+    expect(taskRow.memexId).toBe(memexB);
+    const [acAfter] = await db.select().from(acs).where(eq(acs.id, acRow!.id));
+    expect(acAfter.memexId).toBe(memexB);
+    const [issueAfter] = await db.select().from(issues).where(eq(issues.id, issueRow!.id));
+    expect(issueAfter.memexId).toBe(memexB);
+    const memberRows = await db.select().from(docMembers).where(eq(docMembers.docId, doc.id));
+    expect(memberRows.every((m) => m.memexId === memexB)).toBe(true);
+    const assigneeRows = await db.select().from(docAssignees).where(eq(docAssignees.docId, doc.id));
+    expect(assigneeRows.every((a) => a.memexId === memexB)).toBe(true);
 
-    const taskRows = await db.select().from(tasks).where(eq(tasks.docId, doc.id));
-    expect(taskRows.every((t) => t.memexId === accountB)).toBe(true);
-
+    // dec-3: ALL comments move — section, decision AND task — unconditionally.
     const commentRows = await db
       .select()
       .from(docComments)
-      .where(
-        inArray(
-          docComments.id,
-          (
-            await db
-              .select({ id: docComments.id })
-              .from(docComments)
-              .leftJoin(decisions, eq(docComments.decisionId, decisions.id))
-              .leftJoin(tasks, eq(docComments.taskId, tasks.id))
-              .where(
-                // Any comment attached (directly or via decision/task) to this doc.
-                // We just want to eyeball account_id on all of them.
-                eq(decisions.docId, doc.id),
-              )
-          ).map((r) => r.id),
-        ),
-      );
-    // Coarse check: all comments that reference this doc via decision are in B.
-    expect(commentRows.every((c) => c.memexId === accountB)).toBe(true);
-  });
-});
+      .where(inArray(docComments.id, [secComment.id, decComment.id, taskComment.id]));
+    expect(commentRows).toHaveLength(3);
+    expect(commentRows.every((c) => c.memexId === memexB)).toBe(true);
 
-describe("moveDoc — selective flags leave orphans", () => {
-  it("includeDecisions=false leaves decisions + decision-comments in the source account", async () => {
-    const doc = await createDocDraft(accountA, "Leave Decisions", "Purpose");
-    const dec = await createDecision(accountA, doc.id, "Stay behind");
-    await addDecisionComment(accountA, dec.id, "u", "dec stays");
-
-    await moveDoc(accountA, doc.id, accountB, userId, {
-      includeDecisions: false,
-      includeTasks: true,
-      includeSectionComments: true,
-    });
-
-    const decRow = await db.query.decisions.findFirst({ where: eq(decisions.id, dec.id) });
-    expect(decRow?.memexId).toBe(accountA);
-
-    const comment = await db.query.docComments.findFirst({
-      where: eq(docComments.decisionId, dec.id),
-    });
-    expect(comment?.memexId).toBe(accountA);
-  });
-
-  it("includeTasks=false leaves tasks + task-comments in the source account", async () => {
-    const doc = await createDocDraft(accountA, "Leave Tasks", "Purpose");
-    const task = await createTask(accountA, doc.id, "Stay", "");
-    await addTaskComment(accountA, task.id, "u", "task stays");
-
-    await moveDoc(accountA, doc.id, accountB, userId, {
-      includeDecisions: true,
-      includeTasks: false,
-      includeSectionComments: true,
-    });
-
-    const taskRow = await db.query.tasks.findFirst({ where: eq(tasks.id, task.id) });
-    expect(taskRow?.memexId).toBe(accountA);
-    const comment = await db.query.docComments.findFirst({
-      where: eq(docComments.taskId, task.id),
-    });
-    expect(comment?.memexId).toBe(accountA);
-  });
-
-  it("includeSectionComments=false leaves section-comments in the source account", async () => {
-    const doc = await createDocDraft(accountA, "Leave Comments", "Purpose");
-    const section = doc.sections[0];
-    const added = await addComment(accountA, section.id, "u", "sec stays");
-
-    await moveDoc(accountA, doc.id, accountB, userId, {
-      includeDecisions: true,
-      includeTasks: true,
-      includeSectionComments: false,
-    });
-
-    const comment = await db.query.docComments.findFirst({ where: eq(docComments.id, added.id) });
-    expect(comment?.memexId).toBe(accountA);
-  });
-});
-
-describe("moveDoc — cross-account deps are pruned", () => {
-  it("deletes decision_deps when the task moves but the decision doesn't", async () => {
-    const doc = await createDocDraft(accountA, "Dep Pruning Dec", "Purpose");
-    const dec = await createDecision(accountA, doc.id, "Blocker");
-    const task = await createTask(accountA, doc.id, "Blocked", "");
-    await addDecisionDep(accountA, task.id, dec.id);
-
-    // Move doc + tasks but leave decisions behind → decision_deps now cross accounts.
-    const result = await moveDoc(accountA, doc.id, accountB, userId, {
-      includeDecisions: false,
-      includeTasks: true,
-      includeSectionComments: true,
-    });
-
-    expect(result.removedDecisionDeps).toBeGreaterThanOrEqual(1);
-    const deps = await db
+    // ac-11: the read-state row stays in A (not Spec content).
+    const [view] = await db
       .select()
-      .from(decisionDeps)
-      .where(and(eq(decisionDeps.taskId, task.id), eq(decisionDeps.decisionId, dec.id)));
-    expect(deps.length).toBe(0);
+      .from(qaReportViews)
+      .where(eq(qaReportViews.userId, userId));
+    expect(view.memexId).toBe(memexA);
   });
 
-  it("deletes task_deps that straddle memexes after a partial move", async () => {
-    const doc = await createDocDraft(accountA, "Dep Pruning Task", "Purpose");
-    const t1 = await createTask(accountA, doc.id, "A", "");
-    const t2 = await createTask(accountA, doc.id, "B", "");
-    await addTaskDep(accountA, t1.id, t2.id);
-
-    // Sanity precondition — the dep exists.
-    const before = await db.select().from(taskDeps).where(eq(taskDeps.taskId, t1.id));
-    expect(before.length).toBe(1);
-
-    // Move t2 over to B manually by simulating a previous "partial" move wouldn't really
-    // happen via our API — but we want to prove the DELETE query kicks in when memexes
-    // diverge. So: move the doc WITH tasks to B, then flip t2 back to A manually to
-    // construct a cross-account state, then re-run a no-op move (doc already in B, so we
-    // just directly run the DELETE query via a hand-wired ad-hoc move won't apply).
-    //
-    // Simpler: move the doc WITH decisions only, leaving tasks in A. The doc now lives in
-    // B while both tasks + their dep stay in A — that's intra-account, not cross, so no
-    // prune expected. That doesn't test what I want.
-    //
-    // Actually to get cross-account task_deps we can: move the doc with tasks=true; the
-    // dep rows follow implicitly because they're just (taskId, dependsOnId) with no
-    // account_id. So they never straddle. The straddle case only arises if someone wires
-    // a dep across docs that live in different memexes — not a scenario we build here.
-    //
-    // Keep this as a no-prune assertion: dep survives when both tasks move together.
-    await moveDoc(accountA, doc.id, accountB, userId, {
-      includeDecisions: true,
-      includeTasks: true,
-      includeSectionComments: true,
-    });
-    const after = await db.select().from(taskDeps).where(eq(taskDeps.taskId, t1.id));
-    expect(after.length).toBe(1);
-  });
-});
-
-describe("moveDoc — share tokens revoked", () => {
-  it("marks active share tokens revoked on move", async () => {
-    const doc = await createDocDraft(accountA, "Share Revoke", "Purpose");
-    const token = await createShareToken(accountA, doc.id);
+  it("ac-2: active share tokens are revoked on move", async () => {
+    tagAc(ac(2));
+    const doc = await createDocDraft(memexA, "Share Revoke", "Purpose");
+    const token = await createShareToken(memexA, doc.id);
     expect(token.revoked).toBe(false);
 
-    const result = await moveDoc(accountA, doc.id, accountB, userId, {
-      includeDecisions: true,
-      includeTasks: true,
-      includeSectionComments: true,
-    });
+    const result = await moveDoc(memexA, doc.id, memexB, ctxFor(userId));
     expect(result.revokedShareTokens).toBe(1);
 
     const reread = await db.query.shareTokens.findFirst({ where: eq(shareTokens.id, token.id) });
@@ -261,81 +173,160 @@ describe("moveDoc — share tokens revoked", () => {
   });
 });
 
-describe("moveDoc — reversibility (orphans re-attach)", () => {
-  it("moving back to the source restores orphaned children", async () => {
-    const doc = await createDocDraft(accountA, "Round Trip", "Purpose");
-    const dec = await createDecision(accountA, doc.id, "Sticks");
+describe("moveDoc — attribution (dec-5 / std-32)", () => {
+  it("ac-16: both emitted events carry channel='rest_ui' and the actor", async () => {
+    tagAc(ac(16));
+    tagAc(ac(6)); // scope: move writes are attributed (channel + actor), never empty ctx
+    const doc = await createDocDraft(memexA, "Attributed Move", "Purpose");
 
-    // A → B, leaving decisions behind.
-    await moveDoc(accountA, doc.id, accountB, userId, {
-      includeDecisions: false,
-      includeTasks: true,
-      includeSectionComments: true,
+    const seen: { memexId: string; channel?: string; actorUserId?: string }[] = [];
+    const unsubscribe = bus.subscribe({}, (event) => {
+      if (
+        event.entity === "document" &&
+        (event.memexId === memexA || event.memexId === memexB)
+      ) {
+        seen.push({
+          memexId: event.memexId,
+          channel: event.channel,
+          actorUserId: event.actorUserId,
+        });
+      }
     });
+    try {
+      await moveDoc(memexA, doc.id, memexB, ctxFor(userId));
+    } finally {
+      unsubscribe();
+    }
 
-    // While doc lives in B, the orphan decision shouldn't show up via B's listDocs flow.
-    const decStillInA = await db.query.decisions.findFirst({ where: eq(decisions.id, dec.id) });
-    expect(decStillInA?.memexId).toBe(accountA);
-
-    // B → A moves the doc back. The orphan decision is still in A, so it re-attaches by
-    // virtue of (doc.memexId == dec.memexId) returning true.
-    await moveDoc(accountB, doc.id, accountA, userId, {
-      includeDecisions: true,
-      includeTasks: true,
-      includeSectionComments: true,
-    });
-
-    const restored = await db.query.decisions.findFirst({ where: eq(decisions.id, dec.id) });
-    expect(restored?.memexId).toBe(accountA);
-
-    // listDocs in A now includes the doc again.
-    const list = await listDocs(accountA);
-    expect(list.some((d) => d.id === doc.id)).toBe(true);
+    const source = seen.find((e) => e.memexId === memexA);
+    const target = seen.find((e) => e.memexId === memexB);
+    expect(source, `expected source emit; saw ${JSON.stringify(seen)}`).toBeDefined();
+    expect(target, `expected target emit; saw ${JSON.stringify(seen)}`).toBeDefined();
+    for (const e of [source!, target!]) {
+      expect(e.channel).toBe("rest_ui");
+      expect(e.actorUserId).toBe(userId);
+    }
   });
 });
 
-describe("moveDoc — errors", () => {
-  it("rejects same-account moves", async () => {
-    const doc = await createDocDraft(accountA, "Same Account", "Purpose");
-    await expect(
-      moveDoc(accountA, doc.id, accountA, userId, {
-        includeDecisions: true,
-        includeTasks: true,
-        includeSectionComments: true,
-      }),
-    ).rejects.toThrow(ValidationError);
+describe("moveDoc — errors (std-7)", () => {
+  it("rejects same-memex moves", async () => {
+    const doc = await createDocDraft(memexA, "Same Memex", "Purpose");
+    await expect(moveDoc(memexA, doc.id, memexA, ctxFor(userId))).rejects.toThrow(ValidationError);
   });
 
-  it("404s when the doc isn't in the source account", async () => {
-    const doc = await createDocDraft(accountA, "Wrong Source", "Purpose");
-    await expect(
-      moveDoc(accountB, doc.id, accountA, userId, {
-        includeDecisions: true,
-        includeTasks: true,
-        includeSectionComments: true,
-      }),
-    ).rejects.toThrow(NotFoundError);
+  it("404s when the doc isn't in the source memex", async () => {
+    const doc = await createDocDraft(memexA, "Wrong Source", "Purpose");
+    await expect(moveDoc(memexB, doc.id, memexA, ctxFor(userId))).rejects.toThrow(NotFoundError);
   });
 
-  it("403s when the user isn't an active member of the target", async () => {
-    const doc = await createDocDraft(accountA, "Forbidden Target", "Purpose");
-    await expect(
-      moveDoc(accountA, doc.id, accountC, userId, {
-        includeDecisions: true,
-        includeTasks: true,
-        includeSectionComments: true,
-      }),
-    ).rejects.toThrow(ForbiddenError);
+  it("ac-9: 404s (not 403) when the caller isn't authorized in the target", async () => {
+    tagAc(ac(9));
+    const doc = await createDocDraft(memexA, "Forbidden Target", "Purpose");
+    // memexC: the user is NOT a member. std-7 → 404, never 403.
+    await expect(moveDoc(memexA, doc.id, memexC, ctxFor(userId))).rejects.toThrow(NotFoundError);
+    // The doc must NOT have moved.
+    const [row] = await db.select().from(documents).where(eq(documents.id, doc.id));
+    expect(row.memexId).toBe(memexA);
   });
 
-  it("403s when a non-member tries to move", async () => {
-    const doc = await createDocDraft(accountA, "Non Member", "Purpose");
-    await expect(
-      moveDoc(accountA, doc.id, accountB, outsiderUserId, {
-        includeDecisions: true,
-        includeTasks: true,
-        includeSectionComments: true,
-      }),
-    ).rejects.toThrow(ForbiddenError);
+  it("ac-9: 404s when a non-member tries to move", async () => {
+    tagAc(ac(9));
+    const doc = await createDocDraft(memexA, "Non Member", "Purpose");
+    await expect(moveDoc(memexA, doc.id, memexB, ctxFor(outsiderUserId))).rejects.toThrow(
+      NotFoundError,
+    );
+  });
+});
+
+// The regression anchor: prove the move works under the PROD runtime posture.
+// The whole suite + local dev connect as the table OWNER (RLS-exempt under
+// NO FORCE, std-36), so the original bug never reproduced. Here we drop into the
+// non-owner `memex_app` role (NOBYPASSRLS, the Cloud Run runtime) and show:
+//   (a) the naive cross-tenant UPDATE is rejected by the memex_isolation
+//       WITH CHECK — this IS the prod-only 500 (ac-1's failure mode), and
+//   (b) move_doc() (SECURITY DEFINER, owner-owned) succeeds where it cannot.
+describe("moveDoc — cross-tenant RLS regression (NOBYPASSRLS runtime role)", () => {
+  it("ac-1/ac-7: naive UPDATE is RLS-rejected; move_doc() succeeds under memex_app", async () => {
+    tagAc(ac(1));
+    tagAc(ac(7));
+    tagAc(ac(5)); // scope: the test that would have caught the prod bug exists & runs
+
+    const dbUrl =
+      process.env.DATABASE_URL ?? "postgresql://postgres:postgres@localhost:5432/memex";
+    const appSql = postgres(dbUrl, { max: 1 });
+    try {
+      // (a) The bug: as memex_app, scoped to A, re-pointing memex_id → B trips
+      // the WITH CHECK. This is exactly what 500'd on prod before this Spec.
+      const naive = await createDocDraft(memexA, "RLS Naive", "Purpose");
+      await expect(
+        appSql.begin(async (tx) => {
+          await tx.unsafe("SET LOCAL ROLE memex_app");
+          await tx.unsafe("SELECT set_config('app.memex_id', $1, true)", [memexA]);
+          return tx.unsafe("UPDATE documents SET memex_id = $1 WHERE id = $2", [memexB, naive.id]);
+        }),
+      ).rejects.toThrow();
+
+      // It did not move.
+      const [stillA] = await db.select().from(documents).where(eq(documents.id, naive.id));
+      expect(stillA.memexId).toBe(memexA);
+
+      // (b) The fix: the SECURITY DEFINER function moves it cleanly under the
+      // very same restricted role.
+      const moved = await createDocDraft(memexA, "RLS Via Function", "Purpose");
+      const rows = (await appSql.begin(async (tx) => {
+        await tx.unsafe("SET LOCAL ROLE memex_app");
+        await tx.unsafe("SELECT set_config('app.memex_id', $1, true)", [memexA]);
+        return tx.unsafe(
+          "SELECT new_handle FROM move_doc($1::uuid, $2::uuid, $3::uuid, $4::uuid)",
+          [moved.id, memexA, memexB, userId],
+        );
+      })) as unknown as Array<{ new_handle: string }>;
+
+      expect(rows[0]?.new_handle).toMatch(/^spec-\d+$/);
+      const [nowB] = await db.select().from(documents).where(eq(documents.id, moved.id));
+      expect(nowB.memexId).toBe(memexB);
+    } finally {
+      await appSql.end({ timeout: 5 });
+    }
+  });
+
+  it("ac-8: move_doc is SECURITY DEFINER, owned by the documents table owner, and memex_app holds only EXECUTE", async () => {
+    tagAc(ac(8));
+
+    // SECURITY DEFINER + owner == the owner of `documents` (the role RLS exempts
+    // under NO FORCE). Comparing to documents' owner avoids hardcoding 'postgres'.
+    const [meta] = (await db.execute(sql`
+      SELECT p.prosecdef AS security_definer,
+             pg_get_userbyid(p.proowner) AS fn_owner,
+             pg_get_userbyid(c.relowner) AS table_owner
+        FROM pg_proc p
+        JOIN pg_namespace n ON n.oid = p.pronamespace
+        CROSS JOIN pg_class c
+        JOIN pg_namespace cn ON cn.oid = c.relnamespace
+       WHERE p.proname = 'move_doc' AND n.nspname = 'public'
+         AND c.relname = 'documents' AND cn.nspname = 'public'
+    `)) as unknown as Array<{ security_definer: boolean; fn_owner: string; table_owner: string }>;
+    expect(meta.security_definer).toBe(true);
+    expect(meta.fn_owner).toBe(meta.table_owner);
+
+    // memex_app may EXECUTE move_doc…
+    const [priv] = (await db.execute(sql`
+      SELECT has_function_privilege('memex_app', 'move_doc(uuid,uuid,uuid,uuid)', 'EXECUTE') AS app_execute,
+             has_function_privilege('public',    'move_doc(uuid,uuid,uuid,uuid)', 'EXECUTE') AS public_execute,
+             (SELECT rolbypassrls FROM pg_roles WHERE rolname = 'memex_app') AS app_bypassrls,
+             (SELECT rolsuper      FROM pg_roles WHERE rolname = 'memex_app') AS app_super
+    `)) as unknown as Array<{
+      app_execute: boolean;
+      public_execute: boolean;
+      app_bypassrls: boolean;
+      app_super: boolean;
+    }>;
+    expect(priv.app_execute).toBe(true);
+    // …and gains no general cross-tenant power: PUBLIC can't call it, and the
+    // runtime role neither bypasses RLS nor is a superuser.
+    expect(priv.public_execute).toBe(false);
+    expect(priv.app_bypassrls).toBe(false);
+    expect(priv.app_super).toBe(false);
   });
 });

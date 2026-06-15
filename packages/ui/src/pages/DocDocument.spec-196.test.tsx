@@ -222,16 +222,22 @@ describe('spec-233 t-1 — prose sub-tab reads "Narrative", id stays narrative',
     );
     unmount();
 
-    // Consolidation refreshed past the decision → the advancement offer.
-    // waitFor (not a bare findByTestId assertion): the offer only appears once
-    // the async fetchAcsForBrief settles — until then hasAcceptanceCriteria is
-    // false and the AC blocker transiently shares the line. Asserting on the
-    // first render tick races that fetch (green locally, flaky under CI load).
+    // Consolidation refreshed past the decision → advancement is no longer
+    // blocked. spec-282/dec-4: the current tab carries no standing offer, so the
+    // "fresh unblocks advance" property reads on the browse-forward confirm — no
+    // narrative blocker, the plain "Are you sure…?". waitFor: the offer only
+    // settles once the async fetchAcsForBrief resolves.
     docNarrativeConsolidatedAt = '2026-06-06T00:00:00Z';
     renderAt();
-    const fresh = await screen.findByTestId('transition-sentence');
+    await screen.findByText('Narrative');
+    const buildTab = screen
+      .getAllByRole('tab')
+      .find((t) => t.getAttribute('data-tab') === 'build')!;
+    await userEvent.setup().click(buildTab);
     await waitFor(() =>
-      expect(fresh.textContent).toContain('Do you wish to move this spec to Build?'),
+      expect(screen.getByTestId('transition-sentence').textContent).toContain(
+        'Are you sure you want to move this spec to Build?',
+      ),
     );
   });
 

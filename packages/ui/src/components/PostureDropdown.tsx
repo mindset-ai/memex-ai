@@ -7,6 +7,12 @@ import type { DocRole } from '../api/client';
 export const HEADER_PILL_CLASS =
   'inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md bg-btn-secondary hover:bg-btn-secondary-hover text-sm text-primary transition-colors';
 
+// spec-252: the posture trigger now sits inside the coloured phase container,
+// so it uses a transparent fill with a subtle outline (matching the Figma mock)
+// rather than the filled header pill — it reads as a selector over the tint.
+const POSTURE_TRIGGER_CLASS =
+  'inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md bg-transparent border border-edge hover:bg-overlay text-sm text-primary transition-colors';
+
 interface PostureDropdownProps {
   /** The viewer's current posture on this Spec (from useDocRole). */
   myRole: DocRole;
@@ -129,7 +135,7 @@ export function PostureDropdown({ myRole, onSelect }: PostureDropdownProps) {
           e.stopPropagation();
           setOpen((v) => !v);
         }}
-        className={HEADER_PILL_CLASS}
+        className={POSTURE_TRIGGER_CLASS}
       >
         {editing ? <PencilIcon className="w-3.5 h-3.5" /> : <EyeIcon className="w-3.5 h-3.5" />}
         {editing ? 'You are editing' : 'You are reviewing'}

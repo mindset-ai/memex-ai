@@ -11,26 +11,69 @@ import { findGuideElement } from './guideElements';
 import type { NavigationAdapter, NavigateOutcome } from './navigation/NavigationAdapter';
 
 const HIGHLIGHT_CLASS = 'guide-highlight';
-const DEFAULT_HIGHLIGHT_MS = 2500;
+const PULSE_MS = 1000;
+const PULSE_COUNT = 3;
+/** High-contrast violet, visible on light and dark hosts alike. */
+const HIGHLIGHT_RGB = '124, 58, 237';
+
+/**
+ * The highlight visual must be SELF-SUFFICIENT: the highlighted node lives in
+ * the HOST light DOM, where the engine's shadow-root CSS cannot reach, and
+ * host sites ship no `.guide-highlight` rule — a class alone renders NOTHING
+ * there (observed on mindset.ai: the model highlighted, the visitor saw only
+ * the scroll). So the visual is a pronounced pulsing ring driven inline + via
+ * the Web Animations API; the class still applies so hosts that DO define a
+ * rule (the Memex app) can layer their own styling on top.
+ *
+ * The highlight PERSISTS: it stays on the element until the guide highlights
+ * something else (the new highlight replaces the old one) or the element
+ * unmounts. A timed flash proved too easy to miss.
+ */
+let clearActiveHighlight: (() => void) | null = null;
+
+function applyHighlight(node: HTMLElement): void {
+  clearActiveHighlight?.();
+
+  const prevOutline = node.style.outline;
+  const prevOffset = node.style.outlineOffset;
+  node.classList.add(HIGHLIGHT_CLASS);
+  node.style.outline = `3px solid rgba(${HIGHLIGHT_RGB}, 0.9)`;
+  node.style.outlineOffset = '3px';
+
+  // Pronounced expanding/fading ring to catch the eye, then the solid outline
+  // stays. WAAPI is absent in jsdom and very old browsers; the static outline
+  // above still shows there.
+  const pulse = node.animate?.(
+    [
+      { boxShadow: `0 0 0 0 rgba(${HIGHLIGHT_RGB}, 0.85)` },
+      { boxShadow: `0 0 0 18px rgba(${HIGHLIGHT_RGB}, 0)` },
+    ],
+    { duration: PULSE_MS, iterations: PULSE_COUNT },
+  );
+
+  clearActiveHighlight = () => {
+    clearActiveHighlight = null;
+    pulse?.cancel();
+    node.classList.remove(HIGHLIGHT_CLASS);
+    node.style.outline = prevOutline;
+    node.style.outlineOffset = prevOffset;
+  };
+}
 
 export interface HighlightResult {
   ok: boolean;
 }
 
-/** Flash a highlight on the current screen's element. Best-effort: a missing
- *  element (not currently rendered) is a no-op, never a throw. */
-export function executeHighlight(
-  input: { elementId?: string },
-  opts: { durationMs?: number } = {},
-): HighlightResult {
+/** Highlight the current screen's element — persistently, replacing any prior
+ *  highlight. Best-effort: a missing element (not currently rendered) is a
+ *  no-op, never a throw. */
+export function executeHighlight(input: { elementId?: string }): HighlightResult {
   const id = input?.elementId;
   if (!id) return { ok: false };
   const node = findGuideElement(id);
   if (!node) return { ok: false };
-  node.classList.add(HIGHLIGHT_CLASS);
+  applyHighlight(node);
   node.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
-  const ms = opts.durationMs ?? DEFAULT_HIGHLIGHT_MS;
-  setTimeout(() => node.classList.remove(HIGHLIGHT_CLASS), ms);
   return { ok: true };
 }
 

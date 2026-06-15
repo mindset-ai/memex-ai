@@ -1,4 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { tagAc } from "@memex-ai-ac/vitest";
+
+// spec-253 ac-9 — custom-scheme redirect_uris match by strict (byte-identical)
+// equality at /authorize; the loopback set stays host- and port-insensitive.
+const AC_9 = "mindset-prod/memex-building-itself/specs/spec-253/acs/ac-9";
+// spec-253 scope ac-2 — existing https + loopback redirect shapes still authorize unchanged.
+const AC_2 = "mindset-prod/memex-building-itself/specs/spec-253/acs/ac-2";
 
 // Pins the absolute-Location contract on GET /api/oauth/authorize.
 //
@@ -170,6 +177,7 @@ describe("regression: GET /api/oauth/authorize loopback redirect_uri port flexib
   });
 
   it("loopback: registered localhost matches incoming 127.0.0.1 (hostname swap)", async () => {
+    tagAc(AC_2); // scope ac-2: loopback redirect_uri authorizes unchanged
     stubClientWithRedirect("http://localhost:11111/callback");
     const res = await getAuthorizeWithRedirect("http://127.0.0.1:33333/callback");
     expect(res.status).toBe(302);
@@ -205,8 +213,40 @@ describe("regression: GET /api/oauth/authorize loopback redirect_uri port flexib
   });
 
   it("non-loopback: strict exact-match still works (https registered = https requested)", async () => {
+    tagAc(AC_2); // scope ac-2: https redirect_uri authorizes unchanged
     stubClientWithRedirect("https://test.example/cb");
     const res = await getAuthorizeWithRedirect("https://test.example/cb");
+    expect(res.status).toBe(302);
+  });
+});
+
+// spec-253 ac-9: native-IDE private-use schemes are non-loopback, so they match
+// by strict (byte-identical) equality — there is no port/host flex for them —
+// while the loopback set remains host- and port-insensitive.
+describe("regression: custom-scheme + loopback redirect_uri matching (spec-253 ac-9)", () => {
+  beforeEach(() => {
+    process.env.APP_BASE_URL = "https://int.memex.ai";
+  });
+
+  it("ac-9: registered cursor:// matches a byte-identical incoming (302)", async () => {
+    tagAc(AC_9);
+    const uri = "cursor://anysphere.cursor-mcp/oauth/callback";
+    stubClientWithRedirect(uri);
+    const res = await getAuthorizeWithRedirect(uri);
+    expect(res.status).toBe(302);
+  });
+
+  it("ac-9: registered cursor:// rejects a non-identical incoming (400) — no flex outside loopback", async () => {
+    tagAc(AC_9);
+    stubClientWithRedirect("cursor://anysphere.cursor-mcp/oauth/callback");
+    const res = await getAuthorizeWithRedirect("cursor://anysphere.cursor-mcp/oauth/other");
+    expect(res.status).toBe(400);
+  });
+
+  it("ac-9: loopback localhost:P1 matches 127.0.0.1:P2 (host- and port-insensitive, 302)", async () => {
+    tagAc(AC_9);
+    stubClientWithRedirect("http://localhost:11111/callback");
+    const res = await getAuthorizeWithRedirect("http://127.0.0.1:22222/callback");
     expect(res.status).toBe(302);
   });
 });

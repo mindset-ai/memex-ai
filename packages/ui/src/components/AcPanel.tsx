@@ -41,8 +41,10 @@ import { useChat } from './ChatContext';
 import { AcSparkline } from './AcSparkline';
 import { AcAboutDialog } from './AcAboutDialog';
 import { AcMatrixCollapsible } from './AcMatrixCollapsible';
+import { PromptButton } from './PromptButton';
 import { phaseDisplayName } from '../utils/phaseDisplay';
 import { Metric, type BarSegment } from './MetricBar';
+import type { GuidanceBlock } from '@memex/shared';
 
 interface AcPanelProps {
   docId: string;
@@ -59,6 +61,15 @@ interface AcPanelProps {
    * zero-AC teaching card. ACs that already exist always render.
    */
   specPhase?: string;
+  /**
+   * spec-247 dec-4: interpolation context ({namespace}/{memex}/{handle}/…) for
+   * the "Wire the AC tests" boundary PromptButton. Wiring tests is
+   * coding-agent work; the panel hands off instead of naming MCP tools at the
+   * human. Absent (isolated tests), the marker is omitted.
+   */
+  promptContext?: Record<string, unknown>;
+  /** Org scaffold appends threaded into toButtonPrompt (spec-159 ac-17). */
+  orgBlocks?: readonly GuidanceBlock[];
 }
 
 const POLL_INTERVAL_MS = 3_000;
@@ -149,9 +160,13 @@ function mergeAlignmentHistory(history: AcAlignmentDay[]): AcAlignmentDay[] {
 function UnifiedAcHeader({
   rows,
   history,
+  promptContext,
+  orgBlocks,
 }: {
   rows: AcWithVerification[];
   history: AcAlignmentDay[];
+  promptContext?: Record<string, unknown>;
+  orgBlocks?: readonly GuidanceBlock[];
 }) {
   const verified = rows.filter((r) => r.verificationState === 'verified');
   const failing = rows.filter((r) => r.verificationState === 'failing');
@@ -195,16 +210,32 @@ function UnifiedAcHeader({
         // normal starting state right after ACs are committed. Frame it
         // accordingly, encouragingly, so the manager sees the next action
         // (wire up tests) rather than a system breakage.
+        //
+        // spec-247 dec-4 / ac-14: wiring tests is coding-agent work, so the
+        // copy says where it happens and the PromptButton hands it off. The
+        // old copy told the HUMAN to call get_information (an MCP tool) —
+        // that mention now lives inside the prompt, agent-facing.
         <div>
           <div className="text-2xl font-semibold text-amber-600 dark:text-amber-400 mb-1">
             {total} committed · 0 covered
           </div>
-          <p className="text-sm text-body">
+          <p data-testid="ac-untested-copy" className="text-sm text-body">
             ACs are written but no test yet asserts any of them. This is the
-            normal starting state — the next step is wiring tests in the
-            codebase to each AC. Ask the embedded agent for help, or consult
-            the <code>ac-emission</code> topic via <code>get_information</code>.
+            normal starting state — the next step is wiring tests to each AC,
+            and that happens from your coding agent, not in the browser.
           </p>
+          {promptContext && (
+            <div data-testid="ac-wire-tests-marker" className="mt-2">
+              <PromptButton
+                buttonId="wire-ac-tests"
+                context={promptContext}
+                orgBlocks={orgBlocks}
+                linkText="Wire the AC tests"
+                sentence="— copy this prompt into your coding agent to connect each AC to a real test."
+                sentenceLabel="Wire the AC tests — copy this prompt into your coding agent to connect each AC to a real test."
+              />
+            </div>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
@@ -254,6 +285,21 @@ function UnifiedAcHeader({
             extra={
               lastVerified ? `last verified ${relativeTime(lastVerified)}` : undefined
             }
+          />
+        </div>
+      )}
+      {/* spec-247 dec-4 / ac-14: the partially-covered state still has an
+          MCP-only next step (the uncovered ACs need tests wired) — same
+          handoff, scoped to the gap. */}
+      {!allUntested && untested.length > 0 && promptContext && (
+        <div data-testid="ac-coverage-marker" className="mt-3">
+          <PromptButton
+            buttonId="wire-ac-tests"
+            context={promptContext}
+            orgBlocks={orgBlocks}
+            linkText="Wire the remaining AC tests"
+            sentence={`— ${untested.length} AC${untested.length === 1 ? ' has' : 's have'} no test yet; copy this prompt into your coding agent.`}
+            sentenceLabel="Wire the remaining AC tests — copy this prompt into your coding agent."
           />
         </div>
       )}
@@ -450,6 +496,10 @@ function AcAcceptToggle({
 
   return (
     <div className="mt-2 shrink-0 text-right">
+      {/* spec-247 dec-4 / ac-14: this is the one HUMAN-clickable state change
+          on an AC row — everything else (verified / failing / stale) is fed by
+          tests from the coding agent and can't be changed here. The person
+          glyph marks the boundary visually; the title says it in words. */}
       <button
         type="button"
         onClick={() => void handleClick()}
@@ -457,11 +507,24 @@ function AcAcceptToggle({
         data-testid={hasAcceptance ? 'ac-unaccept-button' : 'ac-accept-button'}
         title={
           hasAcceptance
-            ? 'Revoke the manual acceptance and restore the test-derived state'
-            : "Record a human acceptance for a criterion a digital test can't verify"
+            ? 'Human action: revoke the manual acceptance and restore the test-derived state (test states themselves are set by tests from your coding agent)'
+            : "Human action: record an acceptance for a criterion a digital test can't verify. Test-derived states (verified / failing / stale) are set by tests from your coding agent, not here."
         }
-        className="text-xs text-sky-600 dark:text-sky-400 hover:underline disabled:opacity-50"
+        className="inline-flex items-center gap-1 text-xs text-sky-600 dark:text-sky-400 hover:underline disabled:opacity-50"
       >
+        <svg
+          className="w-3 h-3"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={2}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
+          <circle cx="12" cy="7" r="4" />
+        </svg>
         {busy ? '…' : hasAcceptance ? 'Un-accept' : 'Mark as accepted'}
       </button>
       {error && (
@@ -540,7 +603,7 @@ function AcRowMeta({
   );
 }
 
-export function AcPanel({ docId, focusedAcId, onFocusConsumed, specPhase }: AcPanelProps) {
+export function AcPanel({ docId, focusedAcId, onFocusConsumed, specPhase, promptContext, orgBlocks }: AcPanelProps) {
   const [rows, setRows] = useState<AcWithVerification[] | null>(null);
   const [history, setHistory] = useState<AcAlignmentDay[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -814,7 +877,12 @@ export function AcPanel({ docId, focusedAcId, onFocusConsumed, specPhase }: AcPa
         </div>
       )}
 
-      <UnifiedAcHeader rows={rows} history={mergeAlignmentHistory(history)} />
+      <UnifiedAcHeader
+        rows={rows}
+        history={mergeAlignmentHistory(history)}
+        promptContext={promptContext}
+        orgBlocks={orgBlocks}
+      />
       <UnifiedAcList
         rows={rows}
         onInvestigate={handleInvestigate}

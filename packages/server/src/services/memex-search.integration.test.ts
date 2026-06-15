@@ -13,12 +13,14 @@
 import { describe, it, expect, afterAll, beforeAll } from "vitest";
 import { inArray, sql, eq } from "drizzle-orm";
 import { db } from "../db/connection.js";
-import { documents } from "../db/schema.js";
+import { documents, docSections } from "../db/schema.js";
 import { createStandard } from "./standards.js";
 import { createDocDraft } from "./documents.js";
 import { addSection } from "./sections.js";
 import { createDecision, resolveDecision } from "./decisions.js";
 import { createIssue, type IssueType } from "./issues.js";
+import { addComment, resolveComment } from "./comments.js";
+import { upsertUserByEmail } from "./users.js";
 import {
   embedAndStoreDoc,
   embedAndStoreDecision,
@@ -605,6 +607,8 @@ describe("formatSearchResults — issue hit rendering (spec-112 t-4)", () => {
         status: "open",
         score: 0.27,
         strategies: ["fts"],
+        authorName: null,
+        lastUpdatedAt: null,
         matchingSections: [],
         issueSnippet: "Clicking the login button does nothing.",
         issueMatchedVia: "fts",
@@ -791,6 +795,8 @@ describe("formatSearchResults — b-34 D-4 spec", () => {
         status: "specify",
         score: 0.42,
         strategies: ["fts", "vector"],
+        authorName: null,
+        lastUpdatedAt: null,
         matchingSections: [
           {
             id: "00000000-0000-0000-0000-000000000010",
@@ -798,6 +804,8 @@ describe("formatSearchResults — b-34 D-4 spec", () => {
             title: "Overview",
             content: "Some matching content goes here.",
             matchedVia: "vector",
+            authorName: null,
+            lastUpdatedAt: null,
           },
         ],
       },
@@ -810,6 +818,8 @@ describe("formatSearchResults — b-34 D-4 spec", () => {
         status: "resolved",
         score: 0.31,
         strategies: ["fts"],
+        authorName: null,
+        lastUpdatedAt: null,
         matchingSections: [],
         decisionSnippet: "Resolved: do the thing.",
         decisionMatchedVia: "fts",
@@ -837,6 +847,8 @@ describe("formatSearchResults — b-34 D-4 spec", () => {
       status: "specify",
       score: 0.42,
       strategies: ["fts"],
+      authorName: null,
+      lastUpdatedAt: null,
       matchingSections: [],
     };
     expect(formatSearchResults("q", [hit])).not.toContain("score 0.420");
@@ -854,6 +866,8 @@ describe("formatSearchResults — b-34 D-4 spec", () => {
       status: "published",
       score: 0.1,
       strategies: ["fts"],
+      authorName: null,
+      lastUpdatedAt: null,
       matchingSections: [
         {
           id: "00000000-0000-0000-0000-000000000010",
@@ -861,6 +875,8 @@ describe("formatSearchResults — b-34 D-4 spec", () => {
           title: null,
           content: long,
           matchedVia: "fts",
+          authorName: null,
+          lastUpdatedAt: null,
         },
       ],
     };
@@ -980,6 +996,8 @@ describe("formatSearchResults — [current doc] tag (includeCurrentDoc opt-in)",
       status: "specify",
       score: 0.5,
       strategies: ["fts"],
+      authorName: null,
+      lastUpdatedAt: null,
       matchingSections: [
         {
           id: "00000000-0000-0000-0000-0000000000bb",
@@ -987,6 +1005,8 @@ describe("formatSearchResults — [current doc] tag (includeCurrentDoc opt-in)",
           title: "Overview",
           content: "Content.",
           matchedVia: "fts",
+          authorName: null,
+          lastUpdatedAt: null,
         },
       ],
     };
@@ -1009,6 +1029,8 @@ describe("formatSearchResults — [current doc] tag (includeCurrentDoc opt-in)",
       status: "resolved",
       score: 0.4,
       strategies: ["fts"],
+      authorName: null,
+      lastUpdatedAt: null,
       matchingSections: [],
       decisionSnippet: "Snippet.",
       decisionMatchedVia: "fts",
@@ -1029,6 +1051,8 @@ describe("formatSearchResults — [current doc] tag (includeCurrentDoc opt-in)",
       status: "specify",
       score: 0.3,
       strategies: ["fts"],
+      authorName: null,
+      lastUpdatedAt: null,
       matchingSections: [],
     };
 
@@ -1197,5 +1221,402 @@ describe("resolveJumpTo — number / short-handle jump (spec-191)", () => {
       (h) => h.id === specId && h.strategies.includes("handle"),
     );
     expect(handleHit).toBeUndefined();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// spec-285: author (WHO) + last-changed (WHEN) on every search hit.
+//   - dec-1: decision/section hits use the denormalised actor_name; document &
+//     issue hits resolve created_by_user_id → users.name ?? email.
+//   - dec-2: one timestamp per hit — last-modified where present, created_at
+//     fallback (decisions have no updated_at).
+//   - dec-3 / ac-8: formatSearchResults renders ` · <author>, <YYYY-MM-DD>` so
+//     the MCP tool AND the React agent (which reuse the same handler) see it.
+// ═══════════════════════════════════════════════════════════════════════════
+
+const SPEC285_AC = (n: number) =>
+  `mindset-prod/memex-building-itself/specs/spec-285/acs/ac-${n}`;
+
+const ISO_RE = /^\d{4}-\d{2}-\d{2}T/;
+
+describe("formatSearchResults — WHO/WHEN byline (spec-285 ac-8)", () => {
+  const base: MemexSearchHit = {
+    id: "00000000-0000-0000-0000-000000000001",
+    parentDocId: "00000000-0000-0000-0000-000000000001",
+    kind: "spec",
+    path: "ns/mx/specs/spec-7",
+    title: "A spec",
+    status: "build",
+    score: 0.5,
+    strategies: ["fts"],
+    matchingSections: [],
+    authorName: null,
+    lastUpdatedAt: null,
+  };
+
+  // spec-259 dec-5 moved the RENDERED timestamp from absolute YYYY-MM-DD to a
+  // relative `timeAgo()` ("Nd ago"). A fixed `now` keeps the age deterministic;
+  // the structured `lastUpdatedAt` stays absolute ISO (asserted in ac-6/ac-7).
+  const NOW_285 = new Date("2026-05-31T09:30:00.000Z");
+
+  it("renders ` · <author>, <relative-age>` when both are present (dec-5)", () => {
+    tagAc(SPEC285_AC(8));
+    const out = formatSearchResults(
+      "q",
+      [{ ...base, authorName: "Ada Lovelace", lastUpdatedAt: "2026-05-28T09:30:00.000Z" }],
+      { now: NOW_285 },
+    );
+    expect(out).toContain(`(spec, build) · Ada Lovelace, 3d ago`);
+    // No UUIDs in the rendered output (b-36 D-7 still holds).
+    const uuidRegex = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+    expect(out).not.toMatch(uuidRegex);
+  });
+
+  it("renders author alone when there is no timestamp", () => {
+    tagAc(SPEC285_AC(8));
+    const out = formatSearchResults("q", [{ ...base, authorName: "Grace Hopper" }]);
+    expect(out).toContain(`(spec, build) · Grace Hopper`);
+    expect(out).not.toContain("Grace Hopper,"); // no trailing comma/age
+  });
+
+  it("renders the relative age alone when there is no author (dec-5)", () => {
+    tagAc(SPEC285_AC(8));
+    const out = formatSearchResults(
+      "q",
+      [{ ...base, lastUpdatedAt: "2026-05-28T09:30:00.000Z" }],
+      { now: NOW_285 },
+    );
+    expect(out).toContain(`(spec, build) · 3d ago`);
+  });
+
+  it("emits NO byline when neither author nor timestamp is set", () => {
+    tagAc(SPEC285_AC(8));
+    const out = formatSearchResults("q", [base]);
+    const headingLine = out.split("\n").find((l) => l.startsWith("### "));
+    expect(headingLine).toBeDefined();
+    expect(headingLine).not.toContain(" · ");
+    expect(headingLine).toContain(`(spec, build)`);
+  });
+});
+
+describe("searchMemex — author + timestamp population (spec-285 ac-6/ac-7)", () => {
+  it("decision hits carry the denormalised actor_name + created_at (dec-1/dec-2)", async () => {
+    tagAc(SPEC285_AC(6));
+    tagAc(SPEC285_AC(7));
+    const provider = makeFakeProvider("fake-author-decision");
+    const spec = await seedSpec(memexId, "Author decision host", "Body.", [], provider);
+    const dec = await seedDecision(
+      memexId,
+      spec,
+      "authordecisionuniquetokenx approach",
+      "Context.",
+      "Resolved.",
+      provider,
+    );
+    // Stamp a denormalised WHO the way the write path would (std-32).
+    await db.execute(
+      sql`UPDATE decisions SET actor_name = 'Ada Lovelace', actor_user_id = NULL WHERE id = ${dec.id}`,
+    );
+
+    const hits = await searchMemex(memexId, "authordecisionuniquetokenx", {
+      provider,
+      kind: "decision",
+      disableVector: true,
+    });
+    const hit = hits.find((h) => h.id === dec.id);
+    expect(hit).toBeDefined();
+    expect(hit!.authorName).toBe("Ada Lovelace");
+    // WHEN is the decision's created_at (no updated_at column), as an ISO string.
+    expect(hit!.lastUpdatedAt).toMatch(ISO_RE);
+  });
+
+  it("section/doc hits prefer the section's denormalised actor_name (dec-1)", async () => {
+    tagAc(SPEC285_AC(6));
+    const provider = makeFakeProvider("fake-author-section");
+    const spec = await seedSpec(
+      memexId,
+      "Author section host",
+      "authorsectionuniquetokenx content here.",
+      [],
+      provider,
+    );
+    await db.execute(
+      sql`UPDATE doc_sections SET actor_name = 'Grace Hopper' WHERE doc_id = ${spec.id}`,
+    );
+
+    const hits = await searchMemex(memexId, "authorsectionuniquetokenx", {
+      provider,
+      disableVector: true,
+    });
+    const hit = hits.find((h) => h.id === spec.id);
+    expect(hit).toBeDefined();
+    expect(hit!.authorName).toBe("Grace Hopper");
+    expect(hit!.lastUpdatedAt).toMatch(ISO_RE);
+  });
+
+  it("doc hits with no section actor_name resolve created_by_user_id → name (dec-1)", async () => {
+    tagAc(SPEC285_AC(6));
+    const provider = makeFakeProvider("fake-author-docfallback");
+    const author = await upsertUserByEmail("ada.author@example.com");
+    const spec = await seedSpec(
+      memexId,
+      "Author doc-fallback host",
+      "authordocfallbackuniquetokenx content here.",
+      [],
+      provider,
+    );
+    // No section actor_name → fall back to the resolved document creator.
+    await db.execute(
+      sql`UPDATE doc_sections SET actor_name = NULL WHERE doc_id = ${spec.id}`,
+    );
+    await db.execute(
+      sql`UPDATE documents SET created_by_user_id = ${author.id} WHERE id = ${spec.id}`,
+    );
+
+    const hits = await searchMemex(memexId, "authordocfallbackuniquetokenx", {
+      provider,
+      disableVector: true,
+    });
+    const hit = hits.find((h) => h.id === spec.id);
+    expect(hit).toBeDefined();
+    // upsertUserByEmail sets no display name, so the resolver falls to email.
+    expect(hit!.authorName).toBe("ada.author@example.com");
+  });
+
+  it("issue hits resolve created_by_user_id → name + carry updated_at (dec-1/dec-2)", async () => {
+    tagAc(SPEC285_AC(6));
+    tagAc(SPEC285_AC(7));
+    const provider = makeFakeProvider("fake-author-issue");
+    const author = await upsertUserByEmail("grace.issue@example.com");
+    const spec = await seedSpec(memexId, "Author issue host", "Body.", [], provider);
+    const issue = await seedIssue(
+      memexId,
+      spec,
+      "authorissueuniquetokenx regression",
+      "An issue with a resolvable author.",
+      "bug",
+      provider,
+    );
+    await db.execute(
+      sql`UPDATE issues SET created_by_user_id = ${author.id} WHERE id = ${issue.id}`,
+    );
+
+    const hits = await searchMemex(memexId, "authorissueuniquetokenx", {
+      provider,
+      kind: "issue",
+      disableVector: true,
+    });
+    const hit = hits.find((h) => h.id === issue.id);
+    expect(hit).toBeDefined();
+    expect(hit!.authorName).toBe("grace.issue@example.com");
+    expect(hit!.lastUpdatedAt).toMatch(ISO_RE);
+  });
+});
+
+describe("searchMemex → formatSearchResults — end-to-end byline (spec-285 ac-1/ac-2)", () => {
+  it("a real decision search renders WHO/WHEN in the markdown the MCP + React agents read", async () => {
+    tagAc(SPEC285_AC(1));
+    tagAc(SPEC285_AC(2));
+    const provider = makeFakeProvider("fake-author-e2e");
+    const spec = await seedSpec(memexId, "E2E byline host", "Body.", [], provider);
+    const dec = await seedDecision(
+      memexId,
+      spec,
+      "authore2euniquetokenx approach",
+      "Context.",
+      "Resolved.",
+      provider,
+    );
+    await db.execute(
+      sql`UPDATE decisions SET actor_name = 'Ada Lovelace', actor_user_id = NULL WHERE id = ${dec.id}`,
+    );
+
+    // The exact path the MCP search_memex handler runs — and the React UI agent
+    // reuses this same handler via executeToolRemote (spec-285 Architecture
+    // finding 1), so a passing render here proves both agent surfaces (ac-2).
+    const hits = await searchMemex(memexId, "authore2euniquetokenx", {
+      provider,
+      kind: "decision",
+      disableVector: true,
+    });
+    const out = formatSearchResults("authore2euniquetokenx", hits);
+    expect(out).toContain("Ada Lovelace");
+    // spec-259 dec-5: rendered timestamp is now a relative age ("just now" /
+    // "Nm ago" / "Nh ago" / "Nd ago"), not an absolute YYYY-MM-DD.
+    expect(out).toMatch(/· Ada Lovelace, (just now|\d+[mhd] ago)/);
+  });
+});
+
+describe("spec-285 — additive, non-breaking, single-source (ac-4)", () => {
+  it("a hit with no author/timestamp renders the exact legacy heading (no stray byline)", () => {
+    tagAc(SPEC285_AC(4));
+    // An existing consumer's hit (pre-285 shape, nulls for the new fields) must
+    // render byte-identically to before — additive change, no regression.
+    const legacy: MemexSearchHit = {
+      id: "00000000-0000-0000-0000-000000000001",
+      parentDocId: "00000000-0000-0000-0000-000000000001",
+      kind: "standard",
+      path: "ns/mx/standards/std-3",
+      title: "A standard",
+      status: "published",
+      score: 0.2,
+      strategies: ["fts"],
+      matchingSections: [
+        {
+          id: "00000000-0000-0000-0000-000000000010",
+          sectionType: "do",
+          title: "Do",
+          content: "Some rule.",
+          matchedVia: "fts",
+          authorName: null,
+          lastUpdatedAt: null,
+        },
+      ],
+      authorName: null,
+      lastUpdatedAt: null,
+    };
+    const out = formatSearchResults("q", [legacy]);
+    // Heading is the legacy format exactly — no ` · ` byline appended.
+    expect(out).toContain(`### ns/mx/standards/std-3 — "A standard" (standard, published)`);
+    const headingLine = out.split("\n").find((l) => l.startsWith("### "))!;
+    expect(headingLine.endsWith("(standard, published)")).toBe(true);
+    // Section rendering is untouched.
+    expect(out).toContain(`- Section "Do" (fts):`);
+    expect(out).toContain(`  > Some rule.`);
+  });
+
+  it("the new fields are part of MemexSearchHit (single source) so REST inherits them", () => {
+    tagAc(SPEC285_AC(4));
+    // Both new fields live on MemexSearchHit itself — the REST route's
+    // SearchContentHit = Omit<MemexSearchHit,"id"|"parentDocId"> therefore
+    // inherits them with no separate type to keep in sync (single source).
+    const hit: MemexSearchHit = {
+      id: "00000000-0000-0000-0000-000000000001",
+      parentDocId: "00000000-0000-0000-0000-000000000001",
+      kind: "spec",
+      path: "ns/mx/specs/spec-1",
+      title: "T",
+      status: "build",
+      score: 0.1,
+      strategies: ["fts"],
+      matchingSections: [],
+      authorName: "Ada Lovelace",
+      lastUpdatedAt: "2026-05-28T00:00:00.000Z",
+    };
+    // Structurally present on the hit shape that the REST projection spreads.
+    expect(Object.prototype.hasOwnProperty.call(hit, "authorName")).toBe(true);
+    expect(Object.prototype.hasOwnProperty.call(hit, "lastUpdatedAt")).toBe(true);
+  });
+});
+
+describe("spec-285 — legible in both surfaces: markdown AND structured (ac-5)", () => {
+  it("renders a human byline in markdown while keeping discrete structured fields", () => {
+    tagAc(SPEC285_AC(5));
+    const hit: MemexSearchHit = {
+      id: "00000000-0000-0000-0000-000000000001",
+      parentDocId: "00000000-0000-0000-0000-000000000001",
+      kind: "decision",
+      path: "ns/mx/specs/spec-1/decisions/dec-2",
+      title: "A decision",
+      status: "resolved",
+      score: 0.3,
+      strategies: ["fts"],
+      matchingSections: [],
+      decisionSnippet: "Resolved: do the thing.",
+      decisionMatchedVia: "fts",
+      authorName: "Ryan Soosayraj",
+      lastUpdatedAt: "2026-05-28T12:00:00.000Z",
+    };
+
+    // Surface 1 — the MCP/React-agent markdown: human-readable "name, age".
+    // spec-259 dec-5: the rendered timestamp is now a relative age, with a fixed
+    // `now` for determinism (2026-05-31 → "3d ago").
+    const md = formatSearchResults("q", [hit], { now: new Date("2026-05-31T12:00:00.000Z") });
+    expect(md).toMatch(/· Ryan Soosayraj, 3d ago/);
+
+    // Surface 2 — the structured field the React agent / REST consume: discrete,
+    // not buried in prose, and STILL absolute ISO (the wire field is unchanged).
+    expect(hit.authorName).toBe("Ryan Soosayraj");
+    expect(hit.lastUpdatedAt!.slice(0, 10)).toBe("2026-05-28");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// spec-259 ac-12 — open-comment indicator (DB-backed). Exercises the grouped
+// doc_comments query (loadOpenCommentSummaries via searchMemex → attachOpenComments):
+//   - only UNRESOLVED comments (resolved_at IS NULL) count
+//   - the count + oldest open comment surface on the hit's `openComments`
+//   - a hit with zero open comments leaves `openComments` undefined
+//   - the indicator renders in the markdown formatter (no comment content)
+// DB-NEEDED: run serially by the orchestrator (creates docs/sections/comments).
+// ═══════════════════════════════════════════════════════════════════════════
+describe("searchMemex — open-comment indicator (spec-259 ac-12)", () => {
+  it("counts only UNRESOLVED comments and surfaces the oldest open one", async () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-259/acs/ac-12");
+    const provider = makeFakeProvider("fake-open-comments");
+    const spec = await seedSpec(
+      memexId,
+      "Open comment host",
+      "opencommentuniquetokenx overview body.",
+      [],
+      provider,
+    );
+    // Grab a section to anchor comments on (the overview seed creates one).
+    const section = await db.query.docSections.findFirst({
+      where: eq(docSections.docId, spec.id),
+    });
+    expect(section).toBeDefined();
+
+    // Two open comments + one that we then resolve (must NOT count).
+    await addComment(memexId, section!.id, "Ada", "first open");
+    await addComment(memexId, section!.id, "Grace", "second open");
+    const toResolve = await addComment(memexId, section!.id, "Alan", "will resolve");
+    await resolveComment(memexId, toResolve.id, "done");
+
+    const hits = await searchMemex(memexId, "opencommentuniquetokenx", {
+      provider,
+      kind: "spec",
+      disableVector: true,
+    });
+    const hit = hits.find((h) => h.id === spec.id);
+    expect(hit).toBeDefined();
+    expect(hit!.openComments).toBeDefined();
+    expect(hit!.openComments!.count).toBe(2); // the resolved one is excluded
+    // oldestCreatedAt is absolute ISO on the structured object.
+    expect(hit!.openComments!.oldestCreatedAt).toMatch(ISO_RE);
+
+    // Markdown renders the indicator line — count + relative age, no content.
+    // (Freshly-seeded comments render "just now"; the exact "Nd ago" formatting is
+    // proven deterministically with an injected `now` in memex-search-byline.test.ts.)
+    const out = formatSearchResults("opencommentuniquetokenx", [hit!]);
+    expect(out).toMatch(/- \(2 open comments, oldest .+\)/);
+    expect(out).not.toContain("first open");
+    expect(out).not.toContain("second open");
+  });
+
+  it("leaves openComments undefined when the doc has no open comments", async () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-259/acs/ac-12");
+    const provider = makeFakeProvider("fake-no-open-comments");
+    const spec = await seedSpec(
+      memexId,
+      "No open comment host",
+      "nocommentuniquetokenx overview body.",
+      [],
+      provider,
+    );
+
+    const hits = await searchMemex(memexId, "nocommentuniquetokenx", {
+      provider,
+      kind: "spec",
+      disableVector: true,
+    });
+    const hit = hits.find((h) => h.id === spec.id);
+    expect(hit).toBeDefined();
+    expect(hit!.openComments).toBeUndefined();
+
+    // No indicator line in the rendered markdown. (Match the indicator PATTERN, not
+    // the bare substring "open comment" — this hit's title is "No open comment host".)
+    const out = formatSearchResults("nocommentuniquetokenx", [hit!]);
+    expect(out).not.toMatch(/\(\d+ open comments?, oldest/);
   });
 });

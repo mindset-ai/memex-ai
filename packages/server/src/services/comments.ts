@@ -15,7 +15,7 @@ import {
 } from "../types/roles.js";
 import { isUuid, parseHandle } from "./shared/identifiers.js";
 import { nextSeq, withSeqRetry } from "./shared/sequence.js";
-import { mutate, type Mutated } from "./mutate.js";
+import { mutate, type Mutated, type RequestCtx } from "./mutate.js";
 import {
   hasAnchorMarker,
   insertMarkerAt,
@@ -779,6 +779,12 @@ export async function resolveComment(
   memexId: string,
   commentId: string,
   resolution?: string,
+  // spec-259 dec-1 / ac-4: resolution is an activity-bearing mutation, so it must
+  // carry WHO (std-32). The acting user rides the explicit RequestCtx through
+  // mutate() — the route/MCP caller passes restCtx(c)/reqCtx(ctx). It defaults to
+  // an empty ctx so unattributed/system callers still resolve (degrading to no
+  // actor rather than throwing), matching the rest of the activity contract.
+  ctx: RequestCtx = {},
 ): Promise<Mutated<DocComment>> {
   // Pre-load to fail fast on the FK lookup before opening the mutate transaction.
   const existing = await db.query.docComments.findFirst({
@@ -790,7 +796,7 @@ export async function resolveComment(
   const docId = (await getDocIdForComment(existing)) ?? undefined;
 
   return mutate(
-    {},
+    ctx,
     { memexId, docId, entity: "comment", action: "updated" },
     async () => {
       const [updated] = await db

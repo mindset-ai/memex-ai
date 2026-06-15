@@ -168,7 +168,8 @@ export function ActivityFeed({
     <div className="flex h-full flex-col" data-testid="activity-feed">
       {/* Status line. */}
       <div
-        className="flex items-center gap-2 px-3 py-2 text-xs text-secondary border-b border-edge-subtle"
+        className="flex items-center gap-2 px-3 py-2 text-xs text-secondary border-b border-edge-subtle cursor-help"
+        title="Live — the real-time event log: every meaningful change as it happens (specs, decisions, tasks, ACs, sections), newest first. Reads and plumbing are excluded. The dot tracks the live-connection health."
         {...(disconnected ? { 'data-testid': 'pulse-reconnecting' } : {})}
       >
         <LiveDot

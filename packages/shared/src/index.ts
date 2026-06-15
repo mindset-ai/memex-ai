@@ -77,6 +77,7 @@ export {
   BASE_SCAFFOLD,
   SPEC_SHAPE_MISSING_LENS_WARNING,
   BUILD_AC_NAG_PROSE,
+  GET_PROMPT_PROSE,
 } from './scaffold-data.js';
 // spec-111 t-9 — read-only agent block, injected by buildSystemBlocks when the
 // per-request readOnly flag is set. Lives in the scaffold model (b-68 dec-6),
@@ -138,3 +139,17 @@ export {
   sanitizeUsageProps,
 } from './usage-events-registry.js';
 export type { UsageEventDef, UsageEventSource, RegisteredEventName } from './usage-events-registry.js';
+
+// spec-260: the QA-report section-type vocabulary (qa_report / qa_report-N) —
+// one grammar shared by the server write/read paths and the UI render seats.
+export {
+  QA_REPORT_SECTION_PREFIX,
+  isQaReportSectionType,
+  qaReportVersion,
+} from './qa-report.js';
+
+// spec-259 dec-5: the one canonical relative-age helper (server MCP/agent surfaces
+// + UI), injectable `now` for deterministic output. Wire forms keep absolute ISO.
+export { timeAgo } from './relative-time.js';
+// spec-259 dec-4: conservative display-name capitalization, render-layer only.
+export { capitalizeDisplayName } from './display-name.js';

@@ -82,6 +82,19 @@ for e in j['entries']:
     print(e['tag'])
 " "$JOURNAL_FILE_NATIVE")
 
+# Read the applied set ONCE, up front (spec-281 Fix 1). The collection loop below
+# only asks "is this file already applied?" — a pure set-membership test. The old
+# loop opened a fresh psql process + DB connection PER FILE to ask it (one
+# `SELECT 1 ... WHERE filename = $tag` each), so the number of round-trips scaled
+# with the count of .sql files on disk (~105 hand-written files → ~105 connections
+# every deploy). Through cloud-sql-proxy on prod each connection costs several×
+# int's latency, so that loop ballooned the prod migration phase to ~5min even
+# when nothing was pending. Pulling the whole applied set in a single query and
+# comparing in memory (`grep -qFx`) collapses ~105 connections to 1, with
+# byte-identical skip behaviour. The guard against reintroducing the per-file
+# query lives in src/__regression__/apply-hand-migrations-batch.regression.test.ts.
+APPLIED=$(psql "$DATABASE_URL" -tAc "SELECT filename FROM manual_migrations")
+
 # Collect applied + pending in deterministic filename order.
 PENDING=()
 for f in "$DRIZZLE_DIR"/*.sql; do
@@ -93,8 +106,9 @@ for f in "$DRIZZLE_DIR"/*.sql; do
     continue
   fi
 
-  already=$(psql "$DATABASE_URL" -tAc "SELECT 1 FROM manual_migrations WHERE filename = '$tag' LIMIT 1")
-  if [[ -n "$already" ]]; then
+  # Skip already-applied files — in-memory membership test against the set read
+  # once above (no per-file DB round-trip).
+  if grep -qFx "$tag" <<<"$APPLIED"; then
     continue
   fi
 

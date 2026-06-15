@@ -14,6 +14,7 @@
 //  3. Agent client labels → resolveAgentClientLabel (ac-27).
 
 import { eq, or, sql, inArray } from "drizzle-orm";
+import { capitalizeDisplayName } from "@memex/shared";
 import { db } from "../db/connection.js";
 import { users, mcpSessions } from "../db/schema.js";
 import { actorName } from "./actor.js";
@@ -50,7 +51,7 @@ export async function resolveTestEventActor(actor: string | null | undefined): P
     .where(sql`lower(${users.email}) = ${raw.toLowerCase()}`)
     .limit(1);
   if (byEmail.length === 1) {
-    return { display: actorName(byEmail[0]), userId: byEmail[0].id };
+    return { display: capitalizeDisplayName(actorName(byEmail[0])), userId: byEmail[0].id };
   }
 
   // Exact name match — only when unambiguous (exactly one user).
@@ -60,10 +61,12 @@ export async function resolveTestEventActor(actor: string | null | undefined): P
     .where(eq(users.name, raw))
     .limit(2);
   if (byName.length === 1) {
-    return { display: actorName(byName[0]), userId: byName[0].id };
+    return { display: capitalizeDisplayName(actorName(byName[0])), userId: byName[0].id };
   }
 
-  // Miss (or ambiguous) → verbatim, unattributed.
+  // Miss (or ambiguous) → verbatim, unattributed. NOT capitalized: a free-form /
+  // CI identity string ("CI · abc123") is not a person name — spec-259 dec-4 scopes
+  // capitalization to resolved user names, and ac-26 requires the miss render verbatim.
   return { display: raw, userId: null };
 }
 
@@ -93,7 +96,7 @@ export async function resolveAgentClientLabel(clientId: string | null | undefine
   const { clientName, userName, userEmail } = rows[0];
   const client = clientName?.trim() || "client";
   const who = userName?.trim() || userEmail?.trim() || null;
-  return who ? `${who}'s ${client}` : client;
+  return who ? `${capitalizeDisplayName(who)}'s ${client}` : client;
 }
 
 /**
@@ -123,9 +126,10 @@ export async function resolveTestEventActors(
 
   for (const raw of distinct) {
     const e = byEmail.get(raw.toLowerCase());
-    if (e) { out.set(raw, { display: actorName(e), userId: e.id }); continue; }
+    if (e) { out.set(raw, { display: capitalizeDisplayName(actorName(e)), userId: e.id }); continue; }
     const n = byName.get(raw);
-    if (n) { out.set(raw, { display: actorName(n), userId: n.id }); continue; }
+    if (n) { out.set(raw, { display: capitalizeDisplayName(actorName(n)), userId: n.id }); continue; }
+    // Miss → verbatim (NOT capitalized; spec-259 dec-4 / ac-26).
     out.set(raw, { display: raw, userId: null });
   }
   return out;

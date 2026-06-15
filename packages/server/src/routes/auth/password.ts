@@ -15,7 +15,7 @@ import { sessionMiddleware, type SessionEnv } from "../../middleware/session.js"
 import type { MemexResolverEnv } from "../../middleware/memex-resolver.js";
 import { ValidationError } from "../../types/errors.js";
 import { readJsonBody, requireString } from "../validation.js";
-import { APP_BASE_URL, clientIp, withToken } from "./helpers.js";
+import { APP_BASE_URL, clientIp, setKnownCookie, withToken } from "./helpers.js";
 import { applyVisitorMerge } from "../../middleware/visitor.js";
 
 export const password = new Hono<MemexResolverEnv & SessionEnv>();
@@ -87,6 +87,7 @@ password.post("/signup", async (c) => {
   }
 
   const session = await resolveSession(user.id, null);
+  setKnownCookie(c);
   await applyVisitorMerge(c, user.id); // spec-254 — identify merge (signup)
   return c.json(withToken(session), 201);
 });
@@ -160,6 +161,7 @@ password.post("/login", async (c) => {
       session = { ...session, currentMemexId: match.memexId, currentRole: match.role };
     }
   }
+  setKnownCookie(c);
   await applyVisitorMerge(c, user.id); // spec-254 — identify merge (login)
   return c.json(withToken(session));
 });
@@ -188,6 +190,7 @@ password.post("/verify-email", async (c) => {
 
   await markEmailVerified(row.userId);
   const session = await resolveSession(row.userId, null);
+  setKnownCookie(c);
   await applyVisitorMerge(c, row.userId); // spec-254 — identify merge (email verification)
   return c.json(withToken(session));
 });

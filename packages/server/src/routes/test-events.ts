@@ -151,6 +151,15 @@ function memexSlugFromAcUid(acUid: string): string {
   return parts.length >= 2 ? parts[1]! : "";
 }
 
+// spec-234: the Spec handle from an ac_uid (`<namespace>/<memex>/specs/<spec-N>/acs/<ac-M>`).
+// Used to enforce a spec-scoped (ephemeral / agent) key's scope. Returns "" when the ref
+// isn't a `/specs/…` AC ref — a scoped key then matches nothing and is rejected, which is
+// the safe default.
+function specHandleFromAcUid(acUid: string): string {
+  const parts = acUid.split("/");
+  return parts.length >= 4 && parts[2] === "specs" ? parts[3]! : "";
+}
+
 testEventsRouter.post("/", async (c) => {
   // ── Emission-key auth (spec-129 dec-3) ──────────────────────────
   // A valid per-Memex key is required for every emission. Authenticate from the
@@ -239,6 +248,26 @@ testEventsRouter.post("/", async (c) => {
         message:
           "This emission key does not authorise the Memex named in ac_uid. A key only " +
           "works for the Memex it was generated in.",
+      },
+      401,
+    );
+  }
+
+  // Spec-scope gate (spec-234 ac-11): an ephemeral / agent key carries a
+  // scoped_spec_handle and may emit ONLY for ACs of that one Spec — so an in-progress
+  // agent test run can't flip the verification bar of any other Spec on the shared
+  // board. A permanent (CI) key has a NULL handle and keeps whole-memex authorisation,
+  // so spec-129 keys are unaffected.
+  if (
+    emissionKey.scopedSpecHandle &&
+    emissionKey.scopedSpecHandle !== specHandleFromAcUid(body.ac_uid)
+  ) {
+    return c.json(
+      {
+        error: "unauthorized",
+        message:
+          "This emission key is scoped to a single Spec and does not authorise the " +
+          "Spec named in ac_uid.",
       },
       401,
     );

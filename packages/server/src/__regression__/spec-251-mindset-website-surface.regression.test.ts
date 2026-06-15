@@ -68,7 +68,7 @@ describe("guide-content-mindset-website-refresh.yml (spec-251 t-5, dec-1)", () =
   it("authenticates like the sibling: WIF + cloud-sql-proxy, never the public endpoint (ac-7)", () => {
     tagAc(AC7);
     const wf = read(MINDSET_WF);
-    expect(wf).toContain("google-github-actions/auth@v2");
+    expect(wf).toContain("google-github-actions/auth@v3");
     expect(wf).toContain("GCP_WORKLOAD_IDENTITY_PROVIDER");
     expect(wf).toContain("cloud-sql-proxy");
     // The import goes straight to Postgres via the proxy — no step ever curls

@@ -176,12 +176,11 @@ test.describe("doc-16 Wave 1 reactivity journeys", () => {
     expect(resolveResp.ok()).toBeTruthy();
 
     // The decision panel should reflect the resolved state via SSE refetch.
-    // Wait for the Resolved sub-tab's count to land (SSE delivered the event),
-    // then click into it to read the resolution body.
-    await expect(tab.getByRole("button", { name: /^Resolved 1$/ })).toBeVisible({
-      timeout: 15_000,
-    });
-    await tab.getByRole("button", { name: /^Resolved 1$/ }).click();
+    // spec-247 dec-7: no tabs — the resolved decision surfaces directly as a
+    // resolved card whose compact row shows the resolution body.
+    await expect(
+      tab.locator('[data-decision-status="resolved"]').first(),
+    ).toBeVisible({ timeout: 15_000 });
     await expect(tab.getByText("Postgres it is.").first()).toBeVisible({ timeout: 15_000 });
 
     await ctx.close();
@@ -203,9 +202,11 @@ test.describe("doc-16 Wave 1 reactivity journeys", () => {
     await tab.goto(tenantPath(tenant, `docs/${spec.docId}`));
     // Wait for the page to mount before driving the phase tab.
     await expect(tab.getByText("Reactive tasks").first()).toBeVisible({ timeout: 15_000 });
-    // Tasks live under the Build PHASE (post spec-164 redesign — no standalone
-    // "Tasks" tab). Click the Build phase tab to mount the TaskPanel.
+    // Tasks live under the Build PHASE. spec-282: the Build view lands on the
+    // Decisions & ACs sub-tab, so open the unified "Agent Tasks & Issues" sub-tab
+    // to mount the TaskPanel.
     await tab.getByRole("tab", { name: "Build" }).click();
+    await tab.getByRole("button", { name: /Agent Tasks & Issues/ }).click();
 
     // Create a task via the REST surface (the agent's `create_task` tool calls
     // the same `services/tasks.ts::createTask` function — the bus emission is identical).

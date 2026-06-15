@@ -19,8 +19,11 @@ import { formatRef } from "../services/refs.js";
 import {
   BASE_SCAFFOLD,
   BUILD_AC_NAG_PROSE,
+  GET_PROMPT_PROSE,
   toNudge,
   toHandoffEssence,
+  timeAgo,
+  capitalizeDisplayName,
   type GuidanceBlock,
   type PhaseNode,
 } from "@memex/shared";
@@ -475,7 +478,10 @@ export function formatComment(
     headerLines.push(`ref: ${ref}`);
   }
   headerLines.push(
-    `${status}${badge} **${comment.authorName}** (${formatDate(comment.createdAt)}):`,
+    // spec-259 t-3: comment byline shows WHO (title-cased) + WHEN (relative) —
+    // `timeAgo` surfaces staleness at a glance; `formatDate` stays for the
+    // non-comment callers above.
+    `${status}${badge} **${capitalizeDisplayName(comment.authorName)}** (${timeAgo(comment.createdAt)}):`,
     comment.content,
   );
   const refLine = commentReferenceLine(comment, lookup);
@@ -1151,6 +1157,12 @@ function renderSpecPhaseGuidance(
   if (handoffBlock) {
     lines.push("");
     lines.push(handoffBlock);
+    // spec-263 dec-4 (ac-11): when the block is the compressed ESSENCE (not the
+    // once-per-session full embed, which IS the prompt), the one-line get_prompt
+    // pointer rides it — suppressed on get_prompt's own responses.
+    if (!nudge?.fullHandoff && nudge?.tool !== "get_prompt") {
+      lines.push(GET_PROMPT_PROSE.pointer);
+    }
   }
 
   // Dynamic per-Spec counts — stay in code because they're derived from the

@@ -69,6 +69,21 @@ export default {
         'status-neutral-bg':     'var(--color-status-neutral-bg)',
         'status-neutral-text':   'rgb(var(--color-status-neutral-text) / <alpha-value>)',
         'status-neutral-border': 'rgb(var(--color-status-neutral-border) / <alpha-value>)',
+
+        /* ── Phase palette (spec-252) — Spec-view header pill + container ── */
+        'phase-specify-bg':        'var(--color-phase-specify-bg)',          /* baked opacity */
+        'phase-specify-text':      'rgb(var(--color-phase-specify-text) / <alpha-value>)',
+        'phase-specify-border':    'rgb(var(--color-phase-specify-border) / <alpha-value>)',
+        'phase-build-bg':          'var(--color-phase-build-bg)',            /* baked opacity */
+        'phase-build-text':        'rgb(var(--color-phase-build-text) / <alpha-value>)',
+        'phase-build-border':      'rgb(var(--color-phase-build-border) / <alpha-value>)',
+        'phase-verify-bg':         'var(--color-phase-verify-bg)',           /* baked opacity */
+        'phase-verify-text':       'rgb(var(--color-phase-verify-text) / <alpha-value>)',
+        'phase-verify-border':     'rgb(var(--color-phase-verify-border) / <alpha-value>)',
+        'phase-draft-container':   'var(--color-phase-draft-container)',     /* baked opacity */
+        'phase-specify-container': 'var(--color-phase-specify-container)',   /* baked opacity */
+        'phase-build-container':   'var(--color-phase-build-container)',     /* baked opacity */
+        'phase-verify-container':  'var(--color-phase-verify-container)',    /* baked opacity */
       },
     },
   },

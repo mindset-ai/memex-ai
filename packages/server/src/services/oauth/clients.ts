@@ -20,6 +20,27 @@ function randomToken(byteLength = 32): string {
   return randomBytes(byteLength).toString("base64url");
 }
 
+// Schemes never permitted as a redirect_uri target — they can execute script in
+// our origin (javascript:), carry local-file/inline payloads (data/vbscript/
+// file/blob/filesystem), or invoke known-abusable OS handlers (ms-msdt: was the
+// Follina CVE-2022-30190 vector; intent: targets arbitrary Android components).
+// They're denied even though they're non-http(s). Everything else that isn't
+// http(s) is treated as an RFC 8252 §7.1 private-use URI scheme (cursor://,
+// vscode://, windsurf://, com.example.app:/…). This denylist is defence-in-depth,
+// NOT the primary control: the real guards are the browser's external-app prompt,
+// the on-origin consent screen, and mandatory PKCE S256 (codes.ts) — the RFC 8252
+// §8.6 control that makes custom-scheme redirects safe. spec-253 dec-1 / t-3.
+const DANGEROUS_REDIRECT_SCHEMES = new Set([
+  "javascript",
+  "data",
+  "vbscript",
+  "file",
+  "blob",
+  "filesystem",
+  "intent",
+  "ms-msdt",
+]);
+
 /** RFC 7591 metadata accepted at /oauth/register. */
 export interface RegisterClientInput {
   /** Required. URLs the IdP will redirect to after consent. */
@@ -60,9 +81,8 @@ export async function registerClient(input: RegisterClientInput): Promise<Regist
     if (typeof uri !== "string" || uri.length === 0) {
       throw new ValidationError("redirect_uris entries must be non-empty strings");
     }
-    // RFC 7591 §2: redirect_uris MUST be absolute URIs. Localhost variants
-    // (Claude Desktop's loopback flow) are http://; everything else must be
-    // https. Disallow URL fragments per RFC 6749 §3.1.2.
+    // RFC 7591 §2: redirect_uris MUST be absolute URIs. Disallow URL fragments
+    // per RFC 6749 §3.1.2.
     let parsed: URL;
     try {
       parsed = new URL(uri);
@@ -72,10 +92,22 @@ export async function registerClient(input: RegisterClientInput): Promise<Regist
     if (parsed.hash !== "") {
       throw new ValidationError(`redirect_uri must not contain a fragment: ${uri}`);
     }
+    // RFC 8252 native-app redirects, three accepted shapes (spec-253 dec-1):
+    //   1. https:// (any host)
+    //   2. http://{localhost,127.0.0.1} — loopback flow, §7.3 (Claude Desktop)
+    //   3. a private-use URI scheme — §7.1 (cursor://, vscode://, windsurf://, …)
+    // Bare http:// to a non-loopback host and the dangerous-scheme denylist stay
+    // rejected. PKCE S256 (codes.ts) is the safety control for shape 3.
     const isLoopback = parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1";
-    if (parsed.protocol !== "https:" && !(parsed.protocol === "http:" && isLoopback)) {
+    const scheme = parsed.protocol.replace(/:$/, "");
+    const isWebScheme = scheme === "http" || scheme === "https";
+    const accepted =
+      parsed.protocol === "https:" ||
+      (parsed.protocol === "http:" && isLoopback) ||
+      (!isWebScheme && !DANGEROUS_REDIRECT_SCHEMES.has(scheme));
+    if (!accepted) {
       throw new ValidationError(
-        `redirect_uri must be https:// (or http://localhost for loopback flows): ${uri}`,
+        `redirect_uri must be https://, http://localhost, or a private-use URI scheme: ${uri}`,
       );
     }
   }

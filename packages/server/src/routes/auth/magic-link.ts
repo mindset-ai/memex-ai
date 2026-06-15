@@ -9,7 +9,7 @@ import { rateLimit, AUTH_LIMITS } from "../../services/auth-rate-limit.js";
 import type { SessionEnv } from "../../middleware/session.js";
 import type { MemexResolverEnv } from "../../middleware/memex-resolver.js";
 import { readJsonBody, requireString } from "../validation.js";
-import { APP_BASE_URL, withToken } from "./helpers.js";
+import { APP_BASE_URL, setKnownCookie, withToken } from "./helpers.js";
 import { applyVisitorMerge } from "../../middleware/visitor.js";
 
 export const magicLink = new Hono<MemexResolverEnv & SessionEnv>();
@@ -80,6 +80,7 @@ magicLink.post("/consume", async (c) => {
       session = { ...session, currentMemexId: match.memexId, currentRole: match.role };
     }
   }
+  setKnownCookie(c);
   await applyVisitorMerge(c, user.id); // spec-254 — identify merge (magic link / email-only signup)
   return c.json(withToken(session));
 });

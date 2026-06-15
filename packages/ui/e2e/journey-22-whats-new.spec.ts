@@ -5,9 +5,14 @@ import { seedWhatsNewEntry, clearWhatsNewEntries } from "./helpers/seed.js";
 //
 // SCOPE: the end-to-end user-facing surface — a seeded global feed entry makes
 // the ribbon slide up; clicking it opens the popup with the entry's What/Why;
-// closing the popup leaves the ribbon up; only the ribbon's × dismisses it, and
-// that dismissal persists across a reload (localStorage). Proves the full chain
-// DB → /api/whats-new → React → browser, which the unit/component suites can't.
+// manually closing the popup dismisses the ribbon (it animates "home" into the
+// user menu — 2026-06-13 behaviour pass, superseding dec-4's "popup close ≠
+// dismiss"), and that dismissal persists across a reload (localStorage). Proves
+// the full chain DB → /api/whats-new → React → browser, which the unit/component
+// suites can't.
+//
+// NOTE: the ribbon also auto-dismisses after 6s; the test acts well within that
+// window (clicking the ribbon stops the countdown).
 //
 // The ear → live Specky narration is NOT driven here (real mic + ElevenLabs,
 // same as journey-21). This is the std-28 gate; it emits the user-facing scope
@@ -65,13 +70,10 @@ test("ribbon slides up → popup shows the entry; only its × dismisses it, pers
   await expect(popup).toContainText(ENTRY.whatText);
   await expect(popup).toContainText(ENTRY.whyText);
 
-  // dec-4: closing the popup (header ✕) does NOT dismiss the ribbon.
+  // ac-3 (2026-06-13 behaviour): closing the popup (header ✕) dismisses the
+  // ribbon — it animates home into the user menu and is gone.
   await popup.getByRole("button", { name: "Close" }).click();
   await expect(popup).toBeHidden();
-  await expect(ribbon).toBeVisible();
-
-  // ac-3: only the ribbon's own × dismisses it…
-  await page.getByTestId("whats-new-ribbon-dismiss").click();
   await expect(ribbon).toBeHidden();
 
   // …and the dismissal persists across a reload (localStorage, per-user).

@@ -1,5 +1,12 @@
 -- spec-199 t-12: Row Level Security — Phase 2 tenant table policies
 --
+-- ⚠️ SUPERSEDED IN PART by migration 0093 (spec-257 dec-1 / std-36): the FORCE
+-- below was the bug. On Cloud SQL `postgres` is NOT a real superuser and has no
+-- BYPASSRLS, so FORCE filtered the deploy/migration role to zero rows (the
+-- 2026-06-10 emission + 2026-06-11 What's New outages). 0093 drops FORCE on all
+-- these tables; the header text below ("superuser postgres bypasses RLS
+-- unconditionally") is FALSE on Cloud SQL — kept only as the historical record.
+--
 -- Enables ENABLE + FORCE ROW LEVEL SECURITY on every primary tenant table
 -- (tables with a direct `memex_id NOT NULL` column). Each policy enforces
 -- that the `app.memex_id` GUC is set AND matches the row's memex_id. The

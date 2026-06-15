@@ -6,6 +6,7 @@ import { NotFoundError, ValidationError } from "../types/errors.js";
 import { mutate, type Mutated, type RequestCtx } from "./mutate.js";
 import { resolveActorColumns } from "./actor.js";
 import { nextSeq, withSeqRetry } from "./shared/sequence.js";
+import { pgError } from "./shared/pg-error.js";
 import { embedAndStoreSection } from "./memex-embeddings.js";
 
 // b-36 T-2: doc_sections's per-doc seq unique constraint was renamed from
@@ -15,8 +16,8 @@ import { embedAndStoreSection } from "./memex-embeddings.js";
 const DOC_SECTIONS_SEQ_CONSTRAINT = "doc_sections_doc_seq_unique";
 
 function isDocSeqConflict(err: unknown): boolean {
-  if (!err || typeof err !== "object") return false;
-  const e = err as { constraint_name?: string; message?: string };
+  const e = pgError(err);
+  if (!e) return false;
   if (e.constraint_name === DOC_SECTIONS_SEQ_CONSTRAINT) return true;
   return typeof e.message === "string" && e.message.includes(DOC_SECTIONS_SEQ_CONSTRAINT);
 }
@@ -139,10 +140,7 @@ export async function addSection(
             // can pick a different sectionType instead of seeing a raw Postgres message.
             // (We let `doc_sections_doc_seq_unique` 23505s bubble up — withSeqRetry handles them.)
             if (
-              err &&
-              typeof err === "object" &&
-              "code" in err &&
-              (err as { code?: string }).code === "23505" &&
+              pgError(err)?.code === "23505" &&
               !isDocSeqConflict(err)
             ) {
               throw new ValidationError(
@@ -356,12 +354,7 @@ export async function updateSection(
         // (docId, sectionType) unique violation → surface the same readable
         // message addSection/retitleSection use so the agent picks a different
         // identifier instead of seeing a raw Postgres 23505.
-        if (
-          err &&
-          typeof err === "object" &&
-          "code" in err &&
-          (err as { code?: string }).code === "23505"
-        ) {
+        if (pgError(err)?.code === "23505") {
           throw new ValidationError(
             `Section type '${sectionType}' already exists on this document. Pick a different identifier (e.g. '${sectionType}-2', or a more specific name).`,
           );
@@ -436,12 +429,7 @@ export async function retitleSection(
       } catch (err) {
         // (docId, sectionType) unique violation → surface the same readable
         // message addSection uses so the agent picks a different identifier.
-        if (
-          err &&
-          typeof err === "object" &&
-          "code" in err &&
-          (err as { code?: string }).code === "23505"
-        ) {
+        if (pgError(err)?.code === "23505") {
           throw new ValidationError(
             `Section type '${sectionType}' already exists on this document. Pick a different identifier (e.g. '${sectionType}-2', or a more specific name).`,
           );

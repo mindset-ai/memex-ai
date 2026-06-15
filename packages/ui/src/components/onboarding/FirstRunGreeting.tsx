@@ -1,30 +1,34 @@
-// spec-206 t-3 — the first-run greeting controller.
+// spec-242 — the first-run controller. Specky opens in TEXT (no cold mic popup),
+// running a two-page Specky dialogue sequence over the board:
 //
-// On a user's first session, Specky initiates the conversation ITSELF — no modal,
-// no tap (ac-1). This component (mounted inside VoiceGuideMount, so it has the
-// voice session + the shared reveal pointer in scope) does four things:
+//   Page 1 — mic priming: Specky introduces herself and explains why she needs
+//     the mic. "Turn on Mic" fires getUserMedia DIRECTLY (via session.start),
+//     and on grant Specky starts speaking; the button only renders if the mic
+//     isn't already granted for this browser session. "Not now" is a graceful
+//     skip — no voice, no dead end (the Specky avatar stays tappable). The cold
+//     browser permission popup never fires on load — only on this explicit press
+//     (dec-2 / dec-5; supersedes spec-206's auto-start).
+//   Page 2 — "Here's how you get the most out of Memex AI": three info cards
+//     (dec-4). Footer "Close" ends the sequence and stamps the one-shot.
 //
-//   1. On board mount, asks the server whether to greet (GET /api/onboarding/greeting).
-//   2. If greet && audio is available, auto-starts the voice session seeded with the
-//      onboarding opening context — Specky opens by greeting + explaining (dec-1/dec-2).
-//   3. If audio is unavailable (no mic / denied / no key), it no-ops — the user just
-//      lands on the board (dec-4 / ac-15). The flag is left null so a later session
-//      can still greet.
-//   4. Stamps onboarding_greeted_at ONLY once the session actually reaches `active`
-//      (dec-4 / ac-16) — a blocked/denied start never consumes the one-shot.
-//
-// Renders nothing — it's a behavioural controller, like WhatsNewRibbonConnected.
+// The first-run gate is spec-206's server-side one-shot (users.onboarding_greeted_at,
+// GET/POST /api/onboarding/greeting). Stamp happens on the final Close (dec-2), so
+// a mid-sequence reload re-shows the dialogue.
 
-import { useEffect, useRef } from 'react';
-import { useVoiceSession, isAffordanceDisabled } from '@memex/guide-sdk';
+import { useEffect, useRef, useState } from 'react';
+import { useVoiceSession } from '@memex/guide-sdk';
 import { fetchGreetingGate, stampGreeting } from '../../api/client';
+import { SpeckyDialogue, type SpeckyDialoguePage } from '../specky-dialogue/SpeckyDialogue';
+import { ValueIntroPanel, VALUE_INTRO_HEADING } from './ValueIntroPanel';
+import { isMicAlreadyGranted } from './micPermission';
+import { MicGlyph } from './MicGlyph';
 
 /**
- * The seed context handed to the guide for its proactive opening turn (dec-2).
- * The guide LLM produces the actual spoken greeting from this seed. Encodes:
- * a warm first-name greeting (or a nameless fallback), the value prop, on-screen
- * orientation, the open invitation, and the demo-walkthrough offer — all "under a
- * minute" (ac-2 / ac-3 / ac-10 / ac-11).
+ * The seed context handed to the guide for its proactive opening turn. The guide
+ * LLM produces the actual spoken greeting from this seed once the mic is granted
+ * (the "Turn on Mic" press calls session.start with it). Carries a warm first-name
+ * greeting (or a nameless fallback), the value prop, on-screen orientation, the
+ * open invitation, and the demo-walkthrough offer — all "under a minute".
  */
 export function buildOnboardingOpeningContext(firstName: string | null): string {
   const greeting = firstName
@@ -42,23 +46,26 @@ export function buildOnboardingOpeningContext(firstName: string | null): string 
   ].join('\n');
 }
 
-export function FirstRunGreeting(): null {
+export function FirstRunGreeting(): React.JSX.Element | null {
   const session = useVoiceSession();
-  const { start, status, micAvailable } = session;
-  // Guard one-shots: we auto-start at most once, and stamp at most once — and only
-  // for a greeting WE initiated (a user-started session must never stamp the flag).
-  const startedRef = useRef(false);
+  const [show, setShow] = useState(false);
+  const [firstName, setFirstName] = useState<string | null>(null);
+  // The "Turn on Mic" button only renders if the mic isn't already granted
+  // (dec-5). Probed once on mount; defaults to showing the button.
+  const [micAlreadyGranted, setMicAlreadyGranted] = useState(false);
+  // Once the user has resolved the mic ask (granted or declined), the action
+  // row goes away — Specky doesn't nag (ac-6).
+  const [micResolved, setMicResolved] = useState(false);
+
+  // Stamp the one-shot at most once per sequence. (We deliberately DON'T guard the
+  // gate fetch with a ref: the GET is idempotent, and a one-shot ref would let
+  // StrictMode's first mount cancel mid-fetch while the second mount short-circuits
+  // — leaving the dialogue stuck hidden. Mirror WhatsNewRibbon: an `alive` flag and
+  // a re-fetch on remount.)
   const stampedRef = useRef(false);
 
-  // 1–3: check the gate once on mount and auto-start when eligible + audible.
   useEffect(() => {
-    if (startedRef.current) return;
-    // Audio can't run → no-op, land on board (ac-15). Don't even hit the gate, so
-    // the one-shot is preserved for a later session that does have a mic.
-    if (isAffordanceDisabled({ status, micAvailable } as Parameters<typeof isAffordanceDisabled>[0])) {
-      return;
-    }
-    let cancelled = false;
+    let alive = true;
     void (async () => {
       let gate;
       try {
@@ -66,31 +73,74 @@ export function FirstRunGreeting(): null {
       } catch {
         return; // gate unreachable → silently skip; never block the board
       }
-      if (cancelled || !gate.greet || startedRef.current) return;
-      startedRef.current = true;
-      // start() itself requests mic permission; a denial routes to permission_denied
-      // (not active), so the stamp effect below won't fire — the one-shot survives.
-      void start(buildOnboardingOpeningContext(gate.firstName));
+      if (!alive || !gate.greet) return;
+      setFirstName(gate.firstName);
+      setShow(true);
+      void isMicAlreadyGranted().then((granted) => alive && setMicAlreadyGranted(granted));
     })();
     return () => {
-      cancelled = true;
+      alive = false;
     };
-    // Mount-once: live status is read by the stamp effect below.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 4: stamp only once the greeting actually starts speaking (status → active).
-  useEffect(() => {
-    if (!startedRef.current || stampedRef.current) return;
-    if (status === 'active') {
-      stampedRef.current = true;
-      void stampGreeting().catch(() => {
-        // Stamp failed — allow a retry on a later 'active' transition rather than
-        // burning the one-shot on a network blip.
-        stampedRef.current = false;
-      });
-    }
-  }, [status]);
+  if (!show) return null;
 
-  return null;
+  // "Turn on Mic" fires getUserMedia directly (session.start → acquireMic →
+  // navigator.mediaDevices.getUserMedia); on grant the orchestrator opens with
+  // the seeded greeting, so Specky starts speaking. start() is idempotent and
+  // routes a denial to permission_denied without consuming the one-shot.
+  const turnOnMic = () => {
+    setMicResolved(true);
+    void session.start(buildOnboardingOpeningContext(firstName));
+  };
+
+  const notNow = () => {
+    setMicResolved(true); // graceful skip — no voice; the avatar stays available
+  };
+
+  const close = () => {
+    setShow(false);
+    if (stampedRef.current) return;
+    stampedRef.current = true;
+    void stampGreeting().catch(() => {
+      // Stamp failed — the one-shot survives a network blip; the dialogue may
+      // show once more next session rather than being silently lost.
+      stampedRef.current = false;
+    });
+  };
+
+  const showMicAsk = !micAlreadyGranted && !micResolved;
+
+  const pages: SpeckyDialoguePage[] = [
+    {
+      key: 'mic-priming',
+      heading: "Hi, I'm Specky 👋",
+      body: (
+        <p>
+          Your guide inside Memex AI. Ask me anything: where things live, what a status
+          means, what to do next. I'll talk you through it. To do any of that, I need your
+          mic. Worth it, I promise.
+        </p>
+      ),
+      actions: showMicAsk
+        ? [
+            {
+              label: 'Turn on Mic',
+              onSelect: turnOnMic,
+              kind: 'primary',
+              icon: <MicGlyph />,
+              testId: 'turn-on-mic',
+            },
+            { label: 'Not now', onSelect: notNow, kind: 'quiet', testId: 'mic-not-now' },
+          ]
+        : undefined,
+    },
+    {
+      key: 'value-intro',
+      heading: VALUE_INTRO_HEADING,
+      body: <ValueIntroPanel />,
+    },
+  ];
+
+  return <SpeckyDialogue pages={pages} onClose={close} />;
 }

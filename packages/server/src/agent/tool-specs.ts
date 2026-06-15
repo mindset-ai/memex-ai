@@ -43,6 +43,7 @@ import {
   deleteSection,
   resolveSectionWriteMode,
 } from "../services/sections.js";
+import { appendQaReport } from "../services/qa-reports.js";
 import {
   addClausesToSection,
   createClause,
@@ -104,6 +105,7 @@ import {
   type AcWithVerification,
 } from "../services/acs.js";
 import { listTopics, fetchTopic } from "../services/guidance.js";
+import { mintEphemeralEmissionKey } from "../services/emission-keys.js";
 import {
   createTask,
   listTasks,
@@ -198,6 +200,9 @@ import {
   HANDOFF_BUTTON_BY_PHASE,
   toButtonPrompt,
   toHandoffEssence,
+  GET_PROMPT_PROSE,
+  timeAgo,
+  capitalizeDisplayName,
   type Phase,
   type GuidanceBlock,
 } from "@memex/shared";
@@ -778,7 +783,10 @@ async function renderFooterSignal(
       void docId;
       const target = signal.target as Phase;
       const essence = toHandoffEssence(BASE_SCAFFOLD, target);
-      if (essence) return essence;
+      // spec-263 dec-4 (ac-11): landing in the new phase is exactly when the
+      // new phase's full handoff becomes relevant — the one-line get_prompt
+      // pointer rides the essence (prose lives in scaffold-data, std-15).
+      if (essence) return `${essence}\n${GET_PROMPT_PROSE.pointer}`;
       if (target === "done") {
         return (
           `This spec is now done: closed and read-only for normal work. ` +
@@ -939,11 +947,15 @@ export async function composeGuidanceEnvelope(
           handoffContext &&
           claimFullHandoffDelivery(ctx.userId, ctx.sessionId, state.doc.id, state.doc.status)
         ) {
+          // spec-263 dec-2 (ac-9): compose WITH the Org appends already fetched
+          // above — the same composition the UI button and get_prompt use, so
+          // there is exactly one server-side behaviour for the handoff prompt.
           fullHandoff =
             toButtonPrompt({
               dataset: BASE_SCAFFOLD,
               buttonId: handoffButtonId,
               context: handoffContext,
+              orgBlocks,
             }) ?? undefined;
         }
       }
@@ -1009,7 +1021,14 @@ export async function composeGuidanceEnvelope(
     const hasSurgicalSteer = Boolean(slot) || Boolean(toolSteer);
     if (!hasSurgicalSteer) {
       const essence = toHandoffEssence(BASE_SCAFFOLD, phase);
-      if (essence) lines.push(essence);
+      if (essence) {
+        lines.push(essence);
+        // spec-263 dec-4 (ac-11): the get_prompt pointer rides the essence
+        // line — this terse seat covers the get_doc orient call AND the
+        // assess_spec phase-mode response (neither has a surgical steer).
+        // Suppressed on get_prompt's own responses: the body IS the prompt.
+        if (ctx.toolName !== "get_prompt") lines.push(GET_PROMPT_PROSE.pointer);
+      }
     }
     if (phase === "build") {
       const nag = await craftUntestedAcNag(memexId, docId);
@@ -1771,6 +1790,67 @@ export const toolSpecs: ToolSpec[] = [
     },
   },
   {
+    // spec-263 — the phase handoff prompt, fetched from inside the coding
+    // session. Same scaffold node, same composition path, same Org appends as
+    // the web UI's copy-prompt button: the two surfaces cannot drift (std-23).
+    name: "get_prompt",
+    annotations: { title: "Get handoff prompt", readOnlyHint: true, destructiveHint: false },
+    description:
+      "Get the handoff prompt for a Spec's CURRENT phase — the exact text the web UI's copy-prompt button produces (specify → plan handoff, build → build handoff, verify → verify handoff), composed from the shared Scaffold with your Org's additions included. " +
+      "Call it after orienting on a Spec or right after a phase transition, when you need the full handoff prompt to act on. " +
+      "Phases with no handoff (draft, done) return an explanation, never an error. Spec-only.",
+    schema: {
+      ref: z
+        .string()
+        .describe("Canonical ref to the Spec, e.g. `mindset/main/specs/spec-3`."),
+      verbose: VERBOSE_FIELD,
+    },
+    async handler(input, ctx) {
+      const ref = input.ref as string;
+      const resolved = await resolveRefArg(ctx, ref);
+      if (!isDocLikeKind(resolved.entity.kind)) {
+        throw new ValidationError(
+          `get_prompt expects a doc-level Spec ref; got ${resolved.entity.kind}.`,
+        );
+      }
+      const { memexId, doc } = resolved;
+      if (doc.docType !== "spec") {
+        throw new ValidationError(
+          `get_prompt expects a Spec; ${doc.handle} is a ${doc.docType}. Handoff prompts exist only on Specs.`,
+        );
+      }
+      // dec-1: select for the CURRENT phase through the SAME map the UI copy
+      // button and the footer essence select through (spec-203 dec-1) — node
+      // selection is single-source by construction. draft/done carry no node;
+      // explain, never throw or return empty (ac-7 / scope ac-4).
+      const phase = doc.status as Phase;
+      const buttonId = HANDOFF_BUTTON_BY_PHASE[phase];
+      if (!buttonId) return GET_PROMPT_PROSE.noHandoff(phase);
+      const baseUrl = await ctx.workspaceUrl(memexId);
+      const context = handoffInterpolationContext(baseUrl, doc);
+      if (!context) return GET_PROMPT_PROSE.noContext;
+      // dec-2: Org appends ride the composition, so the returned text is
+      // byte-identical to the UI button's clipboard output (PromptButton.tsx
+      // threads orgBlocks the same way).
+      const orgBlocks = ctx.getOrgBlocksForNudge
+        ? await ctx.getOrgBlocksForNudge()
+        : undefined;
+      const prompt = toButtonPrompt({
+        dataset: BASE_SCAFFOLD,
+        buttonId,
+        context,
+        orgBlocks,
+      });
+      if (prompt === null) {
+        // Unreachable while every HANDOFF_BUTTON_BY_PHASE id has a node in
+        // BASE_SCAFFOLD (pinned by shared tests) — a missing node is scaffold
+        // corruption, not a caller error.
+        throw new Error(`No PromptButtonNode found for buttonId="${buttonId}".`);
+      }
+      return prompt;
+    },
+  },
+  {
     name: "export_doc",
     annotations: { title: "Export document (lossless markdown)", readOnlyHint: true, destructiveHint: false },
     description:
@@ -1914,13 +1994,21 @@ export const toolSpecs: ToolSpec[] = [
       // Default to canonical 'spec' for callers that don't pass an explicit
       // docType.
       const docType = args.docType ?? "spec";
+      // spec-295 dec-3: the web agent (in_app_agent channel — the creation
+      // modal + the in-app spec agent) no longer auto-advances phase, so a new
+      // Spec can't rely on draft→specify traffic to become team-visible. Place
+      // it in `specify` deterministically at creation instead. Only Specs get a
+      // phase (standards/documents have their own status lifecycle); the mcp
+      // surface keeps 'draft' (it still auto-advances).
+      const initialStatus =
+        docType === "spec" && ctx.channel === "in_app_agent" ? "specify" : undefined;
       const doc = await createDocDraft(
         memexId,
         args.title,
         args.purpose,
         docType,
         args.decisions,
-        undefined,
+        initialStatus ? { initialStatus } : undefined,
         ctx.userId,
         reqCtx(ctx),
       );
@@ -2152,6 +2240,54 @@ export const toolSpecs: ToolSpec[] = [
       }
       const sectionRef = buildChildRef(slugs, doc, { type: "sections", seq: section.seq });
       return `Added "${section.title ?? section.sectionType}" section (ref: ${sectionRef}).`;
+    },
+  },
+  {
+    name: "write_qa_report",
+    annotations: { title: "Write QA report", readOnlyHint: false, destructiveHint: false },
+    description:
+      "Persist a QA Report on a Spec at the build→verify hand-off — a human-readable record of what THIS build session actually changed, written for a reviewer who was not in the session (including a non-developer owner). Organise it so each audience finds its part: (1) Front-end / user-affecting changes in plain language, (2) Back-end changes (routes, schema/migrations, services, auth/tenancy, agent behaviour), (3) Testing created and run (which tests, which suites, what passed, what was skipped or left red — tie back to the Spec's ACs), (4) Known gaps & follow-ups (also captured via register_issue todos), (5) Deviations from the plan, (6) Dependencies & integration points, (7) Migration/deployment notes, (8) Open questions. Ground every claim in the changes you made this session and the tests you ran — never restate the plan. Each call APPENDS a new dated version (qa_report, qa_report-2, …); it never overwrites a prior session's report. Read-only once written.",
+    schema: {
+      ref: z
+        .string()
+        .describe("Canonical ref to the Spec the report is for, e.g. `mindset/main/specs/spec-3`."),
+      content: z
+        .string()
+        .describe(
+          "Markdown body of the report, structured into the front-end / back-end / testing / gaps / deviations / dependencies / deploy-notes / open-questions sections described above. Grounded in this session's actual changes — not a restatement of the plan.",
+        ),
+      title: z
+        .string()
+        .optional()
+        .describe("Optional heading for the report row. Defaults to 'QA Report'."),
+      verbose: VERBOSE_FIELD,
+    },
+    async handler(input, ctx) {
+      const ref = input.ref as string;
+      const content = input.content as string;
+      const title = input.title as string | undefined;
+
+      const resolved = await resolveRefArg(ctx, ref);
+      if (!isDocLikeKind(resolved.entity.kind)) {
+        throw new ValidationError(
+          `write_qa_report expects a Spec ref; got ${resolved.entity.kind}.`,
+        );
+      }
+      const { memexId, doc, slugs } = resolved;
+      if (doc.docType !== "spec") {
+        throw new ValidationError(
+          "QA Reports attach to Specs only — pass a `spec-N` ref.",
+        );
+      }
+
+      const section = await appendQaReport(memexId, doc.id, content, title, reqCtx(ctx));
+      if (ctx.verbose) {
+        const state = await fullDocState(memexId, doc.id);
+        const url = await ctx.workspaceUrl(memexId);
+        return await formatState(url, state, ctx);
+      }
+      const sectionRef = buildChildRef(slugs, doc, { type: "sections", seq: section.seq });
+      return `Wrote QA Report "${section.sectionType}" (ref: ${sectionRef}) for ${doc.handle}. Each build session appends a new version — prior reports are preserved.`;
     },
   },
   {
@@ -2654,14 +2790,19 @@ export const toolSpecs: ToolSpec[] = [
     name: "resolve_decision",
     annotations: { title: "Resolve decision", readOnlyHint: false, destructiveHint: false },
     description:
-      "Resolve a decision with an explanation of the choice made. May unblock tasks waiting on it. Resolving the last open decision on a Spec in 'specify' unblocks the move to 'build'. If the decision has structured options, pass `chosenOptionIndex` to mark which one was selected.",
+      "Resolve a decision with an explanation of the choice made. May unblock tasks waiting on it. Resolving the last open decision on a Spec in 'specify' unblocks the move to 'build'. If the decision has structured options, pass `chosenOptionIndex` to mark which one was selected — `resolution` is then optional and defaults to that option's label. Re-resolving an already-resolved decision updates the choice in place (spec-247 dec-5).",
     schema: {
       ref: z
         .string()
         .describe(
           "Canonical ref to the decision, e.g. `mindset/main/specs/spec-3/decisions/dec-2`.",
         ),
-      resolution: z.string().describe("The resolution — what was decided and why"),
+      resolution: z
+        .string()
+        .optional()
+        .describe(
+          "The resolution — what was decided and why. Optional when chosenOptionIndex is supplied (defaults to the chosen option's label); required otherwise.",
+        ),
       chosenOptionIndex: z
         .number()
         .int()
@@ -2943,6 +3084,85 @@ export const toolSpecs: ToolSpec[] = [
           (parent ? ` linked to ${parent.kind}` : "");
       }
       return `ref: ${acRef} [${kind}, ${status}]`;
+    },
+  },
+  {
+    // spec-234: the agent-facing onboarding for AC emission. One call mints an
+    // ephemeral, spec-scoped key AND returns the integration guidance — replacing the
+    // "open Settings, mint a key, copy it, npm install a helper" detour. The key is
+    // short-lived (so it's safe to return through the MCP transcript, dec-1/dec-5) and
+    // scoped to this Spec. The guidance half is rendered from the SAME source as
+    // get_information(topic='ac-emission-bootstrap'), never hand-copied (std-22, ac-16).
+    name: "provision_ac_emission",
+    annotations: { title: "Provision AC emission", readOnlyHint: false, destructiveHint: false },
+    description:
+      "Provision AC emission for the Spec you are working on, in one call: (1) mints a " +
+      "working, ephemeral, spec-scoped emission key for this repo's Memex and returns the " +
+      "raw value once, and (2) returns markdown guidance for wiring emission into whatever " +
+      "test runner(s) the repo actually uses — authoring a native integration when no " +
+      "official helper exists for the stack. No Settings-UI detour and no package install " +
+      "are needed to start emitting. The key is short-lived (~2h) and may ONLY record " +
+      "emissions for this Spec; use it in the test process environment for THIS session and " +
+      "do not persist it — call again next session for a fresh key. For a long-lived CI key, " +
+      "a human mints one in Settings → Emission Keys (this tool does not produce CI keys).",
+    schema: {
+      ref: z.string().describe(
+        "Canonical ref to the Spec you are working on, e.g. `mindset/main/specs/spec-3`. " +
+          "The provisioned key is scoped to this Spec.",
+      ),
+      verbose: VERBOSE_FIELD,
+    },
+    async handler(input, ctx) {
+      const ref = input.ref as string;
+      const resolved = await resolveRefArg(ctx, ref);
+      if (!isDocLikeKind(resolved.entity.kind) || resolved.doc.docType !== "spec") {
+        throw new ValidationError(
+          `provision_ac_emission expects a Spec ref (e.g. .../specs/spec-N); got ${resolved.entity.kind}/${resolved.doc.docType}.`,
+        );
+      }
+      const { memexId, doc, slugs } = resolved;
+      const specHandle = doc.handle; // e.g. "spec-3" — matches the ac_uid's /specs/<handle>/ segment
+      const specRef = `${slugs.namespace}/${slugs.memex}/specs/${specHandle}`;
+
+      // Member-level authority (dec-5): resolveRef already asserted the caller is a member of
+      // this Memex, so minting here is the same authority as the Settings-UI mint. The minting
+      // user is recorded (created_by_user_id) for audit.
+      const minted = await mintEphemeralEmissionKey(memexId, specHandle, ctx.userId);
+      const expiresAt = minted.row.expiresAt!; // always set for an ephemeral key
+
+      // Render the protocol from the shared guidance source — NOT a hand-copied duplicate
+      // (ac-16). This is the same body get_information(topic='ac-emission-bootstrap') serves.
+      const bootstrap = await fetchTopic("ac-emission-bootstrap");
+
+      return [
+        `# AC emission provisioned for \`${specRef}\``,
+        "",
+        "## 1. Your emission key (use this session only — do NOT save it to disk)",
+        "",
+        "```",
+        `MEMEX_EMIT_KEY=${minted.raw}`,
+        "```",
+        "",
+        `- **Ephemeral:** this key expires at ${expiresAt.toISOString()} (~2h). It is **scoped to \`${specHandle}\`** — it can only record emissions for this Spec, nothing else on the board.`,
+        "- **Do not persist it.** Export it into the environment of the test process for THIS session only " +
+          "(e.g. `MEMEX_EMIT_KEY=… <run your tests>`). Do not write it to `.env`, CI config, or any file — " +
+          "it will be expired by next session. When you start a fresh session, call `provision_ac_emission` " +
+          "again for a new key.",
+        "- **CI is different:** a long-lived key for a CI pipeline is minted by a human in Settings → Emission " +
+          "Keys and stored as a CI secret. This tool only provisions the short-lived agent key.",
+        "",
+        "## 2. Wire emission into the repo's test runner(s)",
+        "",
+        "Detect the test runner(s) **this** repo actually uses (do not assume one). For each suite: if an " +
+          "official Memex helper exists for that stack, prefer it; otherwise hand-roll the native emitter using " +
+          "the protocol below. A repo with multiple suites (e.g. a web suite plus a mobile/native suite) wires " +
+          "emission into **every** suite, not just one. Tag each test with the AC ref it verifies and the emitter " +
+          "POSTs the result — no package install is required to begin.",
+        "",
+        "---",
+        "",
+        bootstrap.body,
+      ].join("\n");
     },
   },
   {
@@ -4023,7 +4243,7 @@ export const toolSpecs: ToolSpec[] = [
         );
       }
       const { memexId, doc, slugs, entity } = resolved;
-      const comment = await resolveComment(memexId, entity.row.id, resolution);
+      const comment = await resolveComment(memexId, entity.row.id, resolution, reqCtx(ctx));
       if (ctx.verbose) {
         return `${formatDocStatusHeader(doc)}\n\nComment resolved.\n${formatComment(comment)}`;
       }
@@ -4131,7 +4351,7 @@ export const toolSpecs: ToolSpec[] = [
           for (const c of status.comments) {
             const targetTitle = c.target.title ? ` "${c.target.title}"` : "";
             lines.push(
-              `- [${c.type}] on ${c.target.kind} ${c.target.handle}${targetTitle} by ${c.author} (${c.createdAt.toISOString()}): ${c.contentSnippet}`,
+              `- [${c.type}] on ${c.target.kind} ${c.target.handle}${targetTitle} by ${capitalizeDisplayName(c.author)} (${timeAgo(c.createdAt)}): ${c.contentSnippet}`,
             );
           }
         }
