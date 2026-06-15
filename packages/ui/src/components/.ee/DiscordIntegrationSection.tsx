@@ -184,7 +184,7 @@ function OrgWebhookRow({ org, state, onSave, onDisconnect, onChange }: OrgWebhoo
             <button
               onClick={onDisconnect}
               disabled={state.disconnecting}
-              className="text-xs px-3 py-1.5 rounded border border-edge text-secondary hover:text-error hover:border-error/50 disabled:opacity-40 transition-colors"
+              className="text-xs px-3 py-1.5 rounded-sm border border-edge text-secondary hover:text-error hover:border-error/50 disabled:opacity-40 transition-colors"
             >
               {state.disconnecting ? 'Removing…' : 'Disconnect'}
             </button>
@@ -200,7 +200,7 @@ function OrgWebhookRow({ org, state, onSave, onDisconnect, onChange }: OrgWebhoo
               onChange={(e) => onChange('webhookUrl', e.target.value)}
               placeholder="https://discord.com/api/webhooks/…"
               required
-              className="w-full text-sm px-3 py-2 rounded border border-edge bg-input text-primary placeholder:text-secondary focus:outline-none focus:ring-2 focus:ring-accent/50"
+              className="w-full text-sm px-3 py-2 rounded-sm border border-edge bg-input text-primary placeholder:text-secondary focus:outline-hidden focus:ring-2 focus:ring-accent/50"
             />
           </div>
           <div>
@@ -212,13 +212,13 @@ function OrgWebhookRow({ org, state, onSave, onDisconnect, onChange }: OrgWebhoo
               value={state.channelName}
               onChange={(e) => onChange('channelName', e.target.value)}
               placeholder="#announcements"
-              className="w-full text-sm px-3 py-2 rounded border border-edge bg-input text-primary placeholder:text-secondary focus:outline-none focus:ring-2 focus:ring-accent/50"
+              className="w-full text-sm px-3 py-2 rounded-sm border border-edge bg-input text-primary placeholder:text-secondary focus:outline-hidden focus:ring-2 focus:ring-accent/50"
             />
           </div>
           <button
             type="submit"
             disabled={state.saving || !state.webhookUrl.trim()}
-            className="text-xs px-4 py-2 rounded border border-edge bg-btn-secondary hover:bg-btn-secondary-hover text-primary font-medium disabled:opacity-40 transition-colors"
+            className="text-xs px-4 py-2 rounded-sm border border-edge bg-btn-secondary hover:bg-btn-secondary-hover text-primary font-medium disabled:opacity-40 transition-colors"
           >
             {state.saving ? 'Saving…' : 'Save webhook'}
           </button>

@@ -86,12 +86,12 @@ export function SharedDocument() {
 
   return (
     <div className="min-h-screen bg-page flex flex-col">
-      <header className="border-b border-edge bg-page/80 backdrop-blur-sm">
+      <header className="border-b border-edge bg-page/80 backdrop-blur-xs">
         <div className="max-w-3xl mx-auto px-6 py-3 flex items-center justify-between">
           <div className="text-sm text-muted">
             Shared by <span className="text-secondary">{data.memexName || data.namespaceSlug}</span>
           </div>
-          <span className="text-xs px-2 py-0.5 rounded bg-btn-secondary text-secondary">
+          <span className="text-xs px-2 py-0.5 rounded-sm bg-btn-secondary text-secondary">
             Read-only
           </span>
         </div>
@@ -259,7 +259,7 @@ function CommentRow({
       <div className="flex items-center gap-2 text-xs">
         <span className="font-medium text-secondary">{comment.authorName}</span>
         {isExternal && (
-          <span className="px-1.5 py-0.5 rounded text-[10px] bg-status-warning-bg text-status-warning-text">
+          <span className="px-1.5 py-0.5 rounded-sm text-[10px] bg-status-warning-bg text-status-warning-text">
             External
           </span>
         )}

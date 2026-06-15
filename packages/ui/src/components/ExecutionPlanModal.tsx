@@ -184,7 +184,7 @@ export function ExecutionPlanModal({
   return createPortal(
     <div
       data-testid="execution-plan-modal"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -239,7 +239,7 @@ export function ExecutionPlanModal({
                   <div className="text-[11px] uppercase tracking-wider font-semibold mb-1 opacity-80">
                     Readiness assessment (agent)
                   </div>
-                  <div className="prose prose-sm prose-invert max-w-none whitespace-pre-wrap break-words text-sm">
+                  <div className="prose prose-sm prose-invert max-w-none whitespace-pre-wrap wrap-break-word text-sm">
                     {readiness.content}
                   </div>
                 </div>

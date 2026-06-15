@@ -429,7 +429,7 @@ function DocPageHeader() {
   const { pathname } = useLocation();
   const specsHref = resolveNavTo('/specs', pathname, session?.memberships);
   return (
-    <header className="border-b flex-none flex items-stretch backdrop-blur-sm border-edge bg-page/80">
+    <header className="border-b flex-none flex items-stretch backdrop-blur-xs border-edge bg-page/80">
       <div className="flex-1 min-w-0 flex items-center gap-8 px-6 py-3">
         <Link
           to={specsHref}

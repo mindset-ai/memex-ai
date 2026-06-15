@@ -316,7 +316,7 @@ function RegressedFlag({ muted }: { muted: boolean }) {
           ? 'A verified AC went red while this spec is being actively worked — expected churn.'
           : 'A verified AC went red on a quiet spec — this is an alarm.'
       }
-      className={`ml-2 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[0.65rem] font-semibold uppercase tracking-wide ${
+      className={`ml-2 inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-[0.65rem] font-semibold uppercase tracking-wide ${
         muted
           ? 'text-muted/70 bg-card-hover/40'
           : 'text-status-danger-text bg-status-danger-bg'
@@ -351,7 +351,7 @@ export function ActivityRow({
         onClick={onToggleExpand}
         data-testid="activity-row-group"
         aria-expanded={false}
-        className="group flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-muted hover:bg-card-hover rounded transition-colors"
+        className="group flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-muted hover:bg-card-hover rounded-sm transition-colors"
       >
         <LiveDot live={isLive} size="sm" />
         <span className="text-muted/70">&hellip;</span>

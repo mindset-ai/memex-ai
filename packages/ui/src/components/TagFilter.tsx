@@ -172,7 +172,7 @@ export function TagFilter({ selected, onChange, className = '' }: TagFilterProps
               placeholder="Filter tags…"
               data-testid="tag-filter-search"
               aria-label="Filter tags"
-              className="w-full bg-input border border-edge text-primary placeholder-muted focus:outline-none focus:ring-1 focus:ring-edge-strong focus:border-edge-strong px-2 py-1 text-xs rounded"
+              className="w-full bg-input border border-edge text-primary placeholder-muted focus:outline-hidden focus:ring-1 focus:ring-edge-strong focus:border-edge-strong px-2 py-1 text-xs rounded-sm"
             />
             {/* ac-3: spell out the AND-across-scopes / OR-within-scope semantics. */}
             <p className="mt-1 text-[10px] leading-tight text-muted">
@@ -193,12 +193,12 @@ export function TagFilter({ selected, onChange, className = '' }: TagFilterProps
                   data-testid="tag-filter-option"
                   onClick={() => toggle(raw)}
                   className={`w-full flex items-center gap-2 px-2 py-1.5 text-left hover:bg-overlay ${
-                    isSelected ? 'bg-overlay/60' : ''
+                    isSelected ? 'bg-overlay' : ''
                   }`}
                 >
                   <span
                     aria-hidden="true"
-                    className={`flex h-3.5 w-3.5 flex-none items-center justify-center rounded border text-[10px] ${
+                    className={`flex h-3.5 w-3.5 flex-none items-center justify-center rounded-sm border text-[10px] ${
                       isSelected
                         ? 'border-edge-strong bg-edge-strong text-white'
                         : 'border-edge'

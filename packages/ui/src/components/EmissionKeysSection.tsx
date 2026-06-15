@@ -172,7 +172,7 @@ export function EmissionKeysSection() {
           <div className="flex items-center gap-2">
             <code
               data-testid="emission-key-reveal"
-              className="flex-1 font-mono text-xs break-all px-3 py-2 rounded bg-overlay border border-edge"
+              className="flex-1 font-mono text-xs break-all px-3 py-2 rounded-sm bg-overlay border border-edge"
             >
               {generated.key}
             </code>
@@ -252,7 +252,7 @@ export function EmissionKeysSection() {
                     <td className="px-4 py-2.5" data-testid="emission-key-type" data-kind={kind}>
                       {kind === 'ephemeral' ? (
                         <span className="inline-flex items-center gap-1.5">
-                          <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-warning-subtle text-warning">
+                          <span className="px-1.5 py-0.5 rounded-sm text-xs font-medium bg-warning-subtle text-warning">
                             Agent
                           </span>
                           <span className="text-xs text-muted">
@@ -261,7 +261,7 @@ export function EmissionKeysSection() {
                           </span>
                         </span>
                       ) : (
-                        <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-info-subtle text-info">
+                        <span className="px-1.5 py-0.5 rounded-sm text-xs font-medium bg-info-subtle text-info">
                           CI
                         </span>
                       )}

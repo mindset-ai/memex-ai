@@ -57,7 +57,7 @@ export function DeleteTestEventsButton({
         type="button"
         aria-label={`Discontinue ${count} event${count === 1 ? '' : 's'} for ${testIdentifier || '(unnamed)'}`}
         onClick={() => setOpen(true)}
-        className="rounded p-1 text-muted hover:bg-rose-500/10 hover:text-rose-600 dark:hover:text-rose-400 transition-colors"
+        className="rounded-sm p-1 text-muted hover:bg-rose-500/10 hover:text-rose-600 dark:hover:text-rose-400 transition-colors"
         data-testid="delete-test-events-button"
       >
         <svg

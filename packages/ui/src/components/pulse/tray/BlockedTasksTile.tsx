@@ -61,7 +61,7 @@ export function BlockedTasksTile({
         </div>
         {data.count > 0 && (
           <span
-            className="inline-flex items-center justify-center min-w-[1.25rem] px-1.5 h-5 rounded-full text-xs font-medium bg-surface text-primary border border-edge"
+            className="inline-flex items-center justify-center min-w-5 px-1.5 h-5 rounded-full text-xs font-medium bg-surface text-primary border border-edge"
             data-testid="tray-count"
           >
             {data.count}

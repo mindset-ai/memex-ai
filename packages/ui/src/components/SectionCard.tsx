@@ -392,7 +392,7 @@ export const SectionCard = memo(function SectionCard({
                 label: `Section ${sectionNumber} — ${title}`,
               });
             }}
-            className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-card-hover"
+            className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-sm hover:bg-card-hover"
             title="Focus chat on this section"
           >
             <svg className="w-3.5 h-3.5 text-secondary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -437,7 +437,7 @@ export const SectionCard = memo(function SectionCard({
                 onClick={(e) => { e.stopPropagation(); pinComment(c.seq!, e.currentTarget); }}
                 aria-label="View comment"
                 title="View comment"
-                className={`absolute right-0 -translate-y-0.5 inline-flex items-center justify-center w-7 h-7 rounded-full border shadow-sm transition-colors ${
+                className={`absolute right-0 -translate-y-0.5 inline-flex items-center justify-center w-7 h-7 rounded-full border shadow-xs transition-colors ${
                   shown?.seq === c.seq
                     ? 'bg-accent text-white border-accent'
                     : 'bg-surface text-secondary border-edge-subtle hover:text-accent hover:border-edge-strong'
@@ -474,7 +474,7 @@ export const SectionCard = memo(function SectionCard({
                   {c.createdAt && <div className="text-[10px] text-muted">{formatCommentTime(c.createdAt)}</div>}
                 </div>
               </div>
-              <p className="text-sm text-secondary whitespace-pre-wrap break-words">{bodyText}</p>
+              <p className="text-sm text-secondary whitespace-pre-wrap wrap-break-word">{bodyText}</p>
               {long && (
                 <button type="button" data-testid={`card-showmore-${c.seq}`} onClick={(e) => { e.stopPropagation(); toggleExpand(c.id); }} className="text-[11px] text-accent hover:underline">
                   {expanded ? 'Show less' : 'Show more'}
