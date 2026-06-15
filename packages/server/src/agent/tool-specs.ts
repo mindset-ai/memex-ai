@@ -1994,13 +1994,21 @@ export const toolSpecs: ToolSpec[] = [
       // Default to canonical 'spec' for callers that don't pass an explicit
       // docType.
       const docType = args.docType ?? "spec";
+      // spec-295 dec-3: the web agent (in_app_agent channel — the creation
+      // modal + the in-app spec agent) no longer auto-advances phase, so a new
+      // Spec can't rely on draft→specify traffic to become team-visible. Place
+      // it in `specify` deterministically at creation instead. Only Specs get a
+      // phase (standards/documents have their own status lifecycle); the mcp
+      // surface keeps 'draft' (it still auto-advances).
+      const initialStatus =
+        docType === "spec" && ctx.channel === "in_app_agent" ? "specify" : undefined;
       const doc = await createDocDraft(
         memexId,
         args.title,
         args.purpose,
         docType,
         args.decisions,
-        undefined,
+        initialStatus ? { initialStatus } : undefined,
         ctx.userId,
         reqCtx(ctx),
       );

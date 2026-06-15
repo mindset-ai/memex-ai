@@ -87,15 +87,23 @@ jobs:
       # never in this file; empty until set (harmless pre-enforcement), and what
       # greens the spec-129 ac-5 gate once configured.
       MEMEX_EMIT_KEY: ${{ secrets.MEMEX_EMIT_KEY }}
+      # Dependabot PR runs do NOT receive repo secrets, so MEMEX_EMIT_KEY is empty
+      # for them — which made spec-129-ci-emission-key.test.ts fail closed (emission
+      # ON + no key) and blocked EVERY dependabot PR on the required server-result
+      # check. Dependabot runs aren't an authoritative emission context anyway, so
+      # turn emission OFF for them: the spec-129 test then skips by design
+      # (it.skipIf(!isEmissionEnabled())) and no bogus unauthenticated emission is
+      # attempted. Non-dependabot runs are unchanged (emission on, real key).
+      MEMEX_EMIT: ${{ github.actor == 'dependabot[bot]' && 'false' || '' }}
 
     steps:
       - uses: actions/checkout@v6
 
-      # No `version:` here — pnpm/action-setup@v4 reads the pinned version from
+      # No `version:` here — pnpm/action-setup@v6 reads the pinned version from
       # the root package.json `packageManager` field and errors if both are set.
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: pnpm
@@ -169,8 +177,8 @@ jobs:
           exit 1
 
       - uses: actions/checkout@v6
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: pnpm
@@ -241,8 +249,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: pnpm
@@ -256,10 +264,10 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
-      # No `version:` here — pnpm/action-setup@v4 reads the pinned version from
+      # No `version:` here — pnpm/action-setup@v6 reads the pinned version from
       # the root package.json `packageManager` field and errors if both are set.
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: pnpm
@@ -281,10 +289,10 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
-      # No `version:` here — pnpm/action-setup@v4 reads the pinned version from
+      # No `version:` here — pnpm/action-setup@v6 reads the pinned version from
       # the root package.json `packageManager` field and errors if both are set.
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: pnpm
@@ -355,10 +363,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
-      # No `version:` here — pnpm/action-setup@v4 reads the pinned version from
+      # No `version:` here — pnpm/action-setup@v6 reads the pinned version from
       # the root package.json `packageManager` field and errors if both are set.
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: pnpm
@@ -458,13 +466,21 @@ jobs:
       # never in this file; empty until set (harmless pre-enforcement), and what
       # greens the spec-129 ac-5 gate once configured.
       MEMEX_EMIT_KEY: ${{ secrets.MEMEX_EMIT_KEY }}
+      # Dependabot PR runs do NOT receive repo secrets, so MEMEX_EMIT_KEY is empty
+      # for them — which made spec-129-ci-emission-key.test.ts fail closed (emission
+      # ON + no key) and blocked EVERY dependabot PR on the required server-result
+      # check. Dependabot runs aren't an authoritative emission context anyway, so
+      # turn emission OFF for them: the spec-129 test then skips by design
+      # (it.skipIf(!isEmissionEnabled())) and no bogus unauthenticated emission is
+      # attempted. Non-dependabot runs are unchanged (emission on, real key).
+      MEMEX_EMIT: ${{ github.actor == 'dependabot[bot]' && 'false' || '' }}
 
     steps:
       - uses: actions/checkout@v6
-      # No `version:` here — pnpm/action-setup@v4 reads the pinned version from
+      # No `version:` here — pnpm/action-setup@v6 reads the pinned version from
       # the root package.json `packageManager` field and errors if both are set.
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: pnpm

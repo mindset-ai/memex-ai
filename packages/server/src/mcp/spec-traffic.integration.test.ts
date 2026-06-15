@@ -52,6 +52,10 @@ import { bus, type ChangeEvent } from "../services/bus.js";
 
 const SPEC = "mindset-prod/memex-building-itself/specs/spec-189";
 const AC = (n: number) => `${SPEC}/acs/ac-${n}`;
+// spec-295 revisits spec-189's traffic contract (dec-2: register_issue is
+// non-advancing; dec-3: the in_app_agent channel no longer auto-advances phase).
+const SPEC295 = "mindset-prod/memex-building-itself/specs/spec-295";
+const SPEC295_AC = (n: number) => `${SPEC295}/acs/ac-${n}`;
 
 const created = {
   users: [] as string[],
@@ -216,15 +220,16 @@ describe("spec-189: traffic-driven phase advancement through real MCP tool calls
     expect(statusChanged!.payload).toMatchObject({ from: "draft", to: "specify" });
   });
 
-  it("draft + build-class traffic (register_issue) → build (ac-1, ac-7)", async () => {
+  it("draft + build-class traffic (create_task) → build (ac-1, ac-7)", async () => {
     tagAc(AC(1));
     tagAc(AC(7));
+    // spec-295 dec-2 reclassified register_issue to NON-advancing, so the
+    // build-class example here is create_task (still trafficClass 'build').
     const spec = await makeSpec("Draft to Build");
-    const res = await callMcp(actor.member.id, "register_issue", {
-      spec_ref: spec.ref,
-      title: "Crash on save",
-      body: "Repro: save twice.",
-      type: "bug",
+    const res = await callMcp(actor.member.id, "create_task", {
+      ref: spec.ref,
+      title: "Implement the fix",
+      description: "Do it.",
     });
     expect(res.isError).toBeFalsy();
     expect(await specStatus(spec.id)).toBe("build");
@@ -305,11 +310,12 @@ describe("spec-189: traffic-driven phase advancement through real MCP tool calls
     expect(await specStatus(toSpecify.id)).toBe("specify");
 
     const toBuild = await makeSpec("Done reopens to build", "done");
-    const res2 = await callMcp(actor.member.id, "register_issue", {
-      spec_ref: toBuild.ref,
-      title: "Bug found after close",
-      body: "It broke.",
-      type: "bug",
+    // spec-295 dec-2: register_issue is non-advancing now; use create_task as
+    // the build-class reopen trigger.
+    const res2 = await callMcp(actor.member.id, "create_task", {
+      ref: toBuild.ref,
+      title: "Fix found after close",
+      description: "It broke.",
     });
     expect(res2.isError).toBeFalsy();
     expect(await specStatus(toBuild.id)).toBe("build");
@@ -325,10 +331,15 @@ describe("spec-189: traffic-driven phase advancement through real MCP tool calls
     expect(await resolveRole(actor.memexId, spec.id, actor.member.id)).toBe("reviewer");
   });
 
-  it("channel parity: in_app_agent traffic produces identical effects; rest_ui never triggers (ac-10)", async () => {
+  it("in_app_agent assigns + promotes but no longer advances phase (spec-295 dec-3 supersedes spec-189 ac-10's phase parity); rest_ui never triggers", async () => {
+    // ASSIGNMENT parity (spec-189 ac-10) is retained — the in-app agent still
+    // assigns + promotes the caller exactly like mcp.
     tagAc(AC(10));
+    // PHASE NON-advancement on in_app_agent is the new spec-295 contract.
+    tagAc(SPEC295_AC(4));
+    tagAc(SPEC295_AC(11));
     // in_app_agent: the React agent loop's executeServerTool — same seam.
-    const viaAgent = await makeSpec("In-app agent parity");
+    const viaAgent = await makeSpec("In-app agent: assign yes, advance no");
     const text = await executeServerTool(
       actor.memexId,
       "create_decision",
@@ -336,9 +347,22 @@ describe("spec-189: traffic-driven phase advancement through real MCP tool calls
       actor.member.id,
     );
     expect(text).toBeTruthy();
-    expect(await specStatus(viaAgent.id)).toBe("specify");
+    // spec-295 dec-3: phase is human-owned on the web surface — the Spec does
+    // NOT auto-advance off draft, even though create_decision is specify-class.
+    expect(await specStatus(viaAgent.id)).toBe("draft");
+    // …but assignment + editor promotion still happen (they run before the
+    // channel-gated phase block, and are independent of trafficClass).
     expect(await assigneeIds(viaAgent.id)).toContain(actor.member.id);
     expect(await resolveRole(actor.memexId, viaAgent.id, actor.member.id)).toBe("editor");
+
+    // mcp on the same input DOES advance (the coding-agent channel keeps it).
+    const viaMcp = await makeSpec("mcp still advances");
+    const res = await callMcp(actor.member.id, "create_decision", {
+      ref: viaMcp.ref,
+      title: "Decision from the coding agent",
+    });
+    expect(res.isError).toBeFalsy();
+    expect(await specStatus(viaMcp.id)).toBe("specify");
 
     // rest_ui: structurally excluded (REST routes never pass the seam), and
     // the observer itself refuses the channel even if handed one.
@@ -352,6 +376,35 @@ describe("spec-189: traffic-driven phase advancement through real MCP tool calls
     } as unknown as SpecTrafficEvent);
     expect(await specStatus(viaRest.id)).toBe("draft");
     expect(await assigneeIds(viaRest.id)).not.toContain(actor.member.id);
+  });
+
+  it("spec-295 dec-2: register_issue is non-advancing — draft stays draft, specify stays specify, but the caller is still assigned (ac-6, ac-10)", async () => {
+    tagAc(SPEC295_AC(6));
+    tagAc(SPEC295_AC(10));
+    // draft: a build-class tool would have advanced to build; register_issue
+    // (now trafficClass null) must leave the phase untouched.
+    const fromDraft = await makeSpec("Issue on draft stays draft");
+    const r1 = await callMcp(actor.member.id, "register_issue", {
+      spec_ref: fromDraft.ref,
+      title: "Crash on save",
+      body: "Repro: save twice.",
+      type: "bug",
+    });
+    expect(r1.isError).toBeFalsy();
+    expect(await specStatus(fromDraft.id)).toBe("draft");
+    // assignment is independent of trafficClass — the caller is still assigned.
+    expect(await assigneeIds(fromDraft.id)).toContain(actor.member.id);
+
+    // specify: would have jumped to build under the old build-class; now stays.
+    const fromSpecify = await makeSpec("Issue on specify stays specify", "specify");
+    const r2 = await callMcp(actor.member.id, "register_issue", {
+      spec_ref: fromSpecify.ref,
+      title: "Add a todo",
+      body: "Later.",
+      type: "todo",
+    });
+    expect(r2.isError).toBeFalsy();
+    expect(await specStatus(fromSpecify.id)).toBe("specify");
   });
 
   it("manual assignment tools are exempt: unassign_spec(self) sticks, assign_spec grants no editor row (ac-5, ac-11)", async () => {
