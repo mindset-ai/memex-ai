@@ -7,6 +7,10 @@
 
 import { test, expect, bareUrl } from "./helpers/index.js";
 
+// This journey is ABOUT the banner, so opt out of the default consent seed the
+// shared fixture applies (see helpers/fixtures.ts) — show it from a clean slate.
+test.use({ seedConsent: false });
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 async function visitorCookie(page: import("@playwright/test").Page): Promise<string | undefined> {
