@@ -149,7 +149,7 @@ export function StandardList() {
             type="button"
             onClick={() => setShowSemantic((v) => !v)}
             disabled={!semanticAvailable}
-            className={`text-xs px-3 py-1.5 rounded border transition-colors ${
+            className={`text-xs px-3 py-1.5 rounded-sm border transition-colors ${
               showSemantic
                 ? 'border-edge bg-card-hover text-heading'
                 : 'border-edge text-secondary hover:bg-card-hover'

@@ -198,7 +198,7 @@ export function TagFilter({ selected, onChange, className = '' }: TagFilterProps
                 >
                   <span
                     aria-hidden="true"
-                    className={`flex h-3.5 w-3.5 flex-none items-center justify-center rounded border text-[10px] ${
+                    className={`flex h-3.5 w-3.5 flex-none items-center justify-center rounded-sm border text-[10px] ${
                       isSelected
                         ? 'border-edge-strong bg-edge-strong text-white'
                         : 'border-edge'

@@ -316,7 +316,7 @@ function RegressedFlag({ muted }: { muted: boolean }) {
           ? 'A verified AC went red while this spec is being actively worked — expected churn.'
           : 'A verified AC went red on a quiet spec — this is an alarm.'
       }
-      className={`ml-2 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[0.65rem] font-semibold uppercase tracking-wide ${
+      className={`ml-2 inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-[0.65rem] font-semibold uppercase tracking-wide ${
         muted
           ? 'text-muted/70 bg-card-hover/40'
           : 'text-status-danger-text bg-status-danger-bg'

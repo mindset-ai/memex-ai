@@ -153,7 +153,7 @@ function HotSpecCard({
           <span
             data-testid="phase-chip"
             data-popping={popping ? 'true' : undefined}
-            className={`text-[10px] uppercase tracking-wide rounded px-1 border border-current ${
+            className={`text-[10px] uppercase tracking-wide rounded-sm px-1 border border-current ${
               popping ? 'animate-phase-pop' : ''
             }`}
             style={{ color: palette.phase[phase as Phase] ?? 'inherit' }}

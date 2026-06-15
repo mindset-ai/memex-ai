@@ -375,7 +375,7 @@
 .prose-content ol, .prose-dark ol { color: rgb(var(--ch-text-primary)); @apply list-decimal list-inside mb-4 space-y-1; }
 .prose-content li, .prose-dark li { color: rgb(var(--ch-text-primary)); }
 .prose-content blockquote, .prose-dark blockquote { border-left: 4px solid rgb(var(--ch-edge-strong)); color: rgb(var(--ch-text-secondary)); @apply pl-4 italic my-4; }
-.prose-content code, .prose-dark code { background: rgb(var(--ch-input)); color: rgb(var(--ch-status-success-text)); @apply px-1.5 py-0.5 rounded text-sm font-mono; }
+.prose-content code, .prose-dark code { background: rgb(var(--ch-input)); color: rgb(var(--ch-status-success-text)); @apply px-1.5 py-0.5 rounded-sm text-sm font-mono; }
 .prose-content pre, .prose-dark pre { background: rgb(var(--ch-surface)); border: 1px solid rgb(var(--ch-edge)); @apply rounded-lg p-4 overflow-x-auto my-4; }
 .prose-content pre code, .prose-dark pre code { @apply bg-transparent p-0; color: rgb(var(--ch-text-primary)); }
 .prose-content table, .prose-dark table { @apply w-full border-collapse my-4; }
