@@ -230,3 +230,34 @@ describe('spec-202: planning parking lot — specify routing + specify→build t
     expect(buildRubricText()).toContain('convert_issue_to_task');
   });
 });
+
+// spec-295 dec-1: the specify-phase discipline must lead with the primary loop
+// (substantive input → narrative + decisions) and stop the agent batch-filing
+// the Spec's own substance into the Issues parking lot. The prose IS the fix.
+describe('spec-295: specify discipline leads with narrative+decisions, not Issues', () => {
+  const AC295 = (n: number) =>
+    `mindset-prod/memex-building-itself/specs/spec-295/acs/ac-${n}`;
+  const disciplineText = () =>
+    BASE_SCAFFOLD.promptBlocks.find((b) => b.id === 'phase-specify-discipline')?.text ?? '';
+
+  it('ac-7: leads with the primary loop + batch-input rule (substantive input is the Spec body)', () => {
+    tagAc(AC295(7));
+    const text = disciplineText();
+    expect(text).toContain('Your primary loop in specify is narrative + decisions');
+    // the batch/catalog/dump rule — a list of items is the Spec's substance.
+    expect(text.toLowerCase()).toContain('catalog');
+    expect(text).toContain('batch-file');
+    expect(text).toContain('main payload');
+    // primary-loop framing appears BEFORE the incidental "parking lot" routing.
+    expect(text.indexOf('primary loop')).toBeLessThan(text.indexOf('parking lot'));
+  });
+
+  it('ac-8: the blanket "do not file an action as a Decision" is softened — a fork-carrying action IS a decision', () => {
+    tagAc(AC295(8));
+    const text = disciplineText();
+    // the spec-295 nuance: an action carrying a real fork becomes a decision…
+    expect(text).toContain('an action that DOES carry a real fork is a genuine decision');
+    // …while the spec-202 anti-pattern (option-less todo ≠ decision) is retained.
+    expect(text).toContain('task in disguise');
+  });
+});

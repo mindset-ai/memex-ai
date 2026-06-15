@@ -380,7 +380,12 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'register_issue(memex?, spec_ref?, title, body, type, severity?, promote_to_spec?)',
     group: 'build',
     readOnlyHint: false,
-    trafficClass: 'build',
+    // spec-295 dec-2: NON-ADVANCING. An Issue is the gate-neutral parking lot —
+    // raising one (a parked todo or a bug) must never auto-advance the Spec's
+    // phase, on any surface. Previously 'build', which shoved a specify Spec to
+    // build on capture, contradicting the "gate-neutral" framing. Issues are
+    // raiseable in any phase and move nothing.
+    trafficClass: null,
   },
   {
     name: 'list_issues',

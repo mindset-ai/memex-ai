@@ -127,6 +127,14 @@ export async function observeSpecTraffic(event: SpecTrafficEvent): Promise<void>
     }
 
     // ── Phase advancement ─────────────────────────────────────────────
+    // spec-295 dec-3: the web AGENT must not silently move a Spec's phase.
+    // Only the `mcp` channel (an external coding agent driving the build)
+    // auto-advances; the `in_app_agent` channel (the creation modal + the
+    // in-app spec agent) is human-present and phase is the human's call —
+    // the same posture rest_ui already has. This revisits spec-189 dec-5,
+    // which had opted in_app_agent INTO advancement. Presence + auto-assign
+    // above still run for in_app_agent; only this phase move is excluded.
+    if (event.channel !== "mcp") return;
     // paused/archived are deliberate placements — auto-advance must not
     // fight them (same principle as dec-5's rest_ui exclusion). Traffic
     // never unflags; it also doesn't shuffle the phase underneath a flag.

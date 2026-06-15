@@ -85,6 +85,14 @@ export interface CreateDocExtras {
    * survives the demo's idempotency guard + Reset. Defaults to false (real docs).
    */
   isDemo?: boolean;
+  /**
+   * spec-295 dec-3: deterministic initial phase for a newly created Spec.
+   * Defaults to 'draft'. The creation modal (in_app_agent channel) passes
+   * 'specify' so a new Spec lands team-visible WITHOUT relying on traffic-
+   * driven draft→specify advancement — which dec-3 removed for that channel.
+   * The mcp surface leaves this unset (keeps 'draft'; it still auto-advances).
+   */
+  initialStatus?: string;
 }
 
 export async function createDocDraft(
@@ -142,7 +150,7 @@ export async function createDocDraft(
                 : await nextDocHandle(memexId);
           const [row] = await db
             .insert(documents)
-            .values({ memexId, handle, title, docType, status: "draft", createdByUserId: createdByUserId ?? null, isDemo: extras?.isDemo ?? false })
+            .values({ memexId, handle, title, docType, status: extras?.initialStatus ?? "draft", createdByUserId: createdByUserId ?? null, isDemo: extras?.isDemo ?? false })
             .returning();
           return row;
         },

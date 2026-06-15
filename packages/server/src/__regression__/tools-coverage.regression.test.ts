@@ -315,17 +315,25 @@ describe("regression: manifest traffic-class classification (spec-189 dec-4)", (
       "update_decision",
     ]);
 
-    // dec-1: task lifecycle + issue registration/lifecycle = build-class.
+    // dec-1: task lifecycle + issue lifecycle = build-class. spec-295 dec-2
+    // carved register_issue OUT — raising an Issue is the gate-neutral parking
+    // lot and must not auto-advance phase, so it is now non-advancing (null),
+    // not build-class. The remaining issue-lifecycle edits stay build-class.
     expect(byClass("build")).toEqual([
       "convert_issue_to_task",
       "create_task",
       "delete_task",
       "kick_task_to_issue",
-      "register_issue",
       "resolve_issue",
       "update_issue",
       "update_task",
     ]);
+
+    // spec-295 dec-2 (ac-9): register_issue is non-advancing (null trafficClass).
+    tagAc("mindset-prod/memex-building-itself/specs/spec-295/acs/ac-9");
+    expect(
+      toolManifest.find((e) => e.name === "register_issue")?.trafficClass,
+    ).toBeNull();
 
     // No MCP tool is verify-class today: AC verification arrives via
     // POST /api/test-events, which the server wires to verify-class directly.
