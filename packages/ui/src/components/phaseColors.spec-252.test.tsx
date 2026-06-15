@@ -18,7 +18,8 @@ const AC_CONTRAST = 'mindset-prod/memex-building-itself/specs/spec-252/acs/ac-8'
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const indexCss = readFileSync(join(HERE, '../index.css'), 'utf8');
-const tailwindCfg = readFileSync(join(HERE, '../../tailwind.config.js'), 'utf8');
+// spec-290 (dec-1): v4 is CSS-first — tokens live in @theme (`--color-*`,
+// mapped to their `--ch-*` channel), there is no tailwind.config.js.
 const phaseColorsSrc = readFileSync(join(HERE, './phaseColors.ts'), 'utf8');
 const phaseTabBarSrc = readFileSync(join(HERE, './PhaseTabBar.tsx'), 'utf8');
 
@@ -38,10 +39,10 @@ function themeBlock(theme: 'light' | 'dark'): string {
   return m[1];
 }
 
-/** Read a `--color-<name>:` value from a theme block. */
+/** Read a `--ch-<name>:` channel value from a theme block. */
 function tokenValue(block: string, name: string): string {
-  const m = block.match(new RegExp(`--color-${name}:\\s*([^;]+);`));
-  if (!m) throw new Error(`token --color-${name} not found`);
+  const m = block.match(new RegExp(`--ch-${name}:\\s*([^;]+);`));
+  if (!m) throw new Error(`channel --ch-${name} not found`);
   return m[1].trim();
 }
 
@@ -95,13 +96,14 @@ describe('phase colour palette (spec-252 dec-1)', () => {
     tagAc(AC_TOKENS);
     const light = themeBlock('light');
     const dark = themeBlock('dark');
+    // Channel values defined per theme.
     for (const token of [...CONTAINER_TOKENS, ...SPECIFY_PILL_TOKENS]) {
-      expect(light, `--color-${token} missing from .light`).toContain(`--color-${token}:`);
-      expect(dark, `--color-${token} missing from .dark`).toContain(`--color-${token}:`);
+      expect(light, `--ch-${token} missing from .light`).toContain(`--ch-${token}:`);
+      expect(dark, `--ch-${token} missing from .dark`).toContain(`--ch-${token}:`);
     }
-    // Tailwind wires each token so components consume it via the token class.
+    // @theme declares each token (v4 CSS-first) so the token class generates.
     for (const token of [...CONTAINER_TOKENS, ...SPECIFY_PILL_TOKENS]) {
-      expect(tailwindCfg, `tailwind.config missing ${token}`).toContain(`--color-${token}`);
+      expect(indexCss, `@theme missing --color-${token}`).toContain(`--color-${token}:`);
     }
     // No hardcoded hex in the helper, and the charts-only insights palette
     // (std-27) is not pulled into the header colour path.

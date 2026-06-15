@@ -13,10 +13,10 @@ const AC = (n: number) =>
 
 const SRC_DIR = dirname(fileURLToPath(import.meta.url));
 const indexCss = readFileSync(join(SRC_DIR, 'index.css'), 'utf8');
-const tailwindConfig = readFileSync(
-  join(SRC_DIR, '..', 'tailwind.config.js'),
-  'utf8',
-);
+
+// spec-290 (dec-1): Tailwind v4 is CSS-first — there is no tailwind.config.js.
+// Tokens live in the `@theme` block (mapping `--color-<name>` → its channel) and
+// the raw per-theme values live under `--ch-*` in the .dark / .light blocks.
 
 /** Extract the body of a `.dark { … }` / `.light { … }` theme block. */
 function themeBlock(theme: 'dark' | 'light'): string {
@@ -25,10 +25,10 @@ function themeBlock(theme: 'dark' | 'light'): string {
   return m[1];
 }
 
-/** Read a `--color-*: R G B;` custom property out of a block as [r,g,b]. */
+/** Read a `--ch-*: R G B;` channel custom property out of a block as [r,g,b]. */
 function rgbVar(block: string, name: string): [number, number, number] {
-  const m = block.match(new RegExp(`--color-${name}:\\s*(\\d+)\\s+(\\d+)\\s+(\\d+)`));
-  if (!m) throw new Error(`could not find --color-${name} in block`);
+  const m = block.match(new RegExp(`--ch-${name}:\\s*(\\d+)\\s+(\\d+)\\s+(\\d+)`));
+  if (!m) throw new Error(`could not find --ch-${name} in block`);
   return [Number(m[1]), Number(m[2]), Number(m[3])];
 }
 
@@ -62,12 +62,12 @@ describe('spec-167: on-accent foreground token', () => {
 
   it('ac-2: the token is reusable — defined in index.css AND exposed as a Tailwind colour (not hard-coded on the component)', () => {
     tagAc(AC(2));
-    // Defined per theme (a real token, both blocks)…
-    expect(dark).toMatch(/--color-on-accent:/);
-    expect(light).toMatch(/--color-on-accent:/);
-    // …and surfaced as a utility-generating colour token.
-    expect(tailwindConfig).toMatch(
-      /'on-accent':\s*'rgb\(var\(--color-on-accent\) \/ <alpha-value>\)'/,
+    // Channel defined per theme (both blocks)…
+    expect(dark).toMatch(/--ch-on-accent:/);
+    expect(light).toMatch(/--ch-on-accent:/);
+    // …and surfaced as a utility-generating colour token via @theme (v4 CSS-first).
+    expect(indexCss).toMatch(
+      /--color-on-accent:\s*rgb\(var\(--ch-on-accent\)\)/,
     );
     // Not hard-coded on the consent component.
     const oauth = readFileSync(join(SRC_DIR, 'pages', 'OauthAuthorize.tsx'), 'utf8');
@@ -94,10 +94,12 @@ describe('spec-167: on-accent foreground token', () => {
     expect(rgbVar(light, 'on-accent')).toEqual([255, 255, 255]);
   });
 
-  it('ac-5: tailwind.config.js exposes `on-accent` so the `text-on-accent` utility resolves', () => {
+  it('ac-5: the @theme block exposes `on-accent` so the `text-on-accent` utility resolves', () => {
     tagAc(AC(5));
-    expect(tailwindConfig).toMatch(
-      /'on-accent':\s*'rgb\(var\(--color-on-accent\) \/ <alpha-value>\)'/,
+    // v4 CSS-first: the token is declared in @theme as --color-on-accent,
+    // mapped to its channel, which is what makes `text-on-accent` generate.
+    expect(indexCss).toMatch(
+      /--color-on-accent:\s*rgb\(var\(--ch-on-accent\)\)/,
     );
   });
 });

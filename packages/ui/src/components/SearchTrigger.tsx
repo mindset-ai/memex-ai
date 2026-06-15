@@ -55,19 +55,19 @@ export function SearchTrigger({ variant }: { variant: SearchTriggerVariant }) {
   const label = searchKeycapLabel();
 
   // Bespoke per-theme values from spec-192 s-6 (validated against the index.css
-  // tokens). The recess starts at the page background (--color-page) and
+  // tokens). The recess starts at the page background (--ch-page) and
   // gradients into a darker shade; the keycap is a small inset cap. These are the
   // only non-token values — everything else follows the theme tokens.
   const recessEnd = isDark ? '#121419' : '#e7ebf1';
   const recessStyle = {
-    backgroundImage: `linear-gradient(to right, rgb(var(--color-page)) 0%, ${recessEnd} 100%)`,
+    backgroundImage: `linear-gradient(to right, rgb(var(--ch-page)) 0%, ${recessEnd} 100%)`,
   };
   const keycapStyle = isDark
     ? { backgroundColor: 'rgba(62,68,81,.55)', borderColor: '#4b525f', color: '#cbd5e1', borderBottomWidth: 2 }
     : { backgroundColor: '#f1f5f9', borderColor: '#cbd5e1', color: '#475569', borderBottomWidth: 2 };
 
   const common =
-    'group inline-flex items-center gap-2 text-sm text-secondary transition-colors hover:text-primary focus-visible:outline-none focus-visible:text-primary';
+    'group inline-flex items-center gap-2 text-sm text-secondary transition-colors hover:text-primary focus-visible:outline-hidden focus-visible:text-primary';
 
   // doc-header: fills the bar height (self-stretch) and sits as its own flex
   // column at the far right of DocPageHeader, so the recess bleeds to the top/
@@ -95,7 +95,7 @@ export function SearchTrigger({ variant }: { variant: SearchTriggerVariant }) {
       <kbd
         aria-hidden="true"
         style={keycapStyle}
-        className="rounded border px-1.5 py-0.5 text-[11px] font-medium leading-none"
+        className="rounded-sm border px-1.5 py-0.5 text-[11px] font-medium leading-none"
       >
         {label}
       </kbd>
