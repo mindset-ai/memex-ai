@@ -99,7 +99,7 @@ export function TestSignalsMonitor({ signals, loading = false, live = false }: T
                   )}
                   {b.fail > 0 && <span style={{ height: seg(b.fail), background: palette.testRun.fail }} />}
                   {b.error > 0 && <span style={{ height: seg(b.error), background: palette.testRun.error }} />}
-                  {total === 0 && <span style={{ height: 1 }} className="bg-edge-subtle/40" />}
+                  {total === 0 && <span style={{ height: 1 }} className="bg-edge-subtle" />}
                 </div>
               );
             })}

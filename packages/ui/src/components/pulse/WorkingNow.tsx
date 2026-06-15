@@ -93,7 +93,7 @@ export function WorkingNow({
           No one has worked a spec in the last few minutes.
         </div>
       ) : (
-        <ul className="divide-y divide-edge-subtle/60">
+        <ul className="divide-y divide-edge-subtle">
           {workers.map((w) => {
             const handle = w.docId ? specHandle?.(w.docId) : undefined;
             const title = w.docId ? specTitle?.(w.docId) : undefined;

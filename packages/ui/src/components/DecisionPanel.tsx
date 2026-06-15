@@ -390,7 +390,7 @@ export function DecisionPanel({ docId, decisions, commentsByDecision = {}, force
               (approve / reject) is coding-agent work, and the surface says so
               instead of offering web buttons that half-implement it. */}
           {promptContext && (
-            <div data-testid="candidate-mcp-marker" className="rounded-md border border-edge-subtle bg-overlay/30 px-3 py-2">
+            <div data-testid="candidate-mcp-marker" className="rounded-md border border-edge-subtle bg-overlay px-3 py-2">
               <PromptButton
                 buttonId="review-candidates"
                 context={promptContext}

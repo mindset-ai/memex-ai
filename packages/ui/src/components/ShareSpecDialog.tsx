@@ -82,7 +82,7 @@ export function ShareSpecDialog({ url, onClose }: ShareSpecDialogProps) {
               aria-label="Link to this spec"
               value={url}
               onFocus={(e) => e.currentTarget.select()}
-              className="flex-1 min-w-0 h-8 px-2.5 rounded-md border border-edge bg-overlay/40 text-sm text-primary font-mono truncate focus:outline-hidden focus:ring-1 focus:ring-accent"
+              className="flex-1 min-w-0 h-8 px-2.5 rounded-md border border-edge bg-overlay text-sm text-primary font-mono truncate focus:outline-hidden focus:ring-1 focus:ring-accent"
             />
             <Button size="sm" variant="secondary" className="shrink-0" onClick={handleCopy}>
               {copied ? 'Copied' : 'Copy'}
