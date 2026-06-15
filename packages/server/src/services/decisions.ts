@@ -730,7 +730,15 @@ export async function resolveDecision(
   // Both writes run in one mutate() so a failure in either path emits nothing.
   const updated = await mutate(
     ctx,
-    { memexId, docId: decision.docId, entity: "decision", action: "updated" },
+    [
+      { memexId, docId: decision.docId, entity: "decision", action: "updated" },
+      // spec-297 dec-2: a DISTINCT 'resolved' action alongside the generic
+      // 'updated' (mirrors the document status_changed two-key pattern), so the
+      // activation funnel has an unambiguous "decision resolved" step. Only
+      // 'decision.resolved' is whitelisted into usage_events; 'updated' (shared by
+      // many decision mutations) stays bus-only.
+      { memexId, docId: decision.docId, entity: "decision", action: "resolved" },
+    ],
     async () => {
       const [row] = await db
         .update(decisions)

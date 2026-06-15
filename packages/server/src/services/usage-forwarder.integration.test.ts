@@ -2,7 +2,7 @@
 // Postgres + a FakeSink (no network). Proves the pluggable interface, at-least-once
 // delivery via the forwarded_at cursor, and no double-send.
 
-import { describe, it, expect, beforeAll, afterEach, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterEach, afterAll, vi } from "vitest";
 import { tagAc } from "@memex-ai-ac/vitest";
 import { eq } from "drizzle-orm";
 import { db } from "../db/connection.js";
@@ -12,9 +12,15 @@ import { makeTestMemex } from "./test-helpers.js";
 import { upsertUserByEmail } from "./users.js";
 import { recordUsageEvent } from "./usage-events.js";
 import type { AnalyticsSink } from "./analytics-sink.js";
-import { drainOnce, configuredSink } from "./usage-forwarder.js";
+import {
+  drainOnce,
+  configuredSink,
+  startUsageForwarder,
+  stopUsageForwarder,
+} from "./usage-forwarder.js";
 
 const AC = "mindset-prod/memex-building-itself/specs/spec-244/acs";
+const AC297 = "mindset-prod/memex-building-itself/specs/spec-297/acs";
 
 let memexId: string;
 let userId: string;
@@ -73,6 +79,39 @@ describe("configuredSink — Mixpanel default, capture-only when unset (ac-2 / a
     expect(configuredSink({} as NodeJS.ProcessEnv)).toBeNull();
     const sink = configuredSink({ MIXPANEL_TOKEN: "tok" } as NodeJS.ProcessEnv);
     expect(sink?.name).toBe("mixpanel");
+  });
+});
+
+describe("self-hosted instances never forward to Mindset's Mixpanel (spec-297 dec-5)", () => {
+  it("no MIXPANEL_TOKEN → configuredSink null → forwarder capture-only, zero outbound /track (ac-21, ac-5)", async () => {
+    tagAc(`${AC297}/ac-21`);
+    tagAc(`${AC297}/ac-5`);
+    const fetchSpy = vi.fn(async () => new Response("1", { status: 200 }));
+
+    // The token is the SOLE gate (no hardcoded token, no phone-home default):
+    // absent or blank → no sink is constructed at all, so nothing can call fetch.
+    expect(
+      configuredSink({} as NodeJS.ProcessEnv, fetchSpy as unknown as typeof fetch),
+    ).toBeNull();
+    expect(
+      configuredSink({ MIXPANEL_TOKEN: "   " } as NodeJS.ProcessEnv, fetchSpy as unknown as typeof fetch),
+    ).toBeNull();
+
+    // With captured rows queued, starting the forwarder in the self-hosted config
+    // forwards nothing and never touches the network — capture-only.
+    await seed(3);
+    try {
+      startUsageForwarder({
+        sink: configuredSink({} as NodeJS.ProcessEnv, fetchSpy as unknown as typeof fetch),
+        intervalMs: 10,
+      });
+      await new Promise((r) => setTimeout(r, 50));
+    } finally {
+      stopUsageForwarder();
+    }
+    expect(fetchSpy, "a tokenless instance must make zero outbound /track calls").not.toHaveBeenCalled();
+    // ...yet the rows are still captured locally (undrained) — capture without forward.
+    expect((await myRows()).every((r) => r.forwardedAt === null)).toBe(true);
   });
 });
 

@@ -15,6 +15,7 @@ import { upsertUserByEmail } from "./users.js";
 import { recordUsageEvent } from "./usage-events.js";
 
 const AC = "mindset-prod/memex-building-itself/specs/spec-244/acs";
+const AC297 = "mindset-prod/memex-building-itself/specs/spec-297/acs";
 
 let memexId: string;
 let userId: string;
@@ -60,6 +61,44 @@ describe("recordUsageEvent — durable store, separate from the audit log (ac-1)
     });
     expect(row?.source).toBe("backend");
     expect(row?.name).toBe("document.created");
+  });
+});
+
+describe("user-scoped events with a null Memex (spec-297 dec-1)", () => {
+  it("records a null-memex event instead of silently dropping it (ac-11, ac-12)", async () => {
+    tagAc(`${AC297}/ac-11`); // migration dropped NOT NULL → a null-memex insert succeeds
+    tagAc(`${AC297}/ac-12`); // the skip-guard no longer discards intentional-null user-scoped events
+    const row = await recordUsageEvent({
+      memexId: null,
+      actorUserId: userId,
+      name: "account.created",
+      source: "backend",
+    });
+    expect(row).not.toBeNull();
+    expect(row?.memexId).toBeNull();
+    expect(row?.name).toBe("account.created");
+    expect(row?.actorUserId).toBe(userId);
+
+    // And it is a real, queryable row.
+    const found = await db
+      .select()
+      .from(usageEvents)
+      .where(and(eq(usageEvents.id, row!.id), isNull(usageEvents.memexId)));
+    expect(found).toHaveLength(1);
+
+    // Clean up — the afterAll deletes by memexId, which can't match a null row.
+    await db.delete(usageEvents).where(eq(usageEvents.id, row!.id));
+  });
+
+  it("still drops the accidental empty-string memexId (a missing required id, not a user-scoped null)", async () => {
+    tagAc(`${AC297}/ac-12`);
+    const row = await recordUsageEvent({
+      memexId: "",
+      actorUserId: userId,
+      name: "account.created",
+      source: "backend",
+    });
+    expect(row).toBeNull();
   });
 });
 

@@ -1,0 +1,16 @@
+-- spec-297 dec-1 (ac-11): usage_events.memex_id becomes NULLABLE.
+--
+-- User-scoped funnel events have no Memex by nature and now carry an honest NULL
+-- instead of a fabricated attribution: account.created (pre-Memex signup),
+-- mcp.connected (the handshake, before any tool names a Memex), and mcp.tool_called
+-- for the two Memex-agnostic tools (list_memexes / get_information). Every other
+-- mcp.tool_called still carries its real resolved memex_id.
+--
+-- This extends spec-244's original NOT NULL invariant (written before user-scoped
+-- events existed) rather than contradicting it. The FK to memexes and the
+-- ON DELETE CASCADE are unchanged; only the NOT NULL constraint is dropped.
+-- memex_id is never forwarded to Mixpanel (toMixpanelEvent omits it), so this has
+-- zero Mixpanel-side effect; the funnel keys on distinct_id throughout.
+--
+-- Additive + backward-compatible: existing rows are unaffected, no backfill needed.
+ALTER TABLE usage_events ALTER COLUMN memex_id DROP NOT NULL;

@@ -33,6 +33,7 @@
     "db:seed-smoke": "tsx src/db/seed-smoke.ts",
     "db:backfill-handhold": "tsx scripts/backfill-handhold-demo.ts",
     "db:backfill-default-standards": "tsx scripts/backfill-default-standards.ts",
+    "db:backfill-mixpanel-profiles": "tsx scripts/backfill-mixpanel-profiles.ts",
     "db:import-guide-content": "tsx scripts/import-guide-content.ts",
     "db:generate-whats-new": "tsx scripts/generate-whats-new.ts",
     "oauth:smoke": "node scripts/oauth-smoke.mjs",

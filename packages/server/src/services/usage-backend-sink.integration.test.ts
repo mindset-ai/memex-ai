@@ -56,8 +56,12 @@ describe("isWhitelistedOutcome — derived from the registry (dec-8)", () => {
     expect(isWhitelistedOutcome({ memexId, entity: "document", action: "status_changed" })).toBe(
       true,
     );
-    // Not on the whitelist: a task create, or a read.
-    expect(isWhitelistedOutcome({ memexId, entity: "task", action: "created" })).toBe(false);
+    // spec-297: task.created and decision.resolved are now whitelisted funnel events.
+    expect(isWhitelistedOutcome({ memexId, entity: "task", action: "created" })).toBe(true);
+    expect(isWhitelistedOutcome({ memexId, entity: "decision", action: "resolved" })).toBe(true);
+    // Not on the whitelist: a task UPDATE, a generic decision update, or a read.
+    expect(isWhitelistedOutcome({ memexId, entity: "task", action: "updated" })).toBe(false);
+    expect(isWhitelistedOutcome({ memexId, entity: "decision", action: "updated" })).toBe(false);
     expect(isWhitelistedOutcome({ memexId, entity: "document", action: "viewed" })).toBe(false);
   });
 });
@@ -86,15 +90,16 @@ describe("back-end sink — mirrors whitelisted outcomes into usage_events (ac-1
     expect(rows[0].props).toEqual({ from: "draft", to: "specify" });
   });
 
-  it("never mirrors a non-whitelisted event (a task create)", async () => {
+  it("never mirrors a non-whitelisted event (a task UPDATE)", async () => {
     tagAc(`${AC}/ac-18`);
-    emit({ entity: "task", action: "created", docId: "spec-x" });
+    // task.created is whitelisted (spec-297); task.updated is not — use it here.
+    emit({ entity: "task", action: "updated", docId: "spec-x" });
     // Give the (would-be) async write time to land, then assert nothing did.
     await new Promise((r) => setTimeout(r, 250));
     const rows = await db
       .select()
       .from(usageEvents)
-      .where(and(eq(usageEvents.memexId, memexId), eq(usageEvents.name, "task.created")));
+      .where(and(eq(usageEvents.memexId, memexId), eq(usageEvents.name, "task.updated")));
     expect(rows.length).toBe(0);
   });
 });
