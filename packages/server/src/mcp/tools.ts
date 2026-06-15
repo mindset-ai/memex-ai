@@ -38,6 +38,7 @@ import { applyPhaseDescriptionOverrides } from "./phase-descriptions.js";
 import { resolveRef as resolveCanonicalRef } from "../services/resolver.js";
 import { parseRef } from "../services/refs.js";
 import { logToolCall } from "../services/mcp-telemetry.js";
+import { recordMcpToolCalled } from "../services/funnel-events.js";
 import { runToolWithSpecTraffic } from "../services/spec-traffic.js";
 import { memexContext } from "../db/connection.js";
 import { bus } from "../services/bus.js";
@@ -264,6 +265,12 @@ export function createMcpServer(
         errorMessage = formatErrorForTelemetry(err);
         return handleError(err);
       } finally {
+        // spec-297 (funnel stage 4): one mcp.tool_called usage_event per invocation
+        // (dec-3 — every call, not deduped). Direct, advisory emission, independent
+        // of the mcp_sessions audit row above. memex_id is the resolved Memex (NULL
+        // for the Memex-agnostic tools list_memexes / get_information); tool_name
+        // rides as a low-cardinality, non-PII prop. distinct_id is the acting user.
+        void recordMcpToolCalled(userId, toolName, getMemexId?.());
         if (sessionId) {
           void logToolCall({
             sessionId,

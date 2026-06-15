@@ -101,7 +101,11 @@ export type ChangeAction =
   // Spec's status flips, carrying `payload: {from, to}`. Persisted by the
   // activity-log sink so per-phase durations are exactly computable from
   // transition history (documents.statusChangedAt only keeps the latest).
-  | "status_changed";
+  | "status_changed"
+  // spec-297 dec-2 — emitted alongside the generic "updated" when a decision is
+  // RESOLVED, so the activation funnel has an unambiguous step ('decision.resolved'
+  // is whitelisted into usage_events; 'decision.updated' is not).
+  | "resolved";
 
 export interface ChangeEvent {
   memexId: string;

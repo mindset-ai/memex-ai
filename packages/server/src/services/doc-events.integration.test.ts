@@ -204,19 +204,29 @@ describe("decision service events (via bus)", () => {
     });
   });
 
-  it("emits decision:updated on resolveDecision", async () => {
+  it("emits decision:updated AND a distinct decision:resolved on resolveDecision (spec-297 dec-2)", async () => {
     const dec = await createDecision(memexId, docId, "Which DB?");
 
     const events = await collectEvents(memexId, async () => {
       await resolveDecision(memexId, dec.id, "PostgreSQL");
     });
 
-    expect(events).toHaveLength(1);
+    // Two events now: the generic 'updated' (shared by many decision mutations,
+    // bus-only) PLUS a distinct 'resolved' (whitelisted into usage_events as the
+    // unambiguous funnel step). Mirrors the document status_changed two-key pattern.
+    expect(events).toHaveLength(2);
     expect(events[0]).toEqual({
       memexId: memexId,
       docId,
       entity: "decision",
       action: "updated",
+      narrative: expect.any(String),
+    });
+    expect(events[1]).toEqual({
+      memexId: memexId,
+      docId,
+      entity: "decision",
+      action: "resolved",
       narrative: expect.any(String),
     });
   });

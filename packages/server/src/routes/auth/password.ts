@@ -6,6 +6,7 @@ import {
   markEmailVerified,
 } from "../../services/users.js";
 import { ensureUserMemex } from "../../services/user-namespaces.js";
+import { syncUserProfile } from "../../services/mixpanel-profile.js";
 import { hashPassword, verifyPassword, validatePasswordStrength } from "../../services/passwords.js";
 import { issueAuthToken, consumeAuthToken, AuthTokenError } from "../../services/auth-tokens.js";
 import { getEmailSender } from "../../services/email/sender.js";
@@ -70,6 +71,12 @@ password.post("/signup", async (c) => {
   // Provision the personal memex. Idempotent — safe even if createUserWithPassword was
   // called for a pre-existing SSO user (returning the same row).
   await ensureUserMemex(user.id);
+
+  // spec-297 dec-7: set the user's Mixpanel profile (email_domain + org links) so
+  // the Users tab is populated and internal users are filterable from day one.
+  // Advisory + idempotent ($engage $set is an upsert); a no-op on self-hosted
+  // instances with no MIXPANEL_TOKEN.
+  void syncUserProfile(user.id);
 
   // Issue a verification token unless the email is already verified (e.g. the user was
   // previously created via Google SSO and is now adding a password).

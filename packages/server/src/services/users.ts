@@ -4,6 +4,7 @@ import { users, orgMemberships, namespaces, orgs, memexes, userMemexAccess } fro
 import type { User } from "../db/schema.js";
 import { ForbiddenError, ValidationError } from "../types/errors.js";
 import { mutate, type Mutated } from "./mutate.js";
+import { recordAccountCreated } from "./funnel-events.js";
 
 export interface MembershipSummary {
   // Memex id (the "current memex" in tenancy contexts).
@@ -162,6 +163,10 @@ export async function createUserWithPassword(input: {
     .insert(users)
     .values({ email: normalized, passwordHash: input.passwordHash } as typeof users.$inferInsert)
     .returning();
+  // spec-297 (funnel stage 1): a brand-new account row was just created. Direct,
+  // advisory emission — only on this NEW-user branch, never on the passwordless-
+  // upgrade branch above (an existing SSO user adding a password is not a signup).
+  void recordAccountCreated(created.id);
   return created;
 }
 

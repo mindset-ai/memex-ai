@@ -41,8 +41,12 @@ export function resolveEnv(env: NodeJS.ProcessEnv = process.env): UsageEnv {
 export type UsageEventSource = "frontend" | "backend";
 
 export interface RecordUsageEventInput {
-  /** REQUIRED tenancy scope. */
-  memexId: string;
+  /**
+   * Tenancy scope. Usually the real Memex id; NULL for user-scoped funnel events
+   * that have no Memex by nature (account.created, mcp.connected, and
+   * mcp.tool_called for list_memexes / get_information) — spec-297 dec-1.
+   */
+  memexId: string | null;
   /** WHO acted (resolved Memex user id). Null for system-originated backend events. */
   actorUserId?: string | null;
   /** The registered event name, e.g. 'spec.create_clicked' or 'document.created'. */
@@ -62,19 +66,23 @@ export interface RecordUsageEventInput {
  * originating request / bus dispatch is never affected. Returns the inserted row
  * (or null when skipped / failed) — handy for tests; production callers ignore it.
  *
- * Rows with no memexId are skipped: memex_id is NOT NULL + an FK, so a blank one
- * can never produce a valid row.
+ * memex_id is nullable (spec-297 dec-1): a user-scoped event passes memexId=null
+ * explicitly and is RECORDED, not dropped. The skip-guard only rejects the
+ * accidental empty-string case (a missing-but-required id), never an intentional
+ * null — so the small, principled set of genuinely Memex-less funnel events lands.
  */
 export async function recordUsageEvent(
   input: RecordUsageEventInput,
   conn: Db = db,
 ): Promise<UsageEvent | null> {
-  if (typeof input.memexId !== "string" || input.memexId.length === 0) return null;
+  // Reject only the accidental empty string (a required id that came through
+  // blank). A deliberate null is a user-scoped event and is recorded.
+  if (input.memexId === "") return null;
   try {
     const [row] = await conn
       .insert(usageEvents)
       .values({
-        memexId: input.memexId,
+        memexId: input.memexId ?? null,
         actorUserId: input.actorUserId ?? null,
         name: input.name,
         source: input.source,
