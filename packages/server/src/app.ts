@@ -63,6 +63,7 @@ import { verifyAccessToken } from "./services/oauth/access-tokens.js";
 import { isDevMode, ensureDevMemberships } from "./middleware/session.js";
 import { upsertUserByEmail } from "./services/users.js";
 import { upsertSession, parseClientIp } from "./services/mcp-telemetry.js";
+import { recordMcpConnected } from "./services/funnel-events.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
@@ -584,6 +585,7 @@ app.all("/mcp", async (c) => {
   const userAgent = c.req.header("User-Agent") ?? null;
   const ipAddress = parseClientIp(c.req.header("X-Forwarded-For"));
   let clientInfo: unknown = null;
+  let isInitialize = false;
   if (c.req.method === "POST") {
     try {
       const cloned = c.req.raw.clone();
@@ -592,6 +594,7 @@ app.all("/mcp", async (c) => {
         params?: { clientInfo?: unknown };
       };
       if (body.method === "initialize") {
+        isInitialize = true;
         clientInfo = body.params?.clientInfo ?? null;
       }
     } catch {
@@ -612,6 +615,13 @@ app.all("/mcp", async (c) => {
     clientInfo,
     ipAddress,
   });
+
+  // spec-297 (funnel stage 3, agent connected): the MCP `initialize` handshake is
+  // the "agent connected" moment — before any tool names a Memex. Direct, advisory
+  // emission with a NULL memex_id; fired only on the handshake, not every request.
+  if (isInitialize) {
+    void recordMcpConnected(userId);
+  }
 
   const mcpServer = createMcpServer(userId, orgFilter, sessionId);
   const transport = new WebStandardStreamableHTTPServerTransport({

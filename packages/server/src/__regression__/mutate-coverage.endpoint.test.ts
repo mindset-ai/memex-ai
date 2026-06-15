@@ -106,7 +106,11 @@ const MUTATING_MCP_TOOLS: Record<string, ToolMutation[]> = {
   create_decision: [{ entity: "decision", action: "created" }],
   update_decision: [{ entity: "decision", action: "updated" }],
   delete_decision: [{ entity: "decision", action: "updated" }], // soft-delete → status update
-  resolve_decision: [{ entity: "decision", action: "updated" }],
+  // spec-297 dec-2: resolve also emits a DISTINCT 'resolved' funnel event.
+  resolve_decision: [
+    { entity: "decision", action: "updated" },
+    { entity: "decision", action: "resolved" },
+  ],
   approve_candidate: [{ entity: "decision", action: "updated" }],
   reject_candidate: [{ entity: "decision", action: "updated" }],
   // tasks.ts

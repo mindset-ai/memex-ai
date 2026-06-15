@@ -36,6 +36,20 @@ versa.
 
 ## Back-end outcomes (whitelisted `mutate()` events, dec-8)
 
-- `document.created` — A document (spec / standard / free-doc) was created. The confirmed outcome behind spec.create_clicked.
+- `document.created` — A document (spec / standard / free-doc) was created. The confirmed outcome behind spec.create_clicked. For `spec` docs, props.spec_index carries the Nth-spec ordinal for the acting user (spec-297), so depth funnels (2nd, 3rd, Nth spec) come from one event via a property filter.
 - `document.status_changed` — A document advanced to a new phase. props.from / props.to carry the phase handles (e.g. draft → specify).
 - `conversation_message.created` — A message was added to an in-app agent conversation.
+- `task.created` — A task was created on a Spec (funnel stage 7). Already on the bus; whitelisted into usage_events (spec-297).
+- `decision.resolved` — A decision was resolved (funnel stage 6). A distinct bus action, separate from the shared `decision.updated`, so the funnel step is unambiguous (spec-297 dec-2).
+
+## Direct-path user-scoped funnel events (spec-297 dec-1)
+
+These are emitted by a DIRECT `recordUsageEvent()` call rather than the bus, because
+they are not mutations and have no Memex by nature — so they never write an
+`activity_log` row, and they carry a NULL `memex_id` (or, for tool calls, the
+resolved one). They key on the acting user's UUID (`distinct_id`); `memex_id` is
+never forwarded to Mixpanel.
+
+- `account.created` — A new user account was created (funnel stage 1, signup). memex_id NULL (pre-Memex).
+- `mcp.connected` — An MCP client completed the `initialize` handshake (funnel stage 3, agent connected). memex_id NULL.
+- `mcp.tool_called` — An MCP tool was invoked (funnel stage 4). One event per call. props.tool_name names the tool; memex_id is the resolved Memex, NULL only for the Memex-agnostic tools (list_memexes / get_information).

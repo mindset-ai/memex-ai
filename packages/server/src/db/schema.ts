@@ -2437,9 +2437,15 @@ export const usageEvents = pgTable(
   "usage_events",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    memexId: uuid("memex_id")
-      .notNull()
-      .references(() => memexes.id, { onDelete: "cascade" }),
+    // Tenancy scope. NULLABLE (spec-297 dec-1): most rows carry their real Memex,
+    // but user-scoped funnel events that have no Memex by nature — account.created
+    // (pre-Memex signup), mcp.connected (the handshake, before any tool names a
+    // Memex), and mcp.tool_called for the Memex-agnostic tools (list_memexes /
+    // get_information) — carry an honest NULL rather than a fabricated attribution.
+    // memex_id is never forwarded to Mixpanel (toMixpanelEvent omits it), so this is
+    // purely internal bookkeeping; the funnel keys on distinct_id. Extends spec-244's
+    // original NOT NULL invariant, written before user-scoped events existed.
+    memexId: uuid("memex_id").references(() => memexes.id, { onDelete: "cascade" }),
     // WHO (the acting Memex user). Nullable: anonymous capture is a no-op so a
     // null actor only arises for system-originated backend events.
     actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
