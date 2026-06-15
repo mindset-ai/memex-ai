@@ -13,6 +13,7 @@ import {
   oauthClient,
   googleClientId,
   DEV_USER_EMAIL,
+  setKnownCookie,
   withToken,
 } from "./helpers.js";
 
@@ -85,6 +86,7 @@ sso.post("/google", async (c) => {
         }
       }
     }
+    setKnownCookie(c);
     return c.json(withToken(session));
   } catch (err) {
     if (err instanceof DisabledUserError) {
