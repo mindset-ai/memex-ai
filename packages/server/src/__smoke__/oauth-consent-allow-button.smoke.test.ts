@@ -41,13 +41,18 @@ describe(`oauth consent Allow-button legibility smoke @ ${SMOKE_BASE_URL}`, () =
     expect(cssRes.status).toBe(200);
     const css = await cssRes.text();
 
-    // 3. The token must be defined for BOTH themes (dark slate-900 / light white).
-    expect(css).toMatch(/--color-on-accent:\s*15\s+23\s+42/); // dark / slate-900
-    expect(css).toMatch(/--color-on-accent:\s*255\s+255\s+255/); // light / white
+    // 3. The on-accent colour must be defined for BOTH themes (dark slate-900 /
+    //    light white). Since spec-290 (Tailwind v4, CSS-first), the per-theme
+    //    value lives on the `--ch-on-accent` CHANNEL var and the `@theme` layer
+    //    maps the token to it (`--color-on-accent: rgb(var(--ch-on-accent))`).
+    expect(css).toMatch(/--ch-on-accent:\s*15\s+23\s+42/); // dark / slate-900
+    expect(css).toMatch(/--ch-on-accent:\s*255\s+255\s+255/); // light / white
+    expect(css).toMatch(/--color-on-accent:\s*rgb\(var\(--ch-on-accent\)\)/); // token → channel
 
     // 4. Tailwind must have GENERATED the utility (the bug was that it hadn't).
+    //    v4 emits the base colour utility as `color:var(--color-on-accent)`.
     expect(css).toMatch(
-      /\.text-on-accent\{[^}]*color:rgb\(var\(--color-on-accent\)/,
+      /\.text-on-accent\{[^}]*color:var\(--color-on-accent\)/,
     );
   });
 });
