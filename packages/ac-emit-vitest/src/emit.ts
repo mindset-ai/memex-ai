@@ -4,6 +4,21 @@ import { buildMetadata } from "./metadata.js";
 import type { AcEventPayload, TagAcOptions } from "./types.js";
 
 /**
+ * A reference to `fetch` bound ONCE at module load — before any test can replace
+ * the global (spec-302). Production emissions (driven from `setup.ts`) send
+ * through this, so a consumer test that stubs `globalThis.fetch` and never
+ * restores it cannot silently swallow the emission POST. The setupFile that
+ * imports this module is loaded once at worker init, before any `it()` runs, so
+ * the capture is guaranteed to be the genuine `fetch`.
+ *
+ * `emit()`'s `transport` parameter defaults to the *live* `globalThis.fetch` (not
+ * this captured ref) so the emitter's own unit tests keep mocking via
+ * `vi.stubGlobal('fetch', …)`; production opts into immunity by passing
+ * `capturedFetch` explicitly.
+ */
+export const capturedFetch: typeof fetch = globalThis.fetch.bind(globalThis);
+
+/**
  * Should the helper emit at all? Controlled by MEMEX_EMIT.
  *
  * Default: true (emit). When MEMEX_EMIT is `false`, `0`, `no`, or `off`
@@ -106,8 +121,17 @@ export function buildPayload({
   return payload;
 }
 
-/** POST one emission to the Memex test-events endpoint. */
-export async function emit(args: EmitArgs): Promise<void> {
+/**
+ * POST one emission to the Memex test-events endpoint.
+ *
+ * `transport` is the HTTP sender, defaulting to the live `globalThis.fetch` so
+ * unit tests can mock it via `vi.stubGlobal`. Production callers (`setup.ts`)
+ * pass `capturedFetch` to be immune to later global-fetch replacement (spec-302).
+ */
+export async function emit(
+  args: EmitArgs,
+  transport: typeof fetch = globalThis.fetch,
+): Promise<void> {
   if (!isEmissionEnabled()) return;
 
   const url = deriveEventsUrl(args.ac_uid);
@@ -132,7 +156,7 @@ export async function emit(args: EmitArgs): Promise<void> {
   }
 
   try {
-    const res = await fetch(url, {
+    const res = await transport(url, {
       method: "POST",
       headers,
       body: JSON.stringify(payload),

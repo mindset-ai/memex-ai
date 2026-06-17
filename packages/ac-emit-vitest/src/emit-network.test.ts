@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { emit, tagAc } from "./index.js";
+import { capturedFetch } from "./emit.js";
 
 const AC = "mindset-prod/memex-building-itself/specs/spec-115/acs";
 
@@ -261,5 +262,45 @@ describe("emit() — fail-safe on rejection (spec-129 ac-16)", () => {
     await expect(emit(baseArgs)).resolves.toBeUndefined();
     expect(warnSpy).toHaveBeenCalled();
     warnSpy.mockRestore();
+  });
+});
+
+// spec-302 — emission is immune to a test that replaces globalThis.fetch and
+// never restores it (the spec-138 silent-loss class). Production emission goes
+// through `capturedFetch` (a module-load reference passed by setup.ts to emit).
+const AC_302 = "mindset-prod/memex-building-itself/specs/spec-302/acs";
+
+describe("emit() — transport injection & module-load capture (spec-302)", () => {
+  it("routes through its transport argument, never the live globalThis.fetch (ac-5)", async () => {
+    tagAc(`${AC_302}/ac-5`);
+    const transportSpy = vi
+      .fn()
+      .mockResolvedValue({ ok: true, status: 204, headers: new Headers() });
+    const globalStub = vi
+      .fn()
+      .mockResolvedValue({ ok: true, status: 204, headers: new Headers() });
+    vi.stubGlobal("fetch", globalStub);
+
+    await emit(baseArgs, transportSpy);
+
+    // The injected transport handled the POST; the (stubbed) global was bypassed.
+    expect(transportSpy).toHaveBeenCalledOnce();
+    expect(globalStub).not.toHaveBeenCalled();
+  });
+
+  it("capturedFetch is bound at module load and survives a later unrestored global stub (ac-6, spec-138 regression)", () => {
+    tagAc(`${AC_302}/ac-6`);
+    const before = capturedFetch;
+
+    // Reproduce the spec-138 leak: a consumer test replaces globalThis.fetch and
+    // (within this test) never restores it.
+    const leakyStub = vi.fn();
+    vi.stubGlobal("fetch", leakyStub);
+
+    // The module-load capture is unaffected. setup.ts emits through THIS ref, so
+    // the leaky stub cannot intercept production emissions.
+    expect(capturedFetch).toBe(before);
+    expect(capturedFetch).not.toBe(globalThis.fetch);
+    expect(capturedFetch).not.toBe(leakyStub);
   });
 });
