@@ -19,7 +19,7 @@
 
 import { describe, it, expect, afterAll, beforeEach, afterEach, vi } from "vitest";
 import { tagAc } from "@memex-ai-ac/vitest";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import {
   memexes,
@@ -76,12 +76,16 @@ async function setup(prefix: string) {
 // Create a real spec doc via the MCP tool so the documents row has a valid
 // handle + title for the currentDocId auto-footer path.
 interface ToolResult { content: Array<{ type: string; text: string }> }
-async function createSpec(userId: string, nsSlug: string, title: string): Promise<{ id: string; handle: string }> {
+async function createSpec(userId: string, nsSlug: string, memexId: string, title: string): Promise<{ id: string; handle: string }> {
   const server = createMcpServer(userId);
   const registry = (server as unknown as { _registeredTools: Record<string, { handler: (a: Record<string, unknown>, e: unknown) => Promise<ToolResult> }> })._registeredTools;
   const out = (await registry["create_doc"].handler({ memex: `${nsSlug}/main`, title, purpose: "Probe." }, {})).content.map((c) => c.text).join("\n");
   const handle = out.match(/specs\/(spec-\d+)/)![1];
-  const doc = await db.query.documents.findFirst({ where: eq(documents.handle, handle) });
+  // Scope by memexId: `handle` is unique only per-memex (documents_memex_id_handle_unique),
+  // so under parallel test shards a bare handle lookup can grab another memex's doc.
+  const doc = await db.query.documents.findFirst({
+    where: and(eq(documents.memexId, memexId), eq(documents.handle, handle)),
+  });
   created.docs.push(doc!.id);
   return { id: doc!.id, handle };
 }
@@ -136,7 +140,7 @@ describe("memex__send_discord_message — handler-layer footer construction", ()
   it("ac-8 path 2: no specRef but currentDocId set → embed auto-attached from the bound Spec (dec-5)", async () => {
     tagAc(AC_8);
     const { userId, memexId, nsSlug } = await setup("discord-h2");
-    const spec = await createSpec(userId, nsSlug, "Auto Footer Spec");
+    const spec = await createSpec(userId, nsSlug, memexId, "Auto Footer Spec");
 
     const ctx = makeCtx(memexId, userId, { currentDocId: spec.id });
     await discordSpec.handler({ text: "deploy done" }, ctx);
