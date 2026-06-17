@@ -7,6 +7,7 @@ import { Decisions } from './pages/Decisions';
 import { SpecList } from './pages/SpecList';
 import { IssuesList } from './pages/IssuesList';
 import { NamespaceHome } from './pages/NamespaceHome';
+import { HomeCanvas } from './pages/HomeCanvas';
 import { StandardList } from './pages/StandardList';
 import { Standard } from './pages/Standard';
 import { DriftInbox } from './pages/DriftInbox';
@@ -369,6 +370,9 @@ export function PostLoginRouter() {
       <Route path="/invites" element={<Navigate to="/org?tab=invites" replace />} />
       <Route path="/org" element={<FlatShell><OrgConfiguration /></FlatShell>} />
       <Route path="/account" element={<Navigate to="/org" replace />} />
+      {/* spec-303 — Home Canvas: user-level, flat (not tenant-scoped). */}
+      <Route path="/home" element={<FlatShell><HomeCanvas /></FlatShell>} />
+
 
       {/* doc-19 t-10: namespace home — /<namespace>/ renders the kind-aware
           OrgHome / Personal Home. More specific /:namespace/:memex routes below

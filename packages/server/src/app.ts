@@ -46,6 +46,7 @@ import { hostGuard, memexResolver } from "./middleware/memex-resolver.js";
 import { rewriteBriefPathToSpec } from "./services/redirects.js";
 import { isAllowedOrigin } from "./middleware/cors-policy.js";
 import { meRouter } from "./routes/me.js";
+import { journeyRouter } from "./routes/journey.js";
 import { whatsNewRouter } from "./routes/whats-new.js";
 import { orgsRouter, orgsCurrentRouter } from "./routes/orgs.js";
 import { scaffoldRouter } from "./routes/scaffold.js";
@@ -360,6 +361,9 @@ app.route("/api/consent", consentRouter);
 app.route("/api/invites", invitesAcceptRouter);
 // Caller-scoped endpoints — namespace picker (std-5) and minimal session shape.
 app.route("/api/me", meRouter);
+// spec-303 — Home Canvas onboarding journey-state (user-level, no memex). Derived
+// position + measurement + operator preview.
+app.route("/api/me", journeyRouter);
 // spec-200: global What's New feed (not tenant-scoped).
 app.route("/api/whats-new", whatsNewRouter);
 // PUBLIC: share routes skip session middleware — guests access shared docs by token alone (t-10).

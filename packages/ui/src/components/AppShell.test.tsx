@@ -125,6 +125,32 @@ describe('AppShell sidebar navigation', () => {
     expect(labels).toEqual(GROUPED);
   });
 
+  // spec-303 ac-1 / impl ac-9 — the Home Canvas is the FIRST nav item and a flat,
+  // user-level link (/home), not tenant-prefixed.
+  it('shows Home as the first nav item, linking to the flat /home', () => {
+    tagAc('mindset-prod/memex-building-itself/specs/spec-303/acs/ac-1');
+    tagAc('mindset-prod/memex-building-itself/specs/spec-303/acs/ac-9');
+    renderShell(['/specs']);
+
+    const nav = screen.getByTestId('primary-nav');
+    const home = within(nav).getByRole('link', { name: 'Home' });
+    expect(home).toHaveAttribute('href', '/home');
+    // Home is the first working surface — above Specs (the previous top item).
+    const links = within(nav).getAllByRole('link');
+    const specs = within(nav).getByRole('link', { name: 'Specs' });
+    expect(links.indexOf(home)).toBeGreaterThanOrEqual(0);
+    expect(links.indexOf(home)).toBeLessThan(links.indexOf(specs));
+  });
+
+  it('marks Home active on /home', () => {
+    tagAc('mindset-prod/memex-building-itself/specs/spec-303/acs/ac-1');
+    renderShell(['/home']);
+
+    const nav = screen.getByTestId('primary-nav');
+    const home = within(nav).getByRole('link', { name: 'Home' });
+    expect(home.className).toContain('font-medium');
+  });
+
   it('marks Issues active on /issues', () => {
     renderShell(['/issues']);
 

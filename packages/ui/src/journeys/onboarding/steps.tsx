@@ -1,0 +1,96 @@
+// spec-303 — the ONBOARDING journey's step views (dec-1: a self-contained module).
+// One view per journey state; the Home Canvas engine renders the view for the
+// step the server says the user is on. Editing this journey touches only this
+// folder. The brand-new step is the "MD files are dead" splash.
+import type { JourneyStepView } from '../types';
+
+// The server-derived steps a user can land on, in order (mirrors the server's
+// journeys/onboarding.ts). Used by the operator preview control.
+export const ONBOARDING_MILESTONE_STEP_IDS = [
+  'welcome',
+  'first-decision',
+  'connect-agent',
+  'use-agent',
+  'all-set',
+] as const;
+
+export const ONBOARDING_STEP_VIEWS: Record<string, JourneyStepView> = {
+  welcome: {
+    id: 'welcome',
+    eyebrow: 'Memex · Home',
+    headline: (
+      <>
+        <span className="text-muted line-through decoration-[#fb5b78] decoration-4">
+          MD files
+        </span>{' '}
+        are{' '}
+        <span className="bg-[linear-gradient(96deg,#fb5b78,#c084fc)] bg-clip-text text-transparent">
+          dead
+        </span>
+        .
+      </>
+    ),
+    sub: 'Help us celebrate their demise.',
+    body: (
+      <>
+        Your standards, specs and decisions shouldn&apos;t rot in a folder of stale
+        Markdown your agent never reads. In Memex they become a{' '}
+        <span className="font-semibold text-heading">living map</span> your agent
+        reads, follows, and keeps in sync.
+      </>
+    ),
+    memoriam: ['README.md', 'ARCHITECTURE.md', 'CONTRIBUTING.md', 'NOTES.md'],
+    primary: { label: 'Create your first spec', kind: 'action', target: 'create_spec' },
+    secondary: { label: 'Why Memex?', kind: 'navigate', target: 'learn-more' },
+  },
+
+  // Informational (navigate-only) — not a server milestone step.
+  'learn-more': {
+    id: 'learn-more',
+    eyebrow: "Memex · What's a spec?",
+    headline: 'A spec is a living plan.',
+    sub: 'Not a doc that rots: a plan your agent reads and follows.',
+    body: 'A spec captures what you are building and why — the decisions it hinges on, what "done" means, and the work to get there. Your coding agent reads it over MCP, so it builds the right thing and stays on track.',
+    primary: { label: 'Create your first spec', kind: 'action', target: 'create_spec' },
+    secondary: { label: 'Back', kind: 'navigate', target: 'welcome' },
+  },
+
+  'first-decision': {
+    id: 'first-decision',
+    eyebrow: 'Memex · Next',
+    headline: 'Your spec is alive. Now make the call.',
+    sub: 'Every plan hinges on a few real decisions.',
+    body: 'Capture the choice your spec turns on as a decision, weigh the options, and resolve it. That is how the plan stays honest and your agent knows which path you picked.',
+    primary: { label: 'Capture a decision', kind: 'action', target: 'create_decision' },
+    secondary: { label: 'How decisions work', kind: 'link', target: 'https://www.memex.ai' },
+  },
+
+  'connect-agent': {
+    id: 'connect-agent',
+    eyebrow: 'Memex · Next',
+    headline: 'Bring your coding agent.',
+    sub: 'Memex is where your agent gets its marching orders.',
+    body: 'Connect your agent over MCP and it can read your specs, standards and decisions, and report its progress back. One command and you are wired in.',
+    primary: { label: 'Connect your agent', kind: 'action', target: 'connect_agent' },
+    secondary: { label: "What's the MCP?", kind: 'link', target: 'https://www.memex.ai' },
+  },
+
+  'use-agent': {
+    id: 'use-agent',
+    eyebrow: 'Memex · Next',
+    headline: 'Put your agent to work.',
+    sub: 'Hand it a spec and watch it build.',
+    body: 'Your agent is connected. Open your Specs board, hand it the spec you created, and let it work the plan — every step tracked against what you agreed.',
+    primary: { label: 'Open your Specs board', kind: 'action', target: 'open_specs' },
+  },
+
+  'all-set': {
+    id: 'all-set',
+    eyebrow: "Memex · You're set up",
+    headline: "You're all set.",
+    sub: 'You have driven a spec end to end. This is Memex.',
+    body: 'From here, Home shows you what needs your attention next. Bring your team in so the map grows with you.',
+    primary: { label: 'Invite your team', kind: 'action', target: 'invite' },
+    secondary: { label: 'Back to your Specs', kind: 'action', target: 'open_specs' },
+  },
+};
