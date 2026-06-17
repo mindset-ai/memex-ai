@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { tagAc } from "@memex-ai-ac/vitest";
 import { postToDiscord } from "./discord-webhook.js";
 
@@ -29,6 +29,14 @@ function capturedBody(fetchSpy: ReturnType<typeof vi.fn>): unknown {
 describe("postToDiscord: payload shape", () => {
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(OK_RESPONSE));
+  });
+
+  // Restore the real fetch after each test. Without this, the stubbed global
+  // leaks into the @memex-ai-ac/vitest setupFile's afterEach, which POSTs AC
+  // emissions via fetch — the stub swallows them and the tagged ACs (e.g.
+  // ac-11) never reach Memex. This is why those ACs sat untested historically.
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it("without embedFooter — payload has only a `content` field, no `embeds`", async () => {
