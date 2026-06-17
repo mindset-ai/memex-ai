@@ -273,6 +273,9 @@ const AC_302 = "mindset-prod/memex-building-itself/specs/spec-302/acs";
 describe("emit() — transport injection & module-load capture (spec-302)", () => {
   it("routes through its transport argument, never the live globalThis.fetch (ac-5)", async () => {
     tagAc(`${AC_302}/ac-5`);
+    // ac-2: the guarantee is enforced by the emitter itself (transport routing),
+    // not by each test author remembering to restore the global.
+    tagAc(`${AC_302}/ac-2`);
     const transportSpy = vi
       .fn()
       .mockResolvedValue({ ok: true, status: 204, headers: new Headers() });
@@ -290,6 +293,12 @@ describe("emit() — transport injection & module-load capture (spec-302)", () =
 
   it("capturedFetch is bound at module load and survives a later unrestored global stub (ac-6, spec-138 regression)", () => {
     tagAc(`${AC_302}/ac-6`);
+    // ac-3: this IS the regression test demonstrating the failure mode is closed.
+    tagAc(`${AC_302}/ac-3`);
+    // ac-1: the capture's stability is exactly what makes emission reliable when a
+    // test has mocked fetch — and this very test (which stubs the global below)
+    // still emits its own AC events in CI, dogfooding the guarantee.
+    tagAc(`${AC_302}/ac-1`);
     const before = capturedFetch;
 
     // Reproduce the spec-138 leak: a consumer test replaces globalThis.fetch and
