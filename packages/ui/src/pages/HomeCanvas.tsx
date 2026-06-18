@@ -18,7 +18,7 @@ import { ConnectAgentStep } from '../components/home/ConnectAgentStep';
 import { CreateSpecStep } from '../components/home/CreateSpecStep';
 import { AgentPromptStep } from '../components/home/AgentPromptStep';
 import { SeeGreenStep } from '../components/home/SeeGreenStep';
-import { WhyMemex } from '../components/home/WhyMemex';
+import { WelcomeStep } from '../components/home/WelcomeStep';
 import type { JourneyCta, JourneyStepView } from '../journeys/types';
 
 type NavMembership = { slug: string; memexSlug?: string | null; kind: string };
@@ -155,7 +155,10 @@ export function HomeCanvas() {
       {showMap && state?.steps && (
         <ProgressMap steps={state.steps} currentStepId={displayStepId} views={journey.views} />
       )}
-      {displayStepId === 'identity' ? (
+      {displayStepId === 'welcome' ? (
+        // spec-305 — the welcome card; "Why Memex?" grows it in place into a short lesson.
+        <WelcomeStep onNavigate={(t) => setViewOverride(t)} />
+      ) : displayStepId === 'identity' ? (
         // spec-305 dec-5: the identity step is a custom form (name + role triangle),
         // not a generic CTA card — it persists the captured profile and clears
         // needsOnboarding, after which the journey self-advances.
@@ -182,9 +185,6 @@ export function HomeCanvas() {
       ) : displayStepId === 'see-green' ? (
         // spec-305 dec-8: the aha — watch an AC go green from a real test (acVerified).
         <SeeGreenStep preview={preview} onComplete={load} />
-      ) : displayStepId === 'why-memex' ? (
-        // spec-305 — the interactive "Why Memex?" node-graph (the three pains → synthesis).
-        <WhyMemex onNavigate={(t) => setViewOverride(t)} />
       ) : view ? (
         <JourneyStepShell view={view} userName={firstName(user?.name)} onCta={handleCta} />
       ) : (

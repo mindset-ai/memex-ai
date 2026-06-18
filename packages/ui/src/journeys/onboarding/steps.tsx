@@ -40,7 +40,7 @@ export const ONBOARDING_STEP_VIEWS: Record<string, JourneyStepView> = {
     // AFTER the user tells us their role, not in the cold open.
     body: 'Memex keeps intent and code in lockstep: one living source your agent reads, follows, and proves it honoured.',
     primary: { label: 'Get started', kind: 'navigate', target: 'identity' },
-    secondary: { label: 'Why Memex?', kind: 'navigate', target: 'why-memex' },
+    secondary: { label: 'Why Memex?', kind: 'navigate', target: 'learn-more' },
   },
 
   // Map label only — the identity step is rendered by IdentityStep (HomeCanvas), so
