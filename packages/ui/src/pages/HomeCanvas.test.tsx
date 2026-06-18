@@ -186,15 +186,15 @@ describe('HomeCanvas — attainment progress map', () => {
 });
 
 describe('HomeCanvas — CTA allow-list (ac-5 / impl ac-12)', () => {
-  it("an 'action' CTA routes into the real flow (create_spec → personal Specs board)", async () => {
+  it("an 'action' CTA routes into the real flow (invite → integrations)", async () => {
     tagAc(AC(5));
     tagAc(AC(12));
-    fetchJourneyStateApi.mockResolvedValue(stateFor('create-spec'));
+    // all-set renders via the generic shell; its primary is an 'invite' action.
+    fetchJourneyStateApi.mockResolvedValue(stateFor('all-set'));
     renderCanvas();
     fireEvent.click(await screen.findByTestId('journey-cta-primary'));
-    // Deep-links into the SAME NewSpecModal the board uses (?new=1).
     await waitFor(() =>
-      expect(screen.getByTestId('location')).toHaveTextContent('/john/personal/specs?new=1'),
+      expect(screen.getByTestId('location')).toHaveTextContent('/settings/integrations'),
     );
   });
 

@@ -2,11 +2,15 @@
 // through the flat BASE_URL, not a tenant prefix (the Home Canvas is user-level).
 import { BASE_URL, fetchWithRetry } from './http';
 
+// spec-305 — the user-scoped milestones the journey derives position from. identity
+// is the one CAPTURED milestone (dec-4); the rest are derived from real activity.
 export interface JourneyMilestones {
-  hasSpec: boolean;
-  hasDecision: boolean;
+  identityConfirmed: boolean;
   mcpConnected: boolean;
-  mcpToolCalled: boolean;
+  hasSpec: boolean;
+  hasResolvedDecision: boolean;
+  hasAc: boolean;
+  acVerified: boolean;
 }
 
 export interface JourneyStepStatus {

@@ -132,12 +132,14 @@ export function RoleTriangle({
       onPointerCancel={() => setDragging(false)}
       onKeyDown={onKeyDown}
     >
-      {/* Subtle: a faint fill so the shape reads without dominating the card. */}
+      {/* Barely-there guide lines — the focus is the three words and the ball moving
+          between them, not the triangle itself. */}
       <polygon
         points={`${VERT.dev.x},${VERT.dev.y} ${VERT.design.x},${VERT.design.y} ${VERT.pm.x},${VERT.pm.y}`}
-        className="fill-card-hover stroke-edge"
-        fillOpacity={0.28}
-        strokeWidth={1.25}
+        fill="none"
+        className="stroke-edge"
+        strokeOpacity={0.3}
+        strokeWidth={1}
       />
       <text x={VERT.dev.x} y={VERT.dev.y - 12} textAnchor="middle" className="fill-secondary text-[12px] font-semibold">
         Developer

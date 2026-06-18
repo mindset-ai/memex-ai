@@ -16,6 +16,8 @@ import { JourneyStepShell } from '../components/home/JourneyStepShell';
 import { IdentityStep } from '../components/home/IdentityStep';
 import { ConnectAgentStep } from '../components/home/ConnectAgentStep';
 import { CreateSpecStep } from '../components/home/CreateSpecStep';
+import { AgentPromptStep } from '../components/home/AgentPromptStep';
+import { SeeGreenStep } from '../components/home/SeeGreenStep';
 import type { JourneyCta, JourneyStepView } from '../journeys/types';
 
 type NavMembership = { slug: string; memexSlug?: string | null; kind: string };
@@ -155,6 +157,12 @@ export function HomeCanvas() {
         // spec-305 dec-9: copy-paste prompt + bring-your-own-PRD or sample; advances
         // the moment the agent creates the spec (hasSpec).
         <CreateSpecStep preview={preview} onComplete={load} />
+      ) : activeStepId === 'resolve-decision' || activeStepId === 'add-ac' ? (
+        // spec-305 dec-8: paste-a-prompt cards; advance on the step's milestone.
+        <AgentPromptStep stepId={activeStepId} preview={preview} onComplete={load} />
+      ) : activeStepId === 'see-green' ? (
+        // spec-305 dec-8: the aha — watch an AC go green from a real test (acVerified).
+        <SeeGreenStep preview={preview} onComplete={load} />
       ) : view ? (
         <JourneyStepShell view={view} userName={firstName(user?.name)} onCta={handleCta} />
       ) : (
