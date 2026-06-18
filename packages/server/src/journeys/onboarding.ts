@@ -1,14 +1,21 @@
-// spec-303 — the ONBOARDING journey, a self-contained module (dec-1). Everything
-// that defines this journey (its ordered steps and the milestone that completes
-// each) lives here; the journey-state engine and the Home Canvas load journeys
-// from the registry, so a journey is never interwoven into the rest of the app.
-// Adding or editing a journey touches only its own module.
+// spec-305 — the ONBOARDING journey (supersedes spec-303's v0 journey content).
+// A self-contained module (spec-303 dec-1): its ordered steps and the milestone
+// that completes each live here; the engine + Home Canvas load it from the registry.
+//
+// The journey is MCP-FIRST (spec-305 dec-3): connect the agent before creating a
+// spec, because a connected agent then does the work (spec → decision → AC → green)
+// while the user watches the map tick. The arc ends at a GREEN acceptance criterion,
+// the aha (dec-8). Milestones are user-scoped and (except identity) derived from real
+// activity; `identityConfirmed` is the one CAPTURED milestone (the role/name the user
+// tells us, dec-4).
 
 export type JourneyMilestone =
-  | "hasSpec"
-  | "hasDecision"
-  | "mcpConnected"
-  | "mcpToolCalled";
+  | "identityConfirmed" // captured: the user completed the identity step (name + role)
+  | "mcpConnected" // derived: the user's agent connected over MCP
+  | "hasSpec" // derived: the user created a (non-demo) spec
+  | "hasResolvedDecision" // derived: the user resolved a decision
+  | "hasAc" // derived: the user added an acceptance criterion
+  | "acVerified"; // derived: one of the user's ACs went GREEN from a real test event
 
 export interface JourneyStepDef {
   id: string;
@@ -23,14 +30,22 @@ export interface JourneyDef {
 }
 
 // Ordered + hard-gated: a later step is never reached before its predecessor's
-// milestone is met (dec-4 / build instruction).
+// milestone is met (spec-303 dec-4).
+//
+// `welcome` and `identity` share the `identityConfirmed` gate by design (dec-2/dec-6):
+// a brand-new user lands on `welcome` (the universal Beat-1 cold open), whose CTA
+// client-navigates into the `identity` form; submitting it confirms identity and
+// clears BOTH at once, advancing to `connect-agent`.
 export const onboardingJourney: JourneyDef = {
   id: "onboarding",
   steps: [
-    { id: "welcome", completedBy: "hasSpec" },
-    { id: "first-decision", completedBy: "hasDecision" },
+    { id: "welcome", completedBy: "identityConfirmed" },
+    { id: "identity", completedBy: "identityConfirmed" },
     { id: "connect-agent", completedBy: "mcpConnected" },
-    { id: "use-agent", completedBy: "mcpToolCalled" },
+    { id: "create-spec", completedBy: "hasSpec" },
+    { id: "resolve-decision", completedBy: "hasResolvedDecision" },
+    { id: "add-ac", completedBy: "hasAc" },
+    { id: "see-green", completedBy: "acVerified" },
     { id: "all-set", completedBy: null },
   ],
 };

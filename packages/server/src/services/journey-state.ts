@@ -15,7 +15,16 @@
 
 import { and, eq, sql } from "drizzle-orm";
 import { db, type Db } from "../db/connection.js";
-import { documents, decisions, usageEvents } from "../db/schema.js";
+import {
+  documents,
+  decisions,
+  usageEvents,
+  users,
+  acs,
+  memexes,
+  namespaces,
+  testEventLatest,
+} from "../db/schema.js";
 import { activeJourney, type JourneyDef, type JourneyMilestone } from "../journeys/index.js";
 
 export type { JourneyMilestone } from "../journeys/index.js";
@@ -58,6 +67,12 @@ export async function getUserMilestones(
   userId: string,
   conn: Db = db,
 ): Promise<JourneyMilestones> {
+  // identityConfirmed (captured, dec-4): the user completed the identity step.
+  const [userRow] = await conn
+    .select({ confirmedAt: users.identityConfirmedAt })
+    .from(users)
+    .where(eq(users.id, userId));
+
   const [specRow] = await conn
     .select({ n: sql<number>`count(*)::int` })
     .from(documents)
@@ -69,10 +84,17 @@ export async function getUserMilestones(
       ),
     );
 
-  const [decisionRow] = await conn
+  // A RESOLVED decision the user authored (dec-8) — not merely created.
+  const [resolvedDecisionRow] = await conn
     .select({ n: sql<number>`count(*)::int` })
     .from(decisions)
-    .where(eq(decisions.actorUserId, userId));
+    .where(and(eq(decisions.actorUserId, userId), eq(decisions.status, "resolved")));
+
+  // An acceptance criterion the user authored (dec-8).
+  const [acRow] = await conn
+    .select({ n: sql<number>`count(*)::int` })
+    .from(acs)
+    .where(eq(acs.actorUserId, userId));
 
   const [connectedRow] = await conn
     .select({ n: sql<number>`count(*)::int` })
@@ -81,18 +103,32 @@ export async function getUserMilestones(
       and(eq(usageEvents.actorUserId, userId), eq(usageEvents.name, "mcp.connected")),
     );
 
-  const [toolRow] = await conn
+  // acVerified (dec-8): one of the user's ACs has a latest test event of 'pass'.
+  // Join the AC to its canonical ref (namespace/memex/specs/handle/acs/ac-seq —
+  // identical to acs.buildAcRef) and match test_event_latest.ac_uid, the SAME key
+  // the AC tab uses, so "green here" means exactly "green in the spec".
+  const [verifiedRow] = await conn
     .select({ n: sql<number>`count(*)::int` })
-    .from(usageEvents)
-    .where(
-      and(eq(usageEvents.actorUserId, userId), eq(usageEvents.name, "mcp.tool_called")),
-    );
+    .from(acs)
+    .innerJoin(documents, eq(acs.briefId, documents.id))
+    .innerJoin(memexes, eq(documents.memexId, memexes.id))
+    .innerJoin(namespaces, eq(memexes.namespaceId, namespaces.id))
+    .innerJoin(
+      testEventLatest,
+      eq(
+        testEventLatest.acUid,
+        sql`${namespaces.slug} || '/' || ${memexes.slug} || '/specs/' || ${documents.handle} || '/acs/ac-' || ${acs.seq}`,
+      ),
+    )
+    .where(and(eq(acs.actorUserId, userId), eq(testEventLatest.latestStatus, "pass")));
 
   return {
-    hasSpec: (specRow?.n ?? 0) > 0,
-    hasDecision: (decisionRow?.n ?? 0) > 0,
+    identityConfirmed: !!userRow?.confirmedAt,
     mcpConnected: (connectedRow?.n ?? 0) > 0,
-    mcpToolCalled: (toolRow?.n ?? 0) > 0,
+    hasSpec: (specRow?.n ?? 0) > 0,
+    hasResolvedDecision: (resolvedDecisionRow?.n ?? 0) > 0,
+    hasAc: (acRow?.n ?? 0) > 0,
+    acVerified: (verifiedRow?.n ?? 0) > 0,
   };
 }
 
