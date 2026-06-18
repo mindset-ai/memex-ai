@@ -9,9 +9,17 @@ export interface JourneyMilestones {
   mcpToolCalled: boolean;
 }
 
+export interface JourneyStepStatus {
+  id: string;
+  attained: boolean;
+}
+
 export interface JourneyStateResponse {
   milestones: JourneyMilestones;
   currentStepId: string;
+  // Per-step real attainment (drives the progress map). Reflects true state even
+  // under preview.
+  steps: JourneyStepStatus[];
   preview: boolean;
   canPreview: boolean;
 }

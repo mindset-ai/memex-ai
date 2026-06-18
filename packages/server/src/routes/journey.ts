@@ -28,6 +28,8 @@ journeyRouter.get("/journey-state", async (c) => {
     return c.json({
       milestones: state.milestones,
       currentStepId: previewStep,
+      // `steps` always reflects REAL attainment — preview pins the card, not progress.
+      steps: state.steps,
       preview: true,
       canPreview,
     });
@@ -36,6 +38,7 @@ journeyRouter.get("/journey-state", async (c) => {
   return c.json({
     milestones: state.milestones,
     currentStepId: state.currentStepId,
+    steps: state.steps,
     preview: false,
     canPreview,
   });

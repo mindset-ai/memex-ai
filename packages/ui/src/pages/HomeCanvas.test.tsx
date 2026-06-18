@@ -151,6 +151,35 @@ describe('HomeCanvas — every milestone step renders in isolation (ac-6)', () =
   });
 });
 
+describe('HomeCanvas — attainment progress map', () => {
+  const stepsMixed = [
+    { id: 'welcome', attained: true },
+    { id: 'first-decision', attained: false },
+    { id: 'connect-agent', attained: true }, // attained out of order
+    { id: 'use-agent', attained: false },
+    { id: 'all-set', attained: false },
+  ];
+
+  it('shows the map off the welcome step, with real attainment incl. the out-of-order tick', async () => {
+    tagAc(AC(4));
+    fetchJourneyStateApi.mockResolvedValue(stateFor('first-decision', { steps: stepsMixed }));
+    renderCanvas();
+    expect(await screen.findByTestId('journey-progress-map')).toBeInTheDocument();
+    expect(screen.getByTestId('journey-map-welcome').getAttribute('data-attained')).toBe('true');
+    expect(screen.getByTestId('journey-map-first-decision').getAttribute('data-attained')).toBe('false');
+    expect(screen.getByTestId('journey-map-connect-agent').getAttribute('data-attained')).toBe('true');
+  });
+
+  it('hides the map on the cold welcome step', async () => {
+    fetchJourneyStateApi.mockResolvedValue(
+      stateFor('welcome', { steps: stepsMixed.map((s) => ({ ...s, attained: false })) }),
+    );
+    renderCanvas();
+    await screen.findByTestId('journey-step-welcome');
+    expect(screen.queryByTestId('journey-progress-map')).toBeNull();
+  });
+});
+
 describe('HomeCanvas — CTA allow-list (ac-5 / impl ac-12)', () => {
   it("an 'action' CTA routes into the real flow (create_spec → personal Specs board)", async () => {
     tagAc(AC(5));

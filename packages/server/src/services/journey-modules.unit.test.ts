@@ -1,6 +1,6 @@
 // spec-303 impl ac-17 (dec-10) — the journey modules are a STATE SIGNAL + an
 // AUTHORISATION check, never a billing/entitlement store. Verified two ways:
-// the single accessors exist (the brief's indirection), and no journey module
+// the single accessors exist (the indirection principle), and no journey module
 // imports a billing/entitlement/stripe store.
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";

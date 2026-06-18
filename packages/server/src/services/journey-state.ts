@@ -22,9 +22,34 @@ export type { JourneyMilestone } from "../journeys/index.js";
 
 export type JourneyMilestones = Record<JourneyMilestone, boolean>;
 
+// Per-step attainment — the data a journey progress map renders. Reflects REAL
+// state (so the map shows true progress even when an operator is previewing a
+// different card). Because steps are independent, a later step can be attained
+// while an earlier one is not (non-linear): the map makes that legible.
+export interface JourneyStepStatus {
+  id: string;
+  attained: boolean;
+}
+
 export interface JourneyState {
   milestones: JourneyMilestones;
   currentStepId: string;
+  steps: JourneyStepStatus[];
+}
+
+/** Each step's attainment from real milestones. The terminal step (no
+ * `completedBy`) is attained once every milestone is met. */
+export function stepStatuses(
+  milestones: JourneyMilestones,
+  journey: JourneyDef = activeJourney(),
+): JourneyStepStatus[] {
+  return journey.steps.map((s) => ({
+    id: s.id,
+    attained:
+      s.completedBy === null
+        ? journey.steps.every((st) => st.completedBy === null || milestones[st.completedBy])
+        : milestones[s.completedBy],
+  }));
 }
 
 /** The user's onboarding milestones — each a USER-scoped count over the acting
@@ -90,7 +115,12 @@ export async function getUserJourneyState(
   conn: Db = db,
 ): Promise<JourneyState> {
   const milestones = await getUserMilestones(userId, conn);
-  return { milestones, currentStepId: deriveCurrentStep(milestones) };
+  const journey = activeJourney();
+  return {
+    milestones,
+    currentStepId: deriveCurrentStep(milestones, journey),
+    steps: stepStatuses(milestones, journey),
+  };
 }
 
 export function isValidStepId(

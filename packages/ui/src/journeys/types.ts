@@ -25,6 +25,8 @@ export interface JourneyStepView {
   memoriam?: readonly string[];
   primary: JourneyCta;
   secondary?: JourneyCta;
+  // Short label for this step in the progress map (attainment-framed).
+  mapLabel?: string;
 }
 
 export interface JourneyModule {
@@ -33,4 +35,7 @@ export interface JourneyModule {
   // The server-derived steps (in order) a user can land on — drives the operator
   // preview control. Informational steps (navigate-only) are NOT listed here.
   milestoneStepIds: readonly string[];
+  // Per-journey (dec-1): show a progress map of attained/unattained steps. Off by
+  // default; onboarding turns it on. Never shown on the cold first step.
+  showProgressMap?: boolean;
 }

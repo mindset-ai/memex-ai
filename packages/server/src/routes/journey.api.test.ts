@@ -196,6 +196,29 @@ describe("Home Canvas journey-state (ac-5 terminal step)", () => {
   });
 });
 
+describe("Home Canvas journey-state (per-step attainment — progress map data)", () => {
+  it("reports each step's real attainment, with a later step attainable before an earlier one (non-linear)", async () => {
+    tagAc(AC(4));
+    const user = await newUser();
+    await seedSpec(user.id); // welcome's milestone (hasSpec)
+    await recordUsageEvent({
+      memexId: null,
+      actorUserId: user.id,
+      name: "mcp.connected", // connect-agent's milestone — attained BEFORE the decision
+      source: "backend",
+    });
+    const { body } = await state(user.id);
+    const attained = Object.fromEntries(body.steps.map((s: any) => [s.id, s.attained]));
+    expect(attained.welcome).toBe(true);
+    expect(attained['first-decision']).toBe(false); // the gap
+    expect(attained['connect-agent']).toBe(true); // attained out of order
+    expect(attained['use-agent']).toBe(false);
+    expect(attained['all-set']).toBe(false);
+    // Current step is the first UNMET one, so the user is sent back to fill the gap.
+    expect(body.currentStepId).toBe('first-decision');
+  });
+});
+
 describe("Home Canvas journey-state (ac-6 operator preview)", () => {
   it("an operator (email domain in deploy config) can pin any step on their own account, real state untouched", async () => {
     tagAc(AC(6));

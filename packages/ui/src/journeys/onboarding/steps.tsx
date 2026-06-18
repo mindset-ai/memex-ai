@@ -17,6 +17,7 @@ export const ONBOARDING_MILESTONE_STEP_IDS = [
 export const ONBOARDING_STEP_VIEWS: Record<string, JourneyStepView> = {
   welcome: {
     id: 'welcome',
+    mapLabel: 'Spec created',
     eyebrow: 'Memex · Home',
     headline: (
       <>
@@ -30,15 +31,10 @@ export const ONBOARDING_STEP_VIEWS: Record<string, JourneyStepView> = {
         .
       </>
     ),
-    sub: 'Help us celebrate their demise.',
-    body: (
-      <>
-        Your standards, specs and decisions shouldn&apos;t rot in a folder of stale
-        Markdown your agent never reads. In Memex they become a{' '}
-        <span className="font-semibold text-heading">living map</span> your agent
-        reads, follows, and keeps in sync.
-      </>
-    ),
+    sub: 'Lorem ipsum dolor sit amet, consectetur adipiscing.',
+    // Placeholder on purpose (internal v1): the COPY on these cards is not yet
+    // decided — colleagues should react to the journey CONCEPT, not this wording.
+    body: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris.',
     memoriam: ['README.md', 'ARCHITECTURE.md', 'CONTRIBUTING.md', 'NOTES.md'],
     primary: { label: 'Create your first spec', kind: 'action', target: 'create_spec' },
     secondary: { label: 'Why Memex?', kind: 'navigate', target: 'learn-more' },
@@ -57,6 +53,7 @@ export const ONBOARDING_STEP_VIEWS: Record<string, JourneyStepView> = {
 
   'first-decision': {
     id: 'first-decision',
+    mapLabel: 'Decision made',
     eyebrow: 'Memex · Next',
     headline: 'Your spec is alive. Now make the call.',
     sub: 'Every plan hinges on a few real decisions.',
@@ -67,6 +64,7 @@ export const ONBOARDING_STEP_VIEWS: Record<string, JourneyStepView> = {
 
   'connect-agent': {
     id: 'connect-agent',
+    mapLabel: 'Agent connected',
     eyebrow: 'Memex · Next',
     headline: 'Bring your coding agent.',
     sub: 'Memex is where your agent gets its marching orders.',
@@ -77,6 +75,7 @@ export const ONBOARDING_STEP_VIEWS: Record<string, JourneyStepView> = {
 
   'use-agent': {
     id: 'use-agent',
+    mapLabel: 'Agent used',
     eyebrow: 'Memex · Next',
     headline: 'Put your agent to work.',
     sub: 'Hand it a spec and watch it build.',
@@ -86,11 +85,12 @@ export const ONBOARDING_STEP_VIEWS: Record<string, JourneyStepView> = {
 
   'all-set': {
     id: 'all-set',
+    mapLabel: 'Set up',
     eyebrow: "Memex · You're set up",
     headline: "You're all set.",
     sub: 'You have driven a spec end to end. This is Memex.',
-    body: 'From here, Home shows you what needs your attention next. Bring your team in so the map grows with you.',
-    primary: { label: 'Invite your team', kind: 'action', target: 'invite' },
+    body: 'From here, Home shows you what needs your attention next. Bring your colleagues in so the map grows with you.',
+    primary: { label: 'Invite your org', kind: 'action', target: 'invite' },
     secondary: { label: 'Back to your Specs', kind: 'action', target: 'open_specs' },
   },
 };
