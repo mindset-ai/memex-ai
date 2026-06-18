@@ -64,7 +64,8 @@ export function WelcomeStep({ onNavigate }: { onNavigate: (stepId: string) => vo
 
         {showWhy && (
           <div data-testid="why-memex-lesson" className="mt-8 border-t border-edge pt-7">
-            <p className="text-sm leading-relaxed text-secondary">
+            <h2 className="text-2xl font-black tracking-tight text-heading sm:text-3xl">Why Memex?</h2>
+            <p className="mt-3 text-sm leading-relaxed text-secondary">
               The short version. For about a year we tried to make vibe-coding work, and every version broke on the
               same three things.
             </p>
