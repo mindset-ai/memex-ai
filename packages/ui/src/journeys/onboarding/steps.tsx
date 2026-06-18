@@ -1,23 +1,27 @@
-// spec-303 — the ONBOARDING journey's step views (dec-1: a self-contained module).
-// One view per journey state; the Home Canvas engine renders the view for the
-// step the server says the user is on. Editing this journey touches only this
-// folder. The brand-new step is the "MD files are dead" splash.
+// spec-305 — the ONBOARDING journey's step views (supersedes spec-303's v0 views).
+// One view per journey state; the Home Canvas engine renders the view for the step
+// the server says the user is on. The journey is MCP-first and ends at a GREEN AC.
+// The `identity` step is rendered by a custom component (IdentityStep) in HomeCanvas,
+// so its entry here carries only a map label, never a rendered view.
 import type { JourneyStepView } from '../types';
 
 // The server-derived steps a user can land on, in order (mirrors the server's
-// journeys/onboarding.ts). Used by the operator preview control.
+// journeys/onboarding.ts).
 export const ONBOARDING_MILESTONE_STEP_IDS = [
   'welcome',
-  'first-decision',
+  'identity',
   'connect-agent',
-  'use-agent',
+  'create-spec',
+  'resolve-decision',
+  'add-ac',
+  'see-green',
   'all-set',
 ] as const;
 
 export const ONBOARDING_STEP_VIEWS: Record<string, JourneyStepView> = {
   welcome: {
     id: 'welcome',
-    mapLabel: 'Spec created',
+    mapLabel: 'Welcome',
     greetingHeading: true,
     headline: (
       <>
@@ -31,12 +35,21 @@ export const ONBOARDING_STEP_VIEWS: Record<string, JourneyStepView> = {
         </span>
       </>
     ),
-    // Beat 1 (spec-305 dec-6): a universal, role-agnostic cold open about the
-    // shared enemy — drift. The coder-specific ".md files are dead" line is a
-    // Beat-2 reward shown AFTER the user tells us their role, not in the cold open.
+    // Beat 1 (dec-6): a universal, role-agnostic cold open about the shared enemy —
+    // drift. The coder-specific ".md files are dead" line is a Beat-2 reward shown
+    // AFTER the user tells us their role, not in the cold open.
     body: 'Memex keeps intent and code in lockstep: one living source your agent reads, follows, and proves it honoured.',
-    primary: { label: 'Create your first spec', kind: 'action', target: 'create_spec' },
+    primary: { label: 'Get started', kind: 'navigate', target: 'identity' },
     secondary: { label: 'Why Memex?', kind: 'navigate', target: 'learn-more' },
+  },
+
+  // Map label only — the identity step is rendered by IdentityStep (HomeCanvas), so
+  // these headline/primary fields are never shown.
+  identity: {
+    id: 'identity',
+    mapLabel: 'You',
+    headline: '',
+    primary: { label: 'Continue', kind: 'navigate', target: 'identity' },
   },
 
   // Informational (navigate-only) — not a server milestone step.
@@ -46,40 +59,61 @@ export const ONBOARDING_STEP_VIEWS: Record<string, JourneyStepView> = {
     headline: 'A spec is a living plan.',
     sub: 'Not a doc that rots: a plan your agent reads and follows.',
     body: 'A spec captures what you are building and why — the decisions it hinges on, what "done" means, and the work to get there. Your coding agent reads it over MCP, so it builds the right thing and stays on track.',
-    primary: { label: 'Create your first spec', kind: 'action', target: 'create_spec' },
+    primary: { label: 'Get started', kind: 'navigate', target: 'identity' },
     secondary: { label: 'Back', kind: 'navigate', target: 'welcome' },
-  },
-
-  'first-decision': {
-    id: 'first-decision',
-    mapLabel: 'Decision made',
-    eyebrow: 'Memex · Next',
-    headline: 'Your spec is alive. Now make the call.',
-    sub: 'Every plan hinges on a few real decisions.',
-    body: 'Capture the choice your spec turns on as a decision, weigh the options, and resolve it. That is how the plan stays honest and your agent knows which path you picked.',
-    primary: { label: 'Capture a decision', kind: 'action', target: 'create_decision' },
-    secondary: { label: 'How decisions work', kind: 'link', target: 'https://www.memex.ai' },
   },
 
   'connect-agent': {
     id: 'connect-agent',
     mapLabel: 'Agent connected',
-    eyebrow: 'Memex · Next',
+    eyebrow: 'Memex · First, the big one',
     headline: 'Bring your coding agent.',
-    sub: 'Memex is where your agent gets its marching orders.',
-    body: 'Connect your agent over MCP and it can read your specs, standards and decisions, and report its progress back. One command and you are wired in.',
+    sub: 'This is the one that unlocks everything else.',
+    body: 'Connect your agent over MCP and it can read your specs, standards and decisions, and report progress back. One command and you are wired in — from here, your agent does the work while you watch it land.',
     primary: { label: 'Connect your agent', kind: 'action', target: 'connect_agent' },
     secondary: { label: "What's the MCP?", kind: 'link', target: 'https://www.memex.ai' },
   },
 
-  'use-agent': {
-    id: 'use-agent',
-    mapLabel: 'Agent used',
+  'create-spec': {
+    id: 'create-spec',
+    mapLabel: 'Spec created',
     eyebrow: 'Memex · Next',
-    headline: 'Put your agent to work.',
-    sub: 'Hand it a spec and watch it build.',
-    body: 'Your agent is connected. Open your Specs board, hand it the spec you created, and let it work the plan — every step tracked against what you agreed.',
-    primary: { label: 'Open your Specs board', kind: 'action', target: 'open_specs' },
+    headline: 'Hand your agent its first spec.',
+    sub: 'Bring a PRD, or use ours and follow along.',
+    body: 'Paste the prompt into your connected agent and it creates a spec in your personal Memex — point it at a real PRD/markdown file, or use our sample to learn the ropes.',
+    primary: { label: 'Create your first spec', kind: 'action', target: 'create_spec' },
+    secondary: { label: 'Open your Specs', kind: 'action', target: 'open_specs' },
+  },
+
+  'resolve-decision': {
+    id: 'resolve-decision',
+    mapLabel: 'Decision made',
+    eyebrow: 'Memex · Next',
+    headline: 'Make the first real call.',
+    sub: 'Every plan hinges on a few decisions.',
+    body: 'Capture the choice your spec turns on, weigh the options, and resolve it. That is how the plan stays honest and your agent knows which path you picked.',
+    primary: { label: 'Open your spec', kind: 'action', target: 'open_specs' },
+    secondary: { label: 'How decisions work', kind: 'link', target: 'https://www.memex.ai' },
+  },
+
+  'add-ac': {
+    id: 'add-ac',
+    mapLabel: 'AC added',
+    eyebrow: 'Memex · Next',
+    headline: 'Pin down what "done" means.',
+    sub: 'An acceptance criterion turns intent into something testable.',
+    body: 'Add an acceptance criterion to your decision — a plain statement of what the code must do. This is the promise your tests will hold the build to.',
+    primary: { label: 'Open your spec', kind: 'action', target: 'open_specs' },
+  },
+
+  'see-green': {
+    id: 'see-green',
+    mapLabel: 'AC green',
+    eyebrow: 'Memex · The moment',
+    headline: 'Watch it go green.',
+    sub: 'Your agent emits a test result, and the AC lights up.',
+    body: 'Have your agent run the test that backs your acceptance criterion. When it passes, the AC turns green right here — provable alignment between what you intended and what the code does. This is Memex.',
+    primary: { label: 'Open your spec', kind: 'action', target: 'open_specs' },
   },
 
   'all-set': {
@@ -87,9 +121,9 @@ export const ONBOARDING_STEP_VIEWS: Record<string, JourneyStepView> = {
     mapLabel: 'Set up',
     eyebrow: "Memex · You're set up",
     headline: "You're all set.",
-    sub: 'You have driven a spec end to end. This is Memex.',
-    body: 'From here, Home shows you what needs your attention next. Bring your colleagues in so the map grows with you.',
-    primary: { label: 'Invite your org', kind: 'action', target: 'invite' },
+    sub: 'You drove a spec from intent to a green AC. That is the whole loop.',
+    body: 'From here, Home shows what needs your attention next. When you are ready, bring your colleagues in — set up an organisation (free) so the map grows with the people you work with.',
+    primary: { label: 'Invite colleagues', kind: 'action', target: 'invite' },
     secondary: { label: 'Back to your Specs', kind: 'action', target: 'open_specs' },
   },
 };
