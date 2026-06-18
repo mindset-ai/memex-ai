@@ -54,9 +54,9 @@ test(TITLE, async ({ page }) => {
   await page.goto(bareUrl("/home"));
   await expect(page.getByRole("link", { name: "Home" })).toBeVisible({ timeout: 15_000 });
 
-  // A brand-new user sees the welcome step: the "MD files are dead" splash (ac-2).
+  // A brand-new user sees the welcome step: the universal Beat-1 cold open (spec-305).
   await expect(page.getByTestId("journey-step-welcome")).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByText(".md files")).toBeVisible();
+  await expect(page.getByText("drift apart")).toBeVisible();
   await expect(page.getByRole("button", { name: /Create your first spec/ })).toBeVisible();
 
   // Create a real spec for this user → the journey self-advances on the next load.

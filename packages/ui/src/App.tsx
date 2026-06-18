@@ -170,7 +170,8 @@ function TenantLayout() {
     return <VerifyEmailGate />;
   }
   if (session.needsOnboarding) {
-    return <Onboarding />;
+    // spec-305 dec-2: onboarding now lives in the Home Canvas journey (/home).
+    return <Navigate to="/home" replace />;
   }
 
   // Membership check: redirect to the user's default tenant when they aren't
@@ -331,7 +332,7 @@ function RootRedirect() {
   const { session } = useAuth();
   if (!session) return null; // session bootstrap still pending
   if (session && !session.user.emailVerified) return <VerifyEmailGate />;
-  if (session?.needsOnboarding) return <Onboarding />;
+  if (session?.needsOnboarding) return <Navigate to="/home" replace />; // spec-305 dec-2
   const target = computeDefaultLanding(session);
   if (target) return <Navigate to={target} replace />;
   return null;
@@ -496,8 +497,14 @@ export function PostLoginRouter() {
 // routes; flat routes that want chrome get them here.
 function FlatShell({ children }: { children: React.ReactNode }) {
   const { session } = useAuth();
+  const location = useLocation();
   if (session && !session.user.emailVerified) return <VerifyEmailGate />;
-  if (session?.needsOnboarding) return <Onboarding />;
+  // spec-305 dec-2: needs-onboarding users belong on the Home Canvas journey.
+  // Exempt /home itself so the journey renders there (its identity step clears
+  // needsOnboarding); every other flat route bounces them to /home.
+  if (session?.needsOnboarding && location.pathname !== '/home') {
+    return <Navigate to="/home" replace />;
+  }
   return (
     <ChatProvider>
       <OrgConsentDialog />

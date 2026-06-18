@@ -73,16 +73,20 @@ beforeEach(() => {
 });
 
 describe('HomeCanvas — welcome step (ac-2)', () => {
-  it('renders the MD-dead splash, greets by name, and offers two CTAs', async () => {
+  it('renders the universal Beat-1 cold open, greets by name, and offers two CTAs', async () => {
     tagAc(AC(2));
     tagAc(AC(8));
+    // spec-305 ac-1: the welcome is a universal, role-agnostic Beat-1 line (drift),
+    // not the coder-specific ".md files are dead" cold open.
+    tagAc('mindset-prod/memex-building-itself/specs/spec-305/acs/ac-1');
     fetchJourneyStateApi.mockResolvedValue(stateFor('welcome'));
     renderCanvas();
 
     expect(await screen.findByTestId('journey-step-welcome')).toBeInTheDocument();
-    expect(screen.getByText('.md files')).toBeInTheDocument();
-    expect(screen.getByText('dead')).toBeInTheDocument();
     expect(screen.getByText('Welcome to Memex.')).toBeInTheDocument();
+    expect(screen.getByText('drift apart')).toBeInTheDocument();
+    // The coder-specific ".md files" line is a Beat-2 reward, never the cold open.
+    expect(screen.queryByText('.md files')).not.toBeInTheDocument();
     expect(screen.getByText('John')).toBeInTheDocument(); // greeting first-name
     expect(screen.getByTestId('journey-cta-primary')).toHaveTextContent('Create your first spec');
     expect(screen.getByTestId('journey-cta-secondary')).toHaveTextContent('Why Memex?');
