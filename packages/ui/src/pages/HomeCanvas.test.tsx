@@ -198,12 +198,12 @@ describe('HomeCanvas — CTA allow-list (ac-5 / impl ac-12)', () => {
     );
   });
 
-  it("a 'navigate' CTA moves within the canvas (Why Memex? → learn-more), no route change", async () => {
+  it("a 'navigate' CTA moves within the canvas (Why Memex? → node-graph), no route change", async () => {
     tagAc(AC(12));
     fetchJourneyStateApi.mockResolvedValue(stateFor('welcome'));
     renderCanvas();
     fireEvent.click(await screen.findByTestId('journey-cta-secondary'));
-    expect(await screen.findByTestId('journey-step-learn-more')).toBeInTheDocument();
+    expect(await screen.findByTestId('journey-step-why-memex')).toBeInTheDocument();
     expect(screen.getByTestId('location')).toHaveTextContent('/home');
   });
 });

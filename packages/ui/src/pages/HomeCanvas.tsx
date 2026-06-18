@@ -18,6 +18,7 @@ import { ConnectAgentStep } from '../components/home/ConnectAgentStep';
 import { CreateSpecStep } from '../components/home/CreateSpecStep';
 import { AgentPromptStep } from '../components/home/AgentPromptStep';
 import { SeeGreenStep } from '../components/home/SeeGreenStep';
+import { WhyMemex } from '../components/home/WhyMemex';
 import type { JourneyCta, JourneyStepView } from '../journeys/types';
 
 type NavMembership = { slug: string; memexSlug?: string | null; kind: string };
@@ -82,9 +83,13 @@ export function HomeCanvas() {
     setViewOverride(null);
   }, [serverStepId]);
 
-  // Measurement (ac-7): a step was shown. Real (non-preview) views only.
+  // Measurement (ac-7): a milestone step was shown. Real (non-preview) views only, and
+  // only server milestone steps — informational client views (why-memex, learn-more)
+  // aren't valid step ids server-side and would 400.
   useEffect(() => {
-    if (displayStepId && !preview) postJourneyEventApi(displayStepId, 'shown');
+    if (displayStepId && !preview && activeJourney().milestoneStepIds.includes(displayStepId)) {
+      postJourneyEventApi(displayStepId, 'shown');
+    }
   }, [displayStepId, preview]);
 
   const specsPath = useMemo(
@@ -94,14 +99,16 @@ export function HomeCanvas() {
 
   const handleCta = useCallback(
     (cta: JourneyCta) => {
-      if (activeStepId && !preview) postJourneyEventApi(activeStepId, 'cta', cta.target);
-      // In preview, CTAs are render-only (dec-8): show the step, change nothing.
-      if (preview) return;
-
+      if (activeStepId && !preview && activeJourney().milestoneStepIds.includes(activeStepId)) {
+        postJourneyEventApi(activeStepId, 'cta', cta.target);
+      }
+      // A 'navigate' CTA only changes the in-canvas view — it writes nothing, so it works
+      // even in operator preview. Only data-writing actions/links are sandboxed (dec-8).
       if (cta.kind === 'navigate') {
         setViewOverride(cta.target);
         return;
       }
+      if (preview) return;
       if (cta.kind === 'link') {
         window.open(cta.target, '_blank', 'noopener,noreferrer');
         return;
@@ -175,6 +182,9 @@ export function HomeCanvas() {
       ) : displayStepId === 'see-green' ? (
         // spec-305 dec-8: the aha — watch an AC go green from a real test (acVerified).
         <SeeGreenStep preview={preview} onComplete={load} />
+      ) : displayStepId === 'why-memex' ? (
+        // spec-305 — the interactive "Why Memex?" node-graph (the three pains → synthesis).
+        <WhyMemex onNavigate={(t) => setViewOverride(t)} />
       ) : view ? (
         <JourneyStepShell view={view} userName={firstName(user?.name)} onCta={handleCta} />
       ) : (
