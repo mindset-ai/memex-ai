@@ -53,10 +53,14 @@ interface NavLinkDef {
 
 // spec-303 — the Home Canvas: the top nav item and a user-level (flat) destination,
 // identical across all of a user's Memexes (dec-2). `flat` keeps it at /home.
+// `feature: 'home'` plugs it into the server-driven hide list (HIDDEN_FEATURES)
+// so the whole surface can be hidden per-env (e.g. prod) while it's live on int —
+// the same mechanism as Pulse/Scaffold. The route is gated in App.tsx to match.
 const HOME_NAV_LINK: NavLinkDef = {
   to: '/home',
   label: 'Home',
   flat: true,
+  feature: 'home',
   icon: (
     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M3 12l9-9 9 9M5 10v10a1 1 0 001 1h3v-5a1 1 0 011-1h2a1 1 0 011 1v5h3a1 1 0 001-1V10" />
@@ -613,8 +617,12 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
 
         <nav className="flex-1 min-h-0 overflow-y-auto px-3 space-y-0.5">
-          {/* spec-303 — Home Canvas: the first, top-level, user-level destination. */}
-          <NavItem {...HOME_NAV_LINK} pathname={location.pathname} />
+          {/* spec-303 — Home Canvas: the first, top-level, user-level destination.
+              Gated on the server-driven hide list (feature: 'home') so it can be
+              hidden per-env (e.g. prod) while live on int — same mechanism as Pulse. */}
+          {!isLinkHidden(HOME_NAV_LINK.feature) && (
+            <NavItem {...HOME_NAV_LINK} pathname={location.pathname} />
+          )}
 
           {/* spec-260 t-11: two labelled groups — PRINCIPLES (the working
               surfaces) and IN-BOXES (the badge-carrying attention surfaces). */}
