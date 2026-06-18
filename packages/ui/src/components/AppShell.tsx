@@ -496,7 +496,10 @@ export function AppShell({ children }: { children: ReactNode }) {
   // where the sidebar is hidden.
   const driftCount = useDriftInboxCount(!onDocPage);
   // spec-158: my open issues (Specs assigned to me) for the Issues nav badge.
-  const myIssuesCount = useMyIssuesCount(!onDocPage);
+  // spec-305: the issues-list endpoint is tenant-scoped (/api/:ns/:mx/issues-list),
+  // so only fetch on a tenant page — otherwise the badge 404s on flat user-level
+  // surfaces like /home (now the landing page). No tenant ⇒ no count, no request.
+  const myIssuesCount = useMyIssuesCount(!onDocPage && !!parseTenantFromPathname(location.pathname));
   // spec-260 (dec-6): per-user unread QA reports for the QA Reports nav badge —
   // reports generated since this user last viewed the feed, all executors.
   const qaReportsUnreadCount = useQaReportsUnreadCount(!onDocPage);
