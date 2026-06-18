@@ -15,6 +15,7 @@ import { resolveStepView, activeJourney } from '../journeys/registry';
 import { JourneyStepShell } from '../components/home/JourneyStepShell';
 import { IdentityStep } from '../components/home/IdentityStep';
 import { ConnectAgentStep } from '../components/home/ConnectAgentStep';
+import { CreateSpecStep } from '../components/home/CreateSpecStep';
 import type { JourneyCta, JourneyStepView } from '../journeys/types';
 
 type NavMembership = { slug: string; memexSlug?: string | null; kind: string };
@@ -150,6 +151,10 @@ export function HomeCanvas() {
         // spec-305 dec-7: the rich connect-MCP card — OS + tool tailored instructions
         // with a live green-tick that advances the moment the agent connects.
         <ConnectAgentStep preview={preview} onComplete={load} />
+      ) : activeStepId === 'create-spec' ? (
+        // spec-305 dec-9: copy-paste prompt + bring-your-own-PRD or sample; advances
+        // the moment the agent creates the spec (hasSpec).
+        <CreateSpecStep preview={preview} onComplete={load} />
       ) : view ? (
         <JourneyStepShell view={view} userName={firstName(user?.name)} onCta={handleCta} />
       ) : (
