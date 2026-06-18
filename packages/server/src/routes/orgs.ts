@@ -24,8 +24,17 @@ import { getEmailSender } from "../services/email/sender.js";
 import { buildDomainVerificationEmail } from "../services/email/templates.js";
 import { buildAppBaseUrl } from "../services/shared/tenant-url.js";
 import { db } from "../db/connection.js";
-import { memexes, namespaces } from "../db/schema.js";
-import { eq } from "drizzle-orm";
+import { memexes, namespaces, orgs, orgMemberships } from "../db/schema.js";
+import { eq, and, count } from "drizzle-orm";
+import {
+  createBillingPortalSession,
+  createStripeCustomer,
+  attachPaymentMethod,
+  createSubscription,
+  updateSubscriptionSeats,
+  previewUpcomingInvoice,
+  StripeApiError,
+} from "../services/stripe.js";
 import { ConflictError, ValidationError } from "../types/errors.js";
 import { readJsonBody, requireString } from "./validation.js";
 
@@ -182,6 +191,12 @@ orgsCurrentRouter.patch("/current", adminGate, async (c) => {
   if (typeof body?.autoGroupingEnabled === "boolean") {
     input.autoGroupingEnabled = body.autoGroupingEnabled;
   }
+  if (typeof body?.billingContactName === "string" || body?.billingContactName === null) {
+    input.billingContactName = body.billingContactName as string | null;
+  }
+  if (typeof body?.billingContactEmail === "string" || body?.billingContactEmail === null) {
+    input.billingContactEmail = body.billingContactEmail as string | null;
+  }
 
   try {
     const summary = await updateOrgSettings(orgId, input);
@@ -245,6 +260,210 @@ orgsCurrentRouter.patch("/current/members/:userId", adminGate, async (c) => {
     }
     throw err;
   }
+});
+
+// POST /api/<ns>/<mx>/orgs/current/subscription — admin: create or upgrade Stripe subscription.
+// Body: { plan: 'premium'|'enterprise', seats: number, billingCycle: 'monthly'|'annual', paymentMethodId: string }
+// Creates the Stripe customer if this is the org's first purchase. Attaches the payment method as default,
+// creates the subscription, then persists plan_tier + stripe_subscription_id + seats_purchased to the org row.
+orgsCurrentRouter.post("/current/subscription", adminGate, async (c) => {
+  const memexId = c.get("currentMemexId")!;
+  const orgId = await resolveOrgIdFromMemex(memexId);
+  if (!orgId) return c.json({ error: "Org context required" }, 404);
+
+  const body = await c.req.json<Record<string, unknown>>().catch(() => null);
+  if (!body) return c.json({ error: "Invalid JSON body" }, 400);
+
+  const { plan, seats, billingCycle, paymentMethodId } = body;
+
+  if (plan !== "premium" && plan !== "enterprise") {
+    return c.json({ error: "plan must be 'premium' or 'enterprise'" }, 400);
+  }
+  if (typeof seats !== "number" || seats < 1 || !Number.isInteger(seats)) {
+    return c.json({ error: "seats must be a positive integer" }, 400);
+  }
+  if (billingCycle !== "monthly" && billingCycle !== "annual") {
+    return c.json({ error: "billingCycle must be 'monthly' or 'annual'" }, 400);
+  }
+  if (typeof paymentMethodId !== "string" || !paymentMethodId.trim()) {
+    return c.json({ error: "paymentMethodId is required" }, 400);
+  }
+
+  const [org] = await db
+    .select({ stripeCustomerId: orgs.stripeCustomerId, name: orgs.name })
+    .from(orgs)
+    .where(eq(orgs.id, orgId))
+    .limit(1);
+
+  if (!org) return c.json({ error: "Org not found" }, 404);
+
+  const user = c.get("user")!;
+
+  try {
+    let customerId = org.stripeCustomerId;
+    if (!customerId) {
+      customerId = await createStripeCustomer(user.email, org.name, orgId);
+      await db.update(orgs).set({ stripeCustomerId: customerId }).where(eq(orgs.id, orgId));
+    }
+
+    await attachPaymentMethod(customerId, (paymentMethodId as string).trim());
+
+    const { subscriptionId, currentPeriodEnd } = await createSubscription(
+      customerId,
+      plan,
+      seats,
+      billingCycle,
+    );
+
+    await db
+      .update(orgs)
+      .set({ stripeSubscriptionId: subscriptionId, planTier: plan, seatsPurchased: seats })
+      .where(eq(orgs.id, orgId));
+
+    return c.json({
+      success: true,
+      tier: plan,
+      seatsPurchased: seats,
+      currentPeriodEnd: new Date(currentPeriodEnd * 1000).toISOString(),
+    });
+  } catch (err) {
+    if (err instanceof StripeApiError && err.stripeError.type === "card_error") {
+      return c.json(
+        { error: "card_error", message: err.stripeError.message ?? "Your card was declined." },
+        402,
+      );
+    }
+    throw err;
+  }
+});
+
+// GET /api/<ns>/<mx>/orgs/current/subscription/preview — admin: preview proration for a seat-count change.
+// Query: ?seats=N  (proposed new seat count)
+// Returns { amountDue, currency } — positive = charge today, negative = credit on next invoice.
+// 402 when the org has no active Stripe subscription.
+orgsCurrentRouter.get("/current/subscription/preview", adminGate, async (c) => {
+  const memexId = c.get("currentMemexId")!;
+  const orgId = await resolveOrgIdFromMemex(memexId);
+  if (!orgId) return c.json({ error: "Org context required" }, 404);
+
+  const seatsRaw = c.req.query("seats");
+  const seats = seatsRaw ? parseInt(seatsRaw, 10) : NaN;
+  if (isNaN(seats) || seats < 1) return c.json({ error: "seats must be a positive integer" }, 400);
+
+  const [org] = await db
+    .select({ stripeCustomerId: orgs.stripeCustomerId, stripeSubscriptionId: orgs.stripeSubscriptionId })
+    .from(orgs)
+    .where(eq(orgs.id, orgId))
+    .limit(1);
+
+  if (!org) return c.json({ error: "Org not found" }, 404);
+  if (!org.stripeCustomerId || !org.stripeSubscriptionId) {
+    return c.json({ error: "No active subscription" }, 402);
+  }
+
+  const preview = await previewUpcomingInvoice(org.stripeCustomerId, org.stripeSubscriptionId, seats);
+  return c.json(preview);
+});
+
+// PATCH /api/<ns>/<mx>/orgs/current/subscription — admin: update seat count on an active subscription.
+// Body: { seats: number }
+// Applies immediately with proration per dec-11. 402 when no active subscription.
+orgsCurrentRouter.patch("/current/subscription", adminGate, async (c) => {
+  const memexId = c.get("currentMemexId")!;
+  const orgId = await resolveOrgIdFromMemex(memexId);
+  if (!orgId) return c.json({ error: "Org context required" }, 404);
+
+  const body = await readJsonBody<{ seats?: unknown }>(c);
+  const seats = typeof body?.seats === "number" ? body.seats : parseInt(String(body?.seats), 10);
+  if (isNaN(seats) || seats < 1) return c.json({ error: "seats must be a positive integer" }, 400);
+
+  const [org] = await db
+    .select({ stripeSubscriptionId: orgs.stripeSubscriptionId })
+    .from(orgs)
+    .where(eq(orgs.id, orgId))
+    .limit(1);
+
+  if (!org) return c.json({ error: "Org not found" }, 404);
+  if (!org.stripeSubscriptionId) return c.json({ error: "No active subscription" }, 402);
+
+  await updateSubscriptionSeats(org.stripeSubscriptionId, seats);
+  await db.update(orgs).set({ seatsPurchased: seats }).where(eq(orgs.id, orgId));
+
+  return c.json({ ok: true, seatsPurchased: seats });
+});
+
+// GET /api/<ns>/<mx>/orgs/current/billing-portal — admin: generate a Stripe Billing Portal session URL.
+// Query: ?returnUrl=<encoded-url>  (where to send the user back from the portal)
+// Returns { url } — the short-lived Stripe-hosted portal URL.
+// 402 when the org has no Stripe customer yet (hasn't purchased).
+orgsCurrentRouter.get("/current/billing-portal", adminGate, async (c) => {
+  const memexId = c.get("currentMemexId")!;
+  const orgId = await resolveOrgIdFromMemex(memexId);
+  if (!orgId) return c.json({ error: "Org context required" }, 404);
+
+  const returnUrl = c.req.query("returnUrl");
+  if (!returnUrl || !returnUrl.trim()) {
+    return c.json({ error: "returnUrl query parameter is required" }, 400);
+  }
+
+  const [org] = await db
+    .select({ stripeCustomerId: orgs.stripeCustomerId })
+    .from(orgs)
+    .where(eq(orgs.id, orgId))
+    .limit(1);
+
+  if (!org) return c.json({ error: "Org not found" }, 404);
+  if (!org.stripeCustomerId) {
+    return c.json({ error: "No active subscription — complete a purchase first" }, 402);
+  }
+
+  const url = await createBillingPortalSession(org.stripeCustomerId, returnUrl.trim());
+  return c.json({ url });
+});
+
+// GET /api/<ns>/<mx>/orgs/current/subscription — admin: current plan tier, seat counts, and billing info.
+// Returns the org's Stripe tier (free/premium/enterprise/self-hosted-enterprise), active member count,
+// and a seatsWarning when active members exceed purchased seats. Used by the frontend to drive
+// feature flags and the Settings > Billing display (per s-8 tier query section of spec-171).
+orgsCurrentRouter.get("/current/subscription", adminGate, async (c) => {
+  const memexId = c.get("currentMemexId")!;
+  const orgId = await resolveOrgIdFromMemex(memexId);
+  if (!orgId) return c.json({ error: "Org context required" }, 404);
+
+  const [org] = await db
+    .select({
+      stripeCustomerId: orgs.stripeCustomerId,
+      planTier: orgs.planTier,
+      seatsPurchased: orgs.seatsPurchased,
+    })
+    .from(orgs)
+    .where(eq(orgs.id, orgId))
+    .limit(1);
+
+  if (!org) return c.json({ error: "Org not found" }, 404);
+
+  // Count non-disabled members
+  const [{ value: activeMemberCount }] = await db
+    .select({ value: count() })
+    .from(orgMemberships)
+    .where(and(eq(orgMemberships.orgId, orgId), eq(orgMemberships.status, "active")));
+
+  const tier = org.stripeCustomerId && org.planTier ? org.planTier : "free";
+  const seatsPurchased = org.seatsPurchased ?? null;
+
+  const seatsWarning =
+    seatsPurchased !== null && activeMemberCount > seatsPurchased
+      ? { purchased: seatsPurchased, active: activeMemberCount }
+      : null;
+
+  return c.json({
+    tier,
+    seatsPurchased,
+    activeMemberCount,
+    billingCycle: null,      // TODO t-8: read from Stripe subscription once subscription create is wired
+    currentPeriodEnd: null,  // TODO t-8: read from Stripe subscription once subscription create is wired
+    seatsWarning,
+  });
 });
 
 // POST /api/<ns>/<mx>/orgs/current/domains/verify — admin initiates email-based verification for a domain.

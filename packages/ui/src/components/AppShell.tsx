@@ -1,4 +1,5 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { SeatsWarningBanner } from './upgrade/SeatsWarningBanner';
 import { Link, NavLink, useLocation, useMatch } from 'react-router-dom';
 import { useAuth } from './AuthContext';
 import { useTheme } from './ThemeContext';
@@ -608,7 +609,11 @@ export function AppShell({ children }: { children: ReactNode }) {
         )}
       </aside>
 
-      <main className="flex-1 min-h-0 overflow-y-auto">{children}</main>
+      <main className="flex-1 min-h-0 overflow-y-auto flex flex-col">
+        {/* spec-171: seats over-limit warning shown to admins on all workspace pages */}
+        <SeatsWarningBanner />
+        <div className="flex-1">{children}</div>
+      </main>
 
       {/* spec-141 dec-2: invite dialog (portal-rendered to body). Opened from
           the MemexSwitcher-adjacent shortcut above. */}

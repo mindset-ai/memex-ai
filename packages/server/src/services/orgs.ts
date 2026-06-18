@@ -160,6 +160,10 @@ export interface OrgSummary {
   domainVerified: boolean;
   freeDomainsInUse: string[];
   verifiedDomains: Array<{ domain: string; method: "sso" | "email"; verifiedAt: Date }>;
+  // Designated billing contact (spec-171 t-1). Null means payment emails go to
+  // the org creator / all admins.
+  billingContactName: string | null;
+  billingContactEmail: string | null;
 }
 
 export async function getOrgSummary(orgId: string): Promise<OrgSummary | null> {
@@ -187,6 +191,8 @@ export async function getOrgSummary(orgId: string): Promise<OrgSummary | null> {
       method: v.verificationMethod as "sso" | "email",
       verifiedAt: v.verifiedAt,
     })),
+    billingContactName: org.billingContactName ?? null,
+    billingContactEmail: org.billingContactEmail ?? null,
   };
 }
 
@@ -194,6 +200,8 @@ export interface UpdateOrgInput {
   name?: string;
   emailDomains?: string[];
   autoGroupingEnabled?: boolean;
+  billingContactName?: string | null;
+  billingContactEmail?: string | null;
 }
 
 export async function updateOrgSettings(
@@ -220,12 +228,21 @@ export async function updateOrgSettings(
     }
   }
 
+  if (input.billingContactEmail !== undefined && input.billingContactEmail !== null) {
+    // Basic format guard — no library per std-13 zero-dep bias.
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input.billingContactEmail)) {
+      throw new ValidationError("Invalid billing contact email");
+    }
+  }
+
   const patch: Partial<typeof orgs.$inferInsert> & { updatedAt: Date } = {
     updatedAt: new Date(),
   };
   if (input.name !== undefined) patch.name = input.name;
   if (input.emailDomains !== undefined) patch.emailDomains = resolvedDomains;
   if (input.autoGroupingEnabled !== undefined) patch.autoGroupingEnabled = resolvedAutoGrouping;
+  if (input.billingContactName !== undefined) patch.billingContactName = input.billingContactName;
+  if (input.billingContactEmail !== undefined) patch.billingContactEmail = input.billingContactEmail;
 
   const memexId = (await primaryMemexIdForOrg(orgId)) ?? "";
 
