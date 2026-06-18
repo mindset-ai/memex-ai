@@ -39,13 +39,30 @@ describe('ConnectAgentStep', () => {
     expect(screen.queryByTestId('os-mac')).not.toBeInTheDocument();
   });
 
-  it('lights the green tick and advances when mcp.connected is detected', async () => {
+  it('flips to the Memex-native reward state + latches when mcp.connected is detected', async () => {
     tagAc(AC(3));
+    fetchJourneyStateApi.mockResolvedValue({ milestones: { mcpConnected: true } });
+    const onConnected = vi.fn();
+    render(<ConnectAgentStep onConnected={onConnected} />);
+    expect(await screen.findByTestId('connect-reward')).toBeInTheDocument();
+    expect(screen.getByTestId('connect-reward-prompt').textContent).toMatch(/get_information/);
+    await waitFor(() => expect(onConnected).toHaveBeenCalled());
+  });
+
+  it('auto-dismisses (advances) on the first tool call', async () => {
+    tagAc(AC(3));
+    fetchJourneyStateApi.mockResolvedValue({ milestones: { mcpConnected: true, mcpToolCalled: true } });
+    const onComplete = vi.fn();
+    render(<ConnectAgentStep onComplete={onComplete} />);
+    await waitFor(() => expect(onComplete).toHaveBeenCalled(), { timeout: 2500 });
+  });
+
+  it('Next advances manually from the reward state', async () => {
     fetchJourneyStateApi.mockResolvedValue({ milestones: { mcpConnected: true } });
     const onComplete = vi.fn();
     render(<ConnectAgentStep onComplete={onComplete} />);
-    expect(await screen.findByTestId('connect-connected')).toBeInTheDocument();
-    await waitFor(() => expect(onComplete).toHaveBeenCalled(), { timeout: 2500 });
+    fireEvent.click(await screen.findByTestId('connect-next'));
+    expect(onComplete).toHaveBeenCalled();
   });
 
   it('in operator preview it is render-only: no polling, no advance', () => {

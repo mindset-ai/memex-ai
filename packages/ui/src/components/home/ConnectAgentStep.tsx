@@ -1,9 +1,10 @@
 // spec-305 dec-7 — the connect-agent step: the one real friction cliff, so it gets
 // the richest card. Detect (and let the user change) their OS, pick their coding
-// agent, and show the exact tailored MCP setup. A live green-tick lights up the
-// instant we detect the connection — no manual "I'm done". Reuses the portable
-// installBase/mcpUrl derivation and the CodeBlock primitive (DRY with the Settings
-// install section + the docs page).
+// agent, and show the exact tailored MCP setup. When the connection lands, the card
+// flips to a REWARD state — "your agent is now Memex-native, ask it anything" — which
+// teaches get_information and proves the install in one beat. It auto-dismisses on the
+// user's first tool call (or a manual Next). Reuses the portable installBase/mcpUrl
+// derivation + the CodeBlock primitive (DRY with the Settings install section).
 import { useEffect, useRef, useState } from 'react';
 import { CodeBlock } from '../CodeBlock';
 import { installBase, mcpUrl } from '../../utils/mcpUrl';
@@ -34,6 +35,11 @@ const shInstall = `curl -fsSL ${installBase}/install.sh | sh`;
 const psInstall = `irm ${installBase}/install.ps1 | iex`;
 const cursorCfg = `{\n  "mcpServers": {\n    "memex": {\n      "url": "${mcpUrl}"\n    }\n  }\n}`;
 const vscodeCfg = `{\n  "servers": {\n    "memex": {\n      "type": "http",\n      "url": "${mcpUrl}"\n    }\n  }\n}`;
+
+// The reward prompt — proves the agent is Memex-native and teaches get_information.
+const ASK_PROMPT = `Using Memex (you're connected now), answer me:
+
+"What is Memex, and what are its core principles? Use the get_information tool, then explain it simply — like I'm new."`;
 
 function Instructions({ tool, os }: { tool: Tool; os: Os }) {
   if (tool === 'claude-code' || tool === 'claude-desktop') {
@@ -98,30 +104,40 @@ function Instructions({ tool, os }: { tool: Tool; os: Os }) {
 export function ConnectAgentStep({
   preview = false,
   onComplete,
+  onConnected,
 }: {
   preview?: boolean;
   onComplete?: () => void;
+  // Called once when the connection is first detected — lets the parent "latch" so a
+  // focus-refetch can't skip the reward state.
+  onConnected?: () => void;
 } = {}) {
   const [os, setOs] = useState<Os>(detectOs);
   const [tool, setTool] = useState<Tool>('claude-code');
   const [connected, setConnected] = useState(false);
   const doneRef = useRef(false);
 
-  // Live green-tick: poll journey-state for mcp.connected while on this step. The MCP
-  // handshake records the milestone server-side; we light up the instant we see it,
-  // then advance. Operator preview is render-only — no polling, no advance.
+  // Poll journey-state. On mcp.connected → flip to the reward state (and latch). On the
+  // user's first tool call → auto-dismiss/advance. Operator preview is render-only.
   useEffect(() => {
     if (preview) return;
     let alive = true;
+    let latched = false;
     const tick = async () => {
       try {
         const s = await fetchJourneyStateApi();
-        if (alive && s.milestones?.mcpConnected) {
-          setConnected(true);
+        if (!alive) return;
+        if (s.milestones?.mcpToolCalled) {
           if (!doneRef.current) {
             doneRef.current = true;
-            setTimeout(() => onComplete?.(), 1400);
+            onComplete?.();
           }
+          return;
+        }
+        if (s.milestones?.mcpConnected && !latched) {
+          latched = true;
+          setConnected(true);
+          onConnected?.();
         }
       } catch {
         /* polling is best-effort */
@@ -133,7 +149,7 @@ export function ConnectAgentStep({
       alive = false;
       clearInterval(id);
     };
-  }, [preview, onComplete]);
+  }, [preview, onComplete, onConnected]);
 
   const osMatters = tool === 'claude-code' || tool === 'claude-desktop';
 
@@ -143,84 +159,109 @@ export function ConnectAgentStep({
         data-testid="journey-step-connect-agent"
         className="relative w-full max-w-2xl overflow-hidden rounded-3xl border border-edge bg-surface/70 p-8 shadow-2xl backdrop-blur-xl sm:p-12"
       >
-        <div className="mb-5 text-xs font-semibold uppercase tracking-[0.14em] text-muted">
-          Memex · First, the big one
-        </div>
-        <h1 className="text-4xl font-black leading-[1.08] tracking-tight text-heading sm:text-5xl">
-          Bring your coding agent.
-        </h1>
-        <p className="mt-4 text-lg font-semibold text-primary">This is the one that unlocks everything else.</p>
-        <p className="mt-4 max-w-prose leading-relaxed text-secondary">
-          Connect your agent over MCP and it can read your specs, standards and decisions, and report progress
-          back. From here, your agent does the work while you watch it land.
-        </p>
-
-        {osMatters && (
-          <div className="mt-7">
-            <span className="mb-2 block text-sm font-medium text-secondary">Your machine</span>
-            <div className="flex flex-wrap gap-2">
-              {(['mac', 'windows', 'linux'] as Os[]).map((o) => (
-                <button
-                  key={o}
-                  type="button"
-                  data-testid={`os-${o}`}
-                  onClick={() => setOs(o)}
-                  className={`rounded-lg border px-3 py-1.5 text-sm transition ${
-                    o === os
-                      ? 'border-accent bg-accent/10 font-medium text-accent'
-                      : 'border-edge text-secondary hover:bg-card-hover'
-                  }`}
-                >
-                  {OS_LABEL[o]}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        <div className="mt-6">
-          <span className="mb-2 block text-sm font-medium text-secondary">Your coding agent</span>
-          <div className="flex flex-wrap gap-2">
-            {TOOLS.map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                data-testid={`tool-${t.id}`}
-                onClick={() => setTool(t.id)}
-                className={`rounded-lg border px-3 py-1.5 text-sm transition ${
-                  t.id === tool
-                    ? 'border-accent bg-accent/10 font-medium text-accent'
-                    : 'border-edge text-secondary hover:bg-card-hover'
-                }`}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="mt-6" data-testid="connect-instructions">
-          <Instructions tool={tool} os={os} />
-        </div>
-
-        <div className="mt-7" data-testid="connect-status">
-          {connected ? (
-            <div
-              data-testid="connect-connected"
-              className="flex items-center gap-3 rounded-xl border border-status-success-border bg-status-success-bg px-4 py-3 text-status-success-text"
-            >
-              <span className="flex h-7 w-7 flex-none items-center justify-center rounded-full bg-status-success-text text-base text-white">
+        {connected ? (
+          // Reward state — proves the agent is now Memex-native and teaches get_information.
+          <div data-testid="connect-reward">
+            <div className="mb-5 flex items-center gap-3">
+              <span className="flex h-9 w-9 flex-none items-center justify-center rounded-full bg-status-success-text text-lg text-white">
                 ✓
               </span>
-              <span className="font-semibold">Your agent is connected. Taking you on…</span>
+              <span className="text-xs font-semibold uppercase tracking-[0.14em] text-status-success-text">
+                Connected
+              </span>
             </div>
-          ) : (
-            <div data-testid="connect-waiting" className="flex items-center gap-2 text-sm text-muted">
+            <h1 className="text-4xl font-black leading-[1.08] tracking-tight text-heading sm:text-5xl">
+              Your agent is now Memex-native.
+            </h1>
+            <p className="mt-4 max-w-prose leading-relaxed text-secondary">
+              It can read your Memex and answer questions about it. Try it — ask your agent:
+            </p>
+            <div className="mt-5" data-testid="connect-reward-prompt">
+              <CodeBlock code={ASK_PROMPT} />
+            </div>
+            <p className="mt-3 text-xs text-muted">
+              Ask it and this moves on by itself the moment it calls a Memex tool — or just continue.
+            </p>
+            <div className="mt-7">
+              <button
+                type="button"
+                data-testid="connect-next"
+                onClick={() => onComplete?.()}
+                className="inline-flex items-center gap-2 rounded-xl bg-[linear-gradient(96deg,#8b5cf6,#6366f1)] px-5 py-3 text-sm font-bold text-white shadow-lg transition hover:brightness-110"
+              >
+                Next
+                <span aria-hidden>→</span>
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="mb-5 text-xs font-semibold uppercase tracking-[0.14em] text-muted">
+              Memex · First, the big one
+            </div>
+            <h1 className="text-4xl font-black leading-[1.08] tracking-tight text-heading sm:text-5xl">
+              Bring your coding agent.
+            </h1>
+            <p className="mt-4 text-lg font-semibold text-primary">This is the one that unlocks everything else.</p>
+            <p className="mt-4 max-w-prose leading-relaxed text-secondary">
+              Connect your agent over MCP and it can read your specs, standards and decisions, and report progress
+              back. From here, your agent does the work while you watch it land.
+            </p>
+
+            {osMatters && (
+              <div className="mt-7">
+                <span className="mb-2 block text-sm font-medium text-secondary">Your machine</span>
+                <div className="flex flex-wrap gap-2">
+                  {(['mac', 'windows', 'linux'] as Os[]).map((o) => (
+                    <button
+                      key={o}
+                      type="button"
+                      data-testid={`os-${o}`}
+                      onClick={() => setOs(o)}
+                      className={`rounded-lg border px-3 py-1.5 text-sm transition ${
+                        o === os
+                          ? 'border-accent bg-accent/10 font-medium text-accent'
+                          : 'border-edge text-secondary hover:bg-card-hover'
+                      }`}
+                    >
+                      {OS_LABEL[o]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="mt-6">
+              <span className="mb-2 block text-sm font-medium text-secondary">Your coding agent</span>
+              <div className="flex flex-wrap gap-2">
+                {TOOLS.map((t) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    data-testid={`tool-${t.id}`}
+                    onClick={() => setTool(t.id)}
+                    className={`rounded-lg border px-3 py-1.5 text-sm transition ${
+                      t.id === tool
+                        ? 'border-accent bg-accent/10 font-medium text-accent'
+                        : 'border-edge text-secondary hover:bg-card-hover'
+                    }`}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-6" data-testid="connect-instructions">
+              <Instructions tool={tool} os={os} />
+            </div>
+
+            <div className="mt-7 flex items-center gap-2 text-sm text-muted" data-testid="connect-waiting">
               <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-accent" />
               Waiting for your agent to connect — this lights up the moment it does.
             </div>
-          )}
-        </div>
+          </>
+        )}
       </article>
     </div>
   );

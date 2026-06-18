@@ -114,6 +114,7 @@ describe("Home Canvas journey-state (ac-3 derived position)", () => {
     expect(body.milestones).toEqual({
       identityConfirmed: false,
       mcpConnected: false,
+      mcpToolCalled: false,
       hasSpec: false,
       hasResolvedDecision: false,
       hasAc: false,

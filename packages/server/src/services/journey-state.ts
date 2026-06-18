@@ -103,6 +103,15 @@ export async function getUserMilestones(
       and(eq(usageEvents.actorUserId, userId), eq(usageEvents.name, "mcp.connected")),
     );
 
+  // Non-gating (spec-305 dec-7): the user's first MCP tool call drives the
+  // connect-agent reward's auto-dismiss; no step gates on it.
+  const [toolRow] = await conn
+    .select({ n: sql<number>`count(*)::int` })
+    .from(usageEvents)
+    .where(
+      and(eq(usageEvents.actorUserId, userId), eq(usageEvents.name, "mcp.tool_called")),
+    );
+
   // acVerified (dec-8): one of the user's ACs has a latest test event of 'pass'.
   // Join the AC to its canonical ref (namespace/memex/specs/handle/acs/ac-seq —
   // identical to acs.buildAcRef) and match test_event_latest.ac_uid, the SAME key
@@ -125,6 +134,7 @@ export async function getUserMilestones(
   return {
     identityConfirmed: !!userRow?.confirmedAt,
     mcpConnected: (connectedRow?.n ?? 0) > 0,
+    mcpToolCalled: (toolRow?.n ?? 0) > 0,
     hasSpec: (specRow?.n ?? 0) > 0,
     hasResolvedDecision: (resolvedDecisionRow?.n ?? 0) > 0,
     hasAc: (acRow?.n ?? 0) > 0,

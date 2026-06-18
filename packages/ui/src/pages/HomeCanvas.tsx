@@ -47,6 +47,9 @@ export function HomeCanvas() {
   const [state, setState] = useState<JourneyStateResponse | null>(null);
   // An in-canvas navigate (e.g. "Why Memex?") that wins until the real step changes.
   const [viewOverride, setViewOverride] = useState<string | null>(null);
+  // spec-305 dec-7: while the connect-agent reward is showing, linger on it so a
+  // focus-refetch (the user tabbing back from their terminal) can't skip past it.
+  const [lingerStep, setLingerStep] = useState<string | null>(null);
 
   const load = useCallback(() => {
     fetchJourneyStateApi(previewParam)
@@ -72,6 +75,7 @@ export function HomeCanvas() {
   const preview = state?.preview ?? false;
   const serverStepId = state?.currentStepId ?? null;
   const activeStepId = viewOverride ?? serverStepId;
+  const displayStepId = lingerStep ?? activeStepId;
 
   // Clear the in-canvas override whenever the underlying real step advances.
   useEffect(() => {
@@ -80,8 +84,8 @@ export function HomeCanvas() {
 
   // Measurement (ac-7): a step was shown. Real (non-preview) views only.
   useEffect(() => {
-    if (activeStepId && !preview) postJourneyEventApi(activeStepId, 'shown');
-  }, [activeStepId, preview]);
+    if (displayStepId && !preview) postJourneyEventApi(displayStepId, 'shown');
+  }, [displayStepId, preview]);
 
   const specsPath = useMemo(
     () => personalSpecsPath(session?.memberships as ReadonlyArray<NavMembership> | undefined),
@@ -124,14 +128,14 @@ export function HomeCanvas() {
   );
 
   const journey = activeJourney();
-  const view = activeStepId ? resolveStepView(activeStepId) : null;
+  const view = displayStepId ? resolveStepView(displayStepId) : null;
   // Per-journey, attainment-framed, and never on the cold first step.
   const showMap =
     !!journey.showProgressMap &&
     !!state?.steps?.length &&
-    !!activeStepId &&
-    activeStepId !== 'welcome' &&
-    journey.milestoneStepIds.includes(activeStepId);
+    !!displayStepId &&
+    displayStepId !== 'welcome' &&
+    journey.milestoneStepIds.includes(displayStepId);
 
   return (
     <div className="min-h-full" data-testid="home-canvas">
@@ -142,25 +146,33 @@ export function HomeCanvas() {
         />
       )}
       {showMap && state?.steps && (
-        <ProgressMap steps={state.steps} currentStepId={activeStepId} views={journey.views} />
+        <ProgressMap steps={state.steps} currentStepId={displayStepId} views={journey.views} />
       )}
-      {activeStepId === 'identity' ? (
+      {displayStepId === 'identity' ? (
         // spec-305 dec-5: the identity step is a custom form (name + role triangle),
         // not a generic CTA card — it persists the captured profile and clears
         // needsOnboarding, after which the journey self-advances.
         <IdentityStep preview={preview} onComplete={load} />
-      ) : activeStepId === 'connect-agent' ? (
-        // spec-305 dec-7: the rich connect-MCP card — OS + tool tailored instructions
-        // with a live green-tick that advances the moment the agent connects.
-        <ConnectAgentStep preview={preview} onComplete={load} />
-      ) : activeStepId === 'create-spec' ? (
+      ) : displayStepId === 'connect-agent' ? (
+        // spec-305 dec-7: the rich connect-MCP card. On connect it flips to a reward
+        // state ("your agent is now Memex-native") which we LINGER on (so a focus-
+        // refetch can't skip it); it advances on the first tool call or Next.
+        <ConnectAgentStep
+          preview={preview}
+          onConnected={() => setLingerStep('connect-agent')}
+          onComplete={() => {
+            setLingerStep(null);
+            load();
+          }}
+        />
+      ) : displayStepId === 'create-spec' ? (
         // spec-305 dec-9: copy-paste prompt + bring-your-own-PRD or sample; advances
         // the moment the agent creates the spec (hasSpec).
         <CreateSpecStep preview={preview} onComplete={load} />
-      ) : activeStepId === 'resolve-decision' || activeStepId === 'add-ac' ? (
+      ) : displayStepId === 'resolve-decision' || displayStepId === 'add-ac' ? (
         // spec-305 dec-8: paste-a-prompt cards; advance on the step's milestone.
-        <AgentPromptStep stepId={activeStepId} preview={preview} onComplete={load} />
-      ) : activeStepId === 'see-green' ? (
+        <AgentPromptStep stepId={displayStepId} preview={preview} onComplete={load} />
+      ) : displayStepId === 'see-green' ? (
         // spec-305 dec-8: the aha — watch an AC go green from a real test (acVerified).
         <SeeGreenStep preview={preview} onComplete={load} />
       ) : view ? (

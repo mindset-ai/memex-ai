@@ -7,6 +7,8 @@ import { BASE_URL, fetchWithRetry } from './http';
 export interface JourneyMilestones {
   identityConfirmed: boolean;
   mcpConnected: boolean;
+  // Non-gating: the user's first MCP tool call, drives the connect-agent reward dismiss.
+  mcpToolCalled: boolean;
   hasSpec: boolean;
   hasResolvedDecision: boolean;
   hasAc: boolean;

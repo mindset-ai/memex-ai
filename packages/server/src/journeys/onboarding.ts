@@ -12,6 +12,8 @@
 export type JourneyMilestone =
   | "identityConfirmed" // captured: the user completed the identity step (name + role)
   | "mcpConnected" // derived: the user's agent connected over MCP
+  | "mcpToolCalled" // derived, NON-GATING: the user's first MCP tool call — drives the
+  //                  connect-agent reward's auto-dismiss (no step gates on it)
   | "hasSpec" // derived: the user created a (non-demo) spec
   | "hasResolvedDecision" // derived: the user resolved a decision
   | "hasAc" // derived: the user added an acceptance criterion
