@@ -431,6 +431,19 @@ export function SpecList() {
   const [shareDocId, setShareDocId] = useState<string | null>(null);
   const [renameDoc, setRenameDoc] = useState<DocSummary | null>(null);
   const [moveDoc_, setMoveDoc] = useState<DocSummary | null>(null);
+
+  // spec-303: the Home Canvas "Create your first spec" CTA deep-links here with
+  // ?new=1 to open the SAME NewSpecModal the board's "+ New Spec" button uses —
+  // no second create path. The param is cleared so a refresh doesn't re-open it.
+  useEffect(() => {
+    if (searchParams.get('new') === '1') {
+      setModalOpen(true);
+      const next = new URLSearchParams(searchParams);
+      next.delete('new');
+      setSearchParams(next, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
+
   // Default-collapsed Done column (dec-5). Drop targets stay live in the rail.
   // Resets on every mount — leaving Done open across navigations made the board
   // feel cluttered, so we trade persistence for a clean default each visit.

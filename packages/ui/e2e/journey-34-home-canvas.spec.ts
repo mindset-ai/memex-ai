@@ -56,7 +56,7 @@ test(TITLE, async ({ page }) => {
 
   // A brand-new user sees the welcome step: the "MD files are dead" splash (ac-2).
   await expect(page.getByTestId("journey-step-welcome")).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByText("MD files")).toBeVisible();
+  await expect(page.getByText(".md files")).toBeVisible();
   await expect(page.getByRole("button", { name: /Create your first spec/ })).toBeVisible();
 
   // Create a real spec for this user → the journey self-advances on the next load.

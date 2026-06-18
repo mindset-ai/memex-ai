@@ -18,24 +18,26 @@ export const ONBOARDING_STEP_VIEWS: Record<string, JourneyStepView> = {
   welcome: {
     id: 'welcome',
     mapLabel: 'Spec created',
-    eyebrow: 'Memex · Home',
+    greetingHeading: true,
     headline: (
       <>
-        <span className="text-muted line-through decoration-[#fb5b78] decoration-4">
-          MD files
-        </span>{' '}
-        are{' '}
-        <span className="bg-[linear-gradient(96deg,#fb5b78,#c084fc)] bg-clip-text text-transparent">
-          dead
+        Welcome to Memex.
+        <span className="block">
+          We believe that{' '}
+          <span className="text-muted line-through decoration-[#fb5b78] decoration-4">
+            .md files
+          </span>{' '}
+          are{' '}
+          <span className="bg-[linear-gradient(96deg,#fb5b78,#c084fc)] bg-clip-text text-transparent">
+            dead
+          </span>
+          .
         </span>
-        .
       </>
     ),
-    sub: 'Lorem ipsum dolor sit amet, consectetur adipiscing.',
-    // Placeholder on purpose (internal v1): the COPY on these cards is not yet
-    // decided — colleagues should react to the journey CONCEPT, not this wording.
+    // Placeholder on purpose (internal v1): the COPY here is not yet decided —
+    // colleagues should react to the journey CONCEPT, not this wording.
     body: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris.',
-    memoriam: ['README.md', 'ARCHITECTURE.md', 'CONTRIBUTING.md', 'NOTES.md'],
     primary: { label: 'Create your first spec', kind: 'action', target: 'create_spec' },
     secondary: { label: 'Why Memex?', kind: 'navigate', target: 'learn-more' },
   },

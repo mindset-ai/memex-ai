@@ -18,15 +18,17 @@ export interface JourneyCta {
 
 export interface JourneyStepView {
   id: string;
-  eyebrow: string;
+  eyebrow?: string;
   headline: ReactNode;
-  sub: ReactNode;
+  sub?: ReactNode;
   body?: ReactNode;
   memoriam?: readonly string[];
   primary: JourneyCta;
   secondary?: JourneyCta;
   // Short label for this step in the progress map (attainment-framed).
   mapLabel?: string;
+  // Render the greeting ("Hello, name") as a heading-sized line (welcome card).
+  greetingHeading?: boolean;
 }
 
 export interface JourneyModule {

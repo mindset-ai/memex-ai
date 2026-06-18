@@ -105,6 +105,9 @@ export function HomeCanvas() {
           navigate('/settings/integrations');
           break;
         case 'create_spec':
+          // Open the SAME agent-backed NewSpecModal the Specs board uses (?new=1).
+          if (specsPath) navigate(`${specsPath}?new=1`);
+          break;
         case 'create_decision':
         case 'open_specs':
         default:
@@ -225,13 +228,12 @@ function JourneyInfo() {
         role="tooltip"
         className="pointer-events-none absolute left-0 top-6 z-50 hidden w-[23rem] rounded-lg border border-edge bg-panel p-3 text-[11px] font-normal normal-case leading-relaxed tracking-normal text-secondary shadow-xl group-hover:block group-focus-within:block"
       >
-        <b className="text-heading">Journeys</b>, an internal concept we&apos;re
-        introducing. A journey is one or more cards. Which card you see is determined by
-        your real state, not a fixed sequence: the moment your state changes, the canvas
-        advances you to the right step. Steps aren&apos;t strictly linear, each has its own
-        condition, so already-satisfied steps are skipped. If step 5&apos;s condition is met
-        but step 4&apos;s isn&apos;t, you land on step 4, and completing it can hop you
-        straight to step 6. This is the first journey; more will follow.
+        <b className="text-heading">This is the onboarding journey.</b> Which card you see
+        is determined by your state, not a fixed sequence: the moment your state changes,
+        the canvas advances you to the right step. Steps aren&apos;t strictly linear, each
+        has its own condition, so already-satisfied steps are skipped. If step 5&apos;s
+        condition is met but step 4&apos;s isn&apos;t, you land on step 4, and completing it
+        can hop you straight to step 6.
       </span>
     </span>
   );

@@ -54,7 +54,7 @@ function stateFor(currentStepId: string, over: Record<string, unknown> = {}) {
 
 function LocationDisplay() {
   const loc = useLocation();
-  return <div data-testid="location">{loc.pathname}</div>;
+  return <div data-testid="location">{loc.pathname}{loc.search}</div>;
 }
 
 function renderCanvas() {
@@ -80,8 +80,9 @@ describe('HomeCanvas — welcome step (ac-2)', () => {
     renderCanvas();
 
     expect(await screen.findByTestId('journey-step-welcome')).toBeInTheDocument();
-    expect(screen.getByText('MD files')).toBeInTheDocument();
+    expect(screen.getByText('.md files')).toBeInTheDocument();
     expect(screen.getByText('dead')).toBeInTheDocument();
+    expect(screen.getByText('Welcome to Memex.')).toBeInTheDocument();
     expect(screen.getByText('John')).toBeInTheDocument(); // greeting first-name
     expect(screen.getByTestId('journey-cta-primary')).toHaveTextContent('Create your first spec');
     expect(screen.getByTestId('journey-cta-secondary')).toHaveTextContent('Why Memex?');
@@ -187,8 +188,9 @@ describe('HomeCanvas — CTA allow-list (ac-5 / impl ac-12)', () => {
     fetchJourneyStateApi.mockResolvedValue(stateFor('welcome'));
     renderCanvas();
     fireEvent.click(await screen.findByTestId('journey-cta-primary'));
+    // Deep-links into the SAME NewSpecModal the board uses (?new=1).
     await waitFor(() =>
-      expect(screen.getByTestId('location')).toHaveTextContent('/john/personal/specs'),
+      expect(screen.getByTestId('location')).toHaveTextContent('/john/personal/specs?new=1'),
     );
   });
 

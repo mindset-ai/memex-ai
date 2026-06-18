@@ -18,21 +18,28 @@ export function JourneyStepShell({
         data-testid={`journey-step-${view.id}`}
         className="relative w-full max-w-2xl overflow-hidden rounded-3xl border border-edge bg-surface/70 p-8 shadow-2xl backdrop-blur-xl sm:p-12"
       >
-        <div className="mb-5 text-xs font-semibold uppercase tracking-[0.14em] text-muted">
-          {view.eyebrow}
-        </div>
-
-        {userName && (
-          <p className="mb-2 text-base text-secondary">
-            Hello, <span className="font-semibold text-heading">{userName}</span>.
-          </p>
+        {view.eyebrow && (
+          <div className="mb-5 text-xs font-semibold uppercase tracking-[0.14em] text-muted">
+            {view.eyebrow}
+          </div>
         )}
 
-        <h1 className="text-4xl font-black leading-[1.03] tracking-tight text-heading sm:text-5xl">
+        {userName &&
+          (view.greetingHeading ? (
+            <h1 className="text-4xl font-black leading-[1.08] tracking-tight text-heading sm:text-5xl">
+              Hello, <span className="text-heading">{userName}</span>.
+            </h1>
+          ) : (
+            <p className="mb-3 text-lg font-medium text-secondary">
+              Hello, <span className="font-semibold text-heading">{userName}</span>.
+            </p>
+          ))}
+
+        <h1 className="text-4xl font-black leading-[1.08] tracking-tight text-heading sm:text-5xl">
           {view.headline}
         </h1>
 
-        <p className="mt-4 text-lg font-semibold text-primary">{view.sub}</p>
+        {view.sub && <p className="mt-4 text-lg font-semibold text-primary">{view.sub}</p>}
 
         {view.body && (
           <p className="mt-4 max-w-prose leading-relaxed text-secondary">{view.body}</p>
