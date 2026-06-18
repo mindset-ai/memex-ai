@@ -14,6 +14,9 @@ import { issuesList } from "./routes/issues-list.js";
 import { acsRouter } from "./routes/acs.js";
 import { emissionKeysRouter } from "./routes/emission-keys.js";
 import { discordWebhookRouter } from "./routes/discord-webhook.js";
+import { stripeWebhookRouter } from "./routes/stripe-webhook.js";
+import { enterpriseContactRouter } from "./routes/enterprise-contact.js";
+import { licenseCheckinRouter } from "./routes/license-checkin.js";
 import { docMembersRouter } from "./routes/doc-members.js";
 import { docAssigneesRouter } from "./routes/doc-assignees.js";
 import { executionPlans } from "./routes/execution-plans.js";
@@ -389,6 +392,18 @@ app.route("/api/me", homeRouter);
 app.route("/api/whats-new", whatsNewRouter);
 // PUBLIC: share routes skip session middleware — guests access shared docs by token alone (t-10).
 app.route("/api/share", shareRouter);
+
+// spec-171 t-3: Stripe webhook receiver. No session middleware — the
+// Stripe-Signature HMAC header IS the auth (verified inside the router).
+app.route("/api/stripe/webhook", stripeWebhookRouter);
+
+// spec-171 t-4: Self-Hosted Enterprise contact form. No auth — public form submission.
+// Forwards to HubSpot; falls back to sales@memex.ai email on HubSpot failure.
+app.route("/api/enterprise/self-hosted/contact", enterpriseContactRouter);
+
+// spec-171 t-5: Self-hosted license check-in. No auth — license JWT is the credential.
+// Rate-limited to one checkin per license per 23 hours.
+app.route("/api/license/checkin", licenseCheckinRouter);
 
 // Platform backstage — dev-mode only today. Gated inside the router itself. Registered on
 // the bare domain so operators can hit it without a tenant subdomain.

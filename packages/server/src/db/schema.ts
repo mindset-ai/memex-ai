@@ -1082,12 +1082,32 @@ export const orgs = pgTable(
     // Who created the org. Used for the 5-orgs-per-user-per-24h rate limit (std-3 /
     // dec-8). Nullable + ON DELETE SET NULL because user deletions don't unwind orgs.
     createdByUserId: uuid("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    // Designated billing contact (spec-171 t-1). Nullable — null means payment emails
+    // go to the org creator / all admins. Kept on the orgs table (not org_memberships)
+    // so the billing contact can be a non-member (e.g. finance@company.com).
+    billingContactName: text("billing_contact_name"),
+    billingContactEmail: text("billing_contact_email"),
+    // spec-171 t-2: enterprise trial state. null trial_status = never trialed or converted to paid.
+    trialStartedAt: timestamp("trial_started_at", { withTimezone: true }),
+    trialStatus: text("trial_status"),
+    trialConvertedAt: timestamp("trial_converted_at", { withTimezone: true }),
+    // Stripe customer ID — one per org, set on first purchase.
+    stripeCustomerId: text("stripe_customer_id"),
+    // spec-171 t-7: subscription state — kept in sync by stripe-webhook handler.
+    stripeSubscriptionId: text("stripe_subscription_id"),
+    planTier: text("plan_tier"),
+    seatsPurchased: integer("seats_purchased"),
+    // JSONB map of which trial nurture emails have been sent e.g. { day_1: true, day_4: true }.
+    trialEmailsSent: jsonb("trial_emails_sent").$type<Record<string, boolean>>().notNull().default({}),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     unique("orgs_namespace_id_unique").on(table.namespaceId),
+    unique("orgs_stripe_customer_id_unique").on(table.stripeCustomerId),
     index("orgs_created_by_user_id_idx").on(table.createdByUserId),
+    check("orgs_trial_status_valid", sql`${table.trialStatus} IN ('active', 'expired')`),
+    check("orgs_plan_tier_valid", sql`${table.planTier} IN ('premium', 'enterprise', 'self-hosted-enterprise')`),
   ]
 );
 
@@ -2945,3 +2965,88 @@ export const whatsNewSkips = pgTable(
 
 export type WhatsNewSkip = InferSelectModel<typeof whatsNewSkips>;
 export type WhatsNewSkipInsert = InferInsertModel<typeof whatsNewSkips>;
+
+// ── spec-171 t-2: enterprise schema ──────────────────────────────────────────
+
+// Encrypted LLM API keys per org per provider. Self-hosted Enterprise requires
+// these; hosted Enterprise may optionally provide them. encrypted_key is
+// AES-256-GCM ciphertext — decrypt via ENCRYPTION_KEY env var (std-9).
+export const orgLlmKeys = pgTable(
+  "org_llm_keys",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id").notNull().references(() => orgs.id, { onDelete: "cascade" }),
+    provider: text("provider").notNull(),
+    encryptedKey: text("encrypted_key").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("org_llm_keys_org_id_idx").on(table.orgId),
+    unique("org_llm_keys_org_id_provider_unique").on(table.orgId, table.provider),
+    check("org_llm_keys_provider_valid", sql`${table.provider} IN ('openai', 'anthropic')`),
+  ]
+);
+
+export type OrgLlmKey = InferSelectModel<typeof orgLlmKeys>;
+export type OrgLlmKeyInsert = InferInsertModel<typeof orgLlmKeys>;
+
+// JWT license keys for self-hosted deployments. org_id is nullable — trial keys
+// are issued before a commercial org relationship exists (dec-31).
+export const selfHostedLicenses = pgTable(
+  "self_hosted_licenses",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id").references(() => orgs.id, { onDelete: "set null" }),
+    licenseKey: text("license_key").notNull(),
+    seatsPurchased: integer("seats_purchased").notNull(),
+    validUntil: timestamp("valid_until", { withTimezone: true }).notNull(),
+    tier: text("tier").notNull(),
+    issuedAt: timestamp("issued_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique("self_hosted_licenses_license_key_unique").on(table.licenseKey),
+    index("self_hosted_licenses_org_id_idx").on(table.orgId),
+    check("self_hosted_licenses_tier_valid", sql`${table.tier} IN ('trial', 'commercial')`),
+  ]
+);
+
+export type SelfHostedLicense = InferSelectModel<typeof selfHostedLicenses>;
+export type SelfHostedLicenseInsert = InferInsertModel<typeof selfHostedLicenses>;
+
+// Daily phone-home records from self-hosted instances (dec-23). Composite index
+// DESC on checked_in_at supports fast "latest checkin per license" queries.
+export const licenseCheckins = pgTable(
+  "license_checkins",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    licenseId: uuid("license_id").notNull().references(() => selfHostedLicenses.id, { onDelete: "cascade" }),
+    reportedSeatCount: integer("reported_seat_count").notNull(),
+    instanceFingerprint: text("instance_fingerprint").notNull(),
+    checkedInAt: timestamp("checked_in_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("license_checkins_license_id_checked_in_at_idx").on(table.licenseId, table.checkedInAt),
+  ]
+);
+
+export type LicenseCheckin = InferSelectModel<typeof licenseCheckins>;
+export type LicenseCheckinInsert = InferInsertModel<typeof licenseCheckins>;
+
+// Idempotency log for Stripe webhook handlers. Unique on event_id prevents
+// double-processing on webhook retries (dec-8).
+export const stripeEvents = pgTable(
+  "stripe_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    eventId: text("event_id").notNull(),
+    eventType: text("event_type").notNull(),
+    processedAt: timestamp("processed_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique("stripe_events_event_id_unique").on(table.eventId),
+  ]
+);
+
+export type StripeEvent = InferSelectModel<typeof stripeEvents>;
+export type StripeEventInsert = InferInsertModel<typeof stripeEvents>;
