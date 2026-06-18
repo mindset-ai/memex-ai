@@ -13,6 +13,7 @@ import {
 } from '../api/journey';
 import { resolveStepView, activeJourney } from '../journeys/registry';
 import { JourneyStepShell } from '../components/home/JourneyStepShell';
+import { IdentityStep } from '../components/home/IdentityStep';
 import type { JourneyCta, JourneyStepView } from '../journeys/types';
 
 type NavMembership = { slug: string; memexSlug?: string | null; kind: string };
@@ -139,7 +140,12 @@ export function HomeCanvas() {
       {showMap && state?.steps && (
         <ProgressMap steps={state.steps} currentStepId={activeStepId} views={journey.views} />
       )}
-      {view ? (
+      {activeStepId === 'identity' ? (
+        // spec-305 dec-5: the identity step is a custom form (name + role triangle),
+        // not a generic CTA card — it persists the captured profile and clears
+        // needsOnboarding, after which the journey self-advances.
+        <IdentityStep />
+      ) : view ? (
         <JourneyStepShell view={view} userName={firstName(user?.name)} onCta={handleCta} />
       ) : (
         <div className="flex min-h-[70vh] items-center justify-center text-muted">Loading…</div>

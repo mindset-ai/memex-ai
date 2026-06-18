@@ -1177,11 +1177,13 @@ export async function ssoLoginApi(idToken: string, memexId?: string): Promise<Se
 export async function updateProfileApi(
   token: string | null,
   name: string,
+  // spec-305 dec-5: the optional developer/designer/PM triangle (barycentric weights).
+  roleCoords?: { dev: number; design: number; pm: number },
 ): Promise<SessionPayload> {
   const res = await fetchWithRetry(`${BASE_URL}/auth/profile`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', ...authHeaders(token) },
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ name, ...(roleCoords ? { roleCoords } : {}) }),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
