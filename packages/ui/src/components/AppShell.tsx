@@ -46,7 +46,23 @@ interface NavLinkDef {
   // spec-146 t-3: when set, the link is hidden for every user whose session has
   // this slug in `hiddenFeatures` (server-driven feature-hide, dec-1 Option B).
   feature?: string;
+  // spec-303 — a flat, user-level link (e.g. /home): used verbatim, NOT expanded
+  // to /<ns>/<mx>/... by resolveNavTo. The surface is the same across all memexes.
+  flat?: boolean;
 }
+
+// spec-303 — the Home Canvas: the top nav item and a user-level (flat) destination,
+// identical across all of a user's Memexes (dec-2). `flat` keeps it at /home.
+const HOME_NAV_LINK: NavLinkDef = {
+  to: '/home',
+  label: 'Home',
+  flat: true,
+  icon: (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M3 12l9-9 9 9M5 10v10a1 1 0 001 1h3v-5a1 1 0 011-1h2a1 1 0 011 1v5h3a1 1 0 001-1V10" />
+    </svg>
+  ),
+};
 
 // spec-260 t-11: the sidebar is two labelled groups. PRINCIPLES holds the
 // working surfaces (Specs leads, then the dashboards and the standards/scaffold
@@ -363,6 +379,7 @@ function NavItem({
   altPaths,
   pathname,
   badge,
+  flat,
 }: {
   to: string;
   label: string;
@@ -371,6 +388,8 @@ function NavItem({
   pathname: string;
   /** Optional count pill (e.g. open standards drift) shown at the row's end. */
   badge?: number;
+  /** spec-303 — flat (user-level) link: use `to` verbatim, no tenant expansion. */
+  flat?: boolean;
 }) {
   // t-23 of doc-15: NAV_LINKS hold the in-tenant path shape (e.g. "/specs").
   // resolveNavTo() expands this to /<ns>/<mx>/specs — falling back to the
@@ -380,7 +399,7 @@ function NavItem({
   // suffix of the current pathname so `/<ns>/<mx>/specs` still highlights
   // the Specs link.
   const { session } = useAuth();
-  const resolvedTo = resolveNavTo(to, pathname, session?.memberships);
+  const resolvedTo = flat ? to : resolveNavTo(to, pathname, session?.memberships);
   const tenantSuffix = stripTenantPrefix(pathname);
   const matchedAlt = altPaths?.includes(tenantSuffix) ?? false;
   // spec-190 (dec-4 / t-5): tag the global nav links so the voice guide can
@@ -594,9 +613,12 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
 
         <nav className="flex-1 min-h-0 overflow-y-auto px-3 space-y-0.5">
+          {/* spec-303 — Home Canvas: the first, top-level, user-level destination. */}
+          <NavItem {...HOME_NAV_LINK} pathname={location.pathname} />
+
           {/* spec-260 t-11: two labelled groups — PRINCIPLES (the working
               surfaces) and IN-BOXES (the badge-carrying attention surfaces). */}
-          <div className="pt-1 pb-1 px-3 text-xs font-medium uppercase tracking-wider text-muted">
+          <div className="pt-4 pb-1 px-3 text-xs font-medium uppercase tracking-wider text-muted">
             Principles
           </div>
           {PRINCIPLES_NAV_LINKS.filter((link) => !isLinkHidden(link.feature)).map((link) => (
