@@ -290,4 +290,25 @@ describe('AppShell feature-hide (spec-146 t-3)', () => {
     const visibleNav = screen.getByTestId('primary-nav');
     expect(within(visibleNav).getByRole('link', { name: 'Scaffold' })).toBeInTheDocument();
   });
+
+  // The Home Canvas (spec-303) is gated by the same mechanism: 'home' in the
+  // session hiddenFeatures drops the top nav link, so the whole surface can be
+  // hidden per-env (prod) while it stays live on int. The route is gated to
+  // match in App.tsx (redirect when hidden).
+  it("hides the Home nav link when 'home' is in the session hiddenFeatures", () => {
+    // Hidden: 'home' listed → no Home link for anyone on this env.
+    mockSession.value = sessionWith(['home']);
+    const hidden = renderShell(['/specs']);
+    const hiddenNav = screen.getByTestId('primary-nav');
+    expect(within(hiddenNav).queryByRole('link', { name: 'Home' })).not.toBeInTheDocument();
+    // Specs (a non-feature link) is untouched — only Home went away.
+    expect(within(hiddenNav).getByRole('link', { name: 'Specs' })).toBeInTheDocument();
+    hidden.unmount();
+
+    // Visible: empty hiddenFeatures → Home returns as the first nav item.
+    mockSession.value = sessionWith([]);
+    renderShell(['/specs']);
+    const visibleNav = screen.getByTestId('primary-nav');
+    expect(within(visibleNav).getByRole('link', { name: 'Home' })).toBeInTheDocument();
+  });
 });

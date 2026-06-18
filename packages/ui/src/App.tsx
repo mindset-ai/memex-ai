@@ -370,8 +370,25 @@ export function PostLoginRouter() {
       <Route path="/invites" element={<Navigate to="/org?tab=invites" replace />} />
       <Route path="/org" element={<FlatShell><OrgConfiguration /></FlatShell>} />
       <Route path="/account" element={<Navigate to="/org" replace />} />
-      {/* spec-303 — Home Canvas: user-level, flat (not tenant-scoped). */}
-      <Route path="/home" element={<FlatShell><HomeCanvas /></FlatShell>} />
+      {/* spec-303 — Home Canvas: user-level, flat (not tenant-scoped). Gated on
+          the server-driven hide list (feature: 'home') so the surface can be
+          hidden per-env (e.g. prod) while live on int — same mechanism as /pulse.
+          When hidden we REDIRECT rather than drop the route: /home is a flat,
+          single-segment path, so an unregistered route would otherwise be claimed
+          by /:namespace below (resolving "home" as a namespace). RootRedirect
+          sends the user to their default landing instead. */}
+      <Route
+        path="/home"
+        element={
+          isFeatureHidden(session, 'home') ? (
+            <RootRedirect />
+          ) : (
+            <FlatShell>
+              <HomeCanvas />
+            </FlatShell>
+          )
+        }
+      />
 
 
       {/* doc-19 t-10: namespace home — /<namespace>/ renders the kind-aware
