@@ -119,7 +119,16 @@ export async function upsertUserByEmail(email: string): Promise<User> {
 
 export async function updateUserProfile(
   userId: string,
-  fields: { name: string },
+  fields: {
+    name: string;
+    // spec-305 dec-5: the developer/designer/PM triangle as barycentric weights.
+    // Optional — a user who skips the triangle keeps the UI's centered default and
+    // we simply don't write role_coords.
+    roleCoords?: { dev: number; design: number; pm: number };
+    // spec-305 dec-2/dec-4: stamp identity_confirmed_at so `needsOnboarding` clears
+    // once the user has completed the journey's identity step.
+    confirmIdentity?: boolean;
+  },
 ): Promise<User> {
   const trimmed = fields.name.trim();
   if (!trimmed) throw new ValidationError("Name is required");
@@ -127,7 +136,12 @@ export async function updateUserProfile(
 
   const [updated] = await db
     .update(users)
-    .set({ name: trimmed, updatedAt: new Date() })
+    .set({
+      name: trimmed,
+      ...(fields.roleCoords ? { roleCoords: fields.roleCoords } : {}),
+      ...(fields.confirmIdentity ? { identityConfirmedAt: new Date() } : {}),
+      updatedAt: new Date(),
+    })
     .where(eq(users.id, userId))
     .returning();
   if (!updated) throw new ValidationError(`User ${userId} not found`);

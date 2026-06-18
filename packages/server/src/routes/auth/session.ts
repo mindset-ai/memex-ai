@@ -8,6 +8,7 @@ import { updateUserProfile } from "../../services/users.js";
 import { sessionMiddleware, type SessionEnv } from "../../middleware/session.js";
 import type { MemexResolverEnv } from "../../middleware/memex-resolver.js";
 import { readJsonBody, requireString } from "../validation.js";
+import { ValidationError } from "../../types/errors.js";
 
 export const session = new Hono<MemexResolverEnv & SessionEnv>();
 
@@ -41,15 +42,39 @@ session.get("/me", sessionMiddleware, async (c) => {
   }
 });
 
+// spec-305 dec-5: validate the developer/designer/PM triangle. Returns the
+// normalised barycentric weights {dev,design,pm} (sum 1), or undefined when absent
+// (a user who skips the triangle). Throws ValidationError on a malformed shape.
+function parseRoleCoords(
+  raw: unknown,
+): { dev: number; design: number; pm: number } | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (typeof raw !== "object") throw new ValidationError("roleCoords must be an object");
+  const r = raw as Record<string, unknown>;
+  const weights = (["dev", "design", "pm"] as const).map((k) => {
+    const v = r[k];
+    if (typeof v !== "number" || !Number.isFinite(v) || v < 0) {
+      throw new ValidationError(`roleCoords.${k} must be a non-negative number`);
+    }
+    return v;
+  });
+  const sum = weights[0] + weights[1] + weights[2];
+  if (sum <= 0) throw new ValidationError("roleCoords must have a positive sum");
+  return { dev: weights[0] / sum, design: weights[1] / sum, pm: weights[2] / sum };
+}
+
 // PATCH /api/auth/profile
-// Body: { name: string }
-// Sets the user's display name (onboarding step). Returns the refreshed session.
+// Body: { name: string, roleCoords?: { dev, design, pm } }
+// The journey's identity step (spec-305 dec-2/dec-4/dec-5): confirm/set the display
+// name, optionally place the role triangle, and stamp identity_confirmed_at so
+// needsOnboarding clears. Returns the refreshed session.
 session.patch("/profile", sessionMiddleware, async (c) => {
   const user = c.get("user");
-  const body = await readJsonBody<{ name?: unknown }>(c);
+  const body = await readJsonBody<{ name?: unknown; roleCoords?: unknown }>(c);
   const name = requireString(body?.name, "name", { trim: true, maxLength: 100 });
+  const roleCoords = parseRoleCoords(body?.roleCoords);
 
-  await updateUserProfile(user.id, { name });
+  await updateUserProfile(user.id, { name, roleCoords, confirmIdentity: true });
   const resolved = await resolveSession(user.id, c.get("currentMemexId"));
   return c.json(resolved);
 });

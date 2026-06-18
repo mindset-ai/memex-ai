@@ -1140,6 +1140,14 @@ export const users = pgTable("users", {
   // blocked/denied audio start does NOT stamp it). True once-per-user across
   // devices, so the auto-greeting never re-fires.
   onboardingGreetedAt: timestamp("onboarding_greeted_at", { withTimezone: true }),
+  // spec-305 dec-4/dec-5: the captured onboarding profile. roleCoords holds the
+  // developer/designer/PM triangle as barycentric weights (sum 1); identityConfirmedAt
+  // stamps when the user completed the journey's identity step (confirm name + place
+  // the triangle, or skip to the centered default). needsOnboarding keys off this,
+  // NOT !name — SSO users arrive with a name from Google/Microsoft but still take
+  // the identity step.
+  roleCoords: jsonb("role_coords").$type<{ dev: number; design: number; pm: number }>(),
+  identityConfirmedAt: timestamp("identity_confirmed_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
