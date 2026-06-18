@@ -16,14 +16,14 @@ const PRD_PROMPT = `Using the Memex MCP, create my first spec in my personal Mem
 
 Then tell me the spec handle (spec-N) you created.`;
 
-const SAMPLE_PROMPT = `Using the Memex MCP, create my first spec in my personal Memex from this sample brief:
+const SAMPLE_PROMPT = `Using the Memex MCP, create my first spec in my personal Memex from this short sample:
 
   "Orders Dashboard — a small internal dashboard over a sample sales database
    (à la Northwind): list orders, filter by customer and date, and show a
    revenue-by-month chart."
 
 1. Call list_memexes and pick my personal workspace.
-2. Call create_doc with the title "Orders Dashboard" and a purpose based on the brief.
+2. Call create_doc with the title "Orders Dashboard" and a purpose based on the sample above.
 
 Then tell me the spec handle (spec-N) you created — we'll add a decision and an
 acceptance criterion next.`;
