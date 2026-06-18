@@ -63,25 +63,41 @@ describe("task.created mirrors into usage_events (ac-3, ac-7)", () => {
 describe("document.created carries spec_index = Nth spec for the user (ac-3)", () => {
   it("the index increments per spec the user creates", async () => {
     tagAc(`${AC}/ac-3`);
-    // Fresh user → no prior specs, so the first spec is #1, the second #2.
-    const u = await upsertUserByEmail(`specidx-${Date.now()}@example.com`);
+    // spec-278 issue-1 / ac-5: stabilise this flake.
+    tagAc("mindset-prod/memex-building-itself/specs/spec-278/acs/ac-5");
+    // Fresh user → no prior specs, so the first spec is #1, the second #2. The
+    // email carries per-call randomness (not just Date.now()) so it can't alias
+    // another test's user and pollute the per-user spec count.
+    const u = await upsertUserByEmail(
+      `specidx-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@example.com`,
+    );
     const m = await makeTestMemex("specidx");
 
     const first = await createDocDraft(m, "Spec one", "p", "spec", undefined, undefined, u.id, { actorUserId: u.id });
     const second = await createDocDraft(m, "Spec two", "p", "spec", undefined, undefined, u.id, { actorUserId: u.id });
 
-    const firstRow = (
-      await db
+    // usage_events rows are written ASYNCHRONOUSLY by the backend sink (a bus
+    // subscriber). Poll until both spec rows have landed rather than reading
+    // immediately — the read-too-early race is what intermittently left
+    // `secondRow` undefined and reddened the merge gate (spec-278 issue-1).
+    const findByIndex = (
+      rows: (typeof usageEvents.$inferSelect)[],
+      idx: number,
+    ) => rows.find((r) => r.props && (r.props as Record<string, unknown>).spec_index === idx);
+
+    let firstRow: typeof usageEvents.$inferSelect | undefined;
+    let secondRow: typeof usageEvents.$inferSelect | undefined;
+    const deadline = Date.now() + 2000;
+    while (Date.now() < deadline) {
+      const rows = await db
         .select()
         .from(usageEvents)
-        .where(and(eq(usageEvents.memexId, m), eq(usageEvents.name, "document.created")))
-    ).find((r) => r.props && (r.props as Record<string, unknown>).spec_index === 1);
-    const secondRow = (
-      await db
-        .select()
-        .from(usageEvents)
-        .where(and(eq(usageEvents.memexId, m), eq(usageEvents.name, "document.created")))
-    ).find((r) => r.props && (r.props as Record<string, unknown>).spec_index === 2);
+        .where(and(eq(usageEvents.memexId, m), eq(usageEvents.name, "document.created")));
+      firstRow = findByIndex(rows, 1);
+      secondRow = findByIndex(rows, 2);
+      if (firstRow && secondRow) break;
+      await new Promise((r) => setTimeout(r, 25));
+    }
 
     expect(firstRow, "first spec should carry spec_index 1").toBeDefined();
     expect(secondRow, "second spec should carry spec_index 2").toBeDefined();
