@@ -11,7 +11,7 @@
 // ac-7  — the canvas records which step was shown and which CTA was taken.
 //
 // Runs against a REAL Postgres through the full Hono app + strict sessionMiddleware.
-import { describe, it, expect, beforeAll, vi } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { randomUUID } from "node:crypto";
 
 vi.hoisted(() => {
@@ -20,7 +20,7 @@ vi.hoisted(() => {
   return undefined;
 });
 
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import { app } from "../app.js";
 import {
@@ -44,15 +44,30 @@ import { tagAc } from "@memex-ai-ac/vitest";
 const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-305/acs/ac-${n}`;
 
 let memexId: string;
+// Every newUser() spins up a personal namespace + memex (kind='user'). Track them
+// so afterAll can tear them down: whole-DB-scan tests elsewhere in the suite
+// (handhold's backfillHandholdDemo scans ALL personal memexes; migration-smoke
+// scans ALL active users) would otherwise trip on this file's residue when the
+// vitest worker co-locates them. Leave no globally-scannable rows behind.
+const createdUserIds: string[] = [];
 beforeAll(async () => {
   memexId = await makeTestMemex("homecanvas305");
+});
+afterAll(async () => {
+  if (createdUserIds.length === 0) return;
+  // Deleting each user's owned namespace cascades to its memexes → docs → acs /
+  // decisions (FK onDelete: 'cascade'); then drop the user rows themselves.
+  await db.delete(namespaces).where(inArray(namespaces.ownerUserId, createdUserIds));
+  await db.delete(users).where(inArray(users.id, createdUserIds));
 });
 
 function auth(userId: string): Record<string, string> {
   return { Authorization: `Bearer ${signSessionToken(userId)}` };
 }
 async function newUser(domain = "example.com"): Promise<User> {
-  return upsertUserByEmail(`hc-${randomUUID()}@${domain}`);
+  const user = await upsertUserByEmail(`hc-${randomUUID()}@${domain}`);
+  createdUserIds.push(user.id);
+  return user;
 }
 async function state(userId: string, query = ""): Promise<{ status: number; body: any }> {
   const res = await app.request(`/api/me/journey-state${query}`, { headers: auth(userId) });

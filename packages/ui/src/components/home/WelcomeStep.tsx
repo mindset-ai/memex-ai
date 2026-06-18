@@ -87,7 +87,7 @@ export function WelcomeStep({ onNavigate }: { onNavigate: (stepId: string) => vo
             </div>
             <p className="mt-6 leading-relaxed text-primary">
               Memex is what fell out of fixing that for ourselves: the spec stops being a doc that rots and becomes
-              something the tests hold to account — so <span className="italic">is it right</span> is a question you
+              something the tests keep honest — so <span className="italic">is it right</span> is a question you
               answer, not feel.
             </p>
           </div>
