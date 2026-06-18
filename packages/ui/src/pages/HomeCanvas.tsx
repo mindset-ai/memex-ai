@@ -136,6 +136,11 @@ export function HomeCanvas() {
 
 // Operator-only (dec-9): pin any milestone step on your own account to review it
 // without minting a new user (dec-8). Render-only — the underlying state is intact.
+//
+// This bar only renders for entitled operators (server-enforced canPreview), so a
+// regular user never sees it. For the Mindset staff who DO see it, the treatment is
+// deliberately marked INTERNAL (amber, dashed, a shield + "Mindset only" label and a
+// tooltip) so it reads as a staff tool, never a product feature.
 function PreviewBar({
   activeStepId,
   onPick,
@@ -147,19 +152,26 @@ function PreviewBar({
   return (
     <div
       data-testid="journey-preview-bar"
-      className="flex flex-wrap items-center gap-2 border-b border-edge bg-card-hover/40 px-4 py-2 text-xs"
+      title="Internal operator tool — visible only to Mindset staff (your email is on the preview allow-list). Pin any step to preview it on your own account; your real progress is unchanged, and regular users never see this bar."
+      className="flex flex-wrap items-center gap-2 border-b border-dashed border-status-warning-border bg-status-warning-bg/60 px-4 py-1.5 text-xs"
     >
-      <span className="font-semibold uppercase tracking-wider text-muted">Preview</span>
+      <span className="inline-flex items-center gap-1.5 font-semibold uppercase tracking-wider text-status-warning-text">
+        <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 3l7 3v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3z" />
+        </svg>
+        Internal preview · Mindset only
+      </span>
+      <span className="mx-1 hidden text-status-warning-text/70 sm:inline">|</span>
       {steps.map((id) => (
         <button
           key={id}
           type="button"
           data-testid={`journey-preview-${id}`}
           onClick={() => onPick(id)}
-          className={`rounded-md border px-2 py-1 ${
+          className={`rounded-md border px-2 py-0.5 ${
             id === activeStepId
-              ? 'border-accent text-heading'
-              : 'border-edge text-secondary hover:text-primary'
+              ? 'border-status-warning-border bg-status-warning-bg font-medium text-status-warning-text'
+              : 'border-status-warning-border/50 text-status-warning-text/80 hover:bg-status-warning-bg'
           }`}
         >
           {id}
@@ -169,10 +181,13 @@ function PreviewBar({
         type="button"
         data-testid="journey-preview-live"
         onClick={() => onPick(null)}
-        className="rounded-md border border-edge px-2 py-1 text-secondary hover:text-primary"
+        className="rounded-md border border-status-warning-border/50 px-2 py-0.5 text-status-warning-text/80 hover:bg-status-warning-bg"
       >
         Live
       </button>
+      <span className="ml-auto hidden text-[10px] normal-case tracking-normal text-status-warning-text/70 md:inline">
+        render-only · users never see this
+      </span>
     </div>
   );
 }
