@@ -80,10 +80,16 @@ describe('personaLabel (compass-rose, dec-6)', () => {
     tagAc(AC(5));
     expect(personaLabel(CENTERED_ROLE)).toBe('Full-stack generalist');
   });
-  it('a dev-dominant blend leads with Builder', () => {
-    expect(personaLabel({ dev: 0.8, design: 0.1, pm: 0.1 })).toMatch(/^Builder/);
+  it('changes in distinct bands toward a tip (lean → strong → all-in)', () => {
+    // Near-tip granularity is the point — three different labels along the dev edge.
+    expect(personaLabel({ dev: 0.55, design: 0.25, pm: 0.2 })).toBe('Builder');
+    expect(personaLabel({ dev: 0.7, design: 0.2, pm: 0.1 })).toBe('Deep in the code');
+    expect(personaLabel({ dev: 0.95, design: 0.025, pm: 0.025 })).toBe('All-in builder');
   });
-  it('a dev-leaning blend with a designer second names the modifier', () => {
-    expect(personaLabel({ dev: 0.5, design: 0.4, pm: 0.1 })).toContain("designer's eye");
+  it('a clear lead with a second leaning in names the modifier', () => {
+    expect(personaLabel({ dev: 0.55, design: 0.35, pm: 0.1 })).toContain("designer's eye");
+  });
+  it('two close leads read as a hybrid', () => {
+    expect(personaLabel({ dev: 0.45, design: 0.45, pm: 0.1 })).toBe('Builder / Designer');
   });
 });

@@ -14,7 +14,16 @@ function firstName(name: string | null | undefined): string | null {
   return f || null;
 }
 
-export function IdentityStep() {
+export function IdentityStep({
+  preview = false,
+  onComplete,
+}: {
+  // In operator preview the step is render-only (dec-8): Continue/Skip don't write.
+  preview?: boolean;
+  // Called after a successful save so the Home Canvas refetches journey-state and
+  // advances past identity — otherwise the button would sit on "Saving…".
+  onComplete?: () => void;
+} = {}) {
   const { token, user, updateSession } = useAuth();
   const [name, setName] = useState(user?.name ?? '');
   const [role, setRole] = useState<RoleCoords>(CENTERED_ROLE);
@@ -23,6 +32,7 @@ export function IdentityStep() {
 
   const submit = useCallback(
     async (coords: RoleCoords) => {
+      if (preview) return; // operator preview is render-only — never write or freeze
       const trimmed = name.trim() || (user?.name ?? '').trim();
       if (!trimmed) {
         setError('Please tell us what to call you.');
@@ -32,13 +42,15 @@ export function IdentityStep() {
       setError(null);
       try {
         const session = await updateProfileApi(token, trimmed, coords);
-        updateSession(session); // clears needsOnboarding → the journey self-advances
+        updateSession(session); // clears needsOnboarding
+        onComplete?.(); // refetch journey-state so the canvas advances past identity
       } catch (err) {
-        setSubmitting(false);
         setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.');
+      } finally {
+        setSubmitting(false);
       }
     },
-    [name, token, user, updateSession],
+    [name, token, user, updateSession, preview, onComplete],
   );
 
   const greeting = firstName(user?.name);
@@ -47,7 +59,7 @@ export function IdentityStep() {
     <div className="flex min-h-[70vh] items-center justify-center px-4 py-10">
       <article
         data-testid="journey-step-identity"
-        className="relative w-full max-w-xl overflow-hidden rounded-3xl border border-edge bg-surface/70 p-8 shadow-2xl backdrop-blur-xl sm:p-10"
+        className="relative w-full max-w-2xl overflow-hidden rounded-3xl border border-edge bg-surface/70 p-8 shadow-2xl backdrop-blur-xl sm:p-12"
       >
         <h1 className="text-3xl font-black tracking-tight text-heading sm:text-4xl">
           {greeting ? `Good to meet you, ${greeting}.` : 'Good to meet you.'}

@@ -144,7 +144,7 @@ export function HomeCanvas() {
         // spec-305 dec-5: the identity step is a custom form (name + role triangle),
         // not a generic CTA card — it persists the captured profile and clears
         // needsOnboarding, after which the journey self-advances.
-        <IdentityStep />
+        <IdentityStep preview={preview} onComplete={load} />
       ) : view ? (
         <JourneyStepShell view={view} userName={firstName(user?.name)} onCta={handleCta} />
       ) : (

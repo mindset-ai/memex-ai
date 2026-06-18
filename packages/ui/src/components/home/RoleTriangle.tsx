@@ -13,11 +13,13 @@ export interface RoleCoords {
 // The centered "generalist" default — what a user who skips the triangle gets (dec-5).
 export const CENTERED_ROLE: RoleCoords = { dev: 1 / 3, design: 1 / 3, pm: 1 / 3 };
 
-// Triangle vertices in the SVG viewBox. Developer top, Designer bottom-left, PM bottom-right.
+// Equilateral triangle vertices in the SVG viewBox. Developer top, Designer
+// bottom-left, PM bottom-right. The viewBox leaves margin so the vertex labels
+// (centered on each corner) never clip.
 const VERT = {
-  dev: { x: 110, y: 20 },
-  design: { x: 20, y: 172 },
-  pm: { x: 200, y: 172 },
+  dev: { x: 140, y: 30 },
+  design: { x: 47, y: 190 },
+  pm: { x: 233, y: 190 },
 } as const;
 
 function toPoint(c: RoleCoords): { x: number; y: number } {
@@ -42,28 +44,29 @@ function toCoords(px: number, py: number): RoleCoords {
   return { dev: wDev / s, design: wDesign / s, pm: wPm / s };
 }
 
-// Compass-rose persona phrase (dec-6): dominant vertex + a modifier when a clear
-// second leans in. Deliberately not percentages — people don't think that way.
+function cap(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+// Compass-rose persona phrase (dec-6). Granular across the WHOLE triangle — including
+// distinct bands near each tip (lean → strong → all-in) so the label keeps changing as
+// you push toward a corner, not just in the middle. No percentages: people don't think
+// that way.
 export function personaLabel(c: RoleCoords): string {
-  const ranked = (
-    [
-      ['dev', c.dev, 'Builder'],
-      ['design', c.design, 'Designer'],
-      ['pm', c.pm, 'Product mind'],
-    ] as const
-  )
-    .slice()
-    .sort((a, b) => b[1] - a[1]);
-  const [top, second] = ranked;
-  // Near-even across all three → a generalist.
-  if (top[1] - ranked[2][1] < 0.12) return 'Full-stack generalist';
-  const modifier: Record<string, string> = {
-    dev: "a builder's hands",
-    design: "a designer's eye",
-    pm: "a product mind",
-  };
-  if (top[1] - second[1] < 0.18) return `${top[2]}, with ${modifier[second[0]]}`;
-  return top[2];
+  const e = [
+    { v: c.dev, noun: 'builder', strong: 'Deep in the code', pure: 'All-in builder', eye: "a builder's hands" },
+    { v: c.design, noun: 'designer', strong: 'Designer at heart', pure: 'Pure designer', eye: "a designer's eye" },
+    { v: c.pm, noun: 'product mind', strong: 'Product-first', pure: 'Product through and through', eye: "a product head" },
+  ].sort((a, b) => b.v - a.v);
+  const [a, b] = e;
+  const third = e[2].v;
+
+  if (a.v - third < 0.1) return 'Full-stack generalist'; // balanced across all three
+  if (a.v - b.v < 0.1) return `${cap(a.noun)} / ${cap(b.noun)}`; // two-way hybrid (an edge)
+  if (a.v - b.v < 0.24) return `${cap(a.noun)}, with ${b.eye}`; // a clear lead, second leaning in
+  if (a.v > 0.85) return a.pure; // pushed into the tip
+  if (a.v > 0.6) return a.strong; // strongly one corner
+  return cap(a.noun); // a plain lean
 }
 
 export function RoleTriangle({
@@ -112,13 +115,13 @@ export function RoleTriangle({
   return (
     <svg
       ref={svgRef}
-      viewBox="0 0 220 196"
+      viewBox="0 0 280 226"
       role="slider"
       aria-label="Place yourself between developer, designer, and product manager"
       aria-valuetext={personaLabel(value)}
       tabIndex={0}
       data-testid="role-triangle"
-      className="mx-auto block w-full max-w-[20rem] cursor-pointer touch-none select-none rounded-2xl focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+      className="mx-auto block w-full max-w-[22rem] cursor-pointer touch-none select-none rounded-2xl focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
       onPointerDown={(e) => {
         (e.target as Element).setPointerCapture?.(e.pointerId);
         setDragging(true);
@@ -129,18 +132,20 @@ export function RoleTriangle({
       onPointerCancel={() => setDragging(false)}
       onKeyDown={onKeyDown}
     >
+      {/* Subtle: a faint fill so the shape reads without dominating the card. */}
       <polygon
         points={`${VERT.dev.x},${VERT.dev.y} ${VERT.design.x},${VERT.design.y} ${VERT.pm.x},${VERT.pm.y}`}
         className="fill-card-hover stroke-edge"
-        strokeWidth={1.5}
+        fillOpacity={0.28}
+        strokeWidth={1.25}
       />
-      <text x={VERT.dev.x} y={VERT.dev.y - 6} textAnchor="middle" className="fill-secondary text-[11px] font-semibold">
+      <text x={VERT.dev.x} y={VERT.dev.y - 12} textAnchor="middle" className="fill-secondary text-[12px] font-semibold">
         Developer
       </text>
-      <text x={VERT.design.x - 2} y={VERT.design.y + 16} textAnchor="middle" className="fill-secondary text-[11px] font-semibold">
+      <text x={VERT.design.x} y={VERT.design.y + 22} textAnchor="middle" className="fill-secondary text-[12px] font-semibold">
         Designer
       </text>
-      <text x={VERT.pm.x + 2} y={VERT.pm.y + 16} textAnchor="middle" className="fill-secondary text-[11px] font-semibold">
+      <text x={VERT.pm.x} y={VERT.pm.y + 22} textAnchor="middle" className="fill-secondary text-[12px] font-semibold">
         PM
       </text>
       <circle
