@@ -121,7 +121,7 @@ export function RoleTriangle({
       aria-valuetext={personaLabel(value)}
       tabIndex={0}
       data-testid="role-triangle"
-      className="mx-auto block w-full max-w-[22rem] cursor-pointer touch-none select-none rounded-2xl focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+      className="mx-auto block w-full max-w-[22rem] cursor-pointer touch-none select-none rounded-2xl focus:outline-hidden focus-visible:ring-2 focus-visible:ring-accent"
       onPointerDown={(e) => {
         (e.target as Element).setPointerCapture?.(e.pointerId);
         setDragging(true);

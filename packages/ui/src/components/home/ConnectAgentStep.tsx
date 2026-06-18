@@ -52,8 +52,8 @@ function Instructions({ tool, os }: { tool: Tool; os: Os }) {
     return (
       <div className="space-y-2">
         <p className="text-sm text-secondary">
-          Add to <code className="rounded bg-card-hover px-1 py-0.5 text-xs">.cursor/mcp.json</code> (this project)
-          or <code className="rounded bg-card-hover px-1 py-0.5 text-xs">~/.cursor/mcp.json</code> (everywhere),
+          Add to <code className="rounded-sm bg-card-hover px-1 py-0.5 text-xs">.cursor/mcp.json</code> (this project)
+          or <code className="rounded-sm bg-card-hover px-1 py-0.5 text-xs">~/.cursor/mcp.json</code> (everywhere),
           reload Cursor, then complete the OAuth sign-in:
         </p>
         <CodeBlock code={cursorCfg} />
@@ -64,8 +64,8 @@ function Instructions({ tool, os }: { tool: Tool; os: Os }) {
     return (
       <div className="space-y-2">
         <p className="text-sm text-secondary">
-          Add to <code className="rounded bg-card-hover px-1 py-0.5 text-xs">.vscode/mcp.json</code>, run{' '}
-          <code className="rounded bg-card-hover px-1 py-0.5 text-xs">MCP: List Servers → Start</code>, and complete
+          Add to <code className="rounded-sm bg-card-hover px-1 py-0.5 text-xs">.vscode/mcp.json</code>, run{' '}
+          <code className="rounded-sm bg-card-hover px-1 py-0.5 text-xs">MCP: List Servers → Start</code>, and complete
           the sign-in. VS Code / Copilot handle the OAuth callback automatically:
         </p>
         <CodeBlock code={vscodeCfg} />

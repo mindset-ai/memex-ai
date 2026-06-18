@@ -77,7 +77,7 @@ export function IdentityStep({
             value={name}
             onChange={(e) => setName(e.target.value)}
             maxLength={100}
-            className="w-full rounded-xl border border-edge bg-card px-3 py-2 text-primary outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="w-full rounded-xl border border-edge bg-card px-3 py-2 text-primary outline-hidden focus-visible:ring-2 focus-visible:ring-accent"
           />
         </label>
 
