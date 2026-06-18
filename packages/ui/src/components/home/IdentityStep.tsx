@@ -82,7 +82,7 @@ export function IdentityStep({
         </label>
 
         <div className="mt-6">
-          <span className="mb-2 block text-sm font-medium text-secondary">
+          <span className="mb-8 block text-sm font-medium text-secondary">
             Where do you sit? No one&apos;s just one thing — place yourself anywhere.
           </span>
           <RoleTriangle value={role} onChange={setRole} />
