@@ -23,21 +23,18 @@ export const ONBOARDING_STEP_VIEWS: Record<string, JourneyStepView> = {
       <>
         Welcome to Memex.
         <span className="block">
-          We believe that{' '}
-          <span className="text-muted line-through decoration-[#fb5b78] decoration-4">
-            .md files
-          </span>{' '}
-          are{' '}
+          Your plan and your build{' '}
           <span className="bg-[linear-gradient(96deg,#fb5b78,#c084fc)] bg-clip-text text-transparent">
-            dead
-          </span>
-          .
+            drift apart
+          </span>{' '}
+          the moment you write them.
         </span>
       </>
     ),
-    // Placeholder on purpose (internal v1): the COPY here is not yet decided —
-    // colleagues should react to the journey CONCEPT, not this wording.
-    body: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris.',
+    // Beat 1 (spec-305 dec-6): a universal, role-agnostic cold open about the
+    // shared enemy — drift. The coder-specific ".md files are dead" line is a
+    // Beat-2 reward shown AFTER the user tells us their role, not in the cold open.
+    body: 'Memex keeps intent and code in lockstep: one living source your agent reads, follows, and proves it honoured.',
     primary: { label: 'Create your first spec', kind: 'action', target: 'create_spec' },
     secondary: { label: 'Why Memex?', kind: 'navigate', target: 'learn-more' },
   },

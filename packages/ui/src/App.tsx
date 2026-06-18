@@ -54,7 +54,6 @@ import { tenantBase, BASE_URL, fetchWithRetry } from './api/http';
 import { SearchProvider } from './components/SearchContext';
 import { WhatsNewRibbonConnected } from './components/whats-new/WhatsNewRibbonConnected';
 import { WhatsNewProvider } from './components/whats-new/WhatsNewContext';
-import { FirstRunGreeting } from './components/onboarding/FirstRunGreeting';
 import { DemoWalkthroughController } from './voice/walkthrough/DemoWalkthroughController';
 
 declare const __BUILD_TIME__: string;
@@ -219,9 +218,9 @@ function TenantLayout() {
             {/* spec-200: global What's New ribbon — authed shell only (inside
                 VoiceGuideMount so t-7's ear can reach the voice session). */}
             <WhatsNewRibbonConnected />
-            {/* spec-206 t-3: first-run greeting controller — auto-starts Specky on
-                a user's first session (no modal, no tap). Renders nothing. */}
-            <FirstRunGreeting />
+            {/* spec-305 dec-2: the Specky first-run greeting (FirstRunGreeting,
+                spec-206/242) is retired — onboarding is now the Home Canvas journey,
+                reached via the needsOnboarding → /home redirect in RequireAuth. */}
             <AppShell>
               <Fragment key={`${namespace}/${memex}`}>
                 <Outlet />
