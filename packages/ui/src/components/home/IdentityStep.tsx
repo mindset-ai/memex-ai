@@ -53,7 +53,9 @@ export function IdentityStep({
     [name, token, user, updateSession, preview, onComplete],
   );
 
-  const greeting = firstName(user?.name);
+  // Greeting tracks the live name field (not the stored SSO name) so the H1 updates
+  // as the user edits their name.
+  const greeting = firstName(name);
 
   return (
     <div className="flex min-h-[70vh] items-center justify-center px-4 py-10">
@@ -61,17 +63,15 @@ export function IdentityStep({
         data-testid="journey-step-identity"
         className="relative w-full max-w-2xl overflow-hidden rounded-3xl border border-edge bg-surface/70 p-8 shadow-2xl backdrop-blur-xl sm:p-12"
       >
+        <div className="mb-5 font-mono text-xs lowercase tracking-tight text-muted">// 00 · who you are and what you do</div>
         <h1 className="text-3xl font-black tracking-tight text-heading sm:text-4xl">
           {greeting ? `Good to meet you, ${greeting}.` : 'Good to meet you.'}
         </h1>
         <p className="mt-3 text-secondary">
-          A couple of quick things, then we&apos;ll get you to your first win.
+          That&apos;s the name from your login, swap it below if it&apos;s not quite you.
         </p>
 
         <label className="mt-6 block">
-          <span className="mb-1 block text-sm font-medium text-secondary">
-            We&apos;ll call you this — change it if you&apos;d rather.
-          </span>
           <input
             data-testid="identity-name"
             value={name}
@@ -82,8 +82,12 @@ export function IdentityStep({
         </label>
 
         <div className="mt-6">
-          <span className="mb-8 block text-sm font-medium text-secondary">
-            Where do you sit? No one&apos;s just one thing — place yourself anywhere.
+          <p className="text-secondary">
+            {greeting ? `Now, ${greeting}, nobody's just one thing anymore` : "Nobody's just one thing anymore"}: not
+            just a developer, not just a designer, not just a PM.
+          </p>
+          <span className="mt-2 mb-8 block text-sm font-medium text-secondary">
+            Drag the dot to where you fit. Most people land somewhere in between.
           </span>
           <RoleTriangle value={role} onChange={setRole} />
           <p data-testid="persona-label" className="mt-2 text-center text-sm font-semibold text-heading">

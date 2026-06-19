@@ -20,7 +20,7 @@ interface StepConfig {
 
 export const AGENT_PROMPT_STEPS: Record<string, StepConfig> = {
   'resolve-decision': {
-    eyebrow: 'Memex · Next',
+    eyebrow: '// 03 · first decision',
     headline: 'Make the first real call.',
     sub: 'Every plan hinges on a few decisions.',
     body: 'Have your agent capture the choice your spec turns on as a decision, weigh the options, and resolve it. That is how the plan stays honest and your agent knows which path you picked.',
@@ -35,7 +35,7 @@ Tell me which decision you resolved (dec-N).`,
     waitingLabel: 'Waiting for your agent to resolve a decision — this advances the moment it does.',
   },
   'add-ac': {
-    eyebrow: 'Memex · Next',
+    eyebrow: '// 04 · define "done"',
     headline: 'Pin down what "done" means.',
     sub: 'An acceptance criterion turns intent into something testable.',
     body: 'Have your agent add an acceptance criterion to your decision — a plain statement of what the code must do. This is the promise your tests will hold the build to.',
@@ -96,7 +96,7 @@ export function AgentPromptStep({
         data-testid={`journey-step-${stepId}`}
         className="relative w-full max-w-2xl overflow-hidden rounded-3xl border border-edge bg-surface/70 p-8 shadow-2xl backdrop-blur-xl sm:p-12"
       >
-        <div className="mb-5 text-xs font-semibold uppercase tracking-[0.14em] text-muted">{cfg.eyebrow}</div>
+        <div className="mb-5 font-mono text-xs lowercase tracking-tight text-muted">{cfg.eyebrow}</div>
         <h1 className="text-4xl font-black leading-[1.08] tracking-tight text-heading sm:text-5xl">{cfg.headline}</h1>
         <p className="mt-4 text-lg font-semibold text-primary">{cfg.sub}</p>
         <p className="mt-4 max-w-prose leading-relaxed text-secondary">{cfg.body}</p>

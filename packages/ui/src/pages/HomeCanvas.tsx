@@ -178,7 +178,16 @@ export function HomeCanvas() {
       ) : displayStepId === 'create-spec' ? (
         // spec-305 dec-9: copy-paste prompt + bring-your-own-PRD or sample; advances
         // the moment the agent creates the spec (hasSpec).
-        <CreateSpecStep preview={preview} onComplete={load} />
+        <CreateSpecStep
+          preview={preview}
+          onComplete={load}
+          onCreateInApp={() => {
+            // Pure navigation to the New Spec modal (?new=1) — writes nothing, so like any
+            // 'navigate' CTA it works even in operator preview. Keeps the link from being a
+            // dead end when colleagues preview the card.
+            if (specsPath) navigate(`${specsPath}?new=1`);
+          }}
+        />
       ) : displayStepId === 'resolve-decision' || displayStepId === 'add-ac' ? (
         // spec-305 dec-8: paste-a-prompt cards; advance on the step's milestone.
         <AgentPromptStep stepId={displayStepId} preview={preview} onComplete={load} />

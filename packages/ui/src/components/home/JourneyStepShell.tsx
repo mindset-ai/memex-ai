@@ -19,7 +19,7 @@ export function JourneyStepShell({
         className="relative w-full max-w-2xl overflow-hidden rounded-3xl border border-edge bg-surface/70 p-8 shadow-2xl backdrop-blur-xl sm:p-12"
       >
         {view.eyebrow && (
-          <div className="mb-5 text-xs font-semibold uppercase tracking-[0.14em] text-muted">
+          <div className="mb-5 font-mono text-xs lowercase tracking-tight text-muted">
             {view.eyebrow}
           </div>
         )}

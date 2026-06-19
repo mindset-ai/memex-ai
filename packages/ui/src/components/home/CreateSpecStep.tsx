@@ -4,6 +4,7 @@
 // exists (hasSpec milestone). The agent reads the source locally — no Memex-side upload.
 import { useEffect, useRef, useState } from 'react';
 import { CodeBlock } from '../CodeBlock';
+import { GlossaryTerm } from '../GlossaryTerm';
 import { fetchJourneyStateApi } from '../../api/journey';
 
 type Source = 'prd' | 'sample';
@@ -31,9 +32,11 @@ acceptance criterion next.`;
 export function CreateSpecStep({
   preview = false,
   onComplete,
+  onCreateInApp,
 }: {
   preview?: boolean;
   onComplete?: () => void;
+  onCreateInApp?: () => void;
 } = {}) {
   const [source, setSource] = useState<Source>('sample');
   const [done, setDone] = useState(false);
@@ -71,14 +74,14 @@ export function CreateSpecStep({
         data-testid="journey-step-create-spec"
         className="relative w-full max-w-2xl overflow-hidden rounded-3xl border border-edge bg-surface/70 p-8 shadow-2xl backdrop-blur-xl sm:p-12"
       >
-        <div className="mb-5 text-xs font-semibold uppercase tracking-[0.14em] text-muted">Memex · Next</div>
+        <div className="mb-5 font-mono text-xs lowercase tracking-tight text-muted">// 02 · first spec</div>
         <h1 className="text-4xl font-black leading-[1.08] tracking-tight text-heading sm:text-5xl">
           Hand your agent its first spec.
         </h1>
-        <p className="mt-4 text-lg font-semibold text-primary">No blank page — bring a PRD, or use ours.</p>
+        <p className="mt-4 text-lg font-semibold text-primary">No blank page: bring a PRD, or use ours.</p>
         <p className="mt-4 max-w-prose leading-relaxed text-secondary">
-          Paste this into your connected agent. It reads your source locally and creates the spec in your
-          personal Memex over MCP — nothing to upload here.
+          Paste this into your connected agent. It reads your source locally and creates the{' '}
+          <GlossaryTerm term="spec">spec</GlossaryTerm> in your personal Memex over MCP, nothing to upload here.
         </p>
 
         <div className="mt-7">
@@ -129,10 +132,20 @@ export function CreateSpecStep({
           ) : (
             <div className="flex items-center gap-2 text-sm text-muted">
               <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-accent" />
-              Waiting for your agent to create the spec — this advances the moment it does.
+              Waiting for your agent to create the spec, this advances the moment it does.
             </div>
           )}
         </div>
+
+        <button
+          type="button"
+          data-testid="create-spec-in-app"
+          onClick={() => onCreateInApp?.()}
+          className="mt-6 inline-flex items-center gap-1 text-sm text-muted underline-offset-4 transition-colors hover:text-secondary hover:underline"
+        >
+          Rather click than paste? Create one in the app
+          <span aria-hidden>→</span>
+        </button>
       </article>
     </div>
   );

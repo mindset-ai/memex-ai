@@ -78,6 +78,9 @@ export function RoleTriangle({
 }) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [dragging, setDragging] = useState(false);
+  // One-time interaction flag: the pulse + "drag me" hint show until the first move,
+  // so it's immediately clear the dot is the thing to grab.
+  const [touched, setTouched] = useState(false);
   const blob = toPoint(value);
 
   function pointerToCoords(e: ReactPointerEvent) {
@@ -103,6 +106,7 @@ export function RoleTriangle({
               : {};
     if (Object.keys(bias).length === 0) return;
     e.preventDefault();
+    setTouched(true);
     const next = {
       dev: Math.max(0, value.dev + (bias.dev ?? 0)),
       design: Math.max(0, value.design + (bias.design ?? 0)),
@@ -121,10 +125,11 @@ export function RoleTriangle({
       aria-valuetext={personaLabel(value)}
       tabIndex={0}
       data-testid="role-triangle"
-      className="mx-auto block w-full max-w-[22rem] cursor-pointer touch-none select-none rounded-2xl focus:outline-hidden focus-visible:ring-2 focus-visible:ring-accent"
+      className={`mx-auto block w-full max-w-[22rem] touch-none select-none rounded-2xl focus:outline-hidden focus-visible:ring-2 focus-visible:ring-accent ${dragging ? 'cursor-grabbing' : 'cursor-grab'}`}
       onPointerDown={(e) => {
         (e.target as Element).setPointerCapture?.(e.pointerId);
         setDragging(true);
+        setTouched(true);
         pointerToCoords(e);
       }}
       onPointerMove={(e) => dragging && pointerToCoords(e)}
@@ -150,13 +155,24 @@ export function RoleTriangle({
       <text x={VERT.pm.x} y={VERT.pm.y + 22} textAnchor="middle" className="fill-secondary text-[12px] font-semibold">
         PM
       </text>
+      {/* Until the first interaction: a soft pulse + a "drag me" hint so the dot
+          reads as the grabbable thing. Both vanish the moment the user moves it. */}
+      {!touched && (
+        <>
+          <circle cx={blob.x} cy={blob.y} r={20} fill="#8b5cf6" fillOpacity={0.18} className="animate-pulse" />
+          <text x={blob.x} y={blob.y - 27} textAnchor="middle" className="fill-secondary text-[11px] font-semibold">
+            drag me
+          </text>
+        </>
+      )}
+      {/* The grabbable knob: a larger gradient dot with a white ring (the handle). */}
       <circle
         data-testid="role-triangle-blob"
         cx={blob.x}
         cy={blob.y}
-        r={11}
+        r={16}
         className="fill-[url(#roleBlob)] stroke-white"
-        strokeWidth={2}
+        strokeWidth={3}
       />
       <defs>
         <radialGradient id="roleBlob">
