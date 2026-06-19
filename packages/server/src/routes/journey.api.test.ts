@@ -76,7 +76,16 @@ async function state(userId: string, query = ""): Promise<{ status: number; body
 
 // ── milestone seeders (each a USER-scoped fact the engine derives from) ──
 async function confirmIdentity(userId: string) {
-  await db.update(users).set({ identityConfirmedAt: new Date() }).where(eq(users.id, userId));
+  // spec-307: the identity milestone keys off role_coords (placing yourself on the
+  // triangle), NOT identity_confirmed_at. Mirror a real identity-step completion,
+  // which stamps both (updateUserProfile).
+  await db
+    .update(users)
+    .set({
+      identityConfirmedAt: new Date(),
+      roleCoords: { dev: 0.34, design: 0.33, pm: 0.33 },
+    })
+    .where(eq(users.id, userId));
 }
 async function connectMcp(userId: string) {
   await recordUsageEvent({ memexId: null, actorUserId: userId, name: "mcp.connected", source: "backend" });
@@ -135,6 +144,21 @@ describe("Home Canvas journey-state (ac-3 derived position)", () => {
       hasAc: false,
       acVerified: false,
     });
+  });
+
+  it("the identity tick reflects the triangle (role_coords), not the backfilled identity_confirmed_at (spec-307)", async () => {
+    tagAc(AC(3));
+    const user = await newUser();
+    // A spec-305-backfilled user: identity_confirmed_at set (so they were never
+    // force-onboarded) but they NEVER placed themselves on the triangle.
+    await db.update(users).set({ identityConfirmedAt: new Date() }).where(eq(users.id, user.id));
+    expect((await state(user.id)).body.milestones.identityConfirmed).toBe(false);
+    // Completing the identity step saves role_coords → the tick goes green.
+    await db
+      .update(users)
+      .set({ roleCoords: { dev: 0.5, design: 0.25, pm: 0.25 } })
+      .where(eq(users.id, user.id));
+    expect((await state(user.id)).body.milestones.identityConfirmed).toBe(true);
   });
 
   it("anonymous requests are rejected", async () => {

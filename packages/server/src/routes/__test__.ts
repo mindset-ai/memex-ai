@@ -202,9 +202,11 @@ testOnlyRouter.post("/onboarding-greeted", async (c) => {
   return c.json({ ok: true });
 });
 
-// spec-305 — set/clear a user's identity_confirmed_at. needsOnboarding now keys off
-// this (not !name), so the onboarding journey UN-confirms the dev user to land on the
-// welcome step; the fixture re-confirms it afterwards so it can't leak into other journeys.
+// spec-305/307 — set/clear a user's identity state. needsOnboarding keys off
+// identity_confirmed_at; the journey identity MILESTONE keys off role_coords (spec-307:
+// did the user place themselves on the triangle). Confirm/un-confirm sets/clears BOTH so
+// they stay in lock-step — the onboarding journey un-confirms the dev user to land on the
+// welcome step, and the fixture re-confirms afterwards so it can't leak into other journeys.
 const identityConfirmedSchema = z.object({
   email: z.string().email(),
   confirmed: z.boolean(),
@@ -220,7 +222,11 @@ testOnlyRouter.post("/identity-confirmed", async (c) => {
   if (!user) return c.json({ error: `User ${email} not found` }, 404);
   await db
     .update(users)
-    .set({ identityConfirmedAt: confirmed ? new Date() : null, updatedAt: new Date() })
+    .set({
+      identityConfirmedAt: confirmed ? new Date() : null,
+      roleCoords: confirmed ? { dev: 0.34, design: 0.33, pm: 0.33 } : null,
+      updatedAt: new Date(),
+    })
     .where(eq(users.id, user.id));
   return c.json({ ok: true });
 });

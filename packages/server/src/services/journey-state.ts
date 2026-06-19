@@ -67,9 +67,16 @@ export async function getUserMilestones(
   userId: string,
   conn: Db = db,
 ): Promise<JourneyMilestones> {
-  // identityConfirmed (captured, dec-4): the user completed the identity step.
+  // identityConfirmed (captured, dec-4): the user completed the identity step —
+  // i.e. they placed themselves on the developer/designer/PM triangle. The signal is
+  // `role_coords` being set, NOT `identity_confirmed_at`: spec-305 backfilled
+  // identity_confirmed_at for every pre-existing user (so they were never force-routed
+  // through onboarding), which would light this tick green without the user ever doing
+  // the step. role_coords is null for those backfilled users and is written the moment
+  // the identity step is completed (placing yourself, or skipping to the centered
+  // default), so it faithfully means "I saved my role on the triangle" (spec-307).
   const [userRow] = await conn
-    .select({ confirmedAt: users.identityConfirmedAt })
+    .select({ roleCoords: users.roleCoords })
     .from(users)
     .where(eq(users.id, userId));
 
@@ -132,7 +139,7 @@ export async function getUserMilestones(
     .where(and(eq(acs.actorUserId, userId), eq(testEventLatest.latestStatus, "pass")));
 
   return {
-    identityConfirmed: !!userRow?.confirmedAt,
+    identityConfirmed: userRow?.roleCoords != null,
     mcpConnected: (connectedRow?.n ?? 0) > 0,
     mcpToolCalled: (toolRow?.n ?? 0) > 0,
     hasSpec: (specRow?.n ?? 0) > 0,
