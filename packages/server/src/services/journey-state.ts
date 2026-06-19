@@ -14,7 +14,7 @@
 // user's own rows and touches no billing/entitlement store.
 
 import { and, eq, sql } from "drizzle-orm";
-import { db, type Db } from "../db/connection.js";
+import { db, runWithUserId, type Db } from "../db/connection.js";
 import {
   documents,
   decisions,
@@ -66,6 +66,21 @@ export function stepStatuses(
 export async function getUserMilestones(
   userId: string,
   conn: Db = db,
+): Promise<JourneyMilestones> {
+  // RLS (spec-199): these counts are USER-scoped and CROSS-memex, so there is no
+  // single app.memex_id to set — and /api/me/journey-state runs with none. Under
+  // the runtime role `memex_app` the memex-only isolation policy would filter
+  // every documents/acs/decisions count to ZERO (the grey-ticks bug). Setting
+  // app.user_id activates the additive `*_owner_visibility` SELECT policies
+  // (migration 0098), making the user's OWN authored rows visible across every
+  // memex (reads only — writes stay memex-gated). Wrapped here so any caller
+  // using the default db is correct-by-default; usage_events has no RLS policy.
+  return runWithUserId(userId, () => collectUserMilestones(userId, conn));
+}
+
+async function collectUserMilestones(
+  userId: string,
+  conn: Db,
 ): Promise<JourneyMilestones> {
   // identityConfirmed (captured, dec-4): the user completed the identity step —
   // i.e. they placed themselves on the developer/designer/PM triangle. The signal is
