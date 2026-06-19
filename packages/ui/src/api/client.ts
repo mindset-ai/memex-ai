@@ -2251,8 +2251,8 @@ export async function consumeDomainVerificationApi(verifyToken: string): Promise
 export interface OAuthAuthorizePreview {
   client_name: string;
   scopes: string[];
-  /** User's grantable Orgs (per b-31 dec-8). Empty array = personal-only flow. */
-  orgs: { id: string; name: string }[];
+  // spec-307: no per-grant Org scope — an OAuth grant covers the user's full live
+  // membership, so the preview no longer carries an Org list.
 }
 
 export interface OAuthAuthorizeParams {
@@ -2290,19 +2290,15 @@ export async function oauthAuthorizeDecisionApi(
   params: OAuthAuthorizeParams,
   decision: 'allow' | 'deny',
   token: string | null,
-  /** Chosen Org id (per b-31 dec-8); null for personal-only. */
-  orgId: string | null,
 ): Promise<{ redirect: string }> {
+  // spec-307: no Org scope on the grant — the body carries no org_id. The grant
+  // covers the user's full live membership.
   const res = await fetchWithRetry(`${BASE_URL}/oauth/authorize`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders(token) },
     body: JSON.stringify({
       ...params,
       decision,
-      // Server only inspects org_id when present; omit it for null so the
-      // body shape stays clean. The auth route then treats absence as
-      // "personal-only" (and 400s on user-with-orgs without it).
-      ...(orgId ? { org_id: orgId } : {}),
     }),
   });
   const body = await res.json().catch(() => ({}));
