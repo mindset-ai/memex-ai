@@ -49,7 +49,7 @@ test(TITLE, async ({ page }) => {
 
   // A brand-new user lands on the welcome step: the universal Beat-1 cold open (ac-1).
   await expect(page.getByTestId("journey-step-welcome")).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByText("drift apart")).toBeVisible();
+  await expect(page.getByText(/vibe coding viable/)).toBeVisible();
   await page.getByTestId("journey-cta-primary").click(); // Get started → identity
 
   // The identity step: name confirm (pre-filled from SSO) + the role triangle (ac-2).
