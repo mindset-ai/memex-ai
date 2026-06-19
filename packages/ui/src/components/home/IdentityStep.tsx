@@ -63,6 +63,7 @@ export function IdentityStep({
         data-testid="journey-step-identity"
         className="relative w-full max-w-2xl overflow-hidden rounded-3xl border border-edge bg-surface/70 p-8 shadow-2xl backdrop-blur-xl sm:p-12"
       >
+        <div className="mb-5 font-mono text-xs lowercase tracking-tight text-muted">// 00 · who you are and what you do</div>
         <h1 className="text-3xl font-black tracking-tight text-heading sm:text-4xl">
           {greeting ? `Good to meet you, ${greeting}.` : 'Good to meet you.'}
         </h1>

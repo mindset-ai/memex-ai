@@ -21,6 +21,7 @@ export function WelcomeStep({ onNavigate }: { onNavigate: (stepId: string) => vo
         data-testid="journey-step-welcome"
         className="relative w-full max-w-2xl overflow-hidden rounded-3xl border border-edge bg-surface/70 p-8 shadow-2xl backdrop-blur-xl sm:p-12"
       >
+        <div className="mb-5 font-mono text-xs lowercase tracking-tight text-muted">// memex makes vibe coding viable</div>
         {first && (
           <h1 className="text-4xl font-black leading-[1.08] tracking-tight text-heading sm:text-5xl">
             Hello, <span>{first}</span>.
@@ -30,9 +31,6 @@ export function WelcomeStep({ onNavigate }: { onNavigate: (stepId: string) => vo
           Welcome to Memex.
           <span className="block">Let&apos;s get you up and running.</span>
         </h1>
-        <p className="mt-3 bg-[linear-gradient(96deg,#fb5b78,#c084fc)] bg-clip-text text-2xl font-black leading-tight tracking-tight text-transparent sm:text-3xl">
-          Memex makes vibe coding viable.
-        </p>
         <p className="mt-4 max-w-prose leading-relaxed text-secondary">
           A few short steps from here and your agent is building from a plan it can&apos;t drift from, and proving
           the code matches it.

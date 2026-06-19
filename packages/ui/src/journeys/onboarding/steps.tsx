@@ -68,7 +68,7 @@ export const ONBOARDING_STEP_VIEWS: Record<string, JourneyStepView> = {
     mapLabel: 'Agent connected',
     eyebrow: '// 01 · connect your agent',
     headline: 'Bring your coding agent.',
-    sub: "Nothing else moves until your agent's in.",
+    sub: 'One connection, and your agent works straight from your plan.',
     body: 'Connect your agent over MCP and it can read your specs, standards and decisions, and report progress back. One command and you are wired in — from here, your agent does the work while you watch it land.',
     primary: { label: 'Connect your agent', kind: 'action', target: 'connect_agent' },
     secondary: { label: "What's the MCP?", kind: 'link', target: 'https://www.memex.ai' },

@@ -6,6 +6,7 @@
 // user's first tool call (or a manual Next). Reuses the portable installBase/mcpUrl
 // derivation + the CodeBlock primitive (DRY with the Settings install section).
 import { useEffect, useRef, useState } from 'react';
+import { GlossaryTerm } from '../GlossaryTerm';
 import { CodeBlock } from '../CodeBlock';
 import { installBase, mcpUrl } from '../../utils/mcpUrl';
 import { fetchJourneyStateApi } from '../../api/journey';
@@ -213,10 +214,12 @@ export function ConnectAgentStep({
             <h1 className="text-4xl font-black leading-[1.08] tracking-tight text-heading sm:text-5xl">
               Bring your coding agent.
             </h1>
-            <p className="mt-4 text-lg font-semibold text-primary">Nothing else moves until your agent&apos;s in.</p>
+            <p className="mt-4 text-lg font-semibold text-primary">One connection, and your agent works straight from your plan.</p>
             <p className="mt-4 max-w-prose leading-relaxed text-secondary">
-              Connect your agent over MCP and it can read your specs, standards and decisions, and report progress
-              back. From here, your agent does the work while you watch it land.
+              Connect your agent over MCP and it can read your <GlossaryTerm term="spec">specs</GlossaryTerm>,{' '}
+              <GlossaryTerm term="standard">standards</GlossaryTerm> and{' '}
+              <GlossaryTerm term="decision">decisions</GlossaryTerm>, and report progress back. From here, your
+              agent does the work while you watch it land.
             </p>
 
             {osMatters && (
