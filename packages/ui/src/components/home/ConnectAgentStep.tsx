@@ -82,7 +82,18 @@ function Instructions({ tool, os }: { tool: Tool; os: Os }) {
     return (
       <div className="space-y-2">
         <ol className="list-inside list-decimal space-y-1 text-sm text-secondary">
-          <li>Open <strong>Settings → Connectors</strong>.</li>
+          <li>
+            Open <strong>Customize → Connectors</strong> (
+            <a
+              href="https://claude.ai/customize/connectors?modal=add-custom-connector"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline hover:text-primary"
+            >
+              jump straight there
+            </a>
+            ).
+          </li>
           <li>Click <strong>Add custom connector</strong>.</li>
           <li>Name it <strong>Memex</strong> and paste the URL below.</li>
           <li>Save, then complete the sign-in in the popup.</li>
