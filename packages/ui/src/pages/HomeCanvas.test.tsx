@@ -73,18 +73,22 @@ beforeEach(() => {
 });
 
 describe('HomeCanvas — welcome step (ac-2)', () => {
-  it('renders the MD-dead splash, greets by name, and offers two CTAs', async () => {
+  it('renders the universal Beat-1 cold open, greets by name, and offers two CTAs', async () => {
     tagAc(AC(2));
     tagAc(AC(8));
+    // spec-305 ac-1: the welcome is a universal, role-agnostic Beat-1 line (drift),
+    // not the coder-specific ".md files are dead" cold open.
+    tagAc('mindset-prod/memex-building-itself/specs/spec-305/acs/ac-1');
     fetchJourneyStateApi.mockResolvedValue(stateFor('welcome'));
     renderCanvas();
 
     expect(await screen.findByTestId('journey-step-welcome')).toBeInTheDocument();
-    expect(screen.getByText('.md files')).toBeInTheDocument();
-    expect(screen.getByText('dead')).toBeInTheDocument();
     expect(screen.getByText('Welcome to Memex.')).toBeInTheDocument();
+    expect(screen.getByText('drift apart')).toBeInTheDocument();
+    // The coder-specific ".md files" line is a Beat-2 reward, never the cold open.
+    expect(screen.queryByText('.md files')).not.toBeInTheDocument();
     expect(screen.getByText('John')).toBeInTheDocument(); // greeting first-name
-    expect(screen.getByTestId('journey-cta-primary')).toHaveTextContent('Create your first spec');
+    expect(screen.getByTestId('journey-cta-primary')).toHaveTextContent('Get started');
     expect(screen.getByTestId('journey-cta-secondary')).toHaveTextContent('Why Memex?');
   });
 
@@ -115,7 +119,7 @@ describe('HomeCanvas — terminal step (ac-5)', () => {
 });
 
 describe('HomeCanvas — every milestone step renders in isolation (ac-6)', () => {
-  for (const id of ['welcome', 'first-decision', 'connect-agent', 'use-agent', 'all-set']) {
+  for (const id of ['welcome', 'connect-agent', 'create-spec', 'resolve-decision', 'add-ac', 'see-green', 'all-set']) {
     it(`renders the '${id}' step`, async () => {
       tagAc(AC(6));
       fetchJourneyStateApi.mockResolvedValue(stateFor(id));
@@ -126,7 +130,7 @@ describe('HomeCanvas — every milestone step renders in isolation (ac-6)', () =
 
   it('embeds no third-party video player in any step (impl ac-14)', async () => {
     tagAc(AC(14));
-    for (const id of ['welcome', 'first-decision', 'connect-agent', 'use-agent', 'all-set']) {
+    for (const id of ['welcome', 'connect-agent', 'create-spec', 'resolve-decision', 'add-ac', 'see-green', 'all-set']) {
       fetchJourneyStateApi.mockResolvedValue(stateFor(id));
       const { container, unmount } = renderCanvas();
       await screen.findByTestId(`journey-step-${id}`);
@@ -141,7 +145,7 @@ describe('HomeCanvas — every milestone step renders in isolation (ac-6)', () =
     fetchJourneyStateApi.mockResolvedValue(stateFor('welcome', { canPreview: true }));
     renderCanvas();
     expect(await screen.findByTestId('journey-preview-bar')).toBeInTheDocument();
-    expect(screen.getByTestId('journey-preview-use-agent')).toBeInTheDocument();
+    expect(screen.getByTestId('journey-preview-create-spec')).toBeInTheDocument();
   });
 
   it('hides the preview bar for a non-operator', async () => {
@@ -154,21 +158,21 @@ describe('HomeCanvas — every milestone step renders in isolation (ac-6)', () =
 
 describe('HomeCanvas — attainment progress map', () => {
   const stepsMixed = [
-    { id: 'welcome', attained: true },
-    { id: 'first-decision', attained: false },
-    { id: 'connect-agent', attained: true }, // attained out of order
-    { id: 'use-agent', attained: false },
+    { id: 'connect-agent', attained: true },
+    { id: 'create-spec', attained: false },
+    { id: 'resolve-decision', attained: true }, // attained out of order
+    { id: 'see-green', attained: false },
     { id: 'all-set', attained: false },
   ];
 
   it('shows the map off the welcome step, with real attainment incl. the out-of-order tick', async () => {
     tagAc(AC(4));
-    fetchJourneyStateApi.mockResolvedValue(stateFor('first-decision', { steps: stepsMixed }));
+    fetchJourneyStateApi.mockResolvedValue(stateFor('create-spec', { steps: stepsMixed }));
     renderCanvas();
     expect(await screen.findByTestId('journey-progress-map')).toBeInTheDocument();
-    expect(screen.getByTestId('journey-map-welcome').getAttribute('data-attained')).toBe('true');
-    expect(screen.getByTestId('journey-map-first-decision').getAttribute('data-attained')).toBe('false');
     expect(screen.getByTestId('journey-map-connect-agent').getAttribute('data-attained')).toBe('true');
+    expect(screen.getByTestId('journey-map-create-spec').getAttribute('data-attained')).toBe('false');
+    expect(screen.getByTestId('journey-map-resolve-decision').getAttribute('data-attained')).toBe('true');
   });
 
   it('hides the map on the cold welcome step', async () => {
@@ -182,24 +186,25 @@ describe('HomeCanvas — attainment progress map', () => {
 });
 
 describe('HomeCanvas — CTA allow-list (ac-5 / impl ac-12)', () => {
-  it("an 'action' CTA routes into the real flow (create_spec → personal Specs board)", async () => {
+  it("an 'action' CTA routes into the real flow (invite → integrations)", async () => {
     tagAc(AC(5));
     tagAc(AC(12));
-    fetchJourneyStateApi.mockResolvedValue(stateFor('welcome'));
+    // all-set renders via the generic shell; its primary is an 'invite' action.
+    fetchJourneyStateApi.mockResolvedValue(stateFor('all-set'));
     renderCanvas();
     fireEvent.click(await screen.findByTestId('journey-cta-primary'));
-    // Deep-links into the SAME NewSpecModal the board uses (?new=1).
     await waitFor(() =>
-      expect(screen.getByTestId('location')).toHaveTextContent('/john/personal/specs?new=1'),
+      expect(screen.getByTestId('location')).toHaveTextContent('/settings/integrations'),
     );
   });
 
-  it("a 'navigate' CTA moves within the canvas (Why Memex? → learn-more), no route change", async () => {
+  it("'Why Memex?' grows the welcome card into the lesson in place, no route change", async () => {
     tagAc(AC(12));
     fetchJourneyStateApi.mockResolvedValue(stateFor('welcome'));
     renderCanvas();
+    expect(screen.queryByTestId('why-memex-lesson')).toBeNull();
     fireEvent.click(await screen.findByTestId('journey-cta-secondary'));
-    expect(await screen.findByTestId('journey-step-learn-more')).toBeInTheDocument();
-    expect(screen.getByTestId('location')).toHaveTextContent('/home');
+    expect(await screen.findByTestId('why-memex-lesson')).toBeInTheDocument();
+    expect(screen.getByTestId('location')).toHaveTextContent('/home'); // same card, no nav
   });
 });

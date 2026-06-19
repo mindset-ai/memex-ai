@@ -54,7 +54,6 @@ import { tenantBase, BASE_URL, fetchWithRetry } from './api/http';
 import { SearchProvider } from './components/SearchContext';
 import { WhatsNewRibbonConnected } from './components/whats-new/WhatsNewRibbonConnected';
 import { WhatsNewProvider } from './components/whats-new/WhatsNewContext';
-import { FirstRunGreeting } from './components/onboarding/FirstRunGreeting';
 import { DemoWalkthroughController } from './voice/walkthrough/DemoWalkthroughController';
 
 declare const __BUILD_TIME__: string;
@@ -171,7 +170,8 @@ function TenantLayout() {
     return <VerifyEmailGate />;
   }
   if (session.needsOnboarding) {
-    return <Onboarding />;
+    // spec-305 dec-2: onboarding now lives in the Home Canvas journey (/home).
+    return <Navigate to="/home" replace />;
   }
 
   // Membership check: redirect to the user's default tenant when they aren't
@@ -219,9 +219,9 @@ function TenantLayout() {
             {/* spec-200: global What's New ribbon — authed shell only (inside
                 VoiceGuideMount so t-7's ear can reach the voice session). */}
             <WhatsNewRibbonConnected />
-            {/* spec-206 t-3: first-run greeting controller — auto-starts Specky on
-                a user's first session (no modal, no tap). Renders nothing. */}
-            <FirstRunGreeting />
+            {/* spec-305 dec-2: the Specky first-run greeting (FirstRunGreeting,
+                spec-206/242) is retired — onboarding is now the Home Canvas journey,
+                reached via the needsOnboarding → /home redirect in RequireAuth. */}
             <AppShell>
               <Fragment key={`${namespace}/${memex}`}>
                 <Outlet />
@@ -332,7 +332,7 @@ function RootRedirect() {
   const { session } = useAuth();
   if (!session) return null; // session bootstrap still pending
   if (session && !session.user.emailVerified) return <VerifyEmailGate />;
-  if (session?.needsOnboarding) return <Onboarding />;
+  if (session?.needsOnboarding) return <Navigate to="/home" replace />; // spec-305 dec-2
   const target = computeDefaultLanding(session);
   if (target) return <Navigate to={target} replace />;
   return null;
@@ -514,8 +514,14 @@ export function PostLoginRouter() {
 // routes; flat routes that want chrome get them here.
 function FlatShell({ children }: { children: React.ReactNode }) {
   const { session } = useAuth();
+  const location = useLocation();
   if (session && !session.user.emailVerified) return <VerifyEmailGate />;
-  if (session?.needsOnboarding) return <Onboarding />;
+  // spec-305 dec-2: needs-onboarding users belong on the Home Canvas journey.
+  // Exempt /home itself so the journey renders there (its identity step clears
+  // needsOnboarding); every other flat route bounces them to /home.
+  if (session?.needsOnboarding && location.pathname !== '/home') {
+    return <Navigate to="/home" replace />;
+  }
   return (
     <ChatProvider>
       <OrgConsentDialog />

@@ -11,6 +11,7 @@ import {
   ensureUser,
   setUserName,
   setOnboardingGreeted,
+  setIdentityConfirmed,
   clearOrgMemberships,
   cleanup,
 } from "./seed.js";
@@ -45,6 +46,10 @@ export const test = base.extend<{ resources: TestResources }>({
     await ensureUser(DEV_EMAIL);
     await clearOrgMemberships(DEV_EMAIL);
     await setUserName(DEV_EMAIL, DEV_NAME);
+    // spec-305: needsOnboarding now keys off identity_confirmed_at (not !name), so
+    // confirm the dev user each test — otherwise every journey redirects to /home.
+    // (the onboarding journey-34 deliberately un-confirms to walk the welcome step.)
+    await setIdentityConfirmed(DEV_EMAIL, true);
     // spec-206: pre-stamp the dev user as already greeted so Specky's first-run
     // auto-greeting never fires unexpectedly on a journey's first board load
     // (it would otherwise trigger wherever a mic is available, e.g. journey-21).

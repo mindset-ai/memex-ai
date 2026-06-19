@@ -93,6 +93,16 @@ export async function setOnboardingGreeted(email: string, greeted: boolean): Pro
 }
 
 /**
+ * Set/clear a user's identity_confirmed_at (spec-305). `confirmed: false` un-confirms
+ * so the user lands on the Home Canvas welcome step (needsOnboarding now keys off this);
+ * the per-test fixture re-confirms afterwards so a cleared flag can't leak into other
+ * journeys.
+ */
+export async function setIdentityConfirmed(email: string, confirmed: boolean): Promise<void> {
+  await call("POST", "/identity-confirmed", { email, confirmed });
+}
+
+/**
  * Seed a Spec into a memex through the server's createDocDraft service — so the
  * bus emits `document created` and the SSE-reactive UI sees it like a real Spec.
  * The service mints the handle; we return both the docId (cleanup) and the

@@ -202,6 +202,29 @@ testOnlyRouter.post("/onboarding-greeted", async (c) => {
   return c.json({ ok: true });
 });
 
+// spec-305 — set/clear a user's identity_confirmed_at. needsOnboarding now keys off
+// this (not !name), so the onboarding journey UN-confirms the dev user to land on the
+// welcome step; the fixture re-confirms it afterwards so it can't leak into other journeys.
+const identityConfirmedSchema = z.object({
+  email: z.string().email(),
+  confirmed: z.boolean(),
+});
+testOnlyRouter.post("/identity-confirmed", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = identityConfirmedSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
+  }
+  const { email, confirmed } = parsed.data;
+  const user = await getUserByEmail(email);
+  if (!user) return c.json({ error: `User ${email} not found` }, 404);
+  await db
+    .update(users)
+    .set({ identityConfirmedAt: confirmed ? new Date() : null, updatedAt: new Date() })
+    .where(eq(users.id, user.id));
+  return c.json({ ok: true });
+});
+
 // Seed a Spec (documents row + first section) into a memex through the real
 // createDocDraft service — so the bus emits a `document created` and the
 // SSE-reactive UI sees it like any real Spec. The service mints the handle

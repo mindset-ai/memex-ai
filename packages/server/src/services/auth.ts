@@ -153,7 +153,7 @@ export async function handleSsoLogin(
     memberships,
     currentMemexId: current?.memexId ?? null,
     currentRole: current?.role ?? null,
-    needsOnboarding: !user.name,
+    needsOnboarding: !user.identityConfirmedAt, // spec-305 dec-2/dec-4: gate on the identity step, not just a name (SSO users arrive named)
     hiddenFeatures: getHiddenFeatures(),
   };
 }
@@ -244,7 +244,7 @@ export async function resolveSession(
     memberships,
     currentMemexId: current?.memexId ?? null,
     currentRole: current?.role ?? null,
-    needsOnboarding: !user.name,
+    needsOnboarding: !user.identityConfirmedAt, // spec-305 dec-2/dec-4: gate on the identity step, not just a name (SSO users arrive named)
     hiddenFeatures: getHiddenFeatures(),
   };
 }
