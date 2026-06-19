@@ -468,7 +468,19 @@ app.all("/mcp", async (c) => {
     try {
       const claims = verifyAccessToken(raw);
       userId = claims.sub;
-      orgFilter = claims.org; // null = personal-only; UUID = org-scoped
+      // spec-307 dec-1/dec-2: MCP access follows the user's LIVE membership, not the
+      // Org scope frozen into the token at consent (spec-31 dec-8, now superseded).
+      // Treat OAuth callers exactly like PATs — `orgFilter === undefined` resolves
+      // against every CURRENT active membership in mcp/auth.ts. The token's `org`
+      // claim is no longer enforced, so existing tokens widen to the user's own live
+      // memberships with no re-auth (connect once, survive Org graduation). No token
+      // is migrated or invalidated; the stored claim simply goes inert.
+      orgFilter = undefined;
+      // Rollout observability: a previously Org-scoped grant now resolving under live
+      // membership is the widening this Spec introduces — record it so it's auditable.
+      console.log(
+        `[mcp:live-membership] oauth token resolved under live membership user=${claims.sub} legacy_scope=${claims.org ?? "personal-only"}`,
+      );
     } catch {
       c.header(
         "WWW-Authenticate",
