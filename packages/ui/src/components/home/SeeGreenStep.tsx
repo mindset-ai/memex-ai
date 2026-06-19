@@ -70,7 +70,7 @@ export function SeeGreenStep({
           </div>
         ) : (
           <div className="text-left">
-            <div className="mb-5 text-xs font-semibold uppercase tracking-[0.14em] text-muted">Memex · The moment</div>
+            <div className="mb-5 font-mono text-xs lowercase tracking-tight text-muted">// 05 · the moment</div>
             <h1 className="text-4xl font-black leading-[1.08] tracking-tight text-heading sm:text-5xl">
               Watch it go green.
             </h1>

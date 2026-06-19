@@ -28,17 +28,14 @@ export function WelcomeStep({ onNavigate }: { onNavigate: (stepId: string) => vo
         )}
         <h1 className="text-4xl font-black leading-[1.08] tracking-tight text-heading sm:text-5xl">
           Welcome to Memex.
-          <span className="block">
-            Your plan and your build{' '}
-            <span className="bg-[linear-gradient(96deg,#fb5b78,#c084fc)] bg-clip-text text-transparent">
-              drift apart
-            </span>{' '}
-            the moment you write them.
-          </span>
+          <span className="block">Let&apos;s get you up and running.</span>
         </h1>
+        <p className="mt-3 bg-[linear-gradient(96deg,#fb5b78,#c084fc)] bg-clip-text text-2xl font-black leading-tight tracking-tight text-transparent sm:text-3xl">
+          Memex makes vibe coding viable.
+        </p>
         <p className="mt-4 max-w-prose leading-relaxed text-secondary">
-          Memex keeps intent and code in lockstep: one living source your agent reads, follows, and proves it
-          honoured.
+          A few short steps from here and your agent is building from a plan it can&apos;t drift from, and proving
+          the code matches it.
         </p>
 
         <div className="mt-8 flex flex-wrap items-center gap-3">
@@ -72,7 +69,7 @@ export function WelcomeStep({ onNavigate }: { onNavigate: (stepId: string) => vo
             <div className="mt-5 space-y-4">
               <p className="leading-relaxed text-secondary">
                 <span className="font-semibold text-heading">The docs rotted.</span> Every markdown file was right
-                the day we wrote it and quietly wrong a week later — a heap of them, no way to tell which still
+                the day we wrote it and quietly wrong a week later. A heap of them, no way to tell which still
                 held.
               </p>
               <p className="leading-relaxed text-secondary">
@@ -87,7 +84,7 @@ export function WelcomeStep({ onNavigate }: { onNavigate: (stepId: string) => vo
             </div>
             <p className="mt-6 leading-relaxed text-primary">
               Memex is what fell out of fixing that for ourselves: the spec stops being a doc that rots and becomes
-              something the tests keep honest — so <span className="italic">is it right</span> is a question you
+              something the tests keep honest, so <span className="italic">is it right</span> is a question you
               answer, not feel.
             </p>
           </div>

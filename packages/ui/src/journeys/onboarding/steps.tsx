@@ -55,7 +55,7 @@ export const ONBOARDING_STEP_VIEWS: Record<string, JourneyStepView> = {
   // Informational (navigate-only) — not a server milestone step.
   'learn-more': {
     id: 'learn-more',
-    eyebrow: "Memex · What's a spec?",
+    eyebrow: "// what's a spec?",
     headline: 'A spec is a living plan.',
     sub: 'Not a doc that rots: a plan your agent reads and follows.',
     body: 'A spec captures what you are building and why — the decisions it hinges on, what "done" means, and the work to get there. Your coding agent reads it over MCP, so it builds the right thing and stays on track.',
@@ -66,9 +66,9 @@ export const ONBOARDING_STEP_VIEWS: Record<string, JourneyStepView> = {
   'connect-agent': {
     id: 'connect-agent',
     mapLabel: 'Agent connected',
-    eyebrow: 'Memex · First, the big one',
+    eyebrow: '// 01 · connect your agent',
     headline: 'Bring your coding agent.',
-    sub: 'This is the one that unlocks everything else.',
+    sub: "Nothing else moves until your agent's in.",
     body: 'Connect your agent over MCP and it can read your specs, standards and decisions, and report progress back. One command and you are wired in — from here, your agent does the work while you watch it land.',
     primary: { label: 'Connect your agent', kind: 'action', target: 'connect_agent' },
     secondary: { label: "What's the MCP?", kind: 'link', target: 'https://www.memex.ai' },
@@ -77,7 +77,7 @@ export const ONBOARDING_STEP_VIEWS: Record<string, JourneyStepView> = {
   'create-spec': {
     id: 'create-spec',
     mapLabel: 'Spec created',
-    eyebrow: 'Memex · Next',
+    eyebrow: '// 02 · first spec',
     headline: 'Hand your agent its first spec.',
     sub: 'Bring a PRD, or use ours and follow along.',
     body: 'Paste the prompt into your connected agent and it creates a spec in your personal Memex — point it at a real PRD/markdown file, or use our sample to learn the ropes.',
@@ -88,7 +88,7 @@ export const ONBOARDING_STEP_VIEWS: Record<string, JourneyStepView> = {
   'resolve-decision': {
     id: 'resolve-decision',
     mapLabel: 'Decision made',
-    eyebrow: 'Memex · Next',
+    eyebrow: '// 03 · first decision',
     headline: 'Make the first real call.',
     sub: 'Every plan hinges on a few decisions.',
     body: 'Capture the choice your spec turns on, weigh the options, and resolve it. That is how the plan stays honest and your agent knows which path you picked.',
@@ -99,7 +99,7 @@ export const ONBOARDING_STEP_VIEWS: Record<string, JourneyStepView> = {
   'add-ac': {
     id: 'add-ac',
     mapLabel: 'AC added',
-    eyebrow: 'Memex · Next',
+    eyebrow: '// 04 · define "done"',
     headline: 'Pin down what "done" means.',
     sub: 'An acceptance criterion turns intent into something testable.',
     body: 'Add an acceptance criterion to your decision — a plain statement of what the code must do. This is the promise your tests will hold the build to.',
@@ -109,7 +109,7 @@ export const ONBOARDING_STEP_VIEWS: Record<string, JourneyStepView> = {
   'see-green': {
     id: 'see-green',
     mapLabel: 'AC green',
-    eyebrow: 'Memex · The moment',
+    eyebrow: '// 05 · the moment',
     headline: 'Watch it go green.',
     sub: 'Your agent emits a test result, and the AC lights up.',
     body: 'Have your agent run the test that backs your acceptance criterion. When it passes, the AC turns green right here — provable alignment between what you intended and what the code does. This is Memex.',
@@ -119,7 +119,7 @@ export const ONBOARDING_STEP_VIEWS: Record<string, JourneyStepView> = {
   'all-set': {
     id: 'all-set',
     mapLabel: 'Set up',
-    eyebrow: "Memex · You're set up",
+    eyebrow: '// done',
     headline: "You're all set.",
     sub: 'You drove a spec from intent to a green AC. That is the whole loop.',
     body: 'From here, Home shows what needs your attention next. When you are ready, bring your colleagues in — set up an organisation (free) so the map grows with the people you work with.',

@@ -71,7 +71,7 @@ export function CreateSpecStep({
         data-testid="journey-step-create-spec"
         className="relative w-full max-w-2xl overflow-hidden rounded-3xl border border-edge bg-surface/70 p-8 shadow-2xl backdrop-blur-xl sm:p-12"
       >
-        <div className="mb-5 text-xs font-semibold uppercase tracking-[0.14em] text-muted">Memex · Next</div>
+        <div className="mb-5 font-mono text-xs lowercase tracking-tight text-muted">// 02 · first spec</div>
         <h1 className="text-4xl font-black leading-[1.08] tracking-tight text-heading sm:text-5xl">
           Hand your agent its first spec.
         </h1>

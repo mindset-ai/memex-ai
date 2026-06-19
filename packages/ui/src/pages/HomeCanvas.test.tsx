@@ -84,7 +84,7 @@ describe('HomeCanvas — welcome step (ac-2)', () => {
 
     expect(await screen.findByTestId('journey-step-welcome')).toBeInTheDocument();
     expect(screen.getByText('Welcome to Memex.')).toBeInTheDocument();
-    expect(screen.getByText('drift apart')).toBeInTheDocument();
+    expect(screen.getByText(/drift apart/)).toBeInTheDocument();
     // The coder-specific ".md files" line is a Beat-2 reward, never the cold open.
     expect(screen.queryByText('.md files')).not.toBeInTheDocument();
     expect(screen.getByText('John')).toBeInTheDocument(); // greeting first-name

@@ -207,13 +207,13 @@ export function ConnectAgentStep({
           </div>
         ) : (
           <>
-            <div className="mb-5 text-xs font-semibold uppercase tracking-[0.14em] text-muted">
-              Memex · First, the big one
+            <div className="mb-5 font-mono text-xs lowercase tracking-tight text-muted">
+              // 01 · connect your agent
             </div>
             <h1 className="text-4xl font-black leading-[1.08] tracking-tight text-heading sm:text-5xl">
               Bring your coding agent.
             </h1>
-            <p className="mt-4 text-lg font-semibold text-primary">This is the one that unlocks everything else.</p>
+            <p className="mt-4 text-lg font-semibold text-primary">Nothing else moves until your agent&apos;s in.</p>
             <p className="mt-4 max-w-prose leading-relaxed text-secondary">
               Connect your agent over MCP and it can read your specs, standards and decisions, and report progress
               back. From here, your agent does the work while you watch it land.
