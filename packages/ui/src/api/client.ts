@@ -545,6 +545,85 @@ export async function deleteComment(commentId: string): Promise<void> {
   }
 }
 
+// ── spec-320: comment @-mentions + assignment ───────────────────────────────
+
+// An active org member offered in the @-mention typeahead (dec-4).
+export interface MentionableMember {
+  userId: string;
+  name: string | null;
+  email: string;
+}
+
+// A mention rendered on a comment (the assignee is also one of these).
+export interface CommentMentionView {
+  userId: string;
+  name: string | null;
+  email: string | null;
+}
+
+// spec-320 (ac-10): the @-mention typeahead data source. Active org members
+// matching `query` by substring on name or email; a blank query returns the active
+// roster (the composer opens it on `@`). Returns [] for personal memexes / anon.
+export async function searchMentionableMembers(query: string): Promise<MentionableMember[]> {
+  const res = await fetchWithRetry(
+    `${tBase()}/comments/mentionable-users?q=${encodeURIComponent(query)}`,
+  );
+  if (!res.ok) return [];
+  const data = (await res.json()) as { members?: MentionableMember[] };
+  return data.members ?? [];
+}
+
+// The mentions on a batch of comments, keyed by commentId — for rendering mention
+// chips and resolving the assignee's display name (assignee ⊆ mentions).
+export async function fetchCommentMentions(
+  commentIds: string[],
+): Promise<Record<string, CommentMentionView[]>> {
+  if (commentIds.length === 0) return {};
+  const res = await fetchWithRetry(
+    `${tBase()}/comments/mentions?ids=${encodeURIComponent(commentIds.join(','))}`,
+  );
+  if (!res.ok) return {};
+  const data = (await res.json()) as { mentions?: Record<string, CommentMentionView[]> };
+  return data.mentions ?? {};
+}
+
+// @-mention one or more users on a comment (ac-1). Each newly-mentioned user is
+// added to the discussion and emailed.
+export async function addCommentMentions(commentId: string, userIds: string[]): Promise<void> {
+  const res = await fetchWithRetry(`${tBase()}/comments/${commentId}/mentions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userIds }),
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to add mentions: ${res.status}`);
+  }
+}
+
+// Assign a comment to a single owner (ac-2). Assignment is mention + ownership.
+export async function assignComment(commentId: string, userId: string): Promise<Comment> {
+  const res = await fetchWithRetry(`${tBase()}/comments/${commentId}/assign`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId }),
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to assign comment: ${res.status}`);
+  }
+  return res.json();
+}
+
+// Clear a comment's assignment (ownership only; the mention stays).
+export async function unassignComment(commentId: string): Promise<Comment> {
+  const res = await fetchWithRetry(`${tBase()}/comments/${commentId}/unassign`, {
+    method: 'POST',
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to unassign comment: ${res.status}`);
+  }
+  return res.json();
+}
+
 /**
  * The 12-element typed-comment vocabulary the server validates against (per
  * Section 7 of doc-10 / t-4). t-16 only needs `'question'` (for "Flag for

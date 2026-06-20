@@ -28,6 +28,14 @@ import {
 import type { MemexResolverEnv } from "../middleware/memex-resolver.js";
 import { requireMemexId, resolveReadableMemexId } from "./shared.js";
 import { restCtx } from "./_actor-ctx.js";
+import { getOrgIdForMemex } from "../services/memexes.js";
+import { searchMentionableMembers } from "../services/users.js";
+import {
+  addMentions,
+  assignComment,
+  unassignComment,
+  listMentionsForComments,
+} from "../services/comment-mentions.js";
 
 type Env = MemexResolverEnv & SessionEnv;
 const comments = new Hono<Env>();
@@ -89,6 +97,37 @@ function parseTypeFilter(raw: string | undefined): CommentType[] | undefined {
   }
   return parts as CommentType[];
 }
+
+// spec-320 (dec-4, ac-10): the @-mention typeahead's data source. Active org
+// members matched by substring on name OR email local-part; a bare query returns
+// the active roster (the composer opens it on `@`). Member-only affordance: an
+// unauthenticated caller (anonymous on a public memex) or a personal memex with no
+// org gets an empty list rather than a leaked roster.
+comments.get("/mentionable-users", async (c) => {
+  const memexId = await resolveReadableMemexId(c);
+  const userId = (c.get("currentUserId") as string | null) ?? null;
+  if (!userId) return c.json({ members: [] });
+  const orgId = await getOrgIdForMemex(memexId);
+  if (!orgId) return c.json({ members: [] });
+  const q = c.req.query("q") ?? "";
+  const members = await searchMentionableMembers(orgId, q);
+  return c.json({ members });
+});
+
+// spec-320: the mentions on a batch of comments, for rendering mention chips + the
+// "assigned to <name>" label (the assignee is also a mention, so the UI resolves the
+// assignee's display name from this map). Query: ?ids=commentId,commentId,…
+comments.get("/mentions", async (c) => {
+  const memexId = await resolveReadableMemexId(c);
+  const idsRaw = c.req.query("ids") ?? "";
+  const ids = idsRaw.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+  const map = await listMentionsForComments(memexId, ids);
+  const mentions: Record<string, { userId: string; name: string | null; email: string | null }[]> = {};
+  for (const [commentId, list] of map) {
+    mentions[commentId] = list.map((m) => ({ userId: m.userId, name: m.name, email: m.email }));
+  }
+  return c.json({ mentions });
+});
 
 comments.get("/doc/:docId", async (c) => {
   const memexId = await resolveReadableMemexId(c);
@@ -200,6 +239,45 @@ comments.post("/:commentId/unresolve", async (c) => {
   const memexId = requireMemexId(c);
   const commentId = c.req.param("commentId");
   const comment = await unresolveComment(memexId, commentId);
+  return c.json(comment);
+});
+
+// spec-320 (ac-1): @-mention one or more users on a comment. Body { userIds:[…] }.
+// Idempotent per user; each newly-mentioned user is added to the discussion and
+// emailed. restCtx carries WHO so the activity + email attribute correctly.
+comments.post("/:commentId/mentions", async (c) => {
+  const memexId = requireMemexId(c);
+  const commentId = c.req.param("commentId");
+  const body = await c.req.json().catch(() => ({}));
+  const userIds = Array.isArray(body.userIds)
+    ? body.userIds.filter((u: unknown): u is string => typeof u === "string")
+    : [];
+  if (userIds.length === 0) {
+    throw new ValidationError("userIds must be a non-empty array of user ids.");
+  }
+  const mentions = await addMentions(memexId, commentId, userIds, restCtx(c));
+  return c.json({ mentions }, 201);
+});
+
+// spec-320 (ac-2): assign a comment to a single owner. Body { userId }. Assignment
+// is mention + ownership (dec-2) — the service guarantees the assignee is mentioned.
+comments.post("/:commentId/assign", async (c) => {
+  const memexId = requireMemexId(c);
+  const commentId = c.req.param("commentId");
+  const body = await c.req.json().catch(() => ({}));
+  const userId = typeof body.userId === "string" ? body.userId : null;
+  if (!userId) {
+    throw new ValidationError("userId is required to assign a comment.");
+  }
+  const comment = await assignComment(memexId, commentId, userId, restCtx(c));
+  return c.json(comment);
+});
+
+// spec-320: clear a comment's assignment (ownership only; the mention stays).
+comments.post("/:commentId/unassign", async (c) => {
+  const memexId = requireMemexId(c);
+  const commentId = c.req.param("commentId");
+  const comment = await unassignComment(memexId, commentId, restCtx(c));
   return c.json(comment);
 });
 

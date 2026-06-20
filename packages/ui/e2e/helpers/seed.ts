@@ -208,6 +208,29 @@ export async function addOrgMember(opts: {
   return call<{ ok: boolean; userId: string }>("POST", "/org-add-member", opts);
 }
 
+/** spec-320 (ac-11): @-mention a user on a comment through the real addMentions
+ *  service (no raw SQL, std-28). Backs spec-315's "mentions-me" home card. */
+export async function seedCommentMention(opts: {
+  memexId: string;
+  commentId: string;
+  userEmail: string;
+  mentionedByEmail?: string;
+}): Promise<{ ok: boolean; userId: string }> {
+  return call("POST", "/seed-comment-mention", opts);
+}
+
+/** spec-320 (ac-11): set a comment's assignee through the real assignComment
+ *  service (sets the columns + guarantees the mention row). Backs spec-315's
+ *  "assigned-to-me" home card. */
+export async function setCommentAssignee(opts: {
+  memexId: string;
+  commentId: string;
+  assigneeEmail: string;
+  assignedByEmail?: string;
+}): Promise<{ ok: boolean; assigneeUserId: string }> {
+  return call("POST", "/set-comment-assignee", opts);
+}
+
 /** Add a claimed (unverified) email domain to a seeded org. */
 export async function addOrgDomain(opts: {
   orgId: string;

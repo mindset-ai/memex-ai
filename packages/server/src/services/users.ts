@@ -576,6 +576,49 @@ export async function resolveOrgMembersByName(
   }));
 }
 
+// spec-320 (dec-4, ac-10): the @-mention typeahead's data source. Active org
+// members matched by case-insensitive SUBSTRING on `users.name` OR the email LOCAL
+// PART — the same matcher resolveOrgMembersByName uses, but it RETURNS the display
+// name (the composer renders name || email) and supports the bare-`@` case: an
+// empty query returns the full active roster (capped) so typing `@` alone opens the
+// list of org colleagues. Scoped to ACTIVE members of `orgId` (std-4 / spec-15
+// dec-2) — disabled members can't be mentioned. Ordered + capped so a large org
+// can't return an unbounded payload to the typeahead.
+export interface MentionableMember {
+  userId: string;
+  name: string | null;
+  email: string;
+}
+
+export async function searchMentionableMembers(
+  orgId: string,
+  query: string,
+  limit = 25,
+): Promise<MentionableMember[]> {
+  const needle = query.trim().toLowerCase();
+  const conditions = [
+    eq(orgMemberships.orgId, orgId),
+    eq(orgMemberships.status, "active"),
+  ];
+  if (needle.length > 0) {
+    const pattern = `%${needle.replace(/([\\%_])/g, "\\$1")}%`;
+    conditions.push(
+      sql`(
+        lower(coalesce(${users.name}, '')) LIKE ${pattern} ESCAPE '\\'
+        OR lower(split_part(${users.email}, '@', 1)) LIKE ${pattern} ESCAPE '\\'
+      )`,
+    );
+  }
+  const rows = await db
+    .select({ userId: users.id, name: users.name, email: users.email })
+    .from(orgMemberships)
+    .innerJoin(users, eq(orgMemberships.userId, users.id))
+    .where(and(...conditions))
+    .orderBy(asc(users.email))
+    .limit(limit);
+  return rows;
+}
+
 // Returns memberships whose org's email_domains array contains the given domain.
 export async function listMembershipsMatchingDomain(
   userId: string,
