@@ -53,7 +53,7 @@ afterAll(() => {
 
 describe("ac-11 — standalone harness installs the tarball, type-checks, and queries via Drizzle", () => {
   it("the installed package resolves and type-checks against its exported types", () => {
-    tagAc("mindset-prod/memex-building-itself/specs/spec-279/acs/ac-11");
+    tagAc("mindset-prod/memex-backstage/specs/spec-1/acs/ac-11");
 
     // A consumer .ts that uses both a value export (table) and a type export (Doc).
     const consumerTs = join(proj, "consumer.ts");
@@ -75,7 +75,7 @@ describe("ac-11 — standalone harness installs the tarball, type-checks, and qu
   });
 
   it("opens a Drizzle postgres connection and runs a query through the imported schema", () => {
-    tagAc("mindset-prod/memex-building-itself/specs/spec-279/acs/ac-11");
+    tagAc("mindset-prod/memex-backstage/specs/spec-1/acs/ac-11");
 
     const probe = join(proj, "probe.mjs");
     writeFileSync(
@@ -97,7 +97,7 @@ describe("ac-11 — standalone harness installs the tarball, type-checks, and qu
 
 describe("ac-5 — consuming is documented and demonstrably sufficient, incl. the RLS posture", () => {
   it("the README documents the install recipe, the drizzle usage, and the BYPASSRLS posture", () => {
-    tagAc("mindset-prod/memex-building-itself/specs/spec-279/acs/ac-5");
+    tagAc("mindset-prod/memex-backstage/specs/spec-1/acs/ac-5");
     const readme = readFileSync(join(PKG_DIR, "README.md"), "utf8");
     // Install recipe: scoped registry + GITHUB_TOKEN auth.
     expect(readme).toContain("@mindset-ai:registry=https://npm.pkg.github.com");

@@ -338,6 +338,16 @@ export const docComments = pgTable(
     anchorSnippet: text("anchor_snippet"),
     audience: jsonb("audience").$type<CommentAudience>().notNull().default("all"),
     actions: jsonb("actions").$type<CommentAction[]>(),
+    // spec-320 (dec-1/dec-2): comment ASSIGNMENT (ownership). Single owner per
+    // comment, so it lives on the row (a column), NOT a join table — the
+    // cardinality is the inverse of doc_assignees (spec-118), where a Spec has
+    // many assignees. The open→resolved lifecycle reuses resolved_at/resolution
+    // (no assignment-specific status column). assigned_by / assigned_at are the
+    // std-32 WHO/WHEN of the assignment, stamped at write. ON DELETE SET NULL so
+    // removing a user keeps the comment (mirrors doc_assignees.assigned_by).
+    assigneeUserId: uuid("assignee_user_id").references(() => users.id, { onDelete: "set null" }),
+    assignedBy: uuid("assigned_by").references(() => users.id, { onDelete: "set null" }),
+    assignedAt: timestamp("assigned_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -383,6 +393,12 @@ export const docComments = pgTable(
     // Per-doc seq scope (b-36 T-2). Backfilled deterministically by
     // ROW_NUMBER() OVER (PARTITION BY doc_id ORDER BY created_at, id).
     unique("doc_comments_doc_seq_unique").on(table.docId, table.seq),
+    // spec-320 (dec-2): the spec-315 "open assignments to me" read path —
+    // assignee_user_id = :me AND resolved_at IS NULL. Partial so the index only
+    // carries OPEN assignments (a resolved comment closes the assignment).
+    index("doc_comments_open_assignee_idx")
+      .on(table.assigneeUserId)
+      .where(sql`${table.resolvedAt} IS NULL`),
   ]
 );
 
@@ -896,6 +912,54 @@ export const docCommentsRelations = relations(docComments, ({ one }) => ({
     fields: [docComments.referenceTaskId],
     references: [tasks.id],
     relationName: "doc_comments_reference_task",
+  }),
+}));
+
+// ══════════════════════════════════════
+// Comment mentions (spec-320)
+// ══════════════════════════════════════
+//
+// spec-320 (dec-1): @-mention a user in a comment. A JOIN TABLE because a single
+// comment can call out SEVERAL people (multi-mention, ac-1) — the inverse
+// cardinality of the single-owner assignee column on doc_comments. Tenancy on
+// memex_id (NOT NULL, denormalised, mirrors doc_comments) for RLS. comment_id →
+// doc_comments ON DELETE CASCADE (mentions die with their comment); user_id →
+// users ON DELETE CASCADE (mentions die with the user). mentioned_by is the
+// std-32 WHO (ON DELETE SET NULL so removing the actor keeps the mention); `at`
+// is the std-32 WHEN. unique(comment_id,user_id) makes mention-add idempotent —
+// one mention per user per comment. index(user_id) backs the spec-315
+// "mentions-me" read path. The invariant assignee ⊆ mentions (dec-2) is enforced
+// in the service layer: assigning a comment always writes the matching mention
+// row, so comment_mentions is the uniform "everyone called out" set.
+export const commentMentions = pgTable(
+  "comment_mentions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    memexId: uuid("memex_id").notNull(),
+    commentId: uuid("comment_id")
+      .notNull()
+      .references(() => docComments.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    mentionedBy: uuid("mentioned_by").references(() => users.id, { onDelete: "set null" }),
+    at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique("comment_mentions_comment_id_user_id_unique").on(table.commentId, table.userId),
+    index("comment_mentions_user_id_idx").on(table.userId),
+    index("comment_mentions_comment_id_idx").on(table.commentId),
+  ]
+);
+
+export const commentMentionsRelations = relations(commentMentions, ({ one }) => ({
+  comment: one(docComments, {
+    fields: [commentMentions.commentId],
+    references: [docComments.id],
+  }),
+  user: one(users, {
+    fields: [commentMentions.userId],
+    references: [users.id],
   }),
 }));
 
@@ -2630,6 +2694,8 @@ export type StandardClause = InferSelectModel<typeof standardClauses>;
 export type ClauseRef = InferSelectModel<typeof clauseRefs>;
 export type ClauseRefInsert = InferInsertModel<typeof clauseRefs>;
 export type DocComment = InferSelectModel<typeof docComments>;
+export type CommentMention = InferSelectModel<typeof commentMentions>;
+export type CommentMentionInsert = InferInsertModel<typeof commentMentions>;
 export type Decision = InferSelectModel<typeof decisions>;
 export type Task = InferSelectModel<typeof tasks>;
 export type Issue = InferSelectModel<typeof issues>;

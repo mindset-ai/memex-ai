@@ -13,7 +13,7 @@ const pkgJson = JSON.parse(readFileSync(resolve(__dirname, "..", "package.json")
 
 describe("ac-8 — publishes to GitHub Packages authenticating with GITHUB_TOKEN only", () => {
   it("targets the @mindset-ai GitHub Packages registry and references no secret but GITHUB_TOKEN", () => {
-    tagAc("mindset-prod/memex-building-itself/specs/spec-279/acs/ac-8");
+    tagAc("mindset-prod/memex-backstage/specs/spec-1/acs/ac-8");
 
     // Right registry + scope.
     expect(workflow).toContain("https://npm.pkg.github.com");
@@ -33,7 +33,7 @@ describe("ac-8 — publishes to GitHub Packages authenticating with GITHUB_TOKEN
 
 describe("ac-9 — no-op guard: unchanged schema produces no new version", () => {
   it("decidePublish skips when the published hash matches, publishes otherwise", () => {
-    tagAc("mindset-prod/memex-building-itself/specs/spec-279/acs/ac-9");
+    tagAc("mindset-prod/memex-backstage/specs/spec-1/acs/ac-9");
 
     const currentHash = "abc123def456";
 
@@ -48,7 +48,7 @@ describe("ac-9 — no-op guard: unchanged schema produces no new version", () =>
   });
 
   it("computeSchemaHash is deterministic and content-sensitive", () => {
-    tagAc("mindset-prod/memex-building-itself/specs/spec-279/acs/ac-9");
+    tagAc("mindset-prod/memex-backstage/specs/spec-1/acs/ac-9");
 
     const a = computeSchemaHash("export const documents = pgTable('documents', {});");
     const b = computeSchemaHash("export const documents = pgTable('documents', {});");
@@ -61,7 +61,7 @@ describe("ac-9 — no-op guard: unchanged schema produces no new version", () =>
 
 describe("ac-2 — fires on the release line and publishes a pinnable, claimable version", () => {
   it("triggers on push to main + workflow_dispatch and runs the publish script", () => {
-    tagAc("mindset-prod/memex-building-itself/specs/spec-279/acs/ac-2");
+    tagAc("mindset-prod/memex-backstage/specs/spec-1/acs/ac-2");
 
     expect(workflow).toMatch(/branches:\s*\[main\]/);
     expect(workflow).toContain("workflow_dispatch:");
@@ -69,7 +69,7 @@ describe("ac-2 — fires on the release line and publishes a pinnable, claimable
   });
 
   it("uses a claimable scoped name (NOT @memex) and bumps to a valid pinnable semver", () => {
-    tagAc("mindset-prod/memex-building-itself/specs/spec-279/acs/ac-2");
+    tagAc("mindset-prod/memex-backstage/specs/spec-1/acs/ac-2");
 
     // Name is the claimable @mindset-ai scope, not the unavailable @memex (spec-89).
     expect(pkgJson.name).toBe("@mindset-ai/db-schema");
