@@ -107,6 +107,7 @@ describe("spec-320 comment_mentions table shape (ac-6, ac-7)", () => {
 describe("spec-320 @-mention capture (ac-1)", () => {
   it("mentions one or more users, dedups, emits comment_mention, and emails each new mention", async () => {
     tagAc(AC(1));
+    tagAc(AC(9)); // one mention email per newly-mentioned user (dec-3)
     const c = await makeComment();
     send.mockClear();
 
@@ -135,6 +136,7 @@ describe("spec-320 assignment = mention + ownership (ac-2, ac-8)", () => {
   it("assigning sets the columns AND guarantees a mention row (assignee ⊆ mentions); sends one assignment email", async () => {
     tagAc(AC(2));
     tagAc(AC(8));
+    tagAc(AC(9)); // assignment sends ONE assignment email, never also a mention email (dec-3)
     const c = await makeComment();
     send.mockClear();
 
