@@ -51,8 +51,14 @@ export function CommentComposerPopover({
 
   const token = activeMentionToken(value, caret);
   const chosen = new Set(mentions.map((m) => m.userId));
-  const results = useMentionSearch(token ? token.query : null).filter((m) => !chosen.has(m.userId));
-  const open = token !== null && results.length > 0 && !dismissed;
+  const search = useMentionSearch(token ? token.query : null);
+  const results = search.results.filter((m) => !chosen.has(m.userId));
+  // The dropdown opens as soon as you're in an @-token (unless dismissed). It shows
+  // members when there are any, or a clear "no one to mention" line when the search
+  // settled empty — so a single-player Memex never gets silence (spec-320 ac-13).
+  const dropdownOpen = token !== null && !dismissed && search.status !== 'idle';
+  const hasOptions = results.length > 0;
+  const showEmpty = dropdownOpen && !hasOptions && search.status === 'done';
 
   // Focus on open and grow the textarea to fit (so long comments wrap, design #3).
   useEffect(() => {
@@ -88,7 +94,9 @@ export function CommentComposerPopover({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (open) {
+    // Only the OPTIONS capture arrows/Enter — the empty-state never traps keys, so
+    // Enter still sends when there's no one to pick.
+    if (dropdownOpen && hasOptions) {
       if (e.key === 'ArrowDown') {
         e.preventDefault();
         setActiveIdx((i) => (i + 1) % results.length);
@@ -100,18 +108,18 @@ export function CommentComposerPopover({
         return;
       }
       if (e.key === 'Enter') {
-        // While the typeahead is open, Enter picks the active member — it does NOT
-        // send (so an @-mention can't accidentally submit a half-typed comment).
+        // While options are shown, Enter picks the active member — it does NOT send
+        // (so an @-mention can't accidentally submit a half-typed comment).
         e.preventDefault();
         selectMember(results[activeIdx]!);
         return;
       }
-      if (e.key === 'Escape') {
-        // Close the dropdown but keep the composer open + the draft intact.
-        e.preventDefault();
-        setDismissed(true);
-        return;
-      }
+    }
+    if (e.key === 'Escape' && dropdownOpen) {
+      // Close the dropdown but keep the composer open + the draft intact.
+      e.preventDefault();
+      setDismissed(true);
+      return;
     }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -162,33 +170,44 @@ export function CommentComposerPopover({
           </button>
         </div>
 
-        {open && (
+        {dropdownOpen && (
           <div
             role="listbox"
             data-testid="mention-typeahead"
             className="absolute left-0 right-0 top-full z-20 mt-1 max-h-56 overflow-y-auto rounded-md border border-edge bg-panel py-1 shadow-lg"
           >
-            {results.map((m, i) => (
-              <button
-                key={m.userId}
-                type="button"
-                role="option"
-                aria-selected={i === activeIdx}
-                data-testid="mention-option"
-                data-user-id={m.userId}
-                onMouseDown={(e) => {
-                  // mousedown (not click) so the textarea doesn't blur first.
-                  e.preventDefault();
-                  selectMember(m);
-                }}
-                className={`flex w-full flex-col items-start px-3 py-1.5 text-left text-xs ${
-                  i === activeIdx ? 'bg-overlay' : ''
-                } hover:bg-overlay`}
-              >
-                <span className="text-heading">{personLabel(m)}</span>
-                {m.name && <span className="text-[10px] text-muted">{m.email}</span>}
-              </button>
-            ))}
+            {hasOptions &&
+              results.map((m, i) => (
+                <button
+                  key={m.userId}
+                  type="button"
+                  role="option"
+                  aria-selected={i === activeIdx}
+                  data-testid="mention-option"
+                  data-user-id={m.userId}
+                  onMouseDown={(e) => {
+                    // mousedown (not click) so the textarea doesn't blur first.
+                    e.preventDefault();
+                    selectMember(m);
+                  }}
+                  className={`flex w-full flex-col items-start px-3 py-1.5 text-left text-xs ${
+                    i === activeIdx ? 'bg-overlay' : ''
+                  } hover:bg-overlay`}
+                >
+                  <span className="text-heading">{personLabel(m)}</span>
+                  {m.name && <span className="text-[10px] text-muted">{m.email}</span>}
+                </button>
+              ))}
+            {/* Empty-state: no one to mention (e.g. a single-player Memex). A future
+                spec adds an "Invite teammates" link here (out of scope today). */}
+            {showEmpty && (
+              <p data-testid="mention-empty" className="px-3 py-1.5 text-xs text-muted">
+                No one to mention.
+              </p>
+            )}
+            {!hasOptions && search.status === 'loading' && (
+              <p className="px-3 py-1.5 text-xs text-muted">Searching…</p>
+            )}
           </div>
         )}
       </div>

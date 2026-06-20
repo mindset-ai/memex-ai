@@ -198,6 +198,11 @@ test("the INLINE section comment composer offers the @-mention typeahead (ac-12,
     // member typeahead (it previously did nothing here — only the discussion tray).
     const textarea = composer.getByTestId("comment-composer-text");
     await textarea.click();
+    // Empty-state (ac-13): a query that matches no one still OPENS the box with an
+    // explicit notice — never silence (the single-player-Memex complaint).
+    await textarea.fill("Note @zzzznobody");
+    await expect(composer.getByTestId("mention-empty")).toBeVisible({ timeout: 10_000 });
+
     await textarea.fill("Take a look @Harr");
     const option = composer.getByTestId("mention-option").filter({ hasText: COLLEAGUE_NAME }).first();
     await expect(option).toBeVisible({ timeout: 10_000 });
@@ -212,7 +217,7 @@ test("the INLINE section comment composer offers the @-mention typeahead (ac-12,
     passed = true;
   } finally {
     await emitAcEvents(
-      [AC(12), AC(5)],
+      [AC(12), AC(5), AC(13)],
       passed ? "pass" : "fail",
       `packages/ui/e2e/journey-37-spec-320-comment-mentions.spec.ts::inline-composer`,
       0,
