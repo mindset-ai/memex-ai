@@ -7,7 +7,7 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import { tagAc } from '@memex-ai-ac/vitest';
-import { setConsent, CONSENT_KEY } from './visitorConsent';
+import { setConsent } from './visitorConsent';
 import {
   resolveVisitorIdWithConsent,
   currentVisitorId,
