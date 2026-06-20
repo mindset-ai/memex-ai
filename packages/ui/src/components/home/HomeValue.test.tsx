@@ -103,4 +103,16 @@ describe('HomeValue (spec-315 iteration 2)', () => {
     expect(screen.queryByTestId('home-where-needed')).toBeNull(); // collapsed
     expect(screen.queryByTestId('home-empty')).toBeNull(); // not the all-empty state
   });
+
+  it('renders specs in the SERVER order — no client relevance ranking (ac-4)', async () => {
+    tagAc(AC(4));
+    fetchHomeApi.mockResolvedValue({
+      whereYoureNeeded: [],
+      specs: [card({ docId: 'a', handle: 'spec-1' }), card({ docId: 'b', handle: 'spec-2' })],
+    });
+    renderHV();
+    await screen.findByTestId('home-specs');
+    const ids = screen.getAllByTestId(/^home-spec-/).map((n) => n.getAttribute('data-testid'));
+    expect(ids).toEqual(['home-spec-a', 'home-spec-b']);
+  });
 });
