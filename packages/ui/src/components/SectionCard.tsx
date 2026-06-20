@@ -9,8 +9,8 @@ import { CommentSourceAvatar } from './CommentSourceAvatar';
 import { rehypeRefLinkifier } from './chat/refLinkifier';
 import { createComment, resolveComment, deleteComment } from '../api/client';
 import { buildCommentLink } from '../utils/commentDeepLink';
-import { renderedOffsetToSource, resolveRenderedOffset } from '../utils/anchorOffset';
 import { buildAnchorRange } from '../utils/anchorHighlight';
+import { computeAnchorFromRange } from '../utils/sectionSelection';
 import { SelectionToolbar } from './SelectionToolbar';
 import { CommentComposerPopover } from './CommentComposerPopover';
 
@@ -112,59 +112,39 @@ export const SectionCard = memo(function SectionCard({
   const [draftText, setDraftText] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  const handleSelection = () => {
-    if (!canWrite) return;
-    const sel = window.getSelection();
-    if (!sel || sel.isCollapsed) { setToolbar(null); return; }
-    const text = sel.toString().trim();
-    if (!text) { setToolbar(null); return; }
-    // Only react to selections inside this section's body.
-    if (!bodyRef.current || !sel.anchorNode || !bodyRef.current.contains(sel.anchorNode)) return;
-    const range = sel.getRangeAt(0);
-    // Anchor by POSITION, both ends: flatten the body's rendered text (skipping
-    // marker badges) into one string while recording each text node's start
-    // index, then resolve the selection's start and end boundaries to rendered
-    // offsets and map each to the markdown source. Handles inline formatting +
-    // repeated words unambiguously, and yields a RANGE, not a point.
-    const walker = document.createTreeWalker(bodyRef.current, NodeFilter.SHOW_TEXT, {
-      acceptNode: (n) =>
-        n.parentElement?.closest('[data-marker-seq],[data-marker-start]')
-          ? NodeFilter.FILTER_REJECT
-          : NodeFilter.FILTER_ACCEPT,
-    });
-    let rendered = '';
-    const starts: { node: Node; start: number }[] = [];
-    let wn: Node | null;
-    while ((wn = walker.nextNode())) {
-      starts.push({ node: wn, start: rendered.length });
-      rendered += wn.textContent ?? '';
-    }
-    const renderedStart = resolveRenderedOffset(range.startContainer, range.startOffset, starts, rendered.length);
-    const renderedEnd = resolveRenderedOffset(range.endContainer, range.endOffset, starts, rendered.length);
-    if (renderedStart < 0 || renderedEnd < 0 || renderedEnd <= renderedStart) return;
-    const startSrc = renderedOffsetToSource(section.content, rendered, renderedStart);
-    const endSrc = renderedOffsetToSource(section.content, rendered, renderedEnd);
-    const rect = range.getBoundingClientRect();
-    setToolbar({
-      start: startSrc,
-      end: endSrc,
-      quote: text.slice(0, 60),
-      top: rect.top - 40, // float just above the selection
-      left: rect.left + rect.width / 2,
-    });
-  };
-
-  // Dismiss the toolbar on any click that isn't on it (mirrors Docs).
+  // spec-319 dec-1: detect the comment-anchor selection at the DOCUMENT level so
+  // the affordance is independent of WHERE the gesture ends. The old wiring read
+  // window.getSelection() inside an onMouseUp on the body, so any drag that
+  // released outside the body (an everyday overshoot past/below the text) never
+  // fired the handler — the "can't bank on it" bug. `selectionchange` fires for
+  // every way a selection settles; we coalesce to one read per animation frame,
+  // scope it to THIS section's body by containment, and map it with the shared
+  // pure helper (which reads the normalized Range, so backward selections work
+  // too). A selection that collapses or leaves this body clears the toolbar —
+  // this also subsumes the old mousedown click-outside closer.
   useEffect(() => {
-    if (!toolbar) return;
-    const onDown = (e: MouseEvent) => {
-      if (!(e.target as HTMLElement)?.closest?.('[data-testid="selection-toolbar"]')) {
-        setToolbar(null);
-      }
+    if (!canWrite) return;
+    let raf = 0;
+    const recompute = () => {
+      const body = bodyRef.current;
+      const sel = window.getSelection();
+      if (!body || !sel || sel.isCollapsed || sel.rangeCount === 0) { setToolbar(null); return; }
+      const range = sel.getRangeAt(0);
+      const anchor = computeAnchorFromRange(range, body, section.content);
+      if (!anchor) { setToolbar(null); return; }
+      const rect = range.getBoundingClientRect();
+      setToolbar({ ...anchor, top: rect.top - 40, left: rect.left + rect.width / 2 });
     };
-    document.addEventListener('mousedown', onDown);
-    return () => document.removeEventListener('mousedown', onDown);
-  }, [toolbar]);
+    const onSelectionChange = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(recompute);
+    };
+    document.addEventListener('selectionchange', onSelectionChange);
+    return () => {
+      cancelAnimationFrame(raf);
+      document.removeEventListener('selectionchange', onSelectionChange);
+    };
+  }, [canWrite, section.content]);
 
   const openComposerFromToolbar = () => {
     if (!toolbar) return;
@@ -414,7 +394,6 @@ export const SectionCard = memo(function SectionCard({
         <div ref={cardRef} className="relative">
           <div
             ref={bodyRef}
-            onMouseUp={handleSelection}
             data-testid="section-body"
             className="min-w-0 pr-8"
           >
