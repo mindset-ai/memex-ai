@@ -18,8 +18,7 @@
 
 import { and, eq, isNull } from "drizzle-orm";
 import { db } from "../db/connection.js";
-import { loginRequests } from "../db/schema.js";
-import type { LoginRequest } from "../db/schema.js";
+import { loginRequests, type LoginRequest } from "../db/schema.js";
 import { mutate, type Mutated } from "./mutate.js";
 
 export interface CreateLoginRequestInput {

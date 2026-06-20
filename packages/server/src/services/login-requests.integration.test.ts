@@ -5,7 +5,7 @@
 import { describe, it, expect, afterAll } from "vitest";
 import { eq, inArray } from "drizzle-orm";
 import { db } from "../db/connection.js";
-import { loginRequests, users } from "../db/schema.js";
+import { users } from "../db/schema.js";
 import { upsertUserByEmail } from "./users.js";
 import { issueAuthToken } from "./auth-tokens.js";
 import {
