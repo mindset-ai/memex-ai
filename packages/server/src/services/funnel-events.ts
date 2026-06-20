@@ -62,3 +62,24 @@ export async function recordMcpToolCalled(
     props: { tool_name: toolName },
   });
 }
+
+/**
+ * The anonymous→identified stitch (spec-324 — the spec-244 retrofit). Emitted at
+ * the identify moment (applyVisitorMerge) when a consented `visitor_id` first BINDS
+ * to a user. It carries BOTH ids, so the sink stamps `$device_id` (the visitor) and
+ * `$user_id` (the user) on one event and Mixpanel's Simplified ID Merge attributes
+ * every pre-identity event the visitor generated to the now-known user — the whole
+ * point of the visitor spine. memex_id is NULL (a pure identity signal). Advisory.
+ */
+export async function recordIdentityMerge(
+  userId: string,
+  visitorId: string,
+): Promise<UsageEvent | null> {
+  return recordUsageEvent({
+    memexId: null,
+    actorUserId: userId,
+    visitorId,
+    name: "identity.merged",
+    source: "backend",
+  });
+}

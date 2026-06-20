@@ -25,6 +25,7 @@ vi.mock('@react-oauth/google', () => ({
 const probeAuthApi = vi.fn();
 const magicLinkRequestApi = vi.fn();
 const magicLinkStatusApi = vi.fn();
+const trackAnonymous = vi.fn();
 
 vi.mock('../api/client', async () => {
   const actual = await vi.importActual<typeof import('../api/client')>('../api/client');
@@ -36,11 +37,20 @@ vi.mock('../api/client', async () => {
   };
 });
 
+// Spy the pre-auth ingress call so the signup.form_viewed assertion needs no
+// network; everything else in the telemetry module stays real.
+vi.mock('../hooks/useTelemetry', async () => {
+  const actual =
+    await vi.importActual<typeof import('../hooks/useTelemetry')>('../hooks/useTelemetry');
+  return { ...actual, trackAnonymous: (...a: unknown[]) => trackAnonymous(...a) };
+});
+
 import { LoginScreen } from './LoginScreen';
 import { MAGIC_LINK_POLL_INTERVAL_MS } from '../hooks/useMagicLinkPoll';
 import { NotFoundError } from '../api/client';
 
 const AC = 'mindset-prod/memex-building-itself/specs/spec-304/acs/ac-30';
+const AC324 = 'mindset-prod/memex-building-itself/specs/spec-324/acs';
 const REQUEST_ID = 'lr_xyz789';
 const EMAIL = 'user@example.com';
 
@@ -229,5 +239,44 @@ describe('LoginScreen magic-link polling [spec-304 t-40 / ac-30]', () => {
     });
     await flush();
     expect(magicLinkStatusApi).toHaveBeenCalledTimes(calls); // interval cleared
+  });
+});
+
+describe('signup.form_viewed — the funnel head (spec-324 ac-10 / ac-12)', () => {
+  beforeEach(() => {
+    probeAuthApi.mockReset();
+    trackAnonymous.mockReset();
+  });
+
+  // enter-email → Continue → probe decides which password view shows.
+  async function reachPasswordForm(probe: unknown): Promise<void> {
+    probeAuthApi.mockResolvedValue(probe);
+    renderLogin();
+    const input = screen.getByPlaceholderText('you@company.com');
+    await act(async () => {
+      fireEvent.change(input, { target: { value: EMAIL } });
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /continue/i }));
+    });
+    await flush();
+  }
+
+  it('fires signup.form_viewed once when the signup (create-password) form is shown', async () => {
+    tagAc(`${AC324}/ac-10`);
+    tagAc(`${AC324}/ac-12`);
+    await reachPasswordForm({ exists: false }); // new user → create-password (signup)
+
+    expect(screen.getByRole('heading', { name: /^sign up$/i })).toBeInTheDocument();
+    expect(trackAnonymous).toHaveBeenCalledTimes(1);
+    expect(trackAnonymous).toHaveBeenCalledWith('signup.form_viewed', { method: 'password' });
+  });
+
+  it('does NOT fire on the sign-in (existing user) form', async () => {
+    tagAc(`${AC324}/ac-10`);
+    await reachPasswordForm({ exists: true, hasPassword: true }); // existing → sign-in
+
+    expect(screen.getByRole('heading', { name: /welcome back/i })).toBeInTheDocument();
+    expect(trackAnonymous).not.toHaveBeenCalled();
   });
 });

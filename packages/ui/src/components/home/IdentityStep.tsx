@@ -17,12 +17,15 @@ function firstName(name: string | null | undefined): string | null {
 export function IdentityStep({
   preview = false,
   onComplete,
+  onCtaClick,
 }: {
   // In operator preview the step is render-only (dec-8): Continue/Skip don't write.
   preview?: boolean;
   // Called after a successful save so the Home Canvas refetches journey-state and
   // advances past identity — otherwise the button would sit on "Saving…".
   onComplete?: () => void;
+  // spec-324 — record the step's primary CTA click (home_canvas.cta_clicked).
+  onCtaClick?: (target: string) => void;
 } = {}) {
   const { token, user, updateSession } = useAuth();
   const [name, setName] = useState(user?.name ?? '');
@@ -33,6 +36,7 @@ export function IdentityStep({
   const submit = useCallback(
     async (coords: RoleCoords) => {
       if (preview) return; // operator preview is render-only — never write or freeze
+      onCtaClick?.('submit_identity'); // intent signal (fires on Continue and Skip)
       const trimmed = name.trim() || (user?.name ?? '').trim();
       if (!trimmed) {
         setError('Please tell us what to call you.');
@@ -50,7 +54,7 @@ export function IdentityStep({
         setSubmitting(false);
       }
     },
-    [name, token, user, updateSession, preview, onComplete],
+    [name, token, user, updateSession, preview, onComplete, onCtaClick],
   );
 
   // Greeting tracks the live name field (not the stored SSO name) so the H1 updates

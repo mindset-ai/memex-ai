@@ -16,6 +16,7 @@ import { createMiddleware } from "hono/factory";
 import type { Context } from "hono";
 import { getCookie, deleteCookie } from "hono/cookie";
 import { mergeVisitor } from "../services/visitors.js";
+import { recordIdentityMerge } from "../services/funnel-events.js";
 import type { SessionEnv } from "./session.js";
 
 // The cookie the consented client sets (Domain=.memex.ai). Kept in lockstep with
@@ -67,6 +68,14 @@ export async function applyVisitorMerge(
   if (!visitorId) return;
   try {
     const outcome = await mergeVisitor(visitorId, userId);
+    if (outcome?.status === "merged") {
+      // The visitor_id just BOUND to this user for the first time — the Postgres
+      // identify. Mirror it to Mixpanel so the visitor's pre-identity events are
+      // attributed to the now-known user (spec-324, Simplified ID Merge). Only on
+      // 'merged': 'already' is a re-auth (the stitch is done), 'rebind' is a
+      // different user on the same browser (no stitch — the cookie is cleared).
+      await recordIdentityMerge(userId, visitorId);
+    }
     if (outcome?.status === "rebind") {
       deleteCookie(c, VISITOR_COOKIE, { domain: visitorCookieDomain(), path: "/" });
     }

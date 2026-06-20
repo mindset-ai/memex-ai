@@ -54,10 +54,13 @@ export function AgentPromptStep({
   stepId,
   preview = false,
   onComplete,
+  onCtaClick,
 }: {
   stepId: string;
   preview?: boolean;
   onComplete?: () => void;
+  // spec-324 — record the step's primary CTA (copy the prompt) as home_canvas.cta_clicked.
+  onCtaClick?: (target: string) => void;
 }) {
   const cfg = AGENT_PROMPT_STEPS[stepId];
   const [done, setDone] = useState(false);
@@ -102,7 +105,7 @@ export function AgentPromptStep({
         <p className="mt-4 max-w-prose leading-relaxed text-secondary">{cfg.body}</p>
 
         <div className="mt-6" data-testid="agent-prompt">
-          <CodeBlock code={cfg.prompt} />
+          <CodeBlock code={cfg.prompt} onCopy={() => onCtaClick?.('copy_prompt')} />
         </div>
 
         <div className="mt-7" data-testid="agent-prompt-status">

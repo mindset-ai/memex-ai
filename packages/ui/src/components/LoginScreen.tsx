@@ -1,5 +1,6 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { GoogleOAuthProvider, GoogleLogin, type CredentialResponse } from '@react-oauth/google';
+import { trackAnonymous } from '../hooks/useTelemetry';
 import { Input } from './ui/Input';
 import { Button } from './ui/Button';
 import { Logo } from './Logo';
@@ -276,6 +277,18 @@ function PasswordScreen({
   const [submitting, setSubmitting] = useState(false);
   const [sendingMagic, setSendingMagic] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
+
+  // spec-324 — the funnel HEAD. Fire signup.form_viewed once when the signup form
+  // (create-password) is first shown, pre-auth, via the anonymous ingress so it
+  // keys on the visitor_id. Deduped so a re-render never re-fires; advisory and
+  // consent-gated inside trackAnonymous. Sign-in views never fire it.
+  const viewedSent = useRef(false);
+  useEffect(() => {
+    if (mode === 'signup' && !viewedSent.current) {
+      viewedSent.current = true;
+      trackAnonymous('signup.form_viewed', { method: 'password' });
+    }
+  }, [mode]);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();

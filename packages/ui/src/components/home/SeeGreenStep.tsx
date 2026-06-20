@@ -16,9 +16,12 @@ When the test passes, the AC turns green right here.`;
 export function SeeGreenStep({
   preview = false,
   onComplete,
+  onCtaClick,
 }: {
   preview?: boolean;
   onComplete?: () => void;
+  // spec-324 — record the step's primary CTA (copy the prompt) as home_canvas.cta_clicked.
+  onCtaClick?: (target: string) => void;
 } = {}) {
   const [green, setGreen] = useState(false);
   const doneRef = useRef(false);
@@ -82,7 +85,7 @@ export function SeeGreenStep({
               green right here — provable alignment between what you intended and what the code does.
             </p>
             <div className="mt-6" data-testid="see-green-prompt">
-              <CodeBlock code={PROMPT} />
+              <CodeBlock code={PROMPT} onCopy={() => onCtaClick?.('copy_prompt')} />
             </div>
             <div className="mt-7 flex items-center gap-2 text-sm text-muted">
               <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-accent" />

@@ -2,17 +2,19 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { tagAc } from '@memex-ai-ac/vitest';
 import { renderHook, act } from '@testing-library/react';
 
-// Mock the HTTP layer so track() never hits the network.
+// Mock the HTTP layer so track() / trackAnonymous() never hit the network.
 vi.mock('../api/http', () => ({
+  BASE_URL: '/api',
   tenantBase: vi.fn(() => 'https://app/api/ns/mx'),
   fetchWithRetry: vi.fn(() => Promise.resolve(new Response(null, { status: 204 }))),
 }));
 
 import { fetchWithRetry } from '../api/http';
 import { setConsent } from '../lib/visitorConsent';
-import { useTelemetry, isOptedOut, routeTemplate } from './useTelemetry';
+import { useTelemetry, trackAnonymous, isOptedOut, routeTemplate } from './useTelemetry';
 
 const AC = 'mindset-prod/memex-building-itself/specs/spec-244/acs';
+const AC324 = 'mindset-prod/memex-building-itself/specs/spec-324/acs';
 
 function setDnt(value: string): void {
   Object.defineProperty(navigator, 'doNotTrack', { value, configurable: true });
@@ -75,5 +77,40 @@ describe('useTelemetry.track — gated, sanitised, advisory (ac-7)', () => {
     act(() => result.current.setOptOut(true));
     expect(result.current.optedOut).toBe(true);
     expect(isOptedOut()).toBe(true);
+  });
+});
+
+describe('trackAnonymous — the pre-auth path, same privacy gate (spec-324 ac-5)', () => {
+  it('posts to the FLAT /api/telemetry ingress (no tenant) when enabled, sanitising props', () => {
+    tagAc(`${AC324}/ac-5`);
+    trackAnonymous('signup.form_viewed', { method: 'password', note: 'z'.repeat(200) });
+    expect(fetchWithRetry).toHaveBeenCalledTimes(1);
+    const [url, init] = (fetchWithRetry as unknown as { mock: { calls: [string, RequestInit][] } })
+      .mock.calls[0];
+    expect(url).toBe('/api/telemetry'); // flat, tenant-less
+    const body = JSON.parse(init.body as string);
+    expect(body.name).toBe('signup.form_viewed');
+    expect(body.props).toEqual({ method: 'password' }); // long content prop dropped client-side
+  });
+
+  it('no-ops without consent (spec-254 dec-4) — nothing sent pre-consent', () => {
+    tagAc(`${AC324}/ac-5`);
+    setConsent('denied');
+    trackAnonymous('signup.form_viewed');
+    expect(fetchWithRetry).not.toHaveBeenCalled();
+  });
+
+  it('no-ops under Do-Not-Track', () => {
+    tagAc(`${AC324}/ac-5`);
+    setDnt('1');
+    trackAnonymous('signup.form_viewed');
+    expect(fetchWithRetry).not.toHaveBeenCalled();
+  });
+
+  it('no-ops when the user has opted out', () => {
+    tagAc(`${AC324}/ac-5`);
+    localStorage.setItem('memex.telemetry.optout', '1');
+    trackAnonymous('signup.form_viewed');
+    expect(fetchWithRetry).not.toHaveBeenCalled();
   });
 });

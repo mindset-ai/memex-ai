@@ -86,6 +86,24 @@ export const USAGE_EVENT_REGISTRY = [
     description: "The voice agent session ended. props.durationMs only.",
     source: "frontend",
   },
+  {
+    name: "home_canvas.step_shown",
+    description:
+      "A Home Canvas onboarding journey step became the active card (spec-303/305). props.step is the step id (low-cardinality enum). Recorded via POST /api/me/journey-event, not /telemetry.",
+    source: "frontend",
+  },
+  {
+    name: "home_canvas.cta_clicked",
+    description:
+      "A Home Canvas journey step's CTA was clicked. props.step is the step id; props.cta is the allow-listed CTA target. Recorded via POST /api/me/journey-event. The click is the INTENT signal; the step's OUTCOME stays its own server-side event (std-35 cl-12).",
+    source: "frontend",
+  },
+  {
+    name: "signup.form_viewed",
+    description:
+      "A visitor saw the signup form, pre-authentication (the funnel head). Recorded via the anonymous telemetry ingress (POST /api/telemetry) keyed on the consent-gated visitor_id; no user yet. Honours DNT / opt-out / consent (spec-324, spec-254).",
+    source: "frontend",
+  },
   // ── Back-end outcomes (whitelisted mutate() events, dec-8) ───────────────────
   // Name is EXACTLY `${entity}.${action}` so the t-3 whitelist maps 1:1.
   {
@@ -140,6 +158,13 @@ export const USAGE_EVENT_REGISTRY = [
     name: "mcp.tool_called",
     description:
       "An MCP tool was invoked (funnel stage 4). One event per call (not deduped). props.tool_name is the tool name (low-cardinality, non-PII). memex_id is the resolved Memex, NULL only for the Memex-agnostic tools (list_memexes / get_information).",
+    source: "backend",
+    delivery: "direct",
+  },
+  {
+    name: "identity.merged",
+    description:
+      "The anonymous→identified stitch (spec-324 — the spec-244 retrofit). Emitted at the identify moment (applyVisitorMerge) when a consented visitor_id first BINDS to a user, carrying BOTH the visitor_id and the user id so Mixpanel merges the visitor's pre-identity events into the user (Simplified ID Merge: $device_id + $user_id). memex_id NULL; keyed on the user UUID.",
     source: "backend",
     delivery: "direct",
   },

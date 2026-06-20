@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 import { USAGE_EVENT_REGISTRY } from './usage-events-registry.js';
 
 const AC = 'mindset-prod/memex-building-itself/specs/spec-244/acs';
+const AC324 = 'mindset-prod/memex-building-itself/specs/spec-324/acs';
 
 // Pull every `event.name` mentioned in a bulleted line of the Standard.
 function standardEventNames(markdown: string): Set<string> {
@@ -50,5 +51,25 @@ describe('registry ↔ EVENT-STANDARD.md parity (ac-16 / ac-10)', () => {
     tagAc(`${AC}/ac-16`);
     expect(standard.size).toBeGreaterThanOrEqual(USAGE_EVENT_REGISTRY.length);
     expect(registry.size).toBeGreaterThan(0);
+  });
+
+  it('spec-324 registered its events with the right source (and added no per-step names)', () => {
+    tagAc(`${AC324}/ac-11`);
+    tagAc(`${AC324}/ac-1`); // scope: home_canvas.* + signup.form_viewed registered + documented
+    tagAc(`${AC324}/ac-4`); // scope: no per-step duplication — outcomes stay backend, clicks reuse one name
+    const byName = new Map(USAGE_EVENT_REGISTRY.map((e) => [e.name, e]));
+    // Front-end-born signals (recorded via a route, not the bus).
+    for (const n of ['home_canvas.step_shown', 'home_canvas.cta_clicked', 'signup.form_viewed']) {
+      expect(byName.get(n), `${n} missing from registry`).toBeDefined();
+      expect(byName.get(n)?.source).toBe('frontend');
+      expect(standard.has(n)).toBe(true); // and documented
+    }
+    // The identity stitch is a direct-path back-end emission.
+    expect(byName.get('identity.merged')?.source).toBe('backend');
+    expect(standard.has('identity.merged')).toBe(true);
+    // dec-2: the custom-step clicks reuse home_canvas.cta_clicked — NO per-step
+    // event names like onboarding.connect_agent_clicked were introduced.
+    const perStep = [...byName.keys()].filter((n) => /^onboarding\./.test(n));
+    expect(perStep).toEqual([]);
   });
 });

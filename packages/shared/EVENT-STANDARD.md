@@ -33,6 +33,9 @@ versa.
 - `speccy.message_sent` — A message was sent to the Speccy companion. props.wordCount only — never the message text.
 - `voice.session_started` — The voice agent session started.
 - `voice.session_ended` — The voice agent session ended. props.durationMs only.
+- `home_canvas.step_shown` — A Home Canvas onboarding journey step became the active card (spec-303/305). props.step is the step id. Recorded via POST /api/me/journey-event.
+- `home_canvas.cta_clicked` — A Home Canvas journey step's CTA was clicked. props.step is the step id; props.cta names the CTA target. The intent signal; the step's outcome stays its own event (std-35 cl-12).
+- `signup.form_viewed` — A visitor saw the signup form, pre-auth (the funnel head). Recorded via the anonymous ingress (POST /api/telemetry) keyed on the consent-gated visitor_id.
 
 ## Back-end outcomes (whitelisted `mutate()` events, dec-8)
 
@@ -53,3 +56,4 @@ never forwarded to Mixpanel.
 - `account.created` — A new user account was created (funnel stage 1, signup). memex_id NULL (pre-Memex).
 - `mcp.connected` — An MCP client completed the `initialize` handshake (funnel stage 3, agent connected). memex_id NULL.
 - `mcp.tool_called` — An MCP tool was invoked (funnel stage 4). One event per call. props.tool_name names the tool; memex_id is the resolved Memex, NULL only for the Memex-agnostic tools (list_memexes / get_information).
+- `identity.merged` — The anonymous→identified stitch (spec-324, the spec-244 retrofit). Emitted when a consented visitor_id first binds to a user (applyVisitorMerge), carrying both the visitor_id and the user id so Mixpanel merges the visitor's pre-identity events into the user (Simplified ID Merge: $device_id + $user_id). memex_id NULL.
