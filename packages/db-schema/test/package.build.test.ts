@@ -37,7 +37,7 @@ function tarballName(manifest: { name: string; version: string }): string {
 
 describe("ac-7 — built from schema.ts (single source), exports tables + inferred types as ESM + d.ts", () => {
   it("re-exports the single source (no second schema copy) and emits ESM + d.ts", async () => {
-    tagAc("mindset-prod/memex-building-itself/specs/spec-279/acs/ac-7");
+    tagAc("mindset-prod/memex-backstage/specs/spec-1/acs/ac-7");
 
     // Single source: src/index.ts re-exports the server schema, it does not copy it.
     const srcIndex = readFileSync(join(PKG_DIR, "src", "index.ts"), "utf8");
@@ -62,7 +62,7 @@ describe("ac-7 — built from schema.ts (single source), exports tables + inferr
 
 describe("ac-1 / ac-6 — self-contained: zero workspace/@memex deps, installs in an empty project", () => {
   it("declares no workspace:* or @memex/* dependency, and the built js imports only drizzle-orm", () => {
-    tagAc("mindset-prod/memex-building-itself/specs/spec-279/acs/ac-1");
+    tagAc("mindset-prod/memex-backstage/specs/spec-1/acs/ac-1");
 
     // No workspace/@memex deps in anything a consumer would resolve.
     for (const field of ["dependencies", "peerDependencies"] as const) {
@@ -85,7 +85,7 @@ describe("ac-1 / ac-6 — self-contained: zero workspace/@memex deps, installs i
   });
 
   it("installs into a fresh empty project and the package resolves by name", () => {
-    tagAc("mindset-prod/memex-building-itself/specs/spec-279/acs/ac-6");
+    tagAc("mindset-prod/memex-backstage/specs/spec-1/acs/ac-6");
 
     const proj = mkdtempSync(join(tmpdir(), "db-schema-consumer-"));
     try {
@@ -110,7 +110,7 @@ describe("ac-1 / ac-6 — self-contained: zero workspace/@memex deps, installs i
 
 describe("ac-4 — no external/OSS user must authenticate to a registry to build the repo", () => {
   it("the published artifact is outbound-only: no workspace package depends on @mindset-ai/*", () => {
-    tagAc("mindset-prod/memex-building-itself/specs/spec-279/acs/ac-4");
+    tagAc("mindset-prod/memex-backstage/specs/spec-1/acs/ac-4");
 
     // The new package is consumed ONLY by the out-of-repo Backstage app. Building
     // THIS repo from source must never require pulling an @mindset-ai/* package
