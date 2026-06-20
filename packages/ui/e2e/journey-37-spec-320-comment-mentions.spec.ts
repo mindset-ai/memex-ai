@@ -1,7 +1,14 @@
-import { test, expect, tenantPath, emitAcEvents } from "./helpers/index.js";
-import { seedOrgTenant, seedSpec, seedOpenDecision, seedComment } from "./helpers/retained.js";
+import { test, expect, tenantPath, switchToEditing, emitAcEvents } from "./helpers/index.js";
+import {
+  seedOrgTenant,
+  seedSpec,
+  setDocStatus,
+  seedOpenDecision,
+  seedComment,
+} from "./helpers/retained.js";
 import {
   addOrgMember,
+  ensureUser,
   setUserName,
   seedCommentMention,
   setCommentAssignee,
@@ -27,13 +34,17 @@ const COLLEAGUE_NAME = "Harriet";
 
 async function seedSpecWithOpenDecision(slug: string) {
   const tenant = await seedOrgTenant({ slug });
-  await addOrgMember({ orgId: tenant.orgId, email: COLLEAGUE_EMAIL, role: "member" });
+  // /org-add-member resolves an EXISTING user by email — create the colleague first.
+  await ensureUser(COLLEAGUE_EMAIL);
   await setUserName(COLLEAGUE_EMAIL, COLLEAGUE_NAME);
+  await addOrgMember({ orgId: tenant.orgId, email: COLLEAGUE_EMAIL, role: "member" });
   const spec = await seedSpec({
     memexId: tenant.memexId,
     title: "Mentions Spec",
     purpose: "A spec whose decision draws comments.",
   });
+  // Decisions surface in the editing view from `specify` onward (cf. journey-27).
+  await setDocStatus({ memexId: tenant.memexId, docId: spec.docId, status: "specify" });
   const decision = await seedOpenDecision({
     memexId: tenant.memexId,
     docId: spec.docId,
@@ -43,18 +54,18 @@ async function seedSpecWithOpenDecision(slug: string) {
   return { tenant, spec, decision };
 }
 
-/** Navigate to the spec and reveal the decision's comment tray. */
+/** Navigate to the spec, switch to editing, open the Decisions & ACs tab, and
+ *  reveal the decision's comment tray (mirrors journey-27's proven path). */
 async function openDecisionComments(page, tenant, specHandle: string) {
-  await page.goto(tenantPath(tenant.namespaceSlug, tenant.memexSlug, `/specs/${specHandle}`), {
-    waitUntil: "commit",
-  });
-  await expect(page.getByRole("heading", { level: 1, name: /Mentions Spec/ })).toBeVisible({
-    timeout: 15_000,
-  });
-  const toggle = page.getByTestId("decision-discussion-toggle").first();
-  await expect(toggle).toBeVisible({ timeout: 15_000 });
-  await toggle.click();
-  await expect(page.getByTestId("comment-tray").first()).toBeVisible({ timeout: 10_000 });
+  await page.goto(tenantPath(tenant.namespaceSlug, tenant.memexSlug, `/specs/${specHandle}`));
+  await expect(page.getByText("Spec assistant")).toBeVisible({ timeout: 15_000 });
+  await switchToEditing(page);
+  await page.getByRole("button", { name: /Decisions & ACs/ }).click();
+  const panel = page.getByTestId("decision-panel");
+  await expect(panel).toContainText(/Which storage shape/, { timeout: 15_000 });
+  await panel.getByTestId("decision-discussion-toggle").first().click();
+  await expect(panel.getByTestId("comment-tray").first()).toBeVisible({ timeout: 10_000 });
+  return panel;
 }
 
 test("a seeded mention + assignment renders its chip and 'Assigned to' label (ac-1, ac-2, ac-11)", async ({
@@ -85,10 +96,10 @@ test("a seeded mention + assignment renders its chip and 'Assigned to' label (ac
       assignedByEmail: "dev@memex.ai",
     });
 
-    await openDecisionComments(page, tenant, spec.handle);
+    const panel = await openDecisionComments(page, tenant, spec.handle);
 
     // The assignee label + (assignee being a mention) render off the mention set.
-    const assignee = page.getByTestId("comment-assignee").first();
+    const assignee = panel.getByTestId("comment-assignee").first();
     await expect(assignee).toBeVisible({ timeout: 10_000 });
     await expect(assignee).toContainText(COLLEAGUE_NAME);
     passed = true;
@@ -109,27 +120,27 @@ test("typing @ opens the member typeahead; selecting a colleague mentions them (
   let passed = false;
   try {
     const { tenant, spec } = await seedSpecWithOpenDecision(resources.slug("j37b"));
-    await openDecisionComments(page, tenant, spec.handle);
+    const panel = await openDecisionComments(page, tenant, spec.handle);
 
-    const textarea = page.getByTestId("comment-textarea").first();
+    const textarea = panel.getByTestId("comment-textarea").first();
     await textarea.click();
     await textarea.fill("Heads up @Harr");
 
     // The typeahead opens and offers the active member by substring.
-    const option = page.getByTestId("mention-option").filter({ hasText: COLLEAGUE_NAME }).first();
+    const option = panel.getByTestId("mention-option").filter({ hasText: COLLEAGUE_NAME }).first();
     await expect(option).toBeVisible({ timeout: 10_000 });
     await option.click();
 
     // The selection becomes a tracked mention chip in the composer.
-    await expect(page.getByTestId("mention-chip").filter({ hasText: COLLEAGUE_NAME })).toBeVisible({
+    await expect(panel.getByTestId("mention-chip").filter({ hasText: COLLEAGUE_NAME })).toBeVisible({
       timeout: 5_000,
     });
 
-    await page.getByTestId("comment-submit").first().click();
+    await panel.getByTestId("comment-submit").first().click();
 
     // The posted comment renders the mention chip.
     await expect(
-      page.getByTestId("comment-mention-chip").filter({ hasText: COLLEAGUE_NAME }).first(),
+      panel.getByTestId("comment-mention-chip").filter({ hasText: COLLEAGUE_NAME }).first(),
     ).toBeVisible({ timeout: 10_000 });
     passed = true;
   } finally {
