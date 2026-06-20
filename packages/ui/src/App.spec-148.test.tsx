@@ -111,15 +111,16 @@ function LocationProbe() {
   return <div data-testid="probe" data-path={loc.pathname} />;
 }
 
-// Render the real route tree at `path`, plus a probe at the default landing so we
-// can assert where the catch-all redirect lands.
+// Render the real route tree at `path`, plus a probe at the universal landing so we
+// can assert where the catch-all redirect lands. spec-312: RootRedirect now sends
+// every authenticated user to /home, so the fallthrough target is /home.
 function renderAt(path: string) {
   return render(
     <ThemeProvider>
       <MemoryRouter initialEntries={[path]}>
         <Routes>
           <Route path="/*" element={<PostLoginRouter />} />
-          <Route path="/alice/personal/specs" element={<LocationProbe />} />
+          <Route path="/home" element={<LocationProbe />} />
         </Routes>
       </MemoryRouter>
     </ThemeProvider>,
@@ -163,17 +164,15 @@ describe('spec-148 t-1: Pulse feature-hide', () => {
     expect(within(nav).getByRole('link', { name: 'Specs' })).toBeInTheDocument();
   });
 
-  it('ac-7: hidden → /pulse does not render Pulse and redirects to the default tenant', async () => {
+  it('ac-7: hidden → /pulse does not render Pulse and redirects to the universal landing', async () => {
     tagAc(AC(7));
     mockSession = makeSession(['pulse']);
     renderAt('/alice/personal/pulse');
 
     // The route was never registered, so the path falls through to the catch-all
-    // RootRedirect → default landing (/alice/personal/specs).
+    // RootRedirect → universal landing (/home, spec-312 dec-1).
     await waitFor(() => {
-      expect(screen.getByTestId('probe').getAttribute('data-path')).toBe(
-        '/alice/personal/specs',
-      );
+      expect(screen.getByTestId('probe').getAttribute('data-path')).toBe('/home');
     });
     expect(screen.queryByTestId('pulse-page')).not.toBeInTheDocument();
   });

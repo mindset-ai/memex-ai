@@ -96,14 +96,16 @@ function LocationProbe() {
   return <div data-testid="probe" data-path={loc.pathname} />;
 }
 
-// Render the real route tree at `path`, plus a probe at the default landing so we
-// can assert where the catch-all redirect lands.
+// Render the real route tree at `path`, plus a probe at the universal landing so we
+// can assert where the catch-all redirect lands. spec-312: RootRedirect now sends
+// every authenticated user to /home (the universal landing), so the fallthrough
+// target is /home, not the default-tenant Specs board.
 function renderAt(path: string) {
   return render(
     <MemoryRouter initialEntries={[path]}>
       <Routes>
         <Route path="/*" element={<PostLoginRouter />} />
-        <Route path="/alice/personal/specs" element={<LocationProbe />} />
+        <Route path="/home" element={<LocationProbe />} />
       </Routes>
     </MemoryRouter>,
   );
@@ -117,7 +119,7 @@ describe('spec-146 t-4: /scaffold route gate', () => {
     vi.unstubAllEnvs();
   });
 
-  it('ac-10: hidden → /scaffold does not render ScaffoldInspect and redirects to the default tenant', async () => {
+  it('ac-10: hidden → /scaffold does not render ScaffoldInspect and redirects to the universal landing', async () => {
     tagAc(AC(10));
     // ac-2 (scope) — the route is gated, not merely missing from the nav: a direct
     // /scaffold visit does not render ScaffoldInspect.
@@ -126,11 +128,9 @@ describe('spec-146 t-4: /scaffold route gate', () => {
     renderAt('/alice/personal/scaffold');
 
     // The route was never registered, so the path falls through to the catch-all
-    // RootRedirect → default landing (/alice/personal/specs).
+    // RootRedirect → universal landing (/home, spec-312 dec-1).
     await waitFor(() => {
-      expect(screen.getByTestId('probe').getAttribute('data-path')).toBe(
-        '/alice/personal/specs',
-      );
+      expect(screen.getByTestId('probe').getAttribute('data-path')).toBe('/home');
     });
     expect(screen.queryByTestId('scaffold-inspect-page')).not.toBeInTheDocument();
   });

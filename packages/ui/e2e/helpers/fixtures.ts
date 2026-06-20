@@ -14,6 +14,7 @@ import {
   setIdentityConfirmed,
   clearOrgMemberships,
   cleanup,
+  getPersonalMemexByEmail,
 } from "./seed.js";
 
 export const DEV_EMAIL = "dev@memex.ai";
@@ -117,6 +118,26 @@ export function tenantPath(
 /** A bare (non-tenant) URL on the single origin — login, signup, invite-accept, etc. */
 export function bareUrl(path: string = "/"): string {
   return new URL(path, BASE_URL).toString();
+}
+
+/**
+ * Navigate to a user's personal-memex Specs board and wait for it to render.
+ *
+ * spec-312: the bare origin `/` now lands every authenticated user on `/home` (the
+ * universal landing), not the default-tenant Specs board. Journeys that need to start
+ * ON the Specs board navigate to it explicitly via this helper instead of relying on
+ * the old `/` → Specs hop. Defaults to the shared dev user.
+ */
+export async function gotoSpecsBoard(
+  page: Page,
+  email: string = DEV_EMAIL,
+): Promise<void> {
+  const memex = await getPersonalMemexByEmail(email);
+  if (!memex) throw new Error(`gotoSpecsBoard: no personal memex for ${email}`);
+  await page.goto(tenantPath(memex.namespaceSlug, memex.memexSlug, "/specs"));
+  await page
+    .getByRole("heading", { name: "Specs" })
+    .waitFor({ state: "visible", timeout: 15_000 });
 }
 
 /**

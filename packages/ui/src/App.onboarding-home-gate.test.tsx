@@ -4,22 +4,22 @@ import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import type { SessionPayload } from './api/client';
 
-// Regression — the onboarding destination must respect the Home Canvas feature gate.
+// Regression — the universal /home landing must respect the Home Canvas feature gate.
 //
-// THE BUG: spec-305 routes every `needsOnboarding` user to /home (the Home Canvas
-// journey). But /home is gated per-env: when 'home' is in HIDDEN_FEATURES (e.g. prod,
-// before the journey is ready) the /home route renders <RootRedirect/> instead of the
-// journey. RootRedirect's FIRST check sends `needsOnboarding` users straight back to
-// /home — so a brand-new signup is trapped in an infinite /home ⇄ RootRedirect loop and
-// can never reach the app. Hiding the tab silently soft-locks every new prod signup.
+// spec-312 dec-1/dec-3: RootRedirect now sends EVERY authenticated, email-verified user
+// to /home (the universal landing) — needsOnboarding no longer routes. But /home is
+// gated per-env: when 'home' is in HIDDEN_FEATURES (e.g. prod, before the journey is
+// ready) the /home route renders <RootRedirect/>. If RootRedirect sent everyone to
+// /home unconditionally, a hidden-home env would trap every signup in an infinite
+// /home ⇄ RootRedirect loop. So RootRedirect's ONLY remaining branch is loop-avoidance:
+// when 'home' is hidden it falls back to the default-tenant landing (computeDefaultLanding,
+// the Specs board); when 'home' is visible everyone lands on the journey at /home.
 //
-// THE FIX: when 'home' is hidden, onboarding falls back to the still-present legacy
-// /onboarding page (which stamps identity_confirmed_at and clears needsOnboarding just
-// the same). When 'home' is visible, the journey at /home is used exactly as today.
+// (The legacy standalone /onboarding fallback that spec-305 used is gone with the wall.)
 //
 // We mount the real PostLoginRouter so the gate + RootRedirect resolve through genuine
-// react-router; the journey page, legacy page, and tenant chrome are stubbed to sentinels
-// so the test isolates the routing decision, not the screens.
+// react-router; the journey page and tenant chrome are stubbed to sentinels so the test
+// isolates the routing decision, not the screens.
 
 let mockSession: SessionPayload;
 function makeSession(opts: { needsOnboarding: boolean; hiddenFeatures: string[] }): SessionPayload {
@@ -109,20 +109,25 @@ describe('onboarding destination respects the Home Canvas feature gate', () => {
     vi.unstubAllEnvs();
   });
 
-  it('home VISIBLE: a needs-onboarding user lands on the Home Canvas journey', async () => {
+  it('home VISIBLE: an authenticated user lands on the Home Canvas (needsOnboarding is irrelevant now)', async () => {
     mockSession = makeSession({ needsOnboarding: true, hiddenFeatures: [] });
     renderAt('/');
     expect(await screen.findByTestId('home-canvas-page')).toBeInTheDocument();
     expect(screen.queryByTestId('onboarding-page')).not.toBeInTheDocument();
   });
 
-  it('home HIDDEN: a needs-onboarding user lands on the legacy /onboarding page (no /home loop)', async () => {
+  it('home HIDDEN: lands on the default-tenant Specs board, never a /home loop', async () => {
     mockSession = makeSession({ needsOnboarding: true, hiddenFeatures: ['home'] });
     renderAt('/');
-    // Before the fix this renders nothing (the /home ⇄ RootRedirect loop); after the
-    // fix the user lands on the working legacy onboarding page.
-    expect(await screen.findByTestId('onboarding-page')).toBeInTheDocument();
+    // spec-312: with 'home' hidden RootRedirect falls back to the default tenant (no
+    // loop), and there is no legacy /onboarding wall to land on anymore.
+    await waitFor(() => {
+      expect(screen.getByTestId('probe').getAttribute('data-path')).toBe(
+        '/alice/personal/specs',
+      );
+    });
     expect(screen.queryByTestId('home-canvas-page')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('onboarding-page')).not.toBeInTheDocument();
   });
 
   it('home HIDDEN, already onboarded: a deliberate /home visit still bounces to the default tenant', async () => {

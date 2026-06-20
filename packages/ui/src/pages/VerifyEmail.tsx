@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth, computeDefaultLanding } from '../components/AuthContext';
+import { isFeatureHidden } from '../utils/featureFlags';
 import { Logo } from '../components/Logo';
 import { verifyEmailApi, AuthApiError } from '../api/client';
 import { Spinner } from '../components/Spinner';
@@ -44,10 +45,15 @@ export function VerifyEmail() {
   }, [token, acceptSession]);
 
   if (stage === 'success') {
-    // After verification the session is set client-side; compute the user's
-    // home (`/<ns>/<mx>/specs`) so the Continue button skips the apex `/`
-    // (which 301s to www.memex.ai marketing per b-9 dec-2).
-    const landing = session ? computeDefaultLanding(session) : null;
+    // After verification the session is set client-side; the Continue button lands the
+    // user on /home — the universal landing (spec-312 dec-1) — skipping the apex `/`
+    // (which 301s to www.memex.ai marketing per b-9 dec-2). Fall back to the default
+    // tenant only when 'home' is hidden per-env (mirrors RootRedirect's loop-avoidance).
+    const landing = session
+      ? isFeatureHidden(session, 'home')
+        ? computeDefaultLanding(session)
+        : '/home'
+      : null;
     return <VerifySuccess email={session?.user.email} landing={landing} />;
   }
 
