@@ -51,6 +51,7 @@ import { NotFoundError } from '../api/client';
 
 const AC = 'mindset-prod/memex-building-itself/specs/spec-304/acs/ac-30';
 const AC324 = 'mindset-prod/memex-building-itself/specs/spec-324/acs';
+const AC326 = 'mindset-prod/memex-building-itself/specs/spec-326/acs';
 const REQUEST_ID = 'lr_xyz789';
 const EMAIL = 'user@example.com';
 
@@ -244,6 +245,7 @@ describe('LoginScreen magic-link polling [spec-304 t-40 / ac-30]', () => {
 
 describe('signup.form_viewed — the funnel head (spec-324 ac-10 / ac-12)', () => {
   beforeEach(() => {
+    vi.useRealTimers();
     probeAuthApi.mockReset();
     trackAnonymous.mockReset();
   });
@@ -278,5 +280,47 @@ describe('signup.form_viewed — the funnel head (spec-324 ac-10 / ac-12)', () =
 
     expect(screen.getByRole('heading', { name: /welcome back/i })).toBeInTheDocument();
     expect(trackAnonymous).not.toHaveBeenCalled();
+  });
+});
+
+// spec-326 dec-1/ac-2 — the signup surface discloses legitimate-interest capture
+// (the LOUD supersede of a prior anonymous decline). Shown on signup, absent on signin.
+describe('LoginScreen — signup privacy notice [spec-326 ac-2]', () => {
+  beforeEach(() => {
+    vi.useRealTimers();
+    probeAuthApi.mockReset();
+    magicLinkRequestApi.mockReset();
+  });
+
+  // Drive enter-email → the view the probe selects (create-password = signup,
+  // password = signin).
+  async function reachView(probe: { exists: boolean; hasPassword?: boolean }): Promise<void> {
+    probeAuthApi.mockResolvedValue(probe);
+    renderLogin();
+    const input = screen.getByPlaceholderText('you@company.com');
+    await act(async () => {
+      fireEvent.change(input, { target: { value: EMAIL } });
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /continue/i }));
+    });
+    await flush();
+  }
+
+  it('the signup view shows the legitimate-interest notice + the right-to-object pointer', async () => {
+    tagAc(`${AC326}/ac-2`);
+    await reachView({ exists: false }); // unknown email → create-password (signup)
+    expect(screen.getByRole('heading', { name: 'Sign up' })).toBeInTheDocument();
+    const notice = screen.getByTestId('signup-privacy-notice');
+    expect(notice).toBeInTheDocument();
+    expect(notice).toHaveTextContent(/legitimate-interest/i);
+    expect(notice).toHaveTextContent(/object/i);
+  });
+
+  it('the signin view does NOT show the signup privacy notice', async () => {
+    tagAc(`${AC326}/ac-2`);
+    await reachView({ exists: true, hasPassword: true }); // known + password → signin
+    expect(screen.getByRole('heading', { name: 'Welcome back' })).toBeInTheDocument();
+    expect(screen.queryByTestId('signup-privacy-notice')).toBeNull();
   });
 });

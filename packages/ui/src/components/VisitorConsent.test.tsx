@@ -11,6 +11,7 @@ import { getConsent } from '../lib/visitorConsent';
 import { VISITOR_COOKIE, VISITOR_LS_KEY } from '../lib/visitorId';
 
 const AC = 'mindset-prod/memex-building-itself/specs/spec-254/acs';
+const AC326 = 'mindset-prod/memex-building-itself/specs/spec-326/acs';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function cookieValue(): string | undefined {
@@ -49,6 +50,9 @@ describe('VisitorConsent banner', () => {
 
   it('Decline records the decline and writes no id (ac-12)', () => {
     tagAc(`${AC}/ac-12`);
+    // spec-326 ac-4: an anonymous decline stores NO durable visitor_id — spec-254
+    // dec-4 is preserved for the anonymous regime.
+    tagAc(`${AC326}/ac-4`);
     render(<VisitorConsent />);
     fireEvent.click(screen.getByTestId('visitor-consent-decline'));
     expect(getConsent()).toBe('denied');
@@ -62,5 +66,16 @@ describe('VisitorConsent banner', () => {
     setDnt(true);
     render(<VisitorConsent />);
     expect(screen.queryByTestId('visitor-consent')).toBeNull();
+  });
+
+  // spec-326 dec-1: the opt-in banner is an ANONYMOUS-only surface. An authenticated
+  // visitor is tracked by default under legitimate interest and must not be pestered
+  // by (or gated behind) the consent banner.
+  it('does not render for an AUTHENTICATED visitor, even with no prior choice (spec-326 ac-1)', () => {
+    tagAc(`${AC326}/ac-1`);
+    localStorage.setItem('memex-auth-token', 'tok_abc'); // a persisted session
+    render(<VisitorConsent />);
+    expect(screen.queryByTestId('visitor-consent')).toBeNull();
+    expect(getConsent()).toBeNull(); // and nothing was forced either way
   });
 });

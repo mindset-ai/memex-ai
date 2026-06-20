@@ -18,6 +18,7 @@ import { makeTestAppWithTenant } from "./route-test-helpers.js";
 import { telemetryRouter } from "./telemetry.js";
 
 const AC = "mindset-prod/memex-building-itself/specs/spec-244/acs";
+const AC326 = "mindset-prod/memex-building-itself/specs/spec-326/acs";
 
 let memexId: string;
 let userId: string;
@@ -117,5 +118,22 @@ describe("POST /telemetry — front-end capture (ac-3 / ac-7 / ac-8)", () => {
       body: "{ not json",
     });
     expect(res.status).toBe(400);
+  });
+});
+
+// spec-326 dec-2/ac-5: once authenticated, user_id is the identifier — capture does
+// NOT depend on the durable visitor_id cookie. authedApp() carries NO memex_vid (the
+// middleware never sets c.get("visitorId")), so this is the post-auth, cookie-absent
+// path: the event must still land, actor = user.id, visitor_id NULL.
+describe("POST /telemetry — authenticated capture does not depend on visitor_id (spec-326 ac-5)", () => {
+  it("records actor = user.id with visitor_id NULL when no memex_vid is present", async () => {
+    tagAc(`${AC326}/ac-5`);
+    const res = await post(authedApp(), { name: "nav.route_changed", props: { route: "/ns/mx" } });
+    expect(res.status).toBe(204);
+
+    const rows = await rowsFor("nav.route_changed");
+    expect(rows.length).toBe(1);
+    expect(rows[0].actorUserId).toBe(userId); // user_id IS the identifier
+    expect(rows[0].visitorId).toBeNull(); // no reliance on the durable cookie post-auth
   });
 });
