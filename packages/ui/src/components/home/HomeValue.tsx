@@ -1,20 +1,25 @@
-// spec-315 — the graduated home-of-value surface. Renders the two derived blocks
-// (dec-3), top to bottom: "Where you're needed" then "Your specs in flight". The
-// journey pearls live BELOW this surface (HomeCanvas relocates them, dec-3).
+// spec-315 — the graduated home-of-value surface. Renders, top to bottom: "Where you're
+// needed" then "Your specs" (the journey pearls live BELOW, relocated by HomeCanvas).
 //
-// Each block COLLAPSES when empty (no placeholder); when BOTH are empty the surface
-// shows a single coherent "work hub" state (ac-5), never a blank page. No relevance
-// ranking anywhere — order is the server's recency/assignment order (ac-4).
+// "Your specs" reuses the Pulse HotSpecCard (one source of truth, dec-2/ac-10), fed from
+// the ownership-tiered /api/me/home. The whole surface is LIVE: it polls every ~3s while
+// the tab is visible, pausing when hidden and refetching on focus, for ≤4s freshness
+// (ac-11). Each block collapses when empty; all-empty shows a coherent hub (ac-5).
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   fetchHomeApi,
   type HomeResponse,
-  type SpecInFlight,
+  type HomeSpecCard,
   type WhereNeededItem,
 } from '../../api/home';
+import { HotSpecCard } from '../pulse/HotSpecs';
+import { specState, type HotSpec, type Worker } from '../pulse/pulseDerive';
+import type { ActorKind } from '../pulse/types';
 
-// A per-Memex provenance pill — the cross-Memex distinguisher (dec-2/dec-3).
+const POLL_MS = 3000;
+
+// A per-Memex provenance pill — the cross-Memex distinguisher.
 function MemexPill({ name }: { name: string }) {
   return (
     <span
@@ -60,44 +65,65 @@ function WhereYoureNeeded({ items }: { items: WhereNeededItem[] }) {
   );
 }
 
-function SpecsInFlight({ items, specsPath }: { items: SpecInFlight[]; specsPath: string | null }) {
-  if (items.length === 0) return null; // collapse when empty
+// Build the props the Pulse card expects from our server-shaped card.
+function toHotSpec(card: HomeSpecCard, now: number): HotSpec {
+  const lastMs = card.lastActivityAnyMs;
+  const ageMs = lastMs != null ? now - lastMs : null;
+  return {
+    docId: card.docId,
+    score: 0, // heat ranking is unused on Home — we order server-side by ownership + my recency
+    hasPresence: false,
+    lastActivityMs: lastMs,
+    ageMs,
+    state: specState(false, ageMs),
+  };
+}
+
+function toWorkers(card: HomeSpecCard): Worker[] {
+  return card.involved
+    .filter((w): w is HomeSpecCard['involved'][number] & { actorUserId: string } => w.actorUserId != null)
+    .map((w) => ({
+      key: `${w.actorUserId}:${w.actorKind}`,
+      actorUserId: w.actorUserId,
+      actorName: w.actorName,
+      actorKind: w.actorKind as ActorKind,
+      channel: 'rest_ui' as const,
+      clientId: null,
+      docId: card.docId,
+      lastSeenMs: w.lastSeenMs,
+      freshness: 'idle' as const,
+    }));
+}
+
+function HomeSpecs({ specs }: { specs: HomeSpecCard[] }) {
+  if (specs.length === 0) return null; // collapse when empty
+  const now = Date.now();
   return (
-    <section data-testid="home-specs-in-flight" className="mt-8">
-      <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted">
-        Your specs in flight
-      </h2>
-      <ul className="flex flex-col gap-2">
-        {items.map((s) => (
-          <li key={s.docId}>
-            <Link
-              to={s.path}
-              data-testid={`spec-in-flight-${s.docId}`}
-              className="flex items-center gap-3 rounded-lg border border-edge bg-panel px-4 py-3 transition hover:border-accent/50"
-            >
-              <span className="min-w-0 flex-1 truncate text-sm font-medium text-heading">
-                {s.title}
-              </span>
-              <MemexPill name={s.memexName} />
-            </Link>
-          </li>
+    <section data-testid="home-specs" className="mt-8">
+      <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted">Your specs</h2>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {specs.map((card) => (
+          <div key={card.docId} data-testid={`home-spec-${card.docId}`} className="flex flex-col gap-1">
+            <MemexPill name={card.memexName} />
+            <HotSpecCard
+              spec={toHotSpec(card, now)}
+              involved={toWorkers(card)}
+              handle={card.handle}
+              title={card.title}
+              phase={card.phase}
+              narrative={card.narrative ?? undefined}
+              health={card.health ?? undefined}
+              spark={card.spark}
+              specHref={() => card.path}
+            />
+          </div>
         ))}
-      </ul>
-      {specsPath && (
-        <Link
-          to={specsPath}
-          data-testid="specs-in-flight-see-all"
-          className="mt-3 inline-block text-xs font-medium text-accent hover:text-accent-hover"
-        >
-          See all your specs
-        </Link>
-      )}
+      </div>
     </section>
   );
 }
 
-// The coherent state when the user has nothing pulling them in and nothing in flight
-// (ac-5) — never a blank page.
+// The coherent state when nothing needs the user and they own nothing recent (ac-5).
 function EmptyHub({ specsPath }: { specsPath: string | null }) {
   return (
     <section data-testid="home-empty">
@@ -122,29 +148,45 @@ function EmptyHub({ specsPath }: { specsPath: string | null }) {
 export function HomeValue({ specsPath }: { specsPath: string | null }) {
   const [data, setData] = useState<HomeResponse | null>(null);
 
+  // Live: load once, then poll every ~3s while the tab is visible (≤4s freshness, ac-11).
+  // Pauses the network call while hidden; refetches immediately on focus / visibility-regain.
   useEffect(() => {
     let live = true;
-    fetchHomeApi()
-      .then((d) => {
-        if (live) setData(d);
-      })
-      .catch(() => {
-        // Never hard-crash the home on a fetch blip — fall back to the coherent hub.
-        if (live) setData({ whereYoureNeeded: [], specsInFlight: [] });
-      });
+    const load = () =>
+      fetchHomeApi()
+        .then((d) => {
+          if (live) setData(d);
+        })
+        .catch(() => {
+          // Never hard-crash the home; keep the last good data, or fall back to empty.
+          if (live) setData((prev) => prev ?? { whereYoureNeeded: [], specs: [] });
+        });
+
+    load();
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') load();
+    }, POLL_MS);
+    const onActive = () => {
+      if (document.visibilityState === 'visible') load();
+    };
+    document.addEventListener('visibilitychange', onActive);
+    window.addEventListener('focus', onActive);
     return () => {
       live = false;
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onActive);
+      window.removeEventListener('focus', onActive);
     };
   }, []);
 
   const whereNeeded = data?.whereYoureNeeded ?? [];
-  const specs = data?.specsInFlight ?? [];
+  const specs = data?.specs ?? [];
   const bothEmpty = data != null && whereNeeded.length === 0 && specs.length === 0;
 
   return (
     <section data-testid="home-of-value" className="mx-auto mt-8 w-full max-w-3xl px-4">
       <WhereYoureNeeded items={whereNeeded} />
-      <SpecsInFlight items={specs} specsPath={specsPath} />
+      <HomeSpecs specs={specs} />
       {bothEmpty && <EmptyHub specsPath={specsPath} />}
     </section>
   );

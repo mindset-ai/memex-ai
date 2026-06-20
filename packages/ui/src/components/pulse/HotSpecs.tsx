@@ -104,7 +104,7 @@ interface HotSpecCardProps {
   specHref: (handle: string) => string;
 }
 
-function HotSpecCard({
+export function HotSpecCard({
   spec,
   involved,
   handle,
