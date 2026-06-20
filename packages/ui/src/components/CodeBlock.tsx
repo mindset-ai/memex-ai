@@ -14,7 +14,7 @@ export function CopyButton({ text }: { text: string }) {
           setTimeout(() => setCopied(false), 2000);
         });
       }}
-      className="absolute top-2 right-2 px-2 py-1 text-xs font-medium rounded transition-colors bg-btn-secondary hover:bg-btn-secondary-hover text-secondary"
+      className="absolute top-2 right-2 px-2 py-1 text-xs font-medium rounded-sm transition-colors bg-btn-secondary hover:bg-btn-secondary-hover text-secondary"
     >
       {copied ? 'Copied!' : 'Copy'}
     </button>
@@ -34,6 +34,6 @@ export function CodeBlock({ code }: { code: string }) {
 
 export function InlineCode({ children }: { children: React.ReactNode }) {
   return (
-    <code className="px-1.5 py-0.5 rounded text-xs text-primary bg-input">{children}</code>
+    <code className="px-1.5 py-0.5 rounded-sm text-xs text-primary bg-input">{children}</code>
   );
 }

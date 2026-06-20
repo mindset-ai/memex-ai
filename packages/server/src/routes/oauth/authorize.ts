@@ -10,27 +10,15 @@
 //          redirect_uri with ?error=access_denied&state=.
 
 import { Hono } from "hono";
-import { and, eq } from "drizzle-orm";
 import { sessionMiddleware, type SessionEnv } from "../../middleware/session.js";
 import { mintAuthCode } from "../../services/oauth/codes.js";
 import { getClientByClientId } from "../../services/oauth/clients.js";
 import { buildAppBaseUrl } from "../../services/shared/tenant-url.js";
-import { db } from "../../db/connection.js";
-import { orgMemberships, orgs } from "../../db/schema.js";
 
-// b-31 dec-8: list the user's Orgs (id + name) for the consent picker.
-// Only ACTIVE memberships — disabled/pending users see zero orgs and fall
-// through to the personal-only variant.
-async function listGrantableOrgs(userId: string): Promise<{ id: string; name: string }[]> {
-  const rows = await db
-    .select({ id: orgs.id, name: orgs.name })
-    .from(orgMemberships)
-    .innerJoin(orgs, eq(orgMemberships.orgId, orgs.id))
-    .where(
-      and(eq(orgMemberships.userId, userId), eq(orgMemberships.status, "active")),
-    );
-  return rows;
-}
+// spec-307 (dec-1/dec-2): an OAuth grant is the user's full LIVE membership, not a
+// frozen per-Org scope (supersedes b-31 dec-8). There is no Org to pick at consent,
+// so the consent screen has no Org picker and the grant stores no Org. The former
+// `listGrantableOrgs` helper (and its db/orgs imports) is gone with it.
 
 export const authorize = new Hono<SessionEnv>();
 
@@ -133,14 +121,13 @@ authorize.get("/", async (c) => {
 });
 
 // GET /api/oauth/authorize/preview?<params> — session-required. Returns the
-// client_name + scopes the consent UI needs to render, plus the user's Org
-// list so the consent screen can render an Org picker (per b-31 dec-8).
+// client_name + scopes the consent UI needs to render. spec-307: no Org list — the
+// grant covers the user's full live membership, so there is nothing to pick.
 //
 // Response shape:
 //   {
 //     client_name: string,
 //     scopes: ["memex.full"],
-//     orgs: [{ id, name }],            // empty array = personal-only flow
 //   }
 authorize.use("/preview", sessionMiddleware);
 authorize.get("/preview", async (c) => {
@@ -159,12 +146,10 @@ authorize.get("/preview", async (c) => {
       400,
     );
   }
-  const userOrgs = await listGrantableOrgs(user.id);
   return c.json({
     client_name: client.clientName,
     // Server always grants memex.full per dec-2, regardless of `scope` param.
     scopes: ["memex.full"],
-    orgs: userOrgs,
   });
 });
 
@@ -222,43 +207,12 @@ authorize.post("/", async (c) => {
     });
   }
 
-  // Org-scope per b-31 dec-8. Three branches:
-  //   - User in 0 Orgs: orgId = null (personal-only). org_id in body, if any,
-  //     is rejected — the user has nothing to grant against.
-  //   - User in 1 Org: orgId may be omitted (we use the sole Org) OR sent
-  //     explicitly; if sent, must match the membership.
-  //   - User in >1 Orgs: orgId IS required. Body must carry it and it must
-  //     be in the user's grantable list.
-  const userOrgs = await listGrantableOrgs(user.id);
-  const orgIdInput = typeof md.org_id === "string" ? md.org_id : undefined;
-  let orgId: string | null;
-  if (userOrgs.length === 0) {
-    if (orgIdInput) {
-      return c.json(
-        { error: "invalid_request", error_description: "user has no Org memberships; org_id must be omitted" },
-        400,
-      );
-    }
-    orgId = null;
-  } else if (userOrgs.length === 1 && !orgIdInput) {
-    orgId = userOrgs[0].id;
-  } else {
-    if (!orgIdInput) {
-      return c.json(
-        { error: "invalid_request", error_description: "org_id is required when user belongs to multiple Orgs" },
-        400,
-      );
-    }
-    const match = userOrgs.find((o) => o.id === orgIdInput);
-    if (!match) {
-      // Don't leak whether the Org exists — same 400 shape either way.
-      return c.json(
-        { error: "invalid_request", error_description: "org_id is not a grantable Org for this user" },
-        400,
-      );
-    }
-    orgId = match.id;
-  }
+  // spec-307 (dec-1/dec-2): a grant is the user's full LIVE membership, not a frozen
+  // per-Org scope. We no longer collect or store an Org on the grant — the minted
+  // token's `org` claim is null and the /mcp authorizer resolves live membership for
+  // every token. Supersedes b-31 dec-8's per-Org scoping. Any `org_id` an older
+  // client still sends is ignored.
+  const orgId: string | null = null;
 
   // Scopes — single 'memex.full' in v1 per dec-2. We always grant memex.full
   // regardless of what the client requested (no granular scopes yet).

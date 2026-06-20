@@ -47,7 +47,7 @@ export function TestSignalsMonitor({ signals, loading = false, live = false }: T
         {failing > 0 ? (
           <span
             data-testid="test-signals-failing"
-            className="ml-auto inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[0.7rem] font-semibold text-status-danger-text bg-status-danger-text/10"
+            className="ml-auto inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-[0.7rem] font-semibold text-status-danger-text bg-status-danger-text/10"
           >
             ⚠ {failing.toLocaleString()} failing
           </span>
@@ -62,7 +62,7 @@ export function TestSignalsMonitor({ signals, loading = false, live = false }: T
       <div className="px-3 pt-3 pb-2">
         {loading && !hasData ? (
           <div
-            className="animate-pulse rounded bg-card-hover"
+            className="animate-pulse rounded-sm bg-card-hover"
             style={{ height: SPARK_HEIGHT }}
             data-testid="test-signals-skeleton"
           />
@@ -99,7 +99,7 @@ export function TestSignalsMonitor({ signals, loading = false, live = false }: T
                   )}
                   {b.fail > 0 && <span style={{ height: seg(b.fail), background: palette.testRun.fail }} />}
                   {b.error > 0 && <span style={{ height: seg(b.error), background: palette.testRun.error }} />}
-                  {total === 0 && <span style={{ height: 1 }} className="bg-edge-subtle/40" />}
+                  {total === 0 && <span style={{ height: 1 }} className="bg-edge-subtle" />}
                 </div>
               );
             })}
@@ -127,5 +127,5 @@ export function TestSignalsMonitor({ signals, loading = false, live = false }: T
 }
 
 function Swatch({ color }: { color: string }) {
-  return <span className="inline-block h-2 w-2 rounded-sm" style={{ background: color }} />;
+  return <span className="inline-block h-2 w-2 rounded-xs" style={{ background: color }} />;
 }

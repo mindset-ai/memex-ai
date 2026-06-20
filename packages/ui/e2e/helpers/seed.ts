@@ -93,6 +93,16 @@ export async function setOnboardingGreeted(email: string, greeted: boolean): Pro
 }
 
 /**
+ * Set/clear a user's identity_confirmed_at (spec-305). `confirmed: false` un-confirms
+ * so the user lands on the Home Canvas welcome step (needsOnboarding now keys off this);
+ * the per-test fixture re-confirms afterwards so a cleared flag can't leak into other
+ * journeys.
+ */
+export async function setIdentityConfirmed(email: string, confirmed: boolean): Promise<void> {
+  await call("POST", "/identity-confirmed", { email, confirmed });
+}
+
+/**
  * Seed a Spec into a memex through the server's createDocDraft service — so the
  * bus emits `document created` and the SSE-reactive UI sees it like a real Spec.
  * The service mints the handle; we return both the docId (cleanup) and the
@@ -196,6 +206,29 @@ export async function addOrgMember(opts: {
   status?: "active" | "disabled";
 }): Promise<{ userId: string }> {
   return call<{ ok: boolean; userId: string }>("POST", "/org-add-member", opts);
+}
+
+/** spec-320 (ac-11): @-mention a user on a comment through the real addMentions
+ *  service (no raw SQL, std-28). Backs spec-315's "mentions-me" home card. */
+export async function seedCommentMention(opts: {
+  memexId: string;
+  commentId: string;
+  userEmail: string;
+  mentionedByEmail?: string;
+}): Promise<{ ok: boolean; userId: string }> {
+  return call("POST", "/seed-comment-mention", opts);
+}
+
+/** spec-320 (ac-11): set a comment's assignee through the real assignComment
+ *  service (sets the columns + guarantees the mention row). Backs spec-315's
+ *  "assigned-to-me" home card. */
+export async function setCommentAssignee(opts: {
+  memexId: string;
+  commentId: string;
+  assigneeEmail: string;
+  assignedByEmail?: string;
+}): Promise<{ ok: boolean; assigneeUserId: string }> {
+  return call("POST", "/set-comment-assignee", opts);
 }
 
 /** Add a claimed (unverified) email domain to a seeded org. */

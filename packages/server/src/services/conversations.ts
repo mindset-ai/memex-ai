@@ -5,19 +5,24 @@ import type { Conversation, Message } from "../db/schema.js";
 import { NotFoundError } from "../types/errors.js";
 import { mutate, type Mutated, type RequestCtx } from "./mutate.js";
 import { nextSeq } from "./shared/sequence.js";
+import { docAttribution } from "./shared/doc-attribution.js";
 import { bus, type ChangeAction, type ChangeEntity } from "./bus.js";
 
-// Resolve the memexId for a conversation by joining through its parent doc.
-// Cached at call-time; conversation FK to doc is immutable so this is safe to
-// memoise per-request but we keep it simple here.
-async function memexIdForConversation(conversationId: string): Promise<string | null> {
+// Resolve a conversation's doc scope (memexId + parent doc id/type) by joining
+// through its parent doc. conversation FK to doc is immutable so this is safe to
+// memoise per-request but we keep it simple here. spec-306: docId/docType are
+// returned so the conversation_message.created outcome can be attributed to its
+// Spec (the bus key itself omits docId — the chat consumer filters by memexId).
+async function docScopeForConversation(
+  conversationId: string,
+): Promise<{ memexId: string; docId: string; docType: string } | null> {
   const [row] = await db
-    .select({ memexId: documents.memexId })
+    .select({ memexId: documents.memexId, docId: documents.id, docType: documents.docType })
     .from(conversations)
     .innerJoin(documents, eq(conversations.docId, documents.id))
     .where(eq(conversations.id, conversationId))
     .limit(1);
-  return row?.memexId ?? null;
+  return row ?? null;
 }
 
 // Conversations inherit account scope from their doc. Service verifies doc → account
@@ -88,17 +93,19 @@ export async function appendMessage(
   content: unknown
 ): Promise<Mutated<Message>> {
   const seq = await nextSeq(messages, messages.seq, messages.conversationId, conversationId);
-  const memexId = await memexIdForConversation(conversationId);
+  const scope = await docScopeForConversation(conversationId);
 
   // Each persisted message fires `conversation_message.created` on the bus so
   // cross-tab chat subscribers (Wave 2) refetch the conversation. The bus key
-  // omits `docId` intentionally — the chat consumer filters by memexId only.
+  // omits `docId` intentionally — the chat consumer filters by memexId only —
+  // but spec-306 attributes the outcome to its Spec via the payload.
   return mutate(
     {},
     {
-      memexId: memexId ?? "",
+      memexId: scope?.memexId ?? "",
       entity: "conversation_message",
       action: "created",
+      ...(scope ? { payload: docAttribution(scope.docId, scope.docType) } : {}),
     },
     async () => {
       const [message] = await db
@@ -110,7 +117,7 @@ export async function appendMessage(
     // Skip emit if we couldn't resolve memexId — this only happens if the
     // conversation row was deleted in a race; the write below would FK-fail
     // anyway, so the silent path here is harmless.
-    memexId ? undefined : { silent: true },
+    scope ? undefined : { silent: true },
   );
 }
 
@@ -127,14 +134,15 @@ export async function replaceMessages(
   msgs: ReadonlyArray<{ role: string; content: unknown }>,
   ctx: RequestCtx = {},
 ): Promise<Mutated<number>> {
-  const memexId = await memexIdForConversation(conversationId);
+  const scope = await docScopeForConversation(conversationId);
 
   return mutate(
     ctx,
     {
-      memexId: memexId ?? "",
+      memexId: scope?.memexId ?? "",
       entity: "conversation_message",
       action: "created",
+      ...(scope ? { payload: docAttribution(scope.docId, scope.docType) } : {}),
     },
     async () => {
       await db.delete(messages).where(eq(messages.conversationId, conversationId));
@@ -150,19 +158,21 @@ export async function replaceMessages(
     },
     // Skip emit if we couldn't resolve memexId — same race rationale as
     // appendMessage: the FK insert below would fail anyway.
-    memexId ? undefined : { silent: true },
+    scope ? undefined : { silent: true },
   );
 }
 
 export async function clearConversation(
   conversationId: string
 ): Promise<Mutated<void>> {
-  const memexId = await memexIdForConversation(conversationId);
+  const scope = await docScopeForConversation(conversationId);
 
   return mutate(
     {},
     {
-      memexId: memexId ?? "",
+      // conversation_message.deleted is not a whitelisted outcome (spec-306), so
+      // no doc attribution is added here — only memexId is needed for the bus.
+      memexId: scope?.memexId ?? "",
       entity: "conversation_message",
       action: "deleted",
     },
@@ -176,7 +186,7 @@ export async function clearConversation(
         .set({ updatedAt: new Date() })
         .where(eq(conversations.id, conversationId));
     },
-    memexId ? undefined : { silent: true },
+    scope ? undefined : { silent: true },
   );
 }
 

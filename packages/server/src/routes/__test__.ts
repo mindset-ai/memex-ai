@@ -45,7 +45,10 @@ import { createIssue } from "../services/issues.js";
 import { testEvents } from "../db/schema.js";
 import { applyEmissionToSummary } from "../services/test-event-latest.js";
 import { createExecutionPlan } from "../services/execution_plans.js";
-import { addTaskComment, addComment, addDecisionComment } from "../services/comments.js";
+import { addTaskComment, addComment, addDecisionComment, addAnchoredComment } from "../services/comments.js";
+// spec-320 t-5: seed comment @-mentions + assignment through the real services so
+// spec-315's "where you're needed" home journey can build and verify in parallel.
+import { addMentions, assignComment } from "../services/comment-mentions.js";
 import { createShareToken, listShareTokensForDoc } from "../services/share-tokens.js";
 import { addSection } from "../services/sections.js";
 import { applyTagStrings } from "../services/tags.js";
@@ -199,6 +202,35 @@ testOnlyRouter.post("/onboarding-greeted", async (c) => {
       .set({ onboardingGreetedAt: null, updatedAt: new Date() })
       .where(eq(users.id, user.id));
   }
+  return c.json({ ok: true });
+});
+
+// spec-305/307 — set/clear a user's identity state. needsOnboarding keys off
+// identity_confirmed_at; the journey identity MILESTONE keys off role_coords (spec-307:
+// did the user place themselves on the triangle). Confirm/un-confirm sets/clears BOTH so
+// they stay in lock-step — the onboarding journey un-confirms the dev user to land on the
+// welcome step, and the fixture re-confirms afterwards so it can't leak into other journeys.
+const identityConfirmedSchema = z.object({
+  email: z.string().email(),
+  confirmed: z.boolean(),
+});
+testOnlyRouter.post("/identity-confirmed", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = identityConfirmedSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
+  }
+  const { email, confirmed } = parsed.data;
+  const user = await getUserByEmail(email);
+  if (!user) return c.json({ error: `User ${email} not found` }, 404);
+  await db
+    .update(users)
+    .set({
+      identityConfirmedAt: confirmed ? new Date() : null,
+      roleCoords: confirmed ? { dev: 0.34, design: 0.33, pm: 0.33 } : null,
+      updatedAt: new Date(),
+    })
+    .where(eq(users.id, user.id));
   return c.json({ ok: true });
 });
 
@@ -792,6 +824,11 @@ const seedCommentSchema = z.object({
   authorName: z.string().default("Casey Reviewer"),
   content: z.string().default("Please double-check this before we advance."),
   commentType: z.string().optional(),
+  // spec-319: seed a RANGE-anchored section comment (so the gutter indicator
+  // renders). anchorEndOffset is the END character offset into the section
+  // source; anchorStartOffset, when supplied, is the START. Section target only.
+  anchorEndOffset: z.number().int().nonnegative().optional(),
+  anchorStartOffset: z.number().int().nonnegative().optional(),
 });
 testOnlyRouter.post("/seed-comment", async (c) => {
   const body = await c.req.json().catch(() => null);
@@ -799,17 +836,68 @@ testOnlyRouter.post("/seed-comment", async (c) => {
   if (!parsed.success) {
     return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
   }
-  const { memexId, target, targetId, authorName, content, commentType } = parsed.data;
+  const { memexId, target, targetId, authorName, content, commentType, anchorEndOffset, anchorStartOffset } = parsed.data;
   const extras = commentType
     ? ({ type: commentType } as Parameters<typeof addComment>[4])
     : undefined;
   const comment =
     target === "section"
-      ? await addComment(memexId, targetId, authorName, content, extras)
+      ? anchorEndOffset != null
+        ? await addAnchoredComment(memexId, targetId, authorName, content, anchorEndOffset, extras, anchorStartOffset)
+        : await addComment(memexId, targetId, authorName, content, extras)
       : target === "decision"
         ? await addDecisionComment(memexId, targetId, authorName, content, extras)
         : await addTaskComment(memexId, targetId, authorName, content, extras);
   return c.json({ commentId: comment.id, seq: comment.seq });
+});
+
+// spec-320 t-5 (ac-11): @-mention a user on a comment through the real addMentions
+// service (emits on the bus [per std-8], writes the comment_mentions row), so a
+// journey can seed "X mentioned me" without raw SQL (std-28). Users are resolved by
+// email — the journey has already seeded them via /org-add-member / /ensure-user.
+const seedCommentMentionSchema = z.object({
+  memexId: z.string().uuid(),
+  commentId: z.string().uuid(),
+  userEmail: z.string().email(),
+  mentionedByEmail: z.string().email().optional(),
+});
+testOnlyRouter.post("/seed-comment-mention", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = seedCommentMentionSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
+  }
+  const { memexId, commentId, userEmail, mentionedByEmail } = parsed.data;
+  const user = await getUserByEmail(userEmail);
+  if (!user) return c.json({ error: `User ${userEmail} not found` }, 400);
+  const mentioner = mentionedByEmail ? await getUserByEmail(mentionedByEmail) : null;
+  const ctx = mentioner ? { actorUserId: mentioner.id, channel: "rest_ui" as const } : {};
+  await addMentions(memexId, commentId, [user.id], ctx);
+  return c.json({ ok: true, userId: user.id });
+});
+
+// spec-320 t-5 (ac-11): set a comment's assignee through the real assignComment
+// service (sets the columns, guarantees the mention row, emits). Backs spec-315's
+// "assigned to me" home card.
+const setCommentAssigneeSchema = z.object({
+  memexId: z.string().uuid(),
+  commentId: z.string().uuid(),
+  assigneeEmail: z.string().email(),
+  assignedByEmail: z.string().email().optional(),
+});
+testOnlyRouter.post("/set-comment-assignee", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = setCommentAssigneeSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
+  }
+  const { memexId, commentId, assigneeEmail, assignedByEmail } = parsed.data;
+  const assignee = await getUserByEmail(assigneeEmail);
+  if (!assignee) return c.json({ error: `User ${assigneeEmail} not found` }, 400);
+  const assigner = assignedByEmail ? await getUserByEmail(assignedByEmail) : null;
+  const ctx = assigner ? { actorUserId: assigner.id, channel: "rest_ui" as const } : {};
+  await assignComment(memexId, commentId, assignee.id, ctx);
+  return c.json({ ok: true, assigneeUserId: assignee.id });
 });
 
 // spec-286: apply `scope::value`/flat tags to a Spec through the real

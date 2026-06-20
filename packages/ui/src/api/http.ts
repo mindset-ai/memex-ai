@@ -149,6 +149,18 @@ export async function fetchWithRetry(
   throw lastError;
 }
 
+// Single-shot authed fetch — same auto-auth as fetchWithRetry, but NO retry/backoff.
+// For non-critical, supplementary surfaces (e.g. the Home-of-value blocks) where a
+// transient failure should degrade gracefully rather than block, and where the 3s
+// retry backoff would otherwise be paid on every unit test that renders the component
+// without mocking the call. The critical landing fetch (journey state) keeps the retry.
+export async function fetchOnce(
+  input: RequestInfo | URL,
+  init?: RequestInit,
+): Promise<Response> {
+  return fetch(input, withAutoAuth(input, init));
+}
+
 // Explicit Authorization header builder — used by the auth-flow endpoints that take a
 // `token` parameter directly (signup/login/SSO/etc.) rather than relying on the
 // localStorage auto-attach in withAutoAuth.

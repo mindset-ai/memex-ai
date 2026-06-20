@@ -225,7 +225,7 @@ export function TagPicker({ docId, tags, onTagsChange, className = '' }: TagPick
               placeholder="Filter or add a tag (scope::value)"
               data-testid="tag-picker-input"
               aria-label="Filter or add a tag"
-              className="w-full bg-input border border-edge text-primary placeholder-muted focus:outline-none focus:ring-1 focus:ring-edge-strong focus:border-edge-strong px-2 py-1 text-xs rounded"
+              className="w-full bg-input border border-edge text-primary placeholder-muted focus:outline-hidden focus:ring-1 focus:ring-edge-strong focus:border-edge-strong px-2 py-1 text-xs rounded-sm"
             />
             {/* ac-2 hint: scoped tags swap within their scope; flat tags stack. */}
             <p className="mt-1 text-[10px] leading-tight text-muted">

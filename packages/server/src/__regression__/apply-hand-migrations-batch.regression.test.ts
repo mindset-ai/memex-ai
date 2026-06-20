@@ -194,7 +194,7 @@ describe.skipIf(!CAN_RUN)(
       } finally {
         teardown();
       }
-    });
+    }, 30_000); // DB-heavy: multiple DROP/CREATE DATABASE + script runs — the 5s default is too tight (esp. under full-suite parallel load).
 
     it("ac-2: journal excluded, applied skipped, pending applies DDL + tracking insert", () => {
       tagAc(AC2);
@@ -219,6 +219,6 @@ describe.skipIf(!CAN_RUN)(
       } finally {
         teardown();
       }
-    });
+    }, 30_000); // DB-heavy: multiple DROP/CREATE DATABASE + script runs — the 5s default is too tight (esp. under full-suite parallel load).
   },
 );

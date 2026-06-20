@@ -69,10 +69,10 @@ const EMPTY_ENVELOPE: SearchEnvelope = { jumpTo: [], assigned: [], content: [] }
 // separate consistently. Written as full literal class strings so Tailwind's
 // JIT scanner picks up the arbitrary-variant classes.
 const GROUP_CLASS =
-  '[&_[cmdk-group-heading]]:mt-1 [&_[cmdk-group-heading]]:border-t [&_[cmdk-group-heading]]:border-edge ' +
-  '[&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:pt-3 [&_[cmdk-group-heading]]:pb-2 ' +
-  '[&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-bold [&_[cmdk-group-heading]]:uppercase ' +
-  '[&_[cmdk-group-heading]]:tracking-wider [&_[cmdk-group-heading]]:text-secondary';
+  '**:[[cmdk-group-heading]]:mt-1 **:[[cmdk-group-heading]]:border-t **:[[cmdk-group-heading]]:border-edge ' +
+  '**:[[cmdk-group-heading]]:px-3 **:[[cmdk-group-heading]]:pt-3 **:[[cmdk-group-heading]]:pb-2 ' +
+  '**:[[cmdk-group-heading]]:text-xs **:[[cmdk-group-heading]]:font-bold **:[[cmdk-group-heading]]:uppercase ' +
+  '**:[[cmdk-group-heading]]:tracking-wider **:[[cmdk-group-heading]]:text-secondary';
 
 export interface SearchPaletteProps {
   open: boolean;
@@ -272,14 +272,14 @@ export function SearchPalette({ open, onOpenChange }: SearchPaletteProps) {
       label="Search this memex"
       shouldFilter={false}
       loop
-      overlayClassName="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm"
+      overlayClassName="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs"
       contentClassName="fixed left-1/2 top-[15vh] z-50 w-full max-w-xl -translate-x-1/2 overflow-hidden rounded-xl border border-edge bg-panel shadow-2xl"
     >
       <Command.Input
         value={query}
         onValueChange={setQuery}
         placeholder="Search specs, standards, documents, decisions, issues…"
-        className="w-full border-b border-edge bg-transparent px-4 py-3 text-sm text-primary outline-none placeholder:text-muted"
+        className="w-full border-b border-edge bg-transparent px-4 py-3 text-sm text-primary outline-hidden placeholder:text-muted"
       />
       <Command.List className="max-h-[60vh] overflow-y-auto p-2">
         {loading && (

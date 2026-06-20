@@ -61,7 +61,7 @@ export function AcAboutDialog({ rows, onClose }: AcAboutDialogProps) {
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm overflow-y-auto py-8"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs overflow-y-auto py-8"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}

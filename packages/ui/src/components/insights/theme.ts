@@ -85,9 +85,9 @@ export function phaseLabel(phase: string): string {
 }
 
 // The app's design tokens (index.css) are space-separated RGB *channels*
-// (e.g. `--color-edge: 62 68 81`), built to be consumed via `rgb(var(--token))`
+// (e.g. `--ch-edge: 62 68 81`), built to be consumed via `rgb(var(--token))`
 // — never bare. The previous values here used the tokens bare and even invented
-// `--color-border` (which doesn't exist), so every entry silently fell back to
+// `--ch-border` (which doesn't exist), so every entry silently fell back to
 // its hardcoded hex. That hardcoded slate-200 (`#e2e8f0`) is the harsh
 // near-white hairline seen in dark mode. Wrapping the real tokens in `rgb()`
 // (with an alpha channel for the hairlines) makes them resolve per-theme.
@@ -95,28 +95,28 @@ export function phaseLabel(phase: string): string {
 // Hairline (grid + axis ticks): the edge token at 0.5 alpha — subtle in light
 // (slate-200/50) and a soft grey in dark (#3e4451/50). The hex fallback is a
 // semi-transparent slate so a missing token can never produce a hard line.
-const HAIRLINE = 'rgb(var(--color-edge, 148 163 184) / 0.5)';
+const HAIRLINE = 'rgb(var(--ch-edge, 148 163 184) / 0.5)';
 
 export const insightsTheme: PartialTheme = {
   background: 'transparent',
   text: {
     fontSize: 11,
-    fill: 'rgb(var(--color-text-secondary, 100 116 139))',
+    fill: 'rgb(var(--ch-text-secondary, 100 116 139))',
   },
   axis: {
     ticks: {
       line: { stroke: HAIRLINE, strokeWidth: 1 },
-      text: { fontSize: 10, fill: 'rgb(var(--color-text-secondary, 100 116 139))' },
+      text: { fontSize: 10, fill: 'rgb(var(--ch-text-secondary, 100 116 139))' },
     },
-    legend: { text: { fontSize: 11, fill: 'rgb(var(--color-text-secondary, 100 116 139))' } },
+    legend: { text: { fontSize: 11, fill: 'rgb(var(--ch-text-secondary, 100 116 139))' } },
   },
   grid: {
     line: { stroke: HAIRLINE, strokeWidth: 1, strokeDasharray: '2 4' },
   },
   tooltip: {
     container: {
-      background: 'rgb(var(--color-surface, 255 255 255))',
-      color: 'rgb(var(--color-text-primary, 15 23 42))',
+      background: 'rgb(var(--ch-surface, 255 255 255))',
+      color: 'rgb(var(--ch-text-primary, 15 23 42))',
       fontSize: 12,
       borderRadius: 8,
       boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
@@ -124,7 +124,7 @@ export const insightsTheme: PartialTheme = {
     },
   },
   crosshair: {
-    line: { stroke: 'rgb(var(--color-text-secondary, 148 163 184))', strokeWidth: 1, strokeOpacity: 0.5 },
+    line: { stroke: 'rgb(var(--ch-text-secondary, 148 163 184))', strokeWidth: 1, strokeOpacity: 0.5 },
   },
 };
 
@@ -133,8 +133,8 @@ export const insightsTheme: PartialTheme = {
 // block above doesn't reach them). Same rgb(var()) discipline as the theme —
 // the bare-var form silently fell back to white-on-light-text in dark mode.
 export const TOOLTIP_STYLE: CSSProperties = {
-  background: 'rgb(var(--color-surface, 255 255 255))',
-  color: 'rgb(var(--color-text-primary, 15 23 42))',
+  background: 'rgb(var(--ch-surface, 255 255 255))',
+  color: 'rgb(var(--ch-text-primary, 15 23 42))',
   boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
 };
 

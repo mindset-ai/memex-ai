@@ -8,9 +8,10 @@ import {
   type OAuthAuthorizeParams,
 } from '../api/client';
 
-// b-31 dec-8: the Org picker UI. The preview endpoint returns the user's
-// grantable Orgs; we pre-select the first one when the user has exactly
-// one. Submit always carries an `org_id` (or null for personal-only).
+// spec-307: no Org picker. An OAuth grant covers the user's FULL live membership
+// (their personal Memex + every Org they belong to, now and in future), so the
+// consent screen just states what's granted and collects allow/deny — there is no
+// per-Org scope to choose.
 
 type Status =
   | 'loading'
@@ -58,9 +59,6 @@ export function OauthAuthorize() {
   const [status, setStatus] = useState<Status>('loading');
   const [preview, setPreview] = useState<OAuthAuthorizePreview | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  // Selected Org id (UUID) for the grant, or null for personal-only.
-  // Initialised from preview.orgs in the useEffect below.
-  const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!params) {
@@ -82,10 +80,6 @@ export function OauthAuthorize() {
         const data = await oauthAuthorizePreviewApi(params, token);
         if (cancelled) return;
         setPreview(data);
-        // Pre-select the user's only Org when they have exactly one;
-        // otherwise leave null and let the user pick (or fall through
-        // to personal-only when orgs is empty).
-        if (data.orgs.length === 1) setSelectedOrgId(data.orgs[0].id);
         setStatus('pending');
       } catch (err) {
         if (cancelled) return;
@@ -105,17 +99,6 @@ export function OauthAuthorize() {
 
   async function submitDecision(decision: 'allow' | 'deny') {
     if (!params) return;
-    // When user has >1 Org and hasn't picked, refuse to submit — the server
-    // would 400 anyway, but a client-side guard gives a clearer message.
-    if (
-      decision === 'allow' &&
-      preview &&
-      preview.orgs.length > 1 &&
-      !selectedOrgId
-    ) {
-      setErrorMessage('Pick an Org before allowing.');
-      return;
-    }
     setStatus('submitting');
     setErrorMessage(null);
     try {
@@ -123,7 +106,6 @@ export function OauthAuthorize() {
         params,
         decision,
         token,
-        selectedOrgId,
       );
       setStatus('success');
       // Bounce the browser. The server has set ?code=&state= (on allow) or
@@ -179,38 +161,8 @@ export function OauthAuthorize() {
               <div className="text-base text-primary font-medium">{preview.client_name}</div>
             </div>
 
-            {/* Org picker (b-31 dec-8) — shown only when the user has >1 Org.
-                For 0 or 1 Org we skip the picker and show a fixed sentence. */}
-            {preview.orgs.length > 1 && (
-              <div className="mb-6">
-                <label
-                  htmlFor="oauth-org-picker"
-                  className="block text-muted uppercase tracking-wide text-xs mb-1"
-                >
-                  Org
-                </label>
-                <select
-                  id="oauth-org-picker"
-                  value={selectedOrgId ?? ''}
-                  onChange={(e) => setSelectedOrgId(e.target.value || null)}
-                  className="w-full border border-edge rounded-md bg-page text-primary px-3 py-2 text-sm"
-                >
-                  <option value="" disabled>
-                    Choose the Org to grant access to…
-                  </option>
-                  {preview.orgs.map((o) => (
-                    <option key={o.id} value={o.id}>
-                      {o.name}
-                    </option>
-                  ))}
-                </select>
-                <p className="text-xs text-muted mt-2">
-                  You can only grant one Org per OAuth flow. To connect another Org,
-                  authorise again from the same connector.
-                </p>
-              </div>
-            )}
-
+            {/* spec-307: no Org picker — the grant is the user's full live
+                membership, so there is nothing to scope. */}
             <div className="mb-8">
               <div className="text-muted uppercase tracking-wide text-xs mb-1">
                 Permissions requested
@@ -218,27 +170,10 @@ export function OauthAuthorize() {
               <ul className="text-sm text-primary list-disc pl-5">
                 {preview.scopes.includes('memex.full') && (
                   <li>
-                    Full access to{' '}
-                    {preview.orgs.length === 0 ? (
-                      <>your <strong>personal Memex</strong></>
-                    ) : preview.orgs.length === 1 ? (
-                      <>
-                        your <strong>{preview.orgs[0].name}</strong> Org and your{' '}
-                        <strong>personal Memex</strong>
-                      </>
-                    ) : selectedOrgId ? (
-                      <>
-                        your{' '}
-                        <strong>
-                          {preview.orgs.find((o) => o.id === selectedOrgId)?.name}
-                        </strong>{' '}
-                        Org and your <strong>personal Memex</strong>
-                      </>
-                    ) : (
-                      <>the Org you select above and your personal Memex</>
-                    )}
-                    {' '}— read &amp; write documents, decisions, tasks, and comments on
-                    your behalf.
+                    Full access to <strong>all your Memexes</strong> — your personal
+                    Memex and every Org you&apos;re a member of, now and in future —
+                    read &amp; write documents, decisions, tasks, and comments on your
+                    behalf.
                   </li>
                 )}
               </ul>

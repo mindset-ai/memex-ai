@@ -8,6 +8,7 @@ import { mutate, type ChangeKey, type Mutated, type RequestCtx } from "./mutate.
 import { resolveActorColumns } from "./actor.js";
 import { isUuid } from "./shared/identifiers.js";
 import { withSeqRetry } from "./shared/sequence.js";
+import { docAttribution } from "./shared/doc-attribution.js";
 import { embedAndStoreSection, embedAndStoreDecision } from "./memex-embeddings.js";
 import { aggregateAcHealthForBriefs } from "./acs.js";
 import { maybeAutoResolveIssuesForPromotedDoc } from "./issues.js";
@@ -125,6 +126,23 @@ export async function createDocDraft(
   // `resolveRef`). Standards created through the dedicated React-UI flow
   // (`createStandard → nextStandardHandle`) were unaffected; MCP creates
   // route through this function and need the explicit branch.
+  // spec-297 (funnel stage 5/10, depth): tag the document.created event for SPEC
+  // docs with the Nth-spec ordinal for the acting user, so Mixpanel can build
+  // "first spec / 2nd / Nth spec" depth funnels from one event via a property
+  // filter. Counted by the same user the event keys on (distinct_id). Omitted when
+  // there's no human actor (seed / system creates) — a system spec has no funnel.
+  const funnelActor = ctx.actorUserId ?? createdByUserId ?? null;
+  let specIndex: number | undefined;
+  if (docType === "spec" && funnelActor) {
+    const [{ n }] = await db
+      .select({ n: count() })
+      .from(documents)
+      .where(and(eq(documents.createdByUserId, funnelActor), eq(documents.docType, "spec")));
+    // +1: this create will be the (existing + 1)th spec for the user. A small
+    // read-then-create race is acceptable for telemetry depth.
+    specIndex = Number(n) + 1;
+  }
+
   return mutate(
     // Attribute the create to the human (ctx.actorUserId, else the legacy
     // createdByUserId) and the surface (ctx.channel). Without this the event
@@ -132,7 +150,18 @@ export async function createDocDraft(
     { ...ctx, actorUserId: ctx.actorUserId ?? createdByUserId },
     // The new doc's id isn't known until the insert returns, so use a key
     // factory that reads it off the resolved result.
-    (created) => ({ memexId, docId: created.id, entity: "document", action: "created" }),
+    (created) => ({
+      memexId,
+      docId: created.id,
+      entity: "document",
+      action: "created",
+      // spec-306 dec-2: document.created attributes the NEW document itself
+      // (doc_id/doc_type), merged with the spec-297 funnel-depth prop.
+      payload: {
+        ...docAttribution(created.id, created.docType),
+        ...(specIndex !== undefined ? { spec_index: specIndex } : {}),
+      },
+    }),
     async () => {
       // spec-187 (b-38 F-3 finally reaching documents): the handle mint is a
       // racy COALESCE(MAX(...))+1 read — two concurrent creates in the same
@@ -909,7 +938,8 @@ export async function updateDocStatus(
       entity: "document",
       action: "status_changed",
       narrative: opts.narrative ?? `moved ${doc.handle} ${doc.status} → ${status}`,
-      payload: { from: doc.status, to: status },
+      // spec-306 dec-2: attribute the phase flip to the Spec, alongside {from,to}.
+      payload: { from: doc.status, to: status, ...docAttribution(id, doc.docType) },
     });
   }
 

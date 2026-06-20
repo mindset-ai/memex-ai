@@ -144,13 +144,13 @@ function TrayTileSkeleton() {
       <div className="flex items-center justify-between gap-2 mb-2">
         <div className="flex items-center gap-2">
           <span className="h-1.5 w-1.5 rounded-full bg-card-hover animate-pulse" />
-          <span className="h-2.5 w-24 rounded bg-card-hover animate-pulse" />
+          <span className="h-2.5 w-24 rounded-sm bg-card-hover animate-pulse" />
         </div>
         <span className="h-5 w-5 rounded-full bg-card-hover animate-pulse" />
       </div>
       <div className="space-y-1.5">
-        <span className="block h-3 w-3/4 rounded bg-card-hover animate-pulse" />
-        <span className="block h-3 w-1/2 rounded bg-card-hover animate-pulse" />
+        <span className="block h-3 w-3/4 rounded-sm bg-card-hover animate-pulse" />
+        <span className="block h-3 w-1/2 rounded-sm bg-card-hover animate-pulse" />
       </div>
     </section>
   );

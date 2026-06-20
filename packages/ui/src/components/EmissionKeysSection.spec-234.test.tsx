@@ -1,9 +1,14 @@
-// spec-234 t-3 — Settings → Emission Keys differentiates the two key types.
-// A permanent (CI) key and an ephemeral (agent) key render distinguishably, and the
-// ephemeral key shows its expiry + the Spec it is scoped to.
+// spec-234 — Emission Keys differentiates the two key types: a permanent (CI) key and
+// an ephemeral (agent) key, and the ephemeral key shows its expiry + the Spec it is
+// scoped to.
+//
+// UPDATED by spec-309 (dec-5): the differentiation moved from a per-row "Type" cell to
+// the CI/Agent type toggle + type-aware columns. ac-8 (the two types render
+// distinguishably) and ac-20 (the agent key shows its expiry + scoped Spec) still hold —
+// they're now verified against the toggle + the Agent view's Spec/Expires columns.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import { tagAc } from '@memex-ai-ac/vitest';
 import { EmissionKeysSection } from './EmissionKeysSection';
 import type { EmissionKeySummary } from '../api/client';
@@ -43,13 +48,13 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-describe('EmissionKeysSection — two-key differentiation (spec-234)', () => {
+describe('EmissionKeysSection — two-key differentiation (spec-234, via spec-309 toggle)', () => {
   it('renders a permanent CI key and an ephemeral agent key distinguishably [ac-8]', async () => {
     tagAc(AC_8);
     mockList.mockResolvedValue([
       key({ name: 'pythonia CI' }), // permanent: expiresAt null
       key({
-        name: 'agent · spec-234 · 2026-06-11',
+        name: 'agent key',
         expiresAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
         scopedSpecHandle: 'spec-234',
       }),
@@ -57,23 +62,28 @@ describe('EmissionKeysSection — two-key differentiation (spec-234)', () => {
 
     render(<EmissionKeysSection />);
 
-    // Both type cells render, with distinct kinds.
-    const cells = await screen.findAllByTestId('emission-key-type');
-    const kinds = cells.map((c) => c.getAttribute('data-kind')).sort();
-    expect(kinds).toEqual(['ephemeral', 'permanent']);
+    // The two types are surfaced as distinct, separately-counted segments — CI 1 / Agent 1.
+    const ci = await screen.findByRole('radio', { name: /CI/ });
+    const agent = screen.getByRole('radio', { name: /Agent/ });
+    expect(ci).toHaveTextContent('1');
+    expect(agent).toHaveTextContent('1');
 
-    // The permanent key is labelled CI; the ephemeral one Agent.
-    const permanent = cells.find((c) => c.getAttribute('data-kind') === 'permanent')!;
-    const ephemeral = cells.find((c) => c.getAttribute('data-kind') === 'ephemeral')!;
-    expect(within(permanent).getByText('CI')).toBeInTheDocument();
-    expect(within(ephemeral).getByText('Agent')).toBeInTheDocument();
+    // Default CI view shows the permanent key, not the agent key.
+    expect(screen.getByText('pythonia CI')).toBeInTheDocument();
+    expect(screen.queryByText('agent key')).not.toBeInTheDocument();
+
+    // Switching to Agent shows the agent key and hides the CI key — the two render
+    // in distinct, type-appropriate views.
+    fireEvent.click(agent);
+    expect(await screen.findByText('agent key')).toBeInTheDocument();
+    expect(screen.queryByText('pythonia CI')).not.toBeInTheDocument();
   });
 
   it('shows the ephemeral key’s expiry and the Spec it is scoped to [ac-20]', async () => {
     tagAc(AC_20);
     mockList.mockResolvedValue([
       key({
-        name: 'agent · spec-234 · 2026-06-11',
+        name: 'agent key',
         expiresAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
         scopedSpecHandle: 'spec-234',
       }),
@@ -81,11 +91,14 @@ describe('EmissionKeysSection — two-key differentiation (spec-234)', () => {
 
     render(<EmissionKeysSection />);
 
-    const cell = (await screen.findAllByTestId('emission-key-type')).find(
-      (c) => c.getAttribute('data-kind') === 'ephemeral',
-    )!;
-    // Expiry is surfaced (relative, ~2h) and the scoped Spec is named.
-    expect(within(cell).getByText(/expires in \d+h/)).toBeInTheDocument();
-    expect(within(cell).getByText(/spec-234/)).toBeInTheDocument();
+    // Move to the Agent view (the only place these columns exist).
+    fireEvent.click(await screen.findByRole('radio', { name: /Agent/ }));
+
+    // Expiry is surfaced (relative, ~2h) under its own Expires column…
+    const expires = await screen.findByTestId('emission-key-expires');
+    expect(within(expires).getByText(/in \d+h/)).toBeInTheDocument();
+    // …and the scoped Spec under its own Spec column.
+    const spec = screen.getByTestId('emission-key-spec');
+    expect(within(spec).getByText('spec-234')).toBeInTheDocument();
   });
 });

@@ -545,6 +545,85 @@ export async function deleteComment(commentId: string): Promise<void> {
   }
 }
 
+// ── spec-320: comment @-mentions + assignment ───────────────────────────────
+
+// An active org member offered in the @-mention typeahead (dec-4).
+export interface MentionableMember {
+  userId: string;
+  name: string | null;
+  email: string;
+}
+
+// A mention rendered on a comment (the assignee is also one of these).
+export interface CommentMentionView {
+  userId: string;
+  name: string | null;
+  email: string | null;
+}
+
+// spec-320 (ac-10): the @-mention typeahead data source. Active org members
+// matching `query` by substring on name or email; a blank query returns the active
+// roster (the composer opens it on `@`). Returns [] for personal memexes / anon.
+export async function searchMentionableMembers(query: string): Promise<MentionableMember[]> {
+  const res = await fetchWithRetry(
+    `${tBase()}/comments/mentionable-users?q=${encodeURIComponent(query)}`,
+  );
+  if (!res.ok) return [];
+  const data = (await res.json()) as { members?: MentionableMember[] };
+  return data.members ?? [];
+}
+
+// The mentions on a batch of comments, keyed by commentId — for rendering mention
+// chips and resolving the assignee's display name (assignee ⊆ mentions).
+export async function fetchCommentMentions(
+  commentIds: string[],
+): Promise<Record<string, CommentMentionView[]>> {
+  if (commentIds.length === 0) return {};
+  const res = await fetchWithRetry(
+    `${tBase()}/comments/mentions?ids=${encodeURIComponent(commentIds.join(','))}`,
+  );
+  if (!res.ok) return {};
+  const data = (await res.json()) as { mentions?: Record<string, CommentMentionView[]> };
+  return data.mentions ?? {};
+}
+
+// @-mention one or more users on a comment (ac-1). Each newly-mentioned user is
+// added to the discussion and emailed.
+export async function addCommentMentions(commentId: string, userIds: string[]): Promise<void> {
+  const res = await fetchWithRetry(`${tBase()}/comments/${commentId}/mentions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userIds }),
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to add mentions: ${res.status}`);
+  }
+}
+
+// Assign a comment to a single owner (ac-2). Assignment is mention + ownership.
+export async function assignComment(commentId: string, userId: string): Promise<Comment> {
+  const res = await fetchWithRetry(`${tBase()}/comments/${commentId}/assign`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId }),
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to assign comment: ${res.status}`);
+  }
+  return res.json();
+}
+
+// Clear a comment's assignment (ownership only; the mention stays).
+export async function unassignComment(commentId: string): Promise<Comment> {
+  const res = await fetchWithRetry(`${tBase()}/comments/${commentId}/unassign`, {
+    method: 'POST',
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to unassign comment: ${res.status}`);
+  }
+  return res.json();
+}
+
 /**
  * The 12-element typed-comment vocabulary the server validates against (per
  * Section 7 of doc-10 / t-4). t-16 only needs `'question'` (for "Flag for
@@ -1118,7 +1197,16 @@ export async function resendVerificationApi(token: string | null): Promise<void>
   }
 }
 
-export async function magicLinkRequestApi(email: string): Promise<void> {
+/**
+ * spec-304 t-40 (ac-30): the issue response now carries a high-entropy
+ * `loginRequestId` (a `login_requests` surrogate row, TTL matching the
+ * magic-link token). The originating tab/webview keeps this id and polls
+ * `magicLinkStatusApi` so the session can complete IN PLACE once the link is
+ * verified in a different browser/context — no click-back required. The id is
+ * NOT the raw token; it only names the surrogate to poll. Callers that ignore
+ * the return value keep working unchanged.
+ */
+export async function magicLinkRequestApi(email: string): Promise<{ loginRequestId: string }> {
   const res = await fetchWithRetry(`${BASE_URL}/auth/magic-link`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -1132,6 +1220,32 @@ export async function magicLinkRequestApi(email: string): Promise<void> {
       body.message ?? body.error ?? `Magic link request failed: ${res.status}`,
     );
   }
+  return res.json();
+}
+
+/**
+ * spec-304 t-40 (ac-30): the originating-session poll target. Unauthenticated
+ * GET on the surrogate named by `magicLinkRequestApi`'s `loginRequestId`. The
+ * server returns one of:
+ *   - pending  → `{ verified: false, expired: false }`
+ *   - expired  → `{ verified: false, expired: true }`
+ *   - verified → `{ verified: true, ...SessionPayload }` (the same payload
+ *                `/consume` returns) — SINGLE-SHOT: the row is deleted on first
+ *                verified read, so a second poll 404s. Callers MUST stop polling
+ *                and hand the session to `acceptSession` in the same tick.
+ *   - unknown  → 404 `{ error: 'Unknown login request' }` → throws NotFoundError.
+ * Routed through `fetchJson` so 404 maps to `NotFoundError`; the poll loop
+ * treats that (and `expired: true`) as a dead surrogate and stops.
+ */
+export type MagicLinkStatus =
+  | { verified: false; expired: boolean }
+  | ({ verified: true } & SessionPayload);
+
+export async function magicLinkStatusApi(loginRequestId: string): Promise<MagicLinkStatus> {
+  return fetchJsonRaw<MagicLinkStatus>(
+    fetchWithRetry,
+    `${BASE_URL}/auth/magic-link/login-requests/${encodeURIComponent(loginRequestId)}/status`,
+  );
 }
 
 export async function magicLinkConsumeApi(token: string): Promise<SessionPayload> {
@@ -1177,11 +1291,13 @@ export async function ssoLoginApi(idToken: string, memexId?: string): Promise<Se
 export async function updateProfileApi(
   token: string | null,
   name: string,
+  // spec-305 dec-5: the optional developer/designer/PM triangle (barycentric weights).
+  roleCoords?: { dev: number; design: number; pm: number },
 ): Promise<SessionPayload> {
   const res = await fetchWithRetry(`${BASE_URL}/auth/profile`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', ...authHeaders(token) },
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ name, ...(roleCoords ? { roleCoords } : {}) }),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -2249,8 +2365,8 @@ export async function consumeDomainVerificationApi(verifyToken: string): Promise
 export interface OAuthAuthorizePreview {
   client_name: string;
   scopes: string[];
-  /** User's grantable Orgs (per b-31 dec-8). Empty array = personal-only flow. */
-  orgs: { id: string; name: string }[];
+  // spec-307: no per-grant Org scope — an OAuth grant covers the user's full live
+  // membership, so the preview no longer carries an Org list.
 }
 
 export interface OAuthAuthorizeParams {
@@ -2288,19 +2404,15 @@ export async function oauthAuthorizeDecisionApi(
   params: OAuthAuthorizeParams,
   decision: 'allow' | 'deny',
   token: string | null,
-  /** Chosen Org id (per b-31 dec-8); null for personal-only. */
-  orgId: string | null,
 ): Promise<{ redirect: string }> {
+  // spec-307: no Org scope on the grant — the body carries no org_id. The grant
+  // covers the user's full live membership.
   const res = await fetchWithRetry(`${BASE_URL}/oauth/authorize`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders(token) },
     body: JSON.stringify({
       ...params,
       decision,
-      // Server only inspects org_id when present; omit it for null so the
-      // body shape stays clean. The auth route then treats absence as
-      // "personal-only" (and 400s on user-with-orgs without it).
-      ...(orgId ? { org_id: orgId } : {}),
     }),
   });
   const body = await res.json().catch(() => ({}));

@@ -1,4 +1,4 @@
-import { test, expect, bareUrl, emitAcEvents } from "./helpers/index.js";
+import { test, expect, gotoSpecsBoard, emitAcEvents } from "./helpers/index.js";
 
 // Journey 26 — the Memex wordmark recolours with the theme (spec-223 ac-2).
 //
@@ -39,7 +39,7 @@ async function computedLogoFill(page: import("@playwright/test").Page) {
 
 test("the logo fill inverts between dark and light theme (ac-2)", async ({ page }) => {
   // Force dark, then read the computed fill of the header wordmark.
-  await page.goto(bareUrl("/"));
+  await gotoSpecsBoard(page);
   // "/" client-redirects to the default memex's specs page. Wait for that
   // redirect to SETTLE before evaluating, otherwise the localStorage write
   // races the navigation and Playwright throws "Execution context was

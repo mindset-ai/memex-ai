@@ -152,7 +152,7 @@ export function QaReportsFilterRail({
               value={fromDate}
               max={toDate || undefined}
               onChange={(e) => setCustom({ from: e.target.value })}
-              className="qa-date-input w-36 rounded border border-edge-subtle bg-surface px-1 py-0.5 text-primary"
+              className="qa-date-input w-36 rounded-sm border border-edge-subtle bg-surface px-1 py-0.5 text-primary"
             />
           </label>
           <label className="flex items-center justify-between gap-2">
@@ -163,7 +163,7 @@ export function QaReportsFilterRail({
               value={toDate}
               min={fromDate || undefined}
               onChange={(e) => setCustom({ to: e.target.value })}
-              className="qa-date-input w-36 rounded border border-edge-subtle bg-surface px-1 py-0.5 text-primary"
+              className="qa-date-input w-36 rounded-sm border border-edge-subtle bg-surface px-1 py-0.5 text-primary"
             />
           </label>
         </div>

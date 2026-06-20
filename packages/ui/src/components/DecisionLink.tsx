@@ -188,7 +188,7 @@ export function DecisionLink({
       }
       className={`
         inline-flex items-center font-mono text-[0.95em]
-        rounded px-1 py-px transition-colors
+        rounded-sm px-1 py-px transition-colors
         ${error
           ? 'text-status-danger-text bg-status-danger-bg cursor-default'
           : 'text-accent hover:text-accent-hover hover:bg-card-hover cursor-pointer'}
@@ -256,7 +256,7 @@ export function TaskLink({
       }
       className={`
         inline-flex items-center font-mono text-[0.95em]
-        rounded px-1 py-px transition-colors
+        rounded-sm px-1 py-px transition-colors
         ${error
           ? 'text-status-danger-text bg-status-danger-bg cursor-default'
           : 'text-accent hover:text-accent-hover hover:bg-card-hover cursor-pointer'}

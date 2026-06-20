@@ -336,3 +336,94 @@ export function buildPasswordResetEmail(input: PasswordResetEmailInput): EmailMe
     html,
   };
 }
+
+// ──────────────────────────────────────────────────────────────────────────
+// spec-320 — comment @-mention + assignment (dec-3)
+// ──────────────────────────────────────────────────────────────────────────
+// Two templates, deliberately distinct copy: a plain MENTION (attention, no
+// obligation) and an ASSIGNMENT (mention + ownership). A mention-add sends the
+// mention email; an assignment sends the assignment email — never both (the
+// assignee, being mention+ownership, gets only the stronger assignment signal).
+// Both deep-link to the comment via its `c-N` anchor (?comment=c-N).
+
+export interface MentionEmailInput {
+  to: string;
+  /** Display name of the person who @-mentioned the recipient. */
+  mentionerName: string;
+  /** Human label for the Spec/doc the comment lives on, e.g. "spec-320 — Comments…". */
+  specLabel: string;
+  /** Absolute deep-link to the comment (…/specs/spec-N?comment=c-M). */
+  commentUrl: string;
+}
+
+export function buildMentionEmail(input: MentionEmailInput): EmailMessage {
+  const text = renderEmailText({
+    intro: [
+      `${input.mentionerName} mentioned you in a comment on ${input.specLabel}.`,
+      `Open the comment to see what they'd like your eyes on:`,
+    ],
+    url: input.commentUrl,
+    closing: `You're receiving this because you were @-mentioned in a Memex comment.`,
+  });
+
+  const html = renderEmailHtml({
+    preheader: `${input.mentionerName} mentioned you in a comment on ${input.specLabel}.`,
+    eyebrow: "Comment mention",
+    heading: `${escapeHtml(input.mentionerName)} mentioned you`,
+    bodyParagraphs: [
+      `<strong>${escapeHtml(input.mentionerName)}</strong> mentioned you in a comment on <strong>${escapeHtml(input.specLabel)}</strong>.`,
+      `Open the comment to see what they'd like your eyes on.`,
+    ],
+    ctaLabel: "View comment",
+    ctaUrl: input.commentUrl,
+    footerNote: `You're receiving this because you were @-mentioned in a Memex comment.`,
+  });
+
+  return {
+    to: input.to,
+    subject: `${input.mentionerName} mentioned you in a comment on ${input.specLabel}`,
+    text,
+    html,
+  };
+}
+
+export interface AssignmentEmailInput {
+  to: string;
+  /** Display name of the person who assigned the comment. */
+  assignerName: string;
+  /** Human label for the Spec/doc the comment lives on. */
+  specLabel: string;
+  /** Absolute deep-link to the comment (…/specs/spec-N?comment=c-M). */
+  commentUrl: string;
+}
+
+export function buildAssignmentEmail(input: AssignmentEmailInput): EmailMessage {
+  const text = renderEmailText({
+    intro: [
+      `${input.assignerName} assigned you a comment to resolve on ${input.specLabel}.`,
+      `You own this one — open it, handle it, and resolve the comment when it's done:`,
+    ],
+    url: input.commentUrl,
+    closing: `You're receiving this because a Memex comment was assigned to you.`,
+  });
+
+  const html = renderEmailHtml({
+    preheader: `${input.assignerName} assigned you a comment to resolve on ${input.specLabel}.`,
+    eyebrow: "Comment assignment",
+    heading: `${escapeHtml(input.assignerName)} assigned you a comment`,
+    bodyParagraphs: [
+      `<strong>${escapeHtml(input.assignerName)}</strong> assigned you a comment to resolve on <strong>${escapeHtml(input.specLabel)}</strong>.`,
+      `You own this one — open it, handle it, and resolve the comment when it's done.`,
+    ],
+    ctaLabel: "View comment",
+    ctaUrl: input.commentUrl,
+    footerNote: `You're receiving this because a Memex comment was assigned to you.`,
+  });
+
+  return {
+    to: input.to,
+    subject: `${input.assignerName} assigned you a comment to resolve on ${input.specLabel}`,
+    text,
+    html,
+  };
+}

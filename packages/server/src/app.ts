@@ -47,6 +47,8 @@ import { visitorMiddleware } from "./middleware/visitor.js";
 import { rewriteBriefPathToSpec } from "./services/redirects.js";
 import { isAllowedOrigin } from "./middleware/cors-policy.js";
 import { meRouter } from "./routes/me.js";
+import { journeyRouter } from "./routes/journey.js";
+import { homeRouter } from "./routes/home.js";
 import { whatsNewRouter } from "./routes/whats-new.js";
 import { orgsRouter, orgsCurrentRouter } from "./routes/orgs.js";
 import { scaffoldRouter } from "./routes/scaffold.js";
@@ -64,6 +66,7 @@ import { verifyAccessToken } from "./services/oauth/access-tokens.js";
 import { isDevMode, ensureDevMemberships } from "./middleware/session.js";
 import { upsertUserByEmail } from "./services/users.js";
 import { upsertSession, parseClientIp } from "./services/mcp-telemetry.js";
+import { recordMcpConnected } from "./services/funnel-events.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
@@ -367,6 +370,12 @@ app.route("/api/consent", consentRouter);
 app.route("/api/invites", invitesAcceptRouter);
 // Caller-scoped endpoints — namespace picker (std-5) and minimal session shape.
 app.route("/api/me", meRouter);
+// spec-303 — Home Canvas onboarding journey-state (user-level, no memex). Derived
+// position + measurement + operator preview.
+app.route("/api/me", journeyRouter);
+// spec-315 — the graduated Home surface (user-level, no memex): where-you're-needed
+// + specs-in-flight, aggregated across all the user's memberships.
+app.route("/api/me", homeRouter);
 // spec-200: global What's New feed (not tenant-scoped).
 app.route("/api/whats-new", whatsNewRouter);
 // PUBLIC: share routes skip session middleware — guests access shared docs by token alone (t-10).
@@ -471,7 +480,19 @@ app.all("/mcp", async (c) => {
     try {
       const claims = verifyAccessToken(raw);
       userId = claims.sub;
-      orgFilter = claims.org; // null = personal-only; UUID = org-scoped
+      // spec-307 dec-1/dec-2: MCP access follows the user's LIVE membership, not the
+      // Org scope frozen into the token at consent (spec-31 dec-8, now superseded).
+      // Treat OAuth callers exactly like PATs — `orgFilter === undefined` resolves
+      // against every CURRENT active membership in mcp/auth.ts. The token's `org`
+      // claim is no longer enforced, so existing tokens widen to the user's own live
+      // memberships with no re-auth (connect once, survive Org graduation). No token
+      // is migrated or invalidated; the stored claim simply goes inert.
+      orgFilter = undefined;
+      // Rollout observability: a previously Org-scoped grant now resolving under live
+      // membership is the widening this Spec introduces — record it so it's auditable.
+      console.log(
+        `[mcp:live-membership] oauth token resolved under live membership user=${claims.sub} legacy_scope=${claims.org ?? "personal-only"}`,
+      );
     } catch {
       c.header(
         "WWW-Authenticate",
@@ -592,6 +613,7 @@ app.all("/mcp", async (c) => {
   const userAgent = c.req.header("User-Agent") ?? null;
   const ipAddress = parseClientIp(c.req.header("X-Forwarded-For"));
   let clientInfo: unknown = null;
+  let isInitialize = false;
   if (c.req.method === "POST") {
     try {
       const cloned = c.req.raw.clone();
@@ -600,6 +622,7 @@ app.all("/mcp", async (c) => {
         params?: { clientInfo?: unknown };
       };
       if (body.method === "initialize") {
+        isInitialize = true;
         clientInfo = body.params?.clientInfo ?? null;
       }
     } catch {
@@ -620,6 +643,13 @@ app.all("/mcp", async (c) => {
     clientInfo,
     ipAddress,
   });
+
+  // spec-297 (funnel stage 3, agent connected): the MCP `initialize` handshake is
+  // the "agent connected" moment — before any tool names a Memex. Direct, advisory
+  // emission with a NULL memex_id; fired only on the handshake, not every request.
+  if (isInitialize) {
+    void recordMcpConnected(userId);
+  }
 
   const mcpServer = createMcpServer(userId, orgFilter, sessionId);
   const transport = new WebStandardStreamableHTTPServerTransport({

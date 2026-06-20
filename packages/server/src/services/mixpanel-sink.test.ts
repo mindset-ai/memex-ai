@@ -6,6 +6,7 @@ import type { UsageEvent } from "../db/schema.js";
 import { MixpanelSink, toMixpanelEvent } from "./mixpanel-sink.js";
 
 const AC = "mindset-prod/memex-building-itself/specs/spec-244/acs";
+const AC297 = "mindset-prod/memex-building-itself/specs/spec-297/acs";
 
 function row(over: Partial<UsageEvent> = {}): UsageEvent {
   return {
@@ -40,6 +41,19 @@ describe("toMixpanelEvent — mapping (ac-13)", () => {
     tagAc(`${AC}/ac-13`);
     const ev = toMixpanelEvent(row({ actorUserId: null }), "T");
     expect(ev.properties.distinct_id).toBeUndefined();
+  });
+
+  it("sets ip='0' so Mixpanel does not geolocate from the Cloud Run egress IP (spec-297 ac-20)", () => {
+    tagAc(`${AC297}/ac-20`);
+    tagAc(`${AC297}/ac-4`); // scope PII line: ip=0 + opaque distinct_id (user UUID), no PII
+    const ev = toMixpanelEvent(row(), "T");
+    expect(ev.properties.ip).toBe("0");
+    expect(ev.properties.distinct_id).toBe("user-1"); // opaque user id, never email/name
+    expect(JSON.stringify(ev.properties)).not.toContain("@"); // no email anywhere
+    // Holds even when the event carries props of its own (props merge after).
+    const ev2 = toMixpanelEvent(row({ props: { spec_index: 3 } }), "T");
+    expect(ev2.properties.ip).toBe("0");
+    expect(ev2.properties.spec_index).toBe(3);
   });
 });
 

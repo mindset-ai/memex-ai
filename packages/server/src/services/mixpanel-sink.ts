@@ -31,6 +31,10 @@ export function toMixpanelEvent(row: UsageEvent, token: string): MixpanelEvent {
     time: Math.floor(row.occurredAt.getTime() / 1000),
     // dec-9: server-stamped env, so int is filterable even inside a project.
     env: row.env,
+    // spec-297 dec-4: suppress Mixpanel's IP-based geolocation. We emit
+    // server-side, so the request IP is our Cloud Run egress IP — meaningless geo
+    // and incidental location data we don't want. ip="0" tells Mixpanel to skip it.
+    ip: "0",
     ...(row.props ?? {}),
   };
   // Authenticated-only capture (anonymous is a no-op), so distinct_id is the

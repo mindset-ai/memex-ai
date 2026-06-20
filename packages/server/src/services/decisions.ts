@@ -7,6 +7,7 @@ import { mutate, type Mutated, type RequestCtx } from "./mutate.js";
 import { resolveActorColumns } from "./actor.js";
 import { nextSeq, withSeqRetry } from "./shared/sequence.js";
 import { isUuid, parseHandle } from "./shared/identifiers.js";
+import { docAttribution } from "./shared/doc-attribution.js";
 import { embedAndStoreDecision } from "./memex-embeddings.js";
 
 // Fire-and-forget embed for a decision whose searchable text just changed.
@@ -724,13 +725,35 @@ export async function resolveDecision(
 
   const now = new Date();
 
+  // spec-306 dec-2: attribute the decision.resolved outcome to its parent Spec.
+  // resolveDecision only loads the decision row, so look up the parent doc's type
+  // (one small read on this rare path; dec-3 forbade a lookup only in the hot sink).
+  const parentDoc = await db.query.documents.findFirst({
+    columns: { docType: true },
+    where: and(eq(documents.id, decision.docId), eq(documents.memexId, memexId)),
+  });
+
   // The cascading docComments update is treated as part of the decision-resolution
   // logical action (not an independent invariant per dec-2): downstream subscribers
   // refetch the whole doc on the decision event, which pulls the new comment state too.
   // Both writes run in one mutate() so a failure in either path emits nothing.
   const updated = await mutate(
     ctx,
-    { memexId, docId: decision.docId, entity: "decision", action: "updated" },
+    [
+      { memexId, docId: decision.docId, entity: "decision", action: "updated" },
+      // spec-297 dec-2: a DISTINCT 'resolved' action alongside the generic
+      // 'updated' (mirrors the document status_changed two-key pattern), so the
+      // activation funnel has an unambiguous "decision resolved" step. Only
+      // 'decision.resolved' is whitelisted into usage_events; 'updated' (shared by
+      // many decision mutations) stays bus-only.
+      {
+        memexId,
+        docId: decision.docId,
+        entity: "decision",
+        action: "resolved",
+        ...(parentDoc ? { payload: docAttribution(decision.docId, parentDoc.docType) } : {}),
+      },
+    ],
     async () => {
       const [row] = await db
         .update(decisions)

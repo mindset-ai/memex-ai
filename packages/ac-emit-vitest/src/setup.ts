@@ -12,7 +12,7 @@
  */
 import { beforeEach, afterEach } from "vitest";
 import { _setCurrentTask, _readCurrentEntries, type TaskLike } from "./index.js";
-import { emit } from "./emit.js";
+import { emit, capturedFetch } from "./emit.js";
 
 beforeEach(({ task }) => {
   _setCurrentTask(task as unknown as TaskLike);
@@ -35,9 +35,11 @@ afterEach(async ({ task }) => {
   const test_identifier = `${task.file?.name ?? "<unknown>"}::${task.name}`;
   const duration_ms = task.result?.duration ?? 0;
 
+  // Emit through the module-load-captured fetch (spec-302): immune to any test
+  // that replaced globalThis.fetch and didn't restore it.
   await Promise.all(
     entries.map(({ ac_uid, options }) =>
-      emit({ ac_uid, status: state, test_identifier, duration_ms, options }),
+      emit({ ac_uid, status: state, test_identifier, duration_ms, options }, capturedFetch),
     ),
   );
 

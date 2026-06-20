@@ -45,7 +45,7 @@ export function PromptModal({ prompt, loading, onClose, title = 'Implementation 
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -126,7 +126,7 @@ export function PromptModal({ prompt, loading, onClose, title = 'Implementation 
             <textarea
               value={editableText}
               onChange={(e) => setEditableText(e.target.value)}
-              className="w-full h-full min-h-[400px] bg-surface/50 border border-edge rounded-lg p-4 text-sm text-primary font-mono resize-none focus:outline-none focus:border-accent"
+              className="w-full h-full min-h-[400px] bg-surface/50 border border-edge rounded-lg p-4 text-sm text-primary font-mono resize-none focus:outline-hidden focus:border-accent"
             />
           )}
         </div>

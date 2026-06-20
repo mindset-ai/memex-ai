@@ -405,7 +405,7 @@ function KindBadge({ kind }: { kind: 'scope' | 'implementation' }) {
   return (
     <span
       data-ac-kind={kind}
-      className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-medium tracking-wide ${cls}`}
+      className={`inline-block rounded-sm px-1.5 py-0.5 text-[10px] font-medium tracking-wide ${cls}`}
     >
       {kind === 'scope' ? 'scope' : 'impl'}
     </span>
@@ -436,7 +436,7 @@ function UnifiedAcList({
         >
           <div className="flex items-start gap-3">
             <span
-              className={`mt-1.5 inline-block h-2.5 w-2.5 rounded-sm ${STATE_COLOURS[r.verificationState]}`}
+              className={`mt-1.5 inline-block h-2.5 w-2.5 rounded-xs ${STATE_COLOURS[r.verificationState]}`}
               aria-hidden
             />
             <div className="flex-1 min-w-0">
