@@ -4,7 +4,6 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, cleanup } from '@testing-library/react';
-import { act } from 'react';
 import userEvent from '@testing-library/user-event';
 import { ThemeProvider, useTheme } from './ThemeContext';
 
