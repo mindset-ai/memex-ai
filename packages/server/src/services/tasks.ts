@@ -10,6 +10,7 @@ import { getBlockersForTask, getBlockingGraphForDoc } from "./dependencies.js";
 import type { Blockers } from "./dependencies.js";
 import { nextSeq, withSeqRetry } from "./shared/sequence.js";
 import { isUuid, parseHandle } from "./shared/identifiers.js";
+import { docAttribution } from "./shared/doc-attribution.js";
 import { updateDocStatus } from "./documents.js";
 import { maybeAutoResolveIssuesForTask } from "./issues.js";
 
@@ -35,11 +36,15 @@ export function qualifiedTaskHandle(
   return `${parentDocHandle}:T-${taskSeq}`;
 }
 
-async function assertDocInAccount(memexId: string, docId: string): Promise<void> {
+// Returns the parent doc's type (spec-306) so createTask can attribute the
+// task.created outcome event to its Spec without a second query — this assert
+// already loads the row.
+async function assertDocInAccount(memexId: string, docId: string): Promise<{ docType: string }> {
   const doc = await db.query.documents.findFirst({
     where: and(eq(documents.id, docId), eq(documents.memexId, memexId)),
   });
   if (!doc) throw new NotFoundError(`Document ${docId} not found`);
+  return { docType: doc.docType };
 }
 
 export interface TaskWithBlockers extends Task {
@@ -77,12 +82,13 @@ export async function createTask(
   sectionRef?: string,
   ctx: RequestCtx = {}
 ): Promise<Mutated<Task>> {
-  await assertDocInAccount(memexId, docId);
+  const { docType } = await assertDocInAccount(memexId, docId);
   // b-38 F-3 — wrap allocator + insert in withSeqRetry so concurrent createTask
   // calls under the same doc don't 23505 on `tasks_doc_id_seq_unique`.
   return mutate(
     ctx,
-    { memexId, docId, entity: "task", action: "created" },
+    // spec-306 dec-2: attribute the task.created outcome to its parent Spec.
+    { memexId, docId, entity: "task", action: "created", payload: docAttribution(docId, docType) },
     async () =>
       withSeqRetry(
         async () => {

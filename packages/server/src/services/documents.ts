@@ -8,6 +8,7 @@ import { mutate, type ChangeKey, type Mutated, type RequestCtx } from "./mutate.
 import { resolveActorColumns } from "./actor.js";
 import { isUuid } from "./shared/identifiers.js";
 import { withSeqRetry } from "./shared/sequence.js";
+import { docAttribution } from "./shared/doc-attribution.js";
 import { embedAndStoreSection, embedAndStoreDecision } from "./memex-embeddings.js";
 import { aggregateAcHealthForBriefs } from "./acs.js";
 import { maybeAutoResolveIssuesForPromotedDoc } from "./issues.js";
@@ -154,7 +155,12 @@ export async function createDocDraft(
       docId: created.id,
       entity: "document",
       action: "created",
-      ...(specIndex !== undefined ? { payload: { spec_index: specIndex } } : {}),
+      // spec-306 dec-2: document.created attributes the NEW document itself
+      // (doc_id/doc_type), merged with the spec-297 funnel-depth prop.
+      payload: {
+        ...docAttribution(created.id, created.docType),
+        ...(specIndex !== undefined ? { spec_index: specIndex } : {}),
+      },
     }),
     async () => {
       // spec-187 (b-38 F-3 finally reaching documents): the handle mint is a
@@ -932,7 +938,8 @@ export async function updateDocStatus(
       entity: "document",
       action: "status_changed",
       narrative: opts.narrative ?? `moved ${doc.handle} ${doc.status} → ${status}`,
-      payload: { from: doc.status, to: status },
+      // spec-306 dec-2: attribute the phase flip to the Spec, alongside {from,to}.
+      payload: { from: doc.status, to: status, ...docAttribution(id, doc.docType) },
     });
   }
 
