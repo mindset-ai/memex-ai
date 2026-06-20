@@ -70,6 +70,15 @@ interface SectionCardProps {
    * Defaults to false (real specs keep auto-linking).
    */
   isDemo?: boolean;
+  /**
+   * spec-325 (dec-1): a comment deep-link (`?comment=c-N`) emulates a click on
+   * that comment's gutter card. When this section OWNS the target comment, it
+   * pins it on load — reproducing exactly what a manual click produces (span →
+   * passage highlight + card; section-level → card at the section top). `null`/
+   * `undefined` means no deep-link is active. The same seq is passed to every
+   * section; only the owning one acts on it.
+   */
+  deepLinkCommentSeq?: number | null;
 }
 
 export const SectionCard = memo(function SectionCard({
@@ -84,6 +93,7 @@ export const SectionCard = memo(function SectionCard({
   canWrite = true,
   commentsCollapsed = false,
   isDemo = false,
+  deepLinkCommentSeq,
 }: SectionCardProps) {
   const [revealed, setRevealed] = useState(!isNew);
 
@@ -327,6 +337,50 @@ export const SectionCard = memo(function SectionCard({
     openComments.map((c) => c.seq).filter((s): s is number => s != null),
   );
 
+  // spec-325 (dec-4 / option c): a section-level comment (no `anchorSnippet`) has
+  // no body `marker-c-N`, so it isn't measured into `markerTops`. It renders in
+  // the SAME right-edge gutter, pinned to the TOP of the section body. Multiple
+  // section-level comments stack; and where a span indicator already sits at/near
+  // the top, the section-level ones stack BELOW it so the two never overlap.
+  const SECTION_INDICATOR_STACK = 32; // px between stacked top-of-body indicators
+  const spanIndicatorsAtTop = Object.values(markerTops).filter(
+    (t) => t < SECTION_INDICATOR_STACK,
+  ).length;
+  const sectionLevelTops: Record<number, number> = {};
+  openComments
+    .filter((c) => c.anchorSnippet == null && c.seq != null)
+    .forEach((c, i) => {
+      sectionLevelTops[c.seq as number] = (spanIndicatorsAtTop + i) * SECTION_INDICATOR_STACK;
+    });
+
+  // The vertical position of an open comment's gutter indicator: the measured line
+  // for a span comment, the stacked body-top for a section-level one. `undefined`
+  // means "not placeable yet" (a span whose marker hasn't been measured) → it
+  // simply doesn't render this frame.
+  const indicatorTop = (c: Comment): number | undefined => {
+    if (c.seq == null) return undefined;
+    return c.anchorSnippet != null ? markerTops[c.seq] : sectionLevelTops[c.seq];
+  };
+
+  // spec-325 (dec-1): a comment deep-link emulates a click on this comment's
+  // gutter card. If THIS section owns the target, pin it on load and scroll the
+  // section into view — reproducing exactly what a manual click produces. A span
+  // comment additionally gets the amber passage highlight (via the `shown`→
+  // highlight effect); a section-level comment has no passage, so no highlight
+  // (correct and inherent). Runs once; re-armed only if the target seq changes.
+  const deepLinkPinnedSeq = useRef<number | null>(null);
+  useEffect(() => {
+    if (deepLinkCommentSeq == null || commentsCollapsed) return;
+    if (deepLinkPinnedSeq.current === deepLinkCommentSeq) return;
+    if (!openComments.some((c) => c.seq === deepLinkCommentSeq)) return;
+    const el = document.getElementById(`indicator-c-${deepLinkCommentSeq}`);
+    if (!el) return; // indicator not placed yet (span awaiting measure) — re-run on next deps change
+    deepLinkPinnedSeq.current = deepLinkCommentSeq;
+    pinComment(deepLinkCommentSeq, el);
+    cardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deepLinkCommentSeq, openSeqKey, markerTops, commentsCollapsed]);
+
   // spec-100 card actions: mark done (resolve) and delete-your-own. Both drop
   // the card from the open list on success.
   const dropCard = (id: string) => onCommentsChange?.(section.id, comments.filter((x) => x.id !== id));
@@ -465,17 +519,19 @@ export const SectionCard = memo(function SectionCard({
             <MemoizedMarkdown content={withRenderedMarkers(section.content, visibleSeqs)} isDemo={isDemo} />
           </div>
 
-          {/* right-edge comment indicators, one per open comment, vertically
-              aligned to its anchored line (measured). Generic comment icon for
-              now; per-author avatars later. */}
-          {!commentsCollapsed && openComments.map((c) =>
-            c.seq != null && markerTops[c.seq] != null ? (
+          {/* right-edge comment indicators, one per open comment: a span comment
+              aligns to its measured anchored line; a section-level comment (spec-325)
+              sits at the top of the body (stacked on collision). Generic comment
+              icon for now; per-author avatars later. */}
+          {!commentsCollapsed && openComments.map((c) => {
+            const top = indicatorTop(c);
+            return c.seq != null && top != null ? (
               <button
                 key={c.id}
                 id={`indicator-c-${c.seq}`}
                 data-indicator-seq={c.seq}
                 type="button"
-                style={{ top: markerTops[c.seq] }}
+                style={{ top }}
                 onMouseEnter={(e) => peekComment(c.seq!, e.currentTarget)}
                 onMouseLeave={schedulePeekClose}
                 onClick={(e) => { e.stopPropagation(); pinComment(c.seq!, e.currentTarget); }}
@@ -491,8 +547,8 @@ export const SectionCard = memo(function SectionCard({
                   <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 01.865-.501 48.172 48.172 0 003.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z" />
                 </svg>
               </button>
-            ) : null,
-          )}
+            ) : null;
+          })}
         </div>
 
         {/* peek (hover) / pinned (click) comment popover. Actions only show

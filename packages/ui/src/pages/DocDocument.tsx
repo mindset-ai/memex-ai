@@ -43,7 +43,7 @@ import {
 } from '@memex/shared';
 import { QaReportCard, selectQaReports } from '../components/QaReportCard';
 import { useDocChangeStream } from '../hooks/useDocChangeStream';
-import { COMMENT_PARAM, parseCommentParam, commentAnchorId } from '../utils/commentDeepLink';
+import { COMMENT_PARAM, parseCommentParam } from '../utils/commentDeepLink';
 import { phaseDisplayName } from '../utils/phaseDisplay';
 import { ShareModal } from '../components/ShareModal';
 import { ShareSpecDialog } from '../components/ShareSpecDialog';
@@ -134,8 +134,10 @@ export function DocDocument() {
   // scroll/highlights the target issue (mirrors the decision hint). Also honours a
   // `?issue=issue-N` query param for parity with `?decision=`.
   const initialIssueHandle = issueId ?? searchParams.get('issue');
-  // spec-100 ac-6: `?comment=c-N` deep-links straight to a comment — open the
-  // comments tab and (once loaded) scroll/highlight the target.
+  // spec-100 ac-6 / spec-325 (dec-1): `?comment=c-N` deep-links straight to a
+  // comment — but IN SITU, in the narrative, never the flat Comments tab. We land
+  // on the narrative sub-tab and hand the seq to the section cards; the owning
+  // SectionCard pins the comment on load (emulating a click on its gutter card).
   const initialCommentSeq = parseCommentParam(searchParams.get(COMMENT_PARAM));
   const chat = useChat();
   const [doc, setDoc] = useState<DocWithGraph | null>(null);
@@ -177,8 +179,10 @@ export function DocDocument() {
   // phase navigation resets it to null. A deep-link to a decision/issue/comment
   // sets the relevant landing tab up front.
   const [subTab, setSubTab] = useState<SubTab | null>(
+    // spec-325 (dec-1): a comment deep-link lands on the NARRATIVE (where the
+    // section's in-context gutter lives), NOT the flat 'comments' tab.
     initialCommentSeq != null
-      ? 'comments'
+      ? 'narrative'
       : initialDecisionHandle
         ? 'decisions'
         : initialIssueHandle
@@ -225,21 +229,11 @@ export function DocDocument() {
     setCommentsByTask(tMap);
   }, []);
 
-  // spec-100 ac-6: once the comments have rendered, scroll the deep-linked
-  // comment into view and briefly highlight it. Runs when the target seq or the
-  // loaded comment sets change; the element only exists while the Plan view's
-  // Comments sub-tab is active (the initial planSubTab handles that). Best-effort
-  // — if the target is filtered out (e.g. resolved under the default open
-  // filter) it simply won't be found.
-  useEffect(() => {
-    if (initialCommentSeq == null || subTab !== 'comments') return;
-    const el = document.getElementById(commentAnchorId(initialCommentSeq));
-    if (!el) return;
-    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    el.classList.add('ring-2', 'ring-accent', 'rounded-md');
-    const t = setTimeout(() => el.classList.remove('ring-2', 'ring-accent', 'rounded-md'), 2000);
-    return () => clearTimeout(t);
-  }, [initialCommentSeq, subTab, commentsBySection, commentsByDecision, commentsByTask]);
+  // spec-325 (dec-1): the deep-linked comment is scrolled-to + pinned IN SITU by
+  // the owning SectionCard (it receives `deepLinkCommentSeq` and emulates a click
+  // on its gutter card). DocDocument no longer scrolls to a flat-tab anchor or
+  // selects the Comments tab — that divorced-tab routing is exactly what spec-325
+  // removes. (Replaces the old spec-100 scroll-to-`comment-c-{seq}` effect.)
 
   useEffect(() => {
     if (!id) return;
@@ -963,6 +957,9 @@ export function DocDocument() {
             onExpandComments={() => setCommentsCollapsed(false)}
             /* spec-178 ac-24: a frozen demo spec suppresses handle auto-linking. */
             isDemo={doc?.isDemo ?? false}
+            /* spec-325 (dec-1): hand the comment deep-link's seq to every section;
+               the owning one pins it in situ on load (emulating a card click). */
+            deepLinkCommentSeq={initialCommentSeq}
           />
         ))}
       </div>
