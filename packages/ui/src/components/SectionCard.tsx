@@ -202,12 +202,36 @@ export const SectionCard = memo(function SectionCard({
     const left = Math.min(r.right + 10, window.innerWidth - POPOVER_W - 8);
     return { top: r.top, left };
   };
-  // Hover peeks (always); leaving clears the peek (falls back to any pinned card).
-  const peekComment = (seq: number, el: HTMLElement) =>
+  // spec-319 (issue A): the peek is a hover-card, and a hover-card needs a bridge
+  // or it dies the instant the cursor leaves the 28px indicator — you can never
+  // reach the popover to read it. Keep it alive with a short close grace-delay
+  // that's cancelled the moment the cursor lands on the popover. That same
+  // cancel-on-enter also kills the flicker when the popover is clamped over the
+  // indicator near the right edge (the mouseleave/mouseenter loop).
+  const PEEK_CLOSE_DELAY_MS = 160;
+  const peekCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelPeekClose = () => {
+    if (peekCloseTimer.current != null) {
+      clearTimeout(peekCloseTimer.current);
+      peekCloseTimer.current = null;
+    }
+  };
+  const schedulePeekClose = () => {
+    cancelPeekClose();
+    peekCloseTimer.current = setTimeout(() => {
+      setHoverPop(null);
+      peekCloseTimer.current = null;
+    }, PEEK_CLOSE_DELAY_MS);
+  };
+  // Hover peeks (always), cancelling any pending close; leaving schedules a
+  // delayed close (falls back to any pinned card).
+  const peekComment = (seq: number, el: HTMLElement) => {
+    cancelPeekClose();
     setHoverPop({ seq, ...popoverPosFor(el) });
-  const unpeek = () => setHoverPop(null);
+  };
   // Click pins the card (stable surface for resolve/delete/copy-link).
   const pinComment = (seq: number, el: HTMLElement) => {
+    cancelPeekClose();
     setPinnedPop({ seq, ...popoverPosFor(el) });
     setHoverPop(null);
   };
@@ -235,14 +259,16 @@ export const SectionCard = memo(function SectionCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openSeqKey, section.content, commentsCollapsed]);
 
-  // Clear the highlight when this section unmounts.
+  // Clear the highlight (and any pending peek-close timer) when this section unmounts.
   useEffect(() => () => {
     (CSS as unknown as { highlights?: Map<string, unknown> }).highlights?.delete('geo-anchor');
+    if (peekCloseTimer.current != null) clearTimeout(peekCloseTimer.current);
   }, []);
 
   // Collapsing comments doc-wide closes any open popover (and its highlight).
   useEffect(() => {
-    if (commentsCollapsed) { setPinnedPop(null); setHoverPop(null); }
+    if (commentsCollapsed) { cancelPeekClose(); setPinnedPop(null); setHoverPop(null); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [commentsCollapsed]);
 
   // A click anywhere outside a PINNED popover closes it. The popover itself is
@@ -380,7 +406,11 @@ export const SectionCard = memo(function SectionCard({
             </svg>
           </button>
           {commentCount > 0 && (
-            <span data-testid="section-comment-count" className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs text-secondary bg-surface/50 border border-edge">
+            // spec-319 (issue B / dec-3): a status indicator, not a control. The
+            // card is clickable so the badge would otherwise inherit a pointer
+            // cursor and read as a button that does nothing — cursor-default
+            // removes that misleading affordance.
+            <span data-testid="section-comment-count" className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs text-secondary bg-surface/50 border border-edge cursor-default">
               <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 01.865-.501 48.172 48.172 0 003.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z" />
               </svg>
@@ -412,7 +442,7 @@ export const SectionCard = memo(function SectionCard({
                 type="button"
                 style={{ top: markerTops[c.seq] }}
                 onMouseEnter={(e) => peekComment(c.seq!, e.currentTarget)}
-                onMouseLeave={unpeek}
+                onMouseLeave={schedulePeekClose}
                 onClick={(e) => { e.stopPropagation(); pinComment(c.seq!, e.currentTarget); }}
                 aria-label="View comment"
                 title="View comment"
@@ -443,6 +473,8 @@ export const SectionCard = memo(function SectionCard({
               data-testid="comment-popover"
               data-pinned={shownIsPinned}
               onClick={(e) => e.stopPropagation()}
+              onMouseEnter={cancelPeekClose}
+              onMouseLeave={schedulePeekClose}
               style={{ position: 'fixed', top: shown.top - 8, left: shown.left, zIndex: 50, width: POPOVER_W }}
               className="rounded-xl border border-edge-subtle bg-surface shadow-lg p-3 space-y-1"
             >

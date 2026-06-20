@@ -137,6 +137,10 @@ export async function seedComment(opts: {
   authorName?: string;
   content?: string;
   commentType?: string;
+  /** spec-319: range-anchor a SECTION comment so the gutter indicator renders.
+   *  END char offset into the section source; START is optional. */
+  anchorEndOffset?: number;
+  anchorStartOffset?: number;
 }): Promise<{ commentId: string; seq: number }> {
   return call("POST", "/seed-comment", opts);
 }
