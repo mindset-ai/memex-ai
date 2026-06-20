@@ -61,6 +61,7 @@ import { nextRevealPhase } from '../hooks/useHandholdReveal';
 import { useHandholdRevealValue } from '../hooks/HandholdRevealContext';
 import { BylineAssignees } from '../components/BylineAssignees';
 import { useDocRole } from '../hooks/useDocRole';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { useOrgScaffoldBlocks } from '../hooks/useOrgScaffoldBlocks';
 import { usePresenceHeartbeat } from '../hooks/usePresenceHeartbeat';
 import { usePresence } from '../hooks/usePresence';
@@ -445,6 +446,18 @@ export function DocDocument() {
   const specRef = doc?.docType === 'spec' ? doc.handle : null;
   usePresenceHeartbeat(specRef);
   const { rows: presentRows } = usePresence(specRef);
+
+  // spec-318 t-11 (ac-17): the Spec page is the ONE page that doesn't use
+  // PageHeader, so it sets document.title itself — handle FIRST (`spec-N · name`)
+  // so the unique id survives truncation in a narrow desktop tab chip. Other
+  // doc types loaded here fall back to the plain doc title. Called before any
+  // early return so the hook order stays stable; a null doc yields no title and
+  // leaves the current one untouched.
+  useDocumentTitle(
+    doc?.docType === 'spec'
+      ? { kind: 'spec', handle: doc.handle, name: doc.title }
+      : { kind: 'page', title: doc?.title ?? '' },
+  );
 
   const headerActions = useMemo(() => {
     if (!doc) return null;
