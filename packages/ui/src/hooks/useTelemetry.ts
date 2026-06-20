@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { sanitizeUsageProps, type RegisteredEventName } from '@memex/shared';
 import { tenantBase, fetchWithRetry } from '../api/http';
+import { hasConsent } from '../lib/visitorConsent';
+
+// isDoNotTrack moved to the consent module (single source of truth, no import
+// cycle); re-exported here so existing importers keep working.
+export { isDoNotTrack } from '../lib/visitorConsent';
 
 // useTelemetry — the BROWSER half of spec-244's front-end capture (t-6).
 //
@@ -17,16 +22,8 @@ import { tenantBase, fetchWithRetry } from '../api/http';
 
 const OPT_OUT_KEY = 'memex.telemetry.optout';
 
-/** Honour the browser Do-Not-Track signal across its vendor spellings. */
-export function isDoNotTrack(): boolean {
-  if (typeof navigator === 'undefined') return false;
-  const nav = navigator as Navigator & { msDoNotTrack?: string };
-  const win = typeof window !== 'undefined' ? (window as Window & { doNotTrack?: string }) : undefined;
-  const dnt = nav.doNotTrack ?? win?.doNotTrack ?? nav.msDoNotTrack;
-  return dnt === '1' || dnt === 'yes';
-}
-
-/** Per-user opt-out, persisted in localStorage. */
+/** Per-user opt-out, persisted in localStorage. A secondary withdraw on top of
+ *  consent (spec-244); under dec-4=B consent is the primary gate. */
 export function isOptedOut(): boolean {
   try {
     return typeof localStorage !== 'undefined' && localStorage.getItem(OPT_OUT_KEY) === '1';
@@ -35,9 +32,10 @@ export function isOptedOut(): boolean {
   }
 }
 
-/** Capture is allowed only when neither DNT nor the opt-out is set. */
+/** Capture is allowed only on opt-IN consent (dec-4 = B; hasConsent already
+ *  excludes Do-Not-Track) AND when the per-user opt-out isn't set. */
 export function telemetryEnabled(): boolean {
-  return !isDoNotTrack() && !isOptedOut();
+  return hasConsent() && !isOptedOut();
 }
 
 // Replace id-shaped segments (handles like spec-7, bare numbers, uuids) with ':id'

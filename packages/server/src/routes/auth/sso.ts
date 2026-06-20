@@ -16,6 +16,7 @@ import {
   setKnownCookie,
   withToken,
 } from "./helpers.js";
+import { applyVisitorMerge } from "../../middleware/visitor.js";
 
 export const sso = new Hono<MemexResolverEnv & SessionEnv>();
 
@@ -87,6 +88,7 @@ sso.post("/google", async (c) => {
       }
     }
     setKnownCookie(c);
+    await applyVisitorMerge(c, session.user.id); // spec-254 — identify merge (SSO)
     return c.json(withToken(session));
   } catch (err) {
     if (err instanceof DisabledUserError) {
