@@ -7,7 +7,7 @@ import { useChat } from './ChatContext';
 import { useAuth } from './AuthContext';
 import { CommentSourceAvatar } from './CommentSourceAvatar';
 import { rehypeRefLinkifier } from './chat/refLinkifier';
-import { createComment, resolveComment, deleteComment } from '../api/client';
+import { createComment, resolveComment, deleteComment, addCommentMentions } from '../api/client';
 import { buildCommentLink } from '../utils/commentDeepLink';
 import { buildAnchorRange } from '../utils/anchorHighlight';
 import { computeAnchorFromRange } from '../utils/sectionSelection';
@@ -330,7 +330,7 @@ export const SectionCard = memo(function SectionCard({
     });
 
   const [saveError, setSaveError] = useState<string | null>(null);
-  const submitAnchored = async () => {
+  const submitAnchored = async (mentionUserIds: string[] = []) => {
     if (!anchorDraft || !draftText.trim()) return;
     setSubmitting(true);
     setSaveError(null);
@@ -344,6 +344,14 @@ export const SectionCard = memo(function SectionCard({
         createComment(section.id, user?.name ?? 'You', draftText.trim(), { type: 'issue' }, anchorDraft.end, anchorDraft.start),
         timeout,
       ])) as Awaited<ReturnType<typeof createComment>>;
+      // spec-320: attach the @-mentions to the just-created comment (adds them to
+      // the discussion + notifies them by email). The comment is already saved, so
+      // a mention failure must not lose it — best-effort, logged, never blocks close.
+      if (mentionUserIds.length > 0) {
+        await addCommentMentions(created.id, mentionUserIds).catch((err) =>
+          console.error('Failed to attach @mentions to comment:', err),
+        );
+      }
       onCommentsChange?.(section.id, [...comments, created]);
       setAnchorDraft(null);
       setDraftText('');
