@@ -46,6 +46,9 @@ import { testEvents } from "../db/schema.js";
 import { applyEmissionToSummary } from "../services/test-event-latest.js";
 import { createExecutionPlan } from "../services/execution_plans.js";
 import { addTaskComment, addComment, addDecisionComment } from "../services/comments.js";
+// spec-320 t-5: seed comment @-mentions + assignment through the real services so
+// spec-315's "where you're needed" home journey can build and verify in parallel.
+import { addMentions, assignComment } from "../services/comment-mentions.js";
 import { createShareToken, listShareTokensForDoc } from "../services/share-tokens.js";
 import { addSection } from "../services/sections.js";
 import { applyTagStrings } from "../services/tags.js";
@@ -839,6 +842,55 @@ testOnlyRouter.post("/seed-comment", async (c) => {
         ? await addDecisionComment(memexId, targetId, authorName, content, extras)
         : await addTaskComment(memexId, targetId, authorName, content, extras);
   return c.json({ commentId: comment.id, seq: comment.seq });
+});
+
+// spec-320 t-5 (ac-11): @-mention a user on a comment through the real addMentions
+// service (emits on the bus [per std-8], writes the comment_mentions row), so a
+// journey can seed "X mentioned me" without raw SQL (std-28). Users are resolved by
+// email — the journey has already seeded them via /org-add-member / /ensure-user.
+const seedCommentMentionSchema = z.object({
+  memexId: z.string().uuid(),
+  commentId: z.string().uuid(),
+  userEmail: z.string().email(),
+  mentionedByEmail: z.string().email().optional(),
+});
+testOnlyRouter.post("/seed-comment-mention", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = seedCommentMentionSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
+  }
+  const { memexId, commentId, userEmail, mentionedByEmail } = parsed.data;
+  const user = await getUserByEmail(userEmail);
+  if (!user) return c.json({ error: `User ${userEmail} not found` }, 400);
+  const mentioner = mentionedByEmail ? await getUserByEmail(mentionedByEmail) : null;
+  const ctx = mentioner ? { actorUserId: mentioner.id, channel: "rest_ui" as const } : {};
+  await addMentions(memexId, commentId, [user.id], ctx);
+  return c.json({ ok: true, userId: user.id });
+});
+
+// spec-320 t-5 (ac-11): set a comment's assignee through the real assignComment
+// service (sets the columns, guarantees the mention row, emits). Backs spec-315's
+// "assigned to me" home card.
+const setCommentAssigneeSchema = z.object({
+  memexId: z.string().uuid(),
+  commentId: z.string().uuid(),
+  assigneeEmail: z.string().email(),
+  assignedByEmail: z.string().email().optional(),
+});
+testOnlyRouter.post("/set-comment-assignee", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = setCommentAssigneeSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
+  }
+  const { memexId, commentId, assigneeEmail, assignedByEmail } = parsed.data;
+  const assignee = await getUserByEmail(assigneeEmail);
+  if (!assignee) return c.json({ error: `User ${assigneeEmail} not found` }, 400);
+  const assigner = assignedByEmail ? await getUserByEmail(assignedByEmail) : null;
+  const ctx = assigner ? { actorUserId: assigner.id, channel: "rest_ui" as const } : {};
+  await assignComment(memexId, commentId, assignee.id, ctx);
+  return c.json({ ok: true, assigneeUserId: assignee.id });
 });
 
 // spec-286: apply `scope::value`/flat tags to a Spec through the real
