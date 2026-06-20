@@ -23,11 +23,14 @@ const PASSAGE =
   "The quick brown fox jumps over the lazy dog while the selection toolbar should appear above this very passage every single time.";
 
 test.afterEach(async ({}, testInfo) => {
-  // ac-1 (reliable on every attempt) + ac-2 (invariant to where the gesture
-  // ends) are both proven by the release-OUTSIDE case; the control case also
-  // backs ac-1 (the working path stays working).
+  // Scope ACs: ac-1 (reliable on every attempt) + ac-2 (invariant to where the
+  // gesture ends). dec-1 implementation ACs: ac-3 (a gesture ending OUTSIDE the
+  // body still surfaces the toolbar) + ac-4 (a gesture ending INSIDE still does —
+  // the working path preserved under the document-level detector). This journey
+  // exercises both ends, so it is the emitting tier for all four (the UI unit
+  // job carries no emission key; e2e is where coverage lands).
   await emitAcEvents(
-    [AC(1), AC(2)],
+    [AC(1), AC(2), AC(3), AC(4)],
     testInfo.status === "passed" ? "pass" : "fail",
     `packages/ui/e2e/journey-36-spec-319-comment-selection.spec.ts::${testInfo.title}`,
     testInfo.duration,
