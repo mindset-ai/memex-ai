@@ -31,7 +31,8 @@ export interface WhereNeededItem {
   namespaceSlug: string;
   memexSlug: string;
   memexName: string;
-  /** Canonical route to the spec, anchored at the comment (`#c-<seq>`). */
+  /** Deep-link to the spec with the comment scrolled-to + highlighted (`?comment=c-<seq>`,
+   *  the param DocDocument.tsx already honours — dec-4). */
   path: string;
   /** Recency of the ask: assignedAt for assignments, the comment's createdAt for mentions. */
   at: string;
@@ -91,7 +92,7 @@ export async function listWhereYoureNeededForUser(userId: string): Promise<Where
           namespaceSlug: prov.namespaceSlug,
           memexSlug: prov.memexSlug,
           memexName: prov.memexName,
-          path: `/${prov.namespaceSlug}/${prov.memexSlug}/specs/${doc.handle}#c-${c.seq}`,
+          path: `/${prov.namespaceSlug}/${prov.memexSlug}/specs/${doc.handle}?comment=c-${c.seq}`,
           at: (when instanceof Date ? when : new Date(when)).toISOString(),
         };
       };

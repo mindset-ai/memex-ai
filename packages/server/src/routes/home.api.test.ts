@@ -87,21 +87,23 @@ describe("GET /api/me/home (spec-315 t-2)", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       whereYoureNeeded: unknown[];
-      specsInFlight: Array<{
+      specs: Array<{
         docId: string;
         handle: string;
         title: string;
+        phase: string;
         memexId: string;
         namespaceSlug: string;
         memexSlug: string;
+        tier: string;
         path: string;
       }>;
     };
 
-    // where-you're-needed ships as an empty (collapsing) block until spec-320 lands.
+    // where-you're-needed is empty for a fresh user with no mentions/assignments.
     expect(body.whereYoureNeeded).toEqual([]);
 
-    const card = body.specsInFlight.find((s) => s.docId === spec.id);
+    const card = body.specs.find((s) => s.docId === spec.id);
     expect(card).toBeDefined();
     expect(card!.title).toBe("Home API Spec");
     expect(card!.memexId).toBe(mx.memexId); // labelled with the owning Memex

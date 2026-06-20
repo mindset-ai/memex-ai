@@ -19,6 +19,7 @@ import { listWhereYoureNeededForUser } from "./where-youre-needed.js";
 
 const AC1 = "mindset-prod/memex-building-itself/specs/spec-315/acs/ac-1";
 const AC7 = "mindset-prod/memex-building-itself/specs/spec-315/acs/ac-7";
+const AC12 = "mindset-prod/memex-building-itself/specs/spec-315/acs/ac-12";
 
 const rand = () => Math.random().toString(36).slice(2, 8);
 let slugSeq = 0;
@@ -151,13 +152,15 @@ describe("listWhereYoureNeededForUser (spec-315 t-5)", () => {
     expect(byId.get(cResolved)?.kind).toBe("mention");
   });
 
-  it("carries owning-spec provenance + a comment-anchored route (ac-1)", async () => {
+  it("deep-links to the highlighted comment via ?comment=c-N, with owning-spec provenance (ac-1, ac-12)", async () => {
     tagAc(AC1);
+    tagAc(AC12);
     const item = (await listWhereYoureNeededForUser(owner)).find((r) => r.commentId === cAssign)!;
     expect(item.memexId).toBe(memexA);
     expect(item.namespaceSlug).toBe(slugA);
     expect(item.specHandle).toBe(handleA);
     expect(item.snippet).toBe("you own closing this");
-    expect(item.path).toBe(`/${slugA}/main/specs/${handleA}#c-${cAssignSeq}`);
+    // ?comment=c-N is the param DocDocument.tsx reads to scroll-to + highlight the comment.
+    expect(item.path).toBe(`/${slugA}/main/specs/${handleA}?comment=c-${cAssignSeq}`);
   });
 });

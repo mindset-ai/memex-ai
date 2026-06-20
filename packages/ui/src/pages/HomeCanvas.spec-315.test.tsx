@@ -30,7 +30,7 @@ beforeEach(() => {
   postJourneyEventApi.mockReset();
   postJourneyEventApi.mockResolvedValue(undefined);
   fetchHomeApi.mockReset();
-  fetchHomeApi.mockResolvedValue({ whereYoureNeeded: [], specsInFlight: [] });
+  fetchHomeApi.mockResolvedValue({ whereYoureNeeded: [], specs: [] });
 });
 
 describe('HomeCanvas — graduated layout (spec-315)', () => {
