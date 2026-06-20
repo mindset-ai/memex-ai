@@ -390,6 +390,19 @@ function PasswordScreen({
           {sendingMagic ? 'Sending…' : 'Email me a sign-in link instead'}
         </button>
       </div>
+
+      {/* spec-326 dec-1/ac-2: the LOUD supersede. Signing up discloses that product
+          usage is captured by default under legitimate interest — visible here, so a
+          prior anonymous decline is superseded in the open, never silently flipped.
+          Placeholder copy; legal owns the final wording (spec-326 out-of-scope). */}
+      {mode === 'signup' && (
+        <p className="text-xs text-muted border-t border-edge pt-3" data-testid="signup-privacy-notice">
+          Memex records anonymous product-usage events (IDs and counts only — no
+          document content, message text, or keystrokes) to improve the product, on a
+          legitimate-interest basis. You can object at any time under Settings →
+          Product-usage analytics.
+        </p>
+      )}
     </div>
   );
 }

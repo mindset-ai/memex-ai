@@ -11,6 +11,23 @@ import { test, expect, bareUrl } from "./helpers/index.js";
 // shared fixture applies (see helpers/fixtures.ts) — show it from a clean slate.
 test.use({ seedConsent: false });
 
+// Run this journey as a GENUINELY ANONYMOUS visitor. The dev harness auto-logs-in
+// dev@memex.ai (the no-Google-client bootstrap persists memex-auth-token), and since
+// spec-326 the consent banner is an ANONYMOUS-only surface — suppressed once a token
+// is present. So to exercise the pre-auth banner we must stay logged out: set the
+// dev-logout sentinel (AuthContext's consumeDevLogoutSentinel) before every load —
+// addInitScript re-runs on each navigation, so it survives the reload in test 2.
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    try {
+      window.sessionStorage.setItem("memex-dev-logout", "1");
+    } catch {
+      // sessionStorage unavailable — the bootstrap would auth and the banner would
+      // be suppressed; the assertions below would then surface it as a failure.
+    }
+  });
+});
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 async function visitorCookie(page: import("@playwright/test").Page): Promise<string | undefined> {

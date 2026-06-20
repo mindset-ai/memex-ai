@@ -32,10 +32,25 @@ export function isOptedOut(): boolean {
   }
 }
 
-/** Capture is allowed only on opt-IN consent (dec-4 = B; hasConsent already
- *  excludes Do-Not-Track) AND when the per-user opt-out isn't set. */
-export function telemetryEnabled(): boolean {
-  return hasConsent() && !isOptedOut();
+/**
+ * The capture gate. It splits by who is asking (spec-326 dec-1):
+ *
+ *   - AUTHENTICATED → tracked BY DEFAULT under legitimate interest. The only gate
+ *     is the per-user opt-out (the Art-21 right to object). Consent is NOT required
+ *     and Do-Not-Track is NOT honored (dec-3: DNT has no UK/EU legal force; the
+ *     settings opt-out is the meaningful, deliberate control).
+ *   - ANONYMOUS → spec-254's opt-in is unchanged: capture only on an explicit
+ *     'granted' consent (hasConsent already excludes Do-Not-Track) AND not opted out.
+ *
+ * The opt-out short-circuits both regimes — it is a withdraw that always wins.
+ *
+ * `authenticated` defaults to false (the anonymous opt-in gate), so callers on the
+ * pre-auth path — `trackAnonymous` (spec-324) and any other anonymous caller — get
+ * the correct opt-in semantics by calling `telemetryEnabled()` with no argument.
+ */
+export function telemetryEnabled(authenticated = false): boolean {
+  if (isOptedOut()) return false;
+  return authenticated || hasConsent();
 }
 
 // Replace id-shaped segments (handles like spec-7, bare numbers, uuids) with ':id'
@@ -57,11 +72,14 @@ export interface UseTelemetry {
   setOptOut: (value: boolean) => void;
 }
 
-export function useTelemetry(): UseTelemetry {
+export function useTelemetry(authenticated = false): UseTelemetry {
   const [optedOut, setOptedOut] = useState<boolean>(isOptedOut);
 
   const track = useCallback((name: RegisteredEventName, props?: Record<string, unknown>): void => {
-    if (!telemetryEnabled()) return;
+    // spec-326 dec-1: authenticated users are tracked by default (opt-out only);
+    // anonymous keep spec-254's opt-in. Default `authenticated=false` keeps every
+    // existing caller on the anonymous (opt-in) gate until it opts in explicitly.
+    if (!telemetryEnabled(authenticated)) return;
     const base = tenantBase();
     if (!base) return;
     void fetchWithRetry(`${base}/telemetry`, {
@@ -71,7 +89,7 @@ export function useTelemetry(): UseTelemetry {
     }).catch(() => {
       // Advisory — telemetry must never disrupt the user's flow.
     });
-  }, []);
+  }, [authenticated]);
 
   const setOptOut = useCallback((value: boolean): void => {
     try {
@@ -116,7 +134,11 @@ export function trackAnonymous(name: RegisteredEventName, props?: Record<string,
  * but there's no point sending).
  */
 export function useTrackRouteChange(pathname: string | null): void {
-  const { track } = useTelemetry();
+  // A non-null pathname is the App's signal that this is an authenticated,
+  // trackable context (App.tsx passes null for anonymous visitors). That same
+  // signal IS the authenticated flag for the gate (spec-326 dec-1): a route we
+  // actually track belongs to an authenticated user, captured by default.
+  const { track } = useTelemetry(pathname !== null);
   const last = useRef<string | null>(null);
   useEffect(() => {
     if (pathname === null) return;
