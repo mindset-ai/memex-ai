@@ -38,20 +38,25 @@ export function MentionComposer({ placeholder = 'Add a comment...', submitting, 
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState<string | null>(null);
   const [results, setResults] = useState<MentionableMember[]>([]);
+  const [searching, setSearching] = useState(false);
   const [activeIdx, setActiveIdx] = useState(0);
 
   const textRef = useRef<HTMLTextAreaElement | null>(null);
   const seqRef = useRef(0);
 
-  // Recompute the active @-token whenever the text or caret moves.
+  // Recompute the active @-token whenever the text or caret moves. `searching` is
+  // set true synchronously with the token so an empty result never flashes "no one"
+  // before the search resolves.
   function syncToken(value: string, caretPos: number) {
     const token = activeMentionToken(value, caretPos);
     if (token) {
       setQuery(token.query);
       setOpen(true);
+      setSearching(true);
     } else {
       setQuery(null);
       setOpen(false);
+      setSearching(false);
     }
   }
 
@@ -66,6 +71,7 @@ export function MentionComposer({ placeholder = 'Add a comment...', submitting, 
         const chosen = new Set(mentions.map((m) => m.userId));
         setResults(members.filter((m) => !chosen.has(m.userId)));
         setActiveIdx(0);
+        setSearching(false);
       }
     }, DEBOUNCE_MS);
     return () => window.clearTimeout(handle);
@@ -163,33 +169,44 @@ export function MentionComposer({ placeholder = 'Add a comment...', submitting, 
           rows={2}
           textAreaSize="compact"
         />
-        {open && results.length > 0 && (
+        {open && (
           <div
             role="listbox"
             data-testid="mention-typeahead"
             className="absolute z-20 mt-1 max-h-56 w-64 overflow-y-auto rounded-md border border-edge bg-panel py-1 shadow-lg"
           >
-            {results.map((m, i) => (
-              <button
-                key={m.userId}
-                type="button"
-                role="option"
-                aria-selected={i === activeIdx}
-                data-testid="mention-option"
-                data-user-id={m.userId}
-                onMouseDown={(e) => {
-                  // mousedown (not click) so the textarea doesn't blur first.
-                  e.preventDefault();
-                  selectMember(m);
-                }}
-                className={`flex w-full flex-col items-start px-3 py-1.5 text-left text-xs ${
-                  i === activeIdx ? 'bg-overlay' : ''
-                } hover:bg-overlay`}
-              >
-                <span className="text-heading">{personLabel(m)}</span>
-                {m.name && <span className="text-[10px] text-muted">{m.email}</span>}
-              </button>
-            ))}
+            {results.length > 0 &&
+              results.map((m, i) => (
+                <button
+                  key={m.userId}
+                  type="button"
+                  role="option"
+                  aria-selected={i === activeIdx}
+                  data-testid="mention-option"
+                  data-user-id={m.userId}
+                  onMouseDown={(e) => {
+                    // mousedown (not click) so the textarea doesn't blur first.
+                    e.preventDefault();
+                    selectMember(m);
+                  }}
+                  className={`flex w-full flex-col items-start px-3 py-1.5 text-left text-xs ${
+                    i === activeIdx ? 'bg-overlay' : ''
+                  } hover:bg-overlay`}
+                >
+                  <span className="text-heading">{personLabel(m)}</span>
+                  {m.name && <span className="text-[10px] text-muted">{m.email}</span>}
+                </button>
+              ))}
+            {/* Empty-state: no one to mention (e.g. a single-player Memex). A future
+                spec adds an "Invite teammates" link here (out of scope today). */}
+            {results.length === 0 && !searching && (
+              <p data-testid="mention-empty" className="px-3 py-1.5 text-xs text-muted">
+                No one to mention.
+              </p>
+            )}
+            {results.length === 0 && searching && (
+              <p className="px-3 py-1.5 text-xs text-muted">Searching…</p>
+            )}
           </div>
         )}
       </div>
