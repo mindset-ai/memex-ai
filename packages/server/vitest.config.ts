@@ -61,6 +61,14 @@ export default defineConfig({
   test: {
     globals: true,
     include: ["src/**/*.test.ts"],
+    // DB-backed integration tests (seed → mutate → assert against a real Postgres)
+    // routinely exceed vitest's 5s default when 8 workers contend on the DB under
+    // full-suite load — surfacing as flaky `Test timed out in 5000ms`. Many such
+    // tests already self-apply a 20s override; lift the floor to match so the suite
+    // is robust to parallel load instead of relying on per-test bumps. Hooks (the
+    // seeding `beforeAll`s) get more headroom still.
+    testTimeout: 20_000,
+    hookTimeout: 30_000,
     // globalSetup creates + migrates the per-worktree test database once per
     // run, in the main process, before any worker starts — then clones it
     // into one database per worker slot (TEMPLATE copy, milliseconds each).

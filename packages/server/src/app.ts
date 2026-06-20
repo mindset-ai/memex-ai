@@ -47,6 +47,7 @@ import { rewriteBriefPathToSpec } from "./services/redirects.js";
 import { isAllowedOrigin } from "./middleware/cors-policy.js";
 import { meRouter } from "./routes/me.js";
 import { journeyRouter } from "./routes/journey.js";
+import { homeRouter } from "./routes/home.js";
 import { whatsNewRouter } from "./routes/whats-new.js";
 import { orgsRouter, orgsCurrentRouter } from "./routes/orgs.js";
 import { scaffoldRouter } from "./routes/scaffold.js";
@@ -364,6 +365,9 @@ app.route("/api/me", meRouter);
 // spec-303 — Home Canvas onboarding journey-state (user-level, no memex). Derived
 // position + measurement + operator preview.
 app.route("/api/me", journeyRouter);
+// spec-315 — the graduated Home surface (user-level, no memex): where-you're-needed
+// + specs-in-flight, aggregated across all the user's memberships.
+app.route("/api/me", homeRouter);
 // spec-200: global What's New feed (not tenant-scoped).
 app.route("/api/whats-new", whatsNewRouter);
 // PUBLIC: share routes skip session middleware — guests access shared docs by token alone (t-10).

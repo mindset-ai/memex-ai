@@ -183,11 +183,8 @@ export function HomeCanvas() {
         />
       )}
 
-      {/* dec-4: the persistent, escapable-but-never-erasable re-entry point. */}
-      <YourJourneys journeys={pearlJourneys} onOpen={() => setCollapsedOverride(false)} />
-
-      {/* dec-2: the journey LAYER — shown expanded while not collapsed. Collapsing it
-          (or being graduated) leaves the pearls above and the home-of-value below. */}
+      {/* dec-2: the journey LAYER — shown expanded while not collapsed (onboarding).
+          Once graduated/collapsed it disappears, leaving the home-of-value + the pearls. */}
       {!collapsed && (
         <section data-testid="journey-layer" className="relative">
           <div className="mx-auto flex max-w-3xl justify-end px-4 pt-4">
@@ -207,8 +204,14 @@ export function HomeCanvas() {
         </section>
       )}
 
-      {/* dec-2: the home-of-value surface is ALWAYS the page, under the journey layer. */}
+      {/* spec-315 dec-3: the home-of-value surface (where-you're-needed + specs-in-flight)
+          is the page; the top is reserved for what needs the user now. */}
       <HomeValue specsPath={specsPath} />
+
+      {/* spec-315 dec-3: the journey pearls are RELOCATED to the bottom — a finished
+          journey is a static green-pearl trail that must not own the top. Still the
+          persistent, escapable-but-never-erasable re-entry point (spec-312 dec-4). */}
+      <YourJourneys journeys={pearlJourneys} onOpen={() => setCollapsedOverride(false)} />
     </div>
   );
 
