@@ -80,6 +80,10 @@ beforeAll(async () => {
   actor = await setupActor("thread");
   const doc = await createDocDraft(actor.memexId, "Threading", "T", "spec");
   docId = doc.id;
+  // spec-327: create_task is gated to build; the ac-18/ac-19 cases create tasks
+  // via agent channels on this Spec, so it must be in build. (ac-20 uses
+  // channel:'rest_ui', which the guard exempts regardless of phase.)
+  await db.update(documents).set({ status: "build" }).where(eq(documents.id, docId));
   created.docs.push(docId);
 });
 

@@ -24,6 +24,7 @@ import {
 } from "../db/schema.js";
 import { createMcpServer } from "../mcp/tools.js";
 import { executeServerTool } from "./tools.js";
+import { createTask } from "../services/tasks.js";
 
 const SPEC295 = "mindset-prod/memex-building-itself/specs/spec-295";
 const AC = (n: number) => `${SPEC295}/acs/ac-${n}`;
@@ -107,12 +108,15 @@ describe("spec-295 dec-3: web-agent creation lands in specify; phase stays human
     expect(doc.status).toBe("specify");
     const ref = `${actor.nsSlug}/main/${doc.handle}`;
 
-    // A build-class tool call (create_task) on the SAME web channel must NOT
-    // push the Spec to build — phase is the human's call on this surface.
+    // A build-class tool call on the SAME web channel must NOT push the Spec to
+    // build — phase is the human's call on this surface (spec-295 dec-3).
+    // spec-327: create_task is now gated to build, so seed a task (service, no
+    // ctx → guard-exempt) and drive build-class traffic via update_task.
+    const seeded = await createTask(actor.memexId, doc.id, "Seeded", "Pre-existing, guard-exempt.");
     const res = await executeServerTool(
       actor.memexId,
-      "create_task",
-      { ref: `${actor.nsSlug}/main/specs/${doc.handle}`, title: "Some task", description: "Do it." },
+      "update_task",
+      { ref: `${actor.nsSlug}/main/specs/${doc.handle}/tasks/t-${seeded.seq}`, title: "Edited via the in-app agent" },
       actor.user.id,
     );
     expect(res).toBeTruthy();

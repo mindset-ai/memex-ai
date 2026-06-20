@@ -318,16 +318,28 @@ describe("regression: manifest traffic-class classification (spec-189 dec-4)", (
     // dec-1: task lifecycle + issue lifecycle = build-class. spec-295 dec-2
     // carved register_issue OUT — raising an Issue is the gate-neutral parking
     // lot and must not auto-advance phase, so it is now non-advancing (null),
-    // not build-class. The remaining issue-lifecycle edits stay build-class.
+    // not build-class. spec-327 dec-3 carved create_task OUT too: the service
+    // guard rejects it outside build, so it can never drive a transition — it is
+    // now non-advancing (null), asserted just below. The remaining task/issue
+    // lifecycle edits (on already-existing work) stay build-class.
     expect(byClass("build")).toEqual([
       "convert_issue_to_task",
-      "create_task",
       "delete_task",
       "kick_task_to_issue",
       "resolve_issue",
       "update_issue",
       "update_task",
     ]);
+
+    // spec-327 (ac-6, ac-12): create_task is non-advancing (null trafficClass),
+    // pinned here so the classification can't silently drift back to 'build'
+    // (ac-6's manifest-pin clause; the boundary-test clause is the spec-327
+    // describe block in spec-traffic.integration.test.ts).
+    tagAc("mindset-prod/memex-building-itself/specs/spec-327/acs/ac-6");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-327/acs/ac-12");
+    expect(
+      toolManifest.find((e) => e.name === "create_task")?.trafficClass,
+    ).toBeNull();
 
     // spec-295 dec-2 (ac-9): register_issue is non-advancing (null trafficClass).
     tagAc("mindset-prod/memex-building-itself/specs/spec-295/acs/ac-9");

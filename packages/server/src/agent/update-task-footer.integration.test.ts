@@ -4,7 +4,7 @@
 // real MCP path end to end.
 
 import { describe, it, expect, afterAll } from "vitest";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import {
   memexes,
@@ -63,7 +63,13 @@ describe("update_task footer: progress note + verify-push on the last task", () 
       purpose: "Probe.",
     });
     const handle = out.match(/specs\/(spec-\d+)/)?.[1];
-    const doc = await db.query.documents.findFirst({ where: eq(documents.handle, handle!) });
+    // Memex-scope the handle lookup: handles are per-memex, so an unscoped
+    // lookup could return another memex's same-numbered spec (latent before
+    // spec-327; now load-bearing because the build-phase flip below must hit
+    // the doc create_task targets).
+    const doc = await db.query.documents.findFirst({
+      where: and(eq(documents.handle, handle!), eq(documents.memexId, actor.memexId)),
+    });
     created.docs.push(doc!.id);
     const ref = `${actor.nsSlug}/main/specs/${handle}`;
     // jump to build so tasks can be created and completed

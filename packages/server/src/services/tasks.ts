@@ -36,15 +36,18 @@ export function qualifiedTaskHandle(
   return `${parentDocHandle}:T-${taskSeq}`;
 }
 
-// Returns the parent doc's type (spec-306) so createTask can attribute the
-// task.created outcome event to its Spec without a second query — this assert
-// already loads the row.
-async function assertDocInAccount(memexId: string, docId: string): Promise<{ docType: string }> {
+// Returns the parent doc's type (spec-306) and lifecycle status (spec-327) so
+// createTask can attribute the task.created outcome event to its Spec AND apply
+// the build-phase gate without a second query — this assert already loads the row.
+async function assertDocInAccount(
+  memexId: string,
+  docId: string,
+): Promise<{ docType: string; status: string }> {
   const doc = await db.query.documents.findFirst({
     where: and(eq(documents.id, docId), eq(documents.memexId, memexId)),
   });
   if (!doc) throw new NotFoundError(`Document ${docId} not found`);
-  return { docType: doc.docType };
+  return { docType: doc.docType, status: doc.status };
 }
 
 export interface TaskWithBlockers extends Task {
@@ -73,6 +76,23 @@ export interface AcceptanceCriterion {
   done: boolean;
 }
 
+/**
+ * spec-327 dec-2 — the single source of the create_task phase-gate message.
+ * Exported so every surface (MCP, in-app agent) and the tests read identical
+ * text. Names the three remedies, create_decision first (the common case:
+ * a planning thought mistaken for a build handoff).
+ */
+export function taskCreationBlockedMessage(currentPhase: string): string {
+  return (
+    `Tasks can only be created while this Spec is in the build phase ` +
+    `(it is currently in ${currentPhase}). What you're describing reads like ` +
+    `a planning decision — capture it with create_decision instead. If it's a ` +
+    `must-not-forget action rather than a decision, raise it with register_issue ` +
+    `(a todo Issue). If you're genuinely ready to implement, move the Spec to ` +
+    `build first (update_doc status:build), then create the task.`
+  );
+}
+
 export async function createTask(
   memexId: string,
   docId: string,
@@ -82,7 +102,22 @@ export async function createTask(
   sectionRef?: string,
   ctx: RequestCtx = {}
 ): Promise<Mutated<Task>> {
-  const { docType } = await assertDocInAccount(memexId, docId);
+  const { docType, status } = await assertDocInAccount(memexId, docId);
+  // spec-327 dec-1/dec-4 — tasks are a build-phase commitment. A coding agent
+  // (mcp / in_app_agent) that calls create_task while the Spec is NOT in build
+  // is almost always voicing a planning thought, not handing off an
+  // implementation; silently auto-advancing the phase (the old spec-189
+  // behaviour) misled users. Reject with a guiding error instead. This is the
+  // one deliberate, narrow exception to the soft-gate posture (spec-12 dec-6,
+  // spec-189 dec-3): exactly one creation tool, agent channels only. rest_ui
+  // (human in the web UI, full phase controls) and ctx-less seed/server calls
+  // are exempt — the channel set mirrors spec-traffic.ts's agent-channel guard.
+  if (
+    (ctx.channel === "mcp" || ctx.channel === "in_app_agent") &&
+    status !== "build"
+  ) {
+    throw new ValidationError(taskCreationBlockedMessage(status));
+  }
   // b-38 F-3 — wrap allocator + insert in withSeqRetry so concurrent createTask
   // calls under the same doc don't 23505 on `tasks_doc_id_seq_unique`.
   return mutate(

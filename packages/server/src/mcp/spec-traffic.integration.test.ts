@@ -49,6 +49,10 @@ import {
   type SpecTrafficEvent,
 } from "../services/spec-traffic.js";
 import { bus, type ChangeEvent } from "../services/bus.js";
+// spec-327: create_task is now gated to build; the service-layer createTask
+// (no ctx → guard-exempt) is how tests seed a task in any phase, and
+// taskCreationBlockedMessage is the shared error string (ac-11).
+import { createTask, taskCreationBlockedMessage } from "../services/tasks.js";
 
 const SPEC = "mindset-prod/memex-building-itself/specs/spec-189";
 const AC = (n: number) => `${SPEC}/acs/ac-${n}`;
@@ -56,6 +60,11 @@ const AC = (n: number) => `${SPEC}/acs/ac-${n}`;
 // non-advancing; dec-3: the in_app_agent channel no longer auto-advances phase).
 const SPEC295 = "mindset-prod/memex-building-itself/specs/spec-295";
 const SPEC295_AC = (n: number) => `${SPEC295}/acs/ac-${n}`;
+// spec-327 revisits spec-189 again: create_task is gated to build and
+// reclassified non-advancing, so build-class advancement is exercised via
+// update_task on a pre-seeded task.
+const SPEC327 = "mindset-prod/memex-building-itself/specs/spec-327";
+const SPEC327_AC = (n: number) => `${SPEC327}/acs/ac-${n}`;
 
 const created = {
   users: [] as string[],
@@ -181,6 +190,20 @@ async function assigneeIds(id: string): Promise<string[]> {
   return (await listAssignees(actor.memexId, id)).map((a) => a.userId);
 }
 
+// spec-327: create_task can no longer be the build-class traffic exemplar (it's
+// gated to build + reclassified non-advancing). Seed a task via the service
+// layer with NO ctx — channel is undefined, so the agent-channel guard is
+// exempt — then drive advancement through update_task (still build-class).
+async function seedTaskRef(spec: { id: string; ref: string }): Promise<string> {
+  const t = await createTask(
+    actor.memexId,
+    spec.id,
+    "Pre-existing task",
+    "Seeded directly (guard-exempt) to exercise build-class update_task traffic.",
+  );
+  return `${spec.ref}/tasks/t-${t.seq}`;
+}
+
 describe("spec-189: traffic-driven phase advancement through real MCP tool calls", () => {
   it("draft + specify-class traffic (create_decision) → specify, with assignment + editor (ac-1, ac-5, ac-11)", async () => {
     tagAc(AC(1));
@@ -220,16 +243,17 @@ describe("spec-189: traffic-driven phase advancement through real MCP tool calls
     expect(statusChanged!.payload).toMatchObject({ from: "draft", to: "specify" });
   });
 
-  it("draft + build-class traffic (create_task) → build (ac-1, ac-7)", async () => {
+  it("draft + build-class traffic (update_task) → build (ac-1, ac-7)", async () => {
     tagAc(AC(1));
     tagAc(AC(7));
-    // spec-295 dec-2 reclassified register_issue to NON-advancing, so the
-    // build-class example here is create_task (still trafficClass 'build').
+    // spec-327 dec-3 gated create_task to build and reclassified it
+    // non-advancing, so the build-class exemplar is now update_task on a
+    // pre-seeded task (still trafficClass 'build').
     const spec = await makeSpec("Draft to Build");
-    const res = await callMcp(actor.member.id, "create_task", {
-      ref: spec.ref,
+    const taskRef = await seedTaskRef(spec);
+    const res = await callMcp(actor.member.id, "update_task", {
+      ref: taskRef,
       title: "Implement the fix",
-      description: "Do it.",
     });
     expect(res.isError).toBeFalsy();
     expect(await specStatus(spec.id)).toBe("build");
@@ -257,7 +281,7 @@ describe("spec-189: traffic-driven phase advancement through real MCP tool calls
     expect(await specStatus(fromDone.id)).toBe("verify");
   });
 
-  it("specify + build-class traffic (create_task) → build, even with open decisions (ac-7, ac-8)", async () => {
+  it("specify + build-class traffic (update_task) → build, even with open decisions (ac-7, ac-8)", async () => {
     tagAc(AC(7));
     tagAc(AC(8));
     const spec = await makeSpec("Specify to Build", "specify");
@@ -270,10 +294,10 @@ describe("spec-189: traffic-driven phase advancement through real MCP tool calls
     expect(dec.isError).toBeFalsy();
     expect(await specStatus(spec.id)).toBe("specify"); // specify-class: stays
 
-    const res = await callMcp(actor.member.id, "create_task", {
-      ref: spec.ref,
+    const taskRef = await seedTaskRef(spec);
+    const res = await callMcp(actor.member.id, "update_task", {
+      ref: taskRef,
       title: "Implement the thing",
-      description: "Do it.",
     });
     expect(res.isError).toBeFalsy();
     expect(await specStatus(spec.id)).toBe("build");
@@ -290,10 +314,10 @@ describe("spec-189: traffic-driven phase advancement through real MCP tool calls
     expect(await specStatus(inBuild.id)).toBe("build");
 
     const inVerify = await makeSpec("Verify never regresses", "verify");
-    const res2 = await callMcp(actor.member.id, "create_task", {
-      ref: inVerify.ref,
-      title: "Late task",
-      description: "Build-class traffic on a verify Spec.",
+    const vTaskRef = await seedTaskRef(inVerify);
+    const res2 = await callMcp(actor.member.id, "update_task", {
+      ref: vTaskRef,
+      title: "Late task edit — build-class traffic on a verify Spec.",
     });
     expect(res2.isError).toBeFalsy();
     expect(await specStatus(inVerify.id)).toBe("verify");
@@ -310,12 +334,12 @@ describe("spec-189: traffic-driven phase advancement through real MCP tool calls
     expect(await specStatus(toSpecify.id)).toBe("specify");
 
     const toBuild = await makeSpec("Done reopens to build", "done");
-    // spec-295 dec-2: register_issue is non-advancing now; use create_task as
-    // the build-class reopen trigger.
-    const res2 = await callMcp(actor.member.id, "create_task", {
-      ref: toBuild.ref,
+    // spec-327 dec-3: create_task is gated to build; use update_task on a
+    // pre-seeded task as the build-class reopen trigger.
+    const dTaskRef = await seedTaskRef(toBuild);
+    const res2 = await callMcp(actor.member.id, "update_task", {
+      ref: dTaskRef,
       title: "Fix found after close",
-      description: "It broke.",
     });
     expect(res2.isError).toBeFalsy();
     expect(await specStatus(toBuild.id)).toBe("build");
@@ -447,19 +471,164 @@ describe("spec-189: traffic-driven phase advancement through real MCP tool calls
 
   it("paused Specs still assign but never auto-transition; hidden-style flags stay untouched", async () => {
     const spec = await makeSpec("Paused stays put");
+    const taskRef = await seedTaskRef(spec);
     await db
       .update(documents)
       .set({ pausedAt: new Date() })
       .where(eq(documents.id, spec.id));
-    const res = await callMcp(actor.member.id, "create_task", {
-      ref: spec.ref,
-      title: "Task at a paused Spec",
-      description: "Should assign, not move.",
+    const res = await callMcp(actor.member.id, "update_task", {
+      ref: taskRef,
+      title: "Edit at a paused Spec — should assign, not move.",
     });
     expect(res.isError).toBeFalsy();
     expect(await specStatus(spec.id)).toBe("draft");
     expect(await assigneeIds(spec.id)).toContain(actor.member.id);
     const row = await db.query.documents.findFirst({ where: eq(documents.id, spec.id) });
     expect(row!.pausedAt).not.toBeNull();
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────────
+// spec-327: create_task is gated to the build phase with a guiding error.
+//
+// A coding agent (mcp / in_app_agent) that calls create_task while the Spec is
+// NOT in build is rejected — no task row, no phase change — and told to capture
+// the thought as a decision (or a todo Issue, or to move the Spec to build).
+// This is the deliberate, narrow exception to the soft-gate posture (dec-4):
+// every OTHER agent mutation in a non-build phase is still accepted.
+// ──────────────────────────────────────────────────────────────────────────
+
+describe("spec-327: create_task is gated to the build phase", () => {
+  async function taskCount(docId: string): Promise<number> {
+    const rows = await db.select().from(tasks).where(eq(tasks.docId, docId));
+    return rows.length;
+  }
+
+  const NON_BUILD = ["draft", "specify", "verify", "done"] as const;
+
+  it("create_task via mcp on every non-build phase is rejected — no row, no phase change (ac-1, ac-3, ac-7)", async () => {
+    tagAc(SPEC327_AC(1));
+    tagAc(SPEC327_AC(3));
+    tagAc(SPEC327_AC(7));
+    for (const phase of NON_BUILD) {
+      const spec = await makeSpec(`mcp create_task rejected in ${phase}`, phase);
+      const res = await callMcp(actor.member.id, "create_task", {
+        ref: spec.ref,
+        title: "A thought that should have been a decision",
+        description: "…",
+      });
+      expect(res.isError, `create_task should be rejected in ${phase}`).toBe(true);
+      expect(await taskCount(spec.id), `no task row in ${phase}`).toBe(0);
+      expect(await specStatus(spec.id), `phase unchanged in ${phase}`).toBe(phase);
+    }
+  });
+
+  it("create_task via in_app_agent on a non-build phase is rejected identically (ac-8)", async () => {
+    tagAc(SPEC327_AC(8));
+    const spec = await makeSpec("in_app_agent create_task rejected", "specify");
+    await expect(
+      executeServerTool(
+        actor.memexId,
+        "create_task",
+        { ref: spec.ref, title: "Should be a decision", description: "…" },
+        actor.member.id,
+      ),
+    ).rejects.toThrow(/build phase/);
+    expect(await taskCount(spec.id)).toBe(0);
+    expect(await specStatus(spec.id)).toBe("specify");
+  });
+
+  it("create_task via rest_ui and via a ctx-less (seed/server) call is NOT blocked (ac-9)", async () => {
+    tagAc(SPEC327_AC(9));
+    // rest_ui: the human in the web UI keeps full phase controls.
+    const viaRest = await makeSpec("rest_ui create_task allowed", "specify");
+    const t1 = await createTask(
+      actor.memexId,
+      viaRest.id,
+      "Human-created task",
+      "Via the web UI.",
+      undefined,
+      undefined,
+      { channel: "rest_ui", actorUserId: actor.member.id },
+    );
+    expect(t1.id).toBeTruthy();
+    expect(await taskCount(viaRest.id)).toBe(1);
+    expect(await specStatus(viaRest.id)).toBe("specify"); // rest_ui never advances
+
+    // no channel (seed/server): fixtures must keep working in any phase.
+    const viaSeed = await makeSpec("seed create_task allowed", "draft");
+    const t2 = await createTask(actor.memexId, viaSeed.id, "Seeded task", "No ctx.");
+    expect(t2.id).toBeTruthy();
+    expect(await taskCount(viaSeed.id)).toBe(1);
+  });
+
+  it("the rejection message names the phase and all three remedies, from the shared constant (ac-2, ac-10, ac-11)", async () => {
+    tagAc(SPEC327_AC(2));
+    tagAc(SPEC327_AC(10));
+    tagAc(SPEC327_AC(11));
+    const spec = await makeSpec("message contract", "verify");
+    const res = await callMcp(actor.member.id, "create_task", {
+      ref: spec.ref,
+      title: "x",
+      description: "y",
+    });
+    expect(res.isError).toBe(true);
+    const text = res.content[0].text;
+    // ac-11: emitted from the shared constant (MCP prefixes "Validation error: ").
+    expect(text.startsWith("Validation error:")).toBe(true);
+    expect(text).toContain(taskCreationBlockedMessage("verify"));
+    // ac-10: interpolates the phase + names the three remedies.
+    expect(text).toContain("currently in verify");
+    expect(text).toContain("create_decision");
+    expect(text).toContain("register_issue");
+    expect(text).toContain("update_doc status:build");
+  });
+
+  it("create_task in build still works, and updating existing tasks is unaffected in any phase (ac-5)", async () => {
+    tagAc(SPEC327_AC(5));
+    // In build: create_task via the agent channel succeeds.
+    const inBuild = await makeSpec("create_task works in build", "build");
+    const res = await callMcp(actor.member.id, "create_task", {
+      ref: inBuild.ref,
+      title: "Real implementation task",
+      description: "We're in build.",
+    });
+    expect(res.isError).toBeFalsy();
+    expect(await taskCount(inBuild.id)).toBe(1);
+    expect(await specStatus(inBuild.id)).toBe("build");
+
+    // Updating an existing task outside build is NOT gated (creation-only).
+    const inVerify = await makeSpec("update existing task in verify", "verify");
+    const taskRef = await seedTaskRef(inVerify);
+    const upd = await callMcp(actor.member.id, "update_task", {
+      ref: taskRef,
+      title: "Edited during verify",
+    });
+    expect(upd.isError).toBeFalsy();
+  });
+
+  it("the carve-out is narrow: create_decision and register_issue on a non-build Spec via mcp still succeed (ac-4, ac-13)", async () => {
+    tagAc(SPEC327_AC(4));
+    tagAc(SPEC327_AC(13));
+    // create_decision on a draft Spec is accepted (specify-class, so it also
+    // advances) — proving the server is NOT blocking non-build agent mutations.
+    const forDecision = await makeSpec("decision still allowed", "draft");
+    const dec = await callMcp(actor.member.id, "create_decision", {
+      ref: forDecision.ref,
+      title: "A real planning decision",
+    });
+    expect(dec.isError).toBeFalsy();
+
+    // register_issue is unchanged — raiseable outside build, and non-advancing
+    // (spec-202 / spec-295 parking lot intact).
+    const forIssue = await makeSpec("issue still allowed in specify", "specify");
+    const iss = await callMcp(actor.member.id, "register_issue", {
+      spec_ref: forIssue.ref,
+      title: "A must-not-forget todo",
+      body: "Park it.",
+      type: "todo",
+    });
+    expect(iss.isError).toBeFalsy();
+    expect(await specStatus(forIssue.id)).toBe("specify"); // unchanged
   });
 });
