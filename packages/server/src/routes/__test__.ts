@@ -45,7 +45,7 @@ import { createIssue } from "../services/issues.js";
 import { testEvents } from "../db/schema.js";
 import { applyEmissionToSummary } from "../services/test-event-latest.js";
 import { createExecutionPlan } from "../services/execution_plans.js";
-import { addTaskComment, addComment, addDecisionComment } from "../services/comments.js";
+import { addTaskComment, addComment, addDecisionComment, addAnchoredComment } from "../services/comments.js";
 // spec-320 t-5: seed comment @-mentions + assignment through the real services so
 // spec-315's "where you're needed" home journey can build and verify in parallel.
 import { addMentions, assignComment } from "../services/comment-mentions.js";
@@ -824,6 +824,11 @@ const seedCommentSchema = z.object({
   authorName: z.string().default("Casey Reviewer"),
   content: z.string().default("Please double-check this before we advance."),
   commentType: z.string().optional(),
+  // spec-319: seed a RANGE-anchored section comment (so the gutter indicator
+  // renders). anchorEndOffset is the END character offset into the section
+  // source; anchorStartOffset, when supplied, is the START. Section target only.
+  anchorEndOffset: z.number().int().nonnegative().optional(),
+  anchorStartOffset: z.number().int().nonnegative().optional(),
 });
 testOnlyRouter.post("/seed-comment", async (c) => {
   const body = await c.req.json().catch(() => null);
@@ -831,13 +836,15 @@ testOnlyRouter.post("/seed-comment", async (c) => {
   if (!parsed.success) {
     return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
   }
-  const { memexId, target, targetId, authorName, content, commentType } = parsed.data;
+  const { memexId, target, targetId, authorName, content, commentType, anchorEndOffset, anchorStartOffset } = parsed.data;
   const extras = commentType
     ? ({ type: commentType } as Parameters<typeof addComment>[4])
     : undefined;
   const comment =
     target === "section"
-      ? await addComment(memexId, targetId, authorName, content, extras)
+      ? anchorEndOffset != null
+        ? await addAnchoredComment(memexId, targetId, authorName, content, anchorEndOffset, extras, anchorStartOffset)
+        : await addComment(memexId, targetId, authorName, content, extras)
       : target === "decision"
         ? await addDecisionComment(memexId, targetId, authorName, content, extras)
         : await addTaskComment(memexId, targetId, authorName, content, extras);
