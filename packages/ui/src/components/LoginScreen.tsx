@@ -3,7 +3,8 @@ import { GoogleOAuthProvider, GoogleLogin, type CredentialResponse } from '@reac
 import { Input } from './ui/Input';
 import { Button } from './ui/Button';
 import { Logo } from './Logo';
-import { probeAuthApi, AuthApiError } from '../api/client';
+import { probeAuthApi, AuthApiError, type SessionPayload } from '../api/client';
+import { useMagicLinkPoll } from '../hooks/useMagicLinkPoll';
 // t-23 of doc-15: Google SSO is on a single origin under the path-based
 // router. The previous cross-subdomain bounce (sign in on memex.ai then return
 // here with a JWT in the URL fragment) is no longer needed — everything is
@@ -25,7 +26,10 @@ type View =
   | { kind: 'enter-email' }
   | { kind: 'password'; email: string }
   | { kind: 'create-password'; email: string }
-  | { kind: 'magic-sent'; email: string }
+  // spec-304 t-40 (ac-30): the magic-sent view carries the `loginRequestId` from
+  // the issue response so it can poll login-request status and complete the
+  // session IN PLACE when the link is verified in another browser/context.
+  | { kind: 'magic-sent'; email: string; loginRequestId: string }
   | { kind: 'reset-sent'; email: string }
   | { kind: 'forgot' };
 
@@ -34,7 +38,17 @@ interface LoginScreenProps {
   googleClientId: string | null;
   onSignup: (email: string, password: string) => Promise<void>;
   onLogin: (email: string, password: string) => Promise<void>;
-  onMagicLink: (email: string) => Promise<void>;
+  /**
+   * Issue a magic link. spec-304 t-40 (ac-30): resolves to the surrogate
+   * `loginRequestId` the magic-sent view polls so login can complete in place.
+   */
+  onMagicLink: (email: string) => Promise<{ loginRequestId: string }>;
+  /**
+   * spec-304 t-40 (ac-30): adopt the session once polling sees it verified —
+   * wire to the SAME path password/SSO/`/consume` login uses (`acceptSession`)
+   * so the polled login truly completes (token persisted, redirect into the app).
+   */
+  onMagicLinkVerified: (session: SessionPayload) => void;
   onPasswordReset: (email: string) => Promise<void>;
   onGoogleCredential: (credential: string) => Promise<void>;
 }
@@ -69,8 +83,8 @@ function LoginCard(props: LoginScreenProps) {
             if (!probe.exists) setView({ kind: 'create-password', email });
             else if (probe.hasPassword) setView({ kind: 'password', email });
             else {
-              await props.onMagicLink(email);
-              setView({ kind: 'magic-sent', email });
+              const { loginRequestId } = await props.onMagicLink(email);
+              setView({ kind: 'magic-sent', email, loginRequestId });
             }
           }}
         />
@@ -85,8 +99,8 @@ function LoginCard(props: LoginScreenProps) {
           onSubmit={(password) => props.onLogin(view.email, password)}
           onForgot={() => setView({ kind: 'forgot' })}
           onMagicLink={async () => {
-            await props.onMagicLink(view.email);
-            setView({ kind: 'magic-sent', email: view.email });
+            const { loginRequestId } = await props.onMagicLink(view.email);
+            setView({ kind: 'magic-sent', email: view.email, loginRequestId });
           }}
           onBack={() => setView({ kind: 'enter-email' })}
         />
@@ -100,8 +114,8 @@ function LoginCard(props: LoginScreenProps) {
           authError={props.authError}
           onSubmit={(password) => props.onSignup(view.email, password)}
           onMagicLink={async () => {
-            await props.onMagicLink(view.email);
-            setView({ kind: 'magic-sent', email: view.email });
+            const { loginRequestId } = await props.onMagicLink(view.email);
+            setView({ kind: 'magic-sent', email: view.email, loginRequestId });
           }}
           onBack={() => setView({ kind: 'enter-email' })}
         />
@@ -109,9 +123,10 @@ function LoginCard(props: LoginScreenProps) {
 
     case 'magic-sent':
       return (
-        <ConfirmCard
-          title="Check your email"
-          body={`We sent a sign-in link to ${view.email}. It expires in 15 minutes.`}
+        <MagicSentScreen
+          email={view.email}
+          loginRequestId={view.loginRequestId}
+          onMagicLinkVerified={props.onMagicLinkVerified}
           onBack={() => setView({ kind: 'enter-email' })}
         />
       );
@@ -426,14 +441,74 @@ function ForgotPasswordForm({
   );
 }
 
-function ConfirmCard({ title, body, onBack }: { title: string; body: string; onBack: () => void }) {
+// spec-304 t-40 (ac-30): the "check your email" view. While shown it polls the
+// login-request surrogate so the session completes IN THIS TAB/WEBVIEW the moment
+// the link is verified anywhere — the user never has to click back here. The poll
+// runs ONLY while this component is mounted (cleanup tears the interval down on
+// unmount / "Use a different email"). On verified it adopts the session via the
+// passed-down `acceptSession`; on expiry/404 it offers a fresh link.
+function MagicSentScreen({
+  email,
+  loginRequestId,
+  onMagicLinkVerified,
+  onBack,
+}: {
+  email: string;
+  loginRequestId: string;
+  onMagicLinkVerified: (session: SessionPayload) => void;
+  onBack: () => void;
+}) {
+  const phase = useMagicLinkPoll(loginRequestId, onMagicLinkVerified);
+
+  if (phase === 'verified') {
+    return (
+      <ConfirmCard
+        title="Signed in"
+        body="You're signed in — taking you to your Memex…"
+      />
+    );
+  }
+
+  if (phase === 'expired') {
+    return (
+      <ConfirmCard
+        title="Sign-in link expired"
+        body="Your sign-in link expired — request a new one."
+        onBack={onBack}
+        backLabel="← Request a new link"
+      />
+    );
+  }
+
+  return (
+    <ConfirmCard
+      title="Check your email"
+      body={`We sent a sign-in link to ${email}. It expires in 15 minutes.`}
+      onBack={onBack}
+    />
+  );
+}
+
+function ConfirmCard({
+  title,
+  body,
+  onBack,
+  backLabel = '← Use a different email',
+}: {
+  title: string;
+  body: string;
+  onBack?: () => void;
+  backLabel?: string;
+}) {
   return (
     <div className="rounded-xl border border-edge bg-card p-6 space-y-4 text-center">
       <h2 className="text-base font-semibold text-heading">{title}</h2>
       <p className="text-sm text-secondary">{body}</p>
-      <button onClick={onBack} className="text-xs text-muted hover:text-secondary">
-        ← Use a different email
-      </button>
+      {onBack && (
+        <button onClick={onBack} className="text-xs text-muted hover:text-secondary">
+          {backLabel}
+        </button>
+      )}
     </div>
   );
 }

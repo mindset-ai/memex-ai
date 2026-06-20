@@ -344,8 +344,14 @@ export function RequireAuth({ children }: { children: ReactNode }) {
       }).then(() => undefined),
     [wrap, acceptSession],
   );
+  // spec-304 t-40 (ac-30): surface the issue response's `loginRequestId` to the
+  // LoginScreen so its "check your email" view can poll login-request status and
+  // complete the session IN PLACE when the link is verified elsewhere. The
+  // session, once polled verified, is adopted through the SAME `acceptSession`
+  // path that password/SSO/`/consume` login uses — see onMagicLinkVerified below.
   const handleMagicLink = useCallback(
-    (email: string) => wrap(async () => magicLinkRequestApi(email)).then(() => undefined),
+    (email: string): Promise<{ loginRequestId: string }> =>
+      wrap(async () => magicLinkRequestApi(email)) as Promise<{ loginRequestId: string }>,
     [wrap],
   );
   const handlePasswordReset = useCallback(
@@ -370,6 +376,7 @@ export function RequireAuth({ children }: { children: ReactNode }) {
       onSignup={handleSignup}
       onLogin={handleLogin}
       onMagicLink={handleMagicLink}
+      onMagicLinkVerified={acceptSession}
       onPasswordReset={handlePasswordReset}
       onGoogleCredential={handleGoogle}
     />
