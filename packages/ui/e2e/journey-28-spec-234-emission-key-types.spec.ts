@@ -10,13 +10,15 @@ import {
 import { seedOrgTenant, type SeededOrgTenant } from "./helpers/retained.js";
 import { emitAcEvents } from "./helpers/emit-ac.js";
 
-// Journey 28 (spec-234) — Settings → Emission Keys differentiates the two key types.
+// Journey 28 (spec-234) — the keys page differentiates the two key types.
 //
 // A permanent (CI) key and an ephemeral (agent) key are seeded into a tenant the dev user
 // is a member of, then the member-visible keys page (/<ns>/<mx>/keys) is asserted to render
-// them distinctly: the CI key marked "CI", the agent key marked "Agent" with its scoped
-// Spec and expiry. Ephemeral keys have no UI mint path (they come from the
-// provision_ac_emission MCP tool), so both are seeded through the test-only surface.
+// them distinctly. Per spec-309 (dec-5) the differentiation moved from a per-row "Type"
+// cell to the CI/Agent type toggle + type-aware columns: the CI key lives in the (default)
+// CI view, the agent key in the Agent view where its scoped Spec and expiry are their own
+// columns. Ephemeral keys have no UI mint path (they come from the provision_ac_emission
+// MCP tool), so both are seeded through the test-only surface.
 // Verifies ac-8 (differentiation) and ac-20 (expiry shown).
 
 const AC_8 = "mindset-prod/memex-building-itself/specs/spec-234/acs/ac-8";
@@ -59,29 +61,31 @@ test2.describe("spec-234 — emission key type differentiation", () => {
     );
   });
 
-  test2("the keys page marks a CI key and an Agent key distinctly, with expiry", async ({
+  test2("CI and Agent keys render in distinct views, the agent key showing its Spec + expiry", async ({
     page,
     seed,
   }) => {
     await page.goto(tenantPath(seed.tenant.namespaceSlug, seed.tenant.memexSlug, "/keys"));
 
-    const typeCells = page.getByTestId("emission-key-type");
-    await expect(typeCells.first()).toBeVisible({ timeout: 15_000 });
+    // The two types are surfaced as separately-counted toggle segments (CI 1 / Agent 1).
+    const ciSeg = page.getByRole("radio", { name: /CI/ });
+    const agentSeg = page.getByRole("radio", { name: /Agent/ });
+    await expect(ciSeg).toBeVisible({ timeout: 15_000 });
+    await expect(ciSeg).toHaveText(/1/);
+    await expect(agentSeg).toHaveText(/1/);
 
-    const permanent = page.locator(
-      '[data-testid="emission-key-type"][data-kind="permanent"]',
+    // Default CI view shows the CI key, not the agent key (ac-8 — distinguishable).
+    await expect(page.getByText("pythonia CI")).toBeVisible();
+    await expect(ciSeg).toHaveAttribute("aria-checked", "true");
+
+    // Switch to the Agent view: the agent key's scoped Spec and expiry are surfaced
+    // under their own columns (ac-20), no longer crammed into a Type cell.
+    await agentSeg.click();
+    await expect(page.getByTestId("emission-keys-table")).toHaveAttribute(
+      "data-view",
+      "ephemeral",
     );
-    const ephemeral = page.locator(
-      '[data-testid="emission-key-type"][data-kind="ephemeral"]',
-    );
-
-    await expect(permanent).toHaveCount(1);
-    await expect(ephemeral).toHaveCount(1);
-
-    // CI key is labelled CI; agent key is labelled Agent and shows its Spec + expiry.
-    await expect(permanent).toContainText("CI");
-    await expect(ephemeral).toContainText("Agent");
-    await expect(ephemeral).toContainText("spec-234");
-    await expect(ephemeral).toContainText(/expires/);
+    await expect(page.getByTestId("emission-key-spec")).toContainText("spec-234");
+    await expect(page.getByTestId("emission-key-expires")).toContainText(/in \d|expired/);
   });
 });

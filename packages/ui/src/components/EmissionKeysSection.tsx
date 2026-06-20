@@ -15,6 +15,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from './AuthContext';
 import { Alert } from './ui/Alert';
 import { Button, Input } from './ui';
+import { EmissionKeyTypeToggle, type KeyTypeFilter } from './EmissionKeyTypeToggle';
 import {
   listEmissionKeysApi,
   generateEmissionKeyApi,
@@ -69,6 +70,9 @@ export function EmissionKeysSection() {
   const [generated, setGenerated] = useState<GeneratedEmissionKey | null>(null);
   const [copied, setCopied] = useState(false);
   const [revoking, setRevoking] = useState<string | null>(null);
+  // spec-309 dec-1: the Active table is filtered to one key type at a time,
+  // defaulting to CI (permanent). Agent (ephemeral) keys live behind the toggle.
+  const [selectedType, setSelectedType] = useState<KeyTypeFilter>('permanent');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -138,9 +142,24 @@ export function EmissionKeysSection() {
   const active = keys.filter((k) => !k.revokedAt);
   const revoked = keys.filter((k) => k.revokedAt);
 
+  // spec-309: partition the active keys by type for the toggle (dec-2), its
+  // per-type counts (dec-3), and the filtered/type-aware table (dec-1, dec-5).
+  const activeByType: Record<KeyTypeFilter, EmissionKeySummary[]> = {
+    permanent: active.filter((k) => keyKind(k) === 'permanent'),
+    ephemeral: active.filter((k) => keyKind(k) === 'ephemeral'),
+  };
+  const counts: Record<KeyTypeFilter, number> = {
+    permanent: activeByType.permanent.length,
+    ephemeral: activeByType.ephemeral.length,
+  };
+  const visible = activeByType[selectedType];
+  const isAgentView = selectedType === 'ephemeral';
+
   return (
     <section id="emission-keys" aria-labelledby="emission-keys-heading" className="space-y-4">
-      <div>
+      {/* spec-308 dec-1: keep the explanatory prose at a readable measure even though
+          the page (and the table below) widens to max-w-5xl. */}
+      <div className="max-w-2xl" data-testid="emission-keys-intro">
         <h2 id="emission-keys-heading" className="text-xl font-semibold mb-2 text-heading">
           Emission Keys
         </h2>
@@ -226,69 +245,106 @@ export function EmissionKeysSection() {
         </div>
       )}
 
-      {active.length > 0 && (
+      {!loading && active.length > 0 && (
         <div>
-          <h3 className="text-sm font-medium uppercase tracking-wide mb-3 text-muted">
-            Active ({active.length})
-          </h3>
-          <div className="border rounded-lg overflow-hidden bg-overlay border-edge">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-edge">
-                  <th className="text-left px-4 py-2.5 font-medium text-secondary">Name</th>
-                  <th className="text-left px-4 py-2.5 font-medium text-secondary">Type</th>
-                  <th className="text-left px-4 py-2.5 font-medium text-secondary">Key</th>
-                  <th className="text-left px-4 py-2.5 font-medium text-secondary">Last used</th>
-                  <th className="text-left px-4 py-2.5 font-medium text-secondary">Created</th>
-                  <th className="px-4 py-2.5"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {active.map((k) => {
-                  const kind = keyKind(k);
-                  return (
-                  <tr key={k.id} className="border-b last:border-0 border-edge-subtle">
-                    <td className="px-4 py-2.5 text-primary">{k.name}</td>
-                    <td className="px-4 py-2.5" data-testid="emission-key-type" data-kind={kind}>
-                      {kind === 'ephemeral' ? (
-                        <span className="inline-flex items-center gap-1.5">
-                          <span className="px-1.5 py-0.5 rounded-sm text-xs font-medium bg-warning-subtle text-warning">
-                            Agent
-                          </span>
-                          <span className="text-xs text-muted">
-                            {k.scopedSpecHandle ? `${k.scopedSpecHandle} · ` : ''}
-                            expires {formatExpiry(k.expiresAt)}
-                          </span>
-                        </span>
-                      ) : (
-                        <span className="px-1.5 py-0.5 rounded-sm text-xs font-medium bg-info-subtle text-info">
-                          CI
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-4 py-2.5 font-mono text-xs text-muted">{k.prefix}…</td>
-                    <td className="px-4 py-2.5 text-secondary" title={formatAbsolute(k.lastUsedAt)}>
-                      {formatRelative(k.lastUsedAt)}
-                    </td>
-                    <td className="px-4 py-2.5 text-secondary" title={formatAbsolute(k.createdAt)}>
-                      {formatRelative(k.createdAt)}
-                    </td>
-                    <td className="px-4 py-2.5 text-right">
-                      <Button
-                        variant="danger"
-                        size="sm"
-                        onClick={() => handleRevoke(k.id)}
-                        disabled={revoking === k.id}
-                      >
-                        {revoking === k.id ? 'Revoking…' : 'Revoke'}
-                      </Button>
-                    </td>
-                  </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+          {/* spec-309 dec-2/dec-3: the type toggle sits under the Active title (CI
+              default), each segment showing its active-key count. */}
+          <div className="mb-3 space-y-2">
+            <h3 className="text-sm font-medium uppercase tracking-wide text-muted">
+              Active ({active.length})
+            </h3>
+            <EmissionKeyTypeToggle
+              value={selectedType}
+              onChange={setSelectedType}
+              counts={counts}
+            />
           </div>
+
+          {visible.length === 0 ? (
+            // spec-309 dec-4: per-type empty state — CI keeps the generate-oriented
+            // copy; Agent explains these keys appear automatically.
+            <div
+              className="border rounded-lg p-6 text-sm bg-surface border-edge text-secondary"
+              data-testid={`emission-keys-empty-${selectedType}`}
+            >
+              {isAgentView ? (
+                'No agent keys. These are created automatically when a coding agent runs a build against a Spec.'
+              ) : (
+                <>
+                  No CI keys yet. Generate one above, then set it as{' '}
+                  <code className="font-mono text-xs">MEMEX_EMIT_KEY</code> where your tests run.
+                </>
+              )}
+            </div>
+          ) : (
+            // spec-308 ac-2: whitespace-nowrap keeps every cell on a single line and
+            // overflow-x-auto lets the table scroll rather than crush.
+            // spec-309 dec-5: columns are type-aware — the Agent view promotes Spec +
+            // Expires to their own columns and drops the (now-redundant) Type column;
+            // the CI view shows only the columns that apply to permanent keys.
+            <div className="border rounded-lg overflow-hidden bg-overlay border-edge">
+              <div className="overflow-x-auto">
+                <table
+                  className="w-full text-sm whitespace-nowrap"
+                  data-testid="emission-keys-table"
+                  data-view={selectedType}
+                >
+                  <thead>
+                    <tr className="border-b border-edge">
+                      <th className="text-left px-4 py-2.5 font-medium text-secondary">Name</th>
+                      {isAgentView && (
+                        <th className="text-left px-4 py-2.5 font-medium text-secondary">Spec</th>
+                      )}
+                      <th className="text-left px-4 py-2.5 font-medium text-secondary">Key</th>
+                      {isAgentView && (
+                        <th className="text-left px-4 py-2.5 font-medium text-secondary">Expires</th>
+                      )}
+                      <th className="text-left px-4 py-2.5 font-medium text-secondary">Last used</th>
+                      <th className="text-left px-4 py-2.5 font-medium text-secondary">Created</th>
+                      <th className="px-4 py-2.5"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {visible.map((k) => (
+                      <tr key={k.id} className="border-b last:border-0 border-edge-subtle">
+                        <td className="px-4 py-2.5 text-primary">{k.name}</td>
+                        {isAgentView && (
+                          <td className="px-4 py-2.5 text-secondary" data-testid="emission-key-spec">
+                            {k.scopedSpecHandle ?? '—'}
+                          </td>
+                        )}
+                        <td className="px-4 py-2.5 font-mono text-xs text-muted">{k.prefix}…</td>
+                        {isAgentView && (
+                          <td
+                            className="px-4 py-2.5 text-secondary"
+                            data-testid="emission-key-expires"
+                          >
+                            {formatExpiry(k.expiresAt)}
+                          </td>
+                        )}
+                        <td className="px-4 py-2.5 text-secondary" title={formatAbsolute(k.lastUsedAt)}>
+                          {formatRelative(k.lastUsedAt)}
+                        </td>
+                        <td className="px-4 py-2.5 text-secondary" title={formatAbsolute(k.createdAt)}>
+                          {formatRelative(k.createdAt)}
+                        </td>
+                        <td className="px-4 py-2.5 text-right">
+                          <Button
+                            variant="danger"
+                            size="sm"
+                            onClick={() => handleRevoke(k.id)}
+                            disabled={revoking === k.id}
+                          >
+                            {revoking === k.id ? 'Revoking…' : 'Revoke'}
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
