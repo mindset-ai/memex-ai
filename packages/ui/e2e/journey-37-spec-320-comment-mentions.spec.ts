@@ -32,6 +32,20 @@ const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-320/acs
 const COLLEAGUE_EMAIL = "harriet.spec320@example.com";
 const COLLEAGUE_NAME = "Harriet";
 
+// A selectable passage for the inline-section-composer test (drag-select → toolbar →
+// composer), long enough that the first line is comfortably draggable.
+const PASSAGE =
+  "We cannot measure who is using our admin product, so mention a colleague right here to pull them into this discussion.";
+
+async function seedSpecWithMember(slug: string, purpose: string) {
+  const tenant = await seedOrgTenant({ slug });
+  await ensureUser(COLLEAGUE_EMAIL);
+  await setUserName(COLLEAGUE_EMAIL, COLLEAGUE_NAME);
+  await addOrgMember({ orgId: tenant.orgId, email: COLLEAGUE_EMAIL, role: "member" });
+  const spec = await seedSpec({ memexId: tenant.memexId, title: "Mentions Spec", purpose });
+  return { tenant, spec };
+}
+
 async function seedSpecWithOpenDecision(slug: string) {
   const tenant = await seedOrgTenant({ slug });
   // /org-add-member resolves an EXISTING user by email — create the colleague first.
@@ -148,6 +162,59 @@ test("typing @ opens the member typeahead; selecting a colleague mentions them (
       [AC(5), AC(1)],
       passed ? "pass" : "fail",
       `packages/ui/e2e/journey-37-spec-320-comment-mentions.spec.ts::typeahead`,
+      0,
+    );
+  }
+});
+
+test("the INLINE section comment composer offers the @-mention typeahead (ac-12, ac-5)", async ({
+  page,
+  resources,
+}) => {
+  let passed = false;
+  try {
+    const { tenant, spec } = await seedSpecWithMember(resources.slug("j37c"), PASSAGE);
+    await page.goto(tenantPath(tenant.namespaceSlug, tenant.memexSlug, `/specs/${spec.handle}`));
+    await expect(page.getByRole("heading", { level: 1, name: /Mentions Spec/ })).toBeVisible({
+      timeout: 15_000,
+    });
+    const body = page.getByTestId("section-body").first();
+    await expect(body).toContainText("mention a colleague", { timeout: 15_000 });
+
+    // Drag-select the first line to raise the add-comment toolbar (cf. journey-36).
+    const box = (await body.boundingBox())!;
+    await page.mouse.move(box.x + 6, box.y + 8);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width * 0.7, box.y + 8, { steps: 12 });
+    await page.mouse.up();
+    const selected = await page.evaluate(() => (window.getSelection()?.toString() ?? "").trim());
+    expect(selected.length, "a non-empty selection should have landed").toBeGreaterThan(0);
+
+    await page.getByTestId("selection-toolbar-comment").click();
+    const composer = page.getByTestId("comment-composer");
+    await expect(composer).toBeVisible({ timeout: 10_000 });
+
+    // The whole point of this fix: typing `@` in the INLINE composer opens the
+    // member typeahead (it previously did nothing here — only the discussion tray).
+    const textarea = composer.getByTestId("comment-composer-text");
+    await textarea.click();
+    await textarea.fill("Take a look @Harr");
+    const option = composer.getByTestId("mention-option").filter({ hasText: COLLEAGUE_NAME }).first();
+    await expect(option).toBeVisible({ timeout: 10_000 });
+    await option.click();
+
+    // Selection becomes a tracked mention chip; sending closes the composer.
+    await expect(composer.getByTestId("mention-chip").filter({ hasText: COLLEAGUE_NAME })).toBeVisible({
+      timeout: 5_000,
+    });
+    await composer.getByTestId("comment-composer-send").click();
+    await expect(composer).toBeHidden({ timeout: 10_000 });
+    passed = true;
+  } finally {
+    await emitAcEvents(
+      [AC(12), AC(5)],
+      passed ? "pass" : "fail",
+      `packages/ui/e2e/journey-37-spec-320-comment-mentions.spec.ts::inline-composer`,
       0,
     );
   }
