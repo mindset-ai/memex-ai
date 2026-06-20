@@ -15,7 +15,7 @@ import {
 import { seedComment } from "./helpers/retained.js";
 import { seedCommentMention } from "./helpers/seed.js";
 
-// Journey 38 — spec-315: the graduated Home content.
+// Journey 39 — spec-315: the graduated Home content.
 //
 //   ac-1 — Home shows a "where you're needed" card for a comment that @-mentions the
 //          user, linking into that spec.
@@ -47,7 +47,7 @@ test.afterEach(async ({}, testInfo) => {
   await emitAcEvents(
     [AC1, AC2, AC6, AC9],
     testInfo.status === "passed" ? "pass" : "fail",
-    `packages/ui/e2e/journey-38-spec-315-graduated-home.spec.ts::${testInfo.title}`,
+    `packages/ui/e2e/journey-39-spec-315-graduated-home.spec.ts::${testInfo.title}`,
     testInfo.duration,
   );
 });
