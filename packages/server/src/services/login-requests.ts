@@ -52,10 +52,18 @@ export async function createLoginRequest(
   );
 }
 
-// Reads the surrogate by its capability id. Returns null for an unknown id so the route
-// can 404. No mutation — a plain read.
+// Canonical UUID shape. Postgres' `uuid` column rejects anything else with a hard
+// "invalid input syntax for type uuid" error, so we must screen the id BEFORE it reaches
+// the query — otherwise a malformed :id on the unauthenticated status route would surface
+// as an uncaught 500 (alert noise + a fuzzing/enumeration signal) instead of a clean 404.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Reads the surrogate by its capability id. Returns null for an unknown OR malformed id so
+// the route can 404 uniformly. No mutation — a plain read.
 export async function getLoginRequestStatus(id: string): Promise<LoginRequest | null> {
-  if (typeof id !== "string" || !id) return null;
+  // A non-uuid id can never match a row we issued — treat it exactly like "not found"
+  // rather than letting the uuid cast throw.
+  if (typeof id !== "string" || !UUID_RE.test(id)) return null;
   const row = await db.query.loginRequests.findFirst({
     where: eq(loginRequests.id, id),
   });
