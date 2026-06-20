@@ -8,7 +8,7 @@
 // user authenticating with the same cookie does NOT re-point the binding, and the
 // cookie is cleared so they mint fresh.
 
-import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest";
+import { describe, it, expect, afterAll, beforeEach, vi } from "vitest";
 import { tagAc } from "@memex-ai-ac/vitest";
 import { eq, inArray } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
