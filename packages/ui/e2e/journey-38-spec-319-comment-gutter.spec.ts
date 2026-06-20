@@ -1,7 +1,7 @@
 import { test, expect, tenantPath, emitAcEvents } from "./helpers/index.js";
 import { seedOrgTenant, seedSpec, seedComment } from "./helpers/retained.js";
 
-// Journey 37 — spec-319 comment-gutter interaction (issues A + B).
+// Journey 38 — spec-319 comment-gutter interaction (issues A + B).
 //
 // A (ac-5): hovering a comment indicator must keep its preview open long enough
 //   to read — moving the cursor from the indicator onto the popover keeps it
@@ -24,7 +24,7 @@ test.afterEach(async ({}, testInfo) => {
   await emitAcEvents(
     [AC(5), AC(6), AC(7)],
     testInfo.status === "passed" ? "pass" : "fail",
-    `packages/ui/e2e/journey-37-spec-319-comment-gutter.spec.ts::${testInfo.title}`,
+    `packages/ui/e2e/journey-38-spec-319-comment-gutter.spec.ts::${testInfo.title}`,
     testInfo.duration,
   );
 });
