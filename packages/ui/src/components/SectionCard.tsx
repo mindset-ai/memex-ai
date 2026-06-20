@@ -152,6 +152,23 @@ export const SectionCard = memo(function SectionCard({
     setToolbar(null);
   };
 
+  // spec-319: the comment composer must dismiss when you click away from it (or
+  // start a new selection), like the toolbar and the pinned card do. Without
+  // this the draft popover lingers over the doc — you click elsewhere, even
+  // highlight another passage, and the original composer stays open. Clicks
+  // INSIDE the composer (typing, the send button) are spared; anything else
+  // closes it and discards the in-progress draft.
+  useEffect(() => {
+    if (!anchorDraft) return;
+    const onDown = (e: MouseEvent) => {
+      if ((e.target as HTMLElement)?.closest?.('[data-testid="comment-composer"]')) return;
+      setAnchorDraft(null);
+      setDraftText('');
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [anchorDraft]);
+
   // spec-100 (redesign): comments live as light indicators at the body's right
   // edge, each aligned to its anchored line. Hover an indicator to PEEK the
   // comment; click to PIN it so its actions become reachable. One open at a
