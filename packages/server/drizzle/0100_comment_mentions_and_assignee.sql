@@ -31,9 +31,17 @@ CREATE INDEX IF NOT EXISTS comment_mentions_comment_id_idx ON comment_mentions (
 
 -- Tenancy (std-7): comment_mentions carries a direct memex_id, so it takes the same
 -- memex_isolation RLS policy as the Phase-2 tenant tables (0081) — the app.memex_id GUC
--- must be set and match the row. Mirrors qa_report_views (0092).
+-- must be set and match the row.
+--
+-- Posture (spec-257 dec-1, migration 0093): RLS is ENABLED but NOT FORCED. FORCE only
+-- affects the table OWNER; on Cloud SQL the deploy/migration role is `postgres` (the
+-- owner, NOBYPASSRLS), so FORCE filtered every contextless migration/deploy query to
+-- zero rows (the 2026-06-10/11 outages). NO FORCE lets the owner bypass while the
+-- non-owner runtime role `memex_app` stays subject to RLS. The dynamic guard in
+-- spec-199-rls-schema.test.ts fails CI if any RLS table is FORCE'd. The explicit
+-- NO FORCE corrects any DB that ran an earlier FORCE'd revision of this migration.
 ALTER TABLE comment_mentions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE comment_mentions FORCE ROW LEVEL SECURITY;
+ALTER TABLE comment_mentions NO FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS comment_mentions_memex_isolation ON comment_mentions;
 CREATE POLICY comment_mentions_memex_isolation ON comment_mentions
   USING (
