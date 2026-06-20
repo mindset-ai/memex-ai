@@ -71,6 +71,7 @@ export type ChangeEntity =
   // mutate({silent:true}) so the wrapper invariant holds even though no SSE
   // consumer subscribes — the brand and the coverage scanner stay structural.
   | "auth_token"
+  | "login_request"
   | "cli_auth_request"
   | "invite_token"
   | "slack_user_cache"

@@ -1204,6 +1204,33 @@ export const authTokens = pgTable("auth_tokens", {
   ),
 ]);
 
+// Originating-session surrogate for the magic-link flow (spec-304 / embedded webview).
+// When a magic link is requested from an embedded webview, the link is clicked in an
+// EXTERNAL browser (different cookie jar), so the requesting webview never becomes
+// authenticated. This row is a polling handle: the requesting client holds `id` (a
+// high-entropy capability — it never sees the raw token) and polls the status endpoint.
+// When the link is consumed elsewhere, `verifiedAt` is stamped against the row whose
+// `tokenId` matches, and the next poll hands the requesting webview a session in-place.
+//
+// `id` yields a session once verified, so it is treated like a single-use token: short
+// TTL (mirrors the magic_link token), only honoured while genuinely verified AND unexpired.
+export const loginRequests = pgTable("login_requests", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  // The auth_tokens row this poll-handle is the surrogate for. CASCADE so token cleanup
+  // takes the surrogate with it.
+  tokenId: uuid("token_id")
+    .notNull()
+    .references(() => authTokens.id, { onDelete: "cascade" }),
+  email: text("email").notNull(),
+  // Stamped when the magic link is consumed (in the external browser). NULL until then.
+  verifiedAt: timestamp("verified_at", { withTimezone: true }),
+  // Mirrors the magic_link token TTL — the capability is dead once this passes.
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("login_requests_token_id_idx").on(table.tokenId),
+]);
+
 export const orgMemberships = pgTable(
   "org_memberships",
   {
@@ -2629,6 +2656,7 @@ export type DomainVerificationToken = InferSelectModel<typeof domainVerification
 export type NamespaceSlugReservation = InferSelectModel<typeof namespaceSlugReservations>;
 export type OrgConsentResponse = InferSelectModel<typeof orgConsentResponses>;
 export type AuthToken = InferSelectModel<typeof authTokens>;
+export type LoginRequest = InferSelectModel<typeof loginRequests>;
 export type McpToken = InferSelectModel<typeof mcpTokens>;
 export type MemexEmissionKey = InferSelectModel<typeof memexEmissionKeys>;
 export type MemexEmissionKeyInsert = InferInsertModel<typeof memexEmissionKeys>;
