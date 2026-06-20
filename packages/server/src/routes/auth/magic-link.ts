@@ -123,8 +123,8 @@ magicLink.post("/consume", async (c) => {
 // UNAUTHENTICATED — the originating client (e.g. an embedded webview) isn't logged in yet;
 // it holds only the loginRequestId from POST /magic-link and polls here. spec-304.
 //   unknown id                 → 404
-//   verified (and not expired) → 200 { verified: true, ...session } + memex_known cookie,
-//                                the SAME authenticated payload POST /consume returns, so
+//   verified (and not expired) → 200 { verified: true, ...session } + the known-hint cookie
+//                                (setKnownCookie), the SAME authenticated payload /consume returns, so
 //                                the webview becomes logged in in-place. Single-shot: the
 //                                surrogate is deleted after handing over the session, so the
 //                                capability can't be replayed for a second session.
