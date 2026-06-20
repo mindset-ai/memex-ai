@@ -108,7 +108,13 @@ describe("updateDocStatus — document/status_changed emission (spec-179 ac-5)",
     );
     const statusRows = rows.filter((r) => r.action === "status_changed");
     expect(statusRows).toHaveLength(1);
-    expect(statusRows[0].payload).toEqual({ from: "specify", to: "build" });
+    // spec-306: status_changed now also carries doc attribution alongside {from,to}.
+    expect(statusRows[0].payload).toEqual({
+      from: "specify",
+      to: "build",
+      doc_id: spec.id,
+      doc_type: "spec",
+    });
     expect(rows.filter((r) => r.action === "updated")).toHaveLength(1);
   });
 
