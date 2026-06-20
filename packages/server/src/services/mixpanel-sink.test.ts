@@ -7,6 +7,7 @@ import { MixpanelSink, toMixpanelEvent } from "./mixpanel-sink.js";
 
 const AC = "mindset-prod/memex-building-itself/specs/spec-244/acs";
 const AC297 = "mindset-prod/memex-building-itself/specs/spec-297/acs";
+const AC324 = "mindset-prod/memex-building-itself/specs/spec-324/acs";
 
 function row(over: Partial<UsageEvent> = {}): UsageEvent {
   return {
@@ -54,6 +55,44 @@ describe("toMixpanelEvent — mapping (ac-13)", () => {
     const ev2 = toMixpanelEvent(row({ props: { spec_index: 3 } }), "T");
     expect(ev2.properties.ip).toBe("0");
     expect(ev2.properties.spec_index).toBe(3);
+  });
+});
+
+describe("toMixpanelEvent — Simplified ID Merge / the identity stitch (spec-324 ac-7)", () => {
+  it("authenticated row: distinct_id + $user_id = actor, no $device_id when no visitor", () => {
+    tagAc(`${AC324}/ac-7`);
+    const ev = toMixpanelEvent(row({ actorUserId: "user-1", visitorId: null }), "T");
+    expect(ev.properties.distinct_id).toBe("user-1");
+    expect(ev.properties.$user_id).toBe("user-1");
+    expect(ev.properties.$device_id).toBeUndefined();
+  });
+
+  it("authenticated row carrying a visitor: emits BOTH $user_id and $device_id (the merge trigger)", () => {
+    tagAc(`${AC324}/ac-7`);
+    const ev = toMixpanelEvent(row({ actorUserId: "user-1", visitorId: "vis-9" }), "T");
+    // An event with both ids is what makes Mixpanel stitch the device's pre-auth
+    // events to the user under Simplified ID Merge.
+    expect(ev.properties.distinct_id).toBe("user-1");
+    expect(ev.properties.$user_id).toBe("user-1");
+    expect(ev.properties.$device_id).toBe("vis-9");
+  });
+
+  it("anonymous row (visitor only): distinct_id='$device:<visitor>' + $device_id, no $user_id", () => {
+    tagAc(`${AC324}/ac-7`);
+    const ev = toMixpanelEvent(row({ actorUserId: null, visitorId: "vis-9" }), "T");
+    // Pre-identity events land under the device until the merge resolves them —
+    // this is how a visitor seen BEFORE they had an identity is captured.
+    expect(ev.properties.$device_id).toBe("vis-9");
+    expect(ev.properties.distinct_id).toBe("$device:vis-9");
+    expect(ev.properties.$user_id).toBeUndefined();
+  });
+
+  it("neither id: emits none of distinct_id / $user_id / $device_id (nothing to attribute)", () => {
+    tagAc(`${AC324}/ac-7`);
+    const ev = toMixpanelEvent(row({ actorUserId: null, visitorId: null }), "T");
+    expect(ev.properties.distinct_id).toBeUndefined();
+    expect(ev.properties.$user_id).toBeUndefined();
+    expect(ev.properties.$device_id).toBeUndefined();
   });
 });
 

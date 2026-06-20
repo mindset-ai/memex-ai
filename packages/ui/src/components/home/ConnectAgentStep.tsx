@@ -42,7 +42,7 @@ const ASK_PROMPT = `Using Memex (you're connected now), answer me:
 
 "What is Memex, and what are its core principles? Use the get_information tool, then explain it simply — like I'm new."`;
 
-function Instructions({ tool, os }: { tool: Tool; os: Os }) {
+function Instructions({ tool, os, onCopy }: { tool: Tool; os: Os; onCopy?: () => void }) {
   if (tool === 'claude-code' || tool === 'claude-desktop') {
     return (
       <div className="space-y-2">
@@ -50,7 +50,7 @@ function Instructions({ tool, os }: { tool: Tool; os: Os }) {
           Paste this into your terminal. It opens your browser once to authorize this
           device, then writes the Memex MCP entry into your {tool === 'claude-desktop' ? 'Claude Desktop' : 'Claude'} config.
         </p>
-        <CodeBlock code={os === 'windows' ? psInstall : shInstall} />
+        <CodeBlock code={os === 'windows' ? psInstall : shInstall} onCopy={onCopy} />
         <p className="text-xs text-muted">One install, a long-lived token, no expiry.</p>
       </div>
     );
@@ -63,7 +63,7 @@ function Instructions({ tool, os }: { tool: Tool; os: Os }) {
           or <code className="rounded-sm bg-card-hover px-1 py-0.5 text-xs">~/.cursor/mcp.json</code> (everywhere),
           reload Cursor, then complete the OAuth sign-in:
         </p>
-        <CodeBlock code={cursorCfg} />
+        <CodeBlock code={cursorCfg} onCopy={onCopy} />
       </div>
     );
   }
@@ -75,7 +75,7 @@ function Instructions({ tool, os }: { tool: Tool; os: Os }) {
           <code className="rounded-sm bg-card-hover px-1 py-0.5 text-xs">MCP: List Servers → Start</code>, and complete
           the sign-in. VS Code / Copilot handle the OAuth callback automatically:
         </p>
-        <CodeBlock code={vscodeCfg} />
+        <CodeBlock code={vscodeCfg} onCopy={onCopy} />
       </div>
     );
   }
@@ -99,7 +99,7 @@ function Instructions({ tool, os }: { tool: Tool; os: Os }) {
           <li>Name it <strong>Memex</strong> and paste the URL below.</li>
           <li>Save, then complete the sign-in in the popup.</li>
         </ol>
-        <CodeBlock code={mcpUrl} />
+        <CodeBlock code={mcpUrl} onCopy={onCopy} />
       </div>
     );
   }
@@ -108,7 +108,7 @@ function Instructions({ tool, os }: { tool: Tool; os: Os }) {
       <p className="text-sm text-secondary">
         Add this URL in Windsurf or Zed&apos;s MCP config and sign in over OAuth — no token to paste:
       </p>
-      <CodeBlock code={mcpUrl} />
+      <CodeBlock code={mcpUrl} onCopy={onCopy} />
     </div>
   );
 }
@@ -117,12 +117,15 @@ export function ConnectAgentStep({
   preview = false,
   onComplete,
   onConnected,
+  onCtaClick,
 }: {
   preview?: boolean;
   onComplete?: () => void;
   // Called once when the connection is first detected — lets the parent "latch" so a
   // focus-refetch can't skip the reward state.
   onConnected?: () => void;
+  // spec-324 — record the step's primary CTA (copy the setup command) as home_canvas.cta_clicked.
+  onCtaClick?: (target: string) => void;
 } = {}) {
   const [os, setOs] = useState<Os>(detectOs);
   const [tool, setTool] = useState<Tool>('claude-code');
@@ -267,7 +270,7 @@ export function ConnectAgentStep({
             </div>
 
             <div className="mt-6" data-testid="connect-instructions">
-              <Instructions tool={tool} os={os} />
+              <Instructions tool={tool} os={os} onCopy={() => onCtaClick?.('copy_install')} />
             </div>
 
             <div className="mt-7 flex items-center gap-2 text-sm text-muted" data-testid="connect-waiting">

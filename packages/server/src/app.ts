@@ -27,6 +27,7 @@ import { qaReports } from "./routes/qa-reports.js";
 import { presenceRouter } from "./routes/presence.js";
 import { analytics } from "./routes/analytics.js";
 import { telemetryRouter } from "./routes/telemetry.js";
+import { anonTelemetryRouter } from "./routes/anon-telemetry.js";
 import { waitlist } from "./routes/waitlist.js";
 import { auth } from "./routes/auth.js";
 import { invitesAcceptRouter, invitesAdminRouter } from "./routes/invites.js";
@@ -343,6 +344,14 @@ app.route("/guide/v1", createGuidePublicRouter(upgradeWebSocket));
 // Caller-scoped + public surfaces — stay flat (no path prefix). These have no
 // per-memex semantics, so prefixing them would be noise.
 app.route("/api/waitlist", waitlist);
+// spec-324 — the ANONYMOUS-capable engagement ingress (the spec-244 retrofit).
+// Flat + tenant-less + PERMISSIVE publicSessionMiddleware so a PRE-AUTH visitor
+// (no user, no memex) is captured keyed on the consent-gated visitor_id — the
+// funnel head the tenant /telemetry can't see. Mounted ahead of the tenant
+// surfaces; `/api/telemetry` (2 segments) never collides with the 4-segment
+// `/api/:ns/:mx/telemetry`.
+app.use("/api/telemetry/*", publicSessionMiddleware);
+app.route("/api/telemetry", anonTelemetryRouter);
 app.route("/api/auth", auth);
 // /api/onboarding — spec-206: the user-level first-run greeting gate for the
 // Specky welcome (greet-eligibility read + once-per-user stamp). User-keyed, no

@@ -10,7 +10,14 @@ function firstName(name: string | null | undefined): string | null {
   return f || null;
 }
 
-export function WelcomeStep({ onNavigate }: { onNavigate: (stepId: string) => void }) {
+export function WelcomeStep({
+  onNavigate,
+  onCtaClick,
+}: {
+  onNavigate: (stepId: string) => void;
+  // spec-324 — record the step's primary CTA click (home_canvas.cta_clicked).
+  onCtaClick?: (target: string) => void;
+}) {
   const { user } = useAuth();
   const [showWhy, setShowWhy] = useState(false);
   const first = firstName(user?.name);
@@ -40,7 +47,10 @@ export function WelcomeStep({ onNavigate }: { onNavigate: (stepId: string) => vo
           <button
             type="button"
             data-testid="journey-cta-primary"
-            onClick={() => onNavigate('identity')}
+            onClick={() => {
+              onCtaClick?.('get_started');
+              onNavigate('identity');
+            }}
             className="inline-flex items-center gap-2 rounded-xl bg-[linear-gradient(96deg,#8b5cf6,#6366f1)] px-5 py-3 text-sm font-bold text-white shadow-lg transition hover:brightness-110"
           >
             Get started

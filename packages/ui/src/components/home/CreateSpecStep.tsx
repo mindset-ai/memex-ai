@@ -33,10 +33,13 @@ export function CreateSpecStep({
   preview = false,
   onComplete,
   onCreateInApp,
+  onCtaClick,
 }: {
   preview?: boolean;
   onComplete?: () => void;
   onCreateInApp?: () => void;
+  // spec-324 — record the step's primary CTA (copy the prompt) as home_canvas.cta_clicked.
+  onCtaClick?: (target: string) => void;
 } = {}) {
   const [source, setSource] = useState<Source>('sample');
   const [done, setDone] = useState(false);
@@ -115,7 +118,10 @@ export function CreateSpecStep({
         </div>
 
         <div className="mt-4" data-testid="create-spec-prompt">
-          <CodeBlock code={source === 'sample' ? SAMPLE_PROMPT : PRD_PROMPT} />
+          <CodeBlock
+            code={source === 'sample' ? SAMPLE_PROMPT : PRD_PROMPT}
+            onCopy={() => onCtaClick?.('copy_prompt')}
+          />
         </div>
 
         <div className="mt-7" data-testid="create-spec-status">

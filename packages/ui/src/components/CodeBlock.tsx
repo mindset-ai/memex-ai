@@ -4,13 +4,17 @@
 
 import { useState } from 'react';
 
-export function CopyButton({ text }: { text: string }) {
+// `onCopy` (optional) fires after a successful copy — used by the onboarding journey
+// steps to record a home_canvas.cta_clicked intent signal (spec-324). Default no-op,
+// so every other CodeBlock usage (Settings install, Genesis prompt, …) is unaffected.
+export function CopyButton({ text, onCopy }: { text: string; onCopy?: () => void }) {
   const [copied, setCopied] = useState(false);
   return (
     <button
       onClick={() => {
         navigator.clipboard.writeText(text).then(() => {
           setCopied(true);
+          onCopy?.();
           setTimeout(() => setCopied(false), 2000);
         });
       }}
@@ -21,10 +25,10 @@ export function CopyButton({ text }: { text: string }) {
   );
 }
 
-export function CodeBlock({ code }: { code: string }) {
+export function CodeBlock({ code, onCopy }: { code: string; onCopy?: () => void }) {
   return (
     <div className="relative group">
-      <CopyButton text={code} />
+      <CopyButton text={code} onCopy={onCopy} />
       <pre className="border rounded-lg p-4 overflow-x-auto text-sm leading-relaxed bg-surface border-edge">
         <code className="text-primary">{code}</code>
       </pre>

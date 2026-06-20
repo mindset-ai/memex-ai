@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { sanitizeUsageProps, type RegisteredEventName } from '@memex/shared';
-import { tenantBase, fetchWithRetry } from '../api/http';
+import { BASE_URL, tenantBase, fetchWithRetry } from '../api/http';
 import { hasConsent } from '../lib/visitorConsent';
 
 // isDoNotTrack moved to the consent module (single source of truth, no import
@@ -84,6 +84,29 @@ export function useTelemetry(): UseTelemetry {
   }, []);
 
   return { track, optedOut, setOptOut };
+}
+
+/**
+ * Fire a registered event WITHOUT a tenant — the PRE-AUTH path (spec-324). Posts to
+ * the flat `/api/telemetry` ingress, which keys the event on the consent-gated
+ * visitor_id cookie (or the session, if one happens to exist). Use this on pre-auth
+ * surfaces (the signup / login screen) where `tenantBase()` is null and `track()`
+ * would no-op — it is how the funnel HEAD (signup.form_viewed) is captured, so a
+ * visitor seen before they have an identity can later be stitched to their user.
+ *
+ * Same privacy posture as track(): no-op under no-consent / Do-Not-Track / opt-out
+ * (never sent), and the server additionally no-ops when there is no visitor_id and
+ * no session — so a non-consenting visitor sends and stores nothing. Advisory.
+ */
+export function trackAnonymous(name: RegisteredEventName, props?: Record<string, unknown>): void {
+  if (!telemetryEnabled()) return;
+  void fetchWithRetry(`${BASE_URL}/telemetry`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, props: sanitizeUsageProps(props) }),
+  }).catch(() => {
+    // Advisory — telemetry must never disrupt the user's flow.
+  });
 }
 
 /**

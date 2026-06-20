@@ -137,6 +137,20 @@ export function HomeCanvas() {
     [activeStepId, preview, navigate, specsPath],
   );
 
+  // spec-324 — record a custom-step's primary CTA click as home_canvas.cta_clicked.
+  // The generic JourneyStepShell steps already record via handleCta; this gives the
+  // bespoke step components (identity, connect-agent, create-spec, …) the same intent
+  // signal. Same gating as the step_shown / handleCta measurement: real milestone
+  // steps only, never operator preview.
+  const trackStepCta = useCallback(
+    (target: string) => {
+      if (displayStepId && !preview && activeJourney().milestoneStepIds.includes(displayStepId)) {
+        postJourneyEventApi(displayStepId, 'cta', target);
+      }
+    },
+    [displayStepId, preview],
+  );
+
   const journey = activeJourney();
   const view = displayStepId ? resolveStepView(displayStepId) : null;
   // Per-journey, attainment-framed, and never on the cold first step.
@@ -218,12 +232,12 @@ export function HomeCanvas() {
   function renderJourneyStep() {
     return displayStepId === 'welcome' ? (
         // spec-305 — the welcome card; "Why Memex?" grows it in place into a short lesson.
-        <WelcomeStep onNavigate={(t) => setViewOverride(t)} />
+        <WelcomeStep onNavigate={(t) => setViewOverride(t)} onCtaClick={trackStepCta} />
       ) : displayStepId === 'identity' ? (
         // spec-305 dec-5: the identity step is a custom form (name + role triangle),
         // not a generic CTA card — it persists the captured profile and clears
         // needsOnboarding, after which the journey self-advances.
-        <IdentityStep preview={preview} onComplete={load} />
+        <IdentityStep preview={preview} onComplete={load} onCtaClick={trackStepCta} />
       ) : displayStepId === 'connect-agent' ? (
         // spec-305 dec-7: the rich connect-MCP card. On connect it flips to a reward
         // state ("your agent is now Memex-native") which we LINGER on (so a focus-
@@ -231,6 +245,7 @@ export function HomeCanvas() {
         <ConnectAgentStep
           preview={preview}
           onConnected={() => setLingerStep('connect-agent')}
+          onCtaClick={trackStepCta}
           onComplete={() => {
             setLingerStep(null);
             load();
@@ -242,6 +257,7 @@ export function HomeCanvas() {
         <CreateSpecStep
           preview={preview}
           onComplete={load}
+          onCtaClick={trackStepCta}
           onCreateInApp={() => {
             // Pure navigation to the New Spec modal (?new=1) — writes nothing, so like any
             // 'navigate' CTA it works even in operator preview. Keeps the link from being a
@@ -251,10 +267,10 @@ export function HomeCanvas() {
         />
       ) : displayStepId === 'resolve-decision' || displayStepId === 'add-ac' ? (
         // spec-305 dec-8: paste-a-prompt cards; advance on the step's milestone.
-        <AgentPromptStep stepId={displayStepId} preview={preview} onComplete={load} />
+        <AgentPromptStep stepId={displayStepId} preview={preview} onComplete={load} onCtaClick={trackStepCta} />
       ) : displayStepId === 'see-green' ? (
         // spec-305 dec-8: the aha — watch an AC go green from a real test (acVerified).
-        <SeeGreenStep preview={preview} onComplete={load} />
+        <SeeGreenStep preview={preview} onComplete={load} onCtaClick={trackStepCta} />
       ) : view ? (
         <JourneyStepShell view={view} userName={firstName(user?.name)} onCta={handleCta} />
       ) : (
