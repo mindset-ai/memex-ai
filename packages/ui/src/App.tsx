@@ -28,8 +28,6 @@ import { UpgradePlanSelect } from './pages/upgrade/UpgradePlanSelect';
 import { UpgradeSeats } from './pages/upgrade/UpgradeSeats';
 import { UpgradePayment } from './pages/upgrade/UpgradePayment';
 import { UpgradeConfirmation } from './pages/upgrade/UpgradeConfirmation';
-import { SelfHostedDownload } from './pages/SelfHostedDownload';
-import { SelfHostedContact } from './pages/SelfHostedContact';
 import { VerifyDomain } from './pages/VerifyDomain';
 import { SharedDocument } from './pages/SharedDocument';
 import { Backstage } from './pages/Backstage';
@@ -382,9 +380,6 @@ export function PostLoginRouter() {
       <Route path="/upgrade/confirmation" element={<FlatShell><UpgradeConfirmation /></FlatShell>} />
       <Route path="/upgrade/:plan" element={<FlatShell><UpgradeSeats /></FlatShell>} />
       <Route path="/upgrade/:plan/payment" element={<FlatShell><UpgradePayment /></FlatShell>} />
-      {/* spec-171 t-15/t-16: self-hosted download + contact pages */}
-      <Route path="/enterprise/self-hosted/download" element={<FlatShell><SelfHostedDownload /></FlatShell>} />
-      <Route path="/enterprise/self-hosted/contact" element={<FlatShell><SelfHostedContact /></FlatShell>} />
       <Route path="/account" element={<Navigate to="/org" replace />} />
       {/* spec-303 — Home Canvas: user-level, flat (not tenant-scoped). Gated on
           the server-driven hide list (feature: 'home') so the surface can be

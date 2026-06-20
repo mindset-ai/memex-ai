@@ -32,21 +32,6 @@ const PLANS = [
     ctaLabel: 'Upgrade to Enterprise',
     ctaHref: '/upgrade/enterprise',
   },
-  {
-    id: 'self-hosted-enterprise' as const,
-    name: 'Self-Hosted Enterprise',
-    amount: 30,
-    cadence: 'per seat, per month',
-    audience: 'For organisations who run their own infrastructure and LLM keys.',
-    features: [
-      'All governance features',
-      'You run the infrastructure',
-      'Bring your own LLM keys',
-      'SSO & priority support',
-    ],
-    ctaLabel: 'Set up Self-Hosted',
-    ctaHref: '/upgrade/self-hosted',
-  },
 ] as const;
 
 type PlanId = (typeof PLANS)[number]['id'];
@@ -54,7 +39,6 @@ type PlanId = (typeof PLANS)[number]['id'];
 function tierToPlanId(tier: PlanTier): PlanId | null {
   if (tier === 'premium') return 'premium';
   if (tier === 'enterprise') return 'enterprise';
-  if (tier === 'self-hosted-enterprise') return 'self-hosted-enterprise';
   return null;
 }
 
