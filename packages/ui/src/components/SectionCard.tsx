@@ -156,12 +156,22 @@ export const SectionCard = memo(function SectionCard({
   // start a new selection), like the toolbar and the pinned card do. Without
   // this the draft popover lingers over the doc — you click elsewhere, even
   // highlight another passage, and the original composer stays open. Clicks
-  // INSIDE the composer (typing, the send button) are spared; anything else
-  // closes it and discards the in-progress draft.
+  // INSIDE the composer (typing, the send button, picking an @-mention) are
+  // spared; anything else closes it and discards the in-progress draft.
+  //
+  // Containment is tested via composedPath(), NOT target.closest(): the mention
+  // typeahead selects on mousedown and React flushes that discrete update
+  // synchronously, so the clicked option is already DETACHED from the DOM by the
+  // time this document-level listener runs — closest() on a detached node returns
+  // null and would wrongly close the composer (spec-320 regression). composedPath
+  // is snapshotted at dispatch, so it still contains the composer.
   useEffect(() => {
     if (!anchorDraft) return;
     const onDown = (e: MouseEvent) => {
-      if ((e.target as HTMLElement)?.closest?.('[data-testid="comment-composer"]')) return;
+      const insideComposer = e
+        .composedPath()
+        .some((n) => n instanceof HTMLElement && n.dataset.testid === 'comment-composer');
+      if (insideComposer) return;
       setAnchorDraft(null);
       setDraftText('');
     };
