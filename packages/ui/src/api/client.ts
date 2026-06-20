@@ -1118,7 +1118,16 @@ export async function resendVerificationApi(token: string | null): Promise<void>
   }
 }
 
-export async function magicLinkRequestApi(email: string): Promise<void> {
+/**
+ * spec-304 t-40 (ac-30): the issue response now carries a high-entropy
+ * `loginRequestId` (a `login_requests` surrogate row, TTL matching the
+ * magic-link token). The originating tab/webview keeps this id and polls
+ * `magicLinkStatusApi` so the session can complete IN PLACE once the link is
+ * verified in a different browser/context — no click-back required. The id is
+ * NOT the raw token; it only names the surrogate to poll. Callers that ignore
+ * the return value keep working unchanged.
+ */
+export async function magicLinkRequestApi(email: string): Promise<{ loginRequestId: string }> {
   const res = await fetchWithRetry(`${BASE_URL}/auth/magic-link`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -1132,6 +1141,32 @@ export async function magicLinkRequestApi(email: string): Promise<void> {
       body.message ?? body.error ?? `Magic link request failed: ${res.status}`,
     );
   }
+  return res.json();
+}
+
+/**
+ * spec-304 t-40 (ac-30): the originating-session poll target. Unauthenticated
+ * GET on the surrogate named by `magicLinkRequestApi`'s `loginRequestId`. The
+ * server returns one of:
+ *   - pending  → `{ verified: false, expired: false }`
+ *   - expired  → `{ verified: false, expired: true }`
+ *   - verified → `{ verified: true, ...SessionPayload }` (the same payload
+ *                `/consume` returns) — SINGLE-SHOT: the row is deleted on first
+ *                verified read, so a second poll 404s. Callers MUST stop polling
+ *                and hand the session to `acceptSession` in the same tick.
+ *   - unknown  → 404 `{ error: 'Unknown login request' }` → throws NotFoundError.
+ * Routed through `fetchJson` so 404 maps to `NotFoundError`; the poll loop
+ * treats that (and `expired: true`) as a dead surrogate and stops.
+ */
+export type MagicLinkStatus =
+  | { verified: false; expired: boolean }
+  | ({ verified: true } & SessionPayload);
+
+export async function magicLinkStatusApi(loginRequestId: string): Promise<MagicLinkStatus> {
+  return fetchJsonRaw<MagicLinkStatus>(
+    fetchWithRetry,
+    `${BASE_URL}/auth/magic-link/login-requests/${encodeURIComponent(loginRequestId)}/status`,
+  );
 }
 
 export async function magicLinkConsumeApi(token: string): Promise<SessionPayload> {
