@@ -2966,72 +2966,9 @@ export const whatsNewSkips = pgTable(
 export type WhatsNewSkip = InferSelectModel<typeof whatsNewSkips>;
 export type WhatsNewSkipInsert = InferInsertModel<typeof whatsNewSkips>;
 
-// ── spec-171 t-2: enterprise schema ──────────────────────────────────────────
-
-// Encrypted LLM API keys per org per provider. Self-hosted Enterprise requires
-// these; hosted Enterprise may optionally provide them. encrypted_key is
-// AES-256-GCM ciphertext — decrypt via ENCRYPTION_KEY env var (std-9).
-export const orgLlmKeys = pgTable(
-  "org_llm_keys",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    orgId: uuid("org_id").notNull().references(() => orgs.id, { onDelete: "cascade" }),
-    provider: text("provider").notNull(),
-    encryptedKey: text("encrypted_key").notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [
-    index("org_llm_keys_org_id_idx").on(table.orgId),
-    unique("org_llm_keys_org_id_provider_unique").on(table.orgId, table.provider),
-    check("org_llm_keys_provider_valid", sql`${table.provider} IN ('openai', 'anthropic')`),
-  ]
-);
-
-export type OrgLlmKey = InferSelectModel<typeof orgLlmKeys>;
-export type OrgLlmKeyInsert = InferInsertModel<typeof orgLlmKeys>;
-
-// JWT license keys for self-hosted deployments. org_id is nullable — trial keys
-// are issued before a commercial org relationship exists (dec-31).
-export const selfHostedLicenses = pgTable(
-  "self_hosted_licenses",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    orgId: uuid("org_id").references(() => orgs.id, { onDelete: "set null" }),
-    licenseKey: text("license_key").notNull(),
-    seatsPurchased: integer("seats_purchased").notNull(),
-    validUntil: timestamp("valid_until", { withTimezone: true }).notNull(),
-    tier: text("tier").notNull(),
-    issuedAt: timestamp("issued_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [
-    unique("self_hosted_licenses_license_key_unique").on(table.licenseKey),
-    index("self_hosted_licenses_org_id_idx").on(table.orgId),
-    check("self_hosted_licenses_tier_valid", sql`${table.tier} IN ('trial', 'commercial')`),
-  ]
-);
-
-export type SelfHostedLicense = InferSelectModel<typeof selfHostedLicenses>;
-export type SelfHostedLicenseInsert = InferInsertModel<typeof selfHostedLicenses>;
-
-// Daily phone-home records from self-hosted instances (dec-23). Composite index
-// DESC on checked_in_at supports fast "latest checkin per license" queries.
-export const licenseCheckins = pgTable(
-  "license_checkins",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    licenseId: uuid("license_id").notNull().references(() => selfHostedLicenses.id, { onDelete: "cascade" }),
-    reportedSeatCount: integer("reported_seat_count").notNull(),
-    instanceFingerprint: text("instance_fingerprint").notNull(),
-    checkedInAt: timestamp("checked_in_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [
-    index("license_checkins_license_id_checked_in_at_idx").on(table.licenseId, table.checkedInAt),
-  ]
-);
-
-export type LicenseCheckin = InferSelectModel<typeof licenseCheckins>;
-export type LicenseCheckinInsert = InferInsertModel<typeof licenseCheckins>;
+// ── spec-171 t-2: enterprise schema (hosted-only) ────────────────────────────
+// Self-hosted tables (org_llm_keys, self_hosted_licenses, license_checkins) are
+// deferred to spec-323.
 
 // Idempotency log for Stripe webhook handlers. Unique on event_id prevents
 // double-processing on webhook retries (dec-8).
