@@ -60,6 +60,14 @@ describe("login-requests service", () => {
     expect(await getLoginRequestStatus("")).toBeNull();
   });
 
+  it("returns null (not a thrown uuid-cast error) for a malformed id", async () => {
+    // Regression: the status route is unauthenticated, so a non-uuid :id must resolve to a
+    // clean 404 — never an uncaught Postgres "invalid input syntax for type uuid" → 500.
+    expect(await getLoginRequestStatus("not-a-uuid")).toBeNull();
+    expect(await getLoginRequestStatus("12345")).toBeNull();
+    expect(await getLoginRequestStatus("'; DROP TABLE login_requests;--")).toBeNull();
+  });
+
   it("markLoginRequestVerified stamps the row whose tokenId matches", async () => {
     const { loginRequestId, tokenId } = await seedTokenAndRequest("verify");
 
