@@ -39,6 +39,7 @@ import {
   expect,
   tenantPath,
   bareUrl,
+  gotoSpecsBoard,
   switchToEditing,
   DEV_EMAIL,
   getPersonalMemexByEmail,
@@ -279,12 +280,10 @@ test(
     // proof onboarding completed AS the new user, on the new flow.
     await expect(page.getByTestId("journey-step-connect-agent")).toBeVisible({ timeout: 10_000 });
 
-    // The new user can now reach their personal-memex Specs board (needsOnboarding
-    // cleared) — as the NEW user (sidebar identity shows `email`), never dev@memex.ai.
-    await page.goto(bareUrl("/"));
-    await expect(page.getByRole("heading", { name: "Specs" })).toBeVisible({
-      timeout: 15_000,
-    });
+    // The new user can now reach their personal-memex Specs board (the onboarding wall
+    // is gone, spec-312) — as the NEW user (sidebar identity shows `email`), never
+    // dev@memex.ai. `/` lands on /home now, so navigate to the Specs board explicitly.
+    await gotoSpecsBoard(page, email);
     await expect(page.getByText(email)).toBeVisible();
     await expect(page.getByText(DEV_EMAIL)).toHaveCount(0);
   }

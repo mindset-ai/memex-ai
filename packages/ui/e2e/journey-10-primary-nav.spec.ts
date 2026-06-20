@@ -1,4 +1,4 @@
-import { test, expect, bareUrl } from "./helpers/index.js";
+import { test, expect, gotoSpecsBoard } from "./helpers/index.js";
 
 // Journey 10 — primary navigation (re-based onto the post-0038 product, spec-172 t-5).
 //
@@ -10,7 +10,7 @@ import { test, expect, bareUrl } from "./helpers/index.js";
 // (PageHeader). We assert the always-present three are present and route.
 
 test("primary nav routes to the always-present list pages", async ({ page }) => {
-  await page.goto(bareUrl("/"));
+  await gotoSpecsBoard(page);
 
   // Bare-domain landing auto-resolves to the dev user's personal-memex Specs
   // board. Wait for the Specs heading before clicking around.
@@ -58,7 +58,7 @@ test("primary nav is hidden when viewing a single Spec", async ({
   });
   resources.docIds.push(docId);
 
-  await page.goto(bareUrl("/"));
+  await gotoSpecsBoard(page);
   await expect(page.getByRole("heading", { name: "Specs" })).toBeVisible({
     timeout: 15_000,
   });

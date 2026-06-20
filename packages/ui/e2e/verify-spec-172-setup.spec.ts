@@ -30,20 +30,19 @@ test.afterEach(async ({}, testInfo) => {
   );
 });
 
-test("globalSetup leaves dev@memex.ai named so a cold-DB journey lands on Specs, not Onboarding", async ({
+test("globalSetup leaves dev@memex.ai named so a cold-DB journey lands on Home, not Onboarding", async ({
   page,
 }) => {
   // globalSetup provisioned the personal memex; it must resolve.
   const memex = await getPersonalMemexByEmail(DEV_EMAIL);
   expect(memex, "globalSetup should have provisioned dev@memex.ai's personal memex").not.toBeNull();
 
-  // Bare origin → PostLoginRouter resolves the named dev user into its personal
-  // memex's Specs board. A nameless user would render the Onboarding profile
-  // screen instead; assert the Specs heading appears and the onboarding name
-  // prompt does not.
-  // waitUntil: "commit" — PostLoginRouter may client-redirect mid-load.
+  // Bare origin → spec-312: every authenticated user lands on /home (the universal
+  // landing), where the Home Canvas renders. The point of ac-10 holds: a cold-DB
+  // journey for the named dev user is NOT dropped into a blocking onboarding screen —
+  // it reaches the real app surface (now /home, the Home Canvas) directly.
+  // waitUntil: "commit" — RootRedirect may client-redirect mid-load.
   await page.goto("/", { waitUntil: "commit" });
-  await expect(page.getByRole("heading", { name: "Specs" })).toBeVisible({
-    timeout: 15_000,
-  });
+  await expect(page).toHaveURL(/\/home(\?|#|$)/, { timeout: 15_000 });
+  await expect(page.getByTestId("home-canvas")).toBeVisible({ timeout: 15_000 });
 });

@@ -12,6 +12,9 @@ import {
   type JourneyStateResponse,
 } from '../api/journey';
 import { resolveStepView, activeJourney } from '../journeys/registry';
+import { isJourneyGraduated } from '../journeys/graduation';
+import { YourJourneys, type PearlJourney } from '../components/home/YourJourneys';
+import { HomeValue } from '../components/home/HomeValue';
 import { JourneyStepShell } from '../components/home/JourneyStepShell';
 import { IdentityStep } from '../components/home/IdentityStep';
 import { ConnectAgentStep } from '../components/home/ConnectAgentStep';
@@ -144,6 +147,33 @@ export function HomeCanvas() {
     displayStepId !== 'welcome' &&
     journey.milestoneStepIds.includes(displayStepId);
 
+  // spec-312 dec-2: Home is LAYERED. The journey is a layer that recedes as the user
+  // progresses — expanded while not graduated, collapsed (to pearls) once graduated.
+  // `graduated` is consumed only through this seam (isJourneyGraduated) and never
+  // decides whether the home-of-value content renders; that is always the page.
+  const graduated = isJourneyGraduated(state);
+  // Collapse defaults to the graduated signal but is user-overridable — collapsing is
+  // escapable (the pearls re-open it) and never erases the journey (dec-4).
+  const [collapsedOverride, setCollapsedOverride] = useState<boolean | null>(null);
+  const collapsed = collapsedOverride ?? graduated;
+
+  // spec-312 dec-4: one pearl row per journey, derived from real activity (state.steps).
+  // Built for N journeys; v0 ships with the single active journey.
+  const pearlJourneys: PearlJourney[] = useMemo(() => {
+    if (!state?.steps?.length) return [];
+    return [
+      {
+        id: journey.id,
+        title: 'Getting started',
+        steps: state.steps.map((s) => ({
+          id: s.id,
+          label: journey.views[s.id]?.mapLabel ?? s.id,
+          attained: s.attained,
+        })),
+      },
+    ];
+  }, [state, journey]);
+
   return (
     <div className="min-h-full" data-testid="home-canvas">
       {state?.canPreview && (
@@ -152,10 +182,38 @@ export function HomeCanvas() {
           onPick={(id) => setSearchParams(id ? { preview: id } : {})}
         />
       )}
-      {showMap && state?.steps && (
-        <ProgressMap steps={state.steps} currentStepId={displayStepId} views={journey.views} />
+
+      {/* dec-4: the persistent, escapable-but-never-erasable re-entry point. */}
+      <YourJourneys journeys={pearlJourneys} onOpen={() => setCollapsedOverride(false)} />
+
+      {/* dec-2: the journey LAYER — shown expanded while not collapsed. Collapsing it
+          (or being graduated) leaves the pearls above and the home-of-value below. */}
+      {!collapsed && (
+        <section data-testid="journey-layer" className="relative">
+          <div className="mx-auto flex max-w-3xl justify-end px-4 pt-4">
+            <button
+              type="button"
+              data-testid="journey-collapse"
+              onClick={() => setCollapsedOverride(true)}
+              className="text-xs font-medium text-muted hover:text-secondary"
+            >
+              Collapse
+            </button>
+          </div>
+          {showMap && state?.steps && (
+            <ProgressMap steps={state.steps} currentStepId={displayStepId} views={journey.views} />
+          )}
+          {renderJourneyStep()}
+        </section>
       )}
-      {displayStepId === 'welcome' ? (
+
+      {/* dec-2: the home-of-value surface is ALWAYS the page, under the journey layer. */}
+      <HomeValue specsPath={specsPath} />
+    </div>
+  );
+
+  function renderJourneyStep() {
+    return displayStepId === 'welcome' ? (
         // spec-305 — the welcome card; "Why Memex?" grows it in place into a short lesson.
         <WelcomeStep onNavigate={(t) => setViewOverride(t)} />
       ) : displayStepId === 'identity' ? (
@@ -198,9 +256,8 @@ export function HomeCanvas() {
         <JourneyStepShell view={view} userName={firstName(user?.name)} onCta={handleCta} />
       ) : (
         <div className="flex min-h-[70vh] items-center justify-center text-muted">Loading…</div>
-      )}
-    </div>
-  );
+      );
+  }
 }
 
 // Attainment-framed progress map (dec-1, per-journey). Shows every milestone step

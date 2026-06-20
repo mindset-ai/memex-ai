@@ -6,6 +6,7 @@ export {
   expect,
   tenantPath,
   bareUrl,
+  gotoSpecsBoard,
   switchToEditing,
   sendChat,
   DEV_EMAIL,

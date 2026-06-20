@@ -1,4 +1,4 @@
-import { test, expect, bareUrl, emitAcEvents } from "./helpers/index.js";
+import { test, expect, gotoSpecsBoard, emitAcEvents } from "./helpers/index.js";
 import { seedWhatsNewEntry, clearWhatsNewEntries } from "./helpers/seed.js";
 
 // Journey 22 — What's New ribbon → popup → dismiss (spec-200, std-28 gate).
@@ -55,7 +55,7 @@ test.afterEach(async ({}, testInfo) => {
 test("ribbon slides up → popup shows the entry; only its × dismisses it, persisting across reload (ac-2 / ac-3)", async ({
   page,
 }) => {
-  await page.goto(bareUrl("/"));
+  await gotoSpecsBoard(page);
   // Bare-domain landing auto-resolves to the dev user's personal-memex Specs board.
   await expect(page.getByRole("heading", { name: "Specs" })).toBeVisible({ timeout: 15_000 });
 

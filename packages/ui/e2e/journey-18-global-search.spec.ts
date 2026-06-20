@@ -1,4 +1,4 @@
-import { test, expect, bareUrl } from "./helpers/index.js";
+import { test, expect, bareUrl, gotoSpecsBoard } from "./helpers/index.js";
 import {
   getPersonalMemexByEmail,
   ensureUser,
@@ -107,7 +107,7 @@ test.describe("Journey 18 — global ⌘K search palette", () => {
   test("⌘K opens the palette, a typed Spec title surfaces a result, Enter navigates, Esc restores focus", async ({
     page,
   }) => {
-    await page.goto(bareUrl("/"));
+    await gotoSpecsBoard(page);
     // Land on the dev tenant's Specs board before touching the palette so we're
     // demonstrably on an authenticated tenant page (ac-16 reachable-from-anywhere).
     await expect(page.getByRole("heading", { name: "Specs" })).toBeVisible({
@@ -207,7 +207,7 @@ test.describe("Journey 18 — global ⌘K search palette", () => {
   test("typing the bare Spec number surfaces it under 'Jump to' and navigates (spec-191 ac-1)", async ({
     page,
   }) => {
-    await page.goto(bareUrl("/"));
+    await gotoSpecsBoard(page);
     await expect(page.getByRole("heading", { name: "Specs" })).toBeVisible({
       timeout: 15_000,
     });
@@ -253,7 +253,7 @@ test.describe("Journey 18 — global ⌘K search palette", () => {
   test("clicking the Specs-board search trigger opens the palette (spec-192 ac-8)", async ({
     page,
   }) => {
-    await page.goto(bareUrl("/"));
+    await gotoSpecsBoard(page);
     await expect(page.getByRole("heading", { name: "Specs" })).toBeVisible({
       timeout: 15_000,
     });

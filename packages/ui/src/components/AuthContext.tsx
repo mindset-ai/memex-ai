@@ -17,6 +17,7 @@ import {
   type SessionPayload,
 } from '../api/client';
 import { LoginScreen } from './LoginScreen';
+import { isFeatureHidden } from '../utils/featureFlags';
 import { buildBareDomainUrl } from '../utils/tenantUrl';
 import { useUserChangeStreamWithToken } from '../hooks/useUserChangeStream';
 
@@ -157,12 +158,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     // t-23 of doc-15: same-origin path-based routing means we no longer need a
     // cross-subdomain handoff. After a successful login we route the user to
-    // their default tenant's /specs page. The default is the personal
-    // membership (every signed-in user has exactly one).
+    // /home — the universal landing (spec-312 dec-1) — falling back to the
+    // default-tenant Specs board only when 'home' is hidden per-env.
     //
     // If the URL carries a `?returnTo=…` (legacy SSO bounce parameter), we
-    // honour it when it points at our own host. Otherwise pick the personal
-    // membership, falling back to the first available membership.
+    // honour it when it points at our own host.
     if (s.token && typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
       const raw = params.get('returnTo');
@@ -176,7 +176,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      const landing = computeDefaultLanding(s);
+      // spec-312 dec-1: the post-login landing is /home (the universal landing), not the
+      // default-tenant Specs board. Fall back to computeDefaultLanding only when 'home'
+      // is hidden per-env (mirrors RootRedirect's loop-avoidance).
+      const landing = isFeatureHidden(s, 'home') ? computeDefaultLanding(s) : '/home';
       if (landing && window.location.pathname === '/') {
         window.location.href = landing;
       }

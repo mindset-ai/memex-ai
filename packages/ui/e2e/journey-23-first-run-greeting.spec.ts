@@ -1,4 +1,4 @@
-import { test, expect, bareUrl, emitAcEvents, setOnboardingGreeted, DEV_EMAIL } from "./helpers/index.js";
+import { test, expect, gotoSpecsBoard, emitAcEvents, setOnboardingGreeted, DEV_EMAIL } from "./helpers/index.js";
 import { seedWhatsNewEntry, clearWhatsNewEntries } from "./helpers/seed.js";
 import { clearAnthropicQueue, queueAnthropicResponse } from "./helpers/anthropic-fake.js";
 
@@ -56,7 +56,7 @@ test("a user who has already been greeted sees no dialogue and no auto session (
   // Mark the dev user already-greeted (the once-per-user flag is set).
   await setOnboardingGreeted(DEV_EMAIL, true);
 
-  await page.goto(bareUrl("/"));
+  await gotoSpecsBoard(page);
   await expect(page.getByRole("heading", { name: "Specs" })).toBeVisible({ timeout: 15_000 });
 
   // Give the first-run controller the same window journey-28 gives it.
@@ -103,7 +103,7 @@ test("a seeded proactive turn returning start_walkthrough starts the tour and op
   });
 
   try {
-    await page.goto(bareUrl("/"));
+    await gotoSpecsBoard(page);
     await expect(page.getByRole("heading", { name: "Specs" })).toBeVisible({ timeout: 15_000 });
 
     // Ribbon → popup → the entry's ear starts the seeded session.
