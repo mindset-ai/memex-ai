@@ -21,8 +21,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@langchain/core": "^1.1.49",
-    "@langchain/langgraph": "^1.4.2",
+    "@langchain/core": "^1.2.0",
+    "@langchain/langgraph": "^1.4.4",
     "@ricky0123/vad-web": "^0.0.30",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
@@ -37,6 +37,6 @@
     "jsdom": "^29.0.1",
     "typescript": "6.0.3",
     "vite": "^8.0.16",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.9"
   }
 }
