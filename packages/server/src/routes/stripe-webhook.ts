@@ -3,9 +3,11 @@
 // Mounted at /api/stripe/webhook (flat, no tenancy prefix — Stripe calls this
 // directly). NO sessionMiddleware — the Stripe-Signature HMAC IS the auth.
 //
-// Idempotency: every event is recorded in stripe_events before handling. The
-// unique constraint on event_id causes a duplicate insert to throw, which we
-// catch and return 200 (Stripe expects 2xx on duplicates to stop retrying).
+// Idempotency (spec-171 t-23 / issue-6): the stripe_events insert and the handler
+// run inside ONE transaction. A failed handler rolls back the idempotency row so
+// Stripe's retry re-processes the event; a genuine duplicate (event_id already
+// recorded) is detected via INSERT ... ON CONFLICT DO NOTHING and answered 200
+// (Stripe expects 2xx on duplicates to stop retrying).
 
 import { Hono } from "hono";
 import { eq } from "drizzle-orm";
@@ -38,22 +40,39 @@ stripeWebhookRouter.post("/", async (c) => {
     return c.json({ error: message }, 400);
   }
 
-  // Idempotency — record first, handle second. The UNIQUE constraint on event_id
-  // means a duplicate insert throws; we treat that as "already processed → 200".
-  try {
-    await db.insert(stripeEvents).values({
-      eventId: event.id,
-      eventType: event.type,
-    });
-  } catch (err: unknown) {
-    // PostgreSQL unique_violation error code 23505
-    if (isUniqueViolation(err)) {
-      return c.json({ received: true, duplicate: true });
-    }
-    throw err;
-  }
+  // Idempotency must be ATOMIC (spec-171 t-23 / issue-6). Record + handle in ONE
+  // transaction so that if the handler throws (e.g. a transient getSubscription
+  // failure on the sole purchase-persistence path) the transaction rolls back —
+  // the stripe_events row is NOT persisted, the endpoint returns a non-2xx, and
+  // Stripe's retry re-processes the event instead of being rejected as a duplicate.
+  //
+  // Duplicate detection uses INSERT ... ON CONFLICT DO NOTHING on the event_id
+  // unique index, NOT a catch on the 23505 error. That distinction matters: a
+  // handler's own DB write can legitimately raise 23505 (e.g. orgs has a UNIQUE
+  // on stripe_customer_id, and handleCheckoutCompleted writes it) — catching the
+  // code would misclassify that real failure as "already processed → 200" and
+  // re-introduce the dropped-purchase bug one layer down. With onConflictDoNothing
+  // the only thing that signals a duplicate is an empty `returning()` from the
+  // insert; any error from the handler propagates as a non-2xx so Stripe retries.
+  const inserted = await db.transaction(async (tx) => {
+    const rows = await tx
+      .insert(stripeEvents)
+      .values({ eventId: event.id, eventType: event.type })
+      .onConflictDoNothing({ target: stripeEvents.eventId })
+      .returning({ eventId: stripeEvents.eventId });
 
-  await handleStripeEvent(event.type, event.data.object);
+    // Empty result ⇒ event_id already recorded by a prior successful run ⇒ this
+    // is a genuine duplicate delivery. Don't run the handler again; the outer
+    // 200 tells Stripe to stop retrying.
+    if (rows.length === 0) return false;
+
+    await handleStripeEvent(event.type, event.data.object);
+    return true;
+  });
+
+  if (!inserted) {
+    return c.json({ received: true, duplicate: true });
+  }
 
   return c.json({ received: true });
 });
@@ -201,13 +220,6 @@ function resolveOrgId(session: Record<string, unknown>): string | null {
     return session.client_reference_id;
   }
   return null;
-}
-
-function isUniqueViolation(err: unknown): boolean {
-  if (err && typeof err === "object" && "code" in err) {
-    return (err as { code: string }).code === "23505";
-  }
-  return false;
 }
 
 export { stripeWebhookRouter };
