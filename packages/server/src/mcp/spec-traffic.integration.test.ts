@@ -579,12 +579,16 @@ describe("spec-327: create_task is gated to the build/verify phases", () => {
     // ac-11: emitted from the shared constant (MCP prefixes "Validation error: ").
     expect(text.startsWith("Validation error:")).toBe(true);
     expect(text).toContain(taskCreationBlockedMessage("specify"));
-    // ac-10: names the allowed phases, interpolates the current one, names the remedies.
+    // ac-10: names the allowed phases, interpolates the current one, frames the
+    // redirect around Decisions + acceptance criteria, names the remedies, and
+    // (deliberately) does NOT nudge toward moving the Spec to build.
     expect(text).toContain("build or verify");
     expect(text).toContain("this Spec is in specify");
+    expect(text).toContain("Decisions");
+    expect(text).toContain("acceptance criteria");
     expect(text).toContain("create_decision");
     expect(text).toContain("register_issue");
-    expect(text).toContain("update_doc status:build");
+    expect(text).not.toContain("update_doc");
   });
 
   it("create_task works in build AND verify (and leaves the phase put), and updating existing tasks is unaffected (ac-5)", async () => {

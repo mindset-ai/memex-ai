@@ -80,15 +80,18 @@ export interface AcceptanceCriterion {
  * spec-327 dec-2 — the single source of the create_task phase-gate message.
  * Exported so every surface (MCP, in-app agent) and the tests read identical
  * text. Tasks are creatable in build OR verify; this fires for the planning
- * phases (draft/specify) and a closed Spec (done). Names create_decision first
- * (the common case: a planning thought mistaken for a build handoff).
+ * phases (draft/specify) and a closed Spec (done). Frames the redirect around
+ * the SDD model — in these phases work is driven by Decisions and their
+ * acceptance criteria, not tasks — so the item should be reframed as a Decision
+ * (create_decision). Deliberately does NOT suggest moving the Spec to build:
+ * over-eagerness to advance to build was the original complaint.
  */
 export function taskCreationBlockedMessage(currentPhase: string): string {
   return (
     `Tasks can only be created during build or verify; this Spec is in ` +
-    `${currentPhase}. This reads like a planning decision — capture it with ` +
-    `create_decision instead, or register_issue for a must-not-forget todo. ` +
-    `To start implementing, move the Spec to build first (update_doc status:build).`
+    `${currentPhase}. In this phase, work is driven by Decisions and their ` +
+    `acceptance criteria, not tasks — so reframe this as a Decision ` +
+    `(create_decision), or register_issue for a must-not-forget todo.`
   );
 }
 
