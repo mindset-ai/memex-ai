@@ -185,6 +185,20 @@ describe('HomeCanvas — attainment progress map', () => {
   });
 });
 
+describe('HomeCanvas — document.title (spec-318 ac-17)', () => {
+  it("sets document.title to 'Home' so the desktop shell labels the /home tab", async () => {
+    tagAc('mindset-prod/memex-building-itself/specs/spec-318/acs/ac-17');
+    // Simulate a stale title left by a previously-visited page (the bug: the
+    // /home tab kept reading "Specs"). The Home Canvas is the one top-level page
+    // without a PageHeader, so it must set its own title.
+    document.title = 'Specs';
+    fetchJourneyStateApi.mockResolvedValue(stateFor('welcome'));
+    renderCanvas();
+    await screen.findByTestId('journey-step-welcome');
+    expect(document.title).toBe('Home');
+  });
+});
+
 describe('HomeCanvas — CTA allow-list (ac-5 / impl ac-12)', () => {
   it("an 'action' CTA routes into the real flow (invite → integrations)", async () => {
     tagAc(AC(5));

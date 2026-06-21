@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../components/AuthContext';
 import { useUserChangeStream } from '../hooks/useUserChangeStream';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import {
   fetchJourneyStateApi,
   postJourneyEventApi,
@@ -47,6 +48,13 @@ export function HomeCanvas() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const previewParam = searchParams.get('preview');
+
+  // spec-318 (ac-17): the Home Canvas is the one top-level page that does NOT use
+  // PageHeader, so it sets its own document.title. The desktop shell reads
+  // document.title to label the tab — without this the /home tab keeps whatever
+  // the previous page set (e.g. "Specs"). Set unconditionally at the top so it
+  // applies across all of this component's conditional render branches.
+  useDocumentTitle({ kind: 'page', title: 'Home' });
 
   const [state, setState] = useState<JourneyStateResponse | null>(null);
   // An in-canvas navigate (e.g. "Why Memex?") that wins until the real step changes.
