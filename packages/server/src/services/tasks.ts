@@ -38,7 +38,7 @@ export function qualifiedTaskHandle(
 
 // Returns the parent doc's type (spec-306) and lifecycle status (spec-327) so
 // createTask can attribute the task.created outcome event to its Spec AND apply
-// the build-phase gate without a second query — this assert already loads the row.
+// the build/verify-phase gate without a second query — this assert already loads the row.
 async function assertDocInAccount(
   memexId: string,
   docId: string,
@@ -79,17 +79,16 @@ export interface AcceptanceCriterion {
 /**
  * spec-327 dec-2 — the single source of the create_task phase-gate message.
  * Exported so every surface (MCP, in-app agent) and the tests read identical
- * text. Names the three remedies, create_decision first (the common case:
- * a planning thought mistaken for a build handoff).
+ * text. Tasks are creatable in build OR verify; this fires for the planning
+ * phases (draft/specify) and a closed Spec (done). Names create_decision first
+ * (the common case: a planning thought mistaken for a build handoff).
  */
 export function taskCreationBlockedMessage(currentPhase: string): string {
   return (
-    `Tasks can only be created while this Spec is in the build phase ` +
-    `(it is currently in ${currentPhase}). What you're describing reads like ` +
-    `a planning decision — capture it with create_decision instead. If it's a ` +
-    `must-not-forget action rather than a decision, raise it with register_issue ` +
-    `(a todo Issue). If you're genuinely ready to implement, move the Spec to ` +
-    `build first (update_doc status:build), then create the task.`
+    `Tasks can only be created during build or verify; this Spec is in ` +
+    `${currentPhase}. This reads like a planning decision — capture it with ` +
+    `create_decision instead, or register_issue for a must-not-forget todo. ` +
+    `To start implementing, move the Spec to build first (update_doc status:build).`
   );
 }
 
@@ -103,18 +102,22 @@ export async function createTask(
   ctx: RequestCtx = {}
 ): Promise<Mutated<Task>> {
   const { docType, status } = await assertDocInAccount(memexId, docId);
-  // spec-327 dec-1/dec-4 — tasks are a build-phase commitment. A coding agent
-  // (mcp / in_app_agent) that calls create_task while the Spec is NOT in build
-  // is almost always voicing a planning thought, not handing off an
-  // implementation; silently auto-advancing the phase (the old spec-189
-  // behaviour) misled users. Reject with a guiding error instead. This is the
-  // one deliberate, narrow exception to the soft-gate posture (spec-12 dec-6,
-  // spec-189 dec-3): exactly one creation tool, agent channels only. rest_ui
-  // (human in the web UI, full phase controls) and ctx-less seed/server calls
-  // are exempt — the channel set mirrors spec-traffic.ts's agent-channel guard.
+  // spec-327 dec-1/dec-4 — tasks are a build/verify-phase commitment. A coding
+  // agent (mcp / in_app_agent) that calls create_task while the Spec is in a
+  // PLANNING phase (draft/specify) or is closed (done) is almost always voicing
+  // a planning thought, not handing off an implementation; silently
+  // auto-advancing the phase (the old spec-189 behaviour) misled users. Reject
+  // with a guiding error instead. build AND verify are allowed — verify is an
+  // active phase where a found defect legitimately spawns a task without forcing
+  // a backward phase move. This is the one deliberate, narrow exception to the
+  // soft-gate posture (spec-12 dec-6, spec-189 dec-3): exactly one creation
+  // tool, agent channels only. rest_ui (human in the web UI, full phase
+  // controls) and ctx-less seed/server calls are exempt — the channel set
+  // mirrors spec-traffic.ts's agent-channel guard.
   if (
     (ctx.channel === "mcp" || ctx.channel === "in_app_agent") &&
-    status !== "build"
+    status !== "build" &&
+    status !== "verify"
   ) {
     throw new ValidationError(taskCreationBlockedMessage(status));
   }

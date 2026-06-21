@@ -489,28 +489,30 @@ describe("spec-189: traffic-driven phase advancement through real MCP tool calls
 });
 
 // ──────────────────────────────────────────────────────────────────────────
-// spec-327: create_task is gated to the build phase with a guiding error.
+// spec-327: create_task is gated to the build/verify phases with a guiding error.
 //
 // A coding agent (mcp / in_app_agent) that calls create_task while the Spec is
-// NOT in build is rejected — no task row, no phase change — and told to capture
-// the thought as a decision (or a todo Issue, or to move the Spec to build).
+// in a PLANNING phase (draft/specify) or is closed (done) is rejected — no task
+// row, no phase change — and told to capture the thought as a decision (or a
+// todo Issue, or to move the Spec to build). build AND verify are allowed
+// (verify is an active phase where a found defect legitimately spawns a task).
 // This is the deliberate, narrow exception to the soft-gate posture (dec-4):
-// every OTHER agent mutation in a non-build phase is still accepted.
+// every OTHER agent mutation in a blocked phase is still accepted.
 // ──────────────────────────────────────────────────────────────────────────
 
-describe("spec-327: create_task is gated to the build phase", () => {
+describe("spec-327: create_task is gated to the build/verify phases", () => {
   async function taskCount(docId: string): Promise<number> {
     const rows = await db.select().from(tasks).where(eq(tasks.docId, docId));
     return rows.length;
   }
 
-  const NON_BUILD = ["draft", "specify", "verify", "done"] as const;
+  const BLOCKED = ["draft", "specify", "done"] as const;
 
-  it("create_task via mcp on every non-build phase is rejected — no row, no phase change (ac-1, ac-3, ac-7)", async () => {
+  it("create_task via mcp in every blocked phase (draft/specify/done) is rejected — no row, no phase change (ac-1, ac-3, ac-7)", async () => {
     tagAc(SPEC327_AC(1));
     tagAc(SPEC327_AC(3));
     tagAc(SPEC327_AC(7));
-    for (const phase of NON_BUILD) {
+    for (const phase of BLOCKED) {
       const spec = await makeSpec(`mcp create_task rejected in ${phase}`, phase);
       const res = await callMcp(actor.member.id, "create_task", {
         ref: spec.ref,
@@ -523,7 +525,7 @@ describe("spec-327: create_task is gated to the build phase", () => {
     }
   });
 
-  it("create_task via in_app_agent on a non-build phase is rejected identically (ac-8)", async () => {
+  it("create_task via in_app_agent in a blocked phase is rejected identically (ac-8)", async () => {
     tagAc(SPEC327_AC(8));
     const spec = await makeSpec("in_app_agent create_task rejected", "specify");
     await expect(
@@ -533,7 +535,7 @@ describe("spec-327: create_task is gated to the build phase", () => {
         { ref: spec.ref, title: "Should be a decision", description: "…" },
         actor.member.id,
       ),
-    ).rejects.toThrow(/build phase/);
+    ).rejects.toThrow(/build or verify/);
     expect(await taskCount(spec.id)).toBe(0);
     expect(await specStatus(spec.id)).toBe("specify");
   });
@@ -562,11 +564,11 @@ describe("spec-327: create_task is gated to the build phase", () => {
     expect(await taskCount(viaSeed.id)).toBe(1);
   });
 
-  it("the rejection message names the phase and all three remedies, from the shared constant (ac-2, ac-10, ac-11)", async () => {
+  it("the rejection message names the allowed phases, the current one, and all three remedies, from the shared constant (ac-2, ac-10, ac-11)", async () => {
     tagAc(SPEC327_AC(2));
     tagAc(SPEC327_AC(10));
     tagAc(SPEC327_AC(11));
-    const spec = await makeSpec("message contract", "verify");
+    const spec = await makeSpec("message contract", "specify");
     const res = await callMcp(actor.member.id, "create_task", {
       ref: spec.ref,
       title: "x",
@@ -576,28 +578,32 @@ describe("spec-327: create_task is gated to the build phase", () => {
     const text = res.content[0].text;
     // ac-11: emitted from the shared constant (MCP prefixes "Validation error: ").
     expect(text.startsWith("Validation error:")).toBe(true);
-    expect(text).toContain(taskCreationBlockedMessage("verify"));
-    // ac-10: interpolates the phase + names the three remedies.
-    expect(text).toContain("currently in verify");
+    expect(text).toContain(taskCreationBlockedMessage("specify"));
+    // ac-10: names the allowed phases, interpolates the current one, names the remedies.
+    expect(text).toContain("build or verify");
+    expect(text).toContain("this Spec is in specify");
     expect(text).toContain("create_decision");
     expect(text).toContain("register_issue");
     expect(text).toContain("update_doc status:build");
   });
 
-  it("create_task in build still works, and updating existing tasks is unaffected in any phase (ac-5)", async () => {
+  it("create_task works in build AND verify (and leaves the phase put), and updating existing tasks is unaffected (ac-5)", async () => {
     tagAc(SPEC327_AC(5));
-    // In build: create_task via the agent channel succeeds.
-    const inBuild = await makeSpec("create_task works in build", "build");
-    const res = await callMcp(actor.member.id, "create_task", {
-      ref: inBuild.ref,
-      title: "Real implementation task",
-      description: "We're in build.",
-    });
-    expect(res.isError).toBeFalsy();
-    expect(await taskCount(inBuild.id)).toBe(1);
-    expect(await specStatus(inBuild.id)).toBe("build");
+    // Both active working phases accept create_task via the agent channel, and
+    // (being non-advancing, dec-3) the Spec stays where it is.
+    for (const phase of ["build", "verify"] as const) {
+      const spec = await makeSpec(`create_task works in ${phase}`, phase);
+      const res = await callMcp(actor.member.id, "create_task", {
+        ref: spec.ref,
+        title: "Real implementation task",
+        description: `We're in ${phase}.`,
+      });
+      expect(res.isError, `create_task should succeed in ${phase}`).toBeFalsy();
+      expect(await taskCount(spec.id), `task created in ${phase}`).toBe(1);
+      expect(await specStatus(spec.id), `phase unchanged in ${phase}`).toBe(phase);
+    }
 
-    // Updating an existing task outside build is NOT gated (creation-only).
+    // Updating an existing task in a blocked phase is NOT gated (creation-only).
     const inVerify = await makeSpec("update existing task in verify", "verify");
     const taskRef = await seedTaskRef(inVerify);
     const upd = await callMcp(actor.member.id, "update_task", {
