@@ -11,12 +11,26 @@ interface StripeCustomer {
   object: "customer";
 }
 
-interface StripeSubscription {
+export interface StripeSubscription {
   id: string;
   object: "subscription";
   status: string;
-  current_period_end: number; // Unix timestamp
-  items: { data: Array<{ id: string; price: { id: string }; quantity: number }> };
+  // Top-level on older API versions; newer versions moved the period boundary
+  // onto each subscription item — the webhook reads whichever is populated.
+  current_period_end?: number; // Unix timestamp
+  items: {
+    data: Array<{
+      id: string;
+      price: { id: string };
+      quantity: number;
+      current_period_end?: number;
+    }>;
+  };
+}
+
+/** Fetch a subscription by id (webhook uses this to derive plan/seats/period). */
+export async function getSubscription(subscriptionId: string): Promise<StripeSubscription> {
+  return stripeGet<StripeSubscription>(`/subscriptions/${subscriptionId}`);
 }
 
 interface StripeInvoice {
@@ -27,6 +41,12 @@ interface StripeInvoice {
 interface StripeBillingPortalSession {
   id: string;
   url: string;
+}
+
+interface StripeCheckoutSession {
+  id: string;
+  object: "checkout.session";
+  url: string | null;
 }
 
 export interface StripeWebhookEvent {
@@ -60,18 +80,48 @@ function getWebhookSecret(): string {
   return secret;
 }
 
-function getPriceId(plan: "premium" | "enterprise", billingCycle: "monthly" | "annual"): string {
-  const envVar =
-    plan === "premium"
-      ? billingCycle === "annual"
-        ? "STRIPE_PREMIUM_ANNUAL_PRICE_ID"
-        : "STRIPE_PREMIUM_MONTHLY_PRICE_ID"
-      : billingCycle === "annual"
-        ? "STRIPE_ENTERPRISE_ANNUAL_PRICE_ID"
-        : "STRIPE_ENTERPRISE_MONTHLY_PRICE_ID";
+export type Plan = "premium" | "enterprise";
+export type BillingCycle = "monthly" | "annual";
+
+function priceEnvVar(plan: Plan, billingCycle: BillingCycle): string {
+  return plan === "premium"
+    ? billingCycle === "annual"
+      ? "STRIPE_PREMIUM_ANNUAL_PRICE_ID"
+      : "STRIPE_PREMIUM_MONTHLY_PRICE_ID"
+    : billingCycle === "annual"
+      ? "STRIPE_ENTERPRISE_ANNUAL_PRICE_ID"
+      : "STRIPE_ENTERPRISE_MONTHLY_PRICE_ID";
+}
+
+function getPriceId(plan: Plan, billingCycle: BillingCycle): string {
+  const envVar = priceEnvVar(plan, billingCycle);
   const id = process.env[envVar];
   if (!id) throw new Error(`${envVar} is not set`);
   return id;
+}
+
+/**
+ * Reverse the price-id → (plan, billingCycle) mapping by inverting the same
+ * four env vars getPriceId reads. The webhook uses this to derive the plan
+ * tier from the subscription Stripe reports after a Checkout completes —
+ * the price id is the single source of truth, not anything the client sent.
+ * Returns null for an unrecognised price (e.g. a price retired from .env).
+ */
+export function resolvePlanFromPriceId(
+  priceId: string,
+): { plan: Plan; billingCycle: BillingCycle } | null {
+  const combos: Array<{ plan: Plan; billingCycle: BillingCycle }> = [
+    { plan: "premium", billingCycle: "monthly" },
+    { plan: "premium", billingCycle: "annual" },
+    { plan: "enterprise", billingCycle: "monthly" },
+    { plan: "enterprise", billingCycle: "annual" },
+  ];
+  for (const combo of combos) {
+    if (process.env[priceEnvVar(combo.plan, combo.billingCycle)] === priceId) {
+      return combo;
+    }
+  }
+  return null;
 }
 
 async function stripePost<T>(path: string, body: Record<string, string>): Promise<T> {
@@ -95,7 +145,7 @@ async function stripePost<T>(path: string, body: Record<string, string>): Promis
   return res.json() as Promise<T>;
 }
 
-async function stripeGet<T>(path: string): Promise<T> {
+export async function stripeGet<T>(path: string): Promise<T> {
   const res = await fetch(`${STRIPE_API}${path}`, {
     headers: { Authorization: `Bearer ${getStripeSecretKey()}` },
   });
@@ -123,40 +173,52 @@ export async function createStripeCustomer(
 }
 
 /**
- * Create a Stripe Subscription for an org. Uses `proration_behavior:
- * create_prorations` per dec-11. Stripe Tax is applied via the price's
- * tax behaviour setting (tax code txcd_10000000 configured on the price
- * in the Stripe dashboard per dec-12).
+ * Create a Stripe Checkout Session (hosted redirect) for a subscription
+ * purchase — spec-171 dec-38 / ac-33. The card is collected on Stripe's
+ * hosted page, so no raw card / PaymentMethod data ever touches our server
+ * (std-13). The subscription record is NOT written here — it lands via the
+ * `checkout.session.completed` webhook once payment succeeds.
+ *
+ * The org's Stripe customer MUST already exist (created + persisted by the
+ * caller) so we always pass `customer`. With an existing customer that has
+ * no saved address, `automatic_tax` (ac-10/dec-12 — Stripe Tax) requires
+ * `customer_update[address]=auto` so Checkout saves the billing address it
+ * collects back onto the Customer; without it Stripe rejects the session.
+ * Adaptive Pricing + Stripe Tax (enabled on the account) then handle local
+ * currency + tax automatically.
  */
-export async function createSubscription(
-  customerId: string,
-  plan: "premium" | "enterprise",
-  seats: number,
-  billingCycle: "monthly" | "annual",
-): Promise<{ subscriptionId: string; currentPeriodEnd: number }> {
+export async function createCheckoutSession(args: {
+  customerId: string;
+  orgId: string;
+  plan: Plan;
+  seats: number;
+  billingCycle: BillingCycle;
+  successUrl: string;
+  cancelUrl: string;
+}): Promise<{ id: string; url: string }> {
+  const { customerId, orgId, plan, seats, billingCycle, successUrl, cancelUrl } = args;
   const priceId = getPriceId(plan, billingCycle);
-  const subscription = await stripePost<StripeSubscription>("/subscriptions", {
-    customer: customerId,
-    "items[0][price]": priceId,
-    "items[0][quantity]": String(seats),
-    proration_behavior: "create_prorations",
-    "payment_settings[payment_method_types][0]": "card",
-    "expand[0]": "latest_invoice.payment_intent",
-  });
-  return { subscriptionId: subscription.id, currentPeriodEnd: subscription.current_period_end };
-}
 
-/** Attach a Stripe PaymentMethod to a customer and set it as their default. */
-export async function attachPaymentMethod(
-  customerId: string,
-  paymentMethodId: string,
-): Promise<void> {
-  await stripePost(`/payment_methods/${paymentMethodId}/attach`, {
+  const session = await stripePost<StripeCheckoutSession>("/checkout/sessions", {
+    mode: "subscription",
     customer: customerId,
+    "customer_update[address]": "auto",
+    "line_items[0][price]": priceId,
+    "line_items[0][quantity]": String(seats),
+    "automatic_tax[enabled]": "true",
+    client_reference_id: orgId,
+    "subscription_data[metadata][org_id]": orgId,
+    "subscription_data[metadata][tier]": plan,
+    "subscription_data[metadata][seats]": String(seats),
+    "metadata[org_id]": orgId,
+    success_url: successUrl,
+    cancel_url: cancelUrl,
   });
-  await stripePost(`/customers/${customerId}`, {
-    "invoice_settings[default_payment_method]": paymentMethodId,
-  });
+
+  if (!session.url) {
+    throw new Error("Stripe Checkout session created without a redirect URL");
+  }
+  return { id: session.id, url: session.url };
 }
 
 /** Update the seat count on an existing subscription (self-service per dec-29). */

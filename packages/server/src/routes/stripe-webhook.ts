@@ -11,7 +11,12 @@ import { Hono } from "hono";
 import { eq } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import { stripeEvents, orgs } from "../db/schema.js";
-import { verifyStripeWebhookSignature } from "../services/stripe.js";
+import {
+  verifyStripeWebhookSignature,
+  getSubscription,
+  resolvePlanFromPriceId,
+  type StripeSubscription,
+} from "../services/stripe.js";
 
 const stripeWebhookRouter = new Hono();
 
@@ -60,6 +65,17 @@ async function handleStripeEvent(
   object: Record<string, unknown>,
 ): Promise<void> {
   switch (type) {
+    case "checkout.session.completed":
+      // spec-171 dec-38: the hosted Checkout finished + paid. This is the
+      // authoritative moment the subscription row is written — NOT the POST
+      // that created the session.
+      await handleCheckoutCompleted(object);
+      break;
+    case "customer.subscription.updated":
+      // Seat count changed (or any other subscription mutation) — keep
+      // seats_purchased in sync with Stripe's view.
+      await handleSubscriptionUpdated(object);
+      break;
     case "invoice.payment_failed":
       await handlePaymentFailed(object);
       break;
@@ -74,6 +90,75 @@ async function handleStripeEvent(
       // Unhandled event types — log and return 200 so Stripe stops retrying.
       console.warn(`[stripe-webhook] unhandled event type: ${type}`);
   }
+}
+
+export async function handleCheckoutCompleted(
+  session: Record<string, unknown>,
+): Promise<void> {
+  // org_id rides on session.metadata.org_id (we set it) with client_reference_id
+  // as a fallback (we set that too).
+  const orgId = resolveOrgId(session);
+  if (!orgId) {
+    console.warn("[stripe-webhook] checkout.session.completed missing org_id");
+    return;
+  }
+
+  const subscriptionId =
+    typeof session.subscription === "string" ? session.subscription : null;
+  const customerId = typeof session.customer === "string" ? session.customer : null;
+  if (!subscriptionId) {
+    console.warn(
+      `[stripe-webhook] checkout.session.completed org=${orgId} missing subscription id`,
+    );
+    return;
+  }
+
+  // The price id Stripe reports is the single source of truth for the plan —
+  // not anything the client sent. Read the subscription to derive it.
+  const subscription = await getSubscription(subscriptionId);
+  const priceId = subscription.items.data[0]?.price?.id;
+  const plan = priceId ? resolvePlanFromPriceId(priceId)?.plan : null;
+  if (!plan) {
+    console.warn(
+      `[stripe-webhook] checkout.session.completed org=${orgId} unknown price=${priceId}`,
+    );
+    return;
+  }
+  const seats = subscription.items.data[0]?.quantity ?? null;
+
+  await db
+    .update(orgs)
+    .set({
+      planTier: plan,
+      stripeSubscriptionId: subscriptionId,
+      seatsPurchased: seats,
+      ...(customerId ? { stripeCustomerId: customerId } : {}),
+    })
+    .where(eq(orgs.id, orgId));
+}
+
+export async function handleSubscriptionUpdated(
+  subscription: Record<string, unknown>,
+): Promise<void> {
+  // Trust the typed shape we already model — quantity + customer live where
+  // updateSubscriptionSeats reads them.
+  const sub = subscription as unknown as StripeSubscription & { customer?: unknown };
+  const customerId = typeof sub.customer === "string" ? sub.customer : null;
+  if (!customerId) {
+    console.warn("[stripe-webhook] subscription.updated event missing customer ID");
+    return;
+  }
+  const seats = sub.items?.data?.[0]?.quantity ?? null;
+  if (seats === null) {
+    console.warn(
+      `[stripe-webhook] subscription.updated customer=${customerId} missing quantity`,
+    );
+    return;
+  }
+  await db
+    .update(orgs)
+    .set({ seatsPurchased: seats })
+    .where(eq(orgs.stripeCustomerId, customerId));
 }
 
 async function handlePaymentFailed(invoice: Record<string, unknown>): Promise<void> {
@@ -105,6 +190,18 @@ async function handleSubscriptionDeleted(subscription: Record<string, unknown>):
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+function resolveOrgId(session: Record<string, unknown>): string | null {
+  const metadata = session.metadata;
+  if (metadata && typeof metadata === "object" && "org_id" in metadata) {
+    const fromMeta = (metadata as Record<string, unknown>).org_id;
+    if (typeof fromMeta === "string" && fromMeta) return fromMeta;
+  }
+  if (typeof session.client_reference_id === "string" && session.client_reference_id) {
+    return session.client_reference_id;
+  }
+  return null;
+}
 
 function isUniqueViolation(err: unknown): boolean {
   if (err && typeof err === "object" && "code" in err) {

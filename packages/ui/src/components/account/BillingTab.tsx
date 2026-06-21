@@ -25,7 +25,7 @@ function formatCurrency(amount: number, currency: string): string {
 }
 
 export function BillingTab() {
-  const { token, session } = useAuth();
+  const { token } = useAuth();
   const navigate = useNavigate();
 
   const [sub, setSub] = useState<SubscriptionDto | null>(null);

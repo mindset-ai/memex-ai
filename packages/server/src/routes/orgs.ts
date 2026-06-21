@@ -29,11 +29,9 @@ import { eq, and, count } from "drizzle-orm";
 import {
   createBillingPortalSession,
   createStripeCustomer,
-  attachPaymentMethod,
-  createSubscription,
+  createCheckoutSession,
   updateSubscriptionSeats,
   previewUpcomingInvoice,
-  StripeApiError,
 } from "../services/stripe.js";
 import { ConflictError, ValidationError } from "../types/errors.js";
 import { readJsonBody, requireString } from "./validation.js";
@@ -262,10 +260,14 @@ orgsCurrentRouter.patch("/current/members/:userId", adminGate, async (c) => {
   }
 });
 
-// POST /api/<ns>/<mx>/orgs/current/subscription — admin: create or upgrade Stripe subscription.
-// Body: { plan: 'premium'|'enterprise', seats: number, billingCycle: 'monthly'|'annual', paymentMethodId: string }
-// Creates the Stripe customer if this is the org's first purchase. Attaches the payment method as default,
-// creates the subscription, then persists plan_tier + stripe_subscription_id + seats_purchased to the org row.
+// POST /api/<ns>/<mx>/orgs/current/subscription — admin: start a hosted purchase.
+// Body: { plan: 'premium'|'enterprise', seats: number, billingCycle: 'monthly'|'annual' }
+// spec-171 dec-38 / ac-33: payment is collected on a Stripe-hosted Checkout page,
+// so NO raw card / PaymentMethod data is accepted here. We ensure the org has a
+// Stripe customer (create + persist on first purchase), create a Checkout Session
+// tagged with org_id metadata, and return its redirect URL. The subscription row
+// (plan_tier / stripe_subscription_id / seats_purchased) is written by the
+// `checkout.session.completed` webhook — NOT here.
 orgsCurrentRouter.post("/current/subscription", adminGate, async (c) => {
   const memexId = c.get("currentMemexId")!;
   const orgId = await resolveOrgIdFromMemex(memexId);
@@ -274,7 +276,7 @@ orgsCurrentRouter.post("/current/subscription", adminGate, async (c) => {
   const body = await c.req.json<Record<string, unknown>>().catch(() => null);
   if (!body) return c.json({ error: "Invalid JSON body" }, 400);
 
-  const { plan, seats, billingCycle, paymentMethodId } = body;
+  const { plan, seats, billingCycle } = body;
 
   if (plan !== "premium" && plan !== "enterprise") {
     return c.json({ error: "plan must be 'premium' or 'enterprise'" }, 400);
@@ -284,9 +286,6 @@ orgsCurrentRouter.post("/current/subscription", adminGate, async (c) => {
   }
   if (billingCycle !== "monthly" && billingCycle !== "annual") {
     return c.json({ error: "billingCycle must be 'monthly' or 'annual'" }, 400);
-  }
-  if (typeof paymentMethodId !== "string" || !paymentMethodId.trim()) {
-    return c.json({ error: "paymentMethodId is required" }, 400);
   }
 
   const [org] = await db
@@ -299,42 +298,27 @@ orgsCurrentRouter.post("/current/subscription", adminGate, async (c) => {
 
   const user = c.get("user")!;
 
-  try {
-    let customerId = org.stripeCustomerId;
-    if (!customerId) {
-      customerId = await createStripeCustomer(user.email, org.name, orgId);
-      await db.update(orgs).set({ stripeCustomerId: customerId }).where(eq(orgs.id, orgId));
-    }
-
-    await attachPaymentMethod(customerId, (paymentMethodId as string).trim());
-
-    const { subscriptionId, currentPeriodEnd } = await createSubscription(
-      customerId,
-      plan,
-      seats,
-      billingCycle,
-    );
-
-    await db
-      .update(orgs)
-      .set({ stripeSubscriptionId: subscriptionId, planTier: plan, seatsPurchased: seats })
-      .where(eq(orgs.id, orgId));
-
-    return c.json({
-      success: true,
-      tier: plan,
-      seatsPurchased: seats,
-      currentPeriodEnd: new Date(currentPeriodEnd * 1000).toISOString(),
-    });
-  } catch (err) {
-    if (err instanceof StripeApiError && err.stripeError.type === "card_error") {
-      return c.json(
-        { error: "card_error", message: err.stripeError.message ?? "Your card was declined." },
-        402,
-      );
-    }
-    throw err;
+  let customerId = org.stripeCustomerId;
+  if (!customerId) {
+    customerId = await createStripeCustomer(user.email, org.name, orgId);
+    await db.update(orgs).set({ stripeCustomerId: customerId }).where(eq(orgs.id, orgId));
   }
+
+  const baseUrl = buildAppBaseUrl();
+  const session = await createCheckoutSession({
+    customerId,
+    orgId,
+    plan,
+    seats,
+    billingCycle,
+    // Confirmation page falls back to fetching the live subscription using the
+    // session id when React Router state is absent (full browser redirect back
+    // from stripe.com discards in-app state).
+    successUrl: `${baseUrl}/upgrade/confirmation?session_id={CHECKOUT_SESSION_ID}`,
+    cancelUrl: `${baseUrl}/upgrade/${plan}`,
+  });
+
+  return c.json({ url: session.url });
 });
 
 // GET /api/<ns>/<mx>/orgs/current/subscription/preview — admin: preview proration for a seat-count change.

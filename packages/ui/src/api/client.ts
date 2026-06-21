@@ -2768,24 +2768,10 @@ export async function fetchCurrentSubscription(
   return res.json();
 }
 
-export interface CreateSubscriptionInput {
+export interface StartCheckoutInput {
   plan: 'premium' | 'enterprise';
   seats: number;
   billingCycle: 'monthly' | 'annual';
-  paymentMethodId: string;
-}
-
-export interface CreateSubscriptionResult {
-  success: boolean;
-  tier: PlanTier;
-  currentPeriodEnd: string;
-}
-
-export class CardDeclinedError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'CardDeclinedError';
-  }
 }
 
 export async function fetchBillingPortalUrl(
@@ -2823,19 +2809,18 @@ export async function updateOrgSeats(
   if (!res.ok) throw new Error(`Seat update failed: ${res.status}`);
 }
 
-export async function createOrgSubscription(
-  input: CreateSubscriptionInput,
+// spec-171 dec-38 / ac-33: start a hosted purchase. Returns the Stripe-hosted
+// Checkout URL — the caller redirects the browser to it. No card data is ever
+// collected in our UI.
+export async function startCheckout(
+  input: StartCheckoutInput,
   token: string | null,
-): Promise<CreateSubscriptionResult> {
+): Promise<{ url: string }> {
   const res = await fetchWithRetry(`${tBase()}/orgs/current/subscription`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders(token) },
     body: JSON.stringify(input),
   });
-  if (res.status === 402) {
-    const body = await res.json().catch(() => ({}));
-    throw new CardDeclinedError(body.message ?? 'Your card was declined.');
-  }
-  if (!res.ok) throw new Error(`Subscription creation failed: ${res.status}`);
+  if (!res.ok) throw new Error(`Checkout start failed: ${res.status}`);
   return res.json();
 }

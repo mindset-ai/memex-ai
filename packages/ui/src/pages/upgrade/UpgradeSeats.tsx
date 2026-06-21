@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { useParams, useNavigate, Navigate } from 'react-router-dom';
 import { Button } from '../../components/ui/Button';
+import { useAuth } from '../../components/AuthContext';
+import { startCheckout } from '../../api/client';
 
 type UpgradePlan = 'premium' | 'enterprise';
 
@@ -18,9 +20,12 @@ function calcPrice(seats: number, monthly: number, annual: boolean): number {
 export function UpgradeSeats() {
   const { plan } = useParams<{ plan: string }>();
   const navigate = useNavigate();
+  const { token } = useAuth();
 
   const [seats, setSeats] = useState(1);
   const [annual, setAnnual] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   if (!plan || !(plan in PLAN_CONFIG)) {
     return <Navigate to="/upgrade" replace />;
@@ -30,10 +35,22 @@ export function UpgradeSeats() {
   const total = calcPrice(seats, config.monthlyPrice, annual);
   const perSeat = config.monthlyPrice * (annual ? ANNUAL_FACTOR : 1);
 
-  function handleContinue() {
-    navigate(`/upgrade/${plan}/payment`, {
-      state: { plan, seats, annual, planName: config.name, monthlyPrice: config.monthlyPrice },
-    });
+  async function handleContinue() {
+    if (submitting) return;
+    setError(null);
+    setSubmitting(true);
+    try {
+      // spec-171 dec-38 / ac-33: redirect to Stripe-hosted Checkout. Card data
+      // is collected on Stripe's page, never in our UI.
+      const { url } = await startCheckout(
+        { plan: plan as UpgradePlan, seats, billingCycle: annual ? 'annual' : 'monthly' },
+        token,
+      );
+      window.location.assign(url);
+    } catch {
+      setError('Could not start checkout. Please try again.');
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -125,13 +142,27 @@ export function UpgradeSeats() {
           </p>
         )}
 
+        {error && (
+          <p
+            role="alert"
+            className="text-sm text-status-danger-text bg-status-danger-bg rounded-lg px-3 py-2"
+          >
+            {error}
+          </p>
+        )}
+
         <Button
           variant="primary"
           className="w-full justify-center py-2.5"
           onClick={handleContinue}
+          disabled={submitting}
         >
-          Continue to payment →
+          {submitting ? 'Redirecting…' : 'Continue to payment →'}
         </Button>
+
+        <p className="text-center text-xs text-muted">
+          You'll be redirected to Stripe to complete payment securely.
+        </p>
       </div>
     </div>
   );

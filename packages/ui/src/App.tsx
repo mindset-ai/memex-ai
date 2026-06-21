@@ -26,7 +26,6 @@ import { MemexSettings } from './pages/MemexSettings';
 import { MemexKeys } from './pages/MemexKeys';
 import { UpgradePlanSelect } from './pages/upgrade/UpgradePlanSelect';
 import { UpgradeSeats } from './pages/upgrade/UpgradeSeats';
-import { UpgradePayment } from './pages/upgrade/UpgradePayment';
 import { UpgradeConfirmation } from './pages/upgrade/UpgradeConfirmation';
 import { VerifyDomain } from './pages/VerifyDomain';
 import { SharedDocument } from './pages/SharedDocument';
@@ -379,7 +378,6 @@ export function PostLoginRouter() {
       <Route path="/upgrade" element={<FlatShell><UpgradePlanSelect /></FlatShell>} />
       <Route path="/upgrade/confirmation" element={<FlatShell><UpgradeConfirmation /></FlatShell>} />
       <Route path="/upgrade/:plan" element={<FlatShell><UpgradeSeats /></FlatShell>} />
-      <Route path="/upgrade/:plan/payment" element={<FlatShell><UpgradePayment /></FlatShell>} />
       <Route path="/account" element={<Navigate to="/org" replace />} />
       {/* spec-303 — Home Canvas: user-level, flat (not tenant-scoped). Gated on
           the server-driven hide list (feature: 'home') so the surface can be
