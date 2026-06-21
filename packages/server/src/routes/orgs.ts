@@ -289,12 +289,30 @@ orgsCurrentRouter.post("/current/subscription", adminGate, async (c) => {
   }
 
   const [org] = await db
-    .select({ stripeCustomerId: orgs.stripeCustomerId, name: orgs.name })
+    .select({
+      stripeCustomerId: orgs.stripeCustomerId,
+      stripeSubscriptionId: orgs.stripeSubscriptionId,
+      name: orgs.name,
+    })
     .from(orgs)
     .where(eq(orgs.id, orgId))
     .limit(1);
 
   if (!org) return c.json({ error: "Org not found" }, 404);
+
+  // spec-171 t-24 / issue-7: re-purchase double-bill guard. A new-purchase
+  // checkout is only for orgs WITHOUT an active subscription — opening a second
+  // Checkout Session for an org that already has one creates a SECOND Stripe
+  // subscription (double billing). Seat changes go through the separate PATCH
+  // path. The cancel webhook clears stripe_subscription_id, so a cancelled org
+  // can re-purchase. Guard BEFORE any Stripe call so a subscribed org never
+  // touches Stripe.
+  if (org.stripeSubscriptionId) {
+    return c.json(
+      { error: "This org already has an active subscription; manage it from Settings > Billing" },
+      409,
+    );
+  }
 
   const user = c.get("user")!;
 
