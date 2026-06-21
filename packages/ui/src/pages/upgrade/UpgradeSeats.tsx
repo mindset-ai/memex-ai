@@ -3,19 +3,7 @@ import { useParams, useNavigate, Navigate } from 'react-router-dom';
 import { Button } from '../../components/ui/Button';
 import { useAuth } from '../../components/AuthContext';
 import { startCheckout } from '../../api/client';
-
-type UpgradePlan = 'premium' | 'enterprise';
-
-const PLAN_CONFIG: Record<UpgradePlan, { name: string; monthlyPrice: number }> = {
-  premium:    { name: 'Premium',          monthlyPrice: 25 },
-  enterprise: { name: 'Hosted Enterprise', monthlyPrice: 50 },
-};
-
-const ANNUAL_FACTOR = 0.83;
-
-function calcPrice(seats: number, monthly: number, annual: boolean): number {
-  return seats * monthly * (annual ? ANNUAL_FACTOR : 1);
-}
+import { PLAN_CONFIG, ANNUAL_FACTOR, calcPrice, type UpgradePlan } from './pricing';
 
 export function UpgradeSeats() {
   const { plan } = useParams<{ plan: string }>();
@@ -23,6 +11,7 @@ export function UpgradeSeats() {
   const { token } = useAuth();
 
   const [seats, setSeats] = useState(1);
+  const [seatError, setSeatError] = useState<string | null>(null);
   const [annual, setAnnual] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -82,13 +71,27 @@ export function UpgradeSeats() {
             value={seats}
             onChange={(e) => {
               const v = parseInt(e.target.value, 10);
-              if (!isNaN(v) && v >= 1) setSeats(v);
+              // ac-21: seat count must be ≥1. Surface a visible error on 0/<1
+              // (or a non-numeric entry) instead of silently swallowing it.
+              if (!isNaN(v) && v >= 1) {
+                setSeats(v);
+                setSeatError(null);
+              } else {
+                setSeatError('Enter at least 1 seat.');
+              }
             }}
+            aria-invalid={seatError !== null}
             className="w-full rounded-lg border border-edge bg-input px-3 py-2 text-sm text-primary focus:outline-none focus:ring-2 focus:ring-accent"
           />
-          <p className="mt-1.5 text-xs text-muted">
-            ${perSeat.toFixed(2)}/seat/mo · no maximum
-          </p>
+          {seatError ? (
+            <p role="alert" className="mt-1.5 text-xs text-status-danger-text">
+              {seatError}
+            </p>
+          ) : (
+            <p className="mt-1.5 text-xs text-muted">
+              ${perSeat.toFixed(2)}/seat/mo · no maximum
+            </p>
+          )}
         </div>
 
         {/* Billing cycle */}
