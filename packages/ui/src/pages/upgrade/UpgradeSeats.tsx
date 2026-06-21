@@ -142,6 +142,10 @@ export function UpgradeSeats() {
           </p>
         )}
 
+        <p className="text-xs text-muted text-right">
+          Prices shown in USD · billed in your local currency at checkout.
+        </p>
+
         {error && (
           <p
             role="alert"
