@@ -320,7 +320,13 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'create_task(ref, title, description, acceptanceCriteria?, sectionRef?)',
     group: 'build',
     readOnlyHint: false,
-    trafficClass: 'build',
+    // spec-327 dec-3: NON-ADVANCING. The createTask service guard (dec-1) rejects
+    // create_task from an agent channel unless the Spec is already in build, so
+    // this tool can never drive a phase transition — outside build it errors,
+    // inside build advancing-to-build is a no-op. Previously 'build', which
+    // silently shoved a draft/specify Spec into build on task creation (the
+    // spec-189 behaviour that misled a user). null is the honest class.
+    trafficClass: null,
   },
   {
     name: 'update_task',

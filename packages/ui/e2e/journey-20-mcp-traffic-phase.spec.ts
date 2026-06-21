@@ -16,11 +16,14 @@
 //   2. Card sits in Draft, unassigned.
 //   3. MCP create_decision (specify-class) → card moves to Specify AND grows
 //      the dev user's assignee avatar — no page interaction at all.
-//   4. MCP create_task (build-class) → card moves on to Build.
+//   4. MCP update_task (build-class) on a pre-seeded task → card moves to Build.
+//      (spec-327 gates create_task to build/verify, so update_task is the
+//      build-class exemplar here; the task is seeded guard-exempt via the test
+//      surface, which carries no agent channel.)
 //
 // Emits ac-1 + ac-4 per the ac-emission discipline (pass AND fail).
 
-import { test, expect, bareUrl } from "./helpers/index.js";
+import { test, expect, bareUrl, seedTask } from "./helpers/index.js";
 import {
   seedOrgTenant,
   seedSpec,
@@ -97,6 +100,17 @@ test("MCP traffic moves the Spec card across the board and assigns the caller, l
   });
   const specRef = `${tenant.namespaceSlug}/${tenant.memexSlug}/specs/${spec.handle}`;
 
+  // spec-327: create_task is gated to build/verify, so step 4's build-class
+  // exemplar is update_task on a pre-seeded task. Seed it guard-exempt via the
+  // test surface (no agent channel); it does not move the phase (still draft).
+  const seededTask = await seedTask({
+    memexId: tenant.memexId,
+    docId: spec.docId,
+    title: "Wire the queue",
+    description: "Implementation begins.",
+  });
+  const taskRef = `${specRef}/tasks/t-${seededTask.seq}`;
+
   await page.goto(bareUrl(`/${tenant.namespaceSlug}/${tenant.memexSlug}`));
   const board = page.getByTestId("kanban-board");
   await expect(board).toBeVisible({ timeout: 15_000 });
@@ -132,11 +146,10 @@ test("MCP traffic moves the Spec card across the board and assigns the caller, l
   const specifyCard = column("Specify").locator('[data-testid="spec-assignees"]');
   await expect(specifyCard).toBeVisible({ timeout: 15_000 });
 
-  // ── 4. Build-class MCP traffic: task creation ────────────────────────────
-  await mcpToolCall(page.request, "create_task", {
-    ref: specRef,
-    title: "Wire the queue",
-    description: "Implementation begins.",
+  // ── 4. Build-class MCP traffic: task update ──────────────────────────────
+  await mcpToolCall(page.request, "update_task", {
+    ref: taskRef,
+    title: "Wire the queue — implementation begins",
   });
 
   await expect(card(column("Build"))).toBeVisible({ timeout: 15_000 });

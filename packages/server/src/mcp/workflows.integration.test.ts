@@ -14,7 +14,7 @@
 //      list_comments must filter by memexId. This is the riskiest regression
 //      vector when collapsing list filters.
 
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { eq, inArray } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import {
@@ -519,6 +519,13 @@ describe("update_task completion nudge", () => {
     });
     await callTool(actor.user.id, "update_doc", { ref: specRef, status: "specify" });
     await callTool(actor.user.id, "update_doc", { ref: specRef, status: "build" });
+  });
+
+  beforeEach(async () => {
+    // spec-327: completing the last task auto-promotes the Spec build→verify
+    // (maybeAutoPromoteToVerify), and create_task is now gated to build — so
+    // reset to build before each case creates its tasks.
+    await db.update(documents).set({ status: "build" }).where(eq(documents.id, spec.id));
   });
 
   it("emits the canonical nudge on status=complete with no dependents", async () => {
