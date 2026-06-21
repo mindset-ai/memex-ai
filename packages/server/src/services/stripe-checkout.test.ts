@@ -18,6 +18,15 @@ import { tagAc } from "@memex-ai-ac/vitest";
 import { createCheckoutSession } from "./stripe.js";
 
 const AC_33 = "mindset-prod/memex-building-itself/specs/spec-171/acs/ac-33";
+// ac-5 (scope): all payment processing is Stripe-hosted — no card data touches
+// our server. ac-7: a Checkout Session is created for the chosen plan/seats/cycle
+// against a reused customer. ac-10: every invoice carries automatic_tax enabled —
+// asserted here at the Session level (the Session's tax config propagates to the
+// subscription's invoices); the product tax code txcd_10000000 is Stripe-product
+// config (t-17), not assertable from this unit test.
+const AC_5 = "mindset-prod/memex-building-itself/specs/spec-171/acs/ac-5";
+const AC_7 = "mindset-prod/memex-building-itself/specs/spec-171/acs/ac-7";
+const AC_10 = "mindset-prod/memex-building-itself/specs/spec-171/acs/ac-10";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -56,6 +65,12 @@ afterEach(() => {
 describe("spec-171 ac-33: hosted Stripe Checkout (no raw card on our server)", () => {
   it("createCheckoutSession POSTs a subscription session with tax, price, quantity and org_id metadata", async () => {
     tagAc(AC_33);
+    // ac-7: session created for the chosen plan/seats/cycle against a reused customer.
+    tagAc(AC_7);
+    // ac-10: automatic_tax enabled on the (invoice-bearing) Checkout Session.
+    tagAc(AC_10);
+    // ac-5: the body carries no card / payment_method keys — Stripe-hosted only.
+    tagAc(AC_5);
 
     const result = await createCheckoutSession({
       customerId: "cus_abc",
@@ -101,6 +116,9 @@ describe("spec-171 ac-33: hosted Stripe Checkout (no raw card on our server)", (
 
   it("no raw-card path survives on the server (source guard)", () => {
     tagAc(AC_33);
+    // ac-5: the source guard proves no raw card / PaymentMethod path exists on the
+    // server — payment is delegated entirely to Stripe-hosted Checkout.
+    tagAc(AC_5);
 
     const stripeSrc = readFileSync(resolve(HERE, "stripe.ts"), "utf8");
     // The Card-Element era attach helper must be gone.

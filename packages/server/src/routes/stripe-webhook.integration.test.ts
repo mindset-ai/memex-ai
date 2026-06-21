@@ -12,6 +12,13 @@ import { namespaces, orgs, stripeEvents } from "../db/schema.js";
 
 const AC_33 = "mindset-prod/memex-building-itself/specs/spec-171/acs/ac-33";
 const AC_37 = "mindset-prod/memex-building-itself/specs/spec-171/acs/ac-37";
+// ac-7: on checkout.session.completed the webhook persists the org's plan_tier,
+// stripe_subscription_id and seats_purchased (plan resolved from the price id).
+const AC_7 = "mindset-prod/memex-building-itself/specs/spec-171/acs/ac-7";
+// ac-11: when Stripe cancels the subscription after exhausting retries, the
+// customer.subscription.deleted webhook downgrades the org to Cloud Free
+// (clears plan_tier / stripe_subscription_id / seats_purchased).
+const AC_11 = "mindset-prod/memex-building-itself/specs/spec-171/acs/ac-11";
 
 // Pin price ids so resolvePlanFromPriceId resolves deterministically. Set before
 // importing the service (it reads process.env at call time, so order is lenient,
@@ -77,6 +84,9 @@ beforeEach(() => {
 describe("spec-171 ac-33: webhook persists the hosted purchase", () => {
   it("checkout.session.completed writes plan tier, subscription id and seats from the resolved price", async () => {
     tagAc(AC_33);
+    // ac-7: this is the webhook persistence half of ac-7 — plan_tier,
+    // stripe_subscription_id and seats_purchased written from the resolved price id.
+    tagAc(AC_7);
     const { orgId } = await seedOrg();
 
     getSubscriptionMock.mockResolvedValue({
@@ -262,5 +272,79 @@ describe("spec-171 ac-37: webhook idempotency is atomic (issue-6)", () => {
       .from(stripeEvents)
       .where(eq(stripeEvents.eventId, eventId));
     expect(rows).toHaveLength(1);
+  });
+});
+
+// spec-171 ac-11 / dec-39: failed payments are handled by Stripe (Smart Retries +
+// dunning). When retries are exhausted Stripe CANCELS the subscription and fires
+// customer.subscription.deleted — the webhook must downgrade the org to Cloud Free
+// by clearing plan_tier / stripe_subscription_id / seats_purchased. There is no
+// in-app grace timer or app-sent failure email at launch.
+describe("spec-171 ac-11: customer.subscription.deleted downgrades the org to Cloud Free", () => {
+  it("clears plan_tier, stripe_subscription_id and seats_purchased when Stripe cancels the subscription", async () => {
+    tagAc(AC_11);
+    const { orgId } = await seedOrg();
+
+    // First put the org in a fully ACTIVE subscribed state via the real
+    // checkout-completed path — so the downgrade has something to clear and the
+    // assertion is not vacuous (a fresh org already has all three columns null).
+    const customerId = "cus_cancel";
+    getSubscriptionMock.mockResolvedValue({
+      id: "sub_to_cancel",
+      object: "subscription",
+      status: "active",
+      items: { data: [{ id: "si_c", price: { id: "price_premium_monthly" }, quantity: 6 }] },
+    });
+    await handleCheckoutCompleted({
+      id: "cs_cancel",
+      subscription: "sub_to_cancel",
+      customer: customerId,
+      metadata: { org_id: orgId },
+    });
+    // Point the org's customer id at the cancel event's customer (the webhook
+    // resolves the org by stripe_customer_id, not org_id, for subscription events).
+    await db.update(orgs).set({ stripeCustomerId: customerId }).where(eq(orgs.id, orgId));
+
+    // Sanity: the org really is on a paid tier before the cancel.
+    const [before] = await db
+      .select({
+        planTier: orgs.planTier,
+        stripeSubscriptionId: orgs.stripeSubscriptionId,
+        seatsPurchased: orgs.seatsPurchased,
+      })
+      .from(orgs)
+      .where(eq(orgs.id, orgId));
+    expect(before.planTier).toBe("premium");
+    expect(before.stripeSubscriptionId).toBe("sub_to_cancel");
+    expect(before.seatsPurchased).toBe(6);
+
+    // Post a SIGNED customer.subscription.deleted through the real router (full
+    // HMAC + idempotency path), exactly as Stripe delivers it on cancellation.
+    const res = await postEvent({
+      id: `evt_del_${Math.random().toString(36).slice(2, 10)}`,
+      type: "customer.subscription.deleted",
+      data: {
+        object: {
+          id: "sub_to_cancel",
+          object: "subscription",
+          status: "canceled",
+          customer: customerId,
+        },
+      },
+    });
+    expect(res.status).toBe(200);
+
+    // The org is downgraded to Cloud Free: all three billing columns cleared.
+    const [after] = await db
+      .select({
+        planTier: orgs.planTier,
+        stripeSubscriptionId: orgs.stripeSubscriptionId,
+        seatsPurchased: orgs.seatsPurchased,
+      })
+      .from(orgs)
+      .where(eq(orgs.id, orgId));
+    expect(after.planTier).toBe(null);
+    expect(after.stripeSubscriptionId).toBe(null);
+    expect(after.seatsPurchased).toBe(null);
   });
 });
