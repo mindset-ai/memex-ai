@@ -72,7 +72,7 @@
   },
   "devDependencies": {
     "@memex-ai-ac/vitest": "workspace:*",
-    "@types/node": "^25.9.3",
+    "@types/node": "^26.0.0",
     "@types/ws": "^8.18.1",
     "@vitest/coverage-v8": "^4.1.8",
     "drizzle-kit": "^0.31.10",
