@@ -411,7 +411,8 @@ describe.skipIf(!SMOKE_MCP_TOKEN)(
     //
     //    Specify-class traffic (create_decision) at a freshly-created draft
     //    Spec must auto-advance it draft → specify; build-class traffic
-    //    (create_task) must then advance it specify → build. This is the
+    //    (update_issue, post spec-327 — create_task no longer advances) must
+    //    then advance it specify → build. This is the
     //    deployed-contract probe for the runToolWithSpecTraffic seam — the
     //    exact class of /mcp wiring that std-17's first live run proved local
     //    suites can miss. The full matrix is locked by unit + integration
@@ -444,16 +445,35 @@ describe.skipIf(!SMOKE_MCP_TOKEN)(
       );
       expect(docText).toMatch(/\[spec,\s*specify\]|status:\s*specify|phase:\s*specify/i);
 
-      // Build-class traffic: task creation (also sweeps via createdTaskRefs).
-      const task = await callMcpTool("create_task", {
-        ref: specRef!,
-        title: "[smoke] spec-189 probe task",
-        description: "Throwaway — drives specify → build.",
+      // Build-class traffic: an Issue edit. spec-327 gated create_task to
+      // build/verify (it no longer advances), so the build-class advance
+      // exemplar is register_issue (the non-advancing parking lot, spec-295
+      // dec-2) followed by update_issue (still build-class) — the seam advances
+      // specify → build.
+      const issue = await callMcpTool("register_issue", {
+        spec_ref: specRef!,
+        title: "[smoke] spec-189 probe issue",
+        body: "Throwaway — seeded to drive specify → build via update_issue.",
+        type: "todo",
       });
-      expect(task.status).toBe(200);
-      expect(task.body.result?.isError).toBeFalsy();
-      const taskRef = parseRef(mcpTextPayload(task.body));
-      if (taskRef) createdTaskRefs.push(taskRef);
+      expect(issue.status).toBe(200);
+      expect(issue.body.result?.isError).toBeFalsy();
+      const issueRef = parseRef(mcpTextPayload(issue.body));
+      expect(issueRef, "register_issue should return a canonical ref").toBeTruthy();
+
+      // register_issue is non-advancing — still specify.
+      docText = mcpTextPayload(
+        (await callMcpTool("get_doc", { ref: specRef! })).body,
+      );
+      expect(docText).toMatch(/\[spec,\s*specify\]|status:\s*specify|phase:\s*specify/i);
+
+      // update_issue is build-class — advances specify → build.
+      const upd = await callMcpTool("update_issue", {
+        ref: issueRef!,
+        body: "Edited — build-class traffic drives specify → build.",
+      });
+      expect(upd.status).toBe(200);
+      expect(upd.body.result?.isError).toBeFalsy();
 
       docText = mcpTextPayload(
         (await callMcpTool("get_doc", { ref: specRef! })).body,
