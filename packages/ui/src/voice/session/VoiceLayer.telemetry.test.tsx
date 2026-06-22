@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render } from '@testing-library/react';
+import { tagAc } from '@memex-ai-ac/vitest';
+
+const AC = 'mindset-prod/memex-building-itself/specs/spec-338/acs';
 
 // A mutable fake voice session the test drives through the state machine; the
 // VoiceLayer effect observes status transitions at the shell and fires telemetry.
@@ -27,6 +30,8 @@ describe('VoiceLayer — voice telemetry transitions', () => {
   });
 
   it('fires icon_shown once on mount when the entry icon is visible', () => {
+    tagAc(`${AC}/ac-9`); // voice.icon_shown once per mount
+    tagAc(`${AC}/ac-4`); // scope: voice funnel — the entry icon is presented
     render(<VoiceLayer />);
     const iconShown = track.mock.calls.filter((c) => c[0] === 'voice.icon_shown');
     expect(iconShown).toHaveLength(1);
@@ -34,6 +39,8 @@ describe('VoiceLayer — voice telemetry transitions', () => {
   });
 
   it('grant path: requesting → active fires session_started + mic granted', () => {
+    tagAc(`${AC}/ac-11`); // session_started/ended + mic_permission from transitions
+    tagAc(`${AC}/ac-4`);
     sessionStatus = 'inactive';
     const { rerender } = render(<VoiceLayer />);
     track.mockClear();
@@ -48,6 +55,8 @@ describe('VoiceLayer — voice telemetry transitions', () => {
   });
 
   it('denied path: requesting → permission_denied fires mic denied (no session_started)', () => {
+    tagAc(`${AC}/ac-11`);
+    tagAc(`${AC}/ac-4`);
     sessionStatus = 'requesting_permission';
     const { rerender } = render(<VoiceLayer />);
     track.mockClear();
@@ -60,6 +69,8 @@ describe('VoiceLayer — voice telemetry transitions', () => {
   });
 
   it('active → inactive fires session_ended with a numeric durationMs', () => {
+    tagAc(`${AC}/ac-11`);
+    tagAc(`${AC}/ac-4`);
     sessionStatus = 'active';
     const { rerender } = render(<VoiceLayer />);
     track.mockClear();

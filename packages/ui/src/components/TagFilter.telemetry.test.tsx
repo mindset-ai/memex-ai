@@ -1,7 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { tagAc } from '@memex-ai-ac/vitest';
 import type { Tag } from '../api/types';
+
+const AC = 'mindset-prod/memex-building-itself/specs/spec-338/acs';
 
 // Capture track() calls without a live tenant (useTelemetry no-ops without one in
 // jsdom, so we stub the hook to observe the call the component makes).
@@ -24,6 +27,8 @@ describe('TagFilter — board.tag_filter_applied telemetry', () => {
   beforeEach(() => track.mockClear());
 
   it('fires board.tag_filter_applied with the new count (count only, no tag values)', async () => {
+    tagAc(`${AC}/ac-2`); // props are counts only — never the tag values (no PII/content)
+    tagAc(`${AC}/ac-1`); // an in-scope FE interaction emits a registered track() event
     const onChange = vi.fn();
     render(<TagFilter selected={[]} onChange={onChange} />);
 
@@ -39,6 +44,7 @@ describe('TagFilter — board.tag_filter_applied telemetry', () => {
   });
 
   it('fires filterCount: 0 when the selection is cleared', async () => {
+    tagAc(`${AC}/ac-1`);
     const onChange = vi.fn();
     render(<TagFilter selected={['priority::high']} onChange={onChange} />);
 

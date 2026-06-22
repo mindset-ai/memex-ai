@@ -1,10 +1,11 @@
-import { test, expect, bareUrl, gotoSpecsBoard } from "./helpers/index.js";
+import { test, expect, gotoSpecsBoard } from "./helpers/index.js";
 import {
   getPersonalMemexByEmail,
   ensureUser,
   setUserName,
   seedSpecInMemex,
   deleteDoc,
+  emitAcEvents,
 } from "./helpers/index.js";
 import type { Page, Request } from "@playwright/test";
 
@@ -67,6 +68,42 @@ test.describe("Journey 43 — front-end engagement telemetry (std-35)", () => {
 
   test.afterEach(async () => {
     if (docId) await deleteDoc(docId);
+  });
+
+  // std-28 / std-35 step 6: emit pass/fail for the ACs this journey evidences,
+  // keyed by test title (routing is namespace-derived → memex.ai). The search
+  // funnel proves query_submitted (ac-12); the card test proves card_opened
+  // (ac-10); all three prove the FE events fire (ac-1), carry no content (ac-2),
+  // and that the std-28 journey exists (ac-6).
+  const SPEC = "mindset-prod/memex-building-itself/specs/spec-338";
+  const ACS_BY_TEST: Record<string, string[]> = {
+    "the ⌘K search funnel emits opened → query_submitted → result_selected": [
+      `${SPEC}/acs/ac-12`,
+      `${SPEC}/acs/ac-1`,
+      `${SPEC}/acs/ac-2`,
+      `${SPEC}/acs/ac-6`,
+    ],
+    "opening a spec card on the board emits spec.card_opened (the 'spec#' + phase)": [
+      `${SPEC}/acs/ac-10`,
+      `${SPEC}/acs/ac-1`,
+      `${SPEC}/acs/ac-2`,
+      `${SPEC}/acs/ac-6`,
+    ],
+    "the board search trigger button emits search.opened with trigger=button": [
+      `${SPEC}/acs/ac-1`,
+      `${SPEC}/acs/ac-6`,
+    ],
+  };
+  test.afterEach(async ({}, testInfo) => {
+    if (testInfo.status === "skipped") return;
+    const refs = ACS_BY_TEST[testInfo.title];
+    if (!refs) return;
+    await emitAcEvents(
+      refs,
+      testInfo.status === "passed" ? "pass" : "fail",
+      `packages/ui/e2e/journey-43-fe-engagement-telemetry.spec.ts::${testInfo.title}`,
+      testInfo.duration ?? 0,
+    );
   });
 
   const HOTKEY = process.platform === "darwin" ? "Meta+k" : "Control+k";
