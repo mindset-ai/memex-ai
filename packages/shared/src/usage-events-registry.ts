@@ -104,6 +104,88 @@ export const USAGE_EVENT_REGISTRY = [
       "A visitor saw the signup form, pre-authentication (the funnel head). Recorded via the anonymous telemetry ingress (POST /api/telemetry) keyed on the consent-gated visitor_id; no user yet. Honours DNT / opt-out / consent (spec-324, spec-254).",
     source: "frontend",
   },
+  // ── Front-end engagement interactions (track(), spec-336 follow-on) ──────────
+  // Pure UI taps the server never sees — board navigation, search, voice, filters.
+  // Server OUTCOMES (spec/decision/task created, phase advanced) stay back-end
+  // (Recipe B above); these capture only the interaction/intent (std-35 cl-1).
+  {
+    name: "auth.login_started",
+    description:
+      "A sign-in attempt was initiated from the login screen. props.method is the auth method enum (google | password | magic_link). Pre-auth, so fired via trackAnonymous() on the visitor_id; completion stays the server-side account/session outcome.",
+    source: "frontend",
+  },
+  {
+    name: "spec.card_opened",
+    description:
+      "A spec card on the board was opened. props.specSeq (the spec's handle ordinal — the 'spec#'), props.phase (phase enum), props.assigned (bool), props.assignedUserId (opaque user UUID — never a name/email).",
+    source: "frontend",
+  },
+  {
+    name: "spec.tab_viewed",
+    description:
+      "A content sub-tab in the spec detail view was selected (which parts of a spec people read). props.tab is the sub-tab enum (narrative | comments | decisions | work | qa-report); props.phase is the phase view it was selected under (specify | build | verify | done).",
+    source: "frontend",
+  },
+  {
+    name: "board.phase_drag",
+    description:
+      "A spec card was dragged to a different phase column on the board (the interaction). props.from / props.to are phase enums. The OUTCOME stays document.status_changed (back-end); this captures the drag intent (std-35 cl-1).",
+    source: "frontend",
+  },
+  {
+    name: "board.tag_filter_applied",
+    description:
+      "The board tag filter selection changed. props.filterCount is the number of active tag filters (count only — never the tag values).",
+    source: "frontend",
+  },
+  {
+    name: "search.opened",
+    description:
+      "The ⌘K command palette was opened. props.trigger is how it was opened (hotkey | button).",
+    source: "frontend",
+  },
+  {
+    name: "search.query_submitted",
+    description:
+      "A query produced results in the command palette. props.queryLength (character count only — never the query text), props.hasResults (bool).",
+    source: "frontend",
+  },
+  {
+    name: "search.result_selected",
+    description:
+      "A result was chosen in the command palette. props.lane (jumpTo | assigned | content), props.resultKind (entity kind enum), props.resultIndex (position).",
+    source: "frontend",
+  },
+  {
+    name: "comments.filter_changed",
+    description:
+      "A comments filter was changed. props.authorFilter / props.statusFilter are the selected filter enums.",
+    source: "frontend",
+  },
+  {
+    name: "whatsnew.opened",
+    description:
+      "The What's New feed was opened. props.unreadCount is the number of unread items at open (count only).",
+    source: "frontend",
+  },
+  {
+    name: "workspace.switched",
+    description:
+      "The user switched the active Memex via the workspace switcher. props.memexId is the target Memex UUID (id only).",
+    source: "frontend",
+  },
+  {
+    name: "voice.mic_permission_result",
+    description:
+      "The browser microphone permission prompt resolved during a voice session attempt. props.result is the outcome enum (granted | denied | dismissed).",
+    source: "frontend",
+  },
+  {
+    name: "voice.icon_shown",
+    description:
+      "The voice entry point was presented to the user (the adoption denominator). Fired once per mount, not per render. props.surface is where it appeared (icon | pill).",
+    source: "frontend",
+  },
   // ── Back-end outcomes (whitelisted mutate() events, dec-8) ───────────────────
   // Name is EXACTLY `${entity}.${action}` so the t-3 whitelist maps 1:1.
   {

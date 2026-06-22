@@ -26,6 +26,8 @@ import { startUsageBackendSink, _stopUsageBackendSink } from "./usage-backend-si
 import { startActivityLogSink, _stopActivityLogSink } from "./activity-log.js";
 
 const AC = "mindset-prod/memex-building-itself/specs/spec-306/acs";
+// spec-338 dec-1: the coarse creation `source` prop on document.created.
+const AC338 = "mindset-prod/memex-building-itself/specs/spec-338/acs";
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 let memexId: string;
@@ -142,11 +144,37 @@ describe("document.created attributes the new document itself (spec-306 ac-10)",
     // scope ACs this also evidences:
     tagAc(`${AC}/ac-3`); // additive — the event still fires, only gains props (no new event name)
     tagAc(`${AC}/ac-4`); // attribution applied to document.created too (consistency across all in-scope events)
+    // spec-338 dec-1: creation is captured by document.created with doc_type
+    // (the spec-vs-doc distinction) — no front-end creation event.
+    tagAc(`${AC338}/ac-7`);
     const doc = await createDocDraft(memexId, "Self doc", "p", "standard", undefined, undefined, userId, { actorUserId: userId, channel: "rest_ui" });
     const props = await waitForRow("document.created", doc.id);
     expect(props, "document.created usage row with its own doc_id should land").toBeDefined();
     expect(props!.doc_id).toBe(doc.id);
     expect(props!.doc_type).toBe("standard");
+    expectNoLeak(props!);
+  });
+});
+
+// spec-338 dec-1 (ac-8): document.created carries a coarse `source` = the std-32
+// channel, so funnels can split "where specs/docs are created" off the one outcome
+// event — and crucially that includes agent/MCP creates a front-end event can't see.
+describe("document.created carries the coarse creation source (spec-338 ac-8)", () => {
+  it("stamps source = 'rest_ui' for a UI-initiated create", async () => {
+    tagAc(`${AC338}/ac-8`);
+    const doc = await createDocDraft(memexId, "UI source doc", "p", "spec", undefined, undefined, userId, { actorUserId: userId, channel: "rest_ui" });
+    const props = await waitForRow("document.created", doc.id);
+    expect(props, "document.created usage row should land").toBeDefined();
+    expect(props!.source).toBe("rest_ui");
+    expectNoLeak(props!);
+  });
+
+  it("stamps source = 'mcp' for an agent/MCP create (a path no front-end event sees)", async () => {
+    tagAc(`${AC338}/ac-8`);
+    const doc = await createDocDraft(memexId, "MCP source doc", "p", "spec", undefined, undefined, userId, { actorUserId: userId, channel: "mcp" });
+    const props = await waitForRow("document.created", doc.id);
+    expect(props, "document.created usage row should land").toBeDefined();
+    expect(props!.source).toBe("mcp");
     expectNoLeak(props!);
   });
 });

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from './AuthContext';
 import { getCurrentTenant, namespaceHomePath, tenantPathFor } from '../utils/tenantUrl';
+import { useTelemetry } from '../hooks/useTelemetry';
 
 // Top-right Memex switcher. Always rendered for authenticated users — the primary
 // indicator of which Memex the user is currently in (GitHub-style). Dropdown
@@ -22,6 +23,7 @@ import { getCurrentTenant, namespaceHomePath, tenantPathFor } from '../utils/ten
 export function MemexSwitcher({ variant = 'topbar' }: { variant?: 'topbar' | 'sidebar' } = {}) {
   const { session } = useAuth();
   const navigate = useNavigate();
+  const { track } = useTelemetry(true);
   const [open, setOpen] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
 
@@ -94,22 +96,28 @@ export function MemexSwitcher({ variant = 'topbar' }: { variant?: 'topbar' | 'si
     if (!personalMembership) return;
     const ns = personalMembership.slug;
     const mx = personalMembership.memexSlug ?? 'personal';
+    // Only a real switch (not re-selecting the current Memex). id only.
+    if (!currentIsPersonal) {
+      track('workspace.switched', { memexId: personalMembership.memexId });
+    }
     navigate(tenantPathFor(ns, mx, '/specs'));
   }
 
-  function goToOrgMemex(m: { slug: string; memexSlug?: string }) {
+  function goToOrgMemex(m: { slug: string; memexSlug?: string; memexId: string }) {
     setOpen(false);
     const mx = m.memexSlug ?? 'main';
     if (m.slug === currentSlug && current?.memex === mx) return;
+    track('workspace.switched', { memexId: m.memexId });
     navigate(tenantPathFor(m.slug, mx, '/specs'));
   }
 
   // Visited rows always carry a memexSlug (the server's join selects it), so no
   // 'main' fallback dance is needed — but keep one for parity/safety.
-  function goToVisitedMemex(m: { slug: string; memexSlug?: string }) {
+  function goToVisitedMemex(m: { slug: string; memexSlug?: string; memexId: string }) {
     setOpen(false);
     const mx = m.memexSlug ?? 'main';
     if (m.slug === currentSlug && current?.memex === mx) return;
+    track('workspace.switched', { memexId: m.memexId });
     navigate(tenantPathFor(m.slug, mx, '/specs'));
   }
 

@@ -36,6 +36,19 @@ versa.
 - `home_canvas.step_shown` — A Home Canvas onboarding journey step became the active card (spec-303/305). props.step is the step id. Recorded via POST /api/me/journey-event.
 - `home_canvas.cta_clicked` — A Home Canvas journey step's CTA was clicked. props.step is the step id; props.cta names the CTA target. The intent signal; the step's outcome stays its own event (std-35 cl-12).
 - `signup.form_viewed` — A visitor saw the signup form, pre-auth (the funnel head). Recorded via the anonymous ingress (POST /api/telemetry) keyed on the consent-gated visitor_id.
+- `auth.login_started` — A sign-in attempt was initiated. props.method is the auth method enum (google | password | magic_link). Pre-auth → trackAnonymous().
+- `spec.card_opened` — A spec card on the board was opened. props.specSeq (the spec's handle ordinal — the "spec#"), props.phase, props.assigned (bool), props.assignedUserId (opaque user UUID — never a name/email).
+- `spec.tab_viewed` — A content sub-tab in the spec detail view was selected (which parts people read). props.tab (narrative | comments | decisions | work | qa-report), props.phase (the phase view it was selected under).
+- `board.phase_drag` — A spec card was dragged to a different phase column (the interaction; the outcome stays document.status_changed). props.from / props.to are phase enums.
+- `board.tag_filter_applied` — The board tag filter changed. props.filterCount is the number of active tag filters (count only).
+- `search.opened` — The ⌘K command palette was opened. props.trigger (hotkey | button).
+- `search.query_submitted` — A query produced results in the palette. props.queryLength (char count only — never the text), props.hasResults (bool).
+- `search.result_selected` — A result was chosen in the palette. props.lane (jumpTo | assigned | content), props.resultKind, props.resultIndex.
+- `comments.filter_changed` — A comments filter changed. props.authorFilter / props.statusFilter are the selected filter enums.
+- `whatsnew.opened` — The What's New feed was opened. props.unreadCount (count only).
+- `workspace.switched` — The active Memex was switched via the workspace switcher. props.memexId (target Memex UUID).
+- `voice.mic_permission_result` — The mic permission prompt resolved during a voice attempt. props.result (granted | denied | dismissed).
+- `voice.icon_shown` — The voice entry point was presented (adoption denominator). Fired once per mount. props.surface (icon | pill).
 
 ## Back-end outcomes (whitelisted `mutate()` events, dec-8)
 

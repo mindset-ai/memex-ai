@@ -3,6 +3,7 @@ import type { Tag } from '../api/types';
 import { fetchMemexTags } from '../api/client';
 import { TagChip } from './TagChip';
 import { formatTagInput, tagMatchesQuery, parseTagInput } from '../utils/tagInput';
+import { useTelemetry } from '../hooks/useTelemetry';
 
 interface TagFilterProps {
   /**
@@ -27,6 +28,7 @@ interface TagFilterProps {
  * applies the same AND/OR semantics on the indexed (scope, value) join.
  */
 export function TagFilter({ selected, onChange, className = '' }: TagFilterProps) {
+  const { track } = useTelemetry(true);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [catalogue, setCatalogue] = useState<Tag[]>([]);
@@ -78,15 +80,25 @@ export function TagFilter({ selected, onChange, className = '' }: TagFilterProps
 
   const selectedSet = useMemo(() => new Set(selected), [selected]);
 
+  // Every selection change goes through here so the telemetry fires once per
+  // change (count only — never the tag values, std-35 cl-5).
+  const applyChange = useCallback(
+    (next: string[]) => {
+      track('board.tag_filter_applied', { filterCount: next.length });
+      onChange(next);
+    },
+    [onChange, track],
+  );
+
   const toggle = useCallback(
     (raw: string) => {
       if (selectedSet.has(raw)) {
-        onChange(selected.filter((s) => s !== raw));
+        applyChange(selected.filter((s) => s !== raw));
       } else {
-        onChange([...selected, raw]);
+        applyChange([...selected, raw]);
       }
     },
-    [selected, selectedSet, onChange],
+    [selected, selectedSet, applyChange],
   );
 
   const visible = useMemo(
@@ -132,7 +144,7 @@ export function TagFilter({ selected, onChange, className = '' }: TagFilterProps
           <button
             type="button"
             data-testid="tag-filter-clear"
-            onClick={() => onChange([])}
+            onClick={() => applyChange([])}
             className="text-xs text-muted hover:text-secondary underline-offset-2 hover:underline"
           >
             Clear
