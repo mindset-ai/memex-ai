@@ -17,6 +17,7 @@ import { RenameSpecDialog } from '../components/RenameSpecDialog';
 import { MoveSpecDialog } from '../components/MoveSpecDialog';
 import { tenantPath, getCurrentTenant } from '../utils/tenantUrl';
 import { useAuth } from '../components/AuthContext';
+import { useTelemetry } from '../hooks/useTelemetry';
 import { nextRevealPhase, type RevealPhase } from '../hooks/useHandholdReveal';
 import { useHandholdRevealValue } from '../hooks/HandholdRevealContext';
 import { useIsFeatureHidden } from '../hooks/useIsFeatureHidden';
@@ -140,6 +141,7 @@ interface KanbanColumnProps {
 }
 
 function KanbanColumn(props: KanbanColumnProps) {
+  const { track } = useTelemetry(true);
   const {
     id,
     label,
@@ -210,6 +212,16 @@ function KanbanColumn(props: KanbanColumnProps) {
               <Link
                 to={tenantPath(`/specs/${d.handle}`)}
                 draggable={canWrite}
+                onClick={() =>
+                  track('spec.card_opened', {
+                    specSeq: docSeq(d.handle) ?? d.handle,
+                    phase: id,
+                    assigned: (d.assignees?.length ?? 0) > 0,
+                    ...(d.assignees?.[0]?.userId
+                      ? { assignedUserId: d.assignees[0].userId }
+                      : {}),
+                  })
+                }
                 onDragStart={canWrite ? (e) => onDragStart(e, d.id) : undefined}
                 onDragEnd={canWrite ? onDragEnd : undefined}
                 className={`block border rounded-md p-3 pr-9 transition-all bg-panel border-edge-subtle hover:border-edge hover:bg-card-hover ${
@@ -352,6 +364,7 @@ function KanbanColumn(props: KanbanColumnProps) {
  */
 export function SpecList() {
   const { session, user } = useAuth();
+  const { track } = useTelemetry(true);
   // spec-118 ac-19: the assignee filter lives in the URL (?assignee=all|me|<userId>)
   // so a filtered board is shareable, matching the board's existing URL conventions.
   const [searchParams, setSearchParams] = useSearchParams();
@@ -585,6 +598,10 @@ export function SpecList() {
 
     const current = docs.find((d) => d.id === docId);
     if (!current || current.status === column) return;
+
+    // The drag interaction (intent). The OUTCOME is document.status_changed
+    // (back-end); this captures whether drag-to-move is used vs the detail view.
+    track('board.phase_drag', { from: current.status, to: column });
 
     // Promote the drag-time auto-expand to a sticky open state once a card
     // actually lands in Done, so the user can see what they just dropped.

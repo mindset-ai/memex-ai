@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from 'react';
 import { SearchPalette } from './SearchPalette';
+import { useTelemetry } from '../hooks/useTelemetry';
 
 // spec-192 t-1 (ac-2 / ac-8 / ac-10): the global ⌘K search open-state lives here
 // so the app chrome — the Specs board header (SpecList) and the doc-page header
@@ -40,6 +41,7 @@ export function useSearch(): SearchContextValue | null {
 }
 
 export function SearchProvider({ children }: { children: ReactNode }) {
+  const { track } = useTelemetry(true);
   const [open, setOpen] = useState(false);
   const openRef = useRef(false);
   const restoreFocusRef = useRef<HTMLElement | null>(null);
@@ -73,14 +75,22 @@ export function SearchProvider({ children }: { children: ReactNode }) {
     function onKeyDown(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
         e.preventDefault();
+        // Fire only on the open transition (the hotkey toggles), so a close
+        // press isn't counted as an open. Measures ⌘K discoverability.
+        if (!openRef.current) track('search.opened', { trigger: 'hotkey' });
         setOpenSafe(!openRef.current);
       }
     }
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [setOpenSafe]);
+  }, [setOpenSafe, track]);
 
-  const openSearch = useCallback(() => setOpenSafe(true), [setOpenSafe]);
+  // The chrome triggers (board header + doc header) all call openSearch — count
+  // those as button-opened, only when not already open.
+  const openSearch = useCallback(() => {
+    if (!openRef.current) track('search.opened', { trigger: 'button' });
+    setOpenSafe(true);
+  }, [setOpenSafe, track]);
   const closeSearch = useCallback(() => setOpenSafe(false), [setOpenSafe]);
 
   return (

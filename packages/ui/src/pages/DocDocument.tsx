@@ -27,6 +27,7 @@ import { AllComments } from '../components/AllComments';
 import { AcPanel } from '../components/AcPanel';
 import { PhaseTabBar, type PhaseTab } from '../components/PhaseTabBar';
 import { phaseColors } from '../components/phaseColors';
+import { useTelemetry } from '../hooks/useTelemetry';
 import { TransitionSentence } from '../components/TransitionSentence';
 import { DoneSummary } from '../components/DoneSummary';
 import { Badge, Tabs } from '../components/ui';
@@ -165,6 +166,7 @@ export function DocDocument() {
   const [commentsByDecision, setCommentsByDecision] = useState<Record<string, Comment[]>>({});
   const [commentsByTask, setCommentsByTask] = useState<Record<string, Comment[]>>({});
   const [selectedSectionId, setSelectedSectionId] = useState<string | null>(null);
+  const { track } = useTelemetry(true);
   // spec-159 t-6: the page is organised around the Spec's three working phases
   // (Specify / Build / Verify) instead of the six flat content tabs. `selectedTab`
   // is the phase view the user is browsing — it never drives the Spec's phase
@@ -1115,7 +1117,14 @@ export function DocDocument() {
       <Tabs
         tabs={subTabs}
         activeTab={effectiveSubTab}
-        onChange={(t) => setSubTab(t as SubTab)}
+        onChange={(t) => {
+          // Which parts of a spec people read. Fire only on a real change
+          // (the explicit user selection), enum-only props.
+          if (t !== effectiveSubTab) {
+            track('spec.tab_viewed', { tab: t, phase: viewedTab });
+          }
+          setSubTab(t as SubTab);
+        }}
         variant="underline"
       />
       {effectiveSubTab === 'narrative' && narrativeView}

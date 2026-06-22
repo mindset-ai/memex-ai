@@ -160,6 +160,11 @@ export async function createDocDraft(
       payload: {
         ...docAttribution(created.id, created.docType),
         ...(specIndex !== undefined ? { spec_index: specIndex } : {}),
+        // spec-338 dec-1: the coarse creation SOURCE = the std-32 channel
+        // (rest_ui | mcp | in_app_agent | server), so funnels can split
+        // "where specs/docs are created" off the one outcome event — without
+        // a front-end creation event, and covering agent/MCP creates too.
+        ...(ctx.channel ? { source: ctx.channel } : {}),
       },
     }),
     async () => {

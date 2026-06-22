@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { Comment, DocSection, Decision, Task } from '../api/types';
+import { useTelemetry } from '../hooks/useTelemetry';
 import { CommentBubble } from './CommentTray';
 import { filterComments, type AuthorKindFilter, type StatusFilter } from '../utils/filterComments';
 import { commentAnchorId, buildCommentLink } from '../utils/commentDeepLink';
@@ -125,6 +126,17 @@ export function AllComments({
   // history, shown on demand. authorKind defaults to 'all' (Everyone).
   const [authorKind, setAuthorKind] = useState<AuthorKindFilter>('all');
   const [status, setStatus] = useState<StatusFilter>('open');
+  const { track } = useTelemetry(true);
+
+  // Adoption of the comment filters (spec-194). Enums only.
+  const handleAuthorKind = (next: AuthorKindFilter) => {
+    track('comments.filter_changed', { authorFilter: next, statusFilter: status });
+    setAuthorKind(next);
+  };
+  const handleStatus = (next: StatusFilter) => {
+    track('comments.filter_changed', { authorFilter: authorKind, statusFilter: next });
+    setStatus(next);
+  };
   const applyLocal = (list: Comment[]) =>
     filterComments(list, { authorKind, status, type: null });
 
@@ -218,7 +230,7 @@ export function AllComments({
             group="author"
             options={AUTHOR_KIND_OPTIONS}
             active={authorKind}
-            onChange={setAuthorKind}
+            onChange={handleAuthorKind}
             tone="agent"
           />
           <span aria-hidden className="h-4 w-px bg-edge-subtle" />
@@ -226,7 +238,7 @@ export function AllComments({
             group="status"
             options={STATUS_OPTIONS}
             active={status}
-            onChange={setStatus}
+            onChange={handleStatus}
           />
         </div>
       )}

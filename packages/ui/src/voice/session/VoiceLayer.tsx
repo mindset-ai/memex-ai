@@ -21,12 +21,58 @@ import {
   VoiceSessionPill,
   Specky,
 } from '@memex/guide-sdk';
+import { useEffect, useRef } from 'react';
+import { useTelemetry } from '../../hooks/useTelemetry';
 
 const ANCHOR = 'fixed bottom-6 right-6 z-50';
 
 export function VoiceLayer(): React.JSX.Element | null {
   const session = useVoiceSession();
   const { pathname } = useLocation();
+  const { track } = useTelemetry(true);
+  const status = session.status;
+
+  // Telemetry stays app-side (the SDK stays pure): observe the session state
+  // machine at the shell, where every transition is visible. Maps to the voice
+  // funnel — adoption (started), the mic-permission drop-off, and dwell.
+  const prevStatus = useRef<string | null>(null);
+  const startedAt = useRef<number | null>(null);
+  useEffect(() => {
+    const prev = prevStatus.current;
+    if (prev === status) return;
+    if (status === 'active' && prev !== 'active') {
+      startedAt.current = Date.now();
+      track('voice.session_started');
+      // A real prompt resolved to granted only when we came through the request.
+      if (prev === 'requesting_permission') {
+        track('voice.mic_permission_result', { result: 'granted' });
+      }
+    } else if (status === 'permission_denied' && prev !== 'permission_denied') {
+      track('voice.mic_permission_result', { result: 'denied' });
+    }
+    if (prev === 'active' && status !== 'active') {
+      const ms = startedAt.current != null ? Date.now() - startedAt.current : undefined;
+      track('voice.session_ended', ms != null ? { durationMs: ms } : undefined);
+      startedAt.current = null;
+    }
+    prevStatus.current = status;
+  }, [status, track]);
+
+  // The voice entry point (the Specky icon) is presented in the inactive/
+  // requesting/mic-unavailable branch on registered screens — the adoption
+  // denominator. Fire once per mount (not per render), surface = 'icon'.
+  const iconVisible =
+    status !== 'active' &&
+    status !== 'permission_denied' &&
+    status !== 'error' &&
+    resolveScreenKey(pathname) !== null;
+  const iconShownFired = useRef(false);
+  useEffect(() => {
+    if (iconVisible && !iconShownFired.current) {
+      iconShownFired.current = true;
+      track('voice.icon_shown', { surface: 'icon' });
+    }
+  }, [iconVisible, track]);
 
   if (session.status === 'active') {
     return (

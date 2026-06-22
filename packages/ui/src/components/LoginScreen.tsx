@@ -78,12 +78,17 @@ function LoginCard(props: LoginScreenProps) {
         <EnterEmailScreen
           authError={props.authError}
           googleClientId={props.googleClientId}
-          onGoogleCredential={props.onGoogleCredential}
+          onGoogleCredential={(credential) => {
+            // Pre-auth → trackAnonymous (no tenant yet); method enum only.
+            trackAnonymous('auth.login_started', { method: 'google' });
+            return props.onGoogleCredential(credential);
+          }}
           onContinue={async (email) => {
             const probe = await probeAuthApi(email);
             if (!probe.exists) setView({ kind: 'create-password', email });
             else if (probe.hasPassword) setView({ kind: 'password', email });
             else {
+              trackAnonymous('auth.login_started', { method: 'magic_link' });
               const { loginRequestId } = await props.onMagicLink(email);
               setView({ kind: 'magic-sent', email, loginRequestId });
             }
@@ -97,9 +102,13 @@ function LoginCard(props: LoginScreenProps) {
           email={view.email}
           mode="signin"
           authError={props.authError}
-          onSubmit={(password) => props.onLogin(view.email, password)}
+          onSubmit={(password) => {
+            trackAnonymous('auth.login_started', { method: 'password' });
+            return props.onLogin(view.email, password);
+          }}
           onForgot={() => setView({ kind: 'forgot' })}
           onMagicLink={async () => {
+            trackAnonymous('auth.login_started', { method: 'magic_link' });
             const { loginRequestId } = await props.onMagicLink(view.email);
             setView({ kind: 'magic-sent', email: view.email, loginRequestId });
           }}
