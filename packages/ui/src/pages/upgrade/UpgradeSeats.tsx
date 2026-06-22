@@ -1,20 +1,42 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate, Navigate } from 'react-router-dom';
 import { Button } from '../../components/ui/Button';
 import { useAuth } from '../../components/AuthContext';
+import { OrgSelector } from '../../components/upgrade/OrgSelector';
 import { startCheckout } from '../../api/client';
 import { PLAN_CONFIG, ANNUAL_FACTOR, calcPrice, type UpgradePlan } from './pricing';
+import { deriveAdminOrgs } from './adminOrgs';
 
 export function UpgradeSeats() {
   const { plan } = useParams<{ plan: string }>();
   const navigate = useNavigate();
-  const { token } = useAuth();
+  const { token, session } = useAuth();
+
+  // spec-171 t-25 / dec-40 (option A): billing is per-org. Derive the orgs the
+  // caller administers from the session and let them pick WHICH to upgrade —
+  // never the session's current (personal) Memex.
+  const adminOrgs = useMemo(() => deriveAdminOrgs(session), [session]);
 
   const [seats, setSeats] = useState(1);
   const [seatError, setSeatError] = useState<string | null>(null);
   const [annual, setAnnual] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Preselect when exactly one org; otherwise force an explicit choice.
+  const [selectedOrgId, setSelectedOrgId] = useState<string | null>(() =>
+    adminOrgs.length === 1 ? adminOrgs[0].orgId : null,
+  );
+
+  // The state initializer runs once. AuthContext fast-paints a cached session
+  // then refreshes /api/auth/me in the background; if the org arrives via that
+  // refresh, adminOrgs becomes length-1 AFTER mount. Auto-select then so the
+  // single-org case isn't stuck unselected (its read-only view has no manual
+  // select control).
+  useEffect(() => {
+    if (selectedOrgId === null && adminOrgs.length === 1) {
+      setSelectedOrgId(adminOrgs[0].orgId);
+    }
+  }, [adminOrgs, selectedOrgId]);
 
   if (!plan || !(plan in PLAN_CONFIG)) {
     return <Navigate to="/upgrade" replace />;
@@ -24,16 +46,33 @@ export function UpgradeSeats() {
   const total = calcPrice(seats, config.monthlyPrice, annual);
   const perSeat = config.monthlyPrice * (annual ? ANNUAL_FACTOR : 1);
 
+  const selectedOrg = adminOrgs.find((o) => o.orgId === selectedOrgId) ?? null;
+
+  // Send the user to their personal namespace home, where the "Create an Org"
+  // dialog lives. Personal-namespace rows are excluded from adminOrgs, so read
+  // the personal slug straight off the session memberships.
+  function handleCreateOrg() {
+    const personal = session?.memberships.find((m) => m.kind === 'personal');
+    navigate(personal ? `/${personal.slug}` : '/');
+  }
+
   async function handleContinue() {
     if (submitting) return;
+    if (!selectedOrg) {
+      setError('Select the organisation you want to upgrade.');
+      return;
+    }
     setError(null);
     setSubmitting(true);
     try {
       // spec-171 dec-38 / ac-33: redirect to Stripe-hosted Checkout. Card data
       // is collected on Stripe's page, never in our UI.
+      // spec-171 t-25 / dec-40: bill the CHOSEN org — target its tenant base,
+      // not the session's current memex.
       const { url } = await startCheckout(
         { plan: plan as UpgradePlan, seats, billingCycle: annual ? 'annual' : 'monthly' },
         token,
+        { namespace: selectedOrg.namespace, memexSlug: selectedOrg.memexSlug },
       );
       window.location.assign(url);
     } catch {
@@ -59,6 +98,14 @@ export function UpgradeSeats() {
       </p>
 
       <div className="space-y-6">
+        {/* Org selector — billing is per-org (spec-171 t-25 / dec-40). */}
+        <OrgSelector
+          orgs={adminOrgs}
+          selectedOrgId={selectedOrgId}
+          onSelect={setSelectedOrgId}
+          onCreateOrg={handleCreateOrg}
+        />
+
         {/* Seat count */}
         <div>
           <label className="block text-sm font-medium text-primary mb-1.5" htmlFor="seat-count">
@@ -162,7 +209,7 @@ export function UpgradeSeats() {
           variant="primary"
           className="w-full justify-center py-2.5"
           onClick={handleContinue}
-          disabled={submitting}
+          disabled={submitting || !selectedOrg}
         >
           {submitting ? 'Redirecting…' : 'Continue to payment →'}
         </Button>

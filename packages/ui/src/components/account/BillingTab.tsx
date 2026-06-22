@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../AuthContext';
 import { Alert } from '../ui/Alert';
@@ -10,6 +10,8 @@ import {
   updateOrgSeats,
   type SubscriptionDto,
 } from '../../api/client';
+import { deriveAdminOrgs } from '../../pages/upgrade/adminOrgs';
+import { OrgSelector } from '../upgrade/OrgSelector';
 
 function formatDate(iso: string | null): string {
   if (!iso) return '—';
@@ -25,8 +27,31 @@ function formatCurrency(amount: number, currency: string): string {
 }
 
 export function BillingTab() {
-  const { token } = useAuth();
+  const { token, session } = useAuth();
   const navigate = useNavigate();
+
+  // spec-171 t-25 / dec-40 (option A): billing is per-org and /org is a flat
+  // (non-tenant) route, so the session's current memex defaults to the
+  // non-billable personal Memex. Resolve the billable org explicitly from the
+  // orgs the caller administers and target ITS tenant base on every billing call.
+  const adminOrgs = useMemo(() => deriveAdminOrgs(session), [session]);
+  const [selectedOrgId, setSelectedOrgId] = useState<string | null>(() =>
+    adminOrgs.length === 1 ? adminOrgs[0].orgId : null,
+  );
+  const selectedOrg = adminOrgs.find((o) => o.orgId === selectedOrgId) ?? null;
+  const orgTenant = selectedOrg
+    ? { namespace: selectedOrg.namespace, memexSlug: selectedOrg.memexSlug }
+    : undefined;
+
+  // The state initializer runs once. AuthContext fast-paints a cached session
+  // then refreshes /api/auth/me in the background; if the org arrives via that
+  // refresh, adminOrgs becomes length-1 AFTER mount. Auto-select then so the
+  // single-org case isn't stuck on the (control-less) read-only selector.
+  useEffect(() => {
+    if (selectedOrgId === null && adminOrgs.length === 1) {
+      setSelectedOrgId(adminOrgs[0].orgId);
+    }
+  }, [adminOrgs, selectedOrgId]);
 
   const [sub, setSub] = useState<SubscriptionDto | null>(null);
   const [loading, setLoading] = useState(true);
@@ -42,17 +67,25 @@ export function BillingTab() {
 
   useEffect(() => {
     if (!token) return;
+    // No org chosen yet (0 admin orgs, or many and none picked): nothing to load.
+    if (!orgTenant) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
-    fetchCurrentSubscription(token)
+    setError(null);
+    fetchCurrentSubscription(token, orgTenant)
       .then((s) => { setSub(s); setSeatInput(s.seatsPurchased ?? 1); })
       .catch(() => setError('Could not load billing information.'))
       .finally(() => setLoading(false));
-  }, [token]);
+    // orgTenant is derived from selectedOrgId; re-fetch when the chosen org changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, selectedOrgId]);
 
   async function handleBillingPortal() {
     if (!token) return;
     try {
-      const url = await fetchBillingPortalUrl(token, window.location.href);
+      const url = await fetchBillingPortalUrl(token, window.location.href, orgTenant);
       window.open(url, '_blank', 'noopener');
     } catch {
       setError('Could not open billing portal. Please try again.');
@@ -64,7 +97,7 @@ export function BillingTab() {
     setPreviewLoading(true);
     setPreview(null);
     try {
-      const p = await previewSeatChange(token, seats);
+      const p = await previewSeatChange(token, seats, orgTenant);
       setPreview(p);
     } catch {
       // Non-fatal; user still sees the confirm button
@@ -78,7 +111,7 @@ export function BillingTab() {
     setSaving(true);
     setSaveError(null);
     try {
-      await updateOrgSeats(token, seatInput);
+      await updateOrgSeats(token, seatInput, orgTenant);
       setSub((prev) => prev ? { ...prev, seatsPurchased: seatInput } : prev);
       setConfirmOpen(false);
       setPreview(null);
@@ -87,6 +120,32 @@ export function BillingTab() {
     } finally {
       setSaving(false);
     }
+  }
+
+  function handleCreateOrg() {
+    const personal = session?.memberships.find((m) => m.kind === 'personal');
+    navigate(personal ? `/${personal.slug}` : '/');
+  }
+
+  // No billable org resolved yet: either the caller administers none (show the
+  // create-an-org prompt) or several and hasn't picked one (show the chooser).
+  // Either way there's no single org whose billing we can display.
+  if (!selectedOrg) {
+    return (
+      <div className="py-6 space-y-4 max-w-xl">
+        {adminOrgs.length > 1 && (
+          <p className="text-sm text-muted">
+            Choose which organisation's billing you want to manage.
+          </p>
+        )}
+        <OrgSelector
+          orgs={adminOrgs}
+          selectedOrgId={selectedOrgId}
+          onSelect={setSelectedOrgId}
+          onCreateOrg={handleCreateOrg}
+        />
+      </div>
+    );
   }
 
   if (loading) {
@@ -108,6 +167,24 @@ export function BillingTab() {
 
   return (
     <div className="py-6 space-y-6 max-w-xl">
+      {/* Which org's billing is shown — switchable when the caller admins many.
+          spec-171 t-25: never assume the session's current memex is the org. */}
+      {adminOrgs.length > 1 && (
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-edge bg-surface/50 px-4 py-2.5">
+          <div>
+            <p className="text-xs text-muted">Managing organisation</p>
+            <p className="text-sm font-medium text-primary">{selectedOrg.name}</p>
+          </div>
+          <button
+            type="button"
+            className="text-xs text-link underline hover:no-underline"
+            onClick={() => setSelectedOrgId(null)}
+          >
+            Switch organisation
+          </button>
+        </div>
+      )}
+
       {/* Seats warning banner */}
       {sub.seatsWarning && (
         <Alert variant="warning">

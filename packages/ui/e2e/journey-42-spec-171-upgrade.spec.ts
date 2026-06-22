@@ -5,6 +5,7 @@ import {
   DEV_EMAIL,
   setUserName,
   seedOrg,
+  getPersonalMemexByEmail,
   emitAcEvents,
 } from "./helpers/index.js";
 
@@ -67,14 +68,25 @@ test("hosted upgrade: pick Enterprise, set seats + annual, redirect to Stripe Ch
     name: "Upgrade Journey Org",
   });
 
+  // The dev user's PERSONAL namespace — billing must NOT target it (it's the
+  // non-billable personal Memex the buggy session-current default resolved to).
+  // Resolve its real slug so the negative URL assertion is exact, not a guess.
+  const personal = await getPersonalMemexByEmail(DEV_EMAIL);
+  expect(personal).not.toBeNull();
+  const personalNamespace = personal!.namespaceSlug;
+
   // ── 1. plan select ────────────────────────────────────────────────────────
   // /upgrade is a FLAT route [per App.tsx PostLoginRouter] — registered at the top
   // level, NOT under /:ns/:mx. Navigating a tenant path /<ns>/<mx>/upgrade falls
   // through the tenant route tree to the catch-all and bounces to the Specs board,
-  // so we navigate the BARE path. The seeded org still backs "current org" via the
-  // session (best-effort) — and the POST is intercepted regardless, so the exact
-  // org-current resolution is moot here.
-  void org; // seeded for the admin-on-Cloud-Free precondition; nav is path-agnostic
+  // so we navigate the BARE path.
+  //
+  // spec-171 t-25 / ac-39 / dec-40 (option A): the upgrade flow now resolves the
+  // billable org from the SESSION's admin memberships (deriveAdminOrgs), not the
+  // session's current memex. The org was seeded BEFORE this navigation, so the
+  // app's on-load /api/auth/me refresh carries the new membership; the seats
+  // screen surfaces the single admin org and bills IT. We drive that REAL
+  // resolution (no stubbed org) and assert the POST hits the org's tenant base.
   await page.goto(bareUrl("/upgrade"), { waitUntil: "commit" });
 
   await expect(
@@ -99,6 +111,16 @@ test("hosted upgrade: pick Enterprise, set seats + annual, redirect to Stripe Ch
   await expect(
     page.getByRole("heading", { name: "Upgrade to Hosted Enterprise" }),
   ).toBeVisible({ timeout: 15_000 });
+
+  // spec-171 t-25 / ac-39: the seats screen surfaces WHICH org is being upgraded.
+  // With exactly one admin org it auto-selects and renders the org name. Asserting
+  // it BEFORE continuing is the deterministic wait for the on-load session refresh
+  // to land the seeded membership — and proves the org came from REAL resolution
+  // (deriveAdminOrgs over the session), not a stub. The "Continue" button stays
+  // disabled until an org resolves, so this gate is load-bearing.
+  await expect(page.getByText("Upgrade Journey Org")).toBeVisible({
+    timeout: 15_000,
+  });
 
   // seat input present…
   const seatInput = page.getByLabel("Number of seats");
@@ -182,4 +204,12 @@ test("hosted upgrade: pick Enterprise, set seats + annual, redirect to Stripe Ch
   expect(capturedUrl).not.toBeNull();
   expect(capturedUrl!).toContain("/orgs/current/subscription");
   expect(capturedUrl!).not.toContain("/upgrade/");
+
+  // spec-171 t-25 / ac-39 / dec-40 (option A) — THE core fix: billing is per-org.
+  // The POST must target the CHOSEN org's tenant base (its namespace), NOT the
+  // session's current memex (which defaults to the non-billable personal Memex
+  // and 404'd "Org context required"). Positive: the URL carries the seeded org's
+  // namespace. Negative: it must NOT carry the dev user's personal namespace.
+  expect(capturedUrl!).toContain(`/api/${slug}/`);
+  expect(capturedUrl!).not.toContain(`/api/${personalNamespace}/`);
 });
