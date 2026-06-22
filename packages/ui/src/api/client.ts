@@ -35,6 +35,28 @@ function tBase(): string {
   return tenantBase() ?? BASE_URL;
 }
 
+// spec-171 t-25 / dec-40 (option A): billing is PER-ORG. The subscription routes
+// resolve the org from the MEMEX in the path, so to bill a CHOSEN org we must
+// build the tenant base from that org's namespace + one of its memexes — NOT
+// from `tBase()`/session.currentMemexId, which defaults to the non-billable
+// personal Memex. Callers pass an explicit `OrgTenant`; this builds its prefix.
+export interface OrgTenant {
+  /** The org namespace slug — first path segment. */
+  namespace: string;
+  /** A representative memex slug under the org — second path segment. */
+  memexSlug: string;
+}
+
+/**
+ * Resolve the `/api/<ns>/<mx>` prefix for org-billing calls. When an explicit
+ * `OrgTenant` is given (the upgrade/billing flows always pass one), build the
+ * prefix from it. Otherwise fall back to `tBase()` for legacy in-tenant callers.
+ */
+function orgBillingBase(orgTenant?: OrgTenant): string {
+  if (orgTenant) return `${BASE_URL}/${orgTenant.namespace}/${orgTenant.memexSlug}`;
+  return tBase();
+}
+
 export interface FetchDocsOptions {
   /** Comma-separated server include tokens. `'driftCount'` (t-19 W2) attaches
    *  open drift counts to Standards; `'acHealth'` (b-66 t-2) attaches the
@@ -1044,6 +1066,13 @@ export async function fetchMemexIssues(
 export interface MembershipSummary {
   /** The Memex id this membership grants access to. */
   memexId: string;
+  /**
+   * The owning Org id for team rows; null/absent for personal rows and for
+   * sessions cached before this field shipped. Set by the server's
+   * `listMemberships`. spec-171 t-25: the upgrade/billing flows group billable
+   * admin memberships by this id so the caller can choose WHICH org to bill.
+   */
+  orgId?: string | null;
   /** Namespace slug — the first path segment in /<namespace>/<memex>/ URLs. */
   slug: string;
   /**
@@ -2760,8 +2789,9 @@ export interface SubscriptionDto {
 
 export async function fetchCurrentSubscription(
   token: string | null,
+  orgTenant?: OrgTenant,
 ): Promise<SubscriptionDto> {
-  const res = await fetchWithRetry(`${tBase()}/orgs/current/subscription`, {
+  const res = await fetchWithRetry(`${orgBillingBase(orgTenant)}/orgs/current/subscription`, {
     headers: authHeaders(token),
   });
   if (!res.ok) throw new Error(`Failed to fetch subscription: ${res.status}`);
@@ -2777,8 +2807,9 @@ export interface StartCheckoutInput {
 export async function fetchBillingPortalUrl(
   token: string | null,
   returnUrl: string,
+  orgTenant?: OrgTenant,
 ): Promise<string> {
-  const url = `${tBase()}/orgs/current/billing-portal?returnUrl=${encodeURIComponent(returnUrl)}`;
+  const url = `${orgBillingBase(orgTenant)}/orgs/current/billing-portal?returnUrl=${encodeURIComponent(returnUrl)}`;
   const res = await fetchWithRetry(url, { headers: authHeaders(token) });
   if (!res.ok) throw new Error(`Billing portal request failed: ${res.status}`);
   const body = await res.json();
@@ -2788,9 +2819,10 @@ export async function fetchBillingPortalUrl(
 export async function previewSeatChange(
   token: string | null,
   seats: number,
+  orgTenant?: OrgTenant,
 ): Promise<{ amountDue: number; currency: string }> {
   const res = await fetchWithRetry(
-    `${tBase()}/orgs/current/subscription/preview?seats=${seats}`,
+    `${orgBillingBase(orgTenant)}/orgs/current/subscription/preview?seats=${seats}`,
     { headers: authHeaders(token) },
   );
   if (!res.ok) throw new Error(`Preview failed: ${res.status}`);
@@ -2800,8 +2832,9 @@ export async function previewSeatChange(
 export async function updateOrgSeats(
   token: string | null,
   seats: number,
+  orgTenant?: OrgTenant,
 ): Promise<void> {
-  const res = await fetchWithRetry(`${tBase()}/orgs/current/subscription`, {
+  const res = await fetchWithRetry(`${orgBillingBase(orgTenant)}/orgs/current/subscription`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', ...authHeaders(token) },
     body: JSON.stringify({ seats }),
@@ -2812,11 +2845,18 @@ export async function updateOrgSeats(
 // spec-171 dec-38 / ac-33: start a hosted purchase. Returns the Stripe-hosted
 // Checkout URL — the caller redirects the browser to it. No card data is ever
 // collected in our UI.
+//
+// spec-171 t-25 / dec-40 (option A): the caller MUST pass the chosen org's
+// tenant — billing is per-org and we must NOT bill the session's current memex
+// (which defaults to the non-billable personal Memex). The POST therefore
+// targets /api/<org-ns>/<org-mx>/orgs/current/subscription, where the server
+// resolves the org FROM that memex.
 export async function startCheckout(
   input: StartCheckoutInput,
   token: string | null,
+  orgTenant: OrgTenant,
 ): Promise<{ url: string }> {
-  const res = await fetchWithRetry(`${tBase()}/orgs/current/subscription`, {
+  const res = await fetchWithRetry(`${orgBillingBase(orgTenant)}/orgs/current/subscription`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders(token) },
     body: JSON.stringify(input),
