@@ -1082,12 +1082,32 @@ export const orgs = pgTable(
     // Who created the org. Used for the 5-orgs-per-user-per-24h rate limit (std-3 /
     // dec-8). Nullable + ON DELETE SET NULL because user deletions don't unwind orgs.
     createdByUserId: uuid("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    // Designated billing contact (spec-171 t-1). Nullable — null means payment emails
+    // go to the org creator / all admins. Kept on the orgs table (not org_memberships)
+    // so the billing contact can be a non-member (e.g. finance@company.com).
+    billingContactName: text("billing_contact_name"),
+    billingContactEmail: text("billing_contact_email"),
+    // spec-171 t-2: enterprise trial state. null trial_status = never trialed or converted to paid.
+    trialStartedAt: timestamp("trial_started_at", { withTimezone: true }),
+    trialStatus: text("trial_status"),
+    trialConvertedAt: timestamp("trial_converted_at", { withTimezone: true }),
+    // Stripe customer ID — one per org, set on first purchase.
+    stripeCustomerId: text("stripe_customer_id"),
+    // spec-171 t-7: subscription state — kept in sync by stripe-webhook handler.
+    stripeSubscriptionId: text("stripe_subscription_id"),
+    planTier: text("plan_tier"),
+    seatsPurchased: integer("seats_purchased"),
+    // JSONB map of which trial nurture emails have been sent e.g. { day_1: true, day_4: true }.
+    trialEmailsSent: jsonb("trial_emails_sent").$type<Record<string, boolean>>().notNull().default({}),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     unique("orgs_namespace_id_unique").on(table.namespaceId),
+    unique("orgs_stripe_customer_id_unique").on(table.stripeCustomerId),
     index("orgs_created_by_user_id_idx").on(table.createdByUserId),
+    check("orgs_trial_status_valid", sql`${table.trialStatus} IN ('active', 'expired')`),
+    check("orgs_plan_tier_valid", sql`${table.planTier} IN ('premium', 'enterprise', 'self-hosted-enterprise')`),
   ]
 );
 
@@ -2945,3 +2965,25 @@ export const whatsNewSkips = pgTable(
 
 export type WhatsNewSkip = InferSelectModel<typeof whatsNewSkips>;
 export type WhatsNewSkipInsert = InferInsertModel<typeof whatsNewSkips>;
+
+// ── spec-171 t-2: enterprise schema (hosted-only) ────────────────────────────
+// Self-hosted tables (org_llm_keys, self_hosted_licenses, license_checkins) are
+// deferred to spec-323.
+
+// Idempotency log for Stripe webhook handlers. Unique on event_id prevents
+// double-processing on webhook retries (dec-8).
+export const stripeEvents = pgTable(
+  "stripe_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    eventId: text("event_id").notNull(),
+    eventType: text("event_type").notNull(),
+    processedAt: timestamp("processed_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique("stripe_events_event_id_unique").on(table.eventId),
+  ]
+);
+
+export type StripeEvent = InferSelectModel<typeof stripeEvents>;
+export type StripeEventInsert = InferInsertModel<typeof stripeEvents>;

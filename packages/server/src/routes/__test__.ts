@@ -534,6 +534,44 @@ testOnlyRouter.post("/seed-org", async (c) => {
   });
 });
 
+// spec-171 t-20 (ac-2): put a seeded org on a PAID Stripe tier so the
+// Settings > Org > Billing seat-change UI renders (BillingTab gates the
+// seat-change section on tier ∈ {premium, enterprise}; orgs.ts resolves tier to
+// "free" unless BOTH stripeCustomerId AND planTier are set). The seat-change
+// journey (journey-43) intercepts the preview GET and the seat-update PATCH at
+// the browser, so no real Stripe call is made and stripeSubscriptionId is not
+// required to render — it's optional here only for completeness. planTier is
+// constrained to the same values the orgs_plan_tier_valid CHECK allows so a typo
+// can't 500 past it; stripeCustomerId must be unique per the table constraint, so
+// callers mint a unique `cus_test_<slug>`.
+const setOrgBillingSchema = z.object({
+  orgId: z.string().uuid(),
+  stripeCustomerId: z.string().min(1),
+  planTier: z.enum(["premium", "enterprise", "self-hosted-enterprise"]),
+  seatsPurchased: z.number().int().min(1).optional(),
+  stripeSubscriptionId: z.string().min(1).optional(),
+});
+testOnlyRouter.post("/set-org-billing", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = setOrgBillingSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
+  }
+  const { orgId, stripeCustomerId, planTier, seatsPurchased, stripeSubscriptionId } = parsed.data;
+  const org = await db.query.orgs.findFirst({ where: eq(orgs.id, orgId) });
+  if (!org) return c.json({ error: `Org ${orgId} not found` }, 404);
+  await db
+    .update(orgs)
+    .set({
+      stripeCustomerId,
+      planTier,
+      ...(seatsPurchased !== undefined ? { seatsPurchased } : {}),
+      ...(stripeSubscriptionId !== undefined ? { stripeSubscriptionId } : {}),
+    })
+    .where(eq(orgs.id, orgId));
+  return c.json({ ok: true });
+});
+
 // Add a member to an org (role/status default to active member). Backs the
 // member-management + last-admin journeys (seed a peer user to promote/demote/
 // remove) and the multi-org switching journey (put the actor in a second org).

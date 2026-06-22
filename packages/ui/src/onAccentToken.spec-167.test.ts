@@ -81,10 +81,11 @@ describe('spec-167: on-accent foreground token', () => {
     expect(rgbVar(dark, 'accent')).toEqual([96, 165, 250]);
     expect(rgbVar(light, 'accent')).toEqual([37, 99, 235]);
     // text-on-accent is a deliberately REUSABLE token (ac-2). Its known, intended
-    // consumers are the OAuth Allow button (spec-167) and the visitor-consent
-    // Accept button (spec-254 t-3) — both render text on a bg-accent fill, the
-    // exact contrast case the token solves. The set stays CLOSED so an accidental
-    // new consumer (or a hard-coded colour) still trips this guard.
+    // consumers are the OAuth Allow button (spec-167), the visitor-consent
+    // Accept button (spec-254 t-3), and the spec-171 PricingCard "Current plan"
+    // badge (text on a `bg-accent` fill) — all render text on a bg-accent fill,
+    // the exact contrast case the token solves. The set stays CLOSED so an
+    // accidental new consumer (or a hard-coded colour) still trips this guard.
     const files = readdirSync(SRC_DIR, { recursive: true }) as string[];
     const consumers = files
       .filter((f) => /\.(ts|tsx)$/.test(f) && !/\.test\.(ts|tsx)$/.test(f))
@@ -92,7 +93,11 @@ describe('spec-167: on-accent foreground token', () => {
       .map((f) => f.split(sep).join('/'))
       .sort();
     expect(consumers).toEqual(
-      ['components/VisitorConsent.tsx', 'pages/OauthAuthorize.tsx'].sort(),
+      [
+        'components/VisitorConsent.tsx',
+        'components/upgrade/PricingCard.tsx',
+        'pages/OauthAuthorize.tsx',
+      ].sort(),
     );
   });
 

@@ -27,6 +27,7 @@ export {
   cleanup,
   markEmailVerified,
   seedOrg,
+  setOrgBilling,
   addOrgMember,
   addOrgDomain,
   createInvite,

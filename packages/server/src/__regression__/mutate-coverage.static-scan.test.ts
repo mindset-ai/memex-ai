@@ -101,6 +101,21 @@ const ALLOWLIST: Record<string, string> = {
     "Dev-mode-only org_membership grant (DEV_USER_EMAIL admin self-grant). org_membership is an access-control bootstrap row — no memex_id, no bus entity, not Memex-scoped tenant content; nothing subscribes to it over SSE.",
   "middleware/session.ts":
     "Dev-user fallback self-heals org_membership for DEV_ORG_NAMESPACES (ensureDevMemberships). Same non-tenancy-scoped access-control bootstrap as routes/backstage.ts — org_membership has no memex_id / bus entity.",
+  // spec-171 t-3 Stripe webhook receiver. Two kinds of raw write live here:
+  // (1) the stripe_events idempotency-ledger INSERT — no bus entity, written
+  //     inside db.transaction so a failed handler rolls the row back (Stripe must
+  //     re-process); same must-not-emit category as services/activity-log.ts.
+  // (2) three orgs UPDATEs (plan_tier / seats_purchased / stripe_subscription_id
+  //     on checkout-completed, subscription-updated, subscription-deleted) — orgs
+  //     DOES have an "org" bus entity and services/orgs.ts routes every orgs write
+  //     through mutate({}, {entity:"org", action:"updated"}). Per std-8 these
+  //     SHOULD emit; wrapping them is deferred because it adds a
+  //     primaryMemexIdForOrg lookup + SSE emit inside the retry/idempotency-
+  //     sensitive payment path (an emit throw → non-2xx → Stripe re-processes),
+  //     a payment-path behaviour change outside this guard's scope. Same
+  //     "wrap deferred" posture as the code-intelligence cluster above.
+  "routes/stripe-webhook.ts":
+    "spec-171 Stripe webhook. stripe_events INSERT is a no-entity idempotency ledger inside a rollback tx (must not emit, like services/activity-log.ts); the three orgs UPDATEs mirror services/orgs.ts and SHOULD route through mutate(entity:\"org\") — wrap deferred to avoid adding an SSE emit inside the retry-sensitive payment path.",
   // ── Non-tenancy-scoped identity / auth / allocation tables ──────────────
   // These write rows that carry NO memex_id and have NO bus entity — the bus is
   // keyed on memexId for per-tenant SSE fan-out, so there's nothing to emit and

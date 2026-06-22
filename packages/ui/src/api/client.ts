@@ -1726,6 +1726,8 @@ export interface OrgSummaryDto {
   domainVerified: boolean;
   freeDomainsInUse: string[];
   verifiedDomains: Array<{ domain: string; method: 'sso' | 'email'; verifiedAt: string }>;
+  billingContactName: string | null;
+  billingContactEmail: string | null;
 }
 
 // `/orgs/current/*` (settings, members, domain verification) needs a memex
@@ -1741,7 +1743,13 @@ export async function getOrgApi(token: string | null): Promise<OrgSummaryDto> {
 
 export async function updateOrgApi(
   token: string | null,
-  patch: { name?: string; emailDomains?: string[]; autoGroupingEnabled?: boolean },
+  patch: {
+    name?: string;
+    emailDomains?: string[];
+    autoGroupingEnabled?: boolean;
+    billingContactName?: string | null;
+    billingContactEmail?: string | null;
+  },
 ): Promise<OrgSummaryDto> {
   const res = await fetchWithRetry(`${tBase()}/orgs/current`, {
     method: 'PATCH',
@@ -2735,4 +2743,84 @@ export async function fetchTestRunVolume(): Promise<TestRunVolumePoint[]> {
     `${tBase()}/analytics/test-run-volume`,
   );
   return points;
+}
+
+// ── Subscription / billing (spec-171) ──
+
+export type PlanTier = 'free' | 'premium' | 'enterprise' | 'self-hosted-enterprise';
+
+export interface SubscriptionDto {
+  tier: PlanTier;
+  seatsPurchased: number | null;
+  activeMemberCount: number;
+  billingCycle: 'monthly' | 'annual' | null;
+  currentPeriodEnd: string | null;
+  seatsWarning: { purchased: number; active: number } | null;
+}
+
+export async function fetchCurrentSubscription(
+  token: string | null,
+): Promise<SubscriptionDto> {
+  const res = await fetchWithRetry(`${tBase()}/orgs/current/subscription`, {
+    headers: authHeaders(token),
+  });
+  if (!res.ok) throw new Error(`Failed to fetch subscription: ${res.status}`);
+  return res.json();
+}
+
+export interface StartCheckoutInput {
+  plan: 'premium' | 'enterprise';
+  seats: number;
+  billingCycle: 'monthly' | 'annual';
+}
+
+export async function fetchBillingPortalUrl(
+  token: string | null,
+  returnUrl: string,
+): Promise<string> {
+  const url = `${tBase()}/orgs/current/billing-portal?returnUrl=${encodeURIComponent(returnUrl)}`;
+  const res = await fetchWithRetry(url, { headers: authHeaders(token) });
+  if (!res.ok) throw new Error(`Billing portal request failed: ${res.status}`);
+  const body = await res.json();
+  return body.url as string;
+}
+
+export async function previewSeatChange(
+  token: string | null,
+  seats: number,
+): Promise<{ amountDue: number; currency: string }> {
+  const res = await fetchWithRetry(
+    `${tBase()}/orgs/current/subscription/preview?seats=${seats}`,
+    { headers: authHeaders(token) },
+  );
+  if (!res.ok) throw new Error(`Preview failed: ${res.status}`);
+  return res.json();
+}
+
+export async function updateOrgSeats(
+  token: string | null,
+  seats: number,
+): Promise<void> {
+  const res = await fetchWithRetry(`${tBase()}/orgs/current/subscription`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...authHeaders(token) },
+    body: JSON.stringify({ seats }),
+  });
+  if (!res.ok) throw new Error(`Seat update failed: ${res.status}`);
+}
+
+// spec-171 dec-38 / ac-33: start a hosted purchase. Returns the Stripe-hosted
+// Checkout URL — the caller redirects the browser to it. No card data is ever
+// collected in our UI.
+export async function startCheckout(
+  input: StartCheckoutInput,
+  token: string | null,
+): Promise<{ url: string }> {
+  const res = await fetchWithRetry(`${tBase()}/orgs/current/subscription`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders(token) },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new Error(`Checkout start failed: ${res.status}`);
+  return res.json();
 }

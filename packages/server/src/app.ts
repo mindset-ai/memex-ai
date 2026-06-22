@@ -14,6 +14,7 @@ import { issuesList } from "./routes/issues-list.js";
 import { acsRouter } from "./routes/acs.js";
 import { emissionKeysRouter } from "./routes/emission-keys.js";
 import { discordWebhookRouter } from "./routes/discord-webhook.js";
+import { stripeWebhookRouter } from "./routes/stripe-webhook.js";
 import { docMembersRouter } from "./routes/doc-members.js";
 import { docAssigneesRouter } from "./routes/doc-assignees.js";
 import { executionPlans } from "./routes/execution-plans.js";
@@ -389,6 +390,10 @@ app.route("/api/me", homeRouter);
 app.route("/api/whats-new", whatsNewRouter);
 // PUBLIC: share routes skip session middleware — guests access shared docs by token alone (t-10).
 app.route("/api/share", shareRouter);
+
+// spec-171 t-3: Stripe webhook receiver. No session middleware — the
+// Stripe-Signature HMAC header IS the auth (verified inside the router).
+app.route("/api/stripe/webhook", stripeWebhookRouter);
 
 // Platform backstage — dev-mode only today. Gated inside the router itself. Registered on
 // the bare domain so operators can hit it without a tenant subdomain.
