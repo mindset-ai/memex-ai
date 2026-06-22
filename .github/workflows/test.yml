@@ -262,6 +262,16 @@ jobs:
   ui:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      # UI unit tests tag ACs too (std-35 Recipe A — "representative unit tests at
+      # the track() sites"); emit them like the server / e2e / ac-emit jobs do.
+      # Without this the ui job ran tagged tests but emitted nothing, so any
+      # UI-unit-verified AC stayed untested. Value lives in the MEMEX_EMIT_KEY repo
+      # secret, never here.
+      MEMEX_EMIT_KEY: ${{ secrets.MEMEX_EMIT_KEY }}
+      # Dependabot PRs receive no repo secrets — turn emission OFF for them so no
+      # bogus unauthenticated emission is attempted (mirrors the server job).
+      MEMEX_EMIT: ${{ github.actor == 'dependabot[bot]' && 'false' || '' }}
     steps:
       - uses: actions/checkout@v6
       # No `version:` here — pnpm/action-setup@v6 reads the pinned version from
