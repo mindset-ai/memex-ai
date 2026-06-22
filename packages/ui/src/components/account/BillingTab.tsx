@@ -154,7 +154,7 @@ export function BillingTab() {
         <section className="rounded-lg border border-edge bg-panel p-5 space-y-2">
           <h3 className="text-sm font-semibold text-heading">Change seats</h3>
           <p className="text-sm text-muted">
-            Self-hosted seat changes are handled by our sales team.
+            Self-hosted seat changes are handled by our sales staff.
           </p>
           <Button variant="secondary" onClick={() => navigate('/enterprise/self-hosted/contact')}>
             Contact sales to change seats
@@ -183,7 +183,7 @@ export function BillingTab() {
                     setPreview(null);
                   }
                 }}
-                className="w-full rounded-lg border border-edge bg-input px-3 py-2 text-sm text-primary focus:outline-none focus:ring-2 focus:ring-accent"
+                className="w-full rounded-lg border border-edge bg-input px-3 py-2 text-sm text-primary focus:outline-hidden focus:ring-2 focus:ring-accent"
               />
             </div>
             <Button

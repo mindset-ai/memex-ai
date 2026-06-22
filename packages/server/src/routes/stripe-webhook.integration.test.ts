@@ -52,6 +52,11 @@ async function seedOrg(): Promise<{ orgId: string }> {
     .insert(orgs)
     .values({ namespaceId: ns.id, name: "Webhook Test Org", stripeCustomerId: `cus_${slug}` })
     .returning();
+  // Back-link the namespace to its org so the owner-XOR invariant holds (an
+  // `org`-kind namespace must carry owner_org_id). Mirrors createOrgWithOwner
+  // in services/orgs.ts — without this the seeded rows trip the migration-smoke
+  // owner-XOR guard when this test runs co-resident with it on a shared clone.
+  await db.update(namespaces).set({ ownerOrgId: org.id }).where(eq(namespaces.id, ns.id));
   return { orgId: org.id };
 }
 

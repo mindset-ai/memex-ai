@@ -312,7 +312,7 @@ function BillingContactSection({
                 className="mt-1"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="Finance Team"
+                placeholder="Finance Dept"
                 disabled={busy}
               />
             </label>
