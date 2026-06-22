@@ -28,6 +28,12 @@ const CALLER_SCOPED_PREFIXES = [
   "account",
   "backstage",
   "invites",
+  // spec-171: the hosted upgrade flow is a FLAT route (/upgrade, /upgrade/:plan,
+  // /upgrade/confirmation) — never a tenant. Without this, /upgrade/premium parses
+  // as namespace=upgrade/memex=premium and the checkout POST 404s at
+  // /api/upgrade/premium/orgs/current/subscription instead of the tenant-scoped
+  // /api/<ns>/<mx>/orgs/current/subscription (resolved from session).
+  "upgrade",
 ];
 
 export interface CurrentTenant {

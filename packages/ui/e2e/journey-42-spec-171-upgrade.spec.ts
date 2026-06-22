@@ -130,10 +130,12 @@ test("hosted upgrade: pick Enterprise, set seats + annual, redirect to Stripe Ch
   // ── 4. intercept checkout — branch on method so the plan-select GET to the
   //       same path (fetchCurrentSubscription) is not clobbered ───────────────
   let capturedBody: unknown = null;
+  let capturedUrl: string | null = null;
   await page.route("**/orgs/current/subscription", async (route) => {
     const req = route.request();
     if (req.method() === "POST") {
       capturedBody = req.postDataJSON();
+      capturedUrl = req.url();
       // Fulfill 200 { url } — NO real Stripe API is hit.
       await route.fulfill({
         status: 200,
@@ -171,4 +173,13 @@ test("hosted upgrade: pick Enterprise, set seats + annual, redirect to Stripe Ch
     seats: 5,
     billingCycle: "annual",
   });
+
+  // REGRESSION (the 404 manual testing caught): the checkout endpoint is mounted
+  // ONLY under the tenant prefix (/api/<ns>/<mx>/orgs/current/subscription,
+  // resolved from session). The /upgrade/:plan path must NOT be mis-parsed as a
+  // tenant — a too-loose "**/orgs/current/subscription" glob previously matched
+  // the buggy /api/upgrade/enterprise/orgs/current/subscription and hid this.
+  expect(capturedUrl).not.toBeNull();
+  expect(capturedUrl!).toContain("/orgs/current/subscription");
+  expect(capturedUrl!).not.toContain("/upgrade/");
 });
