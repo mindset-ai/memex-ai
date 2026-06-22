@@ -14,7 +14,13 @@ vi.mock('@memex/guide-sdk', () => ({
   Specky: () => null,
 }));
 vi.mock('react-router-dom', () => ({ useLocation: () => ({ pathname: '/ns/mx/specs' }) }));
-vi.mock('@memex/shared', () => ({ resolveScreenKey: () => 'specs' }));
+// Spread the REAL @memex/shared and override only resolveScreenKey — a full-module
+// replacement would strip whatever the AC-emit setup imports from it and silently
+// kill this file's tagAc emissions (the reason ac-9/ac-11/ac-4 didn't land first time).
+vi.mock('@memex/shared', async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
+  return { ...actual, resolveScreenKey: () => 'specs' };
+});
 
 const track = vi.fn();
 vi.mock('../../hooks/useTelemetry', () => ({
