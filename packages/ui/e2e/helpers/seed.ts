@@ -198,6 +198,25 @@ export async function seedOrg(opts: {
   return call<SeededOrg>("POST", "/seed-org", opts);
 }
 
+/**
+ * spec-171 (ac-2): put a seeded org on a PAID Stripe tier so the
+ * Settings > Org > Billing seat-change UI renders. BillingTab gates the
+ * seat-change section on tier ∈ {premium, enterprise}, and orgs.ts resolves the
+ * tier to "free" unless BOTH stripeCustomerId AND planTier are set — so both are
+ * required. Mint a UNIQUE stripeCustomerId per seed (orgs_stripe_customer_id_unique).
+ * stripeSubscriptionId is optional (the seat-change journey intercepts the preview
+ * GET + update PATCH at the browser, so no real Stripe call is made).
+ */
+export async function setOrgBilling(opts: {
+  orgId: string;
+  stripeCustomerId: string;
+  planTier: "premium" | "enterprise" | "self-hosted-enterprise";
+  seatsPurchased?: number;
+  stripeSubscriptionId?: string;
+}): Promise<void> {
+  await call("POST", "/set-org-billing", opts);
+}
+
 /** Add a member (default active member) to a seeded org. */
 export async function addOrgMember(opts: {
   orgId: string;
