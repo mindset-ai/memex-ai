@@ -113,6 +113,11 @@ const RESERVED_API_ROOTS = new Set([
   // tenant-less). Without this, parseMemexPath would read "/guide/v1/…" as
   // namespace=guide / memex=v1 and 404 before the public router ever runs.
   "guide",
+  // spec-171: the Stripe webhook receiver mounts at /api/stripe/webhook (public —
+  // the Stripe-Signature HMAC is the auth). Without this, parseMemexPath reads
+  // "/api/stripe/webhook" as namespace=stripe / memex=webhook and 404s before the
+  // webhook router runs, so Stripe deliveries fail and orgs never get their tier.
+  "stripe",
 ]);
 
 // Parses `/<namespace>/<memex>/...` or `/api/<namespace>/<memex>/...` from a
