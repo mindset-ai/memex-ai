@@ -14,10 +14,14 @@ import { recordComm } from "./comms-log.js";
 
 const AC_FIRE_AND_FORGET = "mindset-prod/memex-backstage/specs/spec-6/acs/ac-9";
 const AC_CORE_WRITE_PATH = "mindset-prod/memex-backstage/specs/spec-6/acs/ac-17";
+// ac-6 (scope): recording a comm never blocks/delays/prevents an actual send —
+// the scope-level sibling of ac-9, proven by the same swallow-on-failure behaviour.
+const AC_NEVER_BLOCKS = "mindset-prod/memex-backstage/specs/spec-6/acs/ac-6";
 
 describe("spec-6 t-2: recordComm is fire-and-forget (ac-9)", () => {
   it("ac-9: a failing insert is swallowed — returns null, never throws", async () => {
     tagAc(AC_FIRE_AND_FORGET);
+    tagAc(AC_NEVER_BLOCKS);
 
     // A connection whose insert path rejects, standing in for a DB outage on the
     // send hot path. recordComm must absorb it.

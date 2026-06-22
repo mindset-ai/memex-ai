@@ -17,10 +17,17 @@
 // METADATA ONLY (spec-6 dec-4): callers pass a one-line subject/summary — NEVER a
 // message body. Full content stays in the system-of-record, reached via sourceRef.
 
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, lt, sql } from "drizzle-orm";
 import { db, type Db } from "../db/connection.js";
 import { commsLog } from "../db/schema.js";
 import type { CommsLogRow } from "../db/schema.js";
+
+/**
+ * Retention window (spec-6 dec-4): comms_log keeps a bounded history; the source
+ * system stays system-of-record for full content beyond it. Configurable via
+ * COMMS_LOG_RETENTION_DAYS; defaults to 90 days.
+ */
+export const COMMS_LOG_RETENTION_DAYS = Number(process.env.COMMS_LOG_RETENTION_DAYS ?? 90);
 
 function log(...args: unknown[]): void {
   // eslint-disable-next-line no-console
@@ -155,4 +162,25 @@ export async function markCommSent(
     log("mark-sent failed (advisory — swallowed):", err instanceof Error ? err.message : err);
     return null;
   }
+}
+
+// ── Retention prune (spec-6 t-8 / ac-15) ─────────────────────────────────────
+
+/**
+ * Delete comms_log rows older than the retention window (spec-6 dec-4). Runs
+ * core-side, where the table is owned (Backstage never writes public.*). The
+ * source system (Postmark / the app notification store) remains the
+ * system-of-record for full content beyond the window. Unlike the advisory
+ * write helpers this is a maintenance job, so a failure propagates (the operator
+ * should know pruning didn't run). Returns the number of rows pruned.
+ */
+export async function pruneCommsLog(
+  retentionDays: number = COMMS_LOG_RETENTION_DAYS,
+  conn: Db = db,
+): Promise<number> {
+  const rows = await conn
+    .delete(commsLog)
+    .where(lt(commsLog.createdAt, sql`now() - (${retentionDays} * interval '1 day')`))
+    .returning({ id: commsLog.id });
+  return rows.length;
 }

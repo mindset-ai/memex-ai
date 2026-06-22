@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { tagAc } from "@memex-ai-ac/vitest";
 import { db } from "../db/connection.js";
 import { commsLog, users } from "../db/schema.js";
-import { recordComm, updateCommDeliveryStatus, markCommSent } from "./comms-log.js";
+import { recordComm, updateCommDeliveryStatus, markCommSent, pruneCommsLog } from "./comms-log.js";
 
 // spec-6 (memex-backstage) t-3 + t-4 — comms_log lifecycle transitions.
 //
@@ -14,6 +14,7 @@ import { recordComm, updateCommDeliveryStatus, markCommSent } from "./comms-log.
 
 const AC_DELIVERY_STATUS = "mindset-prod/memex-backstage/specs/spec-6/acs/ac-8";
 const AC_SCHEDULED = "mindset-prod/memex-backstage/specs/spec-6/acs/ac-11";
+const AC_RETENTION = "mindset-prod/memex-backstage/specs/spec-6/acs/ac-15";
 
 let userId: string;
 
@@ -81,5 +82,68 @@ describe("spec-6 t-4: scheduled comm shows as scheduled until sent (ac-11)", () 
     expect(sent!.sentAt, "sent_at is stamped on dispatch").not.toBeNull();
     // scheduled_for is retained as the original plan time.
     expect(sent!.scheduledFor?.toISOString()).toBe(scheduledFor.toISOString());
+  });
+});
+
+describe("spec-6 t-8: retention prune (ac-15)", () => {
+  it("ac-15: rows older than the window are pruned; recent rows are kept", async () => {
+    tagAc(AC_RETENTION);
+
+    const DAY = 86_400_000;
+    const [oldRow] = await db
+      .insert(commsLog)
+      .values({
+        userId,
+        channel: "email",
+        type: "transactional",
+        status: "sent",
+        sentAt: new Date(Date.now() - 100 * DAY),
+        subject: "Old receipt",
+        createdAt: new Date(Date.now() - 100 * DAY),
+      })
+      .returning({ id: commsLog.id });
+    const [recentRow] = await db
+      .insert(commsLog)
+      .values({
+        userId,
+        channel: "email",
+        type: "transactional",
+        status: "sent",
+        subject: "Recent receipt",
+        createdAt: new Date(Date.now() - 5 * DAY),
+      })
+      .returning({ id: commsLog.id });
+
+    const pruned = await pruneCommsLog(90);
+    expect(pruned, "at least the 100-day-old row should be pruned").toBeGreaterThanOrEqual(1);
+
+    const oldStill = await db.select().from(commsLog).where(eq(commsLog.id, oldRow!.id));
+    expect(oldStill, "the 100-day-old row is gone").toHaveLength(0);
+
+    const recentStill = await db.select().from(commsLog).where(eq(commsLog.id, recentRow!.id));
+    expect(recentStill, "the 5-day-old row is retained").toHaveLength(1);
+  });
+
+  it("ac-15: the window is configurable (a tighter window prunes more)", async () => {
+    tagAc(AC_RETENTION);
+
+    const DAY = 86_400_000;
+    const [row] = await db
+      .insert(commsLog)
+      .values({
+        userId,
+        channel: "in_app",
+        type: "work_notification",
+        status: "sent",
+        subject: "Ten days old",
+        createdAt: new Date(Date.now() - 10 * DAY),
+      })
+      .returning({ id: commsLog.id });
+
+    // A 7-day window prunes the 10-day-old row that a 90-day window would keep.
+    const pruned = await pruneCommsLog(7);
+    expect(pruned).toBeGreaterThanOrEqual(1);
+    const still = await db.select().from(commsLog).where(eq(commsLog.id, row!.id));
+    expect(still).toHaveLength(0);
   });
 });
