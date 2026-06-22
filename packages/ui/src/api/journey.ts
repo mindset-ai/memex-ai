@@ -13,6 +13,9 @@ export interface JourneyMilestones {
   hasResolvedDecision: boolean;
   hasAc: boolean;
   acVerified: boolean;
+  // Derived (spec-337): tasks broken out AND a test behind one of the user's ACs —
+  // the signal that ticks the 'Specs that match reality' step (builder-only, spec-336).
+  planGrounded: boolean;
 }
 
 export interface JourneyStepStatus {

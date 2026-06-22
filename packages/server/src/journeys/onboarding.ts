@@ -17,7 +17,10 @@ export type JourneyMilestone =
   | "hasSpec" // derived: the user created a (non-demo) spec
   | "hasResolvedDecision" // derived: the user resolved a decision
   | "hasAc" // derived: the user added an acceptance criterion
-  | "acVerified"; // derived: one of the user's ACs went GREEN from a real test event
+  | "acVerified" // derived: one of the user's ACs went GREEN from a real test event
+  | "planGrounded"; // derived (spec-337): the user broke the work into tasks AND has a
+//                  test behind one of their ACs — the codebase-grounding signal that
+//                  completes the 'Specs that match reality' step (builder-only, spec-336)
 
 export interface JourneyStepDef {
   id: string;

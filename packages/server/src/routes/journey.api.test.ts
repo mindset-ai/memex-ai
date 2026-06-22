@@ -27,6 +27,7 @@ import {
   users,
   decisions,
   acs,
+  tasks,
   testEventLatest,
   documents,
   memexes,
@@ -110,6 +111,17 @@ async function seedAc(userId: string, docId: string) {
     actorUserId: userId,
   });
 }
+async function seedTask(userId: string, docId: string) {
+  await db.insert(tasks).values({
+    memexId,
+    docId,
+    seq: 1,
+    title: "Break out the work",
+    description: "A task the user authored.",
+    status: "not_started",
+    actorUserId: userId,
+  });
+}
 async function seedGreen(docId: string) {
   const [slugs] = await db
     .select({ ns: namespaces.slug, mx: memexes.slug, handle: documents.handle })
@@ -143,6 +155,7 @@ describe("Home Canvas journey-state (ac-3 derived position)", () => {
       hasResolvedDecision: false,
       hasAc: false,
       acVerified: false,
+      planGrounded: false,
     });
   });
 
@@ -245,5 +258,62 @@ describe("Home Canvas journey-state (ac-7 measurement)", () => {
       body: JSON.stringify({ action: "bogus", step: "welcome" }),
     });
     expect(res.status).toBe(400);
+  });
+});
+
+// spec-337 — planGrounded: the codebase-grounding milestone for the builder-only
+// 'Specs that match reality' step. Derived the same way as the others: user-scoped
+// counts over the acting user's own rows, demo-excluded. Ticks only when the user
+// has BOTH broken the work into tasks AND has a test behind one of their ACs.
+const AC337 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-337/acs/ac-${n}`;
+
+describe("journey-state planGrounded (spec-337)", () => {
+  it("is false until BOTH a task and an AC-with-a-test exist (ac-1, ac-4)", async () => {
+    tagAc(AC337(1));
+    tagAc(AC337(4));
+    const user = await newUser();
+    const doc = await seedSpec(user.id);
+    expect((await state(user.id)).body.milestones.planGrounded).toBe(false);
+
+    await seedTask(user.id, doc.id); // tasks only → still false
+    expect((await state(user.id)).body.milestones.planGrounded).toBe(false);
+
+    await seedAc(user.id, doc.id);
+    await seedGreen(doc.id); // a test event now exists on the user's AC (any status)
+    expect((await state(user.id)).body.milestones.planGrounded).toBe(true);
+  });
+
+  it("an AC-with-a-test but no tasks does not set it (ac-4)", async () => {
+    tagAc(AC337(4));
+    const user = await newUser();
+    const doc = await seedSpec(user.id);
+    await seedAc(user.id, doc.id);
+    await seedGreen(doc.id);
+    expect((await state(user.id)).body.milestones.planGrounded).toBe(false);
+  });
+
+  it("is user-scoped: a colleague's task + AC-test does not set mine (ac-1, ac-3)", async () => {
+    tagAc(AC337(1));
+    tagAc(AC337(3));
+    const me = await newUser();
+    const colleague = await newUser();
+    const doc = await seedSpec(colleague.id);
+    await seedTask(colleague.id, doc.id);
+    await seedAc(colleague.id, doc.id);
+    await seedGreen(doc.id);
+    expect((await state(me.id)).body.milestones.planGrounded).toBe(false);
+    expect((await state(colleague.id)).body.milestones.planGrounded).toBe(true);
+  });
+
+  it("excludes demo content: a task + AC-test on a demo spec do not count (ac-3, ac-5)", async () => {
+    tagAc(AC337(3));
+    tagAc(AC337(5));
+    const user = await newUser();
+    const doc = await seedSpec(user.id);
+    await db.update(documents).set({ isDemo: true }).where(eq(documents.id, doc.id));
+    await seedTask(user.id, doc.id);
+    await seedAc(user.id, doc.id);
+    await seedGreen(doc.id);
+    expect((await state(user.id)).body.milestones.planGrounded).toBe(false);
   });
 });
