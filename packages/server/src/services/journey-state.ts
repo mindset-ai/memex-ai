@@ -21,6 +21,7 @@ import {
   usageEvents,
   users,
   acs,
+  tasks,
   memexes,
   namespaces,
   testEventLatest,
@@ -153,6 +154,33 @@ async function collectUserMilestones(
     )
     .where(and(eq(acs.actorUserId, userId), eq(testEventLatest.latestStatus, "pass")));
 
+  // planGrounded (spec-337 dec-1): the codebase-grounding signal — the user has both
+  // broken the work into TASKS and has a TEST behind at least one of their ACs. Two
+  // user-scoped, demo-excluded counts, ANDed. Mirrors the existing milestones (counts
+  // over the acting user's own rows; demo content excluded, spec-178).
+  //   (1) a task the user authored on a non-demo spec
+  const [taskRow] = await conn
+    .select({ n: sql<number>`count(*)::int` })
+    .from(tasks)
+    .innerJoin(documents, eq(tasks.docId, documents.id))
+    .where(and(eq(tasks.actorUserId, userId), eq(documents.isDemo, false)));
+  //   (2) a test event exists for one of the user's ACs — ANY latest status (a test
+  //       was WRITTEN, not necessarily green). Same ac_uid join acVerified uses.
+  const [acTestRow] = await conn
+    .select({ n: sql<number>`count(*)::int` })
+    .from(acs)
+    .innerJoin(documents, eq(acs.briefId, documents.id))
+    .innerJoin(memexes, eq(documents.memexId, memexes.id))
+    .innerJoin(namespaces, eq(memexes.namespaceId, namespaces.id))
+    .innerJoin(
+      testEventLatest,
+      eq(
+        testEventLatest.acUid,
+        sql`${namespaces.slug} || '/' || ${memexes.slug} || '/specs/' || ${documents.handle} || '/acs/ac-' || ${acs.seq}`,
+      ),
+    )
+    .where(and(eq(acs.actorUserId, userId), eq(documents.isDemo, false)));
+
   return {
     identityConfirmed: userRow?.roleCoords != null,
     mcpConnected: (connectedRow?.n ?? 0) > 0,
@@ -161,6 +189,7 @@ async function collectUserMilestones(
     hasResolvedDecision: (resolvedDecisionRow?.n ?? 0) > 0,
     hasAc: (acRow?.n ?? 0) > 0,
     acVerified: (verifiedRow?.n ?? 0) > 0,
+    planGrounded: (taskRow?.n ?? 0) > 0 && (acTestRow?.n ?? 0) > 0,
   };
 }
 
