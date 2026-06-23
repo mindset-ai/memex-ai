@@ -54,7 +54,7 @@ magicLink.post("/", async (c) => {
   const body = await readJsonBody<{ email?: unknown }>(c);
   const email = requireString(body?.email, "email");
 
-  const rl = rateLimit("magicLink", email.toLowerCase(), AUTH_LIMITS.magicLink);
+  const rl = await rateLimit("magicLink", email.toLowerCase(), AUTH_LIMITS.magicLink);
   if (!rl.ok) {
     return c.json(
       { error: "Too many magic link requests", retryAfterSec: rl.retryAfterSec },

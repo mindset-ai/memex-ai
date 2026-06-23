@@ -22,7 +22,7 @@ reset.post("/", async (c) => {
   const body = await readJsonBody<{ email?: unknown }>(c);
   const email = requireString(body?.email, "email");
 
-  const rl = rateLimit("passwordReset", email.toLowerCase(), AUTH_LIMITS.passwordReset);
+  const rl = await rateLimit("passwordReset", email.toLowerCase(), AUTH_LIMITS.passwordReset);
   if (!rl.ok) {
     return c.json(
       { error: "Too many reset requests", retryAfterSec: rl.retryAfterSec },

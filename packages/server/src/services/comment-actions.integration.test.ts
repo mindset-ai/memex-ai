@@ -172,3 +172,77 @@ describe("applyCommentAction — Address (agent edit, apply-with-undo)", () => {
     expect(sawOverlap).toBe(false);
   });
 });
+
+// spec-350 (REFACTOR, parent audit spec-345 perf-4): per-doc serialisation moved
+// from a process-local Map to a Postgres advisory lock so it holds ACROSS Cloud
+// Run instances. These tests prove the two properties that matter: same-doc
+// actions serialise (no two run concurrently), and DIFFERENT-doc actions are not
+// blocked by each other (the lock is per-doc, so parallelism is preserved). Both
+// run through the real DB-backed lock — the only path a single test process can
+// observe; the cross-instance guarantee is the same lock object in shared Postgres.
+describe("spec-350: per-doc advisory lock serialises comment-actions", () => {
+  // Build N anchored agent comments on one section and fire Address on all of
+  // them concurrently. The runEdit stub records the max concurrency seen.
+  async function seedDoc(title: string) {
+    const doc = await createDocDraft(memexId, title, "Purpose");
+    createdDocIds.push(doc.id);
+    const section = doc.sections[0];
+    await updateSection(memexId, section.id, "Alpha point. Beta point. Gamma point.");
+    const c1 = await seedWeaknessComment(section.id, "Alpha point.".length);
+    const c2 = await seedWeaknessComment(section.id, "Alpha point. Beta point.".length);
+    return { docId: doc.id, sectionId: section.id, comments: [c1, c2] };
+  }
+
+  it("two concurrent SAME-doc actions never run their edits at the same time", async () => {
+    tagAc(AC_DEC2_ACTION);
+    const { comments } = await seedDoc("Spec350SameDoc");
+
+    let active = 0;
+    let maxConcurrent = 0;
+    const runEdit = async (input: { sectionContent: string }) => {
+      active++;
+      maxConcurrent = Math.max(maxConcurrent, active);
+      await new Promise((r) => setTimeout(r, 30));
+      active--;
+      return input.sectionContent; // no-op edit (markers preserved)
+    };
+
+    await Promise.all(
+      comments.map((c) => applyCommentAction(memexId, c.id, "Address", { runEdit })),
+    );
+
+    // Serialised: at no point did two same-doc edits overlap.
+    expect(maxConcurrent).toBe(1);
+    // Both actions still completed and resolved.
+    for (const c of comments) {
+      const reread = await db.query.docComments.findFirst({ where: eq(docComments.id, c.id) });
+      expect(reread!.resolvedAt).not.toBeNull();
+    }
+  });
+
+  it("actions on DIFFERENT docs are NOT blocked by each other (they overlap)", async () => {
+    tagAc(AC_DEC2_ACTION);
+    const a = await seedDoc("Spec350DiffDocA");
+    const b = await seedDoc("Spec350DiffDocB");
+
+    let active = 0;
+    let maxConcurrent = 0;
+    const runEdit = async (input: { sectionContent: string }) => {
+      active++;
+      maxConcurrent = Math.max(maxConcurrent, active);
+      await new Promise((r) => setTimeout(r, 40));
+      active--;
+      return input.sectionContent;
+    };
+
+    // One action per doc, fired together — different doc ids → different lock
+    // keys → they must be allowed to run concurrently.
+    await Promise.all([
+      applyCommentAction(memexId, a.comments[0].id, "Address", { runEdit }),
+      applyCommentAction(memexId, b.comments[0].id, "Address", { runEdit }),
+    ]);
+
+    // Parallelism preserved: the two different-doc edits overlapped.
+    expect(maxConcurrent).toBe(2);
+  });
+});

@@ -29,7 +29,7 @@ import {
 import { ConflictError, ValidationError } from "../types/errors.js";
 import { pgError } from "./shared/pg-error.js";
 import { isFreeEmailDomain } from "./free-email-domains.js";
-import { mutate, type Mutated } from "./mutate.js";
+import { mutate, type Mutated, type RequestCtx } from "./mutate.js";
 import { primaryMemexIdForOrg } from "./shared/memex-ownership.js";
 
 export async function getOrgById(id: string): Promise<Org | undefined> {
@@ -208,6 +208,10 @@ export interface UpdateOrgInput {
 export async function updateOrgSettings(
   orgId: string,
   input: UpdateOrgInput,
+  // spec-122 dec-5 / std-32 — carries the activity contract (WHO/HOW) onto the
+  // emitted org.updated event. Optional so existing/system callers still type-check;
+  // an empty ctx emits an unattributed event (a visible defect per t-3, not a default).
+  ctx: RequestCtx = {},
 ): Promise<Mutated<OrgSummary>> {
   const current = await getOrgById(orgId);
   if (!current) throw new ValidationError(`Org ${orgId} not found`);
@@ -248,7 +252,7 @@ export async function updateOrgSettings(
   const memexId = (await primaryMemexIdForOrg(orgId)) ?? "";
 
   return mutate(
-    {},
+    ctx,
     { memexId, entity: "org", action: "updated" },
     async () => {
       await db.update(orgs).set(patch).where(eq(orgs.id, orgId));
@@ -259,10 +263,45 @@ export async function updateOrgSettings(
   );
 }
 
-export async function refreshOrgDomainVerifiedFlag(orgId: string): Promise<Mutated<void>> {
+// Billing-side org writes (Stripe customer id, purchased seat count). The
+// settings-page UpdateOrgInput deliberately excludes these columns — they are set
+// from the billing/checkout route + Stripe webhook, not the settings form — so
+// they get their own input shape and their own wrapped writer. Like
+// updateOrgSettings, every write goes through mutate({entity:"org"}) so the React
+// UI billing surface gets the SSE refresh (std-8) and the change is attributed (std-32).
+export interface UpdateOrgBillingInput {
+  stripeCustomerId?: string;
+  seatsPurchased?: number;
+}
+
+export async function updateOrgBilling(
+  orgId: string,
+  input: UpdateOrgBillingInput,
+  ctx: RequestCtx = {},
+): Promise<Mutated<void>> {
+  const patch: Partial<typeof orgs.$inferInsert> & { updatedAt: Date } = {
+    updatedAt: new Date(),
+  };
+  if (input.stripeCustomerId !== undefined) patch.stripeCustomerId = input.stripeCustomerId;
+  if (input.seatsPurchased !== undefined) patch.seatsPurchased = input.seatsPurchased;
+
   const memexId = (await primaryMemexIdForOrg(orgId)) ?? "";
   return mutate(
-    {},
+    ctx,
+    { memexId, entity: "org", action: "updated" },
+    async () => {
+      await db.update(orgs).set(patch).where(eq(orgs.id, orgId));
+    },
+  );
+}
+
+export async function refreshOrgDomainVerifiedFlag(
+  orgId: string,
+  ctx: RequestCtx = {},
+): Promise<Mutated<void>> {
+  const memexId = (await primaryMemexIdForOrg(orgId)) ?? "";
+  return mutate(
+    ctx,
     { memexId, entity: "org", action: "updated" },
     async () => {
       const verified = await db.query.verifiedDomains.findFirst({
