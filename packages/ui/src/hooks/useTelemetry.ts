@@ -1,19 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { sanitizeUsageProps, type RegisteredEventName } from '@memex/shared';
 import { BASE_URL, tenantBase, fetchWithRetry } from '../api/http';
-import { hasConsent } from '../lib/visitorConsent';
-
-// isDoNotTrack moved to the consent module (single source of truth, no import
-// cycle); re-exported here so existing importers keep working.
-export { isDoNotTrack } from '../lib/visitorConsent';
 
 // useTelemetry — the BROWSER half of spec-244's front-end capture (t-6).
 //
 // Exposes track(name, props?): POSTs a REGISTERED event name + minimal props to
 // `POST /api/<ns>/<mx>/telemetry`. Deliberately dull and unobtrusive:
-//   - No-op under Do-Not-Track or a per-user opt-out (privacy — never even sent).
-//   - No-op when there's no resolved tenant (nothing to attribute to). The SERVER
-//     additionally no-ops anonymous callers, so an unauthenticated tab is harmless.
+//   - No-op only under a per-user opt-out (the right to object). Consent is no
+//     longer part of the model and Do-Not-Track is NOT honoured (spec-367 dec-3;
+//     spec-326 dec-3 — DNT has no UK/EU legal force).
+//   - No-op when there's no resolved tenant (nothing to attribute to). Pre-auth
+//     callers use `trackAnonymous` against the flat ingress instead.
 //   - Advisory: a failed POST is swallowed; telemetry never disrupts the UX.
 //   - Props are sanitised client-side (content/email/long-text dropped) as
 //     defence-in-depth; the server re-sanitises so content structurally can't land.
@@ -22,8 +19,8 @@ export { isDoNotTrack } from '../lib/visitorConsent';
 
 const OPT_OUT_KEY = 'memex.telemetry.optout';
 
-/** Per-user opt-out, persisted in localStorage. A secondary withdraw on top of
- *  consent (spec-244); under dec-4=B consent is the primary gate. */
+/** Per-user opt-out, persisted in localStorage. The single capture gate now that
+ *  consent is retired (spec-367) — the Art-21 right to object. */
 export function isOptedOut(): boolean {
   try {
     return typeof localStorage !== 'undefined' && localStorage.getItem(OPT_OUT_KEY) === '1';
@@ -33,24 +30,18 @@ export function isOptedOut(): boolean {
 }
 
 /**
- * The capture gate. It splits by who is asking (spec-326 dec-1):
+ * The capture gate. Consent is retired (spec-367, reversing spec-254 dec-4): every
+ * visitor — authenticated or anonymous — is captured under legitimate interest, and
+ * the ONLY gate is the per-user opt-out (the Art-21 right to object). Do-Not-Track is
+ * NOT honoured (dec-3). Anonymous pre-signup capture is identifier-less volume, so
+ * there is nothing left to gate on consent.
  *
- *   - AUTHENTICATED → tracked BY DEFAULT under legitimate interest. The only gate
- *     is the per-user opt-out (the Art-21 right to object). Consent is NOT required
- *     and Do-Not-Track is NOT honored (dec-3: DNT has no UK/EU legal force; the
- *     settings opt-out is the meaningful, deliberate control).
- *   - ANONYMOUS → spec-254's opt-in is unchanged: capture only on an explicit
- *     'granted' consent (hasConsent already excludes Do-Not-Track) AND not opted out.
- *
- * The opt-out short-circuits both regimes — it is a withdraw that always wins.
- *
- * `authenticated` defaults to false (the anonymous opt-in gate), so callers on the
- * pre-auth path — `trackAnonymous` (spec-324) and any other anonymous caller — get
- * the correct opt-in semantics by calling `telemetryEnabled()` with no argument.
+ * The authenticated parameter is retained for call-site compatibility (track() and
+ * the spec-326 tests still pass it) but no longer affects the result — underscored so
+ * the unused-parameter check stays satisfied now that consent is gone.
  */
-export function telemetryEnabled(authenticated = false): boolean {
-  if (isOptedOut()) return false;
-  return authenticated || hasConsent();
+export function telemetryEnabled(_authenticated = false): boolean {
+  return !isOptedOut();
 }
 
 // Replace id-shaped segments (handles like spec-7, bare numbers, uuids) with ':id'
@@ -76,9 +67,8 @@ export function useTelemetry(authenticated = false): UseTelemetry {
   const [optedOut, setOptedOut] = useState<boolean>(isOptedOut);
 
   const track = useCallback((name: RegisteredEventName, props?: Record<string, unknown>): void => {
-    // spec-326 dec-1: authenticated users are tracked by default (opt-out only);
-    // anonymous keep spec-254's opt-in. Default `authenticated=false` keeps every
-    // existing caller on the anonymous (opt-in) gate until it opts in explicitly.
+    // Captured by default under legitimate interest; the only gate is the per-user
+    // opt-out (spec-367 — consent retired, DNT not honoured).
     if (!telemetryEnabled(authenticated)) return;
     const base = tenantBase();
     if (!base) return;
@@ -105,16 +95,15 @@ export function useTelemetry(authenticated = false): UseTelemetry {
 }
 
 /**
- * Fire a registered event WITHOUT a tenant — the PRE-AUTH path (spec-324). Posts to
- * the flat `/api/telemetry` ingress, which keys the event on the consent-gated
- * visitor_id cookie (or the session, if one happens to exist). Use this on pre-auth
- * surfaces (the signup / login screen) where `tenantBase()` is null and `track()`
- * would no-op — it is how the funnel HEAD (signup.form_viewed) is captured, so a
- * visitor seen before they have an identity can later be stitched to their user.
+ * Fire a registered event WITHOUT a tenant — the PRE-AUTH path. Posts to the flat
+ * `/api/telemetry` ingress. Use this on pre-auth surfaces (the signup / login screen)
+ * where `tenantBase()` is null and `track()` would no-op — it is how the funnel HEAD
+ * (signup.form_viewed, signup.cta_clicked) is captured.
  *
- * Same privacy posture as track(): no-op under no-consent / Do-Not-Track / opt-out
- * (never sent), and the server additionally no-ops when there is no visitor_id and
- * no session — so a non-consenting visitor sends and stores nothing. Advisory.
+ * spec-367 (reversing spec-254 dec-4): these events are IDENTIFIER-LESS volume under
+ * legitimate interest. Nothing is minted (no cookie, no localStorage); the server
+ * records the event with a null actor / null visitor_id. The only gate is the opt-out
+ * (telemetryEnabled) — consent is retired and Do-Not-Track is not honoured. Advisory.
  */
 export function trackAnonymous(name: RegisteredEventName, props?: Record<string, unknown>): void {
   if (!telemetryEnabled()) return;

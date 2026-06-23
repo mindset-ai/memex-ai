@@ -2615,8 +2615,12 @@ export const usageEvents = pgTable(
     actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
     // The anonymous-first identity join key (spec-254 dec-2). Plain uuid (no FK):
     // a denormalised join column on a high-volume table, and an anonymous event can
-    // carry a visitor_id before any visitors row exists. NULL on rows captured
-    // before visitor_id plumbing reaches them. The funnel joins this to visitors.
+    // carry a visitor_id before any visitors row exists. The funnel joins this to visitors.
+    // DORMANT-BY-DESIGN (spec-367 dec-5): the client mints no visitor_id since the
+    // consent popup was retired, so this is ALWAYS NULL today. Retained — not removed —
+    // to hold the door open for a future anonymous→user stitch (which re-introduces a
+    // consent dialogue first, then resumes minting). Do not drop as dead code; no code
+    // branches on it being populated.
     visitorId: uuid("visitor_id"),
     // The registered event name, e.g. 'spec.create_clicked' or 'document.created'.
     // Validated against the in-code registry before insert (spec-244 dec-5).
@@ -2656,6 +2660,13 @@ export type UsageEventInsert = InferInsertModel<typeof usageEvents>;
 // ══════════════════════════════════════
 // Visitors — the anonymous-first identity spine (spec-254)
 // ══════════════════════════════════════
+//
+// DORMANT-BY-DESIGN (spec-367 dec-5): the anonymous consent popup and the client
+// visitor_id mint were retired (pre-signup capture is now identifier-less volume),
+// so NOTHING writes to this table today — it stays empty. It is deliberately RETAINED
+// (schema + the server reader visitorMiddleware/mergeVisitor) to hold the door open
+// for a future anonymous→user stitch, which would re-introduce a consent dialogue
+// first (PECR) and then resume minting. Do not remove as dead code.
 //
 // One durable id per browser, minted at first touch BEFORE any sign-in, persisted
 // in a .memex.ai first-party cookie + localStorage mirror, and carried on every

@@ -1,17 +1,17 @@
-// API tests for POST /api/telemetry — the ANONYMOUS-capable ingress (spec-324) —
-// REAL Postgres.
+// API tests for POST /api/telemetry — the ANONYMOUS-capable ingress (spec-324,
+// reworked by spec-367) — REAL Postgres.
 //
 // Drives the flat tenant-less route end-to-end (real recordUsageEvent → real
-// usage_events), asserting the funnel-head posture: a PRE-AUTH visitor is captured
-// keyed on the visitor_id; a caller with no identity at all no-ops; the registry
-// allowlist still gates; an authenticated caller is attributed (and still carries
-// the visitor_id, so the row triggers the Mixpanel merge).
+// usage_events), asserting the funnel-head posture: a PRE-AUTH caller with NO
+// identity is recorded as an IDENTIFIER-LESS volume row (spec-367); the registry
+// allowlist still gates; an authenticated caller is attributed; and the dormant
+// visitor_id is still stamped if one is ever present.
 
 import { describe, it, expect, afterAll } from "vitest";
 import { tagAc } from "@memex-ai-ac/vitest";
 import { Hono } from "hono";
 import { createMiddleware } from "hono/factory";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { db } from "../db/connection.js";
 import { usageEvents } from "../db/schema.js";
@@ -19,6 +19,7 @@ import { upsertUserByEmail } from "../services/users.js";
 import { anonTelemetryRouter } from "./anon-telemetry.js";
 
 const AC = "mindset-prod/memex-building-itself/specs/spec-324/acs";
+const AC367 = "mindset-prod/memex-building-itself/specs/spec-367/acs";
 
 // Build a test app whose middleware injects the identity the real
 // publicSessionMiddleware + visitorMiddleware would set on the context.
@@ -49,6 +50,11 @@ afterAll(async () => {
   for (const v of createdVisitorIds) {
     await db.delete(usageEvents).where(eq(usageEvents.visitorId, v));
   }
+  // The identifier-less row (spec-367) carries no visitor_id, so clean it by its
+  // unique-to-this-file event name.
+  await db
+    .delete(usageEvents)
+    .where(and(eq(usageEvents.name, "signup.cta_clicked"), isNull(usageEvents.visitorId)));
 });
 
 describe("POST /api/telemetry — anonymous-capable ingress (spec-324 ac-8)", () => {
@@ -86,14 +92,31 @@ describe("POST /api/telemetry — anonymous-capable ingress (spec-324 ac-8)", ()
     expect(rows[0].visitorId).toBe(visitorId); // both ids → Mixpanel stitches the device
   });
 
-  it("no-ops (204, no row) when there is NEITHER a user nor a visitor_id", async () => {
-    tagAc(`${AC}/ac-8`);
-    const res = await post(appWith({}), { name: "signup.form_viewed" });
+  it("records an IDENTIFIER-LESS row when there is NEITHER a user nor a visitor_id (spec-367 ac-10)", async () => {
+    tagAc(`${AC367}/ac-10`);
+    tagAc(`${AC367}/ac-3`); // scope: the server records identifier-less anonymous telemetry
+    // spec-367: pure pre-signup volume. No session, no visitor_id → still recorded,
+    // with null actor / null visitor / null memex. signup.cta_clicked is unique to
+    // this case in the file, so afterAll can clean it by name.
+    const res = await post(appWith({}), {
+      name: "signup.cta_clicked",
+      props: { method: "password" },
+    });
     expect(res.status).toBe(204);
-    // Nothing keyed on a null visitor — assert no actor-less, visitor-less row was
-    // added for this event name in this run by checking the count delta is zero via
-    // a sentinel: the route returns 204 before recordUsageEvent, so no row exists.
-    // (A row with both ids null would be an orphan; the guard prevents it.)
+    const rows = await db
+      .select()
+      .from(usageEvents)
+      .where(
+        and(
+          eq(usageEvents.name, "signup.cta_clicked"),
+          isNull(usageEvents.visitorId),
+          isNull(usageEvents.actorUserId),
+        ),
+      );
+    expect(rows.length).toBe(1);
+    expect(rows[0].memexId).toBeNull(); // identifier-less: no actor, no visitor, no tenant
+    expect(rows[0].source).toBe("frontend");
+    expect(rows[0].props).toEqual({ method: "password" });
   });
 
   it("rejects an unregistered event name — 422, no row", async () => {

@@ -52,6 +52,7 @@ import { NotFoundError } from '../api/client';
 const AC = 'mindset-prod/memex-building-itself/specs/spec-304/acs/ac-30';
 const AC324 = 'mindset-prod/memex-building-itself/specs/spec-324/acs';
 const AC326 = 'mindset-prod/memex-building-itself/specs/spec-326/acs';
+const AC367 = 'mindset-prod/memex-building-itself/specs/spec-367/acs';
 const REQUEST_ID = 'lr_xyz789';
 const EMAIL = 'user@example.com';
 
@@ -280,6 +281,36 @@ describe('signup.form_viewed — the funnel head (spec-324 ac-10 / ac-12)', () =
 
     expect(screen.getByRole('heading', { name: /welcome back/i })).toBeInTheDocument();
     expect(trackAnonymous).not.toHaveBeenCalled();
+  });
+
+  it('fires signup.cta_clicked when the signup CTA is submitted (spec-367 ac-9)', async () => {
+    tagAc(`${AC367}/ac-9`);
+    await reachPasswordForm({ exists: false }); // signup (create-password) view
+    trackAnonymous.mockClear(); // drop the form_viewed fire — assert the CTA fire only
+    await act(async () => {
+      fireEvent.change(screen.getByPlaceholderText('••••••••••'), {
+        target: { value: 'longenoughpw' }, // ≥10 chars so the signup CTA enables
+      });
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /^sign up$/i }));
+    });
+    expect(trackAnonymous).toHaveBeenCalledWith('signup.cta_clicked', { method: 'password' });
+  });
+
+  it('does NOT fire signup.cta_clicked on the sign-in submit (spec-367 ac-9)', async () => {
+    tagAc(`${AC367}/ac-9`);
+    await reachPasswordForm({ exists: true, hasPassword: true }); // sign-in view
+    trackAnonymous.mockClear();
+    await act(async () => {
+      fireEvent.change(screen.getByPlaceholderText('••••••••••'), {
+        target: { value: 'anypassword' },
+      });
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /^sign in$/i }));
+    });
+    expect(trackAnonymous).not.toHaveBeenCalledWith('signup.cta_clicked', expect.anything());
   });
 });
 

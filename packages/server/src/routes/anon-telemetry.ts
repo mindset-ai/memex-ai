@@ -1,24 +1,23 @@
 // POST /api/telemetry — the ANONYMOUS-capable, tenant-less engagement ingress
-// (spec-324 — the spec-244 retrofit).
+// (spec-324; reworked by spec-367).
 //
 // The tenant-scoped /api/:ns/:mx/telemetry route no-ops anonymous callers
 // (spec-244 ac-7): it requires a user AND a resolved memex. That is correct for
 // in-app events, but it makes the FUNNEL HEAD invisible — a visitor seeing the
 // signup form has neither a user nor a tenant. This flat sibling records that
-// pre-identity event keyed on the consent-gated visitor_id (read from the
-// .memex.ai cookie by visitorMiddleware), so the visitor's pre-auth activity is
-// captured and later STITCHED to their user at sign-in (identity.merged →
-// Mixpanel Simplified ID Merge). When a session IS present it attributes to the
-// user too (and still stamps the visitor_id, so an authed event carries both ids
-// and Mixpanel merges the device).
+// pre-identity event.
 //
-// Identity: actorUserId from the optional session (PERMISSIVE
-// publicSessionMiddleware), visitorId from the cookie. At least one must be
-// present — a caller with NEITHER (no consent, no session) is a 204 no-op, so no
-// orphaned row ever lands. memex_id is NULL by nature (no tenant).
+// spec-367 (reversing spec-254 dec-4): pre-signup capture is IDENTIFIER-LESS volume
+// under legitimate interest. A caller with NEITHER a session NOR a visitor_id is no
+// longer a no-op — we record the event with a NULL actor and NULL visitor_id (pure
+// count). The visitor_id is still READ (dormant — visitorMiddleware retained per
+// spec-367 dec-5) and stamped IF ever present, so the door to a future
+// anonymous→user stitch stays open; today nothing mints one, so it is always null.
+// memex_id is NULL by nature (no tenant).
 //
 // Allowlist + sanitise exactly like the tenant route: only REGISTERED FRONT-END
-// names are accepted, and props are stripped of content/PII server-side.
+// names are accepted, and props are stripped of content/PII server-side — so an
+// identifier-less row can only ever carry a registered event name + safe props.
 
 import { Hono } from "hono";
 import { z } from "zod";
@@ -37,11 +36,11 @@ const anonTelemetry = new Hono<SessionEnv>();
 
 anonTelemetry.post("/", async (c) => {
   const user = c.get("user");
+  // visitorId is dormant (spec-367 dec-5): nothing mints one today, so this is
+  // effectively always null. Read + stamped anyway so a future stitch needs no
+  // change here. An identifier-less caller (no session, no visitor_id) is recorded
+  // as pure volume — NOT a no-op — per spec-367.
   const visitorId = c.get("visitorId") ?? null;
-  // No identity at all — nothing to attribute, and recording a row with neither
-  // an actor nor a visitor would be a dead orphan. No-op (advisory, like the
-  // tenant route's anonymous no-op).
-  if (!user && !visitorId) return c.body(null, 204);
 
   // Malformed payload → 400 with no side effect.
   let body: z.infer<typeof bodySchema>;
