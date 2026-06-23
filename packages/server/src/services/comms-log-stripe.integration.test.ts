@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { tagAc } from "@memex-ai-ac/vitest";
 import { db } from "../db/connection.js";
-import { commsLog, users, orgs, namespaces } from "../db/schema.js";
+import { users, orgs, namespaces } from "../db/schema.js";
 import { recordStripeEmailComm } from "./comms-log.js";
 
 // spec-341 t-4 — capturing Stripe-sent emails (dec-3). Stripe emails directly, so

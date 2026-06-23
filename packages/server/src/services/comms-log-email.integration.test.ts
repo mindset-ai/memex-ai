@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { tagAc } from "@memex-ai-ac/vitest";
 import { db } from "../db/connection.js";
-import { commsLog, users } from "../db/schema.js";
+import { users } from "../db/schema.js";
 import { recordEmailComm } from "./comms-log.js";
 
 // spec-341 t-1 — recordEmailComm: how an email send lands in the comms log.
