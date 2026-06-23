@@ -12,7 +12,7 @@
 // assert the readers still hide it.
 
 import { describe, it, expect, afterAll, beforeAll } from "vitest";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import {
   documents,
