@@ -45,7 +45,12 @@ describe("spec-138 ac-4 — no webhook configured returns clear error", () => {
     // This guards against the message being silently changed to something vague.
     const { readFileSync } = require("node:fs");
     const { join } = require("node:path");
-    const src = readFileSync(join(__dirname, "tool-specs.ts"), "utf8");
+    // spec-366: the discord tool handler moved from tool-specs.ts into
+    // agent/handlers/integrations.ts.
+    const src = readFileSync(
+      join(__dirname, "handlers", "integrations.ts"),
+      "utf8",
+    );
     expect(src).toContain("No Discord webhook configured for this org");
     expect(src).toContain("/settings/integrations");
   });

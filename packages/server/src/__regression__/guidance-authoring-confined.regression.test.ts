@@ -8,10 +8,21 @@
 // author-time (no DB, no dispatch), the instant someone re-scatters a nudge.
 
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
-const SRC = readFileSync(join(__dirname, "..", "agent", "tool-specs.ts"), "utf-8");
+// spec-366: renderFooterSignal + composeGuidanceEnvelope (the sole footer-prose
+// authors) now live in agent/handlers/shared.ts; the per-tool handlers live in
+// agent/handlers/*.ts. Scan shared.ts (carrying the confinement window) FIRST,
+// then append every other handler module so any handler that reaches for a prose
+// builder directly is flagged as an offender outside the window.
+const HANDLERS_DIR = join(__dirname, "..", "agent", "handlers");
+const SHARED_SRC = readFileSync(join(HANDLERS_DIR, "shared.ts"), "utf-8");
+const OTHER_HANDLERS = readdirSync(HANDLERS_DIR)
+  .filter((n) => n.endsWith(".ts") && n !== "shared.ts")
+  .map((n) => readFileSync(join(HANDLERS_DIR, n), "utf-8"))
+  .join("\n");
+const SRC = `${SHARED_SRC}\n${OTHER_HANDLERS}`;
 
 // renderFooterSignal's body spans from its header to the next top-level function
 // (composeGuidanceEnvelope, which we place immediately after it). Span by anchor,
@@ -53,7 +64,7 @@ describe("footer prose builders are confined to renderFooterSignal", () => {
       }
       expect(
         offenders,
-        `${call} is used outside renderFooterSignal at tool-specs.ts line(s) ${offenders.join(", ")} — guidance prose must be authored only in composeGuidanceEnvelope/renderFooterSignal`,
+        `${call} is used outside renderFooterSignal at handlers source line(s) ${offenders.join(", ")} — guidance prose must be authored only in composeGuidanceEnvelope/renderFooterSignal`,
       ).toEqual([]);
     });
   }
