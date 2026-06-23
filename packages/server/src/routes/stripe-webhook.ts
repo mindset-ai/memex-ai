@@ -19,6 +19,7 @@ import {
   resolvePlanFromPriceId,
   type StripeSubscription,
 } from "../services/stripe.js";
+import { recordStripeEmailComm } from "../services/comms-log.js";
 
 const stripeWebhookRouter = new Hono();
 
@@ -99,8 +100,9 @@ async function handleStripeEvent(
       await handlePaymentFailed(object);
       break;
     case "invoice.payment_succeeded":
-      // No action needed beyond recording the event — Stripe manages the
-      // subscription status automatically on success.
+      // Stripe manages the subscription status automatically. spec-341 t-4: Stripe
+      // also emails the customer a receipt — record that in the comms log.
+      await handlePaymentSucceeded(object);
       break;
     case "customer.subscription.deleted":
       await handleSubscriptionDeleted(object);
@@ -193,6 +195,32 @@ async function handlePaymentFailed(invoice: Record<string, unknown>): Promise<vo
   console.error(
     `[stripe-webhook] payment_failed customer=${customerId} amount=${amountDue} ${currency}`,
   );
+
+  // spec-341 t-4: Stripe emails the customer a dunning notice on payment failure.
+  // Record it in the comms log for the billing-contact user (best-effort, dec-3).
+  if (typeof invoice.customer === "string") {
+    const invoiceId = typeof invoice.id === "string" ? invoice.id : null;
+    await recordStripeEmailComm({
+      customerId: invoice.customer,
+      commsType: "transactional",
+      subject: "Payment failed",
+      sourceRef: invoiceId ? `stripe:${invoiceId}:failed` : undefined,
+    });
+  }
+}
+
+// spec-341 t-4: Stripe sends a receipt on a successful invoice payment. Record it
+// in the comms log for the billing-contact user (best-effort, dec-3). Advisory —
+// recordStripeEmailComm swallows its own errors so this never affects the webhook.
+async function handlePaymentSucceeded(invoice: Record<string, unknown>): Promise<void> {
+  if (typeof invoice.customer !== "string") return;
+  const invoiceId = typeof invoice.id === "string" ? invoice.id : null;
+  await recordStripeEmailComm({
+    customerId: invoice.customer,
+    commsType: "transactional",
+    subject: "Payment receipt",
+    sourceRef: invoiceId ? `stripe:${invoiceId}` : undefined,
+  });
 }
 
 async function handleSubscriptionDeleted(subscription: Record<string, unknown>): Promise<void> {
