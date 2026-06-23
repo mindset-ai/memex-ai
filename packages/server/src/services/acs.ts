@@ -38,7 +38,7 @@ import type { InferSelectModel } from "drizzle-orm";
 import { ConflictError, NotFoundError, ValidationError } from "../types/errors.js";
 import { mutate, type Mutated, type RequestCtx } from "./mutate.js";
 import { resolveActorColumns } from "./actor.js";
-import { removeSummaryForPair, recomputeSummaryForPair } from "./test-event-latest.js";
+import { removeSummaryForPair } from "./test-event-latest.js";
 import { nextSeq, withSeqRetry } from "./shared/sequence.js";
 
 export type Ac = InferSelectModel<typeof acs>;
@@ -787,98 +787,17 @@ export async function discontinueTestEventsForAc(
 }
 
 // ══════════════════════════════════════════════════════════════════════
-// Soft-hide / restore discontinue (spec-127 dec-1) — the AGENT path
+// Orphan retirement is HARD-DELETE only (spec-358 dec-1)
 // ══════════════════════════════════════════════════════════════════════
 //
-// The orphan self-heal problem: a renamed/deleted test keeps its last `fail`
-// in the summary forever, pinning its AC red. spec-127 retires orphans with a
-// SOFT, reversible hide rather than spec-96's hard delete (which stays as a
-// human escape hatch above). The actor that renamed/deleted the test knows the
-// identifier is dead and retires its own orphan via the ref-keyed surface.
-//
-// Mechanism, post-spec-162: the verdict reads `test_event_latest`, NOT the log
-// with a read-time `hidden=false` filter. So flipping `hidden` alone leaves the
-// stale `fail` in the summary and the badge unchanged. Hiding therefore does
-// TWO transactionally-paired writes — set `hidden=true` on the log rows (audit
-// preserved) AND evict the summary row (`removeSummaryForPair`). Restore is the
-// reverse, but un-flipping `hidden` cannot re-insert the summary row on its own,
-// so it RECOMPUTES the pair's summary from the surviving non-hidden log rows
-// (`recomputeSummaryForPair`). Self-heal still holds: a fresh non-hidden
-// emission re-runs applyEmissionToSummary and re-enters the verdict regardless.
-
-/**
- * Soft-retire every `test_events` row matching `(acUid, testIdentifier)` for
- * the AC: set `hidden = true` (audit retained) AND drop the summary row so the
- * pair leaves the verification badge immediately. Reversible via
- * `restoreTestEventsForAc`. Emits `ac:updated` so the badge + matrix re-render.
- */
-export async function softHideTestEventsForAc(
-  memexId: string,
-  acId: string,
-  testIdentifier: string,
-): Promise<Mutated<{ hidden: number }>> {
-  const ac = await getAc(memexId, acId); // tenancy check; 404 via NotFoundError
-  const slugs = await resolveBriefSlugsForRef(ac.briefId);
-  const acUid = buildAcRef(slugs, ac.seq);
-
-  return mutate(
-    {},
-    { memexId, docId: ac.briefId, entity: "ac", action: "updated" },
-    async () => {
-      return db.transaction(async (tx) => {
-        const rows = await tx
-          .update(testEvents)
-          .set({ hidden: true })
-          .where(
-            and(
-              eq(testEvents.acUid, acUid),
-              eq(testEvents.testIdentifier, testIdentifier),
-            ),
-          )
-          .returning({ id: testEvents.id });
-        await removeSummaryForPair(tx, acUid, testIdentifier);
-        return { hidden: rows.length };
-      });
-    },
-  );
-}
-
-/**
- * Reverse a soft-hide: set `hidden = false` on every matching `test_events`
- * row AND recompute the summary row from the surviving non-hidden log rows so
- * the pair re-enters the verdict at its true latest-non-hidden status (or
- * stays off the badge if nothing non-hidden remains). Emits `ac:updated`.
- */
-export async function restoreTestEventsForAc(
-  memexId: string,
-  acId: string,
-  testIdentifier: string,
-): Promise<Mutated<{ restored: number }>> {
-  const ac = await getAc(memexId, acId); // tenancy check; 404 via NotFoundError
-  const slugs = await resolveBriefSlugsForRef(ac.briefId);
-  const acUid = buildAcRef(slugs, ac.seq);
-
-  return mutate(
-    {},
-    { memexId, docId: ac.briefId, entity: "ac", action: "updated" },
-    async () => {
-      return db.transaction(async (tx) => {
-        const rows = await tx
-          .update(testEvents)
-          .set({ hidden: false })
-          .where(
-            and(
-              eq(testEvents.acUid, acUid),
-              eq(testEvents.testIdentifier, testIdentifier),
-            ),
-          )
-          .returning({ id: testEvents.id });
-        await recomputeSummaryForPair(tx, acUid, testIdentifier);
-        return { restored: rows.length };
-      });
-    },
-  );
-}
+// The soft-hide / restore pair (spec-127) was the last writer of
+// `test_events.hidden`. spec-358 removes it: orphan retirement now goes
+// through `discontinueTestEventsForAc` above (hard delete), the same thing the
+// UI `DeleteTestEventsButton` and the MCP `discontinue_test_events` tool do.
+// Nothing writes `hidden=true` anymore — the column is frozen at its current
+// contents (dec-2) and every reader that excludes historical hidden rows is
+// kept. The only thing given up is reversibility/audit of an orphan retirement
+// (a thin safety net for a test that no longer exists).
 
 // ══════════════════════════════════════════════════════════════════════
 // Per-Spec decision → implementation-AC coverage

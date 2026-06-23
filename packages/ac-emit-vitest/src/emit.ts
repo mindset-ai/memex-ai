@@ -37,23 +37,6 @@ export function isEmissionEnabled(): boolean {
 }
 
 /**
- * Should this specific emission be marked hidden?
- *
- * Controlled by MEMEX_HIDDEN env var (global; all emissions in this run
- * hidden) or by per-call `{ hidden: true }` option.
- *
- * Default: false (visible). Hidden emissions are recorded server-side but
- * do not move the AC's displayed verification state.
- */
-export function isHidden(perCall?: boolean): boolean {
-  if (perCall === true) return true;
-  const raw = process.env.MEMEX_HIDDEN;
-  if (!raw) return false;
-  const lc = raw.toLowerCase();
-  return lc === "true" || lc === "1" || lc === "yes" || lc === "on";
-}
-
-/**
  * The per-Memex emission key, read from MEMEX_EMIT_KEY (spec-129).
  *
  * When set, emit() attaches it as `Authorization: Bearer <key>` on every POST so the
@@ -109,9 +92,9 @@ export function buildPayload({
     payload.actor = actor;
   }
 
-  if (isHidden(options?.hidden)) {
-    payload.hidden = true;
-  }
+  // spec-358: the emitter no longer sends a `hidden` field. Every real result
+  // counts; the server no longer honours an inbound `hidden`, so there is
+  // nothing to send. MEMEX_HIDDEN and the per-call `hidden` option are gone.
 
   const metadata = buildMetadata(options?.metadata);
   if (Object.keys(metadata).length > 0) {

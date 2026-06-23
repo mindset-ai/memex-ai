@@ -26,9 +26,12 @@
 //                    post explicitly. A metadata.actor key (legacy
 //                    hand-rolled wire format) is stored opaquely as
 //                    metadata but is NOT promoted into this column.
-//   hidden           optional, boolean (spec-115 v0.1.0) — when true, the
-//                    event is stored but excluded from the AC's displayed
-//                    verification badge calculation
+//   hidden           DEPRECATED (spec-358) — accepted for backward
+//                    compatibility but NO LONGER HONOURED. An old / hand-rolled
+//                    emitter may still send it (any value); it is silently
+//                    ignored and the event is always stored as a counting
+//                    result. No inbound value can keep a new result off the
+//                    badge. (Historical hidden=true rows are frozen, untouched.)
 //   metadata         optional, object<string,string> (spec-115 v0.1.0) —
 //                    extensible context bag, surfaced in the UI tooltip.
 //                    Server-side caps: 4KB total, 32 keys, 256 chars per
@@ -211,9 +214,13 @@ testEventsRouter.post("/", async (c) => {
   if (body.actor !== undefined && typeof body.actor !== "string") {
     return c.json({ error: "actor must be a string when provided" }, 400);
   }
-  if (body.hidden !== undefined && typeof body.hidden !== "boolean") {
-    return c.json({ error: "hidden must be a boolean when provided" }, 400);
-  }
+  // spec-358 (dec-3, ac-1/ac-11): the inbound `hidden` field is no longer
+  // honoured. We still accept it for backward compatibility — an old /
+  // hand-rolled emitter that sends it (any value, boolean or not) gets a
+  // normal 201, never a 400 — but it is silently ignored. The stored row is
+  // always a counting result (hidden=false below), so no emitter can keep a
+  // NEW result off the badge (ac-2). Historical hidden=true rows are frozen
+  // and untouched (dec-2/dec-5); the readers that exclude them are kept.
   if (
     body.metadata !== undefined &&
     (typeof body.metadata !== "object" ||
@@ -297,7 +304,10 @@ testEventsRouter.post("/", async (c) => {
     commitSha: (body.commit_sha as string | undefined) ?? null,
     runId: (body.run_id as string | undefined) ?? null,
     actor: (body.actor as string | undefined) ?? null,
-    hidden: (body.hidden as boolean | undefined) ?? false,
+    // spec-358: every ingested result counts. The inbound `hidden` field is
+    // ignored — the row is always stored as a counting result. The column is
+    // retained (dec-2) and write-frozen at false on this path.
+    hidden: false,
     metadata: metadataForStorage,
   };
 
@@ -365,8 +375,7 @@ testEventsRouter.post("/", async (c) => {
   console.log(
     `[test-events] ${body.ac_uid} ${body.status}` +
       (body.test_identifier ? ` (${body.test_identifier})` : "") +
-      (body.run_id ? ` run=${body.run_id}` : "") +
-      (body.hidden === true ? " [hidden]" : ""),
+      (body.run_id ? ` run=${body.run_id}` : ""),
   );
 
   if (droppedKeys.length > 0) {

@@ -202,3 +202,21 @@ describe("spec-90 dec-7: emission guidance is locked to the multi-tenant routing
     expect(bootstrap.body).not.toMatch(/skips unknown namespaces/i);
   });
 });
+
+// spec-358 — the inbound `hidden` flag is no longer honoured and the emitter no
+// longer sends it. Both emitter-facing get_information topics must be scrubbed
+// of `hidden` / `MEMEX_HIDDEN` so no agent reads it as something an emitter can
+// set. This guards ac-4 (the bootstrap behavioural-contract checklist included).
+describe("spec-358: emitter-facing guidance is scrubbed of the hidden flag", () => {
+  it("ac-emission topic mentions neither `hidden` nor MEMEX_HIDDEN [spec-358 ac-4]", () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-358/acs/ac-4");
+    expect(topic.body).not.toMatch(/hidden/i);
+    expect(topic.body).not.toMatch(/MEMEX_HIDDEN/);
+  });
+
+  it("ac-emission-bootstrap topic (incl. its behavioural-contract checklist) mentions neither `hidden` nor MEMEX_HIDDEN [spec-358 ac-4]", () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-358/acs/ac-4");
+    expect(bootstrap.body).not.toMatch(/hidden/i);
+    expect(bootstrap.body).not.toMatch(/MEMEX_HIDDEN/);
+  });
+});

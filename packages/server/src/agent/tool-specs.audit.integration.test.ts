@@ -561,11 +561,11 @@ describe("audit: field names referenced in descriptions exist in the schema", ()
     // descriptions (list_acs, get_ac, etc.) to teach the agent the
     // verification-state vocabulary.
     "test_events", "verified", "failing", "stale", "untested",
-    // spec-127 test-event vocabulary + tool names referenced in descriptions
-    // (test_identifier is a schema field on discontinue/restore but a bare
+    // spec-127 / spec-358 test-event vocabulary + tool names referenced in
+    // descriptions (test_identifier is a schema field on discontinue but a bare
     // domain term in get_test_matrix's description; the tool names cross-
     // reference each other).
-    "test_identifier", "get_test_matrix", "discontinue_test_events", "restore_test_events",
+    "test_identifier", "get_test_matrix", "discontinue_test_events",
     // Other commonly-quoted miscellany
     "memex", "type", "true", "false", "null", "options", "now",
     "RRF", "FTS",
@@ -750,7 +750,6 @@ const REF_PROBE_SKIP = new Map<string, string>([
   // dedicated probe here would need a throwaway AC + seeded test_events fixture.
   ["get_test_matrix", "emits the AC ref:; covered by mcp/test-event-tools.integration"],
   ["discontinue_test_events", "emits the AC ref:; covered by mcp/test-event-tools.integration"],
-  ["restore_test_events", "emits the AC ref:; covered by mcp/test-event-tools.integration"],
   // export_doc (spec-100) returns a lossless full-document markdown export (every
   // comment thread expanded inline), not a per-entity confirmation — the terse
   // ref:/no-UUID invariant doesn't apply. Exercised in doc-export.integration.

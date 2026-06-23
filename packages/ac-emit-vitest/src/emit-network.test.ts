@@ -101,7 +101,7 @@ describe("emit() — HTTP POST behaviour", () => {
       status: "fail",
       test_identifier: "test.ts::failed",
       duration_ms: 100,
-      options: { hidden: true, metadata: { tenant: "acme" } },
+      options: { metadata: { tenant: "acme" } },
     });
 
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
@@ -111,11 +111,11 @@ describe("emit() — HTTP POST behaviour", () => {
       status: "fail",
       test_identifier: "test.ts::failed",
       duration_ms: 100,
-      // spec-115 dec-6: actor lives at the top level alongside hidden,
-      // not inside metadata.
+      // spec-115 dec-6: actor lives at the top level, not inside metadata.
       actor: "wic",
-      hidden: true,
     });
+    // spec-358: the emitter never puts `hidden` on the wire.
+    expect("hidden" in body).toBe(false);
     expect(body.metadata?.tenant).toBe("acme");
     expect(body.metadata?.actor).toBeUndefined();
   });
