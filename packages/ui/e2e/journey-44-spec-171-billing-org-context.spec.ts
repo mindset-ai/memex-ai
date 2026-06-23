@@ -118,8 +118,12 @@ test("org-first upgrade — pick the org on plan-select, seats screen shows it r
   const premiumCta = page.getByRole("button", { name: "Upgrade to Premium" });
   await expect(premiumCta).toBeDisabled();
 
-  // Pick org1 → the CTA enables.
-  await page.getByRole("radio", { name: "Upgrade First One" }).check();
+  // Pick org1 → the chooser collapses to the confirmation card and the plan CTAs
+  // enable. Use click (not check): selecting auto-flips to the card, detaching the
+  // radio before check()'s post-select verification can read it.
+  await page.getByRole("radio", { name: "Upgrade First One" }).click();
+  await expect(page.getByText("Upgrading organisation")).toBeVisible();
+  await expect(page.getByText("Upgrade First One")).toBeVisible();
   await expect(premiumCta).toBeEnabled();
 
   // ── → seats screen, org carried in as ?org=<id> ─────────────────────────────

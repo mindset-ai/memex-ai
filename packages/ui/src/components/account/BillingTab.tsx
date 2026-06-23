@@ -319,9 +319,8 @@ export function BillingTab({ currentOrg }: { currentOrg?: AdminOrg | null }) {
             </Button>
           </div>
           <p className="text-xs text-muted">
-            Seat changes take effect right away. Nothing is charged today — the
-            prorated difference and your new recurring total appear on your next
-            invoice.
+            Seat changes apply right away. You aren't billed today — the prorated
+            difference is settled on your next invoice.
           </p>
         </section>
       )}
