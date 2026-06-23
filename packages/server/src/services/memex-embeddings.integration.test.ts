@@ -1,3 +1,15 @@
+// ⚠ KNOWN-FLAKY UNDER FULL LOCAL PARALLEL RUNS (not a code defect).
+// The backfill idempotency assertion ("second pass embeds 0") counts over every
+// section this file created in a memex it shares across its own tests; under
+// full parallel local load it intermittently sees one extra. Green in isolation
+// and under CI's 3-way sharding.
+// TRIAGE before assuming you broke it:
+//   1. Re-run THIS FILE in isolation:
+//        pnpm --filter @memex/server exec vitest run src/services/memex-embeddings.integration.test.ts
+//      Passes alone ⇒ known flake; don't pull develop and re-run everything.
+//   2. Only suspect a real break if your diff touched backfillSectionEmbeddings /
+//      embedding-model resolution / writeEmbedding / the doc_sections schema.
+//
 // Integration tests for the Memex embedding pipeline (b-34 T-2 — generalised
 // from the standards-only pipeline shipped in doc-8 t-5). Uses a deterministic
 // FakeEmbeddingProvider so we don't burn API tokens and so the test asserts
