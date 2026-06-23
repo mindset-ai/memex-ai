@@ -116,6 +116,20 @@ const ALLOWLIST: Record<string, string> = {
   //     "wrap deferred" posture as the code-intelligence cluster above.
   "routes/stripe-webhook.ts":
     "spec-171 Stripe webhook. stripe_events INSERT is a no-entity idempotency ledger inside a rollback tx (must not emit, like services/activity-log.ts); the three orgs UPDATEs mirror services/orgs.ts and SHOULD route through mutate(entity:\"org\") — wrap deferred to avoid adding an SSE emit inside the retry-sensitive payment path.",
+  // spec-348 — Two orgs UPDATEs on the billing-checkout / seat-change routes:
+  //   :322  db.update(orgs).set({ stripeCustomerId })   (createCheckoutSession)
+  //   :392  db.update(orgs).set({ seatsPurchased })      (PATCH /subscription)
+  // orgs DOES have an "org" bus entity and services/orgs.ts ALREADY routes orgs
+  // writes through mutate({}, {entity:"org", action:"updated"}) (updateOrg) — so
+  // a mutate()-wrapped path exists; these two routes just need to use it. Per
+  // std-8 they SHOULD emit. NB: these were INVISIBLE to the scanner until
+  // spec-347 made stripComments string-literal-aware — the `"/*"` route-glob
+  // literal at orgs.ts:160 (orgsCurrentRouter.use("/*", sessionMiddleware)) used
+  // to open a phantom block comment that swallowed lines 161→EOF, hiding both
+  // writes. The fix re-exposed them; allowlisted (not yet wrapped) so the gate
+  // is GREEN with the bypass explicitly visible. Wrap is tracked by spec-348.
+  "routes/orgs.ts":
+    "spec-348 — two orgs UPDATEs (stripeCustomerId on checkout :322, seatsPurchased on PATCH /subscription :392). orgs has an \"org\" bus entity and services/orgs.ts.updateOrg already wraps orgs writes in mutate(); these routes SHOULD route through it. Surfaced by spec-347's string-literal-aware stripComments fix (previously hidden behind the \"/*\" route-glob literal at :160). Wrap deferred to spec-348.",
   // ── Non-tenancy-scoped identity / auth / allocation tables ──────────────
   // These write rows that carry NO memex_id and have NO bus entity — the bus is
   // keyed on memexId for per-tenant SSE fan-out, so there's nothing to emit and
@@ -216,14 +230,33 @@ function relKey(absPath: string): string {
 
 // Strip line comments and block comments so a `db.update` inside a comment
 // doesn't trip the scanner. Keeps line numbers intact by preserving newlines.
+//
+// MUST be string-literal-aware (spec-347): a quote-embedded `/*` or `//` — e.g.
+// the route literal `router.use("/*", sessionMiddleware)` — is NOT a comment.
+// The pre-spec-347 stripper ignored string/template/char literals, so that very
+// literal opened a phantom block comment that swallowed everything to EOF and
+// hid real raw writes below it (orgs.ts). We mirror the skipString approach used
+// by matchingParen: on a quote we copy the whole literal through verbatim
+// (preserving its newlines) without scanning its body for comment markers.
 function stripComments(src: string): string {
   let out = "";
   let i = 0;
   while (i < src.length) {
-    if (src[i] === "/" && src[i + 1] === "/") {
+    const ch = src[i];
+    if (ch === '"' || ch === "'" || ch === "`") {
+      // String / char / template literal — copy it through untouched so a `/*`
+      // or `//` inside it is never mistaken for a comment start. skipString
+      // handles backslash escapes; a template's `${...}` interpolation rides
+      // along inside the literal span, which is safe for the comment pass (any
+      // comment marker inside it still sits between the opening and closing
+      // backtick and so is never scanned).
+      const end = skipString(src, i, ch);
+      out += src.slice(i, end);
+      i = end;
+    } else if (ch === "/" && src[i + 1] === "/") {
       // Line comment — skip to newline.
       while (i < src.length && src[i] !== "\n") i++;
-    } else if (src[i] === "/" && src[i + 1] === "*") {
+    } else if (ch === "/" && src[i + 1] === "*") {
       // Block comment — skip but preserve newlines for line accuracy.
       i += 2;
       while (i < src.length && !(src[i] === "*" && src[i + 1] === "/")) {
@@ -232,7 +265,7 @@ function stripComments(src: string): string {
       }
       i += 2;
     } else {
-      out += src[i];
+      out += ch;
       i++;
     }
   }
@@ -567,6 +600,37 @@ describe("spec-156 W3: static-scan meta-tests", () => {
       }
     `;
     expect(scanForBypasses(withStringParen)).toEqual([]);
+  });
+
+  it("spec-347: a `/*` inside a string literal does NOT open a phantom comment that hides a later raw write", () => {
+    // Regression for the spec-345 audit finding: orgs.ts had
+    //   orgsCurrentRouter.use("/*", sessionMiddleware)
+    // The old (non-literal-aware) stripComments saw the `/*` inside the "/*"
+    // string and opened a block comment that ran to EOF, swallowing the real
+    // raw writes below it — the per-file scan passed green while two genuine
+    // db.update(orgs) bypasses sat hidden. With the string-aware stripper the
+    // `/*` is recognised as a string literal and the later write is caught.
+    const withRouteGlobLiteral = `
+      router.use("/*", sessionMiddleware);
+      router.patch("/sub", async (c) => {
+        await db.update(orgs).set({ seatsPurchased: 5 }).where(eq(orgs.id, id));
+        return c.json({ ok: true });
+      });
+    `;
+    const bypasses = scanForBypasses(withRouteGlobLiteral);
+    expect(bypasses.length).toBe(1);
+    expect(bypasses[0].context).toContain(".update(");
+  });
+
+  it("spec-347: a real `//` line comment and a real `/* */` block comment are still stripped", () => {
+    // Guard the fix didn't over-correct: genuine comments containing what looks
+    // like a raw write must still be stripped (not flagged).
+    const withComments = `
+      // await db.update(orgs).set({ x: 1 });  <- this is a comment, ignore it
+      /* await db.delete(orgs).where(eq(orgs.id, id)); also a comment */
+      export const noop = 1;
+    `;
+    expect(scanForBypasses(withComments)).toEqual([]);
   });
 
   it("non-db receivers (Map.delete, Hono router.delete) are not flagged", () => {
