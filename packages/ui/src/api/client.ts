@@ -2820,7 +2820,7 @@ export async function previewSeatChange(
   token: string | null,
   seats: number,
   orgTenant?: OrgTenant,
-): Promise<{ amountDue: number; currency: string }> {
+): Promise<{ prorationAmount: number; recurringAmount: number; currency: string }> {
   const res = await fetchWithRetry(
     `${orgBillingBase(orgTenant)}/orgs/current/subscription/preview?seats=${seats}`,
     { headers: authHeaders(token) },

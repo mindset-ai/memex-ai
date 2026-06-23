@@ -12,6 +12,8 @@ interface PricingCardProps {
   ctaHref: string;
   featured?: boolean;
   current?: boolean;
+  /** Disable the CTA (e.g. until the buyer has chosen which org to upgrade). */
+  ctaDisabled?: boolean;
 }
 
 export function PricingCard({
@@ -25,6 +27,7 @@ export function PricingCard({
   ctaHref,
   featured,
   current,
+  ctaDisabled,
 }: PricingCardProps) {
   const navigate = useNavigate();
 
@@ -85,6 +88,7 @@ export function PricingCard({
         <Button
           variant="primary"
           className="w-full justify-center"
+          disabled={ctaDisabled}
           onClick={() => navigate(ctaHref)}
         >
           {ctaLabel}
