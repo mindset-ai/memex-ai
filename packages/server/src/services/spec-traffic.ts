@@ -20,10 +20,11 @@
 //      manifest precisely so auto-assignment can't fight them —
 //      unassign_spec(self) must not instantly undo itself).
 //
-// Verify-class traffic has no MCP tool today: it arrives as CI test_events
-// via POST /api/test-events, which calls `observeTestEventTraffic` below
-// (transition only — an emission key carries no acting user, so there is
-// nothing to assign).
+// spec-342: test emission events NO LONGER drive phase. A Spec's phase is a
+// deliberate human / handoff placement; CI test_events (POST /api/test-events)
+// update AC verdicts and the audit trail only. The former build→verify (and
+// done→verify reopen) auto-promote — `observeTestEventTraffic` — was removed
+// here, completing the arc spec-327 began: traffic is not a phase intent.
 //
 // Failure posture: observation is best-effort and MUST NEVER fail or delay
 // the user's tool call semantics — every entry point catches everything and
@@ -241,42 +242,9 @@ export async function runToolWithSpecTraffic(
   return text;
 }
 
-/**
- * Verify-class traffic from CI: a test_event arriving for an AC is evidence
- * of verification activity on the AC's Spec (dec-1). Transition only — the
- * emission key authenticates a Memex, not a user, so there is no caller to
- * assign. Hidden emissions are excluded: `hidden: true` exists precisely to
- * keep an emission out of the visible signals (e.g. iterating on a
- * done-phase regression fix must not reopen the Spec). Never throws.
- */
-export async function observeTestEventTraffic(
-  memexId: string,
-  acUid: string,
-): Promise<void> {
-  try {
-    // ac_uid grammar: <namespace>/<memex>/specs/<spec-handle>/acs/<ac-handle>
-    const match = /\/specs\/([^/]+)\/acs\//.exec(acUid);
-    const specHandle = match?.[1];
-    if (!specHandle) return;
-
-    const doc = await db.query.documents.findFirst({
-      where: and(
-        eq(documents.memexId, memexId),
-        eq(documents.handle, specHandle),
-      ),
-    });
-    if (!doc || doc.docType !== "spec" || doc.isDemo) return;
-    if (doc.pausedAt !== null || doc.archivedAt !== null) return;
-    if (!isSpecStatus(doc.status)) return;
-
-    const next = nextPhaseForTraffic(doc.status, "verify");
-    if (next === doc.status) return;
-
-    await updateDocStatus(memexId, doc.id, next, {
-      ctx: { channel: "server" },
-      narrative: `auto-advanced ${doc.handle} ${doc.status} → ${next} (test event for ${acUid.split("/").pop()})`,
-    });
-  } catch (err) {
-    console.warn("[spec-traffic] test-event observation failed:", err);
-  }
-}
+// spec-342: `observeTestEventTraffic` was removed here. A CI test_event used to
+// auto-advance its AC's Spec build→verify (and reopen a done Spec to verify);
+// it no longer does — test events update the AC verdict + audit trail only, and
+// phase is a deliberate human placement. POST /api/test-events therefore makes
+// no phase change. The verdict path (applyEmissionToSummary, analytics) is
+// untouched and is the sole remaining reader of the `hidden` flag.
