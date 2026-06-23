@@ -14,7 +14,6 @@ import { eq } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import {
   activityLog,
-  documents,
   memexes,
   namespaces,
   orgMemberships,
