@@ -105,7 +105,11 @@ const HANDOFF_MESSAGE =
 export function HomeCanvas() {
   const { user, session } = useAuth();
   const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
+  // The operator step-switcher UI (PreviewBar) was removed in spec-344, but the
+  // `?preview=<step>` debug capability is retained: staff can still preview any step by
+  // visiting /home?preview=<step> (server-gated by canPreview). So we still READ the param,
+  // we just no longer write it from any in-page control.
+  const [searchParams] = useSearchParams();
   const previewParam = searchParams.get('preview');
 
   useDocumentTitle({ kind: 'page', title: 'Home' });
@@ -294,13 +298,6 @@ export function HomeCanvas() {
 
   return (
     <div className="font-onboarding min-h-full" data-testid="home-canvas">
-      {state?.canPreview && (
-        <PreviewBar
-          activeStepId={serverStepId}
-          onPick={(id) => setSearchParams(id ? { preview: id } : {})}
-        />
-      )}
-
       {/* spec-336 / prototype: the page-level Home header above the tracker. */}
       <div className="mx-auto max-w-5xl px-4 pt-10 sm:px-6">
         <h1 data-testid="home-page-title" className="text-4xl font-black tracking-tight text-heading">
@@ -525,82 +522,6 @@ function JourneyRail({
   );
 }
 
-// Internal explainer of the journey concept, shown in the staff-only bar.
-function JourneyInfo() {
-  return (
-    <span className="group relative inline-flex items-center">
-      <button
-        type="button"
-        aria-label="What is a journey?"
-        data-testid="journey-info"
-        className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-status-warning-border text-[10px] font-bold leading-none text-status-warning-text"
-      >
-        i
-      </button>
-      <span
-        role="tooltip"
-        className="pointer-events-none absolute left-0 top-6 z-50 hidden w-[23rem] rounded-lg border border-edge bg-panel p-3 text-[11px] font-normal normal-case leading-relaxed tracking-normal text-secondary shadow-xl group-hover:block group-focus-within:block"
-      >
-        <b className="text-heading">This is the onboarding journey.</b> The rail shows the
-        whole arc at once. Each step&apos;s orb ticks from your real activity — creating a spec,
-        resolving a decision, raising an AC — never from clicking. You can view any step freely;
-        viewing never changes your progress.
-      </span>
-    </span>
-  );
-}
-
-// Operator-only (spec-303 dec-9): pin any milestone step on your own account to review it
-// without minting a new user. Render-only — the underlying state is intact. Renders only
-// for entitled operators (server-enforced canPreview).
-function PreviewBar({
-  activeStepId,
-  onPick,
-}: {
-  activeStepId: string | null;
-  onPick: (id: string | null) => void;
-}) {
-  const steps = activeJourney().milestoneStepIds;
-  return (
-    <div
-      data-testid="journey-preview-bar"
-      title="Mindset staff only: a manual step-switcher for previewing the journey. The Home Canvas and the journey itself are live for every user — only this row of step buttons is staff-only, and using it changes nothing about your real progress."
-      className="flex flex-wrap items-center gap-2 border-b border-dashed border-status-warning-border bg-status-warning-bg px-4 py-1.5 text-xs"
-    >
-      <span className="inline-flex items-center gap-1.5 font-semibold uppercase tracking-wider text-status-warning-text">
-        <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M12 3l7 3v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3z" />
-        </svg>
-        Mindset only · manual step switcher
-      </span>
-      <JourneyInfo />
-      <span className="mx-1 hidden text-status-warning-text/70 sm:inline">|</span>
-      {steps.map((id) => (
-        <button
-          key={id}
-          type="button"
-          data-testid={`journey-preview-${id}`}
-          onClick={() => onPick(id)}
-          className={`rounded-md border px-2 py-0.5 ${
-            id === activeStepId
-              ? 'border-status-warning-border bg-status-warning-bg font-medium text-status-warning-text'
-              : 'border-status-warning-border/50 text-status-warning-text/80 hover:bg-status-warning-bg'
-          }`}
-        >
-          {id}
-        </button>
-      ))}
-      <button
-        type="button"
-        data-testid="journey-preview-live"
-        onClick={() => onPick(null)}
-        className="rounded-md border border-status-warning-border/50 px-2 py-0.5 text-status-warning-text/80 hover:bg-status-warning-bg"
-      >
-        Live
-      </button>
-      <span className="ml-auto hidden text-[10px] normal-case tracking-normal text-status-warning-text/70 md:inline">
-        the journey below is live for everyone
-      </span>
-    </div>
-  );
-}
+// spec-344: the operator-only PreviewBar (a yellow "manual step switcher" banner, spec-303
+// dec-9) and its JourneyInfo tooltip were removed — staff Home now looks like everyone's.
+// The `?preview=<step>` debug capability is retained via the URL (see previewParam above).
