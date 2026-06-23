@@ -71,6 +71,14 @@ test("clicking a journey step's CTA records home_canvas.cta_clicked", async ({ p
   expect(body.action).toBe("cta");
   expect(body.cta).toBe("submit_identity");
 
-  // And the click advanced the canvas to the create-spec step (the CTA still works).
-  await expect(page.getByTestId("journey-step-create-spec")).toBeVisible({ timeout: 10_000 });
+  // And the click functionally advanced the canvas — the CTA still works, not just emits.
+  // We assert the identity step is left behind rather than that a SPECIFIC next step
+  // (create-spec) appears: which step is current is milestone-DERIVED (HomeCanvas /
+  // spec-336 — the server follows getUserJourneyState), and the create-spec step is only
+  // current while `hasSpec` is false. `hasSpec` counts ANY non-demo spec the shared
+  // dev user has authored across ALL memexes (journey-state.ts), so a parallel journey
+  // holding a spec as dev@memex.ai legitimately attains create-spec and the canvas skips
+  // it — a cross-journey race on shared state, not a CTA regression. Asserting "advanced
+  // off identity" proves the CTA's effect without coupling to the dev user's spec count.
+  await expect(page.getByTestId("journey-step-identity")).toBeHidden({ timeout: 10_000 });
 });
