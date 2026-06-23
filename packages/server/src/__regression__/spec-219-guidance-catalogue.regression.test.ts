@@ -25,7 +25,8 @@ const toolSpecs = [
     .filter((n) => n.endsWith(".ts"))
     .map((n) => readFileSync(join(HANDLERS_DIR, n), "utf-8")),
 ].join("\n");
-const formatters = read(join("mcp", "formatters.ts"));
+// spec-368 sol-4: formatter body moved to the neutral module; scan it there.
+const formatters = read(join("formatting", "formatters.ts"));
 const specTraffic = read(join("services", "spec-traffic.ts"));
 
 describe("ac-3 — terse embedded nudges KEPT", () => {

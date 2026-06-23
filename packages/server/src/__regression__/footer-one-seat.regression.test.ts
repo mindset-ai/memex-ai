@@ -19,7 +19,10 @@ const AC = (n: number) =>
 const SERVER_ROOT = join(__dirname, "..", "..");
 const read = (p: string) => readFileSync(join(SERVER_ROOT, "src", p), "utf-8");
 
-const formatters = read(join("mcp", "formatters.ts"));
+// spec-368 sol-4: the formatter body moved to the neutral module
+// `formatting/formatters.ts`; mcp/formatters.ts is now a thin barrel. Scan the
+// new home so this source guard still sees `formatFullDocState` & co.
+const formatters = read(join("formatting", "formatters.ts"));
 // spec-366: handler implementation moved from tool-specs.ts into
 // agent/handlers/*.ts (shared infra in shared.ts). Scan the catalogue file
 // plus every handler module so these source guards still see the code.

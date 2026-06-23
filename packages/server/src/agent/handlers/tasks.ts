@@ -28,7 +28,7 @@ import {
 import {
   formatReadyTasks,
   formatDocStatusHeader,
-} from "../../mcp/formatters.js";
+} from "../../formatting/formatters.js";
 import {
   TASK_STATUS,
   VERBOSE_FIELD,

@@ -20,12 +20,9 @@ import { orgIdForMemex } from "./shared/memex-ownership.js";
 import {
   BASE_SCAFFOLD,
   SPEC_SHAPE_MISSING_LENS_WARNING,
-  blockerLines,
   computeSpecReadiness,
-  isForwardTransition,
   toRubric,
   timeAgo,
-  capitalizeDisplayName,
   type SpecPhase,
   type SpecReadiness,
   type GuidanceBlock,
@@ -506,6 +503,153 @@ export async function computeReadinessForSpec(
   });
 }
 
+// ════════════════════════════════════════════════════════════════════════
+// sol-5 (spec-368): per-rule readiness nudges
+// ════════════════════════════════════════════════════════════════════════
+// `assessPhaseTransition` used to inline every readiness-nudge rule in one
+// ~366-LOC function. Each rule is now a small, pure predicate over the facts it
+// needs, returning the nudge line(s) it contributes (empty when the rule
+// doesn't fire). The orchestrator below composes them in the SAME order so the
+// emitted `nudges` array is byte-identical. None of these read the DB — they
+// operate on data the orchestrator already gathered.
+
+/** Forward transition with unresolved decisions is risky (any non-specify target). */
+function nudgeOpenDecisions(openCount: number, targetPhase: PhaseTarget): string[] {
+  if (openCount > 0 && targetPhase !== "specify") {
+    return [
+      `There are ${openCount} open decision${openCount === 1 ? "" : "s"}. Forward transition is risky.`,
+    ];
+  }
+  return [];
+}
+
+/** verify usually waits until all tasks are complete. */
+function nudgeIncompleteTasks(incompleteCount: number, targetPhase: PhaseTarget): string[] {
+  if (incompleteCount > 0 && targetPhase === "verify") {
+    return [
+      `There are ${incompleteCount} incomplete task${incompleteCount === 1 ? "" : "s"}; verify usually waits until all tasks are complete.`,
+    ];
+  }
+  return [];
+}
+
+/** Unresolved drift comments on this Spec — resolve in the verify pass. */
+function nudgeVerifyDrift(driftCount: number, targetPhase: PhaseTarget): string[] {
+  if (driftCount > 0 && targetPhase === "verify") {
+    return [
+      `Unresolved drift comment${driftCount === 1 ? "" : "s"} — consider resolving them in the verify pass.`,
+    ];
+  }
+  return [];
+}
+
+// spec-112 t-8: verify→done soft warning for in-flight Issues (ac-17). Closing
+// a Spec while Issues are still `open` (the bug/todo isn't fixed) or
+// `converted` (its satisfying Task hasn't proven green) means the Spec claims
+// done while work it owns is unresolved. SOFT only — it adds a nudge that NAMES
+// the count but never holds the transition (update_doc({status:'done'}) still
+// succeeds, ac-18). When every Issue is resolved / wont_fix (or there are none)
+// openIssuesCount is 0 and no warning fires.
+function nudgeOpenIssuesAtDone(openIssuesCount: number, targetPhase: PhaseTarget): string[] {
+  if (openIssuesCount > 0 && targetPhase === "done") {
+    return [
+      `There ${openIssuesCount === 1 ? "is" : "are"} ${openIssuesCount} open or converted Issue${openIssuesCount === 1 ? "" : "s"} on this Spec. ` +
+        `Closing it to 'done' leaves that work unresolved — resolve, convert, or mark them wont_fix first, or close anyway if intentional.`,
+    ];
+  }
+  return [];
+}
+
+// spec-120 ac-2: failing / stale AC hold signal on the verify→done gate.
+// Mirrors how open drift is surfaced — an explicit warning line that NAMES
+// the offending AC handles, drawn from the same `test_events` derivation
+// `list_acs` uses. Closing a Spec to 'done' while a tagged test is emitting
+// `fail`, or while a once-passing AC has gone `stale` (>7d), means the gate
+// would otherwise read clean while an acceptance criterion is unmet — exactly
+// the gap spec-116's dry-runs surfaced. SOFT (a nudge, not a hard gate),
+// consistent with the other done-phase warnings.
+function nudgeAcVerificationAtDone(
+  acVerification: AcVerificationFact,
+  targetPhase: PhaseTarget,
+): string[] {
+  if (targetPhase !== "done") return [];
+  const out: string[] = [];
+  const { failing, stale, failingHandles, staleHandles } = acVerification;
+  if (failing > 0) {
+    out.push(
+      `${failing} acceptance criteri${failing === 1 ? "on is" : "a are"} FAILING (${failingHandles.join(", ")}). ` +
+        `A clean done gate would otherwise hide this — fix the code or the test so the tagged test passes before closing to 'done'.`,
+    );
+  }
+  if (stale > 0) {
+    out.push(
+      `${stale} acceptance criteri${stale === 1 ? "on is" : "a are"} STALE (${staleHandles.join(", ")}) — last passing run is older than ${STALE_THRESHOLD_DAYS} days. ` +
+        `Re-run the tagged tests to refresh verification before closing to 'done', or close anyway if intentional.`,
+    );
+  }
+  return out;
+}
+
+// Decisions-need-ACs gate: any resolved decision on the specify→build path that
+// lacks an active implementation AC is a hold-flavoured signal. Lists the
+// offending decisions inline so the agent can author the missing ACs without
+// a second tool call. Same firmness as open-decisions check — the resulting
+// nudge feeds the rubric's hold-on-naked-decisions verdict.
+function nudgeNakedDecisions(
+  resolvedDecisionAcCoverage: DecisionAcCoverageFact[],
+  targetPhase: PhaseTarget,
+): string[] {
+  if (targetPhase !== "build") return [];
+  const naked = resolvedDecisionAcCoverage.filter((c) => c.implementationAcCount === 0);
+  if (naked.length === 0) return [];
+  const handles = naked.map((c) => c.decisionHandle).join(", ");
+  return [
+    `Resolved decisions without implementation ACs: ${handles}. ` +
+      `Specify→build is a hold until each has ≥1 active implementation AC linked via ` +
+      `\`create_ac({ kind: 'implementation', parent_decision_ref: '<dec-ref>', ... })\`. ` +
+      `See \`get_information(topic='decisions-need-acs')\`.`,
+  ];
+}
+
+// spec-106 t-4: missing-core-lens soft nudge (dec-1). On the specify→build
+// transition only, inspect the Spec's section types/titles; if a CORE lens
+// (Design & UX, Architecture & Security) has no matching section, surface a
+// warning that NAMES the missing lens. SOFT signal — adds a warning to the
+// fact sheet/nudges but does NOT introduce a transition block. The verdict for
+// a missing-lens-only Spec stays proceed-with-caveats, never 'hold'.
+function nudgeMissingCoreLenses(
+  sectionRows: readonly { sectionType: string; title: string | null }[],
+  targetPhase: PhaseTarget,
+): string[] {
+  if (targetPhase !== "build") return [];
+  const missingLenses = detectMissingCoreLenses(sectionRows);
+  if (missingLenses.length === 0) return [];
+  return [SPEC_SHAPE_MISSING_LENS_WARNING.replace("{lens}", missingLenses.join(", "))];
+}
+
+// spec-259 t-3: open-comment SOFT nudge on the specify→build gate (ac-6).
+// Advancing into build while comments are still open means unanswered
+// questions / unresolved notes ride into execution unseen. SOFT only — names
+// the count + oldest age but NEVER holds the transition (ac-11), mirroring the
+// firmness of the open-Issues-at-done and missing-core-lens warnings, NOT the
+// naked-decision hold. Fires only when open comments exist; 0 open → no nudge.
+function nudgeOpenCommentsAtBuild(
+  openCommentsDetail: CommentsStatus | undefined,
+  targetPhase: PhaseTarget,
+): string[] {
+  if (targetPhase !== "build" || !openCommentsDetail || openCommentsDetail.totalOpen === 0) {
+    return [];
+  }
+  const n = openCommentsDetail.totalOpen;
+  const oldest = openCommentsDetail.comments[0]?.createdAt ?? null;
+  const oldestAge = oldest ? timeAgo(oldest) : "unknown age";
+  return [
+    `There ${n === 1 ? "is" : "are"} ${n} open comment${n === 1 ? "" : "s"} on this Spec ` +
+      `(oldest ${oldestAge}). Walk the user through them before build — answer the questions, ` +
+      `fold accepted notes into the narrative, and resolve them — or proceed if they're not blockers.`,
+  ];
+}
+
 /**
  * Assess readiness to transition a Spec into `targetPhase`.
  *
@@ -513,6 +657,10 @@ export async function computeReadinessForSpec(
  * (loaded from `phases/{source}/transitions.md`) plus a fact sheet drawn
  * from the DB. The agent walks the rubric against the facts and produces the
  * verdict for the human.
+ *
+ * sol-5 (spec-368): the readiness-nudge rules are extracted into the per-rule
+ * `nudge*` predicates above; this function gathers the facts, composes the
+ * nudges in order, and shapes the `PhaseAssessment`.
  *
  * Side-effect: stamps the (briefId, targetPhase) recency cache so t-7's
  * status-change nudge knows the agent recently looked. (`briefId` here is the
@@ -689,121 +837,19 @@ export async function assessPhaseTransition(
     orgBlocks,
   });
 
-  // Rule-based nudges
-  const nudges: string[] = [];
-  if (openDecisions.length > 0 && targetPhase !== "specify") {
-    nudges.push(
-      `There are ${openDecisions.length} open decision${openDecisions.length === 1 ? "" : "s"}. Forward transition is risky.`,
-    );
-  }
-  if (incomplete.length > 0 && targetPhase === "verify") {
-    nudges.push(
-      `There are ${incomplete.length} incomplete task${incomplete.length === 1 ? "" : "s"}; verify usually waits until all tasks are complete.`,
-    );
-  }
-  if (specDrift.length > 0 && targetPhase === "verify") {
-    nudges.push(
-      `Unresolved drift comment${specDrift.length === 1 ? "" : "s"} — consider resolving them in the verify pass.`,
-    );
-  }
-
-  // spec-112 t-8: verify→done soft warning for in-flight Issues (ac-17). Closing
-  // a Spec while Issues are still `open` (the bug/todo isn't fixed) or
-  // `converted` (its satisfying Task hasn't proven green) means the Spec claims
-  // done while work it owns is unresolved. SOFT only — it adds a nudge that NAMES
-  // the count but never holds the transition (update_doc({status:'done'}) still
-  // succeeds, ac-18). When every Issue is resolved / wont_fix (or there are none)
-  // openIssuesCount is 0 and no warning fires.
-  if (openIssuesCount > 0 && targetPhase === "done") {
-    nudges.push(
-      `There ${openIssuesCount === 1 ? "is" : "are"} ${openIssuesCount} open or converted Issue${openIssuesCount === 1 ? "" : "s"} on this Spec. ` +
-        `Closing it to 'done' leaves that work unresolved — resolve, convert, or mark them wont_fix first, or close anyway if intentional.`,
-    );
-  }
-
-  // spec-120 ac-2: failing / stale AC hold signal on the verify→done gate.
-  // Mirrors how open drift is surfaced — an explicit warning line that NAMES
-  // the offending AC handles, drawn from the same `test_events` derivation
-  // `list_acs` uses (acVerification above). Closing a Spec to 'done' while a
-  // tagged test is emitting `fail`, or while a once-passing AC has gone `stale`
-  // (>7d), means the gate would otherwise read clean while an acceptance
-  // criterion is unmet — exactly the gap spec-116's dry-runs surfaced. SOFT
-  // (a nudge, not a hard gate), consistent with the other done-phase warnings.
-  if (targetPhase === "done") {
-    const { failing, stale, failingHandles, staleHandles } = acVerification;
-    if (failing > 0) {
-      nudges.push(
-        `${failing} acceptance criteri${failing === 1 ? "on is" : "a are"} FAILING (${failingHandles.join(", ")}). ` +
-          `A clean done gate would otherwise hide this — fix the code or the test so the tagged test passes before closing to 'done'.`,
-      );
-    }
-    if (stale > 0) {
-      nudges.push(
-        `${stale} acceptance criteri${stale === 1 ? "on is" : "a are"} STALE (${staleHandles.join(", ")}) — last passing run is older than ${STALE_THRESHOLD_DAYS} days. ` +
-          `Re-run the tagged tests to refresh verification before closing to 'done', or close anyway if intentional.`,
-      );
-    }
-  }
-
-  // Decisions-need-ACs gate: any resolved decision on the specify→build path that
-  // lacks an active implementation AC is a hold-flavoured signal. Lists the
-  // offending decisions inline so the agent can author the missing ACs without
-  // a second tool call. Same firmness as open-decisions check above — the
-  // resulting nudge feeds the rubric's hold-on-naked-decisions verdict.
-  if (targetPhase === "build") {
-    const naked = resolvedDecisionAcCoverage.filter(
-      (c) => c.implementationAcCount === 0,
-    );
-    if (naked.length > 0) {
-      const handles = naked.map((c) => c.decisionHandle).join(", ");
-      nudges.push(
-        `Resolved decisions without implementation ACs: ${handles}. ` +
-          `Specify→build is a hold until each has ≥1 active implementation AC linked via ` +
-          `\`create_ac({ kind: 'implementation', parent_decision_ref: '<dec-ref>', ... })\`. ` +
-          `See \`get_information(topic='decisions-need-acs')\`.`,
-      );
-    }
-  }
-
-  // spec-106 t-4: missing-core-lens soft nudge (dec-1). On the specify→build
-  // transition only, inspect the Spec's section types/titles; if a CORE lens
-  // (Design & UX, Architecture & Security) has no matching section, surface a
-  // warning that NAMES the missing lens. This is a SOFT signal — it adds a
-  // warning to the fact sheet/nudges but does NOT introduce a transition block.
-  // The verdict for a missing-lens-only Spec stays proceed-with-caveats, never
-  // 'hold' (update_doc({status:'build'}) still succeeds — see updateDocStatus,
-  // which gates on nothing here).
-  if (targetPhase === "build") {
-    const missingLenses = detectMissingCoreLenses(sectionRows);
-    if (missingLenses.length > 0) {
-      nudges.push(
-        SPEC_SHAPE_MISSING_LENS_WARNING.replace(
-          "{lens}",
-          missingLenses.join(", "),
-        ),
-      );
-    }
-  }
-
-  // spec-259 t-3: open-comment SOFT nudge on the specify→build gate (ac-6).
-  // Advancing into build while comments are still open means unanswered
-  // questions / unresolved notes ride into execution unseen. SOFT only — it
-  // adds a nudge that NAMES the count + oldest age but NEVER holds the
-  // transition (update_doc({status:'build'}) still succeeds, ac-11), mirroring
-  // the firmness of the open-Issues-at-done and missing-core-lens warnings, NOT
-  // the naked-decision hold. Fires only when open comments exist; 0 open → no
-  // nudge. specDrift's hard verify-scope is left untouched — this is the
-  // build-phase analogue.
-  if (targetPhase === "build" && openCommentsDetail && openCommentsDetail.totalOpen > 0) {
-    const n = openCommentsDetail.totalOpen;
-    const oldest = openCommentsDetail.comments[0]?.createdAt ?? null;
-    const oldestAge = oldest ? timeAgo(oldest) : "unknown age";
-    nudges.push(
-      `There ${n === 1 ? "is" : "are"} ${n} open comment${n === 1 ? "" : "s"} on this Spec ` +
-        `(oldest ${oldestAge}). Walk the user through them before build — answer the questions, ` +
-        `fold accepted notes into the narrative, and resolve them — or proceed if they're not blockers.`,
-    );
-  }
+  // Rule-based nudges — sol-5 (spec-368): each rule is a per-rule predicate
+  // (the `nudge*` helpers above). Composed here in the SAME order as before so
+  // the emitted array is byte-identical.
+  const nudges: string[] = [
+    ...nudgeOpenDecisions(openDecisions.length, targetPhase),
+    ...nudgeIncompleteTasks(incomplete.length, targetPhase),
+    ...nudgeVerifyDrift(specDrift.length, targetPhase),
+    ...nudgeOpenIssuesAtDone(openIssuesCount, targetPhase),
+    ...nudgeAcVerificationAtDone(acVerification, targetPhase),
+    ...nudgeNakedDecisions(resolvedDecisionAcCoverage, targetPhase),
+    ...nudgeMissingCoreLenses(sectionRows, targetPhase),
+    ...nudgeOpenCommentsAtBuild(openCommentsDetail, targetPhase),
+  ];
 
   // Code-grounding self-classification (doc-27). Only applies on the
   // specify→build transition (`target === 'build'`). On other targets the
@@ -886,170 +932,9 @@ export async function assessPhaseTransition(
   };
 }
 
-/**
- * Format a phase assessment as a single agent-readable string.
- *
- * Designed for the agent's tool result — keep the rubric verbatim (the agent is
- * walking it against the facts) and the fact sheet compact and grep-able.
- */
-export function formatPhaseAssessment(assessment: PhaseAssessment): string {
-  const lines: string[] = [];
-  lines.push(`# Readiness assessment: ${assessment.transition}`);
-  lines.push(
-    `Spec ${assessment.specHandle} "${assessment.specTitle}" (current phase: ${assessment.currentPhase})`,
-  );
-  lines.push("");
-
-  // Fact sheet first — grep-able for the agent.
-  lines.push("## Spec facts");
-  const f = assessment.facts;
-  lines.push(`- Open decisions: ${f.openDecisionsCount}`);
-  if (f.openDecisions.length > 0) {
-    for (const d of f.openDecisions) {
-      lines.push(`  - ${d.handle} "${d.title}"`);
-    }
-  }
-  lines.push(
-    `- Incomplete tasks: ${f.incompleteTasksCount} (${f.readyTasksCount} ready, ${f.blockedTasksCount} blocked)`,
-  );
-  if (f.incompleteTasks.length > 0) {
-    for (const t of f.incompleteTasks) {
-      lines.push(
-        `  - ${t.handle} "${t.title}" — status=${t.status}${t.blocked ? ", blocked" : ""}`,
-      );
-    }
-  }
-  lines.push(`- Unresolved drift comments: ${f.unresolvedDriftCount}`);
-  lines.push(`- Unresolved plan_revision comments: ${f.unresolvedPlanRevisionCount}`);
-  // spec-120 ac-3: open comments broken down by type so hold-signals
-  // (review / question / drift / plan_revision) are distinguishable from
-  // provenance notes (progress / plan) without a separate list_comments call.
-  lines.push(`- Open comments: ${f.openCommentsCount}`);
-  if (f.openCommentsCount > 0) {
-    const byType = Object.entries(f.openCommentsByType).sort((a, b) =>
-      a[0].localeCompare(b[0]),
-    );
-    for (const [type, count] of byType) {
-      lines.push(`  - ${type}: ${count}`);
-    }
-  }
-  // spec-259 t-3: on the specify→build gate, enrich the open-comment block —
-  // grouped by anchor kind (decision-anchored vs section-anchored), oldest age
-  // per group via timeAgo, and a per-comment WHO/WHEN list (author + age +
-  // anchor handle/title + snippet). Rendered ONLY when `openCommentsDetail` is
-  // present (build target) and there are open comments; other targets keep the
-  // counts-only view above (ac-1).
-  if (assessment.openCommentsDetail && assessment.openCommentsDetail.totalOpen > 0) {
-    const groups = assessment.openCommentsDetail.byAnchorKind;
-    const renderGroup = (label: string, g: typeof groups.decision): void => {
-      if (g.count === 0) return;
-      const age = g.oldestCreatedAt ? timeAgo(g.oldestCreatedAt) : "unknown age";
-      lines.push(`  - ${label}: ${g.count} (oldest ${age})`);
-      for (const c of g.comments) {
-        const targetTitle = c.target.title ? ` "${c.target.title}"` : "";
-        lines.push(
-          `    - ${capitalizeDisplayName(c.author)} ${timeAgo(c.createdAt)} on ${c.target.kind} ${c.target.handle}${targetTitle} [${c.type}]: ${c.contentSnippet}`,
-        );
-      }
-    };
-    renderGroup("Decision-anchored", groups.decision);
-    renderGroup("Section-anchored", groups.section);
-  }
-  lines.push(`- Open/converted Issues: ${f.openIssuesCount}`);
-  // spec-120 ac-1: AC verification state, from the same test_events derivation
-  // list_acs uses — the gate and list_acs can never silently disagree. Failing
-  // / stale handles are named inline so a verifier never needs a second call.
-  const acv = f.acVerification;
-  lines.push(
-    `- AC verification: ${acv.totalActive} active — ${acv.verified} verified, ${acv.failing} failing, ${acv.stale} stale, ${acv.untested} untested${acv.accepted > 0 ? `, ${acv.accepted} accepted` : ""}`,
-  );
-  if (acv.failingHandles.length > 0) {
-    lines.push(`  - FAILING: ${acv.failingHandles.join(", ")}`);
-  }
-  if (acv.staleHandles.length > 0) {
-    lines.push(`  - STALE: ${acv.staleHandles.join(", ")}`);
-  }
-  lines.push(`- Sections: ${f.sections.length}`);
-  if (f.resolvedDecisionCoverage.length > 0) {
-    lines.push("- Resolved-decision narrative coverage (best-effort):");
-    for (const c of f.resolvedDecisionCoverage) {
-      lines.push(
-        `  - ${c.decisionHandle} "${c.decisionTitle}" — narrative ${c.hasConsequenceSection ? "looks updated" : "may not capture consequence"}`,
-      );
-    }
-  }
-  if (f.resolvedDecisionAcCoverage.length > 0) {
-    const nakedCount = f.resolvedDecisionAcCoverage.filter(
-      (c) => c.implementationAcCount === 0,
-    ).length;
-    lines.push(
-      `- Resolved-decision implementation-AC coverage: ${f.resolvedDecisionAcCoverage.length - nakedCount}/${f.resolvedDecisionAcCoverage.length} have ≥1 active implementation AC${nakedCount > 0 ? ` (${nakedCount} naked)` : ""}`,
-    );
-    for (const c of f.resolvedDecisionAcCoverage) {
-      const label =
-        c.implementationAcCount === 0
-          ? "NAKED — no implementation AC"
-          : `${c.implementationAcCount} implementation AC${c.implementationAcCount === 1 ? "" : "s"}`;
-      lines.push(`  - ${c.decisionHandle} "${c.decisionTitle}" — ${label}`);
-    }
-  }
-  lines.push("");
-
-  // Code grounding (doc-27) — only rendered on the specify→build transition
-  // when the agent hasn't yet supplied a `codeGrounding` value. Once the
-  // agent answers, the classification is surfaced via the `## Nudges`
-  // section below instead.
-  if (assessment.codeGroundingPromptPending) {
-    lines.push("## Code grounding");
-    lines.push(CODE_GROUNDING_PROMPT);
-    lines.push("");
-  }
-
-  // Outstanding work — same shared computation the React UI uses to gate the
-  // PhaseDropdown. Only meaningful for forward transitions (the readiness rubric
-  // exists for specify→build / build→verify / verify→done).
-  const isForward = isForwardTransition(
-    assessment.currentPhase as SpecPhase,
-    assessment.targetPhase as SpecPhase,
-  );
-  if (isForward) {
-    const lines2 = blockerLines(assessment.readiness);
-    if (lines2.length > 0) {
-      lines.push("## Outstanding work");
-      for (const l of lines2) {
-        lines.push(`- ${l}`);
-      }
-      lines.push("");
-    }
-  }
-
-  if (assessment.nudges.length > 0) {
-    lines.push("## Nudges");
-    for (const n of assessment.nudges) {
-      lines.push(`- ${n}`);
-    }
-    lines.push("");
-  }
-
-  // b-68 t-5 / t-7: composed rubric prose. Sits between the deterministic
-  // sections above (facts, outstanding work, nudges) and the rubric-less
-  // draft→specify note below. The `---` separator + dedicated heading make
-  // the deterministic-data vs prose-rubric boundary unambiguous for the
-  // agent and for downstream readers (ac-35). Emitted only when `toRubric`
-  // returned non-empty content — keeps the section silent for transitions
-  // that have neither base rubric nor Org additions (draft→specify today).
-  if (assessment.rubricProse.length > 0) {
-    lines.push("---");
-    lines.push("## Rubric prose");
-    lines.push(assessment.rubricProse.trim());
-    lines.push("");
-  }
-
-  // Friendly note for the rubric-less draft→specify transition.
-  if (assessment.rubricProse.length === 0 && assessment.rubricNote) {
-    lines.push("## Rubric");
-    lines.push(assessment.rubricNote);
-  }
-
-  return lines.join("\n");
-}
+// sol-5 (spec-368): `formatPhaseAssessment` is presentation, not assessment
+// logic — it moved to the neutral `formatting/` home (formatting/
+// phase-assessment-format.ts) alongside the other formatters. Re-exported here so
+// existing importers (agent/handlers/lifecycle.ts, the phase-assessment test
+// suites) keep importing it from this module unchanged. Output is byte-identical.
+export { formatPhaseAssessment } from "../formatting/phase-assessment-format.js";

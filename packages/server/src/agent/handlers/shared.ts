@@ -70,7 +70,7 @@ import {
   formatFullDocState,
   formatSpecGuidanceBody,
   type InjectedBlock,
-} from "../../mcp/formatters.js";
+} from "../../formatting/formatters.js";
 import { buildSketchBlock, type SketchAc } from "../../mcp/ac-test-sketch.js";
 import { getOrgIdForMemex } from "../../services/memexes.js";
 import { listOrgScaffoldAdditionsCached } from "../../services/scaffold-additions-cache.js";
