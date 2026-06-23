@@ -19,6 +19,15 @@ const WINDOW_DAYS = 90;
 const SPARK_DAYS = 14; // the spark + involved + narrative are drawn from recent activity only
 const MAX_INVOLVED = 5;
 
+// spec-353 (perf-2) — the cross-Memex fan-out runs each member Memex's block in
+// its OWN runWithMemexId ALS subtree, so we can race them with Promise.all
+// without crossing tenant streams (each subtree sets its own app.memex_id GUC at
+// every query call — std-36). Bounded so we never exceed the postgres-js pool
+// (DB_POOL_MAX, default 5): each per-Memex block holds a connection only for the
+// duration of its RLS micro-transactions, so a batch of MEMEX_CONCURRENCY blocks
+// stays inside the pool while still collapsing N serial round-trips into ⌈N/4⌉.
+const MEMEX_CONCURRENCY = 4;
+
 export interface HomeWorker {
   actorUserId: string | null;
   actorName: string | null;
@@ -127,8 +136,11 @@ export async function listHomeSpecs(userId: string): Promise<HomeSpecCard[]> {
   const sparkIso = sparkSince.toISOString();
   const all: HomeSpecCard[] = [];
 
-  for (const [memexId, prov] of provByMemex) {
-    const cards = await runWithMemexId(memexId, async () => {
+  // The per-Memex block — RLS-scoped to one tenant via runWithMemexId. Lifted out
+  // of the loop so the cross-Memex fan-out can run these in bounded-parallel
+  // batches (spec-353). The body is byte-identical to the prior inline loop.
+  const loadMemexCards = (memexId: string, prov: MemexProvenance): Promise<HomeSpecCard[]> =>
+    runWithMemexId(memexId, async () => {
       // assigned to me (spec-level assignment, spec-118)
       const assignedRows = await db
         .select({ docId: docAssignees.docId, at: docAssignees.assignedAt })
@@ -222,7 +234,19 @@ export async function listHomeSpecs(userId: string): Promise<HomeSpecCard[]> {
         };
       });
     });
-    all.push(...cards);
+
+  // Fan out across the user's Memexes in bounded-parallel batches (spec-353).
+  // Each entry runs inside its own runWithMemexId subtree, so the parallel
+  // batches never share RLS context. The final result order is sort-determined
+  // below (not insertion order), so collecting in batch order is identical to
+  // the prior serial accumulation.
+  const entries = [...provByMemex.entries()];
+  for (let i = 0; i < entries.length; i += MEMEX_CONCURRENCY) {
+    const batch = entries.slice(i, i + MEMEX_CONCURRENCY);
+    const results = await Promise.all(
+      batch.map(([memexId, prov]) => loadMemexCards(memexId, prov)),
+    );
+    for (const cards of results) all.push(...cards);
   }
 
   // tier first (assigned floats up), then MY last activity desc within a tier
