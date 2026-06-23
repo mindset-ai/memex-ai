@@ -180,8 +180,10 @@ packages/server/src/services/acs.ts
 # product prose already reads "Spec".
 packages/server/src/agent/tool-specs.ts:kind: "brief"
 packages/server/src/agent/tool-specs.ts:it stays "brief"
-packages/ui/src/api/client.ts:kind: 'brief'
-packages/ui/src/api/client.ts:which stays 'brief'
+# spec-364: client.ts was split into per-domain modules behind a barrel; this
+# AC-type discriminator block moved verbatim from client.ts into acs.ts.
+packages/ui/src/api/acs.ts:kind: 'brief'
+packages/ui/src/api/acs.ts:which stays 'brief'
 # spec-112 (Issues) asserts the wire-format discriminator survives the
 # `ac_parent_links_kind_valid` CHECK migration unchanged — a `.toContain("brief")`
 # on the constraint def. The literal is the DB value, not product prose.
