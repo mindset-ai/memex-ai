@@ -81,9 +81,9 @@ async function mintSession(
   });
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.stubEnv("AUTH_JWT_SECRET", "x".repeat(48));
-  resetRateLimits();
+  await resetRateLimits();
 });
 afterEach(() => {
   vi.unstubAllEnvs();

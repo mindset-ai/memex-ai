@@ -47,6 +47,7 @@ const EXPECTED_TABLES = [
   "cli_auth_requests",
   "tags",
   "document_tags",
+  "rate_limit_counters",
 ] as const;
 
 describe("regression: schema state", () => {
