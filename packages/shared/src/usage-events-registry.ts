@@ -101,7 +101,13 @@ export const USAGE_EVENT_REGISTRY = [
   {
     name: "signup.form_viewed",
     description:
-      "A visitor saw the signup form, pre-authentication (the funnel head). Recorded via the anonymous telemetry ingress (POST /api/telemetry) keyed on the consent-gated visitor_id; no user yet. Honours DNT / opt-out / consent (spec-324, spec-254).",
+      "A visitor saw the signup form, pre-authentication (the funnel head). Recorded IDENTIFIER-LESS via the anonymous telemetry ingress (POST /api/telemetry) under legitimate interest — no consent, no visitor_id, no session; pure volume (spec-367, reversing spec-254 dec-4). DNT is not honoured; the settings opt-out still applies. The identified seam is account.created.",
+    source: "frontend",
+  },
+  {
+    name: "signup.cta_clicked",
+    description:
+      "A visitor clicked the primary signup CTA on the signup view (funnel step between form_viewed and account.created). Recorded IDENTIFIER-LESS via the anonymous telemetry ingress (POST /api/telemetry) under legitimate interest — no consent, no visitor_id, no session; pure volume (spec-367). DNT not honoured; settings opt-out applies. props.method is the auth method enum.",
     source: "frontend",
   },
   // ── Front-end engagement interactions (track(), spec-336 follow-on) ──────────

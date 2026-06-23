@@ -287,10 +287,11 @@ function PasswordScreen({
   const [sendingMagic, setSendingMagic] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
 
-  // spec-324 — the funnel HEAD. Fire signup.form_viewed once when the signup form
-  // (create-password) is first shown, pre-auth, via the anonymous ingress so it
-  // keys on the visitor_id. Deduped so a re-render never re-fires; advisory and
-  // consent-gated inside trackAnonymous. Sign-in views never fire it.
+  // spec-324 / spec-367 — the funnel HEAD. Fire signup.form_viewed once when the
+  // signup form (create-password) is first shown, pre-auth, via the anonymous
+  // ingress. Identifier-less volume under legitimate interest (spec-367): no consent,
+  // no visitor_id; the only gate inside trackAnonymous is the opt-out. Deduped so a
+  // re-render never re-fires; advisory. Sign-in views never fire it.
   const viewedSent = useRef(false);
   useEffect(() => {
     if (mode === 'signup' && !viewedSent.current) {
@@ -302,6 +303,11 @@ function PasswordScreen({
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     if (!password) return;
+    // spec-367 — the funnel's second step: the signup CTA was clicked (identifier-less
+    // volume via the anonymous ingress). Signup view only; sign-in submits never fire it.
+    if (mode === 'signup') {
+      trackAnonymous('signup.cta_clicked', { method: 'password' });
+    }
     setSubmitting(true);
     setLocalError(null);
     try {
