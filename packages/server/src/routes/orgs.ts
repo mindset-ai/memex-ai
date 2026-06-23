@@ -5,8 +5,10 @@ import {
   createOrgForUser,
   getOrgSummary,
   updateOrgSettings,
+  updateOrgBilling,
   refreshOrgDomainVerifiedFlag,
 } from "../services/orgs.js";
+import { restCtx } from "./_actor-ctx.js";
 import { getMemexById } from "../services/memexes.js";
 import {
   createDomainVerificationToken,
@@ -197,7 +199,7 @@ orgsCurrentRouter.patch("/current", adminGate, async (c) => {
   }
 
   try {
-    const summary = await updateOrgSettings(orgId, input);
+    const summary = await updateOrgSettings(orgId, input, restCtx(c));
     return c.json(summary);
   } catch (err) {
     if (err instanceof ValidationError) {
@@ -319,7 +321,7 @@ orgsCurrentRouter.post("/current/subscription", adminGate, async (c) => {
   let customerId = org.stripeCustomerId;
   if (!customerId) {
     customerId = await createStripeCustomer(user.email, org.name, orgId);
-    await db.update(orgs).set({ stripeCustomerId: customerId }).where(eq(orgs.id, orgId));
+    await updateOrgBilling(orgId, { stripeCustomerId: customerId }, restCtx(c));
   }
 
   const baseUrl = buildAppBaseUrl();
@@ -389,7 +391,7 @@ orgsCurrentRouter.patch("/current/subscription", adminGate, async (c) => {
   if (!org.stripeSubscriptionId) return c.json({ error: "No active subscription" }, 402);
 
   await updateSubscriptionSeats(org.stripeSubscriptionId, seats);
-  await db.update(orgs).set({ seatsPurchased: seats }).where(eq(orgs.id, orgId));
+  await updateOrgBilling(orgId, { seatsPurchased: seats }, restCtx(c));
 
   return c.json({ ok: true, seatsPurchased: seats });
 });
