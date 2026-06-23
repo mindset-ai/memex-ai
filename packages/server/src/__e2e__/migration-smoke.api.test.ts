@@ -1,3 +1,20 @@
+// ⚠ KNOWN-FLAKY UNDER FULL LOCAL PARALLEL RUNS (not a code defect).
+// The "every active user has namespace_id" check below is a GLOBAL scan of the
+// users table on a per-worker DB clone that other test files share. Another
+// file's fixture can leave an `active`, null-namespace user on the same clone →
+// false failure. It is green in CI (the server suite runs 3-way sharded, each
+// shard on its own fresh DB) and green when this file is run alone.
+// TRIAGE before assuming you broke it:
+//   1. Re-run THIS FILE in isolation:
+//        pnpm --filter @memex/server exec vitest run src/__e2e__/migration-smoke.api.test.ts
+//      If it passes alone, it's the known shared-clone flake — your change is
+//      almost certainly innocent. Do NOT pull develop and re-run the world.
+//   2. A failure here is only genuinely suspicious if your diff touched user
+//      creation / ensureUserNamespace / users.namespace_id population / signup,
+//      or the test-DB harness (vitest.global-setup / worker-db.setup).
+// The durable fix (deferred) is to scope this assertion to users the test
+// itself created, instead of scanning the whole clone.
+//
 // t-9 of doc-15 — one-shot migration smoke test, run against the post-migration
 // database at cutover. Verifies the §7 data-integrity contract from the spec.
 //
