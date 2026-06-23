@@ -33,9 +33,17 @@ export async function getSubscription(subscriptionId: string): Promise<StripeSub
   return stripeGet<StripeSubscription>(`/subscriptions/${subscriptionId}`);
 }
 
+interface StripeInvoiceLine {
+  amount: number;
+  // True for the proration adjustment lines Stripe inserts on a mid-cycle
+  // quantity change; false/absent for the next period's regular recurring line.
+  proration?: boolean;
+}
+
 interface StripeInvoice {
   amount_due: number;
   currency: string;
+  lines?: { data: StripeInvoiceLine[] };
 }
 
 interface StripeBillingPortalSession {
@@ -240,14 +248,28 @@ export async function updateSubscriptionSeats(
 }
 
 /**
- * Preview the upcoming invoice for a seat-count change. Used to show the
- * prorated charge/credit before the customer confirms (dec-29 confirmation prompt).
+ * Preview a seat-count change before the customer confirms (dec-29 prompt).
+ *
+ * Seat changes use `proration_behavior: create_prorations` on a classic
+ * subscription, so NOTHING is charged today — the upcoming invoice (the next
+ * regular invoice) carries both the proration adjustment AND the new period's
+ * recurring line. Returning the bare `amount_due` (proration + next period)
+ * labelled "billed today" misled users (spec-171 verify: a 1→2 seat change on
+ * a $25/seat plan showed $74.97 = ~$25 proration + $50 next month). So we split
+ * the upcoming invoice into its two parts and let the UI present each honestly:
+ *
+ *   • `prorationAmount` — net of the proration lines (the charge/credit for the
+ *     rest of the CURRENT period). Negative when seats decrease (a credit).
+ *   • `recurringAmount` — the new go-forward per-period total (seats × price,
+ *     tax-inclusive), i.e. the non-proration line(s).
+ *
+ * Both land on the next invoice (`currentPeriodEnd`); neither is charged now.
  */
 export async function previewUpcomingInvoice(
   customerId: string,
   subscriptionId: string,
   seats: number,
-): Promise<{ amountDue: number; currency: string }> {
+): Promise<{ prorationAmount: number; recurringAmount: number; currency: string }> {
   const subscription = await stripeGet<StripeSubscription>(
     `/subscriptions/${subscriptionId}`,
   );
@@ -268,7 +290,19 @@ export async function previewUpcomingInvoice(
     throw new Error(`Stripe GET /invoices/upcoming failed (${res.status}): ${text}`);
   }
   const invoice = (await res.json()) as StripeInvoice;
-  return { amountDue: invoice.amount_due, currency: invoice.currency };
+
+  const lines = invoice.lines?.data ?? [];
+  let prorationAmount = 0;
+  let recurringAmount = 0;
+  for (const line of lines) {
+    if (line.proration) prorationAmount += line.amount;
+    else recurringAmount += line.amount;
+  }
+  // Defensive fallback: if Stripe ever returns no line breakdown, attribute the
+  // whole due amount to proration rather than silently showing zeros.
+  if (lines.length === 0) prorationAmount = invoice.amount_due;
+
+  return { prorationAmount, recurringAmount, currency: invoice.currency };
 }
 
 /**

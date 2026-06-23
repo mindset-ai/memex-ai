@@ -359,7 +359,8 @@ orgsCurrentRouter.post("/current/subscription", adminGate, async (c) => {
 
 // GET /api/<ns>/<mx>/orgs/current/subscription/preview — admin: preview proration for a seat-count change.
 // Query: ?seats=N  (proposed new seat count)
-// Returns { amountDue, currency } — positive = charge today, negative = credit on next invoice.
+// Returns { prorationAmount, recurringAmount, currency } — the next invoice's two parts
+// (proration for the rest of this period + the new go-forward total). Nothing is charged today.
 // 402 when the org has no active Stripe subscription.
 orgsCurrentRouter.get("/current/subscription/preview", adminGate, async (c) => {
   const memexId = c.get("currentMemexId")!;

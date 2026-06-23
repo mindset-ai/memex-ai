@@ -58,12 +58,24 @@ beforeEach(() => {
       if (url.includes(`/subscriptions/${SUB_ID}`) && method === "GET") {
         return subscriptionResponse();
       }
-      // Upcoming-invoice preview (ac-22).
+      // Upcoming-invoice preview (ac-22). The upcoming invoice carries BOTH the
+      // proration adjustment (rest of this period) and the new period's recurring
+      // line — previewUpcomingInvoice splits them so the UI never labels the sum
+      // "billed today" (spec-171 verify defect).
       if (url.includes("/invoices/upcoming")) {
         return {
           ok: true,
           status: 200,
-          json: async () => ({ amount_due: 4200, currency: "usd" }),
+          json: async () => ({
+            amount_due: 7497,
+            currency: "usd",
+            lines: {
+              data: [
+                { amount: 2497, proration: true }, // proration for the rest of this period
+                { amount: 5000, proration: false }, // new go-forward monthly total
+              ],
+            },
+          }),
         } as unknown as Response;
       }
       // Seat-update POST (ac-9 / ac-22).
@@ -118,7 +130,12 @@ describe("spec-171 ac-22: prorated preview via /v1/invoices/upcoming before conf
     // Previews against the existing item with the PROPOSED new quantity.
     expect(previewCall!.url).toContain(`subscription=${SUB_ID}`);
     expect(previewCall!.url).toContain("subscription_items%5B0%5D%5Bquantity%5D=12");
-    // Surfaces the prorated amount/currency for the confirm prompt.
-    expect(result).toEqual({ amountDue: 4200, currency: "usd" });
+    // Surfaces the proration + go-forward recurring split for the confirm prompt
+    // (not the conflated sum) so the UI can present each honestly.
+    expect(result).toEqual({
+      prorationAmount: 2497,
+      recurringAmount: 5000,
+      currency: "usd",
+    });
   });
 });
