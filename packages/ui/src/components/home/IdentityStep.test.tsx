@@ -8,12 +8,19 @@ import { tagAc } from '@memex-ai-ac/vitest';
 
 const updateProfileApi = vi.hoisted(() => vi.fn());
 const updateSession = vi.hoisted(() => vi.fn());
+const authUser = vi.hoisted(() => ({
+  value: { id: 'u-1', name: 'John Doe', email: 'john@example.com' } as {
+    id: string;
+    name: string;
+    email: string;
+  },
+}));
 
 vi.mock('../../api/client', () => ({ updateProfileApi }));
 vi.mock('../AuthContext', () => ({
   useAuth: () => ({
     token: 'fake',
-    user: { id: 'u-1', name: 'John Doe', email: 'john@example.com' },
+    user: authUser.value,
     updateSession,
   }),
 }));
@@ -31,6 +38,7 @@ beforeEach(() => {
   updateProfileApi.mockReset();
   updateSession.mockReset();
   updateProfileApi.mockResolvedValue({ needsOnboarding: false });
+  authUser.value = { id: 'u-1', name: 'John Doe', email: 'john@example.com' };
 });
 
 // spec-336: v2 step 0 — greeting from SSO (no name field), the role triangle beside a
@@ -64,6 +72,23 @@ describe('IdentityStep (v2)', () => {
     expect(coords).toEqual(CENTERED_ROLE); // unmoved dot → centered default
     expect(sums1(coords)).toBe(true);
     await waitFor(() => expect(updateSession).toHaveBeenCalledWith({ needsOnboarding: false }));
+  });
+
+  it('captures a name for a nameless native-auth user, then persists the typed name', async () => {
+    tagAc(AC336(2));
+    // Native email sign-ups arrive with no SSO name — the identity step is where they
+    // name themselves, so the field appears and Continue is gated until it's filled.
+    authUser.value = { id: 'u-2', name: '', email: 'jane@example.com' };
+    render(<IdentityStep />);
+    const field = screen.getByTestId('identity-name');
+    expect(field).toBeInTheDocument();
+    expect(screen.getByTestId('identity-continue')).toBeDisabled();
+    fireEvent.change(field, { target: { value: 'Jane Roe' } });
+    expect(screen.getByTestId('identity-continue')).not.toBeDisabled();
+    fireEvent.click(screen.getByTestId('identity-continue'));
+    await waitFor(() => expect(updateProfileApi).toHaveBeenCalledTimes(1));
+    const [, name] = updateProfileApi.mock.calls[0];
+    expect(name).toBe('Jane Roe');
   });
 });
 

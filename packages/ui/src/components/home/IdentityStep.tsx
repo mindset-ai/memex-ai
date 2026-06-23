@@ -28,17 +28,25 @@ export function IdentityStep({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // SSO sign-ins arrive with a name we reuse as-is — no editable field, no second copy
+  // (ac-2). Native email sign-ups arrive NAMELESS, so for them — and only them — the
+  // identity step captures the name here. It's the first capture, not a duplicate.
+  const ssoName = (user?.name ?? '').trim();
+  const needsName = ssoName === '';
+  const [name, setName] = useState(ssoName);
+
   const greeting = firstName(user?.name);
 
   const submit = useCallback(
     async (coords: RoleCoords) => {
       if (preview) return; // operator preview is render-only — never write
+      const finalName = name.trim();
+      if (needsName && !finalName) return; // guard — Continue is also disabled until named
       onCtaClick?.('submit_identity');
-      const name = (user?.name ?? '').trim();
       setSubmitting(true);
       setError(null);
       try {
-        const session = await updateProfileApi(token, name, coords);
+        const session = await updateProfileApi(token, finalName, coords);
         updateSession(session); // clears needsOnboarding
         onComplete?.(); // refetch journey-state so the canvas advances past identity
       } catch (err) {
@@ -47,7 +55,7 @@ export function IdentityStep({
         setSubmitting(false);
       }
     },
-    [token, user, updateSession, preview, onComplete, onCtaClick],
+    [token, name, needsName, updateSession, preview, onComplete, onCtaClick],
   );
 
   return (
@@ -68,6 +76,23 @@ export function IdentityStep({
       <p className="mb-6 mt-4 max-w-3xl leading-relaxed text-muted">
         Drag the dot to where you fit. Most people land somewhere in between.
       </p>
+
+      {needsName && (
+        <div className="mb-6 max-w-sm">
+          <label htmlFor="identity-name" className="mb-1.5 block text-sm font-semibold text-secondary">
+            Your name
+          </label>
+          <input
+            id="identity-name"
+            data-testid="identity-name"
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="How should we address you?"
+            className="w-full rounded-xl border border-edge bg-surface px-4 py-3 text-base text-primary outline-hidden transition focus:border-accent"
+          />
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center gap-x-12 gap-y-6">
         <div className="w-full max-w-md flex-none">
@@ -93,7 +118,7 @@ export function IdentityStep({
           <button
             type="button"
             data-testid="identity-continue"
-            disabled={submitting}
+            disabled={submitting || (needsName && !name.trim())}
             onClick={() => submit(role)}
             className="mt-7 inline-flex items-center gap-2 rounded-xl bg-accent px-6 py-3.5 text-base font-bold text-on-accent shadow-lg transition hover:bg-accent-hover disabled:opacity-60"
           >

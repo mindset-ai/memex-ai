@@ -57,10 +57,15 @@ test(TITLE, async ({ page }) => {
   await expect(page.getByTestId("role-triangle")).toBeVisible();
   await expect(page.getByTestId("journey-rail")).toBeHidden();
 
-  // Continue confirms identity → the journey self-advances off identity (ac-5); with no
-  // spec created yet, the next derived step is create-spec, and now the rail reveals (ac-1/ac-8).
+  // Continue confirms identity (persists role_coords) → the journey self-advances OFF the
+  // identity step (ac-5) and the persistent full-arc rail reveals (ac-1/ac-8). We assert
+  // the advance + the rail rather than a specific next step: this shared dev user may
+  // already have a spec/decision from other journeys, so the first unmet step varies —
+  // what's invariant is that confirming identity moves you forward onto the rail, where
+  // create-spec (universal) and the builder-only agents-build node are both present.
   await page.getByTestId("identity-continue").click();
-  await expect(page.getByTestId("journey-step-create-spec")).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByTestId("journey-rail")).toBeVisible();
+  await expect(page.getByTestId("journey-rail")).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByTestId("journey-step-identity")).toBeHidden();
+  await expect(page.getByTestId("journey-rail-node-create-spec")).toBeVisible();
   await expect(page.getByTestId("journey-rail-node-agents-build")).toBeVisible();
 });
