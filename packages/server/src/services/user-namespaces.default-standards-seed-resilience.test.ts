@@ -1,10 +1,11 @@
 // spec-184 t-3 / ac-9 — a default-Standards seed FAILURE never blocks signup: the
 // user account + personal memex are still created and the seed error is logged, not
-// surfaced. seedDefaultStandards is fired as a detached best-effort step inside
-// ensureUserNamespace (`void seedDefaultStandards(memexId).catch(...)`), so mocking it
-// to reject exercises the exact catch branch ac-9 protects. This ALSO guards the
-// wiring: if the hook were dropped the mock would never be called, the seed error would
-// never be logged, and this test would fail.
+// surfaced. seedDefaultStandards is AWAITED inside ensureUserNamespace, wrapped in a
+// try/catch (`await seedDefaultStandards(memexId)` → caught + logged) — it used to be
+// detached, but the detached post-response promise was starved on Cloud Run, so it was
+// moved onto the request path. Mocking it to reject exercises the exact catch branch ac-9
+// protects. This ALSO guards the wiring: if the hook were dropped the mock would never be
+// called, the seed error would never be logged, and this test would fail.
 //
 // Runs against REAL Postgres (the namespace + memex are really created); only the
 // seeders are mocked. The handhold seed shares the same best-effort hook, so it's
@@ -82,10 +83,9 @@ describe("ensureUserNamespace — a default-Standards seed failure never blocks 
       .limit(1);
     expect(mx).toBeDefined();
 
-    // The detached best-effort seed rejects on a microtask after the call returns; give
-    // it a tick, then assert the error was logged (swallowed, not surfaced) — which also
-    // proves the hook actually fired.
-    await new Promise((r) => setTimeout(r, 50));
+    // The seed is awaited inside ensureUserNamespace, so by the time it resolves the
+    // rejection has already been caught + logged (no tick needed) — which also proves the
+    // hook actually fired.
     expect(errSpy).toHaveBeenCalled();
     const loggedTheSeedError = errSpy.mock.calls.some((args) =>
       args.some((arg) => arg === seedError),
