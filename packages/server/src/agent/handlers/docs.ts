@@ -7,12 +7,6 @@ import {
   z,
 } from "zod";
 import {
-  and,
-} from "drizzle-orm";
-import {
-  documents,
-} from "../../db/schema.js";
-import {
   buildChildRef,
   buildDocRef,
   memexSlugsById,
@@ -40,9 +34,6 @@ import {
 import {
   markIssuePromoted,
 } from "../../services/issues.js";
-import {
-  assign,
-} from "../../services/doc-assignees.js";
 import {
   applyTagString,
   removeTagString,
@@ -77,7 +68,6 @@ import {
 import {
   MEMEX_DESC,
   VERBOSE_FIELD,
-  composeGuidanceEnvelope,
   formatState,
   fullDocState,
   handoffInterpolationContext,

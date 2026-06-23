@@ -7,9 +7,6 @@ import {
   z,
 } from "zod";
 import {
-  and,
-} from "drizzle-orm";
-import {
   buildChildRef,
 } from "../../mcp/refs.js";
 import {
@@ -36,9 +33,6 @@ import {
   type SketchAc,
 } from "../../mcp/ac-test-sketch.js";
 import {
-  searchMemex,
-} from "../../services/memex-search.js";
-import {
   resolveEmbeddingProvider,
 } from "../../services/embedding-provider.js";
 import {
@@ -46,7 +40,6 @@ import {
 } from "@memex/shared";
 import {
   VERBOSE_FIELD,
-  composeGuidanceEnvelope,
   formatState,
   fullDocState,
   isDocLikeKind,
