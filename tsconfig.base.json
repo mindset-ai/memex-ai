@@ -1,0 +1,20 @@
+{
+  // Shared compiler options every package extends (spec-356, cq-6). Holds ONLY
+  // the options that were byte-for-byte identical across all package tsconfigs
+  // before this file existed — so `extends`-ing it changes effective compilation
+  // for no package. Per-package tsconfigs still set everything package-specific
+  // (outDir/rootDir/lib/jsx/noEmit/declaration/types/include/exclude) and may
+  // override any value here (e.g. the browser UI pins target ES2020).
+  //
+  // Ramp: as packages converge, more options can migrate up here. Do NOT add an
+  // option that any extending package would need to override back — that defeats
+  // the de-duplication.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true
+  }
+}

@@ -68,11 +68,22 @@ interface RlsRequestContext {
 
 export const memexContext = new AsyncLocalStorage<RlsRequestContext>();
 
+// ── RLS-seam query types (spec-356 cq-4) ─────────────────────────────────────
+// The seam below proxies the postgres-js driver. Before spec-356 it carried 15
+// `any`s + eslint-disables for a linter that did not exist (see std-36: this
+// seam is security-load-bearing — it injects the tenant GUC on every query, so
+// loose typing here is the worst place for it). These aliases pin the seam to
+// the driver's own published types: a tagged-template-or-`unsafe` SQL handle
+// (`Sql`), its transaction-scoped form (`TransactionSql`), and the parameter
+// array `unsafe()` accepts.
+type SqlClient = postgres.Sql;
+type TxClient = postgres.TransactionSql;
+type QueryParams = postgres.ParameterOrJSON<never>[];
+
 /** Emit `set_config(...)` for whichever RLS GUCs the context carries. Absent
  * GUCs are simply not set, so the matching policy sees NULL for that GUC and
  * contributes nothing — each policy is additive per GUC. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function applyRlsGucs(txSql: any, ctx: RlsRequestContext): Promise<void> {
+async function applyRlsGucs(txSql: TxClient, ctx: RlsRequestContext): Promise<void> {
   if (ctx.memexId) {
     await txSql.unsafe("SELECT set_config('app.memex_id', $1, true)", [ctx.memexId]);
   }
@@ -139,31 +150,39 @@ export function runWithUserId<T>(
  * (returns row objects) and .values() chaining (returns row arrays — the form
  * Drizzle uses internally for SELECT field mapping).
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function makeRlsQuery(pool: any, ctx: RlsRequestContext, query: string, params: any[]) {
-  const run = (useValues: boolean) =>
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    pool.begin(async (txSql: any) => {
+function makeRlsQuery(
+  pool: SqlClient,
+  ctx: RlsRequestContext,
+  query: string,
+  params: QueryParams,
+) {
+  // The executed query resolves to driver rows; row objects vs row arrays
+  // (`.values()`) are the same data in two shapes, so `unknown` is the honest
+  // payload type here — Drizzle re-types the result at its own call site.
+  const run = (useValues: boolean): Promise<unknown> =>
+    pool.begin(async (txSql: TxClient) => {
       await applyRlsGucs(txSql, ctx);
       const q = txSql.unsafe(query, params);
       return useValues ? q.values() : q;
     });
 
   return {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    then(onfulfilled: any, onrejected: any) { return run(false).then(onfulfilled, onrejected); },
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    catch(onrejected: any) { return run(false).catch(onrejected); },
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    finally(onfinally: any) { return run(false).finally(onfinally); },
+    then: <R1 = unknown, R2 = never>(
+      onfulfilled?: ((value: unknown) => R1 | PromiseLike<R1>) | null,
+      onrejected?: ((reason: unknown) => R2 | PromiseLike<R2>) | null,
+    ) => run(false).then(onfulfilled, onrejected),
+    catch: <R = never>(onrejected?: ((reason: unknown) => R | PromiseLike<R>) | null) =>
+      run(false).catch(onrejected),
+    finally: (onfinally?: (() => void) | null) => run(false).finally(onfinally),
     values() {
       return {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        then(onfulfilled: any, onrejected: any) { return run(true).then(onfulfilled, onrejected); },
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        catch(onrejected: any) { return run(true).catch(onrejected); },
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        finally(onfinally: any) { return run(true).finally(onfinally); },
+        then: <R1 = unknown, R2 = never>(
+          onfulfilled?: ((value: unknown) => R1 | PromiseLike<R1>) | null,
+          onrejected?: ((reason: unknown) => R2 | PromiseLike<R2>) | null,
+        ) => run(true).then(onfulfilled, onrejected),
+        catch: <R = never>(onrejected?: ((reason: unknown) => R | PromiseLike<R>) | null) =>
+          run(true).catch(onrejected),
+        finally: (onfinally?: (() => void) | null) => run(true).finally(onfinally),
       };
     },
   };
@@ -183,33 +202,28 @@ function makeRlsQuery(pool: any, ctx: RlsRequestContext, query: string, params: 
  * Savepoints (nested tx.transaction()) use the transaction-scoped txSql which
  * already has the GUC set — they are never proxied.
  */
-function createRlsClient(baseClient: postgres.Sql): postgres.Sql {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return new Proxy(baseClient as any, {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    get(target: any, prop: string | symbol) {
+function createRlsClient(baseClient: SqlClient): SqlClient {
+  return new Proxy(baseClient, {
+    get(target: SqlClient, prop: string | symbol, receiver: unknown) {
       if (prop === "unsafe") {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        return function (query: string, params: any[] = []) {
+        return (query: string, params: QueryParams = []) => {
           const ctx = memexContext.getStore();
           if (!ctx?.memexId && !ctx?.userId) return target.unsafe(query, params);
           return makeRlsQuery(target, ctx, query, params);
         };
       }
       if (prop === "begin") {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        return function (callback: (txSql: any) => Promise<any>) {
+        return (callback: (txSql: TxClient) => Promise<unknown>) => {
           const ctx = memexContext.getStore();
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          return target.begin(async (txSql: any) => {
+          return target.begin(async (txSql: TxClient) => {
             if (ctx) await applyRlsGucs(txSql, ctx);
             return callback(txSql);
           });
         };
       }
-      return Reflect.get(target, prop, target);
+      return Reflect.get(target, prop, receiver);
     },
-  }) as postgres.Sql;
+  }) as SqlClient;
 }
 
 const rlsClient = createRlsClient(client);

@@ -238,6 +238,28 @@ jobs:
               && echo "ac-3 emitted: $STATUS" || echo "ac-3 emission failed (non-blocking)"
           fi
 
+  # Lint gate (spec-356, cq-1/cq-2). Before this, the repo had NO lint/format
+  # tooling at all — only `tsc` — while 110 `eslint-disable` directives suppressed
+  # a linter that did not exist. `pnpm lint` runs `biome ci` against the curated
+  # baseline in `biome.json`. The baseline is deliberately a SMALL set of
+  # high-signal correctness/suspicious rules that the CURRENT tree already passes
+  # (formatter + style rules are deferred — see biome.json for the ramp plan), so
+  # this job is green on the existing code without a repo-wide reformat. As rules
+  # are promoted into the baseline over time, this job tightens with them.
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Biome lint (curated baseline — no reformat)
+        run: pnpm lint
+
   # Production build gate (std-17 §6 / cl-55): `make build` is what the deploy
   # actually runs, and vitest does NOT typecheck — a green test matrix can hide
   # a TS2741 that splits the deploy (exactly how PR #44's AcPill gap shipped:
