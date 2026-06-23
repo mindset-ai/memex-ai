@@ -23,10 +23,10 @@ const AC_5 = "mindset-prod/memex-building-itself/specs/spec-253/acs/ac-5";
 
 const originalFlag = process.env.OAUTH_ENABLED;
 
-beforeAll(() => {
+beforeAll(async () => {
   process.env.OAUTH_ENABLED = "1";
-  // Clear the in-memory bucket store so prior tests don't pollute this one.
-  resetRateLimits();
+  // Clear the shared rate-limit table so prior tests don't pollute this one.
+  await resetRateLimits();
 });
 
 afterAll(() => {

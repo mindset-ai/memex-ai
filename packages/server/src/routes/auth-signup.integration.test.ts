@@ -61,10 +61,10 @@ beforeAll(async () => {
   // Clean slate for the dev user so rate limiters and previous tokens don't interfere.
 });
 
-beforeEach(() => {
+beforeEach(async () => {
   sender = new CapturingSender();
   setEmailSender(sender);
-  resetRateLimits();
+  await resetRateLimits();
 });
 
 afterAll(async () => {

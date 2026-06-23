@@ -28,7 +28,7 @@ export const password = new Hono<MemexResolverEnv & SessionEnv>();
 // blocks sensitive actions until verification.
 password.post("/signup", async (c) => {
   const ip = clientIp(c);
-  const rl = rateLimit("signup", ip, AUTH_LIMITS.signup);
+  const rl = await rateLimit("signup", ip, AUTH_LIMITS.signup);
   if (!rl.ok) {
     return c.json(
       { error: "Too many signup attempts", retryAfterSec: rl.retryAfterSec },
@@ -107,7 +107,7 @@ password.post("/signup", async (c) => {
 // so it can't be ground through.
 password.post("/probe", async (c) => {
   const ip = clientIp(c);
-  const rl = rateLimit("probe", ip, AUTH_LIMITS.probe);
+  const rl = await rateLimit("probe", ip, AUTH_LIMITS.probe);
   if (!rl.ok) {
     return c.json(
       { error: "Too many probe attempts", retryAfterSec: rl.retryAfterSec },
@@ -131,7 +131,7 @@ password.post("/login", async (c) => {
   const email = requireString(body?.email, "email");
   const passwordStr = requireString(body?.password, "password");
 
-  const rl = rateLimit("login", `${ip}|${email.toLowerCase()}`, AUTH_LIMITS.login);
+  const rl = await rateLimit("login", `${ip}|${email.toLowerCase()}`, AUTH_LIMITS.login);
   if (!rl.ok) {
     return c.json(
       { error: "Too many login attempts", retryAfterSec: rl.retryAfterSec },
@@ -210,7 +210,7 @@ password.post("/resend-verification", sessionMiddleware, async (c) => {
     return c.json({ ok: true, alreadyVerified: true });
   }
 
-  const rl = rateLimit("resendVerification", user.id, AUTH_LIMITS.resendVerification);
+  const rl = await rateLimit("resendVerification", user.id, AUTH_LIMITS.resendVerification);
   if (!rl.ok) {
     return c.json(
       { error: "Too many resend attempts", retryAfterSec: rl.retryAfterSec },

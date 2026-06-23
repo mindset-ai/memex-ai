@@ -3101,3 +3101,27 @@ export const stripeEvents = pgTable(
 
 export type StripeEvent = InferSelectModel<typeof stripeEvents>;
 export type StripeEventInsert = InferInsertModel<typeof stripeEvents>;
+
+// ── spec-349: cross-instance auth rate-limit store ───────────────────────────
+// Backs services/auth-rate-limit.ts. The in-memory Map it replaced multiplied
+// every limit by the Cloud Run instance count (3) and reset on cold start
+// (spec-345 perf-3). One row per (scope, key); the limiter increments it with a
+// single atomic INSERT ... ON CONFLICT DO UPDATE so concurrent instances
+// serialise on the row lock. NOT tenant-scoped (keys are IP / email / user-id),
+// so no RLS — see migration 0105.
+export const rateLimitCounters = pgTable(
+  "rate_limit_counters",
+  {
+    scope: text("scope").notNull(),
+    key: text("key").notNull(),
+    count: integer("count").notNull(),
+    resetAt: timestamp("reset_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.scope, table.key] }),
+    index("rate_limit_counters_reset_at_idx").on(table.resetAt),
+  ]
+);
+
+export type RateLimitCounter = InferSelectModel<typeof rateLimitCounters>;
+export type RateLimitCounterInsert = InferInsertModel<typeof rateLimitCounters>;
