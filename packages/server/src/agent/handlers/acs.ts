@@ -21,8 +21,7 @@ import {
   deleteAc,
   linkAcToParent,
   listTestEventDigestForAc,
-  softHideTestEventsForAc,
-  restoreTestEventsForAc,
+  discontinueTestEventsForAc,
   type AcKind,
   type AcStatus,
   type AcWithVerification,
@@ -487,8 +486,9 @@ export const acsTools: ToolSpec[] = [
       "Read the per-`test_identifier` test-event digest for one AC, keyed by its " +
       "canonical ref. One row per identifier: latest (non-hidden) status, last run " +
       "time, emission count, and two flags — `PINNING red` (this identifier's latest " +
-      "emission is fail/error, so it holds the AC red) and `retired (hidden)` (already " +
-      "soft-hidden, invisible to the verdict). Use this when an AC reads `failing`/`stale` " +
+      "emission is fail/error, so it holds the AC red) and `retired (hidden)` (a legacy " +
+      "hidden row, invisible to the verdict — kept for audit; spec-358 froze the column). " +
+      "Use this when an AC reads `failing`/`stale` " +
       "to find WHICH identifier is responsible — then, if you renamed/deleted that test " +
       "in the codebase, retire its orphan with `discontinue_test_events`. See " +
       "`get_information(topic='orphaned-test-events')`.",
@@ -528,15 +528,15 @@ export const acsTools: ToolSpec[] = [
   {
     name: "discontinue_test_events",
     annotations: {
-      title: "Discontinue (soft-hide) an orphaned test_identifier",
+      title: "Discontinue (hard-delete) an orphaned test_identifier",
       readOnlyHint: false,
-      destructiveHint: false,
+      destructiveHint: true,
     },
     description:
       "Retire an orphaned `test_identifier` on an AC — a test you renamed/moved/deleted " +
-      "in the codebase whose last emission still pins the AC red. SOFT, reversible: it sets " +
-      "`hidden=true` on the matching emissions (audit retained) and drops them from the " +
-      "verification badge. If you were wrong, `restore_test_events` brings it back; and a " +
+      "in the codebase whose last emission still pins the AC red. HARD DELETE, irreversible " +
+      "(spec-358): it removes the matching emissions and clears their verification summary, " +
+      "the same thing the UI 'Delete test events' button does. There is no undo — but a " +
       "fresh live emission of the same identifier re-enters the verdict on its own. Only " +
       "retire an identifier you KNOW no longer exists in the codebase — not one that merely " +
       "wasn't run this round. Find the identifier with `get_test_matrix`.",
@@ -566,65 +566,16 @@ export const acsTools: ToolSpec[] = [
       }
       const { memexId, doc, slugs, entity } = resolved;
       const acRef = buildChildRef(slugs, doc, { type: "acs", seq: entity.row.seq });
-      const result = await softHideTestEventsForAc(
+      const result = await discontinueTestEventsForAc(
         memexId,
         entity.row.id,
         testIdentifier,
       );
       const state = await verificationStateForAc(memexId, doc.id, entity.row.id);
-      if (result.hidden === 0) {
+      if (result.deleted === 0) {
         return `ref: ${acRef} — no emissions matched "${testIdentifier}"; nothing retired. AC verification: ${state}.`;
       }
-      return `ref: ${acRef} — retired (soft-hidden) ${result.hidden} emission${result.hidden === 1 ? "" : "s"} of "${testIdentifier}". AC verification is now: ${state}. Reverse with restore_test_events.`;
-    },
-  },
-  {
-    name: "restore_test_events",
-    annotations: {
-      title: "Restore (un-hide) a discontinued test_identifier",
-      readOnlyHint: false,
-      destructiveHint: false,
-    },
-    description:
-      "Reverse a `discontinue_test_events`: un-hide every emission of a `test_identifier` " +
-      "on an AC and recompute the verification badge from the restored history. Use when an " +
-      "identifier was retired by mistake (the test still exists). Find retired identifiers " +
-      "with `get_test_matrix` (they show `retired (hidden)`).",
-    schema: {
-      ref: z.string().describe(
-        "Canonical ref to the AC, e.g. `mindset/main/specs/spec-3/acs/ac-2`.",
-      ),
-      test_identifier: z.string().describe(
-        "The exact test_identifier to restore (as shown by get_test_matrix).",
-      ),
-      verbose: VERBOSE_FIELD,
-    },
-    async handler(input, ctx) {
-      const ref = input.ref as string;
-      // Resolve the ref FIRST so the std-10 UUID boundary guard fires before
-      // any other validation (b-36 D-7 — the canonical error must win).
-      const resolved = await resolveRefArg(ctx, ref);
-      if (resolved.entity.kind !== "ac") {
-        throw new ValidationError(
-          `restore_test_events expects an ac ref; got ${resolved.entity.kind}.`,
-        );
-      }
-      const testIdentifier = input.test_identifier as string;
-      if (!testIdentifier?.trim()) {
-        throw new ValidationError("test_identifier is required.");
-      }
-      const { memexId, doc, slugs, entity } = resolved;
-      const acRef = buildChildRef(slugs, doc, { type: "acs", seq: entity.row.seq });
-      const result = await restoreTestEventsForAc(
-        memexId,
-        entity.row.id,
-        testIdentifier,
-      );
-      const state = await verificationStateForAc(memexId, doc.id, entity.row.id);
-      if (result.restored === 0) {
-        return `ref: ${acRef} — no emissions matched "${testIdentifier}"; nothing restored. AC verification: ${state}.`;
-      }
-      return `ref: ${acRef} — restored ${result.restored} emission${result.restored === 1 ? "" : "s"} of "${testIdentifier}". AC verification is now: ${state}.`;
+      return `ref: ${acRef} — retired (hard-deleted) ${result.deleted} emission${result.deleted === 1 ? "" : "s"} of "${testIdentifier}". AC verification is now: ${state}. This is irreversible; a fresh live emission re-enters the verdict.`;
     },
   },
   {

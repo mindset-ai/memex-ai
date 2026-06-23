@@ -52,7 +52,15 @@ const READ_ONLY = new Set<string>([
   "get_spec_roles",
 ]);
 
-const DESTRUCTIVE = new Set<string>(["delete_task", "delete_ac", "kick_task_to_issue"]);
+// spec-358: discontinue_test_events now hard-deletes the orphan's emissions
+// (irreversible row removal), so it is destructive. The old soft-hide/restore
+// pair is gone.
+const DESTRUCTIVE = new Set<string>([
+  "delete_task",
+  "delete_ac",
+  "kick_task_to_issue",
+  "discontinue_test_events",
+]);
 
 describe("regression: MCP tool annotations (b-31 W2)", () => {
   it("every shared spec carries annotations", () => {

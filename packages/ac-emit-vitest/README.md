@@ -64,27 +64,9 @@ MEMEX_EMIT=false npm test
 
 The helper makes zero HTTP requests. Accepted off-values (case-insensitive): `false`, `0`, `no`, `off`. Default and any other value is `true`.
 
-### `hidden` — opt a single emission out of the dashboard
-
-When you want the emission recorded for audit but not surfaced in the verification badge (typical case: iterating on a `done`-phase regression fix):
-
-Per-call:
-
-```typescript
-tagAc("<your-namespace>/<your-memex>/specs/spec-3/acs/ac-1", { hidden: true });
-```
-
-Or globally for one test run:
-
-```bash
-MEMEX_HIDDEN=true npm test
-```
-
-Hidden emissions are stored server-side (audit trail intact) but the AC's verification badge stays at the latest non-hidden emission.
-
 ### `actor` — top-level WHO
 
-Actor is a top-level wire-format field (sibling of `hidden` and `metadata`), not a metadata key. The helper auto-populates from a documented env-var fallback chain:
+Actor is a top-level wire-format field (sibling of `metadata`), not a metadata key. The helper auto-populates from a documented env-var fallback chain:
 
 1. `GITHUB_ACTOR` (GitHub Actions)
 2. `GITLAB_USER_LOGIN` (GitLab CI)
