@@ -855,10 +855,10 @@ export function DocDocument() {
   ];
 
   // ── Reusable content fragments — each phase layout below composes these ─────
-  // spec-362 (dec-1, sol-3 + perf-6): the Narrative sub-tab view is extracted
-  // into NarrativeView, which also wraps each section in a content-visibility
-  // container so off-screen sections aren't laid out/painted eagerly (the DOM
-  // stays mounted, preserving every cross-list scroll/measure/deep-link path).
+  // spec-362 (dec-1, sol-3): the Narrative sub-tab view is extracted into
+  // NarrativeView (sections render eagerly, identical to before). perf-6
+  // (virtualization) is deferred — see NarrativeView's header for why the
+  // content-visibility approach was backed out.
   const narrativeView = (
     <NarrativeView
       doc={doc}
