@@ -322,6 +322,16 @@ echo "Deploying to Cloud Run..."
 SECRETS_WIRING="ANTHROPIC_API_KEY=anthropic-api-key:latest"
 SECRETS_WIRING+=",POSTMARK_SERVER_TOKEN=postmark-server-token:latest"
 SECRETS_WIRING+=",AUTH_JWT_SECRET=auth-jwt-secret:latest"
+# spec-341: Basic-auth credential for the Postmark delivery webhook
+# (/api/postmark/webhook). OPTIONAL — only wired if the secret exists (same
+# posture as COHERE below), so this deploy never breaks if it's not yet created.
+# Until the secret is present the webhook route returns 401 (deliveries rejected);
+# email send-logging + Stripe capture work regardless. Create with:
+#   gcloud secrets create postmark-webhook-token --replication-policy=user-managed \
+#     --locations=us-east4 --data-file=- --project "<project>"
+if gcloud secrets describe postmark-webhook-token --project "${GCP_PROJECT}" >/dev/null 2>&1; then
+  SECRETS_WIRING+=",POSTMARK_WEBHOOK_TOKEN=postmark-webhook-token:latest"
+fi
 SECRETS_WIRING+=",OPENAI_API_KEY=openai-api-key:latest"
 if [ "$HAS_SLACK" = "1" ]; then
   SECRETS_WIRING+=",SLACK_CLIENT_SECRET=slack-client-secret:latest"
