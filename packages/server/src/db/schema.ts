@@ -182,6 +182,14 @@ export const docSections = pgTable(
       .on(table.docId, table.seq)
       .where(sql`status <> 'deleted'`),
     unique("doc_sections_doc_id_section_type_unique").on(table.docId, table.sectionType),
+    // spec-352 (0105) — Home activity_view feed. doc_sections has no memex_id
+    // (the view derives the tenant via a documents sub-select), so the Q-spark
+    // arm reduces to doc_id IN (...) AND created_at >= window. Q-mine filters by
+    // actor_user_id + window (partial: only attributable rows).
+    index("doc_sections_doc_created_at_idx").on(table.docId, table.createdAt),
+    index("doc_sections_actor_created_at_idx")
+      .on(table.actorUserId, table.createdAt)
+      .where(sql`${table.actorUserId} IS NOT NULL`),
   ]
 );
 
@@ -399,6 +407,16 @@ export const docComments = pgTable(
     index("doc_comments_open_assignee_idx")
       .on(table.assigneeUserId)
       .where(sql`${table.resolvedAt} IS NULL`),
+    // spec-352 (0105) — Home activity_view feed. Q-spark covering composite
+    // (memex_id, doc_id, created_at); Q-mine on author_user_id (this arm's WHO).
+    index("doc_comments_memex_doc_created_at_idx").on(
+      table.memexId,
+      table.docId,
+      table.createdAt,
+    ),
+    index("doc_comments_author_created_at_idx")
+      .on(table.authorUserId, table.createdAt)
+      .where(sql`${table.authorUserId} IS NOT NULL`),
   ]
 );
 
@@ -442,6 +460,13 @@ export const decisions = pgTable(
   (table) => [
     unique("decisions_doc_id_seq_unique").on(table.docId, table.seq),
     index("decisions_memex_id_idx").on(table.memexId),
+    // spec-352 (0105) — Home activity_view Q-spark covering composite. (Q-mine's
+    // actor_user_id is already served by decisions_actor_user_id_idx, 0098.)
+    index("decisions_memex_doc_created_at_idx").on(
+      table.memexId,
+      table.docId,
+      table.createdAt,
+    ),
     check(
       "decisions_channel_valid",
       sql`${table.channel} IN ('rest_ui', 'mcp', 'in_app_agent', 'server')`,
@@ -492,6 +517,16 @@ export const tasks = pgTable(
   (table) => [
     unique("tasks_doc_id_seq_unique").on(table.docId, table.seq),
     index("tasks_memex_id_idx").on(table.memexId),
+    // spec-352 (0105) — Home activity_view feed. Q-spark covering composite +
+    // Q-mine actor index (tasks lacked an actor_user_id index before 0105).
+    index("tasks_memex_doc_created_at_idx").on(
+      table.memexId,
+      table.docId,
+      table.createdAt,
+    ),
+    index("tasks_actor_created_at_idx")
+      .on(table.actorUserId, table.createdAt)
+      .where(sql`${table.actorUserId} IS NOT NULL`),
     check(
       "tasks_channel_valid",
       sql`${table.channel} IN ('rest_ui', 'mcp', 'in_app_agent', 'server')`,
@@ -586,6 +621,13 @@ export const acs = pgTable(
     unique("acs_brief_id_seq_unique").on(table.briefId, table.seq),
     index("acs_memex_id_idx").on(table.memexId),
     index("acs_brief_id_idx").on(table.briefId),
+    // spec-352 (0105) — Home activity_view Q-spark covering composite. (Q-mine's
+    // actor_user_id is already served by acs_actor_user_id_idx, 0098.)
+    index("acs_memex_brief_created_at_idx").on(
+      table.memexId,
+      table.briefId,
+      table.createdAt,
+    ),
     check(
       "acs_kind_valid",
       sql`${table.kind} IN ('scope', 'implementation')`,
@@ -780,6 +822,9 @@ export const testEvents = pgTable(
   (table) => [
     index("test_events_ac_uid_created_at_idx").on(table.acUid, table.createdAt),
     index("test_events_test_identifier_idx").on(table.testIdentifier, table.createdAt),
+    // spec-352 (0105) — Home activity_view: the only prunable predicate on this
+    // arm is the created_at window (the spec_ref join is a substring of ac_uid).
+    index("test_events_created_at_idx").on(table.createdAt),
     check(
       "test_events_status_valid",
       sql`${table.status} IN ('pass', 'fail', 'error')`,
