@@ -42,7 +42,7 @@ import {
 } from '@memex/shared';
 import { QaReportCard, selectQaReports } from '../components/QaReportCard';
 import { useDocChangeStream } from '../hooks/useDocChangeStream';
-import { COMMENT_PARAM, parseCommentParam } from '../utils/commentDeepLink';
+import { COMMENT_PARAM, commentHandle, parseCommentParam } from '../utils/commentDeepLink';
 import { phaseDisplayName } from '../utils/phaseDisplay';
 import { ShareModal } from '../components/ShareModal';
 import { ShareSpecDialog } from '../components/ShareSpecDialog';
@@ -102,7 +102,7 @@ export function DocDocument() {
   // section cards below; the chat panel's read-only posture is handled in
   // DocumentShell.
   const { canWrite } = useMemexAccess(location.pathname);
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   // t-18: standard `[per dec-N]` references navigate here with `?decision=dec-N`
   // so the decisions tab is opened by default. The handle itself is used by the
   // decisions panel as a (best-effort) scroll/highlight hint. spec-64 i-3: the
@@ -330,6 +330,25 @@ export function DocDocument() {
     chat.setOpenCommentCount(totalCommentCount);
   }, [totalCommentCount]);
 
+
+  // spec-361: clicking a comment child in the outline opens it IN SITU — set the
+  // spec-325 (dec-1) `?comment=c-N` param, then reuse handleSelectSection (which
+  // shows the narrative, selects the owning section, and scrolls to it). The
+  // owning SectionCard pins its gutter card; never the flat Comments tab.
+  const handleSelectComment = useCallback(
+    (seq: number, sectionId: string) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.set(COMMENT_PARAM, commentHandle(seq));
+          return next;
+        },
+        { replace: true },
+      );
+      handleSelectSection(sectionId);
+    },
+    [setSearchParams, handleSelectSection],
+  );
 
   const handleSectionCommentsChange = useCallback(
     (sectionId: string, comments: Comment[]) => {
@@ -876,6 +895,7 @@ export function DocDocument() {
       onSelectSection={setSelectedSectionId}
       deepLinkCommentSeq={initialCommentSeq}
       onOutlineSectionClick={handleSelectSection}
+      onOutlineCommentClick={handleSelectComment}
     />
   );
 
