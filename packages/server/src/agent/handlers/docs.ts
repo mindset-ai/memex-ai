@@ -51,7 +51,7 @@ import {
   formatStandard,
   renderStandardSectionBody,
   formatTerseSpecPhase,
-} from "../../mcp/formatters.js";
+} from "../../formatting/formatters.js";
 import {
   getStandard,
 } from "../../services/standards.js";

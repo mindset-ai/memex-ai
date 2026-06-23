@@ -36,7 +36,7 @@ import {
   formatDocComments,
   formatReviewComments,
   formatDocStatusHeader,
-} from "../../mcp/formatters.js";
+} from "../../formatting/formatters.js";
 import {
   COMMENT_TYPE_DESC,
   VERBOSE_FIELD,

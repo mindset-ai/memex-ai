@@ -5,6 +5,7 @@ import { listTasks } from "../services/tasks.js";
 import { reviewDocComments } from "../services/comments.js";
 import { listDriftInbox, type DriftInboxRow } from "../services/drift-inbox.js";
 import { buildChildRef, buildDocRef, memexSlugsById } from "../mcp/refs.js";
+import { phaseFromStatus } from "../formatting/formatters.js";
 import { NotFoundError } from "../types/errors.js";
 
 export type DocumentContext = {
@@ -14,28 +15,15 @@ export type DocumentContext = {
 
 /**
  * Map a raw doc status (legacy + canonical Spec phases) onto the
- * five-element SpecPhase enum. Mirrors `phaseFromStatus` in
- * `mcp/formatters.ts` (kept local to avoid cross-module coupling). Non-Spec
- * statuses fall back to `'specify'` — generic enough as a default prompt shape.
+ * five-element SpecPhase enum. sol-4 (spec-368): the derivation is now the
+ * shared `phaseFromStatus` in `../formatting/formatters.ts` — the duplicate
+ * switch that used to live here is gone. The one difference this wrapper keeps
+ * is the non-Spec fallback: where the shared helper returns `null` for an
+ * unrecognised status, the agent context defaults to `'specify'` (a generic
+ * prompt shape), so the behaviour is byte-identical to before.
  */
 function statusToPhase(status: string): SpecPhase {
-  switch (status) {
-    case "draft":
-      return "draft";
-    case "specify":
-    case "review":
-      return "specify";
-    case "build":
-    case "implementation":
-      return "build";
-    case "verify":
-      return "verify";
-    case "done":
-    case "approved":
-      return "done";
-    default:
-      return "specify";
-  }
+  return phaseFromStatus(status) ?? "specify";
 }
 
 /**

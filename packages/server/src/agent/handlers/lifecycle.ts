@@ -18,7 +18,7 @@ import {
 } from "../../types/errors.js";
 import {
   formatTerseSpecPhase,
-} from "../../mcp/formatters.js";
+} from "../../formatting/formatters.js";
 import {
   searchMemex,
   formatSearchResults,

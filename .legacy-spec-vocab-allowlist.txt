@@ -83,7 +83,7 @@ packages/server/src/db/schema.ts
 # the cited lines mention the legacy lineage and the line-regex pins the
 # allowlist to the lineage comment.
 packages/server/src/agent/tool-specs.ts:referenceBriefId
-packages/server/src/mcp/formatters.ts:referenceBriefId
+packages/server/src/formatting/formatters.ts:referenceBriefId
 packages/server/src/mcp/migration-map.ts:missionId
 packages/server/src/mcp/tools.test.ts:b-105 renamed Brief
 packages/server/src/mcp/tools.test.ts:Strategy.*Mission.*Brief.*Spec

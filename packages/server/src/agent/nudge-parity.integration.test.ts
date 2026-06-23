@@ -160,7 +160,10 @@ describe("b-68 t-8 ac-29: both surfaces compose nudges via the same `toNudge` fr
     // either change the import path or skip the import entirely, both of
     // which this assertion catches.
     const targets = [
-      resolve(__dirname, "../mcp/formatters.ts"),
+      // spec-368 sol-4: the formatter body (and its `toNudge(` call) moved to
+      // the neutral module `formatting/formatters.ts`; mcp/formatters.ts is now
+      // a thin barrel. Scan the new home so this guard still sees the call.
+      resolve(__dirname, "../formatting/formatters.ts"),
       // tool-specs.ts shares one composer between both surfaces; check it too
       // so a future addition that touches `toNudge` inside it is forced
       // through `@memex/shared`.
