@@ -20,12 +20,16 @@
 // each surface.
 
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { BASE_SCAFFOLD } from "@memex/shared";
 
 const SERVER_ROOT = join(__dirname, "..", "..");
 const TOOL_SPECS = join(SERVER_ROOT, "src", "agent", "tool-specs.ts");
+// spec-366: the resolve_decision / list_acs handlers + their nudge prose moved
+// from tool-specs.ts into agent/handlers/*.ts (shared infra in shared.ts). Scan
+// the catalogue plus every handler module so these source guards still see them.
+const HANDLERS_DIR = join(SERVER_ROOT, "src", "agent", "handlers");
 const GUIDANCE = join(
   SERVER_ROOT,
   "src",
@@ -40,7 +44,12 @@ const PHASE_ASSESS = join(
 );
 const ACS_SERVICE = join(SERVER_ROOT, "src", "services", "acs.ts");
 
-const toolSpecs = readFileSync(TOOL_SPECS, "utf-8");
+const toolSpecs = [
+  readFileSync(TOOL_SPECS, "utf-8"),
+  ...readdirSync(HANDLERS_DIR)
+    .filter((n) => n.endsWith(".ts"))
+    .map((n) => readFileSync(join(HANDLERS_DIR, n), "utf-8")),
+].join("\n");
 const phaseAssess = readFileSync(PHASE_ASSESS, "utf-8");
 const acsService = readFileSync(ACS_SERVICE, "utf-8");
 

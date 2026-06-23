@@ -18,7 +18,7 @@
 // other two still nudge. But ALL three should hold the line.
 
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { toolSpecs } from "../agent/tool-specs.js";
 
@@ -39,8 +39,16 @@ describe("scope-AC-after-create_doc nudges (real-agent regression)", () => {
     // the handler without a full DB/ctx, and the wording is the part that
     // matters. The test would be fragile on the implementation; instead we
     // assert the source contains the literal nudge clause.
-    const sourcePath = join(__dirname, "..", "agent", "tool-specs.ts");
-    const src = readFileSync(sourcePath, "utf-8");
+    // spec-366: the create_doc handler + its doc_created footer signal moved
+    // from tool-specs.ts into agent/handlers/*.ts (the nudge prose lives in
+    // shared.ts's renderFooterSignal). Scan the catalogue + every handler module.
+    const handlersDir = join(__dirname, "..", "agent", "handlers");
+    const src = [
+      readFileSync(join(__dirname, "..", "agent", "tool-specs.ts"), "utf-8"),
+      ...readdirSync(handlersDir)
+        .filter((n) => n.endsWith(".ts"))
+        .map((n) => readFileSync(join(handlersDir, n), "utf-8")),
+    ].join("\n");
     // The nudge lives in the create_doc handler, just before the final
     // return. Match the diagnostic markers we put there.
     expect(src).toMatch(/scope-type acceptance criteria/i);

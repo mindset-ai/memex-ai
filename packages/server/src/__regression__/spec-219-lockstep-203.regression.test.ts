@@ -11,7 +11,7 @@
 
 import { describe, it, expect } from "vitest";
 import { tagAc } from "@memex-ai-ac/vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 const AC = (n: number) =>
@@ -19,7 +19,16 @@ const AC = (n: number) =>
 
 const SERVER_ROOT = join(__dirname, "..", "..");
 const read = (p: string) => readFileSync(join(SERVER_ROOT, "src", p), "utf-8");
-const toolSpecs = read(join("agent", "tool-specs.ts"));
+// spec-366: handler implementation moved from tool-specs.ts into
+// agent/handlers/*.ts (shared infra in shared.ts). Scan the catalogue file
+// plus every handler module so these source guards still see the code.
+const HANDLERS_DIR = join(SERVER_ROOT, "src", "agent", "handlers");
+const toolSpecs = [
+  read(join("agent", "tool-specs.ts")),
+  ...readdirSync(HANDLERS_DIR)
+    .filter((n) => n.endsWith(".ts"))
+    .map((n) => readFileSync(join(HANDLERS_DIR, n), "utf-8")),
+].join("\n");
 const formatters = read(join("mcp", "formatters.ts"));
 
 describe("spec-219 ac-13 — the per-tool seat inverts spec-203 ac-13", () => {
