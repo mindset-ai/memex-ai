@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import type { Comment, DocSection, DocWithGraph } from '../../api/types';
 import { SectionCard } from '../../components/SectionCard';
 import { DocOutline } from '../../components/DocOutline';
@@ -40,6 +41,8 @@ interface NarrativeViewProps {
   deepLinkCommentSeq: number | null;
   /** Outline aside click → DocDocument's handleSelectSection. */
   onOutlineSectionClick: (sectionId: string) => void;
+  /** spec-361: outline comment-child click → in-situ comment navigation. */
+  onOutlineCommentClick: (seq: number, sectionId: string) => void;
 }
 
 export function NarrativeView({
@@ -58,7 +61,43 @@ export function NarrativeView({
   onSelectSection,
   deepLinkCommentSeq,
   onOutlineSectionClick,
+  onOutlineCommentClick,
 }: NarrativeViewProps) {
+  // spec-361 (issue-2): scroll-spy. Each section card carries a stable DOM id
+  // `section-${n}`. Without this the outline's active segment only tracks clicks,
+  // so scrolling the narrative leaves the highlight stale. An IntersectionObserver
+  // marks the topmost in-view section active via onSelectSection — a pure highlight
+  // update (SectionCard only styles on isSelected, no scroll side effect).
+  useEffect(() => {
+    if (narrativeSections.length === 0) return;
+    const els = narrativeSections
+      .map((s, i) => {
+        const el = document.getElementById(`section-${i + 1}`);
+        return el ? { el, id: s.id } : null;
+      })
+      .filter((x): x is { el: HTMLElement; id: string } => x != null);
+    if (els.length === 0) return;
+
+    const visible = new Set<string>();
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          const elId = (e.target as HTMLElement).id;
+          if (e.isIntersecting) visible.add(elId);
+          else visible.delete(elId);
+        }
+        // The active section is the topmost one currently in the band.
+        const active = els.find(({ el }) => visible.has(el.id));
+        if (active) onSelectSection(active.id);
+      },
+      // Shrink the band to the top ~45% of the viewport so the highlight flips
+      // as a section reaches the top, the way a reader expects.
+      { rootMargin: '0px 0px -55% 0px', threshold: 0 },
+    );
+    els.forEach(({ el }) => observer.observe(el));
+    return () => observer.disconnect();
+  }, [narrativeSections, onSelectSection]);
+
   return (
     <div className="flex gap-8 items-start">
       <div className="flex-1 space-y-3 min-w-0">
@@ -103,7 +142,9 @@ export function NarrativeView({
           sections={narrativeSections}
           activeSectionId={selectedSectionId}
           commentCounts={commentCounts}
+          commentsBySection={commentsBySection}
           onSectionClick={onOutlineSectionClick}
+          onCommentClick={onOutlineCommentClick}
         />
       </aside>
     </div>
