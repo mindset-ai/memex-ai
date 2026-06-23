@@ -1,39 +1,94 @@
-import { Fragment, useState, useEffect, useRef, useMemo, type ReactNode } from 'react';
+import {
+  Fragment,
+  Suspense,
+  lazy,
+  useState,
+  useEffect,
+  useRef,
+  useMemo,
+  type ReactNode,
+} from 'react';
 import { Routes, Route, useLocation, useParams, useNavigate, Navigate, Outlet } from 'react-router-dom';
-import { Pulse } from './pages/Pulse';
-import { Insights } from './pages/Insights';
-import { QaReports } from './pages/QaReports';
-import { Decisions } from './pages/Decisions';
-import { SpecList } from './pages/SpecList';
-import { IssuesList } from './pages/IssuesList';
-import { NamespaceHome } from './pages/NamespaceHome';
-import { HomeCanvas } from './pages/HomeCanvas';
-import { StandardList } from './pages/StandardList';
-import { Standard } from './pages/Standard';
-import { DriftInbox } from './pages/DriftInbox';
-import { DocumentList } from './pages/DocumentList';
-import { DocDocument } from './pages/DocDocument';
-import { InstallAuth } from './pages/InstallAuth';
-import { OauthAuthorize } from './pages/OauthAuthorize';
+// spec-351: route-level code-splitting. Every top-level routed page is loaded
+// as its own lazy chunk so the entry bundle no longer eagerly pulls all ~35
+// page surfaces (and their heavy transitive deps — nivo charts, pixi, the
+// markdown stack, the LangGraph runtime). The pages export named symbols, so
+// each lazy import re-maps the named export onto `default` (what React.lazy
+// expects). Non-route building blocks (AppShell, DocumentShell, the providers,
+// the voice layer, and the VerifyEmailGate that several layouts render inline)
+// stay eagerly imported below — splitting them would only add Suspense
+// boundaries on the critical path with no payload win.
+const Pulse = lazy(() => import('./pages/Pulse').then((m) => ({ default: m.Pulse })));
+const Insights = lazy(() => import('./pages/Insights').then((m) => ({ default: m.Insights })));
+const QaReports = lazy(() => import('./pages/QaReports').then((m) => ({ default: m.QaReports })));
+const Decisions = lazy(() => import('./pages/Decisions').then((m) => ({ default: m.Decisions })));
+const SpecList = lazy(() => import('./pages/SpecList').then((m) => ({ default: m.SpecList })));
+const IssuesList = lazy(() => import('./pages/IssuesList').then((m) => ({ default: m.IssuesList })));
+const NamespaceHome = lazy(() =>
+  import('./pages/NamespaceHome').then((m) => ({ default: m.NamespaceHome })),
+);
+const HomeCanvas = lazy(() => import('./pages/HomeCanvas').then((m) => ({ default: m.HomeCanvas })));
+const StandardList = lazy(() =>
+  import('./pages/StandardList').then((m) => ({ default: m.StandardList })),
+);
+const Standard = lazy(() => import('./pages/Standard').then((m) => ({ default: m.Standard })));
+const DriftInbox = lazy(() => import('./pages/DriftInbox').then((m) => ({ default: m.DriftInbox })));
+const DocumentList = lazy(() =>
+  import('./pages/DocumentList').then((m) => ({ default: m.DocumentList })),
+);
+const DocDocument = lazy(() =>
+  import('./pages/DocDocument').then((m) => ({ default: m.DocDocument })),
+);
+const InstallAuth = lazy(() => import('./pages/InstallAuth').then((m) => ({ default: m.InstallAuth })));
+const OauthAuthorize = lazy(() =>
+  import('./pages/OauthAuthorize').then((m) => ({ default: m.OauthAuthorize })),
+);
 // spec-141 dec-3: integrations consolidated into one open-core page.
 // /settings/tokens, /installation and /install now redirect here.
-import { SettingsIntegrations } from './pages/SettingsIntegrations';
-import { Onboarding } from './pages/Onboarding';
-import { InviteAccept } from './pages/InviteAccept';
-import { OrgConfiguration } from './pages/OrgConfiguration';
-import { ScaffoldInspect } from './pages/ScaffoldInspect';
-import { MemexSettings } from './pages/MemexSettings';
-import { MemexKeys } from './pages/MemexKeys';
-import { UpgradePlanSelect } from './pages/upgrade/UpgradePlanSelect';
-import { UpgradeSeats } from './pages/upgrade/UpgradeSeats';
-import { UpgradeConfirmation } from './pages/upgrade/UpgradeConfirmation';
-import { VerifyDomain } from './pages/VerifyDomain';
-import { SharedDocument } from './pages/SharedDocument';
-import { Backstage } from './pages/Backstage';
-import { VerifyEmail } from './pages/VerifyEmail';
+const SettingsIntegrations = lazy(() =>
+  import('./pages/SettingsIntegrations').then((m) => ({ default: m.SettingsIntegrations })),
+);
+const Onboarding = lazy(() => import('./pages/Onboarding').then((m) => ({ default: m.Onboarding })));
+const InviteAccept = lazy(() =>
+  import('./pages/InviteAccept').then((m) => ({ default: m.InviteAccept })),
+);
+const OrgConfiguration = lazy(() =>
+  import('./pages/OrgConfiguration').then((m) => ({ default: m.OrgConfiguration })),
+);
+const ScaffoldInspect = lazy(() =>
+  import('./pages/ScaffoldInspect').then((m) => ({ default: m.ScaffoldInspect })),
+);
+const MemexSettings = lazy(() =>
+  import('./pages/MemexSettings').then((m) => ({ default: m.MemexSettings })),
+);
+const MemexKeys = lazy(() => import('./pages/MemexKeys').then((m) => ({ default: m.MemexKeys })));
+const UpgradePlanSelect = lazy(() =>
+  import('./pages/upgrade/UpgradePlanSelect').then((m) => ({ default: m.UpgradePlanSelect })),
+);
+const UpgradeSeats = lazy(() =>
+  import('./pages/upgrade/UpgradeSeats').then((m) => ({ default: m.UpgradeSeats })),
+);
+const UpgradeConfirmation = lazy(() =>
+  import('./pages/upgrade/UpgradeConfirmation').then((m) => ({ default: m.UpgradeConfirmation })),
+);
+const VerifyDomain = lazy(() =>
+  import('./pages/VerifyDomain').then((m) => ({ default: m.VerifyDomain })),
+);
+const SharedDocument = lazy(() =>
+  import('./pages/SharedDocument').then((m) => ({ default: m.SharedDocument })),
+);
+const Backstage = lazy(() => import('./pages/Backstage').then((m) => ({ default: m.Backstage })));
+const VerifyEmail = lazy(() => import('./pages/VerifyEmail').then((m) => ({ default: m.VerifyEmail })));
+const MagicLinkConsume = lazy(() =>
+  import('./pages/MagicLinkConsume').then((m) => ({ default: m.MagicLinkConsume })),
+);
+const ResetPassword = lazy(() =>
+  import('./pages/ResetPassword').then((m) => ({ default: m.ResetPassword })),
+);
+// VerifyEmailGate stays eager — it is rendered inline by TenantLayout,
+// FlatShell, and RootRedirect (not as a routed element), so it sits on the
+// critical path for unverified users and is small.
 import { VerifyEmailGate } from './pages/VerifyEmailGate';
-import { MagicLinkConsume } from './pages/MagicLinkConsume';
-import { ResetPassword } from './pages/ResetPassword';
 import { AuthProvider, RequireAuth, useAuth, computeDefaultLanding } from './components/AuthContext';
 import { ThemeProvider } from './components/ThemeContext';
 import { ChatProvider } from './components/ChatContext';
@@ -344,6 +399,15 @@ function RootRedirect() {
 // Exported for the spec-146 t-4 route-gate tests (App.spec-146.test.tsx), which
 // mount the real route tree to assert the `/scaffold` route is registered iff
 // 'scaffold' isn't hidden.
+// spec-351: the fallback shown while a route's lazy chunk is in flight. We
+// render nothing (matching the existing "render null until ready" pattern that
+// TenantLayout/RootRedirect already use during session bootstrap) so there is
+// no chrome flash — the surrounding AppShell/DocumentShell chrome is itself
+// eager, so only the inner page area is ever suspended, and chunks resolve in
+// a tick. A single boundary wraps each <Routes> tree (not per-route), so it
+// covers whichever page matches without adding waterfalls.
+const RouteFallback = null;
+
 export function PostLoginRouter() {
   // spec-146 t-4 (ac-10/ac-11): gate the `/scaffold` route on the server-driven
   // hide list. When 'scaffold' is hidden we don't register the route at all, so
@@ -352,6 +416,7 @@ export function PostLoginRouter() {
   // react-router 7, so the `&&` short-circuit is a valid, no-op child when hidden.
   const { session } = useAuth();
   return (
+    <Suspense fallback={RouteFallback}>
     <Routes>
       {/* Flat (caller-scoped) routes — no tenant prefix. */}
       <Route path="/" element={<RootRedirect />} />
@@ -515,6 +580,7 @@ export function PostLoginRouter() {
       {/* Anything else that doesn't match → bounce to the default tenant. */}
       <Route path="*" element={<RootRedirect />} />
     </Routes>
+    </Suspense>
   );
 }
 
@@ -557,11 +623,13 @@ export function App() {
   ) {
     return (
       <ThemeProvider>
-        <Routes>
-          <Route path="/verify-domain/:token" element={<VerifyDomain />} />
-          <Route path="/share/:token" element={<SharedDocument />} />
-          <Route path="/backstage" element={<Backstage />} />
-        </Routes>
+        <Suspense fallback={RouteFallback}>
+          <Routes>
+            <Route path="/verify-domain/:token" element={<VerifyDomain />} />
+            <Route path="/share/:token" element={<SharedDocument />} />
+            <Route path="/backstage" element={<Backstage />} />
+          </Routes>
+        </Suspense>
       </ThemeProvider>
     );
   }
@@ -578,11 +646,13 @@ export function App() {
     <ThemeProvider>
       <AuthProvider>
         {isPublicAuthRoute ? (
-          <Routes>
-            <Route path="/verify-email" element={<VerifyEmail />} />
-            <Route path="/magic-link" element={<MagicLinkConsume />} />
-            <Route path="/reset-password" element={<ResetPassword />} />
-          </Routes>
+          <Suspense fallback={RouteFallback}>
+            <Routes>
+              <Route path="/verify-email" element={<VerifyEmail />} />
+              <Route path="/magic-link" element={<MagicLinkConsume />} />
+              <Route path="/reset-password" element={<ResetPassword />} />
+            </Routes>
+          </Suspense>
         ) : (
           <AuthGate>
             {/* spec-64 t-3 / spec-192 t-1: SearchProvider owns the single ⌘K
