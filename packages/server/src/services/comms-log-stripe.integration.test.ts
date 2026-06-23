@@ -55,26 +55,26 @@ describe("spec-341 t-4: recordStripeEmailComm (ac-6/12)", () => {
 
     const row = await recordStripeEmailComm({
       customerId: CUST_WITH_CONTACT,
-      subject: "Payment receipt",
+      subject: "Upcoming renewal",
       sourceRef: "stripe:in_test_1",
     });
     expect(row, "a customer with a billing contact is recorded").not.toBeNull();
     expect(row!.userId).toBe(userId);
     expect(row!.channel).toBe("email");
     expect(row!.type).toBe("transactional");
-    expect(row!.subject).toBe("Payment receipt");
+    expect(row!.subject).toBe("Upcoming renewal");
     expect(row!.sourceRef).toBe("stripe:in_test_1");
   });
 
   it("ac-12: skips when the Stripe customer is unknown", async () => {
     tagAc(AC_STRIPE);
-    const row = await recordStripeEmailComm({ customerId: "cus_unknown_341", subject: "Payment receipt" });
+    const row = await recordStripeEmailComm({ customerId: "cus_unknown_341", subject: "Upcoming renewal" });
     expect(row).toBeNull();
   });
 
   it("ac-12: skips when the org has no billing-contact email on file", async () => {
     tagAc(AC_STRIPE);
-    const row = await recordStripeEmailComm({ customerId: CUST_NO_CONTACT, subject: "Payment receipt" });
+    const row = await recordStripeEmailComm({ customerId: CUST_NO_CONTACT, subject: "Upcoming renewal" });
     expect(row).toBeNull();
   });
 });

@@ -100,9 +100,15 @@ async function handleStripeEvent(
       await handlePaymentFailed(object);
       break;
     case "invoice.payment_succeeded":
-      // Stripe manages the subscription status automatically. spec-341 t-4: Stripe
-      // also emails the customer a receipt — record that in the comms log.
-      await handlePaymentSucceeded(object);
+      // Stripe manages the subscription status automatically. NB: we do NOT log a
+      // receipt here — the account's "Successful payments" receipt email is OFF
+      // (Settings → Email, confirmed 2026-06-23), so Stripe sends none. Re-add a
+      // recordStripeEmailComm('receipt') call here if that toggle is ever enabled.
+      break;
+    case "invoice.upcoming":
+      // spec-341 t-4: "Send emails about upcoming renewals" is ON (7 days before),
+      // so Stripe emails a renewal reminder — record it in the comms log.
+      await handleUpcomingRenewal(object);
       break;
     case "customer.subscription.deleted":
       await handleSubscriptionDeleted(object);
@@ -209,17 +215,17 @@ async function handlePaymentFailed(invoice: Record<string, unknown>): Promise<vo
   }
 }
 
-// spec-341 t-4: Stripe sends a receipt on a successful invoice payment. Record it
-// in the comms log for the billing-contact user (best-effort, dec-3). Advisory —
-// recordStripeEmailComm swallows its own errors so this never affects the webhook.
-async function handlePaymentSucceeded(invoice: Record<string, unknown>): Promise<void> {
+// spec-341 t-4: Stripe emails a renewal reminder ~7 days before a subscription
+// renews ("Send emails about upcoming renewals" is ON). Record it in the comms log
+// for the billing-contact user (best-effort, dec-3). Advisory — recordStripeEmailComm
+// swallows its own errors so this never affects the webhook. (An upcoming invoice is
+// a preview with no id, so the source_ref falls back to stripe:<customerId>.)
+async function handleUpcomingRenewal(invoice: Record<string, unknown>): Promise<void> {
   if (typeof invoice.customer !== "string") return;
-  const invoiceId = typeof invoice.id === "string" ? invoice.id : null;
   await recordStripeEmailComm({
     customerId: invoice.customer,
     commsType: "transactional",
-    subject: "Payment receipt",
-    sourceRef: invoiceId ? `stripe:${invoiceId}` : undefined,
+    subject: "Upcoming renewal",
   });
 }
 
