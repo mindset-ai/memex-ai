@@ -2646,6 +2646,75 @@ export const visitors = pgTable(
   ]
 );
 export type Visitor = InferSelectModel<typeof visitors>;
+
+// spec-6 (memex-backstage) t-1 — comms_log: the unified per-user record of every
+// outbound communication to a user, across ALL channels (email / in-app / badge /
+// OS), scheduled and sent. Core (memex-ai) OWNS + WRITES this public table;
+// Backstage READS it cross-tenant via the memex_admin BYPASSRLS role and never
+// writes it (spec-6 dec-5; the spec-280 admin↔public boundary). It is the single
+// pane that lets ops see the TOTAL comms load on one human and avoid bombarding
+// them — the whole point of the comms-strategy work.
+//
+// METADATA ONLY (spec-6 dec-4): a one-line subject/summary + status + timestamps +
+// a source_ref pointer — NEVER the message body. Full content stays in the
+// system-of-record (Postmark / HubSpot / the in-app notification store), reached
+// via source_ref. Retention ~90 days, pruned core-side (spec-6 t-8).
+//
+// RLS — deliberately EXCLUDED, mirroring usage_events / visitors / activity_log
+// (drizzle/0090 §exclusions). comms_log is a CROSS-TENANT, user-scoped comms
+// dimension (keyed on user_id, NOT memex_id), written ADVISORILY from send paths
+// that often run with no request ALS / tenant GUC (a background Activation send, a
+// Postmark/Stripe delivery webhook) — a FORCE-RLS WITH CHECK would silently reject
+// those inserts, and a memex_id USING clause is meaningless on a user-keyed row.
+// The row holds only ids/enums/a summary line (no body, no credentials); isolation
+// is enforced at the service layer and, in Backstage, by the requireOperator gate.
+export const commsLog = pgTable(
+  "comms_log",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // WHO the communication is addressed to (the single human). Cascade on user
+    // delete: a user's comms history is erased with them — no orphan PII.
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    // WHICH channel it lands on. Badge + OS push are first-class alongside email +
+    // in-app so the timeline reflects the TOTAL load on the user.
+    channel: text("channel").notNull(),
+    // WHAT kind of comm — coarse intent ('transactional' | 'activation' |
+    // 'work_notification' | …) plus any sub-type. Free text so a new comm type
+    // needs no migration; validated against the in-code registry before insert.
+    type: text("type").notNull(),
+    // Lifecycle. 'scheduled' = planned ahead, not yet sent (sent_at null); 'sent'
+    // once dispatched; 'delivered'/'failed' applied later by delivery webhooks.
+    status: text("status").notNull().default("sent"),
+    // When the send is planned for (spec-6 dec-3). Set ahead for sends we control
+    // (time-based Activation, Postmark scheduled); NULL for immediate-fire channels.
+    scheduledFor: timestamp("scheduled_for", { withTimezone: true }),
+    // When it actually went out. NULL while still scheduled.
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    // One-line subject/summary for the timeline — NEVER the full body (dec-4).
+    subject: text("subject"),
+    // Pointer back to the system-of-record row (Postmark message id, HubSpot send
+    // id, app notification id). Delivery webhooks match on this to update status.
+    sourceRef: text("source_ref"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // Per-user timeline: every comm to one human, newest first (spec-6 ac-1).
+    index("comms_log_user_id_created_at_idx").on(table.userId, table.createdAt),
+    // Cross-user schedule view: upcoming sends only, soonest first (spec-6 ac-4).
+    // Partial on the unsent set so the scan stays tiny.
+    index("comms_log_scheduled_idx")
+      .on(table.scheduledFor)
+      .where(sql`${table.sentAt} IS NULL`),
+    check("comms_log_channel_valid", sql`${table.channel} IN ('email', 'in_app', 'badge', 'os')`),
+    check(
+      "comms_log_status_valid",
+      sql`${table.status} IN ('scheduled', 'sent', 'delivered', 'failed')`,
+    ),
+  ],
+);
+export type CommsLogRow = InferSelectModel<typeof commsLog>;
 export type VisitorInsert = InferInsertModel<typeof visitors>;
 
 // ══════════════════════════════════════
