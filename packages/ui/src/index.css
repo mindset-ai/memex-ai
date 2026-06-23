@@ -591,3 +591,60 @@
       0 0 0 6px rgba(99, 102, 241, 0.4);
   }
 }
+
+/* spec-336 — Home Onboarding v2 entrance animations (prototype parity). Used via
+   Tailwind arbitrary `animate-[panelIn_…]` / `animate-[fadeIn_…]` on the step panel and
+   the rail. Undefined keyframes degrade to no-animation, so these are purely additive. */
+@keyframes panelIn {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  [class*='animate-[panelIn'],
+  [class*='animate-[fadeIn'] {
+    animation: none !important;
+  }
+}
+
+/* spec-336 — Home Onboarding v2 fonts, SELF-HOSTED and SCOPED to the onboarding surface
+   (Ryan 2026-06-23: scope Hanken Grotesk to onboarding, not app-wide). Latin-subset
+   variable woff2 (Hanken Grotesk 400–800, Geist Mono 400–500) under assets/fonts/. The
+   `.font-onboarding` class applies Hanken Grotesk to text and Geist Mono to code, so the
+   rest of the app keeps the design-system system stack. */
+@font-face {
+  font-family: 'Hanken Grotesk';
+  font-style: normal;
+  font-weight: 400 800;
+  font-display: swap;
+  src: url('./assets/fonts/hanken-grotesk.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Geist Mono';
+  font-style: normal;
+  font-weight: 400 500;
+  font-display: swap;
+  src: url('./assets/fonts/geist-mono.woff2') format('woff2');
+}
+.font-onboarding {
+  font-family: 'Hanken Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', sans-serif;
+}
+.font-onboarding code,
+.font-onboarding pre,
+.font-onboarding kbd,
+.font-onboarding samp {
+  font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}

@@ -27,6 +27,8 @@ journeyRouter.get("/journey-state", async (c) => {
   if (previewStep && canPreview && isValidStepId(previewStep)) {
     return c.json({
       milestones: state.milestones,
+      // spec-336: raw role placement so the UI can branch the journey by persona.
+      roleCoords: state.roleCoords,
       currentStepId: previewStep,
       // `steps` always reflects REAL attainment — preview pins the card, not progress.
       steps: state.steps,
@@ -37,6 +39,7 @@ journeyRouter.get("/journey-state", async (c) => {
 
   return c.json({
     milestones: state.milestones,
+    roleCoords: state.roleCoords,
     currentStepId: state.currentStepId,
     steps: state.steps,
     preview: false,

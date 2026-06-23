@@ -1,129 +1,88 @@
-// spec-305 — the ONBOARDING journey's step views (supersedes spec-303's v0 views).
-// One view per journey state; the Home Canvas engine renders the view for the step
-// the server says the user is on. The journey is MCP-first and ends at a GREEN AC.
-// The `identity` step is rendered by a custom component (IdentityStep) in HomeCanvas,
-// so its entry here carries only a map label, never a rendered view.
+// spec-336 — Home Onboarding v2: the onboarding journey's step metadata.
+// (Supersedes spec-305's MCP-first arc.) The six steps mirror the v2 design's six-node
+// rail one-for-one; the Home Canvas renders the rail from these mapLabel/mapSubLabel
+// pairs and shows the selected step's content in a side panel. Every step's content is
+// a bespoke component (triangle, connect+create card, paste-a-prompt cards, product
+// shots, go-build handoff), so these view entries are primarily the rail's labels — the
+// headline/body fields are a presentational fallback, never the primary surface.
 import type { JourneyStepView } from '../types';
 
 // The server-derived steps a user can land on, in order (mirrors the server's
-// journeys/onboarding.ts).
+// journeys/onboarding.ts). The last two are builder-only — the Home Canvas hides them
+// for non-builder personas (spec-336 dec-3) — but the engine still emits all six.
 export const ONBOARDING_MILESTONE_STEP_IDS = [
-  'welcome',
   'identity',
-  'connect-agent',
   'create-spec',
   'resolve-decision',
   'add-ac',
-  'see-green',
-  'all-set',
+  'specs-match-reality',
+  'agents-build',
 ] as const;
 
-export const ONBOARDING_STEP_VIEWS: Record<string, JourneyStepView> = {
-  welcome: {
-    id: 'welcome',
-    mapLabel: 'Welcome',
-    greetingHeading: true,
-    headline: (
-      <>
-        Welcome to Memex.
-        <span className="block">
-          Your plan and your build{' '}
-          <span className="bg-[linear-gradient(96deg,#fb5b78,#c084fc)] bg-clip-text text-transparent">
-            drift apart
-          </span>{' '}
-          the moment you write them.
-        </span>
-      </>
-    ),
-    // Beat 1 (dec-6): a universal, role-agnostic cold open about the shared enemy —
-    // drift. The coder-specific ".md files are dead" line is a Beat-2 reward shown
-    // AFTER the user tells us their role, not in the cold open.
-    body: 'Memex keeps intent and code in lockstep: one living source your agent reads, follows, and proves it honoured.',
-    primary: { label: 'Get started', kind: 'navigate', target: 'identity' },
-    secondary: { label: 'Why Memex?', kind: 'navigate', target: 'learn-more' },
-  },
+// spec-336 dec-3: the two trailing "Build from your codebase" steps a non-builder never
+// sees. The Home Canvas filters the visible step set + the progress-% denominator by
+// removing these for non-builder personas.
+export const BUILDER_ONLY_STEP_IDS = ['specs-match-reality', 'agents-build'] as const;
 
-  // Map label only — the identity step is rendered by IdentityStep (HomeCanvas), so
-  // these headline/primary fields are never shown.
+export const ONBOARDING_STEP_VIEWS: Record<string, JourneyStepView> = {
+  // Step 0 — About you. Rendered by IdentityStep (the role triangle) in HomeCanvas, so
+  // the headline/primary here are a fallback only; the rail uses the labels.
   identity: {
     id: 'identity',
-    mapLabel: 'You',
-    headline: '',
-    primary: { label: 'Continue', kind: 'navigate', target: 'identity' },
+    mapLabel: 'About you',
+    mapSubLabel: 'A quick read on you and your stack',
+    headline: 'Built around how you work.',
+    primary: { label: 'Continue', kind: 'navigate', target: 'create-spec' },
   },
 
-  // Informational (navigate-only) — not a server milestone step.
-  'learn-more': {
-    id: 'learn-more',
-    eyebrow: "// what's a spec?",
-    headline: 'A spec is a living plan.',
-    sub: 'Not a doc that rots: a plan your agent reads and follows.',
-    body: 'A spec captures what you are building and why — the decisions it hinges on, what "done" means, and the work to get there. Your coding agent reads it over MCP, so it builds the right thing and stays on track.',
-    primary: { label: 'Get started', kind: 'navigate', target: 'identity' },
-    secondary: { label: 'Back', kind: 'navigate', target: 'welcome' },
-  },
-
-  'connect-agent': {
-    id: 'connect-agent',
-    mapLabel: 'Agent connected',
-    eyebrow: '// 01 · connect your agent',
-    headline: 'Bring your coding agent.',
-    sub: 'One connection, and your agent works straight from your plan.',
-    body: 'Connect your agent over MCP and it can read your specs, standards and decisions, and report progress back. One command and you are wired in — from here, your agent does the work while you watch it land.',
-    primary: { label: 'Connect your agent', kind: 'action', target: 'connect_agent' },
-    secondary: { label: "What's the MCP?", kind: 'link', target: 'https://www.memex.ai' },
-  },
-
+  // Step 1 — Create your spec. Rendered by CreateSpecStep (Stage 1 connect MCP + Stage 2
+  // create the spec) in HomeCanvas; ticks on hasSpec.
   'create-spec': {
     id: 'create-spec',
-    mapLabel: 'Spec created',
-    eyebrow: '// 02 · first spec',
-    headline: 'Hand your agent its first spec.',
-    sub: 'Bring a PRD, or use ours and follow along.',
-    body: 'Paste the prompt into your connected agent and it creates a spec in your personal Memex — point it at a real PRD/markdown file, or use our sample to learn the ropes.',
+    mapLabel: 'Build exactly what you decided',
+    mapSubLabel: 'Turn intent into a living spec your agents follow',
+    headline: 'Build exactly what you decided.',
     primary: { label: 'Create your first spec', kind: 'action', target: 'create_spec' },
-    secondary: { label: 'Open your Specs', kind: 'action', target: 'open_specs' },
   },
 
+  // Step 2 — Decisions raised. Rendered by AgentPromptStep; ticks on hasResolvedDecision.
   'resolve-decision': {
     id: 'resolve-decision',
-    mapLabel: 'Decision made',
-    eyebrow: '// 03 · first decision',
-    headline: 'Make the first real call.',
-    sub: 'Every plan hinges on a few decisions.',
-    body: 'Capture the choice your spec turns on, weigh the options, and resolve it. That is how the plan stays honest and your agent knows which path you picked.',
+    mapLabel: 'No agent decides for you',
+    mapSubLabel: 'Hidden calls surface before a line is written',
+    headline: 'No agent decides for you.',
     primary: { label: 'Open your spec', kind: 'action', target: 'open_specs' },
-    secondary: { label: 'How decisions work', kind: 'link', target: 'https://www.memex.ai' },
   },
 
+  // Step 3 — Acceptance criteria raised. Rendered by AgentPromptStep; ticks on hasAc.
+  // For non-builders this is the TERMINAL step — HomeCanvas shows the handoff message.
   'add-ac': {
     id: 'add-ac',
-    mapLabel: 'AC added',
-    eyebrow: '// 04 · define "done"',
-    headline: 'Pin down what "done" means.',
-    sub: 'An acceptance criterion turns intent into something testable.',
-    body: 'Add an acceptance criterion to your decision — a plain statement of what the code must do. This is the promise your tests will hold the build to.',
+    mapLabel: 'Done becomes a fact',
+    mapSubLabel: 'Testable criteria, set before the build starts',
+    headline: 'Done becomes a fact.',
     primary: { label: 'Open your spec', kind: 'action', target: 'open_specs' },
   },
 
-  'see-green': {
-    id: 'see-green',
-    mapLabel: 'AC green',
-    eyebrow: '// 05 · the moment',
-    headline: 'Watch it go green.',
-    sub: 'Your agent emits a test result, and the AC lights up.',
-    body: 'Have your agent run the test that backs your acceptance criterion. When it passes, the AC turns green right here — provable alignment between what you intended and what the code does. This is Memex.',
+  // Step 4 — Improved from your code (BUILDER-ONLY). Rendered by SpecsMatchRealityStep
+  // (4 product shots + the improve-from-code prompt); ticks on planGrounded (spec-337).
+  'specs-match-reality': {
+    id: 'specs-match-reality',
+    mapLabel: 'Specs that match reality',
+    mapSubLabel: 'Refined against your actual codebase',
+    headline: 'Specs that match reality.',
     primary: { label: 'Open your spec', kind: 'action', target: 'open_specs' },
   },
 
-  'all-set': {
-    id: 'all-set',
-    mapLabel: 'Set up',
-    eyebrow: '// done',
-    headline: "You're all set.",
-    sub: 'You drove a spec from intent to a green AC. That is the whole loop.',
-    body: 'From here, Home shows what needs your attention next. When you are ready, bring your colleagues in — set up an organisation (free) so the map grows with the people you work with.',
-    primary: { label: 'Invite colleagues', kind: 'action', target: 'invite' },
-    secondary: { label: 'Back to your Specs', kind: 'action', target: 'open_specs' },
+  // Step 5 — Go build (BUILDER-ONLY, terminal). Rendered by AgentsBuildStep (the go-build
+  // handoff prompt). Terminal: no further waiting/advance.
+  'agents-build': {
+    id: 'agents-build',
+    mapLabel: 'Agents build in lockstep',
+    // Reworded from the design's "One coordinated team on your tasks" — std-1 forbids the
+    // reserved noun "team" in user-visible copy (see AgentsBuildStep).
+    mapSubLabel: 'One coordinated effort across your tasks',
+    headline: 'Agents build in lockstep.',
+    primary: { label: 'Open your Specs', kind: 'action', target: 'open_specs' },
   },
 };

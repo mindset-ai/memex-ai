@@ -43,6 +43,10 @@ import { createDecision } from "../services/decisions.js";
 import { tagAc } from "@memex-ai-ac/vitest";
 
 const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-305/acs/ac-${n}`;
+// spec-336 — v2 arc: identity → create-spec → resolve-decision → add-ac →
+// specs-match-reality → agents-build. ac-5 = each step advances automatically from the
+// real, user-scoped signal; ac-8 = the full arc is presented to a new user.
+const AC336 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-336/acs/ac-${n}`;
 
 let memexId: string;
 // Every newUser() spins up a personal namespace + memex (kind='user'). Track them
@@ -140,13 +144,14 @@ async function seedGreen(docId: string) {
 }
 
 describe("Home Canvas journey-state (ac-3 derived position)", () => {
-  it("a fresh user with no activity is at the welcome step, all milestones false", async () => {
-    tagAc(AC(3));
-    tagAc(AC(10));
+  it("a fresh user with no activity starts at the identity step, all milestones false", async () => {
+    tagAc(AC336(5));
+    tagAc(AC336(8));
     const user = await newUser();
     const { status, body } = await state(user.id);
     expect(status).toBe(200);
-    expect(body.currentStepId).toBe("welcome");
+    // spec-336: the v2 arc opens on the identity ("About you") step, not a welcome card.
+    expect(body.currentStepId).toBe("identity");
     expect(body.milestones).toEqual({
       identityConfirmed: false,
       mcpConnected: false,
@@ -181,18 +186,20 @@ describe("Home Canvas journey-state (ac-3 derived position)", () => {
   });
 });
 
-describe("Home Canvas journey-state (ac-4 self-advance, MCP-first, to a green AC)", () => {
-  it("advances one hard-gated step at a time through the whole arc", async () => {
-    tagAc(AC(4));
-    tagAc(AC(9)); // connect-agent precedes create-spec
-    tagAc(AC(13)); // resolved-decision / AC / green are real milestones
+describe("Home Canvas journey-state (ac-5 self-advance through the v2 arc)", () => {
+  it("advances one step at a time through the whole six-step arc", async () => {
+    tagAc(AC336(5));
+    tagAc(AC336(8));
     const user = await newUser();
-    expect((await state(user.id)).body.currentStepId).toBe("welcome");
+    expect((await state(user.id)).body.currentStepId).toBe("identity");
 
     await confirmIdentity(user.id);
-    expect((await state(user.id)).body.currentStepId).toBe("connect-agent"); // MCP-first
+    // spec-336: connect is folded into the create-spec card (Stage 1) — connecting is
+    // shown inline, but the STEP advances on hasSpec, so identity → create-spec directly.
+    expect((await state(user.id)).body.currentStepId).toBe("create-spec");
 
     await connectMcp(user.id);
+    // mcpConnected no longer gates a dedicated step — still on create-spec until a spec exists.
     expect((await state(user.id)).body.currentStepId).toBe("create-spec");
 
     const doc = await seedSpec(user.id);
@@ -202,26 +209,28 @@ describe("Home Canvas journey-state (ac-4 self-advance, MCP-first, to a green AC
     expect((await state(user.id)).body.currentStepId).toBe("add-ac");
 
     await seedAc(user.id, doc.id);
-    expect((await state(user.id)).body.currentStepId).toBe("see-green");
+    // Next is the builder-only 'Specs that match reality', gated on planGrounded.
+    expect((await state(user.id)).body.currentStepId).toBe("specs-match-reality");
 
+    // planGrounded = tasks broken out AND a test behind one of the user's ACs (spec-337).
+    await seedTask(user.id, doc.id);
     await seedGreen(doc.id);
-    expect((await state(user.id)).body.currentStepId).toBe("all-set");
+    expect((await state(user.id)).body.currentStepId).toBe("agents-build"); // terminal
   });
 
   it("is hard-gated: a later milestone without its predecessor does not skip ahead", async () => {
-    tagAc(AC(4));
+    tagAc(AC336(5));
     const user = await newUser();
     // A spec exists, but identity is not confirmed → still at the very first step.
     await seedSpec(user.id);
     const { body } = await state(user.id);
-    expect(body.currentStepId).toBe("welcome");
+    expect(body.currentStepId).toBe("identity");
     expect(body.milestones.hasSpec).toBe(true);
     expect(body.milestones.identityConfirmed).toBe(false);
   });
 
   it("milestones are user-scoped: another user's spec does not advance this user", async () => {
-    tagAc(AC(4));
-    tagAc(AC(11));
+    tagAc(AC336(5));
     const me = await newUser();
     const colleague = await newUser();
     await confirmIdentity(me.id);
@@ -238,13 +247,13 @@ describe("Home Canvas journey-state (ac-7 measurement)", () => {
     const shown = await app.request("/api/me/journey-event", {
       method: "POST",
       headers: { ...auth(user.id), "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "shown", step: "connect-agent" }),
+      body: JSON.stringify({ action: "shown", step: "create-spec" }),
     });
     expect(shown.status).toBe(200);
     const clicked = await app.request("/api/me/journey-event", {
       method: "POST",
       headers: { ...auth(user.id), "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "cta", step: "connect-agent", cta: "connect_agent" }),
+      body: JSON.stringify({ action: "cta", step: "create-spec", cta: "copy_prompt" }),
     });
     expect(clicked.status).toBe(200);
   });

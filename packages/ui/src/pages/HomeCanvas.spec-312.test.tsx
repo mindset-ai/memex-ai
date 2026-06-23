@@ -164,19 +164,19 @@ describe('spec-312 t-3: "Your Journeys" pearls (dec-4)', () => {
     expect(read()).toEqual(first);
   });
 
-  it('ac-19: collapse, then re-open from the pearls; the row is never erased', async () => {
+  it('ac-19: graduation recedes the layer to the pearls; re-open from the pearls; the row is never erased', async () => {
     tagAc(AC(19));
-    fetchJourneyStateApi.mockResolvedValue(stateFor('create-spec', MIXED));
+    // spec-336 (2026-06-23) moved the CHEVRON to an in-place toggle; the recede-to-pearls
+    // is now triggered by graduation (the real signal), not the chevron — but the AC's
+    // intent (recede → pearls → re-open, never erased) is preserved and verified here.
+    fetchJourneyStateApi.mockResolvedValue(stateFor('all-set', ALL_ATTAINED));
     renderCanvas();
-    // Expanded by default (not graduated).
-    expect(await screen.findByTestId('journey-layer')).toBeInTheDocument();
-    expect(screen.getByTestId('your-journeys')).toBeInTheDocument();
-    // Collapse → the layer goes, the pearls remain (escapable, never erasable).
-    fireEvent.click(screen.getByTestId('journey-collapse'));
+    // Graduated → the layer recedes; the pearls remain (escapable, never erasable).
+    expect(await screen.findByTestId('your-journeys')).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByTestId('journey-layer')).not.toBeInTheDocument());
-    expect(screen.getByTestId('your-journeys')).toBeInTheDocument();
     // Re-open from the pearls.
     fireEvent.click(screen.getByTestId('journey-pearls-onboarding'));
     expect(await screen.findByTestId('journey-layer')).toBeInTheDocument();
+    expect(screen.getByTestId('your-journeys')).toBeInTheDocument();
   });
 });

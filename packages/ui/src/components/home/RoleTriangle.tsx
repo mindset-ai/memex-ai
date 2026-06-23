@@ -69,6 +69,23 @@ export function personaLabel(c: RoleCoords): string {
   return cap(a.noun); // a plain lean
 }
 
+// spec-336 — the one-line persona description shown beside the title on step 0
+// ("About you"). Mirrors personaLabel's banding (generalist / lead-with-second / plain
+// lean) so the copy tracks the title as the dot moves.
+export function personaDescription(c: RoleCoords): string {
+  const e = [
+    { v: c.dev, noun: 'building', solo: "You're confident with coding agents and MCP, working straight from your repo." },
+    { v: c.design, noun: 'design', solo: "You're comfortable with coding agents, and happiest close to the design." },
+    { v: c.pm, noun: 'product', solo: "You'd rather direct agents than write code — we'll keep the terminal light." },
+  ].sort((a, b) => b.v - a.v);
+  const [a, b] = e;
+  const third = e[2].v;
+  if (a.v - third < 0.1) return 'You move across the whole stack — at home in the repo and in the app.';
+  if (a.v - b.v < 0.24)
+    return `You lean ${a.noun} with a strong ${b.noun} streak — confident with coding agents and your repo.`;
+  return a.solo;
+}
+
 export function RoleTriangle({
   value,
   onChange,
@@ -139,27 +156,28 @@ export function RoleTriangle({
     >
       {/* Barely-there guide lines — the focus is the three words and the ball moving
           between them, not the triangle itself. */}
+      {/* spec-336: a subtle filled triangle (prototype parity) — fill-current picks up the
+          faint edge tint; theme-aware. */}
       <polygon
         points={`${VERT.dev.x},${VERT.dev.y} ${VERT.design.x},${VERT.design.y} ${VERT.pm.x},${VERT.pm.y}`}
-        fill="none"
-        className="stroke-edge"
-        strokeOpacity={0.3}
+        className="fill-current text-edge/40 stroke-edge"
+        strokeOpacity={0.5}
         strokeWidth={1}
       />
       <text x={VERT.dev.x} y={VERT.dev.y - 12} textAnchor="middle" className="fill-secondary text-[12px] font-semibold">
-        Developer
+        Develop
       </text>
       <text x={VERT.design.x} y={VERT.design.y + 22} textAnchor="middle" className="fill-secondary text-[12px] font-semibold">
-        Designer
+        Design
       </text>
       <text x={VERT.pm.x} y={VERT.pm.y + 22} textAnchor="middle" className="fill-secondary text-[12px] font-semibold">
-        PM
+        Product
       </text>
       {/* Until the first interaction: a soft pulse + a "drag me" hint so the dot
           reads as the grabbable thing. Both vanish the moment the user moves it. */}
       {!touched && (
         <>
-          <circle cx={blob.x} cy={blob.y} r={20} fill="#8b5cf6" fillOpacity={0.18} className="animate-pulse" />
+          <circle cx={blob.x} cy={blob.y} r={20} fill="#3B82F6" fillOpacity={0.18} className="animate-pulse" />
           <text x={blob.x} y={blob.y - 27} textAnchor="middle" className="fill-secondary text-[11px] font-semibold">
             drag me
           </text>
@@ -176,8 +194,8 @@ export function RoleTriangle({
       />
       <defs>
         <radialGradient id="roleBlob">
-          <stop offset="0%" stopColor="#c084fc" />
-          <stop offset="100%" stopColor="#8b5cf6" />
+          <stop offset="0%" stopColor="#60a5fa" />
+          <stop offset="100%" stopColor="#2563eb" />
         </radialGradient>
       </defs>
     </svg>
