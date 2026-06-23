@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import { useParams, Link, useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import {
   fetchDoc,
@@ -18,14 +18,12 @@ import {
 import type { Comment, DocWithGraph, Issue, SpecStatus, Tag } from '../api/types';
 import { TagPicker } from '../components/TagPicker';
 import { Spinner } from '../components/Spinner';
-import { SectionCard } from '../components/SectionCard';
-import { DocOutline } from '../components/DocOutline';
 import { DecisionPanel } from '../components/DecisionPanel';
 import { TaskPanel } from '../components/TaskPanel';
 import { IssuePanel } from '../components/IssuePanel';
 import { AllComments } from '../components/AllComments';
 import { AcPanel } from '../components/AcPanel';
-import { PhaseTabBar, type PhaseTab } from '../components/PhaseTabBar';
+import { PhaseTabBar } from '../components/PhaseTabBar';
 import { phaseColors } from '../components/phaseColors';
 import { useTelemetry } from '../hooks/useTelemetry';
 import { TransitionSentence } from '../components/TransitionSentence';
@@ -67,32 +65,12 @@ import { useOrgScaffoldBlocks } from '../hooks/useOrgScaffoldBlocks';
 import { usePresenceHeartbeat } from '../hooks/usePresenceHeartbeat';
 import { usePresence } from '../hooks/usePresence';
 import { SpecPresenceIndicator } from '../components/pulse/SpecPresenceIndicator';
-
-// spec-282 (dec-1/dec-2): the SINGLE, ordered inventory of sub-tabs the unified
-// control carries in EVERY phase (Narrative · Comments · Decisions & ACs · Agent
-// Tasks & Issues · QA Report). One constant set means the control is never
-// swapped out as the phase changes (ac-1) and the set never shrinks (ac-2);
-// tabs whose artifact doesn't exist yet render an honest empty state (ac-3).
-type SubTab = 'narrative' | 'comments' | 'decisions' | 'work' | 'qa-report';
-
-// spec-282 (dec-3): each phase's preferred LANDING sub-tab. Selecting any other
-// tab is always free — this is only the default applied when the user navigates
-// to a phase. Verify prefers the QA Report (what a cold verifier reads first),
-// falling back to Decisions & ACs when no report exists yet. `done` has no
-// sub-tab control (it renders the DoneSummary), so it returns null.
-function defaultSubTabForTab(tab: PhaseTab, hasQaReport: boolean): SubTab | null {
-  switch (tab) {
-    case 'specify':
-      return 'narrative';
-    case 'build':
-      return 'decisions';
-    case 'verify':
-      return hasQaReport ? 'qa-report' : 'decisions';
-    case 'done':
-    default:
-      return null;
-  }
-}
+// spec-362 (dec-1, sol-3): the phase-tab + sub-tab selection state machine and
+// the per-sub-tab Narrative view are extracted out of this god-component. The
+// SubTab type + defaultSubTabForTab live with the hook now (spec-282 contracts
+// preserved verbatim).
+import { useDocTabs, type SubTab } from '../hooks/useDocTabs';
+import { NarrativeView } from './doc-document/NarrativeView';
 
 export function DocDocument() {
   // spec-64 i-3: the Spec page is also mounted at the canonical Decision / Issue
@@ -165,32 +143,12 @@ export function DocDocument() {
   const [commentsBySection, setCommentsBySection] = useState<Record<string, Comment[]>>({});
   const [commentsByDecision, setCommentsByDecision] = useState<Record<string, Comment[]>>({});
   const [commentsByTask, setCommentsByTask] = useState<Record<string, Comment[]>>({});
-  const [selectedSectionId, setSelectedSectionId] = useState<string | null>(null);
   const { track } = useTelemetry(true);
-  // spec-159 t-6: the page is organised around the Spec's three working phases
-  // (Specify / Build / Verify) instead of the six flat content tabs. `selectedTab`
-  // is the phase view the user is browsing — it never drives the Spec's phase
-  // (that's TransitionSentence's [Yes]); it only changes what's shown.
-  // `null` defers to the doc's current phase, computed once the doc loads.
-  const [selectedTab, setSelectedTab] = useState<PhaseTab | null>(null);
-  // spec-282 (dec-1/dec-2/dec-3): ONE sub-tab state for the unified control that
-  // persists across Specify/Build/Verify (it replaces the old disjoint
-  // `planSubTab` + `buildSubTab`). `null` means "use the current phase's default
-  // landing tab" (defaultSubTabForTab) — so navigating to a phase lands on its
-  // default, and an explicit selection (non-null) is respected until the next
-  // phase navigation resets it to null. A deep-link to a decision/issue/comment
-  // sets the relevant landing tab up front.
-  const [subTab, setSubTab] = useState<SubTab | null>(
-    // spec-325 (dec-1): a comment deep-link lands on the NARRATIVE (where the
-    // section's in-context gutter lives), NOT the flat 'comments' tab.
-    initialCommentSeq != null
-      ? 'narrative'
-      : initialDecisionHandle
-        ? 'decisions'
-        : initialIssueHandle
-          ? 'work'
-          : null,
-  );
+  // spec-362 (dec-1, sol-3): the phase-tab + sub-tab selection state (selectedTab,
+  // subTab, selectedSectionId, focusedAcId), the deep-link seeding, and the
+  // navigation handlers now live in useDocTabs. It's called below once the doc +
+  // sub-tab inventory facts (qaReports) are in hand — before any early return so
+  // hook order stays stable.
   const [shareOpen, setShareOpen] = useState(false);
   const [shareLinkOpen, setShareLinkOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
@@ -292,26 +250,6 @@ export function DocDocument() {
     if (doc?.id) reloadAux(doc.id);
   }, [doc?.id, reloadAux]);
 
-  // spec-158 ac-17 / ac-4 / ac-11: an issue deep-link (`specs/spec-N/issues/issue-N`
-  // or `?issue=issue-N`) must land on a phase view that actually renders IssuePanel
-  // so `highlightIssueHandle` reaches it — including on a fresh full-page load.
-  // spec-159's restructure only mounts IssuePanel under the Build / Verify layouts;
-  // a Spec sitting in draft/specify/done would otherwise drop the highlight. When a
-  // deep-linked issue is present and the doc's current phase view is Specify (the one
-  // phase tab without IssuePanel), browse to Build once. Runs a single time on the
-  // first doc load; the user can still navigate away afterwards.
-  const issueDeepLinkLandedRef = useRef(false);
-  useEffect(() => {
-    if (issueDeepLinkLandedRef.current) return;
-    if (!doc || !initialIssueHandle) return;
-    issueDeepLinkLandedRef.current = true;
-    const phaseTab =
-      doc.status === 'build' ? 'build' : doc.status === 'verify' ? 'verify' : null;
-    // Build / Verify already show IssuePanel; only Specify (draft/specify) and the
-    // done report need redirecting to a tab that mounts it.
-    if (phaseTab === null) setSelectedTab('build');
-  }, [doc, initialIssueHandle]);
-
   // Connect doc ID to chat (only on mount/unmount, not on doc reload)
   useEffect(() => {
     if (doc) chat.setDocId(doc.id);
@@ -340,6 +278,37 @@ export function DocDocument() {
   const qaReports = selectQaReports(sortedSections);
   const narrativeSections = sortedSections.filter((s) => !isQaReportSectionType(s.sectionType));
 
+  // spec-362 (dec-1, sol-3): the phase-tab + sub-tab selection state machine.
+  // Called unconditionally before any early return so hook order stays stable;
+  // it reads the loaded doc + the qaReports fact (verify's default landing) and
+  // the deep-link hints, and exposes the same handlers/derivations DocDocument
+  // used inline. Behaviour is unchanged.
+  const tabs = useDocTabs({
+    doc,
+    hasQaReport: qaReports.length > 0,
+    initialCommentSeq,
+    initialDecisionHandle,
+    initialIssueHandle,
+    onScrollToSection: (index) => {
+      document.getElementById(`section-${index}`)?.scrollIntoView({ behavior: 'smooth' });
+    },
+  });
+  const {
+    setSelectedTab,
+    setSubTab,
+    selectedSectionId,
+    setSelectedSectionId,
+    focusedAcId,
+    setFocusedAcId,
+    viewedTab,
+    effectiveSubTab,
+    handlePhaseSelect,
+    handleSelectSection,
+    handleTabChange,
+    handleJumpToAc,
+    resetAfterTransition,
+  } = tabs;
+
   // Comment counts (across all entity types)
   const commentCounts: Record<string, number> = {};
   for (const [id, comments] of Object.entries(commentsBySection)) {
@@ -361,39 +330,6 @@ export function DocDocument() {
     chat.setOpenCommentCount(totalCommentCount);
   }, [totalCommentCount]);
 
-
-  const handleSelectSection = useCallback((sectionId: string) => {
-    // The Narrative lives under the Specify view's first sub-tab.
-    setSelectedTab('specify');
-    setSubTab('narrative');
-    setSelectedSectionId(sectionId);
-    const index = sortedSections.findIndex((s) => s.id === sectionId);
-    if (index >= 0) {
-      setTimeout(() => {
-        document.getElementById(`section-${index + 1}`)?.scrollIntoView({ behavior: 'smooth' });
-      }, 0);
-    }
-  }, [sortedSections]);
-
-  // AllComments' onTabChange hands back a section/decision/task target tab. The
-  // only navigable destinations that still exist live under the Specify view, so
-  // route them there (Narrative for sections, Decisions & ACs for decisions).
-  const handleTabChange = useCallback((tab: string) => {
-    setSelectedTab('specify');
-    if (tab === 'decisions') setSubTab('decisions');
-    else if (tab === 'document') setSubTab('narrative');
-  }, []);
-
-  // Cross-view nav for the DecisionAcStrip pills: when a pill is clicked in the
-  // Decisions & ACs column, focus the AC and surface it. Both panels live in the
-  // same Specify sub-tab (two columns), so we just hand AcPanel the focus id; it
-  // scrolls + highlights, then calls onFocusConsumed.
-  const [focusedAcId, setFocusedAcId] = useState<string | null>(null);
-  const handleJumpToAc = useCallback((acId: string) => {
-    setFocusedAcId(acId);
-    setSelectedTab('specify');
-    setSubTab('decisions');
-  }, []);
 
   const handleSectionCommentsChange = useCallback(
     (sectionId: string, comments: Comment[]) => {
@@ -607,17 +543,9 @@ export function DocDocument() {
   // The Spec's live phase. `done` is handled separately (DoneSummary takes over
   // the content area) — every other phase routes through the PhaseTabBar.
   const phase = doc.status as SpecStatus;
-  // The tab the phase makes "current" (draft → specify; done → none). The view
-  // the user is *browsing* is `selectedTab` once they've clicked, else this.
-  const currentTab: PhaseTab | null =
-    phase === 'draft' || phase === 'specify'
-      ? 'specify'
-      : phase === 'build'
-        ? 'build'
-        : phase === 'verify'
-          ? 'verify'
-          : null;
-  const viewedTab: PhaseTab = selectedTab ?? currentTab ?? 'specify';
+  // spec-362 (dec-1): `viewedTab` (the browsed phase view) is derived in
+  // useDocTabs from `selectedTab` ?? the doc's current phase — same logic as
+  // the old inline `currentTab`/`viewedTab` pair, now lifted into the hook.
 
   // ── spec-159 ac-17: the next-action handoff line ───────────────────────────
   // Beneath the Rubicon line, a one-sentence "Copy a prompt to …" handoff keyed
@@ -927,54 +855,28 @@ export function DocDocument() {
   ];
 
   // ── Reusable content fragments — each phase layout below composes these ─────
+  // spec-362 (dec-1, sol-3): the Narrative sub-tab view is extracted into
+  // NarrativeView (sections render eagerly, identical to before). perf-6
+  // (virtualization) is deferred — see NarrativeView's header for why the
+  // content-visibility approach was backed out.
   const narrativeView = (
-    <div className="flex gap-8 items-start">
-      <div className="flex-1 space-y-3 min-w-0">
-        {totalCommentCount > 0 && (
-          <div className="flex justify-end">
-            <button
-              type="button"
-              data-testid="toggle-comment-gutter"
-              onClick={() => setCommentsCollapsed((v) => !v)}
-              className="text-xs text-secondary hover:text-primary inline-flex items-center gap-1 px-2 py-1 rounded-md border border-edge hover:bg-overlay"
-            >
-              {commentsCollapsed ? 'Show comments' : 'Hide comments'}
-            </button>
-          </div>
-        )}
-        {/* spec-260 ac-12: qa_report sections are excluded — build output, not plan prose. */}
-        {narrativeSections.map((section, index) => (
-          <SectionCard
-            key={section.id}
-            section={section}
-            sectionNumber={index + 1}
-            isSelected={section.id === selectedSectionId}
-            commentCount={commentCounts[section.id] ?? 0}
-            comments={commentsBySection[section.id] ?? []}
-            onCommentsChange={handleSectionCommentsChange}
-            onSelect={setSelectedSectionId}
-            canWrite={canWrite}
-            canEdit={canEdit}
-            commentsCollapsed={commentsCollapsed}
-            onExpandComments={() => setCommentsCollapsed(false)}
-            /* spec-178 ac-24: a frozen demo spec suppresses handle auto-linking. */
-            isDemo={doc?.isDemo ?? false}
-            /* spec-325 (dec-1): hand the comment deep-link's seq to every section;
-               the owning one pins it in situ on load (emulating a card click). */
-            deepLinkCommentSeq={initialCommentSeq}
-          />
-        ))}
-      </div>
-      <aside className="w-48 shrink-0 hidden lg:block sticky top-4 self-start max-h-[calc(100vh-6rem)] overflow-y-auto">
-        <DocOutline
-          doc={doc}
-          sections={narrativeSections}
-          activeSectionId={selectedSectionId}
-          commentCounts={commentCounts}
-          onSectionClick={handleSelectSection}
-        />
-      </aside>
-    </div>
+    <NarrativeView
+      doc={doc}
+      narrativeSections={narrativeSections}
+      selectedSectionId={selectedSectionId}
+      totalCommentCount={totalCommentCount}
+      commentCounts={commentCounts}
+      commentsBySection={commentsBySection}
+      commentsCollapsed={commentsCollapsed}
+      canWrite={canWrite}
+      canEdit={canEdit}
+      onToggleCommentsCollapsed={() => setCommentsCollapsed((v) => !v)}
+      onExpandComments={() => setCommentsCollapsed(false)}
+      onSectionCommentsChange={handleSectionCommentsChange}
+      onSelectSection={setSelectedSectionId}
+      deepLinkCommentSeq={initialCommentSeq}
+      onOutlineSectionClick={handleSelectSection}
+    />
   );
 
   const decisionPanel = (
@@ -1108,8 +1010,7 @@ export function DocDocument() {
   //    `effectiveSubTab` is the explicit selection (`subTab`) when set, else the
   //    current viewed phase's default landing tab (dec-3) — `null` collapses to
   //    Narrative, which only matters for `done` (which renders its own view).
-  const effectiveSubTab: SubTab =
-    subTab ?? defaultSubTabForTab(viewedTab, qaReports.length > 0) ?? 'narrative';
+  //    spec-362 (dec-1): derived in useDocTabs (same logic), destructured above.
 
   const unifiedSubTabView = (
     <>
@@ -1322,13 +1223,7 @@ export function DocDocument() {
               <PhaseTabBar
                 currentPhase={phase}
                 selectedTab={viewedTab}
-                onSelect={(t) => {
-                  // spec-282 dec-3: landing on a phase applies that phase's
-                  // default sub-tab — reset the explicit selection to null so
-                  // `effectiveSubTab` falls back to defaultSubTabForTab(t).
-                  setSelectedTab(t);
-                  setSubTab(null);
-                }}
+                onSelect={handlePhaseSelect}
               />
             </div>
             <TransitionSentence
@@ -1348,8 +1243,7 @@ export function DocDocument() {
                 // `viewedTab` falls back to the (re-fetched) current phase's
                 // home tab, and reset the sub-tab to that phase's default
                 // landing tab (spec-282 dec-3).
-                setSelectedTab(null);
-                setSubTab(null);
+                resetAfterTransition();
                 reloadDoc();
               }}
               onCancelBrowse={() => setSelectedTab(null)}
