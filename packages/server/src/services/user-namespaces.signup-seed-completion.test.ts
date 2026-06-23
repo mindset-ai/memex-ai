@@ -17,7 +17,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { and, eq, inArray } from "drizzle-orm";
 import { db } from "../db/connection.js";
-import { namespaces, memexes, users, documents } from "../db/schema.js";
+import { namespaces, users, documents } from "../db/schema.js";
 import { ensureUserNamespace } from "./user-namespaces.js";
 import { upsertUserByEmail } from "./users.js";
 import { DEFAULT_STANDARDS_COUNT } from "../db/default-standards.fixture.js";
