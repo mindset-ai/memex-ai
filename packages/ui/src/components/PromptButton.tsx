@@ -139,7 +139,7 @@ function PromptDialog({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-xs"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -186,7 +186,7 @@ function PromptDialog({
             distinct from the dialog chrome — so it reads as the artifact to
             copy (spec-282 dec-5). Read-only (D-1): shown verbatim and selectable
             but not editable; Copy emits exactly this text. */}
-        <pre className="flex-1 overflow-auto mx-5 my-4 p-4 rounded-lg border border-edge bg-surface text-xs text-secondary whitespace-pre-wrap break-words select-text">
+        <pre className="flex-1 overflow-auto mx-5 my-4 p-4 rounded-lg border border-edge bg-surface text-xs text-secondary whitespace-pre-wrap wrap-break-word select-text">
           {prompt}
         </pre>
 

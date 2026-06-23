@@ -109,7 +109,18 @@ export function CliInstallSection() {
           <div>
             <h4 className="text-sm font-medium mb-2 text-heading">claude.ai (web)</h4>
             <ol className="list-decimal list-inside text-sm space-y-1 text-secondary">
-              <li>Open <strong>Settings → Connectors</strong>.</li>
+              <li>
+                Open <strong>Customize → Connectors</strong> (
+                <a
+                  href="https://claude.ai/customize/connectors?modal=add-custom-connector"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline hover:text-primary"
+                >
+                  jump straight there
+                </a>
+                ).
+              </li>
               <li>Click <strong>Add custom connector</strong>.</li>
               <li>Name it <InlineCode>Memex</InlineCode> and paste the MCP URL above.</li>
               <li>Save, then complete the sign-in in the popup.</li>

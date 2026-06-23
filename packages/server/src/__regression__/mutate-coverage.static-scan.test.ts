@@ -101,6 +101,21 @@ const ALLOWLIST: Record<string, string> = {
     "Dev-mode-only org_membership grant (DEV_USER_EMAIL admin self-grant). org_membership is an access-control bootstrap row — no memex_id, no bus entity, not Memex-scoped tenant content; nothing subscribes to it over SSE.",
   "middleware/session.ts":
     "Dev-user fallback self-heals org_membership for DEV_ORG_NAMESPACES (ensureDevMemberships). Same non-tenancy-scoped access-control bootstrap as routes/backstage.ts — org_membership has no memex_id / bus entity.",
+  // spec-171 t-3 Stripe webhook receiver. Two kinds of raw write live here:
+  // (1) the stripe_events idempotency-ledger INSERT — no bus entity, written
+  //     inside db.transaction so a failed handler rolls the row back (Stripe must
+  //     re-process); same must-not-emit category as services/activity-log.ts.
+  // (2) three orgs UPDATEs (plan_tier / seats_purchased / stripe_subscription_id
+  //     on checkout-completed, subscription-updated, subscription-deleted) — orgs
+  //     DOES have an "org" bus entity and services/orgs.ts routes every orgs write
+  //     through mutate({}, {entity:"org", action:"updated"}). Per std-8 these
+  //     SHOULD emit; wrapping them is deferred because it adds a
+  //     primaryMemexIdForOrg lookup + SSE emit inside the retry/idempotency-
+  //     sensitive payment path (an emit throw → non-2xx → Stripe re-processes),
+  //     a payment-path behaviour change outside this guard's scope. Same
+  //     "wrap deferred" posture as the code-intelligence cluster above.
+  "routes/stripe-webhook.ts":
+    "spec-171 Stripe webhook. stripe_events INSERT is a no-entity idempotency ledger inside a rollback tx (must not emit, like services/activity-log.ts); the three orgs UPDATEs mirror services/orgs.ts and SHOULD route through mutate(entity:\"org\") — wrap deferred to avoid adding an SSE emit inside the retry-sensitive payment path.",
   // ── Non-tenancy-scoped identity / auth / allocation tables ──────────────
   // These write rows that carry NO memex_id and have NO bus entity — the bus is
   // keyed on memexId for per-tenant SSE fan-out, so there's nothing to emit and
@@ -109,6 +124,8 @@ const ALLOWLIST: Record<string, string> = {
     "users table — identity rows (profile, password hash, email verification). No memex_id, no bus entity; user identity is not Memex-scoped tenant content. Memex-creation side effects (memex/created) are emitted by services/user-namespaces.ts and services/users.ts's namespace-provisioning path, not by these raw identity writes.",
   "services/verified-domains.ts":
     "verified_domains + orgs config (domain auto-grouping). Org-level configuration rows, no memex_id, no bus entity — not Memex-scoped tenant content.",
+  "services/visitors.ts":
+    "Anonymous-first identity spine (spec-254). visitors holds one opaque visitor_id per browser + the user_id it merges to at sign-in — a CROSS-TENANT identity dimension (no memex_id, no bus entity, RLS-excluded like usage_events / activity_log) written ADVISORILY from pre-auth middleware and the auth chokepoint. The bus is keyed on memexId for tenant SSE fan-out; a pre-auth visitor row has no tenancy and no subscriber to wake. Same category as services/users.ts and services/usage-events.ts — identity/telemetry rows that must not emit.",
   "services/domain-verification.ts":
     "domain_verification_tokens — short-lived DNS-verification challenge rows. No memex_id, no bus entity; an auth/verification artifact, not tenant content.",
   "services/shared/slug.ts":
@@ -125,6 +142,9 @@ const ALLOWLIST: Record<string, string> = {
     "Product-engagement telemetry store (spec-244). Append-only usage_events rows written advisorily by the POST /telemetry route (front-end) and the dec-8 back-end bus subscriber. Same category as services/activity-log.ts: no usage_events ChangeEntity in the bus taxonomy, no SSE subscriber, and the back-end writer runs FROM the bus dispatch path — routing it through mutate() would recurse on emit. Telemetry is advisory and must not emit.",
   "services/usage-forwarder.ts":
     "Outbox forwarder (spec-244 dec-3). A background drain that UPDATEs usage_events.forwarded_at after shipping a batch to the analytics sink. Cross-tenant by design (drains every memex's undrained rows), no bus entity, no SSE subscriber — the forwarded_at cursor is internal outbox bookkeeping, not tenant-doc content. Same append-only/log category as services/usage-events.ts.",
+  // ── Comms-log store (spec-6, memex-backstage) ─────────────────────────────
+  "services/comms-log.ts":
+    "Unified comms-log store (spec-6). recordComm() advisorily appends one comms_log row per outbound communication (email/in-app/badge/OS), written FROM send paths that often run with no request ALS / tenant GUC (a background Activation send, a delivery webhook). comms_log is user-keyed + RLS-excluded with NO bus entity — same category as services/usage-events.ts / services/visitors.ts: nothing subscribes over the memexId-keyed SSE bus, and the write must be fire-and-forget so a logging fault never blocks a real send (ac-6/ac-9). Backstage READS it; core writes it (dec-5). Telemetry/comms — must not emit.",
   // ── Ephemeral presence (spec-122 dec-4) ───────────────────────────────────
   "services/presence.ts":
     "presence — ephemeral, decaying heartbeat store (spec-122 dec-4). markPresent() is a silent/out-of-band upsert keyed by (doc_id, actor_user_id, channel, client_id) that bumps last_seen_at on each beat: it is NOT a 'what's moving' activity line (ac-17 — reads/presence must never produce an activity-stream row), no UI subscriber cares about last_seen_at drift, and routing it through mutate() would spam the bus with a heartbeat every ~15s per viewer. Same silent-allowed category as the std-32 contract describes for the presence plane; classified silent-allowed in std-8 §table-by-table.",

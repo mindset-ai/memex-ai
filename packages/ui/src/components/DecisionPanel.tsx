@@ -390,7 +390,7 @@ export function DecisionPanel({ docId, decisions, commentsByDecision = {}, force
               (approve / reject) is coding-agent work, and the surface says so
               instead of offering web buttons that half-implement it. */}
           {promptContext && (
-            <div data-testid="candidate-mcp-marker" className="rounded-md border border-edge-subtle bg-overlay/30 px-3 py-2">
+            <div data-testid="candidate-mcp-marker" className="rounded-md border border-edge-subtle bg-overlay px-3 py-2">
               <PromptButton
                 buttonId="review-candidates"
                 context={promptContext}
@@ -424,7 +424,7 @@ export function DecisionPanel({ docId, decisions, commentsByDecision = {}, force
                 {dec.context && (
                   <div className="mt-2 pl-2 border-l-2 border-edge-subtle">
                     <span className="text-[10px] uppercase tracking-wider text-muted font-medium">Context</span>
-                    <div className="prose-dark prose-sm mt-0.5 opacity-80 [&>*]:my-1 [&_h1]:text-sm [&_h2]:text-sm [&_h3]:text-xs [&_h1]:font-semibold [&_h2]:font-semibold [&_h3]:font-medium">
+                    <div className="prose-dark prose-sm mt-0.5 opacity-80 *:my-1 [&_h1]:text-sm [&_h2]:text-sm [&_h3]:text-xs [&_h1]:font-semibold [&_h2]:font-semibold [&_h3]:font-medium">
                       <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={decisionRehypePlugins}>{dec.context}</ReactMarkdown>
                     </div>
                   </div>
@@ -558,7 +558,7 @@ export function DecisionPanel({ docId, decisions, commentsByDecision = {}, force
                     {dec.context && (
                       <div className="mt-2 pl-2 border-l-2 border-edge-subtle">
                         <span className="text-[10px] uppercase tracking-wider text-muted font-medium">Context</span>
-                        <div className="prose-dark prose-sm mt-0.5 opacity-80 [&>*]:my-1 [&_h1]:text-sm [&_h2]:text-sm [&_h3]:text-xs [&_h1]:font-semibold [&_h2]:font-semibold [&_h3]:font-medium">
+                        <div className="prose-dark prose-sm mt-0.5 opacity-80 *:my-1 [&_h1]:text-sm [&_h2]:text-sm [&_h3]:text-xs [&_h1]:font-semibold [&_h2]:font-semibold [&_h3]:font-medium">
                           <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={decisionRehypePlugins}>{dec.context}</ReactMarkdown>
                         </div>
                       </div>
@@ -681,7 +681,7 @@ export function DecisionPanel({ docId, decisions, commentsByDecision = {}, force
                         label: `Decision D-${dec.seq}`,
                       });
                     }}
-                    className="flex-none opacity-0 group-hover/dec:opacity-100 transition-opacity p-0.5 rounded hover:bg-card-hover"
+                    className="flex-none opacity-0 group-hover/dec:opacity-100 transition-opacity p-0.5 rounded-sm hover:bg-card-hover"
                     title="Focus chat on this decision"
                   >
                     <svg className="w-3 h-3 text-secondary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -727,7 +727,7 @@ export function DecisionPanel({ docId, decisions, commentsByDecision = {}, force
                       {dec.resolution && (
                         <div className="pl-2 border-l-2 border-status-success-border/50">
                           <span className="text-[10px] uppercase tracking-wider text-status-success-text font-medium">Decision</span>
-                          <div className="prose-dark prose-sm mt-0.5 [&>*]:my-1 [&_h1]:text-sm [&_h2]:text-sm [&_h3]:text-xs [&_h1]:font-semibold [&_h2]:font-semibold [&_h3]:font-medium">
+                          <div className="prose-dark prose-sm mt-0.5 *:my-1 [&_h1]:text-sm [&_h2]:text-sm [&_h3]:text-xs [&_h1]:font-semibold [&_h2]:font-semibold [&_h3]:font-medium">
                             <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={decisionRehypePlugins}>{dec.resolution}</ReactMarkdown>
                           </div>
                         </div>

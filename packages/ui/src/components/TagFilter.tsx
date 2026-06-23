@@ -3,6 +3,7 @@ import type { Tag } from '../api/types';
 import { fetchMemexTags } from '../api/client';
 import { TagChip } from './TagChip';
 import { formatTagInput, tagMatchesQuery, parseTagInput } from '../utils/tagInput';
+import { useTelemetry } from '../hooks/useTelemetry';
 
 interface TagFilterProps {
   /**
@@ -27,6 +28,7 @@ interface TagFilterProps {
  * applies the same AND/OR semantics on the indexed (scope, value) join.
  */
 export function TagFilter({ selected, onChange, className = '' }: TagFilterProps) {
+  const { track } = useTelemetry(true);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [catalogue, setCatalogue] = useState<Tag[]>([]);
@@ -78,15 +80,25 @@ export function TagFilter({ selected, onChange, className = '' }: TagFilterProps
 
   const selectedSet = useMemo(() => new Set(selected), [selected]);
 
+  // Every selection change goes through here so the telemetry fires once per
+  // change (count only — never the tag values, std-35 cl-5).
+  const applyChange = useCallback(
+    (next: string[]) => {
+      track('board.tag_filter_applied', { filterCount: next.length });
+      onChange(next);
+    },
+    [onChange, track],
+  );
+
   const toggle = useCallback(
     (raw: string) => {
       if (selectedSet.has(raw)) {
-        onChange(selected.filter((s) => s !== raw));
+        applyChange(selected.filter((s) => s !== raw));
       } else {
-        onChange([...selected, raw]);
+        applyChange([...selected, raw]);
       }
     },
-    [selected, selectedSet, onChange],
+    [selected, selectedSet, applyChange],
   );
 
   const visible = useMemo(
@@ -132,7 +144,7 @@ export function TagFilter({ selected, onChange, className = '' }: TagFilterProps
           <button
             type="button"
             data-testid="tag-filter-clear"
-            onClick={() => onChange([])}
+            onClick={() => applyChange([])}
             className="text-xs text-muted hover:text-secondary underline-offset-2 hover:underline"
           >
             Clear
@@ -172,7 +184,7 @@ export function TagFilter({ selected, onChange, className = '' }: TagFilterProps
               placeholder="Filter tags…"
               data-testid="tag-filter-search"
               aria-label="Filter tags"
-              className="w-full bg-input border border-edge text-primary placeholder-muted focus:outline-none focus:ring-1 focus:ring-edge-strong focus:border-edge-strong px-2 py-1 text-xs rounded"
+              className="w-full bg-input border border-edge text-primary placeholder-muted focus:outline-hidden focus:ring-1 focus:ring-edge-strong focus:border-edge-strong px-2 py-1 text-xs rounded-sm"
             />
             {/* ac-3: spell out the AND-across-scopes / OR-within-scope semantics. */}
             <p className="mt-1 text-[10px] leading-tight text-muted">
@@ -193,12 +205,12 @@ export function TagFilter({ selected, onChange, className = '' }: TagFilterProps
                   data-testid="tag-filter-option"
                   onClick={() => toggle(raw)}
                   className={`w-full flex items-center gap-2 px-2 py-1.5 text-left hover:bg-overlay ${
-                    isSelected ? 'bg-overlay/60' : ''
+                    isSelected ? 'bg-overlay' : ''
                   }`}
                 >
                   <span
                     aria-hidden="true"
-                    className={`flex h-3.5 w-3.5 flex-none items-center justify-center rounded border text-[10px] ${
+                    className={`flex h-3.5 w-3.5 flex-none items-center justify-center rounded-sm border text-[10px] ${
                       isSelected
                         ? 'border-edge-strong bg-edge-strong text-white'
                         : 'border-edge'

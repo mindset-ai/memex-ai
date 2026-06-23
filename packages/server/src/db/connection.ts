@@ -54,11 +54,32 @@ const client = socketPath
 // hold a connection for milliseconds; each BEGIN/set_config/query/COMMIT is
 // ≈3 extra ms but scales correctly at pool max=5.
 
-interface MemexRequestContext {
-  memexId: string;
+// The request-scoped RLS identity. Either field may be set independently:
+//   memexId — the tenant in context (the original spec-199 isolation key).
+//   userId  — the acting user, for cross-memex user-scoped reads (spec-303
+//             journey-state). Lets a query see the user's OWN rows across every
+//             memex via the additive `*_owner_visibility` SELECT policies
+//             (migration 0098), without pinning to a single app.memex_id. Reads
+//             only: the FOR ALL memex_isolation policy still gates every write.
+interface RlsRequestContext {
+  memexId?: string;
+  userId?: string;
 }
 
-export const memexContext = new AsyncLocalStorage<MemexRequestContext>();
+export const memexContext = new AsyncLocalStorage<RlsRequestContext>();
+
+/** Emit `set_config(...)` for whichever RLS GUCs the context carries. Absent
+ * GUCs are simply not set, so the matching policy sees NULL for that GUC and
+ * contributes nothing — each policy is additive per GUC. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function applyRlsGucs(txSql: any, ctx: RlsRequestContext): Promise<void> {
+  if (ctx.memexId) {
+    await txSql.unsafe("SELECT set_config('app.memex_id', $1, true)", [ctx.memexId]);
+  }
+  if (ctx.userId) {
+    await txSql.unsafe("SELECT set_config('app.user_id', $1, true)", [ctx.userId]);
+  }
+}
 
 /**
  * Set the request-scoped memexId in the ALS context for the duration of fn.
@@ -84,7 +105,32 @@ export function runWithMemexId<T>(
   fn: () => Promise<T>,
 ): Promise<T> {
   if (!memexId) return fn();
-  return memexContext.run({ memexId }, fn);
+  const existing = memexContext.getStore();
+  return memexContext.run({ ...existing, memexId }, fn);
+}
+
+/**
+ * Set the request-scoped acting userId for cross-memex, user-scoped reads
+ * (spec-303 journey-state). Every db.* call within fn's async subtree prepends
+ * `set_config('app.user_id', $1, true)`, so the additive `*_owner_visibility`
+ * SELECT policies (migration 0098) make the user's OWN authored rows visible
+ * across every memex — without setting app.memex_id (there is no single tenant
+ * for a "what has this user done anywhere" query).
+ *
+ * Strictly additive AND read-only: the new policies are FOR SELECT, so they
+ * widen visibility ONLY to rows the acting user authored (created_by_user_id /
+ * actor_user_id = userId) — always safe to show their author — and cannot widen
+ * INSERT/UPDATE/DELETE, which the untouched FOR ALL memex_isolation policy still
+ * gates. Any path that does not call this leaves app.user_id unset, so behaviour
+ * there is byte-for-byte the same. Merges with any active memexId, not clobber.
+ */
+export function runWithUserId<T>(
+  userId: string | null | undefined,
+  fn: () => Promise<T>,
+): Promise<T> {
+  if (!userId) return fn();
+  const existing = memexContext.getStore();
+  return memexContext.run({ ...existing, userId }, fn);
 }
 
 /**
@@ -94,11 +140,11 @@ export function runWithMemexId<T>(
  * Drizzle uses internally for SELECT field mapping).
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function makeRlsQuery(pool: any, memexId: string, query: string, params: any[]) {
+function makeRlsQuery(pool: any, ctx: RlsRequestContext, query: string, params: any[]) {
   const run = (useValues: boolean) =>
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     pool.begin(async (txSql: any) => {
-      await txSql.unsafe("SELECT set_config('app.memex_id', $1, true)", [memexId]);
+      await applyRlsGucs(txSql, ctx);
       const q = txSql.unsafe(query, params);
       return useValues ? q.values() : q;
     });
@@ -146,8 +192,8 @@ function createRlsClient(baseClient: postgres.Sql): postgres.Sql {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         return function (query: string, params: any[] = []) {
           const ctx = memexContext.getStore();
-          if (!ctx?.memexId) return target.unsafe(query, params);
-          return makeRlsQuery(target, ctx.memexId, query, params);
+          if (!ctx?.memexId && !ctx?.userId) return target.unsafe(query, params);
+          return makeRlsQuery(target, ctx, query, params);
         };
       }
       if (prop === "begin") {
@@ -156,9 +202,7 @@ function createRlsClient(baseClient: postgres.Sql): postgres.Sql {
           const ctx = memexContext.getStore();
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           return target.begin(async (txSql: any) => {
-            if (ctx?.memexId) {
-              await txSql.unsafe("SELECT set_config('app.memex_id', $1, true)", [ctx.memexId]);
-            }
+            if (ctx) await applyRlsGucs(txSql, ctx);
             return callback(txSql);
           });
         };

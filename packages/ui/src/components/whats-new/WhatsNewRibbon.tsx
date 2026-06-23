@@ -25,6 +25,7 @@ import { Specky } from '@memex/guide-sdk';
 import { Confetti } from './Confetti';
 import { useWhatsNew } from './WhatsNewContext';
 import { fetchWhatsNew, type WhatsNewEntry } from '../../api/whatsNew';
+import { useTelemetry } from '../../hooks/useTelemetry';
 
 const DISMISS_KEY = 'whats-new:dismissed-at';
 const CONFETTI_KEY = 'whats-new:confetti-shown-at';
@@ -73,6 +74,7 @@ export function WhatsNewRibbon({
   autoDismissMs = AUTO_DISMISS_MS,
 }: WhatsNewRibbonProps) {
   const { setAvailable, registerOpener, getMenuAnchor } = useWhatsNew();
+  const { track } = useTelemetry(true);
 
   const [entries, setEntries] = useState<WhatsNewEntry[]>([]);
   const [dismissed, setDismissed] = useState(false);
@@ -121,11 +123,24 @@ export function WhatsNewRibbon({
     setAvailable(entries.length > 0);
   }, [entries.length, setAvailable]);
 
+  // Engagement with release notes (spec-200). Count only — entries still newer
+  // than the user's dismiss marker at the moment the popup opens.
+  const fireOpened = useCallback(() => {
+    const dismissedAt = readMarker(DISMISS_KEY);
+    const unreadCount = entries.filter(
+      (e) => Date.parse(e.publishedAt) > dismissedAt,
+    ).length;
+    track('whatsnew.opened', { unreadCount });
+  }, [entries, track]);
+
   // Register the menu opener so the sidebar "What's New" item can open the popup.
   useEffect(() => {
-    registerOpener(() => setOpen(true));
+    registerOpener(() => {
+      fireOpened();
+      setOpen(true);
+    });
     return () => registerOpener(null);
-  }, [registerOpener]);
+  }, [registerOpener, fireOpened]);
 
   // Slide the ribbon in, and fire confetti only the first time THIS entry is seen
   // (req 1/2): a marker distinct from dismissal, so a repeat visit gets no confetti.
@@ -184,8 +199,9 @@ export function WhatsNewRibbon({
   const openFromRibbon = useCallback(() => {
     clearTimeout(dismissTimer.current);
     setCountingDown(false);
+    fireOpened();
     setOpen(true);
-  }, []);
+  }, [fireOpened]);
 
   // Manually closing the popup dismisses the ribbon — the popup disappears, then
   // the ribbon flies home (req 5/6). If the ribbon is already gone (opened from
@@ -308,7 +324,7 @@ export function WhatsNewRibbon({
           <div
             data-testid="whats-new-scrim"
             onClick={closePopup}
-            className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm"
+            className="fixed inset-0 z-40 bg-black/50 backdrop-blur-xs"
           />
           <div
             role="dialog"

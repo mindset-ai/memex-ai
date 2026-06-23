@@ -111,6 +111,25 @@ else
   echo "  ⚠ memex-mixpanel-token not found — analytics forwarder in capture-only mode (spec-244)"
   HAS_MIXPANEL=0
 fi
+# STRIPE secrets are optional (spec-171 hosted purchase flow). Wired ONLY if BOTH
+# secrets exist, so an env without billing configured deploys fine. Same two-step
+# provisioning as MIXPANEL above (NO further code change): create the per-env
+# secrets AND grant the Cloud Run runtime SA read access. Per-env VALUES differ —
+# int holds Stripe TEST keys, prod holds LIVE keys (the secret's value carries the
+# separation, like MIXPANEL).
+#   printf %s "<sk_...>"    | gcloud secrets create memex-stripe-secret-key --data-file=- \
+#     --project "${GCP_PROJECT}" --replication-policy=user-managed --locations=us-east4
+#   printf %s "<whsec_...>" | gcloud secrets create memex-stripe-webhook-secret --data-file=- \
+#     --project "${GCP_PROJECT}" --replication-policy=user-managed --locations=us-east4
+#   # then add-iam-policy-binding secretAccessor for the Cloud Run runtime SA on each.
+if gcloud secrets describe memex-stripe-secret-key --project "${GCP_PROJECT}" >/dev/null 2>&1 \
+   && gcloud secrets describe memex-stripe-webhook-secret --project "${GCP_PROJECT}" >/dev/null 2>&1; then
+  echo "  ✓ Stripe secrets present — hosted purchase flow enabled"
+  HAS_STRIPE=1
+else
+  echo "  ⚠ Stripe secrets not found — hosted purchase flow disabled (spec-171)"
+  HAS_STRIPE=0
+fi
 
 # ── KMS prerequisite ─────────────────────────────────────────
 # The Slack token encryption path (services/slack/crypto.ts) requires a
@@ -303,6 +322,16 @@ echo "Deploying to Cloud Run..."
 SECRETS_WIRING="ANTHROPIC_API_KEY=anthropic-api-key:latest"
 SECRETS_WIRING+=",POSTMARK_SERVER_TOKEN=postmark-server-token:latest"
 SECRETS_WIRING+=",AUTH_JWT_SECRET=auth-jwt-secret:latest"
+# spec-341: Basic-auth credential for the Postmark delivery webhook
+# (/api/postmark/webhook). OPTIONAL — only wired if the secret exists (same
+# posture as COHERE below), so this deploy never breaks if it's not yet created.
+# Until the secret is present the webhook route returns 401 (deliveries rejected);
+# email send-logging + Stripe capture work regardless. Create with:
+#   gcloud secrets create postmark-webhook-token --replication-policy=user-managed \
+#     --locations=us-east4 --data-file=- --project "<project>"
+if gcloud secrets describe postmark-webhook-token --project "${GCP_PROJECT}" >/dev/null 2>&1; then
+  SECRETS_WIRING+=",POSTMARK_WEBHOOK_TOKEN=postmark-webhook-token:latest"
+fi
 SECRETS_WIRING+=",OPENAI_API_KEY=openai-api-key:latest"
 if [ "$HAS_SLACK" = "1" ]; then
   SECRETS_WIRING+=",SLACK_CLIENT_SECRET=slack-client-secret:latest"
@@ -315,6 +344,9 @@ if [ "$HAS_ELEVENLABS" = "1" ]; then
 fi
 if [ "$HAS_MIXPANEL" = "1" ]; then
   SECRETS_WIRING+=",MIXPANEL_TOKEN=memex-mixpanel-token:latest"
+fi
+if [ "$HAS_STRIPE" = "1" ]; then
+  SECRETS_WIRING+=",STRIPE_SECRET_KEY=memex-stripe-secret-key:latest,STRIPE_WEBHOOK_SECRET=memex-stripe-webhook-secret:latest"
 fi
 
 # HIDDEN_FEATURES is appended to --update-env-vars ONLY when it is set (see
@@ -335,7 +367,7 @@ gcloud run deploy "${SERVICE}" \
   --min-instances 0 \
   --max-instances 3 \
   --add-cloudsql-instances "${CLOUD_SQL_INSTANCE_CONN}" \
-  --update-env-vars "^|^NODE_ENV=production|DATABASE_URL=postgresql://${RUNTIME_DB_USER}:${RUNTIME_DB_PASS_ENC}@localhost:${DB_PORT}/${DB_NAME}|CLOUD_SQL_SOCKET=/cloudsql/${CLOUD_SQL_INSTANCE_CONN}|GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}|EMAIL_FROM=${EMAIL_FROM}|APP_BASE_URL=${APP_BASE_URL}|OAUTH_ENABLED=1|SLACK_CLIENT_ID=${SLACK_CLIENT_ID}|SLACK_OAUTH_REDIRECT_URI=${API_BASE_URL}/api/auth/slack/callback|KMS_KEY_NAME=projects/${GCP_PROJECT}/locations/${REGION}/keyRings/memex/cryptoKeys/slack-tokens${HIDDEN_FEATURES+|HIDDEN_FEATURES=${HIDDEN_FEATURES}}${SIGNUP_DOMAIN_ALLOWLIST+|SIGNUP_DOMAIN_ALLOWLIST=${SIGNUP_DOMAIN_ALLOWLIST}}" \
+  --update-env-vars "^|^NODE_ENV=production|DATABASE_URL=postgresql://${RUNTIME_DB_USER}:${RUNTIME_DB_PASS_ENC}@localhost:${DB_PORT}/${DB_NAME}|CLOUD_SQL_SOCKET=/cloudsql/${CLOUD_SQL_INSTANCE_CONN}|GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}|EMAIL_FROM=${EMAIL_FROM}|APP_BASE_URL=${APP_BASE_URL}|OAUTH_ENABLED=1|SLACK_CLIENT_ID=${SLACK_CLIENT_ID}|SLACK_OAUTH_REDIRECT_URI=${API_BASE_URL}/api/auth/slack/callback|KMS_KEY_NAME=projects/${GCP_PROJECT}/locations/${REGION}/keyRings/memex/cryptoKeys/slack-tokens${HIDDEN_FEATURES+|HIDDEN_FEATURES=${HIDDEN_FEATURES}}${SIGNUP_DOMAIN_ALLOWLIST+|SIGNUP_DOMAIN_ALLOWLIST=${SIGNUP_DOMAIN_ALLOWLIST}}${STRIPE_PREMIUM_MONTHLY_PRICE_ID+|STRIPE_PREMIUM_MONTHLY_PRICE_ID=${STRIPE_PREMIUM_MONTHLY_PRICE_ID}}${STRIPE_PREMIUM_ANNUAL_PRICE_ID+|STRIPE_PREMIUM_ANNUAL_PRICE_ID=${STRIPE_PREMIUM_ANNUAL_PRICE_ID}}${STRIPE_ENTERPRISE_MONTHLY_PRICE_ID+|STRIPE_ENTERPRISE_MONTHLY_PRICE_ID=${STRIPE_ENTERPRISE_MONTHLY_PRICE_ID}}${STRIPE_ENTERPRISE_ANNUAL_PRICE_ID+|STRIPE_ENTERPRISE_ANNUAL_PRICE_ID=${STRIPE_ENTERPRISE_ANNUAL_PRICE_ID}}" \
   --update-secrets "${SECRETS_WIRING}"
 
 # ── Done ──────────────────────────────────────────────────────

@@ -237,6 +237,8 @@ describe("Spec MCP tools (post-doc-14, b-105)", () => {
   it("add_draft_task creates a task (via create_task)", async () => {
     const doc = await createDocDraft(actor.account.id, "ItemsDraft", "P", "spec");
     created.docs.push(doc.id);
+    // spec-327: create_task is gated to the build phase.
+    await updateDocStatus(actor.account.id, doc.id, "build");
     const result = await callTool(actor.user.id, "create_task", {
       ref: `${actor.account.slug}/main/specs/${doc.handle}`,
       title: "Implement A",
@@ -289,6 +291,10 @@ describe("Spec MCP tools (post-doc-14, b-105)", () => {
       ref,
       title: "Q?",
     });
+    // spec-189: create_decision auto-advanced the draft Spec → specify.
+    // spec-327: create_task no longer drives specify → build (it's gated to the
+    // build phase), so enter build explicitly before creating the task.
+    await updateDocStatus(actor.account.id, doc.id, "build");
     await callTool(actor.user.id, "create_task", {
       ref,
       title: "Build it",
@@ -297,9 +303,7 @@ describe("Spec MCP tools (post-doc-14, b-105)", () => {
     const result = await callTool(actor.user.id, "get_doc", { ref });
     expect(result.isError).toBeFalsy();
     const text = result.content[0].text;
-    // spec-189: the decision + task traffic above auto-advanced the draft
-    // Spec (draft → specify on create_decision, specify → build on
-    // create_task) — the doc state now reports the traffic-driven phase.
+    // The doc state now reports the build phase + the decision/task counts.
     expect(text).toContain("# StatusOne [BUILD]");
     // formatFullDocState now emits "## Decisions (1 total: …)" / "## Tasks (1 total: …)".
     expect(text).toMatch(/Decisions \(1/);

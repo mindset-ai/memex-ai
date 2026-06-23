@@ -104,7 +104,7 @@ interface HotSpecCardProps {
   specHref: (handle: string) => string;
 }
 
-function HotSpecCard({
+export function HotSpecCard({
   spec,
   involved,
   handle,
@@ -153,7 +153,7 @@ function HotSpecCard({
           <span
             data-testid="phase-chip"
             data-popping={popping ? 'true' : undefined}
-            className={`text-[10px] uppercase tracking-wide rounded px-1 border border-current ${
+            className={`text-[10px] uppercase tracking-wide rounded-sm px-1 border border-current ${
               popping ? 'animate-phase-pop' : ''
             }`}
             style={{ color: palette.phase[phase as Phase] ?? 'inherit' }}
@@ -164,7 +164,7 @@ function HotSpecCard({
       </div>
 
       {title ? (
-        <div className="mt-1 text-xs text-secondary line-clamp-2 min-h-[2rem]">{title}</div>
+        <div className="mt-1 text-xs text-secondary line-clamp-2 min-h-8">{title}</div>
       ) : null}
 
       {/* State (left) + per-spec line sparkline (right). */}
@@ -189,7 +189,7 @@ function HotSpecCard({
       </div>
 
       {/* Who's on it (avatars) + present-tense work line. */}
-      <div className="mt-2 flex items-center justify-between gap-2 min-h-[1rem]">
+      <div className="mt-2 flex items-center justify-between gap-2 min-h-4">
         {workers.length > 0 ? (
           <div className="flex items-center" data-testid="hot-spec-avatars">
             {workers.slice(0, 4).map((w, i) => (

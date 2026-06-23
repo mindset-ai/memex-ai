@@ -33,7 +33,7 @@ interface Props {
 }
 
 const PRE_CLASS =
-  'text-xs whitespace-pre-wrap break-words bg-muted/30 p-3 rounded border border-default';
+  'text-xs whitespace-pre-wrap wrap-break-word bg-muted/30 p-3 rounded-sm border border-default';
 
 export function ScaffoldButtonView({
   buttonId,

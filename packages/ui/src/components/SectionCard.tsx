@@ -7,10 +7,10 @@ import { useChat } from './ChatContext';
 import { useAuth } from './AuthContext';
 import { CommentSourceAvatar } from './CommentSourceAvatar';
 import { rehypeRefLinkifier } from './chat/refLinkifier';
-import { createComment, resolveComment, deleteComment } from '../api/client';
+import { createComment, resolveComment, deleteComment, addCommentMentions } from '../api/client';
 import { buildCommentLink } from '../utils/commentDeepLink';
-import { renderedOffsetToSource, resolveRenderedOffset } from '../utils/anchorOffset';
 import { buildAnchorRange } from '../utils/anchorHighlight';
+import { computeAnchorFromRange } from '../utils/sectionSelection';
 import { SelectionToolbar } from './SelectionToolbar';
 import { CommentComposerPopover } from './CommentComposerPopover';
 
@@ -70,6 +70,15 @@ interface SectionCardProps {
    * Defaults to false (real specs keep auto-linking).
    */
   isDemo?: boolean;
+  /**
+   * spec-325 (dec-1): a comment deep-link (`?comment=c-N`) emulates a click on
+   * that comment's gutter card. When this section OWNS the target comment, it
+   * pins it on load — reproducing exactly what a manual click produces (span →
+   * passage highlight + card; section-level → card at the section top). `null`/
+   * `undefined` means no deep-link is active. The same seq is passed to every
+   * section; only the owning one acts on it.
+   */
+  deepLinkCommentSeq?: number | null;
 }
 
 export const SectionCard = memo(function SectionCard({
@@ -84,6 +93,7 @@ export const SectionCard = memo(function SectionCard({
   canWrite = true,
   commentsCollapsed = false,
   isDemo = false,
+  deepLinkCommentSeq,
 }: SectionCardProps) {
   const [revealed, setRevealed] = useState(!isNew);
 
@@ -112,65 +122,72 @@ export const SectionCard = memo(function SectionCard({
   const [draftText, setDraftText] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  const handleSelection = () => {
-    if (!canWrite) return;
-    const sel = window.getSelection();
-    if (!sel || sel.isCollapsed) { setToolbar(null); return; }
-    const text = sel.toString().trim();
-    if (!text) { setToolbar(null); return; }
-    // Only react to selections inside this section's body.
-    if (!bodyRef.current || !sel.anchorNode || !bodyRef.current.contains(sel.anchorNode)) return;
-    const range = sel.getRangeAt(0);
-    // Anchor by POSITION, both ends: flatten the body's rendered text (skipping
-    // marker badges) into one string while recording each text node's start
-    // index, then resolve the selection's start and end boundaries to rendered
-    // offsets and map each to the markdown source. Handles inline formatting +
-    // repeated words unambiguously, and yields a RANGE, not a point.
-    const walker = document.createTreeWalker(bodyRef.current, NodeFilter.SHOW_TEXT, {
-      acceptNode: (n) =>
-        n.parentElement?.closest('[data-marker-seq],[data-marker-start]')
-          ? NodeFilter.FILTER_REJECT
-          : NodeFilter.FILTER_ACCEPT,
-    });
-    let rendered = '';
-    const starts: { node: Node; start: number }[] = [];
-    let wn: Node | null;
-    while ((wn = walker.nextNode())) {
-      starts.push({ node: wn, start: rendered.length });
-      rendered += wn.textContent ?? '';
-    }
-    const renderedStart = resolveRenderedOffset(range.startContainer, range.startOffset, starts, rendered.length);
-    const renderedEnd = resolveRenderedOffset(range.endContainer, range.endOffset, starts, rendered.length);
-    if (renderedStart < 0 || renderedEnd < 0 || renderedEnd <= renderedStart) return;
-    const startSrc = renderedOffsetToSource(section.content, rendered, renderedStart);
-    const endSrc = renderedOffsetToSource(section.content, rendered, renderedEnd);
-    const rect = range.getBoundingClientRect();
-    setToolbar({
-      start: startSrc,
-      end: endSrc,
-      quote: text.slice(0, 60),
-      top: rect.top - 40, // float just above the selection
-      left: rect.left + rect.width / 2,
-    });
-  };
-
-  // Dismiss the toolbar on any click that isn't on it (mirrors Docs).
+  // spec-319 dec-1: detect the comment-anchor selection at the DOCUMENT level so
+  // the affordance is independent of WHERE the gesture ends. The old wiring read
+  // window.getSelection() inside an onMouseUp on the body, so any drag that
+  // released outside the body (an everyday overshoot past/below the text) never
+  // fired the handler — the "can't bank on it" bug. `selectionchange` fires for
+  // every way a selection settles; we coalesce to one read per animation frame,
+  // scope it to THIS section's body by containment, and map it with the shared
+  // pure helper (which reads the normalized Range, so backward selections work
+  // too). A selection that collapses or leaves this body clears the toolbar —
+  // this also subsumes the old mousedown click-outside closer.
   useEffect(() => {
-    if (!toolbar) return;
-    const onDown = (e: MouseEvent) => {
-      if (!(e.target as HTMLElement)?.closest?.('[data-testid="selection-toolbar"]')) {
-        setToolbar(null);
-      }
+    if (!canWrite) return;
+    let raf = 0;
+    const recompute = () => {
+      const body = bodyRef.current;
+      const sel = window.getSelection();
+      if (!body || !sel || sel.isCollapsed || sel.rangeCount === 0) { setToolbar(null); return; }
+      const range = sel.getRangeAt(0);
+      const anchor = computeAnchorFromRange(range, body, section.content);
+      if (!anchor) { setToolbar(null); return; }
+      const rect = range.getBoundingClientRect();
+      setToolbar({ ...anchor, top: rect.top - 40, left: rect.left + rect.width / 2 });
     };
-    document.addEventListener('mousedown', onDown);
-    return () => document.removeEventListener('mousedown', onDown);
-  }, [toolbar]);
+    const onSelectionChange = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(recompute);
+    };
+    document.addEventListener('selectionchange', onSelectionChange);
+    return () => {
+      cancelAnimationFrame(raf);
+      document.removeEventListener('selectionchange', onSelectionChange);
+    };
+  }, [canWrite, section.content]);
 
   const openComposerFromToolbar = () => {
     if (!toolbar) return;
     setAnchorDraft({ start: toolbar.start, end: toolbar.end, quote: toolbar.quote, top: toolbar.top, left: toolbar.left });
     setToolbar(null);
   };
+
+  // spec-319: the comment composer must dismiss when you click away from it (or
+  // start a new selection), like the toolbar and the pinned card do. Without
+  // this the draft popover lingers over the doc — you click elsewhere, even
+  // highlight another passage, and the original composer stays open. Clicks
+  // INSIDE the composer (typing, the send button, picking an @-mention) are
+  // spared; anything else closes it and discards the in-progress draft.
+  //
+  // Containment is tested via composedPath(), NOT target.closest(): the mention
+  // typeahead selects on mousedown and React flushes that discrete update
+  // synchronously, so the clicked option is already DETACHED from the DOM by the
+  // time this document-level listener runs — closest() on a detached node returns
+  // null and would wrongly close the composer (spec-320 regression). composedPath
+  // is snapshotted at dispatch, so it still contains the composer.
+  useEffect(() => {
+    if (!anchorDraft) return;
+    const onDown = (e: MouseEvent) => {
+      const insideComposer = e
+        .composedPath()
+        .some((n) => n instanceof HTMLElement && n.dataset.testid === 'comment-composer');
+      if (insideComposer) return;
+      setAnchorDraft(null);
+      setDraftText('');
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [anchorDraft]);
 
   // spec-100 (redesign): comments live as light indicators at the body's right
   // edge, each aligned to its anchored line. Hover an indicator to PEEK the
@@ -222,12 +239,36 @@ export const SectionCard = memo(function SectionCard({
     const left = Math.min(r.right + 10, window.innerWidth - POPOVER_W - 8);
     return { top: r.top, left };
   };
-  // Hover peeks (always); leaving clears the peek (falls back to any pinned card).
-  const peekComment = (seq: number, el: HTMLElement) =>
+  // spec-319 (issue A): the peek is a hover-card, and a hover-card needs a bridge
+  // or it dies the instant the cursor leaves the 28px indicator — you can never
+  // reach the popover to read it. Keep it alive with a short close grace-delay
+  // that's cancelled the moment the cursor lands on the popover. That same
+  // cancel-on-enter also kills the flicker when the popover is clamped over the
+  // indicator near the right edge (the mouseleave/mouseenter loop).
+  const PEEK_CLOSE_DELAY_MS = 160;
+  const peekCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelPeekClose = () => {
+    if (peekCloseTimer.current != null) {
+      clearTimeout(peekCloseTimer.current);
+      peekCloseTimer.current = null;
+    }
+  };
+  const schedulePeekClose = () => {
+    cancelPeekClose();
+    peekCloseTimer.current = setTimeout(() => {
+      setHoverPop(null);
+      peekCloseTimer.current = null;
+    }, PEEK_CLOSE_DELAY_MS);
+  };
+  // Hover peeks (always), cancelling any pending close; leaving schedules a
+  // delayed close (falls back to any pinned card).
+  const peekComment = (seq: number, el: HTMLElement) => {
+    cancelPeekClose();
     setHoverPop({ seq, ...popoverPosFor(el) });
-  const unpeek = () => setHoverPop(null);
+  };
   // Click pins the card (stable surface for resolve/delete/copy-link).
   const pinComment = (seq: number, el: HTMLElement) => {
+    cancelPeekClose();
     setPinnedPop({ seq, ...popoverPosFor(el) });
     setHoverPop(null);
   };
@@ -255,14 +296,16 @@ export const SectionCard = memo(function SectionCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openSeqKey, section.content, commentsCollapsed]);
 
-  // Clear the highlight when this section unmounts.
+  // Clear the highlight (and any pending peek-close timer) when this section unmounts.
   useEffect(() => () => {
     (CSS as unknown as { highlights?: Map<string, unknown> }).highlights?.delete('geo-anchor');
+    if (peekCloseTimer.current != null) clearTimeout(peekCloseTimer.current);
   }, []);
 
   // Collapsing comments doc-wide closes any open popover (and its highlight).
   useEffect(() => {
-    if (commentsCollapsed) { setPinnedPop(null); setHoverPop(null); }
+    if (commentsCollapsed) { cancelPeekClose(); setPinnedPop(null); setHoverPop(null); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [commentsCollapsed]);
 
   // A click anywhere outside a PINNED popover closes it. The popover itself is
@@ -294,6 +337,50 @@ export const SectionCard = memo(function SectionCard({
     openComments.map((c) => c.seq).filter((s): s is number => s != null),
   );
 
+  // spec-325 (dec-4 / option c): a section-level comment (no `anchorSnippet`) has
+  // no body `marker-c-N`, so it isn't measured into `markerTops`. It renders in
+  // the SAME right-edge gutter, pinned to the TOP of the section body. Multiple
+  // section-level comments stack; and where a span indicator already sits at/near
+  // the top, the section-level ones stack BELOW it so the two never overlap.
+  const SECTION_INDICATOR_STACK = 32; // px between stacked top-of-body indicators
+  const spanIndicatorsAtTop = Object.values(markerTops).filter(
+    (t) => t < SECTION_INDICATOR_STACK,
+  ).length;
+  const sectionLevelTops: Record<number, number> = {};
+  openComments
+    .filter((c) => c.anchorSnippet == null && c.seq != null)
+    .forEach((c, i) => {
+      sectionLevelTops[c.seq as number] = (spanIndicatorsAtTop + i) * SECTION_INDICATOR_STACK;
+    });
+
+  // The vertical position of an open comment's gutter indicator: the measured line
+  // for a span comment, the stacked body-top for a section-level one. `undefined`
+  // means "not placeable yet" (a span whose marker hasn't been measured) → it
+  // simply doesn't render this frame.
+  const indicatorTop = (c: Comment): number | undefined => {
+    if (c.seq == null) return undefined;
+    return c.anchorSnippet != null ? markerTops[c.seq] : sectionLevelTops[c.seq];
+  };
+
+  // spec-325 (dec-1): a comment deep-link emulates a click on this comment's
+  // gutter card. If THIS section owns the target, pin it on load and scroll the
+  // section into view — reproducing exactly what a manual click produces. A span
+  // comment additionally gets the amber passage highlight (via the `shown`→
+  // highlight effect); a section-level comment has no passage, so no highlight
+  // (correct and inherent). Runs once; re-armed only if the target seq changes.
+  const deepLinkPinnedSeq = useRef<number | null>(null);
+  useEffect(() => {
+    if (deepLinkCommentSeq == null || commentsCollapsed) return;
+    if (deepLinkPinnedSeq.current === deepLinkCommentSeq) return;
+    if (!openComments.some((c) => c.seq === deepLinkCommentSeq)) return;
+    const el = document.getElementById(`indicator-c-${deepLinkCommentSeq}`);
+    if (!el) return; // indicator not placed yet (span awaiting measure) — re-run on next deps change
+    deepLinkPinnedSeq.current = deepLinkCommentSeq;
+    pinComment(deepLinkCommentSeq, el);
+    cardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deepLinkCommentSeq, openSeqKey, markerTops, commentsCollapsed]);
+
   // spec-100 card actions: mark done (resolve) and delete-your-own. Both drop
   // the card from the open list on success.
   const dropCard = (id: string) => onCommentsChange?.(section.id, comments.filter((x) => x.id !== id));
@@ -324,7 +411,7 @@ export const SectionCard = memo(function SectionCard({
     });
 
   const [saveError, setSaveError] = useState<string | null>(null);
-  const submitAnchored = async () => {
+  const submitAnchored = async (mentionUserIds: string[] = []) => {
     if (!anchorDraft || !draftText.trim()) return;
     setSubmitting(true);
     setSaveError(null);
@@ -338,6 +425,14 @@ export const SectionCard = memo(function SectionCard({
         createComment(section.id, user?.name ?? 'You', draftText.trim(), { type: 'issue' }, anchorDraft.end, anchorDraft.start),
         timeout,
       ])) as Awaited<ReturnType<typeof createComment>>;
+      // spec-320: attach the @-mentions to the just-created comment (adds them to
+      // the discussion + notifies them by email). The comment is already saved, so
+      // a mention failure must not lose it — best-effort, logged, never blocks close.
+      if (mentionUserIds.length > 0) {
+        await addCommentMentions(created.id, mentionUserIds).catch((err) =>
+          console.error('Failed to attach @mentions to comment:', err),
+        );
+      }
       onCommentsChange?.(section.id, [...comments, created]);
       setAnchorDraft(null);
       setDraftText('');
@@ -392,7 +487,7 @@ export const SectionCard = memo(function SectionCard({
                 label: `Section ${sectionNumber} — ${title}`,
               });
             }}
-            className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-card-hover"
+            className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-sm hover:bg-card-hover"
             title="Focus chat on this section"
           >
             <svg className="w-3.5 h-3.5 text-secondary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -400,7 +495,11 @@ export const SectionCard = memo(function SectionCard({
             </svg>
           </button>
           {commentCount > 0 && (
-            <span data-testid="section-comment-count" className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs text-secondary bg-surface/50 border border-edge">
+            // spec-319 (issue B / dec-3): a status indicator, not a control. The
+            // card is clickable so the badge would otherwise inherit a pointer
+            // cursor and read as a button that does nothing — cursor-default
+            // removes that misleading affordance.
+            <span data-testid="section-comment-count" className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs text-secondary bg-surface/50 border border-edge cursor-default">
               <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 01.865-.501 48.172 48.172 0 003.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z" />
               </svg>
@@ -414,30 +513,31 @@ export const SectionCard = memo(function SectionCard({
         <div ref={cardRef} className="relative">
           <div
             ref={bodyRef}
-            onMouseUp={handleSelection}
             data-testid="section-body"
             className="min-w-0 pr-8"
           >
             <MemoizedMarkdown content={withRenderedMarkers(section.content, visibleSeqs)} isDemo={isDemo} />
           </div>
 
-          {/* right-edge comment indicators, one per open comment, vertically
-              aligned to its anchored line (measured). Generic comment icon for
-              now; per-author avatars later. */}
-          {!commentsCollapsed && openComments.map((c) =>
-            c.seq != null && markerTops[c.seq] != null ? (
+          {/* right-edge comment indicators, one per open comment: a span comment
+              aligns to its measured anchored line; a section-level comment (spec-325)
+              sits at the top of the body (stacked on collision). Generic comment
+              icon for now; per-author avatars later. */}
+          {!commentsCollapsed && openComments.map((c) => {
+            const top = indicatorTop(c);
+            return c.seq != null && top != null ? (
               <button
                 key={c.id}
                 id={`indicator-c-${c.seq}`}
                 data-indicator-seq={c.seq}
                 type="button"
-                style={{ top: markerTops[c.seq] }}
+                style={{ top }}
                 onMouseEnter={(e) => peekComment(c.seq!, e.currentTarget)}
-                onMouseLeave={unpeek}
+                onMouseLeave={schedulePeekClose}
                 onClick={(e) => { e.stopPropagation(); pinComment(c.seq!, e.currentTarget); }}
                 aria-label="View comment"
                 title="View comment"
-                className={`absolute right-0 -translate-y-0.5 inline-flex items-center justify-center w-7 h-7 rounded-full border shadow-sm transition-colors ${
+                className={`absolute right-0 -translate-y-0.5 inline-flex items-center justify-center w-7 h-7 rounded-full border shadow-xs transition-colors ${
                   shown?.seq === c.seq
                     ? 'bg-accent text-white border-accent'
                     : 'bg-surface text-secondary border-edge-subtle hover:text-accent hover:border-edge-strong'
@@ -447,8 +547,8 @@ export const SectionCard = memo(function SectionCard({
                   <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 01.865-.501 48.172 48.172 0 003.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z" />
                 </svg>
               </button>
-            ) : null,
-          )}
+            ) : null;
+          })}
         </div>
 
         {/* peek (hover) / pinned (click) comment popover. Actions only show
@@ -464,6 +564,8 @@ export const SectionCard = memo(function SectionCard({
               data-testid="comment-popover"
               data-pinned={shownIsPinned}
               onClick={(e) => e.stopPropagation()}
+              onMouseEnter={cancelPeekClose}
+              onMouseLeave={schedulePeekClose}
               style={{ position: 'fixed', top: shown.top - 8, left: shown.left, zIndex: 50, width: POPOVER_W }}
               className="rounded-xl border border-edge-subtle bg-surface shadow-lg p-3 space-y-1"
             >
@@ -474,7 +576,7 @@ export const SectionCard = memo(function SectionCard({
                   {c.createdAt && <div className="text-[10px] text-muted">{formatCommentTime(c.createdAt)}</div>}
                 </div>
               </div>
-              <p className="text-sm text-secondary whitespace-pre-wrap break-words">{bodyText}</p>
+              <p className="text-sm text-secondary whitespace-pre-wrap wrap-break-word">{bodyText}</p>
               {long && (
                 <button type="button" data-testid={`card-showmore-${c.seq}`} onClick={(e) => { e.stopPropagation(); toggleExpand(c.id); }} className="text-[11px] text-accent hover:underline">
                   {expanded ? 'Show less' : 'Show more'}

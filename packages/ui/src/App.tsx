@@ -7,6 +7,7 @@ import { Decisions } from './pages/Decisions';
 import { SpecList } from './pages/SpecList';
 import { IssuesList } from './pages/IssuesList';
 import { NamespaceHome } from './pages/NamespaceHome';
+import { HomeCanvas } from './pages/HomeCanvas';
 import { StandardList } from './pages/StandardList';
 import { Standard } from './pages/Standard';
 import { DriftInbox } from './pages/DriftInbox';
@@ -23,6 +24,9 @@ import { OrgConfiguration } from './pages/OrgConfiguration';
 import { ScaffoldInspect } from './pages/ScaffoldInspect';
 import { MemexSettings } from './pages/MemexSettings';
 import { MemexKeys } from './pages/MemexKeys';
+import { UpgradePlanSelect } from './pages/upgrade/UpgradePlanSelect';
+import { UpgradeSeats } from './pages/upgrade/UpgradeSeats';
+import { UpgradeConfirmation } from './pages/upgrade/UpgradeConfirmation';
 import { VerifyDomain } from './pages/VerifyDomain';
 import { SharedDocument } from './pages/SharedDocument';
 import { Backstage } from './pages/Backstage';
@@ -53,7 +57,6 @@ import { tenantBase, BASE_URL, fetchWithRetry } from './api/http';
 import { SearchProvider } from './components/SearchContext';
 import { WhatsNewRibbonConnected } from './components/whats-new/WhatsNewRibbonConnected';
 import { WhatsNewProvider } from './components/whats-new/WhatsNewContext';
-import { FirstRunGreeting } from './components/onboarding/FirstRunGreeting';
 import { DemoWalkthroughController } from './voice/walkthrough/DemoWalkthroughController';
 
 declare const __BUILD_TIME__: string;
@@ -164,13 +167,13 @@ function TenantLayout() {
   // tick; the AuthContext useEffect runs synchronously after mount.
   if (!session) return null;
 
-  // Onboarding/verification gates take precedence — even with a valid tenant
-  // URL, an unverified user can't actually do anything yet.
+  // The email-verification gate takes precedence — even with a valid tenant URL, an
+  // unverified user can't actually do anything yet. spec-312 dec-3: this gate stays
+  // exactly as is; the needsOnboarding wall that used to sit here is gone — an
+  // incomplete-onboarding user is free to navigate anywhere (the journey lives on
+  // /home as a recede-able layer, not a wall).
   if (!session.user.emailVerified) {
     return <VerifyEmailGate />;
-  }
-  if (session.needsOnboarding) {
-    return <Onboarding />;
   }
 
   // Membership check: redirect to the user's default tenant when they aren't
@@ -218,9 +221,9 @@ function TenantLayout() {
             {/* spec-200: global What's New ribbon — authed shell only (inside
                 VoiceGuideMount so t-7's ear can reach the voice session). */}
             <WhatsNewRibbonConnected />
-            {/* spec-206 t-3: first-run greeting controller — auto-starts Specky on
-                a user's first session (no modal, no tap). Renders nothing. */}
-            <FirstRunGreeting />
+            {/* spec-305 dec-2: the Specky first-run greeting (FirstRunGreeting,
+                spec-206/242) is retired — onboarding is now the Home Canvas journey.
+                spec-312: it's a recede-able layer on /home, no longer a routing wall. */}
             <AppShell>
               <Fragment key={`${namespace}/${memex}`}>
                 <Outlet />
@@ -322,17 +325,18 @@ function VoiceGuideMount({
   );
 }
 
-// `/` lands the authenticated user on their default tenant's specs page.
-// Pre-auth users won't reach this (RequireAuth intercepts), but if the
-// session loads with zero memberships we render the specs board behind
-// no tenant (a legitimately rare case — every user has exactly one personal
-// Memex by invariant; only stale local sessions hit this).
+// spec-312 dec-1: `/` lands every authenticated, email-verified user on /home — the
+// universal landing, regardless of onboarding/identity state. Pre-auth users won't
+// reach this (RequireAuth intercepts). When 'home' is hidden per-env the /home route
+// itself renders RootRedirect, so there we fall back to the default tenant landing to
+// avoid a redirect loop (and a session with zero memberships falls back to null → /).
 function RootRedirect() {
   const { session } = useAuth();
   if (!session) return null; // session bootstrap still pending
   if (session && !session.user.emailVerified) return <VerifyEmailGate />;
-  if (session?.needsOnboarding) return <Onboarding />;
-  const target = computeDefaultLanding(session);
+  // spec-312 dec-3: needsOnboarding / identity_confirmed_at no longer participate in
+  // routing. The only branch left is the per-env 'home' hide (loop-avoidance above).
+  const target = isFeatureHidden(session, 'home') ? computeDefaultLanding(session) : '/home';
   if (target) return <Navigate to={target} replace />;
   return null;
 }
@@ -368,7 +372,33 @@ export function PostLoginRouter() {
       <Route path="/settings/integrations" element={<FlatShell><SettingsIntegrations /></FlatShell>} />
       <Route path="/invites" element={<Navigate to="/org?tab=invites" replace />} />
       <Route path="/org" element={<FlatShell><OrgConfiguration /></FlatShell>} />
+      {/* spec-171: in-app upgrade flow. Flat routes so website CTAs land here
+          without a tenant prefix. confirmation before :plan so it isn't caught
+          as a plan param. */}
+      <Route path="/upgrade" element={<FlatShell><UpgradePlanSelect /></FlatShell>} />
+      <Route path="/upgrade/confirmation" element={<FlatShell><UpgradeConfirmation /></FlatShell>} />
+      <Route path="/upgrade/:plan" element={<FlatShell><UpgradeSeats /></FlatShell>} />
       <Route path="/account" element={<Navigate to="/org" replace />} />
+      {/* spec-303 — Home Canvas: user-level, flat (not tenant-scoped). Gated on
+          the server-driven hide list (feature: 'home') so the surface can be
+          hidden per-env (e.g. prod) while live on int — same mechanism as /pulse.
+          When hidden we REDIRECT rather than drop the route: /home is a flat,
+          single-segment path, so an unregistered route would otherwise be claimed
+          by /:namespace below (resolving "home" as a namespace). RootRedirect
+          sends the user to their default landing instead. */}
+      <Route
+        path="/home"
+        element={
+          isFeatureHidden(session, 'home') ? (
+            <RootRedirect />
+          ) : (
+            <FlatShell>
+              <HomeCanvas />
+            </FlatShell>
+          )
+        }
+      />
+
 
       {/* doc-19 t-10: namespace home — /<namespace>/ renders the kind-aware
           OrgHome / Personal Home. More specific /:namespace/:memex routes below
@@ -494,7 +524,9 @@ export function PostLoginRouter() {
 function FlatShell({ children }: { children: React.ReactNode }) {
   const { session } = useAuth();
   if (session && !session.user.emailVerified) return <VerifyEmailGate />;
-  if (session?.needsOnboarding) return <Onboarding />;
+  // spec-312 dec-3: the needsOnboarding bounce-back that used to live here is gone —
+  // flat routes render for everyone past the email gate. Onboarding is a layer on
+  // /home, never a wall that ejects you from other surfaces.
   return (
     <ChatProvider>
       <OrgConsentDialog />

@@ -89,7 +89,8 @@ describe("document service events (via bus)", () => {
       entity: "document",
       action: "status_changed",
       narrative: expect.stringContaining("draft → review"),
-      payload: { from: "draft", to: "review" },
+      // spec-306: doc attribution rides alongside the {from,to} payload.
+      payload: { from: "draft", to: "review", doc_id: doc.id, doc_type: "spec" },
     });
   });
 });
@@ -228,6 +229,8 @@ describe("decision service events (via bus)", () => {
       entity: "decision",
       action: "resolved",
       narrative: expect.any(String),
+      // spec-306: decision.resolved attributes its parent Spec.
+      payload: { doc_id: docId, doc_type: "spec" },
     });
   });
 
@@ -271,6 +274,8 @@ describe("task service events (via bus)", () => {
       entity: "task",
       action: "created",
       narrative: expect.any(String),
+      // spec-306: task.created attributes its parent Spec.
+      payload: { doc_id: docId, doc_type: "spec" },
     });
   });
 

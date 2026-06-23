@@ -125,6 +125,32 @@ describe('AppShell sidebar navigation', () => {
     expect(labels).toEqual(GROUPED);
   });
 
+  // spec-303 ac-1 / impl ac-9 — the Home Canvas is the FIRST nav item and a flat,
+  // user-level link (/home), not tenant-prefixed.
+  it('shows Home as the first nav item, linking to the flat /home', () => {
+    tagAc('mindset-prod/memex-building-itself/specs/spec-303/acs/ac-1');
+    tagAc('mindset-prod/memex-building-itself/specs/spec-303/acs/ac-9');
+    renderShell(['/specs']);
+
+    const nav = screen.getByTestId('primary-nav');
+    const home = within(nav).getByRole('link', { name: 'Home' });
+    expect(home).toHaveAttribute('href', '/home');
+    // Home is the first working surface — above Specs (the previous top item).
+    const links = within(nav).getAllByRole('link');
+    const specs = within(nav).getByRole('link', { name: 'Specs' });
+    expect(links.indexOf(home)).toBeGreaterThanOrEqual(0);
+    expect(links.indexOf(home)).toBeLessThan(links.indexOf(specs));
+  });
+
+  it('marks Home active on /home', () => {
+    tagAc('mindset-prod/memex-building-itself/specs/spec-303/acs/ac-1');
+    renderShell(['/home']);
+
+    const nav = screen.getByTestId('primary-nav');
+    const home = within(nav).getByRole('link', { name: 'Home' });
+    expect(home.className).toContain('font-medium');
+  });
+
   it('marks Issues active on /issues', () => {
     renderShell(['/issues']);
 
@@ -263,5 +289,26 @@ describe('AppShell feature-hide (spec-146 t-3)', () => {
     renderShell(['/specs']);
     const visibleNav = screen.getByTestId('primary-nav');
     expect(within(visibleNav).getByRole('link', { name: 'Scaffold' })).toBeInTheDocument();
+  });
+
+  // The Home Canvas (spec-303) is gated by the same mechanism: 'home' in the
+  // session hiddenFeatures drops the top nav link, so the whole surface can be
+  // hidden per-env (prod) while it stays live on int. The route is gated to
+  // match in App.tsx (redirect when hidden).
+  it("hides the Home nav link when 'home' is in the session hiddenFeatures", () => {
+    // Hidden: 'home' listed → no Home link for anyone on this env.
+    mockSession.value = sessionWith(['home']);
+    const hidden = renderShell(['/specs']);
+    const hiddenNav = screen.getByTestId('primary-nav');
+    expect(within(hiddenNav).queryByRole('link', { name: 'Home' })).not.toBeInTheDocument();
+    // Specs (a non-feature link) is untouched — only Home went away.
+    expect(within(hiddenNav).getByRole('link', { name: 'Specs' })).toBeInTheDocument();
+    hidden.unmount();
+
+    // Visible: empty hiddenFeatures → Home returns as the first nav item.
+    mockSession.value = sessionWith([]);
+    renderShell(['/specs']);
+    const visibleNav = screen.getByTestId('primary-nav');
+    expect(within(visibleNav).getByRole('link', { name: 'Home' })).toBeInTheDocument();
   });
 });

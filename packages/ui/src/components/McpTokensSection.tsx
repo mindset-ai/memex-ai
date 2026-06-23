@@ -135,7 +135,7 @@ export function McpTokensSection() {
                       <button
                         onClick={() => handleRevoke(t.id)}
                         disabled={revoking === t.id}
-                        className="text-xs px-3 py-1 rounded text-error hover:bg-error/10 disabled:opacity-50"
+                        className="text-xs px-3 py-1 rounded-sm text-error hover:bg-error/10 disabled:opacity-50"
                       >
                         {revoking === t.id ? 'Revoking…' : 'Revoke'}
                       </button>

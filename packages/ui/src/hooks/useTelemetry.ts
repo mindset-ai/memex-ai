@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { sanitizeUsageProps, type RegisteredEventName } from '@memex/shared';
-import { tenantBase, fetchWithRetry } from '../api/http';
+import { BASE_URL, tenantBase, fetchWithRetry } from '../api/http';
+import { hasConsent } from '../lib/visitorConsent';
+
+// isDoNotTrack moved to the consent module (single source of truth, no import
+// cycle); re-exported here so existing importers keep working.
+export { isDoNotTrack } from '../lib/visitorConsent';
 
 // useTelemetry — the BROWSER half of spec-244's front-end capture (t-6).
 //
@@ -17,16 +22,8 @@ import { tenantBase, fetchWithRetry } from '../api/http';
 
 const OPT_OUT_KEY = 'memex.telemetry.optout';
 
-/** Honour the browser Do-Not-Track signal across its vendor spellings. */
-export function isDoNotTrack(): boolean {
-  if (typeof navigator === 'undefined') return false;
-  const nav = navigator as Navigator & { msDoNotTrack?: string };
-  const win = typeof window !== 'undefined' ? (window as Window & { doNotTrack?: string }) : undefined;
-  const dnt = nav.doNotTrack ?? win?.doNotTrack ?? nav.msDoNotTrack;
-  return dnt === '1' || dnt === 'yes';
-}
-
-/** Per-user opt-out, persisted in localStorage. */
+/** Per-user opt-out, persisted in localStorage. A secondary withdraw on top of
+ *  consent (spec-244); under dec-4=B consent is the primary gate. */
 export function isOptedOut(): boolean {
   try {
     return typeof localStorage !== 'undefined' && localStorage.getItem(OPT_OUT_KEY) === '1';
@@ -35,9 +32,25 @@ export function isOptedOut(): boolean {
   }
 }
 
-/** Capture is allowed only when neither DNT nor the opt-out is set. */
-export function telemetryEnabled(): boolean {
-  return !isDoNotTrack() && !isOptedOut();
+/**
+ * The capture gate. It splits by who is asking (spec-326 dec-1):
+ *
+ *   - AUTHENTICATED → tracked BY DEFAULT under legitimate interest. The only gate
+ *     is the per-user opt-out (the Art-21 right to object). Consent is NOT required
+ *     and Do-Not-Track is NOT honored (dec-3: DNT has no UK/EU legal force; the
+ *     settings opt-out is the meaningful, deliberate control).
+ *   - ANONYMOUS → spec-254's opt-in is unchanged: capture only on an explicit
+ *     'granted' consent (hasConsent already excludes Do-Not-Track) AND not opted out.
+ *
+ * The opt-out short-circuits both regimes — it is a withdraw that always wins.
+ *
+ * `authenticated` defaults to false (the anonymous opt-in gate), so callers on the
+ * pre-auth path — `trackAnonymous` (spec-324) and any other anonymous caller — get
+ * the correct opt-in semantics by calling `telemetryEnabled()` with no argument.
+ */
+export function telemetryEnabled(authenticated = false): boolean {
+  if (isOptedOut()) return false;
+  return authenticated || hasConsent();
 }
 
 // Replace id-shaped segments (handles like spec-7, bare numbers, uuids) with ':id'
@@ -59,11 +72,14 @@ export interface UseTelemetry {
   setOptOut: (value: boolean) => void;
 }
 
-export function useTelemetry(): UseTelemetry {
+export function useTelemetry(authenticated = false): UseTelemetry {
   const [optedOut, setOptedOut] = useState<boolean>(isOptedOut);
 
   const track = useCallback((name: RegisteredEventName, props?: Record<string, unknown>): void => {
-    if (!telemetryEnabled()) return;
+    // spec-326 dec-1: authenticated users are tracked by default (opt-out only);
+    // anonymous keep spec-254's opt-in. Default `authenticated=false` keeps every
+    // existing caller on the anonymous (opt-in) gate until it opts in explicitly.
+    if (!telemetryEnabled(authenticated)) return;
     const base = tenantBase();
     if (!base) return;
     void fetchWithRetry(`${base}/telemetry`, {
@@ -73,7 +89,7 @@ export function useTelemetry(): UseTelemetry {
     }).catch(() => {
       // Advisory — telemetry must never disrupt the user's flow.
     });
-  }, []);
+  }, [authenticated]);
 
   const setOptOut = useCallback((value: boolean): void => {
     try {
@@ -89,13 +105,40 @@ export function useTelemetry(): UseTelemetry {
 }
 
 /**
+ * Fire a registered event WITHOUT a tenant — the PRE-AUTH path (spec-324). Posts to
+ * the flat `/api/telemetry` ingress, which keys the event on the consent-gated
+ * visitor_id cookie (or the session, if one happens to exist). Use this on pre-auth
+ * surfaces (the signup / login screen) where `tenantBase()` is null and `track()`
+ * would no-op — it is how the funnel HEAD (signup.form_viewed) is captured, so a
+ * visitor seen before they have an identity can later be stitched to their user.
+ *
+ * Same privacy posture as track(): no-op under no-consent / Do-Not-Track / opt-out
+ * (never sent), and the server additionally no-ops when there is no visitor_id and
+ * no session — so a non-consenting visitor sends and stores nothing. Advisory.
+ */
+export function trackAnonymous(name: RegisteredEventName, props?: Record<string, unknown>): void {
+  if (!telemetryEnabled()) return;
+  void fetchWithRetry(`${BASE_URL}/telemetry`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, props: sanitizeUsageProps(props) }),
+  }).catch(() => {
+    // Advisory — telemetry must never disrupt the user's flow.
+  });
+}
+
+/**
  * Fire `nav.route_changed` whenever the route template changes. Mounted once at the
  * tenant root. Records the TEMPLATE only (routeTemplate strips ids + query). Pass
  * `null` to disable (e.g. for an anonymous visitor — the server would no-op anyway,
  * but there's no point sending).
  */
 export function useTrackRouteChange(pathname: string | null): void {
-  const { track } = useTelemetry();
+  // A non-null pathname is the App's signal that this is an authenticated,
+  // trackable context (App.tsx passes null for anonymous visitors). That same
+  // signal IS the authenticated flag for the gate (spec-326 dec-1): a route we
+  // actually track belongs to an authenticated user, captured by default.
+  const { track } = useTelemetry(pathname !== null);
   const last = useRef<string | null>(null);
   useEffect(() => {
     if (pathname === null) return;

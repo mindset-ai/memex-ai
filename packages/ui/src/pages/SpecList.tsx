@@ -17,6 +17,7 @@ import { RenameSpecDialog } from '../components/RenameSpecDialog';
 import { MoveSpecDialog } from '../components/MoveSpecDialog';
 import { tenantPath, getCurrentTenant } from '../utils/tenantUrl';
 import { useAuth } from '../components/AuthContext';
+import { useTelemetry } from '../hooks/useTelemetry';
 import { nextRevealPhase, type RevealPhase } from '../hooks/useHandholdReveal';
 import { useHandholdRevealValue } from '../hooks/HandholdRevealContext';
 import { useIsFeatureHidden } from '../hooks/useIsFeatureHidden';
@@ -101,7 +102,7 @@ function AssigneeAvatars({ assignees }: { assignees?: DocSummaryAssignee[] }) {
         )}
       </div>
       {assignees.length === 1 && (
-        <span className="text-xs text-secondary truncate max-w-[8rem]">{personLabel(shown[0]!)}</span>
+        <span className="text-xs text-secondary truncate max-w-32">{personLabel(shown[0]!)}</span>
       )}
     </div>
   );
@@ -140,6 +141,7 @@ interface KanbanColumnProps {
 }
 
 function KanbanColumn(props: KanbanColumnProps) {
+  const { track } = useTelemetry(true);
   const {
     id,
     label,
@@ -210,6 +212,16 @@ function KanbanColumn(props: KanbanColumnProps) {
               <Link
                 to={tenantPath(`/specs/${d.handle}`)}
                 draggable={canWrite}
+                onClick={() =>
+                  track('spec.card_opened', {
+                    specSeq: docSeq(d.handle) ?? d.handle,
+                    phase: id,
+                    assigned: (d.assignees?.length ?? 0) > 0,
+                    ...(d.assignees?.[0]?.userId
+                      ? { assignedUserId: d.assignees[0].userId }
+                      : {}),
+                  })
+                }
                 onDragStart={canWrite ? (e) => onDragStart(e, d.id) : undefined}
                 onDragEnd={canWrite ? onDragEnd : undefined}
                 className={`block border rounded-md p-3 pr-9 transition-all bg-panel border-edge-subtle hover:border-edge hover:bg-card-hover ${
@@ -352,6 +364,7 @@ function KanbanColumn(props: KanbanColumnProps) {
  */
 export function SpecList() {
   const { session, user } = useAuth();
+  const { track } = useTelemetry(true);
   // spec-118 ac-19: the assignee filter lives in the URL (?assignee=all|me|<userId>)
   // so a filtered board is shareable, matching the board's existing URL conventions.
   const [searchParams, setSearchParams] = useSearchParams();
@@ -431,6 +444,19 @@ export function SpecList() {
   const [shareDocId, setShareDocId] = useState<string | null>(null);
   const [renameDoc, setRenameDoc] = useState<DocSummary | null>(null);
   const [moveDoc_, setMoveDoc] = useState<DocSummary | null>(null);
+
+  // spec-303: the Home Canvas "Create your first spec" CTA deep-links here with
+  // ?new=1 to open the SAME NewSpecModal the board's "+ New Spec" button uses —
+  // no second create path. The param is cleared so a refresh doesn't re-open it.
+  useEffect(() => {
+    if (searchParams.get('new') === '1') {
+      setModalOpen(true);
+      const next = new URLSearchParams(searchParams);
+      next.delete('new');
+      setSearchParams(next, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
+
   // Default-collapsed Done column (dec-5). Drop targets stay live in the rail.
   // Resets on every mount — leaving Done open across navigations made the board
   // feel cluttered, so we trade persistence for a clean default each visit.
@@ -572,6 +598,10 @@ export function SpecList() {
 
     const current = docs.find((d) => d.id === docId);
     if (!current || current.status === column) return;
+
+    // The drag interaction (intent). The OUTCOME is document.status_changed
+    // (back-end); this captures whether drag-to-move is used vs the detail view.
+    track('board.phase_drag', { from: current.status, to: column });
 
     // Promote the drag-time auto-expand to a sticky open state once a card
     // actually lands in Done, so the user can see what they just dropped.
@@ -773,7 +803,7 @@ export function SpecList() {
                 value={assigneeFilter}
                 onChange={(e) => setAssigneeFilter(e.target.value)}
                 aria-label="Filter by assignee"
-                className="bg-surface border border-edge-subtle rounded px-1.5 py-1 text-xs text-primary cursor-pointer"
+                className="bg-surface border border-edge-subtle rounded-sm px-1.5 py-1 text-xs text-primary cursor-pointer"
               >
                 <option value="all">All</option>
                 <option value="me">Assigned to me</option>
@@ -861,7 +891,7 @@ export function SpecList() {
             onDragOver={handleDragOver}
             onDragLeave={() => setDragOverColumn((c) => (c === col.id ? null : c))}
             onDrop={handleDrop}
-            className="flex-1 min-w-[14rem]"
+            className="flex-1 min-w-56"
             onAddSpec={col.id === 'draft' ? () => setModalOpen(true) : undefined}
             revealNextPhase={revealNextPhase}
             onAdvanceDemo={onAdvanceDemo}
@@ -874,7 +904,7 @@ export function SpecList() {
             leaves (handleDrop / handleDragEnd / dragLeave clear dragOverColumn).
             Drop targets stay live in the collapsed state too. */}
         {(doneExpanded || (draggingId !== null && dragOverColumn === 'done')) ? (
-          <div className="flex-1 min-w-[14rem] flex flex-col min-h-0">
+          <div className="flex-1 min-w-56 flex flex-col min-h-0">
             <KanbanColumn
               id="done"
               label="Done"

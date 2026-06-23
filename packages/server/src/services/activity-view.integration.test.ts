@@ -72,6 +72,9 @@ beforeAll(async () => {
   actor = await setupActor("aview");
   const doc = await createDocDraft(actor.memexId, "Activity View", "AV", "spec");
   docId = doc.id;
+  // spec-327: create_task is gated to build; ac-6 creates a source task on this
+  // Spec via the mcp channel, so it must be in build.
+  await db.update(documents).set({ status: "build" }).where(eq(documents.id, docId));
   created.docs.push(docId);
   const [docRow] = await db.select().from(documents).where(eq(documents.id, docId));
   specHandle = docRow.handle; // e.g. 'spec-1'

@@ -45,9 +45,8 @@ vi.mock("../services/mutate.js", () => ({
   ),
 }));
 
-vi.mock("../services/spec-traffic.js", () => ({
-  observeTestEventTraffic: vi.fn(),
-}));
+// spec-342: the route no longer calls into spec-traffic.js (the test-event
+// phase auto-advance was removed), so there is nothing to stub here.
 
 vi.mock("../services/issues.js", () => ({
   maybeAutoResolveIssuesForAcUid: vi.fn().mockResolvedValue(undefined),

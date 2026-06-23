@@ -282,6 +282,13 @@ export interface Comment {
   audience?: 'all' | string[];
   /** spec-100: system-authored action buttons (Address/Dismiss). */
   actions?: CommentAction[] | null;
+  /** spec-320 (dec-2): the single owner of this comment, if assigned. The
+   *  open→resolved lifecycle is the comment's own resolved_at; resolving closes
+   *  the assignment. The assignee is also a mention (assignee ⊆ mentions). */
+  assigneeUserId?: string | null;
+  /** spec-320: WHO assigned + WHEN (std-32), for the assignment byline. */
+  assignedBy?: string | null;
+  assignedAt?: string | null;
 }
 
 export type CommentTargetType = 'section' | 'decision' | 'task';

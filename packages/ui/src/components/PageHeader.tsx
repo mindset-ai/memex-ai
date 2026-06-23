@@ -4,6 +4,7 @@ import { useAuth } from './AuthContext';
 import { MemexPublicBadge } from './MemexPublicBadge';
 import { useAnonymousPublicMemex } from './PublicMemexContext';
 import { getCurrentTenant, namespaceHomePath, tenantPathFor } from '../utils/tenantUrl';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
 
 // Breadcrumb-style page header used on every tenancy-scoped page. The pattern
 // is:
@@ -25,6 +26,10 @@ export interface PageHeaderProps {
 }
 
 export function PageHeader({ title, actions }: PageHeaderProps) {
+  // spec-318 t-11 (ac-17): every breadcrumb page routes its title through the
+  // single document.title writer. The Spec page is the one page that does NOT
+  // use PageHeader — it sets its own handle-first title (see DocDocument).
+  useDocumentTitle({ kind: 'page', title });
   const { session } = useAuth();
   const tenant = getCurrentTenant();
   const memberships = session?.memberships ?? [];
@@ -97,7 +102,7 @@ function BreadcrumbLink({ to, children }: { to: string; children: ReactNode }) {
   return (
     <Link
       to={to}
-      className="hover:text-primary transition-colors truncate max-w-[12rem]"
+      className="hover:text-primary transition-colors truncate max-w-48"
     >
       {children}
     </Link>

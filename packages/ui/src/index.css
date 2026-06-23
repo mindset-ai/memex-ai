@@ -1,99 +1,202 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
+
+/* v4 class-based theming: both `.dark` and `.light` are explicit on the root
+   element (there is no :root fallback), so the dark variant must match the
+   class element itself AND its descendants. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+  The default border color changed to `currentColor` in Tailwind v4. This shim
+  restores the v3 default (gray-200) so existing borders that relied on the
+  implicit default don't shift. Remove once every bordered element carries an
+  explicit border-color utility.
+*/
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentcolor);
+  }
+}
 
 /*
  * ═══════════════════════════════════════════
- * Design Tokens
+ * Design Tokens (spec-290 dec-1 — Tailwind v4 CSS-first)
  * ═══════════════════════════════════════════
  *
+ * TWO LAYERS:
+ *   1. @theme below maps each token (`--color-<name>`, v4's reserved namespace)
+ *      to a per-theme CHANNEL variable (`--ch-<name>`). v4 generates the
+ *      utilities (`bg-surface`, `text-primary`, …) from these tokens.
+ *   2. The .dark / .light blocks define the channel VALUES (`--ch-*`). Channels
+ *      are deliberately NOT in the `--color-*` namespace: v4 owns `--color-*` for
+ *      its generated tokens, and a name shared between a token and its raw store
+ *      collides (the v3→v4 auto-migration produced exactly that bug — spec-290).
+ *
  * Token Reference (for AI agents and developers):
+ *   Surfaces:  bg-page, bg-panel, bg-surface(/alpha), bg-input, bg-card-hover, bg-selected, bg-overlay
+ *   Text:      text-heading, text-primary, text-secondary, text-muted
+ *   Borders:   border-edge, border-edge-subtle, border-edge-strong
+ *   Buttons:   bg-btn-primary, bg-btn-primary-hover, bg-btn-secondary, bg-btn-secondary-hover
+ *   Accent:    text-accent, text-accent-hover, bg-accent, text-on-accent (foreground for bg-accent fills)
+ *   Chips:     bg-chip, text-chip-text, border-chip-border
+ *   Status:    bg-status-{warning|success|info|danger|neutral}-bg
+ *              text-status-{warning|success|info|danger|neutral}-text
+ *              border-status-{warning|success|info|danger|neutral}-border
  *
- * Surfaces:  bg-page, bg-panel, bg-surface(/alpha), bg-input, bg-card-hover, bg-selected, bg-overlay
- * Text:      text-heading, text-primary, text-secondary, text-muted
- * Borders:   border-edge, border-edge-subtle, border-edge-strong
- * Buttons:   bg-btn-primary, bg-btn-primary-hover, bg-btn-secondary, bg-btn-secondary-hover
- * Accent:    text-accent, text-accent-hover, bg-accent, text-on-accent (foreground for bg-accent fills)
- * Chips:     bg-chip, text-chip-text, border-chip-border
- * Status:    bg-status-{warning|success|info|danger|neutral}-bg
- *            text-status-{warning|success|info|danger|neutral}-text
- *            border-status-{warning|success|info|danger|neutral}-border
+ * Baked tokens (panel, overlay, edge-subtle, all status/phase *-bg, *-container, chip):
+ *   opacity is pre-mixed into the channel value, referenced as plain var().
+ *   Do NOT use /alpha modifiers. NOTE: v4 cannot disable the modifier per token,
+ *   so this is a CONVENTION, not enforced — /alpha on a baked token double-mixes.
  *
- * Baked tokens (panel, overlay, edge-subtle, all status *-bg, chip):
- *   Do NOT use /alpha modifiers — opacity is built into the CSS value.
- *
- * Alpha tokens (page, surface, input, card-hover, selected, etc.):
- *   You CAN use /alpha (e.g. bg-surface/50, text-primary/80).
+ * Alpha tokens (page, surface, input, card-hover, selected, text-*, edge, accent…):
+ *   You CAN use /alpha (e.g. bg-surface/50, text-primary/80). v4 renders it as
+ *   color-mix(in srgb, …), parity-exact with v3's rgb(var(--ch) / x).
  */
+@theme {
+  /* ── Surfaces ── */
+  --color-page:        rgb(var(--ch-page));
+  --color-surface:     rgb(var(--ch-surface));
+  --color-input:       rgb(var(--ch-input));
+  --color-card-hover:  rgb(var(--ch-card-hover));
+  --color-selected:    rgb(var(--ch-selected));
+  --color-panel:       var(--ch-panel);          /* baked */
+  --color-overlay:     var(--ch-overlay);        /* baked */
+
+  /* ── Text ── */
+  --color-heading:     rgb(var(--ch-text-heading));
+  --color-primary:     rgb(var(--ch-text-primary));
+  --color-secondary:   rgb(var(--ch-text-secondary));
+  --color-muted:       rgb(var(--ch-text-muted));
+
+  /* ── Borders ── */
+  --color-edge:         rgb(var(--ch-edge));
+  --color-edge-subtle:  var(--ch-edge-subtle);   /* baked */
+  --color-edge-strong:  rgb(var(--ch-edge-strong));
+
+  /* ── Interactive ── */
+  --color-btn-primary:        rgb(var(--ch-btn-primary));
+  --color-btn-primary-hover:  rgb(var(--ch-btn-primary-hover));
+  --color-btn-secondary:        rgb(var(--ch-btn-secondary));
+  --color-btn-secondary-hover:  rgb(var(--ch-btn-secondary-hover));
+
+  /* ── Accent ── */
+  --color-accent:       rgb(var(--ch-accent));
+  --color-accent-hover: rgb(var(--ch-accent-hover));
+  --color-on-accent:    rgb(var(--ch-on-accent));
+
+  /* ── Agent (Prompt Button) ── */
+  --color-agent:        rgb(var(--ch-agent));
+  --color-agent-hover:  rgb(var(--ch-agent-hover));
+
+  /* ── Chips ── */
+  --color-chip:         var(--ch-chip);          /* baked */
+  --color-chip-text:    rgb(var(--ch-chip-text));
+  --color-chip-border:  rgb(var(--ch-chip-border));
+
+  /* ── Status ── (every *-bg is baked) */
+  --color-status-warning-bg:      var(--ch-status-warning-bg);
+  --color-status-warning-text:    rgb(var(--ch-status-warning-text));
+  --color-status-warning-border:  rgb(var(--ch-status-warning-border));
+  --color-status-success-bg:      var(--ch-status-success-bg);
+  --color-status-success-text:    rgb(var(--ch-status-success-text));
+  --color-status-success-border:  rgb(var(--ch-status-success-border));
+  --color-status-info-bg:         var(--ch-status-info-bg);
+  --color-status-info-text:       rgb(var(--ch-status-info-text));
+  --color-status-info-border:     rgb(var(--ch-status-info-border));
+  --color-status-danger-bg:       var(--ch-status-danger-bg);
+  --color-status-danger-text:     rgb(var(--ch-status-danger-text));
+  --color-status-danger-border:   rgb(var(--ch-status-danger-border));
+  --color-status-neutral-bg:      var(--ch-status-neutral-bg);
+  --color-status-neutral-text:    rgb(var(--ch-status-neutral-text));
+  --color-status-neutral-border:  rgb(var(--ch-status-neutral-border));
+
+  /* ── Phase palette (spec-252) ── (*-bg and *-container are baked) */
+  --color-phase-specify-bg:        var(--ch-phase-specify-bg);
+  --color-phase-specify-text:      rgb(var(--ch-phase-specify-text));
+  --color-phase-specify-border:    rgb(var(--ch-phase-specify-border));
+  --color-phase-specify-container: var(--ch-phase-specify-container);
+  --color-phase-build-bg:          var(--ch-phase-build-bg);
+  --color-phase-build-text:        rgb(var(--ch-phase-build-text));
+  --color-phase-build-border:      rgb(var(--ch-phase-build-border));
+  --color-phase-build-container:   var(--ch-phase-build-container);
+  --color-phase-verify-bg:         var(--ch-phase-verify-bg);
+  --color-phase-verify-text:       rgb(var(--ch-phase-verify-text));
+  --color-phase-verify-border:     rgb(var(--ch-phase-verify-border));
+  --color-phase-verify-container:  var(--ch-phase-verify-container);
+  --color-phase-draft-container:   var(--ch-phase-draft-container);
+}
 
 .dark {
   /* Surfaces — Atom One Dark neutral grays, no blue tint */
-  --color-page:           33 37 43;                    /* #21252b */
-  --color-panel:          rgba(33, 37, 43, 1);         /* matches page — border defines structure */
-  --color-surface:        27 30 36;                    /* #1b1e24 — darker neutral */
-  --color-input:          40 44 52;                    /* #282c34 */
-  --color-card-hover:     40 44 52;                    /* #282c34 */
-  --color-selected:       40 44 52;                    /* #282c34 */
-  --color-overlay:        rgba(40, 44, 52, 0.6);      /* #282c34/60 */
+  --ch-page:           33 37 43;                    /* #21252b */
+  --ch-panel:          rgba(33, 37, 43, 1);         /* matches page — border defines structure */
+  --ch-surface:        27 30 36;                    /* #1b1e24 — darker neutral */
+  --ch-input:          40 44 52;                    /* #282c34 */
+  --ch-card-hover:     40 44 52;                    /* #282c34 */
+  --ch-selected:       40 44 52;                    /* #282c34 */
+  --ch-overlay:        rgba(40, 44, 52, 0.6);      /* #282c34/60 */
 
   /* Text */
-  --color-text-heading:   241 245 249;                 /* slate-100 */
-  --color-text-primary:   226 232 240;                 /* slate-200 */
-  --color-text-secondary: 148 163 184;                 /* slate-400 */
-  --color-text-muted:     100 116 139;                 /* slate-500 */
+  --ch-text-heading:   241 245 249;                 /* slate-100 */
+  --ch-text-primary:   226 232 240;                 /* slate-200 */
+  --ch-text-secondary: 148 163 184;                 /* slate-400 */
+  --ch-text-muted:     100 116 139;                 /* slate-500 */
 
   /* Brand logo (spec-223) — near-white so the single-colour wordmark stays legible on the dark surface */
   --color-logo:           241 245 249;                 /* slate-100 (~14:1 on the dark page) */
 
   /* Borders — neutral grays */
-  --color-edge:           62 68 81;                    /* #3e4451 — Atom One Dark gutter */
-  --color-edge-subtle:    rgba(62, 68, 81, 0.5);      /* #3e4451/50 */
-  --color-edge-strong:    75 82 95;                    /* #4b525f */
+  --ch-edge:           62 68 81;                    /* #3e4451 — Atom One Dark gutter */
+  --ch-edge-subtle:    rgba(62, 68, 81, 0.5);      /* #3e4451/50 */
+  --ch-edge-strong:    75 82 95;                    /* #4b525f */
 
   /* Interactive */
-  --color-btn-primary:       62 68 81;                 /* #3e4451 */
-  --color-btn-primary-hover: 75 82 95;                 /* #4b525f */
-  --color-btn-secondary:       62 68 81;               /* #3e4451 */
-  --color-btn-secondary-hover: 75 82 95;               /* #4b525f */
+  --ch-btn-primary:       62 68 81;                 /* #3e4451 */
+  --ch-btn-primary-hover: 75 82 95;                 /* #4b525f */
+  --ch-btn-secondary:       62 68 81;               /* #3e4451 */
+  --ch-btn-secondary-hover: 75 82 95;               /* #4b525f */
 
   /* Accent */
-  --color-accent:       96 165 250;                    /* blue-400 */
-  --color-accent-hover: 147 197 253;                   /* blue-300 */
-  --color-on-accent:    15 23 42;                       /* slate-900 — dark text reads on the light-blue accent (~7:1) */
+  --ch-accent:       96 165 250;                    /* blue-400 */
+  --ch-accent-hover: 147 197 253;                   /* blue-300 */
+  --ch-on-accent:    15 23 42;                       /* slate-900 — dark text reads on the light-blue accent (~7:1) */
 
   /* Agent (Prompt Button — spec-103: the recognisable "hand off to an agent" colour) */
-  --color-agent:        139 92 246;                    /* violet-500 */
-  --color-agent-hover:  167 139 250;                   /* violet-400 */
+  --ch-agent:        139 92 246;                    /* violet-500 */
+  --ch-agent-hover:  167 139 250;                   /* violet-400 */
 
   /* Chips */
-  --color-chip:        rgba(62, 68, 81, 0.5);         /* #3e4451/50 */
-  --color-chip-text:   203 213 225;                    /* slate-300 */
-  --color-chip-border: 75 82 95;                       /* #4b525f */
+  --ch-chip:        rgba(62, 68, 81, 0.5);         /* #3e4451/50 */
+  --ch-chip-text:   203 213 225;                    /* slate-300 */
+  --ch-chip-border: 75 82 95;                       /* #4b525f */
 
   /* Status: warning (draft, open) */
-  --color-status-warning-bg:     rgba(120, 53, 15, 0.5);  /* amber-900/50 */
-  --color-status-warning-text:   252 211 77;               /* amber-300 */
-  --color-status-warning-border: 180 83 9;                 /* amber-700 */
+  --ch-status-warning-bg:     rgba(120, 53, 15, 0.5);  /* amber-900/50 */
+  --ch-status-warning-text:   252 211 77;               /* amber-300 */
+  --ch-status-warning-border: 180 83 9;                 /* amber-700 */
 
   /* Status: success (active, resolved, complete) */
-  --color-status-success-bg:     rgba(6, 78, 59, 0.5);    /* emerald-900/50 */
-  --color-status-success-text:   110 231 183;              /* emerald-300 */
-  --color-status-success-border: 4 120 87;                 /* emerald-700 */
+  --ch-status-success-bg:     rgba(6, 78, 59, 0.5);    /* emerald-900/50 */
+  --ch-status-success-text:   110 231 183;              /* emerald-300 */
+  --ch-status-success-border: 4 120 87;                 /* emerald-700 */
 
   /* Status: info (in_progress) */
-  --color-status-info-bg:        rgba(30, 58, 138, 0.5);  /* blue-900/50 */
-  --color-status-info-text:      147 197 253;              /* blue-300 */
-  --color-status-info-border:    29 78 216;                /* blue-700 */
+  --ch-status-info-bg:        rgba(30, 58, 138, 0.5);  /* blue-900/50 */
+  --ch-status-info-text:      147 197 253;              /* blue-300 */
+  --ch-status-info-border:    29 78 216;                /* blue-700 */
 
   /* Status: danger (blocked, error) */
-  --color-status-danger-bg:      rgba(127, 29, 29, 0.5);  /* red-900/50 */
-  --color-status-danger-text:    252 165 165;              /* red-300 */
-  --color-status-danger-border:  185 28 28;                /* red-700 */
+  --ch-status-danger-bg:      rgba(127, 29, 29, 0.5);  /* red-900/50 */
+  --ch-status-danger-text:    252 165 165;              /* red-300 */
+  --ch-status-danger-border:  185 28 28;                /* red-700 */
 
   /* Status: neutral (not_started, archived, pending) */
-  --color-status-neutral-bg:     rgba(62, 68, 81, 0.5);   /* #3e4451/50 */
-  --color-status-neutral-text:   148 163 184;              /* slate-400 */
-  --color-status-neutral-border: 75 82 95;                 /* #4b525f */
+  --ch-status-neutral-bg:     rgba(62, 68, 81, 0.5);   /* #3e4451/50 */
+  --ch-status-neutral-text:   148 163 184;              /* slate-400 */
+  --ch-status-neutral-border: 75 82 95;                 /* #4b525f */
 
   /* Phase palette (spec-252 dec-1) — Spec-view header only: phase-bar current
      pill + coloured container. Dedicated tokens, decoupled from statusVariant
@@ -104,106 +207,106 @@
      WCAG AA in both modes (a hue @ 80% over the dark page is a mid-tone, so the
      text must be near-black). draft has no Figma hue yet → keeps the neutral
      pill + a per-mode container. */
-  --color-phase-specify-bg:        rgba(228, 165, 245, 0.8); /* #E4A5F5 @ 80% */
-  --color-phase-specify-text:      46 16 101;                /* purple-950 */
-  --color-phase-specify-border:    228 165 245;
-  --color-phase-specify-container: rgba(228, 165, 245, 0.1); /* #E4A5F5 @ 10% */
-  --color-phase-build-bg:          rgba(123, 198, 252, 0.8); /* #7BC6FC @ 80% */
-  --color-phase-build-text:        8 47 73;                  /* sky-950 */
-  --color-phase-build-border:      123 198 252;
-  --color-phase-build-container:   rgba(123, 198, 252, 0.1); /* #7BC6FC @ 10% */
-  --color-phase-verify-bg:         rgba(93, 192, 166, 0.8);  /* #5DC0A6 @ 80% */
-  --color-phase-verify-text:       2 44 34;                  /* emerald-950 */
-  --color-phase-verify-border:     93 192 166;
-  --color-phase-verify-container:  rgba(93, 192, 166, 0.1);  /* #5DC0A6 @ 10% */
-  --color-phase-draft-container:   rgba(148, 163, 184, 0.10);/* slate wash — draft keeps the neutral pill */
+  --ch-phase-specify-bg:        rgba(228, 165, 245, 0.8); /* #E4A5F5 @ 80% */
+  --ch-phase-specify-text:      46 16 101;                /* purple-950 */
+  --ch-phase-specify-border:    228 165 245;
+  --ch-phase-specify-container: rgba(228, 165, 245, 0.1); /* #E4A5F5 @ 10% */
+  --ch-phase-build-bg:          rgba(123, 198, 252, 0.8); /* #7BC6FC @ 80% */
+  --ch-phase-build-text:        8 47 73;                  /* sky-950 */
+  --ch-phase-build-border:      123 198 252;
+  --ch-phase-build-container:   rgba(123, 198, 252, 0.1); /* #7BC6FC @ 10% */
+  --ch-phase-verify-bg:         rgba(93, 192, 166, 0.8);  /* #5DC0A6 @ 80% */
+  --ch-phase-verify-text:       2 44 34;                  /* emerald-950 */
+  --ch-phase-verify-border:     93 192 166;
+  --ch-phase-verify-container:  rgba(93, 192, 166, 0.1);  /* #5DC0A6 @ 10% */
+  --ch-phase-draft-container:   rgba(148, 163, 184, 0.10);/* slate wash — draft keeps the neutral pill */
 }
 
 .light {
   /* Surfaces */
-  --color-page:           255 255 255;                 /* white */
-  --color-panel:          rgba(255, 255, 255, 1);      /* white */
-  --color-surface:        248 250 252;                 /* slate-50 */
-  --color-input:          255 255 255;                 /* white */
-  --color-card-hover:     248 250 252;                 /* slate-50 */
-  --color-selected:       248 250 252;                 /* slate-50 */
-  --color-overlay:        rgba(248, 250, 252, 1);      /* slate-50 */
+  --ch-page:           255 255 255;                 /* white */
+  --ch-panel:          rgba(255, 255, 255, 1);      /* white */
+  --ch-surface:        248 250 252;                 /* slate-50 */
+  --ch-input:          255 255 255;                 /* white */
+  --ch-card-hover:     248 250 252;                 /* slate-50 */
+  --ch-selected:       248 250 252;                 /* slate-50 */
+  --ch-overlay:        rgba(248, 250, 252, 1);      /* slate-50 */
 
   /* Text */
-  --color-text-heading:   15 23 42;                    /* slate-900 */
-  --color-text-primary:   30 41 59;                    /* slate-800 */
-  --color-text-secondary: 100 116 139;                 /* slate-500 */
-  --color-text-muted:     148 163 184;                 /* slate-400 */
+  --ch-text-heading:   15 23 42;                    /* slate-900 */
+  --ch-text-primary:   30 41 59;                    /* slate-800 */
+  --ch-text-secondary: 100 116 139;                 /* slate-500 */
+  --ch-text-muted:     148 163 184;                 /* slate-400 */
 
   /* Brand logo (spec-223) — brand navy so the single-colour wordmark stays legible on the light surface */
   --color-logo:           14 17 43;                    /* #0E112B (~17:1 on white) */
 
   /* Borders */
-  --color-edge:           226 232 240;                 /* slate-200 */
-  --color-edge-subtle:    rgba(226, 232, 240, 1);      /* slate-200 */
-  --color-edge-strong:    203 213 225;                 /* slate-300 */
+  --ch-edge:           226 232 240;                 /* slate-200 */
+  --ch-edge-subtle:    rgba(226, 232, 240, 1);      /* slate-200 */
+  --ch-edge-strong:    203 213 225;                 /* slate-300 */
 
   /* Interactive */
-  --color-btn-primary:       30 41 59;                 /* slate-800 */
-  --color-btn-primary-hover: 51 65 85;                 /* slate-700 */
-  --color-btn-secondary:       226 232 240;            /* slate-200 */
-  --color-btn-secondary-hover: 203 213 225;            /* slate-300 */
+  --ch-btn-primary:       30 41 59;                 /* slate-800 */
+  --ch-btn-primary-hover: 51 65 85;                 /* slate-700 */
+  --ch-btn-secondary:       226 232 240;            /* slate-200 */
+  --ch-btn-secondary-hover: 203 213 225;            /* slate-300 */
 
   /* Accent */
-  --color-accent:       37 99 235;                     /* blue-600 */
-  --color-accent-hover: 29 78 216;                     /* blue-700 */
-  --color-on-accent:    255 255 255;                   /* white — reads on the darker blue-600 accent (~5:1) */
+  --ch-accent:       37 99 235;                     /* blue-600 */
+  --ch-accent-hover: 29 78 216;                     /* blue-700 */
+  --ch-on-accent:    255 255 255;                   /* white — reads on the darker blue-600 accent (~5:1) */
 
   /* Agent (Prompt Button — spec-103: the recognisable "hand off to an agent" colour) */
-  --color-agent:        124 58 237;                    /* violet-600 */
-  --color-agent-hover:  109 40 217;                    /* violet-700 */
+  --ch-agent:        124 58 237;                    /* violet-600 */
+  --ch-agent-hover:  109 40 217;                    /* violet-700 */
 
   /* Chips */
-  --color-chip:        rgba(30, 41, 59, 1);            /* slate-800 */
-  --color-chip-text:   255 255 255;                    /* white */
-  --color-chip-border: 51 65 85;                       /* slate-700 */
+  --ch-chip:        rgba(30, 41, 59, 1);            /* slate-800 */
+  --ch-chip-text:   255 255 255;                    /* white */
+  --ch-chip-border: 51 65 85;                       /* slate-700 */
 
   /* Status: warning (draft, open) */
-  --color-status-warning-bg:     rgba(254, 243, 199, 1);  /* amber-100 */
-  --color-status-warning-text:   180 83 9;                 /* amber-700 */
-  --color-status-warning-border: 252 211 77;               /* amber-300 */
+  --ch-status-warning-bg:     rgba(254, 243, 199, 1);  /* amber-100 */
+  --ch-status-warning-text:   180 83 9;                 /* amber-700 */
+  --ch-status-warning-border: 252 211 77;               /* amber-300 */
 
   /* Status: success (active, resolved, complete) */
-  --color-status-success-bg:     rgba(209, 250, 229, 1);  /* emerald-100 */
-  --color-status-success-text:   4 120 87;                 /* emerald-700 */
-  --color-status-success-border: 110 231 183;              /* emerald-300 */
+  --ch-status-success-bg:     rgba(209, 250, 229, 1);  /* emerald-100 */
+  --ch-status-success-text:   4 120 87;                 /* emerald-700 */
+  --ch-status-success-border: 110 231 183;              /* emerald-300 */
 
   /* Status: info (in_progress) */
-  --color-status-info-bg:        rgba(219, 234, 254, 1);  /* blue-100 */
-  --color-status-info-text:      29 78 216;                /* blue-700 */
-  --color-status-info-border:    147 197 253;              /* blue-300 */
+  --ch-status-info-bg:        rgba(219, 234, 254, 1);  /* blue-100 */
+  --ch-status-info-text:      29 78 216;                /* blue-700 */
+  --ch-status-info-border:    147 197 253;              /* blue-300 */
 
   /* Status: danger (blocked, error) */
-  --color-status-danger-bg:      rgba(254, 226, 226, 1);  /* red-100 */
-  --color-status-danger-text:    185 28 28;                /* red-700 */
-  --color-status-danger-border:  252 165 165;              /* red-300 */
+  --ch-status-danger-bg:      rgba(254, 226, 226, 1);  /* red-100 */
+  --ch-status-danger-text:    185 28 28;                /* red-700 */
+  --ch-status-danger-border:  252 165 165;              /* red-300 */
 
   /* Status: neutral (not_started, archived, pending) */
-  --color-status-neutral-bg:     rgba(226, 232, 240, 1);  /* slate-200 */
-  --color-status-neutral-text:   71 85 105;                /* slate-600 */
-  --color-status-neutral-border: 203 213 225;              /* slate-300 */
+  --ch-status-neutral-bg:     rgba(226, 232, 240, 1);  /* slate-200 */
+  --ch-status-neutral-text:   71 85 105;                /* slate-600 */
+  --ch-status-neutral-border: 203 213 225;              /* slate-300 */
 
   /* Phase palette (spec-252) — see the .dark block for the rationale. The phase
      hues use the same hue-at-opacity values in both themes (composited over the
      page live); only draft's neutral container differs per mode. */
-  --color-phase-specify-bg:        rgba(228, 165, 245, 0.8); /* #E4A5F5 @ 80% */
-  --color-phase-specify-text:      46 16 101;               /* purple-950 */
-  --color-phase-specify-border:    228 165 245;
-  --color-phase-specify-container: rgba(228, 165, 245, 0.1);/* #E4A5F5 @ 10% */
-  --color-phase-build-bg:          rgba(123, 198, 252, 0.8);/* #7BC6FC @ 80% */
-  --color-phase-build-text:        8 47 73;                 /* sky-950 */
-  --color-phase-build-border:      123 198 252;
-  --color-phase-build-container:   rgba(123, 198, 252, 0.1);/* #7BC6FC @ 10% */
-  --color-phase-verify-bg:         rgba(93, 192, 166, 0.8); /* #5DC0A6 @ 80% */
-  --color-phase-verify-text:       2 44 34;                 /* emerald-950 */
-  --color-phase-verify-border:     93 192 166;
-  --color-phase-verify-container:  rgba(93, 192, 166, 0.1); /* #5DC0A6 @ 10% */
-  --color-phase-draft-container:   rgba(241, 245, 249, 1);  /* slate-100 — draft keeps the neutral pill */
+  --ch-phase-specify-bg:        rgba(228, 165, 245, 0.8); /* #E4A5F5 @ 80% */
+  --ch-phase-specify-text:      46 16 101;               /* purple-950 */
+  --ch-phase-specify-border:    228 165 245;
+  --ch-phase-specify-container: rgba(228, 165, 245, 0.1);/* #E4A5F5 @ 10% */
+  --ch-phase-build-bg:          rgba(123, 198, 252, 0.8);/* #7BC6FC @ 80% */
+  --ch-phase-build-text:        8 47 73;                 /* sky-950 */
+  --ch-phase-build-border:      123 198 252;
+  --ch-phase-build-container:   rgba(123, 198, 252, 0.1);/* #7BC6FC @ 10% */
+  --ch-phase-verify-bg:         rgba(93, 192, 166, 0.8); /* #5DC0A6 @ 80% */
+  --ch-phase-verify-text:       2 44 34;                 /* emerald-950 */
+  --ch-phase-verify-border:     93 192 166;
+  --ch-phase-verify-container:  rgba(93, 192, 166, 0.1); /* #5DC0A6 @ 10% */
+  --ch-phase-draft-container:   rgba(241, 245, 249, 1);  /* slate-100 — draft keeps the neutral pill */
 }
 
 @layer base {
@@ -214,18 +317,18 @@
   }
 
   .dark body, .dark {
-    background-color: rgb(var(--color-page));
-    color: rgb(var(--color-text-secondary));
+    background-color: rgb(var(--ch-page));
+    color: rgb(var(--ch-text-secondary));
   }
   .light body, .light {
-    background-color: rgb(var(--color-page));
-    color: rgb(var(--color-text-secondary));
+    background-color: rgb(var(--ch-page));
+    color: rgb(var(--ch-text-secondary));
   }
 
   /* Thin, subtle scrollbars */
   * {
     scrollbar-width: thin;
-    scrollbar-color: rgb(var(--color-edge) / 0.5) transparent;
+    scrollbar-color: rgb(var(--ch-edge) / 0.5) transparent;
   }
   *::-webkit-scrollbar {
     width: 6px;
@@ -234,24 +337,24 @@
     background: transparent;
   }
   *::-webkit-scrollbar-thumb {
-    background-color: rgb(var(--color-edge) / 0.5);
+    background-color: rgb(var(--ch-edge) / 0.5);
     border-radius: 3px;
   }
   *::-webkit-scrollbar-thumb:hover {
-    background-color: rgb(var(--color-edge-strong) / 0.7);
+    background-color: rgb(var(--ch-edge-strong) / 0.7);
   }
 
   h1, h2, h3, h4, h5, h6 {
     @apply font-semibold tracking-tight;
-    color: rgb(var(--color-text-heading));
+    color: rgb(var(--ch-text-heading));
   }
 
   a {
-    color: rgb(var(--color-accent));
+    color: rgb(var(--ch-accent));
     @apply transition-colors;
   }
   a:hover {
-    color: rgb(var(--color-accent-hover));
+    color: rgb(var(--ch-accent-hover));
   }
 }
 
@@ -260,30 +363,30 @@
    ══════════════════════════════════════ */
 .prose-content,
 .prose-dark {
-  color: rgb(var(--color-text-secondary));
+  color: rgb(var(--ch-text-secondary));
   @apply leading-relaxed;
 }
-.prose-content h1, .prose-dark h1 { color: rgb(var(--color-text-heading)); @apply text-3xl font-bold mt-8 mb-4; }
-.prose-content h2, .prose-dark h2 { color: rgb(var(--color-text-heading)); @apply text-2xl font-semibold mt-6 mb-3; }
-.prose-content h3, .prose-dark h3 { color: rgb(var(--color-text-heading)); @apply text-xl font-semibold mt-5 mb-2; }
-.prose-content h4, .prose-dark h4 { color: rgb(var(--color-text-heading)); @apply text-lg font-medium mt-4 mb-2; }
-.prose-content p, .prose-dark p { color: rgb(var(--color-text-primary)); @apply mb-4; }
-.prose-content ul, .prose-dark ul { color: rgb(var(--color-text-primary)); @apply list-disc list-inside mb-4 space-y-1; }
-.prose-content ol, .prose-dark ol { color: rgb(var(--color-text-primary)); @apply list-decimal list-inside mb-4 space-y-1; }
-.prose-content li, .prose-dark li { color: rgb(var(--color-text-primary)); }
-.prose-content blockquote, .prose-dark blockquote { border-left: 4px solid rgb(var(--color-edge-strong)); color: rgb(var(--color-text-secondary)); @apply pl-4 italic my-4; }
-.prose-content code, .prose-dark code { background: rgb(var(--color-input)); color: rgb(var(--color-status-success-text)); @apply px-1.5 py-0.5 rounded text-sm font-mono; }
-.prose-content pre, .prose-dark pre { background: rgb(var(--color-surface)); border: 1px solid rgb(var(--color-edge)); @apply rounded-lg p-4 overflow-x-auto my-4; }
-.prose-content pre code, .prose-dark pre code { @apply bg-transparent p-0; color: rgb(var(--color-text-primary)); }
+.prose-content h1, .prose-dark h1 { color: rgb(var(--ch-text-heading)); @apply text-3xl font-bold mt-8 mb-4; }
+.prose-content h2, .prose-dark h2 { color: rgb(var(--ch-text-heading)); @apply text-2xl font-semibold mt-6 mb-3; }
+.prose-content h3, .prose-dark h3 { color: rgb(var(--ch-text-heading)); @apply text-xl font-semibold mt-5 mb-2; }
+.prose-content h4, .prose-dark h4 { color: rgb(var(--ch-text-heading)); @apply text-lg font-medium mt-4 mb-2; }
+.prose-content p, .prose-dark p { color: rgb(var(--ch-text-primary)); @apply mb-4; }
+.prose-content ul, .prose-dark ul { color: rgb(var(--ch-text-primary)); @apply list-disc list-inside mb-4 space-y-1; }
+.prose-content ol, .prose-dark ol { color: rgb(var(--ch-text-primary)); @apply list-decimal list-inside mb-4 space-y-1; }
+.prose-content li, .prose-dark li { color: rgb(var(--ch-text-primary)); }
+.prose-content blockquote, .prose-dark blockquote { border-left: 4px solid rgb(var(--ch-edge-strong)); color: rgb(var(--ch-text-secondary)); @apply pl-4 italic my-4; }
+.prose-content code, .prose-dark code { background: rgb(var(--ch-input)); color: rgb(var(--ch-status-success-text)); @apply px-1.5 py-0.5 rounded-sm text-sm font-mono; }
+.prose-content pre, .prose-dark pre { background: rgb(var(--ch-surface)); border: 1px solid rgb(var(--ch-edge)); @apply rounded-lg p-4 overflow-x-auto my-4; }
+.prose-content pre code, .prose-dark pre code { @apply bg-transparent p-0; color: rgb(var(--ch-text-primary)); }
 .prose-content table, .prose-dark table { @apply w-full border-collapse my-4; }
-.prose-content th, .prose-dark th { background: rgb(var(--color-input)); color: rgb(var(--color-text-primary)); border: 1px solid rgb(var(--color-edge)); @apply text-left px-4 py-2 font-medium; }
-.prose-content td, .prose-dark td { color: rgb(var(--color-text-primary)); border: 1px solid rgb(var(--color-edge)); @apply px-4 py-2; }
-.prose-content tr:nth-child(even), .prose-dark tr:nth-child(even) { background: var(--color-panel); }
-.prose-content hr, .prose-dark hr { border-color: rgb(var(--color-edge)); @apply my-6; }
-.prose-content a, .prose-dark a { color: rgb(var(--color-accent)); @apply underline; }
-.prose-content a:hover, .prose-dark a:hover { color: rgb(var(--color-accent-hover)); }
-.prose-content strong, .prose-dark strong { color: rgb(var(--color-text-heading)); @apply font-semibold; }
-.prose-content em, .prose-dark em { color: rgb(var(--color-text-primary)); }
+.prose-content th, .prose-dark th { background: rgb(var(--ch-input)); color: rgb(var(--ch-text-primary)); border: 1px solid rgb(var(--ch-edge)); @apply text-left px-4 py-2 font-medium; }
+.prose-content td, .prose-dark td { color: rgb(var(--ch-text-primary)); border: 1px solid rgb(var(--ch-edge)); @apply px-4 py-2; }
+.prose-content tr:nth-child(even), .prose-dark tr:nth-child(even) { background: var(--ch-panel); }
+.prose-content hr, .prose-dark hr { border-color: rgb(var(--ch-edge)); @apply my-6; }
+.prose-content a, .prose-dark a { color: rgb(var(--ch-accent)); @apply underline; }
+.prose-content a:hover, .prose-dark a:hover { color: rgb(var(--ch-accent-hover)); }
+.prose-content strong, .prose-dark strong { color: rgb(var(--ch-text-heading)); @apply font-semibold; }
+.prose-content em, .prose-dark em { color: rgb(var(--ch-text-primary)); }
 .prose-content img, .prose-dark img { @apply rounded-lg my-4 max-w-full; }
 
 /*
@@ -355,10 +458,10 @@
    opacity so the tint matches the live dot's emerald hue in both themes. */
 @keyframes pulse-arrive {
   from {
-    background-color: rgb(var(--color-status-success-text) / 0.22);
+    background-color: rgb(var(--ch-status-success-text) / 0.22);
   }
   to {
-    background-color: rgb(var(--color-status-success-text) / 0);
+    background-color: rgb(var(--ch-status-success-text) / 0);
   }
 }
 
@@ -380,14 +483,14 @@
   }
   25% {
     transform: scale(1.35);
-    box-shadow: 0 0 0 0 rgb(var(--color-status-success-text) / 0.5);
+    box-shadow: 0 0 0 0 rgb(var(--ch-status-success-text) / 0.5);
   }
   60% {
-    box-shadow: 0 0 0 8px rgb(var(--color-status-success-text) / 0);
+    box-shadow: 0 0 0 8px rgb(var(--ch-status-success-text) / 0);
   }
   100% {
     transform: scale(1);
-    box-shadow: 0 0 0 0 rgb(var(--color-status-success-text) / 0);
+    box-shadow: 0 0 0 0 rgb(var(--ch-status-success-text) / 0);
   }
 }
 
@@ -487,4 +590,61 @@
       0 0 0 3px rgba(99, 102, 241, 0.95),
       0 0 0 6px rgba(99, 102, 241, 0.4);
   }
+}
+
+/* spec-336 — Home Onboarding v2 entrance animations (prototype parity). Used via
+   Tailwind arbitrary `animate-[panelIn_…]` / `animate-[fadeIn_…]` on the step panel and
+   the rail. Undefined keyframes degrade to no-animation, so these are purely additive. */
+@keyframes panelIn {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  [class*='animate-[panelIn'],
+  [class*='animate-[fadeIn'] {
+    animation: none !important;
+  }
+}
+
+/* spec-336 — Home Onboarding v2 fonts, SELF-HOSTED and SCOPED to the onboarding surface
+   (Ryan 2026-06-23: scope Hanken Grotesk to onboarding, not app-wide). Latin-subset
+   variable woff2 (Hanken Grotesk 400–800, Geist Mono 400–500) under assets/fonts/. The
+   `.font-onboarding` class applies Hanken Grotesk to text and Geist Mono to code, so the
+   rest of the app keeps the design-system system stack. */
+@font-face {
+  font-family: 'Hanken Grotesk';
+  font-style: normal;
+  font-weight: 400 800;
+  font-display: swap;
+  src: url('./assets/fonts/hanken-grotesk.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Geist Mono';
+  font-style: normal;
+  font-weight: 400 500;
+  font-display: swap;
+  src: url('./assets/fonts/geist-mono.woff2') format('woff2');
+}
+.font-onboarding {
+  font-family: 'Hanken Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', sans-serif;
+}
+.font-onboarding code,
+.font-onboarding pre,
+.font-onboarding kbd,
+.font-onboarding samp {
+  font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }

@@ -37,9 +37,23 @@ export function toMixpanelEvent(row: UsageEvent, token: string): MixpanelEvent {
     ip: "0",
     ...(row.props ?? {}),
   };
-  // Authenticated-only capture (anonymous is a no-op), so distinct_id is the
-  // acting Memex user. Omit when somehow absent rather than send a null id.
-  if (row.actorUserId) properties.distinct_id = row.actorUserId;
+  // Identity — Mixpanel Simplified ID Merge (spec-324, the spec-244 retrofit).
+  //   - $user_id identifies an authenticated user; $device_id the anonymous
+  //     browser (the spec-254 visitor_id). An event carrying BOTH merges the
+  //     device's pre-identity events into the user — this is how a visitor seen
+  //     BEFORE they had an identity is attributed to them once they sign in. The
+  //     identity.merged event (emitted at the identify moment) carries both ids.
+  //   - distinct_id stays the user UUID for an authenticated row (unchanged for
+  //     the existing funnel), and "$device:<visitor_id>" for a pre-auth anonymous
+  //     row, so a visitor's events land under the device until the merge resolves
+  //     them. Omit entirely when neither id is present (nothing to attribute).
+  if (row.visitorId) properties.$device_id = row.visitorId;
+  if (row.actorUserId) {
+    properties.$user_id = row.actorUserId;
+    properties.distinct_id = row.actorUserId;
+  } else if (row.visitorId) {
+    properties.distinct_id = `$device:${row.visitorId}`;
+  }
   return { event: row.name, properties };
 }
 

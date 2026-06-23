@@ -142,9 +142,9 @@ export function ScaffoldPhaseView({
             {phaseTools.map((toolName) => {
               const text = toNudge({ dataset, tool: toolName, phase, orgBlocks });
               return (
-                <div key={toolName} className="rounded border border-default p-3">
+                <div key={toolName} className="rounded-sm border border-default p-3">
                   <div className="text-sm font-mono font-semibold">{toolName}</div>
-                  <pre className="text-xs whitespace-pre-wrap bg-muted/30 p-2 rounded mt-2">{text || '(empty)'}</pre>
+                  <pre className="text-xs whitespace-pre-wrap bg-muted/30 p-2 rounded-sm mt-2">{text || '(empty)'}</pre>
                 </div>
               );
             })}
@@ -226,7 +226,7 @@ export function ScaffoldPhaseView({
             data-testid="scaffold-phase-preview-tool-select"
             value={previewTool}
             onChange={(e) => setPreviewTool(e.target.value)}
-            className="text-sm border rounded px-2 py-1"
+            className="text-sm border rounded-sm px-2 py-1"
           >
             {phaseTools.map((name) => (
               <option key={name} value={name}>
@@ -237,7 +237,7 @@ export function ScaffoldPhaseView({
         </div>
         <pre
           data-testid="scaffold-phase-live-preview-text"
-          className="text-xs whitespace-pre-wrap bg-muted/30 p-3 rounded border border-default"
+          className="text-xs whitespace-pre-wrap bg-muted/30 p-3 rounded-sm border border-default"
         >
           {livePreview || '(empty)'}
         </pre>

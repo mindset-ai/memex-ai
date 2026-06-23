@@ -119,7 +119,16 @@ export async function upsertUserByEmail(email: string): Promise<User> {
 
 export async function updateUserProfile(
   userId: string,
-  fields: { name: string },
+  fields: {
+    name: string;
+    // spec-305 dec-5: the developer/designer/PM triangle as barycentric weights.
+    // Optional — a user who skips the triangle keeps the UI's centered default and
+    // we simply don't write role_coords.
+    roleCoords?: { dev: number; design: number; pm: number };
+    // spec-305 dec-2/dec-4: stamp identity_confirmed_at so `needsOnboarding` clears
+    // once the user has completed the journey's identity step.
+    confirmIdentity?: boolean;
+  },
 ): Promise<User> {
   const trimmed = fields.name.trim();
   if (!trimmed) throw new ValidationError("Name is required");
@@ -127,7 +136,12 @@ export async function updateUserProfile(
 
   const [updated] = await db
     .update(users)
-    .set({ name: trimmed, updatedAt: new Date() })
+    .set({
+      name: trimmed,
+      ...(fields.roleCoords ? { roleCoords: fields.roleCoords } : {}),
+      ...(fields.confirmIdentity ? { identityConfirmedAt: new Date() } : {}),
+      updatedAt: new Date(),
+    })
     .where(eq(users.id, userId))
     .returning();
   if (!updated) throw new ValidationError(`User ${userId} not found`);
@@ -560,6 +574,49 @@ export async function resolveOrgMembersByName(
     role: r.role as "member" | "administrator",
     status: r.status as "active" | "disabled",
   }));
+}
+
+// spec-320 (dec-4, ac-10): the @-mention typeahead's data source. Active org
+// members matched by case-insensitive SUBSTRING on `users.name` OR the email LOCAL
+// PART — the same matcher resolveOrgMembersByName uses, but it RETURNS the display
+// name (the composer renders name || email) and supports the bare-`@` case: an
+// empty query returns the full active roster (capped) so typing `@` alone opens the
+// list of org colleagues. Scoped to ACTIVE members of `orgId` (std-4 / spec-15
+// dec-2) — disabled members can't be mentioned. Ordered + capped so a large org
+// can't return an unbounded payload to the typeahead.
+export interface MentionableMember {
+  userId: string;
+  name: string | null;
+  email: string;
+}
+
+export async function searchMentionableMembers(
+  orgId: string,
+  query: string,
+  limit = 25,
+): Promise<MentionableMember[]> {
+  const needle = query.trim().toLowerCase();
+  const conditions = [
+    eq(orgMemberships.orgId, orgId),
+    eq(orgMemberships.status, "active"),
+  ];
+  if (needle.length > 0) {
+    const pattern = `%${needle.replace(/([\\%_])/g, "\\$1")}%`;
+    conditions.push(
+      sql`(
+        lower(coalesce(${users.name}, '')) LIKE ${pattern} ESCAPE '\\'
+        OR lower(split_part(${users.email}, '@', 1)) LIKE ${pattern} ESCAPE '\\'
+      )`,
+    );
+  }
+  const rows = await db
+    .select({ userId: users.id, name: users.name, email: users.email })
+    .from(orgMemberships)
+    .innerJoin(users, eq(orgMemberships.userId, users.id))
+    .where(and(...conditions))
+    .orderBy(asc(users.email))
+    .limit(limit);
+  return rows;
 }
 
 // Returns memberships whose org's email_domains array contains the given domain.

@@ -14,17 +14,22 @@ import {
   ensureUser,
   setUserName,
   setOnboardingGreeted,
+  setIdentityConfirmed,
   DEV_EMAIL,
   DEV_NAME,
 } from "./helpers/index.js";
 
 export default async function globalSetup(): Promise<void> {
   // ensureUser provisions dev@memex.ai + its personal namespace/memex through the
-  // server's real services; setUserName then skips the onboarding profile screen.
+  // server's real services; setUserName then gives it a display name.
   await ensureUser(DEV_EMAIL);
   await setUserName(DEV_EMAIL, DEV_NAME);
+  // spec-305: needsOnboarding now keys off identity_confirmed_at (not !name), so stamp
+  // the dev user identity-confirmed too — otherwise every journey redirects to /home.
+  // (journey-34 deliberately un-confirms to walk the onboarding journey, then restores.)
+  await setIdentityConfirmed(DEV_EMAIL, true);
   // spec-206: pre-stamp the dev user greeted so Specky's first-run auto-greeting
   // doesn't fire on the first journey to load the board (the per-test fixture
-  // re-asserts this too; the onboarding journey un-greets to drive it).
+  // re-asserts this too).
   await setOnboardingGreeted(DEV_EMAIL, true);
 }

@@ -33,7 +33,7 @@ import {
   decisions,
   mcpTokens,
 } from "../db/schema.js";
-import { createDocDraft } from "../services/documents.js";
+import { createDocDraft, updateDocStatus } from "../services/documents.js";
 import { createTask } from "../services/tasks.js";
 import { createDecision } from "../services/decisions.js";
 import { createShareToken } from "../services/share-tokens.js";
@@ -139,6 +139,9 @@ describe("S1 — concurrent task creation (withSeqRetry under real concurrency)"
     token = await mintToken(owner.userId);
     const spec = await createDocDraft(owner.memexId, "S1 Spec", "concurrent task test", "spec");
     specHandle = spec.handle;
+    // spec-327: create_task is gated to the build phase — move there so the
+    // concurrent-creation race (withSeqRetry) can be exercised.
+    await updateDocStatus(owner.memexId, spec.id, "build");
   });
 
   it("five simultaneous create_task calls all succeed with distinct handles", async () => {

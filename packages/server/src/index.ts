@@ -9,6 +9,7 @@ import { startActivityLogSink } from "./services/activity-log.js";
 import { startUsageBackendSink } from "./services/usage-backend-sink.js";
 import { startUsageForwarder } from "./services/usage-forwarder.js";
 import { startActivityLogSweep } from "./services/activity-log-sweep.js";
+import { startCommsLogPrune } from "./services/comms-log.js";
 import { startScaffoldAdditionsCacheInvalidation } from "./services/scaffold-additions-cache.js";
 import { startBusRelay } from "./services/bus-relay.js";
 import { bus } from "./services/bus.js";
@@ -84,6 +85,9 @@ setInterval(async () => {
 // Bounded (10k rows/pass), idempotent across instances; self-scheduling hourly. The
 // timer is .unref()'d so it never blocks shutdown.
 startActivityLogSweep().unref();
+
+// spec-341 t-3: comms_log retention prune — daily, .unref()'d (mirrors the sweep).
+startCommsLogPrune().unref();
 
 // Graceful shutdown (spec-251 follow-up, found 2026-06-12).
 //

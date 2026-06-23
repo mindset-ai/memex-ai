@@ -1,5 +1,6 @@
 import { defineConfig, type PluginOption } from 'vite'
 import react from '@vitejs/plugin-react'
+import tailwindcss from '@tailwindcss/vite'
 import { fileURLToPath } from 'node:url'
 import { dirname, join, extname } from 'node:path'
 import { existsSync, createReadStream } from 'node:fs'
@@ -52,7 +53,10 @@ const API_TARGET = process.env.VITE_API_PROXY ?? 'http://localhost:8080'
 const UI_PORT = Number(process.env.VITE_PORT ?? 5173)
 
 export default defineConfig({
-  plugins: [serveVadAssetsRaw, react()],
+  // serveVadAssetsRaw stays first (its configureServer hook must register before
+  // Vite's transform middleware). tailwindcss() is the v4 engine (spec-290 dec-2),
+  // replacing the PostCSS + autoprefixer chain.
+  plugins: [serveVadAssetsRaw, tailwindcss(), react()],
   resolve: {
     alias: {
       // spec-222 (KEYSTONE): consume @memex/guide-sdk FROM SOURCE so Vite compiles

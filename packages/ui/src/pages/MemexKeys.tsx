@@ -19,9 +19,13 @@ export function MemexKeys() {
   const location = useLocation();
   const { canWrite } = useMemexAccess(location.pathname);
 
+  // spec-308 dec-1: the page widens to max-w-5xl (the data-rich page convention,
+  // matching Insights/Backstage) so the 6-column emission-keys table has room to
+  // stop wrapping. The intro prose is kept at a readable measure inside
+  // EmissionKeysSection rather than stretching to the full width.
   if (!canWrite) {
     return (
-      <div className="max-w-2xl mx-auto px-6 py-6 space-y-6">
+      <div className="max-w-5xl mx-auto px-6 py-6 space-y-6">
         <PageHeader title="Memex keys" />
         <p className="text-sm text-secondary">
           You need to be a member of this Memex to manage its emission keys.
@@ -31,7 +35,7 @@ export function MemexKeys() {
   }
 
   return (
-    <div className="max-w-2xl mx-auto px-6 py-6 space-y-6">
+    <div className="max-w-5xl mx-auto px-6 py-6 space-y-6">
       <PageHeader title="Memex keys" />
       <EmissionKeysSection />
     </div>

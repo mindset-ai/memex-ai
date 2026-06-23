@@ -218,8 +218,10 @@ beforeAll(async () => {
   // Confirm Bob's memex is private (schema default, but state it explicitly).
   await db.update(memexes).set({ visibility: "private" }).where(eq(memexes.id, bob.memexId));
 
-  // Dave: member of BOTH org-A (Alice's) and org-B (Bob's), OAuth token scoped to org-A.
-  // Tests that orgFilter rejects org-B reads even when Dave has org-B membership.
+  // Dave: member of BOTH org-A (Alice's) and org-B (Bob's), OAuth token minted
+  // org-A-scoped. Under spec-307 the token's frozen Org scope is INERT — Dave's
+  // reach follows LIVE membership, so the same token reaches org-B because Dave is
+  // an active member (the widening this Spec introduces; the old model rejected it).
   // PAT tokens (mxt_ prefix) are matched first in app.ts, so enabling OAuth here
   // does not affect any of the existing PAT-based tests above.
   process.env.OAUTH_ENABLED = "1";
@@ -478,6 +480,8 @@ describe("regression: tenant-isolation — Carol intra-org memex switching", () 
 // ── spec-199 t-7: Cross-tenant read gate (canReadMemex / resolveWorkspaceForRead) ─
 
 const AC_7 = "mindset-prod/memex-building-itself/specs/spec-199/acs/ac-7";
+// spec-307: live membership supersedes the frozen Org scope (spec-31 dec-8).
+const AC_307_6 = "mindset-prod/memex-building-itself/specs/spec-307/acs/ac-6";
 
 describe("regression: tenant-isolation — read tools cross-tenant gate (spec-199 t-7)", () => {
   // ref-path tools: resolveMemexFromEntityForRead → assertReadAccessAndWriteFlag
@@ -529,11 +533,23 @@ describe("regression: tenant-isolation — read tools cross-tenant gate (spec-19
     expect(body.result?.isError, `Dave's org-A token should read Alice's memex: ${body.result?.content?.[0]?.text ?? ""}`).toBeFalsy();
   });
 
-  it("orgFilter: Dave's org-A token is rejected on Bob's org-B private memex despite org-B membership", async () => {
-    tagAc(AC_7);
-    // Dave IS a member of org-B (Bob's org), but orgFilter=alice.orgId !== bob.orgId → rejected.
-    await expectRejection(daveOAuthToken, "get_doc", {
-      ref: bobRef(`specs/${bobSpecHandle}`),
+  // spec-307: the frozen Org scope is inert — Dave's org-A-scoped token now reaches
+  // Bob's org-B memex BECAUSE Dave is an active member of org-B (connect once, survive
+  // graduation). True isolation is still proven above: non-members (Alice, Carol)
+  // remain rejected on Bob's memex.
+  it("spec-307: Dave's org-A-scoped token reads Bob's org-B memex (live membership, frozen scope inert)", async () => {
+    tagAc(AC_307_6);
+    const res = await mcpCall(daveOAuthToken, {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: { name: "get_doc", arguments: { ref: bobRef(`specs/${bobSpecHandle}`) } },
     });
+    expect(res.status).toBe(200);
+    const body = parseSse(await res.text());
+    expect(
+      body.result?.isError,
+      `Dave (org-B member) should now read Bob's memex under live membership: ${body.result?.content?.[0]?.text ?? ""}`,
+    ).toBeFalsy();
   });
 });

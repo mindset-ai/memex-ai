@@ -285,7 +285,7 @@ function RailLink({
       data-testid={testId}
       onClick={onClick}
       aria-current={active ? 'page' : undefined}
-      className={`block w-full text-left px-2 py-1 rounded ${
+      className={`block w-full text-left px-2 py-1 rounded-sm ${
         active ? 'bg-muted/40 font-semibold' : 'hover:bg-muted/20'
       }`}
     >

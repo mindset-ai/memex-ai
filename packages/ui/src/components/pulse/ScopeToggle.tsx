@@ -58,9 +58,9 @@ export function ScopeToggle({ value, onChange }: ScopeToggleProps) {
             onClick={() => {
               if (!selected) onChange(opt.value);
             }}
-            className={`rounded-full px-2.5 py-0.5 font-medium transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-edge-strong ${
+            className={`rounded-full px-2.5 py-0.5 font-medium transition-colors focus:outline-hidden focus-visible:ring-1 focus-visible:ring-edge-strong ${
               selected
-                ? 'bg-overlay text-primary shadow-sm'
+                ? 'bg-overlay text-primary shadow-xs'
                 : 'text-muted hover:text-primary'
             }`}
           >

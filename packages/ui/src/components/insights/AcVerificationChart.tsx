@@ -49,7 +49,7 @@ export function AcVerificationChart({ summary }: Props) {
         enableArcLabels={false}
         arcLinkLabel={(d) => `${d.id} (${d.value})`}
         arcLinkLabelsColor={{ from: 'color' }}
-        arcLinkLabelsTextColor="rgb(var(--color-text-secondary, 100 116 139))"
+        arcLinkLabelsTextColor="rgb(var(--ch-text-secondary, 100 116 139))"
         arcLinkLabelsThickness={1.5}
         tooltip={({ datum }) => (
           <div

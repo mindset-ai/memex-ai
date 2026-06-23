@@ -68,7 +68,7 @@ function PromptBlockNodeBody({ node }: { node: PromptBlockNode }) {
         <code className="font-mono">{node.id}</code> · surface:{' '}
         <code>{node.surface}</code>
       </div>
-      <pre className="text-xs whitespace-pre-wrap bg-muted/30 p-2 rounded">{node.text}</pre>
+      <pre className="text-xs whitespace-pre-wrap bg-muted/30 p-2 rounded-sm">{node.text}</pre>
     </div>
   );
 }
@@ -96,7 +96,7 @@ function TransitionRubricBody({ node }: { node: TransitionRubric }) {
       <div className="text-sm">
         <span className="font-semibold">Transition:</span> →<code>{node.transition}</code>
       </div>
-      <pre className="text-xs whitespace-pre-wrap bg-muted/30 p-2 rounded">{node.text}</pre>
+      <pre className="text-xs whitespace-pre-wrap bg-muted/30 p-2 rounded-sm">{node.text}</pre>
     </div>
   );
 }
@@ -115,7 +115,7 @@ function GuidanceBlockBody({ node }: { node: GuidanceBlock }) {
           </>
         ) : null}
       </div>
-      <pre className="text-xs whitespace-pre-wrap bg-muted/30 p-2 rounded">{node.text}</pre>
+      <pre className="text-xs whitespace-pre-wrap bg-muted/30 p-2 rounded-sm">{node.text}</pre>
       {node.source === 'org' && (node.authorId || node.updatedAt) ? (
         <div className="text-xs text-secondary">
           {node.authorId ? (
@@ -177,7 +177,7 @@ export function ScaffoldNodeView({ node }: Props) {
     <div
       data-testid="scaffold-node-view"
       data-node-kind={node.kind}
-      className="rounded border border-default p-3"
+      className="rounded-sm border border-default p-3"
     >
       {body}
       <RationaleBlock rationale={node.rationale} />

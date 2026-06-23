@@ -581,7 +581,7 @@ export function NewSpecModal({ open, onClose, prefill, onCreated }: NewSpecModal
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs"
       onClick={(e) => {
         if (e.target === e.currentTarget) handleClose();
       }}
@@ -688,14 +688,19 @@ export function NewSpecModal({ open, onClose, prefill, onCreated }: NewSpecModal
                   key={msg.id}
                   type="button"
                   onClick={() => openSpec(handle)}
-                  className="block w-full text-left rounded-lg border border-status-success-border bg-status-success-bg/30 px-3 py-2 hover:bg-status-success-bg/50 transition-colors"
+                  // spec-290 t-4: this button previously set status-success-bg at 30% with a
+                  // 50%-on-hover opacity modifier, but status-success-bg is a baked-opacity
+                  // token, so both modifiers were no-ops in v3 (the hover never rendered).
+                  // Stripped to the base token to preserve the v3 render.
+                  // FOLLOW-UP: a real hover treatment is needed if hover feedback is wanted.
+                  className="block w-full text-left rounded-lg border border-status-success-border bg-status-success-bg px-3 py-2 transition-colors"
                 >
                   {card}
                 </button>
               ) : (
                 <div
                   key={msg.id}
-                  className="rounded-lg border border-status-success-border bg-status-success-bg/30 px-3 py-2"
+                  className="rounded-lg border border-status-success-border bg-status-success-bg px-3 py-2"
                 >
                   {card}
                 </div>

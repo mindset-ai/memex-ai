@@ -14,6 +14,8 @@ import { issuesList } from "./routes/issues-list.js";
 import { acsRouter } from "./routes/acs.js";
 import { emissionKeysRouter } from "./routes/emission-keys.js";
 import { discordWebhookRouter } from "./routes/discord-webhook.js";
+import { stripeWebhookRouter } from "./routes/stripe-webhook.js";
+import { postmarkWebhookRouter } from "./routes/postmark-webhook.js";
 import { docMembersRouter } from "./routes/doc-members.js";
 import { docAssigneesRouter } from "./routes/doc-assignees.js";
 import { executionPlans } from "./routes/execution-plans.js";
@@ -27,6 +29,7 @@ import { qaReports } from "./routes/qa-reports.js";
 import { presenceRouter } from "./routes/presence.js";
 import { analytics } from "./routes/analytics.js";
 import { telemetryRouter } from "./routes/telemetry.js";
+import { anonTelemetryRouter } from "./routes/anon-telemetry.js";
 import { waitlist } from "./routes/waitlist.js";
 import { auth } from "./routes/auth.js";
 import { invitesAcceptRouter, invitesAdminRouter } from "./routes/invites.js";
@@ -43,9 +46,12 @@ import { onboarding } from "./routes/onboarding.js";
 import { testEventsRouter } from "./routes/test-events.js";
 import { testOnlyRouter } from "./routes/__test__.js";
 import { hostGuard, memexResolver } from "./middleware/memex-resolver.js";
+import { visitorMiddleware } from "./middleware/visitor.js";
 import { rewriteBriefPathToSpec } from "./services/redirects.js";
 import { isAllowedOrigin } from "./middleware/cors-policy.js";
 import { meRouter } from "./routes/me.js";
+import { journeyRouter } from "./routes/journey.js";
+import { homeRouter } from "./routes/home.js";
 import { whatsNewRouter } from "./routes/whats-new.js";
 import { orgsRouter, orgsCurrentRouter } from "./routes/orgs.js";
 import { scaffoldRouter } from "./routes/scaffold.js";
@@ -125,6 +131,13 @@ app.use("*", async (c, next) => {
 // to the request context. Authorization happens per-route. Routes that don't
 // carry the prefix (entity-keyed lookups, /api/health, etc.) are skipped.
 app.use("*", memexResolver);
+
+// spec-254 t-2 — expose the consented visitor_id (from the .memex.ai cookie, or an
+// inbound ?aid=) on the request context for the identify merge (auth routes) and
+// the /telemetry stamp. Pure reader: never mints, never Set-Cookie (the consented
+// client owns that, dec-4=B). Runs ahead of the per-route session middlewares so
+// authenticated AND anonymous /api requests carrying a cookie expose the id.
+app.use("/api/*", visitorMiddleware);
 
 app.get("/api/health", (c) => {
   // Cross-instance bus relay status (spec-156 ac-12). The std-17 post-deploy
@@ -333,6 +346,14 @@ app.route("/guide/v1", createGuidePublicRouter(upgradeWebSocket));
 // Caller-scoped + public surfaces — stay flat (no path prefix). These have no
 // per-memex semantics, so prefixing them would be noise.
 app.route("/api/waitlist", waitlist);
+// spec-324 — the ANONYMOUS-capable engagement ingress (the spec-244 retrofit).
+// Flat + tenant-less + PERMISSIVE publicSessionMiddleware so a PRE-AUTH visitor
+// (no user, no memex) is captured keyed on the consent-gated visitor_id — the
+// funnel head the tenant /telemetry can't see. Mounted ahead of the tenant
+// surfaces; `/api/telemetry` (2 segments) never collides with the 4-segment
+// `/api/:ns/:mx/telemetry`.
+app.use("/api/telemetry/*", publicSessionMiddleware);
+app.route("/api/telemetry", anonTelemetryRouter);
 app.route("/api/auth", auth);
 // /api/onboarding — spec-206: the user-level first-run greeting gate for the
 // Specky welcome (greet-eligibility read + once-per-user stamp). User-keyed, no
@@ -360,10 +381,24 @@ app.route("/api/consent", consentRouter);
 app.route("/api/invites", invitesAcceptRouter);
 // Caller-scoped endpoints — namespace picker (std-5) and minimal session shape.
 app.route("/api/me", meRouter);
+// spec-303 — Home Canvas onboarding journey-state (user-level, no memex). Derived
+// position + measurement + operator preview.
+app.route("/api/me", journeyRouter);
+// spec-315 — the graduated Home surface (user-level, no memex): where-you're-needed
+// + specs-in-flight, aggregated across all the user's memberships.
+app.route("/api/me", homeRouter);
 // spec-200: global What's New feed (not tenant-scoped).
 app.route("/api/whats-new", whatsNewRouter);
 // PUBLIC: share routes skip session middleware — guests access shared docs by token alone (t-10).
 app.route("/api/share", shareRouter);
+
+// spec-171 t-3: Stripe webhook receiver. No session middleware — the
+// Stripe-Signature HMAC header IS the auth (verified inside the router).
+app.route("/api/stripe/webhook", stripeWebhookRouter);
+
+// spec-341 t-2: Postmark delivery webhook. No session middleware — the Basic-auth
+// credential on the webhook URL IS the auth (verified inside the router).
+app.route("/api/postmark/webhook", postmarkWebhookRouter);
 
 // Platform backstage — dev-mode only today. Gated inside the router itself. Registered on
 // the bare domain so operators can hit it without a tenant subdomain.
@@ -464,7 +499,19 @@ app.all("/mcp", async (c) => {
     try {
       const claims = verifyAccessToken(raw);
       userId = claims.sub;
-      orgFilter = claims.org; // null = personal-only; UUID = org-scoped
+      // spec-307 dec-1/dec-2: MCP access follows the user's LIVE membership, not the
+      // Org scope frozen into the token at consent (spec-31 dec-8, now superseded).
+      // Treat OAuth callers exactly like PATs — `orgFilter === undefined` resolves
+      // against every CURRENT active membership in mcp/auth.ts. The token's `org`
+      // claim is no longer enforced, so existing tokens widen to the user's own live
+      // memberships with no re-auth (connect once, survive Org graduation). No token
+      // is migrated or invalidated; the stored claim simply goes inert.
+      orgFilter = undefined;
+      // Rollout observability: a previously Org-scoped grant now resolving under live
+      // membership is the widening this Spec introduces — record it so it's auditable.
+      console.log(
+        `[mcp:live-membership] oauth token resolved under live membership user=${claims.sub} legacy_scope=${claims.org ?? "personal-only"}`,
+      );
     } catch {
       c.header(
         "WWW-Authenticate",

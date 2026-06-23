@@ -37,14 +37,14 @@ export function ClientChip({ label, live, active, onClick }: ClientChipProps) {
           ? `Filtering to ${label} — click to clear`
           : `Filter activity to ${label}`
       }
-      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-edge-strong ${
+      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors focus:outline-hidden focus-visible:ring-1 focus-visible:ring-edge-strong ${
         active
           ? 'border-edge-strong bg-selected text-primary'
           : 'border-edge bg-input text-secondary hover:text-primary hover:bg-overlay'
       }`}
     >
       <LiveDot live={live} size="sm" />
-      <span className="truncate max-w-[10rem]">{label}</span>
+      <span className="truncate max-w-40">{label}</span>
     </button>
   );
 }

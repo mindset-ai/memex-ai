@@ -82,12 +82,14 @@ function LocationProbe() {
   return <div data-testid="probe" data-path={loc.pathname} />;
 }
 
+// spec-312: RootRedirect now sends every authenticated user to /home (the universal
+// landing), so the catch-all fallthrough lands on /home, not the Specs board.
 function renderAt(path: string) {
   return render(
     <MemoryRouter initialEntries={[path]}>
       <Routes>
         <Route path="/*" element={<PostLoginRouter />} />
-        <Route path="/alice/personal/specs" element={<LocationProbe />} />
+        <Route path="/home" element={<LocationProbe />} />
       </Routes>
     </MemoryRouter>,
   );
@@ -101,15 +103,13 @@ describe('spec-260 t-7: /qa-reports route gate (ac-18)', () => {
     vi.unstubAllEnvs();
   });
 
-  it("hidden → /qa-reports does not render the page and redirects to the default tenant", async () => {
+  it("hidden → /qa-reports does not render the page and redirects to the universal landing", async () => {
     tagAc(AC(18));
     mockSession = makeSession(['qa-reports']);
     renderAt('/alice/personal/qa-reports');
 
     await waitFor(() => {
-      expect(screen.getByTestId('probe').getAttribute('data-path')).toBe(
-        '/alice/personal/specs',
-      );
+      expect(screen.getByTestId('probe').getAttribute('data-path')).toBe('/home');
     });
     expect(screen.queryByTestId('qa-reports-page')).not.toBeInTheDocument();
   });

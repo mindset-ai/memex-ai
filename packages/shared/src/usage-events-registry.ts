@@ -86,6 +86,106 @@ export const USAGE_EVENT_REGISTRY = [
     description: "The voice agent session ended. props.durationMs only.",
     source: "frontend",
   },
+  {
+    name: "home_canvas.step_shown",
+    description:
+      "A Home Canvas onboarding journey step became the active card (spec-303/305). props.step is the step id (low-cardinality enum). Recorded via POST /api/me/journey-event, not /telemetry.",
+    source: "frontend",
+  },
+  {
+    name: "home_canvas.cta_clicked",
+    description:
+      "A Home Canvas journey step's CTA was clicked. props.step is the step id; props.cta is the allow-listed CTA target. Recorded via POST /api/me/journey-event. The click is the INTENT signal; the step's OUTCOME stays its own server-side event (std-35 cl-12).",
+    source: "frontend",
+  },
+  {
+    name: "signup.form_viewed",
+    description:
+      "A visitor saw the signup form, pre-authentication (the funnel head). Recorded via the anonymous telemetry ingress (POST /api/telemetry) keyed on the consent-gated visitor_id; no user yet. Honours DNT / opt-out / consent (spec-324, spec-254).",
+    source: "frontend",
+  },
+  // ── Front-end engagement interactions (track(), spec-336 follow-on) ──────────
+  // Pure UI taps the server never sees — board navigation, search, voice, filters.
+  // Server OUTCOMES (spec/decision/task created, phase advanced) stay back-end
+  // (Recipe B above); these capture only the interaction/intent (std-35 cl-1).
+  {
+    name: "auth.login_started",
+    description:
+      "A sign-in attempt was initiated from the login screen. props.method is the auth method enum (google | password | magic_link). Pre-auth, so fired via trackAnonymous() on the visitor_id; completion stays the server-side account/session outcome.",
+    source: "frontend",
+  },
+  {
+    name: "spec.card_opened",
+    description:
+      "A spec card on the board was opened. props.specSeq (the spec's handle ordinal — the 'spec#'), props.phase (phase enum), props.assigned (bool), props.assignedUserId (opaque user UUID — never a name/email).",
+    source: "frontend",
+  },
+  {
+    name: "spec.tab_viewed",
+    description:
+      "A content sub-tab in the spec detail view was selected (which parts of a spec people read). props.tab is the sub-tab enum (narrative | comments | decisions | work | qa-report); props.phase is the phase view it was selected under (specify | build | verify | done).",
+    source: "frontend",
+  },
+  {
+    name: "board.phase_drag",
+    description:
+      "A spec card was dragged to a different phase column on the board (the interaction). props.from / props.to are phase enums. The OUTCOME stays document.status_changed (back-end); this captures the drag intent (std-35 cl-1).",
+    source: "frontend",
+  },
+  {
+    name: "board.tag_filter_applied",
+    description:
+      "The board tag filter selection changed. props.filterCount is the number of active tag filters (count only — never the tag values).",
+    source: "frontend",
+  },
+  {
+    name: "search.opened",
+    description:
+      "The ⌘K command palette was opened. props.trigger is how it was opened (hotkey | button).",
+    source: "frontend",
+  },
+  {
+    name: "search.query_submitted",
+    description:
+      "A query produced results in the command palette. props.queryLength (character count only — never the query text), props.hasResults (bool).",
+    source: "frontend",
+  },
+  {
+    name: "search.result_selected",
+    description:
+      "A result was chosen in the command palette. props.lane (jumpTo | assigned | content), props.resultKind (entity kind enum), props.resultIndex (position).",
+    source: "frontend",
+  },
+  {
+    name: "comments.filter_changed",
+    description:
+      "A comments filter was changed. props.authorFilter / props.statusFilter are the selected filter enums.",
+    source: "frontend",
+  },
+  {
+    name: "whatsnew.opened",
+    description:
+      "The What's New feed was opened. props.unreadCount is the number of unread items at open (count only).",
+    source: "frontend",
+  },
+  {
+    name: "workspace.switched",
+    description:
+      "The user switched the active Memex via the workspace switcher. props.memexId is the target Memex UUID (id only).",
+    source: "frontend",
+  },
+  {
+    name: "voice.mic_permission_result",
+    description:
+      "The browser microphone permission prompt resolved during a voice session attempt. props.result is the outcome enum (granted | denied | dismissed).",
+    source: "frontend",
+  },
+  {
+    name: "voice.icon_shown",
+    description:
+      "The voice entry point was presented to the user (the adoption denominator). Fired once per mount, not per render. props.surface is where it appeared (icon | pill).",
+    source: "frontend",
+  },
   // ── Back-end outcomes (whitelisted mutate() events, dec-8) ───────────────────
   // Name is EXACTLY `${entity}.${action}` so the t-3 whitelist maps 1:1.
   {
@@ -140,6 +240,13 @@ export const USAGE_EVENT_REGISTRY = [
     name: "mcp.tool_called",
     description:
       "An MCP tool was invoked (funnel stage 4). One event per call (not deduped). props.tool_name is the tool name (low-cardinality, non-PII). memex_id is the resolved Memex, NULL only for the Memex-agnostic tools (list_memexes / get_information).",
+    source: "backend",
+    delivery: "direct",
+  },
+  {
+    name: "identity.merged",
+    description:
+      "The anonymous→identified stitch (spec-324 — the spec-244 retrofit). Emitted at the identify moment (applyVisitorMerge) when a consented visitor_id first BINDS to a user, carrying BOTH the visitor_id and the user id so Mixpanel merges the visitor's pre-identity events into the user (Simplified ID Merge: $device_id + $user_id). memex_id NULL; keyed on the user UUID.",
     source: "backend",
     delivery: "direct",
   },

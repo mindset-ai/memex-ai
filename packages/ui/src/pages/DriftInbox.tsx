@@ -261,7 +261,7 @@ function DriftInboxBody({
                     </Link>
                     {/* min-w-0 lets the title WRAP within the flex row instead
                         of truncating or forcing the fixed tokens to break. */}
-                    <span className="text-muted break-words min-w-0">
+                    <span className="text-muted wrap-break-word min-w-0">
                       {item.doc.title}
                     </span>
                     {item.section && (
@@ -306,7 +306,7 @@ function DriftInboxBody({
                       <div className="text-xs uppercase tracking-wide text-muted mb-1">
                         Current section content
                       </div>
-                      <div className="text-xs bg-surface/60 border border-edge-subtle rounded p-2 break-words">
+                      <div className="text-xs bg-surface/60 border border-edge-subtle rounded-sm p-2 wrap-break-word">
                         {item.section?.content ? (
                           <MarkdownText inline={false}>
                             {item.section.content}
@@ -320,7 +320,7 @@ function DriftInboxBody({
                       <div className="text-xs uppercase tracking-wide text-muted mb-1">
                         Proposed
                       </div>
-                      <div className="text-xs bg-surface/60 border border-status-info-border rounded p-2 break-words">
+                      <div className="text-xs bg-surface/60 border border-status-info-border rounded-sm p-2 wrap-break-word">
                         <MarkdownText inline={false}>
                           {item.proposedContent ?? item.content}
                         </MarkdownText>

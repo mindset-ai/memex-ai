@@ -40,6 +40,13 @@ export type ChangeEntity =
   // `doc_assignee` fires on assign/unassign (std-8, ac-20).
   | "doc_member"
   | "doc_assignee"
+  // spec-320 — comment-level @-mention + assignment, scoped to a Spec via docId.
+  // `comment_mention` fires on mention-add; `comment_assignee` on assign/unassign
+  // (std-8). Mirrors the doc_member/doc_assignee posture (spec-118 dec-8) one level
+  // down — on a comment rather than a whole Spec — so open boards and the spec-315
+  // "where you're needed" home surface refresh live.
+  | "comment_mention"
+  | "comment_assignee"
   // Pulse (b-60) — read/activity entities with no resource target.
   // `query` is a search event (no docId); `tool_call` is the generic MCP
   // invocation fallback when no more specific entity applies.
@@ -71,6 +78,7 @@ export type ChangeEntity =
   // mutate({silent:true}) so the wrapper invariant holds even though no SSE
   // consumer subscribes — the brand and the coverage scanner stay structural.
   | "auth_token"
+  | "login_request"
   | "cli_auth_request"
   | "invite_token"
   | "slack_user_cache"

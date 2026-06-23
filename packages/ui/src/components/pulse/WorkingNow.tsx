@@ -93,7 +93,7 @@ export function WorkingNow({
           No one has worked a spec in the last few minutes.
         </div>
       ) : (
-        <ul className="divide-y divide-edge-subtle/60">
+        <ul className="divide-y divide-edge-subtle">
           {workers.map((w) => {
             const handle = w.docId ? specHandle?.(w.docId) : undefined;
             const title = w.docId ? specTitle?.(w.docId) : undefined;
@@ -129,7 +129,7 @@ export function WorkingNow({
                 {title ? <span className="text-muted text-xs">{title}</span> : null}
                 <span
                   data-testid="worker-channel"
-                  className="font-mono text-[0.65rem] uppercase tracking-wide text-muted/80 border border-edge-subtle rounded px-1"
+                  className="font-mono text-[0.65rem] uppercase tracking-wide text-muted/80 border border-edge-subtle rounded-sm px-1"
                 >
                   {channelGlyph(w.channel)}
                 </span>

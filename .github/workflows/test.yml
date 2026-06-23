@@ -262,6 +262,16 @@ jobs:
   ui:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      # UI unit tests tag ACs too (std-35 Recipe A — "representative unit tests at
+      # the track() sites"); emit them like the server / e2e / ac-emit jobs do.
+      # Without this the ui job ran tagged tests but emitted nothing, so any
+      # UI-unit-verified AC stayed untested. Value lives in the MEMEX_EMIT_KEY repo
+      # secret, never here.
+      MEMEX_EMIT_KEY: ${{ secrets.MEMEX_EMIT_KEY }}
+      # Dependabot PRs receive no repo secrets — turn emission OFF for them so no
+      # bogus unauthenticated emission is attempted (mirrors the server job).
+      MEMEX_EMIT: ${{ github.actor == 'dependabot[bot]' && 'false' || '' }}
     steps:
       - uses: actions/checkout@v6
       # No `version:` here — pnpm/action-setup@v6 reads the pinned version from
@@ -299,6 +309,32 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: CLI installer tests
         run: pnpm --filter memex-ai test
+
+  # @memex-ai-ac/vitest — the AC-emission helper package. Runs its own suite so
+  # the package is CI-gated AND its tagged tests EMIT on every PR, keeping the
+  # helper-side ACs fresh (spec-302, plus spec-129's ac-16/ac-3). Before this job
+  # the package ran in no CI suite, so those ACs emitted only via manual local
+  # runs and went stale (spec-302 issue-1). Pure unit tests — no DB side-car.
+  ac-emit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      # spec-129: authenticate AC-emission to the prod Memex (same wiring as the
+      # server job). Value lives in the MEMEX_EMIT_KEY repo secret, never here.
+      MEMEX_EMIT_KEY: ${{ secrets.MEMEX_EMIT_KEY }}
+      # Dependabot PRs receive no repo secrets — turn emission OFF for them so no
+      # bogus unauthenticated emission is attempted (mirrors the server job).
+      MEMEX_EMIT: ${{ github.actor == 'dependabot[bot]' && 'false' || '' }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: AC-emit helper tests
+        run: pnpm --filter @memex-ai-ac/vitest test
 
   # UI E2E (Playwright). Runs against a freshly migrated DB via the webServer block
   # in playwright.config.ts — the same setup a developer uses locally.

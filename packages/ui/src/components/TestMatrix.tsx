@@ -271,12 +271,12 @@ function EmissionSquare({
         title={titleText}
         data-status={status}
         data-emitted-at={emittedAt}
-        className={`block rounded-sm ${STATUS_COLOUR[status]}`}
+        className={`block rounded-xs ${STATUS_COLOUR[status]}`}
         style={{ width: SQUARE_WIDTH_PX, height: SQUARE_WIDTH_PX }}
       />
       <span
         aria-hidden="true"
-        className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1.5 -translate-x-1/2 rounded bg-zinc-900 px-1.5 py-0.5 text-[10px] font-medium text-zinc-100 opacity-0 shadow-sm transition-opacity group-hover/sq:opacity-100 dark:bg-zinc-100 dark:text-zinc-900"
+        className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1.5 -translate-x-1/2 rounded-sm bg-zinc-900 px-1.5 py-0.5 text-[10px] font-medium text-zinc-100 opacity-0 shadow-xs transition-opacity group-hover/sq:opacity-100 dark:bg-zinc-100 dark:text-zinc-900"
       >
         <span className="whitespace-nowrap">{headerLine}</span>
         {actor && (

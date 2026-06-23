@@ -55,7 +55,6 @@ import {
   resolveMemexId,
 } from "../services/emission-keys.js";
 import { mutate } from "../services/mutate.js";
-import { observeTestEventTraffic } from "../services/spec-traffic.js";
 import type { ChangeEntity } from "../services/bus.js";
 
 const testEventsRouter = new Hono();
@@ -356,15 +355,10 @@ testEventsRouter.post("/", async (c) => {
   // bump never blocks or fails the emission — it only leaves a slightly stale timestamp.
   bumpLastUsed(emissionKey.id);
 
-  // spec-189: a test_event arriving is verify-class traffic on the AC's Spec
-  // (dec-1) — a done Spec reopens to verify; a draft Spec advances to verify.
-  // Hidden emissions are excluded by design (`hidden: true` exists to keep an
-  // emission out of the visible signals — e.g. iterating on a done-phase
-  // regression fix must not reopen the Spec). Best-effort and non-throwing;
-  // no assignment (an emission key carries no acting user).
-  if (!insertValues.hidden) {
-    await observeTestEventTraffic(targetMemexId, insertValues.acUid);
-  }
+  // spec-342: a test_event NEVER changes a Spec's phase. It updates the AC
+  // verdict (applyEmissionToSummary, above) and the audit trail only; phase is
+  // a deliberate human / handoff placement. The former build→verify (and
+  // done→verify reopen) auto-promote was removed — see spec-traffic.ts.
 
   // Stdout log so observers can tail the dev server output during deploys
   // and behavioural probes. Cheap and useful.

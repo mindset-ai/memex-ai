@@ -338,6 +338,16 @@ export const docComments = pgTable(
     anchorSnippet: text("anchor_snippet"),
     audience: jsonb("audience").$type<CommentAudience>().notNull().default("all"),
     actions: jsonb("actions").$type<CommentAction[]>(),
+    // spec-320 (dec-1/dec-2): comment ASSIGNMENT (ownership). Single owner per
+    // comment, so it lives on the row (a column), NOT a join table — the
+    // cardinality is the inverse of doc_assignees (spec-118), where a Spec has
+    // many assignees. The open→resolved lifecycle reuses resolved_at/resolution
+    // (no assignment-specific status column). assigned_by / assigned_at are the
+    // std-32 WHO/WHEN of the assignment, stamped at write. ON DELETE SET NULL so
+    // removing a user keeps the comment (mirrors doc_assignees.assigned_by).
+    assigneeUserId: uuid("assignee_user_id").references(() => users.id, { onDelete: "set null" }),
+    assignedBy: uuid("assigned_by").references(() => users.id, { onDelete: "set null" }),
+    assignedAt: timestamp("assigned_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -383,6 +393,12 @@ export const docComments = pgTable(
     // Per-doc seq scope (b-36 T-2). Backfilled deterministically by
     // ROW_NUMBER() OVER (PARTITION BY doc_id ORDER BY created_at, id).
     unique("doc_comments_doc_seq_unique").on(table.docId, table.seq),
+    // spec-320 (dec-2): the spec-315 "open assignments to me" read path —
+    // assignee_user_id = :me AND resolved_at IS NULL. Partial so the index only
+    // carries OPEN assignments (a resolved comment closes the assignment).
+    index("doc_comments_open_assignee_idx")
+      .on(table.assigneeUserId)
+      .where(sql`${table.resolvedAt} IS NULL`),
   ]
 );
 
@@ -899,6 +915,54 @@ export const docCommentsRelations = relations(docComments, ({ one }) => ({
   }),
 }));
 
+// ══════════════════════════════════════
+// Comment mentions (spec-320)
+// ══════════════════════════════════════
+//
+// spec-320 (dec-1): @-mention a user in a comment. A JOIN TABLE because a single
+// comment can call out SEVERAL people (multi-mention, ac-1) — the inverse
+// cardinality of the single-owner assignee column on doc_comments. Tenancy on
+// memex_id (NOT NULL, denormalised, mirrors doc_comments) for RLS. comment_id →
+// doc_comments ON DELETE CASCADE (mentions die with their comment); user_id →
+// users ON DELETE CASCADE (mentions die with the user). mentioned_by is the
+// std-32 WHO (ON DELETE SET NULL so removing the actor keeps the mention); `at`
+// is the std-32 WHEN. unique(comment_id,user_id) makes mention-add idempotent —
+// one mention per user per comment. index(user_id) backs the spec-315
+// "mentions-me" read path. The invariant assignee ⊆ mentions (dec-2) is enforced
+// in the service layer: assigning a comment always writes the matching mention
+// row, so comment_mentions is the uniform "everyone called out" set.
+export const commentMentions = pgTable(
+  "comment_mentions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    memexId: uuid("memex_id").notNull(),
+    commentId: uuid("comment_id")
+      .notNull()
+      .references(() => docComments.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    mentionedBy: uuid("mentioned_by").references(() => users.id, { onDelete: "set null" }),
+    at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique("comment_mentions_comment_id_user_id_unique").on(table.commentId, table.userId),
+    index("comment_mentions_user_id_idx").on(table.userId),
+    index("comment_mentions_comment_id_idx").on(table.commentId),
+  ]
+);
+
+export const commentMentionsRelations = relations(commentMentions, ({ one }) => ({
+  comment: one(docComments, {
+    fields: [commentMentions.commentId],
+    references: [docComments.id],
+  }),
+  user: one(users, {
+    fields: [commentMentions.userId],
+    references: [users.id],
+  }),
+}));
+
 export const decisionsRelations = relations(decisions, ({ one, many }) => ({
   document: one(documents, {
     fields: [decisions.docId],
@@ -1018,12 +1082,32 @@ export const orgs = pgTable(
     // Who created the org. Used for the 5-orgs-per-user-per-24h rate limit (std-3 /
     // dec-8). Nullable + ON DELETE SET NULL because user deletions don't unwind orgs.
     createdByUserId: uuid("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    // Designated billing contact (spec-171 t-1). Nullable — null means payment emails
+    // go to the org creator / all admins. Kept on the orgs table (not org_memberships)
+    // so the billing contact can be a non-member (e.g. finance@company.com).
+    billingContactName: text("billing_contact_name"),
+    billingContactEmail: text("billing_contact_email"),
+    // spec-171 t-2: enterprise trial state. null trial_status = never trialed or converted to paid.
+    trialStartedAt: timestamp("trial_started_at", { withTimezone: true }),
+    trialStatus: text("trial_status"),
+    trialConvertedAt: timestamp("trial_converted_at", { withTimezone: true }),
+    // Stripe customer ID — one per org, set on first purchase.
+    stripeCustomerId: text("stripe_customer_id"),
+    // spec-171 t-7: subscription state — kept in sync by stripe-webhook handler.
+    stripeSubscriptionId: text("stripe_subscription_id"),
+    planTier: text("plan_tier"),
+    seatsPurchased: integer("seats_purchased"),
+    // JSONB map of which trial nurture emails have been sent e.g. { day_1: true, day_4: true }.
+    trialEmailsSent: jsonb("trial_emails_sent").$type<Record<string, boolean>>().notNull().default({}),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     unique("orgs_namespace_id_unique").on(table.namespaceId),
+    unique("orgs_stripe_customer_id_unique").on(table.stripeCustomerId),
     index("orgs_created_by_user_id_idx").on(table.createdByUserId),
+    check("orgs_trial_status_valid", sql`${table.trialStatus} IN ('active', 'expired')`),
+    check("orgs_plan_tier_valid", sql`${table.planTier} IN ('premium', 'enterprise', 'self-hosted-enterprise')`),
   ]
 );
 
@@ -1140,6 +1224,14 @@ export const users = pgTable("users", {
   // blocked/denied audio start does NOT stamp it). True once-per-user across
   // devices, so the auto-greeting never re-fires.
   onboardingGreetedAt: timestamp("onboarding_greeted_at", { withTimezone: true }),
+  // spec-305 dec-4/dec-5: the captured onboarding profile. roleCoords holds the
+  // developer/designer/PM triangle as barycentric weights (sum 1); identityConfirmedAt
+  // stamps when the user completed the journey's identity step (confirm name + place
+  // the triangle, or skip to the centered default). needsOnboarding keys off this,
+  // NOT !name — SSO users arrive with a name from Google/Microsoft but still take
+  // the identity step.
+  roleCoords: jsonb("role_coords").$type<{ dev: number; design: number; pm: number }>(),
+  identityConfirmedAt: timestamp("identity_confirmed_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
@@ -1194,6 +1286,33 @@ export const authTokens = pgTable("auth_tokens", {
     "auth_tokens_purpose_valid",
     sql`${table.purpose} IN ('email_verification', 'magic_link', 'password_reset')`
   ),
+]);
+
+// Originating-session surrogate for the magic-link flow (spec-304 / embedded webview).
+// When a magic link is requested from an embedded webview, the link is clicked in an
+// EXTERNAL browser (different cookie jar), so the requesting webview never becomes
+// authenticated. This row is a polling handle: the requesting client holds `id` (a
+// high-entropy capability — it never sees the raw token) and polls the status endpoint.
+// When the link is consumed elsewhere, `verifiedAt` is stamped against the row whose
+// `tokenId` matches, and the next poll hands the requesting webview a session in-place.
+//
+// `id` yields a session once verified, so it is treated like a single-use token: short
+// TTL (mirrors the magic_link token), only honoured while genuinely verified AND unexpired.
+export const loginRequests = pgTable("login_requests", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  // The auth_tokens row this poll-handle is the surrogate for. CASCADE so token cleanup
+  // takes the surrogate with it.
+  tokenId: uuid("token_id")
+    .notNull()
+    .references(() => authTokens.id, { onDelete: "cascade" }),
+  email: text("email").notNull(),
+  // Stamped when the magic link is consumed (in the external browser). NULL until then.
+  verifiedAt: timestamp("verified_at", { withTimezone: true }),
+  // Mirrors the magic_link token TTL — the capability is dead once this passes.
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("login_requests_token_id_idx").on(table.tokenId),
 ]);
 
 export const orgMemberships = pgTable(
@@ -2449,6 +2568,11 @@ export const usageEvents = pgTable(
     // WHO (the acting Memex user). Nullable: anonymous capture is a no-op so a
     // null actor only arises for system-originated backend events.
     actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+    // The anonymous-first identity join key (spec-254 dec-2). Plain uuid (no FK):
+    // a denormalised join column on a high-volume table, and an anonymous event can
+    // carry a visitor_id before any visitors row exists. NULL on rows captured
+    // before visitor_id plumbing reaches them. The funnel joins this to visitors.
+    visitorId: uuid("visitor_id"),
     // The registered event name, e.g. 'spec.create_clicked' or 'document.created'.
     // Validated against the in-code registry before insert (spec-244 dec-5).
     name: text("name").notNull(),
@@ -2483,6 +2607,115 @@ export const usageEvents = pgTable(
 );
 export type UsageEvent = InferSelectModel<typeof usageEvents>;
 export type UsageEventInsert = InferInsertModel<typeof usageEvents>;
+
+// ══════════════════════════════════════
+// Visitors — the anonymous-first identity spine (spec-254)
+// ══════════════════════════════════════
+//
+// One durable id per browser, minted at first touch BEFORE any sign-in, persisted
+// in a .memex.ai first-party cookie + localStorage mirror, and carried on every
+// event. At sign-in the anonymous visitor_id MERGES into the now-known user (the
+// analytics "identify" step): user_id + merged_at get stamped. This is the
+// browser-only slice (spec-254 dec-2) and the embryo of spec-125's dim_actor —
+// when 125's formal model lands, this table becomes or feeds it.
+//
+// The bind-once invariant (spec-254 dec-3): a visitor_id binds to at most one user,
+// ever. Re-identifying the same user is a no-op; a merge that would re-point an
+// already-bound id to a DIFFERENT user does NOT overwrite — the caller mints a
+// fresh visitor_id instead. Erasure-reversible: nulling the row breaks the link
+// without losing the anonymous arc (user delete → set null, not cascade).
+export const visitors = pgTable(
+  "visitors",
+  {
+    // The client-minted opaque id (crypto.randomUUID()); also the .memex.ai cookie value.
+    visitorId: uuid("visitor_id").primaryKey(),
+    // First time we saw this browser (pre-auth). Defaults to insert time.
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    // WHO this visitor turned out to be, stamped at the identify merge. NULL while
+    // still anonymous. set null on user delete keeps the visitor row.
+    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    // When the anon->known merge happened. NULL while still anonymous.
+    mergedAt: timestamp("merged_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // Reverse lookup: every visitor id that resolved to a given user (per-user
+    // journey reconstruction / cohort joins, spec-254 ac-3). Partial — only merged
+    // rows carry a user_id, so the index stays small.
+    index("visitors_user_id_idx").on(table.userId).where(sql`${table.userId} IS NOT NULL`),
+  ]
+);
+export type Visitor = InferSelectModel<typeof visitors>;
+
+// spec-6 (memex-backstage) t-1 — comms_log: the unified per-user record of every
+// outbound communication to a user, across ALL channels (email / in-app / badge /
+// OS), scheduled and sent. Core (memex-ai) OWNS + WRITES this public table;
+// Backstage READS it cross-tenant via the memex_admin BYPASSRLS role and never
+// writes it (spec-6 dec-5; the spec-280 admin↔public boundary). It is the single
+// pane that lets ops see the TOTAL comms load on one human and avoid bombarding
+// them — the whole point of the comms-strategy work.
+//
+// METADATA ONLY (spec-6 dec-4): a one-line subject/summary + status + timestamps +
+// a source_ref pointer — NEVER the message body. Full content stays in the
+// system-of-record (Postmark / HubSpot / the in-app notification store), reached
+// via source_ref. Retention ~90 days, pruned core-side (spec-6 t-8).
+//
+// RLS — deliberately EXCLUDED, mirroring usage_events / visitors / activity_log
+// (drizzle/0090 §exclusions). comms_log is a CROSS-TENANT, user-scoped comms
+// dimension (keyed on user_id, NOT memex_id), written ADVISORILY from send paths
+// that often run with no request ALS / tenant GUC (a background Activation send, a
+// Postmark/Stripe delivery webhook) — a FORCE-RLS WITH CHECK would silently reject
+// those inserts, and a memex_id USING clause is meaningless on a user-keyed row.
+// The row holds only ids/enums/a summary line (no body, no credentials); isolation
+// is enforced at the service layer and, in Backstage, by the requireOperator gate.
+export const commsLog = pgTable(
+  "comms_log",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // WHO the communication is addressed to (the single human). Cascade on user
+    // delete: a user's comms history is erased with them — no orphan PII.
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    // WHICH channel it lands on. Badge + OS push are first-class alongside email +
+    // in-app so the timeline reflects the TOTAL load on the user.
+    channel: text("channel").notNull(),
+    // WHAT kind of comm — coarse intent ('transactional' | 'activation' |
+    // 'work_notification' | …) plus any sub-type. Free text so a new comm type
+    // needs no migration; validated against the in-code registry before insert.
+    type: text("type").notNull(),
+    // Lifecycle. 'scheduled' = planned ahead, not yet sent (sent_at null); 'sent'
+    // once dispatched; 'delivered'/'failed' applied later by delivery webhooks.
+    status: text("status").notNull().default("sent"),
+    // When the send is planned for (spec-6 dec-3). Set ahead for sends we control
+    // (time-based Activation, Postmark scheduled); NULL for immediate-fire channels.
+    scheduledFor: timestamp("scheduled_for", { withTimezone: true }),
+    // When it actually went out. NULL while still scheduled.
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    // One-line subject/summary for the timeline — NEVER the full body (dec-4).
+    subject: text("subject"),
+    // Pointer back to the system-of-record row (Postmark message id, HubSpot send
+    // id, app notification id). Delivery webhooks match on this to update status.
+    sourceRef: text("source_ref"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // Per-user timeline: every comm to one human, newest first (spec-6 ac-1).
+    index("comms_log_user_id_created_at_idx").on(table.userId, table.createdAt),
+    // Cross-user schedule view: upcoming sends only, soonest first (spec-6 ac-4).
+    // Partial on the unsent set so the scan stays tiny.
+    index("comms_log_scheduled_idx")
+      .on(table.scheduledFor)
+      .where(sql`${table.sentAt} IS NULL`),
+    check("comms_log_channel_valid", sql`${table.channel} IN ('email', 'in_app', 'badge', 'os')`),
+    check(
+      "comms_log_status_valid",
+      sql`${table.status} IN ('scheduled', 'sent', 'delivered', 'failed')`,
+    ),
+  ],
+);
+export type CommsLogRow = InferSelectModel<typeof commsLog>;
+export type VisitorInsert = InferInsertModel<typeof visitors>;
 
 // ══════════════════════════════════════
 // Presence (spec-122 dec-4)
@@ -2595,6 +2828,8 @@ export type StandardClause = InferSelectModel<typeof standardClauses>;
 export type ClauseRef = InferSelectModel<typeof clauseRefs>;
 export type ClauseRefInsert = InferInsertModel<typeof clauseRefs>;
 export type DocComment = InferSelectModel<typeof docComments>;
+export type CommentMention = InferSelectModel<typeof commentMentions>;
+export type CommentMentionInsert = InferInsertModel<typeof commentMentions>;
 export type Decision = InferSelectModel<typeof decisions>;
 export type Task = InferSelectModel<typeof tasks>;
 export type Issue = InferSelectModel<typeof issues>;
@@ -2621,6 +2856,7 @@ export type DomainVerificationToken = InferSelectModel<typeof domainVerification
 export type NamespaceSlugReservation = InferSelectModel<typeof namespaceSlugReservations>;
 export type OrgConsentResponse = InferSelectModel<typeof orgConsentResponses>;
 export type AuthToken = InferSelectModel<typeof authTokens>;
+export type LoginRequest = InferSelectModel<typeof loginRequests>;
 export type McpToken = InferSelectModel<typeof mcpTokens>;
 export type MemexEmissionKey = InferSelectModel<typeof memexEmissionKeys>;
 export type MemexEmissionKeyInsert = InferInsertModel<typeof memexEmissionKeys>;
@@ -2798,3 +3034,25 @@ export const whatsNewSkips = pgTable(
 
 export type WhatsNewSkip = InferSelectModel<typeof whatsNewSkips>;
 export type WhatsNewSkipInsert = InferInsertModel<typeof whatsNewSkips>;
+
+// ── spec-171 t-2: enterprise schema (hosted-only) ────────────────────────────
+// Self-hosted tables (org_llm_keys, self_hosted_licenses, license_checkins) are
+// deferred to spec-323.
+
+// Idempotency log for Stripe webhook handlers. Unique on event_id prevents
+// double-processing on webhook retries (dec-8).
+export const stripeEvents = pgTable(
+  "stripe_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    eventId: text("event_id").notNull(),
+    eventType: text("event_type").notNull(),
+    processedAt: timestamp("processed_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique("stripe_events_event_id_unique").on(table.eventId),
+  ]
+);
+
+export type StripeEvent = InferSelectModel<typeof stripeEvents>;
+export type StripeEventInsert = InferInsertModel<typeof stripeEvents>;

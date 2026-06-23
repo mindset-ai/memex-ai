@@ -198,7 +198,7 @@ export function ActivityFeed({
         ) : groups.length === 0 ? (
           <EmptyFeed />
         ) : (
-          <ol className="divide-y divide-edge-subtle/60">
+          <ol className="divide-y divide-edge-subtle">
             <li
               className="select-none px-3 py-2 text-center text-[0.65rem] uppercase tracking-wide text-muted/60"
               data-testid="event-log-header"
@@ -229,7 +229,7 @@ export function ActivityFeed({
               onClick={onLoadOlder}
               disabled={loading}
               data-testid="load-older"
-              className="rounded border border-edge-subtle px-3 py-1 text-xs text-secondary hover:bg-card-hover hover:text-primary transition-colors disabled:opacity-60"
+              className="rounded-sm border border-edge-subtle px-3 py-1 text-xs text-secondary hover:bg-card-hover hover:text-primary transition-colors disabled:opacity-60"
             >
               {loading ? 'Loading…' : 'Load older'}
             </button>
@@ -304,7 +304,7 @@ function FeedRow({
           expanded
           onToggleExpand={onToggleExpand}
         />
-        <ul className="border-l border-edge-subtle/60 ml-5">
+        <ul className="border-l border-edge-subtle ml-5">
           {group.rows.slice(1).map((r) => (
             <li key={r.id}>
               <ActivityRow
@@ -361,14 +361,14 @@ function EmptyFeed() {
 // echo the real row's shape (a dot+time line over a wider narrative line).
 function SkeletonRows() {
   return (
-    <ul className="divide-y divide-edge-subtle/60" data-testid="feed-skeleton">
+    <ul className="divide-y divide-edge-subtle" data-testid="feed-skeleton">
       {Array.from({ length: 6 }).map((_, i) => (
         <li key={i} className="px-3 py-2">
           <div className="flex items-center gap-2">
             <span className="h-1.5 w-1.5 rounded-full bg-card-hover animate-pulse" />
-            <span className="h-2 w-16 rounded bg-card-hover animate-pulse" />
+            <span className="h-2 w-16 rounded-sm bg-card-hover animate-pulse" />
           </div>
-          <span className="mt-1.5 block h-3 w-3/4 rounded bg-card-hover animate-pulse" />
+          <span className="mt-1.5 block h-3 w-3/4 rounded-sm bg-card-hover animate-pulse" />
         </li>
       ))}
     </ul>
