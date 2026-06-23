@@ -23,8 +23,19 @@ export interface JourneyStepStatus {
   attained: boolean;
 }
 
+// spec-336: the user's captured placement on the developer/designer/PM triangle. Drives
+// the UI-side persona branch (builder vs non-builder); null until identity is completed.
+export interface RoleCoords {
+  dev: number;
+  design: number;
+  pm: number;
+}
+
 export interface JourneyStateResponse {
   milestones: JourneyMilestones;
+  // spec-336: raw role placement — the Home Canvas derives builder-ness from it
+  // (via the shared personaLabel helper) to decide the visible step set.
+  roleCoords: RoleCoords | null;
   currentStepId: string;
   // Per-step real attainment (drives the progress map). Reflects true state even
   // under preview.

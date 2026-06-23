@@ -18,35 +18,29 @@ interface StepConfig {
   waitingLabel: string;
 }
 
+// spec-336 — the v2 copy + verbatim design prompts for the two paste-a-prompt SDD
+// steps. "Decisions raised" and "Acceptance criteria raised" are the same move: point
+// your agent at the spec and the repo and it raises the work; you only resolve.
 export const AGENT_PROMPT_STEPS: Record<string, StepConfig> = {
   'resolve-decision': {
-    eyebrow: '// 03 · first decision',
-    headline: 'Make the first real call.',
-    sub: 'Every plan hinges on a few decisions.',
-    body: 'Have your agent capture the choice your spec turns on as a decision, weigh the options, and resolve it. That is how the plan stays honest and your agent knows which path you picked.',
-    prompt: `Using the Memex MCP, on the spec we just created:
-
-1. Call create_decision with the key choice this spec turns on (a clear title + a couple of options).
-2. Then resolve it with resolve_decision — pick the option and say why.
-
-Tell me which decision you resolved (dec-N).`,
+    eyebrow: 'Decisions raised',
+    headline: 'No agent decides for you.',
+    sub: 'Hidden calls surface before a line is written.',
+    body: 'Point your agent at the spec and the repo. It reads both and raises the decisions that need taking, so all you do is resolve them.',
+    prompt: `Using the Memex MCP: Look at this spec, look at the repo, and update the spec by raising the key decisions that need to be made. Then tell me which decisions (dec-N) you raised.`,
     milestone: 'hasResolvedDecision',
-    doneLabel: 'Decision resolved. Now the acceptance criterion…',
-    waitingLabel: 'Waiting for your agent to resolve a decision — this advances the moment it does.',
+    doneLabel: 'Decisions raised on your spec.',
+    waitingLabel: 'Waiting for your agent to raise decisions — this advances the moment it does.',
   },
   'add-ac': {
-    eyebrow: '// 04 · define "done"',
-    headline: 'Pin down what "done" means.',
-    sub: 'An acceptance criterion turns intent into something testable.',
-    body: 'Have your agent add an acceptance criterion to your decision — a plain statement of what the code must do. This is the promise your tests will hold the build to.',
-    prompt: `Using the Memex MCP, on the spec we just created:
-
-1. Call create_ac (kind: scope) with a plain-English statement of what "done" looks like for the decision you resolved.
-
-Tell me the AC handle (ac-N) you added — next we'll watch it go green.`,
+    eyebrow: 'Acceptance criteria raised',
+    headline: 'Done becomes a fact.',
+    sub: 'Testable criteria, set before the build starts.',
+    body: 'Same move: your agent reads the spec and the repo and raises testable acceptance criteria against each decision.',
+    prompt: `Using the Memex MCP: Look at this spec, look at the repo, and update the spec by raising acceptance criteria for each decision. Then tell me the ACs (ac-N) you added.`,
     milestone: 'hasAc',
-    doneLabel: 'Acceptance criterion added. Time for the magic…',
-    waitingLabel: 'Waiting for your agent to add an acceptance criterion — this advances the moment it does.',
+    doneLabel: 'Acceptance criteria raised.',
+    waitingLabel: 'Waiting for your agent to raise acceptance criteria — this advances the moment it does.',
   },
 };
 
@@ -65,14 +59,34 @@ export function AgentPromptStep({
   const cfg = AGENT_PROMPT_STEPS[stepId];
   const [done, setDone] = useState(false);
   const doneRef = useRef(false);
+  const initRef = useRef(false);
 
   useEffect(() => {
     if (preview || !cfg) return;
+    // This component is reused across resolve-decision ↔ add-ac (same instance, new
+    // stepId), so reset the per-step trackers whenever the step changes.
+    initRef.current = false;
+    doneRef.current = false;
+    setDone(false);
     let alive = true;
     const tick = async () => {
       try {
         const s = await fetchJourneyStateApi();
-        if (alive && s.milestones?.[cfg.milestone]) {
+        if (!alive) return;
+        const met = !!s.milestones?.[cfg.milestone];
+        // First read after this step opens. If the milestone is already met the user is
+        // REVISITING a completed step — show it as done but do NOT advance them off it
+        // (spec-336 dec-6: viewing never bumps you forward). Only a transition observed
+        // while the step is open advances the canvas.
+        if (!initRef.current) {
+          initRef.current = true;
+          if (met) {
+            doneRef.current = true;
+            setDone(true);
+          }
+          return;
+        }
+        if (met) {
           setDone(true);
           if (!doneRef.current) {
             doneRef.current = true;
@@ -94,39 +108,28 @@ export function AgentPromptStep({
   if (!cfg) return null;
 
   return (
-    <div className="flex min-h-[70vh] items-center justify-center px-4 py-10">
-      <article
-        data-testid={`journey-step-${stepId}`}
-        className="relative w-full max-w-2xl overflow-hidden rounded-3xl border border-edge bg-surface/70 p-8 shadow-2xl backdrop-blur-xl sm:p-12"
-      >
-        <div className="mb-5 font-mono text-xs lowercase tracking-tight text-muted">{cfg.eyebrow}</div>
-        <h1 className="text-4xl font-black leading-[1.08] tracking-tight text-heading sm:text-5xl">{cfg.headline}</h1>
-        <p className="mt-4 text-lg font-semibold text-primary">{cfg.sub}</p>
-        <p className="mt-4 max-w-prose leading-relaxed text-secondary">{cfg.body}</p>
+    <div data-testid={`journey-step-${stepId}`} className="max-w-3xl animate-[panelIn_0.35s_ease]">
+      <h2 className="mb-4 text-5xl font-black leading-[1.02] tracking-tight text-heading">{cfg.headline}</h2>
+      <p className="mb-5 text-xl font-bold leading-snug text-primary">{cfg.sub}</p>
+      <p className="mb-7 max-w-2xl leading-relaxed text-secondary">{cfg.body}</p>
 
-        <div className="mt-6" data-testid="agent-prompt">
-          <CodeBlock code={cfg.prompt} onCopy={() => onCtaClick?.('copy_prompt')} />
-        </div>
+      <div data-testid="agent-prompt">
+        <CodeBlock code={cfg.prompt} onCopy={() => onCtaClick?.('copy_prompt')} />
+      </div>
 
-        <div className="mt-7" data-testid="agent-prompt-status">
-          {done ? (
-            <div
-              data-testid="agent-prompt-done"
-              className="flex items-center gap-3 rounded-xl border border-status-success-border bg-status-success-bg px-4 py-3 text-status-success-text"
-            >
-              <span className="flex h-7 w-7 flex-none items-center justify-center rounded-full bg-status-success-text text-base text-white">
-                ✓
-              </span>
-              <span className="font-semibold">{cfg.doneLabel}</span>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2 text-sm text-muted">
-              <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-accent" />
-              {cfg.waitingLabel}
-            </div>
-          )}
-        </div>
-      </article>
+      <div className="mt-5" data-testid="agent-prompt-status">
+        {done ? (
+          <div data-testid="agent-prompt-done" className="flex items-center gap-2.5 text-status-success-text">
+            <span className="h-2.5 w-2.5 flex-none rounded-full bg-status-success-text" />
+            <span className="font-semibold">{cfg.doneLabel}</span>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2.5 text-sm text-muted">
+            <span className="h-2.5 w-2.5 flex-none animate-pulse rounded-full bg-accent" />
+            {cfg.waitingLabel}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

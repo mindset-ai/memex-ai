@@ -33,45 +33,37 @@ beforeEach(() => {
   updateProfileApi.mockResolvedValue({ needsOnboarding: false });
 });
 
-describe('IdentityStep', () => {
-  it('confirms the SSO name and shows the role triangle + persona label', () => {
+// spec-336: v2 step 0 — greeting from SSO (no name field), the role triangle beside a
+// live persona title + description, and Continue. No Skip button.
+const AC336 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-336/acs/ac-${n}`;
+
+describe('IdentityStep (v2)', () => {
+  it('greets by SSO first name and shows the triangle + live persona (no name field)', () => {
     tagAc(AC(2));
+    tagAc(AC336(2));
     render(<IdentityStep />);
     expect(screen.getByTestId('journey-step-identity')).toBeInTheDocument();
-    expect(screen.getByTestId('identity-name')).toHaveValue('John Doe'); // pre-filled from SSO
+    expect(screen.getByText('Hi John, welcome to Memex.')).toBeInTheDocument();
     expect(screen.getByTestId('role-triangle')).toBeInTheDocument();
     expect(screen.getByTestId('persona-label')).toBeInTheDocument();
+    expect(screen.getByTestId('persona-description')).toBeInTheDocument();
+    // No editable name field in v2 (the SSO name is reused as-is).
+    expect(screen.queryByTestId('identity-name')).toBeNull();
+    expect(screen.queryByTestId('identity-skip')).toBeNull();
   });
 
-  it('Continue persists name + role coords (summing to 1) and refreshes the session', async () => {
+  it('Continue persists the SSO name + role coords (summing to 1) and refreshes the session', async () => {
     tagAc(AC(2));
     tagAc(AC(5));
+    tagAc(AC336(2));
     render(<IdentityStep />);
     fireEvent.click(screen.getByTestId('identity-continue'));
     await waitFor(() => expect(updateProfileApi).toHaveBeenCalledTimes(1));
     const [, name, coords] = updateProfileApi.mock.calls[0];
-    expect(name).toBe('John Doe');
+    expect(name).toBe('John Doe'); // reused from SSO, not re-typed
+    expect(coords).toEqual(CENTERED_ROLE); // unmoved dot → centered default
     expect(sums1(coords)).toBe(true);
     await waitFor(() => expect(updateSession).toHaveBeenCalledWith({ needsOnboarding: false }));
-  });
-
-  it('Skip persists the centered default and still submits (never blocks)', async () => {
-    tagAc(AC(5));
-    render(<IdentityStep />);
-    fireEvent.click(screen.getByTestId('identity-skip'));
-    await waitFor(() => expect(updateProfileApi).toHaveBeenCalledTimes(1));
-    const [, , coords] = updateProfileApi.mock.calls[0];
-    expect(coords).toEqual(CENTERED_ROLE);
-    expect(sums1(coords)).toBe(true);
-  });
-
-  it('a changed name is what gets persisted', async () => {
-    tagAc(AC(2));
-    render(<IdentityStep />);
-    fireEvent.change(screen.getByTestId('identity-name'), { target: { value: 'Jonathan' } });
-    fireEvent.click(screen.getByTestId('identity-continue'));
-    await waitFor(() => expect(updateProfileApi).toHaveBeenCalledTimes(1));
-    expect(updateProfileApi.mock.calls[0][1]).toBe('Jonathan');
   });
 });
 

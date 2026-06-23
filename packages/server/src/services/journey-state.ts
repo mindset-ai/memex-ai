@@ -32,6 +32,12 @@ export type { JourneyMilestone } from "../journeys/index.js";
 
 export type JourneyMilestones = Record<JourneyMilestone, boolean>;
 
+// spec-336: the user's captured role placement on the developer/designer/PM triangle.
+// Surfaced on the journey state so the Home Canvas can branch the journey by persona
+// (builder vs non-builder) entirely UI-side — no is_builder column, no server persona
+// port (spec-336 dec-3). Null until the identity step is completed.
+export type RoleCoords = { dev: number; design: number; pm: number };
+
 // Per-step attainment — the data a journey progress map renders. Reflects REAL
 // state (so the map shows true progress even when an operator is previewing a
 // different card). Because steps are independent, a later step can be attained
@@ -43,6 +49,9 @@ export interface JourneyStepStatus {
 
 export interface JourneyState {
   milestones: JourneyMilestones;
+  // spec-336: the user's captured role placement (null until the identity step is done).
+  // The Home Canvas branches the visible step set on this, UI-side.
+  roleCoords: RoleCoords | null;
   currentStepId: string;
   steps: JourneyStepStatus[];
 }
@@ -212,9 +221,20 @@ export async function getUserJourneyState(
   conn: Db = db,
 ): Promise<JourneyState> {
   const milestones = await getUserMilestones(userId, conn);
+  // spec-336: surface the captured role placement so the Home Canvas can branch the
+  // journey by persona UI-side. Read under the acting user's RLS context, like the
+  // milestones (the same owner-visibility seam the counts rely on).
+  const roleCoords = await runWithUserId(userId, async () => {
+    const [row] = await conn
+      .select({ roleCoords: users.roleCoords })
+      .from(users)
+      .where(eq(users.id, userId));
+    return row?.roleCoords ?? null;
+  });
   const journey = activeJourney();
   return {
     milestones,
+    roleCoords,
     currentStepId: deriveCurrentStep(milestones, journey),
     steps: stepStatuses(milestones, journey),
   };

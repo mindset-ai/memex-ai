@@ -25,8 +25,11 @@ export interface JourneyStepView {
   memoriam?: readonly string[];
   primary: JourneyCta;
   secondary?: JourneyCta;
-  // Short label for this step in the progress map (attainment-framed).
+  // Short label for this step in the progress map / rail (attainment-framed).
   mapLabel?: string;
+  // spec-336: the rail node's secondary line (13.5px grey in the v2 design) — the step's
+  // one-line promise shown under its title in the persistent vertical rail.
+  mapSubLabel?: string;
   // Render the greeting ("Hello, name") as a heading-sized line (welcome card).
   greetingHeading?: boolean;
 }
