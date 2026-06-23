@@ -107,6 +107,7 @@ describe('HomeCanvas v2 — persistent rail + content panel (ac-1, ac-2, ac-8, a
   it('opens a new user full-width on step 0 (the identity triangle); the rail is hidden until they advance', async () => {
     tagAc(AC(2));
     tagAc(AC(8));
+    tagAc(AC344(3)); // a normal (non-staff) user's journey renders unchanged by spec-344
     fetchJourneyStateApi.mockResolvedValue(stateFor('identity'));
     renderCanvas();
 
@@ -320,6 +321,9 @@ describe('HomeCanvas v2 — step 1 connect + create, per-stage prompts (ac-3, ac
 describe('HomeCanvas v2 — operator preview removed (spec-344) + document.title (regression)', () => {
   it('renders no operator preview bar, even for a canPreview staff user (spec-344 ac-5)', async () => {
     tagAc(AC344(5));
+    tagAc(AC344(1)); // staff no longer sees the yellow banner
+    tagAc(AC344(2)); // Home content sits at the top — same as a normal user's
+    tagAc(AC344(4)); // the preview is not exposed as a persistent banner
     // The yellow "manual step switcher" banner is gone for everyone now — staff Home
     // looks like a normal user's.
     fetchJourneyStateApi.mockResolvedValue(stateFor('identity', { canPreview: true }));
@@ -331,6 +335,7 @@ describe('HomeCanvas v2 — operator preview removed (spec-344) + document.title
 
   it('still forwards the ?preview=<step> debug param to the journey-state fetch (spec-344 ac-6)', async () => {
     tagAc(AC344(6));
+    tagAc(AC344(4)); // preview survives only as an opt-in URL, not a banner
     // The banner is gone but the URL capability survives: visiting /home?preview=<step>
     // reads the param and requests that previewed state (server still gates it via canPreview).
     fetchJourneyStateApi.mockResolvedValue(stateFor('create-spec', { canPreview: true, preview: true }));
