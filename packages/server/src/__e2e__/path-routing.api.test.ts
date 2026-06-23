@@ -189,6 +189,28 @@ describe("path-routing [std-2] [t-2]", () => {
       // NOT 404 from the resolver claiming "namespace not found".
       expect([200, 500]).toContain(res.status);
     });
+
+    it("routes /api/stripe/webhook to the webhook handler, not the tenant resolver (spec-171)", async () => {
+      // Regression (issue-13 sibling, caught in manual int testing): the Stripe
+      // webhook mounts at /api/stripe/webhook — TWO segments that match the
+      // /api/<namespace>/<memex> shape. Without "stripe" in the resolver's
+      // reserved-API-roots, parseMemexPath read namespace=stripe/memex=webhook
+      // and 404'd BEFORE the webhook router ran, so every Stripe delivery got a
+      // 404 and orgs never received their purchased tier. Posting with no
+      // Stripe-Signature reaches the handler, which rejects it (400 "Missing
+      // Stripe-Signature header"). Critically NOT 404 (resolver shadowing).
+      const res = await request(
+        "/api/stripe/webhook",
+        "memex.ai",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: "evt_test", type: "ping" }),
+        },
+      );
+      expect(res.status).not.toBe(404);
+      expect(res.status).toBe(400);
+    });
   });
 
   // ── t-18: path-prefixed mounts for tenancy-scoped surfaces ───────────────
