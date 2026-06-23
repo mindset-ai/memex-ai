@@ -6,12 +6,19 @@
 //
 // The selection happens lazily in getEmailSender() based on env. Tests can override
 // via setEmailSender().
+import { recordEmailComm } from "../comms-log.js";
 
 export interface EmailMessage {
   to: string;
   subject: string;
   text: string;
   html?: string;
+  // spec-341 (dec-4 → B): optional comms-log context. `userId` attributes the
+  // email to a user directly (else it's resolved from `to`); `commsType` labels
+  // it in the log (e.g. 'transactional' | 'activation'). Both optional — an email
+  // sent without them is still recorded, resolved by recipient address.
+  userId?: string;
+  commsType?: string;
 }
 
 export interface EmailSender {
@@ -62,6 +69,26 @@ export class PostmarkEmailSender implements EmailSender {
         `Postmark send failed (${res.status}) to=${message.to}: ${body}`
       );
     }
+
+    // spec-341 t-1: record the email in the comms log, fire-and-forget. Capture
+    // the Postmark MessageID (source_ref) so the delivery webhook can match it.
+    // recordEmailComm is advisory (swallows its own errors); a logging fault must
+    // never affect the send, so we also guard the response parse and never await
+    // into the caller's failure path.
+    let messageId: string | undefined;
+    try {
+      const body = (await res.json()) as { MessageID?: string };
+      messageId = body.MessageID;
+    } catch {
+      // response parse is best-effort — proceed to record without a MessageID
+    }
+    void recordEmailComm({
+      to: message.to,
+      userId: message.userId,
+      commsType: message.commsType,
+      subject: message.subject,
+      messageId,
+    });
   }
 }
 

@@ -19,7 +19,7 @@
 
 import { and, eq, isNull, lt, sql } from "drizzle-orm";
 import { db, type Db } from "../db/connection.js";
-import { commsLog } from "../db/schema.js";
+import { commsLog, users, orgs } from "../db/schema.js";
 import type { CommsLogRow } from "../db/schema.js";
 
 /**
@@ -183,4 +183,113 @@ export async function pruneCommsLog(
     .where(lt(commsLog.createdAt, sql`now() - (${retentionDays} * interval '1 day')`))
     .returning({ id: commsLog.id });
   return rows.length;
+}
+
+// ── Retention prune scheduler (spec-341 t-3 / dec-2) ─────────────────────────
+
+const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Start the periodic comms_log retention prune. Mirrors startActivityLogSweep
+ * (services/activity-log-sweep.ts): an in-process daily interval that calls
+ * pruneCommsLog. Booted from index.ts at server start; caller `.unref()`s the
+ * timer so it never holds the process open. A ~90-day window needs no finer
+ * cadence; a failed pass just retries next day.
+ */
+export function startCommsLogPrune(intervalMs: number = ONE_DAY_MS): NodeJS.Timeout {
+  return setInterval(async () => {
+    try {
+      const deleted = await pruneCommsLog();
+      if (deleted > 0) {
+        // eslint-disable-next-line no-console
+        console.log(`[comms-log-prune] deleted ${deleted} row(s) past retention`);
+      }
+    } catch (err) {
+      log("prune failed (will retry next tick):", err instanceof Error ? err.message : err);
+    }
+  }, intervalMs);
+}
+
+// ── Email recording at the send chokepoint (spec-341 t-1 / dec-4 → B) ────────
+
+/**
+ * Record an email send in the comms log (spec-341). Called fire-and-forget from
+ * the email chokepoint (services/email/sender.ts). Resolves the recipient to a
+ * user: the passed `userId` if the caller threaded it, else an email→public.users
+ * lookup. If no user resolves — a waitlist / pre-signup / stranger-invite address —
+ * it SKIPS (the comms log is a per-signed-up-user timeline; dec-4 → B). `commsType`
+ * labels the email (defaults to 'transactional'); `messageId` is the Postmark
+ * MessageID stored as source_ref so the delivery webhook can match it later.
+ * Advisory: any failure is logged and swallowed — never affects the send.
+ */
+export async function recordEmailComm(
+  input: { to: string; userId?: string; commsType?: string; subject?: string; messageId?: string },
+  conn: Db = db,
+): Promise<CommsLogRow | null> {
+  try {
+    let userId = input.userId;
+    if (!userId) {
+      const [u] = await conn
+        .select({ id: users.id })
+        .from(users)
+        .where(eq(users.email, input.to))
+        .limit(1);
+      userId = u?.id;
+    }
+    if (!userId) return null; // non-user recipient — not a per-user comm
+    return await recordComm(
+      {
+        userId,
+        channel: "email",
+        type: input.commsType ?? "transactional",
+        subject: input.subject ?? null,
+        sourceRef: input.messageId ?? null,
+      },
+      conn,
+    );
+  } catch (err) {
+    log("recordEmailComm failed (advisory — swallowed):", err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
+// ── Stripe-sent emails (spec-341 t-4 / dec-3) ────────────────────────────────
+
+/**
+ * Record an email that STRIPE sent directly (not via our Postmark) — receipts on
+ * payment success, dunning on failure (spec-341 dec-3). Called from the Stripe
+ * webhook handlers (routes/stripe-webhook.ts). Resolves the Stripe customer → the
+ * org's billing-contact email → a user, then records via recordEmailComm with a
+ * `stripe:`-prefixed source_ref so the row is identifiable as Stripe-sourced.
+ *
+ * BEST-EFFORT (dec-3): we infer the email from the billing event — Stripe sends no
+ * literal 'email sent' webhook, and there is no delivery status. Skips (returns
+ * null) when no billing contact / user resolves. Advisory: never throws.
+ */
+export async function recordStripeEmailComm(
+  input: { customerId: string; commsType?: string; subject?: string; sourceRef?: string },
+  conn: Db = db,
+): Promise<CommsLogRow | null> {
+  try {
+    if (!input.customerId) return null;
+    const [org] = await conn
+      .select({ email: orgs.billingContactEmail })
+      .from(orgs)
+      .where(eq(orgs.stripeCustomerId, input.customerId))
+      .limit(1);
+    const to = org?.email;
+    if (!to) return null; // no billing contact on file → skip (best-effort)
+    return await recordEmailComm(
+      {
+        to,
+        commsType: input.commsType ?? "transactional",
+        subject: input.subject,
+        messageId: input.sourceRef ?? `stripe:${input.customerId}`,
+      },
+      conn,
+    );
+  } catch (err) {
+    log("recordStripeEmailComm failed (advisory — swallowed):", err instanceof Error ? err.message : err);
+    return null;
+  }
 }

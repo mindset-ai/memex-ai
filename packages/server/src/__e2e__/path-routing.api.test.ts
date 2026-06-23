@@ -13,6 +13,7 @@
 //   - Unknown hosts return 404 with a body that doesn't leak
 
 import { describe, it, expect, beforeEach } from "vitest";
+import { tagAc } from "@memex-ai-ac/vitest";
 import { eq } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import { app } from "../app.js";
@@ -210,6 +211,25 @@ describe("path-routing [std-2] [t-2]", () => {
       );
       expect(res.status).not.toBe(404);
       expect(res.status).toBe(400);
+    });
+
+    it("routes /api/postmark/webhook to the webhook handler, not the tenant resolver (spec-341)", async () => {
+      tagAc("mindset-prod/memex-building-itself/specs/spec-341/acs/ac-7");
+      // Same class of bug as spec-171's /api/stripe/webhook: the Postmark webhook
+      // mounts at /api/postmark/webhook — two segments matching /api/<ns>/<memex>.
+      // Without "postmark" in RESERVED_API_ROOTS the resolver reads
+      // namespace=postmark/memex=webhook and 404s before the router runs, so
+      // Postmark deliveries never reach updateCommDeliveryStatus. Posting with no
+      // Basic-auth credential reaches the handler, which rejects it (401).
+      // Critically NOT 404 (resolver shadowing). The router-level tests miss this
+      // because they invoke the router directly, bypassing the resolver.
+      const res = await request("/api/postmark/webhook", "memex.ai", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ RecordType: "Delivery", MessageID: "pm_test" }),
+      });
+      expect(res.status).not.toBe(404);
+      expect(res.status).toBe(401);
     });
   });
 
