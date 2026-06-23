@@ -92,9 +92,9 @@ function makeApp(): Hono {
 
 const ALLOWED_ORIGIN = "https://www.memex.ai";
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.stubEnv("AUTH_JWT_SECRET", "x".repeat(48));
-  resetRateLimits();
+  await resetRateLimits();
   streamArgs.last = null;
 });
 afterEach(() => {
