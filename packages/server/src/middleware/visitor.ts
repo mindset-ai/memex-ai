@@ -1,6 +1,13 @@
 // visitorMiddleware — the server arm of the anonymous-first identity spine
 // (spec-254 t-2). A PURE READER (dec-4 = B).
 //
+// DORMANT-BY-DESIGN (spec-367 dec-5): the client no longer mints a visitor_id (the
+// consent popup was retired; pre-signup capture is now identifier-less volume), so
+// in practice there is never a cookie to read and c.get("visitorId") is always
+// undefined. This reader + mergeVisitor are deliberately RETAINED, not removed, so a
+// future anonymous→user stitch (which re-introduces the consent dialogue first) needs
+// no server change. Do not delete as dead code.
+//
 // It exposes the visitor_id that a CONSENTED client has already established —
 // read from the .memex.ai first-party cookie, else an inbound ?aid= query param
 // (the marketing handoff) — onto c.get("visitorId") for the merge (t-4) and the

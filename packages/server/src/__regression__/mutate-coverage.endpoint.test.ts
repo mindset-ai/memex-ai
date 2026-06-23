@@ -125,9 +125,8 @@ const MUTATING_MCP_TOOLS: Record<string, ToolMutation[]> = {
   update_ac: [{ entity: "ac", action: "updated" }],
   delete_ac: [{ entity: "ac", action: "deleted" }],
   link_ac_to_decision: [{ entity: "ac", action: "updated" }],
-  // spec-127: soft-hide / restore of orphaned test-events both emit ac:updated.
+  // spec-127 / spec-358: hard-delete retirement of orphaned test-events emits ac:updated.
   discontinue_test_events: [{ entity: "ac", action: "updated" }],
-  restore_test_events: [{ entity: "ac", action: "updated" }],
   // issues.ts
   register_issue: [{ entity: "issue", action: "created" }],
   update_issue: [{ entity: "issue", action: "updated" }],

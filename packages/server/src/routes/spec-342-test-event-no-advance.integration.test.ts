@@ -137,28 +137,33 @@ describe("spec-342: a test event never advances a Spec's phase", () => {
     expect(summary?.latestStatus).toBe("pass");
   });
 
-  it("the hidden flag is decoupled from phase: a hidden emission changes neither the phase nor the visible verdict [ac-3][ac-8]", async () => {
+  it("an inbound hidden flag is accepted but no longer honoured: it counts and never moves the phase (spec-358 supersedes the old hidden gate) [ac-3][spec-358 ac-2][spec-358 ac-11]", async () => {
     tagAc(AC(3));
-    tagAc(AC(8));
-    const spec = await makeSpec("Hidden is audit-only", "build");
+    // spec-358 reversed the old "hidden is stored and excluded from the verdict"
+    // behaviour: the inbound flag is now ignored, the row counts, and (as ever)
+    // it still does not move the phase. We pin the new contract here.
+    tagAc("mindset-prod/memex-building-itself/specs/spec-358/acs/ac-2");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-358/acs/ac-11");
+    const spec = await makeSpec("Inbound hidden is ignored", "build");
     const res = await emit(spec.acUid, { hidden: true });
     expect(res.status).toBe(201);
-    // No phase effect (the only behaviour the old code gated on `hidden`).
+    // No phase effect — the spec-342 invariant still holds.
     expect(await specStatus(spec.id)).toBe("build");
-    // Audit row exists, flagged hidden; the visible verdict is NOT a hidden pass
-    // (the summary upsert skips hidden emissions — verdict/audit only).
+    // spec-358: the inbound hidden is ignored — the row is stored as a counting
+    // result (hidden=false), never hidden=true.
     const events = await db
       .select({ hidden: testEvents.hidden })
       .from(testEvents)
       .where(eq(testEvents.acUid, spec.acUid));
-    expect(events.some((e) => e.hidden === true)).toBe(true);
-    // The hidden emission is excluded from the verdict summary entirely (the
-    // upsert skips hidden rows) — so it creates no visible verdict at all.
+    expect(events.length).toBeGreaterThan(0);
+    expect(events.every((e) => e.hidden === false)).toBe(true);
+    // And because it counts, the verdict summary IS materialised (a pass).
     const summaryRows = await db
       .select({ latestStatus: testEventLatest.latestStatus })
       .from(testEventLatest)
       .where(eq(testEventLatest.acUid, spec.acUid));
-    expect(summaryRows.length).toBe(0);
+    expect(summaryRows.length).toBe(1);
+    expect(summaryRows[0]?.latestStatus).toBe("pass");
   });
 
   it("regression pin: POST /api/test-events is accepted but drives no transition — the contract spec-327/spec-189 relied on is retired [ac-4]", async () => {

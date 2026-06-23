@@ -35,7 +35,8 @@ versa.
 - `voice.session_ended` — The voice agent session ended. props.durationMs only.
 - `home_canvas.step_shown` — A Home Canvas onboarding journey step became the active card (spec-303/305). props.step is the step id. Recorded via POST /api/me/journey-event.
 - `home_canvas.cta_clicked` — A Home Canvas journey step's CTA was clicked. props.step is the step id; props.cta names the CTA target. The intent signal; the step's outcome stays its own event (std-35 cl-12).
-- `signup.form_viewed` — A visitor saw the signup form, pre-auth (the funnel head). Recorded via the anonymous ingress (POST /api/telemetry) keyed on the consent-gated visitor_id.
+- `signup.form_viewed` — A visitor saw the signup form, pre-auth (the funnel head). Recorded IDENTIFIER-LESS via the anonymous ingress (POST /api/telemetry) under legitimate interest — no consent, no visitor_id; pure volume (spec-367). The identified seam is account.created.
+- `signup.cta_clicked` — A visitor clicked the primary signup CTA (between form_viewed and account.created). Recorded IDENTIFIER-LESS via the anonymous ingress under legitimate interest — no consent, no visitor_id; pure volume (spec-367). props.method is the auth method enum.
 - `auth.login_started` — A sign-in attempt was initiated. props.method is the auth method enum (google | password | magic_link). Pre-auth → trackAnonymous().
 - `spec.card_opened` — A spec card on the board was opened. props.specSeq (the spec's handle ordinal — the "spec#"), props.phase, props.assigned (bool), props.assignedUserId (opaque user UUID — never a name/email).
 - `spec.tab_viewed` — A content sub-tab in the spec detail view was selected (which parts people read). props.tab (narrative | comments | decisions | work | qa-report), props.phase (the phase view it was selected under).

@@ -159,7 +159,6 @@ const SKIPS = new Map<string, string>([
   // throwaway AC + seeded test_events fixture.
   ["get_test_matrix", "emits the AC ref:; ref-emission asserted in mcp/test-event-tools.integration"],
   ["discontinue_test_events", "emits the AC ref:; ref-emission asserted in mcp/test-event-tools.integration"],
-  ["restore_test_events", "emits the AC ref:; ref-emission asserted in mcp/test-event-tools.integration"],
   // get_information returns prose (topic index or topic body), never an entity ref.
   ["get_information", "Read-only guidance tool — returns markdown prose, not a memex entity ref"],
   // get_prompt (spec-263) returns the composed handoff prompt (or a no-handoff

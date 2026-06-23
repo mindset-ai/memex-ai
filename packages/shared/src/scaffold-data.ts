@@ -789,9 +789,7 @@ const TOOL_RATIONALES: Record<string, string> = {
   get_test_matrix:
     "Read an AC's per-test_identifier test-event digest by ref — latest status, emission count, and PINNING (holds the AC red) / retired (hidden) flags. The way to find which identifier is responsible for a failing/stale AC.",
   discontinue_test_events:
-    'Soft-hide an orphaned test_identifier on an AC — a renamed/deleted test whose stale fail still pins the AC red. Reversible, audit-preserving; a fresh live emission re-enters the verdict. Only for identifiers truly gone from the codebase, never one merely not run this round.',
-  restore_test_events:
-    'Reverse discontinue_test_events: un-hide a test_identifier on an AC and recompute its verification badge from the restored history.',
+    'Hard-delete an orphaned test_identifier on an AC — a renamed/deleted test whose stale fail still pins the AC red: removes the emissions and clears their summary. Irreversible; a fresh live emission re-enters the verdict. Only for identifiers truly gone from the codebase, never one merely not run this round.',
   update_ac:
     'Update an AC statement. Only the statement is mutable here; kind is fixed at creation; status transitions go through accept/reject_ac when those exist.',
   delete_ac:

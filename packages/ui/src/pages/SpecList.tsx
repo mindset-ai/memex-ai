@@ -1,47 +1,35 @@
-import { useEffect, useState, useCallback, useMemo, type DragEvent, type ReactNode } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
-import { fetchDocs, updateDocStatus, archiveDoc, pauseDoc, unpauseDoc, resetHandholdDemo } from '../api/client';
-import { type DocSummary, type DocSummaryAssignee } from '../api/types';
+import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { fetchDocs, archiveDoc, pauseDoc, unpauseDoc, resetHandholdDemo } from '../api/client';
+import { type DocSummary } from '../api/types';
 import { statusTextClass } from '../utils/statusStyles';
-import { phaseDisplayName } from '../utils/phaseDisplay';
 import { useDocChangeStream } from '../hooks/useDocChangeStream';
-import { formatDate, docSeq } from '../utils/format';
 import { Spinner } from '../components/Spinner';
-import { Badge, Button } from '../components/ui';
+import { Button } from '../components/ui';
 import { NewSpecModal } from '../components/NewSpecModal';
-import { SpecMenu, type SpecMenuItem } from '../components/SpecMenu';
-import { TagChip } from '../components/TagChip';
+import { type SpecMenuItem } from '../components/SpecMenu';
 import { TagFilter } from '../components/TagFilter';
 import { ShareModal } from '../components/ShareModal';
 import { RenameSpecDialog } from '../components/RenameSpecDialog';
 import { MoveSpecDialog } from '../components/MoveSpecDialog';
-import { tenantPath, getCurrentTenant } from '../utils/tenantUrl';
+import { getCurrentTenant } from '../utils/tenantUrl';
 import { useAuth } from '../components/AuthContext';
-import { useTelemetry } from '../hooks/useTelemetry';
-import { nextRevealPhase, type RevealPhase } from '../hooks/useHandholdReveal';
+import { nextRevealPhase } from '../hooks/useHandholdReveal';
 import { useHandholdRevealValue } from '../hooks/HandholdRevealContext';
 import { useIsFeatureHidden } from '../hooks/useIsFeatureHidden';
 import { useMemexAccess } from '../hooks/useMemexAccess';
 import { CreateOrgBanner } from '../components/CreateOrgBanner';
 import { PageHeader } from '../components/PageHeader';
 import { SearchTrigger } from '../components/SearchTrigger';
-import {
-  borderClassForHealth,
-  SpecHealthChip,
-  SpecHealthStrip,
-} from '../components/SpecHealthIndicator';
+import { phaseDisplayName } from '../utils/phaseDisplay';
+import { KanbanColumn } from '../components/spec-board/KanbanColumn';
+import { type SpecKanbanStatus, type ActiveStatus } from '../components/spec-board/types';
+import { useSpecBoard } from '../hooks/useSpecBoard';
 
 // doc-12 t-13: persist the "Show paused" toggle so navigation doesn't reset it.
 // Default is false — the kanban hides paused (and always-archived) Specs out
 // of the box; users opt into the cluttered view per session.
 const SHOW_PAUSED_KEY = 'memex.spec-list.show-paused';
-
-// Per dec-3 / dec-4 of doc-10 the Spec lifecycle is `draft → specify → build →
-// verify → done`. Kanban renders the four active columns; `done` lives in a
-// collapsible rail on the right (dec-5). `approved` is execution-plan-only
-// (t-20 W-B) and never appears on a spec card.
-type SpecKanbanStatus = 'draft' | 'specify' | 'build' | 'verify' | 'done';
-type ActiveStatus = Exclude<SpecKanbanStatus, 'done'>;
 
 // spec-181: column labels come from the shared phase display-name layer (now a
 // plain capitaliser); the `specify` column reads "Specify" straight from the
@@ -52,306 +40,6 @@ const ACTIVE_COLUMNS: { id: ActiveStatus; label: string }[] = [
   { id: 'build', label: phaseDisplayName('build') },
   { id: 'verify', label: phaseDisplayName('verify') },
 ];
-
-// spec-118: a person's display label + initials for the assignee avatar.
-function personLabel(a: { name: string | null; email: string | null }): string {
-  return a.name?.trim() || a.email?.trim() || 'Unknown';
-}
-function initials(label: string): string {
-  const parts = label.replace(/@.*/, '').split(/[\s._-]+/).filter(Boolean);
-  if (parts.length === 0) return '?';
-  if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
-  return (parts[0]![0]! + parts[parts.length - 1]![0]!).toUpperCase();
-}
-
-// spec-118 ac-18: the assignee(s) shown on a board card — the live responsibility
-// pointer, rendered MORE prominently than the creator. A stacked avatar cluster
-// (overflow "+N"); an explicit muted "Unassigned" state when there are none.
-function AssigneeAvatars({ assignees }: { assignees?: DocSummaryAssignee[] }) {
-  if (!assignees || assignees.length === 0) {
-    return (
-      <span
-        data-testid="spec-unassigned"
-        className="inline-flex items-center text-xs text-muted/70 italic"
-      >
-        Unassigned
-      </span>
-    );
-  }
-  const shown = assignees.slice(0, 3);
-  const overflow = assignees.length - shown.length;
-  return (
-    <div className="flex items-center gap-1.5" data-testid="spec-assignees">
-      <div className="flex -space-x-1.5">
-        {shown.map((a) => {
-          const label = personLabel(a);
-          return (
-            <span
-              key={a.userId}
-              title={label}
-              className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-overlay border border-edge text-[10px] font-medium text-heading ring-1 ring-panel"
-            >
-              {initials(label)}
-            </span>
-          );
-        })}
-        {overflow > 0 && (
-          <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-overlay border border-edge text-[10px] font-medium text-muted ring-1 ring-panel">
-            +{overflow}
-          </span>
-        )}
-      </div>
-      {assignees.length === 1 && (
-        <span className="text-xs text-secondary truncate max-w-32">{personLabel(shown[0]!)}</span>
-      )}
-    </div>
-  );
-}
-
-interface KanbanColumnProps {
-  id: SpecKanbanStatus;
-  label: string;
-  docs: DocSummary[];
-  docsById: Map<string, DocSummary>;
-  isOver: boolean;
-  draggingId: string | null;
-  buildMenuItems: (doc: DocSummary) => SpecMenuItem[];
-  // spec-111 t-8: when false (non-member read-only view), every edit/create
-  // control in the column is suppressed — no add-card, no per-card menu, no
-  // drag-to-change-status.
-  canWrite: boolean;
-  onDragStart: (e: DragEvent<HTMLElement>, docId: string) => void;
-  onDragEnd: () => void;
-  onDragOver: (e: DragEvent<HTMLElement>, column: SpecKanbanStatus) => void;
-  onDragLeave: () => void;
-  onDrop: (e: DragEvent<HTMLElement>, column: SpecKanbanStatus) => void;
-  className?: string;
-  headerExtra?: ReactNode;
-  // Renders the "+ Add spec" pinned card at the top of the column when set.
-  // Click invokes the same NewSpecModal as the page-header button.
-  onAddSpec?: () => void;
-  // spec-178 t-10 (dec-10): progressive-reveal advance control. Rendered ONLY on
-  // is_demo cards. `revealNextPhase` is the phase that follows the revealed one
-  // (null at 'done' — the terminal phase, where the control becomes Reset).
-  // `onAdvanceDemo` bumps the reveal pointer; `onResetDemo` is the done-phase
-  // terminal action (re-seed + pointer reset). Absent on non-demo boards.
-  revealNextPhase?: RevealPhase | null;
-  onAdvanceDemo?: () => void;
-  onResetDemo?: () => void;
-}
-
-function KanbanColumn(props: KanbanColumnProps) {
-  const { track } = useTelemetry(true);
-  const {
-    id,
-    label,
-    docs,
-    docsById,
-    isOver,
-    draggingId,
-    buildMenuItems,
-    canWrite,
-    onDragStart,
-    onDragEnd,
-    onDragOver,
-    onDragLeave,
-    onDrop,
-    className = '',
-    headerExtra,
-    onAddSpec,
-    revealNextPhase,
-    onAdvanceDemo,
-    onResetDemo,
-  } = props;
-  return (
-    <div
-      onDragOver={(e) => onDragOver(e, id)}
-      onDragLeave={onDragLeave}
-      onDrop={(e) => onDrop(e, id)}
-      className={`flex flex-col min-h-0 rounded-lg border transition-colors ${className} ${
-        isOver ? 'border-edge-strong bg-overlay' : 'border-edge-subtle bg-surface/40'
-      }`}
-    >
-      <div className="flex-none px-3 py-2.5 border-b border-edge-subtle flex items-center justify-between gap-2">
-        <h2 className={`text-xs font-medium uppercase tracking-wider ${statusTextClass(id)}`}>
-          {label}
-        </h2>
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-muted tabular-nums">{docs.length}</span>
-          {headerExtra}
-        </div>
-      </div>
-      <div className="flex-1 overflow-y-auto p-2 space-y-2">
-        {canWrite && onAddSpec && (
-          <button
-            type="button"
-            onClick={onAddSpec}
-            className="w-full flex flex-col items-center justify-center gap-1.5 px-3 py-6 rounded-md border-2 border-dashed border-edge-subtle text-secondary hover:text-primary hover:border-edge-strong hover:bg-card-hover/40 transition-colors"
-          >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-            </svg>
-            <span className="text-sm">Add spec</span>
-          </button>
-        )}
-        {docs.map((d) => {
-          const inListParent = d.parentDocId ? docsById.get(d.parentDocId) : null;
-          const parent = inListParent ?? d.parent ?? null;
-          // doc-12 t-13: paused Specs render with a subtle dimmed treatment
-          // and a "Paused" pill so they're visually distinct from active work
-          // when the user opts into the wider view via the header toggle.
-          const isPaused = !!d.pausedAt;
-          // b-66: per-card AC-health treatment. `acHealth` is populated by the
-          // server-side aggregator behind `?include=acHealth`; undefined means
-          // either the request omitted the include flag, or the Spec has zero
-          // active ACs. Both collapse to "no commitments" — no border, no
-          // chip, no strip (b-66 Scope AC-4).
-          const healthBorder = borderClassForHealth(d.acHealth);
-          return (
-            <div key={d.id} className="relative group">
-              <Link
-                to={tenantPath(`/specs/${d.handle}`)}
-                draggable={canWrite}
-                onClick={() =>
-                  track('spec.card_opened', {
-                    specSeq: docSeq(d.handle) ?? d.handle,
-                    phase: id,
-                    assigned: (d.assignees?.length ?? 0) > 0,
-                    ...(d.assignees?.[0]?.userId
-                      ? { assignedUserId: d.assignees[0].userId }
-                      : {}),
-                  })
-                }
-                onDragStart={canWrite ? (e) => onDragStart(e, d.id) : undefined}
-                onDragEnd={canWrite ? onDragEnd : undefined}
-                className={`block border rounded-md p-3 pr-9 transition-all bg-panel border-edge-subtle hover:border-edge hover:bg-card-hover ${
-                  draggingId === d.id ? 'opacity-40' : ''
-                } ${isPaused ? 'opacity-60' : ''} ${healthBorder}`}
-              >
-                <div className="flex items-start gap-2 mb-2">
-                  <h3 className="flex-1 text-sm font-medium text-heading leading-snug">
-                    {docSeq(d.handle) && (
-                      <span className="text-muted font-normal mr-1">{docSeq(d.handle)}.</span>
-                    )}
-                    {d.title}
-                  </h3>
-                  {/* spec-178 ac-3/ac-12: the DEMO badge marks each frozen
-                      Handhold demo spec on the board. Real specs carry no
-                      `isDemo`, so they never render it (ac-11/ac-12). Mirrors the
-                      Paused badge's chrome; the two can co-exist on one card. */}
-                  {d.isDemo && (
-                    <Badge status="demo" label="DEMO" className="flex-none" />
-                  )}
-                  {isPaused && (
-                    <Badge
-                      status="paused"
-                      label="Paused"
-                      className="flex-none"
-                      // data-testid via wrapper span — Badge renders a single
-                      // <span>, so test selectors latch onto the label text.
-                    />
-                  )}
-                </div>
-                {d.isDemo && (
-                  // Hidden DOM hook for the test — mirrors the paused pill: the
-                  // visible Badge above is the user-facing surface, this lets a
-                  // test assert the DEMO pill without coupling to Badge classes.
-                  <span data-testid="spec-demo-pill" className="sr-only">
-                    DEMO
-                  </span>
-                )}
-                {isPaused && (
-                  // Hidden DOM hook for the test — the visible Badge above is
-                  // the user-facing surface; this lets us assert the pill
-                  // without coupling tests to the Badge's class names.
-                  <span data-testid="spec-paused-pill" className="sr-only">
-                    Paused
-                  </span>
-                )}
-                {d.parentDocId && (
-                  <div
-                    className="text-xs text-muted italic mb-1"
-                    data-testid="spec-parent"
-                  >
-                    {parent
-                      ? parent.docType === 'spec'
-                        ? `Promoted from ${parent.title}`
-                        : `Promoted from: ${parent.title} (${parent.docType})`
-                      : `Promoted from ${d.parentDocId}`}
-                  </div>
-                )}
-                <div className="flex items-end justify-between gap-2">
-                  <div className="min-w-0 flex-1">
-                    {/* spec-118 ac-18: assignee(s) lead the card — more prominent
-                        than the creator, which drops to a smaller secondary line. */}
-                    <AssigneeAvatars assignees={d.assignees} />
-                    <div className="text-[11px] text-muted truncate mt-1">
-                      {formatDate(d.createdAt)} · {d.creator?.name?.trim() || d.creator?.email?.trim() || 'Unknown'}
-                    </div>
-                  </div>
-                  <SpecHealthChip health={d.acHealth} />
-                </div>
-                {/* spec-136 t-5 (ac-4): the Spec's tags render as read-only chips
-                    on the card, straight from the list payload (`d.tags`, which
-                    the board requests via `include: ['tags']`). */}
-                {d.tags && d.tags.length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-1" data-testid="spec-card-tags">
-                    {d.tags.map((tag) => (
-                      <TagChip key={tag.id} tag={tag} />
-                    ))}
-                  </div>
-                )}
-                <SpecHealthStrip health={d.acHealth} />
-              </Link>
-              {/* spec-178 ac-33/ac-34 (dec-10): the progressive-reveal advance
-                  control. Renders ONLY on is_demo cards (never on real specs),
-                  and only when the demo-management callbacks are wired (i.e. the
-                  board owns a reveal pointer). Clicking it walks the demo one
-                  phase along — the current card disappears and the next phase's
-                  demo card appears, giving the impression of one spec moving
-                  across the board. At the terminal 'done' phase there is no
-                  next: the control becomes "Reset demo", wired to the same
-                  re-seed + pointer-reset as the board header's Reset button. */}
-              {d.isDemo && onAdvanceDemo && onResetDemo && (
-                revealNextPhase ? (
-                  <button
-                    type="button"
-                    data-testid="demo-advance-control"
-                    onClick={onAdvanceDemo}
-                    className="mt-2 w-full text-xs font-medium text-accent hover:text-accent-hover inline-flex items-center justify-center gap-1 px-2 py-1.5 rounded-md border border-accent/40 bg-accent/10 hover:bg-accent/20 transition-colors"
-                  >
-                    See it in {phaseDisplayName(revealNextPhase)} →
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    data-testid="demo-reset-control"
-                    onClick={onResetDemo}
-                    className="mt-2 w-full text-xs font-medium text-secondary hover:text-primary inline-flex items-center justify-center gap-1 px-2 py-1.5 rounded-md border border-edge hover:bg-overlay transition-colors"
-                  >
-                    Reset demo
-                  </button>
-                )
-              )}
-              {canWrite && (
-                <div className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
-                  <SpecMenu
-                    items={buildMenuItems(d)}
-                    size="sm"
-                    ariaLabel={`Actions for ${d.title}`}
-                  />
-                </div>
-              )}
-            </div>
-          );
-        })}
-        {docs.length === 0 && !onAddSpec && (
-          <div className="text-xs text-muted text-center py-6">Drop here</div>
-        )}
-      </div>
-    </div>
-  );
-}
 
 /**
  * Spec board (per dec-25). Shows only `docType='spec'` documents in a
@@ -364,7 +52,6 @@ function KanbanColumn(props: KanbanColumnProps) {
  */
 export function SpecList() {
   const { session, user } = useAuth();
-  const { track } = useTelemetry(true);
   // spec-118 ac-19: the assignee filter lives in the URL (?assignee=all|me|<userId>)
   // so a filtered board is shareable, matching the board's existing URL conventions.
   const [searchParams, setSearchParams] = useSearchParams();
@@ -438,8 +125,6 @@ export function SpecList() {
   const [docs, setDocs] = useState<DocSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [draggingId, setDraggingId] = useState<string | null>(null);
-  const [dragOverColumn, setDragOverColumn] = useState<SpecKanbanStatus | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [shareDocId, setShareDocId] = useState<string | null>(null);
   const [renameDoc, setRenameDoc] = useState<DocSummary | null>(null);
@@ -461,6 +146,19 @@ export function SpecList() {
   // Resets on every mount — leaving Done open across navigations made the board
   // feel cluttered, so we trade persistence for a clean default each visit.
   const [doneExpanded, setDoneExpanded] = useState(false);
+  // spec-365 sol-6: the board's drag-and-drop state machine lives in
+  // useSpecBoard — drag/hover state plus the start/end/over/drop handlers,
+  // including the optimistic updateDocStatus with rollback, the
+  // board.phase_drag telemetry, the read-only guard, and the Done auto-expand.
+  const {
+    draggingId,
+    dragOverColumn,
+    setDragOverColumn,
+    handleDragStart,
+    handleDragEnd,
+    handleDragOver,
+    handleDrop,
+  } = useSpecBoard({ docs, setDocs, canWrite, setDoneExpanded });
   // doc-12 t-13: "Show paused" toggle. Reads localStorage on first render so
   // the user's preference survives navigation. Archived Specs are always
   // hidden from this board (no UI for them in this iteration — deferred).
@@ -568,56 +266,6 @@ export function SpecList() {
     },
     [assigneeFilter, user?.email],
   );
-
-  const handleDragStart = (e: DragEvent<HTMLElement>, docId: string) => {
-    setDraggingId(docId);
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', docId);
-  };
-
-  const handleDragEnd = () => {
-    setDraggingId(null);
-    setDragOverColumn(null);
-  };
-
-  const handleDragOver = (e: DragEvent<HTMLElement>, column: SpecKanbanStatus) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    if (dragOverColumn !== column) setDragOverColumn(column);
-  };
-
-  const handleDrop = async (e: DragEvent<HTMLElement>, column: SpecKanbanStatus) => {
-    e.preventDefault();
-    // Read-only guard (spec-111 t-8): a non-member can't restatus a spec even
-    // if a drag somehow fires. Server also rejects via canWriteMemex (t-5).
-    if (!canWrite) return;
-    const docId = e.dataTransfer.getData('text/plain') || draggingId;
-    setDraggingId(null);
-    setDragOverColumn(null);
-    if (!docId) return;
-
-    const current = docs.find((d) => d.id === docId);
-    if (!current || current.status === column) return;
-
-    // The drag interaction (intent). The OUTCOME is document.status_changed
-    // (back-end); this captures whether drag-to-move is used vs the detail view.
-    track('board.phase_drag', { from: current.status, to: column });
-
-    // Promote the drag-time auto-expand to a sticky open state once a card
-    // actually lands in Done, so the user can see what they just dropped.
-    if (column === 'done') setDoneExpanded(true);
-
-    const previous = docs;
-    setDocs((prev) =>
-      prev.map((d) => (d.id === docId ? { ...d, status: column } : d))
-    );
-    try {
-      await updateDocStatus(docId, column);
-    } catch (err) {
-      console.error('Failed to update status', err);
-      setDocs(previous);
-    }
-  };
 
   const handleArchive = useCallback(async (doc: DocSummary) => {
     if (!window.confirm(`Archive "${doc.title}"? It'll be hidden from the board.`)) return;

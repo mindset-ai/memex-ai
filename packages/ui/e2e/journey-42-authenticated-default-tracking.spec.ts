@@ -9,9 +9,10 @@
 //   - The settings opt-out remains the right-to-object valve: toggling it off stops
 //     capture and persists across a reload (ac-3).
 //
-// `seedConsent: false` is deliberate — we must start from a CLEAN slate (no recorded
-// consent) to prove default-tracking, not a pre-seeded 'denied'. Path-based nav
-// [per std-2]; seeded via the env-gated test surface (no raw SQL).
+// spec-367 retired the anonymous consent banner entirely, so there is no popup to
+// seed or suppress — the assertions below (no banner, no consent choice recorded)
+// now hold for every visitor. Path-based nav [per std-2]; seeded via the env-gated
+// test surface (no raw SQL).
 
 import {
   test,
@@ -22,10 +23,6 @@ import {
   seedOrg,
   emitAcEvents,
 } from "./helpers/index.js";
-
-// Clean slate: do not pre-record a 'denied' choice. We are proving that an
-// authenticated user is tracked WITHOUT ever consenting.
-test.use({ seedConsent: false });
 
 const AC = [
   "mindset-prod/memex-building-itself/specs/spec-326/acs/ac-1",
@@ -59,9 +56,8 @@ test("an authenticated user is tracked by default with no consent, and can still
   });
   await expect(page.getByRole("heading", { name: "Specs" })).toBeVisible({ timeout: 15_000 });
 
-  // Reload so the persisted token is present at mount — the consent banner reads it
-  // synchronously and suppresses itself for the authenticated visitor (deterministic,
-  // no first-login flash to race).
+  // Reload so the persisted token is present at mount (deterministic — no first-login
+  // flash to race before capture starts).
   await page.reload({ waitUntil: "commit" });
   await expect(page.getByRole("heading", { name: "Specs" })).toBeVisible({ timeout: 15_000 });
 

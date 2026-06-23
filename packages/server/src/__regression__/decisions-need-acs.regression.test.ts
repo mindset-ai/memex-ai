@@ -20,12 +20,16 @@
 // each surface.
 
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { BASE_SCAFFOLD } from "@memex/shared";
 
 const SERVER_ROOT = join(__dirname, "..", "..");
 const TOOL_SPECS = join(SERVER_ROOT, "src", "agent", "tool-specs.ts");
+// spec-366: the resolve_decision / list_acs handlers + their nudge prose moved
+// from tool-specs.ts into agent/handlers/*.ts (shared infra in shared.ts). Scan
+// the catalogue plus every handler module so these source guards still see them.
+const HANDLERS_DIR = join(SERVER_ROOT, "src", "agent", "handlers");
 const GUIDANCE = join(
   SERVER_ROOT,
   "src",
@@ -38,10 +42,27 @@ const PHASE_ASSESS = join(
   "services",
   "phase-assessment.ts",
 );
+// spec-368 sol-5: `formatPhaseAssessment` (presentation) moved out of
+// phase-assessment.ts into the neutral formatting module. The assessment LOGIC
+// (DecisionAcCoverageFact, the build-target nudge, the shared helper) stays in
+// phase-assessment.ts; only the RENDER block moved. Scan the new home for the
+// render-block assertions so this guard still sees them (assertions unchanged).
+const PHASE_ASSESS_FMT = join(
+  SERVER_ROOT,
+  "src",
+  "formatting",
+  "phase-assessment-format.ts",
+);
 const ACS_SERVICE = join(SERVER_ROOT, "src", "services", "acs.ts");
 
-const toolSpecs = readFileSync(TOOL_SPECS, "utf-8");
+const toolSpecs = [
+  readFileSync(TOOL_SPECS, "utf-8"),
+  ...readdirSync(HANDLERS_DIR)
+    .filter((n) => n.endsWith(".ts"))
+    .map((n) => readFileSync(join(HANDLERS_DIR, n), "utf-8")),
+].join("\n");
 const phaseAssess = readFileSync(PHASE_ASSESS, "utf-8");
+const phaseAssessFmt = readFileSync(PHASE_ASSESS_FMT, "utf-8");
 const acsService = readFileSync(ACS_SERVICE, "utf-8");
 
 // b-68 t-7: the specify→build rubric prose used to live in
@@ -158,10 +179,11 @@ describe("Channel D — assess_brief build rubric + fact + nudge", () => {
   });
 
   it("formatPhaseAssessment renders the implementation-AC coverage block", () => {
-    expect(phaseAssess).toMatch(
+    // spec-368 sol-5: render block moved to the neutral formatting module.
+    expect(phaseAssessFmt).toMatch(
       /Resolved-decision implementation-AC coverage/,
     );
-    expect(phaseAssess).toMatch(/NAKED — no implementation AC/);
+    expect(phaseAssessFmt).toMatch(/NAKED — no implementation AC/);
   });
 });
 

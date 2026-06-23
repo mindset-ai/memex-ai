@@ -38,7 +38,8 @@ const testCoverageJson = read(
 );
 const scaffoldRoute = read(join(SERVER_ROOT, "src", "routes", "scaffold.ts"));
 const mcpTools = read(join(SERVER_ROOT, "src", "mcp", "tools.ts"));
-const formatters = read(join(SERVER_ROOT, "src", "mcp", "formatters.ts"));
+// spec-368 sol-4: formatter body moved to the neutral module; scan it there.
+const formatters = read(join(SERVER_ROOT, "src", "formatting", "formatters.ts"));
 const schema = read(join(SERVER_ROOT, "src", "db", "schema.ts"));
 
 // The base tripwire block as the agent actually receives it, composed through

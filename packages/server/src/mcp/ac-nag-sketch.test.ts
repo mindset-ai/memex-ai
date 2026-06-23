@@ -24,12 +24,24 @@ const SERVER_SRC = resolve(__dirname, "..");
 const SPEC = "mindset-prod/memex-building-itself/specs/spec-121";
 const acRef = (n: number) => `${SPEC}/acs/ac-${n}`;
 
-const formattersSrc = readFileSync(resolve(__dirname, "formatters.ts"), "utf8");
-const sketchSrc = readFileSync(resolve(__dirname, "ac-test-sketch.ts"), "utf8");
-const toolSpecsSrc = readFileSync(
-  resolve(SERVER_SRC, "agent", "tool-specs.ts"),
+// spec-368 sol-4: formatter body moved to the neutral module; mcp/formatters.ts
+// is now a thin barrel. Scan the new home so these source assertions still see
+// the code (assertions unchanged).
+const formattersSrc = readFileSync(
+  resolve(__dirname, "..", "formatting", "formatters.ts"),
   "utf8",
 );
+const sketchSrc = readFileSync(resolve(__dirname, "ac-test-sketch.ts"), "utf8");
+// spec-366: the create_ac handler + the resolve_decision sketch wiring moved
+// from tool-specs.ts into agent/handlers/*.ts (shared infra in shared.ts). Scan
+// the catalogue plus every handler module so these source guards still see them.
+const HANDLERS_DIR = resolve(SERVER_SRC, "agent", "handlers");
+const toolSpecsSrc = [
+  readFileSync(resolve(SERVER_SRC, "agent", "tool-specs.ts"), "utf8"),
+  ...readdirSync(HANDLERS_DIR)
+    .filter((n) => n.endsWith(".ts"))
+    .map((n) => readFileSync(resolve(HANDLERS_DIR, n), "utf8")),
+].join("\n");
 
 const baseDate = new Date("2026-06-01T12:00:00Z");
 
