@@ -16,7 +16,7 @@
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { eq, inArray } from "drizzle-orm";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { tagAc } from "@memex-ai-ac/vitest";
 import { db } from "../db/connection.js";
@@ -168,7 +168,17 @@ describe("ac-7 — no new tool/flag; verbose stays full state; read-path only", 
 });
 
 describe("ac-6 — the overview is composed in the single seat (source guard)", () => {
-  const SRC = readFileSync(join(__dirname, "tool-specs.ts"), "utf-8");
+  // spec-366: composeGuidanceEnvelope + craftStatusOverview moved to
+  // agent/handlers/shared.ts; the per-tool handlers to agent/handlers/*.ts. Scan
+  // shared.ts (the seat) FIRST, then append the other handlers so any handler
+  // referencing craftStatusOverview directly is flagged outside the seat.
+  const handlersDir = join(__dirname, "handlers");
+  const SRC = [
+    readFileSync(join(handlersDir, "shared.ts"), "utf-8"),
+    ...readdirSync(handlersDir)
+      .filter((n) => n.endsWith(".ts") && n !== "shared.ts")
+      .map((n) => readFileSync(join(handlersDir, n), "utf-8")),
+  ].join("\n");
 
   it("craftStatusOverview is referenced only inside composeGuidanceEnvelope (or its own def)", () => {
     tagAc(AC(6));
