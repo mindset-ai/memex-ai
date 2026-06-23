@@ -100,10 +100,9 @@ async function handleStripeEvent(
       await handlePaymentFailed(object);
       break;
     case "invoice.payment_succeeded":
-      // Stripe manages the subscription status automatically. NB: we do NOT log a
-      // receipt here — the account's "Successful payments" receipt email is OFF
-      // (Settings → Email, confirmed 2026-06-23), so Stripe sends none. Re-add a
-      // recordStripeEmailComm('receipt') call here if that toggle is ever enabled.
+      // spec-341 t-4: "Successful payments" receipt email is ON (Settings → Email,
+      // confirmed 2026-06-23) — Stripe emails the customer a receipt — so record it.
+      await handlePaymentSucceeded(object);
       break;
     case "invoice.upcoming":
       // spec-341 t-4: "Send emails about upcoming renewals" is ON (7 days before),
@@ -226,6 +225,20 @@ async function handleUpcomingRenewal(invoice: Record<string, unknown>): Promise<
     customerId: invoice.customer,
     commsType: "transactional",
     subject: "Upcoming renewal",
+  });
+}
+
+// spec-341 t-4: Stripe emails a receipt on a successful invoice payment
+// ("Successful payments" is ON). Record it in the comms log for the billing-contact
+// user (best-effort, dec-3). Advisory — recordStripeEmailComm swallows its own errors.
+async function handlePaymentSucceeded(invoice: Record<string, unknown>): Promise<void> {
+  if (typeof invoice.customer !== "string") return;
+  const invoiceId = typeof invoice.id === "string" ? invoice.id : null;
+  await recordStripeEmailComm({
+    customerId: invoice.customer,
+    commsType: "transactional",
+    subject: "Payment receipt",
+    sourceRef: invoiceId ? `stripe:${invoiceId}` : undefined,
   });
 }
 
