@@ -249,6 +249,9 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # Least-privilege: this job only checks out and runs Biome locally.
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v6
       - uses: pnpm/action-setup@v6
