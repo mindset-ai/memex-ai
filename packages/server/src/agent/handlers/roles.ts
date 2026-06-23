@@ -7,9 +7,6 @@ import {
   z,
 } from "zod";
 import {
-  and,
-} from "drizzle-orm";
-import {
   buildDocRef,
 } from "../../mcp/refs.js";
 import {
@@ -31,7 +28,6 @@ import {
   reqCtx,
   resolveRefArg,
   resolveUserArg,
-  type ToolCtx,
   type ToolSpec,
 } from "./shared.js";
 

@@ -43,7 +43,6 @@ import {
   reqCtx,
   resolveRefArg,
   verificationStateForAc,
-  type ToolCtx,
   type ToolSpec,
 } from "./shared.js";
 

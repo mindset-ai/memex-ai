@@ -7,9 +7,6 @@ import {
   z,
 } from "zod";
 import {
-  and,
-} from "drizzle-orm";
-import {
   buildChildRef,
   memexSlugsById,
 } from "../../mcp/refs.js";
@@ -21,7 +18,6 @@ import {
   VERBOSE_FIELD,
   buildStandardCommentRef,
   resolveStandardSectionRef,
-  type ToolCtx,
   type ToolSpec,
 } from "./shared.js";
 

@@ -53,7 +53,6 @@ import {
 import {
   MEMEX_DESC,
   VERBOSE_FIELD,
-  type ToolCtx,
   type ToolSpec,
 } from "./shared.js";
 

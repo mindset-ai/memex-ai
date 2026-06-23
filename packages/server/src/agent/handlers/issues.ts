@@ -7,9 +7,6 @@ import {
   z,
 } from "zod";
 import {
-  and,
-} from "drizzle-orm";
-import {
   buildChildRef,
   buildDocRef,
   memexSlugsById,
@@ -46,7 +43,6 @@ import {
   reqCtx,
   resolveRefArg,
   suggestActiveSpecsForIssue,
-  type ToolCtx,
   type ToolSpec,
 } from "./shared.js";
 

@@ -7,12 +7,6 @@ import {
   z,
 } from "zod";
 import {
-  and,
-} from "drizzle-orm";
-import {
-  documents,
-} from "../../db/schema.js";
-import {
   buildChildRef,
 } from "../../mcp/refs.js";
 import {
@@ -41,7 +35,6 @@ import {
   isDocLikeKind,
   reqCtx,
   resolveRefArg,
-  type ToolCtx,
   type ToolSpec,
 } from "./shared.js";
 

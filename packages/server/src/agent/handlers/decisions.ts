@@ -36,9 +36,6 @@ import {
   resolveEmbeddingProvider,
 } from "../../services/embedding-provider.js";
 import {
-  type Phase,
-} from "@memex/shared";
-import {
   VERBOSE_FIELD,
   formatState,
   fullDocState,
@@ -46,7 +43,6 @@ import {
   relatedIssuesForDecision,
   reqCtx,
   resolveRefArg,
-  type ToolCtx,
   type ToolSpec,
 } from "./shared.js";
 

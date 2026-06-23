@@ -7,9 +7,6 @@ import {
   z,
 } from "zod";
 import {
-  and,
-} from "drizzle-orm";
-import {
   buildChildRef,
 } from "../../mcp/refs.js";
 import {
@@ -33,12 +30,8 @@ import {
   formatDocStatusHeader,
 } from "../../mcp/formatters.js";
 import {
-  type Phase,
-} from "@memex/shared";
-import {
   TASK_STATUS,
   VERBOSE_FIELD,
-  composeGuidanceEnvelope,
   findNewlyUnblockedDependents,
   formatState,
   formatTaskReadyMarker,
@@ -46,7 +39,6 @@ import {
   isDocLikeKind,
   reqCtx,
   resolveRefArg,
-  type ToolCtx,
   type ToolSpec,
 } from "./shared.js";
 

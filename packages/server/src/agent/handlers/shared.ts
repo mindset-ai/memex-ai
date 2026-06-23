@@ -24,54 +24,20 @@
 //     if the catalogue shape changes (e.g. a new MCP-only tool).
 
 import { z, type ZodRawShape } from "zod";
-import { eq, and, inArray } from "drizzle-orm";
+import { eq, } from "drizzle-orm";
 import { db } from "../../db/connection.js";
 import { documents, docSections, taskDeps } from "../../db/schema.js";
 import {
   assertRefNotUuid,
   buildChildRef,
-  buildDocRef,
   memexSlugsById,
 } from "../../mcp/refs.js";
 import type { ResolvedEntity } from "../../services/resolver.js";
 import {
-  createDocDraft,
-  listDocs,
   getDoc,
-  updateDocStatus,
-  updateDocTitle,
-  DOC_STATUSES,
-  promoteToSpec,
 } from "../../services/documents.js";
 import {
-  addSection,
-  updateSection,
-  retitleSection,
-  deleteSection,
-  resolveSectionWriteMode,
-} from "../../services/sections.js";
-import { appendQaReport } from "../../services/qa-reports.js";
-import {
-  addClausesToSection,
-  createClause,
-  updateClause,
-  deleteClause,
-} from "../../services/clauses.js";
-import {
-  addComment,
-  addAnchoredComment,
-  addDecisionComment,
-  addTaskComment,
-  listComments,
-  listDecisionComments,
-  listTaskComments,
   listCommentsForDoc,
-  reviewDocComments,
-  resolveComment,
-  getDocForTarget,
-  getDocForComment,
-  type CommentExtras,
-  type ListCommentsOptions,
 } from "../../services/comments.js";
 import {
   COMMENT_TYPES,
@@ -79,146 +45,49 @@ import {
   type CommentType,
 } from "../../types/roles.js";
 import {
-  createDecision,
   listDecisions,
-  resolveDecision,
-  reopenDecision,
-  deleteDecision,
-  restoreDecision,
-  updateDecisionFields,
-  proposeDecision,
-  approveDecision,
-  rejectDecision,
-  type DecisionOption,
-  type UpdateDecisionFields,
 } from "../../services/decisions.js";
 import {
-  createAc,
-  listAcsForBrief,
   listAcsForBriefWithVerification,
-  listResolvedDecisionImplAcCoverage,
-  getAc as getAcById,
-  updateAc,
-  deleteAc,
-  acceptAc,
-  rejectAc,
-  linkAcToParent,
-  listTestEventDigestForAc,
-  softHideTestEventsForAc,
-  restoreTestEventsForAc,
-  type Ac,
   type AcKind,
-  type AcStatus,
   type AcWithVerification,
 } from "../../services/acs.js";
-import { listTopics, fetchTopic } from "../../services/guidance.js";
-import { mintEphemeralEmissionKey } from "../../services/emission-keys.js";
 import {
-  createTask,
   listTasks,
   getTask,
-  updateTaskStatus,
-  updateTask,
-  deleteTask,
-  getReadyTasks,
 } from "../../services/tasks.js";
 import type { RequestCtx } from "../../services/mutate.js";
 import { listActivityView } from "../../services/activity-view.js";
 import { resolveTestEventActors } from "../../services/who-resolver.js";
 import { stripUuids, containsUuid } from "../../services/shared/identifiers.js";
 import { listPresent } from "../../services/presence.js";
-import {
-  createIssue,
-  listIssuesForSpec,
-  getIssue as getIssueById,
-  updateIssue,
-  updateIssueStatus,
-  convertIssueToTask,
-  kickTaskToIssue,
-  markIssuePromoted,
-  ISSUE_TYPES,
-  ISSUE_STATUSES,
-  isIssueType,
-  type IssueType,
-  type IssueStatus,
-} from "../../services/issues.js";
-import {
-  promoteToEditor,
-  demoteToReviewer,
-  resolveRole,
-  listEditors,
-  type DocRole,
-} from "../../services/doc-members.js";
-import { assign, unassign } from "../../services/doc-assignees.js";
 import { getUserByEmail, getUserById } from "../../services/users.js";
-import { addBlocker, removeBlocker } from "../../services/shared/blockers.js";
 import {
-  applyTagString,
-  removeTagString,
   listDocTags,
-  parseTagInput,
-  formatTag,
-  type ParsedTag,
 } from "../../services/tags.js";
-import { NotFoundError, ValidationError } from "../../types/errors.js";
+import { ValidationError } from "../../types/errors.js";
 import {
   formatFullDocState,
   formatSpecGuidanceBody,
-  formatDocList,
-  formatComment,
-  formatCommentList,
-  formatDocComments,
-  formatReviewComments,
-  formatReadyTasks,
-  formatDocStatusHeader,
-  formatSpecList,
-  formatPromotedSpec,
-  formatStandard,
-  renderStandardSectionBody,
-  formatTerseSpecPhase,
   type InjectedBlock,
 } from "../../mcp/formatters.js";
 import { buildSketchBlock, type SketchAc } from "../../mcp/ac-test-sketch.js";
-import { getStandard, flagDrift, proposeStandardChange } from "../../services/standards.js";
-import { buildDocExportForm } from "../../services/doc-export.js";
-import { getDiscordWebhook, postToDiscord } from "../../services/discord-webhook.js";
-import { getSlackClientForUser, SlackClientError } from "../../services/.ee/slack/client.js";
-import { resolveSlackUser, SlackUserResolutionError } from "../../services/.ee/slack/users.js";
-import { getSlackBotUserId } from "../../services/.ee/slack/oauth.js";
 import { getOrgIdForMemex } from "../../services/memexes.js";
-import { markdownToMrkdwn } from "../../services/slack-markdown.js";
-import { buildTenantUrl } from "../../services/shared/tenant-url.js";
 import { listOrgScaffoldAdditionsCached } from "../../services/scaffold-additions-cache.js";
 import { filterOrgBlocksForMemex } from "../../services/scaffold-additions.js";
 import {
   searchMemex,
-  formatSearchResults,
-  type MemexSearchKind,
 } from "../../services/memex-search.js";
-import { resolveEmbeddingProvider } from "../../services/embedding-provider.js";
 import {
-  assessPhaseTransition,
-  formatPhaseAssessment,
-  isPhaseTarget,
-} from "../../services/phase-assessment.js";
-import {
-  toolManifest,
   BASE_SCAFFOLD,
   HANDOFF_BUTTON_BY_PHASE,
   toButtonPrompt,
   toHandoffEssence,
   GET_PROMPT_PROSE,
-  timeAgo,
-  capitalizeDisplayName,
   type Phase,
   type GuidanceBlock,
 } from "@memex/shared";
 import { claimFullHandoffDelivery } from "../../services/handoff-delivery.js";
-import {
-  assessNarrativeFreshness,
-  markNarrativeConsolidated,
-} from "../../services/narrative.js";
-import { assessCommentsStatus } from "../../services/comment-assessment.js";
 // Codebase-intelligence service + formatter imports removed per doc-24 dec-1
 // alongside the commented-out tool block below. Restore from
 // `../mcp/codebase-formatters.js`, `../services/{code-search,repos,files,symbols,endpoints,imports,calls,repo-meta}.js`
@@ -1185,7 +1054,6 @@ export async function craftUntestedAcNag(
     const handles = untested
       .map((r) => `ac-${r.ac.seq}`)
       .join(", ");
-    const plural = untested.length === 1 ? "" : "s";
     return `\n⚠ ${untested.length} untested acceptance criteri${untested.length === 1 ? "on" : "a"} (${handles}). Write the tagged test before you move on — don't go dark.`;
   } catch {
     return null;

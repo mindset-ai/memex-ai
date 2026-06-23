@@ -7,12 +7,6 @@ import {
   z,
 } from "zod";
 import {
-  and,
-} from "drizzle-orm";
-import {
-  documents,
-} from "../../db/schema.js";
-import {
   buildDocRef,
 } from "../../mcp/refs.js";
 import {
@@ -41,7 +35,6 @@ import {
 import {
   timeAgo,
   capitalizeDisplayName,
-  type Phase,
 } from "@memex/shared";
 import {
   assessNarrativeFreshness,
@@ -53,14 +46,12 @@ import {
 import {
   MEMEX_DESC,
   VERBOSE_FIELD,
-  composeGuidanceEnvelope,
   formatState,
   fullDocState,
   isDocLikeKind,
   loadSpec,
   reqCtx,
   resolveRefArg,
-  type ToolCtx,
   type ToolSpec,
 } from "./shared.js";
 

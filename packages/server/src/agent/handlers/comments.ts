@@ -45,7 +45,6 @@ import {
   isDocLikeKind,
   reqCtx,
   resolveRefArg,
-  type ToolCtx,
   type ToolSpec,
 } from "./shared.js";
 
