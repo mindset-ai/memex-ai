@@ -66,7 +66,7 @@ export function ScaffoldExplainer({ isAdmin }: ScaffoldExplainerProps = {}) {
 
       <section>
         <h2 className="text-lg font-semibold text-heading">The scaffold assistant</h2>
-        <p className="mt-2 text-sm">
+        <p className="mt-2 text-sm text-secondary">
           The assistant in the left rail is your guide to this scaffold. Ask it what any
           agent reads at a given moment and it will <strong>navigate you</strong> to that
           circumstance and walk you through it, quoting the exact prompting where it
@@ -90,10 +90,10 @@ export function ScaffoldExplainer({ isAdmin }: ScaffoldExplainerProps = {}) {
 
       <section>
         <h2 className="text-lg font-semibold text-heading">The five phases</h2>
-        <ul className="mt-2 space-y-1 text-sm">
+        <ul className="mt-2 space-y-1 text-sm text-secondary">
           {PHASES.map((p) => (
             <li key={p.phase}>
-              <code className="font-mono font-semibold">{p.phase}</code> — {p.one_liner}
+              <code className="font-mono font-semibold text-heading">{p.phase}</code> — {p.one_liner}
             </li>
           ))}
         </ul>
@@ -101,7 +101,7 @@ export function ScaffoldExplainer({ isAdmin }: ScaffoldExplainerProps = {}) {
 
       <section>
         <h2 className="text-lg font-semibold text-heading">Handoffs</h2>
-        <p className="mt-2 text-sm">
+        <p className="mt-2 text-sm text-secondary">
           Each working phase has a <strong>handoff</strong> — the composed prompt you hand
           to a coding agent to carry that phase out end-to-end (<em>Specify handoff</em> in
           specify, <em>Build handoff</em> in build, <em>Verify handoff</em> in verify).
@@ -115,7 +115,7 @@ export function ScaffoldExplainer({ isAdmin }: ScaffoldExplainerProps = {}) {
 
       <section>
         <h2 className="text-lg font-semibold text-heading">Two-agent parity</h2>
-        <p className="mt-2 text-sm">
+        <p className="mt-2 text-sm text-secondary">
           The React-embedded agent and the MCP-driven agent receive the same nudge text
           for every (tool, phase) pair, and the same gate rubric for every forward
           transition. Surface-specific content (MDX components, the <code>render_*</code>{' '}
@@ -126,7 +126,7 @@ export function ScaffoldExplainer({ isAdmin }: ScaffoldExplainerProps = {}) {
 
       <section>
         <h2 className="text-lg font-semibold text-heading">How nudges compose</h2>
-        <p className="mt-2 text-sm">
+        <p className="mt-2 text-sm text-secondary">
           When a tool returns a result, the runtime composes a nudge: the base
           guidance whose <code>target</code> matches the current (tool, phase) context,
           followed by the enabled Org guidance with the same match. Absent target
@@ -138,7 +138,7 @@ export function ScaffoldExplainer({ isAdmin }: ScaffoldExplainerProps = {}) {
 
       <section>
         <h2 className="text-lg font-semibold text-heading">What Org additions do</h2>
-        <p className="mt-2 text-sm">
+        <p className="mt-2 text-sm text-secondary">
           Administrators can append Org guidance against any target shape: a phase, a
           tool, a (tool, phase) pair, or a transition gate. Org additions never replace
           base prose — they extend it. Toggle <code>enabled</code> off to disable an

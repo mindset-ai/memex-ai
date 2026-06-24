@@ -68,6 +68,7 @@
   /* ── Text ── */
   --color-heading:     rgb(var(--ch-text-heading));
   --color-primary:     rgb(var(--ch-text-primary));
+  --color-body:        rgb(var(--ch-text-primary));   /* body copy — alias of primary; restored after the v4 migration dropped it (text-body was rendering colorless) */
   --color-secondary:   rgb(var(--ch-text-secondary));
   --color-muted:       rgb(var(--ch-text-muted));
 
