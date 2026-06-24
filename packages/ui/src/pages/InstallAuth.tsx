@@ -111,7 +111,7 @@ export function InstallAuth() {
             <button
               onClick={authorize}
               disabled={status === 'authorizing'}
-              className="w-full py-2 rounded-sm font-medium bg-btn-primary hover:bg-btn-primary-hover text-on-primary disabled:opacity-50"
+              className="w-full py-2 rounded-sm font-medium bg-btn-primary hover:bg-btn-primary-hover text-white disabled:opacity-50"
             >
               {status === 'authorizing' ? 'Authorizing…' : 'Authorize installer'}
             </button>

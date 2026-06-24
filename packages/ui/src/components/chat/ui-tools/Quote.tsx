@@ -1,5 +1,5 @@
 // spec-360: the scaffold assistant's verbatim-quote block. The assistant uses
-// `render_scaffold_quote` instead of inline "…" + monospace runs when it quotes
+// `render_quote` instead of inline "…" + monospace runs when it quotes
 // the exact prompting an agent receives — so a quote reads as a distinct, lifted
 // artifact (a `<pre>`-style block) rather than blending into the agent's prose.
 // Display-only: no user response. The optional `source` captions WHERE the quote
@@ -11,7 +11,7 @@
 
 import { useState } from 'react';
 
-interface ScaffoldQuoteProps {
+interface QuoteProps {
   input: {
     text: string;
     source?: string;
@@ -19,7 +19,7 @@ interface ScaffoldQuoteProps {
   };
 }
 
-export function ScaffoldQuote({ input }: ScaffoldQuoteProps) {
+export function Quote({ input }: QuoteProps) {
   const [copied, setCopied] = useState(false);
 
   const copy = () => {
@@ -39,7 +39,7 @@ export function ScaffoldQuote({ input }: ScaffoldQuoteProps) {
           {input.copyable ? (
             <button
               type="button"
-              data-testid="scaffold-quote-copy"
+              data-testid="quote-copy"
               onClick={copy}
               className="flex-none text-[11px] font-medium text-accent transition-colors hover:text-primary"
             >

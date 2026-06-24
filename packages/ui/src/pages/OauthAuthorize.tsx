@@ -188,7 +188,7 @@ export function OauthAuthorize() {
                 type="button"
                 onClick={() => submitDecision('deny')}
                 disabled={status === 'submitting'}
-                className="px-4 py-2 border border-edge rounded-md text-sm font-medium hover:bg-surface-hover disabled:opacity-50"
+                className="px-4 py-2 border border-edge rounded-md text-sm font-medium hover:bg-card-hover disabled:opacity-50"
               >
                 Deny
               </button>

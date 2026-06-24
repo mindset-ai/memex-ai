@@ -174,16 +174,16 @@ describe("spec-360 t-3: validate-and-pushback (ac-12 / dec-9)", () => {
 describe("spec-360: SCAFFOLD_AGENT_GUIDANCE steers the navigate/quote UI tools (ac-1)", () => {
   const text = SCAFFOLD_AGENT_GUIDANCE.text;
 
-  it("tells the agent to navigate the on-screen scaffold with render_scaffold_navigate (issue-6)", () => {
+  it("tells the agent to navigate the on-screen scaffold with render_navigate (issue-6)", () => {
     tagAc(AC(1));
-    expect(text).toContain("render_scaffold_navigate");
+    expect(text).toContain("render_navigate");
     // navigate is the FIRST move / default for "where/what applies here".
     expect(text).toMatch(/FIRST move|NAVIGATE them to it/);
   });
 
-  it("tells the agent to render verbatim guidance text with render_scaffold_quote (issue-5)", () => {
+  it("tells the agent to render verbatim guidance text with render_quote (issue-5)", () => {
     tagAc(AC(1));
-    expect(text).toContain("render_scaffold_quote");
+    expect(text).toContain("render_quote");
     // verbatim, with a source label, NEVER inline quotation marks.
     expect(text).toMatch(/verbatim/);
     expect(text).toMatch(/source/);
@@ -337,9 +337,9 @@ describe("spec-360 issue-13: SCAFFOLD_AGENT_GUIDANCE states the agent's limits +
     expect(text).toMatch(/Specs/);
   });
 
-  it("instructs a copyable render_scaffold_quote handoff when a Standard/Spec is needed", () => {
+  it("instructs a copyable render_quote handoff when a Standard/Spec is needed", () => {
     tagAc(AC(1));
-    expect(text).toContain("render_scaffold_quote");
+    expect(text).toContain("render_quote");
     expect(text).toMatch(/copyable: true/);
     // hand off to the Standards agent / the New Spec flow.
     expect(text).toMatch(/Standards agent/);

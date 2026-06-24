@@ -37,6 +37,9 @@ import { TimeAgo } from '../components/pulse/TimeAgo';
 import { tenantPathFor } from '../utils/tenantUrl';
 import { phaseDisplayName } from '../utils/phaseDisplay';
 import { PHASE_ORDER } from '@memex/shared';
+import { ChatPanel } from '../components/ChatPanel';
+import { ResizableChatRail } from '../components/chat/ResizableChatRail';
+import { OpeningIssuesController } from '../components/chat/OpeningIssuesController';
 
 // The phase set the filter exposes, 1:1 with the server's SpecPhase (the
 // documents.status values the Spec rename settled on). All checked by default.
@@ -303,7 +306,19 @@ export function IssuesList() {
   }, [items]);
 
   return (
-    <div className="h-full flex flex-col px-6 py-6">
+    // spec-389 t-5 (dec-2): the Issues surface now docks the issues agent in the
+    // shared resizable rail on the left, mirroring the Standards / scaffold surfaces.
+    <div className="flex h-full min-h-0">
+      <OpeningIssuesController />
+      <ResizableChatRail
+        storageKey="issues-chat-width"
+        testId="issues-assistant-panel"
+        handleTestId="issues-chat-resize"
+        label="Issues"
+      >
+        <ChatPanel />
+      </ResizableChatRail>
+      <div className="flex-1 min-w-0 h-full flex flex-col px-6 py-6">
       <PageHeader title="Issues" actions={<ScopeToggle value={scope} onChange={setScope} />} />
 
       {/* Filter bar — phase + type checkboxes. The scope control rides in the
@@ -425,6 +440,7 @@ export function IssuesList() {
           onCancel={() => setConverted(null)}
         />
       )}
+      </div>
     </div>
   );
 }
