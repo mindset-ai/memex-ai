@@ -7,6 +7,7 @@ import { db } from "../db/connection.js";
 import { namespaces, orgs, memexes, orgMemberships, testEvents } from "../db/schema.js";
 import { upsertUserByEmail } from "./users.js";
 import { applyEmissionToSummary } from "./test-event-latest.js";
+import { resolveMemexId } from "./emission-keys.js";
 
 function uniqueSlug(prefix: string): string {
   // Slug rules per std-3: ≤39 chars, lowercase alnum + hyphens, must start with alnum.
@@ -36,11 +37,22 @@ export async function seedTestEvent(input: SeedTestEventInput): Promise<void> {
   const hidden = input.hidden ?? false;
   const testIdentifier =
     input.testIdentifier === undefined ? null : input.testIdentifier;
+  // spec-398 ac-8: resolve the emitting Memex from the ac_uid prefix, exactly as
+  // the real route does. Tests build ac_uids from a seeded memex's ns/mx slugs, so
+  // this resolves; a non-resolving ac_uid means the test forgot to seed its memex.
+  const [ns, mx] = input.acUid.split("/");
+  const memexId = ns && mx ? await resolveMemexId(ns, mx) : null;
+  if (!memexId) {
+    throw new Error(
+      `seedTestEvent: ac_uid '${input.acUid}' does not resolve to a memex — seed the namespace/memex first`,
+    );
+  }
   await db.transaction(async (tx) => {
     const [row] = await tx
       .insert(testEvents)
       .values({
         acUid: input.acUid,
+        memexId,
         status: input.status,
         testIdentifier,
         hidden,
@@ -49,6 +61,7 @@ export async function seedTestEvent(input: SeedTestEventInput): Promise<void> {
       .returning({ createdAt: testEvents.createdAt });
     await applyEmissionToSummary(tx, {
       acUid: input.acUid,
+      memexId,
       testIdentifier,
       status: input.status,
       latestRunAt: row.createdAt,

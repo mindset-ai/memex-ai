@@ -35,6 +35,15 @@ vi.mock("../services/test-event-latest.js", () => ({
   applyEmissionToSummary: vi.fn().mockResolvedValue(undefined),
 }));
 
+// spec-398: the route also trims-on-write and snapshots first-verified inside the
+// transaction (both call tx.execute). The mocked tx above only stubs .insert, so
+// stub these to no-ops — the real behaviour is covered against a real DB in
+// spec-398-retention.integration.test.ts.
+vi.mock("../services/test-event-retention.js", () => ({
+  trimTestEventsForPair: vi.fn().mockResolvedValue(undefined),
+  recordFirstVerified: vi.fn().mockResolvedValue(undefined),
+}));
+
 // spec-129: the route now requires a valid emission key. These spec-115 unit tests focus
 // on payload/metadata shaping, so we stub the auth path to a fixed authorised key whose
 // memexId matches the resolver — the auth/memex-match behaviour itself is covered by
