@@ -293,7 +293,7 @@ export function WhatsNewRibbon({
             aria-label="Dismiss What's New"
             data-testid="whats-new-ribbon-dismiss"
             onClick={dismissNow}
-            className="ml-2 grid h-6 w-6 place-items-center rounded-full text-muted hover:bg-surface-hover"
+            className="ml-2 grid h-6 w-6 place-items-center rounded-full text-muted hover:bg-card-hover"
           >
             ✕
           </button>
@@ -342,7 +342,7 @@ export function WhatsNewRibbon({
                 type="button"
                 aria-label="Close"
                 onClick={closePopup}
-                className="grid h-8 w-8 place-items-center rounded-lg border border-edge text-muted hover:bg-surface-hover"
+                className="grid h-8 w-8 place-items-center rounded-lg border border-edge text-muted hover:bg-card-hover"
               >
                 ✕
               </button>

@@ -107,7 +107,7 @@ export function AddHereEditor({
         data-testid="scaffold-add-here-trigger"
         disabled
         title={disabledReason ?? 'You do not have permission to edit this guidance.'}
-        className="mt-3 cursor-not-allowed rounded-sm border border-default px-3 py-1 text-sm text-secondary opacity-50"
+        className="mt-3 cursor-not-allowed rounded-sm border border-edge px-3 py-1 text-sm text-secondary opacity-50"
       >
         + {label}
       </button>
@@ -120,7 +120,7 @@ export function AddHereEditor({
         type="button"
         data-testid="scaffold-add-here-trigger"
         onClick={() => setOpen(true)}
-        className="mt-3 text-sm border border-default rounded-sm px-3 py-1 hover:bg-overlay"
+        className="mt-3 text-sm border border-edge rounded-sm px-3 py-1 hover:bg-overlay"
       >
         + {label}
       </button>
@@ -131,7 +131,7 @@ export function AddHereEditor({
     <form
       data-testid="scaffold-add-here-form"
       onSubmit={handleSubmit}
-      className="mt-3 space-y-3 rounded-sm border border-default p-3 bg-muted/10"
+      className="mt-3 space-y-3 rounded-sm border border-edge p-3 bg-muted/10"
     >
       {/* The derived target, in plain language — never a dimension builder. */}
       <div className="text-sm">
@@ -161,7 +161,7 @@ export function AddHereEditor({
                 onClick={() => setTarget(active ? initialTarget : opt.target)}
                 aria-pressed={active}
                 className={`rounded-sm border px-2 py-0.5 ${
-                  active ? 'border-amber-400 bg-amber-200/40 font-semibold' : 'border-default hover:bg-muted/30'
+                  active ? 'border-amber-400 bg-amber-200/40 font-semibold' : 'border-edge hover:bg-muted/30'
                 }`}
               >
                 {opt.label}
@@ -233,7 +233,7 @@ export function AddHereEditor({
           type="submit"
           disabled={submitting}
           data-testid="scaffold-add-here-submit"
-          className="text-sm border border-default rounded-sm px-3 py-1 hover:bg-muted/30 disabled:opacity-50"
+          className="text-sm border border-edge rounded-sm px-3 py-1 hover:bg-muted/30 disabled:opacity-50"
         >
           {submitting ? 'Saving…' : 'Save'}
         </button>
@@ -243,7 +243,7 @@ export function AddHereEditor({
             reset();
             setOpen(false);
           }}
-          className="text-sm border border-default rounded-sm px-3 py-1 hover:bg-muted/30"
+          className="text-sm border border-edge rounded-sm px-3 py-1 hover:bg-muted/30"
         >
           Cancel
         </button>

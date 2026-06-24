@@ -115,7 +115,7 @@ function VoiceRecovery(): React.JSX.Element {
       data-recovery-kind={denied ? 'permission_denied' : 'error'}
       className="max-w-xs rounded-lg bg-surface p-3 text-sm shadow-lg ring-1 ring-border"
     >
-      <p className="text-text-primary">
+      <p className="text-primary">
         {denied
           ? 'Microphone access is blocked. Enable it for this site in your browser, then retry.'
           : `The voice guide hit an error${session.error ? `: ${session.error}` : ''}.`}
@@ -133,7 +133,7 @@ function VoiceRecovery(): React.JSX.Element {
           type="button"
           data-voice-dismiss
           onClick={session.end}
-          className="rounded-md px-2 py-1 text-text-secondary hover:bg-surface-hover"
+          className="rounded-md px-2 py-1 text-secondary hover:bg-card-hover"
         >
           Dismiss
         </button>

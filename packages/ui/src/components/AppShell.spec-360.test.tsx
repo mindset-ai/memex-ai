@@ -68,3 +68,32 @@ describe('AppShell — bounded content wrapper on the scaffold route (spec-360, 
     expect(wrapper.className).not.toContain('min-h-0');
   });
 });
+
+// spec-389: the standards-list and issues surfaces now dock the same agent rail
+// as scaffold, so they need the same bounded wrapper — otherwise a long streaming
+// answer expands the panel and scrolls the whole page instead of staying locked.
+const AC_389 = 'mindset-prod/memex-building-itself/specs/spec-389/acs/ac-1';
+
+describe('AppShell — bounded content wrapper on agent-rail routes (spec-389)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('gives the standards-list tenant route a bounded (min-h-0) wrapper', () => {
+    tagAc(AC_389);
+    renderShell(['/acme/main/standards']);
+    expect(contentWrapper().className).toContain('min-h-0');
+  });
+
+  it('gives the issues tenant route a bounded (min-h-0) wrapper', () => {
+    tagAc(AC_389);
+    renderShell(['/acme/main/issues']);
+    expect(contentWrapper().className).toContain('min-h-0');
+  });
+
+  it('does NOT bound a single-standard doc route (no rail there)', () => {
+    tagAc(AC_389);
+    renderShell(['/acme/main/standards/std-1']);
+    expect(contentWrapper().className).not.toContain('min-h-0');
+  });
+});

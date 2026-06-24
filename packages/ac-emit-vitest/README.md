@@ -54,9 +54,9 @@ A key authorises emissions **only for the Memex it was generated in** (the Memex
 
 ## Three controls for adopters
 
-### `MEMEX_EMIT` — gate the emission
+### `MEMEX_EMIT`: the off switch (you almost never want it)
 
-When you don't want emissions from a particular environment (typically developer laptops), set:
+Emitting is the point: a run with a valid key SHOULD emit, so the Spec's board moves live as tests pass. `MEMEX_EMIT=false` is a narrow escape for environments that genuinely cannot or must not emit (a CI job with no key, such as a dependabot or fork PR; an offline sandbox; a deliberate dry run), not routine dev hygiene. Reaching for it "to be safe" so dev runs "don't spam prod" is a category error: emissions are the verification signal and are meant to land on the prod board. The default is to do nothing and let them land.
 
 ```bash
 MEMEX_EMIT=false npm test

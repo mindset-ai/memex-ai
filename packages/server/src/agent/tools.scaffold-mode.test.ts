@@ -1,6 +1,6 @@
 // spec-360 issue-5 / issue-6 — the scaffold assistant's display-only UI tools.
 //
-// render_scaffold_quote (verbatim quote block) and render_scaffold_navigate
+// render_quote (verbatim quote block) and render_navigate
 // (move the on-screen scaffold to a circumstance) are React-only `render_*` UI
 // tools. They ride the agent's tool surface (incl. scaffold mode) like every
 // other render_* tool; they never execute server-side. These tests pin:
@@ -23,28 +23,28 @@ const AC_HOST =
 const AC_SURFACE =
   "mindset-prod/memex-building-itself/specs/spec-360/acs/ac-9";
 
-describe("render_scaffold_quote — display-only UI tool (issue-5, ac-6)", () => {
-  it("getToolDefinitions() includes render_scaffold_quote in the default surface", () => {
+describe("render_quote — display-only UI tool (issue-5, ac-6)", () => {
+  it("getToolDefinitions() includes render_quote in the default surface", () => {
     tagAc(AC_HOST);
     const names = getToolDefinitions().map((t) => t.name);
-    expect(names).toContain("render_scaffold_quote");
+    expect(names).toContain("render_quote");
   });
 
   it("is present in scaffold mode (uiTools ride along)", () => {
     tagAc(AC_HOST);
     const names = getToolDefinitions({ mode: "scaffold" }).map((t) => t.name);
-    expect(names).toContain("render_scaffold_quote");
+    expect(names).toContain("render_quote");
   });
 
-  it("isUiTool('render_scaffold_quote') === true (never executes server-side)", () => {
+  it("isUiTool('render_quote') === true (never executes server-side)", () => {
     tagAc(AC_HOST);
-    expect(isUiTool("render_scaffold_quote")).toBe(true);
+    expect(isUiTool("render_quote")).toBe(true);
   });
 
   it("schema requires `text` and offers an optional `source`", () => {
     tagAc(AC_HOST);
     const tool = getToolDefinitions({ mode: "scaffold" }).find(
-      (t) => t.name === "render_scaffold_quote",
+      (t) => t.name === "render_quote",
     );
     expect(tool).toBeDefined();
     const schema = tool!.input_schema as {
@@ -62,7 +62,7 @@ describe("render_scaffold_quote — display-only UI tool (issue-5, ac-6)", () =>
   it("schema includes the optional `copyable` boolean (issue-13)", () => {
     tagAc(AC_HOST);
     const tool = getToolDefinitions({ mode: "scaffold" }).find(
-      (t) => t.name === "render_scaffold_quote",
+      (t) => t.name === "render_quote",
     );
     expect(tool).toBeDefined();
     const schema = tool!.input_schema as {
@@ -76,28 +76,28 @@ describe("render_scaffold_quote — display-only UI tool (issue-5, ac-6)", () =>
   });
 });
 
-describe("render_scaffold_navigate — display-only UI tool (issue-6, ac-9)", () => {
-  it("getToolDefinitions() includes render_scaffold_navigate in the default surface", () => {
+describe("render_navigate — display-only UI tool (issue-6, ac-9)", () => {
+  it("getToolDefinitions() includes render_navigate in the default surface", () => {
     tagAc(AC_SURFACE);
     const names = getToolDefinitions().map((t) => t.name);
-    expect(names).toContain("render_scaffold_navigate");
+    expect(names).toContain("render_navigate");
   });
 
   it("is present in scaffold mode (uiTools ride along)", () => {
     tagAc(AC_SURFACE);
     const names = getToolDefinitions({ mode: "scaffold" }).map((t) => t.name);
-    expect(names).toContain("render_scaffold_navigate");
+    expect(names).toContain("render_navigate");
   });
 
-  it("isUiTool('render_scaffold_navigate') === true (never executes server-side)", () => {
+  it("isUiTool('render_navigate') === true (never executes server-side)", () => {
     tagAc(AC_SURFACE);
-    expect(isUiTool("render_scaffold_navigate")).toBe(true);
+    expect(isUiTool("render_navigate")).toBe(true);
   });
 
   it("schema mirrors GuidanceBlock['target'] — all four target dims optional", () => {
     tagAc(AC_SURFACE);
     const tool = getToolDefinitions({ mode: "scaffold" }).find(
-      (t) => t.name === "render_scaffold_navigate",
+      (t) => t.name === "render_navigate",
     );
     expect(tool).toBeDefined();
     const schema = tool!.input_schema as {

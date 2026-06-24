@@ -203,6 +203,25 @@ describe("spec-90 dec-7: emission guidance is locked to the multi-tenant routing
   });
 });
 
+// spec-333 — the bootstrap contract is the std-22 portable surface every hand-rolled emitter
+// copies. It must instruct surfacing the server's RESPONSE BODY on a non-2xx (not just the
+// status), so the actionable guidance a 401 carries reaches the agent — while staying
+// fail-safe. This keeps the contract in lockstep with the vitest helper's emit() change.
+describe("spec-333: bootstrap contract documents surfacing the response body on non-2xx", () => {
+  it("instructs surfacing the server's response body, tied to the actionable fix it carries (ac-9)", () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-333/acs/ac-9");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-333/acs/ac-4"); // scope outcome: portable contract documents it
+    expect(bootstrap.body).toMatch(/response body/i);
+    expect(bootstrap.body).toMatch(/provision_ac_emission/);
+  });
+
+  it("keeps the body-surfacing instruction alongside the never-throw / fail-safe contract (ac-9)", () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-333/acs/ac-9");
+    expect(bootstrap.body).toMatch(/never\s+throw|swallow/i);
+    expect(bootstrap.body).toMatch(/response body/i);
+  });
+});
+
 // spec-358 — the inbound `hidden` flag is no longer honoured and the emitter no
 // longer sends it. Both emitter-facing get_information topics must be scrubbed
 // of `hidden` / `MEMEX_HIDDEN` so no agent reads it as something an emitter can
@@ -218,5 +237,110 @@ describe("spec-358: emitter-facing guidance is scrubbed of the hidden flag", () 
     tagAc("mindset-prod/memex-building-itself/specs/spec-358/acs/ac-4");
     expect(bootstrap.body).not.toMatch(/hidden/i);
     expect(bootstrap.body).not.toMatch(/MEMEX_HIDDEN/);
+  });
+});
+
+// spec-404 — emission is the celebrated default; the MEMEX_EMIT off switch is a
+// NARROW can't-emit escape, NOT routine developer-laptop hygiene. The earlier
+// "typically developer laptops" framing actively taught agents to silence the
+// live board on the exact surface where they work, and the b-90 category-error
+// anti-example only ever covered the MEMEX_TEST_EVENTS_URL override, never the
+// MEMEX_EMIT off switch. These assertions pin the reframed shape across the
+// agent-facing topic AND the emitter README, guard against over-scrubbing the
+// bootstrap off-switch *contract* (which must stay — a hand-rolled emitter MUST
+// honour the off switch), and against any change to the gate in emit.ts.
+const README = join(__dirname, "..", "..", "..", "ac-emit-vitest", "README.md");
+const readme = readFileSync(README, "utf-8");
+
+const EMIT_TS = join(
+  __dirname,
+  "..",
+  "..",
+  "..",
+  "ac-emit-vitest",
+  "src",
+  "emit.ts",
+);
+const emitTs = readFileSync(EMIT_TS, "utf-8");
+
+// Bound a region to JUST the MEMEX_EMIT section (heading → next ##/### heading)
+// so the category-error assertions cannot be satisfied by the unrelated
+// MEMEX_TEST_EVENTS_URL anti-example further down the body.
+function memexEmitSection(body: string): string {
+  const start = body.search(/###\s+`?MEMEX_EMIT`?/);
+  if (start < 0) return "";
+  const rest = body.slice(start + 1);
+  const nextHeading = rest.search(/\n#{2,3}\s/);
+  return nextHeading >= 0
+    ? body.slice(start, start + 1 + nextHeading)
+    : body.slice(start);
+}
+
+describe("spec-404: emission is the celebrated default, MEMEX_EMIT is a narrow escape", () => {
+  it("ac-emission topic no longer frames MEMEX_EMIT as developer-laptop hygiene", () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-404/acs/ac-6");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-404/acs/ac-2");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-404/acs/ac-12");
+    expect(topic.body).not.toMatch(/developer laptops/i);
+  });
+
+  it("ac-emission topic leads the MEMEX_EMIT section with emission-as-the-default", () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-404/acs/ac-6");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-404/acs/ac-1");
+    const region = memexEmitSection(topic.body);
+    expect(region).toMatch(/Emitting is the point/i);
+    expect(region).toMatch(/SHOULD emit/);
+    // the encouraging lead precedes the off-value mechanics within the section
+    expect(region.search(/Emitting is the point/i)).toBeLessThan(
+      region.search(/Accepted off-values/i),
+    );
+  });
+
+  it("ac-emission topic names the 'to be safe' MEMEX_EMIT move as the same category error, default = let it land", () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-404/acs/ac-8");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-404/acs/ac-3");
+    const region = memexEmitSection(topic.body);
+    expect(region).toMatch(/to be safe/i);
+    expect(region).toMatch(/spam.*prod/i);
+    expect(region).toMatch(/same category error/i);
+    expect(region).toMatch(/let the emission land/i);
+  });
+
+  it("ac-emission topic preserves the MEMEX_EMIT mechanics verbatim", () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-404/acs/ac-7");
+    expect(topic.body).toMatch(/`false`, `0`, `no`, `off`/);
+    expect(topic.body).toMatch(/zero HTTP requests/);
+    expect(topic.body).toMatch(/Default and any other value is `true`/);
+  });
+
+  it("ac-emission topic retains the localhost MEMEX_TEST_EVENTS_URL anti-example (b-90 intact)", () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-404/acs/ac-9");
+    expect(topic.body).toMatch(
+      /MEMEX_TEST_EVENTS_URL=http:\/\/localhost:8080[^\n]*be\s+safe/i,
+    );
+    expect(topic.body).toMatch(/default\s+routing\s+IS\s+the\s+safety/i);
+  });
+
+  it("emitter README mirrors the reframe (no developer-laptop hygiene framing)", () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-404/acs/ac-10");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-404/acs/ac-4");
+    expect(readme).not.toMatch(/developer laptops/i);
+    expect(readme).toMatch(/MEMEX_EMIT=false/);
+    expect(readme).toMatch(/`false`, `0`, `no`, `off`/);
+  });
+
+  it("bootstrap topic RETAINS the off-switch behavioural contract (not over-scrubbed)", () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-404/acs/ac-11");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-404/acs/ac-4");
+    expect(bootstrap.body).toMatch(/MEMEX_EMIT/);
+    expect(bootstrap.body).toMatch(/Respect the off switch/i);
+    expect(bootstrap.body).toMatch(/Honours `?MEMEX_EMIT`? off/i);
+  });
+
+  it("emit.ts still implements the MEMEX_EMIT gate (runtime mechanism unchanged)", () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-404/acs/ac-5");
+    expect(emitTs).toMatch(/MEMEX_EMIT\b/);
+    expect(emitTs).toMatch(/false/);
+    expect(emitTs).toMatch(/off/);
   });
 });

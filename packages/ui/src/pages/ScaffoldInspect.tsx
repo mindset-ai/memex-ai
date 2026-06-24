@@ -34,6 +34,7 @@ import { ScaffoldPhaseDetail } from '../components/scaffold/ScaffoldPhaseDetail'
 import { CircumstanceDetail } from '../components/scaffold/CircumstanceDetail';
 import { ScaffoldProposalReview } from '../components/scaffold/ScaffoldProposalReview';
 import { ChatPanel } from '../components/ChatPanel';
+import { ResizableChatRail } from '../components/chat/ResizableChatRail';
 import { useChat } from '../components/ChatContext';
 import {
   buttonSegments,
@@ -71,11 +72,9 @@ function ringFor(active: boolean, pulse: boolean): string {
   return pulse ? PULSE_RING : SELECT_RING;
 }
 
-// spec-360: the chat (assistant) rail is drag-resizable on desktop; width is
-// clamped and persisted across sessions.
-const CHAT_MIN_W = 300;
-const CHAT_MAX_W = 720;
-const CHAT_DEFAULT_W = 384; // = the old fixed w-96
+// spec-389 t-1 (dec-1): the drag-resizable chat rail is now the shared
+// ResizableChatRail component (extracted from this surface). This page just
+// passes its per-surface storage key.
 const CHAT_WIDTH_KEY = 'scaffold-chat-width';
 
 const PHASE_BEFORE_TRANSITION: Record<Transition, Phase> = {
@@ -171,38 +170,6 @@ export function ScaffoldInspect() {
 
   const [selected, setSelected] = useState<Selection>({ kind: 'home' });
 
-  // spec-360: the chat rail's width — drag-resizable, clamped, persisted.
-  const [chatWidth, setChatWidth] = useState<number>(() => {
-    if (typeof window === 'undefined') return CHAT_DEFAULT_W;
-    const saved = Number(window.localStorage.getItem(CHAT_WIDTH_KEY));
-    return Number.isFinite(saved) && saved >= CHAT_MIN_W && saved <= CHAT_MAX_W ? saved : CHAT_DEFAULT_W;
-  });
-  useEffect(() => {
-    window.localStorage.setItem(CHAT_WIDTH_KEY, String(chatWidth));
-  }, [chatWidth]);
-  const startChatResize = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
-      const startX = e.clientX;
-      const startW = chatWidth;
-      const onMove = (ev: MouseEvent) => {
-        const next = Math.min(CHAT_MAX_W, Math.max(CHAT_MIN_W, startW + ev.clientX - startX));
-        setChatWidth(next);
-      };
-      const onUp = () => {
-        document.removeEventListener('mousemove', onMove);
-        document.removeEventListener('mouseup', onUp);
-        document.body.style.userSelect = '';
-        document.body.style.cursor = '';
-      };
-      document.body.style.userSelect = 'none';
-      document.body.style.cursor = 'col-resize';
-      document.addEventListener('mousemove', onMove);
-      document.addEventListener('mouseup', onUp);
-    },
-    [chatWidth],
-  );
-
   // OrgScaffoldAddition (not the base GuidanceBlock) so the persisted `id` is
   // available — used to look a block up for the review seed below; assignable to
   // the GuidanceBlock[] the composition/timeline helpers expect.
@@ -296,7 +263,7 @@ export function ScaffoldInspect() {
     detailRef.current?.scrollTo?.({ top: 0, behavior: 'smooth' });
   }, [scaffoldProposal]);
 
-  // spec-360: the assistant navigated the surface (render_scaffold_navigate).
+  // spec-360: the assistant navigated the surface (render_navigate).
   // Select that circumstance in the right pane — same target→Selection mapping as
   // the proposal effect — and PULSE the timeline control that leads there, so the
   // user sees where the assistant moved them (they didn't click it themselves).
@@ -445,30 +412,19 @@ export function ScaffoldInspect() {
       {/* spec-360 t-1 (dec-1/dec-6): the scaffold assistant — a left-rail panel,
           the established Standards/Drift agent position. Open to any member for
           explanation; authoring proposals are admin-gated server-side. */}
-      <aside
-        data-testid="scaffold-assistant-panel"
-        style={{ width: chatWidth }}
-        className="relative hidden md:flex shrink-0 flex-col min-h-0 border-r border-default"
+      <ResizableChatRail
+        storageKey={CHAT_WIDTH_KEY}
+        testId="scaffold-assistant-panel"
+        handleTestId="scaffold-chat-resize"
+        label="Scaffold"
       >
-        <div className="flex-1 min-h-0">
-          <ChatPanel />
-        </div>
-        {/* Drag handle — resize the chat rail. Sits over the right border with a
-            wider hit area; highlights on hover/drag. */}
-        <div
-          role="separator"
-          aria-orientation="vertical"
-          aria-label="Resize chat panel"
-          data-testid="scaffold-chat-resize"
-          onMouseDown={startChatResize}
-          className="absolute top-0 -right-1 z-10 h-full w-2 cursor-col-resize transition-colors hover:bg-accent/40"
-        />
-      </aside>
+        <ChatPanel />
+      </ResizableChatRail>
 
       {/* Inspect column: page heading + timeline + detail (+ any pending proposal). */}
       <div className="flex flex-1 flex-col min-w-0 overflow-hidden">
       {/* Page heading — matches the other tenant pages (Drift Inbox etc.). */}
-      <div className="shrink-0 border-b border-default px-4 pt-4 pb-3">
+      <div className="shrink-0 border-b border-edge px-4 pt-4 pb-3">
         <h1 className="text-2xl font-semibold text-heading">Scaffold</h1>
         <p className="text-xs text-muted mt-1">
           The prompting every agent in this Memex reads — and your org’s additions to it.
@@ -476,7 +432,7 @@ export function ScaffoldInspect() {
       </div>
       {/* Top frame: admin note, always-applies band, timeline, actions. The
           "how it works" explainer moved into the empty (home) detail state below. */}
-      <div className="shrink-0 border-b border-default p-4 space-y-3">
+      <div className="shrink-0 border-b border-edge p-4 space-y-3">
         {/* spec-360: dirty-state indicator — a pending proposal awaits approval.
             Clicking it scrolls the detail pane to the review card. */}
         {scaffoldProposal ? (
@@ -495,7 +451,7 @@ export function ScaffoldInspect() {
         {showAdminNote ? (
           <div
             data-testid="scaffold-admin-required-note"
-            className="rounded-md border border-default bg-muted/20 px-3 py-2 text-sm text-secondary"
+            className="rounded-md border border-edge bg-muted/20 px-3 py-2 text-sm text-secondary"
           >
             Viewing only — an administrator can add or change this guidance.
           </div>
@@ -511,7 +467,7 @@ export function ScaffoldInspect() {
               onClick={() => setSelected({ kind: 'global' })}
               className={`flex w-full items-center gap-2 rounded-md border px-3 py-1.5 text-xs transition-colors ${
                 selected.kind === 'global'
-                  ? 'border-default bg-overlay text-primary'
+                  ? 'border-edge bg-overlay text-primary'
                   : 'border-transparent text-secondary hover:text-primary hover:bg-overlay'
               } ${ringFor(selected.kind === 'global', navPulse)}`}
             >

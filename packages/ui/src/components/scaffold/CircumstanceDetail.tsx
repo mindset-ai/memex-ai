@@ -273,7 +273,7 @@ function OrgSegment({
               await onUpdate(id, draft.trim());
               setEditing(false);
             }}
-            className="text-xs border border-default rounded-sm px-2 py-0.5 hover:bg-muted/30"
+            className="text-xs border border-edge rounded-sm px-2 py-0.5 hover:bg-muted/30"
           >
             Save
           </button>

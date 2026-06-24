@@ -256,53 +256,69 @@ const uiTools: Tool[] = [
     },
   },
   {
-    // spec-360: the scaffold assistant's NAVIGATE tool. The whole scaffold is
-    // already on the page (the right pane + timeline) — so to SHOW the user a
-    // circumstance, move the surface to it instead of re-describing it. This
-    // selects the circumstance in the right pane and highlights the timeline
-    // control that leads there. Display-only.
-    name: "render_scaffold_navigate",
+    // spec-389 t-2 (dec-4): the shared NAVIGATE render tool, generalised from
+    // spec-360's scaffold-only render_navigate into ONE family member
+    // every in-app agent uses. To SHOW the user the thing under discussion, move
+    // the surface to it and highlight it instead of re-describing it. The
+    // `surface` discriminant selects the target grammar: 'scaffold' uses the
+    // phase/tool/transition/button dims (spec-360); 'standard' / 'spec' / 'issue'
+    // carry a `ref` to the clause / section / issue to focus. Each surface
+    // registers how it resolves + highlights its own target (UI side). Display-only.
+    name: "render_navigate",
     description:
-      "Navigate the on-screen scaffold to a circumstance: select it in the right-hand detail pane and highlight the timeline control that leads there. PREFER this over re-describing what's already on the page — when the user asks about a phase, gate, tool, button, or the always-applies guidance, navigate them to it. Provide the most specific target you can; omit all fields to show the always-applies (org-global) guidance. Display-only.",
+      "Navigate the on-screen surface to the thing under discussion and highlight it — PREFER this over re-describing what's already on the page. Set `surface` to where you are: 'scaffold' (a phase/gate/tool/button — use the dims below), 'standard' (a clause or section — pass its ref in `ref`), 'spec' (a section — `ref`), or 'issue' (an issue — `ref`). For the scaffold, provide the most specific target you can; omit all fields to show the always-applies (org-global) guidance. Display-only.",
     input_schema: {
       type: "object" as const,
       properties: {
+        surface: {
+          type: "string",
+          enum: ["scaffold", "standard", "spec", "issue"],
+          description: "Which surface to navigate. Defaults to 'scaffold' for backward compatibility.",
+        },
+        ref: {
+          type: "string",
+          description: "For surface 'standard' / 'spec' / 'issue': the handle/ref of the clause, section, or issue to focus and highlight (e.g. a cl-N / s-N / i-N handle).",
+        },
         phase: {
           type: "string",
           enum: ["draft", "specify", "build", "verify", "done"],
-          description: "A lifecycle phase to show. Combine with `tool` to show a specific tool's guidance within that phase.",
+          description: "Scaffold surface only: a lifecycle phase to show. Combine with `tool` to show a specific tool's guidance within that phase.",
         },
         tool: {
           type: "string",
-          description: "A tool name (e.g. create_task) to show the tool-specific guidance for, within `phase`.",
+          description: "Scaffold surface only: a tool name (e.g. create_task) to show the tool-specific guidance for, within `phase`.",
         },
         transition: {
           type: "string",
           enum: ["specify", "build", "verify", "done"],
-          description: "A forward gate to show its readiness rubric (the gate INTO this phase).",
+          description: "Scaffold surface only: a forward gate to show its readiness rubric (the gate INTO this phase).",
         },
         button: {
           type: "string",
-          description: "A Prompt Button id to show its composed prompt.",
+          description: "Scaffold surface only: a Prompt Button id to show its composed prompt.",
         },
       },
       required: [],
     },
   },
   {
-    // spec-360: the scaffold assistant's verbatim-quote block. Use it INSTEAD of
-    // wrapping a quote in inline quotation marks when quoting the exact prompting
-    // an agent receives — the text renders as a distinct lifted artifact. Display-only.
-    name: "render_scaffold_quote",
+    // spec-389 t-2 (dec-4): the shared verbatim-QUOTE block, generalised from
+    // spec-360's render_quote. Surface-agnostic — it carries text, not a
+    // surface target — so every agent uses it INSTEAD of inline "…" when quoting
+    // exact text (a Standard clause, a phase rubric, the prompting an agent
+    // reads). The optional `copyable` flag adds a copy button; the dedicated
+    // render_handoff tool (spec-389 t-4) is the preferred path for cross-agent
+    // handoffs. Display-only.
+    name: "render_quote",
     description:
-      "Quote text verbatim in a distinct block, instead of inline quotation marks. Two uses: (1) quoting the EXACT scaffold prompting an agent reads (phase guidance, a gate rubric, a tool nudge, an org addition); (2) handing the user a ready-to-paste PROMPT to run elsewhere — set `copyable: true` to add a copy button. Use (2) when something is needed that you CANNOT do yourself (create a Standard or a new Spec): write the prompt here, set `copyable: true`, and tell the user in prose to paste it into the right place (the Standards agent for a Standard; the New Spec flow for a Spec). Display-only.",
+      "Quote text verbatim in a distinct block, instead of inline quotation marks — for any exact text: a Standard's clause, a phase/gate rubric, a tool nudge, or the prompting an agent reads. Set `copyable: true` to add a copy button when the block is a ready-to-paste prompt. Display-only.",
     input_schema: {
       type: "object" as const,
       properties: {
-        text: { type: "string", description: "The exact text, verbatim (no added quotation marks). For a handoff, this is the full prompt to paste." },
+        text: { type: "string", description: "The exact text, verbatim (no added quotation marks)." },
         source: {
           type: "string",
-          description: "Optional short label, e.g. 'build phase guidance', 'verify gate rubric', or for a handoff 'Prompt for the Standards agent'.",
+          description: "Optional short label, e.g. 'std-7 clause 2', 'build phase guidance', 'verify gate rubric'.",
         },
         copyable: {
           type: "boolean",
@@ -310,6 +326,33 @@ const uiTools: Tool[] = [
         },
       },
       required: ["text"],
+    },
+  },
+  {
+    // spec-389 t-4 (dec-3): the shared HANDOFF render tool. When asked to do
+    // something OUTSIDE its own function, an agent does not reach for a tool it
+    // shouldn't have — it REFUSES and hands the user a copyable prompt to paste
+    // into the right agent. One standardised render across every agent (the
+    // canonical (fromMode, requestedDomain) → target map lives in the agents'
+    // guidance prose in @memex/shared/scaffold-data.ts, std-15/23/34).
+    // Display-only: it presents an explanation + a copy-to-clipboard prompt.
+    name: "render_handoff",
+    description:
+      "Hand off a request that is OUTSIDE your function to the agent (or flow) that owns it — never reach for a tool you shouldn't have. Set `target` to where the work belongs ('standards agent' to create/edit a Standard; 'drift agent' to resolve drift / propose a Standard change; 'New Spec flow' when a Spec is needed; 'scaffold assistant' for org guidance; 'coding agent' to touch code), write the ready-to-paste `prompt`, and a one-line `reason` the user can read. Be honest about the boundary — do not pretend you can do it. Display-only.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        target: {
+          type: "string",
+          description: "Where the work belongs, e.g. 'standards agent', 'drift agent', 'New Spec flow', 'scaffold assistant', 'coding agent'.",
+        },
+        prompt: { type: "string", description: "The full, ready-to-paste prompt the user should hand to the target agent/flow." },
+        reason: {
+          type: "string",
+          description: "A one-line, honest explanation of why this is out of your scope and where it goes.",
+        },
+      },
+      required: ["target", "prompt"],
     },
   },
 ];
@@ -420,6 +463,64 @@ const SCAFFOLD_SERVER_TOOLS = new Set<string>([
   "get_doc",
 ]);
 
+// spec-389 t-3 (dec-2): the STANDARDS agent's focused server surface. Like the
+// drift agent it lives across this Memex's Standards corpus — but where drift
+// HANDLES findings, the standards agent AUTHORS rules. It gets the read/grounding
+// base plus the standard-authoring verbs: section structure (add/retitle/update),
+// clause grain (add/edit/delete — Standards are clause-backed per spec-150/161),
+// and the propose/flag governance verbs. It never reaches the doc / decision /
+// task / issue mutation surface. render_confirmation (a UI tool) still gates
+// every write.
+const STANDARDS_SERVER_TOOLS = new Set<string>([
+  "search_memex",
+  "get_doc",
+  "list_comments",
+  "add_section",
+  "retitle_section",
+  "update_section",
+  "add_clause",
+  "edit_clause",
+  "delete_clause",
+  "propose_standard_change",
+  "flag_drift",
+]);
+
+// spec-389 t-3 (dec-2): the ISSUES agent's focused server surface. Its whole
+// world is the Issues parking lot — register / triage / resolve, and promote a
+// todo straight to a Task (convert_issue_to_task is the one task-touching verb it
+// owns, by design). Read/grounding (search_memex / get_doc) lets it ground an
+// issue in the surrounding Specs/Standards before acting. It never reaches the
+// Spec-body / decision / standard-authoring surface.
+const ISSUES_SERVER_TOOLS = new Set<string>([
+  "search_memex",
+  "get_doc",
+  "register_issue",
+  "list_issues",
+  "get_issue",
+  "update_issue",
+  "resolve_issue",
+  "convert_issue_to_task",
+  "search_issues",
+]);
+
+// spec-389 t-3 (dec-2): the in-app agent modes. `spec` is the doc/Spec agent —
+// the UNRESTRICTED surface, governed by phase + reviewer gates rather than a mode
+// subset. Every other mode is scoped to a narrow server-tool subset below.
+export type AgentMode = "spec" | "drift" | "scaffold" | "standards" | "issues";
+
+// spec-389 t-3 (dec-2): ONE server-owned mode → allow-list map, generalising the
+// per-mode booleans (DRIFT_/SCAFFOLD_SERVER_TOOLS) into a single auditable place.
+// `spec` has no entry — it is the unrestricted surface (null below). Awareness is
+// broad (every mode keeps search_memex/get_doc); authority is narrow (each mode
+// writes only within its function). This is the source both getToolDefinitions
+// (the definition filter) and /tools/execute (the authoritative gate) consult.
+const MODE_TOOLS: Record<Exclude<AgentMode, "spec">, ReadonlySet<string>> = {
+  drift: DRIFT_SERVER_TOOLS,
+  scaffold: SCAFFOLD_SERVER_TOOLS,
+  standards: STANDARDS_SERVER_TOOLS,
+  issues: ISSUES_SERVER_TOOLS,
+};
+
 /** All tool definitions for the Anthropic API. Last tool has cache_control.
  *  spec-126 dec-3: when `opts.reviewer` is set, blocked mutations are dropped so
  *  the model never sees them (definition filter); the /tools/execute route also
@@ -429,14 +530,12 @@ const SCAFFOLD_SERVER_TOOLS = new Set<string>([
  *  including render_confirmation, the mutation gate — are always included. */
 export function getToolDefinitions(opts?: {
   reviewer?: boolean;
-  mode?: "drift" | "scaffold";
+  mode?: AgentMode;
 }): Tool[] {
+  // spec-389 t-3 (dec-2): the scoped modes filter to their MODE_TOOLS subset;
+  // `spec` (and an absent mode) is the unrestricted surface.
   const modeSet =
-    opts?.mode === "drift"
-      ? DRIFT_SERVER_TOOLS
-      : opts?.mode === "scaffold"
-      ? SCAFFOLD_SERVER_TOOLS
-      : null;
+    opts?.mode && opts.mode !== "spec" ? MODE_TOOLS[opts.mode] : null;
   const serverTools = toolSpecs
     .filter((s) => (modeSet ? modeSet.has(s.name) : true))
     .filter((s) => !opts?.reviewer || isToolAllowedForReviewer(s.name))
@@ -448,20 +547,34 @@ export function getToolDefinitions(opts?: {
   return allTools;
 }
 
+/** spec-389 t-3 (dec-2): is `name` allowed to execute in `mode`? The single
+ *  server-side gate predicate /tools/execute consults — `spec` (and an absent
+ *  mode) is the unrestricted surface (governed by the write-capability and
+ *  reviewer-role gates instead); every scoped mode is pinned to its MODE_TOOLS
+ *  subset, so a scoped-mode call can't reach beyond its function. The scoped
+ *  modes are memex-scoped via their input (not doc-scoped), so they run with
+ *  docId null. UI tools never execute server-side, so they aren't listed here.
+ *  Generalises the per-mode isDriftModeTool / isScaffoldModeTool checks. */
+export function isToolAllowedInMode(
+  mode: AgentMode | undefined,
+  name: string,
+): boolean {
+  if (!mode || mode === "spec") return true;
+  return MODE_TOOLS[mode].has(name);
+}
+
 /** spec-143 t-4 (dec-6): is `name` part of the drift agent's allowed surface?
- *  Used by /tools/execute to permit the drift subset to run with docId null
- *  (the drift tools are memex-scoped via their input, not doc-scoped). UI tools
- *  never execute server-side, so they aren't listed here. */
+ *  Retained as a thin wrapper over the generalised MODE_TOOLS gate (spec-389
+ *  t-3) for existing callers/tests. */
 export function isDriftModeTool(name: string): boolean {
-  return DRIFT_SERVER_TOOLS.has(name);
+  return isToolAllowedInMode("drift", name);
 }
 
 /** spec-360 t-1 (dec-1): is `name` part of the scaffold assistant's allowed
- *  surface? Used by /tools/execute to permit the scaffold subset to run with
- *  docId null (the scaffold tools are memex-scoped, not doc-scoped). UI tools
- *  never execute server-side, so they aren't listed here. */
+ *  surface? Retained as a thin wrapper over the generalised MODE_TOOLS gate
+ *  (spec-389 t-3) for existing callers/tests. */
 export function isScaffoldModeTool(name: string): boolean {
-  return SCAFFOLD_SERVER_TOOLS.has(name);
+  return isToolAllowedInMode("scaffold", name);
 }
 
 // spec-230 t-1 (ac-7): read tools the creation agent needs for orientation —
@@ -520,8 +633,12 @@ const UI_TOOLS = new Set([
   "render_progress",
   "render_callout",
   "render_steps",
-  "render_scaffold_navigate",
-  "render_scaffold_quote",
+  // spec-389 t-2 (dec-4) / t-4 (dec-3): the shared render-tool family
+  // (generalised off the _scaffold prefix) — navigate + verbatim quote +
+  // copyable handoff, used by every in-app agent.
+  "render_navigate",
+  "render_quote",
+  "render_handoff",
 ]);
 
 /** Returns true if the tool should be forwarded to the frontend instead of executed server-side. */

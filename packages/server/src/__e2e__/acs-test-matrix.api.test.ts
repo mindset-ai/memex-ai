@@ -150,36 +150,42 @@ describe("GET /api/:namespace/:memex/acs/:acId/test-matrix [b-96 t-1]", () => {
     const at = (offset: number): Date => new Date(base + offset);
     await db.insert(testEvents).values([
       {
+        memexId,
         acUid: acRef,
         status: "pass",
         testIdentifier: "t_alpha",
         createdAt: at(0),
       },
       {
+        memexId,
         acUid: acRef,
         status: "fail",
         testIdentifier: "t_beta",
         createdAt: at(1_000),
       },
       {
+        memexId,
         acUid: acRef,
         status: "fail",
         testIdentifier: "t_alpha",
         createdAt: at(2_000),
       },
       {
+        memexId,
         acUid: acRef,
         status: "pass",
         testIdentifier: "t_beta",
         createdAt: at(3_000),
       },
       {
+        memexId,
         acUid: acRef,
         status: "pass",
         testIdentifier: "t_alpha",
         createdAt: at(4_000),
       },
       {
+        memexId,
         acUid: acRef,
         status: "error",
         testIdentifier: null,
@@ -298,11 +304,11 @@ describe("DELETE /api/:namespace/:memex/acs/:acId/test-events [b-96 t-2]", () =>
     const base = new Date("2026-05-27T01:00:00.000Z").getTime();
     const at = (offset: number): Date => new Date(base + offset);
     await db.insert(testEvents).values([
-      { acUid: acRef, status: "pass", testIdentifier: "t_keep", createdAt: at(0) },
-      { acUid: acRef, status: "fail", testIdentifier: "t_drop", createdAt: at(1_000) },
-      { acUid: acRef, status: "pass", testIdentifier: "t_drop", createdAt: at(2_000) },
-      { acUid: acRef, status: "fail", testIdentifier: "t_drop", createdAt: at(3_000) },
-      { acUid: acRef, status: "pass", testIdentifier: "t_keep", createdAt: at(4_000) },
+      { memexId, acUid: acRef, status: "pass", testIdentifier: "t_keep", createdAt: at(0) },
+      { memexId, acUid: acRef, status: "fail", testIdentifier: "t_drop", createdAt: at(1_000) },
+      { memexId, acUid: acRef, status: "pass", testIdentifier: "t_drop", createdAt: at(2_000) },
+      { memexId, acUid: acRef, status: "fail", testIdentifier: "t_drop", createdAt: at(3_000) },
+      { memexId, acUid: acRef, status: "pass", testIdentifier: "t_keep", createdAt: at(4_000) },
     ] as Array<typeof testEvents.$inferInsert>);
   }
 
@@ -419,6 +425,7 @@ describe("DELETE /api/:namespace/:memex/acs/:acId/test-events [b-96 t-2]", () =>
     // restored the test in the codebase). Direct insert simulates what POST
     // /api/test-events would do at the persistence layer.
     await db.insert(testEvents).values({
+      memexId,
       acUid: acRef,
       status: "pass",
       testIdentifier: "t_drop",

@@ -370,11 +370,14 @@ export async function acsOverTime(memexId: string): Promise<AcsOverTimePoint[]> 
       WHERE memex_id = ${memexId} AND status = 'active'
       GROUP BY 1
     ),
+    -- spec-398 t-6: read the FIRST pass from the durable ac_first_verified
+    -- snapshot, not min(created_at) over test_events — keep-last-10 retention
+    -- deletes the oldest passing row, so the operational log can no longer answer
+    -- "when did this AC first go green". One row per ac_uid already, so no min().
     first_pass AS (
-      SELECT ac_uid, min(created_at)::date AS day
-      FROM test_events
-      WHERE ac_uid LIKE ${prefix + "%"} AND status = 'pass' AND hidden = false
-      GROUP BY ac_uid
+      SELECT ac_uid, first_verified_at::date AS day
+      FROM ac_first_verified
+      WHERE ac_uid LIKE ${prefix + "%"}
     ),
     verified_per_day AS (
       SELECT day, count(*)::int AS n FROM first_pass GROUP BY 1

@@ -457,7 +457,7 @@ describe("audit: catalog count consistency", () => {
     expect(mcpOnly.sort()).toEqual(["list_memexes"]);
   });
 
-  it("agent-only UI tools are exactly the 8 render_* tools; agent-only server tools are the spec-360 scaffold tool", () => {
+  it("agent-only UI tools are exactly the 9 render_* tools; agent-only server tools are the spec-360 scaffold tool", () => {
     const mcp = liveMcpToolNames();
     const agentTools = getToolDefinitions();
     const agentOnly = agentTools.filter((t) => !mcp.has(t.name) && isUiTool(t.name)).map((t) => t.name);
@@ -468,9 +468,11 @@ describe("audit: catalog count consistency", () => {
       "render_progress",
       "render_callout",
       "render_steps",
-      // spec-360: the scaffold assistant's navigate + verbatim-quote tools.
-      "render_scaffold_navigate",
-      "render_scaffold_quote",
+      // spec-389 t-2/t-4 (dec-4/dec-3): the shared render family — navigate +
+      // verbatim quote + copyable handoff — generalised off the _scaffold prefix.
+      "render_navigate",
+      "render_quote",
+      "render_handoff",
     ].sort();
     expect(agentOnly.sort()).toEqual(expected);
     // spec-360: the agent's only non-UI tool absent from MCP is the agent-only

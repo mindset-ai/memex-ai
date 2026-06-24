@@ -40,18 +40,19 @@ export const AgentState = Annotation.Root({
    * drift mode the entry router goes straight to an agent node (not createDoc)
    * even with no docId, and the mode is forwarded to the server (chat + tools).
    */
-  agentMode: Annotation<'spec' | 'drift' | 'scaffold'>({
+  agentMode: Annotation<'spec' | 'drift' | 'scaffold' | 'standards' | 'issues'>({
     reducer: (_, update) => update,
     default: () => 'spec',
   }),
 });
 
-/** spec-360 t-1 (dec-1): the memex-scoped, doc-less agent modes — forwarded to
- *  the server (chat + tools) and routed straight to the agent node (not
- *  createDoc). `'spec'` becomes `undefined` on the wire (the default surface). */
+/** spec-360 t-1 (dec-1) / spec-389 t-5 (dec-2): the memex-scoped, doc-less agent
+ *  modes — forwarded to the server (chat + tools) and routed straight to the
+ *  agent node (not createDoc). `'spec'` becomes `undefined` on the wire (the
+ *  default surface); every scoped mode forwards as-is. */
 function wireMode(
-  agentMode: 'spec' | 'drift' | 'scaffold',
-): 'drift' | 'scaffold' | undefined {
+  agentMode: 'spec' | 'drift' | 'scaffold' | 'standards' | 'issues',
+): 'drift' | 'scaffold' | 'standards' | 'issues' | undefined {
   return agentMode === 'spec' ? undefined : agentMode;
 }
 
@@ -207,7 +208,11 @@ export function routeByPhase(
   // spec-360 t-1 (dec-1): scaffold mode, like drift, has no bound doc but is NOT
   // creation — route straight to the agent node; the scaffold posture comes from
   // the server-side prompt + tool subset selected by `mode: 'scaffold'`.
-  if (state.agentMode === 'drift' || state.agentMode === 'scaffold') return 'planAgent';
+  // spec-389 t-5 (dec-2): standards / issues modes behave the same — memex-scoped,
+  // doc-less; their posture comes from the server-side prompt + MODE_TOOLS subset.
+  // Only an EXPLICIT scoped mode short-circuits to the doc-less agent node; an
+  // unset agentMode (undefined) falls through to normal per-phase Spec routing.
+  if (state.agentMode && state.agentMode !== 'spec') return 'planAgent';
   if (!state.docId) return 'createDoc';
   switch (state.specPhase) {
     case 'draft':

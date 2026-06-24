@@ -34,7 +34,7 @@ function RoleBadge({ isAdmin }: { isAdmin: boolean }) {
     <span
       data-testid="scaffold-role-badge"
       data-role="viewer"
-      className="inline-flex items-center gap-1.5 rounded-full border border-default bg-muted/20 px-2.5 py-0.5 text-xs font-medium text-secondary"
+      className="inline-flex items-center gap-1.5 rounded-full border border-edge bg-muted/20 px-2.5 py-0.5 text-xs font-medium text-secondary"
     >
       <span aria-hidden="true">●</span> View only — an administrator can edit guidance
     </span>

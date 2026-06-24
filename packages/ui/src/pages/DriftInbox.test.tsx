@@ -28,17 +28,16 @@ const mockAddContextChip = vi.fn();
 const mockSendMessage = vi.fn();
 const mockEnterDriftMode = vi.fn();
 const mockExitDriftMode = vi.fn();
-const mockStartDriftOpeningTurn = vi.fn();
-// spec-143 t-4 (dec-6): the inbox now also mounts the OpeningDriftController,
-// which reads these drift-mode methods off useChat — stub them so the page
-// renders without a real ChatProvider.
+// spec-143 t-4 (dec-6) / spec-389 (dec-1): the inbox mounts the
+// OpeningDriftController, which reads these drift-mode methods off useChat — stub
+// them so the page renders without a real ChatProvider. The agent now opens with a
+// static intro (no opening LLM turn), so there is no startDriftOpeningTurn.
 vi.mock('../components/ChatContext', () => ({
   useChat: () => ({
     addContextChip: mockAddContextChip,
     sendMessage: mockSendMessage,
     enterDriftMode: mockEnterDriftMode,
     exitDriftMode: mockExitDriftMode,
-    startDriftOpeningTurn: mockStartDriftOpeningTurn,
     isDriftMode: true,
   }),
 }));

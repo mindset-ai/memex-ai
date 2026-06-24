@@ -127,8 +127,8 @@ describe("regression: agent ↔ MCP tool coverage parity (doc-14 dec-4)", () => 
       "render_callout",
       "render_steps",
       // spec-360: the scaffold assistant's display-only UI tools.
-      "render_scaffold_navigate",
-      "render_scaffold_quote",
+      "render_navigate",
+      "render_quote",
     ];
     for (const name of uiNames) {
       expect(agentAll.has(name), `agent should expose ${name}`).toBe(true);

@@ -31,7 +31,11 @@ import { hashPassword } from "../services/passwords.js";
 import { issueAuthToken } from "../services/auth-tokens.js";
 import { mutate } from "../services/mutate.js";
 import { createOrgWithMemexForUser } from "../services/__test__/seed-org.js";
-import { mintEmissionKey, mintEphemeralEmissionKey } from "../services/emission-keys.js";
+import {
+  mintEmissionKey,
+  mintEphemeralEmissionKey,
+  resolveMemexId,
+} from "../services/emission-keys.js";
 import { updateOrgSettings } from "../services/orgs.js";
 import { createInviteToken } from "../services/invite-tokens.js";
 import { createDomainVerificationToken } from "../services/domain-verification.js";
@@ -1067,13 +1071,20 @@ testOnlyRouter.post("/seed-test-event", async (c) => {
     return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
   }
   const { acUid, status, testIdentifier } = parsed.data;
+  // spec-398 ac-8: resolve tenancy from the ac_uid prefix (mirrors the real route).
+  const [ns, mx] = acUid.split("/");
+  const memexId = ns && mx ? await resolveMemexId(ns, mx) : null;
+  if (!memexId) {
+    return c.json({ error: `ac_uid '${acUid}' does not resolve to a memex` }, 400);
+  }
   await db.transaction(async (tx) => {
     const [row] = await tx
       .insert(testEvents)
-      .values({ acUid, status, testIdentifier, hidden: false })
+      .values({ acUid, memexId, status, testIdentifier, hidden: false })
       .returning({ createdAt: testEvents.createdAt });
     await applyEmissionToSummary(tx, {
       acUid,
+      memexId,
       testIdentifier,
       status,
       latestRunAt: row.createdAt,

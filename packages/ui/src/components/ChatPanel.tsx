@@ -7,6 +7,8 @@ import { useOrgScaffoldBlocks } from '../hooks/useOrgScaffoldBlocks';
 import { ChatMarkdown } from './chat/ChatMarkdown';
 import { ContextChipBar } from './chat/ContextChipBar';
 import { UiToolRenderer } from './chat/ui-tools';
+import { AgentIntro } from './chat/AgentIntro';
+import { useChatCollapse } from './chat/ChatCollapseContext';
 import { TextArea } from './ui/TextArea';
 import { Button } from './ui';
 import { PublicAuthButtons } from './PublicAccessControls';
@@ -54,6 +56,49 @@ function AssistantHeading() {
   );
 }
 
+// spec-389: the right-aligned header controls shared by every agent — Clear (only
+// once a conversation exists) and Collapse (only when the docking shell supports
+// it, via ChatCollapseContext). One component so the scoped and default headers
+// stay identical.
+function HeaderControls({
+  showClear,
+  onClear,
+  onCollapse,
+}: {
+  showClear: boolean;
+  onClear: () => void;
+  onCollapse?: () => void;
+}) {
+  if (!showClear && !onCollapse) return null;
+  return (
+    <div className="flex items-center gap-3">
+      {showClear && (
+        <button
+          onClick={onClear}
+          className="text-xs text-muted hover:text-primary transition-colors"
+        >
+          Clear
+        </button>
+      )}
+      {onCollapse && (
+        <button
+          type="button"
+          onClick={onCollapse}
+          data-testid="chat-collapse"
+          aria-label="Collapse agent panel"
+          title="Collapse panel"
+          className="flex-none text-muted hover:text-primary transition-colors"
+        >
+          {/* Double chevron-left — collapse toward the left edge it lives on. */}
+          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M11 19l-7-7 7-7M19 19l-7-7 7-7" />
+          </svg>
+        </button>
+      )}
+    </div>
+  );
+}
+
 // spec-247 dec-3 (ac-12): the permanent grounding line — visible without any
 // interaction, under the header. Discloses GROUNDING, not capability (the web
 // agent shares the MCP tool catalog per spec-14 dec-4): it works on this spec
@@ -92,7 +137,28 @@ export function makesCodeShapedClaims(content: string): boolean {
 }
 
 export function ChatPanel({ isAuthenticated = true, readOnly = false }: ChatPanelProps = {}) {
-  const { messages, isStreaming, error, sendMessage, stopStreaming, clearChat, respondedToolIds, respondToUiTool, docId, doc, contextChips, isDriftMode, isScaffoldMode } = useChat();
+  const { messages, isStreaming, error, sendMessage, stopStreaming, clearChat, respondedToolIds, respondToUiTool, docId, doc, contextChips, isDriftMode, isScaffoldMode, isStandardsMode, isIssuesMode } = useChat();
+  // spec-389: the docking shell (ResizableChatRail / DocumentShell) injects a
+  // collapse handler when the panel can close to its strip; absent → no control.
+  const { onCollapse } = useChatCollapse();
+  // spec-389 (dec-1/dec-2): the memex-scoped agents (drift, scaffold, standards,
+  // issues) share one panel shape — a simple heading + Clear and a static intro
+  // card, no doc-grounding line. `scopedMode` picks the heading + intro registry key.
+  const scopedMode = isDriftMode
+    ? 'drift'
+    : isScaffoldMode
+    ? 'scaffold'
+    : isStandardsMode
+    ? 'standards'
+    : isIssuesMode
+    ? 'issues'
+    : null;
+  const SCOPED_HEADINGS: Record<string, string> = {
+    drift: 'Drift agent',
+    scaffold: 'Scaffold assistant',
+    standards: 'Standards agent',
+    issues: 'Issues agent',
+  };
   // spec-283 dec-1: the review buttons are POSTURE-INDEPENDENT — gated solely on
   // the Spec's phase (`doc.status==='specify'`, already exposed by useChat) and
   // an idle conversation (`messages.length===0`). No `canEdit`/posture is
@@ -115,7 +181,7 @@ export function ChatPanel({ isAuthenticated = true, readOnly = false }: ChatPane
   };
   // spec-143 t-4 (dec-6) / spec-360 t-1: in drift / scaffold mode the agent is
   // LIVE on arrival (no bound doc), so the input is enabled before any context chip.
-  const canChat = !!docId || contextChips.length > 0 || isDriftMode || isScaffoldMode;
+  const canChat = !!docId || contextChips.length > 0 || isDriftMode || isScaffoldMode || isStandardsMode || isIssuesMode;
   const [input, setInput] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -193,30 +259,16 @@ export function ChatPanel({ isAuthenticated = true, readOnly = false }: ChatPane
       {/* Header. In scaffold mode keep a simple "Scaffold assistant" heading + a
           Clear control (no verbose subtitle, no code-grounding disclosure — that
           doesn't apply to the scaffold assistant). */}
-      {isScaffoldMode ? (
+      {scopedMode ? (
         <div className="flex-none px-4 py-3 border-b border-edge flex items-center justify-between">
-          <h3 className="text-sm font-medium text-secondary">Scaffold assistant</h3>
-          {messages.length > 0 && (
-            <button
-              onClick={clearChat}
-              className="text-xs text-muted hover:text-primary transition-colors"
-            >
-              Clear
-            </button>
-          )}
+          <h3 className="text-sm font-medium text-secondary">{SCOPED_HEADINGS[scopedMode]}</h3>
+          <HeaderControls showClear={messages.length > 0} onClear={clearChat} onCollapse={onCollapse} />
         </div>
       ) : (
         <>
           <div className="flex-none px-4 py-3 border-b border-edge flex items-center justify-between">
             <AssistantHeading />
-            {messages.length > 0 && (
-              <button
-                onClick={clearChat}
-                className="text-xs text-muted hover:text-primary transition-colors"
-              >
-                Clear
-              </button>
-            )}
+            <HeaderControls showClear={messages.length > 0} onClear={clearChat} onCollapse={onCollapse} />
           </div>
           <GroundingLine />
         </>
@@ -238,33 +290,13 @@ export function ChatPanel({ isAuthenticated = true, readOnly = false }: ChatPane
           </div>
         )}
 
-        {/* spec-360: the scaffold assistant's STATIC intro — shown on an empty
-            thread instead of a money-costing opening LLM turn. Explains what it
-            can do; the first real LLM call happens only when the user types. */}
-        {isScaffoldMode && messages.length === 0 && (
-          <div
-            data-testid="scaffold-assistant-intro"
-            className="space-y-3 rounded-xl border border-edge bg-card/60 p-4 shadow-sm"
-          >
-            <p className="text-sm text-primary">
-              I explain the prompting every agent in this Memex reads — and help admins shape it.
-            </p>
-            <ul className="space-y-2 text-sm text-secondary">
-              <li className="flex gap-2">
-                <span aria-hidden="true" className="text-accent">→</span>
-                <span>Ask what an agent reads at any phase, gate, tool, or button — I’ll jump the view to it.</span>
-              </li>
-              <li className="flex gap-2">
-                <span aria-hidden="true" className="text-accent">→</span>
-                <span>Ask why a piece of guidance exists, or where an org rule applies.</span>
-              </li>
-              <li className="flex gap-2">
-                <span aria-hidden="true" className="text-accent">→</span>
-                <span>Admins: ask me to add, edit, or remove your org’s guidance — I draft it for your approval.</span>
-              </li>
-            </ul>
-            <p className="border-t border-edge pt-3 text-xs text-muted">Type a question below to start.</p>
-          </div>
+        {/* spec-389 t-1 (dec-1): the shared STATIC intro — shown on an empty
+            thread instead of a money-costing opening LLM turn. Single-sourced
+            from the AGENT_INTROS registry so every agent surface shows the same
+            shaped card; the first real LLM call happens only when the user types.
+            (spec-360 introduced this for the scaffold mode; generalised here.) */}
+        {scopedMode && messages.length === 0 && (
+          <AgentIntro mode={scopedMode} />
         )}
 
         {/* spec-159: opening a Spec no longer auto-activates the agent. The
@@ -300,7 +332,7 @@ export function ChatPanel({ isAuthenticated = true, readOnly = false }: ChatPane
             </div>
           </div>
         )}
-        {messages.length === 0 && !showReviewActions && !isScaffoldMode && (
+        {messages.length === 0 && !showReviewActions && !scopedMode && (
           <div className="text-sm text-muted text-center py-8">
             {canChat ? 'Ask a question about this Spec...' : 'Open a Spec to start chatting'}
           </div>
@@ -396,11 +428,17 @@ export function ChatPanel({ isAuthenticated = true, readOnly = false }: ChatPane
             onKeyDown={handleKeyDown}
             disabled={!canChat}
             placeholder={
-              isScaffoldMode
+              scopedMode === 'drift'
+                ? 'Ask about the drift…'
+                : scopedMode === 'scaffold'
                 ? 'Ask about the scaffold…'
-                : canChat
-                  ? 'Ask me anything...'
-                  : 'Open a Spec first'
+                : scopedMode === 'standards'
+                  ? 'Ask about the Standards…'
+                  : scopedMode === 'issues'
+                    ? 'Ask about the Issues…'
+                    : canChat
+                      ? 'Ask me anything...'
+                      : 'Open a Spec first'
             }
             rows={3}
             className="pb-11"

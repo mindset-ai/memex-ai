@@ -32,6 +32,14 @@ vi.mock('../api/client', () => ({
   updateIssueStatusApi: (...args: unknown[]) => updateIssueStatusMock(...args),
 }));
 
+// spec-389 t-5: the page now docks the issues agent in a rail. These list tests
+// don't exercise the chat, so stub the rail's ChatProvider-dependent pieces
+// (they'd otherwise throw "useChat must be used within ChatProvider").
+vi.mock('../components/ChatPanel', () => ({ ChatPanel: () => null }));
+vi.mock('../components/chat/OpeningIssuesController', () => ({
+  OpeningIssuesController: () => null,
+}));
+
 // Mock NewSpecModal to a probe: the page test verifies the page WIRES the modal
 // (open state + prefill + the onCreated→refetch contract), not the modal's own
 // agent flow (covered in NewSpecModal.test.tsx + graph.test.ts). The probe
