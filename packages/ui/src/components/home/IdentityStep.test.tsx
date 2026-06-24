@@ -51,7 +51,7 @@ describe('IdentityStep (v2)', () => {
     tagAc(AC336(2));
     render(<IdentityStep />);
     expect(screen.getByTestId('journey-step-identity')).toBeInTheDocument();
-    expect(screen.getByText('Hi John, welcome to Memex.')).toBeInTheDocument();
+    expect(screen.getByText('Hi John, welcome to Memex AI.')).toBeInTheDocument();
     expect(screen.getByTestId('role-triangle')).toBeInTheDocument();
     expect(screen.getByTestId('persona-label')).toBeInTheDocument();
     expect(screen.getByTestId('persona-description')).toBeInTheDocument();

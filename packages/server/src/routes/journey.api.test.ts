@@ -32,6 +32,7 @@ import {
   documents,
   memexes,
   namespaces,
+  usageEvents,
   type User,
 } from "../db/schema.js";
 import { upsertUserByEmail } from "../services/users.js";
@@ -43,6 +44,7 @@ import { createDecision } from "../services/decisions.js";
 import { tagAc } from "@memex-ai-ac/vitest";
 
 const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-305/acs/ac-${n}`;
+const AC372 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-372/acs/ac-${n}`;
 // spec-336 — v2 arc: identity → create-spec → resolve-decision → add-ac →
 // specs-match-reality → agents-build. ac-5 = each step advances automatically from the
 // real, user-scoped signal; ac-8 = the full arc is presented to a new user.
@@ -267,6 +269,26 @@ describe("Home Canvas journey-state (ac-7 measurement)", () => {
       body: JSON.stringify({ action: "bogus", step: "welcome" }),
     });
     expect(res.status).toBe(400);
+  });
+
+  // spec-372 dec-6 Layer C — the persona action records home_canvas.persona_selected with
+  // the resolved persona label only (never raw coords).
+  it("records persona_selected with the resolved persona label (spec-372 ac-22)", async () => {
+    tagAc(AC372(22));
+    const user = await newUser();
+    const res = await app.request("/api/me/journey-event", {
+      method: "POST",
+      headers: { ...auth(user.id), "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "persona", step: "identity", persona: "Builder" }),
+    });
+    expect(res.status).toBe(200);
+    const rows = await db
+      .select({ name: usageEvents.name, props: usageEvents.props })
+      .from(usageEvents)
+      .where(eq(usageEvents.actorUserId, user.id));
+    const persona = rows.find((r) => r.name === "home_canvas.persona_selected");
+    expect(persona).toBeTruthy();
+    expect((persona?.props as { persona?: string } | null)?.persona).toBe("Builder");
   });
 });
 

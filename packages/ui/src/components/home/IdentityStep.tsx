@@ -18,10 +18,13 @@ export function IdentityStep({
   preview = false,
   onComplete,
   onCtaClick,
+  onPersonaSelected,
 }: {
   preview?: boolean;
   onComplete?: () => void;
   onCtaClick?: (target: string) => void;
+  // spec-372 dec-6 Layer C — emit home_canvas.persona_selected with the RESOLVED label.
+  onPersonaSelected?: (persona: string) => void;
 } = {}) {
   const { token, user, updateSession } = useAuth();
   const [role, setRole] = useState<RoleCoords>(CENTERED_ROLE);
@@ -48,6 +51,8 @@ export function IdentityStep({
       try {
         const session = await updateProfileApi(token, finalName, coords);
         updateSession(session); // clears needsOnboarding
+        // spec-372 dec-6 — the persona is confirmed; record the resolved label (never coords).
+        onPersonaSelected?.(personaLabel(coords));
         onComplete?.(); // refetch journey-state so the canvas advances past identity
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.');
@@ -63,7 +68,7 @@ export function IdentityStep({
       <p className="mb-2.5 text-base font-semibold text-muted">
         {greeting ? `Hi ${greeting}, welcome to Memex AI.` : 'Welcome to Memex AI.'}
       </p>
-      <h2 className="mb-3.5 text-4xl font-black leading-[1.1] tracking-tight text-heading">
+      <h2 className="onboarding-heading mb-3.5">
         Built around how you work
       </h2>
       <p className="mb-1.5 max-w-3xl text-lg leading-relaxed text-secondary">

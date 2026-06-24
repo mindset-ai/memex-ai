@@ -29,6 +29,7 @@ import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import {
   fetchJourneyStateApi,
   postJourneyEventApi,
+  postPersonaSelectedApi,
   type JourneyStateResponse,
   type RoleCoords,
 } from '../api/journey';
@@ -37,6 +38,7 @@ import { BUILDER_ONLY_STEP_IDS } from '../journeys/onboarding/steps';
 import { isJourneyGraduated } from '../journeys/graduation';
 import { YourJourneys, type PearlJourney } from '../components/home/YourJourneys';
 import { HomeValue } from '../components/home/HomeValue';
+import { SHOW_GRADUATED_HOME } from './homeCanvasFlags';
 import { JourneyStepShell } from '../components/home/JourneyStepShell';
 import { IdentityStep } from '../components/home/IdentityStep';
 import { CreateSpecStep } from '../components/home/CreateSpecStep';
@@ -300,7 +302,7 @@ export function HomeCanvas() {
     <div className="font-onboarding min-h-full" data-testid="home-canvas">
       {/* spec-336 / prototype: the page-level Home header above the tracker. */}
       <div className="mx-auto max-w-5xl px-4 pt-10 sm:px-6">
-        <h1 data-testid="home-page-title" className="text-4xl font-black tracking-tight text-heading">
+        <h1 data-testid="home-page-title" className="onboarding-heading">
           Home
         </h1>
         <p className="mt-2 text-lg text-secondary">
@@ -362,8 +364,9 @@ export function HomeCanvas() {
               </div>
             </div>
 
+            {/* spec-372 t-2 (change #5) — v3 widens the rail↔content gutter to 64px (gap-16). */}
             {!contentCollapsed && (
-              <div className="mt-6 flex flex-col gap-8 md:flex-row">
+              <div className="mt-6 flex flex-col gap-8 md:flex-row md:gap-16">
                 {showRail && (
                   <JourneyRail
                     steps={visibleSteps}
@@ -390,17 +393,21 @@ export function HomeCanvas() {
         </section>
       ) : null}
 
-      <HomeValue specsPath={specsPath} />
+      {/* spec-372 dec-3 / t-6 — graduated-home surfaces hidden until redesigned (Wic-gated
+          merge). Components + spec-312/315 logic are kept; flip SHOW_GRADUATED_HOME to restore. */}
+      {SHOW_GRADUATED_HOME && <HomeValue specsPath={specsPath} />}
 
       {/* spec-312/315: the journey pearls — the static bottom surface + the re-entry point
           for a graduated (receded) journey. Clicking re-opens the layer. */}
-      <YourJourneys
-        journeys={pearlJourneys}
-        onOpen={() => {
-          setForceShow(true);
-          setContentCollapsed(false);
-        }}
-      />
+      {SHOW_GRADUATED_HOME && (
+        <YourJourneys
+          journeys={pearlJourneys}
+          onOpen={() => {
+            setForceShow(true);
+            setContentCollapsed(false);
+          }}
+        />
+      )}
     </div>
   );
 
@@ -408,7 +415,16 @@ export function HomeCanvas() {
     const view = displayStepId ? resolveStepView(displayStepId) : null;
     switch (displayStepId) {
       case 'identity':
-        return <IdentityStep preview={preview} onComplete={handleStepComplete} onCtaClick={trackStepCta} />;
+        return (
+          <IdentityStep
+            preview={preview}
+            onComplete={handleStepComplete}
+            onCtaClick={trackStepCta}
+            onPersonaSelected={(persona) => {
+              if (!preview) void postPersonaSelectedApi(persona);
+            }}
+          />
+        );
       case 'create-spec':
         return (
           <CreateSpecStep

@@ -171,7 +171,7 @@ export function CreateSpecStep({
 
   return (
     <div data-testid="journey-step-create-spec" className="animate-[panelIn_0.35s_ease] max-w-3xl">
-      <h2 className="mb-4 text-5xl font-black leading-[1.04] tracking-tight text-heading">
+      <h2 className="onboarding-heading mb-4">
         Build exactly what you decided
       </h2>
       <p className="mb-4 text-xl font-bold leading-snug text-primary">
@@ -234,7 +234,16 @@ export function CreateSpecStep({
               <span className="mb-2 block text-sm font-medium text-secondary">Your coding agent</span>
               <div className="flex flex-wrap gap-2">
                 {TOOLS.map((t) => (
-                  <button key={t.id} type="button" data-testid={`tool-${t.id}`} onClick={() => setTool(t.id)} className={chip(t.id === tool)}>
+                  <button
+                    key={t.id}
+                    type="button"
+                    data-testid={`tool-${t.id}`}
+                    onClick={() => {
+                      setTool(t.id);
+                      onCtaClick?.('connect_target');
+                    }}
+                    className={chip(t.id === tool)}
+                  >
                     {t.label}
                   </button>
                 ))}
@@ -257,7 +266,10 @@ export function CreateSpecStep({
               key={m}
               type="button"
               data-testid={`method-${m}`}
-              onClick={() => setMethod(m)}
+              onClick={() => {
+                setMethod(m);
+                onCtaClick?.('create_method');
+              }}
               className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${
                 method === m ? 'bg-surface text-accent shadow-sm' : 'text-muted hover:text-secondary'
               }`}
@@ -269,10 +281,26 @@ export function CreateSpecStep({
 
         <span className="mb-2.5 block text-sm font-semibold text-primary">Starting point</span>
         <div className="mb-4 flex flex-wrap gap-2.5">
-          <button type="button" data-testid="source-sample" onClick={() => setSource('sample')} className={chip(source === 'sample')}>
+          <button
+            type="button"
+            data-testid="source-sample"
+            onClick={() => {
+              setSource('sample');
+              onCtaClick?.('starting_point');
+            }}
+            className={chip(source === 'sample')}
+          >
             Use our sample
           </button>
-          <button type="button" data-testid="source-prd" onClick={() => setSource('prd')} className={chip(source === 'prd')}>
+          <button
+            type="button"
+            data-testid="source-prd"
+            onClick={() => {
+              setSource('prd');
+              onCtaClick?.('starting_point');
+            }}
+            className={chip(source === 'prd')}
+          >
             Point at my PRD
           </button>
         </div>

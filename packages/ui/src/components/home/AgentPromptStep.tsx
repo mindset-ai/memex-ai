@@ -109,7 +109,7 @@ export function AgentPromptStep({
 
   return (
     <div data-testid={`journey-step-${stepId}`} className="max-w-3xl animate-[panelIn_0.35s_ease]">
-      <h2 className="mb-4 text-5xl font-black leading-[1.02] tracking-tight text-heading">{cfg.headline}</h2>
+      <h2 className="onboarding-heading mb-4">{cfg.headline}</h2>
       <p className="mb-5 text-xl font-bold leading-snug text-primary">{cfg.sub}</p>
       <p className="mb-7 max-w-2xl leading-relaxed text-secondary">{cfg.body}</p>
 

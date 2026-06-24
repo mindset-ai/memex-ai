@@ -72,3 +72,18 @@ export async function postJourneyEventApi(
     // swallow — telemetry is advisory
   }
 }
+
+/** Record the user's resolved persona at the identity step (spec-372 dec-6 Layer C →
+ * home_canvas.persona_selected). `persona` is the resolved label/enum, never raw coords.
+ * Advisory: measurement must never throw into the canvas. */
+export async function postPersonaSelectedApi(persona: string): Promise<void> {
+  try {
+    await fetchWithRetry(`${BASE_URL}/me/journey-event`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ step: 'identity', action: 'persona', persona }),
+    });
+  } catch {
+    // swallow — telemetry is advisory
+  }
+}

@@ -657,3 +657,22 @@
 .font-onboarding samp {
   font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
+/* spec-372 t-3 (change #3) — onboarding prompt containers wrap long lines and grow to fit
+   instead of scrolling horizontally. The shared CodeBlock keeps `overflow-x-auto` for every
+   other usage (Settings install, Genesis prompt); wrapping just makes that scrollbar inert
+   here. Scoped to `.font-onboarding` so only the onboarding prompts are affected. */
+.font-onboarding pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* spec-372 t-2 (change #8, dec-5) — the v3 onboarding heading scale, one source of truth
+   for every step H2 and the Home page title: 34px / 600 / line-height 1.1 / -0.015em.
+   Heading colour is the theme-aware token (light ≈ #0F172A, v3 spec #0B1220) rather than a
+   hardcoded hex so dark mode stays legible (ac-16 allows "or its token equivalent"). */
+.onboarding-heading {
+  font-size: 34px;
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: -0.015em;
+  color: rgb(var(--ch-text-heading));
+}

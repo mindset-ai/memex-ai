@@ -76,7 +76,7 @@ export function SpecsMatchRealityStep({
 
   return (
     <div data-testid="journey-step-specs-match-reality" className="max-w-3xl animate-[panelIn_0.35s_ease]">
-      <h2 className="mb-4 text-5xl font-black leading-[1.04] tracking-tight text-heading">Specs that match reality</h2>
+      <h2 className="onboarding-heading mb-4">Specs that match reality</h2>
       <p className="mb-5 text-xl font-bold leading-snug text-primary">Refined against your actual codebase</p>
       <p className="mb-6 max-w-2xl leading-relaxed text-secondary">
         With access to the repo, your agent grounds the whole plan in what&apos;s actually there: decisions and
@@ -94,8 +94,10 @@ export function SpecsMatchRealityStep({
               <div className="text-base font-semibold text-heading">{o.title}</div>
               <div className="mt-1.5 max-w-xl text-sm leading-snug text-secondary">{o.desc}</div>
             </figcaption>
-            {/* Always-dark region — the assets are dark exports; do not theme this. */}
-            <div className="mt-3.5 w-full max-w-xl overflow-hidden rounded-xl border border-white/10 bg-slate-950 p-2">
+            {/* Always-dark region — the assets are dark exports; do not theme this.
+                spec-372 t-3 (change #4) — the shot fills the content column so it matches the
+                width of the prompt container above (v3 renders these full-width). */}
+            <div className="mt-3.5 w-full overflow-hidden rounded-xl border border-white/10 bg-slate-950 p-2">
               <img src={o.img} alt={o.title} loading="lazy" className="block w-full rounded-lg" />
             </div>
           </figure>
