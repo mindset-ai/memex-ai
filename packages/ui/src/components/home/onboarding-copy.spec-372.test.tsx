@@ -17,7 +17,7 @@ vi.mock('../../api/journey', async () => {
 
 import { CreateSpecStep } from './CreateSpecStep';
 import { SpecsMatchRealityStep } from './SpecsMatchRealityStep';
-import { personaPromise } from './RoleTriangle';
+import { RoleTriangle, CENTERED_ROLE, personaLabel, personaPromise } from './RoleTriangle';
 
 const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-372/acs/ac-${n}`;
 
@@ -49,6 +49,20 @@ describe('spec-372 — persona promise copy (ac-7)', () => {
       detail:
         "The build can't start until you've resolved the gating decisions, and agents report progress into the board as they work — live, not typed up later.",
     });
+  });
+});
+
+describe('spec-372 — v3 role triangle (ac-29, ac-2)', () => {
+  it('ac-29 / ac-2: coloured vertices (Product #0482DC), the "drag the dot" hint, and an un-hyphenated generalist label', () => {
+    tagAc(AC(29));
+    tagAc(AC(2));
+    render(<RoleTriangle value={CENTERED_ROLE} onChange={() => {}} />);
+    expect(screen.getByTestId('role-vertex-dev').getAttribute('data-color')).toBe('#4FB78F');
+    expect(screen.getByTestId('role-vertex-design').getAttribute('data-color')).toBe('#AC59C5');
+    expect(screen.getByTestId('role-vertex-pm').getAttribute('data-color')).toBe('#0482DC');
+    expect(screen.getByTestId('role-triangle-hint').textContent).toContain('Drag the dot to where you fit.');
+    // the balanced (centred) persona reads "Full stack generalist" — no hyphen (v3).
+    expect(personaLabel(CENTERED_ROLE)).toBe('Full stack generalist');
   });
 });
 

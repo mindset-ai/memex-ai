@@ -100,7 +100,12 @@ export function IdentityStep({
           <RoleTriangle value={role} onChange={setRole} />
         </div>
         <div className="min-w-[16rem] flex-1">
-          <div data-testid="persona-label" className="text-3xl font-black tracking-tight text-heading">
+          {/* spec-372 t-12 — v3 "So you're a…" eyebrow + the semibold role title (was font-black). */}
+          <div className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-muted">So you&apos;re a…</div>
+          <div
+            data-testid="persona-label"
+            className="text-[23px] font-semibold leading-tight tracking-[-0.01em] text-heading"
+          >
             {personaLabel(role)}
           </div>
           <p data-testid="persona-description" className="mt-2.5 max-w-md text-lg leading-relaxed text-secondary">

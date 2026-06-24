@@ -44,8 +44,18 @@ beforeEach(() => {
 // spec-336: v2 step 0 — greeting from SSO (no name field), the role triangle beside a
 // live persona title + description, and Continue. No Skip button.
 const AC336 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-336/acs/ac-${n}`;
+const AC372 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-372/acs/ac-${n}`;
 
 describe('IdentityStep (v2)', () => {
+  it('spec-372 ac-29: the persona panel has the "So you’re a…" eyebrow and a semibold (not black) role title', () => {
+    tagAc(AC372(29));
+    render(<IdentityStep />);
+    expect(screen.getByText("So you're a…")).toBeInTheDocument();
+    const label = screen.getByTestId('persona-label');
+    expect(label.className).toContain('font-semibold');
+    expect(label.className).not.toContain('font-black');
+  });
+
   it('greets by SSO first name and shows the triangle + live persona (no name field)', () => {
     tagAc(AC(2));
     tagAc(AC336(2));
@@ -95,7 +105,7 @@ describe('IdentityStep (v2)', () => {
 describe('personaLabel (compass-rose, dec-6)', () => {
   it('the centered default reads as a generalist', () => {
     tagAc(AC(5));
-    expect(personaLabel(CENTERED_ROLE)).toBe('Full-stack generalist');
+    expect(personaLabel(CENTERED_ROLE)).toBe('Full stack generalist'); // spec-372 t-12: v3 drops the hyphen
   });
   it('changes in distinct bands toward a tip (lean → strong → all-in)', () => {
     // Near-tip granularity is the point — three different labels along the dev edge.
