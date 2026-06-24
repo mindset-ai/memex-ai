@@ -6,13 +6,10 @@ import {
   recordQaReportsView,
 } from "../services/qa-reports.js";
 import { NotFoundError, ValidationError } from "../types/errors.js";
-import {
-  sessionMiddleware,
-  publicSessionMiddleware,
-  type SessionEnv,
-} from "../middleware/session.js";
+import { type SessionEnv } from "../middleware/session.js";
 import type { MemexResolverEnv } from "../middleware/memex-resolver.js";
 import { resolveReadableMemexId } from "./shared.js";
+import { mountStandardSessionPolicy } from "./session-policy.js";
 
 // ── QA Reports feed + unread counter (spec-260 dec-5 / dec-6) ─────────────────
 //
@@ -31,8 +28,8 @@ import { resolveReadableMemexId } from "./shared.js";
 type Env = MemexResolverEnv & SessionEnv;
 const qaReports = new Hono<Env>();
 
-qaReports.on("GET", "/*", publicSessionMiddleware);
-qaReports.on(["POST", "PUT", "PATCH", "DELETE"], "/*", sessionMiddleware);
+// spec-377 — the standard per-verb session policy (see session-policy.ts).
+mountStandardSessionPolicy(qaReports);
 
 // Same shape-validators as routes/activity.ts — present-but-invalid params 400
 // rather than silently defaulting.

@@ -1,11 +1,8 @@
 import { Hono } from "hono";
-import {
-  sessionMiddleware,
-  publicSessionMiddleware,
-  type SessionEnv,
-} from "../middleware/session.js";
+import { type SessionEnv } from "../middleware/session.js";
 import type { MemexResolverEnv } from "../middleware/memex-resolver.js";
 import { resolveReadableMemexId } from "./shared.js";
+import { mountStandardSessionPolicy } from "./session-policy.js";
 import {
   specsOverTime,
   specsByPhase,
@@ -34,8 +31,8 @@ import { ValidationError } from "../types/errors.js";
 type Env = MemexResolverEnv & SessionEnv;
 const analytics = new Hono<Env>();
 
-analytics.on("GET", "/*", publicSessionMiddleware);
-analytics.on(["POST", "PUT", "PATCH", "DELETE"], "/*", sessionMiddleware);
+// spec-377 — the standard per-verb session policy (see session-policy.ts).
+mountStandardSessionPolicy(analytics);
 
 // GET /analytics/specs-over-time — per-day created + cumulative (ac-1).
 analytics.get("/specs-over-time", async (c) => {
