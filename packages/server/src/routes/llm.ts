@@ -7,7 +7,7 @@ import type { MessageParam, ContentBlockParam } from "@anthropic-ai/sdk/resource
 import { getAnthropicClient, LlmNotConfiguredError } from "../agent/anthropic-client.js";
 import { buildDocumentContext, buildDriftContext, buildScaffoldContext } from "../agent/context-builder.js";
 import { buildSystemBlocks, buildCreationSystemBlocks } from "../agent/system-prompt.js";
-import { getToolDefinitions, getCreationToolDefinitions, executeServerTool, isToolAllowedForReviewer, isReadOnlyTool, isDriftModeTool, isScaffoldModeTool } from "../agent/tools.js";
+import { getToolDefinitions, getCreationToolDefinitions, executeServerTool, isToolAllowedForReviewer, isReadOnlyTool, isToolAllowedInMode } from "../agent/tools.js";
 import { logRequest, logResponse, logError, logToolExecution, logExtractionOutcome } from "../agent/logger.js";
 import { stripDanglingToolUses } from "../agent/messages.js";
 import { getOrCreateConversation, getMessages, clearConversation, replaceMessages } from "../services/conversations.js";
@@ -322,8 +322,10 @@ const toolExecSchema = z.object({
    *  is skipped. We additionally restrict execution to the drift tool subset so
    *  a drift-mode call can't reach beyond its surface.
    *  spec-360 t-1 (dec-1): when `'scaffold'`, the call is from the scaffold
-   *  assistant — memex-scoped, no bound doc, restricted to the scaffold subset. */
-  mode: z.enum(["drift", "scaffold"]).optional(),
+   *  assistant — memex-scoped, no bound doc, restricted to the scaffold subset.
+   *  spec-389 t-3 (dec-2): `'standards'` / `'issues'` are the new scoped agents,
+   *  each memex-scoped and pinned to its own MODE_TOOLS subset by the gate. */
+  mode: z.enum(["drift", "scaffold", "standards", "issues"]).optional(),
 });
 
 llmRouter.post("/tools/execute", async (c) => {
@@ -334,8 +336,6 @@ llmRouter.post("/tools/execute", async (c) => {
   }
 
   const { toolName, input, docId, mode } = parsed.data;
-  const driftMode = mode === "drift";
-  const scaffoldMode = mode === "scaffold";
   const user = c.get("user");
   const userId = user.id;
   const memexId = requireMemexId(c);
@@ -359,25 +359,18 @@ llmRouter.post("/tools/execute", async (c) => {
     return c.json({ error: READ_ONLY_PUBLIC_MESSAGE }, 403);
   }
 
-  // spec-143 t-4 (dec-6): in drift mode there is no bound doc — the doc-based
-  // reviewer-role gate below is skipped (it only fires when docId is set). Pin
-  // the surface instead: only the focused drift subset may execute, so a
-  // drift-mode call can't reach a doc/decision/task/phase mutation. UI tools
-  // never hit this endpoint (they're resolved client-side), so they aren't
-  // listed in the subset. Fail closed on anything else.
-  if (driftMode && !isDriftModeTool(toolName)) {
-    const message = `Tool "${toolName}" is not available in drift mode. The drift agent can search, read, flag drift, and propose Standard changes.`;
-    logToolExecution(toolName, input, { error: message });
-    return c.json({ error: message }, 403);
-  }
-
-  // spec-360 t-1 (dec-1): pin the scaffold surface the same way — only the
-  // focused scaffold subset (explain reads + propose_scaffold_change) may
-  // execute in scaffold mode, so a scaffold-mode call can't reach a doc /
-  // decision / task mutation. The propose tool enforces its OWN org-admin gate
-  // inside the handler (dec-3 / ac-3); this is the surface restriction.
-  if (scaffoldMode && !isScaffoldModeTool(toolName)) {
-    const message = `Tool "${toolName}" is not available in scaffold mode. The scaffold assistant can explain the scaffold and propose org-guidance changes.`;
+  // spec-389 t-3 (dec-2): the per-mode surface gate, generalised from the
+  // drift/scaffold-specific checks into ONE map-driven rule. A scoped mode
+  // (drift / scaffold / standards / issues) is memex-scoped with no bound doc —
+  // the doc-based reviewer-role gate below is skipped (it only fires when docId
+  // is set), so we pin the surface here: only the active mode's MODE_TOOLS
+  // subset may execute, so a scoped-mode call can't reach beyond its function.
+  // `spec` (and an absent mode) is unrestricted here and governed by the
+  // write-capability + reviewer-role gates instead. UI tools never hit this
+  // endpoint (resolved client-side). Fail closed on anything else. [per std-8]
+  // a blocked call never reaches mutate()/the bus.
+  if (!isToolAllowedInMode(mode, toolName)) {
+    const message = `Tool "${toolName}" is not available in ${mode} mode. Each in-app agent is scoped to its own function — search and read are always available, but authoring is limited to the agent's domain.`;
     logToolExecution(toolName, input, { error: message });
     return c.json({ error: message }, 403);
   }

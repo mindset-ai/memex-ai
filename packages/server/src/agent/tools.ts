@@ -420,6 +420,64 @@ const SCAFFOLD_SERVER_TOOLS = new Set<string>([
   "get_doc",
 ]);
 
+// spec-389 t-3 (dec-2): the STANDARDS agent's focused server surface. Like the
+// drift agent it lives across this Memex's Standards corpus — but where drift
+// HANDLES findings, the standards agent AUTHORS rules. It gets the read/grounding
+// base plus the standard-authoring verbs: section structure (add/retitle/update),
+// clause grain (add/edit/delete — Standards are clause-backed per spec-150/161),
+// and the propose/flag governance verbs. It never reaches the doc / decision /
+// task / issue mutation surface. render_confirmation (a UI tool) still gates
+// every write.
+const STANDARDS_SERVER_TOOLS = new Set<string>([
+  "search_memex",
+  "get_doc",
+  "list_comments",
+  "add_section",
+  "retitle_section",
+  "update_section",
+  "add_clause",
+  "edit_clause",
+  "delete_clause",
+  "propose_standard_change",
+  "flag_drift",
+]);
+
+// spec-389 t-3 (dec-2): the ISSUES agent's focused server surface. Its whole
+// world is the Issues parking lot — register / triage / resolve, and promote a
+// todo straight to a Task (convert_issue_to_task is the one task-touching verb it
+// owns, by design). Read/grounding (search_memex / get_doc) lets it ground an
+// issue in the surrounding Specs/Standards before acting. It never reaches the
+// Spec-body / decision / standard-authoring surface.
+const ISSUES_SERVER_TOOLS = new Set<string>([
+  "search_memex",
+  "get_doc",
+  "register_issue",
+  "list_issues",
+  "get_issue",
+  "update_issue",
+  "resolve_issue",
+  "convert_issue_to_task",
+  "search_issues",
+]);
+
+// spec-389 t-3 (dec-2): the in-app agent modes. `spec` is the doc/Spec agent —
+// the UNRESTRICTED surface, governed by phase + reviewer gates rather than a mode
+// subset. Every other mode is scoped to a narrow server-tool subset below.
+export type AgentMode = "spec" | "drift" | "scaffold" | "standards" | "issues";
+
+// spec-389 t-3 (dec-2): ONE server-owned mode → allow-list map, generalising the
+// per-mode booleans (DRIFT_/SCAFFOLD_SERVER_TOOLS) into a single auditable place.
+// `spec` has no entry — it is the unrestricted surface (null below). Awareness is
+// broad (every mode keeps search_memex/get_doc); authority is narrow (each mode
+// writes only within its function). This is the source both getToolDefinitions
+// (the definition filter) and /tools/execute (the authoritative gate) consult.
+const MODE_TOOLS: Record<Exclude<AgentMode, "spec">, ReadonlySet<string>> = {
+  drift: DRIFT_SERVER_TOOLS,
+  scaffold: SCAFFOLD_SERVER_TOOLS,
+  standards: STANDARDS_SERVER_TOOLS,
+  issues: ISSUES_SERVER_TOOLS,
+};
+
 /** All tool definitions for the Anthropic API. Last tool has cache_control.
  *  spec-126 dec-3: when `opts.reviewer` is set, blocked mutations are dropped so
  *  the model never sees them (definition filter); the /tools/execute route also
@@ -429,14 +487,12 @@ const SCAFFOLD_SERVER_TOOLS = new Set<string>([
  *  including render_confirmation, the mutation gate — are always included. */
 export function getToolDefinitions(opts?: {
   reviewer?: boolean;
-  mode?: "drift" | "scaffold";
+  mode?: AgentMode;
 }): Tool[] {
+  // spec-389 t-3 (dec-2): the scoped modes filter to their MODE_TOOLS subset;
+  // `spec` (and an absent mode) is the unrestricted surface.
   const modeSet =
-    opts?.mode === "drift"
-      ? DRIFT_SERVER_TOOLS
-      : opts?.mode === "scaffold"
-      ? SCAFFOLD_SERVER_TOOLS
-      : null;
+    opts?.mode && opts.mode !== "spec" ? MODE_TOOLS[opts.mode] : null;
   const serverTools = toolSpecs
     .filter((s) => (modeSet ? modeSet.has(s.name) : true))
     .filter((s) => !opts?.reviewer || isToolAllowedForReviewer(s.name))
@@ -448,20 +504,34 @@ export function getToolDefinitions(opts?: {
   return allTools;
 }
 
+/** spec-389 t-3 (dec-2): is `name` allowed to execute in `mode`? The single
+ *  server-side gate predicate /tools/execute consults — `spec` (and an absent
+ *  mode) is the unrestricted surface (governed by the write-capability and
+ *  reviewer-role gates instead); every scoped mode is pinned to its MODE_TOOLS
+ *  subset, so a scoped-mode call can't reach beyond its function. The scoped
+ *  modes are memex-scoped via their input (not doc-scoped), so they run with
+ *  docId null. UI tools never execute server-side, so they aren't listed here.
+ *  Generalises the per-mode isDriftModeTool / isScaffoldModeTool checks. */
+export function isToolAllowedInMode(
+  mode: AgentMode | undefined,
+  name: string,
+): boolean {
+  if (!mode || mode === "spec") return true;
+  return MODE_TOOLS[mode].has(name);
+}
+
 /** spec-143 t-4 (dec-6): is `name` part of the drift agent's allowed surface?
- *  Used by /tools/execute to permit the drift subset to run with docId null
- *  (the drift tools are memex-scoped via their input, not doc-scoped). UI tools
- *  never execute server-side, so they aren't listed here. */
+ *  Retained as a thin wrapper over the generalised MODE_TOOLS gate (spec-389
+ *  t-3) for existing callers/tests. */
 export function isDriftModeTool(name: string): boolean {
-  return DRIFT_SERVER_TOOLS.has(name);
+  return isToolAllowedInMode("drift", name);
 }
 
 /** spec-360 t-1 (dec-1): is `name` part of the scaffold assistant's allowed
- *  surface? Used by /tools/execute to permit the scaffold subset to run with
- *  docId null (the scaffold tools are memex-scoped, not doc-scoped). UI tools
- *  never execute server-side, so they aren't listed here. */
+ *  surface? Retained as a thin wrapper over the generalised MODE_TOOLS gate
+ *  (spec-389 t-3) for existing callers/tests. */
 export function isScaffoldModeTool(name: string): boolean {
-  return SCAFFOLD_SERVER_TOOLS.has(name);
+  return isToolAllowedInMode("scaffold", name);
 }
 
 // spec-230 t-1 (ac-7): read tools the creation agent needs for orientation —
