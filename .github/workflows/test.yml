@@ -111,15 +111,16 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Apply migrations
-        # Drizzle-kit journal covers 0000-0008; 0009+ are hand-written and applied
-        # directly so the journal doesn't try to re-run them. Piping each file in order
-        # mirrors what the local dev environment does (see `rake db:nuke`).
-        run: |
-          for f in packages/server/drizzle/*.sql; do
-            echo "Applying $f"
-            psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f "$f"
-          done
+      # spec-394: SEED the shard's DB by cloning a hash-keyed, pre-migrated template
+      # (built once from drizzle/*.sql, rebuilt only when the SQL set changes) instead
+      # of replaying all 130 files inline on every shard. The composite action's clone
+      # is schema-identical to the old psql-loop (proven: pg_dump --schema-only diff is
+      # empty). This is SEEDING only — the production applier (`pnpm db:migrate`) is NOT
+      # exercised here; that is the migration-applier job's job (spec-357 dec-3), left
+      # untouched. The old inline loop this replaces:
+      #   for f in packages/server/drizzle/*.sql; do psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f "$f"; done
+      - name: Seed test DB (cached template clone)
+        uses: ./.github/actions/migrate-db
 
       - name: Server suite shard ${{ matrix.shard }}/3 (collect coverage, NO threshold gate)
         # --reporter=blob writes packages/server/.vitest-reports/blob-<shard>-3.json.
@@ -283,8 +284,25 @@ jobs:
       - name: Production build (tsc + vite) — the same gate the deploy runs
         run: pnpm build
 
-  # React UI unit tests (jsdom) + coverage gate. No database.
+  # React UI unit tests (jsdom) + coverage gate. No database. SHARDED across 3
+  # runners (spec-394) — before this the ui job was the un-sharded ~211s long pole
+  # that set PR wall-clock; server + e2e were already 3-way sharded. Each shard runs
+  # ~1/3 of the files, so wall-clock divides. The coverage gate is NOT weakened: it
+  # moves intact to the `ui-result` merge job below (mirroring server-result), which
+  # enforces the tiered UI thresholds on the MERGED full-suite coverage.
+  #
+  # WHY the shard runs are collect-only: packages/ui/vitest.config.ts has an
+  # `isShardRun` guard (spec-390, authored anticipating this very sharding) that
+  # emits COLLECT-ONLY zero thresholds when `--shard` is present — the per-PATH
+  # tiers can't be zeroed by CLI flags and would otherwise fire against a shard's
+  # partial ~1/3 coverage and exit 1. The full tiered gate fires once, on the merged
+  # blobs, in ui-result. The CLI --coverage.thresholds.*=0 flags below additionally
+  # zero the GLOBAL thresholds (mirrors the server shard step exactly).
   ui:
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -307,9 +325,101 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: UI unit tests + coverage gate
-        run: pnpm --filter @memex/ui test:coverage
-      - name: Upload UI coverage report
+      - name: UI unit tests shard ${{ matrix.shard }}/3 (collect coverage, NO threshold gate)
+        # --reporter=blob writes packages/ui/.vitest-reports/blob-<shard>-3.json for the
+        # merge; --reporter=default ALSO prints the pass/fail tree so a red shard names its
+        # failing test in the logs (blob alone suppresses the console reporter — the same
+        # dual-reporter rule the server shard step documents). isShardRun in
+        # packages/ui/vitest.config.ts makes this collect-only; the gate fires in ui-result.
+        run: |
+          pnpm --filter @memex/ui exec vitest run \
+            --shard=${{ matrix.shard }}/3 \
+            --coverage --reporter=blob --reporter=default \
+            --coverage.thresholds.lines=0 \
+            --coverage.thresholds.functions=0 \
+            --coverage.thresholds.branches=0 \
+            --coverage.thresholds.statements=0
+      - name: Upload UI coverage blob (shard ${{ matrix.shard }})
+        # Always upload so ui-result can merge; a missing blob fails that job closed.
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ui-coverage-blob-${{ matrix.shard }}
+          path: packages/ui/.vitest-reports/
+          # REQUIRED: vitest writes the blob to `.vitest-reports/` (a dot-dir), and
+          # upload-artifact excludes hidden files by default — without this the upload
+          # silently finds nothing and ui-result fails closed on 0 blobs (server precedent).
+          include-hidden-files: true
+          retention-days: 14
+
+  # Merge the 3 UI shard coverage blobs and enforce the tiered UI thresholds
+  # (packages/ui/vitest.config.ts, spec-390) on the MERGED full-suite coverage.
+  # This job's name is the STABLE required check for branch protection — the matrix
+  # leg names ("ui (1)" …) shift with the shard count and must NOT be required
+  # directly. Mirrors server-result / e2e-result EXACTLY.
+  #
+  # ⚠ BRANCH-PROTECTION ACTION REQUIRED (spec-394): branch protection on develop +
+  # main currently requires the check named `ui`. After this sharding the stable
+  # check is `ui-result` (the matrix legs are now "ui (1)/(2)/(3)"). The repo owner
+  # must swap the required check `ui` → `ui-result` on both branches — the workflow
+  # cannot change its own branch-protection settings (same repo-settings action the
+  # e2e-result / server-result comments call out).
+  #
+  # Fail-closed: a cancelled/failed shard (needs.ui.result != success) or a missing
+  # blob fails the gate rather than passing on partial coverage.
+  ui-result:
+    needs: [ui]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      MEMEX_EMIT_KEY: ${{ secrets.MEMEX_EMIT_KEY }}
+    steps:
+      # Fail closed FIRST: if any shard was cancelled or failed, never merge — a
+      # partial shard set must not produce a green coverage gate.
+      - name: Fail if any ui shard did not succeed
+        if: needs.ui.result != 'success'
+        run: |
+          echo "ui shards result: ${{ needs.ui.result }}"
+          exit 1
+
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Download all shard coverage blobs
+        uses: actions/download-artifact@v8
+        with:
+          pattern: ui-coverage-blob-*
+          path: /tmp/ui-blobs
+          merge-multiple: true
+
+      - name: Stage blobs and fail closed on a missing shard
+        # vitest --merge-reports reads .vitest-reports/ relative to CWD (= the ui
+        # package under the pnpm filter), so stage the downloaded blobs there.
+        run: |
+          mkdir -p packages/ui/.vitest-reports
+          cp /tmp/ui-blobs/*.json packages/ui/.vitest-reports/ 2>/dev/null || true
+          count=$(find packages/ui/.vitest-reports -name 'blob-*.json' | wc -l)
+          echo "shard blobs found: $count"
+          if [ "$count" -ne 3 ]; then
+            echo "Expected 3 shard coverage blobs, found $count — failing closed (partial coverage must not pass the gate)."
+            exit 1
+          fi
+
+      - name: Merge coverage + enforce tiered UI thresholds on the MERGED suite
+        id: merge
+        # No --reporter=blob here: vitest errors "Cannot merge reports when
+        # --reporter=blob is used". On a non-shard (merge) run isShardRun is false, so
+        # packages/ui/vitest.config.ts's live tiered thresholds apply to the merged map
+        # — this is the one and only UI coverage gate.
+        run: pnpm --filter @memex/ui exec vitest --merge-reports --coverage run
+
+      - name: Upload merged UI coverage report
         if: always()
         uses: actions/upload-artifact@v7
         with:
@@ -533,9 +643,11 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Apply migrations
-        run: |
-          for f in packages/server/drizzle/*.sql; do psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f "$f"; done
+      # spec-394: seed via the cached template clone (same composite action the server
+      # job uses) instead of the inline 130-file psql loop. Seeding only — the prod
+      # applier path stays the migration-applier job's exclusive concern.
+      - name: Seed test DB (cached template clone)
+        uses: ./.github/actions/migrate-db
       # Cache the Chromium binary (~150MB download) keyed on the lockfile — the
       # Playwright version is pinned there, so a version bump busts the cache.
       - name: Cache Playwright browsers
