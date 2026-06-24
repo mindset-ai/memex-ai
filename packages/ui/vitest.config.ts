@@ -58,15 +58,18 @@ export default defineConfig({
         'src/test/**',
         'src/components/chat/ui-tools/**',
       ],
-      // Thresholds are set to the current measured baseline minus a couple of points —
-      // not aspirational. The first `pnpm test:coverage` run produced ~31% stmts, ~25%
-      // branches, ~30% funcs, ~32% lines. CI should enforce these so the ratio can only
-      // go up. Raise each line as new tests land.
+      // Thresholds are set to the measured actuals minus a couple of points —
+      // not aspirational. The gate can only ratchet up; raise each line as new
+      // tests land. The 23→52 branch jump (spec-357 sus-4 / dec-1) reflects the
+      // accumulated suite plus the targeted unit tests added there (specMarkdown,
+      // useNeedsAttention, AcPill, clientLabel, publicSignup). Measured actuals at
+      // that point: stmts 60.24%, branches 54.96%, funcs 60.68%, lines 62.56% —
+      // each floor sits a few points below to stay stable, not flaky.
       thresholds: {
-        lines: 30,
-        functions: 27,
-        branches: 23,
-        statements: 29,
+        lines: 60,
+        functions: 58,
+        branches: 52,
+        statements: 58,
       },
     },
   },
