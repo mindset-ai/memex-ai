@@ -51,6 +51,10 @@ import { Hono } from "hono";
 import { db } from "../db/connection.js";
 import { testEvents } from "../db/schema.js";
 import { applyEmissionToSummary } from "../services/test-event-latest.js";
+import {
+  trimTestEventsForPair,
+  recordFirstVerified,
+} from "../services/test-event-retention.js";
 import { maybeAutoResolveIssuesForAcUid } from "../services/issues.js";
 import {
   verifyEmissionKey,
@@ -298,6 +302,9 @@ testEventsRouter.post("/", async (c) => {
   // `typeof body.ac_uid === "string"` narrowing across that function boundary.
   const insertValues = {
     acUid: body.ac_uid,
+    // spec-398 dec-4 (ac-8): stamp tenancy at write from the Memex the emission
+    // key already resolved + authorised above — no read-time ac_uid parsing.
+    memexId: targetMemexId,
     status: body.status,
     testIdentifier: (body.test_identifier as string | undefined) ?? null,
     durationMs: (body.duration_ms as number | undefined) ?? null,
@@ -351,11 +358,25 @@ testEventsRouter.post("/", async (c) => {
           .returning({ id: testEvents.id, createdAt: testEvents.createdAt });
         await applyEmissionToSummary(tx, {
           acUid: insertValues.acUid,
+          memexId: targetMemexId,
           testIdentifier: insertValues.testIdentifier,
           status: insertValues.status as "pass" | "fail" | "error",
           latestRunAt: inserted.createdAt,
           hidden: insertValues.hidden,
         });
+        // spec-398 (ac-1): keep this pair bounded to the latest RETENTION_KEEP
+        // runs — the steady-state trim-on-write, in the same transaction as the
+        // insert so the log never transiently exceeds the cap.
+        await trimTestEventsForPair(
+          tx,
+          insertValues.acUid,
+          insertValues.testIdentifier,
+        );
+        // spec-398 t-6: durably snapshot the earliest pass BEFORE retention can
+        // trim it away, so analytics keeps a true "first went green" date.
+        if (insertValues.status === "pass" && !insertValues.hidden) {
+          await recordFirstVerified(tx, insertValues.acUid, inserted.createdAt);
+        }
         return inserted;
       });
     },
