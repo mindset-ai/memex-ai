@@ -86,6 +86,34 @@ export function personaDescription(c: RoleCoords): string {
   return a.solo;
 }
 
+// spec-372 (t-5, change #10) — the "With Memex we promise" copy, keyed to the DOMINANT
+// vertex (dev→Builder, design→Designer, pm→Product), verbatim from the v3 design. Shown
+// beside the persona on step 0; the head + detail change live as the dot moves.
+export interface PersonaPromise {
+  head: string;
+  detail: string;
+}
+export function personaPromise(c: RoleCoords): PersonaPromise {
+  const e = [
+    {
+      v: c.dev,
+      head: "Your coding agent can't drift off-spec or fake its way to done.",
+      detail: 'Every action it takes is anchored to the specification. If the codebase reveals a better approach, the spec is updated.',
+    },
+    {
+      v: c.design,
+      head: 'The design you specified is the design that ships.',
+      detail: 'What ships is checked against what you specified. Verified, not assumed.',
+    },
+    {
+      v: c.pm,
+      head: "Nothing gets built on a decision you haven't made.",
+      detail: "The build can't start until you've resolved the gating decisions, and agents report progress into the board as they work — live, not typed up later.",
+    },
+  ].sort((a, b) => b.v - a.v);
+  return { head: e[0].head, detail: e[0].detail };
+}
+
 export function RoleTriangle({
   value,
   onChange,
@@ -177,7 +205,7 @@ export function RoleTriangle({
           reads as the grabbable thing. Both vanish the moment the user moves it. */}
       {!touched && (
         <>
-          <circle cx={blob.x} cy={blob.y} r={20} fill="#3B82F6" fillOpacity={0.18} className="animate-pulse" />
+          <circle cx={blob.x} cy={blob.y} r={20} fill="#0482DC" fillOpacity={0.18} className="animate-pulse" />
           <text x={blob.x} y={blob.y - 27} textAnchor="middle" className="fill-secondary text-[11px] font-semibold">
             drag me
           </text>
@@ -194,8 +222,8 @@ export function RoleTriangle({
       />
       <defs>
         <radialGradient id="roleBlob">
-          <stop offset="0%" stopColor="#60a5fa" />
-          <stop offset="100%" stopColor="#2563eb" />
+          <stop offset="0%" stopColor="#4aa3e8" />
+          <stop offset="100%" stopColor="#0482DC" />
         </radialGradient>
       </defs>
     </svg>

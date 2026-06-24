@@ -76,8 +76,8 @@ export function SpecsMatchRealityStep({
 
   return (
     <div data-testid="journey-step-specs-match-reality" className="max-w-3xl animate-[panelIn_0.35s_ease]">
-      <h2 className="mb-4 text-5xl font-black leading-[1.04] tracking-tight text-heading">Specs that match reality.</h2>
-      <p className="mb-5 text-xl font-bold leading-snug text-primary">Refined against your actual codebase.</p>
+      <h2 className="mb-4 text-5xl font-black leading-[1.04] tracking-tight text-heading">Specs that match reality</h2>
+      <p className="mb-5 text-xl font-bold leading-snug text-primary">Refined against your actual codebase</p>
       <p className="mb-6 max-w-2xl leading-relaxed text-secondary">
         With access to the repo, your agent grounds the whole plan in what&apos;s actually there: decisions and
         acceptance criteria are refined, the work is broken into tasks, and a unit test is written for each AC.
@@ -110,8 +110,10 @@ export function SpecsMatchRealityStep({
           </div>
         ) : (
           <div className="flex items-center gap-2.5 text-sm text-muted">
-            <span className="h-2.5 w-2.5 flex-none animate-pulse rounded-full bg-accent" />
-            Your agent is working the codebase…
+            {/* spec-372 dec-4 — honest waiting copy + a STATIC (non-pulsing) idle dot, so the
+                step never implies Memex is autonomously operating in the user's repo. */}
+            <span className="h-2.5 w-2.5 flex-none rounded-full bg-current opacity-50" />
+            Waiting for your agent to ground the plan in your codebase — this advances the moment it does.
           </div>
         )}
       </div>

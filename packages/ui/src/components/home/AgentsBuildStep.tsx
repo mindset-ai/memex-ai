@@ -14,7 +14,7 @@ export function AgentsBuildStep({
 } = {}) {
   return (
     <div data-testid="journey-step-agents-build" className="max-w-3xl animate-[panelIn_0.35s_ease]">
-      <h2 className="mb-5 text-6xl font-black leading-none tracking-tight text-heading">Agents build in lockstep.</h2>
+      <h2 className="mb-5 text-6xl font-black leading-none tracking-tight text-heading">Agents build in lockstep</h2>
       {/* Design copy reads "One coordinated team on your tasks." — reworded to avoid the
           reserved product noun "team" that std-1's UI copy sweep forbids (a metaphor here,
           not the workspace concept). Same meaning, no reserved noun. */}

@@ -24,8 +24,8 @@ interface StepConfig {
 export const AGENT_PROMPT_STEPS: Record<string, StepConfig> = {
   'resolve-decision': {
     eyebrow: 'Decisions raised',
-    headline: 'No agent decides for you.',
-    sub: 'Hidden calls surface before a line is written.',
+    headline: 'No agent decides for you',
+    sub: 'Hidden calls surface before a line is written',
     body: 'Point your agent at the spec and the repo. It reads both and raises the decisions that need taking, so all you do is resolve them.',
     prompt: `Using the Memex MCP: Look at this spec, look at the repo, and update the spec by raising the key decisions that need to be made. Then tell me which decisions (dec-N) you raised.`,
     milestone: 'hasResolvedDecision',
@@ -34,8 +34,8 @@ export const AGENT_PROMPT_STEPS: Record<string, StepConfig> = {
   },
   'add-ac': {
     eyebrow: 'Acceptance criteria raised',
-    headline: 'Done becomes a fact.',
-    sub: 'Testable criteria, set before the build starts.',
+    headline: 'Done becomes a fact',
+    sub: 'Testable criteria, set before the build starts',
     body: 'Same move: your agent reads the spec and the repo and raises testable acceptance criteria against each decision.',
     prompt: `Using the Memex MCP: Look at this spec, look at the repo, and update the spec by raising acceptance criteria for each decision. Then tell me the ACs (ac-N) you added.`,
     milestone: 'hasAc',

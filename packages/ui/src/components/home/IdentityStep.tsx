@@ -6,7 +6,7 @@
 import { useCallback, useState } from 'react';
 import { useAuth } from '../AuthContext';
 import { updateProfileApi } from '../../api/client';
-import { RoleTriangle, CENTERED_ROLE, personaLabel, personaDescription, type RoleCoords } from './RoleTriangle';
+import { RoleTriangle, CENTERED_ROLE, personaLabel, personaDescription, personaPromise, type RoleCoords } from './RoleTriangle';
 
 function firstName(name: string | null | undefined): string | null {
   if (!name) return null;
@@ -61,20 +61,16 @@ export function IdentityStep({
   return (
     <div data-testid="journey-step-identity" className="animate-[fadeIn_0.4s_ease]">
       <p className="mb-2.5 text-base font-semibold text-muted">
-        {greeting ? `Hi ${greeting}, welcome to Memex.` : 'Welcome to Memex.'}
+        {greeting ? `Hi ${greeting}, welcome to Memex AI.` : 'Welcome to Memex AI.'}
       </p>
       <h2 className="mb-3.5 text-4xl font-black leading-[1.1] tracking-tight text-heading">
-        Built around how you work.
+        Built around how you work
       </h2>
       <p className="mb-1.5 max-w-3xl text-lg leading-relaxed text-secondary">
-        A quick read on you and your stack — we&apos;ll tailor the next few steps to exactly what you need.
+        Let&apos;s tailor this to how you actually work.
       </p>
-      <p className="mb-1.5 max-w-3xl leading-relaxed text-secondary">
-        {greeting ? `Now, ${greeting}, nobody's just one thing anymore` : "Nobody's just one thing anymore"}: not just a
-        developer, not just a designer, not just a PM.
-      </p>
-      <p className="mb-6 mt-4 max-w-3xl leading-relaxed text-muted">
-        Drag the dot to where you fit. Most people land somewhere in between.
+      <p className="mb-6 max-w-3xl leading-relaxed text-secondary">
+        Most people on a modern product team do more than one job. Where do you spend most of your time?
       </p>
 
       {needsName && (
@@ -105,6 +101,14 @@ export function IdentityStep({
           <p data-testid="persona-description" className="mt-2.5 max-w-md text-lg leading-relaxed text-secondary">
             {personaDescription(role)}
           </p>
+
+          {/* spec-372 t-5 (change #10) — the persona-keyed "With Memex we promise" card,
+              copy verbatim from v3, switching live with the dominant vertex. */}
+          <div data-testid="persona-promise" className="mt-6 max-w-md rounded-2xl bg-surface/60 p-5">
+            <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted">With Memex we promise</div>
+            <p className="mb-2 text-base font-bold leading-snug text-heading">{personaPromise(role).head}</p>
+            <p className="text-sm leading-relaxed text-secondary">{personaPromise(role).detail}</p>
+          </div>
 
           {error && (
             <div
