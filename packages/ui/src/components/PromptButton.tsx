@@ -90,9 +90,9 @@ function TerminalIcon() {
 // stays a UI-layer projection and the scaffold node text is never edited
 // (get_prompt byte-parity, spec-263). The second line is PHASE-SPECIFIC: the
 // phase word is the CANONICAL phase name, looked up from HANDOFF_BUTTON_BY_PHASE
-// (phase→buttonId) inverted. It must NOT come from the node `label`: the specify
-// handoff is historically labelled "Plan handoff", so a label-first-word
-// derivation mislabels the specify phase as "plan" — the phase is `specify`.
+// (phase→buttonId) inverted. It must NOT come from the node `label` — the label
+// is a display string ("Specify handoff") that needn't match the canonical phase
+// token; the lookup keeps the stub's phase word authoritative regardless.
 const PHASE_BY_HANDOFF_BUTTON: Readonly<Record<string, string>> = Object.fromEntries(
   Object.entries(HANDOFF_BUTTON_BY_PHASE).map(([phase, id]) => [id, phase]),
 );

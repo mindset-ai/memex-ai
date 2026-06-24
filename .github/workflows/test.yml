@@ -97,7 +97,7 @@ jobs:
       MEMEX_EMIT: ${{ github.actor == 'dependabot[bot]' && 'false' || '' }}
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       # No `version:` here — pnpm/action-setup@v6 reads the pinned version from
       # the root package.json `packageManager` field and errors if both are set.
@@ -111,15 +111,16 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Apply migrations
-        # Drizzle-kit journal covers 0000-0008; 0009+ are hand-written and applied
-        # directly so the journal doesn't try to re-run them. Piping each file in order
-        # mirrors what the local dev environment does (see `rake db:nuke`).
-        run: |
-          for f in packages/server/drizzle/*.sql; do
-            echo "Applying $f"
-            psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f "$f"
-          done
+      # spec-394: SEED the shard's DB by cloning a hash-keyed, pre-migrated template
+      # (built once from drizzle/*.sql, rebuilt only when the SQL set changes) instead
+      # of replaying all 130 files inline on every shard. The composite action's clone
+      # is schema-identical to the old psql-loop (proven: pg_dump --schema-only diff is
+      # empty). This is SEEDING only — the production applier (`pnpm db:migrate`) is NOT
+      # exercised here; that is the migration-applier job's job (spec-357 dec-3), left
+      # untouched. The old inline loop this replaces:
+      #   for f in packages/server/drizzle/*.sql; do psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f "$f"; done
+      - name: Seed test DB (cached template clone)
+        uses: ./.github/actions/migrate-db
 
       - name: Server suite shard ${{ matrix.shard }}/3 (collect coverage, NO threshold gate)
         # --reporter=blob writes packages/server/.vitest-reports/blob-<shard>-3.json.
@@ -176,7 +177,7 @@ jobs:
           echo "server shards result: ${{ needs.server.result }}"
           exit 1
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v6
         with:
@@ -238,6 +239,31 @@ jobs:
               && echo "ac-3 emitted: $STATUS" || echo "ac-3 emission failed (non-blocking)"
           fi
 
+  # Lint gate (spec-356, cq-1/cq-2). Before this, the repo had NO lint/format
+  # tooling at all — only `tsc` — while 110 `eslint-disable` directives suppressed
+  # a linter that did not exist. `pnpm lint` runs `biome ci` against the curated
+  # baseline in `biome.json`. The baseline is deliberately a SMALL set of
+  # high-signal correctness/suspicious rules that the CURRENT tree already passes
+  # (formatter + style rules are deferred — see biome.json for the ramp plan), so
+  # this job is green on the existing code without a repo-wide reformat. As rules
+  # are promoted into the baseline over time, this job tightens with them.
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Least-privilege: this job only checks out and runs Biome locally.
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Biome lint (curated baseline — no reformat)
+        run: pnpm lint
+
   # Production build gate (std-17 §6 / cl-55): `make build` is what the deploy
   # actually runs, and vitest does NOT typecheck — a green test matrix can hide
   # a TS2741 that splits the deploy (exactly how PR #44's AcPill gap shipped:
@@ -248,7 +274,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v6
         with:
@@ -259,6 +285,20 @@ jobs:
         run: pnpm build
 
   # React UI unit tests (jsdom) + coverage gate. No database.
+  #
+  # NOTE (spec-394, dec-2): ui SHARDING was attempted (workstream E item 1) and
+  # REVERTED. CI proof (PR #333): v8 coverage merged from shard blobs via
+  # `vitest --merge-reports` systematically UNDER-counts vs a single unsharded run
+  # — develop's unsharded run reports src/pages/** at 72.77 lines / 65.02 branches,
+  # but the merged-shard blobs report 64.77 / 57.93 (a fixed ~7-8pt gap, IDENTICAL
+  # at 2-way and 3-way, so it is the merge-blob path, not shard count). That drops
+  # the merged coverage below spec-390's UI floors, which are pinned in two A-owned
+  # files (packages/ui/vitest.config.ts + coverage-tiers.spec-390.test.ts). Gating UI
+  # coverage on merged-shard blobs would require RE-BASELINING all of A's UI floors
+  # ~7-8pts and updating A's pinning tests — an A/orchestrator decision, not
+  # spec-394's. So the ui job stays UNSHARDED here; ui sharding is DEFERRED pending
+  # that A-side gate re-baseline. spec-394 still ships item 2 (the template-DB
+  # composite action) which speeds the already-sharded server + e2e tiers.
   ui:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -273,7 +313,7 @@ jobs:
       # bogus unauthenticated emission is attempted (mirrors the server job).
       MEMEX_EMIT: ${{ github.actor == 'dependabot[bot]' && 'false' || '' }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       # No `version:` here — pnpm/action-setup@v6 reads the pinned version from
       # the root package.json `packageManager` field and errors if both are set.
       - uses: pnpm/action-setup@v6
@@ -298,7 +338,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       # No `version:` here — pnpm/action-setup@v6 reads the pinned version from
       # the root package.json `packageManager` field and errors if both are set.
       - uses: pnpm/action-setup@v6
@@ -326,7 +366,7 @@ jobs:
       # bogus unauthenticated emission is attempted (mirrors the server job).
       MEMEX_EMIT: ${{ github.actor == 'dependabot[bot]' && 'false' || '' }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v6
         with:
@@ -335,6 +375,107 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: AC-emit helper tests
         run: pnpm --filter @memex-ai-ac/vitest test
+
+  # Real migration applier (spec-385, sus-1 from the spec-345 audit; decided in
+  # spec-357 dec-3). The three psql-loop seeding sites elsewhere in this file
+  # (server/e2e/perf "Apply migrations" steps) play EVERY drizzle/*.sql file
+  # blindly — fast for seeding a shard, but they never exercise the PRODUCTION
+  # applier. The deploy runs `pnpm db:migrate` (= drizzle-kit migrate +
+  # scripts/apply-hand-migrations.mjs) — see packages/server/deploy.sh:207-211 and
+  # Makefile:161 [per std-26] — which (a) journal-skips the drizzle-kit-owned tags
+  # so they aren't double-run, (b) tracks hand-written files (0009+) in a
+  # `manual_migrations` table for idempotent re-runs, and (c) splits each file on
+  # the `--> statement-breakpoint` marker inside a transaction. None of that was
+  # covered in CI, so a regression in the applier would only surface at deploy
+  # time (the failure mode std-26's "Gotchas" exists to kill).
+  #
+  # This job runs the REAL applier against a COLD DB and FAILS if it errors, then
+  # runs it a SECOND time to prove idempotency (journal-skip + manual_migrations
+  # tracking ⇒ a clean no-op), and asserts the tracking table is populated. The
+  # `.mjs` applier (not the bash `.sh`) is the portable, Windows-friendly path
+  # `db:migrate` chains [per std-22]. The fast psql-loop seeding sites are left
+  # UNTOUCHED by design (spec-357 dec-3) — they're not the prod path under test.
+  migration-applier:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        # pgvector-bundled Postgres 16 — migration 0023 (codebase intelligence)
+        # runs CREATE EXTENSION vector, absent from the stock postgres image.
+        # Same service the server/e2e/perf jobs use, so the applier hits the same
+        # extension surface the cold deploy DB does.
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: memex
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/memex
+
+    steps:
+      - uses: actions/checkout@v7
+      # No `version:` here — pnpm/action-setup@v6 reads the pinned version from
+      # the root package.json `packageManager` field and errors if both are set.
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # Run 1: the REAL applier against the cold, empty `memex` service DB. This is
+      # the exact command deploy.sh runs (pnpm db:migrate = drizzle-kit migrate +
+      # node scripts/apply-hand-migrations.mjs). A non-zero exit fails the job.
+      - name: Run the production migration applier (cold DB)
+        run: pnpm --filter @memex/server db:migrate
+
+      # Assert the hand-written tier was TRACKED (not blindly replayed): the
+      # production applier records each 0009+ file in `manual_migrations`. The
+      # psql-loop seeding sites never create this table — its presence + a non-zero
+      # row count is the proof the real applier ran.
+      - name: Assert manual_migrations is populated
+        run: |
+          COUNT=$(psql -tA "$DATABASE_URL" -c "SELECT count(*) FROM manual_migrations")
+          echo "manual_migrations rows: $COUNT"
+          if [ "$COUNT" -lt 1 ]; then
+            echo "FAIL: manual_migrations empty — the hand-written applier tier did not track any file."
+            exit 1
+          fi
+
+      # Run 2: idempotency / journal-skip. The applier must re-run as a clean no-op
+      # — drizzle-kit recognises its already-applied journal, and the .mjs prints
+      # "No hand-written migrations to apply." with zero "  → <tag>" apply lines.
+      # We also assert the manual_migrations row count is UNCHANGED, so no file was
+      # re-applied or re-tracked.
+      - name: Re-run the applier — must be a clean no-op (idempotency)
+        run: |
+          BEFORE=$(psql -tA "$DATABASE_URL" -c "SELECT count(*) FROM manual_migrations")
+          OUT=$(pnpm --filter @memex/server db:migrate 2>&1)
+          echo "$OUT"
+          AFTER=$(psql -tA "$DATABASE_URL" -c "SELECT count(*) FROM manual_migrations")
+          echo "manual_migrations before=$BEFORE after=$AFTER"
+          if [ "$BEFORE" != "$AFTER" ]; then
+            echo "FAIL: manual_migrations changed on the second run ($BEFORE → $AFTER) — applier is not idempotent."
+            exit 1
+          fi
+          if ! echo "$OUT" | grep -qF "No hand-written migrations to apply."; then
+            echo "FAIL: second run did not report a clean hand-written no-op."
+            exit 1
+          fi
+          if echo "$OUT" | grep -qE '^[[:space:]]*→ '; then
+            echo "FAIL: second run re-applied a hand-written migration (saw a '→ <tag>' line)."
+            exit 1
+          fi
+          echo "OK: second run was a clean no-op."
 
   # UI E2E (Playwright). Runs against a freshly migrated DB via the webServer block
   # in playwright.config.ts — the same setup a developer uses locally.
@@ -398,7 +539,7 @@ jobs:
       MEMEX_ANTHROPIC_FAKE: "1"
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       # No `version:` here — pnpm/action-setup@v6 reads the pinned version from
       # the root package.json `packageManager` field and errors if both are set.
       - uses: pnpm/action-setup@v6
@@ -407,9 +548,11 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Apply migrations
-        run: |
-          for f in packages/server/drizzle/*.sql; do psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f "$f"; done
+      # spec-394: seed via the cached template clone (same composite action the server
+      # job uses) instead of the inline 130-file psql loop. Seeding only — the prod
+      # applier path stays the migration-applier job's exclusive concern.
+      - name: Seed test DB (cached template clone)
+        uses: ./.github/actions/migrate-db
       # Cache the Chromium binary (~150MB download) keyed on the lockfile — the
       # Playwright version is pinned there, so a version bump busts the cache.
       - name: Cache Playwright browsers
@@ -512,7 +655,7 @@ jobs:
       MEMEX_EMIT: ${{ github.actor == 'dependabot[bot]' && 'false' || '' }}
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       # No `version:` here — pnpm/action-setup@v6 reads the pinned version from
       # the root package.json `packageManager` field and errors if both are set.
       - uses: pnpm/action-setup@v6

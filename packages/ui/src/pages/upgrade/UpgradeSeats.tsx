@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useParams, useNavigate, Navigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams, Navigate } from 'react-router-dom';
 import { Button } from '../../components/ui/Button';
 import { useAuth } from '../../components/AuthContext';
 import { OrgSelector } from '../../components/upgrade/OrgSelector';
@@ -10,33 +10,41 @@ import { deriveAdminOrgs } from './adminOrgs';
 export function UpgradeSeats() {
   const { plan } = useParams<{ plan: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { token, session } = useAuth();
 
   // spec-171 t-25 / dec-40 (option A): billing is per-org. Derive the orgs the
-  // caller administers from the session and let them pick WHICH to upgrade —
-  // never the session's current (personal) Memex.
+  // caller administers from the session — never the session's current (personal)
+  // Memex.
   const adminOrgs = useMemo(() => deriveAdminOrgs(session), [session]);
+
+  // Org-first flow (spec-171 verify): the org is chosen on the plan-select step
+  // and carried in via ?org, so here it's LOCKED and shown read-only — no chooser
+  // after a plan is picked. The chooser only resurfaces as a graceful fallback
+  // for a cold deep-link to /upgrade/:plan with no ?org.
+  const orgParam = searchParams.get('org');
+  const orgLocked = !!orgParam;
+  const lockedOrg = orgParam
+    ? adminOrgs.find((o) => o.orgId === orgParam) ?? null
+    : null;
 
   const [seats, setSeats] = useState(1);
   const [seatError, setSeatError] = useState<string | null>(null);
   const [annual, setAnnual] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Preselect when exactly one org; otherwise force an explicit choice.
+  // Fallback chooser state (used only when the org wasn't carried in via ?org).
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(() =>
     adminOrgs.length === 1 ? adminOrgs[0].orgId : null,
   );
 
-  // The state initializer runs once. AuthContext fast-paints a cached session
-  // then refreshes /api/auth/me in the background; if the org arrives via that
-  // refresh, adminOrgs becomes length-1 AFTER mount. Auto-select then so the
-  // single-org case isn't stuck unselected (its read-only view has no manual
-  // select control).
+  // Fallback path only: auto-select the sole admin org once the session refresh
+  // lands it (AuthContext fast-paints cached, then refreshes /api/auth/me).
   useEffect(() => {
-    if (selectedOrgId === null && adminOrgs.length === 1) {
+    if (!orgLocked && selectedOrgId === null && adminOrgs.length === 1) {
       setSelectedOrgId(adminOrgs[0].orgId);
     }
-  }, [adminOrgs, selectedOrgId]);
+  }, [adminOrgs, selectedOrgId, orgLocked]);
 
   if (!plan || !(plan in PLAN_CONFIG)) {
     return <Navigate to="/upgrade" replace />;
@@ -46,7 +54,9 @@ export function UpgradeSeats() {
   const total = calcPrice(seats, config.monthlyPrice, annual);
   const perSeat = config.monthlyPrice * (annual ? ANNUAL_FACTOR : 1);
 
-  const selectedOrg = adminOrgs.find((o) => o.orgId === selectedOrgId) ?? null;
+  const selectedOrg = orgLocked
+    ? lockedOrg
+    : adminOrgs.find((o) => o.orgId === selectedOrgId) ?? null;
 
   // Send the user to their personal namespace home, where the "Create an Org"
   // dialog lives. Personal-namespace rows are excluded from adminOrgs, so read
@@ -85,7 +95,7 @@ export function UpgradeSeats() {
     <div className="max-w-lg mx-auto px-6 py-10">
       <button
         className="mb-6 text-sm text-muted hover:text-secondary flex items-center gap-1"
-        onClick={() => navigate('/upgrade')}
+        onClick={() => navigate(`/upgrade${orgParam ? `?org=${orgParam}` : ''}`)}
       >
         ← Back to plans
       </button>
@@ -98,13 +108,30 @@ export function UpgradeSeats() {
       </p>
 
       <div className="space-y-6">
-        {/* Org selector — billing is per-org (spec-171 t-25 / dec-40). */}
-        <OrgSelector
-          orgs={adminOrgs}
-          selectedOrgId={selectedOrgId}
-          onSelect={setSelectedOrgId}
-          onCreateOrg={handleCreateOrg}
-        />
+        {/* Org — billing is per-org (spec-171 t-25 / dec-40). Locked + read-only
+            when carried in from plan-select (?org); the chooser only resurfaces
+            for a cold deep-link with no org carried. */}
+        {orgLocked ? (
+          selectedOrg ? (
+            // Single-org list renders OrgSelector's read-only "Upgrading
+            // organisation" box — the chosen org, not re-selectable here.
+            <OrgSelector
+              orgs={[selectedOrg]}
+              selectedOrgId={selectedOrg.orgId}
+              onSelect={() => {}}
+              onCreateOrg={handleCreateOrg}
+            />
+          ) : (
+            <p className="text-sm text-muted">Loading organisation…</p>
+          )
+        ) : (
+          <OrgSelector
+            orgs={adminOrgs}
+            selectedOrgId={selectedOrgId}
+            onSelect={setSelectedOrgId}
+            onCreateOrg={handleCreateOrg}
+          />
+        )}
 
         {/* Seat count */}
         <div>

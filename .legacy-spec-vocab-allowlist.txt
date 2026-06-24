@@ -83,7 +83,7 @@ packages/server/src/db/schema.ts
 # the cited lines mention the legacy lineage and the line-regex pins the
 # allowlist to the lineage comment.
 packages/server/src/agent/tool-specs.ts:referenceBriefId
-packages/server/src/mcp/formatters.ts:referenceBriefId
+packages/server/src/formatting/formatters.ts:referenceBriefId
 packages/server/src/mcp/migration-map.ts:missionId
 packages/server/src/mcp/tools.test.ts:b-105 renamed Brief
 packages/server/src/mcp/tools.test.ts:Strategy.*Mission.*Brief.*Spec
@@ -178,10 +178,15 @@ packages/server/src/services/acs.ts
 # `comments.ts`'s `kind: "brief"`. These lines build/declare that discriminator
 # in the create_ac MCP handler and the React API client type; the surrounding
 # product prose already reads "Spec".
-packages/server/src/agent/tool-specs.ts:kind: "brief"
-packages/server/src/agent/tool-specs.ts:it stays "brief"
-packages/ui/src/api/client.ts:kind: 'brief'
-packages/ui/src/api/client.ts:which stays 'brief'
+# spec-366: tool-specs.ts was split into per-domain handler modules behind a
+# barrel; this AC parent-kind discriminator block moved verbatim from the
+# create_ac handler in tool-specs.ts into handlers/acs.ts.
+packages/server/src/agent/handlers/acs.ts:kind: "brief"
+packages/server/src/agent/handlers/acs.ts:it stays "brief"
+# spec-364: client.ts was split into per-domain modules behind a barrel; this
+# AC-type discriminator block moved verbatim from client.ts into acs.ts.
+packages/ui/src/api/acs.ts:kind: 'brief'
+packages/ui/src/api/acs.ts:which stays 'brief'
 # spec-112 (Issues) asserts the wire-format discriminator survives the
 # `ac_parent_links_kind_valid` CHECK migration unchanged — a `.toContain("brief")`
 # on the constraint def. The literal is the DB value, not product prose.

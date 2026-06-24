@@ -378,7 +378,23 @@ async function maybeAutoPromoteToVerify(
   if (Number(openCount) === 0) {
     // spec-122 dec-3 — carry the actor/channel onto the auto-promotion's
     // status_changed journal row (t-4).
-    await updateDocStatus(memexId, docId, "verify", { ctx });
+    //
+    // spec-391: the build→verify naked-decision gate (and any future
+    // advancement gate) now lives in updateDocStatus and can THROW. This is an
+    // AUTOMATIC side-effect of completing the last task — i.e. developer
+    // code-work — and spec-388 dec-2 is explicit that the gate blocks the
+    // spec ADVANCEMENT only, NEVER the developer's code-work. So a blocked
+    // auto-promote must not fail the task-completion: swallow the gate's
+    // ValidationError (best-effort, mirroring the maybeAutoResolveIssuesForTask
+    // sibling above). The task still completes; the Spec simply stays in `build`
+    // and the human gets the gate's guidance when they advance explicitly via
+    // update_doc({status:'verify'}).
+    await updateDocStatus(memexId, docId, "verify", { ctx }).catch((err) => {
+      console.warn(
+        `[tasks] auto-promote build→verify blocked for ${docId} (Spec stays in build):`,
+        err instanceof Error ? err.message : err,
+      );
+    });
   }
 }
 

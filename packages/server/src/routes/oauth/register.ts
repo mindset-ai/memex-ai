@@ -19,7 +19,7 @@ register.post("/", async (c) => {
   // generous for legitimate clients (which register once and reuse the
   // client_id) but cuts off bulk-registration probes.
   const ip = clientIp(c);
-  const rl = rateLimit("oauthRegister", ip, AUTH_LIMITS.oauthRegister);
+  const rl = await rateLimit("oauthRegister", ip, AUTH_LIMITS.oauthRegister);
   if (!rl.ok) {
     c.header("Retry-After", String(rl.retryAfterSec ?? 1));
     return c.json(

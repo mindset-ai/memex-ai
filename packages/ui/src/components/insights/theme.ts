@@ -16,8 +16,11 @@
 import type { CSSProperties } from 'react';
 import type { PartialTheme } from '@nivo/theming';
 import { useThemeName } from '../ThemeContext';
+// spec-355 dry-2: the canonical ordered phase array. Re-exported so existing
+// `import { PHASE_ORDER } from '.../insights/theme'` call sites are untouched.
+import { PHASE_ORDER } from '@memex/shared';
 
-export const PHASE_ORDER = ['draft', 'specify', 'build', 'verify', 'done'] as const;
+export { PHASE_ORDER };
 export type Phase = (typeof PHASE_ORDER)[number];
 
 export interface ChartPalette {

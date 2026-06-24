@@ -98,7 +98,8 @@ describe("b-105 ac coverage: file / DB / git invariants", () => {
         reason: "DOC_TYPES_BY_KIND alias array",
       },
       {
-        path: "packages/server/src/mcp/formatters.ts",
+        // spec-368 sol-4: formatter body moved to the neutral module; scan it.
+        path: "packages/server/src/formatting/formatters.ts",
         mustNotMatch: /docType\s*===\s*['"]mission['"]/,
         reason: 'mission branch in formatters',
       },

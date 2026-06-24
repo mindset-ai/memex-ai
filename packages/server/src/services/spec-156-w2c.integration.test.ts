@@ -237,7 +237,7 @@ describe("spec-156 ac-18: OAuth writes go through mutate({silent:true}), de-allo
     // scanner verifies them like any other service. (Path-keyed per ac-23.)
     const here = dirname(fileURLToPath(import.meta.url));
     const scanSrc = readFileSync(
-      resolve(here, "..", "__regression__", "mutate-coverage.static-scan.test.ts"),
+      resolve(here, "..", "__regression__", "mutate-coverage.static-scan.regression.test.ts"),
       "utf8",
     );
     // Isolate the ALLOWLIST object literal so a mention in a comment elsewhere

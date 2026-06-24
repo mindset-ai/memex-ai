@@ -12,6 +12,7 @@ import {
 } from "./usage-events-registry.js";
 
 const AC = "mindset-prod/memex-building-itself/specs/spec-244/acs";
+const AC367 = "mindset-prod/memex-building-itself/specs/spec-367/acs";
 
 describe("registry — the typed allowlist (ac-3)", () => {
   it("recognises registered names and rejects unregistered ones", () => {
@@ -20,6 +21,19 @@ describe("registry — the typed allowlist (ac-3)", () => {
     expect(isRegisteredEvent("document.created")).toBe(true);
     expect(isRegisteredEvent("totally.made_up")).toBe(false);
     expect(getUsageEventDef("totally.made_up")).toBeUndefined();
+  });
+
+  it("registers the pre-signup funnel head as front-end events (spec-367 ac-9)", () => {
+    tagAc(`${AC367}/ac-9`);
+    // The two anonymous count events + the identified seam.
+    expect(isRegisteredEvent("signup.form_viewed")).toBe(true);
+    expect(isFrontendEvent("signup.form_viewed")).toBe(true);
+    expect(isRegisteredEvent("signup.cta_clicked")).toBe(true);
+    expect(isFrontendEvent("signup.cta_clicked")).toBe(true);
+    // account.created is the identified seam: registered, but a back-end outcome a
+    // forked client must not spoof through the front-end ingress.
+    expect(isRegisteredEvent("account.created")).toBe(true);
+    expect(isFrontendEvent("account.created")).toBe(false);
   });
 
   it("splits front-end from back-end, and back-end names are entity.action shaped", () => {

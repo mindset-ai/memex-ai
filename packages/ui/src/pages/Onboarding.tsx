@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
+import { Alert } from '../components/ui/Alert';
 import { useAuth } from '../components/AuthContext';
 import { Logo } from '../components/Logo';
 import { updateProfileApi } from '../api/client';
@@ -52,9 +53,9 @@ export function Onboarding() {
           </label>
 
           {error && (
-            <div className="px-3 py-2 rounded-lg bg-status-danger-bg border border-status-danger-border text-sm text-status-danger-text">
+            <Alert variant="danger" size="md">
               {error}
-            </div>
+            </Alert>
           )}
 
           <div className="flex justify-end">

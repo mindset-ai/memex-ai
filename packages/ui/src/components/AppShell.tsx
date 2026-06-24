@@ -497,6 +497,18 @@ export function AppShell({ children }: { children: ReactNode }) {
   const onSpecChildTenant = !!useMatch('/:namespace/:memex/specs/:id/:childType/:childId');
   const onDocPage = onDocPageFlat || onDocPageTenant || onSpecPageTenant || onSpecChildTenant;
 
+  // spec-360 / spec-389: pages that dock the in-app agent RAIL keep the sidebar
+  // layout (they're not doc pages) but manage their OWN internal scroll — a
+  // two-column surface whose chat panel scrolls independently. Unlike content-flow
+  // pages (which scroll at the <main> level), they need a BOUNDED-height wrapper so
+  // the rail's `h-full` resolves; without it the streaming chat expands the wrapper
+  // and scrolls the whole page. The scaffold, standards-list, and issues surfaces
+  // all dock the rail (standards/:id is a doc page, handled above — not here).
+  const onScaffoldPage = !!useMatch('/:namespace/:memex/scaffold');
+  const onStandardsListPage = !!useMatch('/:namespace/:memex/standards');
+  const onIssuesPage = !!useMatch('/:namespace/:memex/issues');
+  const onAgentRailPage = onScaffoldPage || onStandardsListPage || onIssuesPage;
+
   // Open standards drift count for the nav badge (b-63). Skipped on doc pages,
   // where the sidebar is hidden.
   const driftCount = useDriftInboxCount(!onDocPage);
@@ -686,7 +698,11 @@ export function AppShell({ children }: { children: ReactNode }) {
       <main className="flex-1 min-h-0 overflow-y-auto flex flex-col">
         {/* spec-171: seats over-limit warning shown to admins on all workspace pages */}
         <SeatsWarningBanner />
-        <div className="flex-1">{children}</div>
+        {/* spec-360 / spec-389: an agent-rail page (scaffold, standards, issues)
+            gets a bounded wrapper so its `h-full` resolves and the rail scrolls
+            internally; content-flow pages keep the natural `flex-1` and scroll at
+            the <main> level. */}
+        <div className={onAgentRailPage ? 'flex-1 min-h-0' : 'flex-1'}>{children}</div>
       </main>
 
       {/* spec-141 dec-2: invite dialog (portal-rendered to body). Opened from

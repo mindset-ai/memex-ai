@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Alert } from '../components/ui/Alert';
 
 // Platform-admin Memex picker. Opt-in dev-mode tool — the backend returns 403 when
 // GOOGLE_CLIENT_ID is set, so hitting this page in prod shows an empty/error state.
@@ -91,9 +92,9 @@ export function Backstage() {
         />
 
         {error && (
-          <div className="px-3 py-2 rounded-lg bg-status-danger-bg border border-status-danger-border text-sm text-status-danger-text">
+          <Alert variant="danger" size="md">
             {error}
-          </div>
+          </Alert>
         )}
 
         {!accounts && !error && (
@@ -153,7 +154,7 @@ export function Backstage() {
                       <button
                         onClick={() => hopIn(a.id, a.slug)}
                         disabled={hopping !== null}
-                        className="text-xs px-2 py-1 rounded-sm bg-btn-primary text-btn-primary-text hover:opacity-90 disabled:opacity-40"
+                        className="text-xs px-2 py-1 rounded-sm bg-btn-primary text-white hover:opacity-90 disabled:opacity-40"
                       >
                         {hopping === a.id ? 'Hopping…' : 'Hop in →'}
                       </button>

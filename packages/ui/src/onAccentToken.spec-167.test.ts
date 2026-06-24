@@ -82,11 +82,10 @@ describe('spec-167: on-accent foreground token', () => {
     expect(rgbVar(light, 'accent')).toEqual([37, 99, 235]);
     // text-on-accent is a deliberately REUSABLE token (ac-2). Its known, intended
     // consumers render text on a `bg-accent` fill — the exact contrast case the token
-    // solves: the OAuth Allow button (spec-167), the visitor-consent Accept button
-    // (spec-254 t-3), the spec-171 PricingCard "Current plan" badge, and the spec-336
-    // Home-onboarding primary buttons (identity "Continue", create-spec "Create spec in
-    // Memex"). The set stays CLOSED so an accidental new consumer (or a hard-coded
-    // colour) still trips this guard.
+    // solves: the OAuth Allow button (spec-167), the spec-171 PricingCard "Current plan"
+    // badge, and the spec-336 Home-onboarding primary buttons (identity "Continue",
+    // create-spec "Create spec in Memex"). The set stays CLOSED so an accidental new
+    // consumer (or a hard-coded colour) still trips this guard.
     const files = readdirSync(SRC_DIR, { recursive: true }) as string[];
     const consumers = files
       .filter((f) => /\.(ts|tsx)$/.test(f) && !/\.test\.(ts|tsx)$/.test(f))
@@ -95,7 +94,6 @@ describe('spec-167: on-accent foreground token', () => {
       .sort();
     expect(consumers).toEqual(
       [
-        'components/VisitorConsent.tsx',
         'components/home/CreateSpecStep.tsx',
         'components/home/IdentityStep.tsx',
         'components/upgrade/PricingCard.tsx',

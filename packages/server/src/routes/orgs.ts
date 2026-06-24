@@ -5,8 +5,10 @@ import {
   createOrgForUser,
   getOrgSummary,
   updateOrgSettings,
+  updateOrgBilling,
   refreshOrgDomainVerifiedFlag,
 } from "../services/orgs.js";
+import { restCtx } from "./_actor-ctx.js";
 import { getMemexById } from "../services/memexes.js";
 import {
   createDomainVerificationToken,
@@ -32,6 +34,9 @@ import {
   createCheckoutSession,
   updateSubscriptionSeats,
   previewUpcomingInvoice,
+  getSubscription,
+  resolvePlanFromPriceId,
+  type BillingCycle,
 } from "../services/stripe.js";
 import { ConflictError, ValidationError } from "../types/errors.js";
 import { readJsonBody, requireString } from "./validation.js";
@@ -197,7 +202,7 @@ orgsCurrentRouter.patch("/current", adminGate, async (c) => {
   }
 
   try {
-    const summary = await updateOrgSettings(orgId, input);
+    const summary = await updateOrgSettings(orgId, input, restCtx(c));
     return c.json(summary);
   } catch (err) {
     if (err instanceof ValidationError) {
@@ -319,10 +324,22 @@ orgsCurrentRouter.post("/current/subscription", adminGate, async (c) => {
   let customerId = org.stripeCustomerId;
   if (!customerId) {
     customerId = await createStripeCustomer(user.email, org.name, orgId);
-    await db.update(orgs).set({ stripeCustomerId: customerId }).where(eq(orgs.id, orgId));
+    await updateOrgBilling(orgId, { stripeCustomerId: customerId }, restCtx(c));
   }
 
   const baseUrl = buildAppBaseUrl();
+  // issue-16: carry the purchased org's tenant (namespace/memexSlug) through the
+  // success_url. After the full browser redirect back from stripe.com, React
+  // Router state is gone and the confirmation page can't tell WHICH org was
+  // purchased (the session's current memex is the non-billable personal one).
+  // These params come straight off the request path the client targeted
+  // (/api/<ns>/<mx>/orgs/current/subscription), so they are the purchased org.
+  const namespaceSlug = c.req.param("namespace");
+  const memexSlug = c.req.param("memex");
+  const orgParam =
+    namespaceSlug && memexSlug
+      ? `&org=${encodeURIComponent(`${namespaceSlug}/${memexSlug}`)}`
+      : "";
   const session = await createCheckoutSession({
     customerId,
     orgId,
@@ -331,8 +348,9 @@ orgsCurrentRouter.post("/current/subscription", adminGate, async (c) => {
     billingCycle,
     // Confirmation page falls back to fetching the live subscription using the
     // session id when React Router state is absent (full browser redirect back
-    // from stripe.com discards in-app state).
-    successUrl: `${baseUrl}/upgrade/confirmation?session_id={CHECKOUT_SESSION_ID}`,
+    // from stripe.com discards in-app state). The `org` param tells it WHICH
+    // org's subscription to poll (issue-16).
+    successUrl: `${baseUrl}/upgrade/confirmation?session_id={CHECKOUT_SESSION_ID}${orgParam}`,
     cancelUrl: `${baseUrl}/upgrade/${plan}`,
   });
 
@@ -341,7 +359,8 @@ orgsCurrentRouter.post("/current/subscription", adminGate, async (c) => {
 
 // GET /api/<ns>/<mx>/orgs/current/subscription/preview — admin: preview proration for a seat-count change.
 // Query: ?seats=N  (proposed new seat count)
-// Returns { amountDue, currency } — positive = charge today, negative = credit on next invoice.
+// Returns { prorationAmount, recurringAmount, currency } — the next invoice's two parts
+// (proration for the rest of this period + the new go-forward total). Nothing is charged today.
 // 402 when the org has no active Stripe subscription.
 orgsCurrentRouter.get("/current/subscription/preview", adminGate, async (c) => {
   const memexId = c.get("currentMemexId")!;
@@ -389,7 +408,7 @@ orgsCurrentRouter.patch("/current/subscription", adminGate, async (c) => {
   if (!org.stripeSubscriptionId) return c.json({ error: "No active subscription" }, 402);
 
   await updateSubscriptionSeats(org.stripeSubscriptionId, seats);
-  await db.update(orgs).set({ seatsPurchased: seats }).where(eq(orgs.id, orgId));
+  await updateOrgBilling(orgId, { seatsPurchased: seats }, restCtx(c));
 
   return c.json({ ok: true, seatsPurchased: seats });
 });
@@ -435,6 +454,7 @@ orgsCurrentRouter.get("/current/subscription", adminGate, async (c) => {
   const [org] = await db
     .select({
       stripeCustomerId: orgs.stripeCustomerId,
+      stripeSubscriptionId: orgs.stripeSubscriptionId,
       planTier: orgs.planTier,
       seatsPurchased: orgs.seatsPurchased,
     })
@@ -458,12 +478,37 @@ orgsCurrentRouter.get("/current/subscription", adminGate, async (c) => {
       ? { purchased: seatsPurchased, active: activeMemberCount }
       : null;
 
+  // issue-15: surface the billing interval + next billing date the webhook
+  // doesn't persist. When the org has a live subscription, retrieve it from
+  // Stripe and derive the cycle (from the price id — the same source of truth
+  // the webhook uses for the tier, via resolvePlanFromPriceId) and the next
+  // billing date (current_period_end, top-level on older API versions, on the
+  // first item on newer ones). Resilient: a Stripe failure must NOT 500 the
+  // billing page — we fall back to nulls and still return the persisted data.
+  let billingCycle: BillingCycle | null = null;
+  let currentPeriodEnd: string | null = null;
+  if (org.stripeSubscriptionId) {
+    try {
+      const subscription = await getSubscription(org.stripeSubscriptionId);
+      const priceId = subscription.items.data[0]?.price.id;
+      billingCycle = priceId ? (resolvePlanFromPriceId(priceId)?.billingCycle ?? null) : null;
+      const periodEndUnix =
+        subscription.current_period_end ?? subscription.items.data[0]?.current_period_end;
+      currentPeriodEnd =
+        typeof periodEndUnix === "number"
+          ? new Date(periodEndUnix * 1000).toISOString()
+          : null;
+    } catch (err) {
+      console.error("Failed to enrich subscription from Stripe:", err);
+    }
+  }
+
   return c.json({
     tier,
     seatsPurchased,
     activeMemberCount,
-    billingCycle: null,      // TODO t-8: read from Stripe subscription once subscription create is wired
-    currentPeriodEnd: null,  // TODO t-8: read from Stripe subscription once subscription create is wired
+    billingCycle,
+    currentPeriodEnd,
     seatsWarning,
   });
 });

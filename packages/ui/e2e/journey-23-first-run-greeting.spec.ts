@@ -59,14 +59,18 @@ test("a user who has already been greeted sees no dialogue and no auto session (
   await gotoSpecsBoard(page);
   await expect(page.getByRole("heading", { name: "Specs" })).toBeVisible({ timeout: 15_000 });
 
-  // Give the first-run controller the same window journey-28 gives it.
-  await page.waitForTimeout(3_000);
+  // spec-393 (dec-3): replace the blind 3s sleep with a deterministic settle
+  // signal. The idle in-view affordance is the POSITIVE proof the first-run
+  // controller has finished its pass WITHOUT firing a greeting — wait for it to
+  // render, then assert the negatives. Waiting on the real signal (not the clock)
+  // keeps the no-dialogue / no-pill assertions meaningful: they can't pass simply
+  // because nothing has mounted yet.
+  await expect(page.locator("[data-voice-affordance]")).toBeVisible({ timeout: 15_000 });
 
   // ac-5 / ac-14: nothing first-run fires again — no dialogue card, no
-  // auto-started session; just the idle in-view affordance.
+  // auto-started session; just the idle in-view affordance (asserted above).
   await expect(page.getByTestId("specky-dialogue")).toHaveCount(0);
   await expect(page.locator("[data-voice-pill]")).toHaveCount(0);
-  await expect(page.locator("[data-voice-affordance]")).toBeVisible();
 });
 
 test("a seeded proactive turn returning start_walkthrough starts the tour and opens the demo spec (spec-211 ac-1)", async ({

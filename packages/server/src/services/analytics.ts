@@ -11,10 +11,13 @@
 // docType='spec' rows post-rename, but the CASE normalisation below keeps the
 // aggregates correct even if a stray legacy row survives.
 
+import { PHASE_ORDER } from "@memex/shared";
 import { sql } from "drizzle-orm";
 import { db } from "../db/connection.js";
 
-export const SPEC_PHASES = ["draft", "specify", "build", "verify", "done"] as const;
+// spec-355 dry-2: the canonical ordered phase array, re-exported as SPEC_PHASES
+// so existing call sites are untouched.
+export const SPEC_PHASES = PHASE_ORDER;
 export type SpecPhase = (typeof SPEC_PHASES)[number];
 
 // Normalise a documents.status value onto the spec lifecycle. Mirrors the

@@ -13,13 +13,10 @@ import {
   type IssueType,
   type IssueStatus,
 } from "../services/issues.js";
-import {
-  sessionMiddleware,
-  publicSessionMiddleware,
-  type SessionEnv,
-} from "../middleware/session.js";
+import { type SessionEnv } from "../middleware/session.js";
 import type { MemexResolverEnv } from "../middleware/memex-resolver.js";
 import { requireMemexId, resolveReadableMemexId } from "./shared.js";
+import { mountStandardSessionPolicy } from "./session-policy.js";
 
 // Thin REST mirror of the Issues service (spec-112 t-10). The React UI's
 // IssuePanel talks to this surface exactly as TaskPanel talks to /api/tasks;
@@ -29,11 +26,10 @@ import { requireMemexId, resolveReadableMemexId } from "./shared.js";
 //
 // Per-verb session policy mirrors tasks.ts: GET reads are permissive (public
 // read / private 404 via resolveReadableMemexId, std-7); every mutating verb
-// stays strict.
+// stays strict. spec-377 — the standard policy (see session-policy.ts).
 type Env = MemexResolverEnv & SessionEnv;
 const issuesRouter = new Hono<Env>();
-issuesRouter.on("GET", "/*", publicSessionMiddleware);
-issuesRouter.on(["POST", "PUT", "PATCH", "DELETE"], "/*", sessionMiddleware);
+mountStandardSessionPolicy(issuesRouter);
 
 // List Issues for a Spec, optionally filtered. `?type=bug|todo` and
 // `?status=open|converted|resolved|wont_fix` are the REST mirror of the

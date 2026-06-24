@@ -23,6 +23,23 @@ import type {
 } from '../api/types';
 import type { MessageParam, ContentBlock, ToolUseBlock } from '../agent/types';
 import { UI_TOOL_NAMES, DISPLAY_UI_TOOL_NAMES } from '../agent/types';
+import { parseScaffoldProposal, type ScaffoldProposal, type GuidanceBlock } from '@memex/shared';
+
+/** spec-389 t-2 (dec-4): where an in-app agent has navigated the on-screen
+ *  surface, via the shared `render_navigate` tool. Generalised off spec-360's
+ *  scaffold-only nav: `surface` selects which surface consumes it (defaults to
+ *  'scaffold'); `ref` carries the standard-clause / spec-section / issue target;
+ *  the scaffold dims (phase/tool/transition/button) come from
+ *  GuidanceBlock['target']. `seq` increments on every navigation so repeating
+ *  the SAME target still retriggers the effect. */
+export type ScaffoldNavTarget = GuidanceBlock['target'] & {
+  surface?: 'scaffold' | 'standard' | 'spec' | 'issue';
+  ref?: string;
+};
+export interface ScaffoldNav {
+  target: ScaffoldNavTarget;
+  seq: number;
+}
 import { executeToolRemote } from '../agent/tool-client';
 import type { AgentCallbacks } from '../agent/graph';
 
@@ -54,12 +71,47 @@ interface ChatState {
   /** Leave drift mode — back to the default doc/creation agent. */
   exitDriftMode: () => void;
   /**
-   * spec-143 t-4 (dec-6): fire the drift agent's opening turn ONCE on Drift
-   * Inbox mount — the agent summarizes open drift and suggests next actions. The
-   * `seed` is the greet-only instruction (built in scaffold-sourced prose by the
-   * OpeningDriftController). No-ops outside drift mode and after the first fire.
+   * spec-360 t-1 (dec-1/dec-6): the scaffold assistant mode. `true` makes the
+   * agent the memex-scoped scaffold assistant (no bound doc) — the Scaffold
+   * Inspect surface sets it on mount via `enterScaffoldMode` and clears it on
+   * unmount via `exitScaffoldMode`.
    */
-  startDriftOpeningTurn: (seed: string) => void;
+  isScaffoldMode: boolean;
+  enterScaffoldMode: () => void;
+  exitScaffoldMode: () => void;
+  /**
+   * spec-389 t-5 (dec-2): the standards + issues agent modes. Each surface enters
+   * its mode on mount and leaves on unmount (exitScopedMode resets to 'spec').
+   * Mirror the drift / scaffold mode controls.
+   */
+  isStandardsMode: boolean;
+  isIssuesMode: boolean;
+  enterStandardsMode: () => void;
+  enterIssuesMode: () => void;
+  exitScopedMode: () => void;
+  /**
+   * spec-360 t-4 (dec-4): the pending propose-then-confirm change the assistant
+   * has drafted, parsed from the `propose_scaffold_change` tool result. The
+   * Scaffold Inspect surface renders it composed in the live preview for the
+   * admin to approve/reject. `null` when there is no proposal in flight.
+   */
+  scaffoldProposal: ScaffoldProposal | null;
+  /** Clear the pending proposal (after approve or reject). */
+  clearScaffoldProposal: () => void;
+  /**
+   * spec-360: where the assistant has navigated the on-screen scaffold via the
+   * `render_navigate` tool — the Scaffold Inspect surface selects that
+   * circumstance in the right pane and pulses the timeline control that leads
+   * there. `null` until the first navigation this scaffold-mode entry.
+   */
+  scaffoldNav: ScaffoldNav | null;
+  /**
+   * spec-360 t-1 (dec-6): fire the scaffold assistant's opening turn ONCE on
+   * Scaffold Inspect mount — the assistant introduces itself (explain + propose).
+   * The `seed` is the greet-only instruction (SCAFFOLD_OPENING_TURN_SEED). No-ops
+   * outside scaffold mode and after the first fire.
+   */
+  startScaffoldOpeningTurn: (seed: string) => void;
   sendMessage: (text: string) => void;
   stopStreaming: () => void;
   respondToUiTool: (toolId: string, result: string) => void;
@@ -100,10 +152,19 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const docIdRef = useRef<string | null>(null);
   // spec-143 t-4 (dec-6): the agent mode. State drives the UI (ChatPanel's
   // input-enable check via isDriftMode); the ref mirrors it so the async
-  // sendMessage / startDriftOpeningTurn closures read the current mode without
+  // sendMessage / opening-turn closures read the current mode without
   // re-subscribing to it (same pattern as docIdRef). Default 'spec'.
-  const [agentMode, setAgentModeState] = useState<'spec' | 'drift'>('spec');
-  const agentModeRef = useRef<'spec' | 'drift'>('spec');
+  const [agentMode, setAgentModeState] = useState<'spec' | 'drift' | 'scaffold' | 'standards' | 'issues'>('spec');
+  const agentModeRef = useRef<'spec' | 'drift' | 'scaffold' | 'standards' | 'issues'>('spec');
+  // spec-360 t-4 (dec-4): the pending propose-then-confirm change, parsed from a
+  // `propose_scaffold_change` tool result. Drives the live preview on the
+  // Scaffold Inspect surface.
+  const [scaffoldProposal, setScaffoldProposal] = useState<ScaffoldProposal | null>(null);
+  // spec-360: where the assistant has navigated the on-screen scaffold (the
+  // render_navigate UI tool). `seq` increments per navigation so a
+  // repeat to the same target still drives the surface effect.
+  const [scaffoldNav, setScaffoldNav] = useState<ScaffoldNav | null>(null);
+  const scaffoldNavSeqRef = useRef(0);
   // Track Anthropic-format messages for the graph
   const anthropicMessagesRef = useRef<MessageParam[]>([]);
   // Id of the placeholder assistant message for the CURRENT streaming turn.
@@ -166,6 +227,90 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     anthropicMessagesRef.current = [];
     openingTurnStartedForRef.current = null;
   }, []);
+
+  // spec-360 t-1 (dec-1/dec-6): enter / leave scaffold mode. Mirrors drift —
+  // entering wipes any prior doc-bound thread (the scaffold assistant is a
+  // fresh, memex-scoped conversation) and unbinds docId; leaving resets to the
+  // default 'spec' agent. Both update the ref synchronously so the async send
+  // closures read the current mode immediately. Idempotent on re-entry.
+  const enterScaffoldMode = useCallback(() => {
+    if (agentModeRef.current === 'scaffold') return;
+    agentModeRef.current = 'scaffold';
+    setAgentModeState('scaffold');
+    docIdRef.current = null;
+    setDocIdState(null);
+    abortRef.current?.abort();
+    setMessages([]);
+    setError(null);
+    setContextChips([]);
+    setRespondedToolIds(new Set());
+    anthropicMessagesRef.current = [];
+    openingTurnStartedForRef.current = null;
+    setScaffoldProposal(null);
+    setScaffoldNav(null);
+    scaffoldNavSeqRef.current = 0;
+  }, []);
+
+  const exitScaffoldMode = useCallback(() => {
+    if (agentModeRef.current === 'spec') return;
+    agentModeRef.current = 'spec';
+    setAgentModeState('spec');
+    abortRef.current?.abort();
+    setMessages([]);
+    setError(null);
+    setContextChips([]);
+    setRespondedToolIds(new Set());
+    anthropicMessagesRef.current = [];
+    openingTurnStartedForRef.current = null;
+    setScaffoldProposal(null);
+    setScaffoldNav(null);
+    scaffoldNavSeqRef.current = 0;
+  }, []);
+
+  const clearScaffoldProposal = useCallback(() => setScaffoldProposal(null), []);
+
+  // spec-389 t-5 (dec-2): enter / leave the standards + issues agent modes.
+  // Mirror drift — entering wipes any prior thread and unbinds docId (these are
+  // fresh, memex-scoped conversations); leaving resets to the default 'spec'
+  // agent. Both update the ref synchronously so the async send / opening-turn
+  // closures read the current mode immediately. Idempotent on re-entry.
+  const enterScopedMode = useCallback(
+    (mode: 'standards' | 'issues') => {
+      if (agentModeRef.current === mode) return;
+      agentModeRef.current = mode;
+      setAgentModeState(mode);
+      docIdRef.current = null;
+      setDocIdState(null);
+      abortRef.current?.abort();
+      setMessages([]);
+      setError(null);
+      setContextChips([]);
+      setRespondedToolIds(new Set());
+      anthropicMessagesRef.current = [];
+      openingTurnStartedForRef.current = null;
+    },
+    [],
+  );
+  const exitScopedMode = useCallback(() => {
+    if (agentModeRef.current === 'spec') return;
+    agentModeRef.current = 'spec';
+    setAgentModeState('spec');
+    abortRef.current?.abort();
+    setMessages([]);
+    setError(null);
+    setContextChips([]);
+    setRespondedToolIds(new Set());
+    anthropicMessagesRef.current = [];
+    openingTurnStartedForRef.current = null;
+  }, []);
+  const enterStandardsMode = useCallback(
+    () => enterScopedMode('standards'),
+    [enterScopedMode],
+  );
+  const enterIssuesMode = useCallback(
+    () => enterScopedMode('issues'),
+    [enterScopedMode],
+  );
 
   // Hard-reset the conversation on every Spec open.
   //
@@ -231,6 +376,12 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         ]);
       },
       onToolResult: (toolId: string, result: string) => {
+        // spec-360 t-4 (dec-4): a `propose_scaffold_change` result carries a
+        // structured proposal after a marker. Lift it into reactive state so the
+        // Scaffold Inspect surface renders it composed in the live preview for
+        // the admin to approve. A refusal/pushback carries no marker → no card.
+        const proposal = parseScaffoldProposal(result);
+        if (proposal) setScaffoldProposal(proposal);
         // Tool results are agent-facing prompts: the outcome sentence leads,
         // and nudges ("call create_ac({…})", ref dumps) start after the first
         // blank line per the tool-specs.ts convention. Show the human only
@@ -251,10 +402,24 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         const currentId = streamingAssistantIdRef.current;
         streamingAssistantIdRef.current = null;
 
+        // spec-360: render_navigate is a pure side-effect — it drives
+        // the on-screen surface, not a chat widget. Lift its target into reactive
+        // state (with a bumped seq so a repeat re-navigates) and don't render it.
+        for (const block of content) {
+          if (block.type === 'tool_use' && block.name === 'render_navigate') {
+            const t = (block.input ?? {}) as ScaffoldNavTarget;
+            scaffoldNavSeqRef.current += 1;
+            setScaffoldNav({ target: t, seq: scaffoldNavSeqRef.current });
+          }
+        }
+
         const hasUiTool = content.some(
-          (b) => b.type === 'tool_use' && UI_TOOL_NAMES.has(b.name)
+          (b) =>
+            b.type === 'tool_use' &&
+            UI_TOOL_NAMES.has(b.name) &&
+            b.name !== 'render_navigate'
         );
-        if (!hasUiTool) return; // Pure-text turn — placeholder already has correct content.
+        if (!hasUiTool) return; // Pure-text (or nav-only) turn — placeholder already correct.
 
         const rebuilt: ChatMessage[] = [];
         for (const block of content) {
@@ -265,7 +430,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
               content: block.text,
               timestamp: new Date(),
             });
-          } else if (block.type === 'tool_use' && UI_TOOL_NAMES.has(block.name)) {
+          } else if (
+            block.type === 'tool_use' &&
+            UI_TOOL_NAMES.has(block.name) &&
+            block.name !== 'render_navigate'
+          ) {
             rebuilt.push({
               id: nextId(),
               role: 'ui_tool',
@@ -341,17 +510,20 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     [isStreaming, contextChips, invoke, makeCallbacks]
   );
 
-  // spec-143 t-4 (dec-6): the drift agent's opening turn — the memex-scoped drift
-  // agent streams a greeting on Drift Inbox mount: no bound doc, no per-doc
-  // conversation save. Fires at most once per drift-mode entry — guarded by
-  // openingTurnStartedForRef (keyed 'drift'), which enterDriftMode resets. The
-  // seed is sent as the agent's user message but never shown as a user bubble. On
-  // mount the agent summarizes the open drift and suggests next actions (the seed
-  // instructs it to greet only).
-  const startDriftOpeningTurn = useCallback(
+  // spec-389 (dec-1): the drift agent opens with the shared STATIC AgentIntro card,
+  // NOT an opening LLM turn — so there is no startDriftOpeningTurn. Its controller
+  // only enters/leaves drift mode; the first LLM call happens when the user types.
+
+  // spec-360 t-1 (dec-6): the scaffold assistant's opening turn — mirror of the
+  // drift one. The memex-scoped scaffold assistant streams a greeting on Scaffold
+  // Inspect mount (no bound doc, no per-doc save), so the viewer arrives to the
+  // scaffold assistant introducing itself — not a cold panel that answers the
+  // first question as the generic doc agent. Fires at most once per scaffold-mode
+  // entry, guarded by openingTurnStartedForRef keyed 'scaffold'.
+  const startScaffoldOpeningTurn = useCallback(
     async (seed: string) => {
-      if (agentModeRef.current !== 'drift') return;
-      const guardKey = 'drift';
+      if (agentModeRef.current !== 'scaffold') return;
+      const guardKey = 'scaffold';
       if (openingTurnStartedForRef.current === guardKey) return;
       if (isStreaming) return;
       openingTurnStartedForRef.current = guardKey;
@@ -367,7 +539,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           userMessage: seed,
           docId: null,
           existingMessages: [],
-          agentMode: 'drift',
+          agentMode: 'scaffold',
           callbacks: makeCallbacks(),
           signal: controller.signal,
         });
@@ -385,6 +557,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     },
     [isStreaming, invoke, makeCallbacks],
   );
+
+  // spec-389 (dec-1): the standards / issues agents open with the shared STATIC
+  // AgentIntro card, NOT an opening LLM turn (unlike the drift agent) — so there is
+  // no startScopedOpeningTurn. Their controllers only enter/leave the scoped mode;
+  // the first LLM call happens when the user types.
 
   const respondToUiTool = useCallback(
     async (toolId: string, result: string) => {
@@ -420,9 +597,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           });
         } else if (!UI_TOOL_NAMES.has(block.name)) {
           // Server tool — execute it now (mixed server+UI case). spec-143 t-4
-          // (dec-6): forward drift mode + docId so a confirmed drift mutation
-          // (e.g. flag_drift after render_confirmation) runs on the drift surface.
-          const toolMode = agentModeRef.current === 'drift' ? 'drift' : undefined;
+          // (dec-6) / spec-360 t-1: forward the mode + docId so a confirmed
+          // mutation runs on the right (drift/scaffold) surface.
+          const toolMode =
+            agentModeRef.current === 'spec' ? undefined : agentModeRef.current;
           try {
             const serverResult = await executeToolRemote(
               block.name,
@@ -535,7 +713,18 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         isDriftMode: agentMode === 'drift',
         enterDriftMode,
         exitDriftMode,
-        startDriftOpeningTurn,
+        isScaffoldMode: agentMode === 'scaffold',
+        enterScaffoldMode,
+        exitScaffoldMode,
+        isStandardsMode: agentMode === 'standards',
+        isIssuesMode: agentMode === 'issues',
+        enterStandardsMode,
+        enterIssuesMode,
+        exitScopedMode,
+        scaffoldProposal,
+        clearScaffoldProposal,
+        scaffoldNav,
+        startScaffoldOpeningTurn,
         sendMessage,
         stopStreaming,
         respondToUiTool,

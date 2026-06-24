@@ -50,9 +50,21 @@ const READ_ONLY = new Set<string>([
   "search_issues",
   // Roles (spec-118): the read side of the roles tool surface.
   "get_spec_roles",
+  // spec-360: propose_scaffold_change returns a structured PROPOSAL and writes
+  // nothing — the write happens only on the admin's approval through the
+  // existing scaffold route — so readOnlyHint: true.
+  "propose_scaffold_change",
 ]);
 
-const DESTRUCTIVE = new Set<string>(["delete_task", "delete_ac", "kick_task_to_issue"]);
+// spec-358: discontinue_test_events now hard-deletes the orphan's emissions
+// (irreversible row removal), so it is destructive. The old soft-hide/restore
+// pair is gone.
+const DESTRUCTIVE = new Set<string>([
+  "delete_task",
+  "delete_ac",
+  "kick_task_to_issue",
+  "discontinue_test_events",
+]);
 
 describe("regression: MCP tool annotations (b-31 W2)", () => {
   it("every shared spec carries annotations", () => {

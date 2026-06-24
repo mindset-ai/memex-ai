@@ -18,12 +18,15 @@
 // `spec-readiness.ts` and b-67's `tool-manifest.ts`.
 
 import type { ToolManifestEntry } from './tool-manifest.js';
+import type { SpecPhase } from './spec-readiness.js';
 
 // ──────────────────────────────────────────────────────────────────────────
-// Phase + transition vocabulary. Mirrors `SpecPhase` in spec-readiness.ts.
+// Phase + transition vocabulary. spec-355 dry-1: `Phase` IS the canonical
+// `SpecPhase` from spec-readiness.ts (kept as a local alias so the scaffold
+// model's `Phase` name and all its consumers are untouched).
 // ──────────────────────────────────────────────────────────────────────────
 
-export type Phase = 'draft' | 'specify' | 'build' | 'verify' | 'done';
+export type Phase = SpecPhase;
 
 /** Forward transitions only. Backward moves don't carry rubric prose. */
 export type Transition = 'specify' | 'build' | 'verify' | 'done';
@@ -276,12 +279,14 @@ export interface ToButtonPromptInput {
 export function toPromptBlocks(
   dataset: ScaffoldDataset,
   phase: Phase,
+  excludeIds?: ReadonlySet<string>,
 ): SystemBlock[] {
   const phaseNode = dataset.phases.find((p) => p.phase === phase);
   if (!phaseNode) return [];
   const byId = new Map(dataset.promptBlocks.map((b) => [b.id, b]));
   const blocks: SystemBlock[] = [];
   for (const id of phaseNode.promptBlockIds) {
+    if (excludeIds?.has(id)) continue;
     const block = byId.get(id);
     if (!block) continue;
     if (block.surface !== 'react_only') continue;

@@ -230,7 +230,7 @@ export function createGuidePublicRouter(upgradeWebSocket: UpgradeWebSocket): Hon
 
     // IP rate-limit (t-11 → ac-15). Over-limit → 429.
     const ip = clientIp(c);
-    const rl = rateLimit("guideSession", ip, AUTH_LIMITS.guideSession);
+    const rl = await rateLimit("guideSession", ip, AUTH_LIMITS.guideSession);
     if (!rl.ok) {
       c.header("Retry-After", String(rl.retryAfterSec ?? 1));
       return c.json(

@@ -81,10 +81,10 @@ async function visitorRow(id: string) {
   return row;
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   sender = new CapturingSender();
   setEmailSender(sender);
-  resetRateLimits();
+  await resetRateLimits();
 });
 
 afterAll(async () => {

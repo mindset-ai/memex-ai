@@ -19,6 +19,10 @@ RUN pnpm install --frozen-lockfile --ignore-scripts
 
 # Build @memex/shared first, then @memex/server.
 FROM deps AS build
+# Root base tsconfig the package tsconfigs extend (spec-356) — must be present
+# at /app before any `tsc` runs, or builds fail with TS5083 (can't read
+# ../../tsconfig.base.json). The build context is the repo root (see header).
+COPY tsconfig.base.json ./
 COPY packages/shared ./packages/shared
 COPY packages/server/tsconfig.json packages/server/tsconfig.build.json ./packages/server/
 COPY packages/server/src ./packages/server/src

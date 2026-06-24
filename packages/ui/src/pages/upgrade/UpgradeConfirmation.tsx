@@ -47,20 +47,35 @@ export function UpgradeConfirmation() {
 
   const routerState = location.state as ConfirmationState | null;
   const sessionId = searchParams.get('session_id');
+  const orgParam = searchParams.get('org');
 
-  // spec-171 t-25 / dec-40: billing is per-org. After a Stripe redirect the
-  // router state is gone, so we poll the live subscription — but it MUST target
-  // the org that was upgraded, not the session's current (personal) Memex (which
-  // is always 'free' → the poll would never resolve and the paying user would
-  // see "Finalizing…" forever). When the caller administers exactly one org we
-  // can resolve it unambiguously; with several we can't tell from the
-  // confirmation page alone, so the poll falls back to the session current and
-  // simply times out into the "active" view (the webhook still applied the tier).
+  // spec-171 t-25 / dec-40 / issue-16: billing is per-org. After a Stripe
+  // redirect the router state is gone, so we poll the live subscription — but it
+  // MUST target the org that was upgraded, not the session's current (personal)
+  // Memex (which is always 'free' → the poll would never resolve and the paying
+  // user would see "Finalizing…" forever).
+  //   - Preferred: the `org=<ns>/<mx>` param the success_url carries (issue-16)
+  //     names the purchased org unambiguously.
+  //   - Fallback: when the param is absent (legacy link) and the caller
+  //     administers exactly one org, resolve it from the session. With several
+  //     orgs and no param we can't tell, so the poll falls back to the session
+  //     current and times out into the "active" view (the webhook still applied
+  //     the tier).
   const adminOrgs = useMemo(() => deriveAdminOrgs(session), [session]);
+  const paramTenant = useMemo(() => {
+    if (!orgParam) return undefined;
+    const slash = orgParam.indexOf('/');
+    if (slash <= 0 || slash === orgParam.length - 1) return undefined;
+    return {
+      namespace: orgParam.slice(0, slash),
+      memexSlug: orgParam.slice(slash + 1),
+    };
+  }, [orgParam]);
   const orgTenant =
-    adminOrgs.length === 1
+    paramTenant ??
+    (adminOrgs.length === 1
       ? { namespace: adminOrgs[0].namespace, memexSlug: adminOrgs[0].memexSlug }
-      : undefined;
+      : undefined);
 
   const [sub, setSub] = useState<SubscriptionDto | null>(null);
   const [finalizing, setFinalizing] = useState(!routerState && !!sessionId);
@@ -95,10 +110,17 @@ export function UpgradeConfirmation() {
     return () => {
       cancelled = true;
     };
-    // orgTenant is derived from the single admin org; key the effect on its id
-    // (a stable primitive) rather than the fresh object to avoid a re-poll loop.
+    // orgTenant is derived from the `org` param (preferred) or the single admin
+    // org; key the effect on stable primitives (the raw param + the resolved
+    // single-org id) rather than the fresh object to avoid a re-poll loop.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [routerState, sessionId, token, adminOrgs.length === 1 ? adminOrgs[0].orgId : null]);
+  }, [
+    routerState,
+    sessionId,
+    token,
+    orgParam,
+    adminOrgs.length === 1 ? adminOrgs[0].orgId : null,
+  ]);
 
   // Neither in-app state nor a Stripe session id → nothing to confirm.
   if (!routerState && !sessionId) return <Navigate to="/upgrade" replace />;

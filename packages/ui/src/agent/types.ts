@@ -43,7 +43,10 @@ export type LlmProxyEvent =
  * server endpoint (the system prompt is identical for those two phases —
  * see dec-1 of doc-12).
  */
-export type SpecPhase = 'draft' | 'specify' | 'build' | 'verify' | 'done';
+// spec-355 dry-1: single SpecPhase definition lives in @memex/shared. Re-exported
+// here so existing `import { SpecPhase } from '../agent/types'` call sites are
+// untouched.
+export type { SpecPhase } from '@memex/shared';
 
 /**
  * Tool-name regex matching mutation tools. The `doneAgent` path filters any
@@ -61,6 +64,9 @@ export const UI_TOOL_NAMES = new Set([
   'render_progress',
   'render_callout',
   'render_steps',
+  'render_navigate',
+  'render_quote',
+  'render_handoff',
 ]);
 
 /**
@@ -82,4 +88,7 @@ export const DISPLAY_UI_TOOL_NAMES = new Set([
   'render_progress',
   'render_callout',
   'render_steps',
+  'render_navigate',
+  'render_quote',
+  'render_handoff',
 ]);

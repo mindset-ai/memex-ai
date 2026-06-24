@@ -1,4 +1,4 @@
-# CLAUDE.md - Memex App
+# CLAUDE.md - Memex
 
 This file is a pointer. The system of record is Memex itself.
 
@@ -48,14 +48,26 @@ mcp__memex__get_doc({ref: "mindset-prod/memex-building-itself/standards/std-N"})
 | std-15 | Agent prompts live in `packages/server/src/agent/phases/` markdown, never inline in code. |
 | std-16 | The coding-agent tool contract has one source — the `@memex/shared` manifest. |
 | std-17 | Smoke tests are mandatory and run against live envs — int after every deploy, green before prod. |
+| std-18 | Spec anatomy — the lens set every Spec carries: core lenses (Overview, Design & UX, Architecture & Security) always present; adaptive lenses (Operations, …) added when the work earns them. Decisions and ACs are primitives, not prose sections. |
 | std-19 | Specs are SDD's canonical artifact — every unit of work is a Spec; "Spec" is the noun. |
 | std-20 | Spec-Driven Development — drift is the enemy; the Spec is a living node in a knowledge map. |
 | std-21 | Branch structure — `develop` integrates work; `main` is the production line (fast-forward only, branch-bound deploy targets, main-only licence carve-out). |
 | std-22 | Everything we ship runs against arbitrary codebases — portable artifacts (prompts, scaffold prose, Prompt Buttons, Init Prompts, in-repo tools) assume no language, framework, layout, file paths, or tooling. |
-| std-24 | One version per shared library across the pnpm workspace, enforced by `pnpm.overrides` (today: vitest, `@vitest/coverage-v8`, `@types/node`). Exact pins in each package's devDependencies; new dep families added to the root overrides. |
+| std-23 | Prompt Buttons are the standard human→agent handoff — prompt prose lives in the Scaffold (`scaffold-data.ts`), never inline; copy-to-clipboard; Org-extensible (append-only). |
+| std-24 | One version per shared library across the pnpm workspace, enforced by `pnpm.overrides` (today: vitest, `@vitest/coverage-v8`, `@types/node`, `react`/`react-dom`, `typescript`; plus security-floor pins `esbuild`/`form-data`/`protobufjs`). Exact pins in each package's devDependencies; new dep families added to the root overrides. |
+| std-25 | Every Spec classifies its work as fair-code (open core) or EE — the licence boundary is decided per-Spec, up front, not retrofitted. |
+| std-26 | Deploying Memex follows one runbook — prerequisites, the int→prod sequence, and the gotchas that bite (the procedural sibling of std-9's topology). |
 | std-27 | Charts & data-viz: one theme-aware palette + glass treatment — `useChartPalette()`/`insightsTheme` from `packages/ui/src/components/insights/theme.ts`, reserved hue semantics, translucent fills with crisp edges, integer count ticks, themed tooltips, noise excluded server-side. |
 | std-28 | PR-gate e2e journeys are mandatory — every change that adds/alters a user-facing flow adds or extends a Playwright journey in `packages/ui/e2e`; journey work is part of EVERY Spec's lifecycle (surfaced in plan, delivered in build, gating verify); run `make e2e-cold` before opening every PR; the suite runs per-PR against a cold DB and is a required check on develop + main; path-based nav, seed via the env-gated test surface (no raw SQL). The merge-side sibling of std-17's post-deploy smoke rule. Authoring a journey + local-run gotchas (cold-DB `PGPASSWORD`, stale `@memex/shared` build, browser install): [`packages/ui/e2e/README.md`](packages/ui/e2e/README.md). |
+| std-29 | Guide content (Specky) stays current with the UI it documents — content changes ride alongside the surfaces they describe. |
+| std-30 | All LLM access goes through the metering wrapper (`getAnthropicClient()` singleton) — the only sanctioned path; direct `new Anthropic(...)` construction is forbidden. |
+| std-31 | No real person or customer names in this public Memex (it builds itself in the open). |
 | std-32 | The activity contract — every activity-bearing table (`documents`/`acs`/`tasks`/`decisions`/`doc_sections`/`doc_comments`/`test_events`/`activity_log`) carries WHEN (`at`, the row's own timestamp) + WHO (`actor_user_id` + denormalised `actor_name`, stamped at write so a rename can't rewrite history) + HOW (`channel`) + WHAT-coarse (owning-spec ref); load-bearing fields are first-class columns, only decorative context lives in `metadata`/`payload`. Identity rides the explicit `RequestCtx` through `mutate()` (not AsyncLocalStorage); a missing channel is a visible defect, never a silent 'server'. The attribution sibling of std-8 (spec-122 dec-2). |
+| std-33 | Embedding the guide SDK (Specky) — pluggable navigation + RAG, vendored `dist/`, host-injected backend (`@memex/guide-sdk`). |
+| std-34 | No human-facing surface instructs an MCP-only step — signal the web↔MCP capability boundary in copy (the honest-CTA rule). |
+| std-35 | Usage events / Mixpanel — the metering + product-analytics event recipe. |
+| std-36 | Tenant RLS posture — `ENABLE` row-level security, never `FORCE`; `runWithMemexId` ALS sets `memex_id`; views are `security_invoker`. |
+| std-37 | Test fixtures are isolated under parallel execution — per-worker-unique identifiers, poll for async writes, restore global stubs. |
 
 If a Standard contradicts the code, the Standard is probably right and the code has drifted — flag it.
 
@@ -75,10 +87,13 @@ Local Postgres connection string: `postgresql://postgres:postgres@localhost:5432
 
 ```
 packages/server/    Hono API, Drizzle ORM, auth, email, AI agent, MCP endpoint
-packages/ui/     React 19 UI (Vite, TailwindCSS) — the "React UI"
+packages/ui/        React 19 UI (Vite, TailwindCSS) — the "React UI"
 packages/cli/       memex-ai npm package (MCP installer, zero-dep)
 packages/extractor/ Code intelligence ingestion
-packages/shared/    Shared types/utilities
+packages/shared/    Shared types/utilities (pure — no server deps)
+packages/guide-sdk/    Embeddable guide SDK (Specky) — std-33
+packages/db-schema/    Standalone Drizzle schema, published to the GitHub npm registry (Backstage control plane)
+packages/ac-emit-vitest/  `@memex-ai/vitest` — the AC test-event emitter for Vitest
 scripts/deploy-config.sh    env-keyed deploy values (std-9 documents this)
 Makefile / deploy.sh / docker-compose.yml / Rakefile
 ```
@@ -95,9 +110,9 @@ Memex is [**fair-code**](https://faircode.io/) (open core). Two licenses, and **
 | Files with **`.ee.` in the filename** or **`.ee` as a dirname** | [Memex Enterprise License](LICENSE_EE.md) | Requires a valid Memex Enterprise license |
 
 ```
-packages/server/src/services/sso.ee.ts              # filename marker
-packages/server/src/services/audit/.ee/recorder.ts  # dirname marker
-packages/ui/src/components/.ee/RbacMatrix.tsx     # dirname marker
+packages/server/src/routes/.ee/slack.integration.test.ts   # filename marker (.ee. test)
+packages/server/src/services/.ee/slack/oauth.ts            # dirname marker (.ee/ cluster)
+packages/ui/src/components/.ee/SlackIntegrationSection.tsx # dirname marker (.ee/ cluster)
 ```
 
 Rules to respect when working in this repo:
