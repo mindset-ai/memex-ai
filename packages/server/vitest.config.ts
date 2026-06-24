@@ -152,9 +152,19 @@ export default defineConfig({
       provider: "v8",
       reporter: ["text", "html", "json-summary"],
       reportsDirectory: "./coverage",
-      // Only measure what we actually want to gate on. Excluding entry points, type-only
-      // files, generated migrations, and test scaffolding keeps the ratio meaningful.
-      include: ["src/services/**/*.ts"],
+      // spec-390 (spec-388 dec-1): the gate measures the integration-covered surfaces,
+      // not just unit-tested services. Before this, `include` was ["src/services/**"]
+      // only, so the 234 DB-backed route/mcp/agent/middleware tests were INVISIBLE to
+      // the gate — it flattered rather than protected. The include now spans the
+      // surfaces those tests actually exercise. Entry points, type-only files, generated
+      // migrations, and test scaffolding stay excluded so the ratio is meaningful.
+      include: [
+        "src/services/**/*.ts",
+        "src/routes/**/*.ts",
+        "src/mcp/**/*.ts",
+        "src/agent/**/*.ts",
+        "src/middleware/**/*.ts",
+      ],
       exclude: [
         "**/*.test.ts",
         "**/*.integration.test.ts",
@@ -163,18 +173,60 @@ export default defineConfig({
         "**/*.perf.test.ts",
         "**/*.regression.test.ts",
         "src/services/test-helpers.ts",
+        // route/test scaffolding that is itself test infra, not gated product code.
+        "src/routes/route-test-helpers.ts",
+        "src/routes/__test__.ts",
       ],
-      // t-17 AC: fail if server service coverage drops below 80%. Lines/statements/
-      // functions pinned at 80. Branch coverage is held at 70 because a handful of
-      // service files have defensive `if` branches that are only reachable via tests
-      // we haven't written yet (e.g., `shared/blockers.ts` is exercised through route
-      // tests that mock it, so its branches don't register here). Raise this bar as
-      // direct unit coverage lands.
+      // spec-390 (spec-388 dec-1): TIERED, per-glob thresholds rather than one flat
+      // floor. Logic-heavy dirs (services, middleware) hold a high bar; presentational/
+      // glue dirs (routes/mcp/agent) sit on a ratchet-only "don't-let-it-slip" floor at
+      // the honest post-expansion baseline, because the Playwright e2e suite is the
+      // behavioural net for those [per std-28]. Each floor sits a few points BELOW the
+      // 2026-06-24 measured actuals so the gate is stable, not flaky, and blocks on a
+      // real per-dir slip rather than being masked by a global average. Coverage is a
+      // merge-time aggregate enforced once on the merged shards [per spec-276 dec-2];
+      // this config change takes effect in CI with NO workflow edit. Ratcheting these
+      // floors upward is the deferred [L] item, out of spec-390's scope.
+      //
+      // Measured branch actuals → floor: services 73.7→70 (PRESERVES the original t-17
+      // 80/80/70/80 exactly), middleware 84.8→80, agent 66.8→60, routes 59.2→55,
+      // mcp 43.8→40 (lowest). The top-level default catches any file matched by the
+      // include but not by a glob below.
       thresholds: {
-        lines: 80,
-        functions: 80,
-        branches: 70,
-        statements: 80,
+        lines: 70,
+        functions: 70,
+        branches: 40,
+        statements: 70,
+        "src/services/**": {
+          lines: 80,
+          functions: 80,
+          branches: 70,
+          statements: 80,
+        },
+        "src/middleware/**": {
+          lines: 85,
+          functions: 85,
+          branches: 80,
+          statements: 85,
+        },
+        "src/agent/**": {
+          lines: 72,
+          functions: 70,
+          branches: 60,
+          statements: 72,
+        },
+        "src/routes/**": {
+          lines: 68,
+          functions: 65,
+          branches: 55,
+          statements: 68,
+        },
+        "src/mcp/**": {
+          lines: 55,
+          functions: 65,
+          branches: 40,
+          statements: 55,
+        },
       },
     },
   },
