@@ -313,3 +313,55 @@ describe("emit() — transport injection & module-load capture (spec-302)", () =
     expect(capturedFetch).not.toBe(leakyStub);
   });
 });
+
+// spec-333 — on a non-2xx the emitter must surface the server's RESPONSE BODY (not just the
+// status code), so the actionable guidance a 401 carries (e.g. "call provision_ac_emission")
+// reaches the agent reading test output. Surfacing the body must NOT break the fail-safe
+// contract: emit() still never throws and never fails the test run.
+const AC_333 = "mindset-prod/memex-building-itself/specs/spec-333/acs";
+
+describe("emit() — surfaces the server response body on non-2xx (spec-333 ac-8)", () => {
+  beforeEach(() => {
+    vi.stubEnv("MEMEX_EMIT", ""); // emission on
+    vi.stubEnv("MEMEX_EMIT_KEY", "");
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  it("includes the response body text in the warning, and never throws (ac-8)", async () => {
+    tagAc(`${AC_333}/ac-8`);
+    tagAc(`${AC_333}/ac-3`); // scope outcome: emitter surfaces the body, never fails the run
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const transport = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 401,
+      headers: new Headers(),
+      text: async () => "call provision_ac_emission for a fresh key",
+    });
+
+    await expect(emit(baseArgs, transport)).resolves.toBeUndefined();
+    const warned = warnSpy.mock.calls.flat().join(" ");
+    expect(warned).toContain("call provision_ac_emission for a fresh key");
+    expect(warned).toContain("401");
+    warnSpy.mockRestore();
+  });
+
+  it("stays fail-safe when the body itself can't be read (degrades to status-only, never throws) (ac-8)", async () => {
+    tagAc(`${AC_333}/ac-8`);
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    // A response object with no text() method: the guarded body read swallows the failure and
+    // the warning still lands with the status code. The run must not go red.
+    const transport = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 503,
+      headers: new Headers(),
+    });
+
+    await expect(emit(baseArgs, transport)).resolves.toBeUndefined();
+    const warned = warnSpy.mock.calls.flat().join(" ");
+    expect(warned).toContain("503");
+    warnSpy.mockRestore();
+  });
+});

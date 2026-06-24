@@ -61,8 +61,12 @@ import {
   META_MAX_KEYS,
   META_MAX_VALUE_CHARS,
 } from "./test-events.js";
+// spec-333: the mocked emission-keys module (see vi.mock above) — imported so individual
+// tests can override verifyEmissionKey to exercise the scoped-key / missing-key 401 paths.
+import { verifyEmissionKey } from "../services/emission-keys.js";
 
 const AC = "mindset-prod/memex-building-itself/specs/spec-115/acs";
+const AC333 = "mindset-prod/memex-building-itself/specs/spec-333/acs";
 
 const app = new Hono();
 app.route("/api/test-events", testEventsRouter);
@@ -360,6 +364,80 @@ describe("POST /api/test-events — overflow behaviour (drop + warn)", () => {
       }),
     });
     expect(insertSpy).toHaveBeenCalled();
+  });
+});
+
+describe("POST /api/test-events — spec-333: agent-actionable 401 bodies", () => {
+  it("missing/invalid/expired-key 401 tells a coding agent to call provision_ac_emission, still routing CI to a key (ac-6)", async () => {
+    tagAc(`${AC333}/ac-6`);
+    tagAc(`${AC333}/ac-1`); // scope outcome: an expired-key agent sees the re-provision instruction
+    // No Authorization header → rawKey is "" → emissionKey resolves null without even calling
+    // verifyEmissionKey: this is the SAME branch a missing, invalid, OR expired key lands in.
+    const res = await app.request("/api/test-events", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(validBody),
+    });
+    expect(res.status).toBe(401);
+    const json = (await res.json()) as { message: string };
+    expect(json.message).toContain("provision_ac_emission");
+    expect(json.message).toMatch(/expired/i); // covers the expired case without an oracle
+    expect(json.message).toContain("MEMEX_EMIT_KEY"); // CI path still named
+  });
+
+  it("wrong-spec scoped-key 401 names BOTH Specs and gives the provision_ac_emission call for the target (ac-7)", async () => {
+    tagAc(`${AC333}/ac-7`);
+    tagAc(`${AC333}/ac-2`); // scope outcome: wrong-spec failure names both Specs + the fix
+    // A scoped (agent) key for spec-999 emitting against an ac_uid under spec-1.
+    vi.mocked(verifyEmissionKey).mockResolvedValueOnce({
+      id: "key-1",
+      memexId: "memex-1",
+      scopedSpecHandle: "spec-999",
+    } as never);
+    const res = await app.request("/api/test-events", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer mxk_scoped" },
+      body: JSON.stringify(validBody), // ac_uid → mindset-prod/foo/specs/spec-1/acs/ac-1
+    });
+    expect(res.status).toBe(401);
+    const json = (await res.json()) as { message: string };
+    expect(json.message).toContain("spec-999"); // the key's scoped Spec
+    expect(json.message).toContain("spec-1"); // the target Spec
+    expect(json.message).toContain("provision_ac_emission");
+    expect(json.message).toContain("mindset-prod/foo/specs/spec-1"); // the exact target ref
+  });
+});
+
+describe("POST /api/test-events — spec-333: messaging change preserves accept/reject (ac-10)", () => {
+  it("an in-scope scoped key still emits (201) and an out-of-scope scoped key is still rejected (401)", async () => {
+    tagAc(`${AC333}/ac-10`);
+    tagAc(`${AC333}/ac-5`); // scope outcome: security posture (accept/reject) unchanged
+    tagAc(`${AC333}/ac-11`); // deferral held: no scope-widening behaviour shipped
+    // In-scope: the key's scope matches the ac_uid's Spec → accept (unchanged behaviour).
+    vi.mocked(verifyEmissionKey).mockResolvedValueOnce({
+      id: "key-1",
+      memexId: "memex-1",
+      scopedSpecHandle: "spec-1",
+    } as never);
+    const ok = await app.request("/api/test-events", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer mxk_inscope" },
+      body: JSON.stringify(validBody),
+    });
+    expect(ok.status).toBe(201);
+
+    // Out-of-scope: different Spec → reject (unchanged behaviour; only the message text moved).
+    vi.mocked(verifyEmissionKey).mockResolvedValueOnce({
+      id: "key-1",
+      memexId: "memex-1",
+      scopedSpecHandle: "spec-2",
+    } as never);
+    const denied = await app.request("/api/test-events", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer mxk_outscope" },
+      body: JSON.stringify(validBody),
+    });
+    expect(denied.status).toBe(401);
   });
 });
 
