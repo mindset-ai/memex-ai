@@ -10,6 +10,9 @@ export {
   // spec-189: the traffic-driven phase-advancement matrix (the single place
   // the gated transition rules live — ac-3).
   nextPhaseForTraffic,
+  // spec-355 dry-1/dry-2: the canonical ordered phase array — single source of
+  // `['draft','specify','build','verify','done']` for server + UI.
+  PHASE_ORDER,
 } from './spec-readiness.js';
 export type {
   SpecPhase,

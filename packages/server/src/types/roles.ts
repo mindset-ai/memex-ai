@@ -7,6 +7,8 @@
 // schema migrations on every new section type. DOC_TYPES is enumerated below for app-side
 // validation only — the column itself stays free-form.
 
+import { PHASE_ORDER } from "@memex/shared";
+
 export type Role = "member" | "administrator";
 
 export type MembershipStatus = "active" | "disabled";
@@ -103,7 +105,11 @@ export const DOC_STATUSES: readonly DocStatus[] = [
   "build",
   "verify",
 ] as const;
-export const SPEC_STATUSES: readonly SpecStatus[] = ["draft", "specify", "build", "verify", "done"] as const;
+// spec-355 dry-2: the ordered phase array is canonical in @memex/shared.
+// SpecStatus (above) keeps its literal union — it's the server's spec-status
+// enum source and is asserted in the no-legacy-phase-vocab guard — but the
+// ordered LIST reuses the shared array (same five values, same order).
+export const SPEC_STATUSES: readonly SpecStatus[] = PHASE_ORDER;
 export const TASK_STATUSES: readonly TaskStatus[] = ["not_started", "in_progress", "complete"] as const;
 export const DECISION_STATUSES: readonly DecisionStatus[] = ["open", "resolved", "candidate", "rejected"] as const;
 export const COMMENT_TYPES: readonly CommentType[] = [

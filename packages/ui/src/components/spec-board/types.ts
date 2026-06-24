@@ -2,5 +2,7 @@
 // verify → done`. Kanban renders the four active columns; `done` lives in a
 // collapsible rail on the right (dec-5). `approved` is execution-plan-only
 // (t-20 W-B) and never appears on a spec card.
-export type SpecKanbanStatus = 'draft' | 'specify' | 'build' | 'verify' | 'done';
+// spec-355 dry-1: the kanban status set IS the canonical SpecPhase pipeline.
+import type { SpecPhase } from '@memex/shared';
+export type SpecKanbanStatus = SpecPhase;
 export type ActiveStatus = Exclude<SpecKanbanStatus, 'done'>;
