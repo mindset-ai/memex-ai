@@ -26,6 +26,7 @@ import {
   capitalizeDisplayName,
   type GuidanceBlock,
   type PhaseNode,
+  type SpecPhase,
 } from "@memex/shared";
 import type { AcWithVerification } from "../services/acs.js";
 
@@ -913,7 +914,7 @@ export function formatReadyTasks(
 // copy ships regardless of which lands first. Non-Spec docs and any unrecognised
 // status fall back to data-shape inference.
 
-type SpecPhase = "draft" | "specify" | "build" | "verify" | "done";
+// spec-355 dry-1: SpecPhase is canonical in @memex/shared (imported above).
 
 /**
  * sol-4 (spec-368): the single source of phase derivation. Maps a raw doc

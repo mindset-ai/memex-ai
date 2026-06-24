@@ -36,10 +36,12 @@ import { ScopeToggle, type PulseScope } from '../components/pulse/ScopeToggle';
 import { TimeAgo } from '../components/pulse/TimeAgo';
 import { tenantPathFor } from '../utils/tenantUrl';
 import { phaseDisplayName } from '../utils/phaseDisplay';
+import { PHASE_ORDER } from '@memex/shared';
 
 // The phase set the filter exposes, 1:1 with the server's SpecPhase (the
 // documents.status values the Spec rename settled on). All checked by default.
-const PHASES = ['draft', 'specify', 'build', 'verify', 'done'] as const;
+// spec-355 dry-2: the canonical ordered phase array from @memex/shared.
+const PHASES = PHASE_ORDER;
 // spec-164 (scope ac-7): `done` ships UNCHECKED by default — issues on done
 // specs are usually resolved-or-moot, so surfacing them is an explicit opt-in.
 // Any other selection (including done on) serialises to the ?phases= param.

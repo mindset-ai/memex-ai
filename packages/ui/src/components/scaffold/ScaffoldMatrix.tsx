@@ -5,9 +5,10 @@
 // the agent calls at runtime.
 
 import { useMemo } from 'react';
-import { toNudge, type GuidanceBlock, type Phase, type ScaffoldDataset } from '@memex/shared';
+import { PHASE_ORDER, toNudge, type GuidanceBlock, type Phase, type ScaffoldDataset } from '@memex/shared';
 
-const ALL_PHASES: readonly Phase[] = ['draft', 'specify', 'build', 'verify', 'done'] as const;
+// spec-355 dry-2: the canonical ordered phase array (was a local copy).
+const ALL_PHASES: readonly Phase[] = PHASE_ORDER;
 
 interface Props {
   dataset: ScaffoldDataset;

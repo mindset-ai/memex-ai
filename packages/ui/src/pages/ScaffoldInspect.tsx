@@ -31,7 +31,7 @@ import { ScaffoldPhaseView } from '../components/scaffold/ScaffoldPhaseView';
 import { ScaffoldGateView } from '../components/scaffold/ScaffoldGateView';
 import { ScaffoldMatrix } from '../components/scaffold/ScaffoldMatrix';
 import { ScaffoldButtonView } from '../components/scaffold/ScaffoldButtonView';
-import { BASE_SCAFFOLD, type GuidanceBlock, type Phase, type Transition } from '@memex/shared';
+import { BASE_SCAFFOLD, PHASE_ORDER, type GuidanceBlock, type Phase, type Transition } from '@memex/shared';
 
 type Selected =
   | { kind: 'overview' }
@@ -40,7 +40,7 @@ type Selected =
   | { kind: 'button'; buttonId: string }
   | { kind: 'matrix' };
 
-const PHASES: Phase[] = ['draft', 'specify', 'build', 'verify', 'done'];
+const PHASES: Phase[] = [...PHASE_ORDER];
 const TRANSITIONS: Transition[] = ['specify', 'build', 'verify', 'done'];
 
 const TRANSITION_FOR_PHASE: Record<Phase, Transition | null> = {

@@ -1,3 +1,6 @@
+// spec-355 dry-2: the canonical ordered phase array — single source of truth.
+import { PHASE_ORDER } from '@memex/shared';
+
 // Per dec-3 of doc-10 the Spec rename (`review`→`specify`, `implementation`→`build`,
 // plus new `verify`) applies to docType='spec' rows only. The legacy `review` and
 // `implementation` values stay in the union because Standards / Documents / Execution
@@ -18,8 +21,10 @@ export const DOC_STATUSES = [
 export type DocStatus = typeof DOC_STATUSES[number];
 
 // Spec-only lifecycle (dec-3, dec-4): five-step flow rendered by the Spec
-// kanban and offered by the Spec header dropdown.
-export const SPEC_STATUSES = ['draft', 'specify', 'build', 'verify', 'done'] as const;
+// kanban and offered by the Spec header dropdown. spec-355 dry-2: the ordered
+// list is the canonical PHASE_ORDER from @memex/shared, re-exported here as
+// SPEC_STATUSES so existing call sites are untouched.
+export const SPEC_STATUSES = PHASE_ORDER;
 export type SpecStatus = typeof SPEC_STATUSES[number];
 
 // spec-136: a coined tag in a Memex. The wire shape mirrors the server `Tag`

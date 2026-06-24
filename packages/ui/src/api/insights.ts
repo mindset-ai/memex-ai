@@ -1,6 +1,7 @@
 // spec-354 sol-2: carved out of the former all-domains api/client.ts (which
 // is now a barrel re-exporting this module). Behaviour-preserving move only.
 
+import type { SpecPhase } from '@memex/shared';
 import { fetchJson as fetchJsonRaw } from './fetchJson';
 import { fetchWithRetry } from './http';
 import { tBase } from './internal';
@@ -25,7 +26,7 @@ export interface SpecsByPhasePoint {
 }
 
 export interface InPhaseDuration {
-  phase: 'draft' | 'specify' | 'build' | 'verify' | 'done';
+  phase: SpecPhase;
   n: number;
   avgDays: number;
   medianDays: number;
@@ -98,7 +99,7 @@ export async function fetchStandardsGraph(): Promise<StandardsGraphData> {
 }
 
 export interface FunnelStage {
-  phase: 'draft' | 'specify' | 'build' | 'verify' | 'done';
+  phase: SpecPhase;
   count: number;
 }
 

@@ -10,7 +10,7 @@
 // not a security boundary.
 
 import { useState } from 'react';
-import type { GuidanceBlock, GuidanceEmphasis, Phase, Transition } from '@memex/shared';
+import { PHASE_ORDER, type GuidanceBlock, type GuidanceEmphasis, type Phase, type Transition } from '@memex/shared';
 
 interface SubmitInput {
   target: GuidanceBlock['target'];
@@ -33,7 +33,7 @@ interface Props {
   currentMemexLabel?: string;
 }
 
-const PHASES: Phase[] = ['draft', 'specify', 'build', 'verify', 'done'];
+const PHASES: Phase[] = [...PHASE_ORDER];
 const TRANSITIONS: Transition[] = ['specify', 'build', 'verify', 'done'];
 
 export function ScaffoldAdditionEditor({
