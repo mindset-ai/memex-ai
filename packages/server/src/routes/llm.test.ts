@@ -286,7 +286,7 @@ describe("POST /llm/chat", () => {
     // { context: "Mock document context", phase: "specify" }.
     // spec-143 t-4 (dec-6) adds a 5th `driftMode` arg — false here (not drift).
     // spec-180 adds a 6th `integrationState` arg — the resolved integration status.
-    expect(buildSystemBlocks).toHaveBeenCalledWith("Mock document context", "specify", false, false, false, mockIntegrationState);
+    expect(buildSystemBlocks).toHaveBeenCalledWith("Mock document context", "specify", false, false, false, mockIntegrationState, false);
   });
 
   it("uses fallback context when no docId", async () => {
@@ -310,6 +310,8 @@ describe("POST /llm/chat", () => {
       false,
       // spec-180: the 6th integrationState arg — the resolved integration status.
       mockIntegrationState,
+      // spec-360 t-1: the 7th scaffoldMode arg — false here (not scaffold).
+      false,
     );
   });
 
@@ -330,7 +332,7 @@ describe("POST /llm/chat", () => {
     await res.text();
 
     expect(canWriteMemex).toHaveBeenCalledWith("test-user-id", "test-account-id");
-    expect(buildSystemBlocks).toHaveBeenCalledWith("Mock document context", "specify", true, false, false, mockIntegrationState);
+    expect(buildSystemBlocks).toHaveBeenCalledWith("Mock document context", "specify", true, false, false, mockIntegrationState, false);
   });
 
   it("passes readOnly=false to buildSystemBlocks for a writing member (ac-13)", async () => {
@@ -345,7 +347,7 @@ describe("POST /llm/chat", () => {
     });
     await res.text();
 
-    expect(buildSystemBlocks).toHaveBeenCalledWith("Mock document context", "specify", false, false, false, mockIntegrationState);
+    expect(buildSystemBlocks).toHaveBeenCalledWith("Mock document context", "specify", false, false, false, mockIntegrationState, false);
   });
 
   // spec-143 t-4 (dec-6): drift mode — the in-UI drift agent runs against the
@@ -379,6 +381,8 @@ describe("POST /llm/chat", () => {
       false,
       true,
       mockIntegrationState,
+      // spec-360 t-1: the 7th scaffoldMode arg — false here (drift, not scaffold).
+      false,
     );
     expect(getToolDefinitions).toHaveBeenCalledWith({ reviewer: false, mode: "drift" });
   });
@@ -720,7 +724,7 @@ describe("spec-126 review overlay", () => {
     // ac-1: the overlay threads reviewer into the server-built prompt + tool list.
     // spec-143 t-4 (dec-6): the 5th driftMode arg is false here; getToolDefinitions
     // now also receives `mode` (undefined when not in drift mode).
-    expect(buildSystemBlocks).toHaveBeenCalledWith("Mock document context", "specify", false, true, false, mockIntegrationState);
+    expect(buildSystemBlocks).toHaveBeenCalledWith("Mock document context", "specify", false, true, false, mockIntegrationState, false);
     expect(getToolDefinitions).toHaveBeenCalledWith({ reviewer: true, mode: undefined });
   });
 

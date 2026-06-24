@@ -64,7 +64,13 @@ const MCP_ONLY = new Set<string>([
   "list_comments",
 ]);
 
-const AGENT_ONLY_NON_UI = new Set<string>(); // empty: every non-UI agent tool should also be on MCP
+const AGENT_ONLY_NON_UI = new Set<string>([
+  // spec-360: the scaffold assistant's propose-then-confirm authoring tool. It
+  // only makes sense inside the in-app `scaffold` agent mode (it needs the
+  // composed scaffold grounding context), so it is never registered on MCP —
+  // the same one-surface justification as list_memexes being MCP-only.
+  "propose_scaffold_change",
+]); // every other non-UI agent tool is also on MCP
 
 describe("regression: agent ↔ MCP tool coverage parity (doc-14 dec-4)", () => {
   it("every non-UI agent tool is also exposed via MCP", () => {
@@ -120,6 +126,9 @@ describe("regression: agent ↔ MCP tool coverage parity (doc-14 dec-4)", () => 
       "render_progress",
       "render_callout",
       "render_steps",
+      // spec-360: the scaffold assistant's display-only UI tools.
+      "render_scaffold_navigate",
+      "render_scaffold_quote",
     ];
     for (const name of uiNames) {
       expect(agentAll.has(name), `agent should expose ${name}`).toBe(true);

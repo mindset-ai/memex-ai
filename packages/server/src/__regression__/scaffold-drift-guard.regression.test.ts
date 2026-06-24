@@ -507,6 +507,9 @@ describe("b-68 drift-guard: b-67 manifest↔Zod parity test is still present (ac
     // b-67 test pins, and the per-tool parity loop.
     expect(src).toContain("import { toolManifest }");
     expect(src).toContain("manifestVsSpecsDiff");
-    expect(src).toMatch(/for\s*\(\s*const\s+spec\s+of\s+toolSpecs\s*\)/);
+    // The per-tool parity loop. spec-360 narrowed it to the MCP-catalogue subset
+    // (`mcpToolSpecs` = toolSpecs minus the agent-only scaffold tool), so accept
+    // either the original `toolSpecs` loop or that derived subset.
+    expect(src).toMatch(/for\s*\(\s*const\s+spec\s+of\s+(toolSpecs|mcpToolSpecs)\s*\)/);
   });
 });

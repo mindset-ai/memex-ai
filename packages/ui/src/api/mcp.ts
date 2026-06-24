@@ -57,6 +57,36 @@ export async function listMcpTokensApi(token: string | null): Promise<McpTokenSu
   return res.json();
 }
 
+/** Mint response — carries the raw `mxt_` token exactly once (never returned again). */
+export interface MintedMcpToken {
+  token: string;
+  id: string;
+  label: string;
+  prefix: string;
+  createdAt: string;
+}
+
+// Session-mint (spec-304 t-10): mint an MCP token straight from the logged-in
+// web session — the desktop app's in-app install path, with no CLI device flow.
+// The raw `mxt_` token is in the response exactly once (it's stored hashed);
+// hand it to the native installMcp bridge immediately. `label` defaults
+// server-side to "Memex Desktop" when omitted.
+export async function mintMcpTokenApi(
+  label: string | undefined,
+  token: string | null,
+): Promise<MintedMcpToken> {
+  const res = await fetchWithRetry(`${BASE_URL}/mcp/tokens`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders(token) },
+    body: JSON.stringify(label ? { label } : {}),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(body.error ?? body.message ?? `Mint MCP token failed: ${res.status}`);
+  }
+  return body as MintedMcpToken;
+}
+
 export async function revokeMcpTokenApi(
   id: string,
   token: string | null,

@@ -279,12 +279,14 @@ export interface ToButtonPromptInput {
 export function toPromptBlocks(
   dataset: ScaffoldDataset,
   phase: Phase,
+  excludeIds?: ReadonlySet<string>,
 ): SystemBlock[] {
   const phaseNode = dataset.phases.find((p) => p.phase === phase);
   if (!phaseNode) return [];
   const byId = new Map(dataset.promptBlocks.map((b) => [b.id, b]));
   const blocks: SystemBlock[] = [];
   for (const id of phaseNode.promptBlockIds) {
+    if (excludeIds?.has(id)) continue;
     const block = byId.get(id);
     if (!block) continue;
     if (block.surface !== 'react_only') continue;

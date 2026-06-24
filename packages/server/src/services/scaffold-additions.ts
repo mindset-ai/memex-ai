@@ -33,7 +33,7 @@
 
 import { and, asc, eq } from "drizzle-orm";
 import { db } from "../db/connection.js";
-import { orgScaffoldAdditions } from "../db/schema.js";
+import { memexes, namespaces, orgScaffoldAdditions } from "../db/schema.js";
 import type {
   OrgScaffoldAddition,
   OrgScaffoldAdditionInsert,
@@ -57,6 +57,41 @@ import type {
 
 export interface OrgScaffoldAdditionView extends GuidanceBlock {
   id: string;
+  // spec-360 follow-up: the personal-namespace owner of this row, when it is
+  // personally owned (org_id NULL). Present only on personal-owned rows; org
+  // rows leave it absent and carry `orgId` instead. The HTTP cross-tenant guard
+  // reads this to confirm a row belongs to the caller's namespace.
+  namespaceId?: string;
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Owner model (spec-360 follow-up). An addition is owned by an org OR a
+// personal namespace — additive namespace ownership. The owner discriminates
+// which column the row's owner_id lives in (org_id vs namespace_id), enforced
+// by the DB owner-XOR check. Every CORE read/write threads a ScaffoldOwner so
+// a personal owner only ever touches THEIR namespace's rows and an org admin
+// only their org's — neither can leak into the other.
+// ──────────────────────────────────────────────────────────────────────────
+
+export type ScaffoldOwner =
+  | { kind: "org"; orgId: string }
+  | { kind: "personal"; namespaceId: string };
+
+// The owner-column predicate for reads/cross-tenant guards.
+function ownerWhere(owner: ScaffoldOwner) {
+  return owner.kind === "org"
+    ? eq(orgScaffoldAdditions.orgId, owner.orgId)
+    : eq(orgScaffoldAdditions.namespaceId, owner.namespaceId);
+}
+
+// Does this row belong to that owner? Used by route cross-tenant guards.
+export function rowBelongsToOwner(
+  row: OrgScaffoldAddition,
+  owner: ScaffoldOwner,
+): boolean {
+  return owner.kind === "org"
+    ? row.orgId === owner.orgId
+    : row.namespaceId === owner.namespaceId;
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -165,11 +200,16 @@ function toView(row: OrgScaffoldAddition): OrgScaffoldAdditionView {
     rationale: row.rationale,
     enabled: row.enabled,
     order: row.displayOrder,
-    orgId: row.orgId,
     authorId: row.authorId,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
+  // Owner discriminator (spec-360 follow-up): exactly one of org_id /
+  // namespace_id is set. Org rows surface `orgId` (the existing field); personal
+  // rows surface `namespaceId`. `source` stays 'org' on both — the table is the
+  // `source: 'org'` discriminator regardless of which owner column is set.
+  if (row.orgId !== null) view.orgId = row.orgId;
+  if (row.namespaceId !== null) view.namespaceId = row.namespaceId;
   // spec-193 t-5: surface the per-memex scope. NULL column = account-wide, so
   // the field is left absent (mirrors how NULL target columns are absent).
   if (row.memexId !== null) view.memexId = row.memexId;
@@ -191,17 +231,79 @@ async function memexKeyForOrg(orgId: string): Promise<string> {
   return id ?? "";
 }
 
+// spec-360 follow-up: the personal-owner sibling of memexKeyForOrg. A personal
+// namespace has exactly one memex (the 'personal' memex); resolve it so the
+// std-8 bus event fires on that memex and any tab under the namespace refetches.
+// Empty-string fallback keeps the emit shape valid in the pathological no-memex
+// state (subscribers filter on memexId).
+async function memexKeyForNamespace(namespaceId: string): Promise<string> {
+  const [row] = await db
+    .select({ id: memexes.id })
+    .from(memexes)
+    .where(eq(memexes.namespaceId, namespaceId))
+    .limit(1);
+  return row?.id ?? "";
+}
+
+// Resolve the bus-event memex key for either owner kind.
+async function memexKeyForOwner(owner: ScaffoldOwner): Promise<string> {
+  return owner.kind === "org"
+    ? memexKeyForOrg(owner.orgId)
+    : memexKeyForNamespace(owner.namespaceId);
+}
+
+// spec-360 follow-up: resolve the ScaffoldOwner for a memex — the join
+// memex→namespace. An org-owned namespace → {kind:'org'}; a personal namespace
+// (owner_user_id set, no org) → {kind:'personal'}. Returns null in the
+// pathological no-namespace state. Co-located here so the agent context-builder
+// and the propose_scaffold_change gate both thread the SAME owner resolution.
+export async function resolveScaffoldOwner(
+  memexId: string,
+): Promise<ScaffoldOwner | null> {
+  const [row] = await db
+    .select({
+      ownerOrgId: namespaces.ownerOrgId,
+      ownerUserId: namespaces.ownerUserId,
+      namespaceId: namespaces.id,
+    })
+    .from(memexes)
+    .innerJoin(namespaces, eq(namespaces.id, memexes.namespaceId))
+    .where(eq(memexes.id, memexId))
+    .limit(1);
+  if (!row) return null;
+  if (row.ownerOrgId) return { kind: "org", orgId: row.ownerOrgId };
+  if (row.ownerUserId) return { kind: "personal", namespaceId: row.namespaceId };
+  return null;
+}
+
 // ──────────────────────────────────────────────────────────────────────────
-// Service surface.
+// Owner-aware CORE surface (spec-360 follow-up).
+//
+// These are the canonical implementations, keyed by a ScaffoldOwner so the
+// owner column (org_id vs namespace_id) is set / filtered accordingly. The
+// org-named functions below are thin wrappers that pass {kind:'org'} — so EVERY
+// existing org caller (assess_brief hot path, cache, routes, tools) is untouched
+// and behaves identically.
 // ──────────────────────────────────────────────────────────────────────────
 
-export async function listOrgScaffoldAdditions(
-  orgId: string,
+export interface CreateScaffoldAdditionInput {
+  authorId: string;
+  target: GuidanceTarget;
+  text: string;
+  rationale: string;
+  emphasis?: GuidanceEmphasis;
+  enabled?: boolean;
+  order?: number;
+  memexId?: string | null;
+}
+
+export async function listScaffoldAdditions(
+  owner: ScaffoldOwner,
   filters: ListOrgScaffoldAdditionsFilters = {},
 ): Promise<OrgScaffoldAdditionView[]> {
   const where = filters.enabledOnly
-    ? and(eq(orgScaffoldAdditions.orgId, orgId), eq(orgScaffoldAdditions.enabled, true))
-    : eq(orgScaffoldAdditions.orgId, orgId);
+    ? and(ownerWhere(owner), eq(orgScaffoldAdditions.enabled, true))
+    : ownerWhere(owner);
 
   const rows = await db
     .select()
@@ -212,18 +314,9 @@ export async function listOrgScaffoldAdditions(
   return rows.map(toView);
 }
 
-export async function getOrgScaffoldAddition(
-  id: string,
-): Promise<OrgScaffoldAdditionView> {
-  const row = await db.query.orgScaffoldAdditions.findFirst({
-    where: eq(orgScaffoldAdditions.id, id),
-  });
-  if (!row) throw new NotFoundError(`Scaffold addition ${id} not found`);
-  return toView(row);
-}
-
-export async function createOrgScaffoldAddition(
-  input: CreateOrgScaffoldAdditionInput,
+export async function createScaffoldAddition(
+  owner: ScaffoldOwner,
+  input: CreateScaffoldAdditionInput,
   ctx: RequestCtx = {},
 ): Promise<Mutated<OrgScaffoldAdditionView>> {
   validateText(input.text, "text");
@@ -231,10 +324,12 @@ export async function createOrgScaffoldAddition(
   validateTarget(input.target);
   if (input.emphasis !== undefined) validateEmphasis(input.emphasis);
 
-  const memexId = await memexKeyForOrg(input.orgId);
+  const memexId = await memexKeyForOwner(owner);
 
   const insertValues: OrgScaffoldAdditionInsert = {
-    orgId: input.orgId,
+    // Owner-XOR: exactly one column is set. The OTHER stays NULL (its default).
+    orgId: owner.kind === "org" ? owner.orgId : null,
+    namespaceId: owner.kind === "personal" ? owner.namespaceId : null,
     authorId: input.authorId,
     // spec-193 t-5: NULL = account-wide; a memex UUID = scoped to that memex.
     memexId: input.memexId ?? null,
@@ -262,7 +357,7 @@ export async function createOrgScaffoldAddition(
   );
 }
 
-export async function updateOrgScaffoldAddition(
+export async function updateScaffoldAddition(
   id: string,
   input: UpdateOrgScaffoldAdditionInput,
   ctx: RequestCtx = {},
@@ -279,7 +374,12 @@ export async function updateOrgScaffoldAddition(
   });
   if (!existing) throw new NotFoundError(`Scaffold addition ${id} not found`);
 
-  const memexId = await memexKeyForOrg(existing.orgId);
+  // Resolve the bus key from whichever owner column this row carries.
+  const memexId = existing.orgId
+    ? await memexKeyForOrg(existing.orgId)
+    : existing.namespaceId
+      ? await memexKeyForNamespace(existing.namespaceId)
+      : "";
 
   // Build a partial update set. Each field is only included when the caller
   // explicitly passed it — `undefined` means "leave alone", `null` (for
@@ -316,14 +416,90 @@ export async function updateOrgScaffoldAddition(
   );
 }
 
+export async function toggleScaffoldAddition(
+  id: string,
+  enabled: boolean,
+  ctx: RequestCtx = {},
+): Promise<Mutated<OrgScaffoldAdditionView>> {
+  return updateScaffoldAddition(id, { enabled }, ctx);
+}
+
+export async function deleteScaffoldAddition(
+  id: string,
+  ctx: RequestCtx = {},
+): Promise<Mutated<void>> {
+  const existing = await db.query.orgScaffoldAdditions.findFirst({
+    where: eq(orgScaffoldAdditions.id, id),
+  });
+  if (!existing) throw new NotFoundError(`Scaffold addition ${id} not found`);
+
+  const memexId = existing.orgId
+    ? await memexKeyForOrg(existing.orgId)
+    : existing.namespaceId
+      ? await memexKeyForNamespace(existing.namespaceId)
+      : "";
+
+  return mutate(
+    ctx,
+    { memexId, entity: "org_scaffold_addition", action: "deleted" },
+    async () => {
+      await db.delete(orgScaffoldAdditions).where(eq(orgScaffoldAdditions.id, id));
+    },
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Org-named wrappers — the ORIGINAL public surface, preserved byte-for-byte in
+// behaviour. Every existing caller keeps working; only the owner is fixed to
+// {kind:'org'} here. (spec-360 follow-up — backward-compat shim.)
+// ──────────────────────────────────────────────────────────────────────────
+
+export async function listOrgScaffoldAdditions(
+  orgId: string,
+  filters: ListOrgScaffoldAdditionsFilters = {},
+): Promise<OrgScaffoldAdditionView[]> {
+  return listScaffoldAdditions({ kind: "org", orgId }, filters);
+}
+
+export async function getOrgScaffoldAddition(
+  id: string,
+): Promise<OrgScaffoldAdditionView> {
+  const row = await db.query.orgScaffoldAdditions.findFirst({
+    where: eq(orgScaffoldAdditions.id, id),
+  });
+  if (!row) throw new NotFoundError(`Scaffold addition ${id} not found`);
+  return toView(row);
+}
+
+export async function createOrgScaffoldAddition(
+  input: CreateOrgScaffoldAdditionInput,
+  ctx: RequestCtx = {},
+): Promise<Mutated<OrgScaffoldAdditionView>> {
+  const { orgId, ...rest } = input;
+  return createScaffoldAddition({ kind: "org", orgId }, rest, ctx);
+}
+
+export async function updateOrgScaffoldAddition(
+  id: string,
+  input: UpdateOrgScaffoldAdditionInput,
+  ctx: RequestCtx = {},
+): Promise<Mutated<OrgScaffoldAdditionView>> {
+  return updateScaffoldAddition(id, input, ctx);
+}
+
 export async function toggleOrgScaffoldAddition(
   id: string,
   enabled: boolean,
   ctx: RequestCtx = {},
 ): Promise<Mutated<OrgScaffoldAdditionView>> {
-  // Sugar over updateOrgScaffoldAddition so the toggle UI doesn't have to
-  // construct a full update payload. Emits the same `updated` event.
-  return updateOrgScaffoldAddition(id, { enabled }, ctx);
+  return toggleScaffoldAddition(id, enabled, ctx);
+}
+
+export async function deleteOrgScaffoldAddition(
+  id: string,
+  ctx: RequestCtx = {},
+): Promise<Mutated<void>> {
+  return deleteScaffoldAddition(id, ctx);
 }
 
 /**
@@ -344,24 +520,4 @@ export function filterOrgBlocksForMemex<T extends { memexId?: string }>(
   memexId: string | undefined,
 ): T[] {
   return blocks.filter((b) => b.memexId === undefined || b.memexId === memexId);
-}
-
-export async function deleteOrgScaffoldAddition(
-  id: string,
-  ctx: RequestCtx = {},
-): Promise<Mutated<void>> {
-  const existing = await db.query.orgScaffoldAdditions.findFirst({
-    where: eq(orgScaffoldAdditions.id, id),
-  });
-  if (!existing) throw new NotFoundError(`Scaffold addition ${id} not found`);
-
-  const memexId = await memexKeyForOrg(existing.orgId);
-
-  return mutate(
-    ctx,
-    { memexId, entity: "org_scaffold_addition", action: "deleted" },
-    async () => {
-      await db.delete(orgScaffoldAdditions).where(eq(orgScaffoldAdditions.id, id));
-    },
-  );
 }

@@ -1,4 +1,5 @@
 import type { SpecPhase } from "@memex/shared";
+import { BASE_SCAFFOLD, toScaffoldGrounding } from "@memex/shared";
 import { getDoc } from "../services/documents.js";
 import { listDecisions } from "../services/decisions.js";
 import { listTasks } from "../services/tasks.js";
@@ -6,6 +7,11 @@ import { reviewDocComments } from "../services/comments.js";
 import { listDriftInbox, type DriftInboxRow } from "../services/drift-inbox.js";
 import { buildChildRef, buildDocRef, memexSlugsById } from "../mcp/refs.js";
 import { phaseFromStatus } from "../formatting/formatters.js";
+import {
+  filterOrgBlocksForMemex,
+  listScaffoldAdditions,
+  resolveScaffoldOwner,
+} from "../services/scaffold-additions.js";
 import { NotFoundError } from "../types/errors.js";
 
 export type DocumentContext = {
@@ -320,6 +326,49 @@ export async function buildDriftContext(
 
   return {
     context: lines.join("\n"),
+    phase: "specify",
+  };
+}
+
+/**
+ * spec-360 t-2 (dec-5/dec-10): build the SCAFFOLD assistant's grounding context.
+ *
+ * The scaffold mode is grounded DETERMINISTICALLY (not via RAG): the system
+ * prompt's context block is composed from the real scaffold — the structure
+ * (phases/gates/tools/buttons + the target grammar + the base-first composition
+ * and two-agent-parity rules), the org's LIVE additions WITH their ids (so
+ * edit/disable/delete can name a block), and the actual composed prose drawn
+ * from the same projections the runtime emits (`toScaffoldGrounding`, ac-5).
+ *
+ * The org additions are read FRESH (uncached) here — the scaffold assistant is
+ * interactive and low-frequency (not the assess_brief hot path the cache exists
+ * for), and it must reflect an addition the admin saved a moment ago: the cache's
+ * bus invalidation is detached/async (it awaits an orgIdForMemex lookup), so a
+ * cached read can race a just-committed save and miss it. A direct read always
+ * sees the committed row. The whole result rides the context block, which
+ * `buildSystemBlocks` marks `cache_control: ephemeral` — paid for once per
+ * session, not re-sent every turn (dec-10).
+ *
+ * Returns `phase: 'specify'` — scaffold mode is not a Spec phase, but
+ * buildSystemBlocks still needs a base phase to project the general orientation;
+ * the scaffold overlay (SCAFFOLD_AGENT_GUIDANCE) is what gives the assistant its
+ * actual job.
+ */
+export async function buildScaffoldContext(
+  memexId: string,
+): Promise<DocumentContext> {
+  // spec-360 follow-up: owner-aware. An org memex resolves {kind:'org'}; a
+  // personal memex resolves {kind:'personal'} so the assistant sees the personal
+  // owner's additions too. Additions are account-wide + this memex's scope,
+  // including disabled rows so the assistant can explain (and re-enable) what is
+  // currently off. Falls back to an empty set in the pathological no-owner state.
+  const owner = await resolveScaffoldOwner(memexId);
+  const orgBlocks = owner
+    ? filterOrgBlocksForMemex(await listScaffoldAdditions(owner), memexId)
+    : [];
+
+  return {
+    context: toScaffoldGrounding(BASE_SCAFFOLD, orgBlocks),
     phase: "specify",
   };
 }
