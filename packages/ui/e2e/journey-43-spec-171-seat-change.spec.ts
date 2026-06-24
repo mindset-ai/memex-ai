@@ -79,7 +79,13 @@ test("hosted enterprise: change seats from Settings > Org > Billing — prorated
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ amountDue: 1234, currency: "usd" }),
+      // The upcoming invoice's two parts, split server-side (spec-171 verify):
+      // the proration for the rest of this period + the new go-forward total.
+      body: JSON.stringify({
+        prorationAmount: 1234,
+        recurringAmount: 5000,
+        currency: "usd",
+      }),
     });
   });
 
@@ -123,21 +129,27 @@ test("hosted enterprise: change seats from Settings > Org > Billing — prorated
   await page.getByRole("button", { name: "Change seats" }).click();
 
   // ── the PRORATED preview is shown to the user BEFORE confirm ────────────────
-  // formatCurrency divides amountDue by 100: 1234 usd ⇒ "$12.34". Anchored behind
-  // the seat-input render above so it can't pass vacuously.
+  // formatCurrency divides by 100: proration 1234 ⇒ "$12.34", recurring 5000 ⇒
+  // "$50.00". The modal shows BOTH parts honestly (spec-171 verify) — nothing is
+  // "billed today". Anchored behind the seat-input render above so it can't pass
+  // vacuously.
   await expect(
-    page.getByRole("heading", { name: /Change seat count from 5 to 8\?/ }),
+    page.getByRole("heading", { name: /Change seats from 5 to 8\?/ }),
   ).toBeVisible({ timeout: 15_000 });
   await expect(
-    page.getByText(/Prorated charge: \$12\.34 \(billed today\)/),
+    page.getByText("Prorated charge for the rest of this period"),
   ).toBeVisible();
+  await expect(page.getByText("$12.34")).toBeVisible();
+  await expect(page.getByText("New recurring total")).toBeVisible();
+  await expect(page.getByText("$50.00/mo")).toBeVisible();
+  await expect(page.getByText(/nothing is charged today/i)).toBeVisible();
 
   // ── confirm → assert the PATCH fired with the correct new seat count ────────
   await page.getByRole("button", { name: "Confirm" }).click();
 
   // The modal closes once the PATCH resolves — proof the success branch ran.
   await expect(
-    page.getByRole("heading", { name: /Change seat count from 5 to 8\?/ }),
+    page.getByRole("heading", { name: /Change seats from 5 to 8\?/ }),
   ).toBeHidden({ timeout: 15_000 });
 
   // The intercepted PATCH fired with the new seat count (body key is `seats`).

@@ -39,6 +39,8 @@
  *    Reset must delete those emissions explicitly (test_events has no docId cascade).
  */
 
+import type { SpecPhase } from "@memex/shared";
+
 export const HANDHOLD_TITLE = "In-app Memex search (⌘K)";
 
 // ---------------------------------------------------------------------------
@@ -287,7 +289,8 @@ export const HANDHOLD_ACS: readonly { statement: string; kind: "implementation" 
     t.acs.map((statement) => ({ statement, kind: "implementation" as const })),
   );
 
-export type HandholdPhase = "draft" | "specify" | "build" | "verify" | "done";
+// spec-355 dry-1: the demo phase set IS the canonical SpecPhase pipeline.
+export type HandholdPhase = SpecPhase;
 
 export interface HandholdPhaseSlice {
   phase: HandholdPhase;

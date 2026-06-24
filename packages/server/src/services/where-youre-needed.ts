@@ -19,6 +19,12 @@ import {
   listOpenAssignmentsForUser,
 } from "./comment-mentions.js";
 
+// spec-353 (perf-2) — bounded fan-out concurrency, mirrors home-specs.ts. Each
+// per-Memex block runs in its own runWithMemexId ALS subtree, so racing them
+// keeps each tenant's app.memex_id GUC isolated (std-36). Bounded to stay inside
+// the postgres-js pool (DB_POOL_MAX, default 5).
+const MEMEX_CONCURRENCY = 4;
+
 export interface WhereNeededItem {
   commentId: string;
   kind: "assignment" | "mention";
@@ -60,8 +66,10 @@ export async function listWhereYoureNeededForUser(userId: string): Promise<Where
   const assignments: WhereNeededItem[] = [];
   const mentions: WhereNeededItem[] = [];
 
-  for (const [memexId, prov] of provByMemex) {
-    await runWithMemexId(memexId, async () => {
+  // The per-Memex block, RLS-scoped to one tenant. Lifted out so the cross-Memex
+  // fan-out can run these in bounded-parallel batches (spec-353). Body unchanged.
+  const loadMemex = (memexId: string, prov: MemexProvenance): Promise<void> =>
+    runWithMemexId(memexId, async () => {
       const [mentioned, assigned] = await Promise.all([
         listCommentsMentioningUser(memexId, userId),
         listOpenAssignmentsForUser(memexId, userId),
@@ -108,6 +116,14 @@ export async function listWhereYoureNeededForUser(userId: string): Promise<Where
         if (it) mentions.push(it);
       }
     });
+
+  // Bounded-parallel fan-out across the user's Memexes (spec-353). Each block
+  // runs in its own RLS subtree; the shared assignments/mentions arrays are
+  // re-sorted deterministically below, so batch interleaving can't change output.
+  const entries = [...provByMemex.entries()];
+  for (let i = 0; i < entries.length; i += MEMEX_CONCURRENCY) {
+    const batch = entries.slice(i, i + MEMEX_CONCURRENCY);
+    await Promise.all(batch.map(([memexId, prov]) => loadMemex(memexId, prov)));
   }
 
   // Assignments first (newest first), then mentions (newest first). ISO strings sort

@@ -10,7 +10,7 @@
 // verified on prod (the dogfood loop).
 
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { tagAc } from "@memex-ai-ac/vitest";
 import { formatAcCoverageSummary } from "../agent/tool-specs.js";
@@ -19,10 +19,16 @@ import type { AcWithVerification, VerificationState } from "../services/acs.js";
 const SPEC = "mindset-prod/memex-building-itself/specs/spec-207";
 const acRef = (n: number) => `${SPEC}/acs/ac-${n}`;
 
-const TOOL_SPECS_SRC = readFileSync(
-  join(__dirname, "..", "agent", "tool-specs.ts"),
-  "utf-8",
-);
+// spec-366: handler implementation moved from tool-specs.ts into
+// agent/handlers/*.ts (shared infra in shared.ts). Scan the catalogue file plus
+// every handler module so these source guards still see the code.
+const HANDLERS_DIR = join(__dirname, "..", "agent", "handlers");
+const TOOL_SPECS_SRC = [
+  readFileSync(join(__dirname, "..", "agent", "tool-specs.ts"), "utf-8"),
+  ...readdirSync(HANDLERS_DIR)
+    .filter((n) => n.endsWith(".ts"))
+    .map((n) => readFileSync(join(HANDLERS_DIR, n), "utf-8")),
+].join("\n");
 
 // A non-untested state implies the AC carries at least one test event; untested
 // implies none. `covered` keys off tests.length, so mirror that here.

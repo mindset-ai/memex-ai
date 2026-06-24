@@ -13,23 +13,20 @@ import {
 } from "../services/tasks.js";
 import type { AcceptanceCriterion } from "../services/tasks.js";
 import { addBlocker, removeBlocker } from "../services/shared/blockers.js";
-import {
-  sessionMiddleware,
-  publicSessionMiddleware,
-  type SessionEnv,
-} from "../middleware/session.js";
+import { type SessionEnv } from "../middleware/session.js";
 import type { MemexResolverEnv } from "../middleware/memex-resolver.js";
 import { requireMemexId, resolveReadableMemexId } from "./shared.js";
+import { mountStandardSessionPolicy } from "./session-policy.js";
 
 // Public route surface stays at /api/tasks/* — only the underlying service module was
 // renamed to tasks per dec-1. New v2 endpoints introduced in later slices use
 // the task terminology directly.
 type Env = MemexResolverEnv & SessionEnv;
 const tasksRouter = new Hono<Env>();
-// spec-111 t-10 — per-verb session policy. GET reads permissive (public read /
-// private 404 via resolveReadableMemexId); every mutating verb stays strict.
-tasksRouter.on("GET", "/*", publicSessionMiddleware);
-tasksRouter.on(["POST", "PUT", "PATCH", "DELETE"], "/*", sessionMiddleware);
+// spec-377 (was spec-111 t-10) — the standard per-verb session policy: GET reads
+// permissive (public read / private 404 via resolveReadableMemexId); every
+// mutating verb stays strict.
+mountStandardSessionPolicy(tasksRouter);
 
 
 

@@ -508,8 +508,9 @@ describe("b-68 t-7 ac-22: formatPhaseGuidance retired; per-phase prose flows thr
 describe("b-68 t-7 ac-24: allowance prose derives from BASE_SCAFFOLD.phases[<phase>].allowance", () => {
   it("formatters.ts source no longer mentions `phaseAllowanceLine` or `phaseIntentLine`", () => {
     tagAc("mindset-prod/memex-building-itself/specs/spec-68/acs/ac-24");
+    // spec-368 sol-4: formatter body moved to the neutral module; scan it there.
     const formattersSrc = readFileSync(
-      resolve(__dirname, "formatters.ts"),
+      resolve(__dirname, "..", "formatting", "formatters.ts"),
       "utf8",
     );
     // Negative test: legacy helper names are gone. Catches accidental

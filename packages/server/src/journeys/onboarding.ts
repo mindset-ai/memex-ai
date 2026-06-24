@@ -1,23 +1,44 @@
-// spec-305 — the ONBOARDING journey (supersedes spec-303's v0 journey content).
-// A self-contained module (spec-303 dec-1): its ordered steps and the milestone
-// that completes each live here; the engine + Home Canvas load it from the registry.
+// spec-336 — Home Onboarding v2: the persistent "Getting started on Memex" journey.
+// (Supersedes spec-305's MCP-first 8-step arc and re-merges the whole SDD loop into one
+// persistent Home tracker every newcomer sees — reversing spec-305 dec-12's "shrink to
+// identity+connect, lift the rest to an on-demand walkthrough". Coordinated with Wic:
+// spec-336 supersedes spec-305's journey content.)
 //
-// The journey is MCP-FIRST (spec-305 dec-3): connect the agent before creating a
-// spec, because a connected agent then does the work (spec → decision → AC → green)
-// while the user watches the map tick. The arc ends at a GREEN acceptance criterion,
-// the aha (dec-8). Milestones are user-scoped and (except identity) derived from real
-// activity; `identityConfirmed` is the one CAPTURED milestone (the role/name the user
-// tells us, dec-4).
+// A self-contained module (spec-303 dec-1): its ordered steps and the milestone that
+// completes each live here; the engine + Home Canvas load it from the registry. The six
+// steps mirror the v2 design's six-node rail one-for-one (spec-336 dec-2):
+//
+//   1. identity            → identityConfirmed   "About you"
+//   2. create-spec         → hasSpec             "Build exactly what you decided"
+//                            (one card: Stage 1 connect-MCP + Stage 2 create the spec —
+//                             mcpConnected is shown inside the card, but the STEP orb
+//                             ticks on hasSpec)
+//   3. resolve-decision    → hasResolvedDecision "No agent decides for you"
+//   4. add-ac              → hasAc               "Done becomes a fact"
+//   5. specs-match-reality → planGrounded        "Specs that match reality" (BUILDER-ONLY)
+//   6. agents-build        → null (terminal)     "Agents build in lockstep" (BUILDER-ONLY)
+//
+// Every milestone stays USER-scoped and (except identity) DERIVED from real activity —
+// each step's orb ticks and the % advances ONLY on real completion, never on viewing
+// (spec-336 dec-5/dec-6). `identityConfirmed` is the one CAPTURED milestone (the role the
+// user places on the triangle, spec-305 dec-4). The two builder-only steps' milestones
+// come from spec-337 (planGrounded) and the terminal-all-met rule.
+//
+// Role branching is UI-SIDE (spec-336 dec-3): the server returns ALL six steps + the
+// user's raw role_coords; the Home Canvas derives builder-ness from the coords via the
+// shared personaLabel helper and hides the two build steps for non-builders. No
+// is_builder column, no migration, no server persona port.
 
 export type JourneyMilestone =
-  | "identityConfirmed" // captured: the user completed the identity step (name + role)
-  | "mcpConnected" // derived: the user's agent connected over MCP
+  | "identityConfirmed" // captured: the user placed themselves on the role triangle (name + role)
+  | "mcpConnected" // derived: the user's agent connected over MCP (shown inside the create-spec card's Stage 1)
   | "mcpToolCalled" // derived, NON-GATING: the user's first MCP tool call — drives the
-  //                  connect-agent reward's auto-dismiss (no step gates on it)
+  //                  connect reward's auto-dismiss inside the create-spec card (no step gates on it)
   | "hasSpec" // derived: the user created a (non-demo) spec
   | "hasResolvedDecision" // derived: the user resolved a decision
   | "hasAc" // derived: the user added an acceptance criterion
-  | "acVerified" // derived: one of the user's ACs went GREEN from a real test event
+  | "acVerified" // derived, NON-GATING: one of the user's ACs went GREEN (kept for the
+  //                progress signal / spec-337 inputs; no v2 step gates on it directly)
   | "planGrounded"; // derived (spec-337): the user broke the work into tasks AND has a
 //                  test behind one of their ACs — the codebase-grounding signal that
 //                  completes the 'Specs that match reality' step (builder-only, spec-336)
@@ -34,23 +55,22 @@ export interface JourneyDef {
   steps: readonly JourneyStepDef[];
 }
 
-// Ordered + hard-gated: a later step is never reached before its predecessor's
-// milestone is met (spec-303 dec-4).
+// Ordered: the current step is the first whose completing milestone is unmet. A later
+// step's orb can still tick before an earlier one (attainment is per-step and derived),
+// which the rail makes legible (spec-303 dec-4).
 //
-// `welcome` and `identity` share the `identityConfirmed` gate by design (dec-2/dec-6):
-// a brand-new user lands on `welcome` (the universal Beat-1 cold open), whose CTA
-// client-navigates into the `identity` form; submitting it confirms identity and
-// clears BOTH at once, advancing to `connect-agent`.
+// The two trailing steps (specs-match-reality, agents-build) are builder-only — the
+// server still emits them; the Home Canvas hides them for non-builder personas
+// (spec-336 dec-3). `agents-build` is terminal (completedBy: null): it ticks once every
+// prior step's milestone is met (stepStatuses' all-milestones-met rule).
 export const onboardingJourney: JourneyDef = {
   id: "onboarding",
   steps: [
-    { id: "welcome", completedBy: "identityConfirmed" },
     { id: "identity", completedBy: "identityConfirmed" },
-    { id: "connect-agent", completedBy: "mcpConnected" },
     { id: "create-spec", completedBy: "hasSpec" },
     { id: "resolve-decision", completedBy: "hasResolvedDecision" },
     { id: "add-ac", completedBy: "hasAc" },
-    { id: "see-green", completedBy: "acVerified" },
-    { id: "all-set", completedBy: null },
+    { id: "specs-match-reality", completedBy: "planGrounded" },
+    { id: "agents-build", completedBy: null },
   ],
 };

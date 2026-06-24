@@ -35,6 +35,15 @@ vi.mock("../services/test-event-latest.js", () => ({
   applyEmissionToSummary: vi.fn().mockResolvedValue(undefined),
 }));
 
+// spec-398: the route also trims-on-write and snapshots first-verified inside the
+// transaction (both call tx.execute). The mocked tx above only stubs .insert, so
+// stub these to no-ops — the real behaviour is covered against a real DB in
+// spec-398-retention.integration.test.ts.
+vi.mock("../services/test-event-retention.js", () => ({
+  trimTestEventsForPair: vi.fn().mockResolvedValue(undefined),
+  recordFirstVerified: vi.fn().mockResolvedValue(undefined),
+}));
+
 // spec-129: the route now requires a valid emission key. These spec-115 unit tests focus
 // on payload/metadata shaping, so we stub the auth path to a fixed authorised key whose
 // memexId matches the resolver — the auth/memex-match behaviour itself is covered by
@@ -210,16 +219,7 @@ describe("POST /api/test-events — top-level actor (spec-115 dec-6)", () => {
   });
 });
 
-describe("POST /api/test-events — hidden + metadata acceptance", () => {
-  it("accepts hidden: true in the body", async () => {
-    const res = await app.request("/api/test-events", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: "Bearer mxk_test" },
-      body: JSON.stringify({ ...validBody, hidden: true }),
-    });
-    expect(res.status).toBe(201);
-  });
-
+describe("POST /api/test-events — metadata acceptance", () => {
   it("accepts metadata as an object of string values", async () => {
     const res = await app.request("/api/test-events", {
       method: "POST",
@@ -249,14 +249,63 @@ describe("POST /api/test-events — hidden + metadata acceptance", () => {
     });
     expect(res.status).toBe(400);
   });
+});
 
-  it("rejects hidden when not a boolean", async () => {
+// spec-358 — the inbound `hidden` field is accepted for backward compatibility
+// but no longer honoured: any value returns 201, the row is stored as a
+// counting result (hidden=false), and the summary maintenance is NOT skipped,
+// so a new result always counts. No X-Memex-Warning is emitted on its account.
+const AC_358 = "mindset-prod/memex-building-itself/specs/spec-358/acs";
+
+describe("POST /api/test-events — inbound hidden is accepted but ignored (spec-358)", () => {
+  // Capture the values written to the log row so we can assert hidden is forced
+  // to false regardless of what the emitter sent.
+  function captureInsert() {
+    const insertedValues = vi.fn();
+    insertSpy.mockReturnValue({
+      values: (v: unknown) => {
+        insertedValues(v);
+        return {
+          returning: vi
+            .fn()
+            .mockResolvedValue([{ id: "fake-uuid", createdAt: new Date() }]),
+        };
+      },
+    });
+    return insertedValues;
+  }
+
+  it("accepts hidden:true and stores a counting row (hidden=false) [ac-1][ac-2][ac-11]", async () => {
+    tagAc(`${AC_358}/ac-1`);
+    tagAc(`${AC_358}/ac-2`);
+    tagAc(`${AC_358}/ac-11`);
+    const insertedValues = captureInsert();
+    const res = await app.request("/api/test-events", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer mxk_test" },
+      body: JSON.stringify({ ...validBody, status: "fail", hidden: true }),
+    });
+    expect(res.status).toBe(201);
+    // No suppression: the stored row counts, and no warning header fired for hidden.
+    expect(res.headers.get("X-Memex-Warning")).toBeNull();
+    const row = insertedValues.mock.calls[0]?.[0];
+    expect(row.hidden).toBe(false);
+    expect(row.status).toBe("fail");
+  });
+
+  it("accepts a non-boolean hidden value without a 400 (was previously rejected) [ac-1][ac-11]", async () => {
+    tagAc(`${AC_358}/ac-1`);
+    tagAc(`${AC_358}/ac-11`);
+    const insertedValues = captureInsert();
     const res = await app.request("/api/test-events", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: "Bearer mxk_test" },
       body: JSON.stringify({ ...validBody, hidden: "yes" }),
     });
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(201);
+    expect(res.headers.get("X-Memex-Warning")).toBeNull();
+    const row = insertedValues.mock.calls[0]?.[0];
+    expect(row.hidden).toBe(false);
   });
 });
 

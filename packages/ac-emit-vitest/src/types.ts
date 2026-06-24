@@ -21,8 +21,8 @@ export interface AcEventPayload {
   duration_ms: number;
   /**
    * Actor — WHO ran the test (spec-115 dec-6, spec-122 activity contract).
-   * Top-level sibling of `hidden` and `metadata` because it is part of the
-   * cross-table activity contract, not free-form observational provenance.
+   * Top-level sibling of `metadata` because it is part of the cross-table
+   * activity contract, not free-form observational provenance.
    *
    * Helper auto-populates from a documented env-var fallback chain:
    * `GITHUB_ACTOR` → `GITLAB_USER_LOGIN` → `BUILDKITE_BUILD_AUTHOR` →
@@ -34,11 +34,6 @@ export interface AcEventPayload {
    * The canonical actor is the top-level field.
    */
   actor?: string;
-  /**
-   * Hidden flag (v0.1.0). When true, the emission is recorded but excluded
-   * from the AC's displayed verification state. Default false.
-   */
-  hidden?: boolean;
   /**
    * Extensible metadata bag (v0.1.0). Surfaced in the Memex UI tooltip on
    * each test event. Well-known keys (actor, branch, commit, host, run_id,
@@ -56,6 +51,5 @@ export interface AcEventPayload {
 
 /** Per-call options for tagAc. */
 export interface TagAcOptions {
-  hidden?: boolean;
   metadata?: Record<string, string>;
 }

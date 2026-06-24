@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth, computeDefaultLanding } from '../components/AuthContext';
+import { Alert } from '../components/ui/Alert';
 import { isFeatureHidden } from '../utils/featureFlags';
 import { passwordResetConfirmApi, AuthApiError } from '../api/client';
 import { Input } from '../components/ui/Input';
@@ -95,9 +96,9 @@ export function ResetPassword() {
                   />
                 </label>
                 {error && (
-                  <div className="px-3 py-2 rounded-lg bg-status-danger-bg border border-status-danger-border text-xs text-status-danger-text">
+                  <Alert variant="danger">
                     {error}
-                  </div>
+                  </Alert>
                 )}
                 <Button
                   type="submit"

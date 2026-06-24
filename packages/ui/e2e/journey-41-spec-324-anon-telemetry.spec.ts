@@ -38,15 +38,17 @@ test.afterEach(async ({}, testInfo) => {
 test("clicking a journey step's CTA records home_canvas.cta_clicked", async ({ page }) => {
   await ensureUser(DEV_EMAIL);
   await setUserName(DEV_EMAIL, DEV_NAME);
-  await setIdentityConfirmed(DEV_EMAIL, false); // un-confirm → needsOnboarding → welcome step
+  await setIdentityConfirmed(DEV_EMAIL, false); // un-confirm → needsOnboarding → identity step
 
   // Arm the assertion before the click: capture the journey-event POST for a 'cta'.
+  // spec-336: the v2 arc opens on the bespoke identity step; its Continue button records
+  // home_canvas.cta_clicked (step 'identity', cta 'submit_identity').
   const ctaEvent = page.waitForRequest(
     (req) => {
       if (req.method() !== "POST" || !req.url().includes("/api/me/journey-event")) return false;
       try {
         const body = JSON.parse(req.postData() ?? "{}");
-        return body.action === "cta" && body.step === "welcome";
+        return body.action === "cta" && body.step === "identity";
       } catch {
         return false;
       }
@@ -56,19 +58,27 @@ test("clicking a journey step's CTA records home_canvas.cta_clicked", async ({ p
 
   await page.goto(bareUrl("/home"));
 
-  // A brand-new user lands on the welcome step (the custom WelcomeStep component).
-  await expect(page.getByTestId("journey-step-welcome")).toBeVisible({ timeout: 15_000 });
+  // A brand-new user lands on the bespoke identity step (a custom-component step, not the
+  // generic shell).
+  await expect(page.getByTestId("journey-step-identity")).toBeVisible({ timeout: 15_000 });
 
-  // Click its primary CTA ("Get started") — a custom-component step, not the generic
-  // shell — and it records home_canvas.cta_clicked.
-  await page.getByTestId("journey-cta-primary").click();
+  // Click its primary CTA ("Continue") — it records home_canvas.cta_clicked.
+  await page.getByTestId("identity-continue").click();
 
   const req = await ctaEvent;
   const body = JSON.parse(req.postData()!);
-  expect(body.step).toBe("welcome");
+  expect(body.step).toBe("identity");
   expect(body.action).toBe("cta");
-  expect(body.cta).toBe("get_started");
+  expect(body.cta).toBe("submit_identity");
 
-  // And the click advanced the canvas to the identity step (the CTA still works).
-  await expect(page.getByTestId("journey-step-identity")).toBeVisible({ timeout: 10_000 });
+  // And the click functionally advanced the canvas — the CTA still works, not just emits.
+  // We assert the identity step is left behind rather than that a SPECIFIC next step
+  // (create-spec) appears: which step is current is milestone-DERIVED (HomeCanvas /
+  // spec-336 follows getUserJourneyState), and create-spec is current only while
+  // `hasSpec` is false. `hasSpec` counts ANY non-demo spec the shared dev@memex.ai user
+  // has authored across ALL memexes (journey-state.ts), so a parallel journey holding a
+  // spec legitimately attains create-spec and the canvas skips it — a cross-journey race
+  // on shared state, not a CTA regression. Asserting "advanced off identity" proves the
+  // CTA's effect without coupling to the dev user's spec count.
+  await expect(page.getByTestId("journey-step-identity")).toBeHidden({ timeout: 10_000 });
 });

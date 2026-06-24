@@ -9,20 +9,30 @@
     "build": "pnpm --filter @memex/server build && pnpm --filter @memex/ui build",
     "build:server": "pnpm --filter @memex/server build",
     "build:ui": "pnpm --filter @memex/ui build",
-    "release:sdk": "node scripts/release-sdk.mjs"
+    "release:sdk": "node scripts/release-sdk.mjs",
+    "lint": "biome ci",
+    "lint:fix": "biome check --write",
+    "format": "biome format",
+    "format:fix": "biome format --write"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["esbuild", "protobufjs"],
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "protobufjs"
+    ],
     "overrides": {
       "vitest": "4.1.8",
       "@vitest/coverage-v8": "4.1.8",
-      "@types/node": "25.9.3",
+      "@types/node": "26.0.0",
       "react": "19.2.7",
       "react-dom": "19.2.7",
       "typescript": "6.0.3",
-      "esbuild": ">=0.28.1",
-      "form-data": ">=4.0.6",
+      "esbuild": ">=0.28.1 <1",
+      "form-data": ">=4.0.6 <5",
       "protobufjs": ">=7.6.3 <8"
     }
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.1"
   }
 }

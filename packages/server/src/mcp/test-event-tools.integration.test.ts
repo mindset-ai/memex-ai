@@ -1,7 +1,9 @@
 // Integration tests for the ref-keyed test-event MCP tools (spec-127 dec-2):
-// get_test_matrix (read), discontinue_test_events + restore_test_events (write).
-// Goes through the real createMcpServer registry against Postgres, exercising
-// the resolveRefArg → service-layer wiring keyed entirely by canonical AC ref.
+// get_test_matrix (read) and discontinue_test_events (write). spec-358 removed
+// restore_test_events and repointed discontinue_test_events at the hard-delete
+// path, so retirement is irreversible. Goes through the real createMcpServer
+// registry against Postgres, exercising the resolveRefArg → service-layer wiring
+// keyed entirely by canonical AC ref.
 //
 // Emissions route to the prod Memex (namespace-derived) and need MEMEX_EMIT_KEY
 // to land; the assertions verify behaviour, the tags attribute it to the AC.
@@ -109,14 +111,17 @@ async function seedAcWithRef(
 }
 
 describe("ref-keyed test-event MCP tools (spec-127 dec-2)", () => {
-  it("registers the three new tools", () => {
+  it("registers get_test_matrix + discontinue_test_events and NO restore_test_events (spec-358) [spec-358 ac-5][spec-358 ac-8]", () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-358/acs/ac-5");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-358/acs/ac-8");
     const server = createMcpServer(actor.user.id);
     const names = Object.keys(
       (server as unknown as { _registeredTools: Record<string, unknown> })._registeredTools,
     );
     expect(names).toContain("get_test_matrix");
     expect(names).toContain("discontinue_test_events");
-    expect(names).toContain("restore_test_events");
+    // spec-358 dec-1: the soft-hide/restore pair is gone.
+    expect(names).not.toContain("restore_test_events");
   });
 
   it("get_test_matrix reads the per-identifier digest by AC ref, flagging the pinning identifier [ac-4][ac-5][ac-8]", async () => {
@@ -138,40 +143,28 @@ describe("ref-keyed test-event MCP tools (spec-127 dec-2)", () => {
     expect(orphanLine).toContain("PINNING red");
   });
 
-  it("discontinue_test_events soft-hides an orphan by ref and reports the cleared verdict [ac-2][ac-3][ac-4][ac-5]", async () => {
+  it("discontinue_test_events hard-deletes an orphan by ref and reports the cleared verdict [ac-2][ac-4][spec-358 ac-5][spec-358 ac-7]", async () => {
     // ac-4: the discontinue action is addressable by the canonical AC ref.
     // ac-2: retirement is EXPLICIT and actor-driven — the actor (here, the agent
     // calling the tool by ref) retires the orphan; no automatic job does it.
+    // spec-358: retirement is now a HARD DELETE — rows removed, no hidden written.
     tagAc(`${SPEC}/acs/ac-2`);
-    tagAc(`${SPEC}/acs/ac-3`);
     tagAc(`${SPEC}/acs/ac-4`);
-    tagAc(`${SPEC}/acs/ac-5`);
+    tagAc("mindset-prod/memex-building-itself/specs/spec-358/acs/ac-5");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-358/acs/ac-7");
     const { acRef, uid } = await seedAcWithRef("discontinue AC");
     const tid = "tests/gone.test.ts::renamed away";
     await seedTestEvent({ acUid: uid, status: "fail", testIdentifier: tid });
 
     const out = text(await callTool(actor.user.id, "discontinue_test_events", { ref: acRef, test_identifier: tid }));
     expect(out).toContain(`ref: ${acRef}`);
-    expect(out).toContain("retired (soft-hidden) 1 emission");
-    // Verdict cleared: the only (failing) identifier is now hidden → untested.
+    expect(out).toContain("retired (hard-deleted) 1 emission");
+    // Verdict cleared: the only (failing) identifier's events are gone → untested.
     expect(out).toContain("verification is now: untested");
 
-    // And the matrix now shows it retired.
+    // And the matrix no longer shows the identifier at all (rows hard-deleted).
     const matrix = text(await callTool(actor.user.id, "get_test_matrix", { ref: acRef }));
-    const line = matrix.split("\n").find((l) => l.includes(tid))!;
-    expect(line).toContain("retired (hidden)");
-  });
-
-  it("restore_test_events un-hides by ref and the identifier re-enters the verdict [ac-3]", async () => {
-    tagAc(`${SPEC}/acs/ac-3`);
-    const { acRef, uid } = await seedAcWithRef("restore AC");
-    const tid = "tests/restore.test.ts::it works";
-    await seedTestEvent({ acUid: uid, status: "fail", testIdentifier: tid });
-    await callTool(actor.user.id, "discontinue_test_events", { ref: acRef, test_identifier: tid });
-
-    const out = text(await callTool(actor.user.id, "restore_test_events", { ref: acRef, test_identifier: tid }));
-    expect(out).toContain("restored 1 emission");
-    expect(out).toContain("verification is now: failing");
+    expect(matrix).not.toContain(tid);
   });
 
   it("get_test_matrix rejects a raw UUID at the MCP boundary (std-10) [ac-8]", async () => {
@@ -223,7 +216,8 @@ describe("orphan awareness in the AC read surfaces (spec-127 ac-6)", () => {
     tagAc(`${SPEC}/acs/ac-6`);
     const out = text(await callTool(actor.user.id, "get_information", { topic: "orphaned-test-events" }));
     expect(out).toContain("discontinue_test_events");
-    expect(out).toContain("restore_test_events");
+    // spec-358: the restore tool is gone; the topic must not point at it.
+    expect(out).not.toContain("restore_test_events");
     expect(out.toLowerCase()).toContain("orphan");
     // The trigger guidance: act after renaming/deleting a tagged test.
     expect(out.toLowerCase()).toMatch(/rename|delete/);

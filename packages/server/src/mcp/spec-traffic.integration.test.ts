@@ -45,7 +45,6 @@ import { listAssignees } from "../services/doc-assignees.js";
 import { resolveRole } from "../services/doc-members.js";
 import {
   observeSpecTraffic,
-  observeTestEventTraffic,
   type SpecTrafficEvent,
 } from "../services/spec-traffic.js";
 import { bus, type ChangeEvent } from "../services/bus.js";
@@ -260,26 +259,12 @@ describe("spec-189: traffic-driven phase advancement through real MCP tool calls
     expect(await assigneeIds(spec.id)).toContain(actor.member.id);
   });
 
-  it("draft + verify-class traffic (test_event arriving) → verify; done reopens to verify (ac-2, ac-7)", async () => {
-    tagAc(AC(2));
-    tagAc(AC(7));
-    // Verify-class has no MCP tool (dec-1): it arrives as CI test_events.
-    // observeTestEventTraffic is exactly what POST /api/test-events invokes
-    // after an accepted, non-hidden emission.
-    const fromDraft = await makeSpec("Draft to Verify");
-    await observeTestEventTraffic(
-      actor.memexId,
-      `${actor.slug}/main/specs/${fromDraft.handle}/acs/ac-1`,
-    );
-    expect(await specStatus(fromDraft.id)).toBe("verify");
-
-    const fromDone = await makeSpec("Done reopens to Verify", "done");
-    await observeTestEventTraffic(
-      actor.memexId,
-      `${actor.slug}/main/specs/${fromDone.handle}/acs/ac-1`,
-    );
-    expect(await specStatus(fromDone.id)).toBe("verify");
-  });
+  // spec-342 SUPERSEDES the former "test_event arriving → verify" behaviour:
+  // CI test events no longer drive phase at all (observeTestEventTraffic was
+  // removed). The new no-advance contract — a test event leaves a Spec's phase
+  // untouched from any source phase, including the old done→verify reopen — is
+  // owned by spec-342-test-event-no-advance.integration.test.ts. spec-189 ac-2
+  // / ac-7 remain covered here by the build-class / specify-class cases below.
 
   it("specify + build-class traffic (update_task) → build, even with open decisions (ac-7, ac-8)", async () => {
     tagAc(AC(7));

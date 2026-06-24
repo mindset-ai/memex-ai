@@ -15,6 +15,7 @@ import { acsRouter } from "./routes/acs.js";
 import { emissionKeysRouter } from "./routes/emission-keys.js";
 import { discordWebhookRouter } from "./routes/discord-webhook.js";
 import { stripeWebhookRouter } from "./routes/stripe-webhook.js";
+import { postmarkWebhookRouter } from "./routes/postmark-webhook.js";
 import { docMembersRouter } from "./routes/doc-members.js";
 import { docAssigneesRouter } from "./routes/doc-assignees.js";
 import { executionPlans } from "./routes/execution-plans.js";
@@ -54,6 +55,7 @@ import { homeRouter } from "./routes/home.js";
 import { whatsNewRouter } from "./routes/whats-new.js";
 import { orgsRouter, orgsCurrentRouter } from "./routes/orgs.js";
 import { scaffoldRouter } from "./routes/scaffold.js";
+import { personalScaffoldRouter } from "./routes/personal-scaffold.js";
 import { namespacesRouter } from "./routes/namespaces.js";
 import { consentRouter } from "./routes/consent.js";
 import { getBusRelay } from "./services/bus-relay.js";
@@ -279,6 +281,18 @@ app.route("/api/:namespace/:memex/telemetry", telemetryRouter);
 // must come from the resolved /<ns>/<mx>/ path — there's no flat entity-keyed
 // mount. STRICT sessionMiddleware + the owner gate live inside the router.
 app.route("/api/:namespace/:memex/handhold", handhold);
+// spec-360 follow-up — scaffold guidance has TWO owner surfaces that share the
+// trailing `/scaffold` segment, so registration ORDER matters: the org route
+// (/api/orgs/:orgId/scaffold) is a literal-`orgs` path that the personal route's
+// `:namespace` param would otherwise shadow (Hono's param route swallows
+// /api/orgs/<uuid>/scaffold). Mounting the org router FIRST, before the
+// param-prefixed personal router, lets each claim its own paths. `orgs` is a
+// reserved namespace slug (std-3), so no real tenant URL collides the other way.
+//
+//   ORG:      /api/orgs/:orgId/scaffold/*           — org-admin gated (b-68 t-10)
+//   PERSONAL: /api/:namespace/:memex/scaffold/*     — namespace-owner gated
+app.route("/api/orgs", scaffoldRouter);
+app.route("/api/:namespace/:memex/scaffold", personalScaffoldRouter);
 app.use("/api/:namespace/:memex/llm/*", sessionMiddleware);
 app.route("/api/:namespace/:memex/llm", llmRouter);
 // spec-190 t-1: voice WS proxy, tenancy-scoped. Deliberately NO sessionMiddleware
@@ -362,11 +376,9 @@ app.route("/api/onboarding", onboarding);
 // Replaces the retired /api/accounts and /api/account mounts.
 app.route("/api/orgs", orgsRouter);
 // /api/orgs/:orgId/scaffold — read the merged base+org scaffold and administer
-// per-Org GuidanceBlock additions (b-68 t-10). Mounted at /api/orgs (not under
-// the tenancy prefix) because the org id alone identifies the resource — the
-// shape is org-keyed UUID lookup, not tenancy-scoped path resolution. The
-// router enforces std-7 (404 for non-members AND non-admin writes) internally.
-app.route("/api/orgs", scaffoldRouter);
+// per-Org GuidanceBlock additions (b-68 t-10). Mounted EARLIER (above, before
+// the param-prefixed personal scaffold router) so the literal `orgs` path isn't
+// shadowed by `/api/:namespace/:memex/scaffold` — see the ordering note there.
 // /api/namespaces — doc-19 t-3: namespace-keyed endpoints (slug check, rename,
 // home payload, sibling-memex creation).
 app.route("/api/namespaces", namespacesRouter);
@@ -394,6 +406,10 @@ app.route("/api/share", shareRouter);
 // spec-171 t-3: Stripe webhook receiver. No session middleware — the
 // Stripe-Signature HMAC header IS the auth (verified inside the router).
 app.route("/api/stripe/webhook", stripeWebhookRouter);
+
+// spec-341 t-2: Postmark delivery webhook. No session middleware — the Basic-auth
+// credential on the webhook URL IS the auth (verified inside the router).
+app.route("/api/postmark/webhook", postmarkWebhookRouter);
 
 // Platform backstage — dev-mode only today. Gated inside the router itself. Registered on
 // the bare domain so operators can hit it without a tenant subdomain.

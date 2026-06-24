@@ -256,29 +256,25 @@ test(
     ).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText(email)).toBeVisible();
 
-    // Continue → spec-305 dec-2: needsOnboarding now routes to the Home Canvas
-    // onboarding journey (/home), NOT the retired standalone name page. A nameless,
-    // identity-unconfirmed new user is redirected to /home by RequireAuth, and the
-    // journey opens on the universal Beat-1 welcome step.
+    // Continue → spec-305 dec-2: needsOnboarding routes to the Home Canvas onboarding
+    // journey (/home), NOT the retired standalone name page. A nameless, identity-
+    // unconfirmed new user is redirected to /home by RequireAuth. The v2 arc (spec-336)
+    // opens DIRECTLY on the identity ("About you") step — the welcome beat was dropped.
     await page.getByRole("button", { name: /Continue to your Memex/ }).click();
-    await expect(page.getByTestId("journey-step-welcome")).toBeVisible({
-      timeout: 15_000,
-    });
-    await page.getByTestId("journey-cta-primary").click(); // Get started → identity
 
-    // Identity step (spec-305): a nameless native-auth user gets an empty name field
-    // (no SSO name to confirm). Fill it + Continue → updateProfileApi runs AS the
-    // signed-up user (Bearer JWT, not the dev bypass) and stamps identity_confirmed_at,
-    // which clears needsOnboarding.
+    // Identity step: a nameless native-auth user has no SSO name to reuse, so the v2
+    // identity step shows a name field for them (spec-336). Fill it + Continue →
+    // updateProfileApi runs AS the signed-up user (Bearer JWT, not the dev bypass),
+    // persisting role_coords (which confirms identity) and clearing needsOnboarding.
     const displayName = `Spine Newuser ${resources.uniq}`;
-    await expect(page.getByTestId("journey-step-identity")).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId("journey-step-identity")).toBeVisible({ timeout: 15_000 });
     await page.getByTestId("identity-name").fill(displayName);
     await page.getByTestId("identity-continue").click();
 
-    // identity_confirmed clears needsOnboarding; the journey self-advances off
-    // identity. With no agent connected, the next derived step is connect-agent —
-    // proof onboarding completed AS the new user, on the new flow.
-    await expect(page.getByTestId("journey-step-connect-agent")).toBeVisible({ timeout: 10_000 });
+    // Identity confirmed → the journey self-advances off identity. This brand-new user
+    // has no spec yet, so the next derived step is create-spec (connecting the agent is
+    // folded into that step's stage 1 in v2) — proof onboarding completed AS the new user.
+    await expect(page.getByTestId("journey-step-create-spec")).toBeVisible({ timeout: 10_000 });
 
     // The new user can now reach their personal-memex Specs board (the onboarding wall
     // is gone, spec-312) — as the NEW user (sidebar identity shows `email`), never

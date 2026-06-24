@@ -26,7 +26,7 @@
 
 .PHONY: test test-unit test-integration test-api test-security test-perf test-regression \
         test-server test-ui e2e e2e-cold smoke smoke-int smoke-prod smoke-int-with-db smoke-prod-with-db \
-        dev build db-migrate db-seed typecheck \
+        dev build db-migrate db-seed typecheck lint \
         check-url-shape help
 
 # ── Tests ────────────────────────────────────────────────────
@@ -149,6 +149,10 @@ build:
 typecheck:
 	pnpm --filter @memex/server exec tsc --noEmit
 	pnpm --filter @memex/ui exec tsc --noEmit
+
+## Lint (Biome — curated baseline per spec-356; no reformat)
+lint:
+	pnpm lint
 
 # ── Database ─────────────────────────────────────────────────
 

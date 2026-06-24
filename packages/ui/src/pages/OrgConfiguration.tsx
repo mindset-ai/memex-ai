@@ -30,6 +30,22 @@ export function OrgConfiguration() {
     : session?.memberships.find((m) => m.memexId === session?.currentMemexId);
   const isAdmin = currentMembership?.role === 'administrator';
 
+  // When this page is an ORG's tenant page (/<ns>/<mx>/org), the billable org is
+  // unambiguous — it's the one in the URL, and we've already gated on admin-of-it
+  // above. Hand it to BillingTab so it bills THAT org directly instead of showing
+  // a redundant org chooser (spec-171 verify fix). Null on the flat /org route or
+  // a personal-namespace page (no org), where BillingTab falls back to resolving
+  // the org from the caller's admin memberships.
+  const currentOrg =
+    tenant && currentMembership?.orgId
+      ? {
+          orgId: currentMembership.orgId,
+          name: currentMembership.name,
+          namespace: tenant.namespace,
+          memexSlug: tenant.memex,
+        }
+      : null;
+
   const onTabChange = useCallback(
     (id: string) => {
       if (!isTabId(id)) return;
@@ -77,7 +93,7 @@ export function OrgConfiguration() {
         {tab === 'users' && <UsersTab onSwitchTab={onTabChange} />}
         {tab === 'invites' && <InvitesTab />}
         {tab === 'settings' && <SettingsTab />}
-        {tab === 'billing' && <BillingTab />}
+        {tab === 'billing' && <BillingTab currentOrg={currentOrg} />}
       </div>
     </div>
   );

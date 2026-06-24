@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from './ui/Button';
 import { Input } from './ui/Input';
+import { Alert } from './ui/Alert';
 import { useAuth } from './AuthContext';
 import {
   checkMemexSlugApi,
@@ -157,9 +158,9 @@ export function AddMemexForm({
       <SlugStatus slug={trimmed} checking={checking} check={check} />
 
       {submitError && (
-        <div className="px-3 py-2 rounded-lg bg-status-danger-bg border border-status-danger-border text-sm text-status-danger-text">
+        <Alert variant="danger" size="md">
           {submitError}
-        </div>
+        </Alert>
       )}
 
       <div className="flex justify-end gap-2">

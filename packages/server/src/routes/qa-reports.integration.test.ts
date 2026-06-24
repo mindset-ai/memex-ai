@@ -287,7 +287,13 @@ describe("spec-286: enriched feed + tag/date filters + facets", () => {
 
     // A distinct AUTHOR with a known name — different from the build IMPLEMENTER,
     // so the author≠implementer distinction is observable.
-    const author = await upsertUserByEmail("author286@memex.ai");
+    // std-37 (spec-395): @example.com (an RFC-6761 test domain), NOT @memex.ai.
+    // upsertUserByEmail inserts this author WITHOUT a namespace (it leaves that to
+    // the auth service), so on a shared per-worker DB clone the row would otherwise
+    // trip migration-smoke's "every active user has a namespace" GLOBAL invariant
+    // in the window before the afterAll below deletes it. @example.com is excluded
+    // by that scan, so the fixture can't contaminate it even if cleanup races.
+    const author = await upsertUserByEmail("author286@example.com");
     authorUserId = author.id;
     await db.update(users).set({ name: "Ada Author" }).where(eq(users.id, author.id));
 
@@ -310,10 +316,11 @@ describe("spec-286: enriched feed + tag/date filters + facets", () => {
     rT2 = await seedReport(m.memexId, specT.id, "T session 2", new Date("2026-03-03T00:00:00Z"), builder);
   });
 
-  // upsertUserByEmail inserts this author WITHOUT a namespace (it leaves that to
-  // the auth service), so leaving it behind would trip migration-smoke's
-  // "every active user has namespace_id" invariant on a shared worker clone.
-  // The docs that reference it are dropped by the file-level afterAll (FK SET NULL).
+  // Belt-and-braces cleanup of the namespace-less author user. With the
+  // @example.com domain above this row is already EXCLUDED from migration-smoke's
+  // invariant scan (spec-395), so leaving it behind is harmless — but we still
+  // delete it to keep the clone tidy. The docs that reference it are dropped by the
+  // file-level afterAll (FK SET NULL).
   afterAll(async () => {
     await db.delete(users).where(eq(users.id, authorUserId)).catch(() => {});
   });

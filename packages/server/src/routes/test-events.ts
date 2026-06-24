@@ -26,9 +26,12 @@
 //                    post explicitly. A metadata.actor key (legacy
 //                    hand-rolled wire format) is stored opaquely as
 //                    metadata but is NOT promoted into this column.
-//   hidden           optional, boolean (spec-115 v0.1.0) — when true, the
-//                    event is stored but excluded from the AC's displayed
-//                    verification badge calculation
+//   hidden           DEPRECATED (spec-358) — accepted for backward
+//                    compatibility but NO LONGER HONOURED. An old / hand-rolled
+//                    emitter may still send it (any value); it is silently
+//                    ignored and the event is always stored as a counting
+//                    result. No inbound value can keep a new result off the
+//                    badge. (Historical hidden=true rows are frozen, untouched.)
 //   metadata         optional, object<string,string> (spec-115 v0.1.0) —
 //                    extensible context bag, surfaced in the UI tooltip.
 //                    Server-side caps: 4KB total, 32 keys, 256 chars per
@@ -48,6 +51,10 @@ import { Hono } from "hono";
 import { db } from "../db/connection.js";
 import { testEvents } from "../db/schema.js";
 import { applyEmissionToSummary } from "../services/test-event-latest.js";
+import {
+  trimTestEventsForPair,
+  recordFirstVerified,
+} from "../services/test-event-retention.js";
 import { maybeAutoResolveIssuesForAcUid } from "../services/issues.js";
 import {
   verifyEmissionKey,
@@ -55,7 +62,6 @@ import {
   resolveMemexId,
 } from "../services/emission-keys.js";
 import { mutate } from "../services/mutate.js";
-import { observeTestEventTraffic } from "../services/spec-traffic.js";
 import type { ChangeEntity } from "../services/bus.js";
 
 const testEventsRouter = new Hono();
@@ -218,9 +224,13 @@ testEventsRouter.post("/", async (c) => {
   if (body.actor !== undefined && typeof body.actor !== "string") {
     return c.json({ error: "actor must be a string when provided" }, 400);
   }
-  if (body.hidden !== undefined && typeof body.hidden !== "boolean") {
-    return c.json({ error: "hidden must be a boolean when provided" }, 400);
-  }
+  // spec-358 (dec-3, ac-1/ac-11): the inbound `hidden` field is no longer
+  // honoured. We still accept it for backward compatibility — an old /
+  // hand-rolled emitter that sends it (any value, boolean or not) gets a
+  // normal 201, never a 400 — but it is silently ignored. The stored row is
+  // always a counting result (hidden=false below), so no emitter can keep a
+  // NEW result off the badge (ac-2). Historical hidden=true rows are frozen
+  // and untouched (dec-2/dec-5); the readers that exclude them are kept.
   if (
     body.metadata !== undefined &&
     (typeof body.metadata !== "object" ||
@@ -305,13 +315,19 @@ testEventsRouter.post("/", async (c) => {
   // `typeof body.ac_uid === "string"` narrowing across that function boundary.
   const insertValues = {
     acUid: body.ac_uid,
+    // spec-398 dec-4 (ac-8): stamp tenancy at write from the Memex the emission
+    // key already resolved + authorised above — no read-time ac_uid parsing.
+    memexId: targetMemexId,
     status: body.status,
     testIdentifier: (body.test_identifier as string | undefined) ?? null,
     durationMs: (body.duration_ms as number | undefined) ?? null,
     commitSha: (body.commit_sha as string | undefined) ?? null,
     runId: (body.run_id as string | undefined) ?? null,
     actor: (body.actor as string | undefined) ?? null,
-    hidden: (body.hidden as boolean | undefined) ?? false,
+    // spec-358: every ingested result counts. The inbound `hidden` field is
+    // ignored — the row is always stored as a counting result. The column is
+    // retained (dec-2) and write-frozen at false on this path.
+    hidden: false,
     metadata: metadataForStorage,
   };
 
@@ -355,11 +371,25 @@ testEventsRouter.post("/", async (c) => {
           .returning({ id: testEvents.id, createdAt: testEvents.createdAt });
         await applyEmissionToSummary(tx, {
           acUid: insertValues.acUid,
+          memexId: targetMemexId,
           testIdentifier: insertValues.testIdentifier,
           status: insertValues.status as "pass" | "fail" | "error",
           latestRunAt: inserted.createdAt,
           hidden: insertValues.hidden,
         });
+        // spec-398 (ac-1): keep this pair bounded to the latest RETENTION_KEEP
+        // runs — the steady-state trim-on-write, in the same transaction as the
+        // insert so the log never transiently exceeds the cap.
+        await trimTestEventsForPair(
+          tx,
+          insertValues.acUid,
+          insertValues.testIdentifier,
+        );
+        // spec-398 t-6: durably snapshot the earliest pass BEFORE retention can
+        // trim it away, so analytics keeps a true "first went green" date.
+        if (insertValues.status === "pass" && !insertValues.hidden) {
+          await recordFirstVerified(tx, insertValues.acUid, inserted.createdAt);
+        }
         return inserted;
       });
     },
@@ -369,23 +399,17 @@ testEventsRouter.post("/", async (c) => {
   // bump never blocks or fails the emission — it only leaves a slightly stale timestamp.
   bumpLastUsed(emissionKey.id);
 
-  // spec-189: a test_event arriving is verify-class traffic on the AC's Spec
-  // (dec-1) — a done Spec reopens to verify; a draft Spec advances to verify.
-  // Hidden emissions are excluded by design (`hidden: true` exists to keep an
-  // emission out of the visible signals — e.g. iterating on a done-phase
-  // regression fix must not reopen the Spec). Best-effort and non-throwing;
-  // no assignment (an emission key carries no acting user).
-  if (!insertValues.hidden) {
-    await observeTestEventTraffic(targetMemexId, insertValues.acUid);
-  }
+  // spec-342: a test_event NEVER changes a Spec's phase. It updates the AC
+  // verdict (applyEmissionToSummary, above) and the audit trail only; phase is
+  // a deliberate human / handoff placement. The former build→verify (and
+  // done→verify reopen) auto-promote was removed — see spec-traffic.ts.
 
   // Stdout log so observers can tail the dev server output during deploys
   // and behavioural probes. Cheap and useful.
   console.log(
     `[test-events] ${body.ac_uid} ${body.status}` +
       (body.test_identifier ? ` (${body.test_identifier})` : "") +
-      (body.run_id ? ` run=${body.run_id}` : "") +
-      (body.hidden === true ? " [hidden]" : ""),
+      (body.run_id ? ` run=${body.run_id}` : ""),
   );
 
   if (droppedKeys.length > 0) {

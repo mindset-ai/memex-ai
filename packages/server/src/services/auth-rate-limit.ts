@@ -1,9 +1,25 @@
-// In-memory sliding-window rate limiter for auth endpoints. Not distributed — OK for a
-// single-instance deployment; multi-replica prod needs a shared store (Redis) later.
+// Cross-instance sliding-window rate limiter for auth endpoints (spec-349).
+//
+// Counters live in the `rate_limit_counters` Postgres table, NOT in process
+// memory. Prod runs on Cloud Run with up to 3 instances and no session affinity,
+// so the old in-memory Map multiplied every limit by the instance count and reset
+// on cold start — the brute-force / enumeration guarantee was defeated across
+// instances (spec-345 perf-3). Redis was deliberately rejected for the bus
+// (spec-156) to keep the zero-managed-dependency posture; we reuse Postgres here
+// for the same reason.
+//
+// Each call is a SINGLE atomic `INSERT ... ON CONFLICT DO UPDATE ... RETURNING`,
+// so concurrent requests across instances serialise on the row lock — no lost
+// increments, no read-modify-write race. The window boundary (`reset_at`) and
+// the "is this window still live?" comparison are both computed in-DB via now(),
+// so instances agree regardless of clock skew.
 //
 // Usage:
-//   const result = rateLimit("login", `${ip}|${email}`, { max: 5, windowMs: 15 * 60 * 1000 });
+//   const result = await rateLimit("login", `${ip}|${email}`, { max: 5, windowMs: 15 * 60 * 1000 });
 //   if (!result.ok) return c.json({ error, retryAfterSec: result.retryAfterSec }, 429);
+
+import { sql } from "drizzle-orm";
+import { db } from "../db/connection.js";
 
 export interface RateLimitConfig {
   /** Max attempts per window before blocking. */
@@ -20,53 +36,67 @@ export interface RateLimitResult {
   retryAfterSec?: number;
 }
 
-interface Bucket {
-  count: number;
-  resetAt: number; // epoch ms when the window ends
-}
-
-// `buckets[scope][key]` maps a scope (e.g. "login") + a key (e.g. "1.2.3.4|alice@x.com")
-// to its current counter. Stale buckets are evicted lazily on access.
-const buckets = new Map<string, Map<string, Bucket>>();
-
-function getScopeMap(scope: string): Map<string, Bucket> {
-  let m = buckets.get(scope);
-  if (!m) {
-    m = new Map();
-    buckets.set(scope, m);
-  }
-  return m;
-}
-
-export function rateLimit(
+/**
+ * Atomically record one attempt against (scope, key) and report whether it is
+ * within the limit. Cross-instance correct: the counter is a Postgres row, and
+ * the increment is a single upsert so concurrent callers can't lose increments.
+ *
+ * The upsert:
+ *   - inserts {count: 1, reset_at: now()+window} on first hit;
+ *   - on conflict, if the existing window has expired (reset_at <= now()) it
+ *     STARTS A FRESH window (count=1, new reset_at) — the sliding reset;
+ *   - otherwise it increments, clamped at max+1 so a hammered key's count can't
+ *     grow without bound (it only ever needs to read as "> max" once blocked).
+ * RETURNING gives the post-increment count and the live retry-after, so the
+ * ok/blocked decision is derived purely from DB state.
+ */
+export async function rateLimit(
   scope: string,
   key: string,
   config: RateLimitConfig
-): RateLimitResult {
-  const now = Date.now();
-  const scopeMap = getScopeMap(scope);
+): Promise<RateLimitResult> {
+  // Window length as a Postgres interval (milliseconds → supports sub-second
+  // windows, which the unit tests exercise). make_interval has no ms arg, so we
+  // multiply the 1-millisecond unit interval.
+  const windowMs = config.windowMs;
+  const maxPlusOne = config.max + 1;
 
-  const existing = scopeMap.get(key);
-  if (!existing || existing.resetAt <= now) {
-    scopeMap.set(key, { count: 1, resetAt: now + config.windowMs });
-    return { ok: true, remaining: config.max - 1 };
+  const rows = (await db.execute(sql`
+    INSERT INTO rate_limit_counters (scope, key, count, reset_at)
+    VALUES (${scope}, ${key}, 1, now() + (${windowMs} * INTERVAL '1 millisecond'))
+    ON CONFLICT (scope, key) DO UPDATE SET
+      count = CASE
+        WHEN rate_limit_counters.reset_at <= now() THEN 1
+        ELSE LEAST(rate_limit_counters.count + 1, ${maxPlusOne})
+      END,
+      reset_at = CASE
+        WHEN rate_limit_counters.reset_at <= now()
+          THEN now() + (${windowMs} * INTERVAL '1 millisecond')
+        ELSE rate_limit_counters.reset_at
+      END
+    RETURNING
+      count AS count,
+      GREATEST(1, CEIL(EXTRACT(EPOCH FROM (reset_at - now()))))::int AS retry_after_sec
+  `)) as unknown as Array<{ count: number; retry_after_sec: number }>;
+
+  const row = rows[0];
+  // Defensive: a RETURNING upsert always yields exactly one row. If the driver
+  // ever hands back nothing, fail OPEN is the wrong call for a security control —
+  // but a missing row here means the write didn't happen, so treat as allowed-
+  // first-attempt to avoid locking every user out on an infra blip.
+  const count = row?.count ?? 1;
+  const retryAfterSec = row?.retry_after_sec ?? 1;
+
+  if (count > config.max) {
+    return { ok: false, remaining: 0, retryAfterSec };
   }
-
-  if (existing.count >= config.max) {
-    return {
-      ok: false,
-      remaining: 0,
-      retryAfterSec: Math.max(1, Math.ceil((existing.resetAt - now) / 1000)),
-    };
-  }
-
-  existing.count += 1;
-  return { ok: true, remaining: config.max - existing.count };
+  return { ok: true, remaining: config.max - count };
 }
 
-// Test hook: wipe all counters so tests don't interfere with each other.
-export function resetRateLimits(): void {
-  buckets.clear();
+// Test hook: wipe all counters so tests don't interfere with each other. Now a
+// TRUNCATE of the shared table rather than clearing an in-memory Map.
+export async function resetRateLimits(): Promise<void> {
+  await db.execute(sql`TRUNCATE rate_limit_counters`);
 }
 
 // Pre-configured limits for the auth surface area. Tune per-endpoint.

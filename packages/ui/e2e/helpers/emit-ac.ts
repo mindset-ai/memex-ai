@@ -54,3 +54,61 @@ export async function emitAcEvents(
     }
   }
 }
+
+// ──────────────────────────────────────────────────────────────────────────
+// Ergonomic fixture (spec-391 dec-6, ac-12)
+// ──────────────────────────────────────────────────────────────────────────
+//
+// Only ~1 journey tagged ACs before this — because each had to hand-roll an
+// `ACS_BY_TEST` map + a `test.afterEach` that calls emitAcEvents with the right
+// file path. `installAcEmission` collapses that to one call: a journey declares
+// the AC refs each test covers and the helper registers the afterEach that emits
+// on pass/fail automatically (skipped tests emit nothing). This is the EMISSION
+// plumbing only — journey authors (workstream D) own the journey bodies; this
+// helper lives in the shared e2e helpers, file-disjoint from any journey.
+//
+// Usage in a journey file:
+//   import { test } from "./helpers/index.js";
+//   installAcEmission(test, import.meta.url, {
+//     "user sees a 404 on another tenant's private spec": [`${SPEC}/acs/ac-4`],
+//   });
+
+interface PlaywrightTestLike {
+  afterEach(
+    fn: (args: Record<string, unknown>, testInfo: PlaywrightTestInfoLike) => unknown,
+  ): void;
+}
+
+interface PlaywrightTestInfoLike {
+  title: string;
+  status?: string;
+  duration: number;
+}
+
+/**
+ * Register an afterEach on `test` that emits AC events for the current test,
+ * looked up from `acsByTitle` (keyed by the test's title). `testFileUrl` is the
+ * journey's `import.meta.url`, used to build a stable `test_identifier`.
+ * Pass+fail both emit; skipped tests emit nothing. Emission never fails the run
+ * (emitAcEvents swallows all errors).
+ */
+export function installAcEmission(
+  test: PlaywrightTestLike,
+  testFileUrl: string,
+  acsByTitle: Record<string, string[]>,
+): void {
+  // Derive a stable identifier from the file URL (basename groups emissions per
+  // journey; the full path varies by checkout).
+  const fileLabel = testFileUrl.split("/").slice(-1)[0] ?? testFileUrl;
+  test.afterEach(async (_args, testInfo) => {
+    if (testInfo.status === "skipped") return;
+    const acRefs = acsByTitle[testInfo.title] ?? [];
+    if (acRefs.length === 0) return;
+    await emitAcEvents(
+      acRefs,
+      testInfo.status === "passed" ? "pass" : "fail",
+      `packages/ui/e2e/${fileLabel}::${testInfo.title}`,
+      testInfo.duration,
+    );
+  });
+}

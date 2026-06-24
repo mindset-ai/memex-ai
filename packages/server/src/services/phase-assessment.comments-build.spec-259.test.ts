@@ -83,6 +83,7 @@ function mkBuildAssessment(over: Partial<PhaseAssessment> = {}): PhaseAssessment
         accepted: 0,
         failingHandles: [],
         staleHandles: [],
+        localOnlyHandles: [],
       },
       openIssuesCount: 0,
       sections: [],

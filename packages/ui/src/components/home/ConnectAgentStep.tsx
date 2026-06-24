@@ -11,10 +11,13 @@ import { CodeBlock } from '../CodeBlock';
 import { installBase, mcpUrl } from '../../utils/mcpUrl';
 import { fetchJourneyStateApi } from '../../api/journey';
 
-type Os = 'mac' | 'windows' | 'linux';
-type Tool = 'claude-code' | 'claude-desktop' | 'cursor' | 'vscode' | 'claude-web' | 'windsurf-zed';
+// spec-336: these install primitives are reused by the v2 create-spec card's "Stage 1 ·
+// Connect to Memex MCP" (dec-4 — reuse the built per-tool/OS installer, never the flat
+// INT one-liner), so they are exported rather than module-private.
+export type Os = 'mac' | 'windows' | 'linux';
+export type Tool = 'claude-code' | 'claude-desktop' | 'cursor' | 'vscode' | 'claude-web' | 'windsurf-zed';
 
-function detectOs(): Os {
+export function detectOs(): Os {
   if (typeof navigator === 'undefined') return 'mac';
   const s = `${navigator.platform} ${navigator.userAgent}`.toLowerCase();
   if (s.includes('win')) return 'windows';
@@ -22,8 +25,8 @@ function detectOs(): Os {
   return 'mac';
 }
 
-const OS_LABEL: Record<Os, string> = { mac: 'macOS', windows: 'Windows', linux: 'Linux' };
-const TOOLS: ReadonlyArray<{ id: Tool; label: string }> = [
+export const OS_LABEL: Record<Os, string> = { mac: 'macOS', windows: 'Windows', linux: 'Linux' };
+export const TOOLS: ReadonlyArray<{ id: Tool; label: string }> = [
   { id: 'claude-code', label: 'Claude Code' },
   { id: 'claude-desktop', label: 'Claude Desktop' },
   { id: 'cursor', label: 'Cursor' },
@@ -42,7 +45,7 @@ const ASK_PROMPT = `Using Memex (you're connected now), answer me:
 
 "What is Memex, and what are its core principles? Use the get_information tool, then explain it simply — like I'm new."`;
 
-function Instructions({ tool, os, onCopy }: { tool: Tool; os: Os; onCopy?: () => void }) {
+export function Instructions({ tool, os, onCopy }: { tool: Tool; os: Os; onCopy?: () => void }) {
   if (tool === 'claude-code' || tool === 'claude-desktop') {
     return (
       <div className="space-y-2">

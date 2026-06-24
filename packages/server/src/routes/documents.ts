@@ -14,7 +14,12 @@ import {
   parseTagInput,
   type ParsedTag,
 } from "../services/tags.js";
-import { ValidationError } from "../types/errors.js";
+import {
+  parseJsonBodyOrNull,
+  requireString,
+  requireStringType,
+  requireStringArray,
+} from "./validation.js";
 import {
   createShareToken,
   listShareTokensForDoc,
@@ -228,11 +233,10 @@ docs.get("/:id", async (c) => {
 docs.post("/:id/status", async (c) => {
   const memexId = requireMemexId(c);
   const id = c.req.param("id");
-  const body = (await c.req.json().catch(() => null)) as { status?: unknown } | null;
-  const status = body?.status;
-  if (typeof status !== "string") {
-    throw new ValidationError("Body must include a 'status' string");
-  }
+  const body = await parseJsonBodyOrNull<{ status?: unknown }>(c);
+  const status = requireStringType(body?.status, "status", {
+    message: "Body must include a 'status' string",
+  });
   // spec-122 dec-3 — carry the actor/channel onto the status_changed journal row.
   const updated = await updateDocStatus(memexId, id, status, { source: "rest", ctx: restCtx(c) });
   return c.json(updated);
@@ -262,14 +266,10 @@ docs.post("/:id/unpause", async (c) => {
 docs.post("/:id/move", async (c) => {
   const memexId = requireMemexId(c);
   const id = c.req.param("id");
-  const body = (await c.req.json().catch(() => null)) as {
-    targetMemexId?: unknown;
-  } | null;
-
-  const targetMemexId = body?.targetMemexId;
-  if (typeof targetMemexId !== "string" || targetMemexId.length === 0) {
-    throw new ValidationError("Body must include a 'targetMemexId' string");
-  }
+  const body = await parseJsonBodyOrNull<{ targetMemexId?: unknown }>(c);
+  const targetMemexId = requireString(body?.targetMemexId, "targetMemexId", {
+    message: "Body must include a 'targetMemexId' string",
+  });
 
   // spec-293 dec-2/dec-3: a move is always whole — no per-artifact opt-out. The
   // RequestCtx carries the actor + rest_ui channel onto both emitted events
@@ -282,11 +282,10 @@ docs.post("/:id/move", async (c) => {
 docs.post("/:id/title", async (c) => {
   const memexId = requireMemexId(c);
   const id = c.req.param("id");
-  const body = (await c.req.json().catch(() => null)) as { title?: unknown } | null;
-  const title = body?.title;
-  if (typeof title !== "string") {
-    throw new ValidationError("Body must include a 'title' string");
-  }
+  const body = await parseJsonBodyOrNull<{ title?: unknown }>(c);
+  const title = requireStringType(body?.title, "title", {
+    message: "Body must include a 'title' string",
+  });
   const updated = await updateDocTitle(memexId, id, title);
   return c.json(updated);
 });
@@ -305,17 +304,16 @@ docs.post("/:id/title", async (c) => {
 docs.post("/:id/tags", async (c) => {
   const memexId = requireMemexId(c);
   const id = c.req.param("id");
-  const body = (await c.req.json().catch(() => null)) as { tags?: unknown } | null;
-  const rawTags = body?.tags;
-  if (!Array.isArray(rawTags) || rawTags.some((t) => typeof t !== "string")) {
-    throw new ValidationError("Body must include a 'tags' array of strings");
-  }
+  const body = await parseJsonBodyOrNull<{ tags?: unknown }>(c);
+  const rawTags = requireStringArray(body?.tags, "tags", {
+    message: "Body must include a 'tags' array of strings",
+  });
   const addedBy = (c.get("currentUserId") as string | null) ?? null;
   const applied = await applyTagStrings(
     { channel: "rest_ui" },
     memexId,
     id,
-    rawTags as string[],
+    rawTags,
     addedBy,
   );
   const docTags = await listDocTags(memexId, id);
@@ -327,11 +325,10 @@ docs.post("/:id/tags", async (c) => {
 docs.post("/:id/tags/remove", async (c) => {
   const memexId = requireMemexId(c);
   const id = c.req.param("id");
-  const body = (await c.req.json().catch(() => null)) as { tagId?: unknown } | null;
-  const tagId = body?.tagId;
-  if (typeof tagId !== "string" || tagId.length === 0) {
-    throw new ValidationError("Body must include a 'tagId' string");
-  }
+  const body = await parseJsonBodyOrNull<{ tagId?: unknown }>(c);
+  const tagId = requireString(body?.tagId, "tagId", {
+    message: "Body must include a 'tagId' string",
+  });
   await removeTagFromDoc({ channel: "rest_ui" }, memexId, id, tagId);
   const docTags = await listDocTags(memexId, id);
   return c.json({ tags: docTags });
@@ -353,11 +350,10 @@ docs.post("/sections/:sectionId/split", async (c) => {
 docs.post("/sections/:sectionId", async (c) => {
   const memexId = requireMemexId(c);
   const sectionId = c.req.param("sectionId");
-  const body = await c.req.json().catch(() => ({}));
-  const content = body?.content;
-  if (typeof content !== "string") {
-    throw new ValidationError("Body must include a 'content' string");
-  }
+  const body = await parseJsonBodyOrNull<{ content?: unknown }>(c);
+  const content = requireStringType(body?.content, "content", {
+    message: "Body must include a 'content' string",
+  });
   const updated = await updateSection(memexId, sectionId, content, {}, restCtx(c));
   return c.json(updated);
 });

@@ -223,7 +223,7 @@ export function ExecutionPlanModal({
           {error && (
             <div
               data-testid="plan-error"
-              className="rounded-md border border-status-error-border bg-status-error-bg p-3 text-sm text-status-error-text"
+              className="rounded-md border border-status-danger-border bg-status-danger-bg p-3 text-sm text-status-danger-text"
             >
               {error}
             </div>
@@ -239,7 +239,9 @@ export function ExecutionPlanModal({
                   <div className="text-[11px] uppercase tracking-wider font-semibold mb-1 opacity-80">
                     Readiness assessment (agent)
                   </div>
-                  <div className="prose prose-sm prose-invert max-w-none whitespace-pre-wrap wrap-break-word text-sm">
+                  {/* spec-389: theme-aware prose (see ChatMarkdown) — `prose-invert`
+                      was a dead no-op that washed out in light mode. */}
+                  <div className="prose-dark max-w-none whitespace-pre-wrap wrap-break-word text-sm">
                     {readiness.content}
                   </div>
                 </div>
@@ -260,11 +262,7 @@ export function ExecutionPlanModal({
                   {section.content.trim().length === 0 ? (
                     <p className="text-xs text-muted italic">— Empty —</p>
                   ) : (
-                    <div className="prose prose-sm prose-invert max-w-none text-sm
-                      [&>*:first-child]:mt-0 [&>*:last-child]:mb-0
-                      [&_p]:my-2 [&_ul]:my-2 [&_ol]:my-2 [&_li]:my-0.5
-                      [&_h1]:mt-4 [&_h1]:mb-2 [&_h2]:mt-3 [&_h2]:mb-2 [&_h3]:mt-2 [&_h3]:mb-1
-                      [&_pre]:my-2">
+                    <div className="prose-dark max-w-none text-sm [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
                       <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRefLinkifier]}>{section.content}</ReactMarkdown>
                     </div>
                   )}

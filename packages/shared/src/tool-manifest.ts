@@ -535,17 +535,8 @@ export const toolManifest: ToolManifestEntry[] = [
   {
     name: 'discontinue_test_events',
     summary:
-      'Soft-hide an orphaned test_identifier on an AC (a test you renamed/deleted whose stale fail still pins the AC red). Reversible; audit retained; a fresh live emission re-enters the verdict. Only for identifiers gone from the codebase.',
+      'Hard-delete an orphaned test_identifier on an AC (a test you renamed/deleted whose stale fail still pins the AC red): removes the emissions and clears their summary. Irreversible; a fresh live emission re-enters the verdict. Only for identifiers gone from the codebase.',
     args: 'discontinue_test_events(ref, test_identifier)',
-    group: 'build',
-    readOnlyHint: false,
-    trafficClass: null,
-  },
-  {
-    name: 'restore_test_events',
-    summary:
-      'Reverse discontinue_test_events: un-hide a test_identifier on an AC and recompute its verification badge from the restored history.',
-    args: 'restore_test_events(ref, test_identifier)',
     group: 'build',
     readOnlyHint: false,
     trafficClass: null,

@@ -104,9 +104,21 @@ test("hosted upgrade: pick Enterprise, set seats + annual, redirect to Stripe Ch
   // must NOT be present anywhere on the plan-select surface.
   await expect(page.getByText(/Self-?Hosted/i)).toHaveCount(0);
 
+  // spec-171 verify (org-first flow): the org is chosen HERE, on plan-select, not
+  // on the seats screen. With exactly one admin org it auto-selects once the
+  // on-load /api/auth/me refresh lands the seeded membership — and the plan CTAs
+  // stay DISABLED until an org resolves. Waiting for the org's read-only box is
+  // the deterministic gate before clicking, and proves the org came from REAL
+  // session resolution (deriveAdminOrgs), not a stub.
+  await expect(page.getByText("Upgrade Journey Org")).toBeVisible({
+    timeout: 15_000,
+  });
+
   // ── 2. → seats screen (UpgradeSeats) ──────────────────────────────────────
+  // The chosen org is carried into the seats URL as ?org=<id> and shown read-only
+  // there (no chooser after a plan is picked).
   await page.getByRole("button", { name: "Upgrade to Enterprise" }).click();
-  await expect(page).toHaveURL(/\/upgrade\/enterprise$/);
+  await expect(page).toHaveURL(/\/upgrade\/enterprise\?org=/);
 
   await expect(
     page.getByRole("heading", { name: "Upgrade to Hosted Enterprise" }),

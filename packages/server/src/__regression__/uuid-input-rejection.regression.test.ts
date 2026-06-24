@@ -85,8 +85,14 @@ describe("regression: every ref-accepting MCP tool rejects a UUID input with the
     cleanup.memexes.push(memexId);
     const [u] = await db
       .insert(users)
+      // std-37: a raw-insert fixture user lands `status='active'` (schema default)
+      // with `namespace_id` NULL — it never goes through signup/ensureUserNamespace.
+      // Use an RFC-6761 test domain (@example.com) so this row can't perturb
+      // migration-smoke's "every active user has a namespace" GLOBAL invariant when
+      // both files land on the same per-worker DB clone (spec-395). Same convention
+      // mixpanel-profile.integration + the qa-reports author fixture already follow.
       .values({
-        email: `uuid-reject-${Date.now()}-${Math.random().toString(36).slice(2, 6)}@memex.ai`,
+        email: `uuid-reject-${Date.now()}-${Math.random().toString(36).slice(2, 6)}@example.com`,
       } as never)
       .returning();
     cleanup.users.push(u.id);

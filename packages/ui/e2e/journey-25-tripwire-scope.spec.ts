@@ -2,7 +2,7 @@
 //
 // std-28 (PR-gate e2e): spec-193 adds a Scope control to the Scaffold Inspect
 // authoring editor so an admin can scope an org guidance addition to a single
-// memex (the override) instead of account-wide (the default). That is a new
+// memex (the override) instead of org-wide (the default). That is a new
 // user-facing flow, so it earns a Playwright journey here.
 //
 // The journey, all path-based [per std-2], seeded over the test-only HTTP
@@ -60,13 +60,22 @@ test("admin scopes a scaffold guidance addition to this memex only", async ({
     timeout: 15_000,
   });
 
-  // Select the build phase, then open the inline authoring editor.
-  await page.getByTestId("scaffold-rail-phase-build").click();
-  await page.getByTestId("scaffold-add-guidance-trigger").click();
-  await expect(page.getByTestId("scaffold-add-guidance-form")).toBeVisible();
+  // Select the build phase on the lifecycle timeline (spec-343 redesign), then
+  // open the in-context "Add here" editor on the phase's detail.
+  await page.getByTestId("scaffold-timeline-phase-build").click();
+  await expect(page.getByTestId("scaffold-phase-detail-build")).toBeVisible({
+    timeout: 15_000,
+  });
+  await page
+    .getByTestId("scaffold-phase-detail-build")
+    .getByTestId("scaffold-add-here-trigger")
+    .first()
+    .click();
+  const form = page.getByTestId("scaffold-add-here-form").first();
+  await expect(form).toBeVisible();
 
   // spec-193 t-5: the Scope control exists and offers the per-memex override.
-  const scope = page.getByTestId("scaffold-add-scope");
+  const scope = form.getByTestId("scaffold-add-here-scope");
   await expect(scope).toBeVisible();
   await expect(scope.locator("option", { hasText: "This memex only" })).toHaveCount(
     1,
@@ -74,16 +83,16 @@ test("admin scopes a scaffold guidance addition to this memex only", async ({
 
   // Author a block scoped to THIS memex.
   const markerText = `Tripwire scoped guidance ${slug}`;
-  await page.getByTestId("scaffold-add-text").fill(markerText);
-  await page
-    .getByTestId("scaffold-add-rationale")
+  await form.getByTestId("scaffold-add-here-text").fill(markerText);
+  await form
+    .getByTestId("scaffold-add-here-rationale")
     .fill("spec-193 journey: per-memex scoped addition");
   await scope.selectOption("memex");
-  await page.getByTestId("scaffold-add-submit").click();
+  await form.getByTestId("scaffold-add-here-submit").click();
 
   // The form closes on success and the authored block lands in the Inspect list
   // — proving the tenant extended the vocabulary in the UI with no deploy.
-  await expect(page.getByTestId("scaffold-add-guidance-form")).toBeHidden({
+  await expect(form).toBeHidden({
     timeout: 15_000,
   });
   // exact:true so the locator resolves to the block's own text node, not the

@@ -35,30 +35,11 @@ export interface TestResources {
   email: (prefix: string, domain?: string) => string;
 }
 
-export const test = base.extend<{ resources: TestResources; seedConsent: boolean }>({
-  // spec-254: the visitor-consent banner mounts app-wide and shows on any session
-  // with no recorded choice — i.e. EVERY cold-DB journey. Left to show, it overlays
-  // the bottom-anchored chrome (its button row intercepts the whats-new ear in
-  // journey-23) and registers as a role="dialog" (tripping journey-28's "no dialog
-  // open on first run" assertion). So by default we pre-record a 'denied' choice in
-  // localStorage before the app boots — exactly as the resources fixture below
-  // pre-stamps the dev user as already-greeted (spec-206) so the onboarding chrome
-  // never fires in unrelated journeys. The dedicated consent journey sets
-  // `test.use({ seedConsent: false })` to exercise the banner from a clean slate.
-  seedConsent: [true, { option: true }],
-  page: async ({ page, seedConsent }, use) => {
-    if (seedConsent) {
-      await page.addInitScript(() => {
-        try {
-          window.localStorage.setItem("memex.telemetry.consent", "denied");
-        } catch {
-          // localStorage unavailable — banner will show; harmless for journeys
-          // that don't touch the bottom-anchored chrome.
-        }
-      });
-    }
-    await use(page);
-  },
+export const test = base.extend<{ resources: TestResources }>({
+  // spec-367 retired the anonymous consent banner entirely (no popup is ever
+  // mounted), so the old `seedConsent` pre-seed of a 'denied' choice is gone — there
+  // is nothing to suppress. Anonymous pre-signup capture is now identifier-less
+  // volume with no banner and no cookie.
   resources: async ({}, use) => {
     // Baseline reset of the dev user BEFORE each test (the schema-current
     // equivalent of the old clearMembershipsForEmail + named seedUser):

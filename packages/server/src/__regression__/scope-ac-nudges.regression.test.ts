@@ -10,17 +10,27 @@
 // silently regress.
 //
 // Three independent assertions because the channels are independent:
-//   - tool description (always in context per tool-selection)
-//   - tool response handler (read at the activation moment)
-//   - phases guidance topic (the canonical reference)
+//   - tool description (always in context per tool-selection) — toolSpecs (runtime)
+//   - tool RESPONSE nudge (read at the activation moment) — renderFooterSignal (runtime)
+//   - phases guidance topic (the canonical reference) — guidance JSON (prose artifact)
 //
-// If any one of these stops mentioning Scope ACs after create_doc, the
-// other two still nudge. But ALL three should hold the line.
+// spec-392 (workstream C of spec-388): the response channel USED to grep
+// handler source for the literal nudge clause, with the comment "we can't
+// easily call the handler ... assert the source contains the literal clause".
+// We CAN call the producer: the create_doc spec-footer nudge is authored by
+// renderFooterSignal({kind:'doc_created', docType:'spec'}) and that branch
+// takes no DB. So the response channel is now BEHAVIOURAL — it exercises the
+// real prose producer, catching a trim that a source grep would miss when the
+// nudge is gated off at runtime but the string survives in the file.
 
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { tagAc } from "@memex-ai-ac/vitest";
 import { toolSpecs } from "../agent/tool-specs.js";
+import { renderFooterSignal } from "../agent/handlers/shared.js";
+
+const AC6 = "mindset-prod/memex-building-itself/specs/spec-392/acs/ac-6";
 
 describe("scope-AC-after-create_doc nudges (real-agent regression)", () => {
   it("create_doc tool description mentions authoring Scope ACs as the next step", () => {
@@ -34,23 +44,46 @@ describe("scope-AC-after-create_doc nudges (real-agent regression)", () => {
     expect(desc).toMatch(/scope.{0,40}draft.{0,40}specify|draft.{0,40}specify.{0,40}scope/);
   });
 
-  it("create_doc response handler emits a Scope-AC nudge for specs", async () => {
-    // Synthesise the response by reading the source — we can't easily call
-    // the handler without a full DB/ctx, and the wording is the part that
-    // matters. The test would be fragile on the implementation; instead we
-    // assert the source contains the literal nudge clause.
-    const sourcePath = join(__dirname, "..", "agent", "tool-specs.ts");
-    const src = readFileSync(sourcePath, "utf-8");
-    // The nudge lives in the create_doc handler, just before the final
-    // return. Match the diagnostic markers we put there.
-    expect(src).toMatch(/scope-type acceptance criteria/i);
-    expect(src).toMatch(/get_information\(topic='phases'\)/i);
-    expect(src).toMatch(
-      /kind:\s*["']scope["']/i,
-      // The example call-shape must reference kind:'scope' so the agent
-      // doesn't have to derive it. If we ever rename `kind`, find another
-      // way to disambiguate Scope ACs in the response.
-    );
+  it("create_doc RESPONSE nudge fires for specs (behavioural: renderFooterSignal)", async () => {
+    tagAc(AC6);
+    // Call the real producer of the doc_created footer nudge. The 'doc_created'
+    // spec branch consults no DB, so memexId/docId are unused placeholders.
+    const docRef = "mindset-prod/memex-building-itself/specs/spec-999";
+    const nudge =
+      (await renderFooterSignal(
+        { kind: "doc_created", docRef, docType: "spec" },
+        "00000000-0000-0000-0000-000000000000",
+        "00000000-0000-0000-0000-000000000000",
+      )) ?? "";
+
+    // The nudge must steer the agent to author SCOPE acceptance criteria...
+    expect(nudge).toMatch(/scope-type acceptance criteria/i);
+    // ...show the create_ac({kind:'scope'}) call-shape with the doc's OWN ref
+    // pre-filled (proof it's the runtime producer threading the arg, not a
+    // static template a grep would also match)...
+    expect(nudge).toMatch(/kind:\s*["']scope["']/i);
+    expect(nudge).toContain(docRef);
+    // ...and point at the phases guidance topic for the full detail.
+    expect(nudge).toMatch(/get_information\(topic='phases'\)/i);
+  });
+
+  it("the doc_created nudge is spec-only — a non-spec docType does NOT get the scope-AC nudge", async () => {
+    tagAc(AC6);
+    // Behaviour-preserving guard on the branch: only specs are steered to scope
+    // ACs. A document (free-form) takes a different branch / none, so the
+    // scope-AC clause must be absent — proving the producer BRANCHES on docType
+    // rather than always emitting the string.
+    const nudge =
+      (await renderFooterSignal(
+        {
+          kind: "doc_created",
+          docRef: "mindset-prod/memex-building-itself/docs/doc-999",
+          docType: "document",
+        },
+        "00000000-0000-0000-0000-000000000000",
+        "00000000-0000-0000-0000-000000000000",
+      )) ?? "";
+    expect(nudge).not.toMatch(/scope-type acceptance criteria/i);
   });
 
   it("phases guidance topic carries a 'Scope ACs in draft/specify' section", () => {
