@@ -313,8 +313,12 @@
 @layer base {
   body {
     @apply antialiased;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter',
-      sans-serif;
+    /* spec-372: deliberately NO 'Inter' here. Inter is self-hosted (@font-face below)
+       ONLY for the onboarding (.font-onboarding). Listing 'Inter' in this app-wide base
+       stack would let that self-hosted face bleed app-wide on platforms lacking the system
+       fonts above (Linux/Windows, incl. CI) — shifting all text metrics. Keep the global
+       app font system-first; onboarding opts in via .font-onboarding. */
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   }
 
   .dark body, .dark {
