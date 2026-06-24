@@ -26,6 +26,9 @@ let mockChatState: {
   respondedToolIds: Set<string>;
   // spec-143 t-4 (dec-6): drift mode makes the agent live without a bound doc.
   isDriftMode: boolean;
+  // spec-360: scaffold mode suppresses the panel's own heading + grounding line
+  // (the Scaffold Inspect aside supplies them).
+  isScaffoldMode?: boolean;
 };
 
 vi.mock('./ChatContext', () => ({
@@ -361,5 +364,114 @@ describe('ChatPanel — review actions in the agent idle state (spec-283)', () =
     await user.click(within(block).getByRole('button', { name: 'Summarise Spec' }));
     expect(mockSendMessage).toHaveBeenCalledTimes(1);
     expect(typeof mockSendMessage.mock.calls[0][0]).toBe('string');
+  });
+});
+
+// ── spec-360 issue-3: scaffold mode suppresses the panel's heading + grounding ─
+// In scaffold mode the Scaffold Inspect aside already supplies the heading, and
+// the code-grounding disclosure doesn't apply — so ChatPanel drops both its own
+// "Spec assistant" heading and the grounding line, keeping only the Clear control.
+describe('ChatPanel — scaffold mode chrome suppression (spec-360, ac-11)', () => {
+  const AC360 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-360/acs/ac-${n}`;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockChatState = {
+      messages: [],
+      isStreaming: false,
+      error: null,
+      // scaffold mode lives without a bound doc (memex-scoped, like drift).
+      docId: null,
+      doc: null,
+      openCommentCount: 0,
+      contextChips: [],
+      respondedToolIds: new Set(),
+      isDriftMode: false,
+      isScaffoldMode: true,
+    };
+  });
+
+  it('suppresses the "Spec assistant" heading and the grounding line', () => {
+    tagAc(AC360(11));
+    render(<ChatPanel />);
+    expect(screen.queryByText('Spec assistant')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('chat-grounding-line')).not.toBeInTheDocument();
+  });
+
+  it('still renders the Clear control once messages exist', () => {
+    tagAc(AC360(11));
+    mockChatState.messages = [
+      { id: '1', role: 'user', content: 'hi', timestamp: new Date() },
+    ];
+    render(<ChatPanel />);
+    expect(screen.getByText('Clear')).toBeInTheDocument();
+    // Heading + grounding line stay suppressed even with messages.
+    expect(screen.queryByText('Spec assistant')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('chat-grounding-line')).not.toBeInTheDocument();
+  });
+
+  it('no Clear control before any message (idle scaffold panel)', () => {
+    tagAc(AC360(11));
+    render(<ChatPanel />);
+    expect(screen.queryByText('Clear')).not.toBeInTheDocument();
+  });
+
+  it('spec mode (non-scaffold) keeps the heading + grounding line (back-compat)', () => {
+    tagAc(AC360(11));
+    mockChatState.isScaffoldMode = false;
+    mockChatState.docId = 'doc-1';
+    render(<ChatPanel />);
+    expect(screen.getByText('Spec assistant')).toBeInTheDocument();
+    expect(screen.getByTestId('chat-grounding-line')).toBeInTheDocument();
+  });
+});
+
+// ── spec-360 issue-12: the STATIC assistant intro (no opening LLM turn) ─────
+// In scaffold mode with an empty thread, ChatPanel renders a static intro card
+// instead of firing a money-costing opening LLM turn. It explains what the
+// assistant does (explain / navigate + admin authoring). It disappears the
+// moment a conversation starts, and never shows outside scaffold mode.
+describe('ChatPanel — static scaffold intro (spec-360 issue-12, ac-11)', () => {
+  const AC360 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-360/acs/ac-${n}`;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockChatState = {
+      messages: [],
+      isStreaming: false,
+      error: null,
+      docId: null,
+      doc: null,
+      openCommentCount: 0,
+      contextChips: [],
+      respondedToolIds: new Set(),
+      isDriftMode: false,
+      isScaffoldMode: true,
+    };
+  });
+
+  it('renders the static intro in scaffold mode with no messages', () => {
+    tagAc(AC360(11));
+    render(<ChatPanel />);
+    const intro = screen.getByTestId('scaffold-assistant-intro');
+    expect(intro).toBeInTheDocument();
+    // It explains explain/navigate + admin authoring.
+    expect(intro).toHaveTextContent(/explain/i);
+    expect(intro).toHaveTextContent(/admin/i);
+  });
+
+  it('disappears once a conversation has started (messages exist)', () => {
+    tagAc(AC360(11));
+    mockChatState.messages = [{ id: '1', role: 'user', content: 'hi', timestamp: new Date() }];
+    render(<ChatPanel />);
+    expect(screen.queryByTestId('scaffold-assistant-intro')).not.toBeInTheDocument();
+  });
+
+  it('is absent outside scaffold mode (a normal Spec chat)', () => {
+    tagAc(AC360(11));
+    mockChatState.isScaffoldMode = false;
+    mockChatState.docId = 'doc-1';
+    render(<ChatPanel />);
+    expect(screen.queryByTestId('scaffold-assistant-intro')).not.toBeInTheDocument();
   });
 });

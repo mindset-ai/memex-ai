@@ -64,6 +64,8 @@ export const UI_TOOL_NAMES = new Set([
   'render_progress',
   'render_callout',
   'render_steps',
+  'render_scaffold_navigate',
+  'render_scaffold_quote',
 ]);
 
 /**
@@ -85,4 +87,6 @@ export const DISPLAY_UI_TOOL_NAMES = new Set([
   'render_progress',
   'render_callout',
   'render_steps',
+  'render_scaffold_navigate',
+  'render_scaffold_quote',
 ]);
