@@ -76,7 +76,7 @@ export function IdentityStep({
         Let&apos;s tailor this to how you actually work.
       </p>
       <p className="mb-6 max-w-3xl text-lg leading-relaxed text-secondary">
-        Most people on a modern product team do more than one job. Where do you spend most of your time?
+        Most people building modern products do more than one job. Where do you spend most of your time?
       </p>
 
       {needsName && (
