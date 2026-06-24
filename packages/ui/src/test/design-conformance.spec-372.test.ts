@@ -10,8 +10,10 @@
 //   D3. Stage-2 prompts instruct "create AND fully flesh out" (change #11, now design-matched).
 //   D4. Heading colour uses the theme-aware --ch-text-heading token (light ≈ #0F172A) rather
 //       than the literal v3 #0B1220, to keep dark mode legible (ac-16 "or its token equivalent").
-//   D5. Logo: v3 shows a left sidebar (no page logo); our app frames onboarding inside AppShell
-//       whose logo is already left-aligned — no separate Home logo to move (ac-5 logo clause).
+//   D5. Logo (ac-5): v3 shows the wordmark top-left in the sidebar. Ours was rendering at the
+//       asset's intrinsic 300px width (Tailwind v4 drops `[&>svg]:w-auto`), overflowing the
+//       240px sidebar so it looked shoved right — FIXED in Logo.tsx by stripping the intrinsic
+//       width/height so the SVG sizes from its viewBox against the wrapper height. Guarded below.
 //   D6. Product screenshots: v3 ships grey placeholders; we keep the v2 captures, widened to the
 //       prompt width, pending fresh exports (issue-1).
 import { describe, it, expect } from 'vitest';
@@ -42,5 +44,14 @@ describe('spec-372 ac-10: design conformance vs pinned v3', () => {
     // v3 wording survives only in an explanatory code comment, which is intended.)
     const step5 = read('components/home/AgentsBuildStep.tsx');
     expect(step5).toContain('<p className="mb-5 text-xl font-semibold leading-snug text-primary">One coordinated effort across your tasks.</p>');
+  });
+
+  it('ac-5: the sidebar logo is sized from its viewBox (intrinsic width/height stripped), not 300px', () => {
+    tagAc(AC(5));
+    // The Logo component strips the asset's hard-coded width="300"/height="51" so the inlined
+    // SVG can't overflow its slot — the regression that made the wordmark look right-shoved.
+    const logo = read('components/Logo.tsx');
+    expect(logo).toContain('width="[^"]*"');
+    expect(logo).toContain('height="[^"]*"');
   });
 });
