@@ -80,7 +80,7 @@ async function makeUserOrgMemex(suffix: string): Promise<{
   const tag = `${suffix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 4)}`.toLowerCase();
   const [u] = await db
     .insert(users)
-    .values({ email: `iso-${tag}@memex.ai` } as never)
+    .values({ email: `iso-${tag}@example.com` } as never) // std-37: .com so this active null-namespace fixture user cannot redden migration-smoke (spec-395)
     .returning();
   created.users.push(u.id);
   const slug = `iso-${tag}`.slice(0, 39);
@@ -171,7 +171,7 @@ beforeAll(async () => {
   const tag = `carol-${Date.now().toString(36)}`;
   const [carolUser] = await db
     .insert(users)
-    .values({ email: `iso-${tag}@memex.ai` } as never)
+    .values({ email: `iso-${tag}@example.com` } as never) // std-37: .com so this active null-namespace fixture user cannot redden migration-smoke (spec-395)
     .returning();
   created.users.push(carolUser.id);
   carol = { userId: carolUser.id };
@@ -228,7 +228,7 @@ beforeAll(async () => {
   const daveTag = `dave-${Date.now().toString(36)}`;
   const [daveUser] = await db
     .insert(users)
-    .values({ email: `iso-${daveTag}@memex.ai` } as never)
+    .values({ email: `iso-${daveTag}@example.com` } as never) // std-37: .com (spec-395)
     .returning();
   created.users.push(daveUser.id);
   await db.insert(orgMemberships).values({ userId: daveUser.id, orgId: alice.orgId, role: "member" } as never);

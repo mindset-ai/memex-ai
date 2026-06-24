@@ -36,9 +36,55 @@ concurrency:
 permissions:
   contents: read
   id-token: write # OIDC token for Workload Identity Federation
+  actions: read # spec-395: the `gate` job reads the test/deploy workflow runs for the SHA
 
 jobs:
+  # spec-395 (workstream F, dec-1/dec-2): the DEPLOY GATE — fail-closed.
+  #
+  # Before this, deploy.yml triggered on `push` with NO dependency on `test`, so the
+  # deploy ran CONCURRENTLY with the tests and a non-PR push or misconfig could ship
+  # a revision whose tests were red, absent, or still running. This job blocks the
+  # deploy until the `test` workflow concluded SUCCESS for THIS exact commit SHA.
+  #
+  # Why a guard JOB, not a `workflow_run` trigger (dec-1): the `deploy` job below
+  # selects int-vs-prod entirely from `github.ref_name` (environment, ENV, the
+  # env-scoped DEPLOY_ENV_FILE secret) and its concurrency keys off `github.ref`. A
+  # `workflow_run` trigger rewrites ref/ref_name to the default branch — which would
+  # silently ship a prod (main) deploy on INT config + secrets. So the trigger stays
+  # `push`, the deploy job is untouched, and this gate is purely additive.
+  #
+  # For a PROD deploy (ref_name == main) the gate ALSO checks the int (develop)
+  # `deploy` run for the SHA — a green int deploy run ≡ int smoke passed for the SHA,
+  # since smoke runs inline at deploy.sh's tail (std-26) and `main` FF's the identical
+  # develop SHA (std-21). That int-smoke check ships in WARN mode (INT_SMOKE_ENFORCE
+  # below): it reports but does NOT block, because a break-glass int deploy leaves no
+  # CI run for the SHA and a hard block would wedge a legitimate prod deploy. Flip to
+  # `block` only after validating the live semantics (spec-395 dec-2 — flagged to the
+  # orchestrator). The gate logic + its fail-closed branches are unit-tested in
+  # packages/server/src/__regression__/deploy-gate.regression.test.ts.
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20 # bounded — the script polls then fails closed within this
+    # Least-privilege: this job only READS workflow runs; no GCP, no checkout-of-secrets.
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Gate the deploy on green tests for the SHA (+ int-smoke for prod, WARN)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # dec-2 flip knob: 'warn' (default — reports, never blocks prod) | 'block'
+          # (hard prod gate). Leave 'warn' until the live break-glass/dispatch/timeout
+          # semantics are validated; flipping to 'block' is the only change needed.
+          INT_SMOKE_ENFORCE: warn
+        run: node scripts/ci/deploy-gate.mjs
+
   deploy:
+    needs: [gate] # spec-395: the gate must pass before any GCP mutation
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment:
