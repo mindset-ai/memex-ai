@@ -1,4 +1,4 @@
-import { pgTable, text, uuid, timestamp, integer, unique, uniqueIndex, check, primaryKey, jsonb, boolean, index, customType, doublePrecision } from "drizzle-orm/pg-core";
+import { pgTable, text, uuid, timestamp, integer, unique, uniqueIndex, check, primaryKey, jsonb, boolean, index, customType, doublePrecision, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { relations, type InferSelectModel, type InferInsertModel, sql } from "drizzle-orm";
 import type { CommentAction, CommentAudience } from "../types/roles.js";
 
@@ -44,6 +44,21 @@ const inet = customType<{ data: string; driverData: string }>({
     return "inet";
   },
 });
+
+// std-32 (spec-122 dec-2) — the activity contract's load-bearing vocabularies.
+// HOW (`channel`) = the surface a write arrived through; WHO-kind (`actor_kind`) =
+// the class of actor behind it. These value lists are duplicated across every
+// activity-bearing table's CHECK; hoisting them to one source keeps the allowed
+// set authoritative and drift-proof. The fragment interpolates the table's own
+// column so the emitted SQL stays byte-identical to the per-site originals.
+//
+// NOTE: comms_log.channel is a *notification* channel ('email','in_app',…) — a
+// different vocabulary that intentionally does NOT use this helper.
+const activityChannelCheck = (column: AnyPgColumn) =>
+  sql`${column} IN ('rest_ui', 'mcp', 'in_app_agent', 'server')`;
+
+const activityActorKindCheck = (column: AnyPgColumn) =>
+  sql`${column} IN ('human', 'mcp_agent', 'in_app_agent', 'system')`;
 
 // Forward-declared so child tables can reference memexes.id. The actual memexes table
 // definition lives later in this file (multi-tenancy section). All resource tables carry
@@ -172,7 +187,7 @@ export const docSections = pgTable(
   (table) => [
     check(
       "doc_sections_channel_valid",
-      sql`${table.channel} IN ('rest_ui', 'mcp', 'in_app_agent', 'server')`,
+      activityChannelCheck(table.channel),
     ),
     // `seq` is the allocate-once identity (spec-150 dec-2): minted as MAX(seq)+1 and
     // never reused, so a deleted section's frozen seq can't collide with a live one.
@@ -373,7 +388,7 @@ export const docComments = pgTable(
     ),
     check(
       "doc_comments_channel_valid",
-      sql`${table.channel} IN ('rest_ui', 'mcp', 'in_app_agent', 'server')`
+      activityChannelCheck(table.channel)
     ),
     // doc-26 t-4: cross_reference comments must point at exactly one target
     // kind (or zero, for legacy rows whose backfill couldn't resolve a
@@ -469,7 +484,7 @@ export const decisions = pgTable(
     ),
     check(
       "decisions_channel_valid",
-      sql`${table.channel} IN ('rest_ui', 'mcp', 'in_app_agent', 'server')`,
+      activityChannelCheck(table.channel),
     ),
     check(
       "decisions_status_valid",
@@ -529,7 +544,7 @@ export const tasks = pgTable(
       .where(sql`${table.actorUserId} IS NOT NULL`),
     check(
       "tasks_channel_valid",
-      sql`${table.channel} IN ('rest_ui', 'mcp', 'in_app_agent', 'server')`,
+      activityChannelCheck(table.channel),
     ),
   ]
 );
@@ -641,7 +656,7 @@ export const acs = pgTable(
     // allowed while a stamped value is constrained to the contract's vocabulary.
     check(
       "acs_channel_valid",
-      sql`${table.channel} IN ('rest_ui', 'mcp', 'in_app_agent', 'server')`,
+      activityChannelCheck(table.channel),
     ),
   ]
 );
@@ -2571,11 +2586,11 @@ export const activityLog = pgTable(
     ),
     check(
       "activity_log_actor_kind_valid",
-      sql`${table.actorKind} IN ('human', 'mcp_agent', 'in_app_agent', 'system')`
+      activityActorKindCheck(table.actorKind)
     ),
     check(
       "activity_log_channel_valid",
-      sql`${table.channel} IN ('rest_ui', 'mcp', 'in_app_agent', 'server')`
+      activityChannelCheck(table.channel)
     ),
   ]
 );
@@ -2834,11 +2849,11 @@ export const presence = pgTable(
     index("presence_memex_id_last_seen_at_idx").on(table.memexId, table.lastSeenAt),
     check(
       "presence_actor_kind_valid",
-      sql`${table.actorKind} IN ('human', 'mcp_agent', 'in_app_agent', 'system')`,
+      activityActorKindCheck(table.actorKind),
     ),
     check(
       "presence_channel_valid",
-      sql`${table.channel} IN ('rest_ui', 'mcp', 'in_app_agent', 'server')`,
+      activityChannelCheck(table.channel),
     ),
   ]
 );
