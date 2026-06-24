@@ -202,12 +202,12 @@ describe('PromptButton stub mode + copy feedback (spec-282 dec-5, ac-12)', () =>
     expect(STUB.length).toBeLessThan(full.length);
   });
 
-  it('the specify handoff names the "specify" phase, not "plan" (the label says "Plan handoff")', async () => {
+  it('the specify handoff stub names the canonical "specify" phase (looked up, not label-derived)', async () => {
     tagAc(AC12);
-    // Regression: deriving the phase word from the node label gave "plan" for
-    // the specify handoff (labelled "Plan handoff"); it must be the canonical
-    // phase name "specify".
-    const OPEN_PLAN = 'Show the Plan handoff prompt to copy into a coding agent';
+    // The stub's phase word comes from HANDOFF_BUTTON_BY_PHASE (id→phase), not the
+    // node label, so it is the canonical "specify" regardless of the display label
+    // ("Specify handoff") — and never the legacy "plan".
+    const OPEN_PLAN = 'Show the Specify handoff prompt to copy into a coding agent';
     render(<PromptButton buttonId="plan-handoff" context={CTX} stub />);
 
     fireEvent.click(screen.getByRole('button', { name: OPEN_PLAN }));

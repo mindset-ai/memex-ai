@@ -8,7 +8,7 @@ import {
   CLI_AUTH_POLL_TIMEOUT_MS,
   CLI_AUTH_POLL_INTERVAL_MS,
 } from "../services/cli-auth.js";
-import { listMcpTokensForUser, revokeMcpToken } from "../services/mcp-tokens.js";
+import { listMcpTokensForUser, mintMcpToken, revokeMcpToken } from "../services/mcp-tokens.js";
 
 // Two routers exported from this file:
 //   /api/cli/auth/* — public-ish device flow (no session needed for /start, /poll;
@@ -104,6 +104,35 @@ mcpTokensRouter.get("/", async (c) => {
     createdAt: r.createdAt,
   }));
   return c.json(safe);
+});
+
+// POST /api/mcp/tokens — mint a token for the logged-in user and return the raw
+// `mxt_` secret EXACTLY ONCE (it is stored hashed; this is the only time the
+// client ever sees it). This is the session-backed path the desktop app's
+// in-app "Install MCP" flow uses (spec-304 t-10): no device-flow, no terminal —
+// the already-authenticated webview mints a token and hands it to the native
+// installMcp bridge. Session-gated by the router-level middleware above, so an
+// unauthenticated request never reaches here (401). `label` is optional; it only
+// names the token in the settings list.
+mcpTokensRouter.post("/", async (c) => {
+  const user = c.get("user");
+  const body = await c.req.json().catch(() => ({}));
+  const rawLabel: unknown = body?.label;
+  const label =
+    typeof rawLabel === "string" && rawLabel.trim() ? rawLabel.trim() : "Memex Desktop";
+  const minted = await mintMcpToken(user.id, label);
+  // The raw token is returned once here and never again; the rest is safe
+  // metadata (same shape the GET list returns), never the hash.
+  return c.json(
+    {
+      token: minted.raw,
+      id: minted.row.id,
+      label: minted.row.label,
+      prefix: minted.row.prefix,
+      createdAt: minted.row.createdAt,
+    },
+    201,
+  );
 });
 
 mcpTokensRouter.delete("/:id", async (c) => {

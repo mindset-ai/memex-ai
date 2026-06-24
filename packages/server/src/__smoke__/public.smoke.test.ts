@@ -54,6 +54,23 @@ describe(`public smoke @ ${SMOKE_BASE_URL}`, () => {
     expect(body.error).toMatch(/Authorization|token/i);
   });
 
+  // spec-304 t-12 (std-17, ac-28) — the desktop in-app install mint endpoint is
+  // deployed and session-gated. We can't mint a real token without a session, so
+  // the non-destructive post-deploy check is: an UNAUTHENTICATED POST is rejected
+  // 401 (proving the route shipped AND the sessionMiddleware gate is live — a 404
+  // here would mean the deploy dropped the route). Mirrors the /mcp 401 challenge.
+  it("POST /api/mcp/tokens without auth → 401 (route deployed + session-gated)", async () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-304/acs/ac-28");
+    const res = await fetch(`${SMOKE_BASE_URL}/api/mcp/tokens`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ label: "smoke-should-not-mint" }),
+    });
+    expect(res.status).toBe(401);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toMatch(/Authorization|token/i);
+  });
+
   it("GET /api/share/:token with an invalid token → public non-5xx (404 unknown)", async () => {
     const res = await fetch(
       `${SMOKE_BASE_URL}/api/share/smoke-invalid-token-does-not-exist`,

@@ -6,6 +6,7 @@ import {
   BASE_READ_ONLY,
   BASE_REVIEW,
   DRIFT_AGENT_GUIDANCE,
+  SCAFFOLD_AGENT_GUIDANCE,
   toPromptBlocks,
   toPhaseGuidance,
   type SpecPhase,
@@ -85,6 +86,20 @@ if (!DRIFT_BLOCK) {
   );
 }
 
+// spec-360 t-1 (dec-1/dec-6) — scaffold-agent mode block. Like DRIFT_BLOCK the
+// prose lives in the scaffold model (`SCAFFOLD_AGENT_GUIDANCE` in @memex/shared —
+// std-15/std-16), never inline here. Appended by buildSystemBlocks only when the
+// per-request `scaffoldMode` flag is set (the React UI's Scaffold Inspect surface
+// sets mode 'scaffold'). This is the BEHAVIOUR; the factual scaffold GROUNDING is
+// composed per-request by `toScaffoldGrounding` and carried in the cached context
+// block (dec-5/dec-10), assembled by the route's buildScaffoldContext.
+const SCAFFOLD_BLOCK = SCAFFOLD_AGENT_GUIDANCE.text;
+if (!SCAFFOLD_BLOCK) {
+  throw new Error(
+    "SCAFFOLD_AGENT_GUIDANCE.text is empty — the scaffold agent block cannot be assembled",
+  );
+}
+
 /**
  * Returns system prompt as structured blocks for the Anthropic API.
  *
@@ -114,6 +129,18 @@ if (!DRIFT_BLOCK) {
  * prompt-level counterpart. Org members (the default `readOnly = false`)
  * are unaffected.
  */
+// spec-360: in scaffold mode the agent binds NO document — these base
+// `react_only` blocks each assert a DOC-bound "document assistant" identity that
+// directly conflicts with the scaffold assistant's job, and they lead the
+// prompt, so a cold question gets answered as the doc agent. Dropped in scaffold
+// mode (the scaffold identity leads instead); drift keeps them — it's the proven
+// shipped shape and fronts its own identity via the on-mount opening seed.
+const DOC_BOUND_REACT_BLOCK_IDS: ReadonlySet<string> = new Set([
+  "role",
+  "context-awareness",
+  "create-from-doc",
+]);
+
 export function buildSystemBlocks(
   documentContext: string,
   phase: SpecPhase,
@@ -121,10 +148,23 @@ export function buildSystemBlocks(
   reviewer = false,
   driftMode = false,
   integrationState?: IntegrationState,
+  scaffoldMode = false,
 ): SystemBlock[] {
   const projectedPhase: SpecPhase = phase === "draft" ? "specify" : phase;
-  const instructionBlocks = toPromptBlocks(BASE_SCAFFOLD, projectedPhase);
-  const baseContent = instructionBlocks.map((b) => b.text).join("\n\n");
+  // spec-360: scaffold mode leads with its OWN identity — the doc-bound base
+  // blocks are suppressed so the generic "document assistant" role can't
+  // dominate, and SCAFFOLD_BLOCK is prepended (not just appended) below.
+  const instructionBlocks = toPromptBlocks(
+    BASE_SCAFFOLD,
+    projectedPhase,
+    scaffoldMode ? DOC_BOUND_REACT_BLOCK_IDS : undefined,
+  );
+  const remainingBase = instructionBlocks.map((b) => b.text).join("\n\n");
+  const baseContent = scaffoldMode
+    ? remainingBase
+      ? `${SCAFFOLD_BLOCK}\n\n${remainingBase}`
+      : SCAFFOLD_BLOCK
+    : remainingBase;
 
   // spec-123 dec-8 (Move 2): the in-app/React agent receives the SAME per-phase
   // behavioural `shared_nudge` guidance the MCP agent gets — single-sourced from
@@ -134,7 +174,10 @@ export function buildSystemBlocks(
   // carry the "how". Now the phase guidance reaches both surfaces from one
   // source. Org overlays still ride the nudge channel only — they're excluded
   // here (b-68 ac-31), so this stays a pure projection of BASE_SCAFFOLD.
-  const phaseGuidance = toPhaseGuidance(BASE_SCAFFOLD, projectedPhase);
+  // spec-360: scaffold mode skips the per-phase behavioural guidance — it's the
+  // projected-`specify` decision-resolution "how" for the doc agent, irrelevant
+  // to the scaffold explainer (whose facts ride the composed grounding context).
+  const phaseGuidance = scaffoldMode ? "" : toPhaseGuidance(BASE_SCAFFOLD, projectedPhase);
   const withGuidance =
     phaseGuidance.length > 0 ? `${baseContent}\n\n${phaseGuidance}` : baseContent;
 
@@ -149,6 +192,12 @@ export function buildSystemBlocks(
   // It gives the agent its drift-specific job on top of the general Memex
   // orientation.
   const withDrift = driftMode ? `${withReview}\n\n${DRIFT_BLOCK}` : withReview;
+  // spec-360 t-1 (dec-1/dec-6): the scaffold identity now LEADS the instruction
+  // block (prepended into baseContent above) instead of trailing it — appending
+  // it after the doc-bound "document assistant" role let that role dominate a
+  // cold turn. The doc-bound base blocks + phase guidance are suppressed in
+  // scaffold mode, so the scaffold posture is the agent's primary identity. The
+  // factual grounding rides the cached context block (buildScaffoldContext).
   const instructions: SystemBlock = {
     type: "text",
     text: readOnly ? `${withDrift}\n\n${READ_ONLY_BLOCK}` : withDrift,
