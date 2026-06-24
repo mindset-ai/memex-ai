@@ -22,13 +22,8 @@ updates:
       # Deferred breaking migrations — each owned by a Spec, so dependabot must
       # not re-propose them (a plain bump fails CI and churns the merge gate).
       # Remove the matching ignore when its Spec lands, to resume normal bumps.
-      - dependency-name: "tailwindcss" # spec-290 owns the v3 → v4 migration
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "web-tree-sitter" # spec-292 owns the 0.25 → 0.26 ABI migration
-        # 0.x: dependabot classifies 0.25 → 0.26 as "minor" (which is why it slipped
-        # into npm-minor-and-patch), so ignore minor + major to keep it out until 292.
-        update-types:
-          ["version-update:semver-minor", "version-update:semver-major"]
+      # (spec-290 tailwindcss v4 + spec-292 web-tree-sitter 0.26 have landed —
+      #  their ignores were pruned in spec-384; v4 / 0.26 are now in the tree.)
       - dependency-name: "@hono/node-server" # 2.x unsupported by @hono/node-ws (voice WS adapter)
         # #221 over-bumped node-server to 2.0 ahead of its WS adapter (no @hono/node-ws
         # release peers node-server@2 yet). Reverted to 1.x; ignore major re-proposals
