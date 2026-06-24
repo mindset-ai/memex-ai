@@ -28,6 +28,24 @@ import {
 const SPEC_DOC_TYPES = new Set(['spec']);
 const parentDocTypeCache = new Map<string, Promise<string | null>>();
 
+/**
+ * Shared inline-cite button className (spec-355 dry-12). DecisionLink and
+ * TaskLink render identical inline-link buttons; this single source keeps their
+ * styling — base layout + the error-vs-interactive state branch + the disabled
+ * dimming — byte-identical. `error` toggles the danger (non-interactive)
+ * treatment vs the accent (clickable) treatment.
+ */
+function linkButtonClassName(error: boolean): string {
+  return `
+        inline-flex items-center font-mono text-[0.95em]
+        rounded-sm px-1 py-px transition-colors
+        ${error
+          ? 'text-status-danger-text bg-status-danger-bg cursor-default'
+          : 'text-accent hover:text-accent-hover hover:bg-card-hover cursor-pointer'}
+        disabled:opacity-60
+      `;
+}
+
 async function resolveParentDocType(docHandle: string): Promise<string | null> {
   let pending = parentDocTypeCache.get(docHandle);
   if (!pending) {
@@ -186,14 +204,7 @@ export function DecisionLink({
           ? `Resolving ${displayLabel}…`
           : `Open source decision ${displayLabel}`
       }
-      className={`
-        inline-flex items-center font-mono text-[0.95em]
-        rounded-sm px-1 py-px transition-colors
-        ${error
-          ? 'text-status-danger-text bg-status-danger-bg cursor-default'
-          : 'text-accent hover:text-accent-hover hover:bg-card-hover cursor-pointer'}
-        disabled:opacity-60
-      `}
+      className={linkButtonClassName(!!error)}
     >
       {displayLabel}
     </button>
@@ -254,14 +265,7 @@ export function TaskLink({
           ? `Resolving ${handle}…`
           : `Open source task ${handle}`
       }
-      className={`
-        inline-flex items-center font-mono text-[0.95em]
-        rounded-sm px-1 py-px transition-colors
-        ${error
-          ? 'text-status-danger-text bg-status-danger-bg cursor-default'
-          : 'text-accent hover:text-accent-hover hover:bg-card-hover cursor-pointer'}
-        disabled:opacity-60
-      `}
+      className={linkButtonClassName(!!error)}
     >
       {handle}
     </button>
