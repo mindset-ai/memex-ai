@@ -23,7 +23,7 @@
     "overrides": {
       "vitest": "4.1.8",
       "@vitest/coverage-v8": "4.1.8",
-      "@types/node": "25.9.3",
+      "@types/node": "26.0.0",
       "react": "19.2.7",
       "react-dom": "19.2.7",
       "typescript": "6.0.3",
