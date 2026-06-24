@@ -8,6 +8,7 @@ import type { Decision, Task, DocSection } from "../db/schema.js";
 import {
   listResolvedDecisionImplAcCoverage,
   listAcsForBriefWithVerification,
+  auditCiEmissionForBrief,
   STALE_THRESHOLD_DAYS,
 } from "./acs.js";
 import { NotFoundError, ValidationError } from "../types/errors.js";
@@ -239,6 +240,12 @@ export interface AcVerificationFact {
   failingHandles: string[];
   /** Handles (`ac-N`) of every `stale` AC — also a hold signal at `done`. */
   staleHandles: string[];
+  /**
+   * spec-391 dec-4 (ac-10): handles (`ac-N`) of every VERIFIED AC whose latest
+   * emission lacks CI provenance ("local-only" — the proof only ever ran on a
+   * laptop). Advisory audit signal, surfaced at `done`; never a block.
+   */
+  localOnlyHandles: string[];
 }
 
 export interface PhaseAssessment {
@@ -406,6 +413,7 @@ async function summarizeAcVerification(
     accepted: 0,
     failingHandles: [],
     staleHandles: [],
+    localOnlyHandles: [],
   };
   for (const r of rows) {
     if (r.tests.length > 0) fact.covered += 1;
@@ -430,6 +438,11 @@ async function summarizeAcVerification(
         break;
     }
   }
+  // spec-391 dec-4 (ac-10): the CI-emission audit — verified ACs whose latest
+  // emission is local-only. Derived through the same listAcsForBriefWithVerification
+  // path, so it can never name an AC the badge doesn't show as verified.
+  const localOnly = await auditCiEmissionForBrief(memexId, briefId);
+  fact.localOnlyHandles = localOnly.map((r) => r.handle);
   return fact;
 }
 
@@ -585,6 +598,15 @@ function nudgeAcVerificationAtDone(
     out.push(
       `${stale} acceptance criteri${stale === 1 ? "on is" : "a are"} STALE (${staleHandles.join(", ")}) — last passing run is older than ${STALE_THRESHOLD_DAYS} days. ` +
         `Re-run the tagged tests to refresh verification before closing to 'done', or close anyway if intentional.`,
+    );
+  }
+  // spec-391 dec-4 (ac-10): the CI-emission audit — "stale = local-only".
+  const localOnly = acVerification.localOnlyHandles;
+  if (localOnly.length > 0) {
+    out.push(
+      `${localOnly.length} verified acceptance criteri${localOnly.length === 1 ? "on's" : "a'"} latest emission came from a laptop, not CI ` +
+        `(${localOnly.join(", ")}) — no run_id / CI metadata. "Verified" here rests on a local-only run the deploy signal can't trust. ` +
+        `Re-run the tagged test in CI (with MEMEX_EMIT_KEY set) to refresh provenance. Advisory — this does not block 'done'.`,
     );
   }
   return out;

@@ -49,4 +49,4 @@ export {
   type SeededOrg,
 } from "./seed.js";
 
-export { emitAcEvents } from "./emit-ac.js";
+export { emitAcEvents, installAcEmission } from "./emit-ac.js";
