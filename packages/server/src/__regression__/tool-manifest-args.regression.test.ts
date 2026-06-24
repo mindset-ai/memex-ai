@@ -25,7 +25,12 @@
 import { describe, it, expect } from "vitest";
 import type { ZodType } from "zod";
 import { toolManifest } from "@memex/shared";
-import { toolSpecs } from "../agent/tool-specs.js";
+import { toolSpecs, AGENT_ONLY_SERVER_TOOLS } from "../agent/tool-specs.js";
+
+// spec-360: agent-only server tools (propose_scaffold_change) are never on the
+// MCP surface and intentionally absent from the manifest, so the manifest
+// arg-signature parity checks don't apply to them.
+const mcpToolSpecs = toolSpecs.filter((s) => !AGENT_ONLY_SERVER_TOOLS.has(s.name));
 
 // The one MCP tool that lives inline in mcp/tools.ts rather than in toolSpecs.
 const INLINE_MCP_ONLY = "list_memexes";
@@ -83,7 +88,7 @@ describe("regression: tool manifest arg-signature parity (b-67)", () => {
   const manifestByName = new Map(toolManifest.map((e) => [e.name, e]));
 
   it("every toolSpecs tool has a matching manifest entry", () => {
-    const missing = toolSpecs
+    const missing = mcpToolSpecs
       .map((s) => s.name)
       .filter((n) => !manifestByName.has(n))
       .sort();
@@ -91,7 +96,7 @@ describe("regression: tool manifest arg-signature parity (b-67)", () => {
   });
 
   // One assertion per tool so a single drift names the exact tool + diff.
-  for (const spec of toolSpecs) {
+  for (const spec of mcpToolSpecs) {
     it(`${spec.name}: manifest args match the live Zod schema`, () => {
       const entry = manifestByName.get(spec.name);
       expect(entry, `${spec.name} missing from manifest`).toBeDefined();

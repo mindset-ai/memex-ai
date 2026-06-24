@@ -60,6 +60,21 @@ import {
   standardsTools,
   integrationsTools,
 } from "./handlers/index.js";
+// spec-360: the scaffold-assistant authoring tool (propose_scaffold_change).
+// Lives in its own handler module like the other domains, but is AGENT-ONLY
+// (never on MCP) — see AGENT_ONLY_SERVER_TOOLS below.
+import { scaffoldTools } from "./handlers/scaffold.js";
+
+// spec-360 t-3: server tools that live ONLY on the in-app agent surface, never
+// on MCP. `propose_scaffold_change` is the scaffold assistant's propose-then-
+// confirm authoring tool — it only makes sense inside the `scaffold` agent mode
+// (it needs the composed scaffold grounding context), so it is excluded from the
+// MCP catalogue and from the manifest the way `list_memexes` is MCP-only. This
+// is the single source the MCP registration loop (`mcp/tools.ts`) and the
+// manifest parity check (`manifestVsSpecsDiff`) both consult.
+export const AGENT_ONLY_SERVER_TOOLS: ReadonlySet<string> = new Set([
+  "propose_scaffold_change",
+]);
 
 export const toolSpecs: ToolSpec[] = [
   ...docsTools,
@@ -499,6 +514,11 @@ export const toolSpecs: ToolSpec[] = [
 
 
   ...integrationsTools,
+
+  // ── Scaffold assistant (spec-360) ─────────────────────────
+  // propose_scaffold_change — AGENT-ONLY (see AGENT_ONLY_SERVER_TOOLS): in the
+  // agent surface, excluded from MCP + the manifest cross-check.
+  ...scaffoldTools,
 ];
 
 
@@ -519,7 +539,12 @@ export function manifestVsSpecsDiff(): {
   inSpecsNotManifest: string[];
   inManifestNotSpecs: string[];
 } {
-  const specNames = new Set(toolSpecs.map((s) => s.name));
+  // spec-360: AGENT_ONLY_SERVER_TOOLS (propose_scaffold_change) live on the
+  // in-app agent only — never registered on MCP and intentionally absent from
+  // the manifest, so they're excluded from this catalogue cross-check.
+  const specNames = new Set(
+    toolSpecs.map((s) => s.name).filter((name) => !AGENT_ONLY_SERVER_TOOLS.has(name)),
+  );
   // `list_memexes` is the MCP-only inline tool — present in the manifest but
   // never in `toolSpecs`, so excluding it keeps a matched catalogue empty.
   const manifestNames = new Set(

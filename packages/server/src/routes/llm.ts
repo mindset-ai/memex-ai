@@ -5,9 +5,9 @@ import "dotenv/config";
 import type Anthropic from "@anthropic-ai/sdk";
 import type { MessageParam, ContentBlockParam } from "@anthropic-ai/sdk/resources/messages.js";
 import { getAnthropicClient, LlmNotConfiguredError } from "../agent/anthropic-client.js";
-import { buildDocumentContext, buildDriftContext } from "../agent/context-builder.js";
+import { buildDocumentContext, buildDriftContext, buildScaffoldContext } from "../agent/context-builder.js";
 import { buildSystemBlocks, buildCreationSystemBlocks } from "../agent/system-prompt.js";
-import { getToolDefinitions, getCreationToolDefinitions, executeServerTool, isToolAllowedForReviewer, isReadOnlyTool, isDriftModeTool } from "../agent/tools.js";
+import { getToolDefinitions, getCreationToolDefinitions, executeServerTool, isToolAllowedForReviewer, isReadOnlyTool, isDriftModeTool, isScaffoldModeTool } from "../agent/tools.js";
 import { logRequest, logResponse, logError, logToolExecution, logExtractionOutcome } from "../agent/logger.js";
 import { stripDanglingToolUses } from "../agent/messages.js";
 import { getOrCreateConversation, getMessages, clearConversation, replaceMessages } from "../services/conversations.js";
@@ -46,8 +46,12 @@ const chatSchema = z.object({
   /** spec-143 t-4 (dec-6): when `'drift'`, the in-app agent runs in drift mode —
    *  no doc is bound (docId null), the context is the open-drift summary, the
    *  prompt carries the drift guidance, and the tool set is the focused drift
-   *  subset. The React UI's Drift Inbox sends this. */
-  mode: z.literal("drift").optional(),
+   *  subset. The React UI's Drift Inbox sends this.
+   *  spec-360 t-1 (dec-1/dec-6): when `'scaffold'`, the in-app agent runs as the
+   *  scaffold assistant — no doc is bound, the context is the composed scaffold
+   *  grounding, the prompt carries the scaffold guidance, and the tool set is the
+   *  focused scaffold subset. The React UI's Scaffold Inspect surface sends this. */
+  mode: z.enum(["drift", "scaffold"]).optional(),
 });
 
 llmRouter.post("/chat", async (c) => {
@@ -60,6 +64,7 @@ llmRouter.post("/chat", async (c) => {
 
   const { docId, messages, mode } = parsed.data;
   const driftMode = mode === "drift";
+  const scaffoldMode = mode === "scaffold";
   console.log(
     `[LLM PROXY] docId=${docId ?? "none"}, messages=${messages.length}, mode=${mode ?? "spec"}`,
   );
@@ -83,7 +88,11 @@ llmRouter.post("/chat", async (c) => {
   // spec-143 t-4 (dec-6): drift mode is memex-scoped, not doc-scoped — there is
   // no bound doc. The context is the open-drift summary; the doc / creation
   // branches are skipped.
-  const documentContext = driftMode
+  // spec-360 t-1 (dec-1): scaffold mode is memex-scoped, not doc-scoped — there
+  // is no bound doc. The context is the composed scaffold grounding (cached).
+  const documentContext = scaffoldMode
+    ? await buildScaffoldContext(memexId)
+    : driftMode
     ? await buildDriftContext(memexId)
     : docId
     ? await buildDocumentContext(memexId, docId)
@@ -136,11 +145,21 @@ llmRouter.post("/chat", async (c) => {
     reviewer,
     driftMode,
     integrationState,
+    scaffoldMode,
   );
   // dec-3 definition filter: a reviewer's model never sees the blocked mutations.
   // spec-143 t-4 (dec-6): in drift mode the model sees only the focused drift
   // tool subset (+ UI tools).
-  const tools = getToolDefinitions({ reviewer, mode: driftMode ? "drift" : undefined });
+  // spec-360 t-1 (dec-1): in scaffold mode the model sees only the focused scaffold
+  // tool subset (propose_scaffold_change / search_memex / get_doc + UI tools), so
+  // create_doc and other doc tools don't bleed in. (A 2026-06-23 Anthropic incident
+  // briefly 500'd restricted tool subsets, forcing a temporary full-toolset
+  // workaround here; it has since cleared — verified the scaffold subset passes
+  // 5/5 against the live API — so the real subset is restored.)
+  const tools = getToolDefinitions({
+    reviewer,
+    mode: driftMode ? "drift" : scaffoldMode ? "scaffold" : undefined,
+  });
 
   // Defeat any proxy / reverse-proxy buffering that might batch our SSE writes.
   c.header("Cache-Control", "no-cache, no-transform");
@@ -301,8 +320,10 @@ const toolExecSchema = z.object({
    *  Drift tools are memex-scoped via their input (standardId/sectionId), not
    *  doc-scoped, so they run with docId null — the doc-based reviewer-role gate
    *  is skipped. We additionally restrict execution to the drift tool subset so
-   *  a drift-mode call can't reach beyond its surface. */
-  mode: z.literal("drift").optional(),
+   *  a drift-mode call can't reach beyond its surface.
+   *  spec-360 t-1 (dec-1): when `'scaffold'`, the call is from the scaffold
+   *  assistant — memex-scoped, no bound doc, restricted to the scaffold subset. */
+  mode: z.enum(["drift", "scaffold"]).optional(),
 });
 
 llmRouter.post("/tools/execute", async (c) => {
@@ -314,6 +335,7 @@ llmRouter.post("/tools/execute", async (c) => {
 
   const { toolName, input, docId, mode } = parsed.data;
   const driftMode = mode === "drift";
+  const scaffoldMode = mode === "scaffold";
   const user = c.get("user");
   const userId = user.id;
   const memexId = requireMemexId(c);
@@ -345,6 +367,17 @@ llmRouter.post("/tools/execute", async (c) => {
   // listed in the subset. Fail closed on anything else.
   if (driftMode && !isDriftModeTool(toolName)) {
     const message = `Tool "${toolName}" is not available in drift mode. The drift agent can search, read, flag drift, and propose Standard changes.`;
+    logToolExecution(toolName, input, { error: message });
+    return c.json({ error: message }, 403);
+  }
+
+  // spec-360 t-1 (dec-1): pin the scaffold surface the same way — only the
+  // focused scaffold subset (explain reads + propose_scaffold_change) may
+  // execute in scaffold mode, so a scaffold-mode call can't reach a doc /
+  // decision / task mutation. The propose tool enforces its OWN org-admin gate
+  // inside the handler (dec-3 / ac-3); this is the surface restriction.
+  if (scaffoldMode && !isScaffoldModeTool(toolName)) {
+    const message = `Tool "${toolName}" is not available in scaffold mode. The scaffold assistant can explain the scaffold and propose org-guidance changes.`;
     logToolExecution(toolName, input, { error: message });
     return c.json({ error: message }, 403);
   }

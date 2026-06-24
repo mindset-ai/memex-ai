@@ -497,6 +497,13 @@ export function AppShell({ children }: { children: ReactNode }) {
   const onSpecChildTenant = !!useMatch('/:namespace/:memex/specs/:id/:childType/:childId');
   const onDocPage = onDocPageFlat || onDocPageTenant || onSpecPageTenant || onSpecChildTenant;
 
+  // spec-360: the scaffold page keeps the sidebar layout (it's not a doc page)
+  // but manages its OWN internal scroll — a two-column surface whose chat panel
+  // scrolls independently. Unlike content-flow pages (which scroll at the <main>
+  // level), it needs a BOUNDED-height wrapper so its `h-full` resolves; without
+  // it the streaming chat expands the wrapper and scrolls the whole page.
+  const onScaffoldPage = !!useMatch('/:namespace/:memex/scaffold');
+
   // Open standards drift count for the nav badge (b-63). Skipped on doc pages,
   // where the sidebar is hidden.
   const driftCount = useDriftInboxCount(!onDocPage);
@@ -686,7 +693,10 @@ export function AppShell({ children }: { children: ReactNode }) {
       <main className="flex-1 min-h-0 overflow-y-auto flex flex-col">
         {/* spec-171: seats over-limit warning shown to admins on all workspace pages */}
         <SeatsWarningBanner />
-        <div className="flex-1">{children}</div>
+        {/* spec-360: a self-scrolling page (scaffold) gets a bounded wrapper so its
+            `h-full` resolves and it scrolls internally; content-flow pages keep the
+            natural `flex-1` and scroll at the <main> level. */}
+        <div className={onScaffoldPage ? 'flex-1 min-h-0' : 'flex-1'}>{children}</div>
       </main>
 
       {/* spec-141 dec-2: invite dialog (portal-rendered to body). Opened from
