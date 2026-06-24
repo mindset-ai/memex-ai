@@ -154,5 +154,8 @@ export {
 // spec-259 dec-5: the one canonical relative-age helper (server MCP/agent surfaces
 // + UI), injectable `now` for deterministic output. Wire forms keep absolute ISO.
 export { timeAgo } from './relative-time.js';
+// spec-380 dec-1: the one canonical docType → ref-path-segment mapping (std-10 §2),
+// imported by the UI init-prompt renderers; was byte-identical per call site.
+export { docTypePath } from './doc-type-path.js';
 // spec-259 dec-4: conservative display-name capitalization, render-layer only.
 export { capitalizeDisplayName } from './display-name.js';
