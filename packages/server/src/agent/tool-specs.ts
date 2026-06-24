@@ -57,6 +57,7 @@ import {
   lifecycleTools,
   issuesTools,
   rolesTools,
+  checkoutTools,
   standardsTools,
   facetsTools,
   integrationsTools,
@@ -96,6 +97,7 @@ export const toolSpecs: ToolSpec[] = [
   ...lifecycleTools,
   ...issuesTools,
   ...rolesTools,
+  ...checkoutTools,
   ...standardsTools,
   ...facetsTools,
 

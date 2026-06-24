@@ -44,6 +44,8 @@ import { search } from "./routes/search.js";
 import { handhold } from "./routes/handhold.js";
 import { onboarding } from "./routes/onboarding.js";
 import { testEventsRouter } from "./routes/test-events.js";
+import { specCheckoutRouter } from "./routes/spec-checkout.js";
+import { hookKeysRouter } from "./routes/hook-keys.js";
 import { testOnlyRouter } from "./routes/__test__.js";
 import { hostGuard, memexResolver } from "./middleware/memex-resolver.js";
 import { visitorMiddleware } from "./middleware/visitor.js";
@@ -240,6 +242,8 @@ app.route("/api/:namespace/:memex/tasks", tasksRouter);
 app.route("/api/:namespace/:memex/issues", issuesRouter);
 app.route("/api/:namespace/:memex/acs", acsRouter);
 app.route("/api/:namespace/:memex/emission-keys", emissionKeysRouter);
+// spec-371: scoped hook-key minting for the plugin installer (membership-gated).
+app.route("/api/:namespace/:memex/hook-keys", hookKeysRouter);
 app.route("/api/:namespace/:memex/discord-webhook", discordWebhookRouter);
 // spec-118 — per-Spec roles (editor/reviewer) + ticket-style assignment.
 app.route("/api/:namespace/:memex/doc-members", docMembersRouter);
@@ -343,6 +347,8 @@ app.route("/api/execution-plans", executionPlans);
 app.route("/api/drift", driftRouter);
 // feat-ac-spike V0.0.1 — test-event receiver for AC pass/fail emissions from the codebase.
 app.route("/api/test-events", testEventsRouter);
+// spec-371 — record-only checkout phone-home (Bearer hook-key auth, body-resolved tenant).
+app.route("/api/spec-checkout", specCheckoutRouter);
 // /api/llm/* migrated to sessionMiddleware (t-13). Legacy middleware/auth.ts deleted.
 app.use("/api/llm/*", sessionMiddleware);
 app.route("/api/llm", llmRouter);
