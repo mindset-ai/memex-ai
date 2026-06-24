@@ -13,7 +13,11 @@ import shotAcs from '../../assets/onboarding/specs-match-reality-2-acceptance-cr
 import shotTasks from '../../assets/onboarding/specs-match-reality-3-tasks-created.png';
 import shotTests from '../../assets/onboarding/specs-match-reality-4-unit-tests.png';
 
-const IMPROVE_PROMPT = `Using the Memex MCP, with access to my repo: Improve the spec, decisions and acceptance criteria against the reality of the codebase. Then break the work into tasks and add a unit test for each acceptance criterion.`;
+const IMPROVE_PROMPT = `Using the Memex MCP, with access to my repo:
+
+Improve the spec, decisions and acceptance criteria against the
+reality of the codebase. Then break the work into tasks and add a
+unit test for each acceptance criterion.`;
 
 const OUTCOMES: ReadonlyArray<{ img: string; title: string; desc: string }> = [
   { img: shotDecisions, title: 'Decisions improved against the codebase', desc: 'Each choice is re-checked against what the code already does.' },
@@ -77,7 +81,8 @@ export function SpecsMatchRealityStep({
   return (
     <div data-testid="journey-step-specs-match-reality" className="max-w-3xl animate-[panelIn_0.35s_ease]">
       <h2 className="onboarding-heading mb-4">Specs that match reality</h2>
-      <p className="mb-5 text-xl font-bold leading-snug text-primary">Refined against your actual codebase</p>
+      {/* spec-372 t-13 — v3 sub-tagline weight is 600 (semibold), not bold. */}
+      <p className="mb-5 text-xl font-semibold leading-snug text-primary">Refined against your actual codebase</p>
       <p className="mb-6 max-w-2xl leading-relaxed text-secondary">
         With access to the repo, your agent grounds the whole plan in what&apos;s actually there: decisions and
         acceptance criteria are refined, the work is broken into tasks, and a unit test is written for each AC.

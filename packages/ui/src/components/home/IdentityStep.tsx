@@ -65,7 +65,8 @@ export function IdentityStep({
 
   return (
     <div data-testid="journey-step-identity" className="animate-[fadeIn_0.4s_ease]">
-      <p className="mb-2.5 text-base font-semibold text-muted">
+      {/* spec-372 t-13 — v3 greeting is medium weight with a wider gap to the heading. */}
+      <p className="mb-6 text-base font-medium text-muted">
         {greeting ? `Hi ${greeting}, welcome to Memex AI.` : 'Welcome to Memex AI.'}
       </p>
       <h2 className="onboarding-heading mb-3.5">
@@ -74,7 +75,7 @@ export function IdentityStep({
       <p className="mb-1.5 max-w-3xl text-lg leading-relaxed text-secondary">
         Let&apos;s tailor this to how you actually work.
       </p>
-      <p className="mb-6 max-w-3xl leading-relaxed text-secondary">
+      <p className="mb-6 max-w-3xl text-lg leading-relaxed text-secondary">
         Most people on a modern product team do more than one job. Where do you spend most of your time?
       </p>
 

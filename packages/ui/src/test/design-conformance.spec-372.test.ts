@@ -41,6 +41,6 @@ describe('spec-372 ac-10: design conformance vs pinned v3', () => {
     // D2 — std-1 reserved noun "team" reworded to "effort" in the shipped copy. (The original
     // v3 wording survives only in an explanatory code comment, which is intended.)
     const step5 = read('components/home/AgentsBuildStep.tsx');
-    expect(step5).toContain('<p className="mb-5 text-xl font-bold leading-snug text-primary">One coordinated effort across your tasks.</p>');
+    expect(step5).toContain('<p className="mb-5 text-xl font-semibold leading-snug text-primary">One coordinated effort across your tasks.</p>');
   });
 });
