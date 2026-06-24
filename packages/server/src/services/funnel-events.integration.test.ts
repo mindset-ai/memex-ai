@@ -3,7 +3,7 @@
 // emitted by a DIRECT recordUsageEvent() call, NOT the mutate() bus, so they must
 // land a usage_events row WITHOUT a bus ChangeEvent or an activity_log row.
 
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { tagAc } from "@memex-ai-ac/vitest";
 import { and, count, eq, isNull } from "drizzle-orm";
 import { db } from "../db/connection.js";
@@ -111,8 +111,19 @@ describe("signup wiring — createUserWithPassword emits account.created (ac-1)"
     tagAc(`${AC}/ac-1`);
     const email = `signup-new-${Date.now()}@example.com`;
     const u = await createUserWithPassword({ email, passwordHash: "x".repeat(60) });
-    const rows = await accountCreatedRows(u.id);
-    expect(rows).toHaveLength(1);
+    // createUserWithPassword fires recordAccountCreated() fire-and-forget (`void`)
+    // by design — telemetry must never block or break signup. So the usage_events
+    // row is eventually-consistent: poll for it rather than racing the async insert
+    // (the SELECT would otherwise run before the insert commits under a slow/loaded
+    // CI Postgres). The shape assertions below are unchanged — only the wait is added.
+    let rows: Awaited<ReturnType<typeof accountCreatedRows>> = [];
+    await vi.waitFor(
+      async () => {
+        rows = await accountCreatedRows(u.id);
+        expect(rows).toHaveLength(1);
+      },
+      { timeout: 5000, interval: 25 },
+    );
     expect(rows[0].memexId).toBeNull();
     expect(rows[0].actorUserId).toBe(u.id);
     await db.delete(usageEvents).where(eq(usageEvents.actorUserId, u.id));
