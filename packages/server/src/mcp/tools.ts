@@ -30,6 +30,7 @@ import { buildTenantUrl } from "../services/shared/tenant-url.js";
 import { memexSlugsById } from "./refs.js";
 import {
   toolSpecs,
+  AGENT_ONLY_SERVER_TOOLS,
   buildNudgeOrgBlocksGetter,
   type ToolCtx,
   type ResolvedRef,
@@ -340,6 +341,10 @@ export function createMcpServer(
   // and pass it instead of `undefined`.
   const resolvedSpecs = applyPhaseDescriptionOverrides(toolSpecs, undefined);
   for (const spec of resolvedSpecs) {
+    // spec-360: agent-only server tools (propose_scaffold_change) are never
+    // registered on the MCP surface — they only make sense inside an in-app
+    // agent mode. Skip them here; the manifest parity check excludes them too.
+    if (AGENT_ONLY_SERVER_TOOLS.has(spec.name)) continue;
     // Per-call closure: each ctx resolver records the memexId it resolved
     // into this variable, and the telemetry wrap reads it in its finally
     // block to stamp memex_id on the mcp_tool_calls row. Safe under

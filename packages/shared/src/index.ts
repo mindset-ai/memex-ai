@@ -102,6 +102,28 @@ export { DRIFT_AGENT_GUIDANCE } from './scaffold-data.js';
 // spec-143 t-4 (dec-6): the drift agent's on-mount opening-turn seed (std-15 —
 // one home). The Drift Inbox fires it once on mount.
 export { DRIFT_OPENING_TURN_SEED } from './scaffold-data.js';
+// spec-360 t-1 (dec-1/dec-6) — scaffold-agent mode block + opening-turn seed,
+// injected by buildSystemBlocks when the per-request scaffoldMode flag is set
+// (the React UI's Scaffold Inspect surface sets mode "scaffold"). Lives in the
+// scaffold model (one home, std-15/std-16). Portable per std-22.
+export { SCAFFOLD_AGENT_GUIDANCE, SCAFFOLD_OPENING_TURN_SEED, scaffoldReviewEditSeed } from './scaffold-data.js';
+// spec-360 t-2/t-3 (dec-5/dec-9/dec-10) — the scaffold assistant's grounding
+// composer and its propose-time change validator. Pure + shared so the server
+// (authoritative) and the React UI (instant feedback) agree on what the
+// scaffold means and what changes are coherent.
+export {
+  toScaffoldGrounding,
+  validateScaffoldChange,
+  describeScaffoldTarget,
+  encodeScaffoldProposal,
+  parseScaffoldProposal,
+  SCAFFOLD_PROPOSAL_MARKER,
+} from './scaffold-grounding.js';
+export type {
+  ProposalValidation,
+  ScaffoldProposal,
+  ScaffoldOperation,
+} from './scaffold-grounding.js';
 
 // spec-190 t-4 (dec-3): the screen-element registry — canonical screen keys,
 // route→screenKey mapping, and per-screen highlightable elements. Imported by the
