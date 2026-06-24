@@ -469,8 +469,8 @@ describe("audit: catalog count consistency", () => {
       "render_callout",
       "render_steps",
       // spec-360: the scaffold assistant's navigate + verbatim-quote tools.
-      "render_scaffold_navigate",
-      "render_scaffold_quote",
+      "render_navigate",
+      "render_quote",
     ].sort();
     expect(agentOnly.sort()).toEqual(expected);
     // spec-360: the agent's only non-UI tool absent from MCP is the agent-only

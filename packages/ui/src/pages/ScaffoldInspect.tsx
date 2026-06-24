@@ -296,7 +296,7 @@ export function ScaffoldInspect() {
     detailRef.current?.scrollTo?.({ top: 0, behavior: 'smooth' });
   }, [scaffoldProposal]);
 
-  // spec-360: the assistant navigated the surface (render_scaffold_navigate).
+  // spec-360: the assistant navigated the surface (render_navigate).
   // Select that circumstance in the right pane — same target→Selection mapping as
   // the proposal effect — and PULSE the timeline control that leads there, so the
   // user sees where the assistant moved them (they didn't click it themselves).

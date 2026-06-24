@@ -3,7 +3,7 @@
 // issue-2: startScaffoldOpeningTurn no-ops outside scaffold mode, fires exactly
 //   once per scaffold-mode entry, and enterScaffoldMode resets the guard so a
 //   fresh entry fires again.
-// issue-6: an assistant turn carrying a `render_scaffold_navigate` tool_use sets
+// issue-6: an assistant turn carrying a `render_navigate` tool_use sets
 //   scaffoldNav (target + bumped seq) and renders NO chat widget; a repeat to the
 //   same target bumps seq; enter/exitScaffoldMode clears scaffoldNav.
 
@@ -133,13 +133,13 @@ describe('ChatContext.startScaffoldOpeningTurn (issue-2, ac-6)', () => {
   });
 });
 
-describe('ChatContext scaffoldNav from render_scaffold_navigate (issue-6, ac-9)', () => {
-  // Drive an assistant turn whose content carries a render_scaffold_navigate
+describe('ChatContext scaffoldNav from render_navigate (issue-6, ac-9)', () => {
+  // Drive an assistant turn whose content carries a render_navigate
   // tool_use block — invoke fires the supplied callbacks.onAssistantTurnComplete.
   function navigateTo(target: Record<string, unknown>) {
     onInvoke = (args) => {
       args.callbacks?.onAssistantTurnComplete?.([
-        { type: 'tool_use', id: `tu-${Math.random()}`, name: 'render_scaffold_navigate', input: target },
+        { type: 'tool_use', id: `tu-${Math.random()}`, name: 'render_navigate', input: target },
       ] as never);
     };
   }

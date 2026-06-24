@@ -256,53 +256,69 @@ const uiTools: Tool[] = [
     },
   },
   {
-    // spec-360: the scaffold assistant's NAVIGATE tool. The whole scaffold is
-    // already on the page (the right pane + timeline) — so to SHOW the user a
-    // circumstance, move the surface to it instead of re-describing it. This
-    // selects the circumstance in the right pane and highlights the timeline
-    // control that leads there. Display-only.
-    name: "render_scaffold_navigate",
+    // spec-389 t-2 (dec-4): the shared NAVIGATE render tool, generalised from
+    // spec-360's scaffold-only render_navigate into ONE family member
+    // every in-app agent uses. To SHOW the user the thing under discussion, move
+    // the surface to it and highlight it instead of re-describing it. The
+    // `surface` discriminant selects the target grammar: 'scaffold' uses the
+    // phase/tool/transition/button dims (spec-360); 'standard' / 'spec' / 'issue'
+    // carry a `ref` to the clause / section / issue to focus. Each surface
+    // registers how it resolves + highlights its own target (UI side). Display-only.
+    name: "render_navigate",
     description:
-      "Navigate the on-screen scaffold to a circumstance: select it in the right-hand detail pane and highlight the timeline control that leads there. PREFER this over re-describing what's already on the page — when the user asks about a phase, gate, tool, button, or the always-applies guidance, navigate them to it. Provide the most specific target you can; omit all fields to show the always-applies (org-global) guidance. Display-only.",
+      "Navigate the on-screen surface to the thing under discussion and highlight it — PREFER this over re-describing what's already on the page. Set `surface` to where you are: 'scaffold' (a phase/gate/tool/button — use the dims below), 'standard' (a clause or section — pass its ref in `ref`), 'spec' (a section — `ref`), or 'issue' (an issue — `ref`). For the scaffold, provide the most specific target you can; omit all fields to show the always-applies (org-global) guidance. Display-only.",
     input_schema: {
       type: "object" as const,
       properties: {
+        surface: {
+          type: "string",
+          enum: ["scaffold", "standard", "spec", "issue"],
+          description: "Which surface to navigate. Defaults to 'scaffold' for backward compatibility.",
+        },
+        ref: {
+          type: "string",
+          description: "For surface 'standard' / 'spec' / 'issue': the handle/ref of the clause, section, or issue to focus and highlight (e.g. a cl-N / s-N / i-N handle).",
+        },
         phase: {
           type: "string",
           enum: ["draft", "specify", "build", "verify", "done"],
-          description: "A lifecycle phase to show. Combine with `tool` to show a specific tool's guidance within that phase.",
+          description: "Scaffold surface only: a lifecycle phase to show. Combine with `tool` to show a specific tool's guidance within that phase.",
         },
         tool: {
           type: "string",
-          description: "A tool name (e.g. create_task) to show the tool-specific guidance for, within `phase`.",
+          description: "Scaffold surface only: a tool name (e.g. create_task) to show the tool-specific guidance for, within `phase`.",
         },
         transition: {
           type: "string",
           enum: ["specify", "build", "verify", "done"],
-          description: "A forward gate to show its readiness rubric (the gate INTO this phase).",
+          description: "Scaffold surface only: a forward gate to show its readiness rubric (the gate INTO this phase).",
         },
         button: {
           type: "string",
-          description: "A Prompt Button id to show its composed prompt.",
+          description: "Scaffold surface only: a Prompt Button id to show its composed prompt.",
         },
       },
       required: [],
     },
   },
   {
-    // spec-360: the scaffold assistant's verbatim-quote block. Use it INSTEAD of
-    // wrapping a quote in inline quotation marks when quoting the exact prompting
-    // an agent receives — the text renders as a distinct lifted artifact. Display-only.
-    name: "render_scaffold_quote",
+    // spec-389 t-2 (dec-4): the shared verbatim-QUOTE block, generalised from
+    // spec-360's render_quote. Surface-agnostic — it carries text, not a
+    // surface target — so every agent uses it INSTEAD of inline "…" when quoting
+    // exact text (a Standard clause, a phase rubric, the prompting an agent
+    // reads). The optional `copyable` flag adds a copy button; the dedicated
+    // render_handoff tool (spec-389 t-4) is the preferred path for cross-agent
+    // handoffs. Display-only.
+    name: "render_quote",
     description:
-      "Quote text verbatim in a distinct block, instead of inline quotation marks. Two uses: (1) quoting the EXACT scaffold prompting an agent reads (phase guidance, a gate rubric, a tool nudge, an org addition); (2) handing the user a ready-to-paste PROMPT to run elsewhere — set `copyable: true` to add a copy button. Use (2) when something is needed that you CANNOT do yourself (create a Standard or a new Spec): write the prompt here, set `copyable: true`, and tell the user in prose to paste it into the right place (the Standards agent for a Standard; the New Spec flow for a Spec). Display-only.",
+      "Quote text verbatim in a distinct block, instead of inline quotation marks — for any exact text: a Standard's clause, a phase/gate rubric, a tool nudge, or the prompting an agent reads. Set `copyable: true` to add a copy button when the block is a ready-to-paste prompt. Display-only.",
     input_schema: {
       type: "object" as const,
       properties: {
-        text: { type: "string", description: "The exact text, verbatim (no added quotation marks). For a handoff, this is the full prompt to paste." },
+        text: { type: "string", description: "The exact text, verbatim (no added quotation marks)." },
         source: {
           type: "string",
-          description: "Optional short label, e.g. 'build phase guidance', 'verify gate rubric', or for a handoff 'Prompt for the Standards agent'.",
+          description: "Optional short label, e.g. 'std-7 clause 2', 'build phase guidance', 'verify gate rubric'.",
         },
         copyable: {
           type: "boolean",
@@ -590,8 +606,10 @@ const UI_TOOLS = new Set([
   "render_progress",
   "render_callout",
   "render_steps",
-  "render_scaffold_navigate",
-  "render_scaffold_quote",
+  // spec-389 t-2 (dec-4): the shared render-tool family (generalised off the
+  // _scaffold prefix) — navigate + verbatim quote, used by every in-app agent.
+  "render_navigate",
+  "render_quote",
 ]);
 
 /** Returns true if the tool should be forwarded to the frontend instead of executed server-side. */

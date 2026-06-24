@@ -25,10 +25,17 @@ import type { MessageParam, ContentBlock, ToolUseBlock } from '../agent/types';
 import { UI_TOOL_NAMES, DISPLAY_UI_TOOL_NAMES } from '../agent/types';
 import { parseScaffoldProposal, type ScaffoldProposal, type GuidanceBlock } from '@memex/shared';
 
-/** spec-360: where the scaffold assistant has navigated the on-screen surface —
- *  the same target shape a GuidanceBlock carries. `seq` increments on every
- *  navigation so repeating the SAME target still retriggers the effect. */
-export type ScaffoldNavTarget = GuidanceBlock['target'];
+/** spec-389 t-2 (dec-4): where an in-app agent has navigated the on-screen
+ *  surface, via the shared `render_navigate` tool. Generalised off spec-360's
+ *  scaffold-only nav: `surface` selects which surface consumes it (defaults to
+ *  'scaffold'); `ref` carries the standard-clause / spec-section / issue target;
+ *  the scaffold dims (phase/tool/transition/button) come from
+ *  GuidanceBlock['target']. `seq` increments on every navigation so repeating
+ *  the SAME target still retriggers the effect. */
+export type ScaffoldNavTarget = GuidanceBlock['target'] & {
+  surface?: 'scaffold' | 'standard' | 'spec' | 'issue';
+  ref?: string;
+};
 export interface ScaffoldNav {
   target: ScaffoldNavTarget;
   seq: number;
@@ -83,7 +90,7 @@ interface ChatState {
   clearScaffoldProposal: () => void;
   /**
    * spec-360: where the assistant has navigated the on-screen scaffold via the
-   * `render_scaffold_navigate` tool — the Scaffold Inspect surface selects that
+   * `render_navigate` tool — the Scaffold Inspect surface selects that
    * circumstance in the right pane and pulses the timeline control that leads
    * there. `null` until the first navigation this scaffold-mode entry.
    */
@@ -151,7 +158,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   // Scaffold Inspect surface.
   const [scaffoldProposal, setScaffoldProposal] = useState<ScaffoldProposal | null>(null);
   // spec-360: where the assistant has navigated the on-screen scaffold (the
-  // render_scaffold_navigate UI tool). `seq` increments per navigation so a
+  // render_navigate UI tool). `seq` increments per navigation so a
   // repeat to the same target still drives the surface effect.
   const [scaffoldNav, setScaffoldNav] = useState<ScaffoldNav | null>(null);
   const scaffoldNavSeqRef = useRef(0);
@@ -349,11 +356,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         const currentId = streamingAssistantIdRef.current;
         streamingAssistantIdRef.current = null;
 
-        // spec-360: render_scaffold_navigate is a pure side-effect — it drives
+        // spec-360: render_navigate is a pure side-effect — it drives
         // the on-screen surface, not a chat widget. Lift its target into reactive
         // state (with a bumped seq so a repeat re-navigates) and don't render it.
         for (const block of content) {
-          if (block.type === 'tool_use' && block.name === 'render_scaffold_navigate') {
+          if (block.type === 'tool_use' && block.name === 'render_navigate') {
             const t = (block.input ?? {}) as ScaffoldNavTarget;
             scaffoldNavSeqRef.current += 1;
             setScaffoldNav({ target: t, seq: scaffoldNavSeqRef.current });
@@ -364,7 +371,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           (b) =>
             b.type === 'tool_use' &&
             UI_TOOL_NAMES.has(b.name) &&
-            b.name !== 'render_scaffold_navigate'
+            b.name !== 'render_navigate'
         );
         if (!hasUiTool) return; // Pure-text (or nav-only) turn — placeholder already correct.
 
@@ -380,7 +387,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           } else if (
             block.type === 'tool_use' &&
             UI_TOOL_NAMES.has(block.name) &&
-            block.name !== 'render_scaffold_navigate'
+            block.name !== 'render_navigate'
           ) {
             rebuilt.push({
               id: nextId(),
