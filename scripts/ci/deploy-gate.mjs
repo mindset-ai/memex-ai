@@ -114,7 +114,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 export async function pollVerdict(deps, { workflowFile, branch, sha }) {
   const { fetchRuns: fr, timeoutMs, intervalMs, now = Date.now, log = () => {} } = deps;
   const deadline = now() + timeoutMs;
-  let verdict = "absent";
+  // Assigned on the first loop iteration (the loop always runs at least once)
+  // before any read; no dead initializer.
+  let verdict;
   for (;;) {
     const runs = await fr({ workflowFile, branch, sha });
     verdict = classifyRuns(runs);
