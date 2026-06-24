@@ -56,8 +56,25 @@ export interface UpdateScaffoldAdditionInput {
   memexId?: string | null;
 }
 
+/**
+ * spec-360 follow-up: scaffold guidance has two owner surfaces. An ORG admin
+ * targets `/api/orgs/:orgId/scaffold`; a PERSONAL namespace owner targets the
+ * tenant-prefixed `/api/:namespace/:memex/scaffold`. `ScaffoldOwnerRef`
+ * discriminates which base URL to build, so every call below is owner-aware and
+ * a personal owner never hits the org path (and vice versa).
+ */
+export type ScaffoldOwnerRef =
+  | { kind: 'org'; orgId: string }
+  | { kind: 'personal'; namespace: string; memex: string };
+
 function scaffoldBase(orgId: string): string {
   return `${BASE_URL}/orgs/${encodeURIComponent(orgId)}/scaffold`;
+}
+
+function ownerScaffoldBase(owner: ScaffoldOwnerRef): string {
+  return owner.kind === 'org'
+    ? scaffoldBase(owner.orgId)
+    : `${BASE_URL}/${encodeURIComponent(owner.namespace)}/${encodeURIComponent(owner.memex)}/scaffold`;
 }
 
 async function asJsonOrThrow<T>(res: Response, fallbackMessage: string): Promise<T> {
@@ -123,6 +140,83 @@ export async function toggleScaffoldAddition(
 ): Promise<OrgScaffoldAddition> {
   const res = await fetchWithRetry(
     `${scaffoldBase(orgId)}/additions/${encodeURIComponent(id)}/toggle`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled }),
+    },
+  );
+  return asJsonOrThrow<OrgScaffoldAddition>(res, 'Failed to toggle scaffold addition');
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Owner-aware surface (spec-360 follow-up). These take a ScaffoldOwnerRef so the
+// Inspect page can serve an org admin OR a personal-namespace owner from the
+// same call sites — the only difference is the base URL each builds. Behaviour,
+// auth (std-7 404), and payload shapes are identical across both owners.
+// ──────────────────────────────────────────────────────────────────────────
+
+/** Fetch the merged Inspect payload for either owner. */
+export async function fetchScaffoldFor(
+  owner: ScaffoldOwnerRef,
+): Promise<ScaffoldFetchResponse> {
+  const res = await fetchWithRetry(ownerScaffoldBase(owner));
+  return asJsonOrThrow<ScaffoldFetchResponse>(res, 'Failed to fetch scaffold');
+}
+
+/** Create a new GuidanceBlock owned by either owner. */
+export async function createScaffoldAdditionFor(
+  owner: ScaffoldOwnerRef,
+  input: CreateScaffoldAdditionInput,
+): Promise<OrgScaffoldAddition> {
+  const res = await fetchWithRetry(`${ownerScaffoldBase(owner)}/additions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  return asJsonOrThrow<OrgScaffoldAddition>(res, 'Failed to create scaffold addition');
+}
+
+/** Update an existing GuidanceBlock owned by either owner. */
+export async function updateScaffoldAdditionFor(
+  owner: ScaffoldOwnerRef,
+  id: string,
+  input: UpdateScaffoldAdditionInput,
+): Promise<OrgScaffoldAddition> {
+  const res = await fetchWithRetry(
+    `${ownerScaffoldBase(owner)}/additions/${encodeURIComponent(id)}`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    },
+  );
+  return asJsonOrThrow<OrgScaffoldAddition>(res, 'Failed to update scaffold addition');
+}
+
+/** Delete a GuidanceBlock owned by either owner. Returns void on success. */
+export async function deleteScaffoldAdditionFor(
+  owner: ScaffoldOwnerRef,
+  id: string,
+): Promise<void> {
+  const res = await fetchWithRetry(
+    `${ownerScaffoldBase(owner)}/additions/${encodeURIComponent(id)}`,
+    { method: 'DELETE' },
+  );
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string; message?: string };
+    throw new Error(body.error ?? body.message ?? `Failed to delete scaffold addition: ${res.status}`);
+  }
+}
+
+/** Flip the `enabled` flag on a GuidanceBlock owned by either owner. */
+export async function toggleScaffoldAdditionFor(
+  owner: ScaffoldOwnerRef,
+  id: string,
+  enabled: boolean,
+): Promise<OrgScaffoldAddition> {
+  const res = await fetchWithRetry(
+    `${ownerScaffoldBase(owner)}/additions/${encodeURIComponent(id)}/toggle`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

@@ -255,6 +255,63 @@ const uiTools: Tool[] = [
       required: ["steps"],
     },
   },
+  {
+    // spec-360: the scaffold assistant's NAVIGATE tool. The whole scaffold is
+    // already on the page (the right pane + timeline) — so to SHOW the user a
+    // circumstance, move the surface to it instead of re-describing it. This
+    // selects the circumstance in the right pane and highlights the timeline
+    // control that leads there. Display-only.
+    name: "render_scaffold_navigate",
+    description:
+      "Navigate the on-screen scaffold to a circumstance: select it in the right-hand detail pane and highlight the timeline control that leads there. PREFER this over re-describing what's already on the page — when the user asks about a phase, gate, tool, button, or the always-applies guidance, navigate them to it. Provide the most specific target you can; omit all fields to show the always-applies (org-global) guidance. Display-only.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        phase: {
+          type: "string",
+          enum: ["draft", "specify", "build", "verify", "done"],
+          description: "A lifecycle phase to show. Combine with `tool` to show a specific tool's guidance within that phase.",
+        },
+        tool: {
+          type: "string",
+          description: "A tool name (e.g. create_task) to show the tool-specific guidance for, within `phase`.",
+        },
+        transition: {
+          type: "string",
+          enum: ["specify", "build", "verify", "done"],
+          description: "A forward gate to show its readiness rubric (the gate INTO this phase).",
+        },
+        button: {
+          type: "string",
+          description: "A Prompt Button id to show its composed prompt.",
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    // spec-360: the scaffold assistant's verbatim-quote block. Use it INSTEAD of
+    // wrapping a quote in inline quotation marks when quoting the exact prompting
+    // an agent receives — the text renders as a distinct lifted artifact. Display-only.
+    name: "render_scaffold_quote",
+    description:
+      "Quote text verbatim in a distinct block, instead of inline quotation marks. Two uses: (1) quoting the EXACT scaffold prompting an agent reads (phase guidance, a gate rubric, a tool nudge, an org addition); (2) handing the user a ready-to-paste PROMPT to run elsewhere — set `copyable: true` to add a copy button. Use (2) when something is needed that you CANNOT do yourself (create a Standard or a new Spec): write the prompt here, set `copyable: true`, and tell the user in prose to paste it into the right place (the Standards agent for a Standard; the New Spec flow for a Spec). Display-only.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        text: { type: "string", description: "The exact text, verbatim (no added quotation marks). For a handoff, this is the full prompt to paste." },
+        source: {
+          type: "string",
+          description: "Optional short label, e.g. 'build phase guidance', 'verify gate rubric', or for a handoff 'Prompt for the Standards agent'.",
+        },
+        copyable: {
+          type: "boolean",
+          description: "Set true when the block is a prompt the user should COPY and paste elsewhere — adds a copy button. Leave unset for a plain verbatim quote.",
+        },
+      },
+      required: ["text"],
+    },
+  },
 ];
 
 // ══════════════════════════════════════
@@ -351,6 +408,18 @@ const DRIFT_SERVER_TOOLS = new Set<string>([
   "delete_clause",
 ]);
 
+// spec-360 t-1/t-3 (dec-1/dec-2/dec-3): the SCAFFOLD assistant's focused server
+// surface. `propose_scaffold_change` is the propose-then-confirm authoring tool
+// — it WRITES NOTHING (it returns a structured proposal, ac-7) and enforces its
+// own org-admin gate (ac-3). search_memex / get_doc let the assistant read
+// supporting standards/specs when explaining. The actual write on approval goes
+// through the existing admin-gated scaffold-additions routes, NOT a tool here.
+const SCAFFOLD_SERVER_TOOLS = new Set<string>([
+  "propose_scaffold_change",
+  "search_memex",
+  "get_doc",
+]);
+
 /** All tool definitions for the Anthropic API. Last tool has cache_control.
  *  spec-126 dec-3: when `opts.reviewer` is set, blocked mutations are dropped so
  *  the model never sees them (definition filter); the /tools/execute route also
@@ -360,12 +429,16 @@ const DRIFT_SERVER_TOOLS = new Set<string>([
  *  including render_confirmation, the mutation gate — are always included. */
 export function getToolDefinitions(opts?: {
   reviewer?: boolean;
-  mode?: "drift";
+  mode?: "drift" | "scaffold";
 }): Tool[] {
+  const modeSet =
+    opts?.mode === "drift"
+      ? DRIFT_SERVER_TOOLS
+      : opts?.mode === "scaffold"
+      ? SCAFFOLD_SERVER_TOOLS
+      : null;
   const serverTools = toolSpecs
-    .filter((s) =>
-      opts?.mode === "drift" ? DRIFT_SERVER_TOOLS.has(s.name) : true,
-    )
+    .filter((s) => (modeSet ? modeSet.has(s.name) : true))
     .filter((s) => !opts?.reviewer || isToolAllowedForReviewer(s.name))
     .map(buildToolFromSpec);
   const allTools = [...serverTools, ...uiTools];
@@ -381,6 +454,14 @@ export function getToolDefinitions(opts?: {
  *  never execute server-side, so they aren't listed here. */
 export function isDriftModeTool(name: string): boolean {
   return DRIFT_SERVER_TOOLS.has(name);
+}
+
+/** spec-360 t-1 (dec-1): is `name` part of the scaffold assistant's allowed
+ *  surface? Used by /tools/execute to permit the scaffold subset to run with
+ *  docId null (the scaffold tools are memex-scoped, not doc-scoped). UI tools
+ *  never execute server-side, so they aren't listed here. */
+export function isScaffoldModeTool(name: string): boolean {
+  return SCAFFOLD_SERVER_TOOLS.has(name);
 }
 
 // spec-230 t-1 (ac-7): read tools the creation agent needs for orientation —
@@ -439,6 +520,8 @@ const UI_TOOLS = new Set([
   "render_progress",
   "render_callout",
   "render_steps",
+  "render_scaffold_navigate",
+  "render_scaffold_quote",
 ]);
 
 /** Returns true if the tool should be forwarded to the frontend instead of executed server-side. */

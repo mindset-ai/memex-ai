@@ -1562,9 +1562,17 @@ export const orgScaffoldAdditions = pgTable(
   "org_scaffold_additions",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    orgId: uuid("org_id")
-      .notNull()
-      .references(() => orgs.id, { onDelete: "cascade" }),
+    // spec-360 follow-up: ownership is additive — an addition is owned by an org
+    // OR a personal namespace, enforced by the owner-XOR check below. org_id is
+    // therefore NULLABLE now (a personal-owned row has org_id NULL +
+    // namespaceId set).
+    orgId: uuid("org_id").references(() => orgs.id, { onDelete: "cascade" }),
+    // spec-360 follow-up: personal-namespace owner. NULL for org-owned rows; set
+    // (with org_id NULL) for a personal namespace's own additions. ON DELETE
+    // CASCADE mirrors the org cascade — deleting the namespace drops its rows.
+    namespaceId: uuid("namespace_id").references(() => namespaces.id, {
+      onDelete: "cascade",
+    }),
     // spec-193 t-5 (dec-6 grain): optional per-memex scope. NULL = account-wide
     // — applies to every memex in the Org's namespace (existing behaviour, the
     // default for security / house-style blocks). Set = applies ONLY to that
@@ -1614,7 +1622,20 @@ export const orgScaffoldAdditions = pgTable(
       "org_scaffold_additions_emphasis_valid",
       sql`${table.emphasis} IS NULL OR ${table.emphasis} IN ('do', 'dont')`
     ),
+    // spec-360 follow-up: owner-XOR — a row is owned by exactly one of an org or
+    // a personal namespace. Mirrors migration 0107's CHECK constraint.
+    check(
+      "org_scaffold_additions_owner_xor",
+      sql`(${table.orgId} IS NOT NULL) <> (${table.namespaceId} IS NOT NULL)`
+    ),
     index("org_scaffold_additions_org_id_idx").on(table.orgId),
+    // spec-360 follow-up: personal-owner read path mirrors the org pair — keep
+    // `WHERE namespace_id = ? [AND (memex_id IS NULL OR = ?)]` an index scan.
+    index("org_scaffold_additions_namespace_id_idx").on(table.namespaceId),
+    index("org_scaffold_additions_namespace_id_memex_id_idx").on(
+      table.namespaceId,
+      table.memexId,
+    ),
     // spec-193 t-5: the per-memex merge reads `WHERE org_id = ? AND (memex_id
     // IS NULL OR memex_id = ?)`; index (org_id, memex_id) so account-wide +
     // per-memex resolution stays an index scan.

@@ -50,6 +50,10 @@ const READ_ONLY = new Set<string>([
   "search_issues",
   // Roles (spec-118): the read side of the roles tool surface.
   "get_spec_roles",
+  // spec-360: propose_scaffold_change returns a structured PROPOSAL and writes
+  // nothing — the write happens only on the admin's approval through the
+  // existing scaffold route — so readOnlyHint: true.
+  "propose_scaffold_change",
 ]);
 
 // spec-358: discontinue_test_events now hard-deletes the orphan's emissions

@@ -27,7 +27,7 @@ export async function executeToolRemote(
   input: Record<string, unknown>,
   signal?: AbortSignal,
   docId?: string,
-  mode?: 'drift'
+  mode?: 'drift' | 'scaffold'
 ): Promise<string> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (authToken) {
