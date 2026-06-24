@@ -68,12 +68,14 @@ describe('custom journey steps fire onCtaClick on their primary interaction (spe
     await waitFor(() => expect(onCtaClick).toHaveBeenCalledWith('copy_install'));
   });
 
-  it('create-spec → "copy_prompt" on copying the prompt', async () => {
+  it('create-spec → "copy_create_prompt" on copying the prompt', async () => {
+    // spec-372 t-10 (dec-6 Layer C) — the create-spec prompt copy now emits the specific
+    // cta discriminator `copy_create_prompt` (was the generic `copy_prompt`).
     tagAc(AC2);
     const onCtaClick = vi.fn();
     render(<CreateSpecStep onCtaClick={onCtaClick} />);
     await clickCopyWithin('create-spec-prompt');
-    await waitFor(() => expect(onCtaClick).toHaveBeenCalledWith('copy_prompt'));
+    await waitFor(() => expect(onCtaClick).toHaveBeenCalledWith('copy_create_prompt'));
   });
 
   it('resolve-decision (agent-prompt) → "copy_prompt" on copying the prompt', async () => {
