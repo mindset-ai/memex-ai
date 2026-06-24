@@ -2875,6 +2875,108 @@ export const symbolsRelations = relations(symbols, ({ one }) => ({
 }));
 
 // ══════════════════════════════════════
+// Facets (spec-340) — a cross-cutting practice-area vocabulary that routes work
+// to its governing standards and is exhaustively adjudicated at task creation.
+// ══════════════════════════════════════
+
+// The facet vocabulary (spec-340 dec-7). Org-owned: each org gets its own copy
+// of the default 16, seeded at provisioning, editable by data. Org-scoped like
+// org_scaffold_additions — it carries no memex_id, so it gets NO memex_isolation
+// RLS policy (a row could never satisfy a memex_id=GUC predicate); access is
+// gated at the service layer by org membership.
+export const facets = pgTable(
+  "facets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => orgs.id, { onDelete: "cascade" }),
+    // Stable slug — the code/prompt/LLM anchor AND the pill label by default.
+    // Ballots and clause tags anchor on this; a display rename never rewrites it (dec-5).
+    key: text("key").notNull(),
+    // Renameable display override; the pill shows name ?? key.
+    name: text("name"),
+    // REQUIRED disambiguating rubric the classifier reads (dec-7) — never null.
+    description: text("description").notNull(),
+    // Advisory display order.
+    ord: integer("ord").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // Per-org uniqueness, NOT global — two orgs may diverge under the same key (dec-7).
+    unique("facets_org_id_key_unique").on(table.orgId, table.key),
+    index("facets_org_id_idx").on(table.orgId),
+  ],
+);
+
+// Clause→facet tags (spec-340 dec-2) — auto-assigned by the classifier at
+// authoring time (NOT a hand-maintained join). Memex-scoped (rides the standards
+// corpus). The tri-state the design requires is encoded by the nullable facet_id:
+//   • NO rows for a clause            → not-yet-classified
+//   • exactly one row, facet_id NULL  → explicit "governs nothing"
+//   • one row per member facet         → governs those facets
+// Standard-level pills are the union over member rows only.
+export const standardClauseFacets = pgTable(
+  "standard_clause_facets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    memexId: uuid("memex_id").notNull(),
+    clauseId: uuid("clause_id")
+      .notNull()
+      .references(() => standardClauses.id, { onDelete: "cascade" }),
+    // NULL = the explicit "governs nothing" marker, distinguishable from no rows.
+    facetId: uuid("facet_id").references(() => facets.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // At most one membership row per (clause, facet).
+    uniqueIndex("standard_clause_facets_clause_facet_unique")
+      .on(table.clauseId, table.facetId)
+      .where(sql`${table.facetId} IS NOT NULL`),
+    // At most one explicit-none marker per clause.
+    uniqueIndex("standard_clause_facets_clause_none_unique")
+      .on(table.clauseId)
+      .where(sql`${table.facetId} IS NULL`),
+    index("standard_clause_facets_clause_id_idx").on(table.clauseId),
+    index("standard_clause_facets_facet_id_idx").on(table.facetId),
+    index("standard_clause_facets_memex_id_idx").on(table.memexId),
+  ],
+);
+
+// Per-task forced full ballot (spec-340 dec-5). One row per task. `verdict` is
+// the COMPLETE boolean map keyed on each facet's stable slug (full map, not a
+// sparse selected set — so "ruled out" is distinguishable from "never
+// considered"). `none` true = honest no-facet work. Record-absent (no row) =
+// not-yet-classified; record-present = classified. `vocabularyKeys` snapshots
+// the slugs the ballot was cast against, so completeness is judged at cast time
+// (dec-7: additive + immutable-once-referenced means a stored ballot stays
+// complete). Memex-scoped → ENABLE-not-FORCE memex_isolation RLS (std-36).
+export const taskFacetBallots = pgTable(
+  "task_facet_ballots",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    memexId: uuid("memex_id").notNull(),
+    taskId: uuid("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    verdict: jsonb("verdict").$type<Record<string, boolean>>().notNull(),
+    none: boolean("none").notNull().default(false),
+    vocabularyKeys: jsonb("vocabulary_keys").$type<string[]>().notNull(),
+    // WHO/HOW stamped at write time (std-32 activity contract).
+    actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+    actorName: text("actor_name"),
+    channel: text("channel"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique("task_facet_ballots_task_id_unique").on(table.taskId),
+    index("task_facet_ballots_memex_id_idx").on(table.memexId),
+  ],
+);
+
+// ══════════════════════════════════════
 // Types
 // ══════════════════════════════════════
 
@@ -2888,6 +2990,12 @@ export type CommentMention = InferSelectModel<typeof commentMentions>;
 export type CommentMentionInsert = InferInsertModel<typeof commentMentions>;
 export type Decision = InferSelectModel<typeof decisions>;
 export type Task = InferSelectModel<typeof tasks>;
+export type Facet = InferSelectModel<typeof facets>;
+export type FacetInsert = InferInsertModel<typeof facets>;
+export type StandardClauseFacet = InferSelectModel<typeof standardClauseFacets>;
+export type StandardClauseFacetInsert = InferInsertModel<typeof standardClauseFacets>;
+export type TaskFacetBallot = InferSelectModel<typeof taskFacetBallots>;
+export type TaskFacetBallotInsert = InferInsertModel<typeof taskFacetBallots>;
 export type Issue = InferSelectModel<typeof issues>;
 export type Conversation = InferSelectModel<typeof conversations>;
 export type Message = InferSelectModel<typeof messages>;

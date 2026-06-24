@@ -138,6 +138,13 @@ const ALLOWLIST: Record<string, string> = {
     "users table — identity rows (profile, password hash, email verification). No memex_id, no bus entity; user identity is not Memex-scoped tenant content. Memex-creation side effects (memex/created) are emitted by services/user-namespaces.ts and services/users.ts's namespace-provisioning path, not by these raw identity writes.",
   "services/verified-domains.ts":
     "verified_domains + orgs config (domain auto-grouping). Org-level configuration rows, no memex_id, no bus entity — not Memex-scoped tenant content.",
+  // ── spec-340 facet substrate — config + derived metadata, no SSE consumer in v1 ──
+  "services/default-facets.ts":
+    "spec-340 t-2 — seeds the org's default facet vocabulary (facets table). Org-level CONFIG rows: no memex_id, no bus entity, no SSE subscriber — same category as services/verified-domains.ts. Seeded once at org provisioning (createOrgForUser, post-commit best-effort); v1 ships no live facet editing (the CRUD surface is the deferred sibling spec, dec-7), so there is nothing to fan out. When live editing lands it routes through mutate().",
+  "services/facet-classifier.ts":
+    "spec-340 t-3 — writes standard_clause_facets (auto-assigned clause→facet tags). Derived classification metadata on standards clauses, assigned at authoring time — same 'derived projection, no bus entity of its own' category as services/clause-refs.ts; its change signal rides the standard/clause events. v1 has no live pill SSE consumer (admin pill review is the deferred CRUD surface). Wrap deferred to that sibling spec.",
+  "services/facet-ballot.ts":
+    "spec-340 t-4 — writes task_facet_ballots (the per-task facet ballot). Per-task metadata captured at create_task, alongside the task.created emission that createTask already routes through mutate(); the ballot has no separate bus entity and no live SSE consumer in v1 (the verify gate reads it on demand). A live ballot surface would route through mutate().",
   "services/visitors.ts":
     "Anonymous-first identity spine (spec-254). visitors holds one opaque visitor_id per browser + the user_id it merges to at sign-in — a CROSS-TENANT identity dimension (no memex_id, no bus entity, RLS-excluded like usage_events / activity_log) written ADVISORILY from pre-auth middleware and the auth chokepoint. The bus is keyed on memexId for tenant SSE fan-out; a pre-auth visitor row has no tenancy and no subscriber to wake. Same category as services/users.ts and services/usage-events.ts — identity/telemetry rows that must not emit.",
   "services/domain-verification.ts":

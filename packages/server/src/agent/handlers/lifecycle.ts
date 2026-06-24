@@ -84,6 +84,14 @@ export const lifecycleTools: ToolSpec[] = [
           "Pass on a second call to assess_spec after reading the prompt in the first call's response. " +
           "Ignored unless target='build'.",
         ),
+      facetAck: z
+        .boolean()
+        .optional()
+        .describe(
+          "spec-340 facet gate: pass true to ACKNOWLEDGE the standards the facet routing surfaced, " +
+          "after re-checking them against the actual diff. Pass on a second call to assess_spec once " +
+          "you've consulted them. Ignored unless target='verify' or 'done'.",
+        ),
       verbose: VERBOSE_FIELD,
     },
     async handler(input, ctx) {
@@ -95,6 +103,7 @@ export const lifecycleTools: ToolSpec[] = [
         | "verified"
         | "not_verified"
         | undefined;
+      const facetAck = input.facetAck as boolean | undefined;
 
       const resolved = await resolveRefArg(ctx, ref);
       if (!isDocLikeKind(resolved.entity.kind)) {
@@ -116,6 +125,7 @@ export const lifecycleTools: ToolSpec[] = [
           missionUuid,
           target,
           codeGrounding,
+          facetAck,
         );
         return formatPhaseAssessment(assessment);
       }

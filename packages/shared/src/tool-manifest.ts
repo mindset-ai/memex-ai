@@ -297,7 +297,7 @@ export const toolManifest: ToolManifestEntry[] = [
     name: 'assess_spec',
     summary:
       'Run a deterministic Spec assessment: phase rubric, narrative freshness, comments survey, or consolidate.',
-    args: 'assess_spec(ref, mode, target?, codeGrounding?)',
+    args: 'assess_spec(ref, mode, target?, codeGrounding?, facetAck?)',
     group: 'planning',
     readOnlyHint: false,
     trafficClass: null,
@@ -317,7 +317,7 @@ export const toolManifest: ToolManifestEntry[] = [
     name: 'create_task',
     summary:
       'Create a task (build-phase only); resolve open decisions first. Include acceptance criteria.',
-    args: 'create_task(ref, title, description, acceptanceCriteria?, sectionRef?)',
+    args: 'create_task(ref, title, description, acceptanceCriteria?, sectionRef?, facetBallot?)',
     group: 'build',
     readOnlyHint: false,
     // spec-327 dec-3: NON-ADVANCING. The createTask service guard (dec-1) rejects

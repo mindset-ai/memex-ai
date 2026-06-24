@@ -17,6 +17,7 @@ import { parsePhaseDescriptions } from "../mcp/phase-descriptions.js";
 import { listOrgScaffoldAdditionsCached } from "./scaffold-additions-cache.js";
 import { filterOrgBlocksForMemex } from "./scaffold-additions.js";
 import { orgIdForMemex } from "./shared/memex-ownership.js";
+import { evaluateFacetGate, facetGateNudges } from "./facet-gate.js";
 import {
   BASE_SCAFFOLD,
   SPEC_SHAPE_MISSING_LENS_WARNING,
@@ -671,6 +672,7 @@ export async function assessPhaseTransition(
   briefId: string,
   targetPhase: PhaseTarget,
   codeGrounding?: CodeGrounding,
+  facetAck?: boolean,
 ): Promise<PhaseAssessment> {
   if (!isPhaseTarget(targetPhase)) {
     throw new ValidationError(
@@ -863,6 +865,16 @@ export async function assessPhaseTransition(
       effectiveCodeGrounding = codeGrounding;
       nudges.push(CODE_GROUNDING_NUDGE[codeGrounding]);
     }
+  }
+
+  // spec-340 t-7: the facet gate. At the verify/done transitions, surface the
+  // spec's routed standards (from its tasks' ballot union) and the acknowledge
+  // prompt, plus any unballoted tasks. NON-BLOCKING — these are nudges that ride
+  // the readiness rubric exactly like the code-grounding / naked-decision holds;
+  // update_doc is never blocked (dec-1). On specify/build the param is ignored.
+  if (targetPhase === "verify" || targetPhase === "done") {
+    const gate = await evaluateFacetGate(memexId, briefId, facetAck);
+    nudges.push(...facetGateNudges(gate, targetPhase, facetAck));
   }
 
   // Stamp recency cache (t-7).

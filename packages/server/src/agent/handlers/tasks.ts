@@ -23,6 +23,14 @@ import {
   removeBlocker,
 } from "../../services/shared/blockers.js";
 import {
+  validateBallotForMemex,
+  storeTaskBallot,
+  trueFacetsOf,
+  clausesGoverningFacets,
+  formatFrontLoad,
+  type BallotInput,
+} from "../../services/facet-ballot.js";
+import {
   ValidationError,
 } from "../../types/errors.js";
 import {
@@ -136,6 +144,24 @@ export const tasksTools: ToolSpec[] = [
         .optional()
         .describe("Checklist items that gate completion. Each {description, done?:false}."),
       sectionRef: z.string().optional().describe("Section type this task delivers against."),
+      // spec-340 t-4 (dec-5): the PREDICTIVE facet ballot. Advisory at task
+      // creation (omitting it never blocks, ac-18) — but a submitted ballot must
+      // be a COMPLETE full ballot: an explicit verdict for every facet, or
+      // none:true. Empty/contradictory ballots are rejected back (ac-22).
+      facetBallot: z
+        .object({
+          verdict: z
+            .record(z.string(), z.boolean())
+            .describe("Complete map: every facet slug → true (applies) / false (doesn't apply)."),
+          none: z
+            .boolean()
+            .default(false)
+            .describe("True = this work governs no facet (every facet false)."),
+        })
+        .optional()
+        .describe(
+          "Forced full facet ballot for this task (spec-340). Adjudicate EVERY facet your work touches; the verify gate re-confronts it against the diff.",
+        ),
       verbose: VERBOSE_FIELD,
     },
     async handler(input, ctx) {
@@ -146,6 +172,7 @@ export const tasksTools: ToolSpec[] = [
         | Array<{ description: string; done: boolean }>
         | undefined;
       const sectionRef = input.sectionRef as string | undefined;
+      const facetBallot = input.facetBallot as BallotInput | undefined;
 
       const resolved = await resolveRefArg(ctx, ref);
       if (!isDocLikeKind(resolved.entity.kind)) {
@@ -154,6 +181,13 @@ export const tasksTools: ToolSpec[] = [
         );
       }
       const { memexId, doc, slugs } = resolved;
+
+      // Validate the ballot BEFORE creating the task — a rejected ballot must not
+      // leave an orphan task behind (ac-22). Absent ballot = advisory, no-op (ac-18).
+      const ballotVocab = facetBallot
+        ? await validateBallotForMemex(memexId, facetBallot)
+        : undefined;
+
       const task = await createTask(
         memexId,
         doc.id,
@@ -163,13 +197,22 @@ export const tasksTools: ToolSpec[] = [
         sectionRef,
         reqCtx(ctx),
       );
+
+      // Store the (validated) ballot + front-load the clauses of its true facets.
+      let frontLoad = "";
+      if (facetBallot && ballotVocab) {
+        await storeTaskBallot(memexId, task.id, facetBallot, ballotVocab, reqCtx(ctx));
+        const clauses = await clausesGoverningFacets(memexId, trueFacetsOf(facetBallot, ballotVocab));
+        frontLoad = formatFrontLoad(clauses);
+      }
+
       if (ctx.verbose) {
         const state = await fullDocState(memexId, doc.id);
         const url = await ctx.workspaceUrl(memexId);
         return await formatState(url, state, ctx);
       }
       const taskRef = buildChildRef(slugs, doc, { type: "tasks", seq: task.seq });
-      return `Task created: ref: ${taskRef} "${task.title}"`;
+      return `Task created: ref: ${taskRef} "${task.title}"${frontLoad}`;
     },
   },
   {

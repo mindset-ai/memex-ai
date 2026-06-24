@@ -103,13 +103,30 @@ describe("ac-1 — the trigger fires at two moments, both off the footer", () =>
   });
 });
 
+// spec-340 dec-2 RECONCILIATION (the narrowing this guard now documents):
+// spec-193 dec-1 chose "no stored tags — route via classify-guided semantic
+// search," and the assertions below forbid a bridge table. Their INTENT was
+// against a lossy HAND-CURATED map IN THE SCAFFOLD / PRODUCT-PROMPT LAYER (a human
+// mistags scaffold prose → a standard goes invisible). spec-340 REVERSES the
+// no-stored-tags default for routing, but with AUTO-ASSIGNED clause→facet tags
+// written by the classifier at authoring time (the `standard_clause_facets` DB
+// table), NOT a hand-maintained scaffold map. These assertions stay green
+// unchanged because they scan `scaffoldData` only — the spec-340 tags live in the
+// DB, a different layer. The guard is therefore narrowed by SCOPE, not by edit:
+// it forbids a hand-maintained map in the scaffold layer (still right) while
+// permitting auto-assigned DB tags (spec-340's routing). Do NOT broaden these
+// `not.toMatch` scans to the DB schema / services — that would re-forbid the
+// permitted mechanism. The permitted mechanism is asserted in
+// spec-340-facet-routing.regression.test.ts.
 describe("ac-8 — L0 functions with no tripwire-tag store", () => {
   it("routes to standards via classify-guided semantic search, not a tag store", () => {
     tagAc(AC(8));
     // The base block tells the agent to reach the standards with search_memex —
     // no per-standard tag lookup.
     expect(specifyNudge).toMatch(/search_memex\(\{ query, kind: 'standard' \}\)/);
-    // No tag-store / bridge-table machinery anywhere in the scaffold data.
+    // No HAND-MAINTAINED tag-store / bridge-table machinery in the SCAFFOLD layer
+    // (spec-340's auto-assigned DB tags are a different, permitted layer — see the
+    // reconciliation note above).
     expect(scaffoldData).not.toMatch(/tripwireTag|standardTripwireMap|TRIPWIRE_TO_STANDARD|bridge[- ]?table/i);
   });
 });

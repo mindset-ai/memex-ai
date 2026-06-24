@@ -31,6 +31,7 @@ import { pgError } from "./shared/pg-error.js";
 import { isFreeEmailDomain } from "./free-email-domains.js";
 import { mutate, type Mutated, type RequestCtx } from "./mutate.js";
 import { primaryMemexIdForOrg } from "./shared/memex-ownership.js";
+import { seedDefaultFacetsBestEffort } from "./default-facets.js";
 
 export async function getOrgById(id: string): Promise<Org | undefined> {
   return db.query.orgs.findFirst({ where: eq(orgs.id, id) });
@@ -411,6 +412,11 @@ export async function createOrgForUser(input: CreateOrgRequest): Promise<Created
     ownerUserId: input.userId,
     createdByUserId: input.userId,
   });
+
+  // spec-340 t-2 (dec-7): seed the org's own copy of the default facet
+  // vocabulary. Post-commit, best-effort, idempotent — mirrors the spec-178/184
+  // seed-on-creation pattern (the org must still be created if the seed fails).
+  await seedDefaultFacetsBestEffort(result.org.id);
 
   return {
     org: result.org,
