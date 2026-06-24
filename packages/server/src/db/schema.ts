@@ -621,7 +621,7 @@ export const acs = pgTable(
     // never auto-deleted; un-accept nulls both columns.
     acceptedBy: text("accepted_by"),
     acceptedAt: timestamp("accepted_at", { withTimezone: true }),
-    // spec-391 dec-2 (0107): the reviewed-verification rationale — extends the
+    // spec-391 dec-2 (0108): the reviewed-verification rationale — extends the
     // spec-188 acceptance overlay into a named, dated, REASONED sign-off so a
     // config/prose/Dashboard AC that cannot carry an automated test (Stripe
     // settings, Apple notarization, policy ACs) satisfies the hard verify→done

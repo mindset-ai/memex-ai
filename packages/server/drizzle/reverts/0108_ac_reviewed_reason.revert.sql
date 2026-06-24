@@ -1,4 +1,4 @@
--- Revert of 0107_ac_reviewed_reason.sql (spec-391 t-1).
+-- Revert of 0108_ac_reviewed_reason.sql (spec-391 t-1).
 -- Drops the reviewed-verification rationale column. Any recorded reasons are
 -- lost on revert — acceptable: it is advisory overlay state alongside
 -- accepted_by/accepted_at; the test-derived verification state is unaffected.

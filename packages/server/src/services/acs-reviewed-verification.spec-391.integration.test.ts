@@ -11,7 +11,7 @@
 // production path runs the columns + the test_event_latest join, and a pure
 // unit test on deriveVerificationState could pass while the wiring is broken.
 //
-// Covers ac-7 (the 0107 migration / reviewed_reason column) and ac-8 (the
+// Covers ac-7 (the 0108 migration / reviewed_reason column) and ac-8 (the
 // sign-off service: sets all three columns, threads RequestCtx for std-32, and
 // derives to `accepted`, with evidence-wins suppression intact).
 
@@ -88,7 +88,7 @@ async function stateOf(briefId: string, acId: string) {
 }
 
 describe("reviewed-verification AC class — migration + column (spec-391 ac-7)", () => {
-  it("acs carries a reviewed_reason text column (the 0107 migration applied)", async () => {
+  it("acs carries a reviewed_reason text column (the 0108 migration applied)", async () => {
     // ac-7: the migration added a nullable reviewed_reason column to acs.
     // Introspect information_schema so the test asserts the SHAPE the migration
     // produced, not just that an ORM write happens to work.
