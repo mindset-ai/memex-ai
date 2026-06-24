@@ -35,6 +35,16 @@ const AC12 = "mindset-prod/memex-building-itself/specs/spec-315/acs/ac-12";
 const TITLE =
   "a graduated user sees their specs (Pulse card) + where they're needed above the pearls, and clicking a mention lands on the highlighted comment";
 
+// ⚠ QUARANTINED by spec-372 t-6 (dec-3): the spec-315 graduated-home surfaces
+// ("Where you're needed" / "Your specs" / the journey pearls) are reversibly hidden on Home
+// "until we can make them look better and more meaningful" (Ryan). The components and the
+// spec-312/315 graduation/journeys logic are kept intact (verified by the unit suites, which
+// render them behind a flag-on mock); only the Home render is hidden behind SHOW_GRADUATED_HOME.
+// This whole journey exercises those hidden surfaces, so it is skipped against the shipped app.
+// ⚠ MERGE-GATED on Wic's sign-off (spec-312/315 owner); UN-SKIP when the surfaces are
+// redesigned and reinstated. The afterEach above no-ops AC emission for a skipped test, so
+// spec-315's ACs are not marked failing by this quarantine.
+
 const seededDocIds: string[] = [];
 
 test.afterEach(async ({}, testInfo) => {
@@ -49,7 +59,7 @@ test.afterEach(async ({}, testInfo) => {
   );
 });
 
-test(TITLE, async ({ page }) => {
+test.skip(TITLE, async ({ page }) => {
   const userId = await ensureUser(DEV_EMAIL);
   await setUserName(DEV_EMAIL, DEV_NAME);
   await setIdentityConfirmed(DEV_EMAIL, true);
