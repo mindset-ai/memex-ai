@@ -57,6 +57,20 @@ function readLocalEnv(): Record<string, string> {
 const localEnv = readLocalEnv();
 const TEST_DATABASE_URL = resolveTestDatabaseUrl({ ...process.env, ...localEnv });
 
+// spec-390: CI runs the suite in 3 collect-only shards
+// (`vitest run --shard=N/3 --coverage --reporter=blob --coverage.thresholds.*=0`),
+// then enforces the gate ONCE on the merged blobs in the `server-result` job
+// (`vitest --merge-reports --coverage run`) [per spec-276 dec-2]. The shard step's
+// CLI `--coverage.thresholds.*=0` flags zero only the GLOBAL thresholds — they do
+// NOT override per-PATH (`'src/services/**': {...}`) threshold entries. So if the
+// per-glob tiers were live on a shard, each shard would run checkThresholds against
+// its OWN partial ~1/3 coverage and exit 1 (the failure test.yml's header warns
+// about). Detect a shard run and emit collect-only thresholds there; the full
+// tiered gate applies on the non-sharded merge job and on local full runs.
+const isShardRun = process.argv.some(
+  (a) => a === "--shard" || a.startsWith("--shard="),
+);
+
 export default defineConfig({
   test: {
     globals: true,
@@ -192,7 +206,14 @@ export default defineConfig({
       // 80/80/70/80 exactly), middleware 84.8→80, agent 66.8→60, routes 59.2→55,
       // mcp 43.8→40 (lowest). The top-level default catches any file matched by the
       // include but not by a glob below.
-      thresholds: {
+      //
+      // SHARD GUARD (see isShardRun above): on a collect-only shard run the per-PATH
+      // tiers can't be zeroed by the CLI flags, so they'd fire against partial ~1/3
+      // coverage and red the shard. Emit collect-only zeros there; the full tiered
+      // gate lives on the non-sharded merge job + local full runs.
+      thresholds: isShardRun
+        ? { lines: 0, functions: 0, branches: 0, statements: 0 }
+        : {
         lines: 70,
         functions: 70,
         branches: 40,

@@ -26,15 +26,22 @@ const configSrc = readFileSync(
 // Isolate the coverage block so include/threshold assertions can't accidentally
 // match the test `include` (`src/**/*.test.ts`) higher up in the file.
 const coverageBlock = configSrc.slice(configSrc.indexOf("coverage:"));
-// Scope tier extraction to the thresholds block so a glob key never matches the
-// include array (where it appears as `"src/services/**/*.ts"`). The threshold
-// keys carry a trailing colon (`"src/services/**":`) — the include entries don't.
-const thresholdsBlock = coverageBlock.slice(coverageBlock.indexOf("thresholds:"));
+// The thresholds value is a ternary — `thresholds: isShardRun ? {collect-only
+// zeros} : {full tiered}` (spec-390 shard guard). Anchor on the LIVE (tiered)
+// branch — the `: {` that precedes the global tiered object — so the default-tier
+// assertions read the real floors, never the collect-only zeros that come first.
+// The per-glob keys (`"src/services/**":`) only exist in the tiered branch anyway.
+const ternaryAt = coverageBlock.indexOf("thresholds: isShardRun");
+const liveBranchAt =
+  ternaryAt >= 0
+    ? coverageBlock.indexOf(": {", ternaryAt) // start of the non-shard branch
+    : coverageBlock.indexOf("thresholds:"); // fallback: no ternary present
+const thresholdsBlock = coverageBlock.slice(liveBranchAt);
 
 /** Extract the metrics of one per-glob (or default) threshold object. */
 function tierFor(globOrNull: string | null): Record<string, number> {
   // For a glob, anchor on the quoted key WITH its trailing colon (threshold-only);
-  // for the default, anchor on the `thresholds:` keyword that opens the block.
+  // for the default, anchor at the start of the live tiered branch.
   const anchor = globOrNull
     ? thresholdsBlock.indexOf(`"${globOrNull}":`)
     : 0;
