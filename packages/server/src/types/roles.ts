@@ -7,8 +7,6 @@
 // schema migrations on every new section type. DOC_TYPES is enumerated below for app-side
 // validation only — the column itself stays free-form.
 
-import { PHASE_ORDER } from "@memex/shared";
-
 export type Role = "member" | "administrator";
 
 export type MembershipStatus = "active" | "disabled";
@@ -105,11 +103,14 @@ export const DOC_STATUSES: readonly DocStatus[] = [
   "build",
   "verify",
 ] as const;
-// spec-355 dry-2: the ordered phase array is canonical in @memex/shared.
-// SpecStatus (above) keeps its literal union — it's the server's spec-status
-// enum source and is asserted in the no-legacy-phase-vocab guard — but the
-// ordered LIST reuses the shared array (same five values, same order).
-export const SPEC_STATUSES: readonly SpecStatus[] = PHASE_ORDER;
+// NOTE: do NOT import @memex/shared here. roles.ts is re-exported by db/schema.ts
+// and thus bundled into the standalone @mindset-ai/db-schema package (spec-279),
+// whose only dependency is drizzle-orm. The canonical ordered phase array lives in
+// @memex/shared (spec-355 dry-2: PHASE_ORDER); this list is a deliberate
+// boundary-local duplicate, kept byte-identical to PHASE_ORDER. The SpecStatus
+// union above is likewise the server's spec-status enum source (asserted verbatim
+// by the no-legacy-phase-vocab guard).
+export const SPEC_STATUSES: readonly SpecStatus[] = ["draft", "specify", "build", "verify", "done"] as const;
 export const TASK_STATUSES: readonly TaskStatus[] = ["not_started", "in_progress", "complete"] as const;
 export const DECISION_STATUSES: readonly DecisionStatus[] = ["open", "resolved", "candidate", "rejected"] as const;
 export const COMMENT_TYPES: readonly CommentType[] = [
