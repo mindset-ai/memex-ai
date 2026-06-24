@@ -361,6 +361,107 @@ jobs:
       - name: AC-emit helper tests
         run: pnpm --filter @memex-ai-ac/vitest test
 
+  # Real migration applier (spec-385, sus-1 from the spec-345 audit; decided in
+  # spec-357 dec-3). The three psql-loop seeding sites elsewhere in this file
+  # (server/e2e/perf "Apply migrations" steps) play EVERY drizzle/*.sql file
+  # blindly — fast for seeding a shard, but they never exercise the PRODUCTION
+  # applier. The deploy runs `pnpm db:migrate` (= drizzle-kit migrate +
+  # scripts/apply-hand-migrations.mjs) — see packages/server/deploy.sh:207-211 and
+  # Makefile:161 [per std-26] — which (a) journal-skips the drizzle-kit-owned tags
+  # so they aren't double-run, (b) tracks hand-written files (0009+) in a
+  # `manual_migrations` table for idempotent re-runs, and (c) splits each file on
+  # the `--> statement-breakpoint` marker inside a transaction. None of that was
+  # covered in CI, so a regression in the applier would only surface at deploy
+  # time (the failure mode std-26's "Gotchas" exists to kill).
+  #
+  # This job runs the REAL applier against a COLD DB and FAILS if it errors, then
+  # runs it a SECOND time to prove idempotency (journal-skip + manual_migrations
+  # tracking ⇒ a clean no-op), and asserts the tracking table is populated. The
+  # `.mjs` applier (not the bash `.sh`) is the portable, Windows-friendly path
+  # `db:migrate` chains [per std-22]. The fast psql-loop seeding sites are left
+  # UNTOUCHED by design (spec-357 dec-3) — they're not the prod path under test.
+  migration-applier:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        # pgvector-bundled Postgres 16 — migration 0023 (codebase intelligence)
+        # runs CREATE EXTENSION vector, absent from the stock postgres image.
+        # Same service the server/e2e/perf jobs use, so the applier hits the same
+        # extension surface the cold deploy DB does.
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: memex
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/memex
+
+    steps:
+      - uses: actions/checkout@v7
+      # No `version:` here — pnpm/action-setup@v6 reads the pinned version from
+      # the root package.json `packageManager` field and errors if both are set.
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # Run 1: the REAL applier against the cold, empty `memex` service DB. This is
+      # the exact command deploy.sh runs (pnpm db:migrate = drizzle-kit migrate +
+      # node scripts/apply-hand-migrations.mjs). A non-zero exit fails the job.
+      - name: Run the production migration applier (cold DB)
+        run: pnpm --filter @memex/server db:migrate
+
+      # Assert the hand-written tier was TRACKED (not blindly replayed): the
+      # production applier records each 0009+ file in `manual_migrations`. The
+      # psql-loop seeding sites never create this table — its presence + a non-zero
+      # row count is the proof the real applier ran.
+      - name: Assert manual_migrations is populated
+        run: |
+          COUNT=$(psql -tA "$DATABASE_URL" -c "SELECT count(*) FROM manual_migrations")
+          echo "manual_migrations rows: $COUNT"
+          if [ "$COUNT" -lt 1 ]; then
+            echo "FAIL: manual_migrations empty — the hand-written applier tier did not track any file."
+            exit 1
+          fi
+
+      # Run 2: idempotency / journal-skip. The applier must re-run as a clean no-op
+      # — drizzle-kit recognises its already-applied journal, and the .mjs prints
+      # "No hand-written migrations to apply." with zero "  → <tag>" apply lines.
+      # We also assert the manual_migrations row count is UNCHANGED, so no file was
+      # re-applied or re-tracked.
+      - name: Re-run the applier — must be a clean no-op (idempotency)
+        run: |
+          BEFORE=$(psql -tA "$DATABASE_URL" -c "SELECT count(*) FROM manual_migrations")
+          OUT=$(pnpm --filter @memex/server db:migrate 2>&1)
+          echo "$OUT"
+          AFTER=$(psql -tA "$DATABASE_URL" -c "SELECT count(*) FROM manual_migrations")
+          echo "manual_migrations before=$BEFORE after=$AFTER"
+          if [ "$BEFORE" != "$AFTER" ]; then
+            echo "FAIL: manual_migrations changed on the second run ($BEFORE → $AFTER) — applier is not idempotent."
+            exit 1
+          fi
+          if ! echo "$OUT" | grep -qF "No hand-written migrations to apply."; then
+            echo "FAIL: second run did not report a clean hand-written no-op."
+            exit 1
+          fi
+          if echo "$OUT" | grep -qE '^[[:space:]]*→ '; then
+            echo "FAIL: second run re-applied a hand-written migration (saw a '→ <tag>' line)."
+            exit 1
+          fi
+          echo "OK: second run was a clean no-op."
+
   # UI E2E (Playwright). Runs against a freshly migrated DB via the webServer block
   # in playwright.config.ts — the same setup a developer uses locally.
   #
