@@ -140,11 +140,11 @@ export async function emit(
   const payload = buildPayload(args);
 
   // ⚠ PROTOCOL CONTRACT — the POST shape below (method, Content-Type, Authorization: Bearer
-  // header, and the fail-safe "swallow non-2xx + network errors" behaviour at the end of
-  // this function) is documented language-agnostically in the `ac-emission-bootstrap`
-  // get_information topic (packages/server/src/guidance/ac-emission-bootstrap.json) so other
-  // languages can hand-roll a correct emitter. Change the transport/auth/behaviour here →
-  // update that topic too.
+  // header, the fail-safe "swallow non-2xx + network errors" behaviour at the end of this
+  // function, and surfacing the server's response body on a non-2xx) is documented
+  // language-agnostically in the `ac-emission-bootstrap` get_information topic
+  // (packages/server/src/guidance/ac-emission-bootstrap.json) so other languages can
+  // hand-roll a correct emitter. Change the transport/auth/behaviour here → update that topic too.
   //
   // spec-129: attach the emission key as a Bearer token when MEMEX_EMIT_KEY is set.
   // Authorization is redacted for free by Cloud Run + most proxies. When unset, the POST
@@ -168,9 +168,18 @@ export async function emit(
       signal: AbortSignal.timeout(5000),
     });
     if (!res.ok) {
+      // spec-333: surface the server's RESPONSE BODY, not just the status code, so the
+      // actionable guidance a non-2xx carries (e.g. a 401 telling a coding agent to call
+      // provision_ac_emission for a fresh key) reaches the agent reading test output. The
+      // body read is guarded — a failure to read it must never break the fail-safe contract
+      // (a failed emission still never fails the test run).
+      const responseBody = await Promise.resolve()
+        .then(() => res.text())
+        .catch(() => "");
       // eslint-disable-next-line no-console
       console.warn(
-        `[ac-emit] POST ${url} returned ${res.status} for ac_uid=${args.ac_uid}`,
+        `[ac-emit] POST ${url} returned ${res.status} for ac_uid=${args.ac_uid}` +
+          (responseBody ? `: ${responseBody}` : ""),
       );
     }
     const warning = res.headers.get("x-memex-warning");

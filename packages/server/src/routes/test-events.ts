@@ -172,13 +172,19 @@ testEventsRouter.post("/", async (c) => {
     : "";
   const emissionKey = rawKey ? await verifyEmissionKey(rawKey) : null;
   if (!emissionKey) {
+    // spec-333 ac-6: verifyEmissionKey returns null for a missing, invalid, OR expired key
+    // alike. Give ONE remedy that fits all three (no expiry oracle, per spec-333's Architecture
+    // & Security section): a coding agent re-provisions over MCP; CI uses a human-minted key.
     return c.json(
       {
         error: "unauthorized",
         message:
-          "A valid emission key is required. Generate one in Memex settings " +
-          "(Emission Keys) and set it as MEMEX_EMIT_KEY in your test environment; " +
-          "the helper attaches it as `Authorization: Bearer <key>`.",
+          "A valid emission key is required (it may be missing, invalid, or expired). " +
+          "If you are a coding agent, call the `provision_ac_emission` MCP tool with the " +
+          "Spec you're working on to mint a fresh key, set it as MEMEX_EMIT_KEY in your " +
+          "test environment, and re-run. For CI, a human mints a long-lived key in Memex " +
+          "settings (Emission Keys) and stores it as the MEMEX_EMIT_KEY secret; the helper " +
+          "attaches it as `Authorization: Bearer <key>`.",
       },
       401,
     );
@@ -262,12 +268,19 @@ testEventsRouter.post("/", async (c) => {
     emissionKey.scopedSpecHandle &&
     emissionKey.scopedSpecHandle !== specHandleFromAcUid(body.ac_uid)
   ) {
+    // spec-333 ac-7: name BOTH the key's scoped Spec and the target Spec, and hand a coding
+    // agent the exact provision_ac_emission call to get a key for the Spec it's actually
+    // emitting for. The route already holds both handles, so the breadcrumb is precise.
+    const targetSpecHandle = specHandleFromAcUid(body.ac_uid);
+    const targetSpecRef = `${refNamespace}/${memexSlugFromAcUid(body.ac_uid)}/specs/${targetSpecHandle}`;
     return c.json(
       {
         error: "unauthorized",
         message:
-          "This emission key is scoped to a single Spec and does not authorise the " +
-          "Spec named in ac_uid.",
+          `This emission key is scoped to Spec ${emissionKey.scopedSpecHandle} and cannot ` +
+          `emit for Spec ${targetSpecHandle}. If you are a coding agent, call the ` +
+          `\`provision_ac_emission\` MCP tool with ref ${targetSpecRef} to mint a key for ` +
+          `that Spec, set it as MEMEX_EMIT_KEY, and re-run.`,
       },
       401,
     );

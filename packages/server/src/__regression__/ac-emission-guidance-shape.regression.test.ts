@@ -202,3 +202,22 @@ describe("spec-90 dec-7: emission guidance is locked to the multi-tenant routing
     expect(bootstrap.body).not.toMatch(/skips unknown namespaces/i);
   });
 });
+
+// spec-333 — the bootstrap contract is the std-22 portable surface every hand-rolled emitter
+// copies. It must instruct surfacing the server's RESPONSE BODY on a non-2xx (not just the
+// status), so the actionable guidance a 401 carries reaches the agent — while staying
+// fail-safe. This keeps the contract in lockstep with the vitest helper's emit() change.
+describe("spec-333: bootstrap contract documents surfacing the response body on non-2xx", () => {
+  it("instructs surfacing the server's response body, tied to the actionable fix it carries (ac-9)", () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-333/acs/ac-9");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-333/acs/ac-4"); // scope outcome: portable contract documents it
+    expect(bootstrap.body).toMatch(/response body/i);
+    expect(bootstrap.body).toMatch(/provision_ac_emission/);
+  });
+
+  it("keeps the body-surfacing instruction alongside the never-throw / fail-safe contract (ac-9)", () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-333/acs/ac-9");
+    expect(bootstrap.body).toMatch(/never\s+throw|swallow/i);
+    expect(bootstrap.body).toMatch(/response body/i);
+  });
+});
