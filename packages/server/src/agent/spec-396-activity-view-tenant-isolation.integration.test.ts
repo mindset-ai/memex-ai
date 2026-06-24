@@ -116,7 +116,15 @@ beforeAll(async () => {
   const acUid = `${nsAslug}/main/specs/${handleA}/acs/ac-1`;
   const [te] = await db
     .insert(testEvents)
-    .values({ acUid, status: "pass", actor: foreignActor } as typeof testEvents.$inferInsert)
+    .values({
+      acUid,
+      // spec-398: tenancy is now the stored column. memexAId is tenant A; the
+      // colliding handle can no longer bridge into tenant B because the arm
+      // filters te.memex_id, not a handle-only join.
+      memexId: memexAId,
+      status: "pass",
+      actor: foreignActor,
+    } as typeof testEvents.$inferInsert)
     .returning();
   created.testEvents.push(te.id);
 });

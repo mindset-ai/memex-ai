@@ -135,6 +135,7 @@ async function seedGreen(docId: string) {
     .where(eq(documents.id, docId));
   const acUid = `${slugs.ns}/${slugs.mx}/specs/${slugs.handle}/acs/ac-1`;
   await db.insert(testEventLatest).values({
+    memexId,
     acUid,
     testIdentifier: "t1",
     latestStatus: "pass",

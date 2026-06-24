@@ -34,6 +34,7 @@ import { createDecision, resolveDecision } from "./decisions.js";
 import { createTask, updateTaskStatus, type AcceptanceCriterion } from "./tasks.js";
 import { createAc, buildAcRef } from "./acs.js";
 import { applyEmissionToSummary } from "./test-event-latest.js";
+import { resolveMemexId } from "./emission-keys.js";
 import {
   HANDHOLD_TITLE,
   HANDHOLD_SECTIONS,
@@ -91,11 +92,18 @@ async function resolveMemexSlugs(
 // read paths (aggregateAcHealthForBriefs / listAcsForBriefWithVerification) see the
 // emission as soon as the seed commits. Mirrors the real emission route (spec-162).
 async function seedPassingEmission(acUid: string): Promise<void> {
+  // spec-398 ac-8: stamp tenancy from the ac_uid prefix (the demo memex exists).
+  const [ns, mx] = acUid.split("/");
+  const memexId = ns && mx ? await resolveMemexId(ns, mx) : null;
+  if (!memexId) {
+    throw new Error(`seedPassingEmission: ac_uid '${acUid}' does not resolve to a memex`);
+  }
   await db.transaction(async (tx) => {
     const [row] = await tx
       .insert(testEvents)
       .values({
         acUid,
+        memexId,
         status: "pass",
         testIdentifier: HANDHOLD_TEST_IDENTIFIER,
         hidden: false,
@@ -103,6 +111,7 @@ async function seedPassingEmission(acUid: string): Promise<void> {
       .returning({ createdAt: testEvents.createdAt });
     await applyEmissionToSummary(tx, {
       acUid,
+      memexId,
       testIdentifier: HANDHOLD_TEST_IDENTIFIER,
       status: "pass",
       latestRunAt: row.createdAt,

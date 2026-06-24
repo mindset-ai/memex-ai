@@ -15,6 +15,8 @@ import { testEvents, testEventLatest } from "../db/schema.js";
 
 export interface EmissionForSummary {
   acUid: string;
+  /** spec-398 ac-8: the emitting Memex; mirrors test_events.memex_id (NOT NULL). */
+  memexId: string;
   /** null when the emitting test sent no test_identifier; collapses to '' on write. */
   testIdentifier: string | null;
   status: "pass" | "fail" | "error";
@@ -48,6 +50,7 @@ export async function applyEmissionToSummary(
     .insert(testEventLatest)
     .values({
       acUid: emission.acUid,
+      memexId: emission.memexId,
       testIdentifier,
       latestStatus: emission.status,
       latestRunAt: emission.latestRunAt,
