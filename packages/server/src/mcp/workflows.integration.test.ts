@@ -25,12 +25,14 @@ import {
   documents,
   decisions,
   tasks,
+  acs,
   docComments,
   docSections,
   users,
 } from "../db/schema.js";
 import { createMcpServer } from "./tools.js";
 import { COMPLETION_NUDGE } from "../agent/tool-specs.js";
+import { setAcReviewedVerification } from "../services/acs.js";
 
 interface ToolResult {
   isError?: boolean;
@@ -194,6 +196,22 @@ describe("Workflow: Spec lifecycle (draft → specify → build → verify → d
     });
     expect(allResolved.every((d) => d.status === "resolved")).toBe(true);
 
+    // 4b. spec-391: author an implementation AC for each resolved decision.
+    // A resolved decision with no implementation AC is "naked" — the spec-391
+    // build→verify gate (and the umbrella spec-388 dec-5) now BLOCKS the
+    // build→verify advancement on naked decisions. A realistic full-lifecycle
+    // walk closes that gate the way a real caller does: one implementation AC
+    // per resolved decision, linked via parent_decision_ref.
+    for (const d of allResolved) {
+      const acRes = await callTool(actor.user.id, "create_ac", {
+        ref: specRef,
+        kind: "implementation",
+        statement: `Implementation AC proving ${d.title}`,
+        parent_decision_ref: refForDecision(actor, spec!, d.seq),
+      });
+      expect(acRes.isError).toBeFalsy();
+    }
+
     // 5. update_doc({status:'specify'}) — bump out of draft
     const planRes = await callTool(actor.user.id, "update_doc", {
       ref: specRef,
@@ -256,9 +274,28 @@ describe("Workflow: Spec lifecycle (draft → specify → build → verify → d
     });
     expect(assessVerifyRes.isError).toBeFalsy();
 
-    // 12. update_doc({status:'verify'}) → update_doc({status:'done'})
+    // 12. update_doc({status:'verify'})
     const verifyRes = await callTool(actor.user.id, "update_doc", { ref: specRef, status: "verify" });
     expect(verifyRes.isError).toBeFalsy();
+
+    // 12b. spec-391: the verify→done gate BLOCKS on any untested/failing active
+    // implementation AC. This integration walk emits no real test events, so its
+    // implementation ACs are `untested` — exactly the case the reviewed-
+    // verification sign-off (spec-388 dec-2's escape hatch) exists for. Sign each
+    // off with a named, dated, reasoned acceptance so they satisfy the gate, the
+    // same way a config/prose/dashboard AC that can't carry an automated test
+    // reaches done.
+    const specAcs = await db.query.acs.findMany({ where: eq(acs.briefId, spec!.id) });
+    for (const ac of specAcs) {
+      await setAcReviewedVerification(
+        spec!.memexId,
+        ac.id,
+        "Lifecycle Walker",
+        "integration walk: no automated test harness in this workflow test",
+      );
+    }
+
+    // 12c. update_doc({status:'done'}) — now clear of the gate.
     const doneRes = await callTool(actor.user.id, "update_doc", { ref: specRef, status: "done" });
     expect(doneRes.isError).toBeFalsy();
 

@@ -621,6 +621,15 @@ export const acs = pgTable(
     // never auto-deleted; un-accept nulls both columns.
     acceptedBy: text("accepted_by"),
     acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    // spec-391 dec-2 (0108): the reviewed-verification rationale — extends the
+    // spec-188 acceptance overlay into a named, dated, REASONED sign-off so a
+    // config/prose/Dashboard AC that cannot carry an automated test (Stripe
+    // settings, Apple notarization, policy ACs) satisfies the hard verify→done
+    // AC gate (dec-2) instead of permanently wedging the spec. Set together with
+    // accepted_by/accepted_at by the reviewed-verification sign-off service;
+    // NULL on a bare manual acceptance. The `accepted` verification state is
+    // still driven by accepted_at; reviewed_reason is the human-facing "why".
+    reviewedReason: text("reviewed_reason"),
     // spec-122 dec-2/dec-5 — the activity contract (WHO + HOW), stamped at write
     // time so the activity view (dec-1) projects one uniform shape across every
     // arm. actor_name is denormalised so a later user rename/delete can't rewrite
