@@ -5,6 +5,8 @@ import { listDecisions } from "../services/decisions.js";
 import { listTasks } from "../services/tasks.js";
 import { reviewDocComments } from "../services/comments.js";
 import { listDriftInbox, type DriftInboxRow } from "../services/drift-inbox.js";
+import { listStandards } from "../services/standards.js";
+import { listMemexIssues } from "../services/issues-list.js";
 import { buildChildRef, buildDocRef, memexSlugsById } from "../mcp/refs.js";
 import { phaseFromStatus } from "../formatting/formatters.js";
 import {
@@ -371,4 +373,117 @@ export async function buildScaffoldContext(
     context: toScaffoldGrounding(BASE_SCAFFOLD, orgBlocks),
     phase: "specify",
   };
+}
+
+/**
+ * spec-389 t-5 (dec-2/ac-2/ac-4): build the STANDARDS agent's grounding context.
+ *
+ * The standards agent's world is this Memex's Standards corpus. The context lists
+ * every Standard — handle, title, section count, open-drift count, and a canonical
+ * ref the agent can pass straight to `get_doc` — so it grounds answers in what
+ * actually exists before claiming a fact (ac-2). It authors Standards only; the
+ * surface restriction is the server-side MODE_TOOLS gate (spec-389 t-3), the
+ * behaviour is STANDARDS_AGENT_GUIDANCE. Returns `phase: 'specify'` — like drift
+ * and scaffold, the standards mode is not a Spec phase but buildSystemBlocks needs
+ * a base phase to project the general orientation.
+ */
+export async function buildStandardsContext(
+  memexId: string,
+): Promise<DocumentContext> {
+  const [standards, slugs] = await Promise.all([
+    listStandards(memexId),
+    memexSlugsById(memexId),
+  ]);
+
+  if (standards.length === 0) {
+    return {
+      context:
+        "Standards: none yet. This Memex has no Standards. You author Standards, so offer to help the user start one from a rule they describe. For a from-scratch corpus (a multi-perspective review of the codebase), that needs the coding agent — hand off rather than attempt it yourself.",
+      phase: "specify",
+    };
+  }
+
+  const lines: string[] = [];
+  lines.push(
+    `Standards in this Memex: ${standards.length}. Each is listed with its handle, title, section count, and any open drift. Call \`get_doc\` on a Standard's ref to read its clauses, and \`search_memex\` (kind 'standard') to find rules by topic before authoring a new one.`,
+  );
+  lines.push("");
+  for (const s of standards) {
+    const ref = slugs
+      ? buildDocRef(slugs, { docType: "standard", handle: s.handle })
+      : s.handle;
+    const drift =
+      s.driftCount > 0
+        ? ` — ${s.driftCount} open drift item${s.driftCount === 1 ? "" : "s"}`
+        : "";
+    lines.push(
+      `- ${s.handle} "${s.title}" (${s.sectionCount} section${
+        s.sectionCount === 1 ? "" : "s"
+      })${drift} · ref: ${ref}`,
+    );
+  }
+  lines.push("");
+  lines.push(
+    "To author: add structure with `add_section` / `retitle_section`, edit rule text at clause grain with `add_clause` / `edit_clause` / `delete_clause` (Standards are clause-backed), and record a proposed rewording with `propose_standard_change` — each gated by `render_confirmation` first. Navigate the reader to a clause with `render_navigate` (surface 'standard'); quote exact rule text with `render_quote`, never inline quotation marks.",
+  );
+
+  return { context: lines.join("\n"), phase: "specify" };
+}
+
+/**
+ * spec-389 t-5 (dec-2/ac-2/ac-4): build the ISSUES agent's grounding context.
+ *
+ * The issues agent's world is this Memex's open Issues parking lot. The context
+ * summarises the open issues across the whole Memex (scope 'all'), grouped by
+ * their parent Spec, each with its type and a "#N" handle — so the agent and the
+ * user name the same item (ac-2). It manages Issues only; the surface restriction
+ * is the server-side MODE_TOOLS gate (spec-389 t-3). Returns `phase: 'specify'`.
+ */
+export async function buildIssuesContext(
+  memexId: string,
+): Promise<DocumentContext> {
+  // The issues agent works across the WHOLE Memex's open issues, not just the
+  // requester's assigned set — scope 'all'.
+  const rows = await listMemexIssues(memexId, { scope: "all" });
+
+  if (rows.length === 0) {
+    return {
+      context:
+        "Open Issues: none. The parking lot is empty — there are no open Issues in this Memex right now. Offer to help the user register a new todo, or triage Issues once there are some. You manage Issues only; when something needs a Spec, hand off to the New Spec flow.",
+      phase: "specify",
+    };
+  }
+
+  // Group by parent Spec, preserving first-seen (freshest-first) order.
+  type Group = { handle: string; title: string; rows: typeof rows };
+  const bySpec = new Map<string, Group>();
+  for (const r of rows) {
+    let g = bySpec.get(r.spec.handle);
+    if (!g) {
+      g = { handle: r.spec.handle, title: r.spec.title, rows: [] };
+      bySpec.set(r.spec.handle, g);
+    }
+    g.rows.push(r);
+  }
+
+  const groups = [...bySpec.values()];
+  const lines: string[] = [];
+  lines.push(
+    `Open Issues: ${rows.length} item${rows.length === 1 ? "" : "s"} across ${
+      groups.length
+    } Spec${groups.length === 1 ? "" : "s"}, grouped by Spec below. Each issue leads with its #N handle (issue-N on its Spec) and type.`,
+  );
+  lines.push("");
+  for (const g of groups) {
+    lines.push(`## ${g.handle} "${g.title}"`);
+    for (const r of g.rows) {
+      lines.push(`- #${r.seq} (${r.type}): ${truncateBody(r.title)}`);
+    }
+    lines.push("");
+  }
+  lines.push(
+    "To act: triage with `update_issue`, close with `resolve_issue`, or promote a todo straight to a Task with `convert_issue_to_task` — use `get_issue` / `search_issues` for an issue's exact ref first, and gate every change with `render_confirmation`. When a request actually needs a Spec, do NOT create one — hand off to the New Spec flow with `render_handoff`.",
+  );
+
+  return { context: lines.join("\n"), phase: "specify" };
 }

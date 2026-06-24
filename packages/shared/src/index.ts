@@ -110,6 +110,14 @@ export { SCAFFOLD_AGENT_GUIDANCE, SCAFFOLD_OPENING_TURN_SEED, scaffoldReviewEdit
 // spec-389 t-4 (dec-3): the shared cross-agent handoff contract (canonical map),
 // injected into every scoped in-app agent so it hands off rather than overreach.
 export { SHARED_HANDOFF_GUIDANCE } from './scaffold-data.js';
+// spec-389 t-5 (dec-2): the standards + issues agent mode blocks + opening seeds,
+// injected by buildSystemBlocks when the per-request mode is standards / issues.
+export {
+  STANDARDS_AGENT_GUIDANCE,
+  STANDARDS_OPENING_TURN_SEED,
+  ISSUES_AGENT_GUIDANCE,
+  ISSUES_OPENING_TURN_SEED,
+} from './scaffold-data.js';
 // spec-360 t-2/t-3 (dec-5/dec-9/dec-10) — the scaffold assistant's grounding
 // composer and its propose-time change validator. Pure + shared so the server
 // (authoritative) and the React UI (instant feedback) agree on what the

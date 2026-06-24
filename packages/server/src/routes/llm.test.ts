@@ -57,8 +57,12 @@ vi.mock("../agent/tools.js", () => ({
   // (treat as a mutation) so a non-writer is blocked unless a test opts a tool in.
   isReadOnlyTool: vi.fn().mockReturnValue(false),
   // spec-143 t-4 (dec-6): the /tools/execute drift gate — permit only the drift
-  // subset. Default true; individual tests override per tool name.
+  // subset. Default true; individual tests override per tool name. (Retained for
+  // any callers; /tools/execute now gates via isToolAllowedInMode.)
   isDriftModeTool: vi.fn().mockReturnValue(true),
+  // spec-389 t-3 (dec-2): the generalised per-mode gate predicate /tools/execute
+  // now consults. Default true; the mode-gate tests override per tool name.
+  isToolAllowedInMode: vi.fn().mockReturnValue(true),
 }));
 
 // spec-126: the /chat + /tools/execute routes resolve the viewer's per-doc role
@@ -130,7 +134,7 @@ import { executeServerTool } from "../agent/tools.js";
 import { buildDocumentContext, buildDriftContext } from "../agent/context-builder.js";
 import { buildSystemBlocks, buildCreationSystemBlocks } from "../agent/system-prompt.js";
 import { resolveIntegrationState } from "../agent/integration-state.js";
-import { getCreationToolDefinitions, getToolDefinitions, isToolAllowedForReviewer, isReadOnlyTool, isDriftModeTool } from "../agent/tools.js";
+import { getCreationToolDefinitions, getToolDefinitions, isToolAllowedForReviewer, isReadOnlyTool, isDriftModeTool, isToolAllowedInMode } from "../agent/tools.js";
 import { resolveRole } from "../services/doc-members.js";
 import { getOrCreateConversation, getMessages, clearConversation, replaceMessages } from "../services/conversations.js";
 import { readFileSync } from "node:fs";
@@ -286,7 +290,7 @@ describe("POST /llm/chat", () => {
     // { context: "Mock document context", phase: "specify" }.
     // spec-143 t-4 (dec-6) adds a 5th `driftMode` arg — false here (not drift).
     // spec-180 adds a 6th `integrationState` arg — the resolved integration status.
-    expect(buildSystemBlocks).toHaveBeenCalledWith("Mock document context", "specify", false, false, false, mockIntegrationState, false);
+    expect(buildSystemBlocks).toHaveBeenCalledWith("Mock document context", "specify", false, false, false, mockIntegrationState, false, undefined);
   });
 
   it("uses fallback context when no docId", async () => {
@@ -312,6 +316,8 @@ describe("POST /llm/chat", () => {
       mockIntegrationState,
       // spec-360 t-1: the 7th scaffoldMode arg — false here (not scaffold).
       false,
+      // spec-389 t-5: the 8th scopedMode arg — undefined (not standards/issues).
+      undefined,
     );
   });
 
@@ -332,7 +338,7 @@ describe("POST /llm/chat", () => {
     await res.text();
 
     expect(canWriteMemex).toHaveBeenCalledWith("test-user-id", "test-account-id");
-    expect(buildSystemBlocks).toHaveBeenCalledWith("Mock document context", "specify", true, false, false, mockIntegrationState, false);
+    expect(buildSystemBlocks).toHaveBeenCalledWith("Mock document context", "specify", true, false, false, mockIntegrationState, false, undefined);
   });
 
   it("passes readOnly=false to buildSystemBlocks for a writing member (ac-13)", async () => {
@@ -347,7 +353,7 @@ describe("POST /llm/chat", () => {
     });
     await res.text();
 
-    expect(buildSystemBlocks).toHaveBeenCalledWith("Mock document context", "specify", false, false, false, mockIntegrationState, false);
+    expect(buildSystemBlocks).toHaveBeenCalledWith("Mock document context", "specify", false, false, false, mockIntegrationState, false, undefined);
   });
 
   // spec-143 t-4 (dec-6): drift mode — the in-UI drift agent runs against the
@@ -383,6 +389,8 @@ describe("POST /llm/chat", () => {
       mockIntegrationState,
       // spec-360 t-1: the 7th scaffoldMode arg — false here (drift, not scaffold).
       false,
+      // spec-389 t-5: the 8th scopedMode arg — undefined (drift, not standards/issues).
+      undefined,
     );
     expect(getToolDefinitions).toHaveBeenCalledWith({ reviewer: false, mode: "drift" });
   });
@@ -415,7 +423,7 @@ describe("POST /llm/tools/execute — drift mode (spec-143 t-4)", () => {
 
   it("executes a drift-subset tool with NO docId (memex-scoped, role gate skipped)", async () => {
     tagAc(AC_DRIFT_MODE);
-    vi.mocked(isDriftModeTool).mockReturnValue(true);
+    vi.mocked(isToolAllowedInMode).mockReturnValue(true);
     vi.mocked(executeServerTool).mockResolvedValue("Drift flagged.");
 
     const res = await app.request("/llm/tools/execute", {
@@ -437,7 +445,7 @@ describe("POST /llm/tools/execute — drift mode (spec-143 t-4)", () => {
 
   it("rejects a non-drift tool in drift mode (403, fail closed)", async () => {
     tagAc(AC_DRIFT_MODE);
-    vi.mocked(isDriftModeTool).mockReturnValue(false);
+    vi.mocked(isToolAllowedInMode).mockReturnValue(false);
 
     const res = await app.request("/llm/tools/execute", {
       method: "POST",
@@ -724,7 +732,7 @@ describe("spec-126 review overlay", () => {
     // ac-1: the overlay threads reviewer into the server-built prompt + tool list.
     // spec-143 t-4 (dec-6): the 5th driftMode arg is false here; getToolDefinitions
     // now also receives `mode` (undefined when not in drift mode).
-    expect(buildSystemBlocks).toHaveBeenCalledWith("Mock document context", "specify", false, true, false, mockIntegrationState, false);
+    expect(buildSystemBlocks).toHaveBeenCalledWith("Mock document context", "specify", false, true, false, mockIntegrationState, false, undefined);
     expect(getToolDefinitions).toHaveBeenCalledWith({ reviewer: true, mode: undefined });
   });
 
