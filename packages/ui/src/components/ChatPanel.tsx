@@ -92,7 +92,7 @@ export function makesCodeShapedClaims(content: string): boolean {
 }
 
 export function ChatPanel({ isAuthenticated = true, readOnly = false }: ChatPanelProps = {}) {
-  const { messages, isStreaming, error, sendMessage, stopStreaming, clearChat, respondedToolIds, respondToUiTool, docId, doc, contextChips, isDriftMode } = useChat();
+  const { messages, isStreaming, error, sendMessage, stopStreaming, clearChat, respondedToolIds, respondToUiTool, docId, doc, contextChips, isDriftMode, isScaffoldMode } = useChat();
   // spec-283 dec-1: the review buttons are POSTURE-INDEPENDENT — gated solely on
   // the Spec's phase (`doc.status==='specify'`, already exposed by useChat) and
   // an idle conversation (`messages.length===0`). No `canEdit`/posture is
@@ -113,9 +113,9 @@ export function ChatPanel({ isAuthenticated = true, readOnly = false }: ChatPane
     }
     sendMessage(prompt);
   };
-  // spec-143 t-4 (dec-6): in drift mode the agent is LIVE on arrival (the Drift
-  // Inbox has no bound doc), so the input is enabled before any context chip.
-  const canChat = !!docId || contextChips.length > 0 || isDriftMode;
+  // spec-143 t-4 (dec-6) / spec-360 t-1: in drift / scaffold mode the agent is
+  // LIVE on arrival (no bound doc), so the input is enabled before any context chip.
+  const canChat = !!docId || contextChips.length > 0 || isDriftMode || isScaffoldMode;
   const [input, setInput] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -190,19 +190,37 @@ export function ChatPanel({ isAuthenticated = true, readOnly = false }: ChatPane
 
   return (
     <div className="flex flex-col h-full bg-surface">
-      {/* Header */}
-      <div className="flex-none px-4 py-3 border-b border-edge flex items-center justify-between">
-        <AssistantHeading />
-        {messages.length > 0 && (
-          <button
-            onClick={clearChat}
-            className="text-xs text-muted hover:text-primary transition-colors"
-          >
-            Clear
-          </button>
-        )}
-      </div>
-      <GroundingLine />
+      {/* Header. In scaffold mode keep a simple "Scaffold assistant" heading + a
+          Clear control (no verbose subtitle, no code-grounding disclosure — that
+          doesn't apply to the scaffold assistant). */}
+      {isScaffoldMode ? (
+        <div className="flex-none px-4 py-3 border-b border-edge flex items-center justify-between">
+          <h3 className="text-sm font-medium text-secondary">Scaffold assistant</h3>
+          {messages.length > 0 && (
+            <button
+              onClick={clearChat}
+              className="text-xs text-muted hover:text-primary transition-colors"
+            >
+              Clear
+            </button>
+          )}
+        </div>
+      ) : (
+        <>
+          <div className="flex-none px-4 py-3 border-b border-edge flex items-center justify-between">
+            <AssistantHeading />
+            {messages.length > 0 && (
+              <button
+                onClick={clearChat}
+                className="text-xs text-muted hover:text-primary transition-colors"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+          <GroundingLine />
+        </>
+      )}
 
       {/* Messages */}
       <div
@@ -217,6 +235,35 @@ export function ChatPanel({ isAuthenticated = true, readOnly = false }: ChatPane
           >
             Read-only — the agent can answer questions and search, but can't
             make changes.
+          </div>
+        )}
+
+        {/* spec-360: the scaffold assistant's STATIC intro — shown on an empty
+            thread instead of a money-costing opening LLM turn. Explains what it
+            can do; the first real LLM call happens only when the user types. */}
+        {isScaffoldMode && messages.length === 0 && (
+          <div
+            data-testid="scaffold-assistant-intro"
+            className="space-y-3 rounded-xl border border-edge bg-card/60 p-4 shadow-sm"
+          >
+            <p className="text-sm text-primary">
+              I explain the prompting every agent in this Memex reads — and help admins shape it.
+            </p>
+            <ul className="space-y-2 text-sm text-secondary">
+              <li className="flex gap-2">
+                <span aria-hidden="true" className="text-accent">→</span>
+                <span>Ask what an agent reads at any phase, gate, tool, or button — I’ll jump the view to it.</span>
+              </li>
+              <li className="flex gap-2">
+                <span aria-hidden="true" className="text-accent">→</span>
+                <span>Ask why a piece of guidance exists, or where an org rule applies.</span>
+              </li>
+              <li className="flex gap-2">
+                <span aria-hidden="true" className="text-accent">→</span>
+                <span>Admins: ask me to add, edit, or remove your org’s guidance — I draft it for your approval.</span>
+              </li>
+            </ul>
+            <p className="border-t border-edge pt-3 text-xs text-muted">Type a question below to start.</p>
           </div>
         )}
 
@@ -253,7 +300,7 @@ export function ChatPanel({ isAuthenticated = true, readOnly = false }: ChatPane
             </div>
           </div>
         )}
-        {messages.length === 0 && !showReviewActions && (
+        {messages.length === 0 && !showReviewActions && !isScaffoldMode && (
           <div className="text-sm text-muted text-center py-8">
             {canChat ? 'Ask a question about this Spec...' : 'Open a Spec to start chatting'}
           </div>
@@ -348,7 +395,13 @@ export function ChatPanel({ isAuthenticated = true, readOnly = false }: ChatPane
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             disabled={!canChat}
-            placeholder={canChat ? 'Ask me anything...' : 'Open a Spec first'}
+            placeholder={
+              isScaffoldMode
+                ? 'Ask about the scaffold…'
+                : canChat
+                  ? 'Ask me anything...'
+                  : 'Open a Spec first'
+            }
             rows={3}
             className="pb-11"
           />

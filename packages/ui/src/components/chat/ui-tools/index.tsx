@@ -4,6 +4,7 @@ import { Confirmation } from './Confirmation';
 import { Progress } from './Progress';
 import { Callout } from './Callout';
 import { Steps } from './Steps';
+import { ScaffoldQuote } from './ScaffoldQuote';
 
 interface UiToolRendererProps {
   toolName: string;
@@ -58,6 +59,12 @@ export function UiToolRenderer({ toolName, toolId, input, disabled, onRespond }:
       return (
         <Steps
           input={input as { title?: string; steps: { label: string; detail?: string }[] }}
+        />
+      );
+    case 'render_scaffold_quote':
+      return (
+        <ScaffoldQuote
+          input={input as { text: string; source?: string; copyable?: boolean }}
         />
       );
     default:
