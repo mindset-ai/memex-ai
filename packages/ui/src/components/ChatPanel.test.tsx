@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router-dom';
 import userEvent from '@testing-library/user-event';
 import { tagAc } from '@memex-ai-ac/vitest';
 import { ChatPanel, makesCodeShapedClaims } from './ChatPanel';
+import { ChatCollapseProvider } from './chat/ChatCollapseContext';
 import type { ChatMessage } from '../api/types';
 import type { ReactElement } from 'react';
 
@@ -108,8 +109,10 @@ describe('ChatPanel', () => {
 
     render(<ChatPanel />);
 
-    // The input placeholder flips to the live prompt and the textarea is enabled.
-    const textarea = screen.getByPlaceholderText('Ask me anything...');
+    // spec-389 (dec-1): drift is now a unified scoped agent — its header reads
+    // "Drift agent" and the input carries the drift-scoped placeholder. The point
+    // of ac-12 is that the textarea is ENABLED (live on arrival) with no doc/chip.
+    const textarea = screen.getByPlaceholderText('Ask about the drift…');
     expect(textarea).not.toBeDisabled();
   });
 
@@ -473,5 +476,31 @@ describe('ChatPanel — static scaffold intro (spec-360 issue-12, ac-11)', () =>
     mockChatState.docId = 'doc-1';
     render(<ChatPanel />);
     expect(screen.queryByTestId('agent-intro-scaffold')).not.toBeInTheDocument();
+  });
+
+  // spec-389: collapsing the panel. The control is shown ONLY when the docking
+  // shell provides a collapse handler (via ChatCollapseContext) — so a panel that
+  // can't collapse shows nothing, and one that can fires the shell's handler.
+  describe('collapse control (spec-389)', () => {
+    it('shows no collapse control when the shell provides no handler', () => {
+      render(<ChatPanel />);
+      expect(screen.queryByTestId('chat-collapse')).not.toBeInTheDocument();
+    });
+
+    it('renders the collapse control and fires the shell handler on click', async () => {
+      const onCollapse = vi.fn();
+      const user = userEvent.setup();
+      rtlRender(
+        <MemoryRouter>
+          <ChatCollapseProvider onCollapse={onCollapse}>
+            <ChatPanel />
+          </ChatCollapseProvider>
+        </MemoryRouter>,
+      );
+      const btn = screen.getByTestId('chat-collapse');
+      expect(btn).toHaveAttribute('aria-label', 'Collapse agent panel');
+      await user.click(btn);
+      expect(onCollapse).toHaveBeenCalledTimes(1);
+    });
   });
 });

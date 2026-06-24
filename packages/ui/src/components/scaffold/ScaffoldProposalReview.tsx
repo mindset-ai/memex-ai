@@ -145,7 +145,7 @@ export function ScaffoldProposalReview({ proposal, onApprove, onReject }: Props)
           data-testid="scaffold-proposal-reject"
           disabled={submitting}
           onClick={onReject}
-          className="rounded-md border border-default px-3 py-1 text-sm hover:bg-overlay disabled:opacity-50"
+          className="rounded-md border border-edge px-3 py-1 text-sm hover:bg-overlay disabled:opacity-50"
         >
           Reject
         </button>

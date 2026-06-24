@@ -210,7 +210,9 @@ export function routeByPhase(
   // the server-side prompt + tool subset selected by `mode: 'scaffold'`.
   // spec-389 t-5 (dec-2): standards / issues modes behave the same — memex-scoped,
   // doc-less; their posture comes from the server-side prompt + MODE_TOOLS subset.
-  if (state.agentMode !== 'spec') return 'planAgent';
+  // Only an EXPLICIT scoped mode short-circuits to the doc-less agent node; an
+  // unset agentMode (undefined) falls through to normal per-phase Spec routing.
+  if (state.agentMode && state.agentMode !== 'spec') return 'planAgent';
   if (!state.docId) return 'createDoc';
   switch (state.specPhase) {
     case 'draft':

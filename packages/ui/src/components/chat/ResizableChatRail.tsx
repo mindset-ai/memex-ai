@@ -5,6 +5,8 @@
 // and persisted under a per-surface storage key. Desktop only (`hidden md:flex`).
 
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { ChatCollapseProvider } from './ChatCollapseContext';
+import { CollapsedChatStrip } from './CollapsedChatStrip';
 
 const CHAT_MIN_W = 300;
 const CHAT_MAX_W = 720;
@@ -19,6 +21,8 @@ export interface ResizableChatRailProps {
   testId?: string;
   /** Optional testid on the drag handle. */
   handleTestId?: string;
+  /** Vertical label on the collapsed strip, e.g. 'Standards'. Default 'Agent'. */
+  label?: string;
 }
 
 export function ResizableChatRail({
@@ -26,6 +30,7 @@ export function ResizableChatRail({
   children,
   testId,
   handleTestId,
+  label,
 }: ResizableChatRailProps) {
   const [chatWidth, setChatWidth] = useState<number>(() => {
     if (typeof window === 'undefined') return CHAT_DEFAULT_W;
@@ -35,9 +40,21 @@ export function ResizableChatRail({
       : CHAT_DEFAULT_W;
   });
 
+  // spec-389: collapse the rail to a thin strip (persisted per-surface, alongside
+  // the width). Mirrors the Spec board's collapsed Done column.
+  const collapsedKey = `${storageKey}:collapsed`;
+  const [collapsed, setCollapsed] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return window.localStorage.getItem(collapsedKey) === '1';
+  });
+
   useEffect(() => {
     window.localStorage.setItem(storageKey, String(chatWidth));
   }, [storageKey, chatWidth]);
+
+  useEffect(() => {
+    window.localStorage.setItem(collapsedKey, collapsed ? '1' : '0');
+  }, [collapsedKey, collapsed]);
 
   const startChatResize = useCallback(
     (e: React.MouseEvent) => {
@@ -65,13 +82,29 @@ export function ResizableChatRail({
     [chatWidth],
   );
 
+  // Collapsed → render the strip instead of the rail. After all hooks so the
+  // hook order stays stable across collapse toggles (rules of hooks).
+  if (collapsed) {
+    return (
+      <CollapsedChatStrip
+        onExpand={() => setCollapsed(false)}
+        label={label}
+        testId={testId ? `${testId}-collapsed` : undefined}
+      />
+    );
+  }
+
   return (
     <aside
       data-testid={testId}
       style={{ width: chatWidth }}
-      className="relative hidden md:flex shrink-0 flex-col min-h-0 border-r border-default"
+      className="relative hidden md:flex shrink-0 flex-col min-h-0 border-r border-edge"
     >
-      <div className="flex-1 min-h-0">{children}</div>
+      <div className="flex-1 min-h-0">
+        <ChatCollapseProvider onCollapse={() => setCollapsed(true)}>
+          {children}
+        </ChatCollapseProvider>
+      </div>
       {/* Drag handle — resize the chat rail. Sits over the right border with a
           wider hit area; highlights on hover/drag. */}
       <div

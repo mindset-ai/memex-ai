@@ -306,7 +306,7 @@ function DriftInboxBody({
                       <div className="text-xs uppercase tracking-wide text-muted mb-1">
                         Current section content
                       </div>
-                      <div className="text-xs bg-surface/60 border border-edge-subtle rounded-sm p-2 wrap-break-word">
+                      <div className="text-xs text-secondary bg-surface/60 border border-edge-subtle rounded-sm p-2 wrap-break-word">
                         {item.section?.content ? (
                           <MarkdownText inline={false}>
                             {item.section.content}
@@ -320,7 +320,7 @@ function DriftInboxBody({
                       <div className="text-xs uppercase tracking-wide text-muted mb-1">
                         Proposed
                       </div>
-                      <div className="text-xs bg-surface/60 border border-status-info-border rounded-sm p-2 wrap-break-word">
+                      <div className="text-xs text-secondary bg-surface/60 border border-status-info-border rounded-sm p-2 wrap-break-word">
                         <MarkdownText inline={false}>
                           {item.proposedContent ?? item.content}
                         </MarkdownText>

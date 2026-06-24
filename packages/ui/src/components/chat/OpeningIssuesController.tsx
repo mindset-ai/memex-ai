@@ -1,28 +1,23 @@
-// spec-389 t-5 (dec-2) — the on-mount controller for the ISSUES agent's opening
-// turn. Renders NOTHING. Mirror of OpeningDriftController / OpeningStandards-
-// Controller: it flips ChatContext into 'issues' mode on mount and fires the
-// agent ONCE to stream an opening turn that introduces itself and summarises the
-// open Issues parking lot. On unmount it leaves the scoped mode. The seed is a
-// scaffold-sourced instruction (ISSUES_OPENING_TURN_SEED, std-15) and the
-// once-per-mount guard lives in ChatContext (startScopedOpeningTurn).
+// spec-389 t-5 (dec-1/dec-2) — the on-mount controller for the ISSUES agent.
+// Renders NOTHING. It flips ChatContext into 'issues' mode on mount (so the
+// ChatPanel input is live on arrival and the shared static AgentIntro shows) and
+// leaves the scoped mode on unmount, restoring the default doc/creation agent.
+//
+// Per dec-1 the scoped agents open with a STATIC intro card (AGENT_INTROS), NOT a
+// money-costing opening LLM turn — so, unlike the drift agent, this controller
+// does not fire an opening turn. The first real LLM call happens when the user
+// types. (Mirrors the scaffold surface, which is static for the same reason.)
 
 import { useEffect } from 'react';
-import { ISSUES_OPENING_TURN_SEED } from '@memex/shared';
 import { useChat } from '../ChatContext';
 
 export function OpeningIssuesController() {
-  const { enterIssuesMode, exitScopedMode, startScopedOpeningTurn, isIssuesMode } =
-    useChat();
+  const { enterIssuesMode, exitScopedMode } = useChat();
 
   useEffect(() => {
     enterIssuesMode();
     return () => exitScopedMode();
   }, [enterIssuesMode, exitScopedMode]);
-
-  useEffect(() => {
-    if (!isIssuesMode) return;
-    startScopedOpeningTurn('issues', ISSUES_OPENING_TURN_SEED);
-  }, [isIssuesMode, startScopedOpeningTurn]);
 
   return null;
 }

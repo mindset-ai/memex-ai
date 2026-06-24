@@ -1,17 +1,12 @@
-// spec-389 t-5 (dec-2) — the ChatContext standards / issues mode machinery,
-// mirroring the drift / scaffold modes:
+// spec-389 (dec-1/dec-2) — the ChatContext standards / issues mode machinery:
 //   - enterStandardsMode / enterIssuesMode flip the mode (isStandardsMode /
-//     isIssuesMode) and unbind any doc; exitScopedMode resets to 'spec';
-//   - startScopedOpeningTurn no-ops outside its mode, fires exactly once per
-//     entry on the right surface, and a fresh entry re-arms it.
+//     isIssuesMode) and unbind any doc; exitScopedMode resets to 'spec'.
+// Per dec-1 the scoped agents open with a STATIC intro card, not an opening LLM
+// turn (unlike drift), so there is no startScopedOpeningTurn to exercise here.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, act } from '@testing-library/react';
 import { tagAc } from '@memex-ai-ac/vitest';
-import {
-  STANDARDS_OPENING_TURN_SEED,
-  ISSUES_OPENING_TURN_SEED,
-} from '@memex/shared';
 import type { AgentCallbacks } from '../agent/graph';
 
 vi.mock('./AuthContext', () => ({ useAuth: () => ({ token: 'test-token' }) }));
@@ -80,48 +75,12 @@ describe('ChatContext — standards / issues mode entry (ac-4)', () => {
     expect(ctx.isIssuesMode).toBe(true);
     expect(ctx.isStandardsMode).toBe(false);
   });
-});
 
-describe('ChatContext.startScopedOpeningTurn (ac-4)', () => {
-  it('no-ops outside the matching mode', async () => {
-    tagAc(AC_NEW_AGENTS);
-    renderProvider();
-    await act(async () => {
-      ctx.startScopedOpeningTurn('standards', STANDARDS_OPENING_TURN_SEED);
-    });
-    expect(mockInvoke).not.toHaveBeenCalled();
-  });
-
-  it('fires once per standards entry on the standards surface; re-invocation no-ops', async () => {
+  it('the scoped agents do NOT fire an opening LLM turn on entry (dec-1: static intro)', async () => {
     tagAc(AC_NEW_AGENTS);
     renderProvider();
     await act(async () => { ctx.enterStandardsMode(); });
-    await act(async () => {
-      ctx.startScopedOpeningTurn('standards', STANDARDS_OPENING_TURN_SEED);
-    });
-    expect(mockInvoke).toHaveBeenCalledTimes(1);
-    expect(invokeArgs[0].userMessage).toBe(STANDARDS_OPENING_TURN_SEED);
-    expect(invokeArgs[0].agentMode).toBe('standards');
-    await act(async () => {
-      ctx.startScopedOpeningTurn('standards', STANDARDS_OPENING_TURN_SEED);
-    });
-    expect(mockInvoke).toHaveBeenCalledTimes(1);
-  });
-
-  it('a fresh entry re-arms the once-per-entry guard (issues)', async () => {
-    tagAc(AC_NEW_AGENTS);
-    renderProvider();
     await act(async () => { ctx.enterIssuesMode(); });
-    await act(async () => {
-      ctx.startScopedOpeningTurn('issues', ISSUES_OPENING_TURN_SEED);
-    });
-    expect(mockInvoke).toHaveBeenCalledTimes(1);
-    expect(invokeArgs[0].agentMode).toBe('issues');
-    await act(async () => { ctx.exitScopedMode(); });
-    await act(async () => { ctx.enterIssuesMode(); });
-    await act(async () => {
-      ctx.startScopedOpeningTurn('issues', ISSUES_OPENING_TURN_SEED);
-    });
-    expect(mockInvoke).toHaveBeenCalledTimes(2);
+    expect(mockInvoke).not.toHaveBeenCalled();
   });
 });

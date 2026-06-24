@@ -112,6 +112,7 @@ export function StandardList() {
         storageKey="standards-chat-width"
         testId="standards-assistant-panel"
         handleTestId="standards-chat-resize"
+        label="Standards"
       >
         <ChatPanel />
       </ResizableChatRail>

@@ -314,6 +314,7 @@ export function IssuesList() {
         storageKey="issues-chat-width"
         testId="issues-assistant-panel"
         handleTestId="issues-chat-resize"
+        label="Issues"
       >
         <ChatPanel />
       </ResizableChatRail>

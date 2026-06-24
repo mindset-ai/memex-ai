@@ -372,9 +372,16 @@
 .prose-content h3, .prose-dark h3 { color: rgb(var(--ch-text-heading)); @apply text-xl font-semibold mt-5 mb-2; }
 .prose-content h4, .prose-dark h4 { color: rgb(var(--ch-text-heading)); @apply text-lg font-medium mt-4 mb-2; }
 .prose-content p, .prose-dark p { color: rgb(var(--ch-text-primary)); @apply mb-4; }
-.prose-content ul, .prose-dark ul { color: rgb(var(--ch-text-primary)); @apply list-disc list-inside mb-4 space-y-1; }
-.prose-content ol, .prose-dark ol { color: rgb(var(--ch-text-primary)); @apply list-decimal list-inside mb-4 space-y-1; }
+/* Lists use `list-outside` (marker in the gutter), NOT `list-inside`. react-markdown
+   wraps each item's text in a block <p>; with `list-inside` the marker is part of the
+   inline flow, so that block <p> drops to the next line and the bullet sits alone on
+   its own row. `list-outside` + left padding keeps the marker beside the first line of
+   text. `li > p` margins are zeroed so single-paragraph items stay tight (inter-item
+   spacing comes from the list's `space-y-1`). */
+.prose-content ul, .prose-dark ul { color: rgb(var(--ch-text-primary)); @apply list-disc list-outside pl-5 mb-4 space-y-1; }
+.prose-content ol, .prose-dark ol { color: rgb(var(--ch-text-primary)); @apply list-decimal list-outside pl-5 mb-4 space-y-1; }
 .prose-content li, .prose-dark li { color: rgb(var(--ch-text-primary)); }
+.prose-content li > p, .prose-dark li > p { @apply my-0; }
 .prose-content blockquote, .prose-dark blockquote { border-left: 4px solid rgb(var(--ch-edge-strong)); color: rgb(var(--ch-text-secondary)); @apply pl-4 italic my-4; }
 .prose-content code, .prose-dark code { background: rgb(var(--ch-input)); color: rgb(var(--ch-status-success-text)); @apply px-1.5 py-0.5 rounded-sm text-sm font-mono; }
 .prose-content pre, .prose-dark pre { background: rgb(var(--ch-surface)); border: 1px solid rgb(var(--ch-edge)); @apply rounded-lg p-4 overflow-x-auto my-4; }

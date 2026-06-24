@@ -111,7 +111,7 @@ export function ScaffoldPhaseDetail({
         <div className="flex items-center gap-2 flex-wrap">
           <span
             className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium uppercase tracking-wider ${
-              phaseColors(phase)?.pill ?? 'border-default text-secondary'
+              phaseColors(phase)?.pill ?? 'border-edge text-secondary'
             }`}
           >
             {phase}
@@ -127,7 +127,7 @@ export function ScaffoldPhaseDetail({
 
       {/* Shared-nudge channel — reaches both agents. */}
       <div data-testid="scaffold-reach-group-both" className="space-y-6">
-        <div className="flex items-center gap-2 border-b border-default/60 pb-1.5">
+        <div className="flex items-center gap-2 border-b border-edge/60 pb-1.5">
           <span className="h-1.5 w-1.5 rounded-full bg-emerald-400/70" aria-hidden="true" />
           <h2 className="text-xs font-semibold uppercase tracking-wider text-secondary">Sent to both agents</h2>
           <span className="text-[10px] text-muted">MCP + in-app</span>
@@ -189,7 +189,7 @@ export function ScaffoldPhaseDetail({
       {/* React-only — reaches the in-app agent only. No authoring (dec-6). */}
       {reactOnlyBlocks.length > 0 ? (
         <div data-testid="scaffold-reach-group-react-only" className="space-y-4">
-          <div className="flex items-center gap-2 border-b border-default/60 pb-1.5">
+          <div className="flex items-center gap-2 border-b border-edge/60 pb-1.5">
             <span className="h-1.5 w-1.5 rounded-full bg-sky-400/70" aria-hidden="true" />
             <h2 className="text-xs font-semibold uppercase tracking-wider text-secondary">In-app agent only</h2>
             <span className="text-[10px] text-muted">role · MDX · render_* tools</span>
@@ -209,7 +209,7 @@ export function ScaffoldPhaseDetail({
       ) : null}
 
       {/* Handoff + outgoing gate. */}
-      <div className="flex flex-wrap gap-6 text-sm border-t border-default pt-4">
+      <div className="flex flex-wrap gap-6 text-sm border-t border-edge pt-4">
         {handoffButton ? (
           <div>
             <span className="text-secondary">Handoff: </span>

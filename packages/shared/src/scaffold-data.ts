@@ -141,15 +141,6 @@ export const DRIFT_AGENT_GUIDANCE: PromptBlockNode = {
     'spec-143 t-4 (dec-6): the drift-agent mode prompt block, appended by buildSystemBlocks only when the per-request driftMode flag is set (the React UI sets mode "drift" on the Drift Inbox). Intentionally NOT in any phase promptBlockIds (conditionally injected, like BASE_READ_ONLY / BASE_REVIEW). The mode-machinery is built here in spec-143; spec-142 will reuse the pattern. Portable per std-22 — no language/framework/repo/path/tooling assumptions; the real mutation enforcement is the render_confirmation gate + the /tools/execute server gate, not this prose.',
 };
 
-// spec-143 t-4 (dec-6) — the DRIFT agent's on-mount opening-turn seed (std-15:
-// agent-facing prompt prose has one home, the scaffold, not inline in the React
-// client). The Drift Inbox fires this once on mount; it instructs the drift
-// agent to summarize the open Standards drift (already in its context) and
-// suggest concrete next actions, briefly. Portable per std-22 — it names no
-// language/framework/repo/path/tooling, only Standards drift and next actions.
-export const DRIFT_OPENING_TURN_SEED =
-  '[Opening turn — greet only] Summarize the open Standards drift in this Memex (grouped by Standard, using the summary already in your context) and suggest concrete next actions the user can take. Keep it short — a short paragraph or a few bullets. Do not call any tools for this opening turn.';
-
 // spec-360 t-1 (dec-1/dec-6) — the SCAFFOLD-agent mode block. Like
 // DRIFT_AGENT_GUIDANCE the prose lives in the scaffold model (std-15/std-16),
 // never inline in the React client or the server route. Appended by
@@ -248,11 +239,6 @@ export const STANDARDS_AGENT_GUIDANCE: PromptBlockNode = {
     'spec-389 t-5 (dec-2): the standards-agent mode block, injected by buildSystemBlocks when the per-request mode is "standards". Behaviour only — the factual Standards grounding is composed per-request by buildStandardsContext. The real authoring enforcement is the render_confirmation gate + the /tools/execute MODE_TOOLS gate (spec-389 t-3), not this prose. Subsumes spec-142\'s standards-agent prompt. Portable per std-22.',
 };
 
-// spec-389 t-5 (dec-6 pattern) — the STANDARDS agent's on-mount opening-turn seed
-// (std-15 — one home). The Standards surface fires this once on mount.
-export const STANDARDS_OPENING_TURN_SEED =
-  '[Opening turn — greet only] Briefly introduce yourself as the standards agent: you can explain any Standard, navigate to a clause, and (behind confirmation) author or edit rules. Using the Standards summary already in your context, note how many Standards this Memex has and invite the user to ask about any of them. Keep it to a sentence or two. Do not call any tools for this opening turn.';
-
 // spec-389 t-5 (dec-2) — the ISSUES-agent mode block. Prose lives in the scaffold
 // model (std-15/std-16), injected by buildSystemBlocks only when the per-request
 // mode is 'issues' (the React UI's Issues surface sets it). The factual GROUNDING
@@ -272,10 +258,6 @@ export const ISSUES_AGENT_GUIDANCE: PromptBlockNode = {
   rationale:
     'spec-389 t-5 (dec-2): the issues-agent mode block, injected by buildSystemBlocks when the per-request mode is "issues". Behaviour only — the factual Issues grounding is composed per-request by buildIssuesContext. The real enforcement is the render_confirmation gate + the /tools/execute MODE_TOOLS gate (spec-389 t-3). Portable per std-22.',
 };
-
-// spec-389 t-5 — the ISSUES agent's on-mount opening-turn seed (std-15 — one home).
-export const ISSUES_OPENING_TURN_SEED =
-  '[Opening turn — greet only] Briefly introduce yourself as the issues agent: you can summarise and triage the open Issues parking lot and (behind confirmation) update, resolve, or promote a todo to a Task. Using the summary already in your context, note how many open Issues there are (and roughly where) and invite the user to triage them. Keep it short. Do not call any tools for this opening turn.';
 
 // spec-360: when an admin makes a MANUAL org-guidance edit/addition inline (not
 // through the assistant's propose flow), the surface fires this seed so the

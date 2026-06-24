@@ -99,9 +99,6 @@ export { WHATS_NEW_SYSTEM_PROMPT } from './scaffold-data.js';
 // mode "drift"). Lives in the scaffold model (one home, std-15/std-16), not as a
 // phases/*.md file. Portable per std-22.
 export { DRIFT_AGENT_GUIDANCE } from './scaffold-data.js';
-// spec-143 t-4 (dec-6): the drift agent's on-mount opening-turn seed (std-15 —
-// one home). The Drift Inbox fires it once on mount.
-export { DRIFT_OPENING_TURN_SEED } from './scaffold-data.js';
 // spec-360 t-1 (dec-1/dec-6) — scaffold-agent mode block + opening-turn seed,
 // injected by buildSystemBlocks when the per-request scaffoldMode flag is set
 // (the React UI's Scaffold Inspect surface sets mode "scaffold"). Lives in the
@@ -110,13 +107,12 @@ export { SCAFFOLD_AGENT_GUIDANCE, SCAFFOLD_OPENING_TURN_SEED, scaffoldReviewEdit
 // spec-389 t-4 (dec-3): the shared cross-agent handoff contract (canonical map),
 // injected into every scoped in-app agent so it hands off rather than overreach.
 export { SHARED_HANDOFF_GUIDANCE } from './scaffold-data.js';
-// spec-389 t-5 (dec-2): the standards + issues agent mode blocks + opening seeds,
-// injected by buildSystemBlocks when the per-request mode is standards / issues.
+// spec-389 t-5 (dec-2): the standards + issues agent mode blocks, injected by
+// buildSystemBlocks when the per-request mode is standards / issues. (Per dec-1
+// the scoped agents open with a static intro, not an LLM turn — no opening seed.)
 export {
   STANDARDS_AGENT_GUIDANCE,
-  STANDARDS_OPENING_TURN_SEED,
   ISSUES_AGENT_GUIDANCE,
-  ISSUES_OPENING_TURN_SEED,
 } from './scaffold-data.js';
 // spec-360 t-2/t-3 (dec-5/dec-9/dec-10) — the scaffold assistant's grounding
 // composer and its propose-time change validator. Pure + shared so the server

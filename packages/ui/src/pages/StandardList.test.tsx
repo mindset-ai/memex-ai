@@ -25,6 +25,14 @@ vi.mock('../api/client', () => ({
   fetchDocs: (...args: unknown[]) => fetchDocsMock(...args),
 }));
 
+// spec-389 t-5: the page now docks the standards agent in a rail. These list
+// tests don't exercise the chat, so stub the rail's ChatProvider-dependent
+// pieces (they'd otherwise throw "useChat must be used within ChatProvider").
+vi.mock('../components/ChatPanel', () => ({ ChatPanel: () => null }));
+vi.mock('../components/chat/OpeningStandardsController', () => ({
+  OpeningStandardsController: () => null,
+}));
+
 // PageHeader pulls AuthContext for the Org/Memex breadcrumb. Stub so we
 // don't have to wire AuthProvider in every page test.
 vi.mock('../components/PageHeader', () => ({

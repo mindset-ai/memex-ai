@@ -84,7 +84,7 @@ export function ScaffoldTimeline({ selected, orgBlocks, onSelectPhase, onSelectG
               onClick={() => onSelectPhase(phase)}
               className={`${PILL_BASE} ${
                 phaseActive
-                  ? (phaseColors(phase)?.pill ?? 'border-default bg-overlay text-primary')
+                  ? (phaseColors(phase)?.pill ?? 'border-edge bg-overlay text-primary')
                   : 'border-transparent text-secondary hover:text-primary hover:bg-overlay'
               } ${ring(phaseActive, pulse)}`}
             >

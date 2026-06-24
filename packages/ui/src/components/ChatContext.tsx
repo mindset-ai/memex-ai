@@ -106,26 +106,12 @@ interface ChatState {
    */
   scaffoldNav: ScaffoldNav | null;
   /**
-   * spec-143 t-4 (dec-6): fire the drift agent's opening turn ONCE on Drift
-   * Inbox mount — the agent summarizes open drift and suggests next actions. The
-   * `seed` is the greet-only instruction (built in scaffold-sourced prose by the
-   * OpeningDriftController). No-ops outside drift mode and after the first fire.
-   */
-  startDriftOpeningTurn: (seed: string) => void;
-  /**
    * spec-360 t-1 (dec-6): fire the scaffold assistant's opening turn ONCE on
    * Scaffold Inspect mount — the assistant introduces itself (explain + propose).
    * The `seed` is the greet-only instruction (SCAFFOLD_OPENING_TURN_SEED). No-ops
    * outside scaffold mode and after the first fire.
    */
   startScaffoldOpeningTurn: (seed: string) => void;
-  /**
-   * spec-389 t-5 (dec-2): fire the standards / issues agent's opening turn ONCE on
-   * its surface's mount — the agent introduces itself and summarises what it sees.
-   * The `seed` is the greet-only instruction (STANDARDS_/ISSUES_OPENING_TURN_SEED).
-   * No-ops outside the given mode and after the first fire.
-   */
-  startScopedOpeningTurn: (mode: 'standards' | 'issues', seed: string) => void;
   sendMessage: (text: string) => void;
   stopStreaming: () => void;
   respondToUiTool: (toolId: string, result: string) => void;
@@ -166,7 +152,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const docIdRef = useRef<string | null>(null);
   // spec-143 t-4 (dec-6): the agent mode. State drives the UI (ChatPanel's
   // input-enable check via isDriftMode); the ref mirrors it so the async
-  // sendMessage / startDriftOpeningTurn closures read the current mode without
+  // sendMessage / opening-turn closures read the current mode without
   // re-subscribing to it (same pattern as docIdRef). Default 'spec'.
   const [agentMode, setAgentModeState] = useState<'spec' | 'drift' | 'scaffold' | 'standards' | 'issues'>('spec');
   const agentModeRef = useRef<'spec' | 'drift' | 'scaffold' | 'standards' | 'issues'>('spec');
@@ -524,50 +510,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     [isStreaming, contextChips, invoke, makeCallbacks]
   );
 
-  // spec-143 t-4 (dec-6): the drift agent's opening turn — the memex-scoped drift
-  // agent streams a greeting on Drift Inbox mount: no bound doc, no per-doc
-  // conversation save. Fires at most once per drift-mode entry — guarded by
-  // openingTurnStartedForRef (keyed 'drift'), which enterDriftMode resets. The
-  // seed is sent as the agent's user message but never shown as a user bubble. On
-  // mount the agent summarizes the open drift and suggests next actions (the seed
-  // instructs it to greet only).
-  const startDriftOpeningTurn = useCallback(
-    async (seed: string) => {
-      if (agentModeRef.current !== 'drift') return;
-      const guardKey = 'drift';
-      if (openingTurnStartedForRef.current === guardKey) return;
-      if (isStreaming) return;
-      openingTurnStartedForRef.current = guardKey;
-
-      setError(null);
-      setIsStreaming(true);
-      streamingAssistantIdRef.current = null;
-      const controller = new AbortController();
-      abortRef.current = controller;
-
-      try {
-        const result = await invoke({
-          userMessage: seed,
-          docId: null,
-          existingMessages: [],
-          agentMode: 'drift',
-          callbacks: makeCallbacks(),
-          signal: controller.signal,
-        });
-        anthropicMessagesRef.current = result.messages;
-      } catch (err) {
-        if ((err as Error).name !== 'AbortError') {
-          setError(err instanceof Error ? err.message : String(err));
-        }
-      } finally {
-        if (abortRef.current === controller) {
-          setIsStreaming(false);
-          abortRef.current = null;
-        }
-      }
-    },
-    [isStreaming, invoke, makeCallbacks],
-  );
+  // spec-389 (dec-1): the drift agent opens with the shared STATIC AgentIntro card,
+  // NOT an opening LLM turn — so there is no startDriftOpeningTurn. Its controller
+  // only enters/leaves drift mode; the first LLM call happens when the user types.
 
   // spec-360 t-1 (dec-6): the scaffold assistant's opening turn — mirror of the
   // drift one. The memex-scoped scaffold assistant streams a greeting on Scaffold
@@ -613,48 +558,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     [isStreaming, invoke, makeCallbacks],
   );
 
-  // spec-389 t-5 (dec-2): the standards / issues agents' opening turn — a generic
-  // mirror of the drift / scaffold ones. The memex-scoped agent streams a greeting
-  // on its surface's mount (no bound doc, no per-doc save). Fires at most once per
-  // mode entry — guarded by openingTurnStartedForRef (keyed by mode), which
-  // enterScopedMode resets. The seed instructs it to greet only.
-  const startScopedOpeningTurn = useCallback(
-    async (mode: 'standards' | 'issues', seed: string) => {
-      if (agentModeRef.current !== mode) return;
-      const guardKey = mode;
-      if (openingTurnStartedForRef.current === guardKey) return;
-      if (isStreaming) return;
-      openingTurnStartedForRef.current = guardKey;
-
-      setError(null);
-      setIsStreaming(true);
-      streamingAssistantIdRef.current = null;
-      const controller = new AbortController();
-      abortRef.current = controller;
-
-      try {
-        const result = await invoke({
-          userMessage: seed,
-          docId: null,
-          existingMessages: [],
-          agentMode: mode,
-          callbacks: makeCallbacks(),
-          signal: controller.signal,
-        });
-        anthropicMessagesRef.current = result.messages;
-      } catch (err) {
-        if ((err as Error).name !== 'AbortError') {
-          setError(err instanceof Error ? err.message : String(err));
-        }
-      } finally {
-        if (abortRef.current === controller) {
-          setIsStreaming(false);
-          abortRef.current = null;
-        }
-      }
-    },
-    [isStreaming, invoke, makeCallbacks],
-  );
+  // spec-389 (dec-1): the standards / issues agents open with the shared STATIC
+  // AgentIntro card, NOT an opening LLM turn (unlike the drift agent) — so there is
+  // no startScopedOpeningTurn. Their controllers only enter/leave the scoped mode;
+  // the first LLM call happens when the user types.
 
   const respondToUiTool = useCallback(
     async (toolId: string, result: string) => {
@@ -817,9 +724,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         scaffoldProposal,
         clearScaffoldProposal,
         scaffoldNav,
-        startDriftOpeningTurn,
         startScaffoldOpeningTurn,
-        startScopedOpeningTurn,
         sendMessage,
         stopStreaming,
         respondToUiTool,

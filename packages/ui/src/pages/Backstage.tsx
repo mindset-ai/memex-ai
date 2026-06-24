@@ -154,7 +154,7 @@ export function Backstage() {
                       <button
                         onClick={() => hopIn(a.id, a.slug)}
                         disabled={hopping !== null}
-                        className="text-xs px-2 py-1 rounded-sm bg-btn-primary text-btn-primary-text hover:opacity-90 disabled:opacity-40"
+                        className="text-xs px-2 py-1 rounded-sm bg-btn-primary text-white hover:opacity-90 disabled:opacity-40"
                       >
                         {hopping === a.id ? 'Hopping…' : 'Hop in →'}
                       </button>

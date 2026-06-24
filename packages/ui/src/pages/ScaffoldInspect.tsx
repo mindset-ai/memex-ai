@@ -416,6 +416,7 @@ export function ScaffoldInspect() {
         storageKey={CHAT_WIDTH_KEY}
         testId="scaffold-assistant-panel"
         handleTestId="scaffold-chat-resize"
+        label="Scaffold"
       >
         <ChatPanel />
       </ResizableChatRail>
@@ -423,7 +424,7 @@ export function ScaffoldInspect() {
       {/* Inspect column: page heading + timeline + detail (+ any pending proposal). */}
       <div className="flex flex-1 flex-col min-w-0 overflow-hidden">
       {/* Page heading — matches the other tenant pages (Drift Inbox etc.). */}
-      <div className="shrink-0 border-b border-default px-4 pt-4 pb-3">
+      <div className="shrink-0 border-b border-edge px-4 pt-4 pb-3">
         <h1 className="text-2xl font-semibold text-heading">Scaffold</h1>
         <p className="text-xs text-muted mt-1">
           The prompting every agent in this Memex reads — and your org’s additions to it.
@@ -431,7 +432,7 @@ export function ScaffoldInspect() {
       </div>
       {/* Top frame: admin note, always-applies band, timeline, actions. The
           "how it works" explainer moved into the empty (home) detail state below. */}
-      <div className="shrink-0 border-b border-default p-4 space-y-3">
+      <div className="shrink-0 border-b border-edge p-4 space-y-3">
         {/* spec-360: dirty-state indicator — a pending proposal awaits approval.
             Clicking it scrolls the detail pane to the review card. */}
         {scaffoldProposal ? (
@@ -450,7 +451,7 @@ export function ScaffoldInspect() {
         {showAdminNote ? (
           <div
             data-testid="scaffold-admin-required-note"
-            className="rounded-md border border-default bg-muted/20 px-3 py-2 text-sm text-secondary"
+            className="rounded-md border border-edge bg-muted/20 px-3 py-2 text-sm text-secondary"
           >
             Viewing only — an administrator can add or change this guidance.
           </div>
@@ -466,7 +467,7 @@ export function ScaffoldInspect() {
               onClick={() => setSelected({ kind: 'global' })}
               className={`flex w-full items-center gap-2 rounded-md border px-3 py-1.5 text-xs transition-colors ${
                 selected.kind === 'global'
-                  ? 'border-default bg-overlay text-primary'
+                  ? 'border-edge bg-overlay text-primary'
                   : 'border-transparent text-secondary hover:text-primary hover:bg-overlay'
               } ${ringFor(selected.kind === 'global', navPulse)}`}
             >
