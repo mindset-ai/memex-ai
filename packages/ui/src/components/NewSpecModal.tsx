@@ -7,6 +7,7 @@ import {
   type KeyboardEvent,
 } from 'react';
 import { createPortal } from 'react-dom';
+import { Alert } from './ui/Alert';
 import { useNavigate } from 'react-router-dom';
 import { tenantPath } from '../utils/tenantUrl';
 import { useAgentGraph } from '../agent/useAgentGraph';
@@ -721,9 +722,9 @@ export function NewSpecModal({ open, onClose, prefill, onCreated }: NewSpecModal
           )}
 
           {error && (
-            <div className="px-3 py-2 rounded-lg bg-status-danger-bg border border-status-danger-border text-sm text-status-danger-text">
+            <Alert variant="danger" size="md">
               {error}
-            </div>
+            </Alert>
           )}
 
           <div ref={messagesEndRef} />

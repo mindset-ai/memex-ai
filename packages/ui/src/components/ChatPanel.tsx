@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, type KeyboardEvent } from 'react';
 import { Link } from 'react-router-dom';
+import { Alert } from './ui/Alert';
 import { toButtonPrompt, BASE_SCAFFOLD } from '@memex/shared';
 import { useChat } from './ChatContext';
 import { useOrgScaffoldBlocks } from '../hooks/useOrgScaffoldBlocks';
@@ -326,9 +327,9 @@ export function ChatPanel({ isAuthenticated = true, readOnly = false }: ChatPane
         )}
 
         {error && (
-          <div className="px-3 py-2 rounded-lg bg-status-danger-bg border border-status-danger-border text-sm text-status-danger-text">
+          <Alert variant="danger" size="md">
             {error}
-          </div>
+          </Alert>
         )}
 
         <div ref={messagesEndRef} />
