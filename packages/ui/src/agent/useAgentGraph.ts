@@ -21,7 +21,7 @@ export interface InvokeParams {
    * spec-143 t-4 (dec-6): the agent mode. `'drift'` routes to the memex-scoped
    * drift agent (no bound doc); default `'spec'` is the doc/creation agent.
    */
-  agentMode?: 'spec' | 'drift' | 'scaffold';
+  agentMode?: 'spec' | 'drift' | 'scaffold' | 'standards' | 'issues';
   callbacks: AgentCallbacks;
   signal?: AbortSignal;
 }
@@ -31,7 +31,7 @@ export interface ResumeParams {
   /** Current Spec phase, if known — see `InvokeParams`. */
   specPhase?: SpecPhase | null;
   /** spec-143 t-4 (dec-6): the agent mode — see `InvokeParams`. */
-  agentMode?: 'spec' | 'drift' | 'scaffold';
+  agentMode?: 'spec' | 'drift' | 'scaffold' | 'standards' | 'issues';
   /** Full conversation messages including the UI tool result */
   messages: MessageParam[];
   callbacks: AgentCallbacks;

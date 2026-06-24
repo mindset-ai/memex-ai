@@ -80,6 +80,16 @@ interface ChatState {
   enterScaffoldMode: () => void;
   exitScaffoldMode: () => void;
   /**
+   * spec-389 t-5 (dec-2): the standards + issues agent modes. Each surface enters
+   * its mode on mount and leaves on unmount (exitScopedMode resets to 'spec').
+   * Mirror the drift / scaffold mode controls.
+   */
+  isStandardsMode: boolean;
+  isIssuesMode: boolean;
+  enterStandardsMode: () => void;
+  enterIssuesMode: () => void;
+  exitScopedMode: () => void;
+  /**
    * spec-360 t-4 (dec-4): the pending propose-then-confirm change the assistant
    * has drafted, parsed from the `propose_scaffold_change` tool result. The
    * Scaffold Inspect surface renders it composed in the live preview for the
@@ -109,6 +119,13 @@ interface ChatState {
    * outside scaffold mode and after the first fire.
    */
   startScaffoldOpeningTurn: (seed: string) => void;
+  /**
+   * spec-389 t-5 (dec-2): fire the standards / issues agent's opening turn ONCE on
+   * its surface's mount — the agent introduces itself and summarises what it sees.
+   * The `seed` is the greet-only instruction (STANDARDS_/ISSUES_OPENING_TURN_SEED).
+   * No-ops outside the given mode and after the first fire.
+   */
+  startScopedOpeningTurn: (mode: 'standards' | 'issues', seed: string) => void;
   sendMessage: (text: string) => void;
   stopStreaming: () => void;
   respondToUiTool: (toolId: string, result: string) => void;
@@ -151,8 +168,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   // input-enable check via isDriftMode); the ref mirrors it so the async
   // sendMessage / startDriftOpeningTurn closures read the current mode without
   // re-subscribing to it (same pattern as docIdRef). Default 'spec'.
-  const [agentMode, setAgentModeState] = useState<'spec' | 'drift' | 'scaffold'>('spec');
-  const agentModeRef = useRef<'spec' | 'drift' | 'scaffold'>('spec');
+  const [agentMode, setAgentModeState] = useState<'spec' | 'drift' | 'scaffold' | 'standards' | 'issues'>('spec');
+  const agentModeRef = useRef<'spec' | 'drift' | 'scaffold' | 'standards' | 'issues'>('spec');
   // spec-360 t-4 (dec-4): the pending propose-then-confirm change, parsed from a
   // `propose_scaffold_change` tool result. Drives the live preview on the
   // Scaffold Inspect surface.
@@ -265,6 +282,49 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const clearScaffoldProposal = useCallback(() => setScaffoldProposal(null), []);
+
+  // spec-389 t-5 (dec-2): enter / leave the standards + issues agent modes.
+  // Mirror drift — entering wipes any prior thread and unbinds docId (these are
+  // fresh, memex-scoped conversations); leaving resets to the default 'spec'
+  // agent. Both update the ref synchronously so the async send / opening-turn
+  // closures read the current mode immediately. Idempotent on re-entry.
+  const enterScopedMode = useCallback(
+    (mode: 'standards' | 'issues') => {
+      if (agentModeRef.current === mode) return;
+      agentModeRef.current = mode;
+      setAgentModeState(mode);
+      docIdRef.current = null;
+      setDocIdState(null);
+      abortRef.current?.abort();
+      setMessages([]);
+      setError(null);
+      setContextChips([]);
+      setRespondedToolIds(new Set());
+      anthropicMessagesRef.current = [];
+      openingTurnStartedForRef.current = null;
+    },
+    [],
+  );
+  const exitScopedMode = useCallback(() => {
+    if (agentModeRef.current === 'spec') return;
+    agentModeRef.current = 'spec';
+    setAgentModeState('spec');
+    abortRef.current?.abort();
+    setMessages([]);
+    setError(null);
+    setContextChips([]);
+    setRespondedToolIds(new Set());
+    anthropicMessagesRef.current = [];
+    openingTurnStartedForRef.current = null;
+  }, []);
+  const enterStandardsMode = useCallback(
+    () => enterScopedMode('standards'),
+    [enterScopedMode],
+  );
+  const enterIssuesMode = useCallback(
+    () => enterScopedMode('issues'),
+    [enterScopedMode],
+  );
 
   // Hard-reset the conversation on every Spec open.
   //
@@ -553,6 +613,49 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     [isStreaming, invoke, makeCallbacks],
   );
 
+  // spec-389 t-5 (dec-2): the standards / issues agents' opening turn — a generic
+  // mirror of the drift / scaffold ones. The memex-scoped agent streams a greeting
+  // on its surface's mount (no bound doc, no per-doc save). Fires at most once per
+  // mode entry — guarded by openingTurnStartedForRef (keyed by mode), which
+  // enterScopedMode resets. The seed instructs it to greet only.
+  const startScopedOpeningTurn = useCallback(
+    async (mode: 'standards' | 'issues', seed: string) => {
+      if (agentModeRef.current !== mode) return;
+      const guardKey = mode;
+      if (openingTurnStartedForRef.current === guardKey) return;
+      if (isStreaming) return;
+      openingTurnStartedForRef.current = guardKey;
+
+      setError(null);
+      setIsStreaming(true);
+      streamingAssistantIdRef.current = null;
+      const controller = new AbortController();
+      abortRef.current = controller;
+
+      try {
+        const result = await invoke({
+          userMessage: seed,
+          docId: null,
+          existingMessages: [],
+          agentMode: mode,
+          callbacks: makeCallbacks(),
+          signal: controller.signal,
+        });
+        anthropicMessagesRef.current = result.messages;
+      } catch (err) {
+        if ((err as Error).name !== 'AbortError') {
+          setError(err instanceof Error ? err.message : String(err));
+        }
+      } finally {
+        if (abortRef.current === controller) {
+          setIsStreaming(false);
+          abortRef.current = null;
+        }
+      }
+    },
+    [isStreaming, invoke, makeCallbacks],
+  );
+
   const respondToUiTool = useCallback(
     async (toolId: string, result: string) => {
       const currentDocId = docIdRef.current;
@@ -706,11 +809,17 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         isScaffoldMode: agentMode === 'scaffold',
         enterScaffoldMode,
         exitScaffoldMode,
+        isStandardsMode: agentMode === 'standards',
+        isIssuesMode: agentMode === 'issues',
+        enterStandardsMode,
+        enterIssuesMode,
+        exitScopedMode,
         scaffoldProposal,
         clearScaffoldProposal,
         scaffoldNav,
         startDriftOpeningTurn,
         startScaffoldOpeningTurn,
+        startScopedOpeningTurn,
         sendMessage,
         stopStreaming,
         respondToUiTool,
