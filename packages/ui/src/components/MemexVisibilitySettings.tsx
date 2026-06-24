@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from './AuthContext';
 import { MemexPublicBadge } from './MemexPublicBadge';
+import { Alert } from './ui/Alert';
 import { MemexVisibilityConfirmDialog } from './MemexVisibilityConfirmDialog';
 import {
   fetchMemexApi,
@@ -99,9 +100,9 @@ export function MemexVisibilitySettings({ memexId }: { memexId: string }) {
       </div>
 
       {error && (
-        <div className="px-3 py-2 rounded-lg bg-status-danger-bg border border-status-danger-border text-sm text-status-danger-text">
+        <Alert variant="danger" size="md">
           {error}
-        </div>
+        </Alert>
       )}
 
       <div className="space-y-2">

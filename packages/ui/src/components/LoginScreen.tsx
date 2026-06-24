@@ -3,6 +3,7 @@ import { GoogleOAuthProvider, GoogleLogin, type CredentialResponse } from '@reac
 import { trackAnonymous } from '../hooks/useTelemetry';
 import { Input } from './ui/Input';
 import { Button } from './ui/Button';
+import { Alert } from './ui/Alert';
 import { Logo } from './Logo';
 import { probeAuthApi, AuthApiError, type SessionPayload } from '../api/client';
 import { useMagicLinkPoll } from '../hooks/useMagicLinkPoll';
@@ -219,9 +220,9 @@ function EnterEmailScreen({
         </label>
 
         {error && (
-          <div className="px-3 py-2 rounded-lg bg-status-danger-bg border border-status-danger-border text-xs text-status-danger-text">
+          <Alert variant="danger">
             {error}
-          </div>
+          </Alert>
         )}
 
         <Button type="submit" disabled={submitting || !email.trim()} className="w-full">
@@ -379,9 +380,9 @@ function PasswordScreen({
         </label>
 
         {error && (
-          <div className="px-3 py-2 rounded-lg bg-status-danger-bg border border-status-danger-border text-xs text-status-danger-text">
+          <Alert variant="danger">
             {error}
-          </div>
+          </Alert>
         )}
 
         <Button type="submit" disabled={!canSubmit} className="w-full">
@@ -470,9 +471,9 @@ function ForgotPasswordForm({
           />
         </label>
         {authError && (
-          <div className="px-3 py-2 rounded-lg bg-status-danger-bg border border-status-danger-border text-xs text-status-danger-text">
+          <Alert variant="danger">
             {authError}
-          </div>
+          </Alert>
         )}
         <Button type="submit" disabled={submitting || !email.trim()} className="w-full">
           {submitting ? 'Sending…' : 'Send reset link'}
