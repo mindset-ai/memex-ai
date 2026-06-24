@@ -20,13 +20,10 @@ import {
   type CommentType,
 } from "../types/roles.js";
 import { ValidationError } from "../types/errors.js";
-import {
-  sessionMiddleware,
-  publicSessionMiddleware,
-  type SessionEnv,
-} from "../middleware/session.js";
+import { type SessionEnv } from "../middleware/session.js";
 import type { MemexResolverEnv } from "../middleware/memex-resolver.js";
 import { requireMemexId, resolveReadableMemexId } from "./shared.js";
+import { mountStandardSessionPolicy } from "./session-policy.js";
 import { restCtx } from "./_actor-ctx.js";
 import { getOrgIdForMemex } from "../services/memexes.js";
 import { searchMentionableMembers } from "../services/users.js";
@@ -39,10 +36,10 @@ import {
 
 type Env = MemexResolverEnv & SessionEnv;
 const comments = new Hono<Env>();
-// spec-111 t-10 — per-verb session policy. GET reads permissive (public read /
-// private 404 via resolveReadableMemexId); every mutating verb stays strict.
-comments.on("GET", "/*", publicSessionMiddleware);
-comments.on(["POST", "PUT", "PATCH", "DELETE"], "/*", sessionMiddleware);
+// spec-377 (was spec-111 t-10) — the standard per-verb session policy: GET reads
+// permissive (public read / private 404 via resolveReadableMemexId); every
+// mutating verb stays strict.
+mountStandardSessionPolicy(comments);
 
 // Build a CommentExtras from the raw JSON body, returning undefined when nothing
 // typed-comment-related was supplied. Returning undefined preserves the existing

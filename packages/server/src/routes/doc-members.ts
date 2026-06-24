@@ -5,9 +5,10 @@ import {
   promoteToEditor,
   demoteToReviewer,
 } from "../services/doc-members.js";
-import { sessionMiddleware, publicSessionMiddleware, type SessionEnv } from "../middleware/session.js";
+import { type SessionEnv } from "../middleware/session.js";
 import type { MemexResolverEnv } from "../middleware/memex-resolver.js";
 import { requireMemexId, resolveReadableMemexId } from "./shared.js";
+import { mountStandardSessionPolicy } from "./session-policy.js";
 import { restCtx } from "./_actor-ctx.js";
 
 // Thin REST mirror of the per-Spec role service (spec-118 t-3). Roles gate
@@ -18,8 +19,8 @@ import { restCtx } from "./_actor-ctx.js";
 // any active org member, on self or another (dec-5), so there is no finer check.
 type Env = MemexResolverEnv & SessionEnv;
 const docMembersRouter = new Hono<Env>();
-docMembersRouter.on("GET", "/*", publicSessionMiddleware);
-docMembersRouter.on(["POST", "PUT", "PATCH", "DELETE"], "/*", sessionMiddleware);
+// spec-377 — the standard per-verb session policy (see session-policy.ts).
+mountStandardSessionPolicy(docMembersRouter);
 
 // The editors of a Spec + the caller's own resolved posture. The React UI reads
 // `myRole` to choose reviewer vs editor mode and `editors` for the member list.

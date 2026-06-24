@@ -18,22 +18,18 @@ import { markPresent, listPresent } from "../services/presence.js";
 import { parseRef } from "./../services/refs.js";
 import { ValidationError } from "../types/errors.js";
 import { actorName } from "../services/actor.js";
-import {
-  sessionMiddleware,
-  publicSessionMiddleware,
-  type SessionEnv,
-} from "../middleware/session.js";
+import { type SessionEnv } from "../middleware/session.js";
 import type { MemexResolverEnv } from "../middleware/memex-resolver.js";
 import { requireMemexId, resolveReadableMemexId } from "./shared.js";
+import { mountStandardSessionPolicy } from "./session-policy.js";
 
 type Env = MemexResolverEnv & SessionEnv;
 const presenceRouter = new Hono<Env>();
 
 // GET (read who's here) is public-read like the rest of the spec surface; the
 // POST heartbeat is a write and stays strict (only an authenticated member can
-// declare presence).
-presenceRouter.on("GET", "/*", publicSessionMiddleware);
-presenceRouter.on(["POST", "PUT", "PATCH", "DELETE"], "/*", sessionMiddleware);
+// declare presence). spec-377 — the standard policy (see session-policy.ts).
+mountStandardSessionPolicy(presenceRouter);
 
 // Accept either a full canonical ref ("<ns>/<mx>/specs/spec-N") or a bare
 // "spec-N" handle. getDoc resolves either form scoped to the memex.

@@ -39,21 +39,18 @@ import {
   setAcAcceptance,
   clearAcAcceptance,
 } from "../services/acs.js";
-import {
-  sessionMiddleware,
-  publicSessionMiddleware,
-  type SessionEnv,
-} from "../middleware/session.js";
+import { type SessionEnv } from "../middleware/session.js";
 import type { MemexResolverEnv } from "../middleware/memex-resolver.js";
 import { requireMemexId, resolveReadableMemexId } from "./shared.js";
+import { mountStandardSessionPolicy } from "./session-policy.js";
 
 type Env = MemexResolverEnv & SessionEnv;
 
 const acsRouter = new Hono<Env>();
-// spec-111 t-10 — per-verb session policy. GET reads permissive (public read /
-// private 404 via resolveReadableMemexId); the DELETE write stays strict.
-acsRouter.on("GET", "/*", publicSessionMiddleware);
-acsRouter.on(["POST", "PUT", "PATCH", "DELETE"], "/*", sessionMiddleware);
+// spec-377 (was spec-111 t-10) — the standard per-verb session policy: GET reads
+// permissive (public read / private 404 via resolveReadableMemexId); the DELETE
+// write stays strict.
+mountStandardSessionPolicy(acsRouter);
 
 acsRouter.get("/doc/:docId", async (c) => {
   const memexId = await resolveReadableMemexId(c);
