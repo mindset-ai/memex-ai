@@ -66,6 +66,7 @@ export const UI_TOOL_NAMES = new Set([
   'render_steps',
   'render_navigate',
   'render_quote',
+  'render_handoff',
 ]);
 
 /**
@@ -89,4 +90,5 @@ export const DISPLAY_UI_TOOL_NAMES = new Set([
   'render_steps',
   'render_navigate',
   'render_quote',
+  'render_handoff',
 ]);

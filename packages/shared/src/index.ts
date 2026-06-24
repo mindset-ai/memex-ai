@@ -107,6 +107,9 @@ export { DRIFT_OPENING_TURN_SEED } from './scaffold-data.js';
 // (the React UI's Scaffold Inspect surface sets mode "scaffold"). Lives in the
 // scaffold model (one home, std-15/std-16). Portable per std-22.
 export { SCAFFOLD_AGENT_GUIDANCE, SCAFFOLD_OPENING_TURN_SEED, scaffoldReviewEditSeed } from './scaffold-data.js';
+// spec-389 t-4 (dec-3): the shared cross-agent handoff contract (canonical map),
+// injected into every scoped in-app agent so it hands off rather than overreach.
+export { SHARED_HANDOFF_GUIDANCE } from './scaffold-data.js';
 // spec-360 t-2/t-3 (dec-5/dec-9/dec-10) — the scaffold assistant's grounding
 // composer and its propose-time change validator. Pure + shared so the server
 // (authoritative) and the React UI (instant feedback) agree on what the

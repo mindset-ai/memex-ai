@@ -328,6 +328,33 @@ const uiTools: Tool[] = [
       required: ["text"],
     },
   },
+  {
+    // spec-389 t-4 (dec-3): the shared HANDOFF render tool. When asked to do
+    // something OUTSIDE its own function, an agent does not reach for a tool it
+    // shouldn't have — it REFUSES and hands the user a copyable prompt to paste
+    // into the right agent. One standardised render across every agent (the
+    // canonical (fromMode, requestedDomain) → target map lives in the agents'
+    // guidance prose in @memex/shared/scaffold-data.ts, std-15/23/34).
+    // Display-only: it presents an explanation + a copy-to-clipboard prompt.
+    name: "render_handoff",
+    description:
+      "Hand off a request that is OUTSIDE your function to the agent (or flow) that owns it — never reach for a tool you shouldn't have. Set `target` to where the work belongs ('standards agent' to create/edit a Standard; 'drift agent' to resolve drift / propose a Standard change; 'New Spec flow' when a Spec is needed; 'scaffold assistant' for org guidance; 'coding agent' to touch code), write the ready-to-paste `prompt`, and a one-line `reason` the user can read. Be honest about the boundary — do not pretend you can do it. Display-only.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        target: {
+          type: "string",
+          description: "Where the work belongs, e.g. 'standards agent', 'drift agent', 'New Spec flow', 'scaffold assistant', 'coding agent'.",
+        },
+        prompt: { type: "string", description: "The full, ready-to-paste prompt the user should hand to the target agent/flow." },
+        reason: {
+          type: "string",
+          description: "A one-line, honest explanation of why this is out of your scope and where it goes.",
+        },
+      },
+      required: ["target", "prompt"],
+    },
+  },
 ];
 
 // ══════════════════════════════════════
@@ -606,10 +633,12 @@ const UI_TOOLS = new Set([
   "render_progress",
   "render_callout",
   "render_steps",
-  // spec-389 t-2 (dec-4): the shared render-tool family (generalised off the
-  // _scaffold prefix) — navigate + verbatim quote, used by every in-app agent.
+  // spec-389 t-2 (dec-4) / t-4 (dec-3): the shared render-tool family
+  // (generalised off the _scaffold prefix) — navigate + verbatim quote +
+  // copyable handoff, used by every in-app agent.
   "render_navigate",
   "render_quote",
+  "render_handoff",
 ]);
 
 /** Returns true if the tool should be forwarded to the frontend instead of executed server-side. */

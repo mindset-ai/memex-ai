@@ -198,6 +198,33 @@ export const SCAFFOLD_AGENT_GUIDANCE: PromptBlockNode = {
 export const SCAFFOLD_OPENING_TURN_SEED =
   '[Opening turn — greet only] Briefly introduce yourself as the scaffold assistant: you can explain what prompting each agent receives and where it applies, and (for administrators) propose additions to the org\'s guidance for approval. Invite the viewer to ask about any phase, gate, tool, or button. Keep it to a sentence or two. Do not call any tools for this opening turn.';
 
+// spec-389 t-4 (dec-3): the SHARED cross-agent handoff contract. Every in-app
+// agent (spec, drift, standards, issues, scaffold) is scoped to ONE function and
+// authors only within it — broad awareness, narrow authority. This block is the
+// canonical (fromMode, requestedDomain) → target map, injected into every scoped
+// agent's prompt so that when asked OUTSIDE its function it hands off gracefully
+// (render_handoff) instead of reaching for a tool it shouldn't have. The real
+// enforcement is the server-side MODE_TOOLS gate (spec-389 t-3); this prose tells
+// the agent to hand off rather than hit a 403. Portable per std-22 — it names no
+// language/framework/repo/path/tooling, only the agents and flows of a Memex.
+export const SHARED_HANDOFF_GUIDANCE: PromptBlockNode = {
+  kind: 'prompt_block',
+  id: 'shared-handoff',
+  surface: 'react_only',
+  text:
+    '## When a request is outside your function — hand off, never overreach\n' +
+    'You are scoped to ONE function and author only within it. Your awareness is broad — you can read the whole Memex — but your authority is narrow. When asked to do something OUTSIDE your function, do NOT reach for a tool you should not have (the server refuses it anyway). REFUSE honestly and HAND OFF: call `render_handoff` with the agent/flow that owns the work (`target`), a ready-to-paste `prompt`, and a one-line `reason`. Never pretend you can do it yourself.\n\n' +
+    'The canonical handoffs:\n' +
+    '- Asked to CREATE or EDIT a Standard → the **standards agent**.\n' +
+    '- Asked to RESOLVE drift or propose a Standard change → the **drift agent**.\n' +
+    '- Asked for work that needs a new Spec → the **New Spec flow**.\n' +
+    '- Asked to author the org’s scaffold guidance → the **scaffold assistant**.\n' +
+    '- Asked to TOUCH CODE (read, edit, run it) → the **coding agent** over MCP.\n\n' +
+    'Write the handoff prompt so it stands alone — the target agent has none of this conversation. Then tell the user in plain prose to open that agent/flow and paste it.',
+  rationale:
+    'spec-389 t-4 (dec-3): the shared cross-agent handoff contract — the canonical (fromMode, requestedDomain) → target map, injected into every scoped in-app agent so authority stays narrow (broad awareness, narrow authoring). Honest-CTA per std-34; prompt prose has one home here per std-15/std-23, never inline; Org-extensible append-only per std-23. The real enforcement is the server-side MODE_TOOLS gate (spec-389 t-3) — this prose makes the refusal graceful.',
+};
+
 // spec-360: when an admin makes a MANUAL org-guidance edit/addition inline (not
 // through the assistant's propose flow), the surface fires this seed so the
 // assistant actually ASSESSES the change — feasibility + effectiveness — rather

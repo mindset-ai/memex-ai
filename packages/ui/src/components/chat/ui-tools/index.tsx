@@ -5,6 +5,7 @@ import { Progress } from './Progress';
 import { Callout } from './Callout';
 import { Steps } from './Steps';
 import { Quote } from './Quote';
+import { Handoff } from './Handoff';
 
 interface UiToolRendererProps {
   toolName: string;
@@ -65,6 +66,12 @@ export function UiToolRenderer({ toolName, toolId, input, disabled, onRespond }:
       return (
         <Quote
           input={input as { text: string; source?: string; copyable?: boolean }}
+        />
+      );
+    case 'render_handoff':
+      return (
+        <Handoff
+          input={input as { target: string; prompt: string; reason?: string }}
         />
       );
     default:
