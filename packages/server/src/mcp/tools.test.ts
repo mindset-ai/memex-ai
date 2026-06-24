@@ -263,6 +263,14 @@ vi.mock("../services/clauses.js", () => ({
   addClausesToSection: vi.fn(),
 }));
 
+// spec-340: add_clause/edit_clause now thread the facet verdict through
+// validateClauseFacets (a DB read) + tagClause. Stub both so this mocked HTTP
+// unit test never touches the facet tables.
+vi.mock("../services/facet-classifier.js", () => ({
+  validateClauseFacets: vi.fn().mockResolvedValue([]),
+  tagClause: vi.fn(),
+}));
+
 vi.mock("../services/comments.js", () => ({
   addComment: vi.fn(),
   addDecisionComment: vi.fn(),
@@ -623,7 +631,7 @@ describe("MCP Tool handlers via HTTP", () => {
   it("add_clause creates a clause on a standard section", async () => {
     tagAc(SPEC161_AC(11));
     vi.mocked(createClause).mockResolvedValue(testMutate({ ...CLAUSE_ROW, seq: 7 }));
-    const res = await mcpCall("add_clause", { ref: STANDARD_SECTION_REF, body: "New clause.", verbose: false });
+    const res = await mcpCall("add_clause", { ref: STANDARD_SECTION_REF, body: "New clause.", facets: [], verbose: false });
     expect(createClause).toHaveBeenCalledWith(TEST_MEMEX_ID, TEST_SECTION_ID, "New clause.", undefined);
     expect(res.result.content[0].text).toContain("cl-7");
   });

@@ -44,6 +44,8 @@ const READ_ONLY = new Set<string>([
   // get_prompt (spec-263): reads a Spec and composes the phase handoff prompt
   // from the shared Scaffold — no mutation, so readOnlyHint: true.
   "get_prompt",
+  // facets (spec-340): the verb-dispatched facet tool — v0 is the `list` read verb.
+  "facets",
   // Issues (spec-112): the read side of the issue tool surface.
   "list_issues",
   "get_issue",

@@ -198,7 +198,7 @@ export const toolManifest: ToolManifestEntry[] = [
     name: 'add_clause',
     summary:
       'Append (or insert at a position) a clause to a STANDARD section — one self-contained aspect. Standards only; the new clause gets an addressable cl-N handle.',
-    args: 'add_clause(ref, body, position?)',
+    args: 'add_clause(ref, body, position?, facets?)',
     group: 'planning',
     readOnlyHint: false,
     trafficClass: null,
@@ -207,7 +207,7 @@ export const toolManifest: ToolManifestEntry[] = [
     name: 'edit_clause',
     summary:
       "Edit a STANDARD clause's body by its cl-N ref; the section content (the join of its clauses) regenerates. Standards only.",
-    args: 'edit_clause(ref, body)',
+    args: 'edit_clause(ref, body, facets?)',
     group: 'planning',
     readOnlyHint: false,
     trafficClass: null,
@@ -375,6 +375,15 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'propose_standard_change(ref, proposedContent, rationale?)',
     group: 'build',
     readOnlyHint: false,
+    trafficClass: null,
+  },
+  {
+    name: 'facets',
+    summary:
+      "Read your org's facet vocabulary — the closed set of cross-cutting practice areas a standard's clauses are tagged with (and that add_clause requires). Verb-dispatched; v0 supports verb:'list'.",
+    args: 'facets(verb, memex?)',
+    group: 'read',
+    readOnlyHint: true,
     trafficClass: null,
   },
 

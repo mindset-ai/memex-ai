@@ -147,6 +147,9 @@ const SKIPS = new Map<string, string>([
   // assess_spec emits the rubric + fact sheet keyed on the spec handle, not
   // a per-entity confirmation. Tested separately in spec-tools.integration.
   ["assess_spec", "analysis text keyed on the spec handle"],
+  // spec-340: facets is a read tool (verb:list) — output is the org's facet
+  // vocabulary list, names no affected entity and emits no ref.
+  ["facets", "read tool (verb:list) — facet vocabulary list, not entity-acting"],
   // list_memexes returns memex listings (no entity refs to emit per-row).
   ["list_memexes", "memex-list output, not entity-acting"],
   // send_slack_message returns { ts, channel } — a Slack delivery receipt, not an entity ref.

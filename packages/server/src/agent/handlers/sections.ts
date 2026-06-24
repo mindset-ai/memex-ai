@@ -26,6 +26,10 @@ import {
   deleteClause,
 } from "../../services/clauses.js";
 import {
+  validateClauseFacets,
+  tagClause,
+} from "../../services/facet-classifier.js";
+import {
   ValidationError,
 } from "../../types/errors.js";
 import {
@@ -223,7 +227,7 @@ export const sectionsTools: ToolSpec[] = [
     name: "add_clause",
     annotations: { title: "Add clause", readOnlyHint: false, destructiveHint: false },
     description:
-      "Append a clause to a STANDARD section (or insert at a position). A clause is one self-contained aspect — a single rule, definition, or example, not a compound paragraph. Standards only: for other doc types edit the section body with update_section. The new clause gets an allocate-once cl-N handle, returned in the response.",
+      "Append a clause to a STANDARD section (or insert at a position). A clause is one self-contained aspect — a single rule, definition, or example, not a compound paragraph. Standards only: for other doc types edit the section body with update_section. The new clause gets an allocate-once cl-N handle, returned in the response. REQUIRED: classify the clause with `facets` — the cross-cutting practice areas it governs (call the facets tool with verb 'list' to see your org's vocabulary), or [] if it governs nothing.",
     schema: {
       ref: z
         .string()
@@ -237,12 +241,19 @@ export const sectionsTools: ToolSpec[] = [
         .positive()
         .optional()
         .describe("1-based display position to insert at; omit to append at the end."),
+      facets: z
+        .array(z.string())
+        .optional()
+        .describe(
+          "REQUIRED facet verdict: the facet slugs this clause governs, or [] if it governs nothing. Call the facets tool (verb: 'list') for your org's vocabulary. An absent or unknown-slug verdict is rejected with the valid keys.",
+        ),
       verbose: VERBOSE_FIELD,
     },
     async handler(input, ctx) {
       const ref = input.ref as string;
       const body = input.body as string;
       const position = input.position as number | undefined;
+      const facets = input.facets as string[] | undefined;
 
       const resolved = await resolveRefArg(ctx, ref);
       if (resolved.entity.kind !== "section") {
@@ -256,7 +267,11 @@ export const sectionsTools: ToolSpec[] = [
           "Only standards have clauses. Use update_section to edit this document's section body.",
         );
       }
+      // spec-340 t-12: facets are REQUIRED. Validate BEFORE creating the clause so
+      // a rejected verdict leaves no orphan; the rejection re-hands the vocabulary.
+      const facetVocab = await validateClauseFacets(memexId, facets, { required: true });
       const clause = await createClause(memexId, entity.row.id, body, position);
+      await tagClause(memexId, clause.id, facets as string[], facetVocab);
       if (ctx.verbose) {
         const state = await fullDocState(memexId, doc.id);
         const url = await ctx.workspaceUrl(memexId);
@@ -270,7 +285,7 @@ export const sectionsTools: ToolSpec[] = [
     name: "edit_clause",
     annotations: { title: "Edit clause", readOnlyHint: false, destructiveHint: false },
     description:
-      "Edit a STANDARD clause's body by its cl-N ref. Standards only. The section's content (the join of its clauses) is regenerated; the clause keeps its cl-N identity.",
+      "Edit a STANDARD clause's body by its cl-N ref. Standards only. The section's content (the join of its clauses) is regenerated; the clause keeps its cl-N identity. Optionally pass `facets` to re-classify the clause (replace its facet tags); omit to leave the tags unchanged.",
     schema: {
       ref: z
         .string()
@@ -278,11 +293,18 @@ export const sectionsTools: ToolSpec[] = [
           "Canonical ref to the clause, e.g. `mindset/main/standards/std-7/clauses/cl-12`.",
         ),
       body: z.string().describe("New clause body — one self-contained aspect, markdown."),
+      facets: z
+        .array(z.string())
+        .optional()
+        .describe(
+          "Optional facet re-classification: the facet slugs this clause governs, or [] if none. Provided = replaces the clause's tags; omitted = leaves them unchanged. Call the facets tool (verb: 'list') for the vocabulary.",
+        ),
       verbose: VERBOSE_FIELD,
     },
     async handler(input, ctx) {
       const ref = input.ref as string;
       const body = input.body as string;
+      const facets = input.facets as string[] | undefined;
 
       const resolved = await resolveRefArg(ctx, ref);
       if (resolved.entity.kind !== "clause") {
@@ -291,7 +313,13 @@ export const sectionsTools: ToolSpec[] = [
         );
       }
       const { memexId, doc, slugs, entity } = resolved;
+      // spec-340 t-12: facets optional here (remediation). Validate before the edit
+      // so an unknown slug rejects cleanly; tag only when a verdict was provided.
+      const facetVocab = await validateClauseFacets(memexId, facets, { required: false });
       const clause = await updateClause(memexId, entity.row.id, body);
+      if (facets !== undefined) {
+        await tagClause(memexId, entity.row.id, facets, facetVocab);
+      }
       if (ctx.verbose) {
         const state = await fullDocState(memexId, doc.id);
         const url = await ctx.workspaceUrl(memexId);

@@ -724,6 +724,9 @@ const REF_PROBE_SKIP = new Map<string, string>([
   // hit and no per-call entity confirmation). Audited in ref-emission.regression
   // SKIPS for the same reason.
   ["search_memex", "discovery tool — output is a ranked hit list (paths as headings), no per-entity confirmation"],
+  // spec-340: facets is a read tool (verb:list) — output is the org's facet
+  // vocabulary (a key/description list), names no affected entity and emits no ref.
+  ["facets", "read tool (verb:list) — output is the org's facet vocabulary list, no per-entity confirmation"],
   // search_issues (spec-112) is a thin scoped wrapper over search_memex(kind:'issue')
   // — same ranked-hit-list output (paths as headings), no per-entity `ref:` confirmation.
   ["search_issues", "discovery tool — scoped search_memex wrapper; output is a ranked hit list (paths as headings), no per-entity confirmation"],

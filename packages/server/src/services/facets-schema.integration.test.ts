@@ -6,7 +6,7 @@
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { tagAc } from "@memex-ai-ac/vitest";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import {
   facets,
@@ -89,17 +89,25 @@ afterAll(async () => {
 describe("facets vocabulary table (spec-340 t-1)", () => {
   it("is org-scoped with per-org (not global) key uniqueness — two orgs share a key, one org can't duplicate it (ac-25)", async () => {
     tagAc(AC(25));
+    // A key that is NOT one of the seeded defaults, so it can't collide with
+    // another test file's seedDefaultFacets rows in a shared worker DB clone.
+    const KEY = "xorg-shared-key";
     // Same key under two different orgs — must BOTH succeed (no global unique).
-    await db.insert(facets).values({ orgId, key: "security", description: "authz/tenancy/secrets" });
-    await db.insert(facets).values({ orgId: orgId2, key: "security", description: "authz/tenancy/secrets" });
+    await db.insert(facets).values({ orgId, key: KEY, description: "authz/tenancy/secrets" });
+    await db.insert(facets).values({ orgId: orgId2, key: KEY, description: "authz/tenancy/secrets" });
 
-    const rows = await db.select().from(facets).where(eq(facets.key, "security"));
+    // Scope the read to THIS test's two orgs — the assertion is about these orgs
+    // sharing a key, not a global count.
+    const rows = await db
+      .select()
+      .from(facets)
+      .where(and(eq(facets.key, KEY), inArray(facets.orgId, [orgId, orgId2])));
     expect(rows.length).toBe(2);
     expect(new Set(rows.map((r) => r.orgId))).toEqual(new Set([orgId, orgId2]));
 
     // Duplicate (org_id, key) — must violate facets_org_id_key_unique.
     await expect(
-      db.insert(facets).values({ orgId, key: "security", description: "dup" }),
+      db.insert(facets).values({ orgId, key: KEY, description: "dup" }),
     ).rejects.toThrow();
   });
 });

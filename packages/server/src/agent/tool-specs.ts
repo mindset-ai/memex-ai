@@ -58,6 +58,7 @@ import {
   issuesTools,
   rolesTools,
   standardsTools,
+  facetsTools,
   integrationsTools,
 } from "./handlers/index.js";
 
@@ -72,6 +73,7 @@ export const toolSpecs: ToolSpec[] = [
   ...issuesTools,
   ...rolesTools,
   ...standardsTools,
+  ...facetsTools,
 
   // ── Codebase intelligence ─────────────────────────────────
   // TEMPORARILY DISABLED — codebase tools are commented out (both MCP + React UI agent).
