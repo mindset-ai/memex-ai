@@ -416,11 +416,11 @@ export async function buildStandardsContext(
       s.driftCount > 0
         ? ` — ${s.driftCount} open drift item${s.driftCount === 1 ? "" : "s"}`
         : "";
-    lines.push(
-      `- ${s.handle} "${s.title}" (${s.sectionCount} section${
-        s.sectionCount === 1 ? "" : "s"
-      })${drift} · ref: ${ref}`,
-    );
+    // Keep this a SINGLE-line template literal: a `- `-leading literal that spans
+    // ≥2 source newlines (e.g. via a broken interpolation) trips the std-15
+    // prose-location drift-guard. Hoist the count suffix so the literal is one line.
+    const sections = `${s.sectionCount} section${s.sectionCount === 1 ? "" : "s"}`;
+    lines.push(`- ${s.handle} "${s.title}" (${sections})${drift} · ref: ${ref}`);
   }
   lines.push("");
   lines.push(

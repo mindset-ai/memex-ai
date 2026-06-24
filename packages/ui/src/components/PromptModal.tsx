@@ -107,10 +107,10 @@ export function PromptModal({ prompt, loading, onClose, title = 'Implementation 
             </div>
           )}
 
+          {/* spec-389: theme-aware prose — `prose-invert` was a dead no-op (the
+              Typography plugin isn't installed) so this washed out in light mode;
+              `.prose-dark` colours from the `--ch-text-*` channels. */}
           {!loading && prompt && mode === 'preview' && (
-            {/* spec-389: theme-aware prose — `prose-invert` was a dead no-op (the
-                Typography plugin isn't installed) so this washed out in light mode;
-                `.prose-dark` colours from the `--ch-text-*` channels. */}
             <div className="prose-dark max-w-none text-sm [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
