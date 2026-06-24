@@ -134,7 +134,7 @@ import { executeServerTool } from "../agent/tools.js";
 import { buildDocumentContext, buildDriftContext } from "../agent/context-builder.js";
 import { buildSystemBlocks, buildCreationSystemBlocks } from "../agent/system-prompt.js";
 import { resolveIntegrationState } from "../agent/integration-state.js";
-import { getCreationToolDefinitions, getToolDefinitions, isToolAllowedForReviewer, isReadOnlyTool, isDriftModeTool, isToolAllowedInMode } from "../agent/tools.js";
+import { getCreationToolDefinitions, getToolDefinitions, isToolAllowedForReviewer, isReadOnlyTool, isToolAllowedInMode } from "../agent/tools.js";
 import { resolveRole } from "../services/doc-members.js";
 import { getOrCreateConversation, getMessages, clearConversation, replaceMessages } from "../services/conversations.js";
 import { readFileSync } from "node:fs";
