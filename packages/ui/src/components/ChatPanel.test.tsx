@@ -453,7 +453,7 @@ describe('ChatPanel — static scaffold intro (spec-360 issue-12, ac-11)', () =>
   it('renders the static intro in scaffold mode with no messages', () => {
     tagAc(AC360(11));
     render(<ChatPanel />);
-    const intro = screen.getByTestId('scaffold-assistant-intro');
+    const intro = screen.getByTestId('agent-intro-scaffold');
     expect(intro).toBeInTheDocument();
     // It explains explain/navigate + admin authoring.
     expect(intro).toHaveTextContent(/explain/i);
@@ -464,7 +464,7 @@ describe('ChatPanel — static scaffold intro (spec-360 issue-12, ac-11)', () =>
     tagAc(AC360(11));
     mockChatState.messages = [{ id: '1', role: 'user', content: 'hi', timestamp: new Date() }];
     render(<ChatPanel />);
-    expect(screen.queryByTestId('scaffold-assistant-intro')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('agent-intro-scaffold')).not.toBeInTheDocument();
   });
 
   it('is absent outside scaffold mode (a normal Spec chat)', () => {
@@ -472,6 +472,6 @@ describe('ChatPanel — static scaffold intro (spec-360 issue-12, ac-11)', () =>
     mockChatState.isScaffoldMode = false;
     mockChatState.docId = 'doc-1';
     render(<ChatPanel />);
-    expect(screen.queryByTestId('scaffold-assistant-intro')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('agent-intro-scaffold')).not.toBeInTheDocument();
   });
 });

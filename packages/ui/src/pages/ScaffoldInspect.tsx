@@ -34,6 +34,7 @@ import { ScaffoldPhaseDetail } from '../components/scaffold/ScaffoldPhaseDetail'
 import { CircumstanceDetail } from '../components/scaffold/CircumstanceDetail';
 import { ScaffoldProposalReview } from '../components/scaffold/ScaffoldProposalReview';
 import { ChatPanel } from '../components/ChatPanel';
+import { ResizableChatRail } from '../components/chat/ResizableChatRail';
 import { useChat } from '../components/ChatContext';
 import {
   buttonSegments,
@@ -71,11 +72,9 @@ function ringFor(active: boolean, pulse: boolean): string {
   return pulse ? PULSE_RING : SELECT_RING;
 }
 
-// spec-360: the chat (assistant) rail is drag-resizable on desktop; width is
-// clamped and persisted across sessions.
-const CHAT_MIN_W = 300;
-const CHAT_MAX_W = 720;
-const CHAT_DEFAULT_W = 384; // = the old fixed w-96
+// spec-389 t-1 (dec-1): the drag-resizable chat rail is now the shared
+// ResizableChatRail component (extracted from this surface). This page just
+// passes its per-surface storage key.
 const CHAT_WIDTH_KEY = 'scaffold-chat-width';
 
 const PHASE_BEFORE_TRANSITION: Record<Transition, Phase> = {
@@ -170,38 +169,6 @@ export function ScaffoldInspect() {
   const showAdminNote = !!owner && !isAdmin;
 
   const [selected, setSelected] = useState<Selection>({ kind: 'home' });
-
-  // spec-360: the chat rail's width — drag-resizable, clamped, persisted.
-  const [chatWidth, setChatWidth] = useState<number>(() => {
-    if (typeof window === 'undefined') return CHAT_DEFAULT_W;
-    const saved = Number(window.localStorage.getItem(CHAT_WIDTH_KEY));
-    return Number.isFinite(saved) && saved >= CHAT_MIN_W && saved <= CHAT_MAX_W ? saved : CHAT_DEFAULT_W;
-  });
-  useEffect(() => {
-    window.localStorage.setItem(CHAT_WIDTH_KEY, String(chatWidth));
-  }, [chatWidth]);
-  const startChatResize = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
-      const startX = e.clientX;
-      const startW = chatWidth;
-      const onMove = (ev: MouseEvent) => {
-        const next = Math.min(CHAT_MAX_W, Math.max(CHAT_MIN_W, startW + ev.clientX - startX));
-        setChatWidth(next);
-      };
-      const onUp = () => {
-        document.removeEventListener('mousemove', onMove);
-        document.removeEventListener('mouseup', onUp);
-        document.body.style.userSelect = '';
-        document.body.style.cursor = '';
-      };
-      document.body.style.userSelect = 'none';
-      document.body.style.cursor = 'col-resize';
-      document.addEventListener('mousemove', onMove);
-      document.addEventListener('mouseup', onUp);
-    },
-    [chatWidth],
-  );
 
   // OrgScaffoldAddition (not the base GuidanceBlock) so the persisted `id` is
   // available — used to look a block up for the review seed below; assignable to
@@ -445,25 +412,13 @@ export function ScaffoldInspect() {
       {/* spec-360 t-1 (dec-1/dec-6): the scaffold assistant — a left-rail panel,
           the established Standards/Drift agent position. Open to any member for
           explanation; authoring proposals are admin-gated server-side. */}
-      <aside
-        data-testid="scaffold-assistant-panel"
-        style={{ width: chatWidth }}
-        className="relative hidden md:flex shrink-0 flex-col min-h-0 border-r border-default"
+      <ResizableChatRail
+        storageKey={CHAT_WIDTH_KEY}
+        testId="scaffold-assistant-panel"
+        handleTestId="scaffold-chat-resize"
       >
-        <div className="flex-1 min-h-0">
-          <ChatPanel />
-        </div>
-        {/* Drag handle — resize the chat rail. Sits over the right border with a
-            wider hit area; highlights on hover/drag. */}
-        <div
-          role="separator"
-          aria-orientation="vertical"
-          aria-label="Resize chat panel"
-          data-testid="scaffold-chat-resize"
-          onMouseDown={startChatResize}
-          className="absolute top-0 -right-1 z-10 h-full w-2 cursor-col-resize transition-colors hover:bg-accent/40"
-        />
-      </aside>
+        <ChatPanel />
+      </ResizableChatRail>
 
       {/* Inspect column: page heading + timeline + detail (+ any pending proposal). */}
       <div className="flex flex-1 flex-col min-w-0 overflow-hidden">

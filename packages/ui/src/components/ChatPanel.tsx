@@ -7,6 +7,7 @@ import { useOrgScaffoldBlocks } from '../hooks/useOrgScaffoldBlocks';
 import { ChatMarkdown } from './chat/ChatMarkdown';
 import { ContextChipBar } from './chat/ContextChipBar';
 import { UiToolRenderer } from './chat/ui-tools';
+import { AgentIntro } from './chat/AgentIntro';
 import { TextArea } from './ui/TextArea';
 import { Button } from './ui';
 import { PublicAuthButtons } from './PublicAccessControls';
@@ -238,33 +239,13 @@ export function ChatPanel({ isAuthenticated = true, readOnly = false }: ChatPane
           </div>
         )}
 
-        {/* spec-360: the scaffold assistant's STATIC intro — shown on an empty
-            thread instead of a money-costing opening LLM turn. Explains what it
-            can do; the first real LLM call happens only when the user types. */}
+        {/* spec-389 t-1 (dec-1): the shared STATIC intro — shown on an empty
+            thread instead of a money-costing opening LLM turn. Single-sourced
+            from the AGENT_INTROS registry so every agent surface shows the same
+            shaped card; the first real LLM call happens only when the user types.
+            (spec-360 introduced this for the scaffold mode; generalised here.) */}
         {isScaffoldMode && messages.length === 0 && (
-          <div
-            data-testid="scaffold-assistant-intro"
-            className="space-y-3 rounded-xl border border-edge bg-card/60 p-4 shadow-sm"
-          >
-            <p className="text-sm text-primary">
-              I explain the prompting every agent in this Memex reads — and help admins shape it.
-            </p>
-            <ul className="space-y-2 text-sm text-secondary">
-              <li className="flex gap-2">
-                <span aria-hidden="true" className="text-accent">→</span>
-                <span>Ask what an agent reads at any phase, gate, tool, or button — I’ll jump the view to it.</span>
-              </li>
-              <li className="flex gap-2">
-                <span aria-hidden="true" className="text-accent">→</span>
-                <span>Ask why a piece of guidance exists, or where an org rule applies.</span>
-              </li>
-              <li className="flex gap-2">
-                <span aria-hidden="true" className="text-accent">→</span>
-                <span>Admins: ask me to add, edit, or remove your org’s guidance — I draft it for your approval.</span>
-              </li>
-            </ul>
-            <p className="border-t border-edge pt-3 text-xs text-muted">Type a question below to start.</p>
-          </div>
+          <AgentIntro mode="scaffold" />
         )}
 
         {/* spec-159: opening a Spec no longer auto-activates the agent. The
