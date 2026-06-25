@@ -26,6 +26,36 @@
 -- runner is transactional). first_verified_at was snapshotted in 0110, BEFORE this
 -- prune deletes the oldest passing rows.
 
+-- ── 0. Deadlock guard — take both table locks up front, in the APP's lock order ─
+-- This migration mutates test_event_latest (§1 ALTER) before test_events (§2
+-- swap). Live /api/test-events emissions take the SAME two locks in the OPPOSITE
+-- order (INSERT test_events → UPSERT test_event_latest, routes/test-events.ts), so
+-- the first prod release deadlocked (40P01) against traffic and rolled the whole
+-- file back. Acquiring both locks here, up front, in the emission order (test_events
+-- first), removes the lock-order cycle: the migration now either wins a clean
+-- exclusive window or fails fast on lock_timeout and retries on the next deploy — it
+-- can never deadlock. It does hold test_events ACCESS EXCLUSIVE for the ~80s the §2
+-- row-copy takes, so emissions/feed reads pause for that deploy window — acceptable,
+-- and far better than a failed deploy.
+--
+-- Why the LOCK is wrapped in a DO block rather than a bare `LOCK TABLE`: this file
+-- is applied two ways. (1) Prod / the dev hand-runner (apply-hand-migrations.mjs)
+-- wraps the whole file in ONE transaction — a bare LOCK would work there. (2) The
+-- e2e-cold template build pipes each file through `psql -f` in AUTOCOMMIT, where a
+-- bare `LOCK TABLE` errors ("can only be used in transaction blocks", Postgres 16).
+-- A DO block runs its body inside an implicit transaction in BOTH paths, so the LOCK
+-- is valid either way. The lock has transaction scope, so under the transactional
+-- prod runner it is HELD for the rest of the migration (verified via pg_locks);
+-- under autocommit it is released when the DO block returns — harmless, since the
+-- cold template build has no concurrent traffic to deadlock against. lock_timeout is
+-- set at session level first so it bounds the LOCK's wait inside the block.
+SET lock_timeout = '15s';
+--> statement-breakpoint
+DO $$ BEGIN
+  LOCK TABLE test_events, test_event_latest IN ACCESS EXCLUSIVE MODE;
+END $$;
+--> statement-breakpoint
+
 -- ── 1. test_event_latest.memex_id ────────────────────────────────────────────
 ALTER TABLE test_event_latest ADD COLUMN IF NOT EXISTS memex_id uuid;
 --> statement-breakpoint
