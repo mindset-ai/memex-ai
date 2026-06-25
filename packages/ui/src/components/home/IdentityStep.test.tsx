@@ -102,6 +102,31 @@ describe('IdentityStep (v2)', () => {
   });
 });
 
+// spec-372 issue-2 — guard the two layout fixes so a future change can't silently
+// reintroduce the triangle "jump" or un-align its left point:
+//  • the two-column row top-aligns (items-start), so the fixed-size triangle is NOT
+//    re-centred when the variable-height persona panel reflows as the dot moves;
+//  • the triangle SVG left-aligns its left (Design) vertex to the content's left edge —
+//    no mx-auto, viewBox origin at 0 (Design vertex at x=0), overflow-visible so the
+//    vertex marker isn't clipped.
+describe('IdentityStep — issue-2 layout (no jump; left-aligned triangle)', () => {
+  it('the triangle/persona row top-aligns (items-start, never items-center)', () => {
+    const { container } = render(<IdentityStep />);
+    const row = container.querySelector('div.flex.flex-wrap');
+    expect(row).not.toBeNull();
+    expect(row!.className).toContain('items-start');
+    expect(row!.className).not.toContain('items-center');
+  });
+
+  it('the triangle SVG is left-aligned: no mx-auto, viewBox origin 0, overflow-visible', () => {
+    render(<IdentityStep />);
+    const svg = screen.getByTestId('role-triangle');
+    expect(svg.getAttribute('viewBox')).toBe('0 0 240 226'); // Design vertex at x=0
+    expect(svg.getAttribute('class')).toContain('overflow-visible');
+    expect(svg.getAttribute('class')).not.toContain('mx-auto');
+  });
+});
+
 describe('personaLabel (compass-rose, dec-6)', () => {
   it('the centered default reads as a generalist', () => {
     tagAc(AC(5));

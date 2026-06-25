@@ -96,7 +96,11 @@ export function IdentityStep({
         </div>
       )}
 
-      <div className="flex flex-wrap items-center gap-x-12 gap-y-6">
+      {/* spec-372 issue-2 — top-align the columns (NOT items-center). The persona panel's
+          height changes with the persona copy as the dot moves; centring re-positioned the
+          fixed-size triangle on every drag, making it jump. items-start anchors the triangle
+          to the top so the panel grows/shrinks downward only. */}
+      <div className="flex flex-wrap items-start gap-x-12 gap-y-6">
         <div className="w-full max-w-md flex-none">
           <RoleTriangle value={role} onChange={setRole} />
         </div>
