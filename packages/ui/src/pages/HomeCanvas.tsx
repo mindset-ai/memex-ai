@@ -33,6 +33,8 @@ import {
   type JourneyStateResponse,
   type RoleCoords,
 } from '../api/journey';
+import { fetchDocs } from '../api/docs';
+import { resolveSpecToken, SPEC_TOKEN_PLACEHOLDER } from '../components/home/specToken';
 import { resolveStepView, activeJourney } from '../journeys/registry';
 import { BUILDER_ONLY_STEP_IDS } from '../journeys/onboarding/steps';
 import { isJourneyGraduated } from '../journeys/graduation';
@@ -120,14 +122,12 @@ export function HomeCanvas() {
   const [cursor, setCursor] = useState<string | null>(null);
   const [pinned, setPinned] = useState(false);
   const [restored, setRestored] = useState(false);
-  // Two collapse concepts coexist:
-  //  • The spec-312 graduation seam still governs whether the journey LAYER shows at all:
-  //    once every visible step is attained the layer recedes to the "Your Journeys" pearls,
-  //    which re-open it (forceShow). (spec-312 ac-12/ac-19, spec-315 — preserved.)
-  //  • Within a shown layer, the chevron is a spec-336 in-place toggle (revised 2026-06-23
-  //    to match the prototype): it hides the rail + panel beneath the header, no pearls.
+  // The spec-312 graduation seam still governs whether the journey LAYER shows at all:
+  // once every visible step is attained the layer recedes to the "Your Journeys" pearls,
+  // which re-open it (forceShow). (spec-312 ac-12/ac-19, spec-315 — preserved.)
+  // spec-372 issue-8 — the in-place collapse/expand of the tracker content was removed; the
+  // tracker is always expanded, so there is no `contentCollapsed` state any more.
   const [forceShow, setForceShow] = useState(false);
-  const [contentCollapsed, setContentCollapsed] = useState(false);
 
   const load = useCallback(() => {
     fetchJourneyStateApi(previewParam)
@@ -208,6 +208,25 @@ export function HomeCanvas() {
       postJourneyEventApi(displayStepId, 'shown');
     }
   }, [displayStepId, preview, journey]);
+
+  // spec-372 issues 13–16 — resolve the spec handle to inject into the SDD-arc prompts:
+  // the user's single real (non-demo) spec, else a fill-in placeholder. Refetched as the
+  // user advances so the spec created by "Create your first spec" is picked up.
+  const [specToken, setSpecToken] = useState(SPEC_TOKEN_PLACEHOLDER);
+  useEffect(() => {
+    if (preview) return;
+    let alive = true;
+    fetchDocs('spec')
+      .then((docs) => {
+        if (alive) setSpecToken(resolveSpecToken(docs));
+      })
+      .catch(() => {
+        /* best-effort — keep the placeholder */
+      });
+    return () => {
+      alive = false;
+    };
+  }, [preview, displayStepId]);
 
   const specsPath = useMemo(
     () => personalSpecsPath(session?.memberships as ReadonlyArray<NavMembership> | undefined),
@@ -293,15 +312,17 @@ export function HomeCanvas() {
   const graduated = isJourneyGraduated(state ? { ...state, steps: visibleSteps } : null);
   const layerVisible = !!state?.steps?.length && (!graduated || forceShow);
 
-  // The rail reveals once the user is past the first step (prototype: full-width step 0),
-  // and only while the content isn't collapsed in place.
-  const showRail =
-    !contentCollapsed && !!displayStepId && displayStepId !== FIRST_STEP_ID && visibleSteps.length > 0;
+  // The rail reveals once the user is past the first step (prototype: full-width step 0).
+  const showRail = !!displayStepId && displayStepId !== FIRST_STEP_ID && visibleSteps.length > 0;
 
   return (
     <div className="font-onboarding min-h-full" data-testid="home-canvas">
       {/* spec-336 / prototype: the page-level Home header above the tracker. */}
-      <div className="mx-auto max-w-5xl px-4 pt-10 sm:px-6">
+      {/* spec-372 issue-18 (dec-9) — cap content at calc(25% + 48rem) instead of max-w-5xl
+          (64rem) so each left/right gutter is 75% of its former value at every pane width:
+          gutter = (W − cap)/2, and 0.25·W + 0.75·64rem leaves 75% of (W − 64rem) as gutter.
+          Narrow widths (cap > pane) just fill the pane — no negative margins. */}
+      <div className="mx-auto max-w-[calc(25%_+_48rem)] px-4 pt-10 sm:px-6">
         <h1 data-testid="home-page-title" className="onboarding-heading">
           Home
         </h1>
@@ -312,22 +333,13 @@ export function HomeCanvas() {
 
       {layerVisible ? (
         <section data-testid="journey-layer" className="relative">
-          <div className="mx-auto max-w-5xl px-4 pt-6 sm:px-6">
-            {/* Header — click anywhere to collapse/expand the tracker content in place. */}
-            <div
-              role="button"
-              tabIndex={0}
-              aria-expanded={!contentCollapsed}
-              onClick={() => setContentCollapsed((c) => !c)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  setContentCollapsed((c) => !c);
-                }
-              }}
-              className="flex cursor-pointer select-none flex-wrap items-center gap-3 rounded-xl border-b border-edge px-2 pb-4 pt-1 transition hover:bg-card-hover/50"
-            >
-              <h2 data-testid="getting-started-title" className="whitespace-nowrap text-lg font-bold text-accent">
+          {/* spec-372 issue-18 (dec-9) — same calc(25% + 48rem) cap as the header so the
+              two surfaces stay aligned and the 25% gutter reduction is uniform. */}
+          <div className="mx-auto max-w-[calc(25%_+_48rem)] px-4 pt-6 sm:px-6">
+            {/* Header — static (spec-372 issue-8 removed the collapse/expand toggle + chevron). */}
+            <div className="flex flex-wrap items-center gap-3 rounded-xl border-b border-edge px-2 pb-4 pt-1">
+              {/* spec-372 issue-7 — title is black (not the global accent blue) and medium weight. */}
+              <h2 data-testid="getting-started-title" className="whitespace-nowrap text-lg font-medium text-black">
                 Getting started on Memex
               </h2>
               <div className="ml-auto flex items-center gap-3">
@@ -343,29 +355,11 @@ export function HomeCanvas() {
                 <span data-testid="journey-progress" className="whitespace-nowrap text-xs font-semibold text-secondary">
                   {pct}% complete
                 </span>
-                <span
-                  data-testid="journey-collapse"
-                  aria-hidden
-                  className="flex h-7 w-7 items-center justify-center text-muted"
-                >
-                  <svg
-                    className="h-4 w-4 transition-transform duration-300"
-                    style={{ transform: contentCollapsed ? 'rotate(0deg)' : 'rotate(180deg)' }}
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth={2.2}
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M6 9l6 6 6-6" />
-                  </svg>
-                </span>
               </div>
             </div>
 
             {/* spec-372 t-2 (change #5) — v3 widens the rail↔content gutter to 64px (gap-16). */}
-            {!contentCollapsed && (
+            {(
               <div className="mt-6 flex flex-col gap-8 md:flex-row md:gap-16">
                 {showRail && (
                   <JourneyRail
@@ -404,7 +398,6 @@ export function HomeCanvas() {
           journeys={pearlJourneys}
           onOpen={() => {
             setForceShow(true);
-            setContentCollapsed(false);
           }}
         />
       )}
@@ -439,12 +432,25 @@ export function HomeCanvas() {
       case 'resolve-decision':
       case 'add-ac':
         return (
-          <AgentPromptStep stepId={displayStepId} preview={preview} onComplete={handleStepComplete} onCtaClick={trackStepCta} />
+          <AgentPromptStep
+            stepId={displayStepId}
+            preview={preview}
+            onComplete={handleStepComplete}
+            onCtaClick={trackStepCta}
+            specToken={specToken}
+          />
         );
       case 'specs-match-reality':
-        return <SpecsMatchRealityStep preview={preview} onComplete={handleStepComplete} onCtaClick={trackStepCta} />;
+        return (
+          <SpecsMatchRealityStep
+            preview={preview}
+            onComplete={handleStepComplete}
+            onCtaClick={trackStepCta}
+            specToken={specToken}
+          />
+        );
       case 'agents-build':
-        return <AgentsBuildStep onCtaClick={trackStepCta} />;
+        return <AgentsBuildStep onCtaClick={trackStepCta} specToken={specToken} />;
       default:
         return view ? (
           <JourneyStepShell view={view} userName={firstName(user?.name)} onCta={handleCta} />
@@ -484,6 +490,10 @@ function JourneyRail({
           const isSelected = s.id === selectedStepId;
           const isCurrent = s.id === serverStepId;
           const showDivider = s.id === 'specs-match-reality';
+          // spec-372 issue-10 — a done (attained) step you've moved past collapses: its
+          // subtitle is hidden and its title dims. The selected step (even a done one you
+          // clicked back to) stays expanded.
+          const isDoneCollapsed = s.attained && !isSelected;
           return (
             <li key={s.id}>
               {showDivider && (
@@ -520,12 +530,12 @@ function JourneyRail({
                 <span className="min-w-0">
                   <span
                     className={`block text-base font-semibold ${
-                      isSelected ? 'text-heading' : s.attained ? 'text-secondary' : 'text-primary'
+                      isSelected ? 'text-heading' : isDoneCollapsed ? 'text-muted' : 'text-primary'
                     }`}
                   >
                     {view?.mapLabel ?? s.id}
                   </span>
-                  {view?.mapSubLabel && (
+                  {view?.mapSubLabel && !isDoneCollapsed && (
                     <span className="mt-0.5 block text-[13.5px] leading-snug text-muted">{view.mapSubLabel}</span>
                   )}
                 </span>

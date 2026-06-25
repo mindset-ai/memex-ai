@@ -5,9 +5,9 @@
 // connection shows inline (a green tick on mcpConnected) but is not itself a gate.
 import { useEffect, useRef, useState } from 'react';
 import { CodeBlock } from '../CodeBlock';
-import { GlossaryTerm } from '../GlossaryTerm';
+import { StepDoneBadge } from './StepDoneBadge';
 import { fetchJourneyStateApi } from '../../api/journey';
-import { Instructions, TOOLS, OS_LABEL, detectOs, type Os, type Tool } from './ConnectAgentStep';
+import { Instructions, TOOLS, detectOs, type Os, type Tool } from './ConnectAgentStep';
 // spec-372 — clipboard prompt prose lives in a dedicated util module (std-23 / b-68
 // prose-location guard), not inline here. These are human-pasted prompts for the user's
 // own coding agent, not Mindset-agent prose, so they sit alongside genesisPrompt.ts.
@@ -23,9 +23,11 @@ import {
 type Source = 'prd' | 'sample';
 type Method = 'agent' | 'app';
 
+// spec-372 issue-9 — selected chips are WHITE-filled (bg-surface), keeping the accent
+// border + accent text as the selection cue (consistent with the white method toggle).
 const chip = (selected: boolean) =>
   `rounded-lg border px-4 py-2 text-sm transition ${
-    selected ? 'border-accent bg-accent/10 font-semibold text-accent' : 'border-edge text-secondary hover:bg-card-hover'
+    selected ? 'border-accent bg-surface font-semibold text-accent' : 'border-edge text-secondary hover:bg-card-hover'
   }`;
 
 // spec-372 t-13 — v3 stage heading: 28px / 600, no number prefix (the v2 mono "1/2" is gone).
@@ -49,7 +51,8 @@ export function CreateSpecStep({
   onCreateInApp?: () => void;
   onCtaClick?: (target: string) => void;
 } = {}) {
-  const [os, setOs] = useState<Os>(detectOs);
+  // spec-372 issue-6 — OS is auto-detected; the manual "Your machine" selector is removed.
+  const [os] = useState<Os>(detectOs);
   const [tool, setTool] = useState<Tool>('claude-code');
   const [method, setMethod] = useState<Method>('agent');
   const [source, setSource] = useState<Source>('sample');
@@ -111,7 +114,6 @@ export function CreateSpecStep({
     };
   }, [preview, onComplete]);
 
-  const osMatters = tool === 'claude-code' || tool === 'claude-desktop';
 
   return (
     <div data-testid="journey-step-create-spec" className="animate-[panelIn_0.35s_ease] max-w-3xl">
@@ -120,7 +122,7 @@ export function CreateSpecStep({
       </h2>
       {/* spec-372 t-13 — v3 subtitle weight is 500 (medium), not bold. */}
       <p className="mb-4 text-xl font-medium leading-snug text-primary">
-        Get the full magic of <GlossaryTerm term="spec">Memex</GlossaryTerm> by connecting to the MCP and using it in
+        Get the full magic of Memex by connecting to the MCP and using it in
         your coding agent
       </p>
       {/* spec-372 change #13 — "New to the MCP?" helper: docs link + Copy-a-prompt-for-your-agent. */}
@@ -167,18 +169,8 @@ export function CreateSpecStep({
 
         {!connected && (
           <>
-            {osMatters && (
-              <div className="mb-3">
-                <span className="mb-2 block text-sm font-medium text-secondary">Your machine</span>
-                <div className="flex flex-wrap gap-2">
-                  {(['mac', 'windows', 'linux'] as Os[]).map((o) => (
-                    <button key={o} type="button" data-testid={`os-${o}`} onClick={() => setOs(o)} className={chip(o === os)}>
-                      {OS_LABEL[o]}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
+            {/* spec-372 issue-6 — OS selector removed; `os` is auto-detected and the
+                install command below reflects it without a manual toggle. */}
             <div className="mb-3">
               <span className="mb-2 block text-sm font-medium text-secondary">Your coding agent</span>
               <div className="flex flex-wrap gap-2">
@@ -207,7 +199,12 @@ export function CreateSpecStep({
 
       {/* Stage 2 — Create your first spec. */}
       <section data-testid="create-stage" className="rounded-2xl border border-edge bg-surface p-6">
-        <StageHeading title="Create your first spec" sub="Draft your first spec with your coding agent, or create it here in the app." />
+        {/* spec-372 issue-17 — the created state is a "✓ Created" badge by the heading,
+            mirroring Stage-1's "✓ Connected" badge (not a sentence at the bottom). */}
+        <div className="flex items-start justify-between gap-3">
+          <StageHeading title="Create your first spec" sub="Draft your first spec with your coding agent, or create it here in the app." />
+          {done && <StepDoneBadge label="Created" testId="create-spec-done" />}
+        </div>
 
         <div className="mb-5 inline-flex gap-1 rounded-xl bg-card-hover p-1">
           {(['agent', 'app'] as Method[]).map((m) => (
@@ -282,19 +279,16 @@ export function CreateSpecStep({
           </>
         )}
 
-        <div className="mt-5" data-testid="create-spec-status">
-          {done ? (
-            <div data-testid="create-spec-done" className="flex items-center gap-2.5 text-status-success-text">
-              <span className="h-2.5 w-2.5 flex-none rounded-full bg-status-success-text" />
-              <span className="font-semibold">Connected — and your first spec is in Memex.</span>
-            </div>
-          ) : (
+        {/* spec-372 issue-17 — done is shown as the "✓ Created" badge by the heading above;
+            the bottom status now only carries the waiting line. */}
+        {!done && (
+          <div className="mt-5" data-testid="create-spec-status">
             <div className="flex items-center gap-2.5 text-sm text-muted">
               <span className="h-2.5 w-2.5 flex-none animate-pulse rounded-full bg-accent" />
               Waiting for your agent to create the spec — this advances the moment it does.
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </section>
     </div>
   );
