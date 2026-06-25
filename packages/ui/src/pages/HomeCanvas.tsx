@@ -318,7 +318,11 @@ export function HomeCanvas() {
   return (
     <div className="font-onboarding min-h-full" data-testid="home-canvas">
       {/* spec-336 / prototype: the page-level Home header above the tracker. */}
-      <div className="mx-auto max-w-5xl px-4 pt-10 sm:px-6">
+      {/* spec-372 issue-18 (dec-9) — cap content at calc(25% + 48rem) instead of max-w-5xl
+          (64rem) so each left/right gutter is 75% of its former value at every pane width:
+          gutter = (W − cap)/2, and 0.25·W + 0.75·64rem leaves 75% of (W − 64rem) as gutter.
+          Narrow widths (cap > pane) just fill the pane — no negative margins. */}
+      <div className="mx-auto max-w-[calc(25%_+_48rem)] px-4 pt-10 sm:px-6">
         <h1 data-testid="home-page-title" className="onboarding-heading">
           Home
         </h1>
@@ -329,7 +333,9 @@ export function HomeCanvas() {
 
       {layerVisible ? (
         <section data-testid="journey-layer" className="relative">
-          <div className="mx-auto max-w-5xl px-4 pt-6 sm:px-6">
+          {/* spec-372 issue-18 (dec-9) — same calc(25% + 48rem) cap as the header so the
+              two surfaces stay aligned and the 25% gutter reduction is uniform. */}
+          <div className="mx-auto max-w-[calc(25%_+_48rem)] px-4 pt-6 sm:px-6">
             {/* Header — static (spec-372 issue-8 removed the collapse/expand toggle + chevron). */}
             <div className="flex flex-wrap items-center gap-3 rounded-xl border-b border-edge px-2 pb-4 pt-1">
               {/* spec-372 issue-7 — title uses the onboarding accent #0482DC (the global
