@@ -151,7 +151,7 @@ export async function ensureUserNamespace(
     // is harmless). The needsLink-only repair path has a pre-existing memex and
     // does NOT seed.
     if (!existingMemex) {
-      await seedNewPersonalMemex(created.memex.id);
+      await seedNewPersonalMemex(created.memex.id, userId);
     }
     return created;
   }
@@ -215,7 +215,7 @@ export async function ensureUserNamespace(
   // Memex. AFTER the mutate() commits, on the create path only (the fast-path
   // returns earlier and never reaches here). This funnels every signup flow
   // (password / magic-link / SSO) — they all create the namespace through here.
-  await seedNewPersonalMemex(created.memex.id);
+  await seedNewPersonalMemex(created.memex.id, userId);
   return created;
 }
 
@@ -239,9 +239,9 @@ export async function ensureUserNamespace(
 // time we get here). The seeds are individually idempotent (handhold: NO-OP if a demo doc
 // exists — ac-8; standards: NO-OP once the Memex holds any standard), so a duplicate fire
 // (e.g. a signup race twin) is harmless.
-async function seedNewPersonalMemex(memexId: string): Promise<void> {
+async function seedNewPersonalMemex(memexId: string, ownerUserId: string): Promise<void> {
   await Promise.allSettled([
-    seedHandholdDemoBestEffort(memexId),
+    seedHandholdDemoBestEffort(memexId, ownerUserId),
     seedDefaultStandardsBestEffort(memexId),
   ]);
 }
@@ -256,10 +256,12 @@ async function seedNewPersonalMemex(memexId: string): Promise<void> {
 // (handhold.api.test.ts, the seed-resilience test) stub the var back on — the env is read at
 // CALL time, never cached, precisely so they can. Prod/dev/e2e behaviour is unchanged
 // (var unset ⇒ hook fires).
-async function seedHandholdDemoBestEffort(memexId: string): Promise<void> {
+async function seedHandholdDemoBestEffort(memexId: string, ownerUserId: string): Promise<void> {
   if (process.env.MEMEX_HANDHOLD_SIGNUP_SEED === "off") return;
   try {
-    await seedHandholdDemo(memexId);
+    // spec-406 (ac-26): attribute the seed to the new user over the server channel
+    // (std-32) so its demo Specs/ACs/tasks/decisions carry a WHO + HOW.
+    await seedHandholdDemo(memexId, { channel: "server", actorUserId: ownerUserId });
   } catch (err) {
     console.error("[handhold seed]", err);
   }

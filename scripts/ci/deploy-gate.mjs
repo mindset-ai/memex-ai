@@ -19,9 +19,14 @@
 // DEC-2 — int-smoke-before-prod (WARN MODE). The int post-deploy smoke runs INLINE
 // at the int deploy job's tail (deploy.sh → `make smoke-$ENV`, non-zero on
 // failure), so a GREEN int `deploy` run for a SHA already MEANS int smoke passed
-// for that SHA; and `main` fast-forwards the byte-identical develop SHA (std-21).
-// For a PROD deploy (ref_name === 'main') this gate ALSO queries the int
-// (develop-branch) `deploy` run for the SHA and RECORDS the result loudly — but in
+// for that SHA. A `develop`→`main` release is a MERGE COMMIT (std-21 cl-50:
+// GitHub's PR surface cannot fast-forward), so the SHA landing on `main` is a NEW
+// commit that never ran on `develop` — querying ITS int deploy would never match
+// and would poll to the timeout (the bug this gate originally had). The merge
+// commit's 2nd parent IS the `develop` tip the release was built from; that commit
+// got the int deploy + smoke and is byte-identical to the merge commit. So for a
+// PROD deploy (ref_name === 'main') this gate resolves that develop-side parent and
+// queries the int (develop-branch) `deploy` run for IT, recording the result — in
 // WARN mode: it reports, it does NOT block. Flipping warn→block is a one-line
 // change (set INT_SMOKE_ENFORCE=block) the orchestrator enables AFTER validating
 // the live semantics: a break-glass `make deploy` int deploy leaves NO int CI run
@@ -86,6 +91,20 @@ export function runsPath(repo, workflowFile, branch, sha) {
   return `/repos/${repo}/actions/workflows/${encodeURIComponent(workflowFile)}/runs?${qs}`;
 }
 
+/**
+ * Pick the SHA whose int deploy proves "this build was smoked on int before prod".
+ * A develop→main release is a MERGE COMMIT (std-21 cl-50: GitHub can't fast-forward),
+ * so the deployed `main` SHA is new and never ran on develop. Its 2nd parent is the
+ * develop tip it was built from — byte-identical content, and the SHA that actually
+ * received the int deploy + smoke. So for a merge commit, check the 2nd parent; for a
+ * commit without one (defensive — a non-merge push to main shouldn't happen per
+ * std-21), check the commit itself. For a GitHub merge commit parents = [base(main),
+ * head(develop)], so the develop side is parents[1].
+ */
+export function intCheckSha(deployedSha, parents) {
+  return Array.isArray(parents) && parents.length >= 2 ? parents[1] : deployedSha;
+}
+
 // ── IO ─────────────────────────────────────────────────────────────────────────
 
 async function fetchRuns({ apiUrl, repo, token, workflowFile, branch, sha }) {
@@ -102,6 +121,25 @@ async function fetchRuns({ apiUrl, repo, token, workflowFile, branch, sha }) {
   }
   const body = await res.json();
   return body.workflow_runs ?? [];
+}
+
+// Resolve a commit's parent SHAs via the REST commit endpoint. Used to find a
+// release merge commit's develop-side parent (parents[1]). Uses the GitHub API
+// (not local git) so it works under the gate job's shallow checkout.
+async function fetchCommitParents({ apiUrl, repo, token, sha }) {
+  const url = `${apiUrl}/repos/${repo}/commits/${encodeURIComponent(sha)}`;
+  const res = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/vnd.github+json",
+      "X-GitHub-Api-Version": "2022-11-28",
+    },
+  });
+  if (!res.ok) {
+    throw new Error(`GitHub API ${res.status} for ${url}: ${await res.text()}`);
+  }
+  const body = await res.json();
+  return (body.parents ?? []).map((p) => p.sha);
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -161,7 +199,7 @@ function summary(c, line) {
   }
 }
 
-export async function runGate(env, { fetchRunsImpl } = {}) {
+export async function runGate(env, { fetchRunsImpl, fetchCommitParentsImpl } = {}) {
   const c = cfg(env);
   c.summaryFile = env.GITHUB_STEP_SUMMARY;
   const log = (m) => process.stdout.write(m + "\n");
@@ -180,6 +218,9 @@ export async function runGate(env, { fetchRunsImpl } = {}) {
     (({ workflowFile, branch, sha }) =>
       fetchRuns({ apiUrl: c.apiUrl, repo: c.repo, token: c.token, workflowFile, branch, sha }));
   const deps = { fetchRuns: fr, timeoutMs: c.timeoutMs, intervalMs: c.intervalMs, log };
+  const fcp =
+    fetchCommitParentsImpl ||
+    (({ sha }) => fetchCommitParents({ apiUrl: c.apiUrl, repo: c.repo, token: c.token, sha }));
 
   // ── Gate 1 (dec-1): the `test` workflow must be GREEN for this exact SHA ──
   log(`deploy-gate: checking ${c.testWorkflowFile} for ${c.refName}@${c.sha.slice(0, 8)} …`);
@@ -201,21 +242,42 @@ export async function runGate(env, { fetchRunsImpl } = {}) {
 
   // ── Gate 2 (dec-2): int-smoke-before-prod, WARN mode (prod only) ──
   if (c.refName === "main") {
+    // The deployed SHA is the develop→main release MERGE COMMIT (std-21 cl-50:
+    // GitHub can't fast-forward), so it never ran on develop and has no int deploy
+    // of its own. Resolve its develop-side parent (2nd parent = the develop tip the
+    // release was built from), which DID get the int deploy + smoke and is
+    // byte-identical, and check THAT. Falls back to the deployed commit on a
+    // degenerate shape (no 2nd parent) or if the parents can't be resolved.
+    let intSha = c.sha;
+    try {
+      const parents = await fcp({ sha: c.sha });
+      intSha = intCheckSha(c.sha, parents);
+      log(
+        intSha === c.sha
+          ? `deploy-gate: ${c.sha.slice(0, 8)} has no 2nd parent — checking its own int deploy directly.`
+          : `deploy-gate: release merge commit ${c.sha.slice(0, 8)} → develop parent ${intSha.slice(0, 8)} (the SHA INT deployed).`,
+      );
+    } catch (err) {
+      log(
+        `::warning::deploy-gate: could not resolve parents of ${c.sha.slice(0, 8)} ` +
+          `(${err?.message || err}) — checking the deployed commit's int run directly.`,
+      );
+    }
     log(
-      `deploy-gate: prod deploy — checking int (develop) ${c.deployWorkflowFile} run for the SHA ` +
-        `(a green int deploy run ≡ int smoke passed for this SHA) …`,
+      `deploy-gate: prod deploy — checking int (develop) ${c.deployWorkflowFile} run for ${intSha.slice(0, 8)} ` +
+        `(a green int deploy run ≡ int smoke passed for that SHA) …`,
     );
     const intVerdict = await pollVerdict(deps, {
       workflowFile: c.deployWorkflowFile,
       branch: "develop",
-      sha: c.sha,
+      sha: intSha,
     });
     const intGreen = intVerdict === "success";
-    summary(c, `- **int smoke** (develop deploy run) for \`${c.sha.slice(0, 8)}\`: **${intVerdict}** (enforce: \`${c.intSmokeEnforce}\`)`);
+    summary(c, `- **int smoke** (develop deploy run) for \`${intSha.slice(0, 8)}\`: **${intVerdict}** (enforce: \`${c.intSmokeEnforce}\`)`);
 
     if (!intGreen) {
       const msg =
-        `int-smoke-before-prod: int deploy run for ${c.sha} is '${intVerdict}', not 'success'. ` +
+        `int-smoke-before-prod: int deploy run for ${intSha} is '${intVerdict}', not 'success'. ` +
         `A break-glass int deploy leaves no CI run; verify int smoke was green before promoting.`;
       if (c.intSmokeEnforce === "block") {
         log(`::error::deploy-gate FAIL CLOSED (int-smoke enforce=block) — ${msg}`);

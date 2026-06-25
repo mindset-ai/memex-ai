@@ -344,7 +344,7 @@ export const issuesTools: ToolSpec[] = [
         );
       }
       const { memexId, doc, slugs, entity } = resolved;
-      const result = await convertIssueToTask(memexId, entity.row.id);
+      const result = await convertIssueToTask(memexId, entity.row.id, reqCtx(ctx));
       const taskRef = buildChildRef(slugs, doc, { type: "tasks", seq: result.task.seq });
       const issueRef = buildChildRef(slugs, doc, { type: "issues", seq: result.issue.seq });
       if (ctx.verbose) {
