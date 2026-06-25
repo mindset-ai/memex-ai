@@ -561,12 +561,37 @@ jobs:
         with:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-playwright-${{ hashFiles('pnpm-lock.yaml') }}
+      # Both install steps shell out to `apt`, which periodically red-flags a shard
+      # on a transient Google CDN mirror-sync race (apt fetches the Chrome repo index
+      # mid-sync → "File has unexpected size … Mirror sync in progress?" → exit 100,
+      # before any test runs). The window is short, so a bounded retry with backoff
+      # clears it; a real, persistent failure still fails the step after all attempts.
       - name: Install Playwright Chromium
         if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: pnpm --filter @memex/ui exec playwright install --with-deps chromium
+        run: |
+          attempts=4
+          for attempt in $(seq 1 "$attempts"); do
+            if pnpm --filter @memex/ui exec playwright install --with-deps chromium; then exit 0; fi
+            if [ "$attempt" -lt "$attempts" ]; then
+              echo "::warning::playwright install --with-deps failed (attempt $attempt/$attempts) — likely a transient apt mirror sync; retrying after backoff"
+              sleep $((attempt * 15))
+            fi
+          done
+          echo "::error::playwright install --with-deps failed after $attempts attempts"
+          exit 1
       - name: Install Playwright OS deps (cached browser)
         if: steps.playwright-cache.outputs.cache-hit == 'true'
-        run: pnpm --filter @memex/ui exec playwright install-deps chromium
+        run: |
+          attempts=4
+          for attempt in $(seq 1 "$attempts"); do
+            if pnpm --filter @memex/ui exec playwright install-deps chromium; then exit 0; fi
+            if [ "$attempt" -lt "$attempts" ]; then
+              echo "::warning::playwright install-deps failed (attempt $attempt/$attempts) — likely a transient apt mirror sync; retrying after backoff"
+              sleep $((attempt * 15))
+            fi
+          done
+          echo "::error::playwright install-deps failed after $attempts attempts"
+          exit 1
       - name: E2E journeys (shard ${{ matrix.shard }}/3)
         run: pnpm --filter @memex/ui test:e2e --shard=${{ matrix.shard }}/3
       - name: Upload Playwright trace on failure
