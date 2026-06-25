@@ -16,7 +16,7 @@ function Stat({ label, value, sub }: { label: string; value: string; sub?: strin
   return (
     <div className="flex flex-col">
       <span className="text-xs text-secondary">{label}</span>
-      <span className="text-lg font-semibold leading-tight">{value}</span>
+      <span className="text-lg font-semibold leading-tight text-primary">{value}</span>
       {sub && <span className="text-xs text-secondary">{sub}</span>}
     </div>
   );
@@ -35,7 +35,7 @@ export function SpecSummaryStrip({ summary }: Props) {
       <Stat label="Created" value={shortDate(summary.createdAt.slice(0, 10))} />
       <div className="flex flex-col">
         <span className="text-xs text-secondary">Phase</span>
-        <span className="text-lg font-semibold leading-tight inline-flex items-center gap-1.5">
+        <span className="text-lg font-semibold leading-tight text-primary inline-flex items-center gap-1.5">
           <span className="inline-block w-2.5 h-2.5 rounded-sm" style={{ background: phaseColors[summary.currentPhase] }} />
           {phaseLabel(summary.currentPhase)}
         </span>

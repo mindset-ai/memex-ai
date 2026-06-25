@@ -35,6 +35,12 @@ export function SpecTaskVelocityChart({ points }: Props) {
 
   const max = Math.max(1, ...points.map((p) => Math.max(p.created, p.started, p.completed)));
 
+  // A band scale draws one tick per day by default — illegible across a multi-week
+  // spec. Thin to ~8 evenly-spaced day labels so the axis stays readable regardless
+  // of span (the bars themselves still render one per day).
+  const stride = Math.max(1, Math.ceil(points.length / 8));
+  const bottomTickValues = points.filter((_, i) => i % stride === 0).map((p) => p.day);
+
   return (
     <div data-testid="spec-task-velocity-chart" className="h-64">
       <ResponsiveBar
@@ -42,7 +48,7 @@ export function SpecTaskVelocityChart({ points }: Props) {
         keys={[...SERIES]}
         indexBy="day"
         groupMode="grouped"
-        margin={{ top: 16, right: 16, bottom: 36, left: 32 }}
+        margin={{ top: 16, right: 16, bottom: 44, left: 32 }}
         padding={0.2}
         innerPadding={1}
         colors={(d) => colorFor[d.id as (typeof SERIES)[number]]}
@@ -52,7 +58,8 @@ export function SpecTaskVelocityChart({ points }: Props) {
         gridYValues={integerTicks(max)}
         axisBottom={{
           format: (v) => shortDate(String(v)),
-          tickRotation: points.length > 8 ? -40 : 0,
+          tickValues: bottomTickValues,
+          tickRotation: bottomTickValues.length > 6 ? -40 : 0,
         }}
         tooltip={({ id, value, indexValue }) => (
           <div className="text-xs rounded-lg px-3 py-2" style={TOOLTIP_STYLE}>

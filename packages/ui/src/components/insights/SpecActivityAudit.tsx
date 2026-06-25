@@ -114,7 +114,7 @@ export function SpecActivityAudit({ specRef }: Props) {
                     <span style={{ color: channelTone(r.channel, palette) }}>{whoLabel(r)}</span>
                   </td>
                   <td className="py-1.5 pr-3 whitespace-nowrap text-xs text-secondary">{channelLabel(r.channel)}</td>
-                  <td className="py-1.5">
+                  <td className="py-1.5 text-primary">
                     <span className="text-xs uppercase tracking-wide text-secondary mr-1.5">{r.kind}</span>
                     {r.action}
                     {r.narrative && <span className="text-secondary"> — {r.narrative.slice(0, 120)}</span>}
