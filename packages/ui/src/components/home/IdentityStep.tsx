@@ -72,30 +72,48 @@ export function IdentityStep({
       <h2 className="onboarding-heading mb-3.5">
         Built around how you work
       </h2>
-      {/* spec-372 issue-3 — step-0 intro paragraphs at 16px (text-base), down from 18px. */}
-      <p className="mb-1.5 max-w-3xl text-base leading-relaxed text-secondary">
-        Let&apos;s tailor this to how you actually work.
-      </p>
-      <p className="mb-6 max-w-3xl text-base leading-relaxed text-secondary">
-        Most people building modern products do more than one job. Where do you spend most of your time?
-      </p>
 
+      {/* spec-372 issue-4 — for nameless (native-auth) users the name field sits directly
+          below the heading, above the intro copy. The ✓ confirm button appears only once a
+          name has been typed (hidden while empty) and submits the step like Continue. */}
       {needsName && (
         <div className="mb-6 max-w-sm">
           <label htmlFor="identity-name" className="mb-1.5 block text-sm font-semibold text-secondary">
             Your name
           </label>
-          <input
-            id="identity-name"
-            data-testid="identity-name"
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="How should we address you?"
-            className="w-full rounded-xl border border-edge bg-surface px-4 py-3 text-base text-primary outline-hidden transition focus:border-accent"
-          />
+          <div className="relative">
+            <input
+              id="identity-name"
+              data-testid="identity-name"
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && name.trim()) submit(role);
+              }}
+              placeholder="How should we address you?"
+              className="w-full rounded-xl border border-edge bg-surface py-3 pl-4 pr-14 text-base text-primary outline-hidden transition focus:border-accent"
+            />
+            {name.trim() && (
+              <button
+                type="button"
+                data-testid="identity-name-confirm"
+                aria-label="Confirm your name"
+                onClick={() => submit(role)}
+                className="absolute right-2 top-1/2 inline-flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-lg bg-accent text-on-accent transition hover:bg-accent-hover"
+              >
+                <span aria-hidden>✓</span>
+              </button>
+            )}
+          </div>
         </div>
       )}
+
+      {/* spec-372 issue-4 — the two intro lines merged into one 16px paragraph. */}
+      <p className="mb-6 max-w-3xl text-base leading-relaxed text-secondary">
+        Let&apos;s tailor Memex to how you actually work. Most people building modern products do more than one job, so
+        where do you spend most of your time?
+      </p>
 
       {/* spec-372 issue-2 — top-align the columns (NOT items-center). The persona panel's
           height changes with the persona copy as the dot moves; centring re-positioned the

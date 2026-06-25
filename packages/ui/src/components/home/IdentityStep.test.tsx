@@ -100,6 +100,21 @@ describe('IdentityStep (v2)', () => {
     const [, name] = updateProfileApi.mock.calls[0];
     expect(name).toBe('Jane Roe');
   });
+
+  it('spec-372 issue-4: the name field shows a confirm tick only after typing, and the tick submits', async () => {
+    authUser.value = { id: 'u-2', name: '', email: 'jane@example.com' };
+    render(<IdentityStep />);
+    // Hidden while the field is empty.
+    expect(screen.queryByTestId('identity-name-confirm')).toBeNull();
+    // Appears once at least one character is typed.
+    fireEvent.change(screen.getByTestId('identity-name'), { target: { value: 'Jane' } });
+    const confirm = screen.getByTestId('identity-name-confirm');
+    expect(confirm).toBeInTheDocument();
+    // Clicking it submits like Continue (persists the typed name).
+    fireEvent.click(confirm);
+    await waitFor(() => expect(updateProfileApi).toHaveBeenCalledTimes(1));
+    expect(updateProfileApi.mock.calls[0][1]).toBe('Jane');
+  });
 });
 
 // spec-372 issue-2 — guard the two layout fixes so a future change can't silently
