@@ -5,18 +5,24 @@ import type { PresentRow } from '../components/pulse/types';
 /**
  * usePresence — the READ half of spec-122's presence plane (dec-4, ac-1/ac-5).
  *
- * Polls `GET /api/<ns>/<mx>/presence?ref=<spec>` for who's "here NOW" on one or
- * more specs and returns the merged set of present rows. Presence decays ~30s
- * server-side, so we re-poll on a short cadence to keep the live picture honest
- * (and to age workers out as their beats stop).
+ * Polls `GET /api/<ns>/<mx>/presence` for who's "here NOW" and returns the
+ * merged set of present rows. Presence decays ~30s server-side, so we re-poll on
+ * a short cadence to keep the live picture honest (and to age workers out as
+ * their beats stop).
  *
- *   - The Pulse "Working now" zone passes EVERY active spec ref so it can show
- *     one line per active worker across the whole Memex (the presence endpoint
- *     is per-spec, so we fan out and merge).
- *   - The spec/AC ambient indicator passes a single ref.
+ *   - The Pulse "Working now" zone passes EVERY active spec ref. It wants
+ *     whole-workspace presence, so we make ONE request to the bulk endpoint
+ *     (`/presence`, no ref) per poll — NOT one request per spec. This is the
+ *     spec-407 fix: the old per-spec fan-out fired O(number of Specs) requests
+ *     every poll (~366 on the largest workspace) and was the dominant source of
+ *     production DB load. Presence rows only ever exist for spec docs, so the
+ *     whole-workspace set equals the old fan-out's merged result.
+ *   - The spec/AC ambient indicator passes a single ref → one targeted
+ *     `/presence?ref=<spec>` request, unchanged.
  *
- * Best-effort: a failed poll leaves the last-known rows in place rather than
- * flickering the indicator empty.
+ * Best-effort: a FAILED poll (network error or non-ok response) leaves the
+ * last-known rows in place rather than flickering the indicator empty; a
+ * successful empty response clears them (so decayed workers disappear).
  */
 
 const POLL_INTERVAL_MS = 10_000;
@@ -52,23 +58,24 @@ export function usePresence(
       setLoading(false);
       return;
     }
+    // One request per poll: the whole-workspace bulk read for the many-refs
+    // caller (Pulse "Working now"), or the single-spec read for the ambient
+    // indicator. The per-spec fan-out is gone (spec-407).
+    const url =
+      list.length === 1
+        ? `${base}/presence?ref=${encodeURIComponent(list[0])}`
+        : `${base}/presence`;
     try {
-      const results = await Promise.all(
-        list.map((ref) =>
-          fetch(`${base}/presence?ref=${encodeURIComponent(ref)}`, {
-            headers: authHeader(),
-          })
-            .then((res) => (res.ok ? (res.json() as Promise<PresentRow[]>) : []))
-            .catch(() => [] as PresentRow[]),
-        ),
-      );
-      // Merge + de-dupe across specs by (actorUserId, clientId, docId) — a worker
-      // is one line per spec they're on.
+      const res = await fetch(url, { headers: authHeader() });
+      // A failed request keeps the last-known rows (don't flicker to empty); a
+      // successful response — even an empty one — is authoritative and replaces.
+      if (!res.ok) return;
+      const fetched = (await res.json()) as PresentRow[];
+      // De-dupe by (actorUserId, clientId, docId) — a worker is one line per
+      // spec they're on.
       const byKey = new Map<string, PresentRow>();
-      for (const set of results) {
-        for (const r of set) {
-          byKey.set(`${r.actorUserId}|${r.clientId}|${r.docId}`, r);
-        }
+      for (const r of fetched) {
+        byKey.set(`${r.actorUserId}|${r.clientId}|${r.docId}`, r);
       }
       const merged = [...byKey.values()].sort(
         (a, b) => new Date(b.lastSeenAt).getTime() - new Date(a.lastSeenAt).getTime(),
