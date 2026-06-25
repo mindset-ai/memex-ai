@@ -168,15 +168,30 @@ export async function backfillAllUserProfiles(
   }
   const conn = opts.conn ?? db;
   const allUsers = await conn.select({ id: users.id, email: users.email }).from(users);
-  const profiles = await Promise.all(
-    allUsers.map(async (u) =>
-      toEngagePayload({
-        userId: u.id,
-        emailDomain: extractEmailDomain(u.email),
-        orgIds: await getUserOrgIds(u.id, conn),
-      }),
-    ),
+  // Per-user resilience: a backfill must not abort because ONE user's org lookup
+  // throws (e.g. the row was deleted by a concurrent path mid-scan). Build each
+  // profile in its own try/catch and drop the failures, so one odd user can't take
+  // down the whole backfill — matching syncUserProfile's advisory-swallow posture.
+  // (This also removes the std-37 race where a sibling test deleting a user
+  // mid-Promise.all rejected the whole call and reddened the merge gate — spec-395.)
+  const built = await Promise.all(
+    allUsers.map(async (u) => {
+      try {
+        return toEngagePayload({
+          userId: u.id,
+          emailDomain: extractEmailDomain(u.email),
+          orgIds: await getUserOrgIds(u.id, conn),
+        });
+      } catch (err) {
+        log(
+          "backfillAllUserProfiles: skipped one user (advisory — swallowed):",
+          err instanceof Error ? err.message : err,
+        );
+        return null;
+      }
+    }),
   );
+  const profiles = built.filter((p): p is EngageProfile => p !== null);
   const batchSize = opts.batchSize ?? 200;
   let sent = 0;
   for (let i = 0; i < profiles.length; i += batchSize) {
@@ -184,5 +199,8 @@ export async function backfillAllUserProfiles(
     await sink.setProfiles(batch);
     sent += batch.length;
   }
-  return { total: allUsers.length, sent };
+  // `total` is the count we actually built a profile for (sent === total holds), so a
+  // user dropped above doesn't desync the two — the caller's "every profile sent"
+  // invariant stays true regardless of a concurrently-mutated sibling row.
+  return { total: profiles.length, sent };
 }

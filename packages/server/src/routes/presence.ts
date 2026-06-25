@@ -14,26 +14,22 @@
 
 import { Hono } from "hono";
 import { getDoc } from "../services/documents.js";
-import { markPresent, listPresent } from "../services/presence.js";
+import { markPresent, listPresent, listPresentForMemex } from "../services/presence.js";
 import { parseRef } from "./../services/refs.js";
 import { ValidationError } from "../types/errors.js";
 import { actorName } from "../services/actor.js";
-import {
-  sessionMiddleware,
-  publicSessionMiddleware,
-  type SessionEnv,
-} from "../middleware/session.js";
+import { type SessionEnv } from "../middleware/session.js";
 import type { MemexResolverEnv } from "../middleware/memex-resolver.js";
 import { requireMemexId, resolveReadableMemexId } from "./shared.js";
+import { mountStandardSessionPolicy } from "./session-policy.js";
 
 type Env = MemexResolverEnv & SessionEnv;
 const presenceRouter = new Hono<Env>();
 
 // GET (read who's here) is public-read like the rest of the spec surface; the
 // POST heartbeat is a write and stays strict (only an authenticated member can
-// declare presence).
-presenceRouter.on("GET", "/*", publicSessionMiddleware);
-presenceRouter.on(["POST", "PUT", "PATCH", "DELETE"], "/*", sessionMiddleware);
+// declare presence). spec-377 — the standard policy (see session-policy.ts).
+mountStandardSessionPolicy(presenceRouter);
 
 // Accept either a full canonical ref ("<ns>/<mx>/specs/spec-N") or a bare
 // "spec-N" handle. getDoc resolves either form scoped to the memex.
@@ -77,11 +73,25 @@ presenceRouter.post("/", async (c) => {
   return c.json({ ok: true });
 });
 
-// GET /api/<ns>/<mx>/presence?ref=<spec> — who's "here" in a spec, for the UI.
+// GET /api/<ns>/<mx>/presence — who's "here", for the UI.
+//   • no `ref`        → whole-workspace presence in ONE indexed read (spec-407
+//     dec-1, option A). The Pulse "Working now" zone calls this once per poll
+//     instead of fanning out one request per spec — listPresentForMemex returns
+//     the table rows (within TTL) UNIONed with the passive floor, merged.
+//   • `?ref=<spec>`   → presence for a single spec (the ambient indicator).
+// Both forms stay behind mountStandardSessionPolicy, so tenant resolution + RLS
+// scoping (std-36) are identical: the whole-workspace read returns ONLY the
+// caller's Memex (tableRowsForMemex filters by memexId, RLS enforces it). No
+// multi-ref `?refs=a,b,c` shape — the only fan-out caller wants the whole
+// workspace, so it would be API surface with no consumer (spec-407 dec-1).
 presenceRouter.get("/", async (c) => {
   const memexId = await resolveReadableMemexId(c);
   const ref = c.req.query("ref")?.trim();
-  if (!ref) throw new ValidationError("presence read requires a 'ref' query param");
+
+  if (!ref) {
+    const rows = await listPresentForMemex(memexId);
+    return c.json(rows);
+  }
 
   const spec = await getDoc(memexId, specHandleFromRef(ref));
   const rows = await listPresent(memexId, spec.id);

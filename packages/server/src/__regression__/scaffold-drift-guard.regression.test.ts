@@ -97,6 +97,12 @@ const ALLOWLISTED_PROSE_FILES = new Set(
     // Mindset's own agent, so it belongs here rather than in scaffold-data.ts
     // (which owns Mindset-agent system-prompt / nudge / rubric prose).
     "packages/ui/src/utils/genesisPrompt.ts",
+    // spec-372: the Home onboarding "Create your spec" clipboard prompts (the
+    // four Stage-2 create-spec prompts + the step-1 "Copy a prompt for your
+    // agent" doc-grounded evaluation prompt). Same category as genesisPrompt.ts
+    // above: human-pasted into the user's OWN coding agent, NOT consumed by
+    // Mindset's agent, so they live in a UI util module rather than scaffold-data.ts.
+    "packages/ui/src/utils/createSpecPrompts.ts",
     // One-shot Postgres seed for the b-3 "reviewer" persona — bootstrap
     // data, not a runtime nudge channel.
     "packages/server/src/db/seed-reviewer.ts",
@@ -507,6 +513,9 @@ describe("b-68 drift-guard: b-67 manifest↔Zod parity test is still present (ac
     // b-67 test pins, and the per-tool parity loop.
     expect(src).toContain("import { toolManifest }");
     expect(src).toContain("manifestVsSpecsDiff");
-    expect(src).toMatch(/for\s*\(\s*const\s+spec\s+of\s+toolSpecs\s*\)/);
+    // The per-tool parity loop. spec-360 narrowed it to the MCP-catalogue subset
+    // (`mcpToolSpecs` = toolSpecs minus the agent-only scaffold tool), so accept
+    // either the original `toolSpecs` loop or that derived subset.
+    expect(src).toMatch(/for\s*\(\s*const\s+spec\s+of\s+(toolSpecs|mcpToolSpecs)\s*\)/);
   });
 });

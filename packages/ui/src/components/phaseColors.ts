@@ -1,3 +1,4 @@
+import type { SpecPhase } from '@memex/shared';
 import type { SpecStatus } from '../api/types';
 
 /**
@@ -24,7 +25,7 @@ export interface PhaseColor {
   container: string;
 }
 
-const PALETTE: Record<'draft' | 'specify' | 'build' | 'verify' | 'done', PhaseColor> = {
+const PALETTE: Record<SpecPhase, PhaseColor> = {
   draft: {
     pill: 'bg-status-neutral-bg text-status-neutral-text border-status-neutral-border',
     container: 'bg-phase-draft-container',

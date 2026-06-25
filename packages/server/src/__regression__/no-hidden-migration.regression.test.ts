@@ -67,6 +67,15 @@ describe("spec-358: no migration un-hides, deletes, or rewrites historical test_
     expect(referencingHidden).toEqual([
       "0066_add_test_events_hidden_metadata.sql",
       "0075_add_test_event_latest.sql",
+      // spec-398: the durable first-verified backfill reads test_events with a
+      // read-only `WHERE hidden = false` filter (like 0075) — it never writes hidden.
+      "0110_ac_first_verified.sql",
+      // spec-398: the bounded-retention rewrite-and-swap recreates test_events with
+      // the hidden column and COPIES each surviving row's hidden value (te.hidden)
+      // into the new table. It structurally references `hidden` but never un-hides,
+      // re-hides, or recomputes it — spec-358's hidden-integrity invariant holds
+      // (the retention drop is a separate, deliberate concern, not a hidden mutation).
+      "0111_test_events_retention_and_memex_id.sql",
     ]);
   });
 });

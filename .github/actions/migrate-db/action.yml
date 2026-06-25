@@ -1,0 +1,105 @@
+name: Migrate test DB (cached template clone)
+description: >-
+  Seed a freshly-migrated Postgres database for the test job by CLONING a
+  hash-keyed, pre-migrated template DB instead of replaying every drizzle/*.sql
+  file. Lifts the Makefile `e2e-cold` fast-path (spec-394) into CI: the 130-file
+  psql migration loop runs ONCE to build `<template-db>` (rebuilt only when the
+  drizzle/*.sql set changes — detected via a hash stored as the template DB's
+  COMMENT), then the target DB is cloned from it with `createdb -T` (near-instant).
+  This replaces the per-shard inline `for f in drizzle/*.sql; do psql ...; done`
+  SEEDING loop, which was replayed ~7x/run across the server + e2e shards.
+
+  SEED-ONLY by design: this never runs the production applier (`pnpm db:migrate`).
+  The `migration-applier` job (spec-357 dec-3) deliberately exercises the REAL
+  applier against a cold DB and must NOT use this clone — leave that job untouched.
+
+# Inputs default to the postgres side-car the server/e2e jobs already declare
+# (postgres:postgres@localhost:5432). The side-car pre-creates the target DB
+# empty; we drop + re-create it as a template clone so the schema matches a full
+# psql-loop apply exactly.
+inputs:
+  database:
+    description: Name of the target database to (re)create as a template clone.
+    required: false
+    default: memex
+  template-database:
+    description: Name of the cached, pre-migrated template database.
+    required: false
+    default: memex_template
+  host:
+    description: Postgres host.
+    required: false
+    default: localhost
+  port:
+    description: Postgres port.
+    required: false
+    default: "5432"
+  user:
+    description: Postgres superuser (must own/createdb).
+    required: false
+    default: postgres
+  password:
+    description: Postgres password.
+    required: false
+    default: postgres
+  migrations-glob:
+    description: Glob of SQL migration files applied to build the template (in sorted order).
+    required: false
+    default: packages/server/drizzle/*.sql
+
+runs:
+  using: composite
+  steps:
+    - name: Build (or reuse) the migration template, then clone the target DB
+      shell: bash
+      env:
+        PGHOST: ${{ inputs.host }}
+        PGPORT: ${{ inputs.port }}
+        PGUSER: ${{ inputs.user }}
+        PGPASSWORD: ${{ inputs.password }}
+        TARGET_DB: ${{ inputs.database }}
+        TEMPLATE_DB: ${{ inputs.template-database }}
+        MIGRATIONS_GLOB: ${{ inputs.migrations-glob }}
+      run: |
+        set -euo pipefail
+
+        # Hash the migration set. The template is rebuilt only when this hash
+        # changes — i.e. when a drizzle/*.sql file is added/edited. Mirrors the
+        # Makefile e2e-cold COMMENT-stamped hash check. `cat <glob>` is order-stable
+        # because the shell expands the glob in sorted (locale) order, the same order
+        # the psql loop applies them.
+        HASH=$(cat $MIGRATIONS_GLOB | sha256sum | cut -d' ' -f1)
+        echo "migration set hash: $HASH"
+
+        CUR=$(psql -At -d postgres -c \
+          "SELECT shobj_description(oid, 'pg_database') FROM pg_database WHERE datname = '${TEMPLATE_DB}'" \
+          2>/dev/null || true)
+
+        if [ "$CUR" != "$HASH" ]; then
+          echo "(Re)building template DB '${TEMPLATE_DB}' — migration set changed (was: '${CUR:-<none>}')"
+          # Terminate any stragglers, then drop + recreate the template empty.
+          psql -d postgres -c \
+            "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '${TEMPLATE_DB}' AND pid <> pg_backend_pid()" \
+            >/dev/null 2>&1 || true
+          dropdb --if-exists "${TEMPLATE_DB}"
+          createdb "${TEMPLATE_DB}"
+          for f in $MIGRATIONS_GLOB; do
+            psql -v ON_ERROR_STOP=1 -d "${TEMPLATE_DB}" -f "$f" >/dev/null
+          done
+          # Stamp the hash so the next run can skip the rebuild.
+          psql -d postgres -c "COMMENT ON DATABASE \"${TEMPLATE_DB}\" IS '${HASH}'" >/dev/null
+          echo "template '${TEMPLATE_DB}' built and stamped."
+        else
+          echo "template '${TEMPLATE_DB}' up to date (hash matches) — skipping rebuild."
+        fi
+
+        # Clone the target DB from the template. The side-car pre-creates the
+        # target empty; drop + recreate it as a -T clone so its schema is identical
+        # to a full psql-loop apply. This runs before any test connects, so there
+        # are no other sessions to evict on the target.
+        psql -d postgres -c \
+          "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '${TARGET_DB}' AND pid <> pg_backend_pid()" \
+          >/dev/null 2>&1 || true
+        dropdb --if-exists "${TARGET_DB}"
+        createdb -T "${TEMPLATE_DB}" "${TARGET_DB}"
+        echo "target '${TARGET_DB}' cloned from '${TEMPLATE_DB}'."

@@ -148,6 +148,13 @@ describe('rendering stack (amended ac-7: pixi.js + d3-force, no @xyflow)', () =>
 vi.mock('./StandardsMap', () => ({
   StandardsMap: () => <div data-testid="mock-standards-map" />,
 }));
+// spec-389 t-5: StandardList now docks the standards agent in a rail. This toggle
+// test doesn't exercise the chat, so stub the rail's ChatProvider-dependent
+// pieces (they'd otherwise throw "useChat must be used within ChatProvider").
+vi.mock('./ChatPanel', () => ({ ChatPanel: () => null }));
+vi.mock('./chat/OpeningStandardsController', () => ({
+  OpeningStandardsController: () => null,
+}));
 vi.mock('../api/client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../api/client')>();
   return {

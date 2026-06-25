@@ -1,13 +1,16 @@
-// ⚠ KNOWN-FLAKY UNDER FULL LOCAL PARALLEL RUNS (not a code defect).
-// The backfill idempotency assertion ("second pass embeds 0") counts over every
-// section this file created in a memex it shares across its own tests; under
-// full parallel local load it intermittently sees one extra. Green in isolation
-// and under CI's 3-way sharding.
-// TRIAGE before assuming you broke it:
+// std-37 GLOBAL-SCAN HARDENING (spec-395, 2026-06-24).
+// The backfill idempotency assertion ("second pass embeds 0") counts the backfill
+// over a whole memex. It previously ran on the file-shared `emb` memex, where an
+// earlier test's fire-and-forget embed hook (createDocDraft/addSection/createStandard
+// fire `void embedAndStoreSection(...)`) could still be in flight and land a section
+// between the two passes, so the second pass intermittently saw 1 extra. FIXED: the
+// idempotency test now uses its OWN dedicated memex (`emb-backfill`), so no sibling
+// test's in-flight hook can touch the corpus it counts. Green in isolation and under
+// CI's 3-way sharding.
+// TRIAGE a red here:
 //   1. Re-run THIS FILE in isolation:
 //        pnpm --filter @memex/server exec vitest run src/services/memex-embeddings.integration.test.ts
-//      Passes alone ⇒ known flake; don't pull develop and re-run everything.
-//   2. Only suspect a real break if your diff touched backfillSectionEmbeddings /
+//   2. Suspect a real break if your diff touched backfillSectionEmbeddings /
 //      embedding-model resolution / writeEmbedding / the doc_sections schema.
 //
 // Integration tests for the Memex embedding pipeline (b-34 T-2 — generalised
@@ -244,9 +247,19 @@ describe("backfillSectionEmbeddings", () => {
   it("embeds rows with no embedding and re-embeds rows with a stale model when force=false", async () => {
     const provider = makeFakeProvider("fake-backfill");
 
+    // std-37 (spec-395): a DEDICATED memex, not the shared `emb` one. The
+    // second-pass idempotency assertion below (`second.embedded === 0`) counts the
+    // backfill over the WHOLE memex; on the shared `emb` memex an earlier test's
+    // fire-and-forget embed hook (createDocDraft / addSection / createStandard fire
+    // `void embedAndStoreSection(...)` — services/documents.ts, sections.ts) could
+    // still be in flight and land a freshly-embedded section between the two passes,
+    // making the second pass see 1 extra. Isolating to a memex no other test touches
+    // removes that cross-test race entirely. Mirrors the `emb-all` test below.
+    const backfillMemexId = await makeTestMemex("emb-backfill");
+
     // Standard with content; we'll wipe its embeddings to simulate an unembedded
     // legacy doc that the backfill needs to catch up.
-    const std = await createStandard(memexId, {
+    const std = await createStandard(backfillMemexId, {
       title: "Backfill target",
       sections: [
         { sectionType: "do", content: "Backfill this." },
@@ -262,7 +275,7 @@ describe("backfillSectionEmbeddings", () => {
       WHERE doc_id = ${std.id}
     `);
 
-    const result = await backfillSectionEmbeddings(memexId, { provider });
+    const result = await backfillSectionEmbeddings(backfillMemexId, { provider });
     expect(result.scanned).toBeGreaterThanOrEqual(2);
     expect(result.embedded).toBeGreaterThanOrEqual(2);
     expect(result.failed).toBe(0);
@@ -278,8 +291,9 @@ describe("backfillSectionEmbeddings", () => {
     }
 
     // Second pass with the same provider should be a no-op (everything matches).
+    // Isolated memex ⇒ no sibling hook can add a row between the passes.
     provider.callCount = 0;
-    const second = await backfillSectionEmbeddings(memexId, { provider });
+    const second = await backfillSectionEmbeddings(backfillMemexId, { provider });
     expect(second.embedded).toBe(0);
     expect(provider.callCount).toBe(0);
   });

@@ -16,6 +16,9 @@ const METADATA_TOKEN_URL =
   "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token";
 
 async function accessToken() {
+  // nosemgrep: typescript.react.security.react-insecure-request -- spec-403 B4: the GCP
+  // instance-metadata server is HTTP-only by design (link-local, no TLS); HTTPS is not
+  // available. The "Metadata-Flavor: Google" header is its required SSRF guard.
   const res = await fetch(METADATA_TOKEN_URL, {
     headers: { "Metadata-Flavor": "Google" },
   });

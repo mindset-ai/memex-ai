@@ -103,6 +103,13 @@ export const DOC_STATUSES: readonly DocStatus[] = [
   "build",
   "verify",
 ] as const;
+// NOTE: do NOT import @memex/shared here. roles.ts is re-exported by db/schema.ts
+// and thus bundled into the standalone @mindset-ai/db-schema package (spec-279),
+// whose only dependency is drizzle-orm. The canonical ordered phase array lives in
+// @memex/shared (spec-355 dry-2: PHASE_ORDER); this list is a deliberate
+// boundary-local duplicate, kept byte-identical to PHASE_ORDER. The SpecStatus
+// union above is likewise the server's spec-status enum source (asserted verbatim
+// by the no-legacy-phase-vocab guard).
 export const SPEC_STATUSES: readonly SpecStatus[] = ["draft", "specify", "build", "verify", "done"] as const;
 export const TASK_STATUSES: readonly TaskStatus[] = ["not_started", "in_progress", "complete"] as const;
 export const DECISION_STATUSES: readonly DecisionStatus[] = ["open", "resolved", "candidate", "rejected"] as const;

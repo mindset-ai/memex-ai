@@ -38,6 +38,13 @@ vi.mock("../services/test-event-latest.js", () => ({
   applyEmissionToSummary: vi.fn().mockResolvedValue(undefined),
 }));
 
+// spec-398: the route trims-on-write + snapshots first-verified via tx.execute,
+// which the mocked tx above (insert-only) doesn't expose. Stub to no-ops.
+vi.mock("../services/test-event-retention.js", () => ({
+  trimTestEventsForPair: vi.fn().mockResolvedValue(undefined),
+  recordFirstVerified: vi.fn().mockResolvedValue(undefined),
+}));
+
 // Mutate() is exercised here only as a pass-through wrapper around the insert.
 vi.mock("../services/mutate.js", () => ({
   mutate: vi.fn(

@@ -6,7 +6,16 @@
 
 export type SpecPhase = 'draft' | 'specify' | 'build' | 'verify' | 'done';
 
-const PHASE_ORDER: Record<SpecPhase, number> = {
+/**
+ * The canonical forward order of the Spec pipeline — the single source of the
+ * array `['draft','specify','build','verify','done']` that was previously
+ * copy-pasted across the server and React UI (spec-355 dry-1 / dry-2). Index
+ * position IS the phase ordinal, so `PHASE_ORDINAL` below is derived from it.
+ * Behaviour-preserving: same five values in the same order everything assumed.
+ */
+export const PHASE_ORDER = ['draft', 'specify', 'build', 'verify', 'done'] as const satisfies readonly SpecPhase[];
+
+const PHASE_ORDINAL: Record<SpecPhase, number> = {
   draft: 0,
   specify: 1,
   build: 2,
@@ -113,11 +122,11 @@ export function isSpecNarrativeStale(
 }
 
 export function isForwardTransition(from: SpecPhase, to: SpecPhase): boolean {
-  return PHASE_ORDER[to] > PHASE_ORDER[from];
+  return PHASE_ORDINAL[to] > PHASE_ORDINAL[from];
 }
 
 export function isBackwardTransition(from: SpecPhase, to: SpecPhase): boolean {
-  return PHASE_ORDER[to] < PHASE_ORDER[from];
+  return PHASE_ORDINAL[to] < PHASE_ORDINAL[from];
 }
 
 /** True only for forward transitions when there are outstanding items. */

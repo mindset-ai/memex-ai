@@ -1,3 +1,4 @@
+import { docTypePath } from '@memex/shared';
 import type { DocWithGraph, Task, Decision, Comment } from '../api/types';
 import { MEMEX_MCP_TOOLS_REFERENCE } from './specInitPrompt';
 
@@ -195,23 +196,6 @@ const HOW_TO_START = (doc: DocWithGraph, task: Task) => {
 
 **Failing approach.** If tests still don't pass after multiple attempts, or each fix breaks two more things, the approach is wrong. **Back out** — revert your changes. **Re-read** the Spec narrative + the relevant standards; the failure usually surfaces a constraint you missed. **Then surface** as a decision if the right approach is now genuinely unclear.`;
 };
-
-// Map a docType to the canonical ref path segment. Specs → `specs`;
-// standards → `standards`; execution_plan → `execution-plans`; everything
-// else → `docs`. Mirrors the helper of the same name in specInitPrompt.ts —
-// kept local to avoid a cross-file import for a 6-line fn.
-function docTypePath(docType: string): string {
-  switch (docType) {
-    case 'spec':
-      return 'specs';
-    case 'standard':
-      return 'standards';
-    case 'execution_plan':
-      return 'execution-plans';
-    default:
-      return 'docs';
-  }
-}
 
 function truncate(s: string, max: number): string {
   const trimmed = s.trim().replace(/\s+/g, ' ');

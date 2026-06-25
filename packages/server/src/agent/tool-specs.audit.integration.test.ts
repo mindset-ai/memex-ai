@@ -40,7 +40,13 @@ import { createIssue } from "../services/issues.js";
 import { addSection } from "../services/sections.js";
 import { addComment } from "../services/comments.js";
 import { ValidationError } from "../types/errors.js";
-import { toolSpecs, type ToolCtx } from "./tool-specs.js";
+import { toolSpecs, AGENT_ONLY_SERVER_TOOLS, type ToolCtx } from "./tool-specs.js";
+
+// spec-360: agent-only server tools (propose_scaffold_change) are not part of
+// the MCP catalogue these audits govern — they have no manifest entry, no
+// shared `verbose` field, and no entity-ref output. Exclude them where the audit
+// enforces MCP-catalogue conventions.
+const mcpCatalogSpecs = toolSpecs.filter((s) => !AGENT_ONLY_SERVER_TOOLS.has(s.name));
 import {
   getToolDefinitions,
   getCreationToolDefinitions,
@@ -451,7 +457,7 @@ describe("audit: catalog count consistency", () => {
     expect(mcpOnly.sort()).toEqual(["list_memexes"]);
   });
 
-  it("agent-only tools is exactly the 6 render_* UI tools", () => {
+  it("agent-only UI tools are exactly the 9 render_* tools; agent-only server tools are the spec-360 scaffold tool", () => {
     const mcp = liveMcpToolNames();
     const agentTools = getToolDefinitions();
     const agentOnly = agentTools.filter((t) => !mcp.has(t.name) && isUiTool(t.name)).map((t) => t.name);
@@ -462,11 +468,20 @@ describe("audit: catalog count consistency", () => {
       "render_progress",
       "render_callout",
       "render_steps",
+      // spec-389 t-2/t-4 (dec-4/dec-3): the shared render family — navigate +
+      // verbatim quote + copyable handoff — generalised off the _scaffold prefix.
+      "render_navigate",
+      "render_quote",
+      "render_handoff",
     ].sort();
     expect(agentOnly.sort()).toEqual(expected);
-    // Agent must not have any non-UI tools missing from MCP.
-    const agentNonUiOnly = agentTools.filter((t) => !mcp.has(t.name) && !isUiTool(t.name)).map((t) => t.name);
-    expect(agentNonUiOnly).toEqual([]);
+    // spec-360: the agent's only non-UI tool absent from MCP is the agent-only
+    // scaffold authoring tool (propose_scaffold_change) — see AGENT_ONLY_SERVER_TOOLS.
+    const agentNonUiOnly = agentTools
+      .filter((t) => !mcp.has(t.name) && !isUiTool(t.name))
+      .map((t) => t.name)
+      .sort();
+    expect(agentNonUiOnly).toEqual([...AGENT_ONLY_SERVER_TOOLS].sort());
   });
 });
 
@@ -1284,7 +1299,7 @@ describe("audit: b-36 D-8 — every terse mutation/list response emits `ref:` an
   it("every non-skipped spec has a probe case registered (no silent gaps)", () => {
     const cases = casesAfterSetup();
     const missing: string[] = [];
-    for (const spec of toolSpecs) {
+    for (const spec of mcpCatalogSpecs) {
       if (REF_PROBE_SKIP.has(spec.name)) continue;
       if (!cases.has(spec.name)) missing.push(spec.name);
     }
@@ -1330,7 +1345,7 @@ describe("audit: every spec.schema.verbose references the shared VERBOSE_FIELD (
   it("VERBOSE_FIELD is present on every spec by identity", async () => {
     const { VERBOSE_FIELD } = await import("./tool-specs.js");
     const offenders: string[] = [];
-    for (const spec of toolSpecs) {
+    for (const spec of mcpCatalogSpecs) {
       const v = (spec.schema as Record<string, unknown>).verbose;
       if (v === undefined) {
         offenders.push(`${spec.name}: schema.verbose is missing`);
@@ -1375,7 +1390,7 @@ describe("audit: every *Id schema field's description matches the dec-3 standard
   it("each handle-accepting *Id description names the UUID-or-handle option", () => {
     const STANDARD_FORM_RE = /UUID or .*handle/i;
     const offenders: string[] = [];
-    for (const spec of toolSpecs) {
+    for (const spec of mcpCatalogSpecs) {
       const shape = spec.schema as Record<string, unknown>;
       for (const [fieldName, fieldSchema] of Object.entries(shape)) {
         if (!fieldName.endsWith("Id")) continue;

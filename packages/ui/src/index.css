@@ -68,6 +68,7 @@
   /* ── Text ── */
   --color-heading:     rgb(var(--ch-text-heading));
   --color-primary:     rgb(var(--ch-text-primary));
+  --color-body:        rgb(var(--ch-text-primary));   /* body copy — alias of primary; restored after the v4 migration dropped it (text-body was rendering colorless) */
   --color-secondary:   rgb(var(--ch-text-secondary));
   --color-muted:       rgb(var(--ch-text-muted));
 
@@ -312,8 +313,12 @@
 @layer base {
   body {
     @apply antialiased;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter',
-      sans-serif;
+    /* spec-372: deliberately NO 'Inter' here. Inter is self-hosted (@font-face below)
+       ONLY for the onboarding (.font-onboarding). Listing 'Inter' in this app-wide base
+       stack would let that self-hosted face bleed app-wide on platforms lacking the system
+       fonts above (Linux/Windows, incl. CI) — shifting all text metrics. Keep the global
+       app font system-first; onboarding opts in via .font-onboarding. */
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   }
 
   .dark body, .dark {
@@ -371,9 +376,16 @@
 .prose-content h3, .prose-dark h3 { color: rgb(var(--ch-text-heading)); @apply text-xl font-semibold mt-5 mb-2; }
 .prose-content h4, .prose-dark h4 { color: rgb(var(--ch-text-heading)); @apply text-lg font-medium mt-4 mb-2; }
 .prose-content p, .prose-dark p { color: rgb(var(--ch-text-primary)); @apply mb-4; }
-.prose-content ul, .prose-dark ul { color: rgb(var(--ch-text-primary)); @apply list-disc list-inside mb-4 space-y-1; }
-.prose-content ol, .prose-dark ol { color: rgb(var(--ch-text-primary)); @apply list-decimal list-inside mb-4 space-y-1; }
+/* Lists use `list-outside` (marker in the gutter), NOT `list-inside`. react-markdown
+   wraps each item's text in a block <p>; with `list-inside` the marker is part of the
+   inline flow, so that block <p> drops to the next line and the bullet sits alone on
+   its own row. `list-outside` + left padding keeps the marker beside the first line of
+   text. `li > p` margins are zeroed so single-paragraph items stay tight (inter-item
+   spacing comes from the list's `space-y-1`). */
+.prose-content ul, .prose-dark ul { color: rgb(var(--ch-text-primary)); @apply list-disc list-outside pl-5 mb-4 space-y-1; }
+.prose-content ol, .prose-dark ol { color: rgb(var(--ch-text-primary)); @apply list-decimal list-outside pl-5 mb-4 space-y-1; }
 .prose-content li, .prose-dark li { color: rgb(var(--ch-text-primary)); }
+.prose-content li > p, .prose-dark li > p { @apply my-0; }
 .prose-content blockquote, .prose-dark blockquote { border-left: 4px solid rgb(var(--ch-edge-strong)); color: rgb(var(--ch-text-secondary)); @apply pl-4 italic my-4; }
 .prose-content code, .prose-dark code { background: rgb(var(--ch-input)); color: rgb(var(--ch-status-success-text)); @apply px-1.5 py-0.5 rounded-sm text-sm font-mono; }
 .prose-content pre, .prose-dark pre { background: rgb(var(--ch-surface)); border: 1px solid rgb(var(--ch-edge)); @apply rounded-lg p-4 overflow-x-auto my-4; }
@@ -620,17 +632,21 @@
   }
 }
 
-/* spec-336 — Home Onboarding v2 fonts, SELF-HOSTED and SCOPED to the onboarding surface
-   (Ryan 2026-06-23: scope Hanken Grotesk to onboarding, not app-wide). Latin-subset
-   variable woff2 (Hanken Grotesk 400–800, Geist Mono 400–500) under assets/fonts/. The
-   `.font-onboarding` class applies Hanken Grotesk to text and Geist Mono to code, so the
-   rest of the app keeps the design-system system stack. */
+/* spec-372 — Home Onboarding v3 fonts + accent, SELF-HOSTED and SCOPED to the onboarding
+   surface. The v3 design re-cut the onboarding type to Inter (spec-336 used Hanken Grotesk)
+   and the accent to #0482DC. Inter is SELF-HOSTED because the app base stack is system-first
+   (index.css body: Inter is only a fallback and isn't otherwise loaded) — a bare fallback to
+   "Inter" would NOT render Inter, so a missing @font-face would silently keep the system font.
+   Geist Mono stays for code. The accent is applied as an onboarding-scoped override of the
+   accent CHANNELS (dec-1): redefining --ch-accent here cascades into --color-accent
+   (rgb(var(--ch-accent))) for every bg-accent / text-accent / text-on-accent / border-accent
+   usage inside `.font-onboarding`, while the global app accent is left untouched. */
 @font-face {
-  font-family: 'Hanken Grotesk';
+  font-family: 'Inter';
   font-style: normal;
   font-weight: 400 800;
   font-display: swap;
-  src: url('./assets/fonts/hanken-grotesk.woff2') format('woff2');
+  src: url('./assets/fonts/inter.woff2') format('woff2');
 }
 @font-face {
   font-family: 'Geist Mono';
@@ -640,11 +656,34 @@
   src: url('./assets/fonts/geist-mono.woff2') format('woff2');
 }
 .font-onboarding {
-  font-family: 'Hanken Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', sans-serif;
+  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  /* spec-372 dec-1 — onboarding-scoped accent #0482DC (rgb 4 130 220). */
+  --ch-accent: 4 130 220;
+  --ch-accent-hover: 3 110 187; /* #036EBB — ~12% darker for hover */
+  --ch-on-accent: 255 255 255; /* white reads on the #0482DC fill */
 }
 .font-onboarding code,
 .font-onboarding pre,
 .font-onboarding kbd,
 .font-onboarding samp {
   font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+/* spec-372 t-3 (change #3) — onboarding prompt containers wrap long lines and grow to fit
+   instead of scrolling horizontally. The shared CodeBlock keeps `overflow-x-auto` for every
+   other usage (Settings install, Genesis prompt); wrapping just makes that scrollbar inert
+   here. Scoped to `.font-onboarding` so only the onboarding prompts are affected. */
+.font-onboarding pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* spec-372 t-2 (change #8, dec-5) — the v3 onboarding heading scale, one source of truth
+   for every step H2 and the Home page title: 34px / 600 / line-height 1.1 / -0.015em.
+   Heading colour is the theme-aware token (light ≈ #0F172A, v3 spec #0B1220) rather than a
+   hardcoded hex so dark mode stays legible (ac-16 allows "or its token equivalent"). */
+.onboarding-heading {
+  font-size: 34px;
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: -0.015em;
+  color: rgb(var(--ch-text-heading));
 }

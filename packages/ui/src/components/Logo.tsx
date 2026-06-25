@@ -1,4 +1,13 @@
-import logoMarkup from '../assets/memex-logo-singlecol.svg?raw';
+import rawLogoMarkup from '../assets/memex-logo-singlecol.svg?raw';
+
+// The asset ships intrinsic width="300" height="51". Tailwind v4 reliably emits the
+// `[&>svg]:h-full` child rule but NOT `[&>svg]:w-auto`, so a hard-coded width="300" wins
+// and the wordmark renders 300px wide — overflowing every chrome slot (spec-372 ac-5: the
+// logo looked shoved right in the sidebar). Strip both intrinsic dimensions so the inlined
+// SVG derives its size from the viewBox aspect ratio against the wrapper's `h-*` height.
+const logoMarkup = rawLogoMarkup
+  .replace(/(<svg\b[^>]*?)\s+width="[^"]*"/i, '$1')
+  .replace(/(<svg\b[^>]*?)\s+height="[^"]*"/i, '$1');
 
 interface LogoProps {
   /** Sizes the wordmark — height drives it, width follows the aspect ratio.

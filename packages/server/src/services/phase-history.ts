@@ -3,6 +3,7 @@
 // (ac-11): the ordered sequence of immutable {from, to} rows is the source, and
 // dwell-time + thrash fall out of it.
 
+import { PHASE_ORDER } from "@memex/shared";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { db, type Db } from "../db/connection.js";
 import { activityLog } from "../db/schema.js";
@@ -68,7 +69,7 @@ export interface PhaseMetrics {
   transitions: number;
 }
 
-const PHASE_ORDER = ["draft", "specify", "build", "verify", "done"] as const;
+// spec-355 dry-2: the canonical ordered phase array from @memex/shared.
 const rankOf = (phase: string): number => PHASE_ORDER.indexOf(phase as (typeof PHASE_ORDER)[number]);
 
 /**

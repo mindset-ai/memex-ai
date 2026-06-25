@@ -29,7 +29,10 @@ export function CodeBlock({ code, onCopy }: { code: string; onCopy?: () => void 
   return (
     <div className="relative group">
       <CopyButton text={code} onCopy={onCopy} />
-      <pre className="border rounded-lg p-4 overflow-x-auto text-sm leading-relaxed bg-surface border-edge">
+      {/* pr-20 reserves a gutter for the absolutely-positioned Copy button so wrapped prompt
+          text (pre-wrap inside the onboarding scope) never flows underneath it — the button
+          (~46px "Copy" / ~62px "Copied!" at right-2) clears with room to spare (spec-372). */}
+      <pre className="border rounded-lg p-4 pr-20 overflow-x-auto text-sm leading-relaxed bg-surface border-edge">
         <code className="text-primary">{code}</code>
       </pre>
     </div>

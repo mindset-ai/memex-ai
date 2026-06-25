@@ -1,5 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { requireString, requireUuid, requireEmail, readJsonBody } from "./validation.js";
+import {
+  requireString,
+  requireStringType,
+  requireStringArray,
+  requireUuid,
+  requireEmail,
+  readJsonBody,
+  parseJsonBodyOrNull,
+} from "./validation.js";
 import { ValidationError } from "../types/errors.js";
 
 describe("requireString", () => {
@@ -40,6 +48,91 @@ describe("requireString", () => {
     expect(requireString("a".repeat(100), "name", { trim: true, maxLength: 100 })).toHaveLength(
       100,
     );
+  });
+
+  it("uses a custom message when { message } is supplied (default path unchanged otherwise)", () => {
+    try {
+      requireString(undefined, "targetMemexId", {
+        message: "Body must include a 'targetMemexId' string",
+      });
+      expect.fail("should have thrown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(ValidationError);
+      expect((err as Error).message).toBe("Body must include a 'targetMemexId' string");
+    }
+    // No-message callers keep the default wording.
+    expect(() => requireString(undefined, "domain")).toThrow("domain is required");
+  });
+});
+
+describe("requireStringType", () => {
+  it("ACCEPTS the empty string (unlike requireString)", () => {
+    expect(requireStringType("", "title")).toBe("");
+    expect(requireStringType("hello", "title")).toBe("hello");
+  });
+
+  it("throws on non-string with the default message", () => {
+    expect(() => requireStringType(undefined, "content")).toThrow("content must be a string");
+    expect(() => requireStringType(123, "content")).toThrow(ValidationError);
+    expect(() => requireStringType(null, "content")).toThrow(ValidationError);
+  });
+
+  it("uses a custom message when supplied", () => {
+    expect(() =>
+      requireStringType(undefined, "status", {
+        message: "Body must include a 'status' string",
+      }),
+    ).toThrow("Body must include a 'status' string");
+  });
+});
+
+describe("requireStringArray", () => {
+  it("returns the array when every element is a string", () => {
+    expect(requireStringArray(["a", "b"], "tags")).toEqual(["a", "b"]);
+    expect(requireStringArray([], "tags")).toEqual([]);
+  });
+
+  it("throws on non-array or arrays with a non-string element", () => {
+    expect(() => requireStringArray(undefined, "tags")).toThrow("tags must be an array of strings");
+    expect(() => requireStringArray("nope", "tags")).toThrow(ValidationError);
+    expect(() => requireStringArray(["a", 1], "tags")).toThrow(ValidationError);
+  });
+
+  it("uses a custom message when supplied", () => {
+    expect(() =>
+      requireStringArray(null, "tags", {
+        message: "Body must include a 'tags' array of strings",
+      }),
+    ).toThrow("Body must include a 'tags' array of strings");
+  });
+});
+
+describe("parseJsonBodyOrNull", () => {
+  it("returns parsed JSON when valid", async () => {
+    const c = { req: { json: async () => ({ a: 1 }) } };
+    expect(await parseJsonBodyOrNull(c)).toEqual({ a: 1 });
+  });
+
+  it("returns null on malformed JSON (does NOT throw, unlike readJsonBody)", async () => {
+    const c = {
+      req: {
+        json: async () => {
+          throw new SyntaxError("bad");
+        },
+      },
+    };
+    expect(await parseJsonBodyOrNull(c)).toBeNull();
+  });
+
+  it("honours a custom fallback", async () => {
+    const c = {
+      req: {
+        json: async () => {
+          throw new SyntaxError("bad");
+        },
+      },
+    };
+    expect(await parseJsonBodyOrNull(c, {})).toEqual({});
   });
 });
 

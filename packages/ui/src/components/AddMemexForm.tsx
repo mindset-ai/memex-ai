@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from './ui/Button';
 import { Input } from './ui/Input';
+import { Alert } from './ui/Alert';
 import { useAuth } from './AuthContext';
 import {
   checkMemexSlugApi,
@@ -96,7 +97,10 @@ export function AddMemexForm({
         await createMemexApi(namespaceId, trimmed, undefined, token);
         if (onCreated) {
           onCreated(trimmed);
-        } else {
+        } else if (/^[a-z0-9-]+$/.test(trimmed)) {
+          // spec-403 dec-1: allowlist the slug right before navigating. Already
+          // server-validated (check.available); the explicit guard breaks the CodeQL
+          // js/xss-through-dom flow and proves a same-origin path (no scheme/colon).
           window.location.href = tenantPathFor(namespaceSlug, trimmed, '/specs');
         }
       } catch (err) {
@@ -157,9 +161,9 @@ export function AddMemexForm({
       <SlugStatus slug={trimmed} checking={checking} check={check} />
 
       {submitError && (
-        <div className="px-3 py-2 rounded-lg bg-status-danger-bg border border-status-danger-border text-sm text-status-danger-text">
+        <Alert variant="danger" size="md">
           {submitError}
-        </div>
+        </Alert>
       )}
 
       <div className="flex justify-end gap-2">

@@ -1,5 +1,6 @@
 import {
   BASE_SCAFFOLD,
+  docTypePath,
   toInitPromptRef,
   type InitPromptRefEntry,
   type ToolNode,
@@ -260,22 +261,4 @@ export const INIT_PROMPT_MODES: Record<InitPromptMode, InitPromptModeDef> = {
 
 function titleCase(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
-}
-
-/**
- * Map a docType (as stored in the database) to the canonical ref path segment.
- * Specs live under \`specs/spec-N\`; free-form docs and execution-plans under
- * \`docs/doc-N\` / \`execution-plans/doc-N\`; standards under \`standards/std-N\`.
- */
-function docTypePath(docType: string): string {
-  switch (docType) {
-    case 'spec':
-      return 'specs';
-    case 'standard':
-      return 'standards';
-    case 'execution_plan':
-      return 'execution-plans';
-    default:
-      return 'docs';
-  }
 }

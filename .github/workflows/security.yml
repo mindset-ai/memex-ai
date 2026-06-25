@@ -1,4 +1,4 @@
-# Security — Semgrep OSS static-analysis gate on develop.
+# Security — Semgrep OSS static-analysis gate on develop + the develop→main release PR.
 #
 # Complements CodeQL (codeql.yml): CodeQL is the deep dataflow engine, Semgrep
 # adds fast pattern-based rules (incl. a broad secrets pack) from the public
@@ -13,7 +13,14 @@ name: Security
 
 on:
   pull_request:
-    branches: [develop]
+    # `develop` gates every feature PR. `main` ALSO gates the develop→main release
+    # PR — without it the REQUIRED `semgrep` status never attaches to the release
+    # head (a develop merge commit the develop-only trigger never scans), so the
+    # release blocks forever "waiting for semgrep". On a release PR the baseline is
+    # the PR base (main), so it stays a diff-scan of what the release introduces —
+    # never the full-repo scan that workflow_dispatch does (which fails on the
+    # repo's pre-existing findings).
+    branches: [develop, main]
   workflow_dispatch:
 
 # Least-privilege default for GITHUB_TOKEN.
@@ -29,7 +36,7 @@ jobs:
     name: semgrep
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           # Full history so --baseline-commit can diff against the PR base.
           fetch-depth: 0

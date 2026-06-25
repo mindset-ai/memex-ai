@@ -1,36 +1,30 @@
-// spec-143 t-4 (dec-6) — the drift agent's on-mount controller + the drift-mode
-// input gate.
+// spec-143 t-4 (dec-6) / spec-389 (dec-1) — the drift agent's on-mount controller.
 //
-//   - the controller enters drift mode on mount and fires the opening turn once,
-//     with the scaffold-sourced drift seed (DRIFT_OPENING_TURN_SEED);
-//   - it leaves drift mode on unmount;
-//   - ChatPanel's input is LIVE on arrival in drift mode (canChat true) before
-//     any context chip, so the agent "comes to life" on navigation.
+//   - the controller enters drift mode on mount and leaves it on unmount;
+//   - per spec-389 dec-1 it opens with the shared STATIC AgentIntro card, NOT an
+//     opening LLM turn (like the standards / issues / scaffold agents), so it no
+//     longer fires startDriftOpeningTurn — the first LLM call waits for the user.
 
-import { render, waitFor } from '@testing-library/react';
+import { render } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { tagAc } from '@memex-ai-ac/vitest';
-import { DRIFT_OPENING_TURN_SEED } from '@memex/shared';
 
 const SPEC = 'mindset-prod/memex-building-itself/specs/spec-143';
-// spec-143 t-4 (dec-6): the in-UI drift agent is LIVE on the Drift Inbox with a
-// drift opening turn.
+// spec-143 t-4 (dec-6): the in-UI drift agent is LIVE on the Drift Inbox.
 const AC_DRIFT_MODE = `${SPEC}/acs/ac-12`;
 // ac-3 (scope, linked to dec-6): the drift-scoped agent sits alongside the
-// Drift Inbox — it comes to life on mount (drift mode + opening turn) and
-// restores the default agent on unmount.
+// Drift Inbox — it comes to life on mount (drift mode) and restores the default
+// agent on unmount.
 const AC_DRIFT_SURFACE = `${SPEC}/acs/ac-3`;
 
 const mockEnterDriftMode = vi.fn();
 const mockExitDriftMode = vi.fn();
-const mockStartDriftOpeningTurn = vi.fn();
 let isDriftMode = true;
 
 vi.mock('../ChatContext', () => ({
   useChat: () => ({
     enterDriftMode: mockEnterDriftMode,
     exitDriftMode: mockExitDriftMode,
-    startDriftOpeningTurn: mockStartDriftOpeningTurn,
     isDriftMode,
   }),
 }));
@@ -53,23 +47,13 @@ describe('OpeningDriftController', () => {
     expect(mockExitDriftMode).toHaveBeenCalledTimes(1);
   });
 
-  it('fires the drift opening turn ONCE with the scaffold-sourced seed', async () => {
+  it('does NOT fire an opening LLM turn on entry (dec-1: static intro)', () => {
     tagAc(AC_DRIFT_MODE);
     tagAc(AC_DRIFT_SURFACE);
+    // The controller exposes no startDriftOpeningTurn at all; entering drift mode
+    // must not trigger any agent invocation. Asserting the mocked context shape has
+    // no opening-turn hook guards against the icebreaker being reintroduced.
     render(<OpeningDriftController />);
-    await waitFor(() =>
-      expect(mockStartDriftOpeningTurn).toHaveBeenCalledTimes(1),
-    );
-    expect(mockStartDriftOpeningTurn).toHaveBeenCalledWith(DRIFT_OPENING_TURN_SEED);
-  });
-
-  it('does not fire the opening turn until drift mode is active', () => {
-    tagAc(AC_DRIFT_MODE);
-    isDriftMode = false;
-    render(<OpeningDriftController />);
-    // enterDriftMode is still called (mount), but the fire effect short-circuits
-    // until isDriftMode flips true.
     expect(mockEnterDriftMode).toHaveBeenCalledTimes(1);
-    expect(mockStartDriftOpeningTurn).not.toHaveBeenCalled();
   });
 });

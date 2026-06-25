@@ -19,17 +19,25 @@ import { bus, type ChangeEvent } from "./bus.js";
 import { upsertUserByEmail } from "./users.js";
 import {
   createOrgScaffoldAddition,
+  createScaffoldAddition,
   deleteOrgScaffoldAddition,
   getOrgScaffoldAddition,
   listOrgScaffoldAdditions,
+  listScaffoldAdditions,
+  resolveScaffoldOwner,
   toggleOrgScaffoldAddition,
   updateOrgScaffoldAddition,
 } from "./scaffold-additions.js";
+import { ensureUserNamespace } from "./user-namespaces.js";
+import { users } from "../db/schema.js";
 import { NotFoundError } from "../types/errors.js";
+import { buildScaffoldContext } from "../agent/context-builder.js";
 
 const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-68/acs/ac-${n}`;
 const AC103 = (n: number) =>
   `mindset-prod/memex-building-itself/specs/spec-103/acs/ac-${n}`;
+const AC360 = (n: number) =>
+  `mindset-prod/memex-building-itself/specs/spec-360/acs/ac-${n}`;
 
 interface TestOrg {
   orgId: string;
@@ -109,6 +117,44 @@ afterAll(async () => {
       )
       .catch(() => {});
   }
+});
+
+// ── spec-360 issue-10: buildScaffoldContext reads org additions FRESH ────
+// The "agent did not save it" bug: a cached read raced a just-committed save
+// (the cache's bus invalidation is detached/async). buildScaffoldContext reads
+// uncached, so a freshly-created addition appears in the assistant's grounding
+// immediately — no cache lag.
+describe("spec-360 issue-10: scaffold grounding sees a just-created addition (ac-5)", () => {
+  let fx: TestOrg;
+  beforeAll(async () => {
+    fx = await makeTestOrg("fresh");
+    createdOrgIds.push(fx.orgId);
+  });
+
+  it("a freshly-created org addition appears in buildScaffoldContext with no cache delay", async () => {
+    tagAc(AC360(5));
+
+    // Before: the assistant's grounding has none of our text.
+    const NEEDLE = `FRESH-NEEDLE-${Math.random().toString(36).slice(2, 8)}`;
+    const before = await buildScaffoldContext(fx.memexId);
+    expect(before.context).not.toContain(NEEDLE);
+
+    // Create an addition, then immediately rebuild the grounding — no waiting on
+    // a cache invalidation. The committed row must already be visible.
+    await createOrgScaffoldAddition(
+      {
+        orgId: fx.orgId,
+        authorId: fx.authorId,
+        target: { phase: "build" },
+        text: NEEDLE,
+        rationale: "freshness probe",
+      },
+      { channel: "rest_ui" },
+    );
+
+    const after = await buildScaffoldContext(fx.memexId);
+    expect(after.context).toContain(NEEDLE);
+  });
 });
 
 // ── ac-7: dec-2 GuidanceBlock field shape (round-trip persistence) ───────
@@ -446,5 +492,117 @@ describe("cascade delete", () => {
       .from(orgScaffoldAdditions)
       .where(eq(orgScaffoldAdditions.orgId, fx.orgId));
     expect(after).toHaveLength(0);
+  });
+});
+
+// ── spec-360 follow-up: personal-namespace owner ─────────────────────────────
+//
+// The owner-aware CORE (createScaffoldAddition / listScaffoldAdditions /
+// resolveScaffoldOwner) writes to namespace_id (not org_id) for a personal
+// owner, fires the std-8 bus on the personal memex, and never leaks org rows.
+
+const createdPersonalNamespaceIds: string[] = [];
+const createdPersonalUserIds: string[] = [];
+
+afterAll(async () => {
+  if (createdPersonalUserIds.length) {
+    await db.delete(users).where(eq(users.id, createdPersonalUserIds[0])).catch(() => {});
+    for (const id of createdPersonalUserIds.slice(1)) {
+      await db.delete(users).where(eq(users.id, id)).catch(() => {});
+    }
+  }
+  for (const nsId of createdPersonalNamespaceIds) {
+    await db.delete(namespaces).where(eq(namespaces.id, nsId)).catch(() => {});
+  }
+});
+
+async function makePersonal(): Promise<{
+  namespaceId: string;
+  memexId: string;
+  userId: string;
+}> {
+  const user = await upsertUserByEmail(
+    `personal-scaffold-${crypto.randomUUID()}@memex.test`,
+  );
+  createdPersonalUserIds.push(user.id);
+  const { namespace, memex } = await ensureUserNamespace(user.id);
+  createdPersonalNamespaceIds.push(namespace.id);
+  return { namespaceId: namespace.id, memexId: memex.id, userId: user.id };
+}
+
+describe("personal-namespace owner (spec-360 follow-up)", () => {
+  it("resolveScaffoldOwner returns {kind:'personal'} for a personal memex and {kind:'org'} for an org memex", async () => {
+    tagAc(`mindset-prod/memex-building-itself/specs/spec-360/acs/ac-3`);
+    const p = await makePersonal();
+    const owner = await resolveScaffoldOwner(p.memexId);
+    expect(owner).toEqual({ kind: "personal", namespaceId: p.namespaceId });
+
+    const org = await makeTestOrg("rso");
+    createdOrgIds.push(org.orgId);
+    const orgOwner = await resolveScaffoldOwner(org.memexId);
+    expect(orgOwner).toEqual({ kind: "org", orgId: org.orgId });
+  });
+
+  it("create + list round-trips on the namespace_id column and fires the bus on the personal memex", async () => {
+    tagAc(`mindset-prod/memex-building-itself/specs/spec-360/acs/ac-8`);
+    const p = await makePersonal();
+    const owner = { kind: "personal" as const, namespaceId: p.namespaceId };
+
+    const { result: created, events } = await collectBusEventsDuring(() =>
+      createScaffoldAddition(
+        owner,
+        {
+          authorId: p.userId,
+          target: { phase: "specify" },
+          text: "Personal house style.",
+          rationale: "My workspace.",
+        },
+        { channel: "rest_ui" },
+      ),
+    );
+
+    expect(created.source).toBe("org");
+    expect(created.namespaceId).toBe(p.namespaceId);
+    expect(created.orgId).toBeUndefined();
+
+    // Bus fired on the personal memex.
+    const emitted = events.filter(
+      (e) => e.entity === "org_scaffold_addition" && e.memexId === p.memexId,
+    );
+    expect(emitted.length).toBeGreaterThanOrEqual(1);
+
+    // Owner-aware list returns it.
+    const listed = await listScaffoldAdditions(owner);
+    expect(listed.map((b) => b.id)).toContain(created.id);
+  });
+
+  it("a personal owner's list excludes org rows (isolation)", async () => {
+    tagAc(`mindset-prod/memex-building-itself/specs/spec-360/acs/ac-3`);
+    const p = await makePersonal();
+    const org = await makeTestOrg("piso");
+    createdOrgIds.push(org.orgId);
+
+    await createScaffoldAddition(
+      { kind: "personal", namespaceId: p.namespaceId },
+      { authorId: p.userId, target: {}, text: "Personal.", rationale: "p." },
+    );
+    await createOrgScaffoldAddition({
+      orgId: org.orgId,
+      authorId: org.authorId,
+      target: {},
+      text: "Org.",
+      rationale: "o.",
+    });
+
+    const personalList = await listScaffoldAdditions({
+      kind: "personal",
+      namespaceId: p.namespaceId,
+    });
+    expect(personalList).toHaveLength(1);
+    expect(personalList[0].text).toBe("Personal.");
+    expect(personalList[0].namespaceId).toBe(p.namespaceId);
+
+    const orgList = await listOrgScaffoldAdditions(org.orgId);
+    expect(orgList.every((b) => b.namespaceId === undefined)).toBe(true);
   });
 });

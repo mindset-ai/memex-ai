@@ -1,4 +1,4 @@
-import { pgTable, text, uuid, timestamp, integer, unique, uniqueIndex, check, primaryKey, jsonb, boolean, index, customType, doublePrecision } from "drizzle-orm/pg-core";
+import { pgTable, text, uuid, timestamp, integer, unique, uniqueIndex, check, primaryKey, jsonb, boolean, index, customType, doublePrecision, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { relations, type InferSelectModel, type InferInsertModel, sql } from "drizzle-orm";
 import type { CommentAction, CommentAudience } from "../types/roles.js";
 
@@ -44,6 +44,21 @@ const inet = customType<{ data: string; driverData: string }>({
     return "inet";
   },
 });
+
+// std-32 (spec-122 dec-2) — the activity contract's load-bearing vocabularies.
+// HOW (`channel`) = the surface a write arrived through; WHO-kind (`actor_kind`) =
+// the class of actor behind it. These value lists are duplicated across every
+// activity-bearing table's CHECK; hoisting them to one source keeps the allowed
+// set authoritative and drift-proof. The fragment interpolates the table's own
+// column so the emitted SQL stays byte-identical to the per-site originals.
+//
+// NOTE: comms_log.channel is a *notification* channel ('email','in_app',…) — a
+// different vocabulary that intentionally does NOT use this helper.
+const activityChannelCheck = (column: AnyPgColumn) =>
+  sql`${column} IN ('rest_ui', 'mcp', 'in_app_agent', 'server')`;
+
+const activityActorKindCheck = (column: AnyPgColumn) =>
+  sql`${column} IN ('human', 'mcp_agent', 'in_app_agent', 'system')`;
 
 // Forward-declared so child tables can reference memexes.id. The actual memexes table
 // definition lives later in this file (multi-tenancy section). All resource tables carry
@@ -172,7 +187,7 @@ export const docSections = pgTable(
   (table) => [
     check(
       "doc_sections_channel_valid",
-      sql`${table.channel} IN ('rest_ui', 'mcp', 'in_app_agent', 'server')`,
+      activityChannelCheck(table.channel),
     ),
     // `seq` is the allocate-once identity (spec-150 dec-2): minted as MAX(seq)+1 and
     // never reused, so a deleted section's frozen seq can't collide with a live one.
@@ -373,7 +388,7 @@ export const docComments = pgTable(
     ),
     check(
       "doc_comments_channel_valid",
-      sql`${table.channel} IN ('rest_ui', 'mcp', 'in_app_agent', 'server')`
+      activityChannelCheck(table.channel)
     ),
     // doc-26 t-4: cross_reference comments must point at exactly one target
     // kind (or zero, for legacy rows whose backfill couldn't resolve a
@@ -469,7 +484,7 @@ export const decisions = pgTable(
     ),
     check(
       "decisions_channel_valid",
-      sql`${table.channel} IN ('rest_ui', 'mcp', 'in_app_agent', 'server')`,
+      activityChannelCheck(table.channel),
     ),
     check(
       "decisions_status_valid",
@@ -529,7 +544,7 @@ export const tasks = pgTable(
       .where(sql`${table.actorUserId} IS NOT NULL`),
     check(
       "tasks_channel_valid",
-      sql`${table.channel} IN ('rest_ui', 'mcp', 'in_app_agent', 'server')`,
+      activityChannelCheck(table.channel),
     ),
   ]
 );
@@ -606,6 +621,15 @@ export const acs = pgTable(
     // never auto-deleted; un-accept nulls both columns.
     acceptedBy: text("accepted_by"),
     acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    // spec-391 dec-2 (0108): the reviewed-verification rationale — extends the
+    // spec-188 acceptance overlay into a named, dated, REASONED sign-off so a
+    // config/prose/Dashboard AC that cannot carry an automated test (Stripe
+    // settings, Apple notarization, policy ACs) satisfies the hard verify→done
+    // AC gate (dec-2) instead of permanently wedging the spec. Set together with
+    // accepted_by/accepted_at by the reviewed-verification sign-off service;
+    // NULL on a bare manual acceptance. The `accepted` verification state is
+    // still driven by accepted_at; reviewed_reason is the human-facing "why".
+    reviewedReason: text("reviewed_reason"),
     // spec-122 dec-2/dec-5 — the activity contract (WHO + HOW), stamped at write
     // time so the activity view (dec-1) projects one uniform shape across every
     // arm. actor_name is denormalised so a later user rename/delete can't rewrite
@@ -641,7 +665,7 @@ export const acs = pgTable(
     // allowed while a stamped value is constrained to the contract's vocabulary.
     check(
       "acs_channel_valid",
-      sql`${table.channel} IN ('rest_ui', 'mcp', 'in_app_agent', 'server')`,
+      activityChannelCheck(table.channel),
     ),
   ]
 );
@@ -791,6 +815,13 @@ export const testEvents = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     acUid: text("ac_uid").notNull(),
+    // spec-398 dec-4 (ac-8): tenancy is a first-class column stamped at write,
+    // resolved from the emitting Memex [per std-32] — no longer parsed out of
+    // ac_uid at read time. The activity_view test_events arm filters this column
+    // instead of the namespaces→memexes join that was the spec-396 leak surface
+    // (migration 0109). The RLS POLICY itself is spec-399's [per std-36]; this
+    // Spec adds the column + backfill + index only (ac-9, no RLS here).
+    memexId: uuid("memex_id").notNull(),
     status: text("status").notNull(),
     testIdentifier: text("test_identifier"),
     durationMs: integer("duration_ms"),
@@ -825,6 +856,20 @@ export const testEvents = pgTable(
     // spec-352 (0105) — Home activity_view: the only prunable predicate on this
     // arm is the created_at window (the spec_ref join is a substring of ac_uid).
     index("test_events_created_at_idx").on(table.createdAt),
+    // spec-398 dec-1/dec-2 (ac-1, ac-2): the keep-last-10-per-(ac_uid,
+    // test_identifier) retention index — drives both the one-time rewrite-and-swap
+    // and the steady-state trim-on-write, and doubles as the per-test timeline read.
+    index("test_events_retention_idx").on(
+      table.acUid,
+      table.testIdentifier,
+      table.createdAt,
+    ),
+    // spec-398 dec-5 (ac-11): the activity_view per-Spec arm filters te.memex_id;
+    // this index turns that full Seq Scan into an index scan scoped to one tenant.
+    index("test_events_memex_id_created_at_idx").on(
+      table.memexId,
+      table.createdAt,
+    ),
     check(
       "test_events_status_valid",
       sql`${table.status} IN ('pass', 'fail', 'error')`,
@@ -862,6 +907,9 @@ export const testEventLatest = pgTable(
     latestStatus: text("latest_status").notNull(),
     latestRunAt: timestamp("latest_run_at", { withTimezone: true }).notNull(),
     runCount: integer("run_count").notNull().default(0),
+    // spec-398 dec-4 (ac-8): tenancy column mirroring test_events [per std-32],
+    // backfilled in the rewrite-and-swap migration. RLS is spec-399's (ac-9).
+    memexId: uuid("memex_id").notNull(),
   },
   (table) => [
     primaryKey({ columns: [table.acUid, table.testIdentifier] }),
@@ -871,6 +919,22 @@ export const testEventLatest = pgTable(
     ),
   ]
 );
+
+// ══════════════════════════════════════
+// AC first-verified (spec-398 t-6 / spec-125)
+// ══════════════════════════════════════
+//
+// Durable "when did this AC first go green" fact, keyed by ac_uid. The analytics
+// alignment-over-time curve (analytics.ts acsOverTime) needs the EARLIEST passing
+// emission per ac_uid — but spec-398's keep-last-10 retention deletes that oldest
+// row from test_events. This is the spec-125 operational/analytical tier split:
+// test_events is the bounded OPERATIONAL tier; this table is the durable analytical
+// snapshot retention never touches. Written by the emission path (recordFirstVerified,
+// LEAST-wins so the earliest survives out-of-order writes); backfilled in 0110.
+export const acFirstVerified = pgTable("ac_first_verified", {
+  acUid: text("ac_uid").primaryKey(),
+  firstVerifiedAt: timestamp("first_verified_at", { withTimezone: true }).notNull(),
+});
 
 // ══════════════════════════════════════
 // Conversations
@@ -1547,9 +1611,17 @@ export const orgScaffoldAdditions = pgTable(
   "org_scaffold_additions",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    orgId: uuid("org_id")
-      .notNull()
-      .references(() => orgs.id, { onDelete: "cascade" }),
+    // spec-360 follow-up: ownership is additive — an addition is owned by an org
+    // OR a personal namespace, enforced by the owner-XOR check below. org_id is
+    // therefore NULLABLE now (a personal-owned row has org_id NULL +
+    // namespaceId set).
+    orgId: uuid("org_id").references(() => orgs.id, { onDelete: "cascade" }),
+    // spec-360 follow-up: personal-namespace owner. NULL for org-owned rows; set
+    // (with org_id NULL) for a personal namespace's own additions. ON DELETE
+    // CASCADE mirrors the org cascade — deleting the namespace drops its rows.
+    namespaceId: uuid("namespace_id").references(() => namespaces.id, {
+      onDelete: "cascade",
+    }),
     // spec-193 t-5 (dec-6 grain): optional per-memex scope. NULL = account-wide
     // — applies to every memex in the Org's namespace (existing behaviour, the
     // default for security / house-style blocks). Set = applies ONLY to that
@@ -1599,7 +1671,20 @@ export const orgScaffoldAdditions = pgTable(
       "org_scaffold_additions_emphasis_valid",
       sql`${table.emphasis} IS NULL OR ${table.emphasis} IN ('do', 'dont')`
     ),
+    // spec-360 follow-up: owner-XOR — a row is owned by exactly one of an org or
+    // a personal namespace. Mirrors migration 0107's CHECK constraint.
+    check(
+      "org_scaffold_additions_owner_xor",
+      sql`(${table.orgId} IS NOT NULL) <> (${table.namespaceId} IS NOT NULL)`
+    ),
     index("org_scaffold_additions_org_id_idx").on(table.orgId),
+    // spec-360 follow-up: personal-owner read path mirrors the org pair — keep
+    // `WHERE namespace_id = ? [AND (memex_id IS NULL OR = ?)]` an index scan.
+    index("org_scaffold_additions_namespace_id_idx").on(table.namespaceId),
+    index("org_scaffold_additions_namespace_id_memex_id_idx").on(
+      table.namespaceId,
+      table.memexId,
+    ),
     // spec-193 t-5: the per-memex merge reads `WHERE org_id = ? AND (memex_id
     // IS NULL OR memex_id = ?)`; index (org_id, memex_id) so account-wide +
     // per-memex resolution stays an index scan.
@@ -2571,11 +2656,11 @@ export const activityLog = pgTable(
     ),
     check(
       "activity_log_actor_kind_valid",
-      sql`${table.actorKind} IN ('human', 'mcp_agent', 'in_app_agent', 'system')`
+      activityActorKindCheck(table.actorKind)
     ),
     check(
       "activity_log_channel_valid",
-      sql`${table.channel} IN ('rest_ui', 'mcp', 'in_app_agent', 'server')`
+      activityChannelCheck(table.channel)
     ),
   ]
 );
@@ -2834,11 +2919,11 @@ export const presence = pgTable(
     index("presence_memex_id_last_seen_at_idx").on(table.memexId, table.lastSeenAt),
     check(
       "presence_actor_kind_valid",
-      sql`${table.actorKind} IN ('human', 'mcp_agent', 'in_app_agent', 'system')`,
+      activityActorKindCheck(table.actorKind),
     ),
     check(
       "presence_channel_valid",
-      sql`${table.channel} IN ('rest_ui', 'mcp', 'in_app_agent', 'server')`,
+      activityChannelCheck(table.channel),
     ),
   ]
 );

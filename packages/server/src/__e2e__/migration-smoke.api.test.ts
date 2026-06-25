@@ -1,19 +1,27 @@
-// ⚠ KNOWN-FLAKY UNDER FULL LOCAL PARALLEL RUNS (not a code defect).
+// std-37 GLOBAL-SCAN HARDENING (spec-395, 2026-06-24).
 // The "every active user has namespace_id" check below is a GLOBAL scan of the
-// users table on a per-worker DB clone that other test files share. Another
-// file's fixture can leave an `active`, null-namespace user on the same clone →
-// false failure. It is green in CI (the server suite runs 3-way sharded, each
-// shard on its own fresh DB) and green when this file is run alone.
-// TRIAGE before assuming you broke it:
+// users table on a per-worker DB clone that other test files share. A sibling
+// file's fixture that leaves an `active`, null-namespace user on the same clone
+// could redden it falsely. The two known contaminators were fixed AT SOURCE in
+// spec-395 — `tenant-isolation.regression.test.ts` (`iso-*`) and
+// `uuid-input-rejection.regression.test.ts` (`uuid-reject-*`) now create their
+// raw-insert fixture users under an RFC-6761 test domain (@example.com) instead
+// of @memex.ai, so this scan's existing @example.com exclusion already filters
+// them. The DURABLE CONTRACT for future fixtures: a test that raw-inserts a user
+// (no signup / no ensureUserNamespace → active + null namespace_id) MUST use an
+// EXCLUDED domain below (@example.* / *.test / *.invalid / *.local). This scan
+// excludes exactly that test-fixture surface so foreign rows can't perturb the
+// migration invariant [per std-37 cl-4]. Green in CI (3-way sharded, fresh DB
+// per shard) and green when run alone.
+// TRIAGE a red here:
 //   1. Re-run THIS FILE in isolation:
 //        pnpm --filter @memex/server exec vitest run src/__e2e__/migration-smoke.api.test.ts
-//      If it passes alone, it's the known shared-clone flake — your change is
-//      almost certainly innocent. Do NOT pull develop and re-run the world.
-//   2. A failure here is only genuinely suspicious if your diff touched user
-//      creation / ensureUserNamespace / users.namespace_id population / signup,
-//      or the test-DB harness (vitest.global-setup / worker-db.setup).
-// The durable fix (deferred) is to scope this assertion to users the test
-// itself created, instead of scanning the whole clone.
+//      Passes alone ⇒ a NEW sibling fixture is leaking an active null-namespace
+//      user under a NON-excluded domain — fix THAT fixture to use @example.com
+//      (the spec-395 contract), don't loosen this invariant.
+//   2. A failure is genuinely suspicious only if your diff touched user creation /
+//      ensureUserNamespace / users.namespace_id population / signup, or the
+//      test-DB harness (vitest.global-setup / worker-db.setup).
 //
 // t-9 of doc-15 — one-shot migration smoke test, run against the post-migration
 // database at cutover. Verifies the §7 data-integrity contract from the spec.

@@ -39,21 +39,19 @@ import {
   setAcAcceptance,
   clearAcAcceptance,
 } from "../services/acs.js";
-import {
-  sessionMiddleware,
-  publicSessionMiddleware,
-  type SessionEnv,
-} from "../middleware/session.js";
+import { type SessionEnv } from "../middleware/session.js";
 import type { MemexResolverEnv } from "../middleware/memex-resolver.js";
 import { requireMemexId, resolveReadableMemexId } from "./shared.js";
+import { restCtx } from "./_actor-ctx.js";
+import { mountStandardSessionPolicy } from "./session-policy.js";
 
 type Env = MemexResolverEnv & SessionEnv;
 
 const acsRouter = new Hono<Env>();
-// spec-111 t-10 — per-verb session policy. GET reads permissive (public read /
-// private 404 via resolveReadableMemexId); the DELETE write stays strict.
-acsRouter.on("GET", "/*", publicSessionMiddleware);
-acsRouter.on(["POST", "PUT", "PATCH", "DELETE"], "/*", sessionMiddleware);
+// spec-377 (was spec-111 t-10) — the standard per-verb session policy: GET reads
+// permissive (public read / private 404 via resolveReadableMemexId); the DELETE
+// write stays strict.
+mountStandardSessionPolicy(acsRouter);
 
 acsRouter.get("/doc/:docId", async (c) => {
   const memexId = await resolveReadableMemexId(c);
@@ -91,14 +89,14 @@ acsRouter.post("/:acId/acceptance", async (c) => {
   const acId = c.req.param("acId");
   const user = c.get("user");
   const actor = user?.name?.trim() || user?.email || "";
-  const result = await setAcAcceptance(memexId, acId, actor);
+  const result = await setAcAcceptance(memexId, acId, actor, restCtx(c));
   return c.json(result);
 });
 
 acsRouter.delete("/:acId/acceptance", async (c) => {
   const memexId = requireMemexId(c);
   const acId = c.req.param("acId");
-  const result = await clearAcAcceptance(memexId, acId);
+  const result = await clearAcAcceptance(memexId, acId, restCtx(c));
   return c.json(result);
 });
 

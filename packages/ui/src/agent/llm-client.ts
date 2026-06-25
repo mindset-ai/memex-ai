@@ -114,8 +114,12 @@ export async function* callLlmProxy(
     docId?: string;
     messages: MessageParam[];
     /** spec-143 t-4 (dec-6): when 'drift', the server runs the drift agent —
-     *  open-drift context, drift prompt, drift tool subset, docId null. */
-    mode?: 'drift';
+     *  open-drift context, drift prompt, drift tool subset, docId null.
+     *  spec-360 t-1 (dec-1): when 'scaffold', the server runs the scaffold
+     *  assistant — scaffold grounding, propose-then-confirm tool subset.
+     *  spec-389 t-5 (dec-2): 'standards' / 'issues' run the memex-scoped
+     *  standards / issues agents (their context + MODE_TOOLS subset). */
+    mode?: 'drift' | 'scaffold' | 'standards' | 'issues';
   },
   signal?: AbortSignal
 ): AsyncGenerator<LlmProxyEvent> {
