@@ -78,6 +78,18 @@ export function NarrativeView({
       .filter((x): x is { el: HTMLElement; id: string } => x != null);
     if (els.length === 0) return;
 
+    // The element that actually scrolls the narrative (AppShell's <main>). Walked
+    // up from a section so we don't hard-code it. A short FINAL section can never
+    // scroll high enough to enter the band below — so once this scroller bottoms
+    // out, the last segment is the active one. Without this guard, clicking the
+    // final segment highlights it for a frame, then the observer snaps the
+    // highlight back to whatever's still topmost (the reported bug).
+    const scroller = findScrollParent(els[0].el);
+    const atBottom = () => {
+      if (!scroller || scroller.scrollHeight <= scroller.clientHeight + 2) return false;
+      return scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 2;
+    };
+
     const visible = new Set<string>();
     const observer = new IntersectionObserver(
       (entries) => {
@@ -86,7 +98,12 @@ export function NarrativeView({
           if (e.isIntersecting) visible.add(elId);
           else visible.delete(elId);
         }
-        // The active section is the topmost one currently in the band.
+        // The active section is the topmost one currently in the band — unless
+        // we've bottomed out, in which case the last segment wins.
+        if (atBottom()) {
+          onSelectSection(els[els.length - 1].id);
+          return;
+        }
         const active = els.find(({ el }) => visible.has(el.id));
         if (active) onSelectSection(active.id);
       },
@@ -95,7 +112,25 @@ export function NarrativeView({
       { rootMargin: '0px 0px -55% 0px', threshold: 0 },
     );
     els.forEach(({ el }) => observer.observe(el));
-    return () => observer.disconnect();
+
+    // The observer only fires when a section crosses the band edge; a small scroll
+    // at the very bottom won't, so watch the scroller directly to land the
+    // bottom guard (rAF-coalesced; agrees with the observer, so no fight).
+    let raf = 0;
+    const onScroll = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        if (atBottom()) onSelectSection(els[els.length - 1].id);
+      });
+    };
+    scroller?.addEventListener('scroll', onScroll, { passive: true });
+
+    return () => {
+      observer.disconnect();
+      scroller?.removeEventListener('scroll', onScroll);
+      if (raf) cancelAnimationFrame(raf);
+    };
   }, [narrativeSections, onSelectSection]);
 
   return (
@@ -149,4 +184,20 @@ export function NarrativeView({
       </aside>
     </div>
   );
+}
+
+// Nearest scrollable ancestor — the element whose own overflow actually scrolls
+// the content (AppShell's <main> in the app; null under jsdom, where Tailwind's
+// `overflow-y-auto` isn't resolved, so the scroll-spy keeps its observer-only
+// behaviour in tests).
+function findScrollParent(el: HTMLElement): HTMLElement | null {
+  let node: HTMLElement | null = el.parentElement;
+  while (node) {
+    const overflowY = getComputedStyle(node).overflowY;
+    if ((overflowY === 'auto' || overflowY === 'scroll') && node.scrollHeight > node.clientHeight) {
+      return node;
+    }
+    node = node.parentElement;
+  }
+  return null;
 }
