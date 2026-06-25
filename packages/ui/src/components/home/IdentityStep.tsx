@@ -72,10 +72,11 @@ export function IdentityStep({
       <h2 className="onboarding-heading mb-3.5">
         Built around how you work
       </h2>
-      <p className="mb-1.5 max-w-3xl text-lg leading-relaxed text-secondary">
+      {/* spec-372 issue-3 — step-0 intro paragraphs at 16px (text-base), down from 18px. */}
+      <p className="mb-1.5 max-w-3xl text-base leading-relaxed text-secondary">
         Let&apos;s tailor this to how you actually work.
       </p>
-      <p className="mb-6 max-w-3xl text-lg leading-relaxed text-secondary">
+      <p className="mb-6 max-w-3xl text-base leading-relaxed text-secondary">
         Most people building modern products do more than one job. Where do you spend most of your time?
       </p>
 
