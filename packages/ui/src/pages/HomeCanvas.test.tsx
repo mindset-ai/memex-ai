@@ -253,24 +253,37 @@ describe('HomeCanvas v2 — non-builder handoff (ac-12)', () => {
   });
 });
 
-describe('HomeCanvas v2 — collapse in place (ac-16)', () => {
-  it('the chevron collapses the tracker content in place (header stays) and re-expands', async () => {
+describe('HomeCanvas rail — done steps collapse + dim (spec-372 issue-10)', () => {
+  it('a done step you have moved past dims its title; the selected step stays prominent', async () => {
+    // Viewing create-spec with identity attained: identity is done + NOT selected → dimmed;
+    // create-spec is the selected step → heading colour (not dimmed).
+    fetchJourneyStateApi.mockResolvedValue(stateFor('create-spec', { attained: ['identity'] }));
+    renderCanvas();
+    await screen.findByTestId('journey-rail');
+
+    // The title is the first font-semibold span in the node (label text varies via views).
+    const doneTitle = screen.getByTestId('journey-rail-node-identity').querySelector('span.font-semibold');
+    expect(doneTitle?.className).toContain('text-muted');
+
+    const selectedTitle = screen.getByTestId('journey-rail-node-create-spec').querySelector('span.font-semibold');
+    expect(selectedTitle?.className).toContain('text-heading');
+    expect(selectedTitle?.className).not.toContain('text-muted');
+  });
+});
+
+describe('HomeCanvas v2 — tracker is always expanded (spec-372 issue-8)', () => {
+  it('has no collapse/expand chevron; the rail + panel are always shown beneath the header', async () => {
     tagAc(AC(6));
     tagAc(AC(16));
     fetchJourneyStateApi.mockResolvedValue(stateFor('create-spec', { roleCoords: DEV_HEAVY, attained: ['identity'] }));
     renderCanvas();
 
     await screen.findByTestId('journey-rail');
-    fireEvent.click(screen.getByTestId('journey-collapse'));
-
-    // Collapsed: the rail + panel hide, but the header stays so you can re-open in place.
-    await waitFor(() => expect(screen.queryByTestId('journey-rail')).toBeNull());
-    expect(screen.queryByTestId('journey-content')).toBeNull();
+    // spec-372 issue-8 — the in-place collapse/expand toggle + chevron were removed: the
+    // tracker header is static and the rail + content are always rendered.
+    expect(screen.queryByTestId('journey-collapse')).toBeNull();
     expect(screen.getByTestId('getting-started-title')).toBeInTheDocument();
-
-    // Re-expand from the same chevron.
-    fireEvent.click(screen.getByTestId('journey-collapse'));
-    expect(await screen.findByTestId('journey-rail')).toBeInTheDocument();
+    expect(screen.getByTestId('journey-content')).toBeInTheDocument();
   });
 });
 
