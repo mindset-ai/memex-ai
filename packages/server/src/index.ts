@@ -14,6 +14,7 @@ import { startScaffoldAdditionsCacheInvalidation } from "./services/scaffold-add
 import { startBusRelay } from "./services/bus-relay.js";
 import { bus } from "./services/bus.js";
 import { sqlClient } from "./db/connection.js";
+import { startDbTelemetry } from "./observability/otel/index.js";
 
 // Re-export database layer for use by other packages
 export { db } from "./db/connection.js";
@@ -56,6 +57,11 @@ const server = serve({ fetch: app.fetch, port }, (info) => {
   startBusRelay({ bus, pooledSql: sqlClient }).catch((err) => {
     console.error("[bus-relay] failed to start (server continues; reconnect loop active):", err);
   });
+  // Database observability: register the out-of-band backends / pool observable
+  // gauges on the shared meter. No-op unless OTEL_EXPORTER_OTLP_ENDPOINT is
+  // configured, so local dev and tests are untouched. Query latency / throughput
+  // instrumentation is wired separately at the db/connection.ts seam.
+  startDbTelemetry({ sqlClient });
 });
 
 // spec-190 t-1 / dec-9: attach the WebSocket upgrade handler to the live server
