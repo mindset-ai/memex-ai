@@ -11,7 +11,7 @@
 // fully flesh out a complete, build-ready spec (scope ACs + surface decisions), not just
 // create_doc. Agent variants are MCP step lists; the in-app variants are natural-language
 // prompts pasted into Memex's own creator.
-// spec-372 issue-11 — the "Use our sample" agent prompt is a rich PRD-style brief
+// spec-372 issue-11 — the "Use our sample" agent prompt is a rich PRD-style starting point
 // (problem / users / success / non-goals / constraints / risks) + explicit create_doc and
 // per-section instructions, not a terse step list.
 export const SAMPLE_PROMPT = `Using the Memex MCP, create and fully flesh out a spec for the following:

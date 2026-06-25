@@ -89,9 +89,9 @@ describe('spec-372 — step-1 reframe + prompts (ac-17, ac-18, ac-19)', () => {
     render(<CreateSpecStep preview />);
     const prompt = within(screen.getByTestId('create-spec-prompt')).getByText(/Using the Memex MCP/);
     const text = prompt.textContent ?? '';
-    // spec-372 issue-11 — the sample prompt is a rich PRD-style brief: create + fully flesh out,
-    // a rich purpose narrative ("not just a feature list"), and dedicated spec sections —
-    // i.e. far more than a bare create_doc call.
+    // spec-372 issue-11 — the sample prompt is a rich PRD-style starting point: create + fully
+    // flesh out, a rich purpose narrative ("not just a feature list"), and dedicated spec
+    // sections — i.e. far more than a bare create_doc call.
     expect(text).toMatch(/create and fully flesh out/i);
     expect(text).toMatch(/not just a feature list/i);
     expect(text).toMatch(/Problem section/i);
