@@ -7,7 +7,6 @@ import { tagAc } from "@memex-ai-ac/vitest";
 import { and, eq, isNull } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import {
-  facets,
   standardClauseFacets,
   standardClauses,
   documents,
