@@ -140,4 +140,13 @@ describe('spec-372 — specs-match-reality (ac-4, ac-6, ac-15)', () => {
     // The idle indicator must NOT pulse (dec-4 — no animate-pulse on the unmet state).
     expect(status.querySelector('.animate-pulse')).toBeNull();
   });
+
+  it('spec-372 issue-15: the improve prompt injects the provided spec token (placeholder by default)', () => {
+    const { rerender } = render(<SpecsMatchRealityStep preview specToken="spec-376" />);
+    expect(screen.getByTestId('specs-match-reality-prompt').textContent).toMatch(/Improve spec-376, decisions/);
+    rerender(<SpecsMatchRealityStep preview />);
+    expect(screen.getByTestId('specs-match-reality-prompt').textContent).toMatch(
+      /Improve <insert a spec number of one of your specs>, decisions/,
+    );
+  });
 });

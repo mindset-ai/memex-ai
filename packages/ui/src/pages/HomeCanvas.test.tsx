@@ -19,10 +19,18 @@ import { tagAc } from '@memex-ai-ac/vitest';
 
 const fetchJourneyStateApi = vi.hoisted(() => vi.fn());
 const postJourneyEventApi = vi.hoisted(() => vi.fn());
+const fetchDocs = vi.hoisted(() => vi.fn());
 
 vi.mock('../api/journey', () => ({
   fetchJourneyStateApi,
   postJourneyEventApi,
+}));
+
+// spec-372 issues 13–16 — HomeCanvas fetches the user's specs to resolve the prompt
+// spec token. Preserve other api/docs exports; stub fetchDocs to no specs by default.
+vi.mock('../api/docs', async (orig) => ({
+  ...(await orig<typeof import('../api/docs')>()),
+  fetchDocs,
 }));
 
 vi.mock('../components/AuthContext', () => ({
@@ -100,6 +108,8 @@ beforeEach(() => {
   fetchJourneyStateApi.mockReset();
   postJourneyEventApi.mockReset();
   postJourneyEventApi.mockResolvedValue(undefined);
+  fetchDocs.mockReset();
+  fetchDocs.mockResolvedValue([]);
   window.localStorage.clear();
 });
 

@@ -8,14 +8,17 @@
 import { useEffect, useRef, useState } from 'react';
 import { CodeBlock } from '../CodeBlock';
 import { fetchJourneyStateApi } from '../../api/journey';
+import { SPEC_TOKEN_PLACEHOLDER } from './specToken';
 import shotDecisions from '../../assets/onboarding/specs-match-reality-1-decisions-improved.png';
 import shotAcs from '../../assets/onboarding/specs-match-reality-2-acceptance-criteria-improved.png';
 import shotTasks from '../../assets/onboarding/specs-match-reality-3-tasks-created.png';
 import shotTests from '../../assets/onboarding/specs-match-reality-4-unit-tests.png';
 
+// spec-372 issue-15 — {spec} is replaced at render with the user's real spec handle (or a
+// fill-in placeholder); see specToken.ts / resolveSpecToken.
 const IMPROVE_PROMPT = `Using the Memex MCP, with access to my repo:
 
-Improve the spec, decisions and acceptance criteria against the
+Improve {spec}, decisions and acceptance criteria against the
 reality of the codebase. Then break the work into tasks and add a
 unit test for each acceptance criterion.`;
 
@@ -30,10 +33,13 @@ export function SpecsMatchRealityStep({
   preview = false,
   onComplete,
   onCtaClick,
+  specToken = SPEC_TOKEN_PLACEHOLDER,
 }: {
   preview?: boolean;
   onComplete?: () => void;
   onCtaClick?: (target: string) => void;
+  // spec-372 issue-15 — the real spec handle (or placeholder) injected into the prompt.
+  specToken?: string;
 } = {}) {
   const [done, setDone] = useState(false);
   const doneRef = useRef(false);
@@ -89,7 +95,7 @@ export function SpecsMatchRealityStep({
       </p>
 
       <div className="mb-7" data-testid="specs-match-reality-prompt">
-        <CodeBlock code={IMPROVE_PROMPT} onCopy={() => onCtaClick?.('copy_prompt')} />
+        <CodeBlock code={IMPROVE_PROMPT.replace('{spec}', specToken)} onCopy={() => onCtaClick?.('copy_prompt')} />
       </div>
 
       <div className="flex flex-col gap-8" data-testid="specs-match-reality-outcomes">

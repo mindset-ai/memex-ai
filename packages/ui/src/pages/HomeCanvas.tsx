@@ -33,6 +33,8 @@ import {
   type JourneyStateResponse,
   type RoleCoords,
 } from '../api/journey';
+import { fetchDocs } from '../api/docs';
+import { resolveSpecToken, SPEC_TOKEN_PLACEHOLDER } from '../components/home/specToken';
 import { resolveStepView, activeJourney } from '../journeys/registry';
 import { BUILDER_ONLY_STEP_IDS } from '../journeys/onboarding/steps';
 import { isJourneyGraduated } from '../journeys/graduation';
@@ -206,6 +208,25 @@ export function HomeCanvas() {
       postJourneyEventApi(displayStepId, 'shown');
     }
   }, [displayStepId, preview, journey]);
+
+  // spec-372 issues 13–16 — resolve the spec handle to inject into the SDD-arc prompts:
+  // the user's single real (non-demo) spec, else a fill-in placeholder. Refetched as the
+  // user advances so the spec created by "Create your first spec" is picked up.
+  const [specToken, setSpecToken] = useState(SPEC_TOKEN_PLACEHOLDER);
+  useEffect(() => {
+    if (preview) return;
+    let alive = true;
+    fetchDocs('spec')
+      .then((docs) => {
+        if (alive) setSpecToken(resolveSpecToken(docs));
+      })
+      .catch(() => {
+        /* best-effort — keep the placeholder */
+      });
+    return () => {
+      alive = false;
+    };
+  }, [preview, displayStepId]);
 
   const specsPath = useMemo(
     () => personalSpecsPath(session?.memberships as ReadonlyArray<NavMembership> | undefined),
@@ -406,12 +427,25 @@ export function HomeCanvas() {
       case 'resolve-decision':
       case 'add-ac':
         return (
-          <AgentPromptStep stepId={displayStepId} preview={preview} onComplete={handleStepComplete} onCtaClick={trackStepCta} />
+          <AgentPromptStep
+            stepId={displayStepId}
+            preview={preview}
+            onComplete={handleStepComplete}
+            onCtaClick={trackStepCta}
+            specToken={specToken}
+          />
         );
       case 'specs-match-reality':
-        return <SpecsMatchRealityStep preview={preview} onComplete={handleStepComplete} onCtaClick={trackStepCta} />;
+        return (
+          <SpecsMatchRealityStep
+            preview={preview}
+            onComplete={handleStepComplete}
+            onCtaClick={trackStepCta}
+            specToken={specToken}
+          />
+        );
       case 'agents-build':
-        return <AgentsBuildStep onCtaClick={trackStepCta} />;
+        return <AgentsBuildStep onCtaClick={trackStepCta} specToken={specToken} />;
       default:
         return view ? (
           <JourneyStepShell view={view} userName={firstName(user?.name)} onCta={handleCta} />

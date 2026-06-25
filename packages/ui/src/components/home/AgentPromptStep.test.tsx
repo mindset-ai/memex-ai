@@ -35,6 +35,16 @@ describe('AgentPromptStep', () => {
     render(<AgentPromptStep stepId="add-ac" preview />);
     expect(screen.getByTestId('journey-step-add-ac')).toBeInTheDocument();
     expect(screen.getByTestId('agent-prompt').textContent).toMatch(/raising acceptance criteria for each decision/);
+    // spec-372 issue-14 — the closing line refers to acceptance criteria, not decisions.
+    expect(screen.getByTestId('agent-prompt').textContent).toMatch(/the acceptance criteria \(ac-N\) you added/);
+  });
+  it('spec-372 issue-13/14: injects the provided spec token into the prompt', () => {
+    render(<AgentPromptStep stepId="resolve-decision" preview specToken="spec-376" />);
+    expect(screen.getByTestId('agent-prompt').textContent).toMatch(/Look at spec-376, look at the repo/);
+  });
+  it('spec-372 issue-13/14: falls back to the placeholder when no token is provided', () => {
+    render(<AgentPromptStep stepId="resolve-decision" preview />);
+    expect(screen.getByTestId('agent-prompt').textContent).toMatch(/Look at <insert a spec number of one of your specs>,/);
   });
   it('advances when the step milestone becomes met while the step is open', async () => {
     tagAc(AC(13));
