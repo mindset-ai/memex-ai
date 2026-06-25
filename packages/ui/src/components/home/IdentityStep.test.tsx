@@ -102,6 +102,7 @@ describe('IdentityStep (v2)', () => {
   });
 
   it('spec-372 issue-4: the name field shows a confirm tick only after typing, and the tick submits', async () => {
+    tagAc(AC372(32));
     authUser.value = { id: 'u-2', name: '', email: 'jane@example.com' };
     render(<IdentityStep />);
     // Hidden while the field is empty.
@@ -115,6 +116,14 @@ describe('IdentityStep (v2)', () => {
     await waitFor(() => expect(updateProfileApi).toHaveBeenCalledTimes(1));
     expect(updateProfileApi.mock.calls[0][1]).toBe('Jane');
   });
+
+  it('spec-372 issue-3: the step-0 intro copy renders at 16px (text-base)', () => {
+    tagAc(AC372(31));
+    render(<IdentityStep />);
+    const intro = screen.getByText(/Let.s tailor Memex to how you actually work/);
+    expect(intro.className).toContain('text-base');
+    expect(intro.className).not.toContain('text-lg');
+  });
 });
 
 // spec-372 issue-2 — guard the two layout fixes so a future change can't silently
@@ -126,6 +135,7 @@ describe('IdentityStep (v2)', () => {
 //    vertex marker isn't clipped.
 describe('IdentityStep — issue-2 layout (no jump; left-aligned triangle)', () => {
   it('the triangle/persona row top-aligns (items-start, never items-center)', () => {
+    tagAc(AC372(30));
     const { container } = render(<IdentityStep />);
     const row = container.querySelector('div.flex.flex-wrap');
     expect(row).not.toBeNull();
@@ -134,6 +144,7 @@ describe('IdentityStep — issue-2 layout (no jump; left-aligned triangle)', () 
   });
 
   it('the triangle SVG is left-aligned: no mx-auto, viewBox origin 0, overflow-visible', () => {
+    tagAc(AC372(30));
     render(<IdentityStep />);
     const svg = screen.getByTestId('role-triangle');
     expect(svg.getAttribute('viewBox')).toBe('0 0 240 226'); // Design vertex at x=0

@@ -1,7 +1,10 @@
 // spec-372 issues 13–16 — the prompt spec-token resolver.
 import { describe, it, expect } from 'vitest';
+import { tagAc } from '@memex-ai-ac/vitest';
 import { resolveSpecToken, SPEC_TOKEN_PLACEHOLDER } from './specToken';
 import type { DocSummary } from '../../api/types';
+
+const AC372 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-372/acs/ac-${n}`;
 
 function spec(over: Partial<DocSummary>): DocSummary {
   return {
@@ -22,6 +25,7 @@ function spec(over: Partial<DocSummary>): DocSummary {
 
 describe('resolveSpecToken (spec-372 issues 13–16)', () => {
   it('uses the handle when exactly one real (non-demo) spec exists', () => {
+    tagAc(AC372(45));
     const docs = [spec({ handle: 'spec-376' }), spec({ id: 'demo', handle: 'spec-1', isDemo: true })];
     expect(resolveSpecToken(docs)).toBe('spec-376');
   });

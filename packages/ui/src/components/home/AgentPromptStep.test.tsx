@@ -11,6 +11,7 @@ import { AgentPromptStep } from './AgentPromptStep';
 const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-305/acs/ac-${n}`;
 // spec-336 ac-4: steps 2–4 each present the copyable MCP prompt that drives that stage.
 const AC336 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-336/acs/ac-${n}`;
+const AC372 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-372/acs/ac-${n}`;
 
 beforeEach(() => {
   fetchJourneyStateApi.mockReset();
@@ -36,9 +37,11 @@ describe('AgentPromptStep', () => {
     expect(screen.getByTestId('journey-step-add-ac')).toBeInTheDocument();
     expect(screen.getByTestId('agent-prompt').textContent).toMatch(/raising acceptance criteria for each decision/);
     // spec-372 issue-14 — the closing line refers to acceptance criteria, not decisions.
+    tagAc(AC372(42));
     expect(screen.getByTestId('agent-prompt').textContent).toMatch(/the acceptance criteria \(ac-N\) you added/);
   });
   it('spec-372 issue-13/14: injects the provided spec token into the prompt', () => {
+    tagAc(AC372(41));
     render(<AgentPromptStep stepId="resolve-decision" preview specToken="spec-376" />);
     expect(screen.getByTestId('agent-prompt').textContent).toMatch(/Look at spec-376, look at the repo/);
   });

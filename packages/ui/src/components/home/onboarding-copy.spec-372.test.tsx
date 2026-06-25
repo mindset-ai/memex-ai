@@ -86,6 +86,7 @@ describe('spec-372 — step-1 reframe + prompts (ac-17, ac-18, ac-19)', () => {
 
   it('ac-17: the agent-method sample prompt instructs create AND fully flesh out a rich spec (not bare create_doc)', () => {
     tagAc(AC(17));
+    tagAc(AC(39)); // spec-372 issue-11
     render(<CreateSpecStep preview />);
     const prompt = within(screen.getByTestId('create-spec-prompt')).getByText(/Using the Memex MCP/);
     const text = prompt.textContent ?? '';
@@ -142,6 +143,7 @@ describe('spec-372 — specs-match-reality (ac-4, ac-6, ac-15)', () => {
   });
 
   it('spec-372 issue-15: the improve prompt injects the provided spec token (placeholder by default)', () => {
+    tagAc(AC(43));
     const { rerender } = render(<SpecsMatchRealityStep preview specToken="spec-376" />);
     expect(screen.getByTestId('specs-match-reality-prompt').textContent).toMatch(/Improve spec-376, decisions/);
     rerender(<SpecsMatchRealityStep preview />);

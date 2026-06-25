@@ -10,6 +10,7 @@ vi.mock('../../api/journey', () => ({ fetchJourneyStateApi }));
 
 import { CreateSpecStep } from './CreateSpecStep';
 const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-305/acs/ac-${n}`;
+const AC372 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-372/acs/ac-${n}`;
 
 beforeEach(() => {
   fetchJourneyStateApi.mockReset();
@@ -59,5 +60,42 @@ describe('CreateSpecStep', () => {
     await vi.advanceTimersByTimeAsync(2000); // well past any advance window
     expect(onComplete).not.toHaveBeenCalled();
     expect(screen.getByTestId('create-spec-done')).toBeInTheDocument();
+  });
+});
+
+describe('CreateSpecStep — spec-372 step-1 polish (issues 5/6/9/12)', () => {
+  it('issue-5: the subtitle "Memex" has no glossary tooltip', () => {
+    tagAc(AC372(33));
+    render(<CreateSpecStep preview />);
+    expect(screen.getByText(/Get the full magic of Memex/)).toBeInTheDocument();
+    expect(screen.queryByTestId('glossary-term-spec')).toBeNull();
+  });
+
+  it('issue-6: the Connect-MCP card shows no manual OS selector', () => {
+    tagAc(AC372(34));
+    render(<CreateSpecStep preview />);
+    // claude-code is the default tool (OS-dependent) — the OS toggle is still absent.
+    expect(screen.queryByTestId('os-mac')).toBeNull();
+    expect(screen.queryByText('Your machine')).toBeNull();
+  });
+
+  it('issue-9: the selected starting-point chip is white-filled with an accent border + text', () => {
+    tagAc(AC372(37));
+    render(<CreateSpecStep preview />);
+    const selected = screen.getByTestId('source-sample'); // default selection
+    expect(selected.className).toContain('bg-surface');
+    expect(selected.className).toContain('border-accent');
+    expect(selected.className).toContain('text-accent');
+    expect(selected.className).not.toContain('bg-accent/10');
+  });
+
+  it('issue-12: the "Point at my PRD" prompt is the short version with the fill-in path placeholder', () => {
+    tagAc(AC372(40));
+    render(<CreateSpecStep preview />);
+    fireEvent.click(screen.getByTestId('source-prd'));
+    const text = screen.getByTestId('create-spec-prompt').textContent ?? '';
+    expect(text).toMatch(/<your path to our PRD>/);
+    expect(text).not.toMatch(/Surface the decisions/i);
+    expect(text).not.toMatch(/scope acceptance criteria/i);
   });
 });

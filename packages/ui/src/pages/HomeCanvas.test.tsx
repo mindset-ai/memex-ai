@@ -49,6 +49,7 @@ import { HomeCanvas } from './HomeCanvas';
 
 const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-336/acs/ac-${n}`;
 const AC344 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-344/acs/ac-${n}`;
+const AC372 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-372/acs/ac-${n}`;
 
 const SIX = [
   'identity',
@@ -265,6 +266,7 @@ describe('HomeCanvas v2 — non-builder handoff (ac-12)', () => {
 
 describe('HomeCanvas rail — done steps collapse + dim (spec-372 issue-10)', () => {
   it('a done step you have moved past dims its title; the selected step stays prominent', async () => {
+    tagAc(AC372(38));
     // Viewing create-spec with identity attained: identity is done + NOT selected → dimmed;
     // create-spec is the selected step → heading colour (not dimmed).
     fetchJourneyStateApi.mockResolvedValue(stateFor('create-spec', { attained: ['identity'] }));
@@ -285,6 +287,7 @@ describe('HomeCanvas v2 — tracker is always expanded (spec-372 issue-8)', () =
   it('has no collapse/expand chevron; the rail + panel are always shown beneath the header', async () => {
     tagAc(AC(6));
     tagAc(AC(16));
+    tagAc(AC372(36));
     fetchJourneyStateApi.mockResolvedValue(stateFor('create-spec', { roleCoords: DEV_HEAVY, attained: ['identity'] }));
     renderCanvas();
 
@@ -294,6 +297,15 @@ describe('HomeCanvas v2 — tracker is always expanded (spec-372 issue-8)', () =
     expect(screen.queryByTestId('journey-collapse')).toBeNull();
     expect(screen.getByTestId('getting-started-title')).toBeInTheDocument();
     expect(screen.getByTestId('journey-content')).toBeInTheDocument();
+  });
+
+  it('spec-372 issue-7: the tracker title uses the onboarding accent #0482DC', async () => {
+    tagAc(AC372(35));
+    fetchJourneyStateApi.mockResolvedValue(stateFor('create-spec', { attained: ['identity'] }));
+    renderCanvas();
+    const title = await screen.findByTestId('getting-started-title');
+    expect(title.className).toContain('text-[#0482DC]');
+    expect(title.className).not.toContain('text-accent');
   });
 });
 
