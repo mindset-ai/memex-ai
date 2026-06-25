@@ -40,6 +40,12 @@ vi.mock('../hooks/useUserChangeStream', () => ({
   useUserChangeStream: () => undefined,
 }));
 
+// spec-372 t-6 — the graduated-home surfaces are reversibly hidden behind SHOW_GRADUATED_HOME
+// (default OFF). spec-312's feature + ACs are intact and reinstatable, so this suite renders
+// them with the flag ON to keep verifying the spec-312 logic. The default-OFF (surfaces absent
+// on Home) state is verified by HomeCanvas.spec-372.test.tsx (ac-8 / ac-14).
+vi.mock('./homeCanvasFlags', () => ({ SHOW_GRADUATED_HOME: true }));
+
 import { HomeCanvas } from './HomeCanvas';
 
 const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-312/acs/ac-${n}`;

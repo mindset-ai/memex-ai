@@ -95,7 +95,7 @@ export function DocOutline({
                         }}
                         className={`
                           group flex w-full items-start gap-1.5 pl-6 pr-2 py-1 -ml-px border-l border-transparent
-                          text-left transition-colors no-underline text-muted! hover:text-secondary!
+                          text-left transition-colors no-underline text-primary! hover:text-primary!
                           ${canNavigate ? 'cursor-pointer' : 'cursor-default'}
                         `}
                       >
@@ -108,7 +108,7 @@ export function DocOutline({
                             {c.content}
                           </span>
                           {/* author + human-vs-agent indicator (dec-2 / ac-7). */}
-                          <span className="block truncate text-[10px] text-muted/70">
+                          <span className="block truncate text-[10px] text-secondary">
                             {c.authorName}
                             {isAgent && (
                               <span className="ml-1 rounded-sm bg-edge-subtle px-1 font-mono uppercase">

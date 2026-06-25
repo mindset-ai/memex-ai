@@ -22,6 +22,14 @@ const VERT = {
   pm: { x: 233, y: 190 },
 } as const;
 
+// spec-372 (t-12, change-set #2 / ac-29) — v3 persona-vertex colours: Develop green,
+// Design purple, Product blue (#0482DC, the onboarding accent → ac-2's "Product vertex").
+const VERT_COLOR = {
+  dev: '#4FB78F',
+  design: '#AC59C5',
+  pm: '#0482DC',
+} as const;
+
 function toPoint(c: RoleCoords): { x: number; y: number } {
   return {
     x: c.dev * VERT.dev.x + c.design * VERT.design.x + c.pm * VERT.pm.x,
@@ -61,7 +69,7 @@ export function personaLabel(c: RoleCoords): string {
   const [a, b] = e;
   const third = e[2].v;
 
-  if (a.v - third < 0.1) return 'Full-stack generalist'; // balanced across all three
+  if (a.v - third < 0.1) return 'Full stack generalist'; // balanced across all three (v3: no hyphen)
   if (a.v - b.v < 0.1) return `${cap(a.noun)} / ${cap(b.noun)}`; // two-way hybrid (an edge)
   if (a.v - b.v < 0.24) return `${cap(a.noun)}, with ${b.eye}`; // a clear lead, second leaning in
   if (a.v > 0.85) return a.pure; // pushed into the tip
@@ -84,6 +92,34 @@ export function personaDescription(c: RoleCoords): string {
   if (a.v - b.v < 0.24)
     return `You lean ${a.noun} with a strong ${b.noun} streak — confident with coding agents and your repo.`;
   return a.solo;
+}
+
+// spec-372 (t-5, change #10) — the "With Memex we promise" copy, keyed to the DOMINANT
+// vertex (dev→Builder, design→Designer, pm→Product), verbatim from the v3 design. Shown
+// beside the persona on step 0; the head + detail change live as the dot moves.
+export interface PersonaPromise {
+  head: string;
+  detail: string;
+}
+export function personaPromise(c: RoleCoords): PersonaPromise {
+  const e = [
+    {
+      v: c.dev,
+      head: "Your coding agent can't drift off-spec or fake its way to done.",
+      detail: 'Every action it takes is anchored to the specification. If the codebase reveals a better approach, the spec is updated.',
+    },
+    {
+      v: c.design,
+      head: 'The design you specified is the design that ships.',
+      detail: 'What ships is checked against what you specified. Verified, not assumed.',
+    },
+    {
+      v: c.pm,
+      head: "Nothing gets built on a decision you haven't made.",
+      detail: "The build can't start until you've resolved the gating decisions, and agents report progress into the board as they work — live, not typed up later.",
+    },
+  ].sort((a, b) => b.v - a.v);
+  return { head: e[0].head, detail: e[0].detail };
 }
 
 export function RoleTriangle({
@@ -134,6 +170,7 @@ export function RoleTriangle({
   }
 
   return (
+    <div className="w-full">
     <svg
       ref={svgRef}
       viewBox="0 0 280 226"
@@ -154,36 +191,69 @@ export function RoleTriangle({
       onPointerCancel={() => setDragging(false)}
       onKeyDown={onKeyDown}
     >
-      {/* Barely-there guide lines — the focus is the three words and the ball moving
-          between them, not the triangle itself. */}
-      {/* spec-336: a subtle filled triangle (prototype parity) — fill-current picks up the
-          faint edge tint; theme-aware. */}
+      {/* spec-372 t-12 — drag-knob gradient + per-vertex glow gradients (v3). */}
+      <defs>
+        <radialGradient id="roleBlob">
+          <stop offset="0%" stopColor="#4aa3e8" />
+          <stop offset="100%" stopColor="#0482DC" />
+        </radialGradient>
+        <clipPath id="roleTriClip">
+          <polygon points={`${VERT.dev.x},${VERT.dev.y} ${VERT.design.x},${VERT.design.y} ${VERT.pm.x},${VERT.pm.y}`} />
+        </clipPath>
+        <radialGradient id="glowDev" cx={VERT.dev.x} cy={VERT.dev.y} r={210} gradientUnits="userSpaceOnUse">
+          <stop offset="0" stopColor={VERT_COLOR.dev} stopOpacity={0.2} />
+          <stop offset="0.85" stopColor={VERT_COLOR.dev} stopOpacity={0} />
+        </radialGradient>
+        <radialGradient id="glowDes" cx={VERT.design.x} cy={VERT.design.y} r={210} gradientUnits="userSpaceOnUse">
+          <stop offset="0" stopColor={VERT_COLOR.design} stopOpacity={0.2} />
+          <stop offset="0.85" stopColor={VERT_COLOR.design} stopOpacity={0} />
+        </radialGradient>
+        <radialGradient id="glowProd" cx={VERT.pm.x} cy={VERT.pm.y} r={210} gradientUnits="userSpaceOnUse">
+          <stop offset="0" stopColor={VERT_COLOR.pm} stopOpacity={0.2} />
+          <stop offset="0.85" stopColor={VERT_COLOR.pm} stopOpacity={0} />
+        </radialGradient>
+      </defs>
+
+      {/* Faint per-vertex glow fill (v3), clipped to the triangle. Colour-on-transparent so it
+          tints correctly in light AND dark themes (no opaque base rect). */}
+      <g clipPath="url(#roleTriClip)">
+        <rect x="0" y="0" width="280" height="226" fill="url(#glowDev)" />
+        <rect x="0" y="0" width="280" height="226" fill="url(#glowDes)" />
+        <rect x="0" y="0" width="280" height="226" fill="url(#glowProd)" />
+      </g>
+
       <polygon
         points={`${VERT.dev.x},${VERT.dev.y} ${VERT.design.x},${VERT.design.y} ${VERT.pm.x},${VERT.pm.y}`}
-        className="fill-current text-edge/40 stroke-edge"
-        strokeOpacity={0.5}
-        strokeWidth={1}
+        className="fill-none stroke-edge"
+        strokeWidth={1.2}
       />
-      <text x={VERT.dev.x} y={VERT.dev.y - 12} textAnchor="middle" className="fill-secondary text-[12px] font-semibold">
+
+      <text x={VERT.dev.x} y={VERT.dev.y - 14} textAnchor="middle" className="fill-secondary text-[12px] font-semibold">
         Develop
       </text>
-      <text x={VERT.design.x} y={VERT.design.y + 22} textAnchor="middle" className="fill-secondary text-[12px] font-semibold">
+      <text x={VERT.design.x} y={VERT.design.y + 24} textAnchor="middle" className="fill-secondary text-[12px] font-semibold">
         Design
       </text>
-      <text x={VERT.pm.x} y={VERT.pm.y + 22} textAnchor="middle" className="fill-secondary text-[12px] font-semibold">
+      <text x={VERT.pm.x} y={VERT.pm.y + 24} textAnchor="middle" className="fill-secondary text-[12px] font-semibold">
         Product
       </text>
-      {/* Until the first interaction: a soft pulse + a "drag me" hint so the dot
-          reads as the grabbable thing. Both vanish the moment the user moves it. */}
+
+      {/* spec-372 t-12 (ac-29 / ac-2) — coloured vertex markers: outer faint disc + inner
+          solid dot with a white ring, one per persona vertex (Product = #0482DC). */}
+      {(['dev', 'design', 'pm'] as const).map((k) => (
+        <g key={k} data-testid={`role-vertex-${k}`} data-color={VERT_COLOR[k]}>
+          <circle cx={VERT[k].x} cy={VERT[k].y} r={8} fill={VERT_COLOR[k]} opacity={0.14} />
+          <circle cx={VERT[k].x} cy={VERT[k].y} r={4.5} fill={VERT_COLOR[k]} stroke="#fff" strokeWidth={1.5} />
+        </g>
+      ))}
+
+      {/* Until first interaction: a soft pulse so the dot reads as grabbable. The "drag" hint
+          now lives as a persistent line below the triangle (v3). */}
       {!touched && (
-        <>
-          <circle cx={blob.x} cy={blob.y} r={20} fill="#3B82F6" fillOpacity={0.18} className="animate-pulse" />
-          <text x={blob.x} y={blob.y - 27} textAnchor="middle" className="fill-secondary text-[11px] font-semibold">
-            drag me
-          </text>
-        </>
+        <circle cx={blob.x} cy={blob.y} r={20} fill="#0482DC" fillOpacity={0.18} className="animate-pulse" />
       )}
-      {/* The grabbable knob: a larger gradient dot with a white ring (the handle). */}
+
+      {/* The grabbable knob: a gradient dot with a white ring (the handle). */}
       <circle
         data-testid="role-triangle-blob"
         cx={blob.x}
@@ -192,12 +262,28 @@ export function RoleTriangle({
         className="fill-[url(#roleBlob)] stroke-white"
         strokeWidth={3}
       />
-      <defs>
-        <radialGradient id="roleBlob">
-          <stop offset="0%" stopColor="#60a5fa" />
-          <stop offset="100%" stopColor="#2563eb" />
-        </radialGradient>
-      </defs>
     </svg>
+      {/* spec-372 t-12 — persistent v3 "drag the dot" hint below the triangle. */}
+      <div
+        data-testid="role-triangle-hint"
+        className="mt-3 flex items-center justify-center gap-2 text-[13px] font-semibold text-muted"
+      >
+        <svg
+          width="15"
+          height="15"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={2.2}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden
+        >
+          <circle cx="12" cy="12" r="3" />
+          <path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
+        </svg>
+        Drag the dot to where you fit.
+      </div>
+    </div>
   );
 }

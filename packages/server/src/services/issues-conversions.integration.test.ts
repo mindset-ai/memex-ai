@@ -98,6 +98,7 @@ async function emitEvent(
 ): Promise<void> {
   createdAcUids.push(acUid);
   await db.insert(testEvents).values({
+    memexId,
     acUid,
     status,
     testIdentifier: "tests/example.test.ts::it",

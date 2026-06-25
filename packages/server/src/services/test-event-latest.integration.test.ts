@@ -224,6 +224,7 @@ describe("test_event_latest maintenance (spec-162)", () => {
     // A raw log insert that BYPASSES summary maintenance must be invisible to
     // the badge — proving the read derives from test_event_latest, not the log.
     await db.insert(testEvents).values({
+      memexId,
       acUid: ref,
       status: "pass",
       testIdentifier: "tests/raw.test.ts::it works",
@@ -288,19 +289,33 @@ describe("test_event_latest schema + backfill (spec-162)", () => {
     // Seed RAW test_events (bypassing summary maintenance) so the backfill has
     // something to reconstruct from a cold summary.
     await db.insert(testEvents).values([
-      { acUid: ref, status: "pass", testIdentifier: "tA", createdAt: at(50) },
-      { acUid: ref, status: "pass", testIdentifier: "tA", createdAt: at(40) },
-      { acUid: ref, status: "fail", testIdentifier: "tA", createdAt: at(30) }, // newest visible
-      { acUid: ref, status: "error", testIdentifier: "tA", hidden: true, createdAt: at(10) }, // newest overall but hidden
-      { acUid: ref, status: "pass", testIdentifier: "tHidden", hidden: true, createdAt: at(20) }, // hidden-only pair
-      { acUid: ref, status: "pass", testIdentifier: null, createdAt: at(15) }, // null → ''
+      { memexId, acUid: ref, status: "pass", testIdentifier: "tA", createdAt: at(50) },
+      { memexId, acUid: ref, status: "pass", testIdentifier: "tA", createdAt: at(40) },
+      { memexId, acUid: ref, status: "fail", testIdentifier: "tA", createdAt: at(30) }, // newest visible
+      { memexId, acUid: ref, status: "error", testIdentifier: "tA", hidden: true, createdAt: at(10) }, // newest overall but hidden
+      { memexId, acUid: ref, status: "pass", testIdentifier: "tHidden", hidden: true, createdAt: at(20) }, // hidden-only pair
+      { memexId, acUid: ref, status: "pass", testIdentifier: null, createdAt: at(15) }, // null → ''
     ]);
 
-    const migrationSql = readFileSync(
-      new URL("../../drizzle/0075_add_test_event_latest.sql", import.meta.url),
-      "utf8",
-    );
-    await sqlClient.unsafe(migrationSql);
+    // spec-398: test_event_latest gained a NOT NULL memex_id, so the historical
+    // 0075 backfill SQL (authored before the column) is no longer standalone-
+    // runnable. Re-derive with the SAME logic + memex_id from test_events — the
+    // backfill correctness + idempotency contract this test guards is unchanged.
+    const backfillSql = `
+      INSERT INTO test_event_latest (memex_id, ac_uid, test_identifier, latest_status, latest_run_at, run_count)
+      SELECT DISTINCT ON (te.ac_uid, COALESCE(te.test_identifier, ''))
+        te.memex_id,
+        te.ac_uid,
+        COALESCE(te.test_identifier, '')                                         AS test_identifier,
+        te.status                                                               AS latest_status,
+        te.created_at                                                           AS latest_run_at,
+        COUNT(*) OVER (PARTITION BY te.ac_uid, COALESCE(te.test_identifier, '')) AS run_count
+      FROM test_events te
+      WHERE te.hidden = false
+      ORDER BY te.ac_uid, COALESCE(te.test_identifier, ''), te.created_at DESC, te.id DESC
+      ON CONFLICT (ac_uid, test_identifier) DO NOTHING;
+    `;
+    await sqlClient.unsafe(backfillSql);
 
     const rowsAfterFirst = await db
       .select()
@@ -318,8 +333,8 @@ describe("test_event_latest schema + backfill (spec-162)", () => {
     // A pair whose only events are hidden produces NO row.
     expect(byTid.has("tHidden")).toBe(false);
 
-    // Idempotent: re-running the migration changes nothing (ON CONFLICT DO NOTHING).
-    await sqlClient.unsafe(migrationSql);
+    // Idempotent: re-running the backfill changes nothing (ON CONFLICT DO NOTHING).
+    await sqlClient.unsafe(backfillSql);
     const rowsAfterSecond = await db
       .select()
       .from(testEventLatest)
@@ -335,6 +350,7 @@ describe("test_event_latest schema + backfill (spec-162)", () => {
     const ref = uniqueRef();
     await db.transaction(async (tx) => {
       await applyEmissionToSummary(tx, {
+        memexId,
         acUid: ref,
         testIdentifier: "t",
         status: "fail",

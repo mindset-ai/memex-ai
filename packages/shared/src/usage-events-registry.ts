@@ -95,7 +95,13 @@ export const USAGE_EVENT_REGISTRY = [
   {
     name: "home_canvas.cta_clicked",
     description:
-      "A Home Canvas journey step's CTA was clicked. props.step is the step id; props.cta is the allow-listed CTA target. Recorded via POST /api/me/journey-event. The click is the INTENT signal; the step's OUTCOME stays its own server-side event (std-35 cl-12).",
+      "A Home Canvas journey step's CTA was clicked. props.step is the step id; props.cta is the CTA discriminator from the v3 onboarding enum (spec-372 dec-6 Layer C): copy_install | copy_create_prompt | copy_explore_prompt | docs_link | connect_target | create_method | starting_point | copy_prompt (plus the pre-existing submit_identity | create_spec | open_specs). Recorded via POST /api/me/journey-event. The click is the INTENT signal; the step's OUTCOME stays its own server-side event (std-35 cl-12).",
+    source: "frontend",
+  },
+  {
+    name: "home_canvas.persona_selected",
+    description:
+      "The user confirmed their persona on the Home onboarding identity step (spec-372 dec-6 Layer C). props.persona is the RESOLVED persona label/enum (e.g. Builder | Designer | Product lead | Full stack generalist | a combo) — never the raw triangle coordinates. props.step is 'identity'. Recorded via POST /api/me/journey-event. Drives the builder/non-builder branch and the identity-step success signal.",
     source: "frontend",
   },
   {
@@ -221,6 +227,12 @@ export const USAGE_EVENT_REGISTRY = [
     name: "decision.resolved",
     description:
       "A decision was resolved (funnel stage 6). A DISTINCT bus action emitted by resolveDecision alongside the generic 'updated', so the funnel step is unambiguous (spec-297 dec-2).",
+    source: "backend",
+  },
+  {
+    name: "ac.created",
+    description:
+      "An acceptance criterion was created on a Spec. Already on the bus from createAc ({entity:'ac',action:'created'}); whitelisted here so it mirrors into usage_events as the SUCCESS signal for the Home onboarding 'add-ac' step (spec-372 dec-6 Layer B — success rate = ac.created ÷ home_canvas.step_shown{step:add-ac}).",
     source: "backend",
   },
   // ── Direct-path user-scoped funnel events (spec-297 dec-1) ───────────────────

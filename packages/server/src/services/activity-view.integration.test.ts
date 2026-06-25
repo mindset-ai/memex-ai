@@ -107,7 +107,12 @@ describe("activity view: one uniform read across every arm [spec-122 t-6]", () =
     const acUid = `${actor.nsSlug}/main/specs/${specHandle}/acs/ac-1`;
     const [te] = await db
       .insert(testEvents)
-      .values({ acUid, status: "pass", actor: "ci-bot" } as typeof testEvents.$inferInsert)
+      .values({
+        acUid,
+        memexId: actor.memexId,
+        status: "pass",
+        actor: "ci-bot",
+      } as typeof testEvents.$inferInsert)
       .returning();
     created.testEvents.push(te.id);
 
@@ -164,6 +169,7 @@ describe("activity view: one uniform read across every arm [spec-122 t-6]", () =
       .insert(testEvents)
       .values({
         acUid,
+        memexId: actor.memexId,
         status: "pass",
         actor: "ci-bot",
         metadata: { actor: "WRONG" },

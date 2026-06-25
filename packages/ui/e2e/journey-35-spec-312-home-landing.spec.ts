@@ -51,9 +51,11 @@ test(TITLE, async ({ page }) => {
   // ac-2: RootRedirect sends them to /home (the universal landing), not the Specs board.
   await expect(page).toHaveURL(/\/home(\?|#|$)/, { timeout: 15_000 });
   await expect(page.getByTestId("home-canvas")).toBeVisible({ timeout: 15_000 });
-  // The onboarding journey is shown on Home: the persistent "Your Journeys" pearls
-  // surface (always present) is the unmistakable signal we're on the journey, not Specs.
-  await expect(page.getByTestId("your-journeys")).toBeVisible({ timeout: 15_000 });
+  // The onboarding journey is shown on Home: the "Getting started on Memex" journey layer
+  // is the unmistakable signal we're on the journey, not Specs. (spec-372 t-6 hid the
+  // "Your Journeys" pearls — formerly the signal here — so we key on the journey layer,
+  // which still renders for a not-yet-graduated user.)
+  await expect(page.getByTestId("journey-layer")).toBeVisible({ timeout: 15_000 });
 
   // ac-3: the wall is gone — navigating to the Specs board is allowed and is NOT bounced
   // back to Home/onboarding. Scope to the primary nav (the home-of-value surface also has

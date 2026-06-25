@@ -24,20 +24,30 @@ interface StepConfig {
 export const AGENT_PROMPT_STEPS: Record<string, StepConfig> = {
   'resolve-decision': {
     eyebrow: 'Decisions raised',
-    headline: 'No agent decides for you.',
-    sub: 'Hidden calls surface before a line is written.',
+    headline: 'No agent decides for you',
+    sub: 'Hidden calls surface before a line is written',
     body: 'Point your agent at the spec and the repo. It reads both and raises the decisions that need taking, so all you do is resolve them.',
-    prompt: `Using the Memex MCP: Look at this spec, look at the repo, and update the spec by raising the key decisions that need to be made. Then tell me which decisions (dec-N) you raised.`,
+    prompt: `Using the Memex MCP:
+
+Look at this spec, look at the repo, and update the spec by
+raising the key decisions that need to be made.
+
+Then tell me which decisions (dec-N) you raised.`,
     milestone: 'hasResolvedDecision',
     doneLabel: 'Decisions raised on your spec.',
     waitingLabel: 'Waiting for your agent to raise decisions — this advances the moment it does.',
   },
   'add-ac': {
     eyebrow: 'Acceptance criteria raised',
-    headline: 'Done becomes a fact.',
-    sub: 'Testable criteria, set before the build starts.',
+    headline: 'Done becomes a fact',
+    sub: 'Testable criteria, set before the build starts',
     body: 'Same move: your agent reads the spec and the repo and raises testable acceptance criteria against each decision.',
-    prompt: `Using the Memex MCP: Look at this spec, look at the repo, and update the spec by raising acceptance criteria for each decision. Then tell me the ACs (ac-N) you added.`,
+    prompt: `Using the Memex MCP:
+
+Look at this spec, look at the repo, and update the spec by
+raising acceptance criteria for each decision.
+
+Then tell me the ACs (ac-N) you added.`,
     milestone: 'hasAc',
     doneLabel: 'Acceptance criteria raised.',
     waitingLabel: 'Waiting for your agent to raise acceptance criteria — this advances the moment it does.',
@@ -109,8 +119,9 @@ export function AgentPromptStep({
 
   return (
     <div data-testid={`journey-step-${stepId}`} className="max-w-3xl animate-[panelIn_0.35s_ease]">
-      <h2 className="mb-4 text-5xl font-black leading-[1.02] tracking-tight text-heading">{cfg.headline}</h2>
-      <p className="mb-5 text-xl font-bold leading-snug text-primary">{cfg.sub}</p>
+      <h2 className="onboarding-heading mb-4">{cfg.headline}</h2>
+      {/* spec-372 t-13 — v3 sub-tagline weight is 600 (semibold), not bold. */}
+      <p className="mb-5 text-xl font-semibold leading-snug text-primary">{cfg.sub}</p>
       <p className="mb-7 max-w-2xl leading-relaxed text-secondary">{cfg.body}</p>
 
       <div data-testid="agent-prompt">
