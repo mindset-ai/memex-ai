@@ -68,7 +68,9 @@ test("start → pill → end, and an active session never blocks the app (ac-1 /
   // the app shell, not the page).
   await page.getByTestId("primary-nav").getByRole("link", { name: "Standards" }).click();
   await expect(page).toHaveURL(/\/standards(\?|#|$)/);
-  await expect(page.getByRole("heading", { name: "Standards" })).toBeVisible();
+  // exact: true — the Standards page also renders a "Standards agent" guide-panel
+  // heading, so a non-exact match is a strict-mode violation (2 elements).
+  await expect(page.getByRole("heading", { name: "Standards", exact: true })).toBeVisible();
   await expect(pill).toBeVisible();
 
   // End the session (ac-5): the pill goes away and the in-view affordance returns
