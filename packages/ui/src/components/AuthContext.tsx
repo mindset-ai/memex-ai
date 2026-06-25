@@ -169,6 +169,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (raw && isSafeReturnUrl(raw)) {
         try {
           const u = new URL(raw, window.location.origin);
+          // nosemgrep: javascript.browser.security.open-redirect.js-open-redirect -- spec-403 A5:
+          // host already allow-listed by isSafeReturnUrl; only path+search+hash is assigned,
+          // so navigation is same-origin by construction (scheme/host dropped).
           window.location.href = u.pathname + u.search + u.hash;
           return;
         } catch {
@@ -213,6 +216,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (raw && isSafeReturnUrl(raw)) {
       try {
         const u = new URL(raw, window.location.origin);
+        // nosemgrep: javascript.browser.security.open-redirect.js-open-redirect -- spec-403 A5:
+        // host already allow-listed by isSafeReturnUrl; only path+search+hash is assigned,
+        // so navigation is same-origin by construction (scheme/host dropped).
         window.location.href = u.pathname + u.search + u.hash;
       } catch {
         /* ignore malformed */

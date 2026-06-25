@@ -72,8 +72,9 @@ lines.push("");
 lines.push("| Tool | Title | Classification | Description |");
 lines.push("|---|---|---|---|");
 for (const t of inventory) {
-  // Markdown table — escape pipes inside descriptions.
-  const desc = t.description.replace(/\|/g, "\\|");
+  // Markdown table — escape backslashes first, then pipes (spec-403 B3: escaping `|`
+  // without first escaping `\` is incomplete — CodeQL js/incomplete-sanitization).
+  const desc = t.description.replace(/\\/g, "\\\\").replace(/\|/g, "\\|");
   lines.push(`| \`${t.name}\` | ${t.annotations.title} | ${classify(t.annotations)} | ${desc} |`);
 }
 lines.push("");
