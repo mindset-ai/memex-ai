@@ -84,14 +84,17 @@ describe('spec-372 — step-1 reframe + prompts (ac-17, ac-18, ac-19)', () => {
     ).toBeInTheDocument();
   });
 
-  it('ac-17: the agent-method sample prompt instructs create AND fully flesh out (scope ACs + decisions)', () => {
+  it('ac-17: the agent-method sample prompt instructs create AND fully flesh out a rich spec (not bare create_doc)', () => {
     tagAc(AC(17));
     render(<CreateSpecStep preview />);
     const prompt = within(screen.getByTestId('create-spec-prompt')).getByText(/Using the Memex MCP/);
     const text = prompt.textContent ?? '';
+    // spec-372 issue-11 — the sample prompt is a rich PRD-style brief: create + fully flesh out,
+    // a rich purpose narrative ("not just a feature list"), and dedicated spec sections —
+    // i.e. far more than a bare create_doc call.
     expect(text).toMatch(/create and fully flesh out/i);
-    expect(text).toMatch(/scope acceptance criteria/i);
-    expect(text).toMatch(/decisions/i);
+    expect(text).toMatch(/not just a feature list/i);
+    expect(text).toMatch(/Problem section/i);
   });
 
   it('ac-18: "Copy a prompt for your agent" copies the doc-grounded eval prompt; docs link points at the docs', async () => {
