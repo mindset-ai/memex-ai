@@ -94,7 +94,7 @@ export function SpecPhaseTimelineChart({ data }: Props) {
         {legendPhases.map((p) => {
           const total = data.totals.find((t) => t.phase === p);
           return (
-            <span key={p} className="inline-flex items-center gap-1.5">
+            <span key={p} className="inline-flex items-center gap-1.5 text-primary">
               <span className="inline-block w-2.5 h-2.5 rounded-sm" style={{ background: phaseColors[p] }} />
               {phaseLabel(p)}
               {total && <span className="text-secondary">· {fmtDays(total.days)}</span>}
