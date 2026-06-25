@@ -89,7 +89,8 @@ describe("document service events (via bus)", () => {
       entity: "document",
       action: "status_changed",
       narrative: expect.stringContaining("draft → review"),
-      payload: { from: "draft", to: "review" },
+      // spec-306: doc attribution rides alongside the {from,to} payload.
+      payload: { from: "draft", to: "review", doc_id: doc.id, doc_type: "spec" },
     });
   });
 });
@@ -204,20 +205,32 @@ describe("decision service events (via bus)", () => {
     });
   });
 
-  it("emits decision:updated on resolveDecision", async () => {
+  it("emits decision:updated AND a distinct decision:resolved on resolveDecision (spec-297 dec-2)", async () => {
     const dec = await createDecision(memexId, docId, "Which DB?");
 
     const events = await collectEvents(memexId, async () => {
       await resolveDecision(memexId, dec.id, "PostgreSQL");
     });
 
-    expect(events).toHaveLength(1);
+    // Two events now: the generic 'updated' (shared by many decision mutations,
+    // bus-only) PLUS a distinct 'resolved' (whitelisted into usage_events as the
+    // unambiguous funnel step). Mirrors the document status_changed two-key pattern.
+    expect(events).toHaveLength(2);
     expect(events[0]).toEqual({
       memexId: memexId,
       docId,
       entity: "decision",
       action: "updated",
       narrative: expect.any(String),
+    });
+    expect(events[1]).toEqual({
+      memexId: memexId,
+      docId,
+      entity: "decision",
+      action: "resolved",
+      narrative: expect.any(String),
+      // spec-306: decision.resolved attributes its parent Spec.
+      payload: { doc_id: docId, doc_type: "spec" },
     });
   });
 
@@ -261,6 +274,8 @@ describe("task service events (via bus)", () => {
       entity: "task",
       action: "created",
       narrative: expect.any(String),
+      // spec-306: task.created attributes its parent Spec.
+      payload: { doc_id: docId, doc_type: "spec" },
     });
   });
 

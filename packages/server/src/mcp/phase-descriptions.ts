@@ -47,7 +47,15 @@ import type { ToolSpec } from "../agent/tool-specs.js";
 export function parsePhaseDescriptions(markdown: string): Record<string, string> {
   // Strip top-level HTML comments. `[\s\S]` so the regex handles multi-line
   // comments; non-greedy so adjacent comments don't get glommed together.
-  const stripped = markdown.replace(/<!--[\s\S]*?-->/g, "");
+  // spec-403 dec-2: loop the strip until stable. A single pass can leave a `<!--`
+  // behind when comment markers overlap (CodeQL js/incomplete-multi-character-
+  // sanitization). Re-running until the string stops changing closes that gap;
+  // output is unchanged for the comment-free / well-formed inputs we actually parse.
+  let stripped = markdown;
+  for (let prev = ""; prev !== stripped; ) {
+    prev = stripped;
+    stripped = stripped.replace(/<!--[\s\S]*?-->/g, "");
+  }
   const lines = stripped.split(/\r?\n/);
 
   const out: Record<string, string> = {};

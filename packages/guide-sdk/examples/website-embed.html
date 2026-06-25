@@ -1,0 +1,48 @@
+<!doctype html>
+<!--
+  spec-222 t-15 (dec-1 / dec-9) — the canonical website embed.
+
+  This is the ENTIRE integration a static-site author performs: drop the vendored
+  bundle in (served same-origin from the marketing bucket at /js/memex-guide.js)
+  and add ONE init() call near the end of <body>. There is NO build step on the
+  site — this is a plain HTML file, exactly like index.html / docs.html.
+
+  The site author authors the `screens` registry (config-data) describing the
+  pages/sections Specky can resolve, navigate to, and talk about.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Memex — voice guide embed (example)</title>
+  </head>
+  <body>
+    <main>
+      <section data-guide-id="hero"><h1>Memex</h1></section>
+      <section data-guide-id="pricing-section"><h2>Pricing</h2></section>
+    </main>
+
+    <!-- ① one vendored bundle, served same-origin (NOT from the app/SPA bucket).
+         It is an ES module (the engine is code-split + lazy-loaded on first click). -->
+    <script defer type="module" src="/js/memex-guide.js"></script>
+
+    <!-- ② one init() call — surface selects the corpus + persona server-side. -->
+    <script type="module">
+      window.mindset = window.mindset || {};
+      window.addEventListener('load', () => {
+        window.mindset.guide.init({
+          surface: 'memex-website',
+          backend: 'https://memex.ai/guide/v1',
+          navigation: window.mindset.guide.staticSiteNavigation({
+            screens: [
+              { key: 'home', path: '/', sectionId: 'hero' },
+              { key: 'pricing', path: '/', sectionId: 'pricing-section' },
+              { key: 'docs', path: '/docs.html' },
+              { key: 'story', path: '/story.html' },
+            ],
+          }),
+          capabilities: {}, // website: the demo-walkthrough tools stay OFF (ac-6/ac-18)
+        });
+      });
+    </script>
+  </body>
+</html>

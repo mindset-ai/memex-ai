@@ -151,8 +151,7 @@ export async function ensureUserNamespace(
     // is harmless). The needsLink-only repair path has a pre-existing memex and
     // does NOT seed.
     if (!existingMemex) {
-      seedHandholdDemoBestEffort(created.memex.id);
-      seedDefaultStandardsBestEffort(created.memex.id);
+      await seedNewPersonalMemex(created.memex.id, userId);
     }
     return created;
   }
@@ -216,51 +215,73 @@ export async function ensureUserNamespace(
   // Memex. AFTER the mutate() commits, on the create path only (the fast-path
   // returns earlier and never reaches here). This funnels every signup flow
   // (password / magic-link / SSO) — they all create the namespace through here.
-  seedHandholdDemoBestEffort(created.memex.id);
-  seedDefaultStandardsBestEffort(created.memex.id);
+  await seedNewPersonalMemex(created.memex.id, userId);
   return created;
 }
 
-// Fire-and-forget the handhold demo seed for a newly-created personal Memex
-// (spec-178 t-4). Best-effort by contract: a seed failure must NEVER roll back
-// or block signup, so the promise is detached (`void`) and any rejection is
-// swallowed to a log line. The seed itself is idempotent (NO-OP if the Memex
-// already has a demo doc — ac-8), so even a duplicate fire is harmless.
+// Seed a freshly-created personal Memex with the onboarding content (spec-178
+// handhold demo + spec-184 default Standards) and AWAIT it before ensureUserNamespace
+// returns. The two seeds run concurrently; allSettled guarantees this never rejects.
 //
-// spec-186: MEMEX_HANDHOLD_SIGNUP_SEED=off disables the hook. The vitest config
-// sets it suite-wide — under vitest every test that creates a user spawned a
-// detached multi-insert seed that outlived the test, racing its cleanup (FK
-// violations, rotating deadlocks: share-tokens / org-access / path-routing) and
-// logging after worker teardown (the EnvironmentTeardownError rpc race). The
-// hook's OWN suites (handhold.api.test.ts, the seed-resilience test) stub the
-// var back on — the env is read at CALL time, never cached, precisely so they
-// can. Prod/dev/e2e behaviour is unchanged (var unset ⇒ hook fires).
-function seedHandholdDemoBestEffort(memexId: string): void {
-  if (process.env.MEMEX_HANDHOLD_SIGNUP_SEED === "off") return;
-  void seedHandholdDemo(memexId).catch((err) =>
-    console.error("[handhold seed]", err),
-  );
+// Why AWAIT and not fire-and-forget: these seeds were originally detached (`void seed…()`)
+// so a slow/failed seed couldn't block or roll back signup. But on Cloud Run, CPU is
+// throttled to ~0 the instant the HTTP response flushes, so the detached post-response
+// multi-insert was getting starved/killed before its rows committed — new users landed in
+// an EMPTY Memex (no demo spec, no Standards), intermittently (it only completed when the
+// instance happened to stay warm). Awaiting keeps the inserts on the request path, where
+// CPU is allocated for the lifetime of the request, so they actually finish. The seeds are
+// bounded local-DB writes (the section embeddings they trigger are themselves fire-and-forget
+// inside the doc/section/clause primitives, so they do NOT lengthen this await). Cost is a
+// one-time latency bump on the single request that first creates a user's namespace.
+//
+// Best-effort is preserved by the per-seed try/catch below: a seed failure is logged and
+// swallowed, so signup still succeeds (the namespace + memex are already committed by the
+// time we get here). The seeds are individually idempotent (handhold: NO-OP if a demo doc
+// exists — ac-8; standards: NO-OP once the Memex holds any standard), so a duplicate fire
+// (e.g. a signup race twin) is harmless.
+async function seedNewPersonalMemex(memexId: string, ownerUserId: string): Promise<void> {
+  await Promise.allSettled([
+    seedHandholdDemoBestEffort(memexId, ownerUserId),
+    seedDefaultStandardsBestEffort(memexId),
+  ]);
 }
 
-// Fire-and-forget the default-Standards seed for a newly-created personal Memex
-// (spec-184 t-3 / dec-2). Best-effort by contract: a seed failure must NEVER roll
-// back or block signup, so the promise is detached (`void`) and any rejection is
-// swallowed to a log line. The seed is idempotent (NO-OP once the Memex holds any
-// standard — the zero-Standards guard), so even a duplicate fire is harmless. Only
-// reached on the personal-namespace create path (kind='user'), so seeding is
-// inherently personal-only (dec-6).
+// Seed the handhold onboarding demo (spec-178 t-4), awaited + isolated — see
+// seedNewPersonalMemex. A rejection is caught and logged so it never propagates out of
+// ensureUserNamespace (ac-7 / ac-41: a seed failure must never block signup).
 //
-// spec-186 gate (mirrors seedHandholdDemoBestEffort): this detached multi-insert seed
-// otherwise outlives a test and races its cleanup — FK noise + a console log after
-// worker teardown (the EnvironmentTeardownError rpc race) — so vitest disables it
-// suite-wide via MEMEX_DEFAULT_STANDARDS_SIGNUP_SEED=off. The seed's OWN suites stub it
-// back on (read at CALL time, never cached). Prod/dev/e2e are unchanged (var unset ⇒
-// hook fires).
-function seedDefaultStandardsBestEffort(memexId: string): void {
+// spec-186: MEMEX_HANDHOLD_SIGNUP_SEED=off disables the hook. The vitest config sets it
+// suite-wide — under vitest every test that creates a user would otherwise run a multi-insert
+// seed it then has to clean up (FK violations, rotating deadlocks). The hook's OWN suites
+// (handhold.api.test.ts, the seed-resilience test) stub the var back on — the env is read at
+// CALL time, never cached, precisely so they can. Prod/dev/e2e behaviour is unchanged
+// (var unset ⇒ hook fires).
+async function seedHandholdDemoBestEffort(memexId: string, ownerUserId: string): Promise<void> {
+  if (process.env.MEMEX_HANDHOLD_SIGNUP_SEED === "off") return;
+  try {
+    // spec-406 (ac-26): attribute the seed to the new user over the server channel
+    // (std-32) so its demo Specs/ACs/tasks/decisions carry a WHO + HOW.
+    await seedHandholdDemo(memexId, { channel: "server", actorUserId: ownerUserId });
+  } catch (err) {
+    console.error("[handhold seed]", err);
+  }
+}
+
+// Seed the six default Standards (spec-184 t-3 / dec-2), awaited + isolated — see
+// seedNewPersonalMemex. A rejection is caught and logged so it never propagates out of
+// ensureUserNamespace. Only reached on the personal-namespace create path (kind='user'),
+// so seeding is inherently personal-only (dec-6).
+//
+// spec-186 gate (mirrors seedHandholdDemoBestEffort): vitest disables it suite-wide via
+// MEMEX_DEFAULT_STANDARDS_SIGNUP_SEED=off; the seed's OWN suites stub it back on (read at
+// CALL time, never cached). Prod/dev/e2e are unchanged (var unset ⇒ hook fires).
+async function seedDefaultStandardsBestEffort(memexId: string): Promise<void> {
   if (process.env.MEMEX_DEFAULT_STANDARDS_SIGNUP_SEED === "off") return;
-  void seedDefaultStandards(memexId).catch((err) =>
-    console.error("[default-standards seed]", err),
-  );
+  try {
+    await seedDefaultStandards(memexId);
+  } catch (err) {
+    console.error("[default-standards seed]", err);
+  }
 }
 
 // Returns the user's default Memex (creates one if needed). The signup paths

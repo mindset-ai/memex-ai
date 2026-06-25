@@ -137,6 +137,11 @@ function ctxForMemex(memexId: string, userId: string): ToolCtx {
 // text or memex-list, not a per-entity confirmation. Each entry names the
 // reason so a future restorer has the context.
 const SKIPS = new Map<string, string>([
+  // spec-360: propose_scaffold_change is an agent-only (non-MCP) tool that
+  // returns a structured PROPOSAL (operation + target/text or block-id +
+  // before/after), not an entity confirmation — it writes nothing and emits no
+  // `ref:` line. The actual write happens on approval through the scaffold route.
+  ["propose_scaffold_change", "agent-only scaffold proposal — returns a proposal, not entity-acting"],
   // search_memex is the T-8 sister deliverable. It's a discovery tool whose
   // output mirrors list_memexes / list_docs; not an entity-acting tool, so
   // ref emission isn't required. Skip until T-8 confirms the shape.
@@ -159,9 +164,16 @@ const SKIPS = new Map<string, string>([
   // throwaway AC + seeded test_events fixture.
   ["get_test_matrix", "emits the AC ref:; ref-emission asserted in mcp/test-event-tools.integration"],
   ["discontinue_test_events", "emits the AC ref:; ref-emission asserted in mcp/test-event-tools.integration"],
-  ["restore_test_events", "emits the AC ref:; ref-emission asserted in mcp/test-event-tools.integration"],
   // get_information returns prose (topic index or topic body), never an entity ref.
   ["get_information", "Read-only guidance tool — returns markdown prose, not a memex entity ref"],
+  // get_prompt (spec-263) returns the composed handoff prompt (or a no-handoff
+  // explanation) — prompt prose interpolated from slugs/handles, never a UUID.
+  // Output asserted byte-for-byte in agent/get-prompt.spec-263.integration.
+  ["get_prompt", "Read-only prompt tool — returns handoff prompt prose, not a memex entity ref; covered by get-prompt.spec-263.integration"],
+  // provision_ac_emission (spec-234) returns a raw emission key + the integration
+  // guidance markdown — deliberately NOT a terse `ref:` confirmation. Exercised in
+  // agent/spec-234-provision-ac-emission.integration.
+  ["provision_ac_emission", "returns an emission key + guidance markdown, not an entity ref; covered by spec-234-provision-ac-emission.integration"],
   // export_doc (spec-100) returns a lossless full-document markdown export (every
   // comment thread expanded inline), not a terse per-entity confirmation — the
   // b-36 D-8 ref:/no-UUID terseness invariant doesn't apply. Exercised in
@@ -405,6 +417,17 @@ describe("regression: every entity-acting MCP tool emits `ref:` and no raw UUID 
             ref: refForDoc(slugs, docHandle),
             sectionType: `ref-emit-${Math.random().toString(36).slice(2, 8)}`,
             content: "body",
+          }),
+        },
+      ],
+      [
+        // spec-260: appends a versioned qa_report section; the terse response
+        // carries the new section's child ref.
+        "write_qa_report",
+        {
+          input: () => ({
+            ref: refForDoc(slugs, docHandle),
+            content: "Probe QA report body.",
           }),
         },
       ],

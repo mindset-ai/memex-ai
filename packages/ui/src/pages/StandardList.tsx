@@ -9,6 +9,9 @@ import { tenantPath, getCurrentTenant } from '../utils/tenantUrl';
 import { PageHeader } from '../components/PageHeader';
 import { StandardsMap } from '../components/StandardsMap';
 import { matchesQuery } from '../components/standards-map/model';
+import { ChatPanel } from '../components/ChatPanel';
+import { ResizableChatRail } from '../components/chat/ResizableChatRail';
+import { OpeningStandardsController } from '../components/chat/OpeningStandardsController';
 
 /**
  * Standard list (per dec-25). Renders only `docType='standard'` documents.
@@ -101,13 +104,25 @@ export function StandardList() {
   }
 
   return (
-    <div className="h-full flex flex-col px-6 py-6">
+    // spec-389 t-5 (dec-2): the Standards surface now docks the standards agent in
+    // the shared resizable rail on the left, mirroring the scaffold surface.
+    <div className="flex h-full min-h-0">
+      <OpeningStandardsController />
+      <ResizableChatRail
+        storageKey="standards-chat-width"
+        testId="standards-assistant-panel"
+        handleTestId="standards-chat-resize"
+        label="Standards"
+      >
+        <ChatPanel />
+      </ResizableChatRail>
+      <div className="flex-1 min-w-0 h-full flex flex-col px-6 py-6">
       <PageHeader
         title="Standards"
         actions={
           /* spec-179 (ac-3/ac-16): list ⇄ map segmented control. */
           <div
-            className="flex rounded border border-edge overflow-hidden"
+            className="flex rounded-sm border border-edge overflow-hidden"
             role="group"
             aria-label="Standards view"
             data-testid="standards-view-toggle"
@@ -141,7 +156,7 @@ export function StandardList() {
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search standards…"
           aria-label="Search standards"
-          className="text-xs px-3 py-1.5 w-56 rounded border border-edge bg-transparent text-primary placeholder:text-muted focus:outline-none focus:border-edge-strong"
+          className="text-xs px-3 py-1.5 w-56 rounded-sm border border-edge bg-transparent text-primary placeholder:text-muted focus:outline-hidden focus:border-edge-strong"
           data-testid="standards-search"
         />
         {view === 'map' && (
@@ -149,7 +164,7 @@ export function StandardList() {
             type="button"
             onClick={() => setShowSemantic((v) => !v)}
             disabled={!semanticAvailable}
-            className={`text-xs px-3 py-1.5 rounded border transition-colors ${
+            className={`text-xs px-3 py-1.5 rounded-sm border transition-colors ${
               showSemantic
                 ? 'border-edge bg-card-hover text-heading'
                 : 'border-edge text-secondary hover:bg-card-hover'
@@ -241,6 +256,7 @@ export function StandardList() {
             })}
           </div>
         )}
+      </div>
       </div>
     </div>
   );

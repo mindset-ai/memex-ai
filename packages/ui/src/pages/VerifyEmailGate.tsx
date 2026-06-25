@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useAuth } from '../components/AuthContext';
 import { Button } from '../components/ui/Button';
 import { Alert } from '../components/ui/Alert';
+import { Logo } from '../components/Logo';
 import { resendVerificationApi, AuthApiError } from '../api/client';
 
 // Shown for authenticated users whose emailVerified=false. They can't proceed into their
@@ -31,8 +32,8 @@ export function VerifyEmailGate() {
     <div className="min-h-screen bg-page flex items-center justify-center p-6">
       <div className="max-w-md w-full">
         <div className="text-center mb-8">
-          <h1 className="text-2xl font-semibold tracking-tight text-heading">
-            memex<span className="text-[#7b93b8]">.ai</span>
+          <h1 className="text-2xl font-semibold tracking-tight text-heading flex justify-center">
+            <Logo className="h-7" />
           </h1>
         </div>
 

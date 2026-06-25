@@ -103,6 +103,28 @@ bootstraps a real dev session. A presented **valid session JWT wins over the dev
 lifecycle-spine journey (t-7) sign up a *new* user via native auth [per std-13] and drive
 the browser as that user.
 
+### SSO / Google OAuth is intentionally NOT e2e-tested (spec-393)
+
+This is a **deliberate, recorded gap**, not an oversight. The e2e suite runs with
+`GOOGLE_CLIENT_ID` **unset** (the dev-mode bypass above), so the real Google OAuth handshake
+**cannot execute here** — there is no client id, no Google token exchange, no callback. A
+journey that "tests SSO" against this stack would only exercise the dev-mode shim, not the
+real provider flow, so it would assert nothing true about SSO.
+
+The SSO surface is covered where it can run for real instead:
+
+- **Server integration / security tests** exercise the OAuth error shapes, token handling,
+  and the session-resolution boundary (`session.ts#resolveBearerUser`) — e.g. the
+  `packages/server/src/__security__/oauth-*.security.test.ts` cluster and the `auth` /
+  `session` route tests. That is the right tier for provider-handshake assertions: the
+  boundary is a server contract, no browser needed.
+- **Post-deploy smoke** (std-17) hits the live, real-`GOOGLE_CLIENT_ID` environment.
+
+So the e2e tier proves **native-auth signup + the JWT-over-dev-bypass path** (journey-19's
+signup leg) and treats SSO as out-of-scope by design. If the auth surface gains a
+*browser-observable* behaviour that does NOT depend on a real Google handshake, add a journey
+for that specific behaviour — but the OAuth handshake itself stays out of the e2e tier.
+
 ## Environment
 
 | Var | Default | Purpose |

@@ -40,7 +40,13 @@ import { createIssue } from "../services/issues.js";
 import { addSection } from "../services/sections.js";
 import { addComment } from "../services/comments.js";
 import { ValidationError } from "../types/errors.js";
-import { toolSpecs, type ToolCtx } from "./tool-specs.js";
+import { toolSpecs, AGENT_ONLY_SERVER_TOOLS, type ToolCtx } from "./tool-specs.js";
+
+// spec-360: agent-only server tools (propose_scaffold_change) are not part of
+// the MCP catalogue these audits govern — they have no manifest entry, no
+// shared `verbose` field, and no entity-ref output. Exclude them where the audit
+// enforces MCP-catalogue conventions.
+const mcpCatalogSpecs = toolSpecs.filter((s) => !AGENT_ONLY_SERVER_TOOLS.has(s.name));
 import {
   getToolDefinitions,
   getCreationToolDefinitions,
@@ -451,7 +457,7 @@ describe("audit: catalog count consistency", () => {
     expect(mcpOnly.sort()).toEqual(["list_memexes"]);
   });
 
-  it("agent-only tools is exactly the 6 render_* UI tools", () => {
+  it("agent-only UI tools are exactly the 9 render_* tools; agent-only server tools are the spec-360 scaffold tool", () => {
     const mcp = liveMcpToolNames();
     const agentTools = getToolDefinitions();
     const agentOnly = agentTools.filter((t) => !mcp.has(t.name) && isUiTool(t.name)).map((t) => t.name);
@@ -462,11 +468,20 @@ describe("audit: catalog count consistency", () => {
       "render_progress",
       "render_callout",
       "render_steps",
+      // spec-389 t-2/t-4 (dec-4/dec-3): the shared render family — navigate +
+      // verbatim quote + copyable handoff — generalised off the _scaffold prefix.
+      "render_navigate",
+      "render_quote",
+      "render_handoff",
     ].sort();
     expect(agentOnly.sort()).toEqual(expected);
-    // Agent must not have any non-UI tools missing from MCP.
-    const agentNonUiOnly = agentTools.filter((t) => !mcp.has(t.name) && !isUiTool(t.name)).map((t) => t.name);
-    expect(agentNonUiOnly).toEqual([]);
+    // spec-360: the agent's only non-UI tool absent from MCP is the agent-only
+    // scaffold authoring tool (propose_scaffold_change) — see AGENT_ONLY_SERVER_TOOLS.
+    const agentNonUiOnly = agentTools
+      .filter((t) => !mcp.has(t.name) && !isUiTool(t.name))
+      .map((t) => t.name)
+      .sort();
+    expect(agentNonUiOnly).toEqual([...AGENT_ONLY_SERVER_TOOLS].sort());
   });
 });
 
@@ -561,11 +576,11 @@ describe("audit: field names referenced in descriptions exist in the schema", ()
     // descriptions (list_acs, get_ac, etc.) to teach the agent the
     // verification-state vocabulary.
     "test_events", "verified", "failing", "stale", "untested",
-    // spec-127 test-event vocabulary + tool names referenced in descriptions
-    // (test_identifier is a schema field on discontinue/restore but a bare
+    // spec-127 / spec-358 test-event vocabulary + tool names referenced in
+    // descriptions (test_identifier is a schema field on discontinue but a bare
     // domain term in get_test_matrix's description; the tool names cross-
     // reference each other).
-    "test_identifier", "get_test_matrix", "discontinue_test_events", "restore_test_events",
+    "test_identifier", "get_test_matrix", "discontinue_test_events",
     // Other commonly-quoted miscellany
     "memex", "type", "true", "false", "null", "options", "now",
     "RRF", "FTS",
@@ -602,30 +617,45 @@ describe("audit: field names referenced in descriptions exist in the schema", ()
 // Probe 10: getCreationToolDefinitions surface
 // ──────────────────────────────────────────────────────────────────────────
 //
-// The creation phase intentionally limits the surface to {create_doc,
-// add_section, search_memex, render_*}. Drift here = the agent suddenly has
-// access to rename / decision / task tools during the New Spec modal flow,
-// which the React UI can't handle (modal closes after create_doc returns).
+// spec-230 t-1 (supersedes spec-5/dec-1): the creation phase NO LONGER limits
+// the surface to {create_doc, add_section, search_memex}. To reach web ↔ MCP
+// parity, the in-app creation agent now gets the full spec-authoring surface —
+// sections, decisions, AND acceptance criteria — so a substantial input fleshes
+// out into a rich, multi-section Spec instead of a thin Overview. The set is
+// single-sourced from the @memex/shared manifest (std-16): manifest
+// `group: 'planning'` OR `trafficClass: 'specify'`, plus the read tools
+// (search_memex, get_doc) and the render_* UI tools.
 //
-// search_memex was added per spec-34 D-7 so the creation-phase agent can spot
-// overlap with existing Specs / Standards / Decisions before authoring a
-// new one. It's a read-only tool — no risk of mid-modal mutation surprises.
+// The one hard exclusion that must NOT drift back in: build-phase task verbs
+// (create_task / update_task / delete_task) — the creation agent authors a
+// Spec's plan, it does not run the build. Exhaustive membership + manifest-
+// derivation are pinned in tools.creation-parity.test.ts; this probe guards the
+// load-bearing inclusions and the task-verb exclusion.
 
-describe("audit: creation-phase surface stays minimal", () => {
-  it("getCreationToolDefinitions exposes exactly create_doc + add_section + search_memex + 6 render_* UI tools", () => {
-    const names = getCreationToolDefinitions().map((t) => t.name).sort();
-    const expected = [
-      "add_section",
+describe("audit: creation-phase surface reaches MCP spec-authoring parity", () => {
+  it("getCreationToolDefinitions exposes section + decision + AC authoring, never build-phase task verbs", () => {
+    const names = getCreationToolDefinitions().map((t) => t.name);
+    // Spec-authoring surface present (sections, decisions, ACs).
+    for (const t of [
       "create_doc",
-      "render_action_buttons",
-      "render_callout",
-      "render_choices",
-      "render_confirmation",
-      "render_progress",
-      "render_steps",
+      "add_section",
+      "update_section",
+      "create_decision",
+      "resolve_decision",
+      "create_ac",
+      "link_ac_to_decision",
       "search_memex",
-    ].sort();
-    expect(names).toEqual(expected);
+      "get_doc",
+    ]) {
+      expect(names).toContain(t);
+    }
+    // The render_confirmation mutation gate (and the rest of the render_* UI
+    // family) ride along.
+    expect(names).toContain("render_confirmation");
+    // Build-phase task verbs stay OUT — the modal authors a plan, not a build.
+    expect(names).not.toContain("create_task");
+    expect(names).not.toContain("update_task");
+    expect(names).not.toContain("delete_task");
   });
 });
 
@@ -722,12 +752,19 @@ const REF_PROBE_SKIP = new Map<string, string>([
   ["memex__send_discord_message", "external-action tool — output confirms webhook delivery, not a memex entity ref; requires live Discord webhook"],
   // get_information returns prose (topic index or topic body), never an entity ref.
   ["get_information", "Read-only guidance tool — returns markdown prose, not a memex entity ref"],
+  // get_prompt (spec-263) returns the composed handoff prompt (or a no-handoff
+  // explanation) — prompt prose interpolated from slugs/handles, never a UUID.
+  // Output asserted byte-for-byte in agent/get-prompt.spec-263.integration.
+  ["get_prompt", "Read-only prompt tool — returns handoff prompt prose, not a memex entity ref; covered by get-prompt.spec-263.integration"],
+  // provision_ac_emission (spec-234) returns a raw emission key + integration guidance
+  // markdown, not a terse `ref:` entity confirmation. Exercised end-to-end in
+  // agent/spec-234-provision-ac-emission.integration.
+  ["provision_ac_emission", "returns an emission key + guidance markdown, not a memex entity ref; covered by spec-234-provision-ac-emission.integration"],
   // spec-127 test-event tools all lead with the AC `ref:` and emit no UUID; that
   // ref-emission is asserted directly in mcp/test-event-tools.integration. A
   // dedicated probe here would need a throwaway AC + seeded test_events fixture.
   ["get_test_matrix", "emits the AC ref:; covered by mcp/test-event-tools.integration"],
   ["discontinue_test_events", "emits the AC ref:; covered by mcp/test-event-tools.integration"],
-  ["restore_test_events", "emits the AC ref:; covered by mcp/test-event-tools.integration"],
   // export_doc (spec-100) returns a lossless full-document markdown export (every
   // comment thread expanded inline), not a per-entity confirmation — the terse
   // ref:/no-UUID invariant doesn't apply. Exercised in doc-export.integration.
@@ -990,6 +1027,17 @@ describe("audit: b-36 D-8 — every terse mutation/list response emits `ref:` an
         },
       ],
       [
+        // spec-260: appends a versioned qa_report section; the terse response
+        // carries the new section's child ref.
+        "write_qa_report",
+        {
+          input: () => ({
+            ref: docRef(slugs, docHandle),
+            content: "Probe QA report body.",
+          }),
+        },
+      ],
+      [
         "update_section",
         {
           input: () => ({
@@ -1248,7 +1296,7 @@ describe("audit: b-36 D-8 — every terse mutation/list response emits `ref:` an
   it("every non-skipped spec has a probe case registered (no silent gaps)", () => {
     const cases = casesAfterSetup();
     const missing: string[] = [];
-    for (const spec of toolSpecs) {
+    for (const spec of mcpCatalogSpecs) {
       if (REF_PROBE_SKIP.has(spec.name)) continue;
       if (!cases.has(spec.name)) missing.push(spec.name);
     }
@@ -1294,7 +1342,7 @@ describe("audit: every spec.schema.verbose references the shared VERBOSE_FIELD (
   it("VERBOSE_FIELD is present on every spec by identity", async () => {
     const { VERBOSE_FIELD } = await import("./tool-specs.js");
     const offenders: string[] = [];
-    for (const spec of toolSpecs) {
+    for (const spec of mcpCatalogSpecs) {
       const v = (spec.schema as Record<string, unknown>).verbose;
       if (v === undefined) {
         offenders.push(`${spec.name}: schema.verbose is missing`);
@@ -1339,7 +1387,7 @@ describe("audit: every *Id schema field's description matches the dec-3 standard
   it("each handle-accepting *Id description names the UUID-or-handle option", () => {
     const STANDARD_FORM_RE = /UUID or .*handle/i;
     const offenders: string[] = [];
-    for (const spec of toolSpecs) {
+    for (const spec of mcpCatalogSpecs) {
       const shape = spec.schema as Record<string, unknown>;
       for (const [fieldName, fieldSchema] of Object.entries(shape)) {
         if (!fieldName.endsWith("Id")) continue;

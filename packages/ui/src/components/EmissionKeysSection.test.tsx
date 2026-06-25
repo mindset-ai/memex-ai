@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { tagAc } from '@memex-ai-ac/vitest';
 import { EmissionKeysSection } from './EmissionKeysSection';
@@ -104,8 +104,9 @@ describe('EmissionKeysSection (spec-129)', () => {
     render(<EmissionKeysSection />);
     await screen.findByText('pythonia CI');
 
-    const activeTable = screen.getByText(/Active \(/).closest('div')!;
-    await user.click(within(activeTable).getByRole('button', { name: 'Revoke' }));
+    // spec-309 restructured the Active header (the type toggle now sits beside the
+    // "Active (N)" heading), so scope to the unique Revoke button directly.
+    await user.click(screen.getByRole('button', { name: 'Revoke' }));
 
     await waitFor(() => expect(mockRevoke).toHaveBeenCalledWith('k1', 'tok-1'));
   });

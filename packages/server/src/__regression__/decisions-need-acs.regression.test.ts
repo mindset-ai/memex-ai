@@ -1,79 +1,111 @@
 // Regression guard: the "every resolved decision needs ≥1 implementation AC"
-// discipline is wired into every surface that should be teaching it.
+// discipline must keep FIRING, not merely keep being mentioned.
 //
-// Five surfaces, each carrying its own piece of the discipline. If any one
-// of these silently regresses, the agent stops being trained to author
-// implementation ACs after `resolve_decision` and naked-resolved-decisions
-// leak into build.
+// spec-392 (workstream C of spec-388): this guard used to be SOURCE-TEXT only —
+// it greped tool-specs/handler/phase-assessment source for the nudge prose and
+// the shared helper's three filter clauses. "The string exists" is a weak proxy
+// for "the nudge actually fires" and "the naked-decision filter actually works".
+// The high-value channels are now BEHAVIOURAL: they call the runtime producers
+// directly so a future trim that breaks the behaviour fails here, not silently.
 //
-// Channel A — JIT nudge on resolve_decision (tool-specs.ts handler)
-// Channel B — Guidance topic body (guidance/decisions-need-acs.json)
-// Channel C — list_acs header line + tail nudge naming naked decisions
-// Channel D — assess_brief({target:'build'}) rubric markdown + fact +
-//             nudge (BASE_SCAFFOLD.transitions in @memex/shared scaffold-data
-//             + phase-assessment.ts).
-// Channel E — Shared helper export (services/acs.ts:listResolvedDecisionImplAcCoverage)
+// Five surfaces, each carrying its own piece of the discipline:
+//   Channel A — JIT nudge on resolve_decision  → renderFooterSignal({kind:'decision_resolved'}) (BEHAVIOURAL)
+//   Channel B — Guidance topic body             → guidance/decisions-need-acs.json (static — prose is the artifact)
+//   Channel C — list_acs header + tail nudge    → source wiring (the helper import + header shape)
+//   Channel D — assess_spec build rubric        → BASE_SCAFFOLD rubric (static); the live nudge is Channel A's producer
+//   Channel E — shared helper computation       → listResolvedDecisionImplAcCoverage (BEHAVIOURAL, DB-backed)
 //
-// Source-text assertions so the test runs without spinning up the full DB
-// stack — behaviour-level coverage of the helper lives in
-// `decisions-need-acs.integration.test.ts`; this guard pins the wiring in
-// each surface.
+// Channels B and D stay source/projection assertions because the artifact under
+// guard IS prose (a guidance JSON body, a scaffold rubric string) — there is no
+// runtime "behaviour" to exercise beyond the text itself. Channels A and E are
+// converted to exercise the real path.
 
-import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { eq } from "drizzle-orm";
+import { tagAc } from "@memex-ai-ac/vitest";
 import { BASE_SCAFFOLD } from "@memex/shared";
+import { renderFooterSignal } from "../agent/handlers/shared.js";
+import { db } from "../db/connection.js";
+import { documents, acs, decisions } from "../db/schema.js";
+import { createDocDraft } from "../services/documents.js";
+import { createDecision, resolveDecision } from "../services/decisions.js";
+import { createAc, listResolvedDecisionImplAcCoverage } from "../services/acs.js";
+import { makeTestMemex } from "../services/test-helpers.js";
+
+const AC = (n: number) =>
+  `mindset-prod/memex-building-itself/specs/spec-392/acs/ac-${n}`;
 
 const SERVER_ROOT = join(__dirname, "..", "..");
 const TOOL_SPECS = join(SERVER_ROOT, "src", "agent", "tool-specs.ts");
-const GUIDANCE = join(
-  SERVER_ROOT,
-  "src",
-  "guidance",
-  "decisions-need-acs.json",
-);
-const PHASE_ASSESS = join(
-  SERVER_ROOT,
-  "src",
-  "services",
-  "phase-assessment.ts",
-);
-const ACS_SERVICE = join(SERVER_ROOT, "src", "services", "acs.ts");
+const HANDLERS_DIR = join(SERVER_ROOT, "src", "agent", "handlers");
+const GUIDANCE = join(SERVER_ROOT, "src", "guidance", "decisions-need-acs.json");
 
-const toolSpecs = readFileSync(TOOL_SPECS, "utf-8");
-const phaseAssess = readFileSync(PHASE_ASSESS, "utf-8");
-const acsService = readFileSync(ACS_SERVICE, "utf-8");
+const toolSpecs = [
+  readFileSync(TOOL_SPECS, "utf-8"),
+  ...readdirSync(HANDLERS_DIR)
+    .filter((n) => n.endsWith(".ts"))
+    .map((n) => readFileSync(join(HANDLERS_DIR, n), "utf-8")),
+].join("\n");
 
-// b-68 t-7: the specify→build rubric prose used to live in
-// `phases/specify/transitions.md` and was read from disk here. That file is
-// retired; the prose is now a `TransitionRubric` record on
-// `BASE_SCAFFOLD.transitions`. Read it through the projection so the regression
-// guard pins the same content from its new home.
 const rubric =
   BASE_SCAFFOLD.transitions.find((t) => t.transition === "build")?.text ?? "";
 
-describe("Channel A — resolve_decision JIT nudge", () => {
-  it("appends a 'next: author implementation AC(s)' nudge to the response", () => {
-    expect(toolSpecs).toMatch(/author the implementation AC\(s\)/);
+// ───────────────────────────────────────────────────────────────────────────
+// Channel A (BEHAVIOURAL, spec-392 ac-4) — the resolve_decision JIT nudge is
+// produced at runtime by renderFooterSignal. With no linked ACs (linkedAcs:[])
+// the producer takes the fallback branch — the nudge that tells the agent to
+// author implementation ACs. We call the REAL producer and assert the nudge
+// fires, instead of greping handler source for the literal clause.
+// ───────────────────────────────────────────────────────────────────────────
+describe("Channel A — resolve_decision JIT nudge (behavioural: renderFooterSignal fires)", () => {
+  const decRef =
+    "mindset-prod/memex-building-itself/specs/spec-392/decisions/dec-9";
+
+  async function renderResolvedNudge(): Promise<string> {
+    const out = await renderFooterSignal(
+      { kind: "decision_resolved", decRef, linkedAcs: [], issueHits: [] },
+      // memexId / docId are unused by the decision_resolved fallback branch.
+      "00000000-0000-0000-0000-000000000000",
+      "00000000-0000-0000-0000-000000000000",
+    );
+    return out ?? "";
+  }
+
+  it("nudges the agent to create the implementation acceptance criteria", async () => {
+    tagAc(AC(4));
+    const nudge = await renderResolvedNudge();
+    expect(nudge).toMatch(/create the implementation acceptance criteria/i);
   });
 
-  it("shows the create_ac syntax with parent_decision_ref pre-filled to the dec ref", () => {
-    expect(toolSpecs).toMatch(
+  it("shows the create_ac syntax with parent_decision_ref pre-filled to the dec ref", async () => {
+    tagAc(AC(4));
+    const nudge = await renderResolvedNudge();
+    expect(nudge).toMatch(
       /create_ac\(\{[^}]*kind:\s*'implementation'[^}]*parent_decision_ref:/,
     );
+    // The nudge threads the ACTUAL decision ref it was called with — proof it's
+    // the runtime producer, not a static template a grep would also match.
+    expect(nudge).toContain(decRef);
   });
 
-  it("cites the decisions-need-acs guidance topic", () => {
-    expect(toolSpecs).toMatch(
-      /get_information\(topic='decisions-need-acs'\)/,
-    );
+  it("cites the decisions-need-acs guidance topic", async () => {
+    tagAc(AC(4));
+    const nudge = await renderResolvedNudge();
+    expect(nudge).toMatch(/get_information\(topic='decisions-need-acs'\)/);
   });
 
-  it("warns that build-readiness will refuse specify→build without the ACs", () => {
-    expect(toolSpecs).toMatch(/build-readiness will refuse/i);
+  it("warns the spec can't move into build until the decision has implementation ACs", async () => {
+    tagAc(AC(4));
+    const nudge = await renderResolvedNudge();
+    expect(nudge).toMatch(/can't move into build/i);
   });
 });
 
+// ───────────────────────────────────────────────────────────────────────────
+// Channel B — guidance topic body (static: the artifact under guard is prose).
+// ───────────────────────────────────────────────────────────────────────────
 describe("Channel B — guidance topic body", () => {
   const topic = JSON.parse(readFileSync(GUIDANCE, "utf-8")) as {
     title: string;
@@ -113,7 +145,13 @@ describe("Channel B — guidance topic body", () => {
   });
 });
 
-describe("Channel C — list_acs surfaces the naked-decisions gap", () => {
+// ───────────────────────────────────────────────────────────────────────────
+// Channel C — list_acs surfaces the naked-decisions gap. The header rendering
+// + tail nudge live in handler source; the wiring (the helper is imported and
+// the NAKED line is rendered) is a source assertion, but the COMPUTATION it
+// renders is now behaviourally proven by Channel E below.
+// ───────────────────────────────────────────────────────────────────────────
+describe("Channel C — list_acs surfaces the naked-decisions gap (wiring)", () => {
   it("imports listResolvedDecisionImplAcCoverage from the service", () => {
     expect(toolSpecs).toMatch(/listResolvedDecisionImplAcCoverage/);
   });
@@ -128,13 +166,17 @@ describe("Channel C — list_acs surfaces the naked-decisions gap", () => {
   });
 
   it("tail nudge points at the decisions-need-acs guidance topic", () => {
-    expect(toolSpecs).toMatch(
-      /get_information\(topic='decisions-need-acs'\)/,
-    );
+    expect(toolSpecs).toMatch(/get_information\(topic='decisions-need-acs'\)/);
   });
 });
 
-describe("Channel D — assess_brief build rubric + fact + nudge", () => {
+// ───────────────────────────────────────────────────────────────────────────
+// Channel D — assess_spec build rubric (static: the rubric is scaffold prose).
+// The LIVE build-target nudge is the runtime half and is exercised by Channel A
+// above (the same renderFooterSignal producer); here we pin the rubric text
+// that lives as a projection on BASE_SCAFFOLD.transitions.
+// ───────────────────────────────────────────────────────────────────────────
+describe("Channel D — assess_spec build rubric names the impl-AC check", () => {
   it("rubric names the implementation-AC-per-resolved-decision check as a hold trigger", () => {
     expect(rubric).toMatch(/Implementation ACs per resolved decision/i);
     expect(rubric).toMatch(/commitment without a verification path/i);
@@ -144,44 +186,79 @@ describe("Channel D — assess_brief build rubric + fact + nudge", () => {
   it("rubric 'what good looks like' includes the impl-AC coverage state", () => {
     expect(rubric).toMatch(/active implementation AC linked/i);
   });
-
-  it("phase-assessment defines DecisionAcCoverageFact and surfaces it on facts", () => {
-    expect(phaseAssess).toMatch(/DecisionAcCoverageFact/);
-    expect(phaseAssess).toMatch(/resolvedDecisionAcCoverage/);
-  });
-
-  it("phase-assessment build-target nudge lists naked decisions inline", () => {
-    expect(phaseAssess).toMatch(
-      /Resolved decisions without implementation ACs/,
-    );
-    expect(phaseAssess).toMatch(/Specify→build is a hold/);
-  });
-
-  it("formatPhaseAssessment renders the implementation-AC coverage block", () => {
-    expect(phaseAssess).toMatch(
-      /Resolved-decision implementation-AC coverage/,
-    );
-    expect(phaseAssess).toMatch(/NAKED — no implementation AC/);
-  });
 });
 
-describe("Channel E — shared helper is exported and used by both surfaces", () => {
-  it("acs.ts exports listResolvedDecisionImplAcCoverage", () => {
-    expect(acsService).toMatch(
-      /export async function listResolvedDecisionImplAcCoverage/,
-    );
+// ───────────────────────────────────────────────────────────────────────────
+// Channel E (BEHAVIOURAL, spec-392 ac-5) — the naked-decision computation. The
+// guard used to grep services/acs.ts for the three eq() filter clauses
+// (parent_kind='decision', kind='implementation', status='active'). Drop any
+// clause and the rule silently changes shape, yet the source-grep would still
+// pass if the strings stayed. We now EXERCISE the helper against a seeded
+// fixture: a resolved decision is NAKED until an active implementation AC is
+// linked, then it is covered.
+// ───────────────────────────────────────────────────────────────────────────
+describe("Channel E — listResolvedDecisionImplAcCoverage actually computes naked-vs-covered", () => {
+  const createdDocIds: string[] = [];
+  let memexId: string;
+
+  beforeAll(async () => {
+    memexId = await makeTestMemex("dec-need-acs-regr");
   });
 
-  it("helper filters to (parent_kind='decision', ac.kind='implementation', ac.status='active')", () => {
-    // Pinning the three filter clauses — drop any one and the rule silently
-    // changes shape (counts proposed/rejected/superseded ACs, counts scope
-    // ACs, counts ACs linked to non-decisions). Each is load-bearing.
-    expect(acsService).toMatch(/eq\(acParentLinks\.parentKind,\s*"decision"\)/);
-    expect(acsService).toMatch(/eq\(acs\.kind,\s*"implementation"\)/);
-    expect(acsService).toMatch(/eq\(acs\.status,\s*"active"\)/);
+  afterAll(async () => {
+    for (const id of createdDocIds) {
+      await db.delete(acs).where(eq(acs.briefId, id)).catch(() => {});
+      await db.delete(decisions).where(eq(decisions.docId, id)).catch(() => {});
+      await db.delete(documents).where(eq(documents.id, id)).catch(() => {});
+    }
   });
 
-  it("phase-assessment uses the shared helper, not a duplicate inline join", () => {
-    expect(phaseAssess).toMatch(/listResolvedDecisionImplAcCoverage/);
+  async function seedSpec(): Promise<string> {
+    const doc = await createDocDraft(memexId, "decisions-need-acs regr", "purpose", "spec");
+    createdDocIds.push(doc.id);
+    return doc.id;
+  }
+
+  it("reports a resolved decision with no implementation AC as NAKED (count 0)", async () => {
+    tagAc(AC(5));
+    const specId = await seedSpec();
+    const d = await createDecision(memexId, specId, "Naked resolved decision");
+    await resolveDecision(memexId, d.id, "resolved");
+
+    const out = await listResolvedDecisionImplAcCoverage(memexId, specId);
+    expect(out).toHaveLength(1);
+    expect(out[0].implementationAcCount).toBe(0);
+  });
+
+  it("reports the decision as covered once an active implementation AC is linked", async () => {
+    tagAc(AC(5));
+    const specId = await seedSpec();
+    const d = await createDecision(memexId, specId, "Decision that gets an impl AC");
+    await resolveDecision(memexId, d.id, "resolved");
+
+    // Before: naked.
+    let out = await listResolvedDecisionImplAcCoverage(memexId, specId);
+    expect(out[0].implementationAcCount).toBe(0);
+
+    await createAc({
+      memexId,
+      briefId: specId,
+      kind: "implementation",
+      statement: "verifies the decision",
+      parent: { kind: "decision", id: d.id },
+    });
+
+    // After: covered — proof the (parent_kind='decision', kind='implementation',
+    // status='active') filter actually fires, not merely that the clauses exist.
+    out = await listResolvedDecisionImplAcCoverage(memexId, specId);
+    expect(out[0].implementationAcCount).toBe(1);
+  });
+
+  it("excludes open (unresolved) decisions from the coverage set", async () => {
+    tagAc(AC(5));
+    const specId = await seedSpec();
+    await createDecision(memexId, specId, "Still open");
+    const out = await listResolvedDecisionImplAcCoverage(memexId, specId);
+    expect(out).toEqual([]);
   });
 });

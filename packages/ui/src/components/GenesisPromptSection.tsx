@@ -51,8 +51,8 @@ export function GenesisPromptSection() {
             onClick={() => setClient(id)}
             className={
               client === id
-                ? 'px-3 py-1.5 text-sm font-medium rounded transition-colors bg-btn-primary text-on-primary'
-                : 'px-3 py-1.5 text-sm font-medium rounded transition-colors bg-btn-secondary hover:bg-btn-secondary-hover text-secondary'
+                ? 'px-3 py-1.5 text-sm font-medium rounded-sm transition-colors bg-btn-primary text-white'
+                : 'px-3 py-1.5 text-sm font-medium rounded-sm transition-colors bg-btn-secondary hover:bg-btn-secondary-hover text-secondary'
             }
           >
             {label}

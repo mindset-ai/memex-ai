@@ -28,23 +28,23 @@ describe('toHandoffEssence', () => {
   it('returns the build handoff essence for the build phase', () => {
     tagAc(AC(5));
     const essence = toHandoffEssence(BASE_SCAFFOLD, 'build');
-    expect(essence).toContain('BUILD handoff');
+    expect(essence).toContain('You are now in build');
     // The behaviours spec-120 proved never reach a chat agent must be present.
-    expect(essence).toContain('deriving the task graph');
-    expect(essence).toContain('recommend `verify`');
+    expect(essence).toContain('break the work into tasks');
+    expect(essence).toContain("update_doc({status:'verify'})");
   });
 
   it('returns the specify handoff essence for the specify phase', () => {
     const essence = toHandoffEssence(BASE_SCAFFOLD, 'specify');
-    expect(essence).toContain('SPECIFY handoff');
+    expect(essence).toContain('You are now in specify');
     expect(essence).toContain('create_decision');
-    expect(essence).toContain('scope ACs');
+    expect(essence).toContain('scope acceptance criteria');
   });
 
   it('returns the verify handoff essence for the verify phase', () => {
     const essence = toHandoffEssence(BASE_SCAFFOLD, 'verify');
-    expect(essence).toContain('VERIFY handoff');
-    expect(essence).toContain('all SIX dimensions');
+    expect(essence).toContain('You are now in verify');
+    expect(essence).toContain('all six dimensions');
   });
 
   it.each(NO_HANDOFF_PHASES)('returns null for the %s phase (no handoff)', (phase) => {

@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
+import { Alert } from '../ui/Alert';
 import { useAuth } from '../AuthContext';
 import {
   getOrgApi,
@@ -8,6 +9,7 @@ import {
   initiateDomainVerificationApi,
   type OrgSummaryDto,
 } from '../../api/client';
+import { TelemetryOptOut } from '../TelemetryOptOut';
 
 // Settings tab inside Org Configuration (t-8 / t-11 of doc-15). Replaces the standalone
 // /account page from t-6 — same content, no outer page chrome.
@@ -50,13 +52,15 @@ export function SettingsTab() {
       </div>
 
       {error && (
-        <div className="px-3 py-2 rounded-lg bg-status-danger-bg border border-status-danger-border text-sm text-status-danger-text">
+        <Alert variant="danger" size="md">
           {error}
-        </div>
+        </Alert>
       )}
 
       <DomainsSection org={org} token={token} onRefresh={refresh} setError={setError} />
       <AutoGroupingSection org={org} token={token} onRefresh={refresh} setError={setError} />
+      <TelemetryOptOut />
+      <BillingContactSection org={org} token={token} onRefresh={refresh} setError={setError} />
     </div>
   );
 }
@@ -206,6 +210,124 @@ function DomainsSection({
   );
 }
 
+function BillingContactSection({
+  org,
+  token,
+  onRefresh,
+  setError,
+}: {
+  org: OrgSummaryDto;
+  token: string | null;
+  onRefresh: () => Promise<void>;
+  setError: (m: string | null) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(org.billingContactName ?? '');
+  const [email, setEmail] = useState(org.billingContactEmail ?? '');
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const onEdit = () => {
+    setName(org.billingContactName ?? '');
+    setEmail(org.billingContactEmail ?? '');
+    setEditing(true);
+    setSaved(false);
+  };
+
+  const onCancel = () => {
+    setEditing(false);
+  };
+
+  const onSave = useCallback(async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await updateOrgApi(token, {
+        billingContactName: name.trim() || null,
+        billingContactEmail: email.trim() || null,
+      });
+      await onRefresh();
+      setEditing(false);
+      setSaved(true);
+      if (savedTimer.current) clearTimeout(savedTimer.current);
+      savedTimer.current = setTimeout(() => setSaved(false), 3000);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }, [name, email, token, onRefresh, setError]);
+
+  return (
+    <section className="space-y-3">
+      <div>
+        <h2 className="text-base font-semibold text-heading">Billing contact</h2>
+        <p className="text-sm text-secondary mt-1">
+          Payment-related emails (receipts, failed payment notices, renewal reminders) are sent
+          to this address. Defaults to all org admins if not set.
+        </p>
+      </div>
+
+      {saved && (
+        <div className="px-3 py-2 rounded-lg bg-status-success-bg border border-status-success-border text-sm text-status-success-text">
+          Billing contact saved.
+        </div>
+      )}
+
+      {!editing ? (
+        <div className="flex items-center gap-3 p-3 rounded-lg border border-edge bg-card">
+          <div className="flex-1 text-sm">
+            {org.billingContactEmail ? (
+              <>
+                <span className="text-primary">{org.billingContactEmail}</span>
+                {org.billingContactName && (
+                  <span className="text-secondary ml-2">({org.billingContactName})</span>
+                )}
+              </>
+            ) : (
+              <span className="text-muted">Not set — payment emails go to all org admins</span>
+            )}
+          </div>
+          <Button variant="secondary" size="sm" onClick={onEdit}>
+            {org.billingContactEmail ? 'Edit' : 'Set billing contact'}
+          </Button>
+        </div>
+      ) : (
+        <div className="space-y-3 p-3 rounded-lg border border-edge bg-card">
+          <div className="space-y-2">
+            <label className="block text-sm text-secondary">
+              Email
+              <Input
+                className="mt-1"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="finance@acme.com"
+                disabled={busy}
+              />
+            </label>
+            <label className="block text-sm text-secondary">
+              Name <span className="text-muted">(optional)</span>
+              <Input
+                className="mt-1"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Finance Dept"
+                disabled={busy}
+              />
+            </label>
+          </div>
+          <div className="flex gap-2">
+            <Button onClick={onSave} disabled={busy}>Save</Button>
+            <Button variant="ghost" onClick={onCancel} disabled={busy}>Cancel</Button>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function AutoGroupingSection({
   org,
   token,
@@ -253,6 +375,7 @@ function AutoGroupingSection({
             onChange={onToggle}
             disabled={disabled}
             className="h-4 w-4"
+            data-testid="autogrouping-toggle"
           />
           <span className={`text-sm ${disabled ? 'text-muted' : 'text-primary'}`}>
             {org.autoGroupingEnabled ? 'Auto-grouping enabled' : 'Enable auto-grouping'}

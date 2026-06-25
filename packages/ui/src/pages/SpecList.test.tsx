@@ -175,7 +175,7 @@ describe('SpecList', () => {
     expect(board.className).toContain('overflow-x-auto');
     // Every expanded column (the ACTIVE_COLUMNS) carries the min-width floor.
     const draftColumn = screen.getByText('Draft').closest('div[class*="rounded-lg"]');
-    expect(draftColumn?.className).toContain('min-w-[14rem]');
+    expect(draftColumn?.className).toContain('min-w-56');
   });
 
   it('renders spec titles in the appropriate kanban column', async () => {

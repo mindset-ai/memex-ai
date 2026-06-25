@@ -18,6 +18,7 @@ export interface TestTenantContext {
   userId?: string;
   userEmail?: string;
   role?: "user" | "administrator";
+  accessLevel?: "read" | "write";
 }
 
 // Injects stubbed `user`, `currentMemexId`, `currentRole` into the Hono context.
@@ -28,6 +29,7 @@ export function tenantStubMiddleware(ctx: TestTenantContext = {}) {
   const userId = ctx.userId ?? "00000000-0000-0000-0000-000000000010";
   const email = ctx.userEmail ?? "test@example.com";
   const role = ctx.role ?? "administrator";
+  const accessLevel = ctx.accessLevel ?? "write";
   return createMiddleware(async (c, next) => {
     c.set("user", {
       id: userId,
@@ -38,6 +40,7 @@ export function tenantStubMiddleware(ctx: TestTenantContext = {}) {
     });
     c.set("currentMemexId", memexId);
     c.set("currentRole", role);
+    c.set("currentAccessLevel", accessLevel);
     return next();
   });
 }

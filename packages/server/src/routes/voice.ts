@@ -46,8 +46,14 @@ import {
   type SttSession,
 } from "../agent/elevenlabs-client.js";
 import { getAnthropicClient, LlmNotConfiguredError } from "../agent/anthropic-client.js";
-import { buildGuideSystemBlocks } from "../agent/voice/guide-prompt.js";
-import { prefetchScreenContent, searchGuideContent } from "../services/guide-content.js";
+import { buildGuideSystemBlocks, renderScreenContext } from "../agent/voice/guide-prompt.js";
+import { logVoiceLatency } from "../agent/voice/latency-log.js";
+import {
+  prefetchScreenContent,
+  searchGuideContent,
+  type GuideSearchHit,
+  type GuideSurface,
+} from "../services/guide-content.js";
 import { GUIDE_TOOLS } from "@memex/shared";
 import type { MemexResolverEnv } from "../middleware/memex-resolver.js";
 import type { SessionEnv } from "../middleware/session.js";
@@ -58,34 +64,123 @@ import type { SessionEnv } from "../middleware/session.js";
 // which dominated the "thinking" gap (int guide-chat ran ~2-3s/turn on Sonnet).
 // Haiku's lower TTFT is the win for short product-navigation answers; the small
 // quality trade is acceptable here (spec-190 latency follow-up).
-const GUIDE_MODEL = "claude-haiku-4-5-20251001";
+export const GUIDE_MODEL = "claude-haiku-4-5-20251001";
 
-const guideChatSchema = z.object({
+export const guideChatSchema = z.object({
   messages: z.array(z.object({ role: z.enum(["user", "assistant"]), content: z.any() })),
   screenKey: z.string().nullable().optional(),
   screenRegistry: z
     .array(z.object({ id: z.string(), description: z.string() }))
+    .optional(),
+  // The host's complete navigable-screen list (site map) — rendered into the
+  // turn context so the model knows what pages exist. Hard-capped (anonymous
+  // endpoint): at most 200 screens, strings bounded.
+  screens: z
+    .array(
+      z.object({
+        key: z.string().max(200),
+        title: z.string().max(300),
+        // Generous: descriptions carry SEO blurb + content outline + steering
+        // notes (~670 chars on the mindset site today). Hosts truncate at 900.
+        description: z.string().max(1000),
+      }),
+    )
+    .max(200)
     .optional(),
   guideContext: z.array(z.string()).optional(),
 });
 
 /** Pull the most recent user-turn text (the finalized utterance) out of the
  *  Anthropic-shaped message list — string content or text blocks. Used to drive
- *  the per-turn Layer-2 retrieval (ac-15). */
-function latestUserUtterance(messages: Array<{ role: string; content: unknown }>): string {
+ *  the per-turn Layer-2 retrieval (ac-15). Exported so the public anonymous guide
+ *  router (spec-222 t-10) reuses the SAME extraction rather than forking it. */
+export function latestUserUtterance(messages: Array<{ role: string; content: unknown }>): string {
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i];
     if (m.role !== "user") continue;
     if (typeof m.content === "string") return m.content;
     if (Array.isArray(m.content)) {
-      return m.content
+      const text = m.content
         .filter((b): b is { type: string; text: string } => !!b && (b as { type?: string }).type === "text")
         .map((b) => b.text)
         .join(" ");
+      // Mid tool-loop the final user message is tool_result blocks with no
+      // text — keep scanning back to the visitor's actual utterance so the
+      // per-turn retrieval query isn't empty on tool turns.
+      if (text) return text;
+      continue;
     }
-    return "";
   }
   return "";
+}
+
+type GuideChatMessage = { role: "user" | "assistant"; content: unknown };
+type GuideTextBlock = { type: "text"; text: string; cache_control?: { type: "ephemeral" } };
+
+/**
+ * Decorate the FINAL user message with the per-turn screen context, and drop a
+ * prompt-cache breakpoint on the last block of the message BEFORE it (the end of
+ * the stable conversation prefix). Spec-222 latency follow-up:
+ *
+ *   - The client resends the history as plain utterances every turn. Injecting
+ *     volatile context only into the LATEST user message keeps every prior
+ *     message byte-identical request-over-request, so tools + system + history
+ *     up to the breakpoint is a growing, cache-served prefix.
+ *   - The breakpoint goes on the PREVIOUS message (not the final one): the final
+ *     message carries this turn's injected context, which never recurs — the
+ *     client's next request contains this utterance WITHOUT the injection, so a
+ *     breakpoint there would never be read back.
+ *
+ * Pure function: never mutates the parsed request body.
+ */
+export function injectTurnContext(
+  messages: GuideChatMessage[],
+  contextText: string,
+): GuideChatMessage[] {
+  const lastUser = messages.map((m) => m.role).lastIndexOf("user");
+  if (lastUser === -1) return messages;
+
+  const toBlocks = (content: unknown): GuideTextBlock[] =>
+    typeof content === "string"
+      ? [{ type: "text", text: content }]
+      : Array.isArray(content)
+        ? (content as GuideTextBlock[]).map((b) => ({ ...b }))
+        : [];
+
+  return messages.map((m, i) => {
+    if (i === lastUser) {
+      // Anthropic requires tool_result blocks to be the FIRST content of the
+      // user message that answers a tool_use — text before them 400s
+      // ("tool_use ids were found without tool_result blocks immediately
+      // after"). Mid tool-loop the final user message IS the tool_result
+      // carrier, so the per-turn context slots in AFTER any leading
+      // tool_result blocks, not at the front.
+      const blocks = toBlocks(m.content);
+      const firstNonToolResult = blocks.findIndex(
+        (b) => (b as { type?: string }).type !== "tool_result",
+      );
+      const insertAt = firstNonToolResult === -1 ? blocks.length : firstNonToolResult;
+      return {
+        role: m.role,
+        content: [
+          ...blocks.slice(0, insertAt),
+          { type: "text", text: contextText },
+          ...blocks.slice(insertAt),
+        ],
+      };
+    }
+    if (i === lastUser - 1) {
+      const blocks = toBlocks(m.content);
+      if (blocks.length > 0) {
+        blocks[blocks.length - 1] = {
+          ...blocks[blocks.length - 1],
+          cache_control: { type: "ephemeral" },
+        };
+        return { role: m.role, content: blocks };
+      }
+    }
+    return m;
+  });
 }
 
 /**
@@ -96,25 +191,46 @@ function latestUserUtterance(messages: Array<{ role: string; content: unknown }>
  * Best-effort — a retrieval failure degrades to whatever else we have, never
  * fails the turn. Deduped; client-supplied context (if any) wins ordering.
  */
-async function assembleGuideContext(
+export async function assembleGuideContext(
   screenKey: string | null,
   utterance: string,
   clientContext: string[] | undefined,
+  // spec-222 t-7 (dec-3): retrieval is surface-keyed. The authenticated in-app
+  // voice path reads the 'memex-app' corpus (the default, behaviour unchanged);
+  // the public anonymous path (spec-222 t-10) passes the surface bound into its
+  // signed session token. Either way the surface is a SERVER-supplied argument,
+  // NEVER client free input.
+  surface: GuideSurface = "memex-app",
+  /** Optional screen_key → human page name lookup (from the host's site map).
+   *  When provided, retrieval labels use the SPEAKABLE page name instead of
+   *  the machine key — spoken keys come out as gibberish through TTS. */
+  pageNameByKey?: Map<string, string>,
 ): Promise<string[]> {
   const [screenChunks, searchHits] = await Promise.all([
-    screenKey ? prefetchScreenContent(screenKey).catch(() => []) : Promise.resolve<string[]>([]),
+    screenKey ? prefetchScreenContent(screenKey, surface).catch(() => []) : Promise.resolve<string[]>([]),
     utterance.trim()
-      ? searchGuideContent(utterance, { limit: 4 }).then((h) => h.map((x) => x.content)).catch(() => [])
-      : Promise.resolve<string[]>([]),
+      ? searchGuideContent(utterance, { surface, limit: 4 }).catch(() => [] as GuideSearchHit[])
+      : Promise.resolve<GuideSearchHit[]>([]),
   ]);
+  // Source-tag each chunk with where it lives, so the model can offer to
+  // navigate to a retrieved chunk's page (the screen_key doubles as the navigate
+  // key). Layer-1 chunks ARE the current page; Layer-2 hits carry their origin
+  // screen_key when one exists (concept / flat-corpus chunks have none). Dedup
+  // runs on the RAW chunk text, so a chunk that is both prefetched and searched
+  // appears once — with the Layer-1 label, by ordering.
   const seen = new Set<string>();
   const out: string[] = [];
-  for (const chunk of [...(clientContext ?? []), ...screenChunks, ...searchHits]) {
+  const push = (chunk: string, label: string | null): void => {
     const key = chunk.trim();
-    if (key && !seen.has(key)) {
-      seen.add(key);
-      out.push(chunk);
-    }
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    out.push(label ? `${label}\n${chunk}` : chunk);
+  };
+  for (const chunk of clientContext ?? []) push(chunk, null);
+  for (const chunk of screenChunks) push(chunk, "[this page]");
+  for (const hit of searchHits) {
+    const name = hit.screenKey ? (pageNameByKey?.get(hit.screenKey) ?? hit.screenKey) : null;
+    push(hit.content, name ? `[from page: "${name}"]` : null);
   }
   return out;
 }
@@ -195,6 +311,20 @@ export interface VoiceSink {
   close(code: number, reason: string): void;
 }
 
+/** Per-session abuse cap (spec-222 t-11 → ac-16). The PUBLIC anonymous guide
+ *  (memex-website) is internet-exposed with no login, so a single session must be
+ *  bounded so a connected client can't run unbounded TTS/LLM work on our keys. The
+ *  cap lives in the VoiceSession lifecycle — one socket is one session (ac-32), so
+ *  the metering naturally belongs here. The authenticated in-app path passes no
+ *  cap (undefined ⇒ unbounded, behaviour unchanged). A "turn" is one `speak`
+ *  request (the unit of TTS/LLM cost on the WS leg). */
+export interface VoiceSessionCap {
+  /** Max `speak` turns before the session ends. */
+  maxTurns: number;
+  /** Wall-clock budget from open() before the session ends, in milliseconds. */
+  maxWallClockMs: number;
+}
+
 /** Per-connection voice session: one socket is one session (ac-32). Holds the
  *  live STT session and the in-flight TTS abort controllers, and routes the wire
  *  protocol to the voice provider. */
@@ -202,10 +332,18 @@ export class VoiceSession {
   private stt: SttSession | null = null;
   private readonly ttsAborts = new Map<string, AbortController>();
   private torndown = false;
+  private turnsUsed = 0;
+  private openedAtMs = 0;
+  private capExceeded = false;
 
   constructor(
     private readonly sink: VoiceSink,
-    private readonly opts: { configured: boolean; auth: VoiceAuthResult },
+    private readonly opts: {
+      configured: boolean;
+      auth: VoiceAuthResult;
+      /** When set (public anonymous guide, t-11), the session is hard-capped. */
+      cap?: VoiceSessionCap;
+    },
   ) {}
 
   /** Called once the socket opens: enforce config + auth, else close cleanly. */
@@ -218,12 +356,48 @@ export class VoiceSession {
       this.sink.close(this.opts.auth.closeCode, this.opts.auth.closeReason);
       return;
     }
+    this.openedAtMs = Date.now();
     this.send({ type: "ready" });
   }
 
-  /** A binary frame from the browser = a chunk of mic audio → STT. */
+  /** True once a cap (turns OR wall-clock) has been exceeded. After this the
+   *  session refuses further TTS/LLM work and is torn down. Exposed so tests can
+   *  assert the cap fired. */
+  isCapExceeded(): boolean {
+    return this.capExceeded;
+  }
+
+  /** Returns true if the cap is now exceeded — ends the session as a side effect
+   *  (sends one 'error' frame, tears down STT/TTS, closes the socket 1011). No-op
+   *  when there's no cap configured (the authenticated in-app path). */
+  private capReached(): boolean {
+    const cap = this.opts.cap;
+    if (!cap) return false;
+    if (this.capExceeded) return true;
+    const overTurns = this.turnsUsed >= cap.maxTurns;
+    const overClock = this.openedAtMs > 0 && Date.now() - this.openedAtMs >= cap.maxWallClockMs;
+    if (overTurns || overClock) {
+      this.capExceeded = true;
+      // Surface a terminal error so the client can show "session ended", then end.
+      this.send({ type: "error", message: "session_limit_reached" });
+      this.teardown();
+      this.sink.close(1011, "session-limit-reached");
+      return true;
+    }
+    return false;
+  }
+
+  /** A binary frame from the browser = a chunk of mic audio → STT.
+   *
+   *  spec-214 dec-2 (server backstop): while a TTS `speak` is in flight for this
+   *  session, DROP inbound audio rather than appending it to STT. On a speaker-
+   *  equipped device the agent's own playback bleeds into the mic; forwarding it
+   *  would let STT transcribe Specky's own words and feed them back as a user turn
+   *  (the self-talk loop). The client also gates this (dec-1), but the server is
+   *  authoritative — it holds even if a client regresses. */
   handleBinary(bytes: Uint8Array): void {
     if (!this.active()) return;
+    if (this.ttsAborts.size > 0) return; // agent is speaking — ignore captured echo
     this.stt?.pushAudio(bytes);
   }
 
@@ -243,11 +417,18 @@ export class VoiceSession {
       case "end_utterance":
         this.stt?.endUtterance();
         break;
-      case "speak":
+      case "speak": {
+        // Per-session hard cap (t-11 → ac-16): a `speak` is the TTS/LLM unit of
+        // cost. Count this turn, then refuse + end the session if the cap is now
+        // reached — so no TTS work is performed past the limit.
+        this.turnsUsed += 1;
+        if (this.capReached()) break;
         void this.speak(msg.requestId ?? "0", msg.text ?? "");
         break;
+      }
       case "abort": {
-        // Barge-in cut (dec-8): abort the in-flight TTS for this request.
+        // Stop / new-turn supersede (spec-214 dec-4): abort the in-flight TTS for
+        // this request. (Was barge-in cut, dec-8 — voice barge-in now removed.)
         const ac = msg.requestId ? this.ttsAborts.get(msg.requestId) : undefined;
         ac?.abort();
         if (msg.requestId) this.ttsAborts.delete(msg.requestId);
@@ -269,7 +450,11 @@ export class VoiceSession {
   }
 
   private active(): boolean {
-    return this.opts.configured && this.opts.auth.ok && !this.torndown;
+    if (!(this.opts.configured && this.opts.auth.ok && !this.torndown)) return false;
+    // Enforce the wall-clock budget lazily on any inbound frame — a session that
+    // has burned its time is ended even if it stopped sending `speak` (t-11).
+    if (this.capReached()) return false;
+    return true;
   }
 
   private send(payload: unknown): void {
@@ -290,6 +475,9 @@ export class VoiceSession {
     void (async () => {
       try {
         for await (const t of session.transcripts()) {
+          // std-14 latency log: a FINAL transcript is the turn's starting gun —
+          // the gap to the next llm_turn line is endpointing + client round-trip.
+          if (t.isFinal) logVoiceLatency("stt_final", { chars: t.text.length });
           this.send({ type: "transcript", text: t.text, isFinal: t.isFinal });
         }
       } catch {
@@ -302,11 +490,18 @@ export class VoiceSession {
     const provider = resolveVoiceProvider();
     const ac = new AbortController();
     this.ttsAborts.set(requestId, ac);
+    const tTts = Date.now();
+    let firstChunk = true;
     try {
       // Forward each TTS chunk the instant it arrives so playback can start
       // before synthesis finishes (ac-7); alignment rides along for dec-8.
       for await (const chunk of provider.synthesize(text, { signal: ac.signal })) {
         if (ac.signal.aborted) break;
+        if (firstChunk) {
+          firstChunk = false;
+          // std-14 latency log: time to first audible audio for this reply.
+          logVoiceLatency("tts_first_chunk", { ms: Date.now() - tTts, chars: text.length });
+        }
         this.send({
           type: "audio",
           requestId,
@@ -315,6 +510,7 @@ export class VoiceSession {
           isFinal: chunk.isFinal,
         });
       }
+      logVoiceLatency("tts_complete", { ms: Date.now() - tTts, aborted: ac.signal.aborted });
     } catch {
       // A barge-in / Stop aborts the synthesize() generator mid-stream, which
       // surfaces here as a throw — that is INTENTIONAL, not a failure. Sending an
@@ -398,76 +594,135 @@ export function createVoiceRouter(upgradeWebSocket: UpgradeWebSocket): Hono<Env>
   );
 
   // POST /guide-chat — the guide's LLM text leg (dec-2: text stays SSE; the WS
-  // above carries only audio). Mirrors routes/llm.ts /chat but with the guide
-  // system prompt + the screen context + the GUIDE_TOOLS toolset, and NO tenant
-  // document context or memex tools — the guide teaches the product, it never
-  // reads the user's data (dec-4). The client-side LangGraph (guideGraph.ts)
-  // drives this proxy; there is no server-side graph runtime (ac-11). Auth is
-  // applied by sessionMiddleware on this path in app.ts (the WS self-auths; this
-  // HTTP route carries a Bearer token like the rest of the API).
-  router.post("/guide-chat", async (c) => {
-    const parsed = guideChatSchema.safeParse(await c.req.json());
-    if (!parsed.success) {
-      return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
-    }
-    const { messages, screenKey, screenRegistry, guideContext } = parsed.data;
-
-    let anthropic: Anthropic;
-    try {
-      anthropic = getAnthropicClient();
-    } catch (err) {
-      if (err instanceof LlmNotConfiguredError) {
-        return c.json({ error: "LLM unavailable", message: err.message }, 503);
-      }
-      throw err;
-    }
-
-    // Layer 1 + Layer 2 retrieval, server-side, every turn (ac-15). The client
-    // plays the ack ping the instant speech ends, masking this latency (dec-6).
-    const retrievedContext = await assembleGuideContext(
-      screenKey ?? null,
-      latestUserUtterance(messages),
-      guideContext,
-    );
-
-    const systemBlocks = buildGuideSystemBlocks({
-      screenKey: screenKey ?? null,
-      screenRegistry: screenRegistry ?? [],
-      guideContext: retrievedContext,
-    });
-
-    // Defeat reverse-proxy buffering so SSE deltas flush as they arrive.
-    c.header("Cache-Control", "no-cache, no-transform");
-    c.header("X-Accel-Buffering", "no");
-
-    return streamSSE(c, async (stream) => {
-      try {
-        const anthropicStream = anthropic.messages.stream({
-          model: GUIDE_MODEL,
-          max_tokens: 1024,
-          system: systemBlocks as Anthropic.TextBlockParam[],
-          tools: GUIDE_TOOLS as unknown as Anthropic.Tool[],
-          messages: messages as MessageParam[],
-        });
-        anthropicStream.on("text", (text: string) => {
-          stream.writeSSE({ event: "text_delta", data: JSON.stringify({ text }) });
-        });
-        const final = await anthropicStream.finalMessage();
-        await stream.writeSSE({
-          event: "message_complete",
-          data: JSON.stringify({
-            content: final.content as ContentBlockParam[],
-            stopReason: final.stop_reason,
-          }),
-        });
-      } catch (err) {
-        await stream.writeSSE({
-          event: "error",
-          data: JSON.stringify({ message: err instanceof Error ? err.message : String(err) }),
-        });
-      }
-    });
-  });
+  // above carries only audio). Auth is applied by sessionMiddleware on this path
+  // in app.ts (the WS self-auths; this HTTP route carries a Bearer token like the
+  // rest of the API). The SURFACE is fixed to 'memex-app' here: this is the
+  // authenticated in-app leg. The public anonymous leg (spec-222 t-10) reuses the
+  // SAME handler via handleGuideChat() with the surface bound from its signed token.
+  router.post("/guide-chat", (c) => handleGuideChat(c, "memex-app"));
 
   return router;
+}
+
+/**
+ * The guide's LLM text leg, single-sourced (spec-222 t-10 — do not fork the
+ * proxy). Mirrors routes/llm.ts /chat but with the guide system prompt + screen
+ * context + the GUIDE_TOOLS toolset, and NO tenant document context or memex
+ * tools — the guide teaches the product, it never reads the user's data (dec-4).
+ * The client-side LangGraph drives this proxy; there is no server-side graph
+ * runtime (ac-11).
+ *
+ * `surface` is ALWAYS server-supplied — fixed to 'memex-app' for the authenticated
+ * in-app router, and bound from the signed anon token for the public router. It is
+ * NEVER read from the request body (guideChatSchema strips any extra field, and
+ * buildGuideSystemBlocks derives the persona solely from this surface — the
+ * prompt-injection guard, ac-20).
+ */
+export async function handleGuideChat(
+  c: Context,
+  surface: GuideSurface,
+): Promise<Response> {
+  const parsed = guideChatSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) {
+    return c.json({ error: "Invalid request" }, 400);
+  }
+  const { messages, screenKey, screenRegistry, screens, guideContext } = parsed.data;
+
+  let anthropic: Anthropic;
+  try {
+    anthropic = getAnthropicClient();
+  } catch (err) {
+    if (err instanceof LlmNotConfiguredError) {
+      return c.json({ error: "LLM unavailable", message: err.message }, 503);
+    }
+    throw err;
+  }
+
+  // Layer 1 + Layer 2 retrieval, server-side, every turn (ac-15), scoped to the
+  // server-supplied surface (ac-4 / ac-11 / ac-12 corpus isolation).
+  const tStart = Date.now();
+  const retrievedContext = await assembleGuideContext(
+    screenKey ?? null,
+    latestUserUtterance(messages),
+    guideContext,
+    surface,
+    screens ? new Map(screens.map((s) => [s.key, s.title])) : undefined,
+  );
+  const retrievalMs = Date.now() - tStart;
+
+  // spec-222 t-9 (dec-6 → ac-20): the persona is selected SERVER-side by surface.
+  // No system/persona/prompt text is EVER read from the request body.
+  const systemBlocks = buildGuideSystemBlocks({
+    surface,
+    screenKey: screenKey ?? null,
+    screenRegistry: screenRegistry ?? [],
+    guideContext: retrievedContext,
+  });
+
+  // Volatile per-turn context rides the FINAL user message (after the stable
+  // history), so the tools+system+history prefix stays byte-identical across
+  // turns and can be served from the prompt cache. The client resends history
+  // as plain utterances each turn — we only ever decorate the LATEST user
+  // message, never rewrite prior ones, so the prefix keeps matching.
+  const contextText = renderScreenContext({
+    screenKey: screenKey ?? null,
+    screenRegistry: screenRegistry ?? [],
+    screens,
+    guideContext: retrievedContext,
+  });
+  const outMessages = injectTurnContext(messages, contextText);
+
+  // Defeat reverse-proxy buffering so SSE deltas flush as they arrive.
+  c.header("Cache-Control", "no-cache, no-transform");
+  c.header("X-Accel-Buffering", "no");
+
+  return streamSSE(c, async (stream) => {
+    try {
+      const tLlm = Date.now();
+      let ttftMs: number | null = null;
+      const anthropicStream = anthropic.messages.stream({
+        model: GUIDE_MODEL,
+        max_tokens: 1024,
+        system: systemBlocks as Anthropic.TextBlockParam[],
+        tools: GUIDE_TOOLS as unknown as Anthropic.Tool[],
+        messages: outMessages as MessageParam[],
+      });
+      anthropicStream.on("text", (text: string) => {
+        if (ttftMs === null) ttftMs = Date.now() - tLlm;
+        stream.writeSSE({ event: "text_delta", data: JSON.stringify({ text }) });
+      });
+      const final = await anthropicStream.finalMessage();
+      // std-14 latency log — one line per LLM turn. usage's cache_* fields are
+      // the ground truth on whether the prompt cache engaged for this turn.
+      logVoiceLatency("llm_turn", {
+        surface,
+        screenKey: screenKey ?? null,
+        messageCount: messages.length,
+        retrievedChunks: retrievedContext.length,
+        retrievalMs,
+        ttftMs,
+        llmMs: Date.now() - tLlm,
+        totalMs: Date.now() - tStart,
+        stopReason: final.stop_reason,
+        usage: {
+          input: final.usage?.input_tokens ?? null,
+          output: final.usage?.output_tokens ?? null,
+          cacheRead: final.usage?.cache_read_input_tokens ?? 0,
+          cacheWrite: final.usage?.cache_creation_input_tokens ?? 0,
+        },
+      });
+      await stream.writeSSE({
+        event: "message_complete",
+        data: JSON.stringify({
+          content: final.content as ContentBlockParam[],
+          stopReason: final.stop_reason,
+        }),
+      });
+    } catch (err) {
+      await stream.writeSSE({
+        event: "error",
+        data: JSON.stringify({ message: err instanceof Error ? err.message : String(err) }),
+      });
+    }
+  });
 }

@@ -1,8 +1,11 @@
 import { useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth, computeDefaultLanding } from '../components/AuthContext';
+import { Alert } from '../components/ui/Alert';
+import { isFeatureHidden } from '../utils/featureFlags';
 import { passwordResetConfirmApi, AuthApiError } from '../api/client';
 import { Input } from '../components/ui/Input';
+import { Logo } from '../components/Logo';
 import { Button } from '../components/ui/Button';
 
 // Public page hit when the user clicks a password-reset link. Shows a new-password form,
@@ -34,7 +37,11 @@ export function ResetPassword() {
       const session = await passwordResetConfirmApi(token, password);
       acceptSession(session);
       setDone(true);
-      const landing = computeDefaultLanding(session) ?? '/login';
+      // spec-312 dec-1: land on /home (the universal landing); fall back to the default
+      // tenant only when 'home' is hidden per-env.
+      const landing = isFeatureHidden(session, 'home')
+        ? (computeDefaultLanding(session) ?? '/login')
+        : '/home';
       window.setTimeout(() => {
         window.location.href = landing;
       }, 800);
@@ -50,7 +57,7 @@ export function ResetPassword() {
       <div className="max-w-sm w-full">
         <div className="text-center mb-8">
           <h1 className="text-2xl font-semibold tracking-tight text-heading">
-            memex<span className="text-[#7b93b8]">.ai</span>
+            <Logo className="h-7" />
           </h1>
         </div>
 
@@ -89,9 +96,9 @@ export function ResetPassword() {
                   />
                 </label>
                 {error && (
-                  <div className="px-3 py-2 rounded-lg bg-status-danger-bg border border-status-danger-border text-xs text-status-danger-text">
+                  <Alert variant="danger">
                     {error}
-                  </div>
+                  </Alert>
                 )}
                 <Button
                   type="submit"

@@ -1,0 +1,61 @@
+# spec-243: continuous canary — authenticated probes against the live envs,
+# claxons to the per-env Slack channel on 2 consecutive failures, all-clear on
+# recovery (dec-1/dec-2/dec-4).
+#
+# ⚠ THE SCHEDULE IS DEAD — the real runner is Cloud Run (dec-1, superseded
+# 2026-06-11). GitHub's `schedule:` trigger never fired (0 of 6 slots over 67
+# minutes; best-effort by design). The canary now runs as a Cloud Run Job +
+# Cloud Scheduler in memex-ai-prod (scripts/canary/run-job.mjs, deploy-canary-job.sh).
+# This workflow is kept ONLY as a manually-dispatchable backup probe; it has no
+# `schedule:` trigger so it does nothing unless someone clicks "Run workflow".
+#
+# Required repo secrets / variables (for the manual backup path only):
+#   SLACK_WEBHOOK_{PROD,INT}, CANARY_EMIT_KEY_{PROD,INT}, CANARY_MCP_TOKEN_{PROD,INT}
+#   CANARY_AC_UID_{PROD,INT}, CANARY_VERBOSE
+name: canary (manual backup — Cloud Run is the real runner)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read # notify.mjs reads the previous run's job conclusions
+
+concurrency:
+  group: canary-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        env: [prod, int]
+    name: canary (${{ matrix.env }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: scripts/canary
+
+      - name: Probe ${{ matrix.env }}
+        id: probe
+        env:
+          CANARY_EMIT_KEY_PROD: ${{ secrets.CANARY_EMIT_KEY_PROD }}
+          CANARY_EMIT_KEY_INT: ${{ secrets.CANARY_EMIT_KEY_INT }}
+          CANARY_MCP_TOKEN_PROD: ${{ secrets.CANARY_MCP_TOKEN_PROD }}
+          CANARY_MCP_TOKEN_INT: ${{ secrets.CANARY_MCP_TOKEN_INT }}
+          CANARY_AC_UID_PROD: ${{ vars.CANARY_AC_UID_PROD }}
+          CANARY_AC_UID_INT: ${{ vars.CANARY_AC_UID_INT }}
+        run: node scripts/canary/probe.mjs ${{ matrix.env }}
+
+      - name: Notify Slack
+        if: always()
+        env:
+          CANARY_ENV: ${{ matrix.env }}
+          PROBE_RESULTS: ${{ steps.probe.outputs.results }}
+          SLACK_WEBHOOK: ${{ matrix.env == 'prod' && secrets.SLACK_WEBHOOK_PROD || secrets.SLACK_WEBHOOK_INT }}
+          CANARY_VERBOSE: ${{ vars.CANARY_VERBOSE }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/canary/notify.mjs

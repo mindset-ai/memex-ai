@@ -45,7 +45,7 @@ export function PromptModal({ prompt, loading, onClose, title = 'Implementation 
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -107,12 +107,11 @@ export function PromptModal({ prompt, loading, onClose, title = 'Implementation 
             </div>
           )}
 
+          {/* spec-389: theme-aware prose — `prose-invert` was a dead no-op (the
+              Typography plugin isn't installed) so this washed out in light mode;
+              `.prose-dark` colours from the `--ch-text-*` channels. */}
           {!loading && prompt && mode === 'preview' && (
-            <div className="prose prose-sm prose-invert prose-slate max-w-none text-sm
-              [&>*:first-child]:mt-0 [&>*:last-child]:mb-0
-              [&_p]:my-3 [&_ul]:my-3 [&_ol]:my-3 [&_li]:my-1
-              [&_h1]:mt-5 [&_h1]:mb-3 [&_h2]:mt-4 [&_h2]:mb-2 [&_h3]:mt-3 [&_h3]:mb-2
-              [&_blockquote]:my-3 [&_pre]:my-3">
+            <div className="prose-dark max-w-none text-sm [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 rehypePlugins={[rehypeHighlight, rehypeRefLinkifier]}
@@ -126,7 +125,7 @@ export function PromptModal({ prompt, loading, onClose, title = 'Implementation 
             <textarea
               value={editableText}
               onChange={(e) => setEditableText(e.target.value)}
-              className="w-full h-full min-h-[400px] bg-surface/50 border border-edge rounded-lg p-4 text-sm text-primary font-mono resize-none focus:outline-none focus:border-accent"
+              className="w-full h-full min-h-[400px] bg-surface/50 border border-edge rounded-lg p-4 text-sm text-primary font-mono resize-none focus:outline-hidden focus:border-accent"
             />
           )}
         </div>

@@ -154,10 +154,10 @@ export function SpecPicker({ value, onChange, specs, loading = false }: SpecPick
             : 'Filtering activity to all Specs. Click to change.'
         }
         onClick={() => setOpen((v) => !v)}
-        className="inline-flex items-center gap-1 rounded-full border border-edge bg-input px-2.5 py-0.5 text-xs font-medium text-secondary transition-colors hover:text-primary hover:bg-overlay focus:outline-none focus-visible:ring-1 focus-visible:ring-edge-strong"
+        className="inline-flex items-center gap-1 rounded-full border border-edge bg-input px-2.5 py-0.5 text-xs font-medium text-secondary transition-colors hover:text-primary hover:bg-overlay focus:outline-hidden focus-visible:ring-1 focus-visible:ring-edge-strong"
       >
         <span className="text-muted">Spec:</span>
-        <span className="truncate max-w-[12rem] text-primary">{triggerLabel}</span>
+        <span className="truncate max-w-48 text-primary">{triggerLabel}</span>
         <svg className="h-3 w-3 opacity-70" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
         </svg>

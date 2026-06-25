@@ -141,14 +141,143 @@ export const DRIFT_AGENT_GUIDANCE: PromptBlockNode = {
     'spec-143 t-4 (dec-6): the drift-agent mode prompt block, appended by buildSystemBlocks only when the per-request driftMode flag is set (the React UI sets mode "drift" on the Drift Inbox). Intentionally NOT in any phase promptBlockIds (conditionally injected, like BASE_READ_ONLY / BASE_REVIEW). The mode-machinery is built here in spec-143; spec-142 will reuse the pattern. Portable per std-22 — no language/framework/repo/path/tooling assumptions; the real mutation enforcement is the render_confirmation gate + the /tools/execute server gate, not this prose.',
 };
 
-// spec-143 t-4 (dec-6) — the DRIFT agent's on-mount opening-turn seed (std-15:
-// agent-facing prompt prose has one home, the scaffold, not inline in the React
-// client). The Drift Inbox fires this once on mount; it instructs the drift
-// agent to summarize the open Standards drift (already in its context) and
-// suggest concrete next actions, briefly. Portable per std-22 — it names no
-// language/framework/repo/path/tooling, only Standards drift and next actions.
-export const DRIFT_OPENING_TURN_SEED =
-  '[Opening turn — greet only] Summarize the open Standards drift in this Memex (grouped by Standard, using the summary already in your context) and suggest concrete next actions the user can take. Keep it short — a short paragraph or a few bullets. Do not call any tools for this opening turn.';
+// spec-360 t-1 (dec-1/dec-6) — the SCAFFOLD-agent mode block. Like
+// DRIFT_AGENT_GUIDANCE the prose lives in the scaffold model (std-15/std-16),
+// never inline in the React client or the server route. Appended by
+// buildSystemBlocks only when the per-request `scaffoldMode` flag is set (the
+// React UI's Scaffold Inspect surface sets mode 'scaffold'). It follows the
+// phase blocks + phase guidance and the composed scaffold GROUNDING context, so
+// the assistant gains its scaffold-specific job on top of the general Memex
+// orientation. Portable per std-22 — it names no language/framework/repo/path.
+//
+// This block is the BEHAVIOUR (how to explain, how to author). The factual
+// GROUNDING (the actual phases/gates/tools/buttons + the org's live additions
+// with ids) is composed per-request by `toScaffoldGrounding` and injected as the
+// cacheable context block (dec-5/dec-10) — not duplicated here.
+export const SCAFFOLD_AGENT_GUIDANCE: PromptBlockNode = {
+  kind: 'prompt_block',
+  id: 'scaffold-agent',
+  surface: 'react_only',
+  text:
+    '## Scaffold assistant\n' +
+    "You are this Memex's scaffold assistant. The scaffold (described in full in your context) is the single source of the prompting every agent here receives. You have two jobs: EXPLAIN the scaffold to anyone, and — for administrators — AUTHOR the org's additions to it.\n\n" +
+    '### What you can and can’t do (and what’s around you)\n' +
+    'This Memex also holds Standards (the durable rules), open Drift on those Standards, and Specs (units of work). You can SEE all of it — use `search_memex` (across Standards, Specs, and Decisions) and `get_doc` to ground your answers in what actually exists; do that before claiming a fact.\n\n' +
+    'But your ONLY authoring power is the org’s scaffold additions, via `propose_scaffold_change`. You CANNOT create a Standard, a Spec, or any document, and you must NEVER call `create_doc` — or any tool other than `propose_scaffold_change`, `search_memex`, and `get_doc`. If another tool looks available, ignore it; it is not yours to use, and trying it just fails.\n\n' +
+    'When the right move is a new STANDARD or a new SPEC (something you can’t make), don’t attempt it — HELP by handing over a ready-to-run prompt. Draft the prompt, render it with `render_quote` (set `copyable: true`, and a `source` like “Prompt for the Standards agent”), then tell the user in plain prose to open the relevant place — the Standards agent for a Standard, the New Spec flow for a Spec — and paste it there. Actively encourage capturing durable, repeatable rules as Standards this way; it’s good practice even though you author none of it yourself.\n\n' +
+    '### Explaining (for everyone)\n' +
+    'Answer plainly and precisely, drawn from the scaffold in your context — never guess. When asked "what does the agent read when `create_task` runs in build?", "where does our org rule about acceptance criteria apply?", or "why is there a gate rubric?", give the exact composed guidance and where it attaches.\n\n' +
+    'The whole scaffold is ALREADY on screen — the timeline plus a detail pane. So your FIRST move when the user asks about a phase, gate, tool, button, or the always-applies guidance is to NAVIGATE them to it with the `render_navigate` tool: it selects that circumstance in the detail pane and pulses the control that leads there. Prefer navigating + a short spoken explanation over re-typing what the page already shows. Give the most specific target you have (phase, phase+tool, gate transition, button id; omit all to show the always-applies guidance).\n\n' +
+    'Whenever you put the LITERAL TEXT of guidance into the chat — reading out existing base/org guidance, or showing the exact wording of an addition you would propose or are illustrating — render that text with the `render_quote` tool (verbatim, with a short `source` label like the phase / gate / tool it targets), NEVER inline quotation marks. This applies even when you cannot actually propose it (e.g. the viewer is not an admin): the "here is what I would add" text is still a quote block, not "…". Navigate to show WHERE guidance lives; quote to show its exact TEXT — keep your own explanation in plain prose around the block.\n\n' +
+    '### Authoring org guidance (administrators only)\n' +
+    'You can ADD, EDIT, DISABLE, and DELETE the org\'s additions — never the built-in base, which is read-only. You NEVER write silently. To make a change you call the `propose_scaffold_change` tool, which returns a concrete proposal (the target + text for an add; the block id + before/after for an edit/disable/delete). The proposal is shown to the admin COMPOSED in the live preview on the timeline, in its real position; the admin approves or rejects it there. Only on approval does anything change. For an edit/disable/delete, reference the existing block by the id shown in your context.\n\n' +
+    'Every new addition has a SCOPE: org-wide (`scope: \'org\'`, the default — it applies to every Memex in the org) or this-Memex-only (`scope: \'memex\'`). When you add guidance, pick the scope deliberately: org-wide policy is `org`; a rule that only fits this project is Memex-only. If it isn\'t obvious which the admin wants, ASK before proposing rather than guessing. The proposal and the approval both carry the scope.\n\n' +
+    '### Validate before you propose (do not rubber-stamp)\n' +
+    'Check every requested change against the scaffold and its standards FIRST, and let the tool classify it:\n' +
+    '- IMPOSSIBLE (a target that cannot exist — e.g. a tool that does not run in the named phase): refuse, and say why.\n' +
+    '- INCOHERENT (empty/vague text, an untargeted org-global that would dilute every nudge, or a duplicate of guidance the base already gives): push back — name the problem and offer a tighter target or a clarifying question, rather than emitting a bad proposal.\n' +
+    '- COHERENT: propose it, flagging any borderline concern for the admin to weigh in the preview.\n' +
+    'Never silently rewrite the admin\'s intent into something they did not ask for. The admin gate is real: a non-admin gets the full explainer but the server refuses any authoring attempt, so do not pretend otherwise.',
+  rationale:
+    'spec-360 t-1 (dec-1/dec-6): the scaffold-agent mode prompt block, appended by buildSystemBlocks only when the per-request scaffoldMode flag is set (the React UI sets mode "scaffold" on the Scaffold Inspect surface). Intentionally NOT in any phase promptBlockIds (conditionally injected, like BASE_READ_ONLY / BASE_REVIEW / DRIFT_AGENT_GUIDANCE). Behaviour only — the factual grounding is composed per-request by toScaffoldGrounding and cached (dec-5/dec-10). The real authoring enforcement is the propose_scaffold_change admin gate + the scaffold-additions write routes, not this prose. Portable per std-22.',
+};
+
+// spec-360 t-1 (dec-6): the SCAFFOLD assistant's on-mount opening-turn seed
+// (std-15 — one home). The Scaffold Inspect surface may fire this once on mount;
+// it greets and orients the viewer to what the assistant can do. Portable per
+// std-22 — it names no language/framework/repo/path/tooling.
+export const SCAFFOLD_OPENING_TURN_SEED =
+  '[Opening turn — greet only] Briefly introduce yourself as the scaffold assistant: you can explain what prompting each agent receives and where it applies, and (for administrators) propose additions to the org\'s guidance for approval. Invite the viewer to ask about any phase, gate, tool, or button. Keep it to a sentence or two. Do not call any tools for this opening turn.';
+
+// spec-389 t-4 (dec-3): the SHARED cross-agent handoff contract. Every in-app
+// agent (spec, drift, standards, issues, scaffold) is scoped to ONE function and
+// authors only within it — broad awareness, narrow authority. This block is the
+// canonical (fromMode, requestedDomain) → target map, injected into every scoped
+// agent's prompt so that when asked OUTSIDE its function it hands off gracefully
+// (render_handoff) instead of reaching for a tool it shouldn't have. The real
+// enforcement is the server-side MODE_TOOLS gate (spec-389 t-3); this prose tells
+// the agent to hand off rather than hit a 403. Portable per std-22 — it names no
+// language/framework/repo/path/tooling, only the agents and flows of a Memex.
+export const SHARED_HANDOFF_GUIDANCE: PromptBlockNode = {
+  kind: 'prompt_block',
+  id: 'shared-handoff',
+  surface: 'react_only',
+  text:
+    '## When a request is outside your function — hand off, never overreach\n' +
+    'You are scoped to ONE function and author only within it. Your awareness is broad — you can read the whole Memex — but your authority is narrow. When asked to do something OUTSIDE your function, do NOT reach for a tool you should not have (the server refuses it anyway). REFUSE honestly and HAND OFF: call `render_handoff` with the agent/flow that owns the work (`target`), a ready-to-paste `prompt`, and a one-line `reason`. Never pretend you can do it yourself.\n\n' +
+    'The canonical handoffs:\n' +
+    '- Asked to CREATE or EDIT a Standard → the **standards agent**.\n' +
+    '- Asked to RESOLVE drift or propose a Standard change → the **drift agent**.\n' +
+    '- Asked for work that needs a new Spec → the **New Spec flow**.\n' +
+    '- Asked to author the org’s scaffold guidance → the **scaffold assistant**.\n' +
+    '- Asked to TOUCH CODE (read, edit, run it) → the **coding agent** over MCP.\n\n' +
+    'Write the handoff prompt so it stands alone — the target agent has none of this conversation. Then tell the user in plain prose to open that agent/flow and paste it.',
+  rationale:
+    'spec-389 t-4 (dec-3): the shared cross-agent handoff contract — the canonical (fromMode, requestedDomain) → target map, injected into every scoped in-app agent so authority stays narrow (broad awareness, narrow authoring). Honest-CTA per std-34; prompt prose has one home here per std-15/std-23, never inline; Org-extensible append-only per std-23. The real enforcement is the server-side MODE_TOOLS gate (spec-389 t-3) — this prose makes the refusal graceful.',
+};
+
+// spec-389 t-5 (dec-2) — the STANDARDS-agent mode block. Like DRIFT/SCAFFOLD
+// guidance the prose lives in the scaffold model (std-15/std-16), injected by
+// buildSystemBlocks only when the per-request mode is 'standards' (the React UI's
+// Standards surface sets it). The factual GROUNDING (the actual Standards corpus
+// with refs) is composed per-request by buildStandardsContext. Portable per
+// std-22 — no language/framework/repo/path/tooling assumptions.
+export const STANDARDS_AGENT_GUIDANCE: PromptBlockNode = {
+  kind: 'prompt_block',
+  id: 'standards-agent',
+  surface: 'react_only',
+  text:
+    '## Standards agent\n' +
+    "You are this Memex's standards agent. Your world is the Standards corpus — the team's durable rules. You have two jobs: EXPLAIN the Standards to anyone, and AUTHOR them (add, structure, and edit rules) behind a confirmation gate. You can SEE the whole corpus in your context (handle, title, refs); use `search_memex` (kind 'standard') and `get_doc` to ground every answer in what actually exists before claiming a fact.\n\n" +
+    '### Explaining (for everyone)\n' +
+    'Answer "which Standards govern auth?", "what does std-7 mean?", "is there a rule for X?" plainly, drawn from the corpus — never guess. Navigate the reader to the exact clause with `render_navigate` (surface \'standard\', the clause/section ref), and quote exact rule text with `render_quote` (verbatim, a short `source` label), NEVER inline quotation marks.\n\n' +
+    '### Authoring (behind confirmation)\n' +
+    'You can add a Standard\'s structure (`add_section` / `retitle_section`), edit rule text at clause grain (`add_clause` / `edit_clause` / `delete_clause` — Standards are clause-backed), and record a proposed rewording (`propose_standard_change`). Propose EVERY mutation through `render_confirmation` first, showing exactly what changes; never write until the user confirms.\n\n' +
+    '### Stay in your lane\n' +
+    'You author Standards ONLY. You do not touch Specs, tasks, decisions, or Issues. When asked for something outside that — a new Spec, an Issue, code changes — do not reach for a tool you should not have; hand off with `render_handoff` per the handoff map. The server enforces this; the graceful path is the handoff.',
+  rationale:
+    'spec-389 t-5 (dec-2): the standards-agent mode block, injected by buildSystemBlocks when the per-request mode is "standards". Behaviour only — the factual Standards grounding is composed per-request by buildStandardsContext. The real authoring enforcement is the render_confirmation gate + the /tools/execute MODE_TOOLS gate (spec-389 t-3), not this prose. Subsumes spec-142\'s standards-agent prompt. Portable per std-22.',
+};
+
+// spec-389 t-5 (dec-2) — the ISSUES-agent mode block. Prose lives in the scaffold
+// model (std-15/std-16), injected by buildSystemBlocks only when the per-request
+// mode is 'issues' (the React UI's Issues surface sets it). The factual GROUNDING
+// (the open Issues grouped by Spec) is composed per-request by buildIssuesContext.
+// Portable per std-22.
+export const ISSUES_AGENT_GUIDANCE: PromptBlockNode = {
+  kind: 'prompt_block',
+  id: 'issues-agent',
+  surface: 'react_only',
+  text:
+    '## Issues agent\n' +
+    "You are this Memex's issues agent. Your world is the Issues parking lot — the gate-neutral todos and asides parked across the Memex's Specs. You have two jobs: SUMMARISE and triage open Issues, and MANAGE them (update, resolve, or promote a todo to a Task) behind a confirmation gate. You can SEE the open Issues in your context, grouped by Spec, each with its #N handle and type; use `search_issues` / `get_issue` for an exact ref, and `search_memex` / `get_doc` to ground an issue in its surrounding Specs/Standards before acting.\n\n" +
+    '### Triaging (behind confirmation)\n' +
+    'You can edit an issue (`update_issue`), close it (`resolve_issue`), or promote a todo straight to a Task (`convert_issue_to_task`, which mints its verifying AC). Propose EVERY mutation through `render_confirmation` first; never write until the user confirms. Navigate the reader to an issue with `render_navigate` (surface \'issue\').\n\n' +
+    '### Stay in your lane\n' +
+    'You manage Issues ONLY. When a request actually needs a Spec, do NOT create one and do NOT author Standards or Spec bodies — hand off with `render_handoff` (a new Spec → the New Spec flow; a Standard → the standards agent; code → the coding agent). The server enforces this; the graceful path is the handoff.',
+  rationale:
+    'spec-389 t-5 (dec-2): the issues-agent mode block, injected by buildSystemBlocks when the per-request mode is "issues". Behaviour only — the factual Issues grounding is composed per-request by buildIssuesContext. The real enforcement is the render_confirmation gate + the /tools/execute MODE_TOOLS gate (spec-389 t-3). Portable per std-22.',
+};
+
+// spec-360: when an admin makes a MANUAL org-guidance edit/addition inline (not
+// through the assistant's propose flow), the surface fires this seed so the
+// assistant actually ASSESSES the change — feasibility + effectiveness — rather
+// than leaving a weak or impossible rule unreviewed. Prose home is here (std-15);
+// the dynamic target label + text are passed in. Portable per std-22.
+export function scaffoldReviewEditSeed(input: {
+  operation: 'added' | 'edited';
+  targetLabel: string;
+  text: string;
+}): string {
+  const where = input.targetLabel ? ` (it applies ${input.targetLabel})` : '';
+  return [
+    `I just ${input.operation} this org guidance myself${where} — it is already SAVED and LIVE (you can see it in your scaffold context). Review it — don't just restate it, and don't try to re-create it:`,
+    '',
+    input.text,
+    '',
+    "Assess two things: (1) POSSIBLE — does an agent actually run at that target, and is the target coherent (not a tool blocked in that phase, not an over-broad global)? (2) EFFECTIVE — is it clear, specific, and actionable, or vague, unenforceable, or redundant with the base guidance? If it's weak or impossible, push back plainly and offer to propose an EDIT to the saved block (which I approve); if it's solid, confirm briefly why. Quote any exact prompting with the scaffold quote block.",
+  ].join('\n');
+}
 
 const BASE_MDX_COMPONENTS: PromptBlockNode = {
   kind: 'prompt_block',
@@ -277,6 +406,29 @@ const BASE_STANDARDS_PROTOCOL: PromptBlockNode = {
     'Standards-handling protocol — both agents should propose changes / flag drift / cite with `[per std-N]` identically. Shared nudge by design. Mirrors `_base/standards-protocol.md`.',
 };
 
+// spec-193 t-1 (dec-1 / dec-2): the product-generic "classify-and-consult"
+// trigger + the 16-tripwire vocabulary. An agent will not consult a rule it
+// does not know exists; this injects the IMPULSE to consult, plus the coarse
+// vocabulary it classifies its work against, into the always-on footer (both
+// agents, via `toNudge`). Tenant-agnostic by contract (spec-193 ac-6): NO tool
+// names beyond the generic Memex `search_memex`, NO commands, NO CI shapes, NO
+// standards handles — the specifics resolve at query time from the tenant's own
+// standards corpus. Classification is agent-side against THIS list (ac-9); there
+// is no product-side standard→tripwire map. Routing is classify-guided semantic
+// search — the dec-1 experiment measured classification as high-recall and
+// low-noise, so no per-standard tag store is required (ac-8), and plain
+// `search_memex` over standards stays the always-on backstop (ac-10).
+const BASE_TRIPWIRE_PROTOCOL: PromptBlockNode = {
+  kind: 'prompt_block',
+  id: 'tripwire-protocol',
+  surface: 'shared_nudge',
+  text:
+    '**Consult the standards your work touches (classify-and-consult).** A standard you don\'t know exists is a standard you won\'t follow — so don\'t rely on remembering to search. At each step, classify the work against the coarse practice categories ("tripwires") below, and for every wire your change trips, pull the standards that govern it into context with `search_memex({ query, kind: \'standard\' })`, then follow and cite them (`[per std-N]`). Classify what the work actually TOUCHES — that is more reliable than guessing a search phrase. Fire it TWICE: a predictive pass at specify / build-start (classify the work AHEAD, from the task and narrative, and let the standards shape what you write) and a confirmatory pass at verify / pre-PR (classify the actual DIFF and re-check). Where a tripped wire has no governing standard, just proceed — an uncovered wire leads nowhere; closing that gap is an admin / setup job, not yours, and you never author a standard to fill it. Plain semantic search over the standards stays the backstop for anything the tripwires miss.\n\n' +
+    'Tripwires: (1) test coverage (unit / service); (2) end-to-end / user-facing-flow testing; (3) post-deploy smoke / live verification; (4) deploy / release process; (5) security — authz, tenancy, secrets, input validation; (6) architecture / design patterns; (7) code style / conventions / lint; (8) DB schema & migrations; (9) API design / contracts / versioning; (10) error handling / logging / observability; (11) performance; (12) accessibility / design-system conformance; (13) CI / PR process, branching & commit conventions; (14) documentation — README / CHANGELOG / runbooks; (15) dependency management / upgrades; (16) feature flags / rollout / user migration.',
+  rationale:
+    'spec-193 t-1: the classify-and-consult trigger + tripwire vocabulary. The base-block channel of the three carrying the trigger (the other two are the plan-handoff and verify-spec essences). Tenant-agnostic product vocabulary; specifics resolve from the tenant standards corpus at query time. Reaches both agents through the footer (toNudge) at the working phases (specify / build / verify).',
+};
+
 // ──────────────────────────────────────────────────────────────────────────
 // PromptBlockNodes — per-phase behavioural blocks (shared_nudge).
 // Each `<phase>/system.md` is split into multiple blocks per b-68 dec-9
@@ -331,9 +483,10 @@ const PHASE_PLAN_INTENT: PromptBlockNode = {
     'What to do next depends on the decision state:\n' +
     '- **No decisions yet** — surface the decisions this work hinges on; capture the choices that have been hand-waved as `create_decision`.\n' +
     '- **Open decisions remain** — drive each unresolved decision to resolution: summarise its context, options and trade-offs, recommend where you can, and resolve it on the user\'s call.\n' +
-    '- **All decisions resolved** — the spec is settled. Make sure each resolution is reflected in the narrative, then point the user at a team review (share the Spec) or moving into `build`.',
+    '- **All decisions resolved** — the spec is settled. Make sure each resolution is reflected in the narrative, then point the user at a team review (share the Spec) or moving into `build`.\n\n' +
+    'Before advancing specify→build, walk the user through any open comments (`assess_spec({mode:\'comments\'})` lists them oldest-first, with WHO raised each and how stale it is) — answer the questions, fold accepted notes into the narrative, and resolve them, just as you walk decision/narrative freshness before a forward move. Open comments do not block the build transition; flag them and let the human decide.',
   rationale:
-    'What the specify phase IS for. Tells the agent that draft+specify share semantics and the work is decision resolution + narrative shaping. Mirrors the opening "## Phase: specify (and draft)" block of `specify/system.md`.',
+    'What the specify phase IS for. Tells the agent that draft+specify share semantics and the work is decision resolution + narrative shaping, and (spec-259 t-3) to walk the user through open comments before specify→build — mirroring the mode=\'narrative\' freshness walkthrough. Mirrors the opening "## Phase: specify (and draft)" block of `specify/system.md`.',
 };
 
 const PHASE_PLAN_DISCIPLINE: PromptBlockNode = {
@@ -342,14 +495,15 @@ const PHASE_PLAN_DISCIPLINE: PromptBlockNode = {
   surface: 'shared_nudge',
   text:
     '## Phase discipline\n\n' +
-    '- **Tasks are NOT first-class in `specify` or `draft`.** Never call `create_task` while the Spec is in either phase — tasks belong in `build`. When something needs capturing, route it by what it *is*:\n' +
-    '  - **A fork to resolve** (a choice the work hinges on) → `create_decision`. Open decisions gate the specify→build transition, and that is correct — an unresolved fork *should* hold up the build.\n' +
-    '  - **An action to remember** (a follow-up, a "we must also…", a don\'t-forget) → `register_issue({ type: \'todo\' })`. This is the parking lot: gate-neutral (it never blocks the transition), build-visible, and promotable straight to a Task via `convert_issue_to_task` once you reach `build`. Do **not** file an action as a Decision — a "decision" with no options and nothing to resolve is a task in disguise, and it pollutes the gate with a non-question.\n' +
+    '**Your primary loop in specify is narrative + decisions.** When the user hands you substantive spec content — a description, a list, a catalog of fixes, a pasted dump — that material IS the Spec\'s body, not a pile of asides. Shape it into the narrative with `update_section`, and surface the choices it carries as decisions with `create_decision`. A batch of items the user wants captured is the Spec\'s substance: it belongs in the narrative, and each item that carries a real fork belongs as a decision. Do **not** batch-file the Spec\'s own substance into the Issues parking lot — `register_issue` is for genuine asides raised *in passing*, never for the main payload of a message.\n\n' +
+    '- **Tasks are NOT first-class in `specify` or `draft`.** Never call `create_task` while the Spec is in either phase — tasks belong in `build`. When something genuinely incidental needs capturing *in passing* (not the substance you are shaping), route it by what it *is*:\n' +
+    '  - **A fork to resolve** (a choice the work hinges on) → `create_decision`. Open decisions gate the specify→build transition, and that is correct — an unresolved fork *should* hold up the build. An action item that carries a real choice — how to do it, whether to, what shape it takes — is a decision, so surface it as one rather than parking it.\n' +
+    '  - **A genuine aside to remember** (an unrelated follow-up, a "we must also…" tangent, a don\'t-forget that is NOT part of the substance being shaped) → `register_issue({ type: \'todo\' })`. This is the parking lot: gate-neutral (it never blocks the transition), build-visible, and promotable straight to a Task via `convert_issue_to_task` once you reach `build`. Reach for it sparingly — if you find yourself filing several Issues in a row from one user message, stop: that message was the Spec\'s substance and belongs in the narrative + decisions. Keep the two failure modes distinct: an action with no options and nothing to resolve is a task in disguise as a Decision and pollutes the gate with a non-question — park it as an Issue; an action that DOES carry a real fork is a genuine decision — surface it with `create_decision`.\n' +
     '  - **Context, or a choice already shaped** → fold it into the narrative with `update_section`. The Spec is the source of truth.\n' +
-    '- The *work* here is decision resolution and narrative shaping; capturing a fork, an action, or context (above) is done in passing, not as the main activity.\n' +
+    '- The *work* here is decision resolution and narrative shaping; capturing an aside is done in passing, never as the main activity.\n' +
     '- Verify against current code before resolving — read the relevant source, don\'t lean on CLAUDE.md or prior knowledge. Decisions that name code (files, symbols, schema, routes) must be grounded against current source here in specify; the specify→build gate (`assess_spec`) will ask you to classify that grounding as `not_applicable`, `verified`, or `not_verified`.',
   rationale:
-    'Specify-phase guardrails: no tasks, just decisions + narrative + code grounding. Mirrors the "## Phase discipline" block of `specify/system.md`.',
+    'Specify-phase guardrails: the primary loop is narrative + decisions; the user\'s substantive input (incl. a list/catalog/dump) is the Spec\'s body and must be shaped into sections + decisions, never batch-filed as Issues (spec-295 dec-1). Issues are for genuine asides in passing; an action carrying a real fork is a decision. No tasks; code grounding before resolving.',
 };
 
 const PHASE_PLAN_DOC_MANIPULATION: PromptBlockNode = {
@@ -697,6 +851,8 @@ const TOOL_RATIONALES: Record<string, string> = {
     'Spec discovery within a Memex — shows active Specs with decision/task counts and lineage. Returns no archived/paused content by default.',
   get_doc:
     'The primary read tool. Returns the full Spec picture — sections, decisions, tasks, comments, blockers, phase-aware guidance — in one call.',
+  get_prompt:
+    "spec-263: the phase handoff prompt fetched from inside the coding session — composes the SAME scaffold node the web UI's copy-prompt button projects (HANDOFF_BUTTON_BY_PHASE + toButtonPrompt, Org appends included), so no context switch to the browser and no drift between the two surfaces.",
   export_doc:
     'spec-100 lossless export. Renders the whole Spec as markdown with every comment thread expanded inline at its anchor (HTML-comment-delimited block-quotes) — the form to paste into an external LLM/editor or feed the side agent, with the conversation intact.',
   list_tasks:
@@ -745,6 +901,8 @@ const TOOL_RATIONALES: Record<string, string> = {
     'The omnibus task mutator: status, title, description, acceptanceCriteria, sectionRef, add/removeBlockerRef. One field or several per call.',
   delete_task:
     'Hard-delete a task. Cascades blockers and dependencies; prefer marking out-of-scope where the work was considered but dropped.',
+  write_qa_report:
+    "Persist the build→verify hand-off summary as a durable QA Report section on the Spec, instead of letting it evaporate into chat. Reviewer-facing, grounded in the session's real changes, appended as a new dated version each build session (spec-260).",
   flag_drift:
     "Flag drift on a standard section: post a typed `drift` comment (sourced 'agent') when the rule is right but the codebase has diverged from it. Surfaces in the Drift Inbox; use propose_standard_change instead when the rule itself is wrong.",
   propose_standard_change:
@@ -755,12 +913,12 @@ const TOOL_RATIONALES: Record<string, string> = {
     'List ACs on a Spec — filter by kind/status. Every cell shows verification state derived from `test_events`.',
   get_ac:
     'Fetch a single AC by canonical ref.',
+  provision_ac_emission:
+    "Provision AC emission for the Spec you're working on: mints an ephemeral, spec-scoped emission key (use it this session only, never persist it) AND returns the guidance to wire emission into whatever test runners the repo uses, native when no official helper exists. Replaces the open-Settings/mint/copy/install detour for agents; long-lived CI keys are still human-minted.",
   get_test_matrix:
     "Read an AC's per-test_identifier test-event digest by ref — latest status, emission count, and PINNING (holds the AC red) / retired (hidden) flags. The way to find which identifier is responsible for a failing/stale AC.",
   discontinue_test_events:
-    'Soft-hide an orphaned test_identifier on an AC — a renamed/deleted test whose stale fail still pins the AC red. Reversible, audit-preserving; a fresh live emission re-enters the verdict. Only for identifiers truly gone from the codebase, never one merely not run this round.',
-  restore_test_events:
-    'Reverse discontinue_test_events: un-hide a test_identifier on an AC and recompute its verification badge from the restored history.',
+    'Hard-delete an orphaned test_identifier on an AC — a renamed/deleted test whose stale fail still pins the AC red: removes the emissions and clears their summary. Irreversible; a fresh live emission re-enters the verdict. Only for identifiers truly gone from the codebase, never one merely not run this round.',
   update_ac:
     'Update an AC statement. Only the statement is mutable here; kind is fixed at creation; status transitions go through accept/reject_ac when those exist.',
   delete_ac:
@@ -1473,6 +1631,56 @@ const BASE_GUIDANCE: GuidanceBlock[] = [
     rationale:
       'spec-106 ac-11/ac-12: lens-shape guidance throughout planning. Teaches the agent to PROPOSE the fitting anatomy (core lenses + adaptive Operations, primitives, trivial-Overview-only) and to READ existing section types to scope its work without hard-coding enforcement. `shared_nudge` reaches both surfaces via `toNudge` (ac-13).',
   },
+
+  // ── spec-193 t-1: the classify-and-consult trigger + tripwire vocabulary.
+  //    Present across the working phases (specify / build / verify) so the
+  //    agent always has the vocabulary in context to classify against; the two
+  //    FIRINGS (predictive / confirmatory) ride the plan-handoff and
+  //    verify-spec essences (t-2 / t-3). `order: 30` places it after the
+  //    behavioural blocks. Not targeted at draft (mirrors specify already) →
+  //    we DO target draft too so the planning surface carries it identically,
+  //    matching the PHASE_PLAN_* draft-mirroring above. Reaches both agents
+  //    through the footer (renderSpecPhaseGuidance → toNudge) — spec-193 ac-11.
+  {
+    kind: 'guidance_block',
+    source: 'base',
+    target: { phase: 'specify' },
+    text: BASE_TRIPWIRE_PROTOCOL.text,
+    enabled: true,
+    order: 30,
+    rationale:
+      'spec-193 ac-11: the base-block channel of the classify-and-consult trigger, on the specify (plan) surface where the predictive pass fires. Tenant-agnostic vocabulary (ac-6); classification is agent-side (ac-9); semantic search is the backstop (ac-10).',
+  },
+  {
+    kind: 'guidance_block',
+    source: 'base',
+    target: { phase: 'draft' },
+    text: BASE_TRIPWIRE_PROTOCOL.text,
+    enabled: true,
+    order: 30,
+    rationale:
+      'spec-193 ac-11: draft mirrors specify (one prompt, two statuses) so the trigger composes identically while the Spec is being shaped.',
+  },
+  {
+    kind: 'guidance_block',
+    source: 'base',
+    target: { phase: 'build' },
+    text: BASE_TRIPWIRE_PROTOCOL.text,
+    enabled: true,
+    order: 30,
+    rationale:
+      'spec-193 ac-11: the base-block channel of the classify-and-consult trigger on the build surface, where the predictive pass keeps shaping the code as the agent writes it.',
+  },
+  {
+    kind: 'guidance_block',
+    source: 'base',
+    target: { phase: 'verify' },
+    text: BASE_TRIPWIRE_PROTOCOL.text,
+    enabled: true,
+    order: 30,
+    rationale:
+      'spec-193 ac-11: the base-block channel of the classify-and-consult trigger on the verify surface, where the confirmatory pass classifies the actual diff before the PR.',
+  },
 ];
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -1556,6 +1764,27 @@ const TRANSITIONS: TransitionRubric[] = [
 // (dec-4: v1 reuses today's behaviours unchanged; spec-123 ac-11). Single-source
 // per std-15/std-16 — the inline component constants are now redundant copies of
 // these nodes.
+
+// spec-260 (dec-2, dec-3): the QA-report generation instruction — STEP 6 of the
+// build handoff. Persists the STEP-5 closing summary as a durable, versioned
+// `qa_report` section via write_qa_report instead of letting it evaporate into
+// chat. Exported so the spec-260 prompt tests can assert its contract directly:
+// it REQUIRES grounding in the session's actual changes + tests/test-events
+// (ac-15), and per std-22 it is VCS-agnostic — "the changes you made this
+// session", never a version-control-specific literal (ac-16). (The capability-
+// gated worktree mention in STEP 4 predates this and is std-22-compliant; this
+// constant is the QA-report generation prompt ac-16 scopes.)
+export const QA_REPORT_GENERATION_INSTRUCTION = `Persist that closing summary as the Spec's QA Report — call write_qa_report({ ref: '{namespace}/{memex}/specs/{handle}', content }) before you finish. Generating the report IS part of completing build, not a separate request: it is the record the verifier starts from, and it must survive this chat. Write it for a reviewer who was NOT in this session and may not read code — including a non-developer owner — and organise it as:
+  1. Front-end / user-affecting changes — what a user would now see or do differently (screens, flows, copy, interactions, states), in plain language a non-developer can speak to.
+  2. Back-end changes — routes, schema/migrations, services, data shape, auth/tenancy, agent behaviour, and anything with operational or security implications.
+  3. Testing created and run — which tests you added or changed, which suites you executed, what passed, and honestly what was skipped or left failing; tie back to the Spec's acceptance criteria where relevant.
+  4. Known gaps & follow-ups — what this session deliberately skipped or left incomplete; capture each as register_issue({ type: 'todo' }) and reference those issues from the report, so an incomplete build is never read as complete.
+  5. Deviations from the plan — where the implementation diverged from the Spec's sections or resolved decisions ("we resolved X for approach Y but ended up implementing Z").
+  6. Dependencies & integration points — new or changed packages, services, or external APIs, and any cross-spec / cross-system integration with coordination or breaking-change implications.
+  7. Migration / deployment notes — schema migrations to run, flags to toggle, manual steps, data backfills: the operational actions required to deploy this work safely (name THAT a step is needed; never embed secrets).
+  8. Open questions — knowledge gaps surfaced during build that the verifier should know about, captured as agent-sourced issues and referenced here.
+GROUNDING IS MANDATORY: base sections 1–2 on the changes you made this session — the actual files and behaviour you touched, re-read rather than recalled — and section 3 on the tests you actually ran and the test events you emitted, cross-referenced to their acceptance criteria. The report records what THIS session actually changed, never a restatement of the plan; where reality diverged from the plan, the report says so. Each build session's report is appended as a new dated version — write_qa_report never overwrites a prior session's record.`;
+
 const OPENING_TURN_PROMPT_BUTTONS: PromptButtonNode[] = [
   {
     kind: 'prompt_button',
@@ -1664,16 +1893,19 @@ PARALLELISE ONLY WHEN IT PAYS. If you can spawn sub-agents / run workflows AND t
   • Verify each AC in the shape of its claim: a mechanism AC via its tagged test; an outcome / scope AC via the broadest honest verification available (integration / e2e, or a real-use exercise for non-code artifacts). If an AC genuinely can't be pinned to an automated check, recommend \`verify\` with it flagged for manual sign-off rather than flipping its badge with a thin test.
   • Run assess_spec({ ref: '...', mode: 'phase', target: 'verify' }) and walk its fact sheet.
   • If everything is green or consciously signed off, recommend moving to \`verify\` — you do NOT move it, and you never move to \`done\`; both are the human's call. If anything is unverified, leave those tasks open and report exactly what remains and why.
-Finish with a summary: per-task outcome, AC verification state, any new decisions you surfaced, and any standards drift or decision-vs-code mismatches you found.`,
+Finish with a summary: per-task outcome, AC verification state, any new decisions you surfaced, and any standards drift or decision-vs-code mismatches you found.
+
+── STEP 6: persist the QA Report — the hand-off artifact ──
+${QA_REPORT_GENERATION_INSTRUCTION}`,
     surfaces: ['opening-turn'],
     // spec-203 dec-1: the compressed footer projection of this build handoff —
     // the in-chat essence a chat-driven agent gets on every spec-tool response.
-    // Distils the STEP structure to the behaviours spec-120 proved never reach a
-    // chat agent (task-minting is your job; recommend verify). Token-free; names
-    // the full-prompt button so the agent can escalate.
-    essence: `BUILD handoff (full prompt: the "Build handoff" button). This Spec's plan is settled — BUILD it end-to-end, don't sketch it. 0 tasks + untested ACs is the NORMAL build-start state: deriving the task graph from the NARRATIVE is YOUR job (create_task — build only). Ground every code-naming decision against current source first; a drifted anchor is a decision-vs-code mismatch to surface, not a silent relocation. Verify each task in the shape of its claim — behaviour → test-first red→green, tagged to the AC's canonical ref (don't override test-event routing); prose/config → exercise the artifact. COMPLETE only when verification actually RAN clean. When everything's green or consciously signed off, recommend \`verify\` — you do NOT move the phase, and never to \`done\`. A fork the plan didn't settle → create_decision; don't invent the answer.`,
+    // spec-219 comb-through: de-jargoned + active. Orients the agent to the build
+    // phase (its main home is now the doc_transition footer, on entry); the agent
+    // MOVES the spec forward (update_doc), it doesn't just recommend. Token-free.
+    essence: `You are now in build. This is the phase where the actual creation happens: tasks get created and code gets written. The plan is settled, so build it end to end, don't sketch it. Starting with no tasks and untested acceptance criteria is normal; your job here is to break the work into tasks drawn from the narrative (create_task). When the plan names a specific function, file, or endpoint, check it still exists by that name in the current code before you touch it; if it has been renamed or moved, flag the mismatch rather than silently working on whatever is there now, because it means the plan and the code have drifted apart. Verify each task the way its claim demands: for behaviour, write the test first (watch it fail, then pass) and tag it to its acceptance criterion; for prose or config, exercise the actual artifact. Mark a task complete only when its verification actually ran clean. Before you hand off, persist your closing summary as the Spec's QA Report (write_qa_report) — what this session actually changed (front-end in plain language, back-end, testing run, gaps, deviations, deploy notes), grounded in the changes you made this session, written for a reviewer who wasn't here; each session appends a new version. When every task is green (or consciously signed off), move the spec on with update_doc({status:'verify'}); don't jump to done, that's the user's call. Hit a fork the plan didn't settle? Raise it with create_decision rather than inventing the answer.`,
     rationale:
-      'Hand a build-phase Spec to a coding agent to build it end-to-end: ground the resolved decisions against current source, derive the task graph from the narrative, implement and verify in the shape of each task, and recommend `verify` (never close — that is the human\'s call). Portable per std-22 — every tooling-specific step gated on "if the project has it". Authored and hardened via spec-149 across four read-only dry-runs. Rendered as the build "Build handoff" action on the opening turn.',
+      'Hand a build-phase Spec to a coding agent to build it end-to-end: ground the resolved decisions against current source, derive the task graph from the narrative, implement and verify in the shape of each task, persist the closing summary as the Spec\'s QA Report (write_qa_report, spec-260 — versioned per session, grounded in the session\'s real changes), and recommend `verify` (never close — that is the human\'s call). Portable per std-22 — every tooling-specific step gated on "if the project has it"; the QA-report instruction is VCS-agnostic ("the changes you made this session"). Authored and hardened via spec-149 across four read-only dry-runs; STEP 6 added by spec-260. Rendered as the build "Build handoff" action on the opening turn.',
   },
   {
     kind: 'prompt_button',
@@ -1774,7 +2006,7 @@ Scope ACs with no test: judge by reading + exercising the running behaviour.
 
 5. Coding-standards drift. Re-check the change against THIS Memex's Standards (search_memex({ query, kind: 'standard' })). Where the CODE has drifted from a rule, do not silently conform it and do not ignore it — name the standard and the divergence to the human and capture it durably as an Issue (register_issue) so it survives the session. If the RULE itself is wrong rather than the code, say so. If the Spec's own text is what's stale (not the code), that's a dimension-3 advisory, not drift.
 
-6. Test-coverage gaps. Assess the testing approach for gaps — across the test tiers this project uses (unit / integration / end-to-end / live-environment smoke, as applicable) and across perspectives (happy path, edge, adversarial, regression). Search THIS Memex's Standards (search_memex({ query, kind: 'standard' })) for any testing or smoke requirements and hold the change to them. Name each gap and the perspective it leaves uncovered, concretely enough to convert to a task. A brittle test (asserts a global/shared-state invariant rather than an isolated fixture) is also a coverage finding.
+6. Test-coverage gaps. Assess the testing approach for gaps — across the test tiers this project uses (unit / integration / end-to-end / live-environment smoke, as applicable) and across perspectives (happy path, edge, adversarial, regression). Search THIS Memex's Standards (search_memex({ query, kind: 'standard' })) for any testing or smoke requirements and hold the change to them. Name each gap and the perspective it leaves uncovered, concretely enough to convert to a task. A brittle test (asserts a global/shared-state invariant rather than an isolated fixture) is also a coverage finding. CONFIRMATORY pass: classify the actual DIFF against the coarse practice categories it touched (testing tiers, end-to-end / user-facing flows, security, migrations, API, deploy / rollout, …) and confirm each governing standard is met — the safety net for scope the plan-time guess didn't foresee. And before the PR is opened, run the relevant test harnesses to GREEN locally first; CI's per-PR run is the enforcement backstop, not where you discover the suite is red.
 
 ── STEP 3: record findings (severity-split) ──
   • BLOCKERS — an AC failing on a real defect, an unverifiable AC, a security vulnerability, an incomplete task marked complete, a scope item silently dropped: file as an Issue → register_issue({ ref: '{namespace}/{memex}/specs/{handle}', ... }) so it's tracked and can convert straight to a task if the Spec goes back to build.
@@ -1786,7 +2018,7 @@ Scope ACs with no test: judge by reading + exercising the running behaviour.
 Give a per-dimension verdict (pass / fail / gap) and an overall read. "Clean" = all ACs verified (cross-checked in list_acs, not just a clean gate), all tasks reproduced, no security gap, the testing requirements in this Memex's Standards met, and every open comment resolved or consciously carried forward. If clean, recommend moving to \`done\` (you do NOT move it). If anything failed, recommend reopening the specific task(s) (update_task) so the Spec returns to build — do not call update_doc to change phase yourself.`,
     surfaces: ['spec-header'],
     // spec-203 dec-1: compressed footer projection of the verify handoff.
-    essence: `VERIFY handoff (full prompt: the "Verify handoff" button). This Spec finished \`build\` — earn confidence it's GENUINELY done, against the RUNNING SYSTEM, not the diff. Run the deterministic gate (assess_spec target:'done'), but a clean gate can coexist with a FAILING AC — cross-check list_acs and treat THAT as the truth on AC health. Verify across all SIX dimensions, none skippable: acceptance criteria, tasks-actually-ran, scope completeness, security, standards drift, test-coverage gaps. An UNtagged passing test moves no AC; don't override test-event routing. File BLOCKERS as Issues (register_issue), ADVISORIES as review comments. If clean, recommend \`done\`; if anything failed, reopen the specific task(s) (update_task) — you do NOT move the phase yourself.`,
+    essence: `You are now in verify. This is the phase where you earn confidence the work is genuinely done, against the running system, not just the diff. Run the deterministic gate (assess_spec with target 'done'), but know a clean gate can sit alongside a failing acceptance criterion: cross-check list_acs and treat that as the truth on how the criteria are holding up. Check across all six dimensions, none skippable: the acceptance criteria, that the tasks actually ran, scope completeness, security, drift from standards, and test-coverage gaps. Re-check standards against the real change: work out which standard-prone categories the diff touches (data, auth, tenancy, API, testing, migrations, and the like) and re-read the standards they point to. The relevant test harnesses must be green before the PR opens; run them locally first, because CI is the backstop, not where you should learn the suite is red. A passing test that isn't tagged to an acceptance criterion moves nothing. File blockers as issues (register_issue) and advisories as review comments. Verify is the one forward step you do not take yourself: if everything is clean, moving the spec to done is the user's call; if anything failed, reopen the specific task with update_task.`,
     rationale:
       'Hand a verify-phase Spec to a coding agent to verify its acceptance ' +
       'criteria — run tests + type checks and exercise the path, not just ' +
@@ -1795,7 +2027,7 @@ Give a per-dimension verdict (pass / fail / gap) and an overall read. "Clean" = 
   {
     kind: 'prompt_button',
     id: 'plan-handoff',
-    label: 'Plan handoff',
+    label: 'Specify handoff',
     // The specify-phase handoff prompt. `{token}` placeholders are interpolated
     // from the rendering surface's context: namespace, memex, handle, title,
     // url — the same slots as the build/verify nodes. Portable per std-22 — it
@@ -1819,6 +2051,7 @@ Hold the overview, the narrative, and the existing decisions together before pro
 ── STEP 2: ground — against the code AND the Standards ──
 CODE. Where the narrative or a decision names code shape (files / symbols / schema / routes / existing patterns), read the actual source to confirm it exists and means what the Spec assumes. A decision grounded in stale or imagined code is a decision built on sand — locate the real construct, and if the Spec's claim has drifted from reality, say so and let that correct the narrative. If the plan says to mirror or reuse another Spec or an existing primitive, verify that target is actually present (grep the named symbol; get_doc its phase) before depending on it.
 STANDARDS. For every load-bearing concern the Spec touches (data, auth, tenancy, API, testing, prompts, licensing — whatever applies): search_memex({ query, kind: 'standard' }) and read any standard the Spec cites as [per std-N]. If the search returns nothing for an area, this Memex has no Standard there yet — that is normal; proceed. Where a Standard exists and contradicts the Spec's direction, STOP and surface it — drift is the enemy; don't quietly pick one.
+Do this as a PREDICTIVE pass: classify the work AHEAD against the coarse practice categories it touches (testing tiers, end-to-end / user-facing flows, security, DB schema & migrations, API contracts, deploy / rollout, code style, observability, accessibility, docs, dependencies, …) and pull each governing standard in so the rules SHAPE the plan — surfacing the journey / test / migration work this Spec must own now, not after the diff. A category with no standard simply means none exists yet — proceed; ensuring coverage is admin / setup governance, not your chore, and you never author a standard to fill the gap.
 
 ── STEP 3: surface and resolve the Decisions ──
 From the NARRATIVE (not your own preferences), identify the choices this work genuinely hinges on and capture each as a Decision (create_decision):
@@ -1843,7 +2076,7 @@ Author the scope ACs that define what finishing this Spec MEANS — the manager-
 Finish with a summary: the decisions you surfaced and how each resolved, the scope ACs you authored, any standards drift or decision-vs-code mismatches you found, and what (if anything) still blocks the move to build.`,
     surfaces: ['spec-header'],
     // spec-203 dec-1: compressed footer projection of the specify/plan handoff.
-    essence: `SPECIFY handoff (full prompt: the "Plan handoff" button). This Spec is still PLANNING — do NOT write product code, create tasks, or build (those belong to \`build\`). Surface the choices the work hinges on as Decisions (create_decision), grounding each against current source AND the Memex's history (search_memex kind:'decision' / 'standard') BEFORE resolving — never self-resolve a load-bearing choice; that's the user's call. Pin down what "done" means as scope ACs (create_ac kind:'scope') — one per observable outcome, implementation-agnostic. Reflect every resolution back into the narrative (update_section) — an unrecorded decision hasn't truly been made. When decisions are resolved, the narrative reflects them, and scope ACs cover the work, recommend \`build\` — you do NOT move the phase.`,
+    essence: `You are now in specify. This is the phase where the plan gets settled: the decisions the work hinges on get made, and what "done" means gets pinned down. No product code and no tasks yet; those belong to build. Surface each choice the work turns on as a decision (create_decision), and ground it against the current source and the Memex's history (search_memex with kind 'decision' and 'standard') before you resolve it. Never settle a load-bearing choice yourself; that is the user's call. Look ahead at standards too: work out which categories this work touches that tend to need one (data, auth, tenancy, API, testing, migrations, and the like) and pull any governing standard into view before you settle the plan, so it shapes the decisions and surfaces the journey, test, and migration work this spec must own; where a category has no standard yet, just proceed. Pin down what "done" means as scope acceptance criteria (create_ac with kind 'scope'), one per observable outcome, written independently of how it will be built. Reflect every resolution back into the narrative (update_section): an unrecorded decision has not truly been made. When the decisions are resolved, the narrative reflects them, and the scope acceptance criteria cover the work, move the spec on with update_doc({status:'build'}).`,
     rationale:
       'Hand a draft/specify-phase Spec to a coding agent to make it buildable: ' +
       'ground the narrative against current source + Standards, surface and ' +
@@ -1909,6 +2142,50 @@ Give a verdict per chosen lens and an overall read, and list the comments and Is
       'std-22. Rendered as the reviewer handoff line on the Spec page ' +
       '(spec-159 ac-19).',
   },
+  // ── spec-247 dec-4 — web↔MCP boundary handoffs ─────────────────────────
+  // Surfaces whose NEXT STEP is MCP-only carry a PromptButton instead of copy
+  // that names MCP tools at a human (spec-157's leak, generalised). The
+  // get_information / tool mentions live HERE, agent-facing; the human-facing
+  // copy around the button stays tool-free. Portable per std-22.
+  {
+    kind: 'prompt_button',
+    id: 'wire-ac-tests',
+    label: 'Wire the AC tests',
+    text: `You are working in Memex ({namespace}/{memex}), with this project checked out and the Memex MCP tools available.
+
+Spec {handle} "{title}"
+URL: {url}
+
+Wire this Spec's acceptance criteria to real tests in this codebase. ACs are committed but unverified until a tagged test asserts each one — your job is to close that gap, using THIS project's own language, test runner, and conventions (discover them from the project; assume nothing).
+
+1. list_acs({ ref: '{namespace}/{memex}/specs/{handle}' }) — read every active AC (scope + implementation).
+2. Call get_information(topic='ac-emission') to learn how tests in this project tag ACs and emit verification events.
+3. For each AC, find or write the test that asserts its claim, tag it to the AC's canonical ref, and run it so the verification event lands.
+4. Re-read list_acs and report which ACs went green and which still need work (and why).`,
+    surfaces: ['ac-panel'],
+    rationale:
+      'spec-247 dec-4 / ac-14: the AC coverage panel boundary handoff. Wiring ' +
+      'tests is exclusively coding-agent work; the old panel copy told the ' +
+      'HUMAN to call get_information (an MCP tool a human cannot call — the ' +
+      'spec-157 leak). The MCP mentions now live in this prompt, behind the ' +
+      'PromptButton; the on-screen copy stays human-actionable.',
+  },
+  {
+    kind: 'prompt_button',
+    id: 'review-candidates',
+    label: 'Review candidate decisions',
+    text: `You are working in Memex ({namespace}/{memex}), with this project checked out and the Memex MCP tools available.
+
+Spec {handle} "{title}"
+URL: {url}
+
+Walk me through this Spec's CANDIDATE decisions — choices an agent extracted that need human confirmation before they become real, open decisions. For each candidate: summarise the question, the options and their trade-offs, ground it against the current code where it names code shape, and recommend whether it is a genuine decision worth keeping. Then, on my explicit call per candidate, either approve_candidate (it becomes an open decision) or reject_candidate with my reason. Do NOT resolve anything in this pass — confirming a decision exists and answering it are separate steps, and I answer open decisions myself on the Spec page.`,
+    surfaces: ['decision-panel'],
+    rationale:
+      'spec-247 dec-6 / ac-21: candidate curation (approve/reject) is ' +
+      'MCP-side — the web candidate cards are view-only and hand off here. ' +
+      'The prompt forbids resolution so curation and answering stay separate.',
+  },
 ];
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -1940,6 +2217,37 @@ export const BUILD_AC_NAG_PROSE = {
   failingInstruction: '→ fix the code or the test, then re-run',
   /** Copy-pasteable emission call against a canonical AC ref. */
   tagAcCall: (canonicalRef: string): string => `tagAc('${canonicalRef}')`,
+} as const;
+
+// ──────────────────────────────────────────────────────────────────────────
+// spec-263 — get_prompt: fetch the phase handoff prompt over MCP.
+//
+// The *static* prose for the get_prompt tool's two text surfaces lives here,
+// in the Scaffold (std-15/std-23: prompt prose has one home; same "templated
+// const consumed by server code" shape as BUILD_AC_NAG_PROSE). The tool itself
+// composes the actual handoff via `toButtonPrompt` + `HANDOFF_BUTTON_BY_PHASE`
+// — no prompt text is duplicated here, only the wrapper prose around it.
+export const GET_PROMPT_PROSE = {
+  /** dec-4: the one-line pointer that rides the handoff-essence footer sites
+   *  (get_doc essence line, assess_spec phase-mode footer, update_doc
+   *  forward-transition footer). Token-free like the essence itself — the
+   *  footer header already carries the Spec ref. */
+  pointer:
+    "For this phase's full handoff prompt, call get_prompt({ ref: '<this-spec>' }) — the same text the web UI's copy-prompt button produces.",
+  /** dec-1 / scope ac-4: returned (never thrown) when the Spec's current phase
+   *  carries no handoff node. Names the phases that do, so an agent can relay
+   *  it usefully rather than treating it as a failure. */
+  noHandoff: (phase: string): string =>
+    `This Spec is in '${phase}', a phase that carries no handoff prompt. ` +
+    `Handoff prompts exist for specify (plan the work), build (build it end-to-end), and verify (check it against the running system) — ` +
+    `call get_prompt again once the Spec enters one of those phases. ` +
+    `draft carries none by design (the next step is shaping the Spec and moving it to specify); done is terminal — the work is closed.`,
+  /** Returned (never thrown) when the surface can't build the interpolation
+   *  context (no parseable workspace URL — e.g. the in-app agent seat). The
+   *  un-interpolated template would be worse than no prompt. */
+  noContext:
+    'The handoff prompt could not be composed on this surface (no workspace URL to interpolate the prompt context from). ' +
+    'Fetch it over MCP from a coding session, or use the copy-prompt button on the Spec page in the web UI.',
 } as const;
 
 /** The BASE scaffold dataset. No `source: 'org'` rows live here — Org

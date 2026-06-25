@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { emit, tagAc } from "./index.js";
+import { capturedFetch } from "./emit.js";
 
 const AC = "mindset-prod/memex-building-itself/specs/spec-115/acs";
 
@@ -100,7 +101,7 @@ describe("emit() — HTTP POST behaviour", () => {
       status: "fail",
       test_identifier: "test.ts::failed",
       duration_ms: 100,
-      options: { hidden: true, metadata: { tenant: "acme" } },
+      options: { metadata: { tenant: "acme" } },
     });
 
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
@@ -110,11 +111,11 @@ describe("emit() — HTTP POST behaviour", () => {
       status: "fail",
       test_identifier: "test.ts::failed",
       duration_ms: 100,
-      // spec-115 dec-6: actor lives at the top level alongside hidden,
-      // not inside metadata.
+      // spec-115 dec-6: actor lives at the top level, not inside metadata.
       actor: "wic",
-      hidden: true,
     });
+    // spec-358: the emitter never puts `hidden` on the wire.
+    expect("hidden" in body).toBe(false);
     expect(body.metadata?.tenant).toBe("acme");
     expect(body.metadata?.actor).toBeUndefined();
   });
@@ -260,6 +261,107 @@ describe("emit() — fail-safe on rejection (spec-129 ac-16)", () => {
 
     await expect(emit(baseArgs)).resolves.toBeUndefined();
     expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+});
+
+// spec-302 — emission is immune to a test that replaces globalThis.fetch and
+// never restores it (the spec-138 silent-loss class). Production emission goes
+// through `capturedFetch` (a module-load reference passed by setup.ts to emit).
+const AC_302 = "mindset-prod/memex-building-itself/specs/spec-302/acs";
+
+describe("emit() — transport injection & module-load capture (spec-302)", () => {
+  it("routes through its transport argument, never the live globalThis.fetch (ac-5)", async () => {
+    tagAc(`${AC_302}/ac-5`);
+    // ac-2: the guarantee is enforced by the emitter itself (transport routing),
+    // not by each test author remembering to restore the global.
+    tagAc(`${AC_302}/ac-2`);
+    const transportSpy = vi
+      .fn()
+      .mockResolvedValue({ ok: true, status: 204, headers: new Headers() });
+    const globalStub = vi
+      .fn()
+      .mockResolvedValue({ ok: true, status: 204, headers: new Headers() });
+    vi.stubGlobal("fetch", globalStub);
+
+    await emit(baseArgs, transportSpy);
+
+    // The injected transport handled the POST; the (stubbed) global was bypassed.
+    expect(transportSpy).toHaveBeenCalledOnce();
+    expect(globalStub).not.toHaveBeenCalled();
+  });
+
+  it("capturedFetch is bound at module load and survives a later unrestored global stub (ac-6, spec-138 regression)", () => {
+    tagAc(`${AC_302}/ac-6`);
+    // ac-3: this IS the regression test demonstrating the failure mode is closed.
+    tagAc(`${AC_302}/ac-3`);
+    // ac-1: the capture's stability is exactly what makes emission reliable when a
+    // test has mocked fetch — and this very test (which stubs the global below)
+    // still emits its own AC events in CI, dogfooding the guarantee.
+    tagAc(`${AC_302}/ac-1`);
+    const before = capturedFetch;
+
+    // Reproduce the spec-138 leak: a consumer test replaces globalThis.fetch and
+    // (within this test) never restores it.
+    const leakyStub = vi.fn();
+    vi.stubGlobal("fetch", leakyStub);
+
+    // The module-load capture is unaffected. setup.ts emits through THIS ref, so
+    // the leaky stub cannot intercept production emissions.
+    expect(capturedFetch).toBe(before);
+    expect(capturedFetch).not.toBe(globalThis.fetch);
+    expect(capturedFetch).not.toBe(leakyStub);
+  });
+});
+
+// spec-333 — on a non-2xx the emitter must surface the server's RESPONSE BODY (not just the
+// status code), so the actionable guidance a 401 carries (e.g. "call provision_ac_emission")
+// reaches the agent reading test output. Surfacing the body must NOT break the fail-safe
+// contract: emit() still never throws and never fails the test run.
+const AC_333 = "mindset-prod/memex-building-itself/specs/spec-333/acs";
+
+describe("emit() — surfaces the server response body on non-2xx (spec-333 ac-8)", () => {
+  beforeEach(() => {
+    vi.stubEnv("MEMEX_EMIT", ""); // emission on
+    vi.stubEnv("MEMEX_EMIT_KEY", "");
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  it("includes the response body text in the warning, and never throws (ac-8)", async () => {
+    tagAc(`${AC_333}/ac-8`);
+    tagAc(`${AC_333}/ac-3`); // scope outcome: emitter surfaces the body, never fails the run
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const transport = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 401,
+      headers: new Headers(),
+      text: async () => "call provision_ac_emission for a fresh key",
+    });
+
+    await expect(emit(baseArgs, transport)).resolves.toBeUndefined();
+    const warned = warnSpy.mock.calls.flat().join(" ");
+    expect(warned).toContain("call provision_ac_emission for a fresh key");
+    expect(warned).toContain("401");
+    warnSpy.mockRestore();
+  });
+
+  it("stays fail-safe when the body itself can't be read (degrades to status-only, never throws) (ac-8)", async () => {
+    tagAc(`${AC_333}/ac-8`);
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    // A response object with no text() method: the guarded body read swallows the failure and
+    // the warning still lands with the status code. The run must not go red.
+    const transport = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 503,
+      headers: new Headers(),
+    });
+
+    await expect(emit(baseArgs, transport)).resolves.toBeUndefined();
+    const warned = warnSpy.mock.calls.flat().join(" ");
+    expect(warned).toContain("503");
     warnSpy.mockRestore();
   });
 });

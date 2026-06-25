@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Button } from '../ui/Button';
+import { Alert } from '../ui/Alert';
 import { useAuth } from '../AuthContext';
 import {
   listOrgMembersApi,
@@ -102,9 +103,9 @@ export function UsersTab({ onSwitchTab }: { onSwitchTab: (id: string) => void })
       </div>
 
       {error && (
-        <div className="px-3 py-2 rounded-lg bg-status-danger-bg border border-status-danger-border text-sm text-status-danger-text">
+        <Alert variant="danger" size="md">
           {error}
-        </div>
+        </Alert>
       )}
 
       {loading && <div className="text-sm text-muted">Loading…</div>}
@@ -191,7 +192,7 @@ function MemberRow({
         </div>
       </div>
       <span
-        className={`text-xs px-2 py-0.5 rounded ${
+        className={`text-xs px-2 py-0.5 rounded-sm ${
           isAdmin
             ? 'bg-status-success-bg text-status-success-text'
             : 'bg-btn-secondary text-secondary'
@@ -200,7 +201,7 @@ function MemberRow({
         {member.role}
       </span>
       <span
-        className={`text-xs px-2 py-0.5 rounded ${
+        className={`text-xs px-2 py-0.5 rounded-sm ${
           isDisabled
             ? 'bg-status-danger-bg text-status-danger-text'
             : 'bg-btn-secondary text-secondary'

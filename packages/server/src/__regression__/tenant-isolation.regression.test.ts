@@ -33,14 +33,23 @@ import { createDocDraft } from "../services/documents.js";
 import { createTask } from "../services/tasks.js";
 import { createDecision, proposeDecision } from "../services/decisions.js";
 import { addComment } from "../services/comments.js";
+import { createAc } from "../services/acs.js";
+import { signAccessToken } from "../services/oauth/access-tokens.js";
+import { tagAc } from "@memex-ai-ac/vitest";
 
 const originalClientId = process.env.GOOGLE_CLIENT_ID;
+const originalOAuthEnabled = process.env.OAUTH_ENABLED;
 beforeAll(() => {
   delete process.env.GOOGLE_CLIENT_ID;
   vi.resetModules();
 });
 afterAll(() => {
   if (originalClientId !== undefined) process.env.GOOGLE_CLIENT_ID = originalClientId;
+  if (originalOAuthEnabled !== undefined) {
+    process.env.OAUTH_ENABLED = originalOAuthEnabled;
+  } else {
+    delete process.env.OAUTH_ENABLED;
+  }
 });
 
 const created = {
@@ -71,7 +80,7 @@ async function makeUserOrgMemex(suffix: string): Promise<{
   const tag = `${suffix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 4)}`.toLowerCase();
   const [u] = await db
     .insert(users)
-    .values({ email: `iso-${tag}@memex.ai` } as never)
+    .values({ email: `iso-${tag}@example.com` } as never) // std-37: .com so this active null-namespace fixture user cannot redden migration-smoke (spec-395)
     .returning();
   created.users.push(u.id);
   const slug = `iso-${tag}`.slice(0, 39);
@@ -149,6 +158,9 @@ let bobCommentHandle: string;
 let carol: { userId: string };
 let carolToken: string;
 
+let daveOAuthToken: string;
+let bobAcHandle: string;
+
 beforeAll(async () => {
   alice = await makeUserOrgMemex("alice");
   aliceMemexA2 = await addMemexToNamespace(alice.nsId, "second", "Alice memex-A2");
@@ -159,7 +171,7 @@ beforeAll(async () => {
   const tag = `carol-${Date.now().toString(36)}`;
   const [carolUser] = await db
     .insert(users)
-    .values({ email: `iso-${tag}@memex.ai` } as never)
+    .values({ email: `iso-${tag}@example.com` } as never) // std-37: .com so this active null-namespace fixture user cannot redden migration-smoke (spec-395)
     .returning();
   created.users.push(carolUser.id);
   carol = { userId: carolUser.id };
@@ -193,6 +205,40 @@ beforeAll(async () => {
 
   const comment = await addComment(bob.memexId, bobSectionId, "Bob", "Bob's comment");
   bobCommentHandle = `c-${comment.seq}`;
+
+  // Seed an AC in Bob's spec for the get_ac cross-tenant test.
+  const bobAc = await createAc({
+    memexId: bob.memexId,
+    briefId: bobSpecId,
+    kind: "implementation",
+    statement: "Bob's AC for cross-tenant isolation test",
+  });
+  bobAcHandle = `ac-${bobAc.seq}`;
+
+  // Confirm Bob's memex is private (schema default, but state it explicitly).
+  await db.update(memexes).set({ visibility: "private" }).where(eq(memexes.id, bob.memexId));
+
+  // Dave: member of BOTH org-A (Alice's) and org-B (Bob's), OAuth token minted
+  // org-A-scoped. Under spec-307 the token's frozen Org scope is INERT — Dave's
+  // reach follows LIVE membership, so the same token reaches org-B because Dave is
+  // an active member (the widening this Spec introduces; the old model rejected it).
+  // PAT tokens (mxt_ prefix) are matched first in app.ts, so enabling OAuth here
+  // does not affect any of the existing PAT-based tests above.
+  process.env.OAUTH_ENABLED = "1";
+  const daveTag = `dave-${Date.now().toString(36)}`;
+  const [daveUser] = await db
+    .insert(users)
+    .values({ email: `iso-${daveTag}@example.com` } as never) // std-37: .com (spec-395)
+    .returning();
+  created.users.push(daveUser.id);
+  await db.insert(orgMemberships).values({ userId: daveUser.id, orgId: alice.orgId, role: "member" } as never);
+  await db.insert(orgMemberships).values({ userId: daveUser.id, orgId: bob.orgId, role: "member" } as never);
+  daveOAuthToken = signAccessToken({
+    userId: daveUser.id,
+    orgId: alice.orgId,
+    clientId: "test-orgfilter-client",
+    scopes: ["read"],
+  });
 });
 
 // ── Cross-tenant rejection helpers ───────────────────────────────────────────
@@ -428,5 +474,82 @@ describe("regression: tenant-isolation — Carol intra-org memex switching", () 
     expect(doc.memexId).toBe(alice.memexId);
     expect(doc.memexId).not.toBe(aliceMemexA2.memexId);
     void specsInA2; // referenced above for clarity
+  });
+});
+
+// ── spec-199 t-7: Cross-tenant read gate (canReadMemex / resolveWorkspaceForRead) ─
+
+const AC_7 = "mindset-prod/memex-building-itself/specs/spec-199/acs/ac-7";
+// spec-307: live membership supersedes the frozen Org scope (spec-31 dec-8).
+const AC_307_6 = "mindset-prod/memex-building-itself/specs/spec-307/acs/ac-6";
+
+describe("regression: tenant-isolation — read tools cross-tenant gate (spec-199 t-7)", () => {
+  // ref-path tools: resolveMemexFromEntityForRead → assertReadAccessAndWriteFlag
+  it("get_doc: rejected on Bob's private spec", async () => {
+    tagAc(AC_7);
+    await expectRejection(aliceToken, "get_doc", { ref: bobRef(`specs/${bobSpecHandle}`) });
+  });
+
+  it("list_tasks: rejected on Bob's private spec", async () => {
+    tagAc(AC_7);
+    await expectRejection(aliceToken, "list_tasks", { ref: bobRef(`specs/${bobSpecHandle}`) });
+  });
+
+  it("get_ac: rejected on Bob's private AC", async () => {
+    tagAc(AC_7);
+    await expectRejection(aliceToken, "get_ac", {
+      ref: bobRef(`specs/${bobSpecHandle}/acs/${bobAcHandle}`),
+    });
+  });
+
+  // memex-arg tools: resolveWorkspaceForRead → assertReadAccessAndWriteFlag
+  it("list_docs: rejected on Bob's private memex", async () => {
+    tagAc(AC_7);
+    await expectRejection(aliceToken, "list_docs", {
+      memex: `${bob.nsSlug}/${bob.memexSlug}`,
+    });
+  });
+
+  it("search_memex: rejected on Bob's private memex", async () => {
+    tagAc(AC_7);
+    await expectRejection(aliceToken, "search_memex", {
+      memex: `${bob.nsSlug}/${bob.memexSlug}`,
+      query: "test query",
+    });
+  });
+
+  // orgFilter: Dave is a member of org-B but his OAuth token is scoped to org-A.
+  // Positive control first: same token is accepted on an org-A resource.
+  it("orgFilter positive control: Dave's org-A token reads Alice's memex (allowed)", async () => {
+    tagAc(AC_7);
+    const res = await mcpCall(daveOAuthToken, {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: { name: "list_docs", arguments: { memex: `${alice.nsSlug}/${alice.memexSlug}` } },
+    });
+    expect(res.status).toBe(200);
+    const body = parseSse(await res.text());
+    expect(body.result?.isError, `Dave's org-A token should read Alice's memex: ${body.result?.content?.[0]?.text ?? ""}`).toBeFalsy();
+  });
+
+  // spec-307: the frozen Org scope is inert — Dave's org-A-scoped token now reaches
+  // Bob's org-B memex BECAUSE Dave is an active member of org-B (connect once, survive
+  // graduation). True isolation is still proven above: non-members (Alice, Carol)
+  // remain rejected on Bob's memex.
+  it("spec-307: Dave's org-A-scoped token reads Bob's org-B memex (live membership, frozen scope inert)", async () => {
+    tagAc(AC_307_6);
+    const res = await mcpCall(daveOAuthToken, {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: { name: "get_doc", arguments: { ref: bobRef(`specs/${bobSpecHandle}`) } },
+    });
+    expect(res.status).toBe(200);
+    const body = parseSse(await res.text());
+    expect(
+      body.result?.isError,
+      `Dave (org-B member) should now read Bob's memex under live membership: ${body.result?.content?.[0]?.text ?? ""}`,
+    ).toBeFalsy();
   });
 });

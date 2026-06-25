@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, within, fireEvent } from '@testing-library/react';
+import { render, screen, within, fireEvent, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { SectionCard } from './SectionCard';
 import type { DocSection, Comment } from '../api/types';
@@ -158,9 +158,11 @@ describe('SectionCard', () => {
     expect(screen.queryByTestId('card-resolve-1')).not.toBeInTheDocument();
     expect(peek).toHaveAttribute('data-pinned', 'false');
 
-    // Leave → peek closes.
+    // Leave → peek closes (after the spec-319 grace-delay, not synchronously).
     fireEvent.mouseLeave(indicator);
-    expect(screen.queryByTestId('comment-popover')).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.queryByTestId('comment-popover')).not.toBeInTheDocument(),
+    );
 
     // Click → pin: actions now present.
     await user.click(indicator);
@@ -190,9 +192,11 @@ describe('SectionCard', () => {
     const pop = screen.getByTestId('comment-popover');
     expect(within(pop).getByText('second')).toBeInTheDocument();
     expect(pop).toHaveAttribute('data-pinned', 'false');
-    // Leave → falls back to the pinned #1.
+    // Leave → falls back to the pinned #1 (after the spec-319 grace-delay).
     fireEvent.mouseLeave(document.getElementById('indicator-c-2')!);
-    expect(within(screen.getByTestId('comment-popover')).getByText('first')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(within(screen.getByTestId('comment-popover')).getByText('first')).toBeInTheDocument(),
+    );
   });
 
   // ── ac-14: curb sprawl (show-more) + doc-wide collapse ──
@@ -318,5 +322,67 @@ describe('SectionCard', () => {
     expect(popovers).toHaveLength(1);
     expect(screen.getByText('bravo comment')).toBeInTheDocument();
     expect(screen.queryByText('alpha comment')).not.toBeInTheDocument();
+  });
+});
+
+// ── spec-319 (gutter interaction) ──
+// A: the hover-peek must stay open long enough to read it (hover bridge + grace
+// delay). B: the per-section count badge must read as a non-interactive status
+// indicator, not a button. (e2e journey-37 is the emitting tier for ac-5/6/7;
+// these component tests pin the behaviour fast.)
+describe('SectionCard — comment-gutter interaction (spec-319)', () => {
+  it('keeps the hover-peek open when the cursor moves from the indicator onto the popover (ac-5)', () => {
+    render(
+      <SectionCard
+        section={makeSection({ content: `Intro. ${endMarkers([1])} Outro.` })}
+        sectionNumber={1}
+        commentCount={1}
+        comments={[comment({ id: 'c1', seq: 1, content: 'read me slowly' })]}
+      />,
+    );
+    const indicator = document.getElementById('indicator-c-1')!;
+    fireEvent.mouseEnter(indicator);
+    expect(screen.getByTestId('comment-popover')).toBeInTheDocument();
+
+    // Move off the indicator (schedules a delayed close) then onto the popover
+    // (cancels it). The peek must survive the hand-off — this is the bridge that
+    // was missing, so the old code dropped it synchronously on mouseLeave.
+    fireEvent.mouseLeave(indicator);
+    fireEvent.mouseEnter(screen.getByTestId('comment-popover'));
+    expect(screen.getByTestId('comment-popover')).toBeInTheDocument();
+    expect(within(screen.getByTestId('comment-popover')).getByText('read me slowly')).toBeInTheDocument();
+  });
+
+  it('closes the hover-peek only after a grace delay once both indicator and popover are left (ac-5)', () => {
+    vi.useFakeTimers();
+    try {
+      render(
+        <SectionCard
+          section={makeSection({ content: `Intro. ${endMarkers([1])} Outro.` })}
+          sectionNumber={1}
+          commentCount={1}
+          comments={[comment({ id: 'c1', seq: 1, content: 'lingering note' })]}
+        />,
+      );
+      const indicator = document.getElementById('indicator-c-1')!;
+      fireEvent.mouseEnter(indicator);
+      fireEvent.mouseLeave(indicator);
+      // Still open immediately after leaving — the grace delay hasn't elapsed.
+      expect(screen.queryByTestId('comment-popover')).toBeInTheDocument();
+      act(() => { vi.advanceTimersByTime(400); });
+      expect(screen.queryByTestId('comment-popover')).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('renders the per-section comment-count badge as a non-interactive status indicator (ac-6, ac-7)', () => {
+    render(
+      <SectionCard section={makeSection()} sectionNumber={1} commentCount={3} comments={[]} />,
+    );
+    const badge = screen.getByTestId('section-comment-count');
+    // Not a button, and no pointer-cursor affordance — it's a status number.
+    expect(badge.tagName).toBe('SPAN');
+    expect(badge.className).toContain('cursor-default');
   });
 });

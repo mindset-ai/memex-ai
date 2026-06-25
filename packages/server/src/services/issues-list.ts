@@ -33,6 +33,7 @@
 // `seq` and let the UI render `issue-${seq}`, matching how listIssuesForSpec /
 // the search hits carry the raw seq rather than a pre-baked handle string.
 
+import { PHASE_ORDER, type SpecPhase } from "@memex/shared";
 import { and, eq, inArray, desc, isNull } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import { issues, documents, docAssignees } from "../db/schema.js";
@@ -41,8 +42,10 @@ import { ISSUE_TYPES, type IssueType } from "./issues.js";
 // The Spec workflow phases the phase filter accepts (ac-13). These are the
 // documents.status values the Spec rename settled on (doc-10): draft / specify /
 // build / verify / done. The UI's phase checkboxes map 1:1 onto this set.
-export type SpecPhase = "draft" | "specify" | "build" | "verify" | "done";
-export const SPEC_PHASES = ["draft", "specify", "build", "verify", "done"] as const;
+// spec-355 dry-1/dry-2: SpecPhase + the ordered phase array are canonical in
+// @memex/shared; re-exported here so existing call sites are untouched.
+export type { SpecPhase };
+export const SPEC_PHASES = PHASE_ORDER;
 export function isSpecPhase(value: string): value is SpecPhase {
   return (SPEC_PHASES as readonly string[]).includes(value);
 }

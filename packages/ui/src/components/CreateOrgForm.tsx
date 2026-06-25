@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from './ui/Button';
 import { Input } from './ui/Input';
+import { Alert } from './ui/Alert';
 import { useAuth } from './AuthContext';
 import {
   checkNamespaceSlugApi,
@@ -101,7 +102,11 @@ export function CreateOrgForm({ onCancel, onCreated }: CreateOrgFormProps) {
         // the page renders the empty-state with the `+ Add Memex` CTA.
         if (onCreated) {
           onCreated(trimmed, token);
-        } else {
+        } else if (/^[a-z0-9-]+$/.test(trimmed)) {
+          // spec-403 dec-1: allowlist the slug right before navigating. The value is
+          // already server-validated (check.available), but the explicit guard breaks
+          // the CodeQL js/xss-through-dom flow (DOM value → location.href) and proves
+          // the resulting path is same-origin (no scheme/colon possible).
           window.location.href = namespaceHomePath(trimmed);
         }
       } catch (err) {
@@ -177,7 +182,7 @@ export function CreateOrgForm({ onCancel, onCreated }: CreateOrgFormProps) {
       <SlugStatus slug={trimmed} checking={checking} check={check} />
 
       {submitError && (
-        <div className="px-3 py-2 rounded-lg bg-status-danger-bg border border-status-danger-border text-sm text-status-danger-text">
+        <Alert variant="danger" size="md">
           <div>{submitError.message}</div>
           {submitError.showVerifyLink && (
             <a
@@ -187,7 +192,7 @@ export function CreateOrgForm({ onCancel, onCreated }: CreateOrgFormProps) {
               Go to email verification →
             </a>
           )}
-        </div>
+        </Alert>
       )}
 
       <div className="flex justify-end gap-2">

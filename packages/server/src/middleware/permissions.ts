@@ -37,7 +37,7 @@ export const adminGate = createMiddleware<SessionEnv>(async (c, next) => {
     }
     return c.json({ error: "Memex context required" }, 400);
   }
-  if (role !== "administrator") return c.json({ error: "Administrators only" }, 403);
+  if (role !== "administrator") return c.json({ error: "Not found" }, 404);
   return next();
 });
 

@@ -141,7 +141,7 @@ function IssueRowMenu({ onWontFix }: { onWontFix: () => void }) {
       {menuOpen && (
         <div
           role="menu"
-          className="absolute right-0 top-full mt-1 z-10 min-w-[8rem] rounded-md border border-edge bg-panel shadow-lg py-1"
+          className="absolute right-0 top-full mt-1 z-10 min-w-32 rounded-md border border-edge bg-panel shadow-lg py-1"
         >
           <button
             role="menuitem"
@@ -372,7 +372,7 @@ export function IssuePanel({
                   e.stopPropagation();
                   handleFocus(issue);
                 }}
-                className="flex-none opacity-0 group-hover/issue:opacity-100 transition-opacity p-0.5 rounded hover:bg-card-hover -ml-1"
+                className="flex-none opacity-0 group-hover/issue:opacity-100 transition-opacity p-0.5 rounded-sm hover:bg-card-hover -ml-1"
                 title="Focus chat on this issue"
               >
                 <svg className="w-3 h-3 text-secondary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>

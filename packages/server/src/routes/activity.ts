@@ -2,13 +2,10 @@ import { Hono } from "hono";
 import { listActivity } from "../services/activity-log.js";
 import { getDoc } from "../services/documents.js";
 import { ValidationError } from "../types/errors.js";
-import {
-  sessionMiddleware,
-  publicSessionMiddleware,
-  type SessionEnv,
-} from "../middleware/session.js";
+import { type SessionEnv } from "../middleware/session.js";
 import type { MemexResolverEnv } from "../middleware/memex-resolver.js";
 import { resolveReadableMemexId } from "./shared.js";
+import { mountStandardSessionPolicy } from "./session-policy.js";
 
 // ── Pulse history (b-60, t-12) ────────────────────────────────────────────────
 //
@@ -27,12 +24,11 @@ import { resolveReadableMemexId } from "./shared.js";
 type Env = MemexResolverEnv & SessionEnv;
 const activity = new Hono<Env>();
 
-// spec-111 t-10 — the Pulse timeline is part of the public-Memex view, so the
-// GET read goes behind the permissive session (public read / private 404 via
-// resolveReadableMemexId). Mutating verbs (there are none today) stay strict so
-// any future write can never be reached anonymously.
-activity.on("GET", "/*", publicSessionMiddleware);
-activity.on(["POST", "PUT", "PATCH", "DELETE"], "/*", sessionMiddleware);
+// spec-377 (was spec-111 t-10) — the Pulse timeline is part of the public-Memex
+// view, so the GET read goes behind the permissive session (public read / private
+// 404 via resolveReadableMemexId). Mutating verbs (there are none today) stay
+// strict so any future write can never be reached anonymously.
+mountStandardSessionPolicy(activity);
 
 // Parse a positive-integer query param. Returns undefined when absent; throws a
 // 400 on a present-but-unparseable value so callers learn about a typo instead
@@ -99,6 +95,27 @@ activity.get("/", async (c) => {
     clientId,
     briefId,
   });
+
+  // spec-199 t-6: project only whitelisted columns on the anonymous/non-member
+  // path (currentAccessLevel !== "write" covers anonymous callers, visited users,
+  // and token-bearing non-members). The sensitive columns — actorUserId, clientId,
+  // payload — carry PII and free-form data that must not be publicly readable.
+  const accessLevel = c.get("currentAccessLevel");
+  if (accessLevel !== "write") {
+    return c.json(
+      rows.map((row) => ({
+        id: row.id,
+        memexId: row.memexId,
+        briefId: row.briefId,
+        actorKind: row.actorKind,
+        channel: row.channel,
+        entity: row.entity,
+        action: row.action,
+        narrative: row.narrative,
+        createdAt: row.createdAt,
+      })),
+    );
+  }
 
   return c.json(rows);
 });

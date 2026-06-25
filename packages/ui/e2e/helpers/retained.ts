@@ -60,6 +60,8 @@ export async function seedSpec(opts: {
   memexId: string;
   title: string;
   purpose?: string;
+  /** Attribute the spec to a creator — surfaces as the QA Reports author (spec-286). */
+  createdByUserId?: string;
 }): Promise<{ docId: string; handle: string; sectionId: string }> {
   return call("POST", "/seed-spec", opts);
 }
@@ -124,6 +126,35 @@ export async function seedSection(opts: {
   return call("POST", "/seed-section", opts);
 }
 
+/** spec-259 t-5: seed an OPEN comment on a section / decision / task through the
+ *  real comment services (emits on the bus). Backs the Specify-phase
+ *  open-comment parity journey — the summary band + per-comment WHO/WHEN byline
+ *  render off comments seeded this way. */
+export async function seedComment(opts: {
+  memexId: string;
+  target: "section" | "decision" | "task";
+  targetId: string;
+  authorName?: string;
+  content?: string;
+  commentType?: string;
+  /** spec-319: range-anchor a SECTION comment so the gutter indicator renders.
+   *  END char offset into the section source; START is optional. */
+  anchorEndOffset?: number;
+  anchorStartOffset?: number;
+}): Promise<{ commentId: string; seq: number }> {
+  return call("POST", "/seed-comment", opts);
+}
+
+/** spec-286: apply `scope::value`/flat tags to a Spec through applyTagStrings —
+ *  the tags the QA Reports feed rail filters + counts on. */
+export async function seedTags(opts: {
+  memexId: string;
+  docId: string;
+  tags: string[];
+}): Promise<{ applied: { id: string; scope: string | null; value: string }[] }> {
+  return call("POST", "/seed-tags", opts);
+}
+
 /** Seed an OPEN decision (with options) onto a doc through createDecision.
  *  Returns the decision id + its per-doc seq (the N in the `dec-N` handle). */
 export async function seedOpenDecision(opts: {
@@ -181,6 +212,7 @@ export async function getLatestShareToken(
 export async function seedShareToken(opts: {
   memexId: string;
   docId: string;
+  createdByUserId?: string | null;
 }): Promise<{ shareId: string; token: string }> {
   return call("POST", "/seed-share-token", opts);
 }

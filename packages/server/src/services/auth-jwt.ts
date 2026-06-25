@@ -114,6 +114,116 @@ export function generateOpaqueToken(byteLength = 32): string {
   return base64urlEncode(randomBytes(byteLength));
 }
 
+// ── Anonymous voice-guide session token (spec-222 t-10, dec-4 → ac-14) ─────────
+//
+// The PUBLIC voice guide (memex-website) has no login and no tenant — but the
+// WS/SSE proxy still needs to know WHICH surface a connection is bound to, and
+// must refuse anyone who didn't first hit POST /guide/v1/session. So /session
+// mints a short-lived SIGNED token (HS256, same getSecret() as session tokens)
+// that binds ONLY `{ surface, issued_at, nonce }` — NO user, NO tenant. The WS
+// and SSE legs verify it in place of verifySessionToken/canReadMemex; the bound
+// surface drives retrieval + persona selection.
+//
+// The token carries kind:"guide-anon" so it is cryptographically distinct from a
+// user session token: verifyAnonGuideToken REQUIRES that discriminator (a replayed
+// session token has no `kind` → rejected) and verifySessionToken REQUIRES `sub`
+// (an anon token has none → rejected). The two token families cannot be swapped.
+//
+// TTL is on the order of MINUTES: the token only has to survive the gap between
+// minting and opening the WS/SSE. A short window bounds replay of a leaked token.
+
+/** Default anon-guide token lifetime — minutes, not days (the connect window). */
+const DEFAULT_ANON_GUIDE_TTL_SECONDS = 5 * 60; // 5 minutes
+const ANON_GUIDE_KIND = "guide-anon" as const;
+
+export interface AnonGuideClaims {
+  /** Discriminator pinning this as an anon-guide token (never a session token). */
+  kind: typeof ANON_GUIDE_KIND;
+  /** The product surface this anonymous session is bound to (server-validated). */
+  surface: string;
+  /** Random nonce so two tokens minted in the same second still differ. */
+  nonce: string;
+  /** Issued-at (seconds since epoch). */
+  iat: number;
+  /** Expires-at (seconds since epoch). */
+  exp: number;
+}
+
+/**
+ * Mint a short-lived signed anonymous guide-session token bound to `surface`.
+ * The caller (routes/guide-public.ts) validates `surface` via assertGuideSurface
+ * BEFORE calling this — this function just signs whatever surface it's handed.
+ * Returns the token plus its absolute expiry (seconds since epoch) so the route
+ * can hand the client an `expiresAt`.
+ */
+export function signAnonGuideToken(
+  surface: string,
+  ttlSeconds = DEFAULT_ANON_GUIDE_TTL_SECONDS,
+): { token: string; expiresAt: number } {
+  const now = Math.floor(Date.now() / 1000);
+  const exp = now + ttlSeconds;
+  const header = { alg: "HS256", typ: "JWT" };
+  const payload: AnonGuideClaims = {
+    kind: ANON_GUIDE_KIND,
+    surface,
+    nonce: generateOpaqueToken(16),
+    iat: now,
+    exp,
+  };
+
+  const encodedHeader = base64urlEncode(JSON.stringify(header));
+  const encodedPayload = base64urlEncode(JSON.stringify(payload));
+  const signingInput = `${encodedHeader}.${encodedPayload}`;
+
+  const signature = createHmac("sha256", getSecret()).update(signingInput).digest();
+  const encodedSignature = base64urlEncode(signature);
+
+  return { token: `${signingInput}.${encodedSignature}`, expiresAt: exp };
+}
+
+/**
+ * Verify an anonymous guide-session token. Mirrors verifySessionToken's HS256 +
+ * constant-time signature check, but enforces the kind:"guide-anon" discriminator
+ * and forbids `sub` (so a user session token can never be replayed here). Throws
+ * {@link InvalidTokenError} on any failure — the caller maps every failure to the
+ * SAME opaque denial (WS 1008 / SSE refuse) without leaking the reason (std-7).
+ */
+export function verifyAnonGuideToken(token: string): AnonGuideClaims {
+  const parts = token.split(".");
+  if (parts.length !== 3) throw new InvalidTokenError("malformed");
+
+  const [encodedHeader, encodedPayload, encodedSignature] = parts;
+  const signingInput = `${encodedHeader}.${encodedPayload}`;
+
+  const expected = createHmac("sha256", getSecret()).update(signingInput).digest();
+  const actual = base64urlDecode(encodedSignature);
+  if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) {
+    throw new InvalidTokenError("signature mismatch");
+  }
+
+  let claims: AnonGuideClaims & { sub?: unknown };
+  try {
+    claims = JSON.parse(base64urlDecode(encodedPayload).toString("utf8"));
+  } catch {
+    throw new InvalidTokenError("payload not valid JSON");
+  }
+  // A user session token (carries `sub`, no `kind`) must NOT be accepted here.
+  if (claims.kind !== ANON_GUIDE_KIND) throw new InvalidTokenError("wrong token kind");
+  if (claims.sub !== undefined) throw new InvalidTokenError("unexpected subject");
+  if (typeof claims.surface !== "string" || !claims.surface) {
+    throw new InvalidTokenError("missing surface");
+  }
+  if (typeof claims.nonce !== "string" || !claims.nonce) {
+    throw new InvalidTokenError("missing nonce");
+  }
+  if (typeof claims.exp !== "number") throw new InvalidTokenError("missing exp");
+
+  const now = Math.floor(Date.now() / 1000);
+  if (claims.exp < now) throw new InvalidTokenError("expired");
+
+  return claims;
+}
+
 // Pulse (b-60). Derive a stable, opaque session identifier from a request's
 // Authorization header for use as the `clientId` on rest_ui activity events.
 //

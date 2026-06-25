@@ -32,6 +32,14 @@ export interface PulseHistoryFilters {
   briefId?: string;
   /** Page size. Server default 50, hard-capped at 200. */
   limit?: number;
+  /**
+   * Gate the fetch. Default true. When false the hook stays in the loading
+   * state and fetches nothing — used to defer the first page until a filter
+   * that's still resolving (e.g. the session's actorUserId under the 'me'
+   * scope) has landed, so the feed never flashes an unfiltered page that then
+   * filters itself out. Flipping it true triggers the first fetch.
+   */
+  enabled?: boolean;
 }
 
 export interface UsePulseHistoryResult {
@@ -66,7 +74,7 @@ function buildQuery(
 export function usePulseHistory(
   filters: PulseHistoryFilters = {},
 ): UsePulseHistoryResult {
-  const { actorUserId, clientId, briefId, limit } = filters;
+  const { actorUserId, clientId, briefId, limit, enabled = true } = filters;
   const pageLimit = limit ?? DEFAULT_LIMIT;
 
   const [rows, setRows] = useState<ActivityRow[]>([]);
@@ -102,6 +110,16 @@ export function usePulseHistory(
     const myReq = ++reqToken.current;
     setLoading(true);
     setError(null);
+    // Deferred: a filter we depend on hasn't resolved yet (e.g. the session's
+    // actorUserId under 'me'). Hold rows empty and stay loading so the page
+    // shows its spinner instead of an unfiltered first page that would flash in
+    // then filter out once the filter lands. The effect below re-runs `refresh`
+    // when `enabled` flips true.
+    if (!enabled) {
+      setRows([]);
+      setHasMore(false);
+      return;
+    }
     try {
       const page = await fetchPage(undefined);
       if (myReq !== reqToken.current) return; // superseded
@@ -115,8 +133,9 @@ export function usePulseHistory(
     }
     // fetchPage closes over the filter values; refresh is re-created when they
     // change (deps below), which is exactly when we want a fresh first page.
+    // `enabled` is a dep so flipping the gate true re-runs the first fetch.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [actorUserId, clientId, briefId, pageLimit]);
+  }, [actorUserId, clientId, briefId, pageLimit, enabled]);
 
   const loadOlder = useCallback(async () => {
     if (loadingOlderRef.current) return;

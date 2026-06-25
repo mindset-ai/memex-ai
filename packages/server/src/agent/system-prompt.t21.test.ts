@@ -1,19 +1,26 @@
 // Unit coverage for t-21 prompt updates (Issues 4 + 7).
 // Verifies the system / creation prompts and the spec-document skill carry
-// the working definitions for Spec / Standard / Document, route rename
-// requests to the update_doc_title tool, and teach the minimal-default-
-// scaffolding (Overview-only) creation flow.
+// the working definitions for Spec / Standard / Document and route rename
+// requests to the update_doc tool.
 //
-// Note: the rename tool was consolidated to `update_doc_title` (was
-// `rename_doc` on main pre-merge) when doc-5's t-1 work landed via merge.
-// The creation-flow "ask after create" pattern was inverted to "hand off
-// cleanly" because the New Spec modal closes once create_doc returns
-// and the user has no input affordance for a follow-up question.
+// spec-230 update: the Issue-4 "minimal-default-scaffolding (Overview-only)"
+// creation flow is SUPERSEDED. The in-app creation path now fleshes out a
+// Spec input-drivenly — web ↔ MCP parity — so a substantial pasted document
+// produces a rich, multi-section Spec while a vague idea stays light; the
+// spec-5 Issue-4 over-scaffold guardrail is retained. The assertions below
+// were flipped accordingly (tagged spec-230 ac-10).
+//
+// Note: the rename tool was consolidated to `update_doc({title})` when doc-5's
+// t-1 work landed via merge.
 
 import { describe, it, expect } from "vitest";
+import { tagAc } from "@memex-ai-ac/vitest";
 import { buildSystemBlocks, buildCreationSystemBlocks } from "./system-prompt.js";
 import { loadSkill } from "./skills.js";
 import { getToolDefinitions, getCreationToolDefinitions } from "./tools.js";
+
+const AC_REGRESSION_UPDATED =
+  "mindset-prod/memex-building-itself/specs/spec-230/acs/ac-10";
 
 describe("t-21 Issue 1 — system prompt routes rename to update_doc({title})", () => {
   // b-68 t-6 / ac-28: the rename guidance lived in `_base/mutation-protocol.md`,
@@ -32,21 +39,32 @@ describe("t-21 Issue 1 — system prompt routes rename to update_doc({title})", 
   });
 });
 
-describe("t-21 Issue 4 — creation flow is Overview-only with clean hand-off", () => {
-  it("creation system prompt teaches 'Overview only, then close out'", () => {
+// spec-230 (supersedes spec-5/dec-1): the t-21 Issue-4 "Overview-only with
+// clean hand-off" behaviour is replaced by input-driven web ↔ MCP parity — a
+// substantial pasted document fleshes out into a rich Spec; a vague idea stays
+// light; the spec-5 Issue-4 over-scaffold guardrail is retained.
+describe("t-21 Issue 4 (superseded by spec-230) — creation flow is input-driven, not Overview-only", () => {
+  it("creation system prompt teaches input-driven fleshing-out, then a clean hand-off", () => {
+    tagAc(AC_REGRESSION_UPDATED);
     const blocks = buildCreationSystemBlocks();
     const text = blocks.map((b) => b.text).join("\n");
-    expect(text).toMatch(/Minimal-by-Default|minimal-by-default|Overview only|Overview-only/i);
-    // The prompt must tell the agent the modal closes after create_doc and
-    // any follow-up belongs in the in-Spec chat panel — NOT a question
-    // here.
-    expect(text).toMatch(/closes|hand off|cannot reply|can't reply|heads-up/i);
+    // No longer Overview-only / minimal-by-default by decree.
+    expect(text).not.toMatch(/create only the Overview/i);
+    expect(text).toMatch(/flesh out/i);
+    expect(text).toMatch(/substantial (pasted )?document/i);
+    expect(text).toMatch(/vague idea|keep it light/i);
+    // Still hands off cleanly to the in-Spec chat (heads-up, not a question).
+    expect(text).toMatch(/heads-up/i);
     expect(text).toMatch(/agent inside|in-spec|chat panel/i);
   });
 
-  it("spec-document skill teaches Overview-only-by-default", () => {
+  it("spec-document skill teaches input-driven authoring (content, not consent), keeping the no-stub guardrail", () => {
+    tagAc(AC_REGRESSION_UPDATED);
     const skill = loadSkill("spec-document");
-    expect(skill).toMatch(/do not auto-add body sections during creation|Don't pad with stubs; don't add the spine without consent|Overview-only/i);
+    expect(skill).not.toMatch(/do not auto-add body sections during creation/i);
+    expect(skill).not.toMatch(/don't add the spine without consent/i);
+    expect(skill).toMatch(/content, not consent/i);
+    expect(skill).toMatch(/never (add )?(empty )?(or premature )?stub/i);
   });
 });
 
@@ -98,15 +116,16 @@ describe.skip("t-21 Issue 7 — agent has knowledge of Spec / Standard / Documen
     expect(names).not.toContain("update_doc_status");
   });
 
-  it("getCreationToolDefinitions still exposes only create_doc + add_section + UI tools", () => {
+  it("getCreationToolDefinitions exposes the spec-authoring surface; legacy rename verbs and read-list tools stay out", () => {
     const names = getCreationToolDefinitions().map((t) => t.name);
-    // Creation phase intentionally limits the surface; rename / standard tools
-    // are document-phase only.
+    // spec-230: the creation surface reaches the full spec-authoring set
+    // (sections, decisions, ACs). update_doc is now legitimately present
+    // (manifest group 'planning'); only the LEGACY rename verbs and the
+    // doc/standard LIST tools stay out.
     expect(names).toContain("create_doc");
     expect(names).toContain("add_section");
     expect(names).not.toContain("rename_doc");
     expect(names).not.toContain("update_doc_title");
-    expect(names).not.toContain("update_doc");
     expect(names).not.toContain("list_standards");
     expect(names).not.toContain("list_docs");
   });

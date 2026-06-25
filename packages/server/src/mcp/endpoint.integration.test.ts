@@ -2,6 +2,7 @@
 // real Hono app and exercises the auth path + a couple of representative tool calls.
 
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
+import { tagAc } from "@memex-ai-ac/vitest";
 import { inArray, eq } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import {
@@ -114,6 +115,9 @@ describe("/mcp endpoint", () => {
   });
 
   it("returns 401 for a revoked token", async () => {
+    // spec-307 ac-4: instant revocation is the safety net for the broadened
+    // (live-membership) access — a revoked connection is rejected at /mcp.
+    tagAc("mindset-prod/memex-building-itself/specs/spec-307/acs/ac-4");
     const { user } = await setup("revoked");
     const { raw, row } = await mintMcpToken(user.id, "TestDevice");
     await revokeMcpToken(row.id, user.id);

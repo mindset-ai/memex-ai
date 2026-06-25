@@ -80,7 +80,7 @@ test("admin adds a domain, verifies it via the link, then enables auto-grouping"
   });
   await expect(page.getByText(/verified \(email\)/i)).toBeVisible({ timeout: 15_000 });
 
-  const toggle = page.getByRole("checkbox");
+  const toggle = page.getByTestId("autogrouping-toggle");
   await expect(toggle).toBeEnabled();
   // The checkbox is CONTROLLED (`checked={org.autoGroupingEnabled}`): the click's
   // onChange fires the PATCH, but `checked` only flips once the org refetches, so
@@ -116,7 +116,7 @@ test("a free-mail domain blocks the auto-grouping toggle (dec-7 gating)", async 
 
   // AutoGroupingSection is gated: the checkbox is disabled and the dec-7 reason
   // is surfaced inline.
-  await expect(page.getByRole("checkbox")).toBeDisabled();
+  await expect(page.getByTestId("autogrouping-toggle")).toBeDisabled();
   await expect(
     page.getByText(/Disabled because this Org claims free email providers/i),
   ).toBeVisible();

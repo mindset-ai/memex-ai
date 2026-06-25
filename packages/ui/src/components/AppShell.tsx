@@ -1,9 +1,13 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { SeatsWarningBanner } from './upgrade/SeatsWarningBanner';
 import { Link, NavLink, useLocation, useMatch } from 'react-router-dom';
 import { useAuth } from './AuthContext';
+import { Logo } from './Logo';
 import { useTheme } from './ThemeContext';
 import { useDriftInboxCount } from '../hooks/useDriftInboxCount';
+import { useJourneyGraduated } from '../hooks/useJourneyGraduated';
 import { useMyIssuesCount } from '../hooks/useMyIssuesCount';
+import { useQaReportsUnreadCount } from '../hooks/useQaReports';
 import { useHiddenFeatures } from '../hooks/useIsFeatureHidden';
 import { MemexSwitcher } from './MemexSwitcher';
 import { InviteMembersDialog } from './InviteMembersDialog';
@@ -11,6 +15,7 @@ import { PublicAuthButtons, ReadOnlyBadge } from './PublicAccessControls';
 import { useMemexAccess } from '../hooks/useMemexAccess';
 import { HeaderSlotProvider, useHeaderSlotContent } from './HeaderSlot';
 import { SearchTrigger } from './SearchTrigger';
+import { useWhatsNew } from './whats-new/WhatsNewContext';
 import {
   getCurrentTenant,
   parseTenantFromPathname,
@@ -35,7 +40,7 @@ function stripTenantPrefix(pathname: string): string {
 // the user's default landing tenant when the URL is fully flat. Pure helper
 // so it can be exercised without rendering — `useNavTo` below is the React
 // wrapper that pulls session + location from context.
-const PRIMARY_NAV_LINKS: ReadonlyArray<{
+interface NavLinkDef {
   to: string;
   label: string;
   icon: ReactNode;
@@ -43,10 +48,33 @@ const PRIMARY_NAV_LINKS: ReadonlyArray<{
   // spec-146 t-3: when set, the link is hidden for every user whose session has
   // this slug in `hiddenFeatures` (server-driven feature-hide, dec-1 Option B).
   feature?: string;
-}> = [
-  // spec-158 t-4: nav order is Specs → Issues → Pulse. Specs leads (the primary
-  // surface), the cross-Spec Issues page sits directly beneath it, and Pulse —
-  // the activity dashboard — drops to the bottom of the primary group.
+  // spec-303 — a flat, user-level link (e.g. /home): used verbatim, NOT expanded
+  // to /<ns>/<mx>/... by resolveNavTo. The surface is the same across all memexes.
+  flat?: boolean;
+}
+
+// spec-303 — the Home Canvas: the top nav item and a user-level (flat) destination,
+// identical across all of a user's Memexes (dec-2). `flat` keeps it at /home.
+// `feature: 'home'` plugs it into the server-driven hide list (HIDDEN_FEATURES)
+// so the whole surface can be hidden per-env (e.g. prod) while it's live on int —
+// the same mechanism as Pulse/Scaffold. The route is gated in App.tsx to match.
+const HOME_NAV_LINK: NavLinkDef = {
+  to: '/home',
+  label: 'Home',
+  flat: true,
+  feature: 'home',
+  icon: (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M3 12l9-9 9 9M5 10v10a1 1 0 001 1h3v-5a1 1 0 011-1h2a1 1 0 011 1v5h3a1 1 0 001-1V10" />
+    </svg>
+  ),
+};
+
+// spec-260 t-11: the sidebar is two labelled groups. PRINCIPLES holds the
+// working surfaces (Specs leads, then the dashboards and the standards/scaffold
+// references); IN-BOXES holds the three attention surfaces that carry unread /
+// open-count badges (Drift, Issues, QA Reports).
+const PRINCIPLES_NAV_LINKS: ReadonlyArray<NavLinkDef> = [
   {
     to: '/specs',
     label: 'Specs',
@@ -61,21 +89,21 @@ const PRIMARY_NAV_LINKS: ReadonlyArray<{
     ),
   },
   {
-    to: '/issues',
-    label: 'Issues',
-    icon: (
-      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
-      </svg>
-    ),
-  },
-  {
     to: '/pulse',
     label: 'Pulse',
     feature: 'pulse',
     icon: (
       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M3 12h4l2 6 4-12 2 6h6" />
+      </svg>
+    ),
+  },
+  {
+    to: '/standards',
+    label: 'Standards',
+    icon: (
+      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2z" />
       </svg>
     ),
   },
@@ -89,6 +117,16 @@ const PRIMARY_NAV_LINKS: ReadonlyArray<{
       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M4 20V10m6 10V4m6 16v-7" />
         <path strokeLinecap="round" d="M3 20h18" />
+      </svg>
+    ),
+  },
+  {
+    to: '/scaffold',
+    label: 'Scaffold',
+    feature: 'scaffold',
+    icon: (
+      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16M8 3v18M16 3v18" />
       </svg>
     ),
   },
@@ -106,31 +144,38 @@ const PRIMARY_NAV_LINKS: ReadonlyArray<{
   // },
 ];
 
-const PRINCIPLES_NAV_LINKS: ReadonlyArray<{
-  to: string;
-  label: string;
-  icon: ReactNode;
-  altPaths?: readonly string[];
-  // spec-146 t-3: see PRIMARY_NAV_LINKS — hidden when this slug is in the
-  // session's `hiddenFeatures`.
-  feature?: string;
-}> = [
+// spec-260 t-11: the IN-BOXES group — every surface here carries a count badge
+// (open drift items, my open issues, unread QA reports).
+const INBOX_NAV_LINKS: ReadonlyArray<NavLinkDef> = [
   {
-    to: '/standards',
-    label: 'Standards',
+    to: '/drift',
+    label: 'Drift',
     icon: (
       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2z" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
       </svg>
     ),
   },
   {
-    to: '/scaffold',
-    label: 'Scaffold',
-    feature: 'scaffold',
+    to: '/issues',
+    label: 'Issues',
     icon: (
       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16M8 3v18M16 3v18" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+      </svg>
+    ),
+  },
+  // spec-260 (dec-5): QA Reports — the workspace-wide feed of build-session QA
+  // reports, one row per session. Same server-driven hiddenFeatures gate as
+  // Pulse/Insights; carries the per-user unread badge (dec-6).
+  {
+    to: '/qa-reports',
+    label: 'QA Reports',
+    feature: 'qa-reports',
+    icon: (
+      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6M9 8h1m4.5-5.5H7a2 2 0 00-2 2v15a2 2 0 002 2h10a2 2 0 002-2V8z" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M14 2.5V8h5.5" />
       </svg>
     ),
   },
@@ -177,6 +222,14 @@ function SidebarUserCard({
 }) {
   const [open, setOpen] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
+  // spec-200: this card is the fly-home target for the What's New ribbon, and
+  // hosts the "What's New" menu item that re-opens the popup.
+  const { available: whatsNewAvailable, openPopup: openWhatsNew, registerMenuAnchor } = useWhatsNew();
+
+  useEffect(() => {
+    registerMenuAnchor(wrapperRef.current);
+    return () => registerMenuAnchor(null);
+  }, [registerMenuAnchor]);
 
   useEffect(() => {
     if (!open) return;
@@ -236,6 +289,19 @@ function SidebarUserCard({
       </button>
       {open && (
         <div className="absolute left-0 right-0 bottom-full mb-2 z-40 rounded-lg shadow-xl py-1 border bg-card-hover border-edge">
+          {whatsNewAvailable && (
+            <button
+              data-testid="user-menu-whats-new"
+              onClick={() => {
+                setOpen(false);
+                openWhatsNew();
+              }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors text-secondary hover:text-primary hover:bg-overlay"
+            >
+              <span aria-hidden="true">🎁</span>
+              What's New
+            </button>
+          )}
           {showMemexSettings && (
             <Link
               to={memexSettingsHref}
@@ -319,6 +385,8 @@ function NavItem({
   altPaths,
   pathname,
   badge,
+  flat,
+  showDot,
 }: {
   to: string;
   label: string;
@@ -327,6 +395,11 @@ function NavItem({
   pathname: string;
   /** Optional count pill (e.g. open standards drift) shown at the row's end. */
   badge?: number;
+  /** spec-303 — flat (user-level) link: use `to` verbatim, no tenant expansion. */
+  flat?: boolean;
+  /** spec-372 dec-8 — a subtle pulsing #0482DC dot nudging the user back to unfinished
+   *  onboarding. Static under prefers-reduced-motion (motion-safe variant). */
+  showDot?: boolean;
 }) {
   // t-23 of doc-15: NAV_LINKS hold the in-tenant path shape (e.g. "/specs").
   // resolveNavTo() expands this to /<ns>/<mx>/specs — falling back to the
@@ -336,7 +409,7 @@ function NavItem({
   // suffix of the current pathname so `/<ns>/<mx>/specs` still highlights
   // the Specs link.
   const { session } = useAuth();
-  const resolvedTo = resolveNavTo(to, pathname, session?.memberships);
+  const resolvedTo = flat ? to : resolveNavTo(to, pathname, session?.memberships);
   const tenantSuffix = stripTenantPrefix(pathname);
   const matchedAlt = altPaths?.includes(tenantSuffix) ?? false;
   // spec-190 (dec-4 / t-5): tag the global nav links so the voice guide can
@@ -359,6 +432,13 @@ function NavItem({
     >
       {icon}
       <span>{label}</span>
+      {showDot && (
+        <span
+          data-testid="home-comeback-dot"
+          aria-label="Unfinished onboarding"
+          className="ml-1.5 h-2 w-2 flex-none rounded-full bg-[#0482DC] motion-safe:animate-pulse"
+        />
+      )}
       {typeof badge === 'number' && badge > 0 && (
         <span
           className="ml-auto flex-none text-xs font-medium px-1.5 py-0.5 rounded-full bg-status-danger-bg text-status-danger-text border border-status-danger-border"
@@ -385,13 +465,13 @@ function DocPageHeader() {
   const { pathname } = useLocation();
   const specsHref = resolveNavTo('/specs', pathname, session?.memberships);
   return (
-    <header className="border-b flex-none flex items-stretch backdrop-blur-sm border-edge bg-page/80">
+    <header className="border-b flex-none flex items-stretch backdrop-blur-xs border-edge bg-page/80">
       <div className="flex-1 min-w-0 flex items-center gap-8 px-6 py-3">
         <Link
           to={specsHref}
-          className="text-lg font-semibold tracking-tight text-heading hover:text-heading"
+          className="flex items-center text-heading hover:text-heading"
         >
-          memex<span className="text-[#7b93b8]">.ai</span>
+          <Logo className="h-5" />
         </Link>
         <Link
           to={specsHref}
@@ -429,11 +509,35 @@ export function AppShell({ children }: { children: ReactNode }) {
   const onSpecChildTenant = !!useMatch('/:namespace/:memex/specs/:id/:childType/:childId');
   const onDocPage = onDocPageFlat || onDocPageTenant || onSpecPageTenant || onSpecChildTenant;
 
+  // spec-360 / spec-389: pages that dock the in-app agent RAIL keep the sidebar
+  // layout (they're not doc pages) but manage their OWN internal scroll — a
+  // two-column surface whose chat panel scrolls independently. Unlike content-flow
+  // pages (which scroll at the <main> level), they need a BOUNDED-height wrapper so
+  // the rail's `h-full` resolves; without it the streaming chat expands the wrapper
+  // and scrolls the whole page. The scaffold, standards-list, and issues surfaces
+  // all dock the rail (standards/:id is a doc page, handled above — not here).
+  const onScaffoldPage = !!useMatch('/:namespace/:memex/scaffold');
+  const onStandardsListPage = !!useMatch('/:namespace/:memex/standards');
+  const onIssuesPage = !!useMatch('/:namespace/:memex/issues');
+  const onAgentRailPage = onScaffoldPage || onStandardsListPage || onIssuesPage;
+
   // Open standards drift count for the nav badge (b-63). Skipped on doc pages,
   // where the sidebar is hidden.
   const driftCount = useDriftInboxCount(!onDocPage);
+
+  // spec-372 dec-8 — the "come back to onboarding" nudge: a pulsing dot on the Home nav
+  // item, shown only while the onboarding journey is NOT graduated AND the user is off /home
+  // (null = not yet known → no dot, avoiding a flash). Hidden once graduated or on /home.
+  const journeyGraduated = useJourneyGraduated(!!user);
+  const showComeBackDot = journeyGraduated === false && location.pathname !== '/home';
   // spec-158: my open issues (Specs assigned to me) for the Issues nav badge.
-  const myIssuesCount = useMyIssuesCount(!onDocPage);
+  // spec-305: the issues-list endpoint is tenant-scoped (/api/:ns/:mx/issues-list),
+  // so only fetch on a tenant page — otherwise the badge 404s on flat user-level
+  // surfaces like /home (now the landing page). No tenant ⇒ no count, no request.
+  const myIssuesCount = useMyIssuesCount(!onDocPage && !!parseTenantFromPathname(location.pathname));
+  // spec-260 (dec-6): per-user unread QA reports for the QA Reports nav badge —
+  // reports generated since this user last viewed the feed, all executors.
+  const qaReportsUnreadCount = useQaReportsUnreadCount(!onDocPage);
 
   // spec-146 t-3: server-driven feature-hide. A nav link tagged with `feature`
   // is dropped for every user whose session lists that slug in `hiddenFeatures`
@@ -510,9 +614,9 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="px-4 py-4">
           <Link
             to={resolveNavTo('/specs', location.pathname, session?.memberships)}
-            className="text-lg font-semibold tracking-tight text-heading hover:text-heading"
+            className="flex items-center text-heading hover:text-heading"
           >
-            memex<span className="text-[#7b93b8]">.ai</span>
+            <Logo className="h-5" />
           </Link>
         </div>
 
@@ -547,43 +651,44 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
 
         <nav className="flex-1 min-h-0 overflow-y-auto px-3 space-y-0.5">
-          {PRIMARY_NAV_LINKS.filter((link) => !isLinkHidden(link.feature)).map((link) => (
+          {/* spec-303 — Home Canvas: the first, top-level, user-level destination.
+              Gated on the server-driven hide list (feature: 'home') so it can be
+              hidden per-env (e.g. prod) while live on int — same mechanism as Pulse. */}
+          {!isLinkHidden(HOME_NAV_LINK.feature) && (
+            <NavItem {...HOME_NAV_LINK} pathname={location.pathname} showDot={showComeBackDot} />
+          )}
+
+          {/* spec-260 t-11: two labelled groups — PRINCIPLES (the working
+              surfaces) and IN-BOXES (the badge-carrying attention surfaces). */}
+          <div className="pt-4 pb-1 px-3 text-xs font-medium uppercase tracking-wider text-muted">
+            Principles
+          </div>
+          {PRINCIPLES_NAV_LINKS.filter((link) => !isLinkHidden(link.feature)).map((link) => (
+            <NavItem key={link.to} {...link} pathname={location.pathname} />
+          ))}
+
+          <div className="pt-4 pb-1 px-3 text-xs font-medium uppercase tracking-wider text-muted">
+            In-boxes
+          </div>
+          {INBOX_NAV_LINKS.filter((link) => !isLinkHidden(link.feature)).map((link) => (
             <NavItem
               key={link.to}
               {...link}
               pathname={location.pathname}
-              // spec-158: open-issue count on the Issues entry, scoped to MY
-              // issues (Specs assigned to me) — matches the page's Mine default.
-              badge={link.to === '/issues' ? myIssuesCount : undefined}
+              // Every in-box carries its count: open drift (b-63), MY open
+              // issues (spec-158, matches the page's Mine default), and unread
+              // QA reports (spec-260 dec-6).
+              badge={
+                link.to === '/drift'
+                  ? driftCount
+                  : link.to === '/issues'
+                    ? myIssuesCount
+                    : link.to === '/qa-reports'
+                      ? qaReportsUnreadCount
+                      : undefined
+              }
             />
           ))}
-
-          <div className="pt-4 pb-1 px-3 text-xs font-medium uppercase tracking-wider text-muted">
-            Principles
-          </div>
-          {PRINCIPLES_NAV_LINKS.filter((link) => !isLinkHidden(link.feature)).flatMap((link) => {
-            const item = <NavItem key={link.to} {...link} pathname={location.pathname} />;
-            // Drift Inbox sits directly under Standards (before Scaffold) — it's a
-            // standards-scoped surface, so it belongs next to Standards.
-            if (link.to === '/standards') {
-              return [
-                item,
-                <NavItem
-                  key="/drift"
-                  to="/drift"
-                  label="Drift Inbox"
-                  pathname={location.pathname}
-                  badge={driftCount}
-                  icon={
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
-                    </svg>
-                  }
-                />,
-              ];
-            }
-            return [item];
-          })}
         </nav>
 
         {(user || access.isVisitedReadOnly) && (
@@ -608,7 +713,15 @@ export function AppShell({ children }: { children: ReactNode }) {
         )}
       </aside>
 
-      <main className="flex-1 min-h-0 overflow-y-auto">{children}</main>
+      <main className="flex-1 min-h-0 overflow-y-auto flex flex-col">
+        {/* spec-171: seats over-limit warning shown to admins on all workspace pages */}
+        <SeatsWarningBanner />
+        {/* spec-360 / spec-389: an agent-rail page (scaffold, standards, issues)
+            gets a bounded wrapper so its `h-full` resolves and the rail scrolls
+            internally; content-flow pages keep the natural `flex-1` and scroll at
+            the <main> level. */}
+        <div className={onAgentRailPage ? 'flex-1 min-h-0' : 'flex-1'}>{children}</div>
+      </main>
 
       {/* spec-141 dec-2: invite dialog (portal-rendered to body). Opened from
           the MemexSwitcher-adjacent shortcut above. */}

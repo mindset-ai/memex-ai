@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isUuid, parseHandle } from "./identifiers.js";
+import { isUuid, parseHandle, containsUuid, stripUuids } from "./identifiers.js";
 
 describe("isUuid", () => {
   it("returns true for a valid lowercase UUID", () => {
@@ -71,5 +71,45 @@ describe("parseHandle", () => {
 
   it("returns null for UUID (not a handle)", () => {
     expect(parseHandle("550e8400-e29b-41d4-a716-446655440000", "dec-")).toBeNull();
+  });
+});
+
+describe("containsUuid", () => {
+  it("detects a UUID embedded in free text", () => {
+    expect(containsUuid("created doc_member 322dda5d-b14c-4597-b106-c13b847905ac")).toBe(true);
+  });
+  it("is false for handle-bearing narratives", () => {
+    expect(containsUuid("promoted Barrie to editor on spec-7")).toBe(false);
+  });
+  it("is false for empty / plain strings", () => {
+    expect(containsUuid("")).toBe(false);
+    expect(containsUuid("System")).toBe(false);
+  });
+  it("is stateless across calls (no global-regex lastIndex bug)", () => {
+    const s = "x 322dda5d-b14c-4597-b106-c13b847905ac";
+    expect(containsUuid(s)).toBe(true);
+    expect(containsUuid(s)).toBe(true); // would flip false on the 2nd call if /g were reused
+  });
+});
+
+describe("stripUuids", () => {
+  it("removes a UUID token and tidies the dangling separator/spaces", () => {
+    expect(stripUuids("created doc_member 322dda5d-b14c-4597-b106-c13b847905ac")).toBe(
+      "created doc_member",
+    );
+  });
+  it("removes a trailing ' — <uuid>' actor tail", () => {
+    expect(
+      stripUuids("recent: created document spec-3 — 322dda5d-b14c-4597-b106-c13b847905ac 2m ago"),
+    ).toBe("recent: created document spec-3 — 2m ago");
+  });
+  it("preserves newlines (only space runs collapse)", () => {
+    const out = stripUuids("line one 550e8400-e29b-41d4-a716-446655440000\nline two");
+    expect(out).toBe("line one\nline two");
+  });
+  it("leaves UUID-free text untouched", () => {
+    expect(stripUuids("promoted Barrie to editor on spec-7")).toBe(
+      "promoted Barrie to editor on spec-7",
+    );
   });
 });

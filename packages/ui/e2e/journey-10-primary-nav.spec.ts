@@ -1,4 +1,4 @@
-import { test, expect, bareUrl } from "./helpers/index.js";
+import { test, expect, gotoSpecsBoard } from "./helpers/index.js";
 
 // Journey 10 — primary navigation (re-based onto the post-0038 product, spec-172 t-5).
 //
@@ -10,7 +10,7 @@ import { test, expect, bareUrl } from "./helpers/index.js";
 // (PageHeader). We assert the always-present three are present and route.
 
 test("primary nav routes to the always-present list pages", async ({ page }) => {
-  await page.goto(bareUrl("/"));
+  await gotoSpecsBoard(page);
 
   // Bare-domain landing auto-resolves to the dev user's personal-memex Specs
   // board. Wait for the Specs heading before clicking around.
@@ -26,15 +26,17 @@ test("primary nav routes to the always-present list pages", async ({ page }) => 
   await expect(nav.getByRole("link", { name: "Issues" })).toBeVisible();
   await expect(nav.getByRole("link", { name: "Standards" })).toBeVisible();
 
-  // Issues — path-based `/<ns>/<mx>/issues`.
+  // Issues — path-based `/<ns>/<mx>/issues`. `exact` so the page H1 doesn't also
+  // match the docked "Issues agent" panel heading (spec-389).
   await nav.getByRole("link", { name: "Issues" }).click();
   await expect(page).toHaveURL(/\/issues(\?|#|$)/);
-  await expect(page.getByRole("heading", { name: "Issues" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Issues", exact: true })).toBeVisible();
 
-  // Standards — path-based `/<ns>/<mx>/standards`.
+  // Standards — path-based `/<ns>/<mx>/standards`. `exact` so the page H1 doesn't
+  // also match the docked "Standards agent" panel heading (spec-389).
   await nav.getByRole("link", { name: "Standards" }).click();
   await expect(page).toHaveURL(/\/standards(\?|#|$)/);
-  await expect(page.getByRole("heading", { name: "Standards" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Standards", exact: true })).toBeVisible();
 
   // Back to Specs.
   await nav.getByRole("link", { name: "Specs" }).click();
@@ -58,7 +60,7 @@ test("primary nav is hidden when viewing a single Spec", async ({
   });
   resources.docIds.push(docId);
 
-  await page.goto(bareUrl("/"));
+  await gotoSpecsBoard(page);
   await expect(page.getByRole("heading", { name: "Specs" })).toBeVisible({
     timeout: 15_000,
   });

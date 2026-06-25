@@ -20,10 +20,11 @@
 //      manifest precisely so auto-assignment can't fight them —
 //      unassign_spec(self) must not instantly undo itself).
 //
-// Verify-class traffic has no MCP tool today: it arrives as CI test_events
-// via POST /api/test-events, which calls `observeTestEventTraffic` below
-// (transition only — an emission key carries no acting user, so there is
-// nothing to assign).
+// spec-342: test emission events NO LONGER drive phase. A Spec's phase is a
+// deliberate human / handoff placement; CI test_events (POST /api/test-events)
+// update AC verdicts and the audit trail only. The former build→verify (and
+// done→verify reopen) auto-promote — `observeTestEventTraffic` — was removed
+// here, completing the arc spec-327 began: traffic is not a phase intent.
 //
 // Failure posture: observation is best-effort and MUST NEVER fail or delay
 // the user's tool call semantics — every entry point catches everything and
@@ -37,13 +38,15 @@ import {
 } from "@memex/shared";
 import { db } from "../db/connection.js";
 import { documents } from "../db/schema.js";
+import { FOOTER_DELIMITER } from "../mcp/footer-delimiter.js";
 import { isSpecStatus } from "../types/roles.js";
 import { assign } from "./doc-assignees.js";
 import { promoteToEditor } from "./doc-members.js";
+import { markPresent } from "./presence.js";
 import { updateDocStatus } from "./documents.js";
 // Type-only imports — erased at compile time, so no runtime cycle with
 // agent/tool-specs.ts (which imports this module's consumers).
-import type { ToolCtx } from "../agent/tool-specs.js";
+import type { ToolCtx, FooterSlot } from "../agent/tool-specs.js";
 
 // One lookup table, built once from the single-source manifest (dec-4).
 const manifestByName: ReadonlyMap<string, ToolManifestEntry> = new Map(
@@ -87,11 +90,35 @@ export async function observeSpecTraffic(event: SpecTrafficEvent): Promise<void>
     // Specs are inert to the whole agent surface (spec-178).
     if (!doc || doc.docType !== "spec" || doc.isDemo) return;
 
+    // ── Presence heartbeat (spec-255) ─────────────────────────────────
+    // Every agent tool call that touches a Spec marks the ACTOR present, so
+    // Pulse's "active now" reflects in-app agents too. The telemetry floor only
+    // sees the MCP surface (mcp_tool_calls); without this an in_app_agent
+    // conversation is invisible to presence (active-now showed 0 while a human
+    // was actively conversing). Silent / out-of-band (std-8), like the browser
+    // heartbeat. actorKind follows the surface; the human owns the row.
+    try {
+      await markPresent({
+        memexId: event.memexId,
+        docId: event.docId,
+        actorUserId: event.userId,
+        actorKind: event.channel === "in_app_agent" ? "in_app_agent" : "mcp_agent",
+        channel: event.channel,
+        clientId: event.channel,
+      });
+    } catch (err) {
+      console.warn("[spec-traffic] presence heartbeat failed:", err);
+    }
+
     // ── Auto-assignment + editor role (dec-6) ─────────────────────────
     if (entry.autoAssignExempt !== true) {
       try {
-        await assign(event.memexId, event.docId, event.userId, event.userId);
-        await promoteToEditor(event.memexId, event.docId, event.userId);
+        // spec-122 dec-5: attribute the traffic-driven assign/promote to the
+        // human who made the triggering call, on the surface it came in on
+        // (mcp / in_app_agent — guarded above) so Pulse shows them, not "System".
+        const trafficCtx = { actorUserId: event.userId, channel: event.channel };
+        await assign(event.memexId, event.docId, event.userId, event.userId, trafficCtx);
+        await promoteToEditor(event.memexId, event.docId, event.userId, trafficCtx);
       } catch (err) {
         console.warn(
           `[spec-traffic] auto-assign failed for ${event.toolName} on ${doc.handle}:`,
@@ -101,6 +128,14 @@ export async function observeSpecTraffic(event: SpecTrafficEvent): Promise<void>
     }
 
     // ── Phase advancement ─────────────────────────────────────────────
+    // spec-295 dec-3: the web AGENT must not silently move a Spec's phase.
+    // Only the `mcp` channel (an external coding agent driving the build)
+    // auto-advances; the `in_app_agent` channel (the creation modal + the
+    // in-app spec agent) is human-present and phase is the human's call —
+    // the same posture rest_ui already has. This revisits spec-189 dec-5,
+    // which had opted in_app_agent INTO advancement. Presence + auto-assign
+    // above still run for in_app_agent; only this phase move is excluded.
+    if (event.channel !== "mcp") return;
     // paused/archived are deliberate placements — auto-advance must not
     // fight them (same principle as dec-5's rest_ui exclusion). Traffic
     // never unflags; it also doesn't shuffle the phase underneath a flag.
@@ -141,12 +176,23 @@ export async function runToolWithSpecTraffic(
   ctx: ToolCtx,
 ): Promise<string> {
   let target: { memexId: string; docId: string } | undefined;
+  // spec-219 dec-3 (t-3): the shared footer slot. A handler parks its dynamic
+  // footer nugget here; the seat (`composeGuidanceEnvelope`) reads it back and
+  // folds it into the footer, so it lands AFTER the delimiter and is persisted.
+  // One holder, threaded into the handler's ctx AND handed to the seat below.
+  const footerSlot: FooterSlot = {};
   const wrappedCtx: ToolCtx = {
     ...ctx,
+    footerSlot,
     resolveRef: async (ref) => {
       const result = await ctx.resolveRef(ref);
       target = { memexId: result.memexId, docId: result.doc.id };
       return result;
+    },
+    // spec-219 Phase 2: a creating tool resolves no ref, so capture the doc it
+    // made here — this is what lets composeGuidanceEnvelope run for create_doc.
+    recordCreatedDoc: (memexId, docId) => {
+      target = { memexId, docId };
     },
   };
   const text = await spec.handler(input, wrappedCtx);
@@ -160,45 +206,45 @@ export async function runToolWithSpecTraffic(
     userId: ctx.userId,
     ...target,
   });
+
+  // spec-203 ac-14/ac-15 + spec-219 ac-6/ac-7: the ONE place the platform
+  // guidance ENVELOPE is attached. Every tool call is the client phoning home;
+  // here — and only here — the single seat (`composeGuidanceEnvelope`) takes that
+  // opening to steer the client, on EVERY Spec-resolving response (terse and
+  // verbose), never per-tool and never twice. The seat returns DELIMITER-LESS
+  // `{ header?, footer? }`; this choke point assembles
+  // `header + body + FOOTER_DELIMITER + footer` — header prepended above the
+  // body, the single FOOTER_DELIMITER owned HERE (written exactly once), footer
+  // after it — so the telemetry wrap that runs after this splits + persists the
+  // footer (ac-17). Guards: only when the call resolved ONE Spec (`target` set —
+  // list/search resolve none), and only when the body does not already carry a
+  // footer (defence-in-depth; the body composes none). `composeGuidanceEnvelope`
+  // is imported dynamically to keep this module free of a runtime cycle with
+  // agent/tool-specs.ts (cached after first use); it never throws, but the guard
+  // keeps a guidance failure off the result.
+  if (target && !text.includes(FOOTER_DELIMITER)) {
+    try {
+      const { composeGuidanceEnvelope } = await import("../agent/tool-specs.js");
+      // Pass wrappedCtx — it carries the footerSlot the handler may have parked.
+      const { header, footer } = await composeGuidanceEnvelope(
+        target.memexId,
+        target.docId,
+        wrappedCtx,
+      );
+      let out = text;
+      if (header) out = `${header}${out}`;
+      if (footer) out = `${out}\n\n${FOOTER_DELIMITER}\n${footer}`;
+      return out;
+    } catch {
+      // swallow — the tool's real result already succeeded.
+    }
+  }
   return text;
 }
 
-/**
- * Verify-class traffic from CI: a test_event arriving for an AC is evidence
- * of verification activity on the AC's Spec (dec-1). Transition only — the
- * emission key authenticates a Memex, not a user, so there is no caller to
- * assign. Hidden emissions are excluded: `hidden: true` exists precisely to
- * keep an emission out of the visible signals (e.g. iterating on a
- * done-phase regression fix must not reopen the Spec). Never throws.
- */
-export async function observeTestEventTraffic(
-  memexId: string,
-  acUid: string,
-): Promise<void> {
-  try {
-    // ac_uid grammar: <namespace>/<memex>/specs/<spec-handle>/acs/<ac-handle>
-    const match = /\/specs\/([^/]+)\/acs\//.exec(acUid);
-    const specHandle = match?.[1];
-    if (!specHandle) return;
-
-    const doc = await db.query.documents.findFirst({
-      where: and(
-        eq(documents.memexId, memexId),
-        eq(documents.handle, specHandle),
-      ),
-    });
-    if (!doc || doc.docType !== "spec" || doc.isDemo) return;
-    if (doc.pausedAt !== null || doc.archivedAt !== null) return;
-    if (!isSpecStatus(doc.status)) return;
-
-    const next = nextPhaseForTraffic(doc.status, "verify");
-    if (next === doc.status) return;
-
-    await updateDocStatus(memexId, doc.id, next, {
-      ctx: { channel: "server" },
-      narrative: `auto-advanced ${doc.handle} ${doc.status} → ${next} (test event for ${acUid.split("/").pop()})`,
-    });
-  } catch (err) {
-    console.warn("[spec-traffic] test-event observation failed:", err);
-  }
-}
+// spec-342: `observeTestEventTraffic` was removed here. A CI test_event used to
+// auto-advance its AC's Spec build→verify (and reopen a done Spec to verify);
+// it no longer does — test events update the AC verdict + audit trail only, and
+// phase is a deliberate human placement. POST /api/test-events therefore makes
+// no phase change. The verdict path (applyEmissionToSummary, analytics) is
+// untouched and is the sole remaining reader of the `hidden` flag.

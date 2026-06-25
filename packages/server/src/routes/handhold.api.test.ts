@@ -207,7 +207,9 @@ describe("spec-178 t-6 — reset route owner gate (ac-17)", () => {
     expect(body.seeded).toBe(HANDHOLD_PHASES.length);
     // resetHandholdDemo is awaited in the handler, so the count is final on return.
     expect(await countDemoDocs(owner.memexId)).toBe(HANDHOLD_PHASES.length);
-  });
+    // DB-heavy demo seed+reset; the default 5s flakes under full-suite parallel
+    // load. Matches the explicit 20s on the sibling reset test below.
+  }, 20_000);
 
   it("a non-owner with a valid token gets 404 (not 403) and no mutation runs", async () => {
     tagAc(AC(17));
@@ -224,7 +226,7 @@ describe("spec-178 t-6 — reset route owner gate (ac-17)", () => {
     expect(res.status).not.toBe(403);
     // No mutation: the demo doc set is untouched.
     expect(await countDemoDocs(owner.memexId)).toBe(before);
-  });
+  }, 20_000);
 
   it("a non-personal (org) Memex returns 404 even for an org member", async () => {
     tagAc(AC(17));
@@ -264,7 +266,7 @@ describe("spec-178 t-6 — reset route owner gate (ac-17)", () => {
     // STRICT sessionMiddleware: no Bearer → 401 (write never reachable anonymously).
     expect(res.status).toBe(401);
     expect(await countDemoDocs(owner.memexId)).toBe(before);
-  });
+  }, 20_000);
 
   it("an unknown namespace/memex returns 404", async () => {
     tagAc(AC(17));
@@ -288,5 +290,5 @@ describe("spec-178 t-6 — resetHandholdDemo service contract (ac-17)", () => {
     const result = await resetHandholdDemo(owner.memexId);
     expect(result.seeded).toBe(HANDHOLD_PHASES.length);
     expect(await countDemoDocs(owner.memexId)).toBe(HANDHOLD_PHASES.length);
-  });
+  }, 20_000);
 });

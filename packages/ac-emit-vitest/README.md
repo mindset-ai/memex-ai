@@ -54,9 +54,9 @@ A key authorises emissions **only for the Memex it was generated in** (the Memex
 
 ## Three controls for adopters
 
-### `MEMEX_EMIT` — gate the emission
+### `MEMEX_EMIT`: the off switch (you almost never want it)
 
-When you don't want emissions from a particular environment (typically developer laptops), set:
+Emitting is the point: a run with a valid key SHOULD emit, so the Spec's board moves live as tests pass. `MEMEX_EMIT=false` is a narrow escape for environments that genuinely cannot or must not emit (a CI job with no key, such as a dependabot or fork PR; an offline sandbox; a deliberate dry run), not routine dev hygiene. Reaching for it "to be safe" so dev runs "don't spam prod" is a category error: emissions are the verification signal and are meant to land on the prod board. The default is to do nothing and let them land.
 
 ```bash
 MEMEX_EMIT=false npm test
@@ -64,27 +64,9 @@ MEMEX_EMIT=false npm test
 
 The helper makes zero HTTP requests. Accepted off-values (case-insensitive): `false`, `0`, `no`, `off`. Default and any other value is `true`.
 
-### `hidden` — opt a single emission out of the dashboard
-
-When you want the emission recorded for audit but not surfaced in the verification badge (typical case: iterating on a `done`-phase regression fix):
-
-Per-call:
-
-```typescript
-tagAc("<your-namespace>/<your-memex>/specs/spec-3/acs/ac-1", { hidden: true });
-```
-
-Or globally for one test run:
-
-```bash
-MEMEX_HIDDEN=true npm test
-```
-
-Hidden emissions are stored server-side (audit trail intact) but the AC's verification badge stays at the latest non-hidden emission.
-
 ### `actor` — top-level WHO
 
-Actor is a top-level wire-format field (sibling of `hidden` and `metadata`), not a metadata key. The helper auto-populates from a documented env-var fallback chain:
+Actor is a top-level wire-format field (sibling of `metadata`), not a metadata key. The helper auto-populates from a documented env-var fallback chain:
 
 1. `GITHUB_ACTOR` (GitHub Actions)
 2. `GITLAB_USER_LOGIN` (GitLab CI)

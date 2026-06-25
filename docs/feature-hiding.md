@@ -73,13 +73,16 @@ No admin-bundle rebuild is required.
 
 ## Launch-env cutover
 
-`HIDDEN_FEATURES` is **empty on both int and prod today** — fail-open, nothing
-hidden. Once all three features ship, the launch-env cutover value will be:
+`HIDDEN_FEATURES="spec-pause"` on **both int and prod today** — Pulse (spec-148)
+and Scaffold (spec-146) have shipped and are un-hidden; only the pause feature
+(spec-147) remains hidden pending its own launch. Both the canonical
+`memex-<env>-deploy-env` secrets and the running `memex-api` services carry this
+value.
 
-```
-HIDDEN_FEATURES="scaffold,spec-pause,pulse"
-```
+To un-hide the pause feature once it ships, set `HIDDEN_FEATURES=""` (explicit
+empty — see UNHIDE above; deleting the line does NOT un-hide) and redeploy, or
+clear it on the running service directly.
 
-Arming prod is a deliberate, human-timed step: set that value in
-`scripts/deploy.prod.env` and run `ENV=prod make deploy-server` at the
-soft-launch cutover moment. Do not arm it ahead of time.
+History: the soft-launch shipped with `HIDDEN_FEATURES="scaffold,spec-pause,pulse"`
+hiding all three on both envs. Pulse + Scaffold were un-hidden together once
+spec-122 (the Pulse activity board) landed.

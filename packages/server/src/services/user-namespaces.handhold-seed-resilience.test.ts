@@ -3,13 +3,16 @@
 // logged rather than surfaced to the user." The pre-existing ac-7 tests only exercised
 // the SUCCESS path (seed lands 5 / org seeds 0), so the resilience the AC exists to
 // guarantee was unverified: a regression that let a seed error propagate out of
-// ensureUserNamespace (dropping the `.catch`, or awaiting the seed) would have passed
-// every tagged test. This drives the FAILURE path directly.
+// ensureUserNamespace would have passed every tagged test. This drives the FAILURE path
+// directly.
 //
-// seedHandholdDemo is fired as a detached best-effort step inside ensureUserNamespace
-// (`void seedHandholdDemo(memexId).catch(...)`), so mocking it to reject exercises the
-// exact catch branch ac-7 protects. Runs against REAL Postgres (the namespace + memex
-// are really created); only the demo seeder is mocked.
+// seedHandholdDemo is now AWAITED inside ensureUserNamespace (it used to be detached, but
+// the detached post-response promise was starved on Cloud Run, leaving new users with an
+// empty Memex — so it was moved onto the request path). The await is wrapped in a try/catch
+// (`await seedHandholdDemo(memexId)` → caught + logged), so mocking it to reject exercises
+// the exact catch branch ac-7 protects: the error is swallowed and ensureUserNamespace still
+// resolves. Runs against REAL Postgres (the namespace + memex are really created); only the
+// demo seeder is mocked.
 
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { and, eq, inArray } from "drizzle-orm";
@@ -90,9 +93,9 @@ describe("ensureUserNamespace — a demo-seed failure never blocks signup (ac-7 
       .limit(1);
     expect(mx).toBeDefined();
 
-    // The detached best-effort seed rejects on a microtask after the call returns;
-    // give it a tick, then assert the error was logged (swallowed, not surfaced).
-    await new Promise((r) => setTimeout(r, 50));
+    // The seed is awaited inside ensureUserNamespace, so by the time it resolves the
+    // rejection has already been caught + logged (no tick needed). Assert it was logged
+    // (swallowed, not surfaced).
     expect(errSpy).toHaveBeenCalled();
     const loggedTheSeedError = errSpy.mock.calls.some((args) =>
       args.some((arg) => arg === seedError),

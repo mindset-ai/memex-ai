@@ -68,10 +68,11 @@ test.describe("Spec detail layout", () => {
     await expect(bodyHeader.getByRole("button", { name: "Share", exact: true })).toHaveCount(0);
     await expect(bodyHeader.getByRole("button", { name: "Download Spec" })).toHaveCount(0);
 
-    // Plan-phase sub-tabs (post spec-164/159 redesign): the Spec sub-tab (the narrative) active by
-    // default, then Decisions & ACs, then Comments. Tasks moved under the Build
-    // PHASE tab (not a sub-tab pill here), so it's no longer in this row.
-    await expect(page.getByRole("button", { name: /^Spec\b/ })).toBeVisible();
+    // Plan-phase sub-tabs (post spec-164/159 redesign; spec-233 relabelled the
+    // prose tab "Spec" → "Narrative"): the Narrative sub-tab active by default,
+    // then Decisions & ACs, then Comments. Tasks moved under the Build PHASE tab
+    // (not a sub-tab pill here), so it's no longer in this row.
+    await expect(page.getByRole("button", { name: /^Narrative\b/ })).toBeVisible();
     await expect(page.getByRole("button", { name: /^Decisions & ACs/ })).toBeVisible();
     await expect(page.getByRole("button", { name: /^Comments/ })).toBeVisible();
 
@@ -89,7 +90,7 @@ test.describe("Spec detail layout", () => {
     // Switching sub-tabs is in-page — assert we're still on the spec, not that the
     // path is /docs/.
     await expect(page).toHaveURL(/\/specs\//);
-    await page.getByRole("button", { name: /^Spec\b/ }).click();
+    await page.getByRole("button", { name: /^Narrative\b/ }).click();
 
     // Floating outline (DocOutline) — Segments label + section list visible. The
     // seeded spec's first section is the createDocDraft "Overview" (not "Purpose").

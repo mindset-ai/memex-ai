@@ -15,7 +15,8 @@
 // with a clearly-invalid token (asserting the public, non-5xx behaviour).
 
 import { describe, it, expect } from "vitest";
-import { SMOKE_BASE_URL, SMOKE_MCP_URL } from "./smoke-env.js";
+import { tagAc } from "@memex-ai-ac/vitest";
+import { SMOKE_BASE_URL, SMOKE_MCP_URL, SMOKE_NAMESPACE } from "./smoke-env.js";
 
 describe(`public smoke @ ${SMOKE_BASE_URL}`, () => {
   it("GET /api/health → 200 {status:ok}", async () => {
@@ -53,6 +54,23 @@ describe(`public smoke @ ${SMOKE_BASE_URL}`, () => {
     expect(body.error).toMatch(/Authorization|token/i);
   });
 
+  // spec-304 t-12 (std-17, ac-28) — the desktop in-app install mint endpoint is
+  // deployed and session-gated. We can't mint a real token without a session, so
+  // the non-destructive post-deploy check is: an UNAUTHENTICATED POST is rejected
+  // 401 (proving the route shipped AND the sessionMiddleware gate is live — a 404
+  // here would mean the deploy dropped the route). Mirrors the /mcp 401 challenge.
+  it("POST /api/mcp/tokens without auth → 401 (route deployed + session-gated)", async () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-304/acs/ac-28");
+    const res = await fetch(`${SMOKE_BASE_URL}/api/mcp/tokens`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ label: "smoke-should-not-mint" }),
+    });
+    expect(res.status).toBe(401);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toMatch(/Authorization|token/i);
+  });
+
   it("GET /api/share/:token with an invalid token → public non-5xx (404 unknown)", async () => {
     const res = await fetch(
       `${SMOKE_BASE_URL}/api/share/smoke-invalid-token-does-not-exist`,
@@ -66,5 +84,21 @@ describe(`public smoke @ ${SMOKE_BASE_URL}`, () => {
     const body = (await res.json()) as { reason?: string };
     // The route distinguishes unknown vs revoked; an invalid token reads as unknown.
     expect(body.reason).toBe("unknown");
+  });
+
+  // spec-244 t-8 (std-17) — the front-end telemetry capture endpoint is deployed
+  // and wired. Anonymous POST is a no-op by design (204); an unprovisioned smoke
+  // memex resolves to 404. Either way the route must respond WITHOUT a 5xx and
+  // without an auth wall — proving the deploy carried the route and it handles a
+  // body without crashing.
+  it("POST /api/<ns>/telemetry (anonymous) → controlled response, never 5xx", async () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-244/acs/ac-11");
+    const res = await fetch(`${SMOKE_BASE_URL}/api/${SMOKE_NAMESPACE}/telemetry`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "spec.create_clicked" }),
+    });
+    expect(res.status).toBeLessThan(500);
+    expect([204, 404]).toContain(res.status);
   });
 });

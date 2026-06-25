@@ -96,10 +96,64 @@ describe("spec-118 assignment emits on the unified bus (ac-20)", () => {
     createdDocIds.push(doc.id);
 
     const events = await captureEvents(memexId, async () => {
-      await assign(memexId, doc.id, bob.id, actor.id);
-      await unassign(memexId, doc.id, bob.id);
+      // ctx carries WHO (the assigner) + HOW (rest_ui). assignedBy is a separate
+      // column; the activity contract rides ctx.
+      await assign(memexId, doc.id, bob.id, actor.id, {
+        actorUserId: actor.id,
+        channel: "rest_ui",
+      });
+      await unassign(memexId, doc.id, bob.id, { actorUserId: actor.id, channel: "rest_ui" });
     });
     const mine = events.filter((e) => e.docId === doc.id && e.entity === "doc_assignee");
     expect(mine.map((e) => e.action)).toEqual(["created", "deleted"]);
+
+    // spec-122: the Pulse narrative names the spec handle + the assignee, and
+    // NEVER leaks the raw doc UUID (the "doc_assignee 322dda5d-…" bug report).
+    // bob has no display name → actor_name falls back to his email.
+    const [created, deleted] = mine;
+    expect(created.narrative).toBe(`assigned ${doc.handle} to spec118-assignee-b@example.com`);
+    expect(deleted.narrative).toBe(`unassigned spec118-assignee-b@example.com from ${doc.handle}`);
+    for (const e of mine) {
+      expect(e.narrative, "narrative must not contain the raw doc UUID").not.toContain(doc.id);
+    }
+
+    // spec-122 dec-5: the events are ATTRIBUTED to the acting human + surface —
+    // not "System". channel is set (no fallback to 'server') and actor_name is
+    // resolved at write (the assigner has no name → his email).
+    for (const e of mine) {
+      expect(e.channel).toBe("rest_ui");
+      expect(e.actorUserId).toBe(actor.id);
+      expect(e.actorName).toBe("spec118-assigner@example.com");
+    }
+  });
+});
+
+const AC_199 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-199/acs/ac-${n}`;
+
+describe("spec-199 Finding #1 — email stripped from non-member/anonymous path (ac-1)", () => {
+  it("listAssignees with includeEmail=false returns null email for every assignee", async () => {
+    tagAc(AC_199(1));
+    const doc = await createDocDraft(memexId, "Assignee Email Strip Test", "purpose", "spec");
+    createdDocIds.push(doc.id);
+    await assign(memexId, doc.id, alice.id, actor.id);
+
+    const assignees = await listAssignees(memexId, doc.id, false);
+    expect(assignees.length).toBeGreaterThan(0);
+    for (const a of assignees) {
+      expect(a.email, "email must be null on the anonymous/non-member path").toBeNull();
+    }
+  });
+
+  it("listAssignees with includeEmail=true (default) returns email for authenticated org members", async () => {
+    tagAc(AC_199(1));
+    const doc = await createDocDraft(memexId, "Assignee Email Present Test", "purpose", "spec");
+    createdDocIds.push(doc.id);
+    await assign(memexId, doc.id, alice.id, actor.id);
+
+    const assignees = await listAssignees(memexId, doc.id, true);
+    expect(assignees.length).toBeGreaterThan(0);
+    for (const a of assignees) {
+      expect(a.email, "email must be present for authenticated org members").not.toBeNull();
+    }
   });
 });

@@ -45,6 +45,9 @@ function makeSpec(): Doc & { sections: DocSection[] } {
         previousStatus: null,
         createdAt: baseDate,
         updatedAt: baseDate,
+        actorUserId: null,
+        actorName: null,
+        channel: null,
       },
     ],
   };
@@ -80,7 +83,7 @@ describe("formatFullDocState — injected-block envelope (spec-203 dec-3)", () =
     expect(out.indexOf("FOOTER-BLOCK-Y")).toBeGreaterThan(out.indexOf(FOOTER_DELIMITER));
     // …and after the handoff that the machine footer carries.
     expect(out.indexOf("FOOTER-BLOCK-Y")).toBeGreaterThan(
-      out.indexOf("BUILD handoff (full prompt:"),
+      out.indexOf("You are now in build."),
     );
   });
 

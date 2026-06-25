@@ -5,9 +5,11 @@ import {
   promoteToEditor,
   demoteToReviewer,
 } from "../services/doc-members.js";
-import { sessionMiddleware, publicSessionMiddleware, type SessionEnv } from "../middleware/session.js";
+import { type SessionEnv } from "../middleware/session.js";
 import type { MemexResolverEnv } from "../middleware/memex-resolver.js";
 import { requireMemexId, resolveReadableMemexId } from "./shared.js";
+import { mountStandardSessionPolicy } from "./session-policy.js";
+import { restCtx } from "./_actor-ctx.js";
 
 // Thin REST mirror of the per-Spec role service (spec-118 t-3). Roles gate
 // CAPABILITY + UI posture, never read access (dec-2) — so GET is permissive (the
@@ -17,8 +19,8 @@ import { requireMemexId, resolveReadableMemexId } from "./shared.js";
 // any active org member, on self or another (dec-5), so there is no finer check.
 type Env = MemexResolverEnv & SessionEnv;
 const docMembersRouter = new Hono<Env>();
-docMembersRouter.on("GET", "/*", publicSessionMiddleware);
-docMembersRouter.on(["POST", "PUT", "PATCH", "DELETE"], "/*", sessionMiddleware);
+// spec-377 — the standard per-verb session policy (see session-policy.ts).
+mountStandardSessionPolicy(docMembersRouter);
 
 // The editors of a Spec + the caller's own resolved posture. The React UI reads
 // `myRole` to choose reviewer vs editor mode and `editors` for the member list.
@@ -26,8 +28,10 @@ docMembersRouter.get("/doc/:docId", async (c) => {
   const memexId = await resolveReadableMemexId(c);
   const docId = c.req.param("docId");
   const userId = (c.get("currentUserId") as string | null) ?? null;
+  // currentMemexId is set only for confirmed org members; null for anonymous/non-members.
+  const isMember = !!(c.get("currentMemexId") as string | null);
   const [editors, myRole] = await Promise.all([
-    listEditors(memexId, docId),
+    listEditors(memexId, docId, isMember),
     resolveRole(memexId, docId, userId),
   ]);
   return c.json({ editors, myRole });
@@ -41,7 +45,7 @@ docMembersRouter.post("/doc/:docId/promote", async (c) => {
   const body = await c.req.json<{ userId?: string }>().catch(() => ({}) as { userId?: string });
   const userId = body.userId ?? (c.get("currentUserId") as string | null);
   if (!userId) return c.json({ error: "userId required" }, 400);
-  const result = await promoteToEditor(memexId, docId, userId);
+  const result = await promoteToEditor(memexId, docId, userId, restCtx(c));
   return c.json(result);
 });
 
@@ -52,7 +56,7 @@ docMembersRouter.post("/doc/:docId/demote", async (c) => {
   const body = await c.req.json<{ userId?: string }>().catch(() => ({}) as { userId?: string });
   const userId = body.userId ?? (c.get("currentUserId") as string | null);
   if (!userId) return c.json({ error: "userId required" }, 400);
-  const result = await demoteToReviewer(memexId, docId, userId);
+  const result = await demoteToReviewer(memexId, docId, userId, restCtx(c));
   return c.json(result);
 });
 

@@ -13,10 +13,15 @@
 // hosts. Suffix matching for *.anthropic.com uses a leading-dot guard so
 // `evil-anthropic.com` cannot impersonate `app.anthropic.com`.
 
+// mindset.ai origins (spec-251): the Mindset marketing site embeds the Specky
+// guide SDK and calls the public /guide/v1 backend cross-origin (session mint +
+// voice WS handshake) — exactly the memex-website pattern from spec-222.
 export const ALLOWED_ORIGINS = new Set([
   "https://memex.ai",
   "https://www.memex.ai",
   "https://int.memex.ai",
+  "https://mindset.ai",
+  "https://www.mindset.ai",
   "http://localhost:5173",
   "http://localhost:8000",
   "https://claude.ai",

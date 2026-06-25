@@ -87,10 +87,10 @@ export function AcPill({ row, onClick, clickHint }: AcPillProps) {
         onMouseLeave={() => setHover(false)}
         onFocus={() => setHover(true)}
         onBlur={() => setHover(false)}
-        className={`inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-xs font-mono transition-colors ${onClick ? 'cursor-pointer' : 'cursor-default'} ${STATE_PILL[row.verificationState]}`}
+        className={`inline-flex items-center gap-1 rounded-xs px-1.5 py-0.5 text-xs font-mono transition-colors ${onClick ? 'cursor-pointer' : 'cursor-default'} ${STATE_PILL[row.verificationState]}`}
       >
         <span
-          className={`inline-block h-1.5 w-1.5 rounded-sm ${STATE_DOT[row.verificationState]}`}
+          className={`inline-block h-1.5 w-1.5 rounded-xs ${STATE_DOT[row.verificationState]}`}
         />
         ac-{row.ac.seq}
       </button>
@@ -101,7 +101,7 @@ export function AcPill({ row, onClick, clickHint }: AcPillProps) {
         >
           <div className="flex items-center gap-1.5 mb-1 opacity-80">
             <span
-              className={`inline-block h-1.5 w-1.5 rounded-sm ${STATE_DOT[row.verificationState]}`}
+              className={`inline-block h-1.5 w-1.5 rounded-xs ${STATE_DOT[row.verificationState]}`}
             />
             <span className="font-mono">ac-{row.ac.seq}</span>
             <span className="opacity-60">·</span>

@@ -72,6 +72,7 @@ afterAll(clearCorpus);
 
 function chunk(overrides: Partial<GuideChunkInput> = {}): GuideChunkInput {
   return {
+    surface: "memex-app",
     screenKey: "specs-list",
     sourcePath: "screens/specs-list.md",
     chunkIndex: 0,
@@ -202,14 +203,14 @@ describe("Layer 1 — route-change screen pre-fetch (ac-14)", () => {
       { provider: null },
     );
 
-    const got = await prefetchScreenContent("specs-list");
+    const got = await prefetchScreenContent("specs-list", "memex-app");
     expect(got).toEqual(["Specs board chunk one.", "Specs board chunk two."]);
   });
 
   it("returns [] for an unknown or null screen key without touching a provider", async () => {
     tagAc(AC14);
-    expect(await prefetchScreenContent("no-such-screen")).toEqual([]);
-    expect(await prefetchScreenContent(null)).toEqual([]);
+    expect(await prefetchScreenContent("no-such-screen", "memex-app")).toEqual([]);
+    expect(await prefetchScreenContent(null, "memex-app")).toEqual([]);
   });
 });
 
@@ -241,7 +242,7 @@ describe("Layer 2 — per-turn vector search with FTS fallback (ac-15)", () => {
       { provider },
     );
 
-    const hits = await searchGuideContent("tell me about specs", { provider });
+    const hits = await searchGuideContent("tell me about specs", { surface: "memex-app", provider });
     // The query embeds on the QUERY side...
     expect(provider.calls.some((c) => c.kind === "query")).toBe(true);
     // ...and the specs chunk is retrieved by vector; the standards chunk is
@@ -267,7 +268,7 @@ describe("Layer 2 — per-turn vector search with FTS fallback (ac-15)", () => {
       { provider: null },
     );
     const provider = makeTopicProvider();
-    const hits = await searchGuideContent("what is drift", { provider });
+    const hits = await searchGuideContent("what is drift", { surface: "memex-app", provider });
     expect(hits.length).toBe(1);
     expect(hits[0].method).toBe("fts");
     expect(hits[0].sourcePath).toBe("concepts/drift.md");
@@ -279,7 +280,7 @@ describe("Layer 2 — per-turn vector search with FTS fallback (ac-15)", () => {
       chunk({ content: "Specs board overview text.", contentHash: "a" }),
       { provider: null },
     );
-    const hits = await searchGuideContent("specs board", { provider: null });
+    const hits = await searchGuideContent("specs board", { surface: "memex-app", provider: null });
     expect(hits.length).toBeGreaterThan(0);
     expect(hits.every((h) => h.method === "fts")).toBe(true);
   });
@@ -287,7 +288,7 @@ describe("Layer 2 — per-turn vector search with FTS fallback (ac-15)", () => {
   it("returns [] for an empty query without embedding or searching", async () => {
     tagAc(AC15);
     const provider = makeTopicProvider();
-    expect(await searchGuideContent("   ", { provider })).toEqual([]);
+    expect(await searchGuideContent("   ", { surface: "memex-app", provider })).toEqual([]);
     expect(provider.calls).toHaveLength(0);
   });
 
@@ -304,7 +305,7 @@ describe("Layer 2 — per-turn vector search with FTS fallback (ac-15)", () => {
       chunk({ content: "Specs board explainer.", contentHash: "a" }),
       { provider },
     );
-    const hits = await searchGuideContent("specs", { provider });
+    const hits = await searchGuideContent("specs", { surface: "memex-app", provider });
     expect(hits.length).toBeGreaterThan(0);
   });
 });
@@ -325,7 +326,7 @@ describe("pruneGuideContent (orphan removal helper for the t-7 importer)", () =>
       }),
       { provider },
     );
-    const deleted = await pruneGuideContent(["screens/specs-list.md"]);
+    const deleted = await pruneGuideContent("memex-app", ["screens/specs-list.md"]);
     expect(deleted).toBe(1);
     expect(await readRow("screens/gone.md", 0)).toBeNull();
     expect(await readRow("screens/specs-list.md", 0)).not.toBeNull();

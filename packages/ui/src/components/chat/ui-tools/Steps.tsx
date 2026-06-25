@@ -14,7 +14,7 @@ interface StepsProps {
 
 export function Steps({ input }: StepsProps) {
   return (
-    <div className="my-3 rounded-lg border border-edge-subtle bg-overlay/60 px-4 py-3">
+    <div className="my-3 rounded-lg border border-edge-subtle bg-overlay px-4 py-3">
       {input.title && (
         <div className="text-xs font-medium uppercase tracking-wider text-muted mb-2">
           <MarkdownText>{input.title}</MarkdownText>

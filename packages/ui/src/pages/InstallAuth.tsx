@@ -106,12 +106,12 @@ export function InstallAuth() {
               value={label}
               onChange={(e) => setLabel(e.target.value)}
               disabled={status === 'authorizing'}
-              className="w-full mb-4 px-3 py-2 border rounded text-sm bg-input border-edge text-primary"
+              className="w-full mb-4 px-3 py-2 border rounded-sm text-sm bg-input border-edge text-primary"
             />
             <button
               onClick={authorize}
               disabled={status === 'authorizing'}
-              className="w-full py-2 rounded font-medium bg-btn-primary hover:bg-btn-primary-hover text-on-primary disabled:opacity-50"
+              className="w-full py-2 rounded-sm font-medium bg-btn-primary hover:bg-btn-primary-hover text-white disabled:opacity-50"
             >
               {status === 'authorizing' ? 'Authorizing…' : 'Authorize installer'}
             </button>

@@ -9,6 +9,7 @@ import {
 } from '../api/client';
 import { snippetText } from '../utils/format';
 import { Badge } from './ui';
+import { useTelemetry } from '../hooks/useTelemetry';
 
 // spec-64 t-3/t-4: the global command-palette omnibox.
 //
@@ -69,10 +70,10 @@ const EMPTY_ENVELOPE: SearchEnvelope = { jumpTo: [], assigned: [], content: [] }
 // separate consistently. Written as full literal class strings so Tailwind's
 // JIT scanner picks up the arbitrary-variant classes.
 const GROUP_CLASS =
-  '[&_[cmdk-group-heading]]:mt-1 [&_[cmdk-group-heading]]:border-t [&_[cmdk-group-heading]]:border-edge ' +
-  '[&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:pt-3 [&_[cmdk-group-heading]]:pb-2 ' +
-  '[&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-bold [&_[cmdk-group-heading]]:uppercase ' +
-  '[&_[cmdk-group-heading]]:tracking-wider [&_[cmdk-group-heading]]:text-secondary';
+  '**:[[cmdk-group-heading]]:mt-1 **:[[cmdk-group-heading]]:border-t **:[[cmdk-group-heading]]:border-edge ' +
+  '**:[[cmdk-group-heading]]:px-3 **:[[cmdk-group-heading]]:pt-3 **:[[cmdk-group-heading]]:pb-2 ' +
+  '**:[[cmdk-group-heading]]:text-xs **:[[cmdk-group-heading]]:font-bold **:[[cmdk-group-heading]]:uppercase ' +
+  '**:[[cmdk-group-heading]]:tracking-wider **:[[cmdk-group-heading]]:text-secondary';
 
 export interface SearchPaletteProps {
   open: boolean;
@@ -87,6 +88,18 @@ const HANDLE_SEGMENT = /^(?:spec|std|doc|dec|issue)-\d+$/;
 
 function handleFromPath(path: string): string {
   return path.split('/').filter((seg) => HANDLE_SEGMENT.test(seg)).join('/');
+}
+
+// spec-285: the WHO/WHEN byline for a content row — "<author> · <YYYY-MM-DD>".
+// Mirrors the agent-facing markdown byline (formatSearchResults) so the palette
+// tells a human who last touched a result and when, without opening it. Degrades
+// to author-only / date-only / nothing when a field is absent (navigation lanes
+// carry neither). The date is the calendar day of the ISO timestamp.
+function bylineText(hit: SearchHit): string | null {
+  const author = hit.authorName?.trim() || null;
+  const date = hit.lastUpdatedAt ? hit.lastUpdatedAt.slice(0, 10) : null;
+  if (author && date) return `${author} · ${date}`;
+  return author ?? date;
 }
 
 // spec-64 t-4 (ac-9): every row carries a kind badge + a status badge. The kind
@@ -108,16 +121,22 @@ function HitBadges({ hit }: { hit: SearchHit }) {
 function ResultRow({
   hit,
   lane,
+  index,
   onPick,
 }: {
   hit: SearchHit;
   lane: 'jumpTo' | 'assigned' | 'content';
-  onPick: (hit: SearchHit) => void;
+  index: number;
+  onPick: (hit: SearchHit, lane: 'jumpTo' | 'assigned' | 'content', index: number) => void;
 }) {
   const snippet =
     lane === 'content' && hit.matchingSections.length > 0
       ? snippetText(hit.matchingSections[0].content, SNIPPET_MAX)
       : null;
+
+  // spec-285: content rows carry a WHO/WHEN byline (navigation lanes don't —
+  // their hits carry no author/timestamp).
+  const byline = lane === 'content' ? bylineText(hit) : null;
 
   // The handle (spec-N / std-N / …) renders next to the title so the user can
   // tell WHICH spec a row is without opening it — titles alone are ambiguous.
@@ -131,7 +150,7 @@ function ResultRow({
       // Disable cmdk's text-scoring against this value (it's a synthetic key,
       // not user-facing text) — selection still works, ordering stays ours.
       keywords={[]}
-      onSelect={() => onPick(hit)}
+      onSelect={() => onPick(hit, lane, index)}
       className="flex cursor-pointer flex-col gap-1 rounded-md px-3 py-2 text-sm aria-selected:bg-selected"
       data-testid="search-result"
       data-kind={hit.kind}
@@ -156,12 +175,18 @@ function ResultRow({
           {snippet}
         </span>
       )}
+      {byline && (
+        <span className="truncate text-xs text-muted" data-testid="search-byline">
+          {byline}
+        </span>
+      )}
     </Command.Item>
   );
 }
 
 export function SearchPalette({ open, onOpenChange }: SearchPaletteProps) {
   const navigate = useNavigate();
+  const { track } = useTelemetry(true);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchEnvelope>(EMPTY_ENVELOPE);
   const [loading, setLoading] = useState(false);
@@ -196,6 +221,16 @@ export function SearchPalette({ open, onOpenChange }: SearchPaletteProps) {
           if (!controller.signal.aborted) {
             setResults(envelope);
             setLoading(false);
+            // A settled search (debounce coalesces fast typing into one fetch).
+            // Counts/booleans only — never the query text (std-35 cl-5).
+            track('search.query_submitted', {
+              queryLength: trimmed.length,
+              hasResults:
+                envelope.jumpTo.length +
+                  envelope.assigned.length +
+                  envelope.content.length >
+                0,
+            });
           }
         })
         .catch((err) => {
@@ -212,18 +247,24 @@ export function SearchPalette({ open, onOpenChange }: SearchPaletteProps) {
       clearTimeout(timer);
       controller.abort();
     };
-  }, [query, open]);
+  }, [query, open, track]);
 
   // spec-64 t-4 (ac-10): Enter (or click) navigates to the focused hit's
   // canonical path via react-router. `path` has no leading slash, so prefix one
   // — the admin routes mount specs at /:namespace/:memex/specs/... (App.tsx), and
   // `path` is already `<ns>/<mx>/specs/spec-N`, so `/` + path lands on-route.
   const handlePick = useCallback(
-    (hit: SearchHit) => {
+    (hit: SearchHit, lane: 'jumpTo' | 'assigned' | 'content', index: number) => {
+      // Which lane delivers value + jump-by-number adoption. IDs/enums/counts only.
+      track('search.result_selected', {
+        lane,
+        resultKind: hit.kind,
+        resultIndex: index,
+      });
       onOpenChange(false);
       navigate('/' + hit.path);
     },
-    [navigate, onOpenChange],
+    [navigate, onOpenChange, track],
   );
 
   const { jumpTo, assigned, content } = results;
@@ -251,14 +292,14 @@ export function SearchPalette({ open, onOpenChange }: SearchPaletteProps) {
       label="Search this memex"
       shouldFilter={false}
       loop
-      overlayClassName="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm"
+      overlayClassName="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs"
       contentClassName="fixed left-1/2 top-[15vh] z-50 w-full max-w-xl -translate-x-1/2 overflow-hidden rounded-xl border border-edge bg-panel shadow-2xl"
     >
       <Command.Input
         value={query}
         onValueChange={setQuery}
         placeholder="Search specs, standards, documents, decisions, issues…"
-        className="w-full border-b border-edge bg-transparent px-4 py-3 text-sm text-primary outline-none placeholder:text-muted"
+        className="w-full border-b border-edge bg-transparent px-4 py-3 text-sm text-primary outline-hidden placeholder:text-muted"
       />
       <Command.List className="max-h-[60vh] overflow-y-auto p-2">
         {loading && (
@@ -279,11 +320,12 @@ export function SearchPalette({ open, onOpenChange }: SearchPaletteProps) {
             heading="Jump to"
             className={GROUP_CLASS}
           >
-            {jumpTo.map((hit) => (
+            {jumpTo.map((hit, i) => (
               <ResultRow
                 key={`jumpTo:${hit.path}`}
                 hit={hit}
                 lane="jumpTo"
+                index={i}
                 onPick={handlePick}
               />
             ))}
@@ -296,11 +338,12 @@ export function SearchPalette({ open, onOpenChange }: SearchPaletteProps) {
             heading="Assigned"
             className={GROUP_CLASS}
           >
-            {assigned.map((hit) => (
+            {assigned.map((hit, i) => (
               <ResultRow
                 key={`assigned:${hit.path}`}
                 hit={hit}
                 lane="assigned"
+                index={i}
                 onPick={handlePick}
               />
             ))}
@@ -318,11 +361,12 @@ export function SearchPalette({ open, onOpenChange }: SearchPaletteProps) {
                 heading={KIND_GROUP_HEADING[kind]}
                 className={GROUP_CLASS}
               >
-                {hits.map((hit) => (
+                {hits.map((hit, i) => (
                   <ResultRow
                     key={`content:${hit.path}`}
                     hit={hit}
                     lane="content"
+                    index={i}
                     onPick={handlePick}
                   />
                 ))}

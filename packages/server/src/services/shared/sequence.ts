@@ -1,6 +1,7 @@
 import { eq, sql } from "drizzle-orm";
 import type { PgTable, PgColumn } from "drizzle-orm/pg-core";
 import { db } from "../../db/connection.js";
+import { pgError } from "./pg-error.js";
 
 /**
  * Returns the next sequence number for a given table/column,
@@ -68,9 +69,8 @@ export async function withSeqRetry<T>(
 }
 
 function isSeqConflict(err: unknown, constraint: string): boolean {
-  if (!err || typeof err !== "object") return false;
-  const e = err as { code?: string; constraint_name?: string; message?: string };
-  if (e.code !== "23505") return false;
+  const e = pgError(err);
+  if (!e || e.code !== "23505") return false;
   if (e.constraint_name === constraint) return true;
   // postgres-js exposes the constraint via `constraint_name`; if missing fall
   // back to a string match on the message so we don't accidentally swallow

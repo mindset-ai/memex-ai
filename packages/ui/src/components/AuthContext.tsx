@@ -17,6 +17,7 @@ import {
   type SessionPayload,
 } from '../api/client';
 import { LoginScreen } from './LoginScreen';
+import { isFeatureHidden } from '../utils/featureFlags';
 import { buildBareDomainUrl } from '../utils/tenantUrl';
 import { useUserChangeStreamWithToken } from '../hooks/useUserChangeStream';
 
@@ -157,18 +158,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     // t-23 of doc-15: same-origin path-based routing means we no longer need a
     // cross-subdomain handoff. After a successful login we route the user to
-    // their default tenant's /specs page. The default is the personal
-    // membership (every signed-in user has exactly one).
+    // /home — the universal landing (spec-312 dec-1) — falling back to the
+    // default-tenant Specs board only when 'home' is hidden per-env.
     //
     // If the URL carries a `?returnTo=…` (legacy SSO bounce parameter), we
-    // honour it when it points at our own host. Otherwise pick the personal
-    // membership, falling back to the first available membership.
+    // honour it when it points at our own host.
     if (s.token && typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
       const raw = params.get('returnTo');
       if (raw && isSafeReturnUrl(raw)) {
         try {
           const u = new URL(raw, window.location.origin);
+          // nosemgrep: javascript.browser.security.open-redirect.js-open-redirect -- spec-403 A5:
+          // host already allow-listed by isSafeReturnUrl; only path+search+hash is assigned,
+          // so navigation is same-origin by construction (scheme/host dropped).
           window.location.href = u.pathname + u.search + u.hash;
           return;
         } catch {
@@ -176,7 +179,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      const landing = computeDefaultLanding(s);
+      // spec-312 dec-1: the post-login landing is /home (the universal landing), not the
+      // default-tenant Specs board. Fall back to computeDefaultLanding only when 'home'
+      // is hidden per-env (mirrors RootRedirect's loop-avoidance).
+      const landing = isFeatureHidden(s, 'home') ? computeDefaultLanding(s) : '/home';
       if (landing && window.location.pathname === '/') {
         window.location.href = landing;
       }
@@ -210,6 +216,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (raw && isSafeReturnUrl(raw)) {
       try {
         const u = new URL(raw, window.location.origin);
+        // nosemgrep: javascript.browser.security.open-redirect.js-open-redirect -- spec-403 A5:
+        // host already allow-listed by isSafeReturnUrl; only path+search+hash is assigned,
+        // so navigation is same-origin by construction (scheme/host dropped).
         window.location.href = u.pathname + u.search + u.hash;
       } catch {
         /* ignore malformed */
@@ -344,8 +353,14 @@ export function RequireAuth({ children }: { children: ReactNode }) {
       }).then(() => undefined),
     [wrap, acceptSession],
   );
+  // spec-304 t-40 (ac-30): surface the issue response's `loginRequestId` to the
+  // LoginScreen so its "check your email" view can poll login-request status and
+  // complete the session IN PLACE when the link is verified elsewhere. The
+  // session, once polled verified, is adopted through the SAME `acceptSession`
+  // path that password/SSO/`/consume` login uses — see onMagicLinkVerified below.
   const handleMagicLink = useCallback(
-    (email: string) => wrap(async () => magicLinkRequestApi(email)).then(() => undefined),
+    (email: string): Promise<{ loginRequestId: string }> =>
+      wrap(async () => magicLinkRequestApi(email)) as Promise<{ loginRequestId: string }>,
     [wrap],
   );
   const handlePasswordReset = useCallback(
@@ -370,6 +385,7 @@ export function RequireAuth({ children }: { children: ReactNode }) {
       onSignup={handleSignup}
       onLogin={handleLogin}
       onMagicLink={handleMagicLink}
+      onMagicLinkVerified={acceptSession}
       onPasswordReset={handlePasswordReset}
       onGoogleCredential={handleGoogle}
     />

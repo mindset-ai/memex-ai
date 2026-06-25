@@ -6,8 +6,7 @@
 // provider (and unit-testable without it). Rendered only inside VoiceGuideMount,
 // so useVoiceSession always has its provider here.
 
-import { useVoiceSession } from '../../voice/session/VoiceSessionContext';
-import { isAffordanceDisabled } from '../../voice/session/voiceSessionModel';
+import { useVoiceSession, isAffordanceDisabled } from '@memex/guide-sdk';
 import { WhatsNewRibbon } from './WhatsNewRibbon';
 import type { WhatsNewEntry } from '../../api/whatsNew';
 

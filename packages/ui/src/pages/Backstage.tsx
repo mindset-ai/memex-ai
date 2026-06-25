@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Alert } from '../components/ui/Alert';
 
 // Platform-admin Memex picker. Opt-in dev-mode tool — the backend returns 403 when
 // GOOGLE_CLIENT_ID is set, so hitting this page in prod shows an empty/error state.
@@ -87,13 +88,13 @@ export function Backstage() {
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
           placeholder="Filter by name or namespace"
-          className="w-full mb-4 px-3 py-2 rounded-lg border border-edge bg-card text-sm text-primary placeholder:text-muted focus:outline-none focus:border-edge-strong"
+          className="w-full mb-4 px-3 py-2 rounded-lg border border-edge bg-card text-sm text-primary placeholder:text-muted focus:outline-hidden focus:border-edge-strong"
         />
 
         {error && (
-          <div className="px-3 py-2 rounded-lg bg-status-danger-bg border border-status-danger-border text-sm text-status-danger-text">
+          <Alert variant="danger" size="md">
             {error}
-          </div>
+          </Alert>
         )}
 
         {!accounts && !error && (
@@ -136,12 +137,12 @@ export function Backstage() {
                     <td className="px-4 py-2 text-right text-secondary">{a.docCount}</td>
                     <td className="px-4 py-2 text-xs text-muted space-x-1">
                       {a.domainVerified && (
-                        <span className="px-1.5 py-0.5 rounded bg-status-success-bg text-status-success-text">
+                        <span className="px-1.5 py-0.5 rounded-sm bg-status-success-bg text-status-success-text">
                           verified
                         </span>
                       )}
                       {a.autoGroupingEnabled && (
-                        <span className="px-1.5 py-0.5 rounded bg-btn-secondary text-secondary">
+                        <span className="px-1.5 py-0.5 rounded-sm bg-btn-secondary text-secondary">
                           auto-group
                         </span>
                       )}
@@ -153,7 +154,7 @@ export function Backstage() {
                       <button
                         onClick={() => hopIn(a.id, a.slug)}
                         disabled={hopping !== null}
-                        className="text-xs px-2 py-1 rounded bg-btn-primary text-btn-primary-text hover:opacity-90 disabled:opacity-40"
+                        className="text-xs px-2 py-1 rounded-sm bg-btn-primary text-white hover:opacity-90 disabled:opacity-40"
                       >
                         {hopping === a.id ? 'Hopping…' : 'Hop in →'}
                       </button>

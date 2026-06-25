@@ -40,11 +40,21 @@ export const AgentState = Annotation.Root({
    * drift mode the entry router goes straight to an agent node (not createDoc)
    * even with no docId, and the mode is forwarded to the server (chat + tools).
    */
-  agentMode: Annotation<'spec' | 'drift'>({
+  agentMode: Annotation<'spec' | 'drift' | 'scaffold' | 'standards' | 'issues'>({
     reducer: (_, update) => update,
     default: () => 'spec',
   }),
 });
+
+/** spec-360 t-1 (dec-1) / spec-389 t-5 (dec-2): the memex-scoped, doc-less agent
+ *  modes — forwarded to the server (chat + tools) and routed straight to the
+ *  agent node (not createDoc). `'spec'` becomes `undefined` on the wire (the
+ *  default surface); every scoped mode forwards as-is. */
+function wireMode(
+  agentMode: 'spec' | 'drift' | 'scaffold' | 'standards' | 'issues',
+): 'drift' | 'scaffold' | 'standards' | 'issues' | undefined {
+  return agentMode === 'spec' ? undefined : agentMode;
+}
 
 export type AgentStateType = typeof AgentState.State;
 
@@ -195,7 +205,14 @@ export function routeByPhase(
   // route straight to the agent node. It reuses planAgent (the generic
   // agentNode); the drift posture comes from the server-side prompt + tool
   // subset selected by `mode: 'drift'`, not from a distinct client node.
-  if (state.agentMode === 'drift') return 'planAgent';
+  // spec-360 t-1 (dec-1): scaffold mode, like drift, has no bound doc but is NOT
+  // creation — route straight to the agent node; the scaffold posture comes from
+  // the server-side prompt + tool subset selected by `mode: 'scaffold'`.
+  // spec-389 t-5 (dec-2): standards / issues modes behave the same — memex-scoped,
+  // doc-less; their posture comes from the server-side prompt + MODE_TOOLS subset.
+  // Only an EXPLICIT scoped mode short-circuits to the doc-less agent node; an
+  // unset agentMode (undefined) falls through to normal per-phase Spec routing.
+  if (state.agentMode && state.agentMode !== 'spec') return 'planAgent';
   if (!state.docId) return 'createDoc';
   switch (state.specPhase) {
     case 'draft':
@@ -378,9 +395,10 @@ async function agentNode(
     {
       docId: state.docId ?? undefined,
       messages: state.messages,
-      // spec-143 t-4 (dec-6): forward the mode so the server runs the drift
-      // agent (open-drift context + drift prompt + drift tool subset).
-      mode: state.agentMode === 'drift' ? 'drift' : undefined,
+      // spec-143 t-4 (dec-6) / spec-360 t-1 (dec-1): forward the mode so the
+      // server runs the right agent (drift: open-drift context + tools; scaffold:
+      // scaffold grounding + propose-then-confirm tool subset).
+      mode: wireMode(state.agentMode),
     },
     signal
   )) {
@@ -463,9 +481,10 @@ async function toolsNode(
   // The doc this chat is bound to — threaded into the server tool ctx so
   // tools like search_memex can default-exclude self-hits (b-34 T-12).
   const currentDocId = state.docId ?? undefined;
-  // spec-143 t-4 (dec-6): in drift mode there's no bound doc — forward the mode
-  // so the server runs the drift tool surface with docId null.
-  const toolMode = state.agentMode === 'drift' ? 'drift' : undefined;
+  // spec-143 t-4 (dec-6) / spec-360 t-1 (dec-1): in drift/scaffold mode there's
+  // no bound doc — forward the mode so the server runs the right tool surface
+  // with docId null.
+  const toolMode = wireMode(state.agentMode);
 
   const results: ContentBlock[] = [];
 

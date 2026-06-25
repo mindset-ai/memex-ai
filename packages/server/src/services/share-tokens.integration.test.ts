@@ -1,7 +1,8 @@
 import { describe, it, expect, afterAll, beforeAll } from "vitest";
 import { inArray, eq } from "drizzle-orm";
 import { db } from "../db/connection.js";
-import { memexes, shareTokens } from "../db/schema.js";
+import { memexes, shareTokens, users } from "../db/schema.js";
+import { tagAc } from "@memex-ai-ac/vitest";
 import { NotFoundError } from "../types/errors.js";
 import { createDocDraft } from "./documents.js";
 import {
@@ -12,9 +13,11 @@ import {
   ShareTokenError,
 } from "./share-tokens.js";
 import { makeTestMemex } from "./test-helpers.js";
+import { upsertUserByEmail } from "./users.js";
 
 let accountA: string;
 let accountB: string;
+const createdUserIds: string[] = [];
 
 beforeAll(async () => {
   accountA = await makeTestMemex("sta");
@@ -22,6 +25,9 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  if (createdUserIds.length) {
+    await db.delete(users).where(inArray(users.id, createdUserIds)).catch(() => {});
+  }
   await db.delete(memexes).where(inArray(memexes.id, [accountA, accountB])).catch(() => {});
 });
 
@@ -138,5 +144,50 @@ describe("getSharedDocumentByToken (public)", () => {
     expect(result.doc.title).toBe("Account A Doc");
     // Sanity: it's NOT B's doc
     expect(result.doc.id).not.toBe(docB.id);
+  });
+});
+
+const AC_199 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-199/acs/ac-${n}`;
+
+describe("spec-199 t-3 — createdByUserId recorded on token creation (ac-9)", () => {
+  it("createShareToken records the caller userId in createdByUserId", async () => {
+    tagAc(AC_199(9));
+    const user = await upsertUserByEmail(`created-by-${Date.now()}@st.test`);
+    createdUserIds.push(user.id);
+    const doc = await createDocDraft(accountA, "Created-by Test", "purpose");
+    const token = await createShareToken(accountA, doc.id, user.id);
+    const row = await db.query.shareTokens.findFirst({ where: eq(shareTokens.id, token.id) });
+    expect(row?.createdByUserId).toBe(user.id);
+  });
+
+  it("createShareToken with no caller records null createdByUserId (backward compat)", async () => {
+    tagAc(AC_199(9));
+    const doc = await createDocDraft(accountA, "Anon Token", "purpose");
+    const token = await createShareToken(accountA, doc.id);
+    const row = await db.query.shareTokens.findFirst({ where: eq(shareTokens.id, token.id) });
+    expect(row?.createdByUserId).toBeNull();
+  });
+});
+
+describe("spec-199 t-3 — expires_at enforced on redemption (ac-12)", () => {
+  it("getSharedDocumentByToken throws revoked on an expired token (ac-12)", async () => {
+    tagAc(AC_199(12));
+    const doc = await createDocDraft(accountA, "Expiry Test", "purpose");
+    const share = await createShareToken(accountA, doc.id);
+    const past = new Date(Date.now() - 1000);
+    await db.update(shareTokens).set({ expiresAt: past }).where(eq(shareTokens.id, share.id));
+    const err = await getSharedDocumentByToken(share.token).catch((e) => e as ShareTokenError);
+    expect(err).toBeInstanceOf(ShareTokenError);
+    expect(err.reason).toBe("revoked");
+  });
+
+  it("getSharedDocumentByToken succeeds for a token with a future expiresAt (ac-12)", async () => {
+    tagAc(AC_199(12));
+    const doc = await createDocDraft(accountA, "Future Expiry", "purpose");
+    const share = await createShareToken(accountA, doc.id);
+    const future = new Date(Date.now() + 86_400_000);
+    await db.update(shareTokens).set({ expiresAt: future }).where(eq(shareTokens.id, share.id));
+    const result = await getSharedDocumentByToken(share.token);
+    expect(result.doc.id).toBe(doc.id);
   });
 });

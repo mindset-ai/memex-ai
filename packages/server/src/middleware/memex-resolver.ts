@@ -109,6 +109,21 @@ const RESERVED_API_ROOTS = new Set([
   "llm",
   "drift",
   "__test__",
+  // spec-222 t-10: the public voice-guide backend mounts at /guide/v1 (versioned,
+  // tenant-less). Without this, parseMemexPath would read "/guide/v1/…" as
+  // namespace=guide / memex=v1 and 404 before the public router ever runs.
+  "guide",
+  // spec-171: the Stripe webhook receiver mounts at /api/stripe/webhook (public —
+  // the Stripe-Signature HMAC is the auth). Without this, parseMemexPath reads
+  // "/api/stripe/webhook" as namespace=stripe / memex=webhook and 404s before the
+  // webhook router runs, so Stripe deliveries fail and orgs never get their tier.
+  "stripe",
+  // spec-341: the Postmark delivery webhook mounts at /api/postmark/webhook
+  // (public — the Basic-auth credential is the auth). Without this, parseMemexPath
+  // reads "/api/postmark/webhook" as namespace=postmark / memex=webhook and 404s
+  // before the webhook router runs, so Postmark deliveries never update comms_log.
+  // (Same class of bug as spec-171's "stripe" entry.)
+  "postmark",
 ]);
 
 // Parses `/<namespace>/<memex>/...` or `/api/<namespace>/<memex>/...` from a

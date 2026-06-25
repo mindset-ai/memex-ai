@@ -462,19 +462,109 @@ describe("resolveDecision", () => {
     expect(resolved.resolvedAt).toBeTruthy();
   });
 
-  it("throws ValidationError when already resolved", async () => {
+  it("re-resolving an already-resolved decision updates it in place (spec-247 dec-5)", async () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-247/acs/ac-17");
     const dec = await createDecision(memexId, docId, "Double resolve");
     await resolveDecision(memexId, dec.id, "First resolution");
 
-    await expect(
-      resolveDecision(memexId, dec.id, "Second resolution")
-    ).rejects.toThrow(ValidationError);
+    const reResolved = await resolveDecision(memexId, dec.id, "Second resolution");
+    expect(reResolved.status).toBe("resolved");
+    expect(reResolved.resolution).toBe("Second resolution");
   });
 
   it("throws NotFoundError for non-existent id", async () => {
     await expect(
       resolveDecision(memexId, "00000000-0000-0000-0000-000000000000", "Resolution")
     ).rejects.toThrow(NotFoundError);
+  });
+});
+
+// ── spec-247 dec-5: persist-on-select mechanics ─────────────────────────────
+// resolution becomes optional when chosenOptionIndex picks an option (prose
+// defaults to that option's label); a later click on a different option
+// re-resolves in place, no reopen round-trip. Prose-only resolves (no index)
+// still require text.
+describe("resolveDecision — persist-on-select (spec-247 dec-5)", () => {
+  const AC17 = "mindset-prod/memex-building-itself/specs/spec-247/acs/ac-17";
+  let docId: string;
+  const OPTIONS: DecisionOption[] = [
+    { label: "Postgres", trade_offs: "Familiar; SQL." },
+    { label: "DynamoDB", trade_offs: "Scales; weaker queries." },
+  ];
+
+  beforeAll(async () => {
+    const doc = await createDocDraft(memexId, "Persist-on-select Doc", "Purpose");
+    docId = doc.id;
+    createdDocIds.push(doc.id);
+  });
+
+  async function makeOptionedDecision() {
+    const dec = await createDecision(memexId, docId, "Which database?");
+    await setDecisionOptions(memexId, dec.id, OPTIONS);
+    return dec;
+  }
+
+  it("resolves on a bare chosenOptionIndex — resolution defaults to the chosen option's label", async () => {
+    tagAc(AC17);
+    const dec = await makeOptionedDecision();
+    const resolved = await resolveDecision(memexId, dec.id, undefined, 1);
+
+    expect(resolved.status).toBe("resolved");
+    expect(resolved.chosenOptionIndex).toBe(1);
+    expect(resolved.resolution).toBe("DynamoDB");
+  });
+
+  it("a later click on a different option updates chosenOptionIndex in place (re-select)", async () => {
+    tagAc(AC17);
+    const dec = await makeOptionedDecision();
+    await resolveDecision(memexId, dec.id, undefined, 0);
+
+    const reSelected = await resolveDecision(memexId, dec.id, undefined, 1);
+    expect(reSelected.status).toBe("resolved");
+    expect(reSelected.chosenOptionIndex).toBe(1);
+    expect(reSelected.resolution).toBe("DynamoDB");
+  });
+
+  it("explicit resolution prose wins over the label default", async () => {
+    tagAc(AC17);
+    const dec = await makeOptionedDecision();
+    const resolved = await resolveDecision(memexId, dec.id, "Postgres — team knows it", 0);
+
+    expect(resolved.chosenOptionIndex).toBe(0);
+    expect(resolved.resolution).toBe("Postgres — team knows it");
+  });
+
+  it("adding reasoning after the fact re-resolves with prose, keeping the chosen option", async () => {
+    tagAc(AC17);
+    const dec = await makeOptionedDecision();
+    await resolveDecision(memexId, dec.id, undefined, 0);
+
+    const withReasoning = await resolveDecision(
+      memexId,
+      dec.id,
+      "Postgres: the team runs it in prod already",
+      0,
+    );
+    expect(withReasoning.chosenOptionIndex).toBe(0);
+    expect(withReasoning.resolution).toBe("Postgres: the team runs it in prod already");
+  });
+
+  it("rejects a resolve with neither resolution nor a chosen option", async () => {
+    tagAc(AC17);
+    const dec = await createDecision(memexId, docId, "Optionless decision");
+    await expect(resolveDecision(memexId, dec.id)).rejects.toThrow(ValidationError);
+    await expect(resolveDecision(memexId, dec.id, "   ")).rejects.toThrow(ValidationError);
+  });
+
+  it("still rejects re-resolve on candidate and rejected statuses", async () => {
+    tagAc(AC17);
+    const cand = await proposeDecision(memexId, docId, { title: "Candidate stays gated" });
+    await expect(resolveDecision(memexId, cand.id, undefined, 0)).rejects.toThrow(
+      ValidationError,
+    );
+    const toReject = await proposeDecision(memexId, docId, { title: "Rejected stays terminal" });
+    await rejectDecision(memexId, toReject.id, "noise");
+    await expect(resolveDecision(memexId, toReject.id, "x")).rejects.toThrow(ValidationError);
   });
 });
 

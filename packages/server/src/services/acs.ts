@@ -36,8 +36,9 @@ import {
 } from "../db/schema.js";
 import type { InferSelectModel } from "drizzle-orm";
 import { ConflictError, NotFoundError, ValidationError } from "../types/errors.js";
-import { mutate, type Mutated } from "./mutate.js";
-import { removeSummaryForPair, recomputeSummaryForPair } from "./test-event-latest.js";
+import { mutate, type Mutated, type RequestCtx } from "./mutate.js";
+import { resolveActorColumns } from "./actor.js";
+import { removeSummaryForPair } from "./test-event-latest.js";
 import { nextSeq, withSeqRetry } from "./shared/sequence.js";
 
 export type Ac = InferSelectModel<typeof acs>;
@@ -78,7 +79,10 @@ export interface CreateAcInput {
   parent?: { kind: ParentKind; id: string };
 }
 
-export async function createAc(input: CreateAcInput): Promise<Mutated<Ac>> {
+export async function createAc(
+  input: CreateAcInput,
+  ctx: RequestCtx = {},
+): Promise<Mutated<Ac>> {
   const { memexId, briefId, kind, statement, status = "active", parent } = input;
   if (!statement.trim()) {
     throw new ValidationError("AC statement is required");
@@ -88,7 +92,7 @@ export async function createAc(input: CreateAcInput): Promise<Mutated<Ac>> {
   // Allocate seq + insert under withSeqRetry, mirroring createDecision (b-38 F-3).
   // Concurrent creates under the same Spec shouldn't 23505 on the unique constraint.
   const result = await mutate(
-    {},
+    ctx,
     { memexId, docId: briefId, entity: "ac", action: "created" },
     async () =>
       withSeqRetry(
@@ -96,7 +100,8 @@ export async function createAc(input: CreateAcInput): Promise<Mutated<Ac>> {
           const seq = await nextSeq(acs, acs.seq, acs.briefId, briefId);
           const [row] = await db
             .insert(acs)
-            .values({ memexId, briefId, seq, kind, statement, status })
+            // spec-122 dec-2/dec-5 — stamp WHO + HOW at write time (ac-20).
+            .values({ memexId, briefId, seq, kind, statement, status, ...(await resolveActorColumns(ctx)) })
             .returning();
           if (parent) {
             await db.insert(acParentLinks).values({
@@ -173,18 +178,20 @@ export async function updateAc(
   memexId: string,
   acId: string,
   statement: string,
+  ctx: RequestCtx = {},
 ): Promise<Mutated<Ac>> {
   if (!statement.trim()) {
     throw new ValidationError("AC statement is required");
   }
   const ac = await getAc(memexId, acId); // tenancy check
   return mutate(
-    {},
+    ctx,
     { memexId, docId: ac.briefId, entity: "ac", action: "updated" },
     async () => {
       const [row] = await db
         .update(acs)
-        .set({ statement, updatedAt: new Date() })
+        // spec-122 dec-2/dec-5 — re-attribute on edit (who touched it last).
+        .set({ statement, updatedAt: new Date(), ...(await resolveActorColumns(ctx)) })
         .where(and(eq(acs.id, acId), eq(acs.memexId, memexId)))
         .returning();
       return row;
@@ -532,18 +539,24 @@ export async function setAcAcceptance(
   memexId: string,
   acId: string,
   actor: string,
+  ctx: RequestCtx = {},
 ): Promise<Mutated<Ac>> {
   if (!actor.trim()) {
     throw new ValidationError("actor is required to accept an AC");
   }
   const ac = await getAc(memexId, acId); // tenancy check
   return mutate(
-    {},
+    ctx,
     { memexId, docId: ac.briefId, entity: "ac", action: "updated" },
     async () => {
       const [row] = await db
         .update(acs)
-        .set({ acceptedBy: actor.trim(), acceptedAt: new Date(), updatedAt: new Date() })
+        .set({
+          acceptedBy: actor.trim(),
+          acceptedAt: new Date(),
+          updatedAt: new Date(),
+          ...(await resolveActorColumns(ctx)),
+        })
         .where(and(eq(acs.id, acId), eq(acs.memexId, memexId)))
         .returning();
       return row;
@@ -559,18 +572,91 @@ export async function setAcAcceptance(
 export async function clearAcAcceptance(
   memexId: string,
   acId: string,
+  ctx: RequestCtx = {},
 ): Promise<Mutated<Ac>> {
   const ac = await getAc(memexId, acId); // tenancy check
   if (ac.acceptedAt === null) {
     throw new ConflictError(`AC ${acId} has no acceptance to revoke`);
   }
   return mutate(
-    {},
+    ctx,
     { memexId, docId: ac.briefId, entity: "ac", action: "updated" },
     async () => {
       const [row] = await db
         .update(acs)
-        .set({ acceptedBy: null, acceptedAt: null, updatedAt: new Date() })
+        // spec-391: clearing the acceptance also clears the reviewed-verification
+        // rationale — the reason is meaningless without the sign-off it explains.
+        .set({
+          acceptedBy: null,
+          acceptedAt: null,
+          reviewedReason: null,
+          updatedAt: new Date(),
+          ...(await resolveActorColumns(ctx)),
+        })
+        .where(and(eq(acs.id, acId), eq(acs.memexId, memexId)))
+        .returning();
+      return row;
+    },
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// Reviewed-verification sign-off (spec-391 dec-2)
+// ══════════════════════════════════════════════════════════════════════
+//
+// The first-class reviewed-verification AC class — dec-2's escape hatch for the
+// hard verify→done AC gate. A config/prose/Dashboard AC that cannot carry an
+// automated test (Stripe settings, Apple notarization, policy ACs) is given a
+// named, dated, REASONED human sign-off so it satisfies the gate (it derives to
+// the `accepted` verification state) instead of permanently wedging the spec.
+//
+// This is an EXTENSION of spec-188's manual acceptance: it sets the same
+// accepted_by/accepted_at overlay AND a reviewed_reason explaining why the AC
+// can't be tested. The distinction from a bare setAcAcceptance is the recorded
+// rationale — the gate and the audit can name it. Evidence still wins: a
+// failing test suppresses the accepted state in deriveVerificationState.
+//
+// Unlike setAcAcceptance (which passes {} to mutate), this threads the caller's
+// RequestCtx so actor_user_id/actor_name/channel are stamped per std-32 — a
+// sign-off is a load-bearing human attribution, not an anonymous overlay write.
+
+/**
+ * Record a reviewed-verification sign-off on an AC: sets accepted_by +
+ * accepted_at + reviewed_reason together. `actor` is the display snapshot
+ * (user.name ?? email); `reason` explains why this AC cannot carry an automated
+ * test. Both are required. Re-signing refreshes actor + timestamp + reason
+ * (idempotent in effect). The activity contract columns are stamped from `ctx`.
+ */
+export async function setAcReviewedVerification(
+  memexId: string,
+  acId: string,
+  actor: string,
+  reason: string,
+  ctx: RequestCtx = {},
+): Promise<Mutated<Ac>> {
+  if (!actor.trim()) {
+    throw new ValidationError("actor is required to sign off an AC");
+  }
+  if (!reason.trim()) {
+    throw new ValidationError(
+      "a reason is required for a reviewed-verification sign-off (why this AC cannot carry an automated test)",
+    );
+  }
+  const ac = await getAc(memexId, acId); // tenancy check
+  return mutate(
+    ctx,
+    { memexId, docId: ac.briefId, entity: "ac", action: "updated" },
+    async () => {
+      const [row] = await db
+        .update(acs)
+        .set({
+          acceptedBy: actor.trim(),
+          acceptedAt: new Date(),
+          reviewedReason: reason.trim(),
+          updatedAt: new Date(),
+          // std-32: stamp WHO + HOW from the request context on the sign-off.
+          ...(await resolveActorColumns(ctx)),
+        })
         .where(and(eq(acs.id, acId), eq(acs.memexId, memexId)))
         .returning();
       return row;
@@ -780,98 +866,17 @@ export async function discontinueTestEventsForAc(
 }
 
 // ══════════════════════════════════════════════════════════════════════
-// Soft-hide / restore discontinue (spec-127 dec-1) — the AGENT path
+// Orphan retirement is HARD-DELETE only (spec-358 dec-1)
 // ══════════════════════════════════════════════════════════════════════
 //
-// The orphan self-heal problem: a renamed/deleted test keeps its last `fail`
-// in the summary forever, pinning its AC red. spec-127 retires orphans with a
-// SOFT, reversible hide rather than spec-96's hard delete (which stays as a
-// human escape hatch above). The actor that renamed/deleted the test knows the
-// identifier is dead and retires its own orphan via the ref-keyed surface.
-//
-// Mechanism, post-spec-162: the verdict reads `test_event_latest`, NOT the log
-// with a read-time `hidden=false` filter. So flipping `hidden` alone leaves the
-// stale `fail` in the summary and the badge unchanged. Hiding therefore does
-// TWO transactionally-paired writes — set `hidden=true` on the log rows (audit
-// preserved) AND evict the summary row (`removeSummaryForPair`). Restore is the
-// reverse, but un-flipping `hidden` cannot re-insert the summary row on its own,
-// so it RECOMPUTES the pair's summary from the surviving non-hidden log rows
-// (`recomputeSummaryForPair`). Self-heal still holds: a fresh non-hidden
-// emission re-runs applyEmissionToSummary and re-enters the verdict regardless.
-
-/**
- * Soft-retire every `test_events` row matching `(acUid, testIdentifier)` for
- * the AC: set `hidden = true` (audit retained) AND drop the summary row so the
- * pair leaves the verification badge immediately. Reversible via
- * `restoreTestEventsForAc`. Emits `ac:updated` so the badge + matrix re-render.
- */
-export async function softHideTestEventsForAc(
-  memexId: string,
-  acId: string,
-  testIdentifier: string,
-): Promise<Mutated<{ hidden: number }>> {
-  const ac = await getAc(memexId, acId); // tenancy check; 404 via NotFoundError
-  const slugs = await resolveBriefSlugsForRef(ac.briefId);
-  const acUid = buildAcRef(slugs, ac.seq);
-
-  return mutate(
-    {},
-    { memexId, docId: ac.briefId, entity: "ac", action: "updated" },
-    async () => {
-      return db.transaction(async (tx) => {
-        const rows = await tx
-          .update(testEvents)
-          .set({ hidden: true })
-          .where(
-            and(
-              eq(testEvents.acUid, acUid),
-              eq(testEvents.testIdentifier, testIdentifier),
-            ),
-          )
-          .returning({ id: testEvents.id });
-        await removeSummaryForPair(tx, acUid, testIdentifier);
-        return { hidden: rows.length };
-      });
-    },
-  );
-}
-
-/**
- * Reverse a soft-hide: set `hidden = false` on every matching `test_events`
- * row AND recompute the summary row from the surviving non-hidden log rows so
- * the pair re-enters the verdict at its true latest-non-hidden status (or
- * stays off the badge if nothing non-hidden remains). Emits `ac:updated`.
- */
-export async function restoreTestEventsForAc(
-  memexId: string,
-  acId: string,
-  testIdentifier: string,
-): Promise<Mutated<{ restored: number }>> {
-  const ac = await getAc(memexId, acId); // tenancy check; 404 via NotFoundError
-  const slugs = await resolveBriefSlugsForRef(ac.briefId);
-  const acUid = buildAcRef(slugs, ac.seq);
-
-  return mutate(
-    {},
-    { memexId, docId: ac.briefId, entity: "ac", action: "updated" },
-    async () => {
-      return db.transaction(async (tx) => {
-        const rows = await tx
-          .update(testEvents)
-          .set({ hidden: false })
-          .where(
-            and(
-              eq(testEvents.acUid, acUid),
-              eq(testEvents.testIdentifier, testIdentifier),
-            ),
-          )
-          .returning({ id: testEvents.id });
-        await recomputeSummaryForPair(tx, acUid, testIdentifier);
-        return { restored: rows.length };
-      });
-    },
-  );
-}
+// The soft-hide / restore pair (spec-127) was the last writer of
+// `test_events.hidden`. spec-358 removes it: orphan retirement now goes
+// through `discontinueTestEventsForAc` above (hard delete), the same thing the
+// UI `DeleteTestEventsButton` and the MCP `discontinue_test_events` tool do.
+// Nothing writes `hidden=true` anymore — the column is frozen at its current
+// contents (dec-2) and every reader that excludes historical hidden rows is
+// kept. The only thing given up is reversibility/audit of an orphan retirement
+// (a thin safety net for a test that no longer exists).
 
 // ══════════════════════════════════════════════════════════════════════
 // Per-Spec decision → implementation-AC coverage
@@ -1272,4 +1277,148 @@ export async function listAcAlignmentOverTime(
     total: Number(r.total),
     verified: Number(r.verified),
   }));
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// Advancement gates (spec-391) — the HARD blocks at the spec-advancement
+// checkpoints. Computed here, in the same module as the verification
+// derivation, so the gate verdict and list_acs / assess_spec can never
+// disagree (they all flow through listAcsForBriefWithVerification →
+// deriveVerificationState). Enforcement is wired into
+// services/documents.ts:updateDocStatus (the single seam every forward-move
+// surface funnels through). See spec-391 dec-1 / dec-3 / dec-5.
+//
+// These are pure read functions returning a structured blocker description;
+// the throwing lives at the seam so the error shape stays the caller's
+// concern. They never block code-work — only the verify→done / build→verify
+// advancements call them.
+
+/**
+ * spec-391 dec-1 / dec-3 (ac-5, ac-6, ac-9): the verify→done AC gate.
+ *
+ * Returns the handles of every ACTIVE IMPLEMENTATION AC that is `untested` or
+ * `failing` — the conditions that HARD-BLOCK the verify→done advancement. An
+ * empty array means the advancement is clear.
+ *
+ * - Only `implementation` ACs gate (scope ACs are manager-authored outcomes,
+ *   not mechanism proofs).
+ * - `accepted` ACs (a reviewed-verification sign-off, spec-391 dec-2) satisfy
+ *   the gate — that is the escape hatch.
+ * - `stale` does NOT block (dec-3): stale means the proof aged, not that it's
+ *   wrong; a recency clock is a poor hard gate. (assess_spec still nudges.)
+ * - `verified` satisfies the gate.
+ *
+ * Derivation is the EXACT listAcsForBriefWithVerification path list_acs and
+ * assess_spec use — the gate cannot disagree with the displayed badge.
+ */
+export async function listAcsBlockingDone(
+  memexId: string,
+  briefId: string,
+): Promise<{ handle: string; state: VerificationState }[]> {
+  const rows = await listAcsForBriefWithVerification(memexId, briefId);
+  return rows
+    .filter(
+      (r) =>
+        r.ac.kind === "implementation" &&
+        r.ac.status === "active" &&
+        (r.verificationState === "untested" || r.verificationState === "failing"),
+    )
+    .map((r) => ({ handle: `ac-${r.ac.seq}`, state: r.verificationState }));
+}
+
+/**
+ * spec-391 dec-5 (ac-11): the build→verify naked-decision gate.
+ *
+ * Returns the handles of every RESOLVED decision on the spec that has zero
+ * active implementation ACs — a commitment with no verification path. Any
+ * non-empty result HARD-BLOCKS the build→verify advancement. Reuses
+ * listResolvedDecisionImplAcCoverage (the same derivation the existing
+ * specify→build advisory nudge uses), so the early nudge and the hard block
+ * speak with one voice.
+ */
+export async function listNakedDecisionsBlockingVerify(
+  memexId: string,
+  briefId: string,
+): Promise<string[]> {
+  const coverage = await listResolvedDecisionImplAcCoverage(memexId, briefId);
+  return coverage
+    .filter((c) => c.implementationAcCount === 0)
+    .map((c) => c.decisionHandle);
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// CI-emission audit — "stale = local-only" (spec-391 dec-4, ac-10)
+// ══════════════════════════════════════════════════════════════════════
+//
+// A VERIFIED AC whose proof came from a laptop, not CI, is weak verification:
+// the deploy signal can't trust a green that only ever ran on someone's machine.
+// This audit flags any verified AC whose LATEST emission lacks CI provenance.
+//
+// CI-originated (dec-4) = the latest non-hidden emission has a non-null
+// top-level `run_id` OR a `run_id`/`run_url` key in `metadata` (the helper
+// auto-populates these only in CI: GitHub Actions / GitLab / BuildKite /
+// CircleCI; a laptop run sets none). run_id is the sharpest discriminator;
+// metadata is the fallback for hand-rolled emitters. Read-only — NEVER blocks a
+// transition (it informs; the deploy block is dec-1/dec-3's untested/failing
+// gate, not provenance).
+//
+// "non-hidden": test_events.hidden is frozen-false post spec-358, but we keep
+// the filter so the audit reads what the badge reads.
+
+/** True when an emission carries a CI run marker (dec-4). */
+export function emissionIsCiOriginated(ev: {
+  runId: string | null;
+  metadata: Record<string, string> | null | undefined;
+}): boolean {
+  if (ev.runId != null && ev.runId.trim() !== "") return true;
+  const md = ev.metadata ?? {};
+  const runId = md["run_id"];
+  const runUrl = md["run_url"];
+  return (
+    (typeof runId === "string" && runId.trim() !== "") ||
+    (typeof runUrl === "string" && runUrl.trim() !== "")
+  );
+}
+
+export interface CiEmissionAuditRow {
+  /** `ac-N` handle of a VERIFIED AC whose latest emission is local-only. */
+  handle: string;
+}
+
+/**
+ * For every VERIFIED active AC on the spec, inspect its latest non-hidden
+ * emission and flag the ones lacking CI provenance ("local-only"). Returns one
+ * row per flagged AC (empty when every verified AC's proof came from CI). Pure
+ * read; the caller decides how to surface it.
+ */
+export async function auditCiEmissionForBrief(
+  memexId: string,
+  briefId: string,
+): Promise<CiEmissionAuditRow[]> {
+  const rows = await listAcsForBriefWithVerification(memexId, briefId);
+  const verified = rows.filter(
+    (r) => r.ac.status === "active" && r.verificationState === "verified",
+  );
+  if (verified.length === 0) return [];
+
+  const out: CiEmissionAuditRow[] = [];
+  for (const r of verified) {
+    // The latest non-hidden emission for this AC across all its test_identifiers.
+    const [latest] = await db
+      .select({
+        runId: testEvents.runId,
+        metadata: testEvents.metadata,
+        createdAt: testEvents.createdAt,
+      })
+      .from(testEvents)
+      .where(and(eq(testEvents.acUid, r.canonicalRef), eq(testEvents.hidden, false)))
+      .orderBy(desc(testEvents.createdAt))
+      .limit(1);
+    // A verified AC always has ≥1 passing emission; defensively skip if none.
+    if (!latest) continue;
+    if (!emissionIsCiOriginated({ runId: latest.runId, metadata: latest.metadata })) {
+      out.push({ handle: `ac-${r.ac.seq}` });
+    }
+  }
+  return out;
 }

@@ -97,7 +97,7 @@ describe("adminGate", () => {
     expect(body.availableMemexes).toEqual(memberships);
   });
 
-  it("returns 403 if caller is not administrator", async () => {
+  it("returns 404 if caller is not administrator (std-7 — no membership leak)", async () => {
     const app = buildApp("/x");
     app.use("*", async (c, next) => {
       c.set("currentMemexId", "mx-1");
@@ -107,7 +107,7 @@ describe("adminGate", () => {
     app.get("/x", adminGate, (c) => c.json({ ok: true }));
 
     const res = await app.request("/x");
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(404);
   });
 
   it("passes through for administrator", async () => {

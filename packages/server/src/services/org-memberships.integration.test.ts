@@ -1,13 +1,17 @@
 import { describe, it, expect, afterAll } from "vitest";
 import { eq, inArray } from "drizzle-orm";
 import { db } from "../db/connection.js";
-import { memexes, namespaces, orgs, orgMemberships, verifiedDomains, users } from "../db/schema.js";
+import { memexes, namespaces, orgs, orgMemberships, verifiedDomains, users, shareTokens } from "../db/schema.js";
 import { upsertUserByEmail } from "./users.js";
 import {
   joinByDomain,
   listDiscoverableOrgs,
   joinOrgByDomain,
 } from "./org-discovery.js";
+import { disableMembership } from "./org-memberships.js";
+import { createDocDraft } from "./documents.js";
+import { createShareToken, getSharedDocumentByToken, ShareTokenError } from "./share-tokens.js";
+import { tagAc } from "@memex-ai-ac/vitest";
 import { NotFoundError, ValidationError } from "../types/errors.js";
 
 const createdUserIds: string[] = [];
@@ -364,5 +368,88 @@ describe("joinOrgByDomain", () => {
       where: eq(orgMemberships.userId, user.id),
     });
     expect(rows).toHaveLength(1);
+  });
+});
+
+const AC_199 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-199/acs/ac-${n}`;
+
+async function makeOrgWithMemex(): Promise<{ orgId: string; memexId: string }> {
+  const sub = uniqueSubdomain("revoke");
+  const [ns] = await db.insert(namespaces).values({ slug: sub, kind: "org" }).returning();
+  const [org] = await db.insert(orgs).values({ namespaceId: ns.id, name: "Revoke Org" }).returning();
+  await db.update(namespaces).set({ ownerOrgId: org.id }).where(eq(namespaces.id, ns.id));
+  const [memex] = await db.insert(memexes).values({ namespaceId: ns.id, slug: "main", name: "Revoke Memex" }).returning();
+  createdAccountIds.push(memex.id);
+  return { orgId: org.id, memexId: memex.id };
+}
+
+describe("spec-199 t-3 — disableMembership bulk-revokes share tokens (ac-10, ac-11)", () => {
+  it("revoking a member revokes all their share tokens in the org in the same transaction (ac-10)", async () => {
+    tagAc(AC_199(10));
+    const { orgId, memexId } = await makeOrgWithMemex();
+
+    const requester = await upsertUserByEmail(`requester-${Date.now()}@revoke.test`);
+    const target = await upsertUserByEmail(`target-${Date.now()}@revoke.test`);
+    createdUserIds.push(requester.id, target.id);
+
+    await db.insert(orgMemberships).values([
+      { userId: requester.id, orgId, role: "administrator", status: "active" },
+      { userId: target.id, orgId, role: "member", status: "active" },
+    ]);
+
+    const doc = await createDocDraft(memexId, "Shared Doc", "purpose");
+    const token = await createShareToken(memexId, doc.id, target.id);
+    expect(token.revoked).toBe(false);
+
+    await disableMembership(target.id, orgId, requester.id);
+
+    const row = await db.query.shareTokens.findFirst({ where: eq(shareTokens.id, token.id) });
+    expect(row?.revoked, "share token must be revoked after member removal").toBe(true);
+  });
+
+  it("revoked token returns ShareTokenError reason='revoked' after member removal (ac-11)", async () => {
+    tagAc(AC_199(11));
+    const { orgId, memexId } = await makeOrgWithMemex();
+
+    const requester = await upsertUserByEmail(`req2-${Date.now()}@revoke.test`);
+    const target = await upsertUserByEmail(`tgt2-${Date.now()}@revoke.test`);
+    createdUserIds.push(requester.id, target.id);
+
+    await db.insert(orgMemberships).values([
+      { userId: requester.id, orgId, role: "administrator", status: "active" },
+      { userId: target.id, orgId, role: "member", status: "active" },
+    ]);
+
+    const doc = await createDocDraft(memexId, "Replay Doc", "purpose");
+    const shareToken = await createShareToken(memexId, doc.id, target.id);
+
+    await disableMembership(target.id, orgId, requester.id);
+
+    const err = await getSharedDocumentByToken(shareToken.token).catch((e) => e);
+    expect(err).toBeInstanceOf(ShareTokenError);
+    expect((err as ShareTokenError).reason).toBe("revoked");
+  });
+
+  it("tokens from other orgs are NOT revoked when a member is removed (ac-10)", async () => {
+    tagAc(AC_199(10));
+    const { orgId: orgA } = await makeOrgWithMemex();
+    const { memexId: memexB } = await makeOrgWithMemex();
+
+    const requester = await upsertUserByEmail(`req3-${Date.now()}@revoke.test`);
+    const target = await upsertUserByEmail(`tgt3-${Date.now()}@revoke.test`);
+    createdUserIds.push(requester.id, target.id);
+
+    await db.insert(orgMemberships).values([
+      { userId: requester.id, orgId: orgA, role: "administrator", status: "active" },
+      { userId: target.id, orgId: orgA, role: "member", status: "active" },
+    ]);
+
+    const docB = await createDocDraft(memexB, "Other Org Doc", "purpose");
+    const tokenB = await createShareToken(memexB, docB.id, target.id);
+
+    await disableMembership(target.id, orgA, requester.id);
+
+    const row = await db.query.shareTokens.findFirst({ where: eq(shareTokens.id, tokenB.id) });
+    expect(row?.revoked, "token in a different org must not be revoked").toBe(false);
   });
 });

@@ -1,0 +1,10 @@
+# spec-243 dec-1: the canary Cloud Run Job image. The probe scripts have ZERO
+# npm dependencies (built-in fetch / crypto / fs only), so the image is a stock
+# node:alpine with just the scripts copied in — no install step, tiny, fast.
+#
+# Built + pushed by scripts/canary/deploy-canary-job.sh. Entrypoint runs both
+# envs once and exits (Cloud Run Job semantics; Cloud Scheduler re-invokes).
+FROM node:22-alpine
+WORKDIR /app
+COPY scripts/canary/ ./scripts/canary/
+ENTRYPOINT ["node", "scripts/canary/run-job.mjs"]

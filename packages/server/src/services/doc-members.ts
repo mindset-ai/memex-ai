@@ -23,7 +23,8 @@ import { db } from "../db/connection.js";
 import { docMembers, documents, users } from "../db/schema.js";
 import type { DocMember } from "../db/schema.js";
 import { NotFoundError } from "../types/errors.js";
-import { mutate, type Mutated } from "./mutate.js";
+import { mutate, type Mutated, type RequestCtx } from "./mutate.js";
+import { actorName, resolveActorColumns } from "./actor.js";
 
 export type { DocMember };
 
@@ -37,14 +38,29 @@ export function isDocRole(value: string): value is DocRole {
 }
 
 // Verifies the Spec exists in the memex; 404 (not 403) on a cross-tenant miss
-// (std-7). Mirrors assertSpecInMemex in issues.ts.
-async function assertSpecInMemex(memexId: string, docId: string): Promise<void> {
+// (std-7). Mirrors assertSpecInMemex in issues.ts. Returns the Spec's handle so
+// callers can name it in the Pulse narrative (spec-122) instead of leaking the
+// raw doc UUID.
+async function assertSpecInMemex(memexId: string, docId: string): Promise<string> {
   const doc = await db.query.documents.findFirst({
     where: and(eq(documents.id, docId), eq(documents.memexId, memexId)),
+    columns: { handle: true },
   });
   if (!doc) {
     throw new NotFoundError(`Spec ${docId} not found in memex ${memexId}`);
   }
+  return doc.handle;
+}
+
+// The affected member's display snapshot for the Pulse narrative — name, else
+// email, else a neutral fallback (the user must exist for a role write, but stay
+// defensive so attribution never throws on the feed path). spec-122.
+async function memberDisplayName(userId: string): Promise<string> {
+  const u = await db.query.users.findFirst({
+    where: eq(users.id, userId),
+    columns: { name: true, email: true },
+  });
+  return u ? actorName(u) : "a member";
 }
 
 // The read path: 'editor' iff an editor row exists for (docId,userId), else the
@@ -76,7 +92,12 @@ export interface DocMemberView {
 
 // The explicit (elevated) members of a Spec — the editors. Reviewers are implicit
 // and never listed here (they have no row). Joined to users for display.
-export async function listEditors(memexId: string, docId: string): Promise<DocMemberView[]> {
+// includeEmail must be false for anonymous/non-member callers (Finding #1, spec-199).
+export async function listEditors(
+  memexId: string,
+  docId: string,
+  includeEmail = true,
+): Promise<DocMemberView[]> {
   const rows = await db
     .select({
       userId: docMembers.userId,
@@ -90,7 +111,7 @@ export async function listEditors(memexId: string, docId: string): Promise<DocMe
   return rows.map((r) => ({
     userId: r.userId,
     name: r.name,
-    email: r.email,
+    email: includeEmail ? r.email : null,
     role: isDocRole(r.role) ? r.role : "editor",
   }));
 }
@@ -127,11 +148,41 @@ export async function promoteToEditor(
   memexId: string,
   docId: string,
   userId: string,
+  // spec-122 dec-5: the activity contract (WHO performed it + HOW). Without it
+  // the event reaches the sink with no channel → 'server' → actor "System".
+  // resolveActorColumns denormalises the actor's name at write so the Pulse feed
+  // names the human, not a client label. Defaults empty for unattributed callers.
+  ctx: RequestCtx = {},
 ): Promise<Mutated<DocMember>> {
-  await assertSpecInMemex(memexId, docId);
+  const handle = await assertSpecInMemex(memexId, docId);
+  const who = await memberDisplayName(userId);
+  const actor = await resolveActorColumns(ctx);
+
+  // An activity event must reflect a REAL state change (std-32). spec-189's
+  // traffic-driven promotion calls this on every agent tool call that touches
+  // the Spec, so emitting on an idempotent re-promote spammed the feed with
+  // "promoted X to editor" no-ops on every conversation turn. Detect the
+  // already-an-editor case and write SILENTLY (no bus event, no activity row):
+  // the row already exists, nothing changed, so nothing should be announced.
+  const existing = await db.query.docMembers.findFirst({
+    where: and(
+      eq(docMembers.memexId, memexId),
+      eq(docMembers.docId, docId),
+      eq(docMembers.userId, userId),
+    ),
+  });
+  const alreadyEditor = !!existing && isDocRole(existing.role) && existing.role === "editor";
+
   return mutate(
-    {},
-    { memexId, docId, entity: "doc_member", action: "created" },
+    { ...ctx, actorUserId: actor.actorUserId ?? undefined, actorName: actor.actorName ?? undefined },
+    {
+      memexId,
+      docId,
+      entity: "doc_member",
+      action: "created",
+      // spec-122: name the person + spec instead of leaking the doc UUID.
+      narrative: `promoted ${who} to editor on ${handle}`,
+    },
     async () => {
       await db
         .insert(docMembers)
@@ -147,6 +198,8 @@ export async function promoteToEditor(
       });
       return row!;
     },
+    // No real change ⇒ no emission. A genuine first-time promote still announces.
+    { silent: alreadyEditor },
   );
 }
 
@@ -162,11 +215,20 @@ export async function demoteToReviewer(
   memexId: string,
   docId: string,
   userId: string,
+  ctx: RequestCtx = {},
 ): Promise<Mutated<DemoteResult>> {
-  await assertSpecInMemex(memexId, docId);
+  const handle = await assertSpecInMemex(memexId, docId);
+  const who = await memberDisplayName(userId);
+  const actor = await resolveActorColumns(ctx);
   return mutate(
-    {},
-    { memexId, docId, entity: "doc_member", action: "deleted" },
+    { ...ctx, actorUserId: actor.actorUserId ?? undefined, actorName: actor.actorName ?? undefined },
+    {
+      memexId,
+      docId,
+      entity: "doc_member",
+      action: "deleted",
+      narrative: `demoted ${who} to reviewer on ${handle}`,
+    },
     async () => {
       await db
         .delete(docMembers)

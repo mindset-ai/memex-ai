@@ -43,10 +43,11 @@ test("user opens plan from task panel, approves, plan status flips to approved",
   await page.goto(tenantPath(tenant.namespaceSlug, tenant.memexSlug, `/docs/${docId}`));
   await expect(page.getByText(/We need a plan first/)).toBeVisible({ timeout: 15_000 });
 
-  // Tasks live under the Build phase (post spec-164 phase-tab redesign — there is
-  // no standalone "Tasks" tab anymore). Click the Build phase tab (role="tab",
-  // PhaseTabBar) to surface the TaskPanel.
+  // Tasks live under the Build phase. spec-282: the Build view now lands on the
+  // Decisions & ACs sub-tab, so after the Build phase tab click open the unified
+  // "Agent Tasks & Issues" sub-tab to surface the TaskPanel.
   await page.getByRole("tab", { name: "Build" }).click();
+  await page.getByRole("button", { name: /Agent Tasks & Issues/ }).click();
 
   // The plan trigger is rendered by TaskPanel for any task with an
   // executionPlanDocId. With a 'READY — all green' readiness comment its label

@@ -7,7 +7,7 @@
 
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { tagAc } from "@memex-ai-ac/vitest";
-import { inArray } from "drizzle-orm";
+import { inArray, sql } from "drizzle-orm";
 
 // Force dev-mode auth so app.request() can hit session-gated routes without
 // minting a JWT (same shape as activity.integration.test.ts).
@@ -268,6 +268,7 @@ describe("GET /analytics/ac-verification", () => {
     const prefix = `${ns[0].slug}/main/specs/spec-vrf/acs`;
     const emit = (acN: number, test: string, status: string) =>
       db.insert(testEventLatest).values({
+        memexId: memexA,
         acUid: `${prefix}/ac-${acN}`,
         testIdentifier: test,
         latestStatus: status,
@@ -316,6 +317,7 @@ describe("GET /analytics/acs-over-time and /analytics/test-run-volume", () => {
     const prefix = `${m.slug}/main/specs/spec-mom/acs`;
     const emit = (acN: number, status: string, at: string, hidden = false) =>
       db.insert(testEvents).values({
+        memexId: m.memexId,
         acUid: `${prefix}/ac-${acN}`,
         status,
         testIdentifier: `t-${acN}`,
@@ -330,6 +332,19 @@ describe("GET /analytics/acs-over-time and /analytics/test-run-volume", () => {
     await emit(2, "pass", "2026-06-02T11:00:00Z", true);
     // ac-3: error run — volume only.
     await emit(3, "error", "2026-06-02T12:00:00Z");
+
+    // spec-398: the first-verified curve now reads the durable ac_first_verified
+    // snapshot (retention deletes the oldest pass from test_events), not
+    // min(created_at) over the log. Seed it the way migration 0110 backfills:
+    // earliest NON-hidden pass per ac_uid.
+    await db.execute(sql`
+      INSERT INTO ac_first_verified (ac_uid, first_verified_at)
+      SELECT ac_uid, min(created_at) FROM test_events
+      WHERE ac_uid LIKE ${prefix + "/%"} AND status = 'pass' AND hidden = false
+      GROUP BY ac_uid
+      ON CONFLICT (ac_uid) DO UPDATE
+        SET first_verified_at = LEAST(ac_first_verified.first_verified_at, EXCLUDED.first_verified_at)
+    `);
 
     const otRes = await app.request(`${path}/analytics/acs-over-time`, withApexHost());
     expect(otRes.status).toBe(200);
@@ -349,5 +364,58 @@ describe("GET /analytics/acs-over-time and /analytics/test-run-volume", () => {
     // Jun 2: visible pass + hidden pass + error — hidden runs ARE volume.
     expect(vol.find((p) => p.day === "2026-06-02")).toMatchObject({ pass: 2, fail: 0, error: 1 });
     expect(vol.find((p) => p.day === "2026-06-03")).toMatchObject({ pass: 1, fail: 0, error: 0 });
+  });
+});
+
+describe("GET /analytics/test-signal-pulse", () => {
+  it("returns gapless minute buckets + window totals for recent test emissions", async () => {
+    const m = await makeTestMemexWithDevAdmin("analyt-pulse");
+    memexIds.push(m.memexId);
+    const path = `/api/${m.slug}/main`;
+
+    const prefix = `${m.slug}/main/specs/spec-pulse/acs`;
+    // Emit a handful of recent events (default createdAt = now()), so they land
+    // in the current minute bucket of the rolling window.
+    const emitNow = (acN: number, status: string, hidden = false) =>
+      db.insert(testEvents).values({
+        memexId: m.memexId,
+        acUid: `${prefix}/ac-${acN}`,
+        status,
+        testIdentifier: `t-${acN}`,
+        hidden,
+      });
+    await emitNow(1, "pass");
+    await emitNow(1, "pass");
+    await emitNow(2, "fail");
+    await emitNow(3, "error");
+    await emitNow(4, "pass", true); // hidden pass — still counts as volume
+
+    const res = await app.request(`${path}/analytics/test-signal-pulse?windowMinutes=15`, withApexHost());
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      windowMinutes: number;
+      buckets: Array<{ at: string; pass: number; fail: number; error: number }>;
+      totals: { pass: number; fail: number; error: number; total: number };
+    };
+    expect(body.windowMinutes).toBe(15);
+    expect(body.buckets).toHaveLength(15); // gapless, one per minute
+    // Totals across the window: 3 pass (2 visible + 1 hidden), 1 fail, 1 error.
+    expect(body.totals).toEqual({ pass: 3, fail: 1, error: 1, total: 5 });
+    // The window sum of bucket columns matches the totals (no row dropped).
+    const summed = body.buckets.reduce(
+      (a, b) => ({ pass: a.pass + b.pass, fail: a.fail + b.fail, error: a.error + b.error }),
+      { pass: 0, fail: 0, error: 0 },
+    );
+    expect(summed).toEqual({ pass: 3, fail: 1, error: 1 });
+  });
+
+  it("rejects a non-positive-integer windowMinutes with 400", async () => {
+    const m = await makeTestMemexWithDevAdmin("analyt-pulse-bad");
+    memexIds.push(m.memexId);
+    const res = await app.request(
+      `/api/${m.slug}/main/analytics/test-signal-pulse?windowMinutes=0`,
+      withApexHost(),
+    );
+    expect(res.status).toBe(400);
   });
 });

@@ -1,11 +1,8 @@
-import { Hono } from "hono";
-import {
-  sessionMiddleware,
-  publicSessionMiddleware,
-  type SessionEnv,
-} from "../middleware/session.js";
+import { Hono, type Context } from "hono";
+import { type SessionEnv } from "../middleware/session.js";
 import type { MemexResolverEnv } from "../middleware/memex-resolver.js";
 import { resolveReadableMemexId } from "./shared.js";
+import { mountStandardSessionPolicy } from "./session-policy.js";
 import {
   specsOverTime,
   specsByPhase,
@@ -15,8 +12,15 @@ import {
   acVerification,
   acsOverTime,
   testRunVolume,
+  testSignalPulse,
+  specPhaseDurations,
+  specLifecycleSummary,
+  specTaskVelocity,
+  specAcVerification,
+  specActivityAudit,
 } from "../services/analytics.js";
 import { standardsGraph, DEFAULT_SEMANTIC_THRESHOLD } from "../services/standards-graph.js";
+import { getDoc } from "../services/documents.js";
 import { ValidationError } from "../types/errors.js";
 
 // ── Spec analytics (spec-179) ────────────────────────────────────────────────
@@ -33,8 +37,27 @@ import { ValidationError } from "../types/errors.js";
 type Env = MemexResolverEnv & SessionEnv;
 const analytics = new Hono<Env>();
 
-analytics.on("GET", "/*", publicSessionMiddleware);
-analytics.on(["POST", "PUT", "PATCH", "DELETE"], "/*", sessionMiddleware);
+// spec-377 — the standard per-verb session policy (see session-policy.ts).
+mountStandardSessionPolicy(analytics);
+
+// Parse a present-but-optional integer query param; throw 400 on a bad value so a
+// typo surfaces instead of silently defaulting. Absent → undefined.
+function parsePositiveInt(raw: string | undefined, field: string): number | undefined {
+  if (raw === undefined) return undefined;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || !Number.isInteger(n) || n <= 0) {
+    throw new ValidationError(`Query param '${field}' must be a positive integer`);
+  }
+  return n;
+}
+function parseNonNegativeInt(raw: string | undefined, field: string): number | undefined {
+  if (raw === undefined) return undefined;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || !Number.isInteger(n) || n < 0) {
+    throw new ValidationError(`Query param '${field}' must be a non-negative integer`);
+  }
+  return n;
+}
 
 // GET /analytics/specs-over-time — per-day created + cumulative (ac-1).
 analytics.get("/specs-over-time", async (c) => {
@@ -85,6 +108,23 @@ analytics.get("/test-run-volume", async (c) => {
   return c.json({ points: await testRunVolume(memexId) });
 });
 
+// GET /analytics/test-signal-pulse?windowMinutes=60 — minute-bucketed test
+// emission volume over a short rolling window, for the Pulse test-signal
+// monitor. The live SSE test_event stream increments on top of this baseline.
+analytics.get("/test-signal-pulse", async (c) => {
+  const memexId = await resolveReadableMemexId(c);
+  const raw = c.req.query("windowMinutes");
+  let windowMinutes: number | undefined;
+  if (raw !== undefined) {
+    const n = Number(raw);
+    if (!Number.isFinite(n) || !Number.isInteger(n) || n <= 0) {
+      throw new ValidationError("Query param 'windowMinutes' must be a positive integer");
+    }
+    windowMinutes = n;
+  }
+  return c.json(await testSignalPulse(memexId, { windowMinutes }));
+});
+
 // GET /analytics/standards-graph — nodes + mention edges (clause_refs joins,
 // ac-11) + semantic-similarity edges from the standards-section embeddings
 // (ac-13). `semanticThreshold` (0..1, default 0.5) floors the overlay.
@@ -100,6 +140,55 @@ analytics.get("/standards-graph", async (c) => {
     semanticThreshold = n;
   }
   return c.json(await standardsGraph(memexId, { semanticThreshold }));
+});
+
+// ── Per-spec stats (spec-406) ────────────────────────────────────────────────
+//
+// GET /api/<ns>/<mx>/analytics/spec/<id>/* — the spec-scoped siblings powering
+// the Stats tab. `id` is a spec handle (spec-N) or UUID; getDoc resolves it
+// scoped to this memex and 404s an unknown/cross-tenant id (std-7 — dec-6).
+// Ungated: no hiddenFeatures check, read-only, public-readable wherever the
+// memex is (resolveReadableMemexId).
+
+/** Resolve the readable memexId + the spec's canonical id from the `:id` ref. */
+async function resolveSpec(c: Context<Env>): Promise<{ memexId: string; docId: string }> {
+  const memexId = await resolveReadableMemexId(c);
+  const spec = await getDoc(memexId, c.req.param("id")!);
+  return { memexId, docId: spec.id };
+}
+
+// GET /analytics/spec/:id/phase-durations — event-series time-in-phase (dec-1, dec-4).
+analytics.get("/spec/:id/phase-durations", async (c) => {
+  const { memexId, docId } = await resolveSpec(c);
+  return c.json(await specPhaseDurations(memexId, docId));
+});
+
+// GET /analytics/spec/:id/summary — the lifecycle summary strip (dec-5).
+analytics.get("/spec/:id/summary", async (c) => {
+  const { memexId, docId } = await resolveSpec(c);
+  return c.json(await specLifecycleSummary(memexId, docId));
+});
+
+// GET /analytics/spec/:id/task-velocity — created/started/completed + status split.
+analytics.get("/spec/:id/task-velocity", async (c) => {
+  const { memexId, docId } = await resolveSpec(c);
+  return c.json(await specTaskVelocity(memexId, docId));
+});
+
+// GET /analytics/spec/:id/ac-verification — spec-scoped donut.
+analytics.get("/spec/:id/ac-verification", async (c) => {
+  const { memexId, docId } = await resolveSpec(c);
+  return c.json(await specAcVerification(memexId, docId));
+});
+
+// GET /analytics/spec/:id/activity?showAll&limit&offset — the who/what/when audit (dec-3).
+analytics.get("/spec/:id/activity", async (c) => {
+  const { memexId, docId } = await resolveSpec(c);
+  const rawShow = c.req.query("showAll");
+  const showAll = rawShow === "1" || rawShow === "true";
+  const limit = parsePositiveInt(c.req.query("limit"), "limit");
+  const offset = parseNonNegativeInt(c.req.query("offset"), "offset");
+  return c.json(await specActivityAudit(memexId, docId, { showAll, limit, offset }));
 });
 
 export { analytics };

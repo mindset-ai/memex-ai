@@ -3,7 +3,7 @@ import type { TagAcOptions } from "./types.js";
 export type { AcEventPayload, TagAcOptions } from "./types.js";
 export { readAutoActor } from "./actor.js";
 export { deriveEventsUrl } from "./derive-url.js";
-export { isEmissionEnabled, isHidden, readEmissionKey, buildPayload, emit } from "./emit.js";
+export { isEmissionEnabled, readEmissionKey, buildPayload, emit } from "./emit.js";
 export { buildMetadata } from "./metadata.js";
 
 const META_KEY = "__memex_ac_uids";
@@ -54,7 +54,7 @@ export function _readCurrentEntries(task: TaskLike): TaskMetaEntry[] {
  * `describe()`), the call is a no-op — there's no task to attach to.
  *
  * @param ac_uid Canonical AC ref: `<namespace>/<memex>/specs/<spec-N>/acs/ac-<N>`
- * @param options Per-call overrides for hidden and metadata
+ * @param options Per-call overrides for metadata
  */
 export function tagAc(ac_uid: string, options?: TagAcOptions): void {
   const currentTask = readTaskSlot();

@@ -30,13 +30,35 @@ import type { DocSummary } from '../api/types';
 import { PageHeader } from '../components/PageHeader';
 import { LiveDot } from '../components/pulse/LiveDot';
 import { ActivityFeed } from '../components/pulse/ActivityFeed';
+import { WorkingNow } from '../components/pulse/WorkingNow';
+import { VitalsStrip } from '../components/pulse/VitalsStrip';
+import { HotSpecs } from '../components/pulse/HotSpecs';
 import { NeedsAttentionTray } from '../components/pulse/NeedsAttentionTray';
 import { SpecPicker, type SpecPickerSpec } from '../components/pulse/SpecPicker';
 import { ScopeToggle, type PulseScope } from '../components/pulse/ScopeToggle';
 import { ClientChip } from '../components/pulse/ClientChip';
+import { clientLabel } from '../components/pulse/clientLabel';
 import { usePulseHistory } from '../hooks/usePulseHistory';
 import { usePulseStream } from '../hooks/usePulseStream';
+import { usePresence } from '../hooks/usePresence';
+import { useTestSignalPulse } from '../hooks/useTestSignalPulse';
+import { TestSignalsMonitor } from '../components/pulse/TestSignalsMonitor';
+import { mergeTestSignals, type LiveTestSignal } from '../components/pulse/testSignals';
+import { isMeaningfulWork, workingNow } from '../components/pulse/pulseDerive';
 import type { ActivityRow, PulseConnectionStatus } from '../components/pulse/types';
+
+// spec-122 ac-2 — detect a REGRESSION on a moving line: a previously-verified AC
+// going red. There's no dedicated server-side "regressed" action, so we read the
+// signal off the AC/verification activity narrative (red / regress / fail). Kept
+// deliberately narrow — only AC/document/standard_drift entities qualify, so a
+// task or comment mentioning "failed" never trips the alarm.
+const REGRESSION_NARRATIVE = /\b(regress|went red|now red|failing|failed|red)\b/i;
+function isRegressionRow(row: ActivityRow): boolean {
+  if (row.action !== 'updated' && row.action !== 'created') return false;
+  const e = row.entity;
+  if (e !== 'document' && e !== 'standard_drift') return false;
+  return REGRESSION_NARRATIVE.test(row.narrative);
+}
 
 // A client is shown as an active chip if it produced an event in this window…
 const ACTIVE_CLIENT_WINDOW_MS = 10 * 60 * 1000; // 10 minutes
@@ -46,30 +68,13 @@ const CLIENT_LIVE_WINDOW_MS = 30 * 1000; // 30 seconds
 // unbounded. The feed only ever needs the most recent live rows; older ones
 // have long since been superseded by paged-in history.
 const LIVE_BUFFER_CAP = 200;
+// Live test-signal buffer cap — the firehose can be busy; we only need enough to
+// bridge the ~45s between baseline refetches. Older ones have been folded in.
+const TEST_SIGNAL_BUFFER_CAP = 1000;
 const ONE_HOUR_MS = 60 * 60 * 1000;
 
 function rowMs(row: ActivityRow): number {
   return new Date(row.createdAt).getTime();
-}
-
-// dec-7: a client chip shows a human label by channel — never the raw clientId
-// (an opaque session hash / MCP token id / conversation id). The clientId is
-// still the filter key (chip toggle), just not the display text.
-function clientLabel(channel: ActivityRow['channel'] | undefined, clientId: string): string {
-  switch (channel) {
-    case 'server':
-      return 'System';
-    case 'in_app_agent':
-      return 'In-app agent';
-    case 'mcp':
-      // The MCP token's name isn't surfaced client-side yet (Wave-3 follow-up);
-      // fall back to a short, readable prefix rather than the full token id.
-      return `MCP · ${clientId.slice(0, 6)}`;
-    case 'rest_ui':
-      return 'This browser';
-    default:
-      return `Client · ${clientId.slice(0, 6)}`;
-  }
 }
 
 export function Pulse() {
@@ -85,8 +90,10 @@ export function Pulse() {
     return m?.memexName ?? m?.name ?? null;
   }, [session, namespace, memex]);
 
-  // ── Scope (dec-7): default 'me'. ────────────────────────────────────────────
-  const [scope, setScope] = useState<PulseScope>('me');
+  // ── Scope: default 'everyone'. The board is a shared situational picture —
+  // you want the whole Memex's activity first, then narrow to 'me' on demand
+  // (dec-7's 'me' default read as too narrow for a glance-at-the-board surface).
+  const [scope, setScope] = useState<PulseScope>('everyone');
 
   // ── Per-Spec filter (dec-9), reflected through `?spec=spec-N`. ───────────────
   const [searchParams, setSearchParams] = useSearchParams();
@@ -106,28 +113,24 @@ export function Pulse() {
     [setSearchParams],
   );
 
-  // ── Spec list for the picker (reuse SpecList's fetchDocs('spec') path). ──
+  // ── Spec list for the picker + the Hot Specs / Vitals bands. Refetched on a
+  // short poll AND on reconnect so phase + AC health stay LIVE (spec-255): a
+  // one-shot fetch left the cards frozen (phase chip never popped, new ACs never
+  // showed) until a full page reload. ──
   const [specDocs, setSpecDocs] = useState<DocSummary[]>([]);
   const [specsLoading, setSpecsLoading] = useState(true);
-  useEffect(() => {
-    let cancelled = false;
-    setSpecsLoading(true);
-    fetchDocs('spec')
-      .then((docs) => {
-        if (!cancelled) setSpecDocs(docs);
-      })
-      .catch(() => {
-        // Non-fatal: the picker just shows "No Specs". Errors here shouldn't
-        // take down the feed, which is the page's primary surface.
-        if (!cancelled) setSpecDocs([]);
-      })
-      .finally(() => {
-        if (!cancelled) setSpecsLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
+  const refreshSpecs = useCallback(() => {
+    fetchDocs('spec', { include: ['acHealth'] })
+      .then((docs) => setSpecDocs(docs))
+      // Non-fatal: keep the last-known list rather than blanking the bands.
+      .catch(() => {})
+      .finally(() => setSpecsLoading(false));
   }, []);
+  useEffect(() => {
+    refreshSpecs();
+    const id = setInterval(refreshSpecs, 15_000);
+    return () => clearInterval(id);
+  }, [refreshSpecs]);
 
   const pickerSpecs: SpecPickerSpec[] = useMemo(
     () => specDocs.map((d) => ({ handle: d.handle, title: d.title })),
@@ -167,10 +170,18 @@ export function Pulse() {
   // prop is the legacy name that we feed `specId` into — the underlying server
   // param hasn't been renamed yet. ────────────────────────────────────────────
   const actorUserId = scope === 'me' ? currentUserId ?? undefined : undefined;
+  // Under 'me' the actor filter is the session's user id. While the session is
+  // still resolving (currentUserId === null) we'd otherwise fetch UNFILTERED
+  // (actorUserId undefined → server returns everyone), flash those rows in, then
+  // refetch filtered once the id lands — the "appeared then disappeared" glitch.
+  // Gate the fetch until the id resolves so the page shows its spinner instead.
+  // 'everyone' has no such dependency, so it's always enabled.
+  const historyEnabled = scope !== 'me' || currentUserId !== null;
   const history = usePulseHistory({
     actorUserId,
     briefId: specId,
     clientId: clientId ?? undefined,
+    enabled: historyEnabled,
   });
   const { rows: historyRows, loading, hasMore, loadOlder, refresh } = history;
 
@@ -182,14 +193,61 @@ export function Pulse() {
   const selectedSpecIdRef = useRef<string | null>(null);
   selectedSpecIdRef.current = selectedSpec?.id ?? null;
 
+  // Live test-emission signals, distilled from the SSE `test_event` firehose.
+  // These NEVER enter the event-log feed (they're aggregate telemetry); they
+  // feed the test-signal monitor + counter only.
+  const [liveTestSignals, setLiveTestSignals] = useState<LiveTestSignal[]>([]);
+
   const handleRow = useCallback((row: ActivityRow) => {
+    // test_event is the CI firehose — route it to the signal monitor, never the
+    // feed. It carries its outcome on payload.status (server emit).
+    if (row.entity === 'test_event') {
+      const raw = row.payload?.status;
+      // Explicitly typed (not relying on flow-narrowing surviving into the
+      // setState closure — the production tsc widens it back to string).
+      const status: LiveTestSignal['status'] | null =
+        raw === 'pass' || raw === 'fail' || raw === 'error' ? raw : null;
+      if (status) {
+        setLiveTestSignals((prev) => {
+          const next: LiveTestSignal[] = [...prev, { at: row.createdAt, status }];
+          return next.length > TEST_SIGNAL_BUFFER_CAP ? next.slice(-TEST_SIGNAL_BUFFER_CAP) : next;
+        });
+      }
+      return;
+    }
     setLiveRows((prev) => {
       const next = [row, ...prev];
       return next.length > LIVE_BUFFER_CAP ? next.slice(0, LIVE_BUFFER_CAP) : next;
     });
   }, []);
 
-  const { status } = usePulseStream({ onRow: handleRow, onReconnect: refresh });
+  // ── Test-signal monitor (right column) + counter (working-now). Baseline from
+  // the analytics endpoint; live SSE frames top it up between refetches. ────────
+  const {
+    pulse: testSignalPulse,
+    loading: testSignalsLoading,
+    fetchedAt: testSignalsFetchedAt,
+    refresh: refreshTestSignals,
+  } = useTestSignalPulse(60);
+  // Every successful baseline refetch already includes the signals we buffered
+  // live, so drop the buffer to avoid double-counting them (the "+N new" resets).
+  useEffect(() => {
+    setLiveTestSignals([]);
+  }, [testSignalsFetchedAt]);
+  const mergedTestSignals = useMemo(
+    () => mergeTestSignals(testSignalPulse, liveTestSignals),
+    [testSignalPulse, liveTestSignals],
+  );
+
+  // On SSE reconnect, refetch BOTH the activity history and the test-signal
+  // baseline so any gap during the outage converges.
+  const handleReconnect = useCallback(() => {
+    void refresh();
+    void refreshTestSignals();
+    refreshSpecs();
+  }, [refresh, refreshTestSignals, refreshSpecs]);
+
+  const { status } = usePulseStream({ onRow: handleRow, onReconnect: handleReconnect });
 
   // Filter the accumulated live rows by the active scope/spec/client. Live rows
   // carry the same fields as history rows (changeEventToRow normalises them), so
@@ -224,11 +282,100 @@ export function Pulse() {
     setLiveRows([]);
   }, [scope, specId, clientId]);
 
-  // ── eventsLastHour for the feed status line, from the merged set. ───────────
+  // ── Working-now zone (ac-1): presence across every spec. We pass every spec
+  // handle; usePresence makes ONE whole-workspace bulk request per poll (not one
+  // per spec) and returns the merged "who's here now" set (spec-407). ──────────
+  const specRefs = useMemo(
+    () => specDocs.map((d) => d.handle),
+    [specDocs],
+  );
+  const { rows: presentRows, loading: presenceLoading } = usePresence(specRefs);
+
+  // docId → spec handle / title, for the Working-now lines (presence rows carry
+  // the spec's doc id; the spec list carries handle + title keyed by id).
+  const specHandleByDocId = useCallback(
+    (docId: string): string | undefined => specDocs.find((d) => d.id === docId)?.handle,
+    [specDocs],
+  );
+  const specTitleByDocId = useCallback(
+    (docId: string): string | undefined => specDocs.find((d) => d.id === docId)?.title,
+    [specDocs],
+  );
+
+  // The set of spec doc ids with an ACTIVE WORKER present — drives both the feed
+  // tray scope and ac-2's presence-aware regression muting.
+  const activeWorkerDocIds = useMemo(
+    () => new Set(presentRows.map((r) => r.docId)),
+    [presentRows],
+  );
+  const specHasActiveWorker = useCallback(
+    (briefId: string | null) => !!briefId && activeWorkerDocIds.has(briefId),
+    [activeWorkerDocIds],
+  );
+
+  // ── "What's moving" zone (ac-1): state-changing rows ONLY. The read actions
+  // (viewed/searched/assessed/called) are the ambient firehose — a manager
+  // glancing at the board shouldn't wade through them. ─────────────────────────
+  // test_event is routed to the signal monitor, never the feed — but historical
+  // test_event rows persisted BEFORE the sink stopped writing them still live in
+  // activity_log, so filter them out here too until they age off the window.
+  const movingRows = useMemo(
+    () => mergedRows.filter((r) => isMeaningfulWork(r)),
+    [mergedRows],
+  );
+
+  // docId → ISO of that spec's most recent moving activity, for the Working-now
+  // "last moved <ago>" clock (ac-1: how long since each active spec last had
+  // activity).
+  const lastActivityByDocId = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const r of movingRows) {
+      if (!r.briefId) continue;
+      const prev = map.get(r.briefId);
+      if (!prev || rowMs(r) > new Date(prev).getTime()) map.set(r.briefId, r.createdAt);
+    }
+    return map;
+  }, [movingRows]);
+  const lastActivityAt = useCallback(
+    (docId: string): string | undefined => lastActivityByDocId.get(docId),
+    [lastActivityByDocId],
+  );
+
+  // ── spec-255 resolvers for the Vitals + Hot Specs bands. ──────────────────
+  const specPhaseByDocId = useCallback(
+    (docId: string): string | undefined => specDocs.find((d) => d.id === docId)?.status,
+    [specDocs],
+  );
+  const specAcHealthByDocId = useCallback(
+    (docId: string) => specDocs.find((d) => d.id === docId)?.acHealth,
+    [specDocs],
+  );
+  // docId → the present-tense narrative of that spec's most recent moving event,
+  // for the Hot Specs card + Working Now line.
+  const lastNarrativeByDocId = useMemo(() => {
+    const map = new Map<string, { at: number; text: string }>();
+    for (const r of movingRows) {
+      if (!r.briefId) continue;
+      const t = rowMs(r);
+      const prev = map.get(r.briefId);
+      if (!prev || t > prev.at) map.set(r.briefId, { at: t, text: r.narrative });
+    }
+    return map;
+  }, [movingRows]);
+  const specNarrativeByDocId = useCallback(
+    (docId: string): string | undefined => lastNarrativeByDocId.get(docId)?.text,
+    [lastNarrativeByDocId],
+  );
+  const specHref = useCallback(
+    (handle: string) => `/${namespace}/${memex}/specs/${handle}`,
+    [namespace, memex],
+  );
+
+  // ── eventsLastHour for the feed status line, from the moving set. ───────────
   const eventsLastHour = useMemo(() => {
     const cutoff = Date.now() - ONE_HOUR_MS;
-    return mergedRows.filter((r) => rowMs(r) >= cutoff).length;
-  }, [mergedRows]);
+    return movingRows.filter((r) => rowMs(r) >= cutoff).length;
+  }, [movingRows]);
 
   // ── Active-client chips (dec-7): distinct clientIds the *current user* drove
   // in the last ~10min, derived from the merged rows. Only rendered under 'me'. ─
@@ -256,6 +403,31 @@ export function Pulse() {
   const toggleClient = useCallback((id: string) => {
     setClientId((prev) => (prev === id ? null : id));
   }, []);
+
+  // Scope the presence plane to the active 'me'/'everyone' filter so the WHOLE
+  // board (Vitals active-now, Hot Specs, Working Now) honours "just me" — not
+  // only the activity-derived parts (spec-255 int feedback).
+  const scopedPresent = useMemo(() => {
+    if (scope !== 'me') return presentRows;
+    if (!currentUserId) return [];
+    return presentRows.filter((r) => r.actorUserId === currentUserId);
+  }, [presentRows, scope, currentUserId]);
+
+  // When a spec is selected, narrow Working-now to it too (board scope is
+  // consistent across both zones); otherwise it's the whole-Memex picture.
+  const displayedPresent = useMemo(() => {
+    const wantSpecId = selectedSpec?.id ?? null;
+    if (!wantSpecId) return scopedPresent;
+    return scopedPresent.filter((r) => r.docId === wantSpecId);
+  }, [scopedPresent, selectedSpec]);
+
+  // Working Now (spec-255 int feedback): everyone involved in the last ~5min —
+  // presence ∪ recent meaningful activity — so reading a long spec doesn't drop
+  // you the instant your heartbeat lapses. Freshness graded live vs idle.
+  const workers = useMemo(
+    () => workingNow(displayedPresent, movingRows, Date.now()),
+    [displayedPresent, movingRows],
+  );
 
   const headerTitle = memexName ? `Pulse · ${memexName}` : 'Pulse';
 
@@ -292,21 +464,69 @@ export function Pulse() {
         </div>
       )}
 
-      {/* Two columns desktop (feed ~2fr, tray ~1fr); stacked on mobile. */}
+      {/* spec-122 ac-1: the two-zone board. WORKING NOW (presence) sits ABOVE
+          WHAT'S MOVING (the state-changing activity stream), spanning the feed
+          column; the Needs-attention tray keeps its place on the right. */}
       <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 min-h-0 flex flex-col rounded-lg border border-edge-subtle bg-surface/40 overflow-hidden">
-          <ActivityFeed
-            rows={mergedRows}
-            status={status}
-            eventsLastHour={eventsLastHour}
-            loading={loading}
-            hasMore={hasMore}
-            onLoadOlder={loadOlder}
-            contextBriefHandle={selectedSpec?.handle}
-            specTitle={specTitle}
+        <div className="lg:col-span-2 min-h-0 flex flex-col">
+          {/* spec-255 — Vitals strip (graphics) then the Hot Specs hero band.
+              Fed from the MERGED live+history stream (movingRows) so live events
+              move the sparklines and keep a spec hot the instant they land —
+              not only after a periodic history refetch. */}
+          <VitalsStrip present={scopedPresent} activity={movingRows} />
+          <HotSpecs
+            present={scopedPresent}
+            activity={movingRows}
+            specHandle={specHandleByDocId}
+            specTitle={specTitleByDocId}
+            specPhase={specPhaseByDocId}
+            specNarrative={specNarrativeByDocId}
+            specAcHealth={specAcHealthByDocId}
+            specHref={specHref}
           />
+          {/* Working Now — by person, ABOVE the Live log. */}
+          <WorkingNow
+            workers={workers}
+            loading={presenceLoading}
+            specHandle={specHandleByDocId}
+            specTitle={specTitleByDocId}
+            specHref={specHref}
+            lastActivityAt={lastActivityAt}
+            lastNarrative={specNarrativeByDocId}
+          />
+          {/* Live event log — the BOTTOM band, allowed to grow tall (off-screen
+              is fine): it fills the remaining height and scrolls internally. */}
+          <div
+            data-testid="live-band"
+            className="flex-1 min-h-0 flex flex-col rounded-lg border border-edge-subtle bg-surface/40 overflow-hidden"
+          >
+            <ActivityFeed
+              rows={movingRows}
+              status={status}
+              eventsLastHour={eventsLastHour}
+              loading={loading}
+              hasMore={hasMore}
+              onLoadOlder={loadOlder}
+              contextBriefHandle={selectedSpec?.handle}
+              specTitle={specTitle}
+              isRegression={isRegressionRow}
+              specHasActiveWorker={specHasActiveWorker}
+            />
+          </div>
         </div>
         <div className="lg:col-span-1 min-h-0 overflow-y-auto">
+          {/* Test-signal volume graphic — the firehose as a live sparkline,
+              sitting ABOVE the needs-attention tray. It's a Memex-wide CI health
+              signal (test_events carry a free-text CI actor, not a user link),
+              so under 'me' it isn't personal — hide it to keep the board
+              consistently scoped to the active filter (spec-255 int feedback). */}
+          {scope !== 'me' && (
+            <TestSignalsMonitor
+              signals={mergedTestSignals}
+              loading={testSignalsLoading}
+              live={liveTestSignals.length > 0}
+            />
+          )}
           <NeedsAttentionTray briefId={selectedSpec?.id} />
         </div>
       </div>

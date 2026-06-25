@@ -253,6 +253,9 @@ describe("POST /api/docs/sections/:sectionId/split", () => {
         previousStatus: null,
         createdAt: baseDate,
         updatedAt: baseDate,
+        actorUserId: null,
+        actorName: null,
+        channel: null,
       },
       {
         id: "s2",
@@ -269,6 +272,9 @@ describe("POST /api/docs/sections/:sectionId/split", () => {
         previousStatus: null,
         createdAt: baseDate,
         updatedAt: baseDate,
+        actorUserId: null,
+        actorName: null,
+        channel: null,
       },
     ];
     vi.mocked(splitSection).mockResolvedValue(testMutate(sections));

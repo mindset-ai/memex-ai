@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { restCtx } from "./_actor-ctx.js";
 import {
   createTask,
   listTasks,
@@ -12,23 +13,20 @@ import {
 } from "../services/tasks.js";
 import type { AcceptanceCriterion } from "../services/tasks.js";
 import { addBlocker, removeBlocker } from "../services/shared/blockers.js";
-import {
-  sessionMiddleware,
-  publicSessionMiddleware,
-  type SessionEnv,
-} from "../middleware/session.js";
+import { type SessionEnv } from "../middleware/session.js";
 import type { MemexResolverEnv } from "../middleware/memex-resolver.js";
 import { requireMemexId, resolveReadableMemexId } from "./shared.js";
+import { mountStandardSessionPolicy } from "./session-policy.js";
 
 // Public route surface stays at /api/tasks/* — only the underlying service module was
 // renamed to tasks per dec-1. New v2 endpoints introduced in later slices use
 // the task terminology directly.
 type Env = MemexResolverEnv & SessionEnv;
 const tasksRouter = new Hono<Env>();
-// spec-111 t-10 — per-verb session policy. GET reads permissive (public read /
-// private 404 via resolveReadableMemexId); every mutating verb stays strict.
-tasksRouter.on("GET", "/*", publicSessionMiddleware);
-tasksRouter.on(["POST", "PUT", "PATCH", "DELETE"], "/*", sessionMiddleware);
+// spec-377 (was spec-111 t-10) — the standard per-verb session policy: GET reads
+// permissive (public read / private 404 via resolveReadableMemexId); every
+// mutating verb stays strict.
+mountStandardSessionPolicy(tasksRouter);
 
 
 
@@ -73,7 +71,7 @@ tasksRouter.post("/doc/:docId", async (c) => {
     acceptanceCriteria?: AcceptanceCriterion[];
     sectionRef?: string;
   }>();
-  const result = await createTask(memexId, docId, title, description, acceptanceCriteria, sectionRef);
+  const result = await createTask(memexId, docId, title, description, acceptanceCriteria, sectionRef, restCtx(c));
   return c.json(result, 201);
 });
 
@@ -90,7 +88,7 @@ tasksRouter.post("/:id/update", async (c) => {
     acceptanceCriteria?: AcceptanceCriterion[];
     sectionRef?: string | null;
   }>();
-  const result = await updateTask(memexId, id, body);
+  const result = await updateTask(memexId, id, body, restCtx(c));
   return c.json(result);
 });
 
@@ -113,7 +111,7 @@ tasksRouter.post("/:id/status", async (c) => {
   const memexId = requireMemexId(c);
   const id = c.req.param("id");
   const { status } = await c.req.json<{ status: string }>();
-  const result = await updateTaskStatus(memexId, id, status);
+  const result = await updateTaskStatus(memexId, id, status, restCtx(c));
   return c.json(result);
 });
 

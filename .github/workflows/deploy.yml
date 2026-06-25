@@ -36,9 +36,55 @@ concurrency:
 permissions:
   contents: read
   id-token: write # OIDC token for Workload Identity Federation
+  actions: read # spec-395: the `gate` job reads the test/deploy workflow runs for the SHA
 
 jobs:
+  # spec-395 (workstream F, dec-1/dec-2): the DEPLOY GATE — fail-closed.
+  #
+  # Before this, deploy.yml triggered on `push` with NO dependency on `test`, so the
+  # deploy ran CONCURRENTLY with the tests and a non-PR push or misconfig could ship
+  # a revision whose tests were red, absent, or still running. This job blocks the
+  # deploy until the `test` workflow concluded SUCCESS for THIS exact commit SHA.
+  #
+  # Why a guard JOB, not a `workflow_run` trigger (dec-1): the `deploy` job below
+  # selects int-vs-prod entirely from `github.ref_name` (environment, ENV, the
+  # env-scoped DEPLOY_ENV_FILE secret) and its concurrency keys off `github.ref`. A
+  # `workflow_run` trigger rewrites ref/ref_name to the default branch — which would
+  # silently ship a prod (main) deploy on INT config + secrets. So the trigger stays
+  # `push`, the deploy job is untouched, and this gate is purely additive.
+  #
+  # For a PROD deploy (ref_name == main) the gate ALSO checks the int (develop)
+  # `deploy` run for the SHA — a green int deploy run ≡ int smoke passed for the SHA,
+  # since smoke runs inline at deploy.sh's tail (std-26) and `main` FF's the identical
+  # develop SHA (std-21). That int-smoke check ships in WARN mode (INT_SMOKE_ENFORCE
+  # below): it reports but does NOT block, because a break-glass int deploy leaves no
+  # CI run for the SHA and a hard block would wedge a legitimate prod deploy. Flip to
+  # `block` only after validating the live semantics (spec-395 dec-2 — flagged to the
+  # orchestrator). The gate logic + its fail-closed branches are unit-tested in
+  # packages/server/src/__regression__/deploy-gate.regression.test.ts.
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20 # bounded — the script polls then fails closed within this
+    # Least-privilege: this job only READS workflow runs; no GCP, no checkout-of-secrets.
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Gate the deploy on green tests for the SHA (+ int-smoke for prod, WARN)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # dec-2 flip knob: 'warn' (default — reports, never blocks prod) | 'block'
+          # (hard prod gate). Leave 'warn' until the live break-glass/dispatch/timeout
+          # semantics are validated; flipping to 'block' is the only change needed.
+          INT_SMOKE_ENFORCE: warn
+        run: node scripts/ci/deploy-gate.mjs
+
   deploy:
+    needs: [gate] # spec-395: the gate must pass before any GCP mutation
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment:
@@ -49,13 +95,13 @@ jobs:
       ENV: ${{ github.ref_name == 'main' && 'prod' || 'int' }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      # No `version:` here — pnpm/action-setup@v4 reads the pinned version from
+      # No `version:` here — pnpm/action-setup@v6 reads the pinned version from
       # the root package.json `packageManager` field and errors if both are set.
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: pnpm
@@ -64,12 +110,12 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Authenticate to GCP (Workload Identity Federation)
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.GCP_DEPLOYER_SERVICE_ACCOUNT }}
 
-      - uses: google-github-actions/setup-gcloud@v2
+      - uses: google-github-actions/setup-gcloud@v3
 
       - name: Install cloud-sql-proxy
         # packages/server/deploy.sh runs migrations through a local proxy
@@ -109,3 +155,19 @@ jobs:
           SMOKE_SESSION_TOKEN: ${{ secrets.SMOKE_SESSION_TOKEN }}
           MEMEX_EMIT_KEY: ${{ secrets.MEMEX_EMIT_KEY }}
         run: bash deploy.sh
+
+      # spec-243 dec-2 / ac-6: every deploy posts a friendly note to the matching
+      # env's Slack channel (#memex-prod-alerts / #memex-int-alerts), so each
+      # channel is the single timeline of "what changed and what broke" for its
+      # environment. Enriched with the specs + PRs that shipped (Option B —
+      # clickable spec links derived from the commit list, zero API calls so a
+      # Memex outage can never slow or break this). Friendly on success, a short
+      # red line if the deploy job itself failed; never fails the deploy.
+      - name: Notify Slack (deploy)
+        if: always()
+        env:
+          SLACK_WEBHOOK: ${{ env.ENV == 'prod' && secrets.SLACK_WEBHOOK_PROD || secrets.SLACK_WEBHOOK_INT }}
+          HOST: ${{ env.ENV == 'prod' && 'memex.ai' || 'int.memex.ai' }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          OUTCOME: ${{ job.status }}
+        run: node scripts/canary/deploy-notify.mjs

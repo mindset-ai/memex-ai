@@ -12,17 +12,24 @@ import { Button } from './ui';
 //
 // Three shapes, keyed on what the user is viewing:
 //
-//   1. CURRENT tab, rubric clean → the advancement offer + [Yes].
-//      "Do you wish to move this spec to Build?"
-//   2. CURRENT tab, rubric blocked → the outstanding work, stated plainly, NO
-//      buttons — when the work is obvious there is nothing to confirm.
+//   1. CURRENT tab → STATUS-ONLY (spec-282/dec-4). The standing advancement
+//      offer is GONE from the current phase tab: a clean rubric renders nothing,
+//      and a blocked rubric renders the outstanding work as a plain statement —
+//      no question, no button.
 //      "**4 Decisions** must be resolved and **Acceptance Criteria (ACs)**
 //       must be created before this spec can move to Build."
+//      The ONE current-tab offer that survives is the DRAFT publish moment:
+//      draft has no tab of its own, so viewing the Specify tab while in draft is
+//      the single "publish this spec to Specify?" gate and keeps its [Yes].
+//   2. (folded into 1) — there is no longer a distinct clean-vs-blocked OFFER on
+//      the current tab; both are status-only for specify/build/verify.
 //   3. BROWSING another tab → an explicit confirm: [Yes] [No]. Forward+blocked
 //      leads with the blocker summary (which names the target) and asks "Move
-//      this spec anyway?" — the deliberate-friction escape hatch. No returns
-//      the view to the current phase's tab. Backward moves never carry
-//      blockers (dec-5).
+//      this spec anyway?" — the deliberate-friction escape hatch AND the
+//      relocated home of the editor's force-forward capability (spec-258/dec-5):
+//      an editor advances a blocked spec by clicking the forward phase pill and
+//      pressing [Yes] here. No returns the view to the current phase's tab.
+//      Backward moves never carry blockers.
 //
 // Posture (spec-182 issue-1): the Rubicon is STATUS-ONLY for non-editors.
 // When `canTransition` is false the blocker statements still render — they are
@@ -268,11 +275,35 @@ export function TransitionSentence({
     return null;
   }
 
-  // Shape 1/2 — viewing the current phase's own tab.
+  // Shape 1 — viewing the current phase's own tab.
   if (viewingCurrentTab) {
-    if (blockers.length > 0) {
-      // Blocked: state the exact rubric condition. The work is obvious — no
-      // buttons to press.
+    // spec-282/dec-4: the standing advance offer is removed from the current
+    // phase tab. For specify/build/verify the current-tab line is STATUS-ONLY —
+    // blocked → the rubric statement alone (no question, no button); clean →
+    // nothing (the filled phase pill already carries the phase). The editor's
+    // force-forward capability (spec-258/dec-5) is NOT lost: it relocates to
+    // browsing the forward phase tab (Shape 3 below), where "Move this spec
+    // anyway? [Yes]" still forces a blocked move.
+    if (currentPhase !== 'draft') {
+      if (blockers.length === 0) {
+        // spec-259 ac-5 (additive): with a CLEAN rubric at specify, the standing
+        // line is the comments-aware ADVISORY — the web is a viewing + low-friction
+        // surface and does NOT hard-gate the specify→build move (spec-247 / std-34;
+        // comments flag, never gate, per dec-1/ac-6). It reflects comments as a
+        // rubric item without overriding the spec-282/196 blocker reporting, which
+        // still leads while the rubric is blocked (below). Other phases keep the
+        // spec-282 "nothing when clean".
+        if (currentPhase === 'specify') {
+          return (
+            <p className="text-sm text-secondary" data-testid="transition-sentence">
+              You can advance to Build when all open decisions are resolved and all
+              comments are addressed.
+            </p>
+          );
+        }
+        return null;
+      }
+      // Blocked: spec-282/196 status-only blocker reporting (unchanged).
       return (
         <p className="text-sm text-secondary" data-testid="transition-sentence">
           {renderBlockers(blockers)} before this spec can move to {phaseDisplayName(target)}
@@ -280,9 +311,9 @@ export function TransitionSentence({
         </p>
       );
     }
-    // Ready: the advancement offer — editors only. A non-editor has nothing
-    // to act on, and the tab bar's filled pill already carries the phase
-    // (spec-182 issue-1).
+    // The draft → specify publish moment — the single current-tab offer that
+    // survives. draft → specify is never gated, so there is no blocker branch.
+    // Editors only: a non-editor has nothing to act on (spec-182 issue-1).
     if (!canTransition) {
       return null;
     }

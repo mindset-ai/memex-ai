@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
+import { Logo } from '../components/Logo';
 import { rehypeRefLinkifier } from '../components/chat/refLinkifier';
 import { Button } from '../components/ui/Button';
 import { TextArea } from '../components/ui/TextArea';
@@ -85,12 +86,12 @@ export function SharedDocument() {
 
   return (
     <div className="min-h-screen bg-page flex flex-col">
-      <header className="border-b border-edge bg-page/80 backdrop-blur-sm">
+      <header className="border-b border-edge bg-page/80 backdrop-blur-xs">
         <div className="max-w-3xl mx-auto px-6 py-3 flex items-center justify-between">
           <div className="text-sm text-muted">
             Shared by <span className="text-secondary">{data.memexName || data.namespaceSlug}</span>
           </div>
-          <span className="text-xs px-2 py-0.5 rounded bg-btn-secondary text-secondary">
+          <span className="text-xs px-2 py-0.5 rounded-sm bg-btn-secondary text-secondary">
             Read-only
           </span>
         </div>
@@ -127,9 +128,9 @@ export function SharedDocument() {
             href="https://memex.ai"
             target="_blank"
             rel="noreferrer"
-            className="text-secondary hover:text-primary font-medium"
+            className="inline-flex items-center text-secondary hover:text-primary font-medium"
           >
-            Memex<span className="text-[#7b93b8]">.ai</span>
+            <Logo className="h-3.5 align-[-0.2em]" />
           </a>
         </div>
       </footer>
@@ -258,7 +259,7 @@ function CommentRow({
       <div className="flex items-center gap-2 text-xs">
         <span className="font-medium text-secondary">{comment.authorName}</span>
         {isExternal && (
-          <span className="px-1.5 py-0.5 rounded text-[10px] bg-status-warning-bg text-status-warning-text">
+          <span className="px-1.5 py-0.5 rounded-sm text-[10px] bg-status-warning-bg text-status-warning-text">
             External
           </span>
         )}
@@ -289,8 +290,8 @@ function CenteredMessage({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen bg-page flex items-center justify-center p-6">
       <div className="max-w-md text-center space-y-4">
-        <h1 className="text-2xl font-semibold text-heading">
-          memex<span className="text-[#7b93b8]">.ai</span>
+        <h1 className="text-2xl font-semibold text-heading flex justify-center">
+          <Logo className="h-7" />
         </h1>
         <div className="text-sm text-secondary">{children}</div>
       </div>

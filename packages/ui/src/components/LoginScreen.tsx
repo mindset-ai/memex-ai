@@ -1,8 +1,12 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { GoogleOAuthProvider, GoogleLogin, type CredentialResponse } from '@react-oauth/google';
+import { trackAnonymous } from '../hooks/useTelemetry';
 import { Input } from './ui/Input';
 import { Button } from './ui/Button';
-import { probeAuthApi, AuthApiError } from '../api/client';
+import { Alert } from './ui/Alert';
+import { Logo } from './Logo';
+import { probeAuthApi, AuthApiError, type SessionPayload } from '../api/client';
+import { useMagicLinkPoll } from '../hooks/useMagicLinkPoll';
 // t-23 of doc-15: Google SSO is on a single origin under the path-based
 // router. The previous cross-subdomain bounce (sign in on memex.ai then return
 // here with a JWT in the URL fragment) is no longer needed — everything is
@@ -24,7 +28,10 @@ type View =
   | { kind: 'enter-email' }
   | { kind: 'password'; email: string }
   | { kind: 'create-password'; email: string }
-  | { kind: 'magic-sent'; email: string }
+  // spec-304 t-40 (ac-30): the magic-sent view carries the `loginRequestId` from
+  // the issue response so it can poll login-request status and complete the
+  // session IN PLACE when the link is verified in another browser/context.
+  | { kind: 'magic-sent'; email: string; loginRequestId: string }
   | { kind: 'reset-sent'; email: string }
   | { kind: 'forgot' };
 
@@ -33,7 +40,17 @@ interface LoginScreenProps {
   googleClientId: string | null;
   onSignup: (email: string, password: string) => Promise<void>;
   onLogin: (email: string, password: string) => Promise<void>;
-  onMagicLink: (email: string) => Promise<void>;
+  /**
+   * Issue a magic link. spec-304 t-40 (ac-30): resolves to the surrogate
+   * `loginRequestId` the magic-sent view polls so login can complete in place.
+   */
+  onMagicLink: (email: string) => Promise<{ loginRequestId: string }>;
+  /**
+   * spec-304 t-40 (ac-30): adopt the session once polling sees it verified —
+   * wire to the SAME path password/SSO/`/consume` login uses (`acceptSession`)
+   * so the polled login truly completes (token persisted, redirect into the app).
+   */
+  onMagicLinkVerified: (session: SessionPayload) => void;
   onPasswordReset: (email: string) => Promise<void>;
   onGoogleCredential: (credential: string) => Promise<void>;
 }
@@ -44,7 +61,7 @@ export function LoginScreen(props: LoginScreenProps) {
       <div className="max-w-sm w-full">
         <div className="text-center mb-8">
           <h1 className="text-2xl font-semibold tracking-tight text-heading">
-            memex<span className="text-[#7b93b8]">.ai</span>
+            <Logo className="h-7" />
           </h1>
         </div>
         <LoginCard {...props} />
@@ -62,14 +79,19 @@ function LoginCard(props: LoginScreenProps) {
         <EnterEmailScreen
           authError={props.authError}
           googleClientId={props.googleClientId}
-          onGoogleCredential={props.onGoogleCredential}
+          onGoogleCredential={(credential) => {
+            // Pre-auth → trackAnonymous (no tenant yet); method enum only.
+            trackAnonymous('auth.login_started', { method: 'google' });
+            return props.onGoogleCredential(credential);
+          }}
           onContinue={async (email) => {
             const probe = await probeAuthApi(email);
             if (!probe.exists) setView({ kind: 'create-password', email });
             else if (probe.hasPassword) setView({ kind: 'password', email });
             else {
-              await props.onMagicLink(email);
-              setView({ kind: 'magic-sent', email });
+              trackAnonymous('auth.login_started', { method: 'magic_link' });
+              const { loginRequestId } = await props.onMagicLink(email);
+              setView({ kind: 'magic-sent', email, loginRequestId });
             }
           }}
         />
@@ -81,11 +103,15 @@ function LoginCard(props: LoginScreenProps) {
           email={view.email}
           mode="signin"
           authError={props.authError}
-          onSubmit={(password) => props.onLogin(view.email, password)}
+          onSubmit={(password) => {
+            trackAnonymous('auth.login_started', { method: 'password' });
+            return props.onLogin(view.email, password);
+          }}
           onForgot={() => setView({ kind: 'forgot' })}
           onMagicLink={async () => {
-            await props.onMagicLink(view.email);
-            setView({ kind: 'magic-sent', email: view.email });
+            trackAnonymous('auth.login_started', { method: 'magic_link' });
+            const { loginRequestId } = await props.onMagicLink(view.email);
+            setView({ kind: 'magic-sent', email: view.email, loginRequestId });
           }}
           onBack={() => setView({ kind: 'enter-email' })}
         />
@@ -99,8 +125,8 @@ function LoginCard(props: LoginScreenProps) {
           authError={props.authError}
           onSubmit={(password) => props.onSignup(view.email, password)}
           onMagicLink={async () => {
-            await props.onMagicLink(view.email);
-            setView({ kind: 'magic-sent', email: view.email });
+            const { loginRequestId } = await props.onMagicLink(view.email);
+            setView({ kind: 'magic-sent', email: view.email, loginRequestId });
           }}
           onBack={() => setView({ kind: 'enter-email' })}
         />
@@ -108,9 +134,10 @@ function LoginCard(props: LoginScreenProps) {
 
     case 'magic-sent':
       return (
-        <ConfirmCard
-          title="Check your email"
-          body={`We sent a sign-in link to ${view.email}. It expires in 15 minutes.`}
+        <MagicSentScreen
+          email={view.email}
+          loginRequestId={view.loginRequestId}
+          onMagicLinkVerified={props.onMagicLinkVerified}
           onBack={() => setView({ kind: 'enter-email' })}
         />
       );
@@ -193,9 +220,9 @@ function EnterEmailScreen({
         </label>
 
         {error && (
-          <div className="px-3 py-2 rounded-lg bg-status-danger-bg border border-status-danger-border text-xs text-status-danger-text">
+          <Alert variant="danger">
             {error}
-          </div>
+          </Alert>
         )}
 
         <Button type="submit" disabled={submitting || !email.trim()} className="w-full">
@@ -261,9 +288,27 @@ function PasswordScreen({
   const [sendingMagic, setSendingMagic] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
 
+  // spec-324 / spec-367 — the funnel HEAD. Fire signup.form_viewed once when the
+  // signup form (create-password) is first shown, pre-auth, via the anonymous
+  // ingress. Identifier-less volume under legitimate interest (spec-367): no consent,
+  // no visitor_id; the only gate inside trackAnonymous is the opt-out. Deduped so a
+  // re-render never re-fires; advisory. Sign-in views never fire it.
+  const viewedSent = useRef(false);
+  useEffect(() => {
+    if (mode === 'signup' && !viewedSent.current) {
+      viewedSent.current = true;
+      trackAnonymous('signup.form_viewed', { method: 'password' });
+    }
+  }, [mode]);
+
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     if (!password) return;
+    // spec-367 — the funnel's second step: the signup CTA was clicked (identifier-less
+    // volume via the anonymous ingress). Signup view only; sign-in submits never fire it.
+    if (mode === 'signup') {
+      trackAnonymous('signup.cta_clicked', { method: 'password' });
+    }
     setSubmitting(true);
     setLocalError(null);
     try {
@@ -335,9 +380,9 @@ function PasswordScreen({
         </label>
 
         {error && (
-          <div className="px-3 py-2 rounded-lg bg-status-danger-bg border border-status-danger-border text-xs text-status-danger-text">
+          <Alert variant="danger">
             {error}
-          </div>
+          </Alert>
         )}
 
         <Button type="submit" disabled={!canSubmit} className="w-full">
@@ -361,6 +406,19 @@ function PasswordScreen({
           {sendingMagic ? 'Sending…' : 'Email me a sign-in link instead'}
         </button>
       </div>
+
+      {/* spec-326 dec-1/ac-2: the LOUD supersede. Signing up discloses that product
+          usage is captured by default under legitimate interest — visible here, so a
+          prior anonymous decline is superseded in the open, never silently flipped.
+          Placeholder copy; legal owns the final wording (spec-326 out-of-scope). */}
+      {mode === 'signup' && (
+        <p className="text-xs text-muted border-t border-edge pt-3" data-testid="signup-privacy-notice">
+          Memex records anonymous product-usage events (IDs and counts only — no
+          document content, message text, or keystrokes) to improve the product, on a
+          legitimate-interest basis. You can object at any time under Settings →
+          Product-usage analytics.
+        </p>
+      )}
     </div>
   );
 }
@@ -413,9 +471,9 @@ function ForgotPasswordForm({
           />
         </label>
         {authError && (
-          <div className="px-3 py-2 rounded-lg bg-status-danger-bg border border-status-danger-border text-xs text-status-danger-text">
+          <Alert variant="danger">
             {authError}
-          </div>
+          </Alert>
         )}
         <Button type="submit" disabled={submitting || !email.trim()} className="w-full">
           {submitting ? 'Sending…' : 'Send reset link'}
@@ -425,14 +483,74 @@ function ForgotPasswordForm({
   );
 }
 
-function ConfirmCard({ title, body, onBack }: { title: string; body: string; onBack: () => void }) {
+// spec-304 t-40 (ac-30): the "check your email" view. While shown it polls the
+// login-request surrogate so the session completes IN THIS TAB/WEBVIEW the moment
+// the link is verified anywhere — the user never has to click back here. The poll
+// runs ONLY while this component is mounted (cleanup tears the interval down on
+// unmount / "Use a different email"). On verified it adopts the session via the
+// passed-down `acceptSession`; on expiry/404 it offers a fresh link.
+function MagicSentScreen({
+  email,
+  loginRequestId,
+  onMagicLinkVerified,
+  onBack,
+}: {
+  email: string;
+  loginRequestId: string;
+  onMagicLinkVerified: (session: SessionPayload) => void;
+  onBack: () => void;
+}) {
+  const phase = useMagicLinkPoll(loginRequestId, onMagicLinkVerified);
+
+  if (phase === 'verified') {
+    return (
+      <ConfirmCard
+        title="Signed in"
+        body="You're signed in — taking you to your Memex…"
+      />
+    );
+  }
+
+  if (phase === 'expired') {
+    return (
+      <ConfirmCard
+        title="Sign-in link expired"
+        body="Your sign-in link expired — request a new one."
+        onBack={onBack}
+        backLabel="← Request a new link"
+      />
+    );
+  }
+
+  return (
+    <ConfirmCard
+      title="Check your email"
+      body={`We sent a sign-in link to ${email}. It expires in 15 minutes.`}
+      onBack={onBack}
+    />
+  );
+}
+
+function ConfirmCard({
+  title,
+  body,
+  onBack,
+  backLabel = '← Use a different email',
+}: {
+  title: string;
+  body: string;
+  onBack?: () => void;
+  backLabel?: string;
+}) {
   return (
     <div className="rounded-xl border border-edge bg-card p-6 space-y-4 text-center">
       <h2 className="text-base font-semibold text-heading">{title}</h2>
       <p className="text-sm text-secondary">{body}</p>
-      <button onClick={onBack} className="text-xs text-muted hover:text-secondary">
-        ← Use a different email
-      </button>
+      {onBack && (
+        <button onClick={onBack} className="text-xs text-muted hover:text-secondary">
+          {backLabel}
+        </button>
+      )}
     </div>
   );
 }

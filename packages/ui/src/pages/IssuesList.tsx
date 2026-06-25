@@ -36,10 +36,15 @@ import { ScopeToggle, type PulseScope } from '../components/pulse/ScopeToggle';
 import { TimeAgo } from '../components/pulse/TimeAgo';
 import { tenantPathFor } from '../utils/tenantUrl';
 import { phaseDisplayName } from '../utils/phaseDisplay';
+import { PHASE_ORDER } from '@memex/shared';
+import { ChatPanel } from '../components/ChatPanel';
+import { ResizableChatRail } from '../components/chat/ResizableChatRail';
+import { OpeningIssuesController } from '../components/chat/OpeningIssuesController';
 
 // The phase set the filter exposes, 1:1 with the server's SpecPhase (the
 // documents.status values the Spec rename settled on). All checked by default.
-const PHASES = ['draft', 'specify', 'build', 'verify', 'done'] as const;
+// spec-355 dry-2: the canonical ordered phase array from @memex/shared.
+const PHASES = PHASE_ORDER;
 // spec-164 (scope ac-7): `done` ships UNCHECKED by default — issues on done
 // specs are usually resolved-or-moot, so surfacing them is an explicit opt-in.
 // Any other selection (including done on) serialises to the ?phases= param.
@@ -301,7 +306,19 @@ export function IssuesList() {
   }, [items]);
 
   return (
-    <div className="h-full flex flex-col px-6 py-6">
+    // spec-389 t-5 (dec-2): the Issues surface now docks the issues agent in the
+    // shared resizable rail on the left, mirroring the Standards / scaffold surfaces.
+    <div className="flex h-full min-h-0">
+      <OpeningIssuesController />
+      <ResizableChatRail
+        storageKey="issues-chat-width"
+        testId="issues-assistant-panel"
+        handleTestId="issues-chat-resize"
+        label="Issues"
+      >
+        <ChatPanel />
+      </ResizableChatRail>
+      <div className="flex-1 min-w-0 h-full flex flex-col px-6 py-6">
       <PageHeader title="Issues" actions={<ScopeToggle value={scope} onChange={setScope} />} />
 
       {/* Filter bar — phase + type checkboxes. The scope control rides in the
@@ -423,6 +440,7 @@ export function IssuesList() {
           onCancel={() => setConverted(null)}
         />
       )}
+      </div>
     </div>
   );
 }
@@ -456,7 +474,7 @@ function ConfirmDialog({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4"
       onClick={onCancel}
     >
       <div
@@ -664,7 +682,7 @@ function FilterCheckbox({
         data-testid={testid}
         checked={checked}
         onChange={onChange}
-        className="h-3.5 w-3.5 rounded border-edge text-accent focus:ring-accent"
+        className="h-3.5 w-3.5 rounded-sm border-edge text-accent focus:ring-accent"
       />
       <span className="capitalize">{label}</span>
     </label>

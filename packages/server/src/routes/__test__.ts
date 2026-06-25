@@ -31,6 +31,11 @@ import { hashPassword } from "../services/passwords.js";
 import { issueAuthToken } from "../services/auth-tokens.js";
 import { mutate } from "../services/mutate.js";
 import { createOrgWithMemexForUser } from "../services/__test__/seed-org.js";
+import {
+  mintEmissionKey,
+  mintEphemeralEmissionKey,
+  resolveMemexId,
+} from "../services/emission-keys.js";
 import { updateOrgSettings } from "../services/orgs.js";
 import { createInviteToken } from "../services/invite-tokens.js";
 import { createDomainVerificationToken } from "../services/domain-verification.js";
@@ -44,11 +49,18 @@ import { createIssue } from "../services/issues.js";
 import { testEvents } from "../db/schema.js";
 import { applyEmissionToSummary } from "../services/test-event-latest.js";
 import { createExecutionPlan } from "../services/execution_plans.js";
-import { addTaskComment } from "../services/comments.js";
+import { addTaskComment, addComment, addDecisionComment, addAnchoredComment } from "../services/comments.js";
+// spec-320 t-5: seed comment @-mentions + assignment through the real services so
+// spec-315's "where you're needed" home journey can build and verify in parallel.
+import { addMentions, assignComment } from "../services/comment-mentions.js";
 import { createShareToken, listShareTokensForDoc } from "../services/share-tokens.js";
 import { addSection } from "../services/sections.js";
+import { applyTagStrings } from "../services/tags.js";
 import { resolveRole } from "../services/doc-members.js";
-import { listAssignees } from "../services/doc-assignees.js";
+import { listAssignees, assign } from "../services/doc-assignees.js";
+import { updateMemexVisibility } from "../services/memexes.js";
+import { disableMembership } from "../services/org-memberships.js";
+import { persistEvent } from "../services/activity-log.js";
 
 const contentBlockSchema = z.union([
   z.object({ type: z.literal("text"), text: z.string() }),
@@ -197,6 +209,35 @@ testOnlyRouter.post("/onboarding-greeted", async (c) => {
   return c.json({ ok: true });
 });
 
+// spec-305/307 — set/clear a user's identity state. needsOnboarding keys off
+// identity_confirmed_at; the journey identity MILESTONE keys off role_coords (spec-307:
+// did the user place themselves on the triangle). Confirm/un-confirm sets/clears BOTH so
+// they stay in lock-step — the onboarding journey un-confirms the dev user to land on the
+// welcome step, and the fixture re-confirms afterwards so it can't leak into other journeys.
+const identityConfirmedSchema = z.object({
+  email: z.string().email(),
+  confirmed: z.boolean(),
+});
+testOnlyRouter.post("/identity-confirmed", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = identityConfirmedSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
+  }
+  const { email, confirmed } = parsed.data;
+  const user = await getUserByEmail(email);
+  if (!user) return c.json({ error: `User ${email} not found` }, 404);
+  await db
+    .update(users)
+    .set({
+      identityConfirmedAt: confirmed ? new Date() : null,
+      roleCoords: confirmed ? { dev: 0.34, design: 0.33, pm: 0.33 } : null,
+      updatedAt: new Date(),
+    })
+    .where(eq(users.id, user.id));
+  return c.json({ ok: true });
+});
+
 // Seed a Spec (documents row + first section) into a memex through the real
 // createDocDraft service — so the bus emits a `document created` and the
 // SSE-reactive UI sees it like any real Spec. The service mints the handle
@@ -206,6 +247,7 @@ const seedSpecSchema = z.object({
   memexId: z.string().uuid(),
   title: z.string(),
   purpose: z.string().optional(),
+  createdByUserId: z.string().uuid().optional(),
 });
 testOnlyRouter.post("/seed-spec", async (c) => {
   const body = await c.req.json().catch(() => null);
@@ -213,8 +255,8 @@ testOnlyRouter.post("/seed-spec", async (c) => {
   if (!parsed.success) {
     return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
   }
-  const { memexId, title, purpose = "Seeded purpose." } = parsed.data;
-  const result = await createDocDraft(memexId, title, purpose, "spec");
+  const { memexId, title, purpose = "Seeded purpose.", createdByUserId } = parsed.data;
+  const result = await createDocDraft(memexId, title, purpose, "spec", undefined, undefined, createdByUserId);
   // The first (overview/purpose) section id — handy for journeys that mutate a
   // section over the API (e.g. the reactivity round-trips in journey-16).
   return c.json({ docId: result.id, handle: result.handle, sectionId: result.sections[0]?.id ?? null });
@@ -496,6 +538,44 @@ testOnlyRouter.post("/seed-org", async (c) => {
   });
 });
 
+// spec-171 t-20 (ac-2): put a seeded org on a PAID Stripe tier so the
+// Settings > Org > Billing seat-change UI renders (BillingTab gates the
+// seat-change section on tier ∈ {premium, enterprise}; orgs.ts resolves tier to
+// "free" unless BOTH stripeCustomerId AND planTier are set). The seat-change
+// journey (journey-43) intercepts the preview GET and the seat-update PATCH at
+// the browser, so no real Stripe call is made and stripeSubscriptionId is not
+// required to render — it's optional here only for completeness. planTier is
+// constrained to the same values the orgs_plan_tier_valid CHECK allows so a typo
+// can't 500 past it; stripeCustomerId must be unique per the table constraint, so
+// callers mint a unique `cus_test_<slug>`.
+const setOrgBillingSchema = z.object({
+  orgId: z.string().uuid(),
+  stripeCustomerId: z.string().min(1),
+  planTier: z.enum(["premium", "enterprise", "self-hosted-enterprise"]),
+  seatsPurchased: z.number().int().min(1).optional(),
+  stripeSubscriptionId: z.string().min(1).optional(),
+});
+testOnlyRouter.post("/set-org-billing", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = setOrgBillingSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
+  }
+  const { orgId, stripeCustomerId, planTier, seatsPurchased, stripeSubscriptionId } = parsed.data;
+  const org = await db.query.orgs.findFirst({ where: eq(orgs.id, orgId) });
+  if (!org) return c.json({ error: `Org ${orgId} not found` }, 404);
+  await db
+    .update(orgs)
+    .set({
+      stripeCustomerId,
+      planTier,
+      ...(seatsPurchased !== undefined ? { seatsPurchased } : {}),
+      ...(stripeSubscriptionId !== undefined ? { stripeSubscriptionId } : {}),
+    })
+    .where(eq(orgs.id, orgId));
+  return c.json({ ok: true });
+});
+
 // Add a member to an org (role/status default to active member). Backs the
 // member-management + last-admin journeys (seed a peer user to promote/demote/
 // remove) and the multi-org switching journey (put the actor in a second org).
@@ -706,6 +786,7 @@ testOnlyRouter.get("/latest-share-token", async (c) => {
 const seedShareSchema = z.object({
   memexId: z.string().uuid(),
   docId: z.string().uuid(),
+  createdByUserId: z.string().uuid().nullable().optional(),
 });
 testOnlyRouter.post("/seed-share-token", async (c) => {
   const body = await c.req.json().catch(() => null);
@@ -713,7 +794,7 @@ testOnlyRouter.post("/seed-share-token", async (c) => {
   if (!parsed.success) {
     return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
   }
-  const token = await createShareToken(parsed.data.memexId, parsed.data.docId);
+  const token = await createShareToken(parsed.data.memexId, parsed.data.docId, parsed.data.createdByUserId ?? null);
   return c.json({ shareId: token.id, token: token.token });
 });
 
@@ -771,6 +852,113 @@ testOnlyRouter.post("/seed-section", async (c) => {
   const { memexId, docId, title, content = "", sectionType = "context" } = parsed.data;
   const section = await addSection(memexId, docId, sectionType, content, title);
   return c.json({ sectionId: section.id, seq: section.seq });
+});
+
+// spec-259 t-5: seed an OPEN comment on a section / decision / task through the
+// real comment services (so it emits on the bus [per std-8] and the
+// SSE-reactive UI under test sees it like a real comment). Backs the
+// Specify-phase open-comment parity journey, which asserts the open-comment
+// summary + per-comment WHO/WHEN byline render on the Comments surface.
+const seedCommentSchema = z.object({
+  memexId: z.string().uuid(),
+  target: z.enum(["section", "decision", "task"]),
+  targetId: z.string().uuid(),
+  authorName: z.string().default("Casey Reviewer"),
+  content: z.string().default("Please double-check this before we advance."),
+  commentType: z.string().optional(),
+  // spec-319: seed a RANGE-anchored section comment (so the gutter indicator
+  // renders). anchorEndOffset is the END character offset into the section
+  // source; anchorStartOffset, when supplied, is the START. Section target only.
+  anchorEndOffset: z.number().int().nonnegative().optional(),
+  anchorStartOffset: z.number().int().nonnegative().optional(),
+});
+testOnlyRouter.post("/seed-comment", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = seedCommentSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
+  }
+  const { memexId, target, targetId, authorName, content, commentType, anchorEndOffset, anchorStartOffset } = parsed.data;
+  const extras = commentType
+    ? ({ type: commentType } as Parameters<typeof addComment>[4])
+    : undefined;
+  const comment =
+    target === "section"
+      ? anchorEndOffset != null
+        ? await addAnchoredComment(memexId, targetId, authorName, content, anchorEndOffset, extras, anchorStartOffset)
+        : await addComment(memexId, targetId, authorName, content, extras)
+      : target === "decision"
+        ? await addDecisionComment(memexId, targetId, authorName, content, extras)
+        : await addTaskComment(memexId, targetId, authorName, content, extras);
+  return c.json({ commentId: comment.id, seq: comment.seq });
+});
+
+// spec-320 t-5 (ac-11): @-mention a user on a comment through the real addMentions
+// service (emits on the bus [per std-8], writes the comment_mentions row), so a
+// journey can seed "X mentioned me" without raw SQL (std-28). Users are resolved by
+// email — the journey has already seeded them via /org-add-member / /ensure-user.
+const seedCommentMentionSchema = z.object({
+  memexId: z.string().uuid(),
+  commentId: z.string().uuid(),
+  userEmail: z.string().email(),
+  mentionedByEmail: z.string().email().optional(),
+});
+testOnlyRouter.post("/seed-comment-mention", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = seedCommentMentionSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
+  }
+  const { memexId, commentId, userEmail, mentionedByEmail } = parsed.data;
+  const user = await getUserByEmail(userEmail);
+  if (!user) return c.json({ error: `User ${userEmail} not found` }, 400);
+  const mentioner = mentionedByEmail ? await getUserByEmail(mentionedByEmail) : null;
+  const ctx = mentioner ? { actorUserId: mentioner.id, channel: "rest_ui" as const } : {};
+  await addMentions(memexId, commentId, [user.id], ctx);
+  return c.json({ ok: true, userId: user.id });
+});
+
+// spec-320 t-5 (ac-11): set a comment's assignee through the real assignComment
+// service (sets the columns, guarantees the mention row, emits). Backs spec-315's
+// "assigned to me" home card.
+const setCommentAssigneeSchema = z.object({
+  memexId: z.string().uuid(),
+  commentId: z.string().uuid(),
+  assigneeEmail: z.string().email(),
+  assignedByEmail: z.string().email().optional(),
+});
+testOnlyRouter.post("/set-comment-assignee", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = setCommentAssigneeSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
+  }
+  const { memexId, commentId, assigneeEmail, assignedByEmail } = parsed.data;
+  const assignee = await getUserByEmail(assigneeEmail);
+  if (!assignee) return c.json({ error: `User ${assigneeEmail} not found` }, 400);
+  const assigner = assignedByEmail ? await getUserByEmail(assignedByEmail) : null;
+  const ctx = assigner ? { actorUserId: assigner.id, channel: "rest_ui" as const } : {};
+  await assignComment(memexId, commentId, assignee.id, ctx);
+  return c.json({ ok: true, assigneeUserId: assignee.id });
+});
+
+// spec-286: apply `scope::value`/flat tags to a Spec through the real
+// applyTagStrings service (create-or-pick + per-scope exclusivity), so the QA
+// Reports feed journey can seed the tags its rail filters on without raw SQL.
+const seedTagsSchema = z.object({
+  memexId: z.string().uuid(),
+  docId: z.string().uuid(),
+  tags: z.array(z.string()).min(1),
+});
+testOnlyRouter.post("/seed-tags", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = seedTagsSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
+  }
+  const { memexId, docId, tags } = parsed.data;
+  const applied = await applyTagStrings({ channel: "rest_ui" }, memexId, docId, tags, null);
+  return c.json({ applied: applied.map((t) => ({ id: t.id, scope: t.scope, value: t.value })) });
 });
 
 // Resolve a user's role on a doc (editor / reviewer) through resolveRole — the
@@ -883,13 +1071,20 @@ testOnlyRouter.post("/seed-test-event", async (c) => {
     return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
   }
   const { acUid, status, testIdentifier } = parsed.data;
+  // spec-398 ac-8: resolve tenancy from the ac_uid prefix (mirrors the real route).
+  const [ns, mx] = acUid.split("/");
+  const memexId = ns && mx ? await resolveMemexId(ns, mx) : null;
+  if (!memexId) {
+    return c.json({ error: `ac_uid '${acUid}' does not resolve to a memex` }, 400);
+  }
   await db.transaction(async (tx) => {
     const [row] = await tx
       .insert(testEvents)
-      .values({ acUid, status, testIdentifier, hidden: false })
+      .values({ acUid, memexId, status, testIdentifier, hidden: false })
       .returning({ createdAt: testEvents.createdAt });
     await applyEmissionToSummary(tx, {
       acUid,
+      memexId,
       testIdentifier,
       status,
       latestRunAt: row.createdAt,
@@ -897,6 +1092,31 @@ testOnlyRouter.post("/seed-test-event", async (c) => {
     });
   });
   return c.json({ ok: true });
+});
+
+// spec-234 t-3: seed an emission key (permanent or ephemeral) through the real mint
+// services, so the Settings → Emission Keys journey can assert the two-key
+// differentiation. Ephemeral keys are normally minted over MCP (provision_ac_emission);
+// there is no UI path to create one, hence this seed.
+const seedEmissionKeySchema = z.object({
+  memexId: z.string().uuid(),
+  createdByUserId: z.string().uuid(),
+  kind: z.enum(["permanent", "ephemeral"]),
+  name: z.string().min(1).optional(),
+  specHandle: z.string().min(1).optional(),
+});
+testOnlyRouter.post("/seed-emission-key", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = seedEmissionKeySchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
+  }
+  const { memexId, createdByUserId, kind, name, specHandle } = parsed.data;
+  const minted =
+    kind === "ephemeral"
+      ? await mintEphemeralEmissionKey(memexId, specHandle ?? "spec-1", createdByUserId)
+      : await mintEmissionKey(memexId, name ?? "ci", createdByUserId);
+  return c.json({ id: minted.row.id, prefix: minted.row.prefix });
 });
 
 // Seed a Task on a Spec through the real service (spec-188 t-7: drives the
@@ -921,4 +1141,109 @@ testOnlyRouter.post("/seed-task", async (c) => {
     await updateTaskStatus(memexId, task.id, status);
   }
   return c.json({ taskId: task.id, seq: task.seq });
+});
+
+// spec-199 t-9: security journey seeds ──────────────────────────────────────
+
+// Seed an assignee on a Spec through the real assign service (so the bus emits
+// and schema drift breaks the server build, per spec-172 dec-2).
+const seedAssigneeSchema = z.object({
+  memexId: z.string().uuid(),
+  docId: z.string().uuid(),
+  userId: z.string().uuid(),
+});
+testOnlyRouter.post("/seed-assignee", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = seedAssigneeSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
+  }
+  const { memexId, docId, userId } = parsed.data;
+  const result = await assign(memexId, docId, userId, null);
+  return c.json({ assigneeId: result.id });
+});
+
+// Flip a Memex's visibility (public | private) through the real service.
+// Journeys that test the public-memex non-member path call this to make the
+// seeded memex reachable before asserting column redaction.
+const setMemexVisibilitySchema = z.object({
+  memexId: z.string().uuid(),
+  visibility: z.enum(["public", "private"]),
+});
+testOnlyRouter.post("/set-memex-visibility", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = setMemexVisibilitySchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
+  }
+  await updateMemexVisibility(parsed.data.memexId, parsed.data.visibility);
+  return c.json({ ok: true });
+});
+
+// Seed an activity_log row through the real persistEvent service. Used by the
+// spec-199 non-member redaction journey to plant a row with actorUserId +
+// clientId + payload set before asserting the public endpoint strips those columns.
+const seedActivitySchema = z.object({
+  memexId: z.string().uuid(),
+  actorUserId: z.string().uuid().nullable().optional(),
+  clientId: z.string().optional(),
+  payload: z.record(z.string(), z.unknown()).optional(),
+  narrative: z.string().optional(),
+});
+testOnlyRouter.post("/seed-activity", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = seedActivitySchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
+  }
+  const { memexId, actorUserId, clientId, payload, narrative } = parsed.data;
+  const row = await persistEvent({
+    memexId,
+    userId: actorUserId ?? undefined,
+    clientId: clientId ?? undefined,
+    channel: "rest_ui",
+    entity: "document",
+    action: "updated",
+    narrative: narrative ?? "seeded",
+    payload: payload ?? undefined,
+  });
+  if (!row) return c.json({ error: "Failed to insert activity row" }, 500);
+  return c.json({ activityId: row.id });
+});
+
+// Directly disable an org member and bulk-revoke their share tokens through the
+// real disableMembership service — bypasses sessionMiddleware/adminGate so the
+// test doesn't need to navigate auth. Caller must ensure a second admin exists
+// in the org (so the last-admin guard passes); tests that add dev as admin before
+// calling this satisfy that requirement automatically.
+const disableMemberSchema = z.object({
+  orgId: z.string().uuid(),
+  targetUserId: z.string().uuid(),
+});
+testOnlyRouter.post("/disable-member", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = disableMemberSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
+  }
+  const { orgId, targetUserId } = parsed.data;
+  // Find any other active admin to act as requester (satisfies the self-remove
+  // guard without needing a real session).
+  const admins = await db
+    .select({ userId: orgMemberships.userId })
+    .from(orgMemberships)
+    .where(
+      and(
+        eq(orgMemberships.orgId, orgId),
+        eq(orgMemberships.status, "active"),
+        eq(orgMemberships.role, "administrator"),
+      ),
+    )
+    .limit(5);
+  const requester = admins.find((r) => r.userId !== targetUserId);
+  if (!requester) {
+    return c.json({ error: "No other admin found to act as requester" }, 400);
+  }
+  await disableMembership(targetUserId, orgId, requester.userId);
+  return c.json({ ok: true });
 });

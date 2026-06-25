@@ -6,6 +6,9 @@ import { tagAc } from "@memex-ai-ac/vitest";
 // passes orgFilter=undefined (the full legacy surface, no Org-scope filter) —
 // identical behaviour whether OAuth is off or on.
 const SPEC_31_AC_5 = "mindset-prod/memex-building-itself/specs/spec-31/acs/ac-5";
+// spec-307: the dispatch now passes orgFilter=undefined for OAuth callers too (live
+// membership), so the token's `org` claim is no longer the orgFilter. ac-5.
+const AC_307_5 = "mindset-prod/memex-building-itself/specs/spec-307/acs/ac-5";
 
 // b-31 W1 t-4 — the /mcp route accepts both `Bearer mxt_...` (existing) and
 // OAuth JWTs (when OAUTH_ENABLED=1). This regression test pins the four
@@ -127,7 +130,8 @@ describe("regression: /mcp token-prefix fork (b-31 t-4)", () => {
     expect(verifyAccessToken).not.toHaveBeenCalled();
   });
 
-  it("OAuth JWT with OAUTH_ENABLED on → verifyAccessToken; userId comes from claims.sub, claims.org flows through (b-31 dec-8)", async () => {
+  it("spec-307: OAuth JWT with OAUTH_ENABLED on → verifyAccessToken; userId from claims.sub, claims.org IGNORED (orgFilter=undefined, live membership)", async () => {
+    tagAc(AC_307_5);
     process.env.OAUTH_ENABLED = "1";
     verifyAccessToken.mockReturnValue({
       sub: "u-3",
@@ -143,11 +147,13 @@ describe("regression: /mcp token-prefix fork (b-31 t-4)", () => {
     expect(res.status).toBe(200);
     expect(verifyMcpToken).not.toHaveBeenCalled();
     expect(verifyAccessToken).toHaveBeenCalledWith("eyJ.something.valid");
-    // OAuth path: claims.org becomes the orgFilter — Org-scope filter is on.
-    expect(createMcpServer).toHaveBeenCalledWith("u-3", "org-acme", expect.any(String));
+    // spec-307: claims.org is NO LONGER the orgFilter — OAuth resolves live membership
+    // exactly like a PAT (orgFilter undefined). The frozen "org-acme" scope is inert.
+    expect(createMcpServer).toHaveBeenCalledWith("u-3", undefined, expect.any(String));
   });
 
-  it("OAuth JWT with org=null (personal-only grant) passes orgFilter=null", async () => {
+  it("spec-307: OAuth JWT with org=null (personal-only grant) also resolves live membership (orgFilter=undefined)", async () => {
+    tagAc(AC_307_5);
     process.env.OAUTH_ENABLED = "1";
     verifyAccessToken.mockReturnValue({
       sub: "u-4",
@@ -161,10 +167,10 @@ describe("regression: /mcp token-prefix fork (b-31 t-4)", () => {
     });
     const res = await postMcp("Bearer eyJ.personal.only");
     expect(res.status).toBe(200);
-    // Critical distinction: null !== undefined. Personal-only OAuth tokens
-    // get orgFilter=null (which scopes to personal Memex only); PAT tokens
-    // get orgFilter=undefined (full surface).
-    expect(createMcpServer).toHaveBeenCalledWith("u-4", null, expect.any(String));
+    // spec-307: a personal-only token (org=null) no longer scopes to personal only —
+    // it resolves the user's full live membership (orgFilter=undefined), the same
+    // surface a PAT gets. This is what lets an existing token survive Org graduation.
+    expect(createMcpServer).toHaveBeenCalledWith("u-4", undefined, expect.any(String));
   });
 
   it("invalid OAuth JWT → 401 + WWW-Authenticate with error=invalid_token", async () => {

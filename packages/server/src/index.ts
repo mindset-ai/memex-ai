@@ -6,7 +6,10 @@ import { cleanupExpiredDomainVerificationTokens } from "./services/domain-verifi
 import { warnIfLlmNotConfigured } from "./agent/anthropic-client.js";
 import { startBusObservability } from "./services/bus-observability.js";
 import { startActivityLogSink } from "./services/activity-log.js";
+import { startUsageBackendSink } from "./services/usage-backend-sink.js";
+import { startUsageForwarder } from "./services/usage-forwarder.js";
 import { startActivityLogSweep } from "./services/activity-log-sweep.js";
+import { startCommsLogPrune } from "./services/comms-log.js";
 import { startScaffoldAdditionsCacheInvalidation } from "./services/scaffold-additions-cache.js";
 import { startBusRelay } from "./services/bus-relay.js";
 import { bus } from "./services/bus.js";
@@ -32,6 +35,15 @@ const server = serve({ fetch: app.fetch, port }, (info) => {
   // interaction for Pulse. Advisory: insert failures are swallowed, writes are
   // detached from the emit path.
   startActivityLogSink();
+  // spec-244 t-3 (dec-8): the back-end outcome sink — a second bus subscriber that
+  // mirrors whitelisted mutate() outcomes (document.created, …) into usage_events,
+  // so analytics funnels see confirmed outcomes, not just front-end intents.
+  startUsageBackendSink();
+  // spec-244 t-5 (dec-3): the outbox forwarder — drains usage_events to the
+  // configured AnalyticsSink (Mixpanel by default). No-op when MIXPANEL_TOKEN is
+  // unset (rollout step one: capture-only, events queryable in SQL). Per-env token
+  // (dec-9) gives the int→memex-int / prod→memex-prod project separation.
+  startUsageForwarder();
   // b-68 t-11: short-TTL projection cache for per-Org scaffold additions, with
   // bus-driven invalidation so admin edits become visible without a process
   // restart. Single subscriber filtered on `org_scaffold_addition`.
@@ -73,3 +85,53 @@ setInterval(async () => {
 // Bounded (10k rows/pass), idempotent across instances; self-scheduling hourly. The
 // timer is .unref()'d so it never blocks shutdown.
 startActivityLogSweep().unref();
+
+// spec-341 t-3: comms_log retention prune — daily, .unref()'d (mirrors the sweep).
+startCommsLogPrune().unref();
+
+// Graceful shutdown (spec-251 follow-up, found 2026-06-12).
+//
+// Cloud Run sends SIGTERM on every instance teardown — deploy rollover (old
+// revision drained as traffic shifts) and scale-in — then waits a termination
+// grace period (~10s) before SIGKILL. Node's DEFAULT SIGTERM behaviour is to
+// exit the process IMMEDIATELY, which severs every in-flight response mid-write.
+// For the guide's streaming SSE `/chat` turns that means the browser sees
+// `net::ERR_CONNECTION_CLOSED` ("Failed to fetch") with no HTTP status and no
+// app-level error — exactly the symptom a live mindset-website visitor hit when
+// this release's rollout recycled the instance their turn was pinned to.
+//
+// Drain instead: stop accepting new connections, close idle keep-alives so only
+// ACTIVE requests keep us alive, let those finish (guide turns are ~2-3s, well
+// inside the grace window), then exit cleanly. A hard backstop force-closes
+// anything still streaming just before SIGKILL so shutdown never hangs.
+const SHUTDOWN_GRACE_MS = parseInt(process.env.SHUTDOWN_GRACE_MS ?? "8000", 10);
+let shuttingDown = false;
+function gracefulShutdown(signal: NodeJS.Signals): void {
+  if (shuttingDown) return; // a second signal must not race two close()/exit paths
+  shuttingDown = true;
+  console.log(
+    `[shutdown] ${signal} received — draining in-flight requests (grace ${SHUTDOWN_GRACE_MS}ms)`,
+  );
+  // serve() returns a union (http/http2); we run plain http, so narrow to
+  // http.Server for the connection-draining methods (Node 18.2+ / 22 here).
+  const httpServer = server as import("node:http").Server;
+  // close() stops the listener and fires its callback once all connections end.
+  httpServer.close(() => {
+    console.log("[shutdown] all connections drained — exiting cleanly");
+    process.exit(0);
+  });
+  // Idle keep-alive sockets would otherwise hold close() open indefinitely; drop
+  // them now so close() is gated only on requests actually in flight.
+  httpServer.closeIdleConnections?.();
+  // Backstop: anything still streaming past the grace window gets force-closed so
+  // we exit before Cloud Run's SIGKILL (a clean exit beats an abrupt kill).
+  setTimeout(() => {
+    console.warn(
+      "[shutdown] grace window elapsed — force-closing remaining connections",
+    );
+    httpServer.closeAllConnections?.();
+    process.exit(0);
+  }, SHUTDOWN_GRACE_MS).unref();
+}
+process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+process.on("SIGINT", () => gracefulShutdown("SIGINT"));

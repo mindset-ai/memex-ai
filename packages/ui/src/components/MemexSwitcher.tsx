@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from './AuthContext';
 import { getCurrentTenant, namespaceHomePath, tenantPathFor } from '../utils/tenantUrl';
+import { useTelemetry } from '../hooks/useTelemetry';
 
 // Top-right Memex switcher. Always rendered for authenticated users — the primary
 // indicator of which Memex the user is currently in (GitHub-style). Dropdown
@@ -22,10 +23,11 @@ import { getCurrentTenant, namespaceHomePath, tenantPathFor } from '../utils/ten
 export function MemexSwitcher({ variant = 'topbar' }: { variant?: 'topbar' | 'sidebar' } = {}) {
   const { session } = useAuth();
   const navigate = useNavigate();
+  const { track } = useTelemetry(true);
   const [open, setOpen] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
 
-  // The header has `backdrop-blur-sm` which creates a containing block, so a
+  // The header has `backdrop-blur-xs` which creates a containing block, so a
   // `fixed inset-0` backdrop ends up constrained to the header — clicks below
   // it never close the menu. Listen on document instead.
   useEffect(() => {
@@ -94,22 +96,28 @@ export function MemexSwitcher({ variant = 'topbar' }: { variant?: 'topbar' | 'si
     if (!personalMembership) return;
     const ns = personalMembership.slug;
     const mx = personalMembership.memexSlug ?? 'personal';
+    // Only a real switch (not re-selecting the current Memex). id only.
+    if (!currentIsPersonal) {
+      track('workspace.switched', { memexId: personalMembership.memexId });
+    }
     navigate(tenantPathFor(ns, mx, '/specs'));
   }
 
-  function goToOrgMemex(m: { slug: string; memexSlug?: string }) {
+  function goToOrgMemex(m: { slug: string; memexSlug?: string; memexId: string }) {
     setOpen(false);
     const mx = m.memexSlug ?? 'main';
     if (m.slug === currentSlug && current?.memex === mx) return;
+    track('workspace.switched', { memexId: m.memexId });
     navigate(tenantPathFor(m.slug, mx, '/specs'));
   }
 
   // Visited rows always carry a memexSlug (the server's join selects it), so no
   // 'main' fallback dance is needed — but keep one for parity/safety.
-  function goToVisitedMemex(m: { slug: string; memexSlug?: string }) {
+  function goToVisitedMemex(m: { slug: string; memexSlug?: string; memexId: string }) {
     setOpen(false);
     const mx = m.memexSlug ?? 'main';
     if (m.slug === currentSlug && current?.memex === mx) return;
+    track('workspace.switched', { memexId: m.memexId });
     navigate(tenantPathFor(m.slug, mx, '/specs'));
   }
 
@@ -141,7 +149,7 @@ export function MemexSwitcher({ variant = 'topbar' }: { variant?: 'topbar' | 'si
     : 'absolute right-0 top-10 z-40 w-72 rounded-lg shadow-xl py-1 border bg-card-hover border-edge';
   const labelClass = isSidebar
     ? 'font-medium truncate flex-1 text-left'
-    : 'font-medium truncate max-w-[10rem]';
+    : 'font-medium truncate max-w-40';
 
   return (
     <div className="relative" ref={wrapperRef}>
@@ -184,10 +192,10 @@ export function MemexSwitcher({ variant = 'topbar' }: { variant?: 'topbar' | 'si
                   return (
                     <div key={nsSlug} className="pb-1">
                       <div className="px-3 pt-2 pb-0.5">
-                        <div className="text-sm font-medium text-secondary break-words leading-snug">
+                        <div className="text-sm font-medium text-secondary wrap-break-word leading-snug">
                           {group.name}
                         </div>
-                        <div className="text-xs text-muted break-words leading-snug">
+                        <div className="text-xs text-muted wrap-break-word leading-snug">
                           {group.role}
                         </div>
                       </div>
@@ -287,9 +295,9 @@ function SwitcherRow({
           : 'text-secondary hover:text-primary hover:bg-overlay'
       }`}
     >
-      <span className="block break-words leading-snug">{title}</span>
+      <span className="block wrap-break-word leading-snug">{title}</span>
       {subtitle && (
-        <span className="block text-xs text-muted break-words leading-snug">{subtitle}</span>
+        <span className="block text-xs text-muted wrap-break-word leading-snug">{subtitle}</span>
       )}
     </button>
   );

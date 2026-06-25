@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { Alert } from './ui/Alert';
 import { useAuth } from './AuthContext';
 import { Button } from './ui/Button';
 import {
@@ -164,7 +165,7 @@ export function OrgConsentDialog({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4"
       role="dialog"
       aria-modal="true"
       aria-labelledby="org-consent-title"
@@ -214,9 +215,9 @@ export function OrgConsentDialog({
                 </label>
               ))}
               {submitError && (
-                <div className="px-3 py-2 rounded-lg bg-status-danger-bg border border-status-danger-border text-sm text-status-danger-text">
+                <Alert variant="danger" size="md">
                   {submitError}
-                </div>
+                </Alert>
               )}
             </div>
           </>

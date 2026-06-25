@@ -4,11 +4,13 @@ import { tasks, documents } from "../db/schema.js";
 import type { Task, Decision } from "../db/schema.js";
 import { ConflictError, NotFoundError, ValidationError } from "../types/errors.js";
 import { TASK_STATUSES, isTaskStatus } from "../types/roles.js";
-import { mutate, type Mutated } from "./mutate.js";
+import { mutate, type Mutated, type RequestCtx } from "./mutate.js";
+import { resolveActorColumns } from "./actor.js";
 import { getBlockersForTask, getBlockingGraphForDoc } from "./dependencies.js";
 import type { Blockers } from "./dependencies.js";
 import { nextSeq, withSeqRetry } from "./shared/sequence.js";
 import { isUuid, parseHandle } from "./shared/identifiers.js";
+import { docAttribution } from "./shared/doc-attribution.js";
 import { updateDocStatus } from "./documents.js";
 import { maybeAutoResolveIssuesForTask } from "./issues.js";
 
@@ -34,11 +36,18 @@ export function qualifiedTaskHandle(
   return `${parentDocHandle}:T-${taskSeq}`;
 }
 
-async function assertDocInAccount(memexId: string, docId: string): Promise<void> {
+// Returns the parent doc's type (spec-306) and lifecycle status (spec-327) so
+// createTask can attribute the task.created outcome event to its Spec AND apply
+// the build/verify-phase gate without a second query — this assert already loads the row.
+async function assertDocInAccount(
+  memexId: string,
+  docId: string,
+): Promise<{ docType: string; status: string }> {
   const doc = await db.query.documents.findFirst({
     where: and(eq(documents.id, docId), eq(documents.memexId, memexId)),
   });
   if (!doc) throw new NotFoundError(`Document ${docId} not found`);
+  return { docType: doc.docType, status: doc.status };
 }
 
 export interface TaskWithBlockers extends Task {
@@ -67,20 +76,60 @@ export interface AcceptanceCriterion {
   done: boolean;
 }
 
+/**
+ * spec-327 dec-2 — the single source of the create_task phase-gate message.
+ * Exported so every surface (MCP, in-app agent) and the tests read identical
+ * text. Tasks are creatable in build OR verify; this fires for the planning
+ * phases (draft/specify) and a closed Spec (done). Frames the redirect around
+ * the SDD model — in these phases work is driven by Decisions and their
+ * acceptance criteria, not tasks — so the item should be reframed as a Decision
+ * (create_decision). Deliberately does NOT suggest moving the Spec to build:
+ * over-eagerness to advance to build was the original complaint.
+ */
+export function taskCreationBlockedMessage(currentPhase: string): string {
+  return (
+    `Tasks can only be created during build or verify; this Spec is in ` +
+    `${currentPhase}. In this phase, work is driven by Decisions and their ` +
+    `acceptance criteria, not tasks — so reframe this as a Decision ` +
+    `(create_decision), or register_issue for a must-not-forget todo.`
+  );
+}
+
 export async function createTask(
   memexId: string,
   docId: string,
   title: string,
   description: string,
   acceptanceCriteria?: AcceptanceCriterion[],
-  sectionRef?: string
+  sectionRef?: string,
+  ctx: RequestCtx = {}
 ): Promise<Mutated<Task>> {
-  await assertDocInAccount(memexId, docId);
+  const { docType, status } = await assertDocInAccount(memexId, docId);
+  // spec-327 dec-1/dec-4 — tasks are a build/verify-phase commitment. A coding
+  // agent (mcp / in_app_agent) that calls create_task while the Spec is in a
+  // PLANNING phase (draft/specify) or is closed (done) is almost always voicing
+  // a planning thought, not handing off an implementation; silently
+  // auto-advancing the phase (the old spec-189 behaviour) misled users. Reject
+  // with a guiding error instead. build AND verify are allowed — verify is an
+  // active phase where a found defect legitimately spawns a task without forcing
+  // a backward phase move. This is the one deliberate, narrow exception to the
+  // soft-gate posture (spec-12 dec-6, spec-189 dec-3): exactly one creation
+  // tool, agent channels only. rest_ui (human in the web UI, full phase
+  // controls) and ctx-less seed/server calls are exempt — the channel set
+  // mirrors spec-traffic.ts's agent-channel guard.
+  if (
+    (ctx.channel === "mcp" || ctx.channel === "in_app_agent") &&
+    status !== "build" &&
+    status !== "verify"
+  ) {
+    throw new ValidationError(taskCreationBlockedMessage(status));
+  }
   // b-38 F-3 — wrap allocator + insert in withSeqRetry so concurrent createTask
   // calls under the same doc don't 23505 on `tasks_doc_id_seq_unique`.
   return mutate(
-    {},
-    { memexId, docId, entity: "task", action: "created" },
+    ctx,
+    // spec-306 dec-2: attribute the task.created outcome to its parent Spec.
+    { memexId, docId, entity: "task", action: "created", payload: docAttribution(docId, docType) },
     async () =>
       withSeqRetry(
         async () => {
@@ -96,6 +145,8 @@ export async function createTask(
               acceptanceCriteria: acceptanceCriteria ?? [],
               sectionRef: sectionRef ?? null,
               status: "not_started",
+              // spec-122 dec-2/dec-5 — stamp WHO + HOW at write time (ac-20).
+              ...(await resolveActorColumns(ctx)),
             })
             .returning();
           return item;
@@ -243,7 +294,8 @@ export async function getTask(
 export async function updateTaskStatus(
   memexId: string,
   id: string,
-  status: string
+  status: string,
+  ctx: RequestCtx = {}
 ): Promise<Mutated<Task>> {
   if (!isTaskStatus(status)) {
     throw new ValidationError(
@@ -260,7 +312,8 @@ export async function updateTaskStatus(
   }
 
   const now = new Date();
-  const updates: Partial<Task> = { status };
+  // spec-122 dec-2/dec-5 — re-attribute on status move (who advanced it).
+  const updates: Partial<Task> = { status, ...(await resolveActorColumns(ctx)) };
 
   if (status === "in_progress" && !item.startedAt) {
     updates.startedAt = now;
@@ -274,7 +327,7 @@ export async function updateTaskStatus(
   }
 
   const updated = await mutate(
-    {},
+    ctx,
     { memexId, docId: item.docId, entity: "task", action: "updated" },
     async () => {
       const [row] = await db
@@ -292,7 +345,7 @@ export async function updateTaskStatus(
   // (draft→specify, specify→build, verify→done) stay manual. updateDocStatus emits its
   // own document.updated event — independent invariant per dec-2 of doc-16.
   if (status === "complete") {
-    await maybeAutoPromoteToVerify(memexId, item.docId);
+    await maybeAutoPromoteToVerify(memexId, item.docId, ctx);
     // spec-112 ac-22: a `converted` Issue whose satisfying Task just completed
     // transitions → `resolved` IFF the verifying AC's latest test_event is a pass.
     // Best-effort: a failure here must not fail the task-status write (the Issue
@@ -302,7 +355,11 @@ export async function updateTaskStatus(
   return updated;
 }
 
-async function maybeAutoPromoteToVerify(memexId: string, docId: string): Promise<void> {
+async function maybeAutoPromoteToVerify(
+  memexId: string,
+  docId: string,
+  ctx: RequestCtx = {},
+): Promise<void> {
   const doc = await db.query.documents.findFirst({
     where: and(eq(documents.id, docId), eq(documents.memexId, memexId)),
   });
@@ -319,7 +376,25 @@ async function maybeAutoPromoteToVerify(memexId: string, docId: string): Promise
     .where(and(eq(tasks.docId, docId), ne(tasks.status, "complete")));
 
   if (Number(openCount) === 0) {
-    await updateDocStatus(memexId, docId, "verify");
+    // spec-122 dec-3 — carry the actor/channel onto the auto-promotion's
+    // status_changed journal row (t-4).
+    //
+    // spec-391: the build→verify naked-decision gate (and any future
+    // advancement gate) now lives in updateDocStatus and can THROW. This is an
+    // AUTOMATIC side-effect of completing the last task — i.e. developer
+    // code-work — and spec-388 dec-2 is explicit that the gate blocks the
+    // spec ADVANCEMENT only, NEVER the developer's code-work. So a blocked
+    // auto-promote must not fail the task-completion: swallow the gate's
+    // ValidationError (best-effort, mirroring the maybeAutoResolveIssuesForTask
+    // sibling above). The task still completes; the Spec simply stays in `build`
+    // and the human gets the gate's guidance when they advance explicitly via
+    // update_doc({status:'verify'}).
+    await updateDocStatus(memexId, docId, "verify", { ctx }).catch((err) => {
+      console.warn(
+        `[tasks] auto-promote build→verify blocked for ${docId} (Spec stays in build):`,
+        err instanceof Error ? err.message : err,
+      );
+    });
   }
 }
 
@@ -331,7 +406,8 @@ export async function updateTask(
     description?: string;
     acceptanceCriteria?: AcceptanceCriterion[];
     sectionRef?: string | null;
-  }
+  },
+  ctx: RequestCtx = {}
 ): Promise<Mutated<Task>> {
   const item = await db.query.tasks.findFirst({
     where: and(eq(tasks.id, id), eq(tasks.memexId, memexId)),
@@ -350,15 +426,18 @@ export async function updateTask(
     // silent: no caller-supplied fields means no DB write; brand the return so
     // the type contract still says this went through mutate().
     return mutate(
-      {},
+      ctx,
       { memexId, docId: item.docId, entity: "task", action: "updated" },
       async () => item,
       { silent: true },
     );
   }
 
+  // spec-122 dec-2/dec-5 — re-attribute on edit (who touched it last).
+  Object.assign(setValues, await resolveActorColumns(ctx));
+
   return mutate(
-    {},
+    ctx,
     { memexId, docId: item.docId, entity: "task", action: "updated" },
     async () => {
       const [updated] = await db

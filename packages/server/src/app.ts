@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { secureHeaders } from "hono/secure-headers";
 import { errorHandler } from "./middleware/error-handler.js";
-import { sessionMiddleware } from "./middleware/session.js";
+import { sessionMiddleware, publicSessionMiddleware } from "./middleware/session.js";
 import { memexesRouter } from "./routes/memexes.js";
 import { docs } from "./routes/documents.js";
 import { comments } from "./routes/comments.js";
@@ -13,15 +14,22 @@ import { issuesList } from "./routes/issues-list.js";
 import { acsRouter } from "./routes/acs.js";
 import { emissionKeysRouter } from "./routes/emission-keys.js";
 import { discordWebhookRouter } from "./routes/discord-webhook.js";
+import { stripeWebhookRouter } from "./routes/stripe-webhook.js";
+import { postmarkWebhookRouter } from "./routes/postmark-webhook.js";
 import { docMembersRouter } from "./routes/doc-members.js";
 import { docAssigneesRouter } from "./routes/doc-assignees.js";
 import { executionPlans } from "./routes/execution-plans.js";
 import { llmRouter } from "./routes/llm.js";
 import { createNodeWebSocket } from "@hono/node-ws";
 import { createVoiceRouter } from "./routes/voice.js";
+import { createGuidePublicRouter } from "./routes/guide-public.js";
 import { docEventsRouter } from "./routes/doc-events.js";
 import { activity } from "./routes/activity.js";
+import { qaReports } from "./routes/qa-reports.js";
+import { presenceRouter } from "./routes/presence.js";
 import { analytics } from "./routes/analytics.js";
+import { telemetryRouter } from "./routes/telemetry.js";
+import { anonTelemetryRouter } from "./routes/anon-telemetry.js";
 import { waitlist } from "./routes/waitlist.js";
 import { auth } from "./routes/auth.js";
 import { invitesAcceptRouter, invitesAdminRouter } from "./routes/invites.js";
@@ -38,12 +46,16 @@ import { onboarding } from "./routes/onboarding.js";
 import { testEventsRouter } from "./routes/test-events.js";
 import { testOnlyRouter } from "./routes/__test__.js";
 import { hostGuard, memexResolver } from "./middleware/memex-resolver.js";
+import { visitorMiddleware } from "./middleware/visitor.js";
 import { rewriteBriefPathToSpec } from "./services/redirects.js";
 import { isAllowedOrigin } from "./middleware/cors-policy.js";
 import { meRouter } from "./routes/me.js";
+import { journeyRouter } from "./routes/journey.js";
+import { homeRouter } from "./routes/home.js";
 import { whatsNewRouter } from "./routes/whats-new.js";
 import { orgsRouter, orgsCurrentRouter } from "./routes/orgs.js";
 import { scaffoldRouter } from "./routes/scaffold.js";
+import { personalScaffoldRouter } from "./routes/personal-scaffold.js";
 import { namespacesRouter } from "./routes/namespaces.js";
 import { consentRouter } from "./routes/consent.js";
 import { getBusRelay } from "./services/bus-relay.js";
@@ -58,6 +70,7 @@ import { verifyAccessToken } from "./services/oauth/access-tokens.js";
 import { isDevMode, ensureDevMemberships } from "./middleware/session.js";
 import { upsertUserByEmail } from "./services/users.js";
 import { upsertSession, parseClientIp } from "./services/mcp-telemetry.js";
+import { recordMcpConnected } from "./services/funnel-events.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
@@ -75,6 +88,8 @@ const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
 
 // CORS policy lives in middleware/cors-policy.ts so it can be unit-tested without
 // pulling in the DB connection. See that file for the rationale on each entry.
+
+app.use("*", secureHeaders());
 
 app.use(
   "*",
@@ -117,6 +132,13 @@ app.use("*", async (c, next) => {
 // to the request context. Authorization happens per-route. Routes that don't
 // carry the prefix (entity-keyed lookups, /api/health, etc.) are skipped.
 app.use("*", memexResolver);
+
+// spec-254 t-2 — expose the consented visitor_id (from the .memex.ai cookie, or an
+// inbound ?aid=) on the request context for the identify merge (auth routes) and
+// the /telemetry stamp. Pure reader: never mints, never Set-Cookie (the consented
+// client owns that, dec-4=B). Runs ahead of the per-route session middlewares so
+// authenticated AND anonymous /api requests carrying a cookie expose the id.
+app.use("/api/*", visitorMiddleware);
 
 app.get("/api/health", (c) => {
   // Cross-instance bus relay status (spec-156 ac-12). The std-17 post-deploy
@@ -237,14 +259,40 @@ app.route("/api/:namespace/:memex/issues-list", issuesList);
 // per-Memex, so there's no flat entity-keyed mount (a bare /api/activity has no
 // memex to scope to).
 app.route("/api/:namespace/:memex/activity", activity);
+// spec-260 (dec-5/dec-6) — the cross-Spec QA Reports feed + per-user unread
+// counter. Path-prefixed only — inherently per-Memex, same reasoning as
+// /activity above.
+app.route("/api/:namespace/:memex/qa-reports", qaReports);
+// spec-122 t-7 (dec-4) — the ephemeral PRESENCE plane ("who's here now"). The
+// browser heartbeat POSTs here; the UI reads who's present per spec. Inherently
+// per-Memex (every presence row is tenancy-scoped), so path-prefixed only.
+app.route("/api/:namespace/:memex/presence", presenceRouter);
 // Spec analytics for the Insights page (spec-179). Path-prefixed only — the
 // aggregates are inherently per-Memex, same reasoning as /activity above.
 app.route("/api/:namespace/:memex/analytics", analytics);
+// spec-244 t-2 — front-end engagement capture. PERMISSIVE publicSessionMiddleware
+// so anonymous callers reach the handler and no-op (ac-7); an authenticated user
+// inside a resolved memex records a usage_events row. Path-prefixed only — every
+// event is inherently per-Memex.
+app.use("/api/:namespace/:memex/telemetry/*", publicSessionMiddleware);
+app.route("/api/:namespace/:memex/telemetry", telemetryRouter);
 // spec-178 t-6 — handhold onboarding demo reset. Path-prefixed only: the reset
 // is gated to the owner of a PERSONAL Memex (std-7 404 otherwise), so the memex
 // must come from the resolved /<ns>/<mx>/ path — there's no flat entity-keyed
 // mount. STRICT sessionMiddleware + the owner gate live inside the router.
 app.route("/api/:namespace/:memex/handhold", handhold);
+// spec-360 follow-up — scaffold guidance has TWO owner surfaces that share the
+// trailing `/scaffold` segment, so registration ORDER matters: the org route
+// (/api/orgs/:orgId/scaffold) is a literal-`orgs` path that the personal route's
+// `:namespace` param would otherwise shadow (Hono's param route swallows
+// /api/orgs/<uuid>/scaffold). Mounting the org router FIRST, before the
+// param-prefixed personal router, lets each claim its own paths. `orgs` is a
+// reserved namespace slug (std-3), so no real tenant URL collides the other way.
+//
+//   ORG:      /api/orgs/:orgId/scaffold/*           — org-admin gated (b-68 t-10)
+//   PERSONAL: /api/:namespace/:memex/scaffold/*     — namespace-owner gated
+app.route("/api/orgs", scaffoldRouter);
+app.route("/api/:namespace/:memex/scaffold", personalScaffoldRouter);
 app.use("/api/:namespace/:memex/llm/*", sessionMiddleware);
 app.route("/api/:namespace/:memex/llm", llmRouter);
 // spec-190 t-1: voice WS proxy, tenancy-scoped. Deliberately NO sessionMiddleware
@@ -299,9 +347,26 @@ app.route("/api/test-events", testEventsRouter);
 app.use("/api/llm/*", sessionMiddleware);
 app.route("/api/llm", llmRouter);
 
+// spec-222 t-10/t-11/t-12 (dec-4/dec-9): the PUBLIC anonymous voice-guide backend,
+// versioned under /guide/v1. Mounted WITHOUT sessionMiddleware and OUTSIDE the
+// tenant prefix (mirrors the public waitlist mount) — it has no login and no
+// tenant. /session mints a short-lived signed anon token; the WS (/voice) + SSE
+// (/chat) legs verify that token themselves (origin-gated, rate-limited, hard
+// per-session cap). It reuses the SAME ElevenLabs/Anthropic proxy + surface-keyed
+// corpus/persona as routes/voice.ts — only the auth source + abuse controls differ.
+app.route("/guide/v1", createGuidePublicRouter(upgradeWebSocket));
+
 // Caller-scoped + public surfaces — stay flat (no path prefix). These have no
 // per-memex semantics, so prefixing them would be noise.
 app.route("/api/waitlist", waitlist);
+// spec-324 — the ANONYMOUS-capable engagement ingress (the spec-244 retrofit).
+// Flat + tenant-less + PERMISSIVE publicSessionMiddleware so a PRE-AUTH visitor
+// (no user, no memex) is captured keyed on the consent-gated visitor_id — the
+// funnel head the tenant /telemetry can't see. Mounted ahead of the tenant
+// surfaces; `/api/telemetry` (2 segments) never collides with the 4-segment
+// `/api/:ns/:mx/telemetry`.
+app.use("/api/telemetry/*", publicSessionMiddleware);
+app.route("/api/telemetry", anonTelemetryRouter);
 app.route("/api/auth", auth);
 // /api/onboarding — spec-206: the user-level first-run greeting gate for the
 // Specky welcome (greet-eligibility read + once-per-user stamp). User-keyed, no
@@ -311,11 +376,9 @@ app.route("/api/onboarding", onboarding);
 // Replaces the retired /api/accounts and /api/account mounts.
 app.route("/api/orgs", orgsRouter);
 // /api/orgs/:orgId/scaffold — read the merged base+org scaffold and administer
-// per-Org GuidanceBlock additions (b-68 t-10). Mounted at /api/orgs (not under
-// the tenancy prefix) because the org id alone identifies the resource — the
-// shape is org-keyed UUID lookup, not tenancy-scoped path resolution. The
-// router enforces std-7 (404 for non-members AND non-admin writes) internally.
-app.route("/api/orgs", scaffoldRouter);
+// per-Org GuidanceBlock additions (b-68 t-10). Mounted EARLIER (above, before
+// the param-prefixed personal scaffold router) so the literal `orgs` path isn't
+// shadowed by `/api/:namespace/:memex/scaffold` — see the ordering note there.
 // /api/namespaces — doc-19 t-3: namespace-keyed endpoints (slug check, rename,
 // home payload, sibling-memex creation).
 app.route("/api/namespaces", namespacesRouter);
@@ -329,10 +392,24 @@ app.route("/api/consent", consentRouter);
 app.route("/api/invites", invitesAcceptRouter);
 // Caller-scoped endpoints — namespace picker (std-5) and minimal session shape.
 app.route("/api/me", meRouter);
+// spec-303 — Home Canvas onboarding journey-state (user-level, no memex). Derived
+// position + measurement + operator preview.
+app.route("/api/me", journeyRouter);
+// spec-315 — the graduated Home surface (user-level, no memex): where-you're-needed
+// + specs-in-flight, aggregated across all the user's memberships.
+app.route("/api/me", homeRouter);
 // spec-200: global What's New feed (not tenant-scoped).
 app.route("/api/whats-new", whatsNewRouter);
 // PUBLIC: share routes skip session middleware — guests access shared docs by token alone (t-10).
 app.route("/api/share", shareRouter);
+
+// spec-171 t-3: Stripe webhook receiver. No session middleware — the
+// Stripe-Signature HMAC header IS the auth (verified inside the router).
+app.route("/api/stripe/webhook", stripeWebhookRouter);
+
+// spec-341 t-2: Postmark delivery webhook. No session middleware — the Basic-auth
+// credential on the webhook URL IS the auth (verified inside the router).
+app.route("/api/postmark/webhook", postmarkWebhookRouter);
 
 // Platform backstage — dev-mode only today. Gated inside the router itself. Registered on
 // the bare domain so operators can hit it without a tenant subdomain.
@@ -433,7 +510,19 @@ app.all("/mcp", async (c) => {
     try {
       const claims = verifyAccessToken(raw);
       userId = claims.sub;
-      orgFilter = claims.org; // null = personal-only; UUID = org-scoped
+      // spec-307 dec-1/dec-2: MCP access follows the user's LIVE membership, not the
+      // Org scope frozen into the token at consent (spec-31 dec-8, now superseded).
+      // Treat OAuth callers exactly like PATs — `orgFilter === undefined` resolves
+      // against every CURRENT active membership in mcp/auth.ts. The token's `org`
+      // claim is no longer enforced, so existing tokens widen to the user's own live
+      // memberships with no re-auth (connect once, survive Org graduation). No token
+      // is migrated or invalidated; the stored claim simply goes inert.
+      orgFilter = undefined;
+      // Rollout observability: a previously Org-scoped grant now resolving under live
+      // membership is the widening this Spec introduces — record it so it's auditable.
+      console.log(
+        `[mcp:live-membership] oauth token resolved under live membership user=${claims.sub} legacy_scope=${claims.org ?? "personal-only"}`,
+      );
     } catch {
       c.header(
         "WWW-Authenticate",
@@ -554,6 +643,7 @@ app.all("/mcp", async (c) => {
   const userAgent = c.req.header("User-Agent") ?? null;
   const ipAddress = parseClientIp(c.req.header("X-Forwarded-For"));
   let clientInfo: unknown = null;
+  let isInitialize = false;
   if (c.req.method === "POST") {
     try {
       const cloned = c.req.raw.clone();
@@ -562,6 +652,7 @@ app.all("/mcp", async (c) => {
         params?: { clientInfo?: unknown };
       };
       if (body.method === "initialize") {
+        isInitialize = true;
         clientInfo = body.params?.clientInfo ?? null;
       }
     } catch {
@@ -582,6 +673,13 @@ app.all("/mcp", async (c) => {
     clientInfo,
     ipAddress,
   });
+
+  // spec-297 (funnel stage 3, agent connected): the MCP `initialize` handshake is
+  // the "agent connected" moment — before any tool names a Memex. Direct, advisory
+  // emission with a NULL memex_id; fired only on the handshake, not every request.
+  if (isInitialize) {
+    void recordMcpConnected(userId);
+  }
 
   const mcpServer = createMcpServer(userId, orgFilter, sessionId);
   const transport = new WebStandardStreamableHTTPServerTransport({

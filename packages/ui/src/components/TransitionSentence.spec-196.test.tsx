@@ -58,7 +58,10 @@ describe('spec-196 — Rubicon narrative-staleness blocker at specify→build', 
     tagAc(AC(8));
     tagAc(AC(9));
     tagAc(AC(10));
-    render(<TransitionSentence {...baseProps({ narrativeStale: true })} />);
+    // Non-editor view: the blocker sentence stands alone (the spec-258/dec-5
+    // editor override would otherwise append "Move … anyway?"). The dec-3
+    // sentence itself is posture-independent — this pins its exact text.
+    render(<TransitionSentence {...baseProps({ narrativeStale: true, canTransition: false })} />);
 
     // The exact dec-3 sentence.
     expect(text()).toBe(
@@ -73,10 +76,15 @@ describe('spec-196 — Rubicon narrative-staleness blocker at specify→build', 
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
   });
 
-  it('narrative fresh → the advancement offer renders (ac-9)', () => {
+  it('narrative fresh → advancement is reachable, not blocked (ac-9)', () => {
     tagAc(AC(9));
-    render(<TransitionSentence {...baseProps({ narrativeStale: false })} />);
-    expect(text()).toContain('Do you wish to move this spec to Build?');
+    // spec-282/dec-4: the current-tab standing offer is gone — a fresh, clean
+    // rubric renders nothing on the current tab. The "fresh unblocks advance"
+    // property now reads on the browse-forward confirm: no blocker text, the
+    // plain "Are you sure…?" + [Yes].
+    render(<TransitionSentence {...baseProps({ narrativeStale: false, viewedTab: 'build' })} />);
+    expect(text()).toContain('Are you sure you want to move this spec to Build?');
+    expect(text()).not.toContain('spec narrative');
     expect(screen.getByRole('button', { name: 'Yes' })).toBeInTheDocument();
   });
 
@@ -91,9 +99,10 @@ describe('spec-196 — Rubicon narrative-staleness blocker at specify→build', 
 
   it('composes with the AC fragment under the shared renderer (ac-8)', () => {
     tagAc(AC(8));
+    // Non-editor view pins the exact composed sentence (see above re: dec-5).
     render(
       <TransitionSentence
-        {...baseProps({ narrativeStale: true, hasAcceptanceCriteria: false })}
+        {...baseProps({ narrativeStale: true, hasAcceptanceCriteria: false, canTransition: false })}
       />,
     );
     expect(text()).toBe(
@@ -129,17 +138,19 @@ describe('spec-196 — Rubicon narrative-staleness blocker at specify→build', 
 
   it('staleness is a specify-axis condition only — build→verify ignores it (ac-8)', () => {
     tagAc(AC(8));
+    // Browse Verify from a clean Build (spec-282/dec-4 removed the current-tab
+    // offer): no narrative blocker on the build→verify axis.
     render(
       <TransitionSentence
         {...baseProps({
           currentPhase: 'build',
-          viewedTab: 'build',
+          viewedTab: 'verify',
           narrativeStale: true,
           totalTaskCount: 2,
         })}
       />,
     );
-    expect(text()).toContain('Do you want to move this spec to Verify?');
+    expect(text()).toContain('Are you sure you want to move this spec to Verify?');
     expect(text()).not.toContain('spec narrative');
   });
 });

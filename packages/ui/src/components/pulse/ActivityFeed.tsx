@@ -45,6 +45,17 @@ export interface ActivityFeedProps {
   contextBriefHandle?: string;
   /** Resolve a resource handle → its title (rows show "b-2 Pulse …"). */
   specTitle?: (handle: string) => string | undefined;
+  /**
+   * spec-122 ac-2 — true when a row is a REGRESSION (a previously-verified AC
+   * going red), so the feed renders the `⚠ REGRESSED` flag on it.
+   */
+  isRegression?: (row: ActivityRowData) => boolean;
+  /**
+   * spec-122 ac-2 — true when the row's spec has an active worker present in
+   * "Working now". A regression on a worked spec is muted (expected churn); a
+   * regression on a quiet spec earns the full-weight alarm.
+   */
+  specHasActiveWorker?: (briefId: string | null) => boolean;
 }
 
 // dec-10 burst window: consecutive rows from the same client on the same Spec
@@ -118,6 +129,8 @@ export function ActivityFeed({
   onLoadOlder,
   contextBriefHandle,
   specTitle,
+  isRegression,
+  specHasActiveWorker,
 }: ActivityFeedProps) {
   // Expanded burst groups, keyed by the group's lead-row id. Local to the feed.
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
@@ -155,7 +168,8 @@ export function ActivityFeed({
     <div className="flex h-full flex-col" data-testid="activity-feed">
       {/* Status line. */}
       <div
-        className="flex items-center gap-2 px-3 py-2 text-xs text-secondary border-b border-edge-subtle"
+        className="flex items-center gap-2 px-3 py-2 text-xs text-secondary border-b border-edge-subtle cursor-help"
+        title="Live — the real-time event log: every meaningful change as it happens (specs, decisions, tasks, ACs, sections), newest first. Reads and plumbing are excluded. The dot tracks the live-connection health."
         {...(disconnected ? { 'data-testid': 'pulse-reconnecting' } : {})}
       >
         <LiveDot
@@ -184,7 +198,7 @@ export function ActivityFeed({
         ) : groups.length === 0 ? (
           <EmptyFeed />
         ) : (
-          <ol className="divide-y divide-edge-subtle/60">
+          <ol className="divide-y divide-edge-subtle">
             <li
               className="select-none px-3 py-2 text-center text-[0.65rem] uppercase tracking-wide text-muted/60"
               data-testid="event-log-header"
@@ -198,6 +212,8 @@ export function ActivityFeed({
                 now={now}
                 contextBriefHandle={contextBriefHandle}
                 specTitle={specTitle}
+                isRegression={isRegression}
+                specHasActiveWorker={specHasActiveWorker}
                 expanded={expandedGroups.has(group.key)}
                 onToggleExpand={() => toggleGroup(group.key)}
               />
@@ -213,7 +229,7 @@ export function ActivityFeed({
               onClick={onLoadOlder}
               disabled={loading}
               data-testid="load-older"
-              className="rounded border border-edge-subtle px-3 py-1 text-xs text-secondary hover:bg-card-hover hover:text-primary transition-colors disabled:opacity-60"
+              className="rounded-sm border border-edge-subtle px-3 py-1 text-xs text-secondary hover:bg-card-hover hover:text-primary transition-colors disabled:opacity-60"
             >
               {loading ? 'Loading…' : 'Load older'}
             </button>
@@ -235,6 +251,8 @@ function FeedRow({
   now,
   contextBriefHandle,
   specTitle,
+  isRegression,
+  specHasActiveWorker,
   expanded,
   onToggleExpand,
 }: {
@@ -242,11 +260,16 @@ function FeedRow({
   now: number;
   contextBriefHandle?: string;
   specTitle?: (handle: string) => string | undefined;
+  isRegression?: (row: ActivityRowData) => boolean;
+  specHasActiveWorker?: (briefId: string | null) => boolean;
   expanded: boolean;
   onToggleExpand: () => void;
 }) {
   const lead = group.rows[0];
   const isLive = (r: ActivityRowData) => now - rowTime(r) < LIVE_WINDOW_MS;
+  // spec-122 ac-2: per-row regression + presence-aware muting.
+  const regressed = (r: ActivityRowData) => isRegression?.(r) ?? false;
+  const muted = (r: ActivityRowData) => specHasActiveWorker?.(r.briefId) ?? false;
   // SSE-synthesised rows carry a `live-` id prefix; those are the ones that
   // just arrived and get the one-shot arrival tint.
   const justArrived = lead.id.startsWith('live-');
@@ -281,7 +304,7 @@ function FeedRow({
           expanded
           onToggleExpand={onToggleExpand}
         />
-        <ul className="border-l border-edge-subtle/60 ml-5">
+        <ul className="border-l border-edge-subtle ml-5">
           {group.rows.slice(1).map((r) => (
             <li key={r.id}>
               <ActivityRow
@@ -289,6 +312,8 @@ function FeedRow({
                 isLive={isLive(r)}
                 contextBriefHandle={contextBriefHandle}
                 specTitle={specTitle}
+                regressed={regressed(r)}
+                regressionMuted={muted(r)}
               />
             </li>
           ))}
@@ -305,6 +330,8 @@ function FeedRow({
         isLive={isLive(lead)}
         contextBriefHandle={contextBriefHandle}
         specTitle={specTitle}
+        regressed={regressed(lead)}
+        regressionMuted={muted(lead)}
       />
     </li>
   );
@@ -334,14 +361,14 @@ function EmptyFeed() {
 // echo the real row's shape (a dot+time line over a wider narrative line).
 function SkeletonRows() {
   return (
-    <ul className="divide-y divide-edge-subtle/60" data-testid="feed-skeleton">
+    <ul className="divide-y divide-edge-subtle" data-testid="feed-skeleton">
       {Array.from({ length: 6 }).map((_, i) => (
         <li key={i} className="px-3 py-2">
           <div className="flex items-center gap-2">
             <span className="h-1.5 w-1.5 rounded-full bg-card-hover animate-pulse" />
-            <span className="h-2 w-16 rounded bg-card-hover animate-pulse" />
+            <span className="h-2 w-16 rounded-sm bg-card-hover animate-pulse" />
           </div>
-          <span className="mt-1.5 block h-3 w-3/4 rounded bg-card-hover animate-pulse" />
+          <span className="mt-1.5 block h-3 w-3/4 rounded-sm bg-card-hover animate-pulse" />
         </li>
       ))}
     </ul>

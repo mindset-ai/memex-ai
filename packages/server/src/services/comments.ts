@@ -13,9 +13,10 @@ import {
   type CommentAction,
   type CommentAudience,
 } from "../types/roles.js";
+import { commentTargetToColumns, type CommentTarget } from "../types/comment-target.js";
 import { isUuid, parseHandle } from "./shared/identifiers.js";
 import { nextSeq, withSeqRetry } from "./shared/sequence.js";
-import { mutate, type Mutated } from "./mutate.js";
+import { mutate, type Mutated, type RequestCtx } from "./mutate.js";
 import {
   hasAnchorMarker,
   insertMarkerAt,
@@ -160,59 +161,103 @@ async function resolveDocRef(
   return doc.id;
 }
 
-// Resolve a Decision reference. Accepts a UUID or a `D-N` / `dec-N` handle.
-// Handle resolution scopes to memex_id + seq; decisions live under exactly one
-// doc but the (memex_id, seq) tuple isn't unique, so a bare handle is allowed
-// only when it matches exactly one decision in the memex.
-async function resolveDecisionRef(memexId: string, raw: string): Promise<string> {
+// spec-375 dry-8 (std-1/std-10): Decision and Task references resolve through
+// the SAME shape — a UUID lookup, else a `<Primary>-N`/`<legacy>-N` handle that
+// must match exactly one row in the memex (the (memex_id, seq) tuple isn't
+// unique because both entities live under exactly one doc but seq is per-doc).
+// `resolveChildRef` is that one path; the per-entity differences (which table,
+// the accepted handle prefixes, the noun used in every message) ride in a
+// descriptor so each former variant is reproduced byte-for-byte. `nounCap` is
+// the capitalised noun used in the handle messages (`Decision`/`Task`);
+// `handleLabel` is the primary handle form shown in the invalid-reference hint
+// (`D-N`/`T-N`). Note that the legacy lowercase prefix (`dec-`/`t-`) is accepted
+// on input but never surfaced in the hint — matching the prior behaviour.
+interface ChildRefDescriptor {
+  /** UUID lookup scoped to (id, memexId). Returns the row id or null. */
+  findById(memexId: string, id: string): Promise<{ id: string } | null>;
+  /** Handle lookup — every row in the memex with this seq. */
+  findManyBySeq(memexId: string, seq: number): Promise<{ id: string }[]>;
+  /** Primary handle prefix, e.g. "D-" / "T-". */
+  primaryPrefix: string;
+  /** Legacy handle prefix accepted on input, e.g. "dec-" / "t-". */
+  legacyPrefix: string;
+  /** Lowercase noun for the UUID not-found / handle not-found messages. */
+  noun: string;
+  /** Capitalised noun for the ambiguity message ("Decision"/"Task"). */
+  nounCap: string;
+  /** Handle form shown in the invalid-reference hint ("D-N"/"T-N"). */
+  handleLabel: string;
+}
+
+async function resolveChildRef(
+  memexId: string,
+  raw: string,
+  cfg: ChildRefDescriptor,
+): Promise<string> {
   if (isUuid(raw)) {
-    const dec = await db.query.decisions.findFirst({
-      where: and(eq(decisions.id, raw), eq(decisions.memexId, memexId)),
-    });
-    if (!dec) throw new NotFoundError(`decision ${raw} not found`);
-    return dec.id;
+    const row = await cfg.findById(memexId, raw);
+    if (!row) throw new NotFoundError(`${cfg.noun} ${raw} not found`);
+    return row.id;
   }
-  const seq = parseHandle(raw, "D-") ?? parseHandle(raw, "dec-");
+  const seq = parseHandle(raw, cfg.primaryPrefix) ?? parseHandle(raw, cfg.legacyPrefix);
   if (seq === null) {
-    throw new ValidationError(`Invalid decision reference '${raw}'. Use a UUID or D-N handle.`);
+    throw new ValidationError(
+      `Invalid ${cfg.noun} reference '${raw}'. Use a UUID or ${cfg.handleLabel} handle.`,
+    );
   }
-  const matches = await db.query.decisions.findMany({
-    where: and(eq(decisions.memexId, memexId), eq(decisions.seq, seq)),
-  });
-  if (matches.length === 0) throw new NotFoundError(`decision handle ${raw} not found`);
+  const matches = await cfg.findManyBySeq(memexId, seq);
+  if (matches.length === 0) throw new NotFoundError(`${cfg.noun} handle ${raw} not found`);
   if (matches.length > 1) {
     throw new ValidationError(
-      `Decision handle ${raw} is ambiguous in this memex (${matches.length} matches). Use the decision UUID instead.`,
+      `${cfg.nounCap} handle ${raw} is ambiguous in this memex (${matches.length} matches). Use the ${cfg.noun} UUID instead.`,
     );
   }
   return matches[0].id;
 }
 
-// Resolve a Task reference. Accepts a UUID or a `T-N` / `t-N` handle. Same
-// per-memex ambiguity guard as decisions.
-async function resolveTaskRef(memexId: string, raw: string): Promise<string> {
-  if (isUuid(raw)) {
-    const t = await db.query.tasks.findFirst({
-      where: and(eq(tasks.id, raw), eq(tasks.memexId, memexId)),
-    });
-    if (!t) throw new NotFoundError(`task ${raw} not found`);
-    return t.id;
-  }
-  const seq = parseHandle(raw, "T-") ?? parseHandle(raw, "t-");
-  if (seq === null) {
-    throw new ValidationError(`Invalid task reference '${raw}'. Use a UUID or T-N handle.`);
-  }
-  const matches = await db.query.tasks.findMany({
-    where: and(eq(tasks.memexId, memexId), eq(tasks.seq, seq)),
-  });
-  if (matches.length === 0) throw new NotFoundError(`task handle ${raw} not found`);
-  if (matches.length > 1) {
-    throw new ValidationError(
-      `Task handle ${raw} is ambiguous in this memex (${matches.length} matches). Use the task UUID instead.`,
-    );
-  }
-  return matches[0].id;
-}
+const DECISION_REF: ChildRefDescriptor = {
+  findById: (memexId, id) =>
+    db.query.decisions.findFirst({
+      where: and(eq(decisions.id, id), eq(decisions.memexId, memexId)),
+      columns: { id: true },
+    }) as Promise<{ id: string } | null>,
+  findManyBySeq: (memexId, seq) =>
+    db.query.decisions.findMany({
+      where: and(eq(decisions.memexId, memexId), eq(decisions.seq, seq)),
+      columns: { id: true },
+    }),
+  primaryPrefix: "D-",
+  legacyPrefix: "dec-",
+  noun: "decision",
+  nounCap: "Decision",
+  handleLabel: "D-N",
+};
+
+const TASK_REF: ChildRefDescriptor = {
+  findById: (memexId, id) =>
+    db.query.tasks.findFirst({
+      where: and(eq(tasks.id, id), eq(tasks.memexId, memexId)),
+      columns: { id: true },
+    }) as Promise<{ id: string } | null>,
+  findManyBySeq: (memexId, seq) =>
+    db.query.tasks.findMany({
+      where: and(eq(tasks.memexId, memexId), eq(tasks.seq, seq)),
+      columns: { id: true },
+    }),
+  primaryPrefix: "T-",
+  legacyPrefix: "t-",
+  noun: "task",
+  nounCap: "Task",
+  handleLabel: "T-N",
+};
+
+// Resolve a Decision reference. Accepts a UUID or a `D-N` / `dec-N` handle.
+const resolveDecisionRef = (memexId: string, raw: string): Promise<string> =>
+  resolveChildRef(memexId, raw, DECISION_REF);
+
+// Resolve a Task reference. Accepts a UUID or a `T-N` / `t-N` handle.
+const resolveTaskRef = (memexId: string, raw: string): Promise<string> =>
+  resolveChildRef(memexId, raw, TASK_REF);
 
 // spec-100: validate + normalise the geo-comment extras. Kept pure (no DB) so
 // the rules are unit-testable in isolation from the async reference-resolution
@@ -506,50 +551,112 @@ function matchesTypeFilter(
   return allowed.includes(comment.commentType as CommentType);
 }
 
-// ── Section comments ────────────────────────────────────────
+// ── Comment-target descriptor (spec-375 dry-7, std-8) ───────
+// The three add/list pairs (section / decision / task) differ only in: which FK
+// column the comment carries, how the parent row is resolved to a docId (and the
+// not-found message that resolution throws), and which `doc_comments` column the
+// list query filters on. The descriptor captures exactly those differences so a
+// single add/list code path drives all three; the public functions below stay as
+// thin signature-preserving wrappers. Per std-8 every add still flows through
+// `mutate()` with the identical `{ memexId, docId, entity: "comment", action }`
+// key, and per std-32 the attribution path is unchanged.
+//
+// Parent lookup quirk preserved verbatim: the SECTION row is fetched by id ONLY
+// (sections carry no memexId column), then the parent doc is verified memex-
+// scoped — a cross-tenant section id therefore 404s on the parent check. The
+// DECISION / TASK rows are memex-scoped in their own lookup. Both 404 with the
+// SAME `<Noun> ${id} not found` message they always have.
+interface CommentTargetDescriptor {
+  /** Build the discriminated CommentTarget for the FK-column mapping. */
+  toTarget(targetId: string): CommentTarget;
+  /** Resolve targetId → owning docId, or throw the verbatim NotFoundError. */
+  resolveDocId(memexId: string, targetId: string): Promise<string>;
+  /** The `doc_comments` column the list query filters on. */
+  listColumn:
+    | typeof docComments.sectionId
+    | typeof docComments.decisionId
+    | typeof docComments.taskId;
+}
 
-export async function addComment(
+const SECTION_TARGET: CommentTargetDescriptor = {
+  toTarget: (sectionId) => ({ kind: "section", sectionId }),
+  resolveDocId: async (memexId, sectionId) => {
+    const section = await db.query.docSections.findFirst({
+      where: eq(docSections.id, sectionId),
+    });
+    if (!section) {
+      throw new NotFoundError(`Section ${sectionId} not found`);
+    }
+    // Verify the parent doc belongs to the requesting account
+    const parent = await db.query.documents.findFirst({
+      where: and(eq(documents.id, section.docId), eq(documents.memexId, memexId)),
+    });
+    if (!parent) {
+      throw new NotFoundError(`Section ${sectionId} not found`);
+    }
+    return section.docId;
+  },
+  listColumn: docComments.sectionId,
+};
+
+const DECISION_TARGET: CommentTargetDescriptor = {
+  toTarget: (decisionId) => ({ kind: "decision", decisionId }),
+  resolveDocId: async (memexId, decisionId) => {
+    const dec = await db.query.decisions.findFirst({
+      where: and(eq(decisions.id, decisionId), eq(decisions.memexId, memexId)),
+    });
+    if (!dec) {
+      throw new NotFoundError(`Decision ${decisionId} not found`);
+    }
+    return dec.docId;
+  },
+  listColumn: docComments.decisionId,
+};
+
+const TASK_TARGET: CommentTargetDescriptor = {
+  toTarget: (taskId) => ({ kind: "task", taskId }),
+  resolveDocId: async (memexId, taskId) => {
+    const item = await db.query.tasks.findFirst({
+      where: and(eq(tasks.id, taskId), eq(tasks.memexId, memexId)),
+    });
+    if (!item) {
+      throw new NotFoundError(`Task ${taskId} not found`);
+    }
+    return item.docId;
+  },
+  listColumn: docComments.taskId,
+};
+
+// The single add path: resolve docId → mutate(comment created) → seq-retried
+// insert carrying the descriptor's FK column. Byte-for-byte the prior per-target
+// bodies, just parameterised.
+async function addCommentForTarget(
+  desc: CommentTargetDescriptor,
   memexId: string,
-  sectionId: string,
+  targetId: string,
   authorName: string,
   content: string,
   extras?: CommentExtras,
 ): Promise<Mutated<DocComment>> {
   const norm = await normalizeExtras(memexId, extras);
 
-  const section = await db.query.docSections.findFirst({
-    where: eq(docSections.id, sectionId),
-  });
-  if (!section) {
-    throw new NotFoundError(`Section ${sectionId} not found`);
-  }
-  // Verify the parent doc belongs to the requesting account
-  const parent = await db.query.documents.findFirst({
-    where: and(eq(documents.id, section.docId), eq(documents.memexId, memexId)),
-  });
-  if (!parent) {
-    throw new NotFoundError(`Section ${sectionId} not found`);
-  }
+  const docId = await desc.resolveDocId(memexId, targetId);
+  const targetColumns = commentTargetToColumns(desc.toTarget(targetId));
 
   return mutate(
     {},
-    { memexId, docId: section.docId, entity: "comment", action: "created" },
+    { memexId, docId, entity: "comment", action: "created" },
     async () =>
       withSeqRetry(
         async () => {
-          const seq = await nextSeq(
-            docComments,
-            docComments.seq,
-            docComments.docId,
-            section.docId,
-          );
+          const seq = await nextSeq(docComments, docComments.seq, docComments.docId, docId);
           const [comment] = await db
             .insert(docComments)
             .values({
               memexId,
-              docId: section.docId,
+              docId,
               seq,
-              sectionId,
+              ...targetColumns,
               authorName,
               content,
               ...norm,
@@ -560,6 +667,32 @@ export async function addComment(
         DOC_COMMENTS_SEQ_CONSTRAINT,
       ),
   );
+}
+
+// The single list path: chronological comments for one target, type-filtered.
+async function listCommentsForTarget(
+  desc: CommentTargetDescriptor,
+  memexId: string,
+  targetId: string,
+  opts: ListCommentsOptions = {},
+): Promise<DocComment[]> {
+  const rows = await db.query.docComments.findMany({
+    where: and(eq(desc.listColumn, targetId), eq(docComments.memexId, memexId)),
+    orderBy: (comments, { asc }) => [asc(comments.createdAt)],
+  });
+  return rows.filter((c) => matchesTypeFilter(c, opts.typeFilter));
+}
+
+// ── Section comments ────────────────────────────────────────
+
+export async function addComment(
+  memexId: string,
+  sectionId: string,
+  authorName: string,
+  content: string,
+  extras?: CommentExtras,
+): Promise<Mutated<DocComment>> {
+  return addCommentForTarget(SECTION_TARGET, memexId, sectionId, authorName, content, extras);
 }
 
 // spec-100: create a geo-comment anchored to a RANGE in a section's markdown.
@@ -644,11 +777,7 @@ export async function listComments(
   sectionId: string,
   opts: ListCommentsOptions = {},
 ): Promise<DocComment[]> {
-  const rows = await db.query.docComments.findMany({
-    where: and(eq(docComments.sectionId, sectionId), eq(docComments.memexId, memexId)),
-    orderBy: (comments, { asc }) => [asc(comments.createdAt)],
-  });
-  return rows.filter((c) => matchesTypeFilter(c, opts.typeFilter));
+  return listCommentsForTarget(SECTION_TARGET, memexId, sectionId, opts);
 }
 
 // ── Decision comments ───────────────────────────────────────
@@ -660,44 +789,7 @@ export async function addDecisionComment(
   content: string,
   extras?: CommentExtras,
 ): Promise<Mutated<DocComment>> {
-  const norm = await normalizeExtras(memexId, extras);
-
-  const dec = await db.query.decisions.findFirst({
-    where: and(eq(decisions.id, decisionId), eq(decisions.memexId, memexId)),
-  });
-  if (!dec) {
-    throw new NotFoundError(`Decision ${decisionId} not found`);
-  }
-
-  return mutate(
-    {},
-    { memexId, docId: dec.docId, entity: "comment", action: "created" },
-    async () =>
-      withSeqRetry(
-        async () => {
-          const seq = await nextSeq(
-            docComments,
-            docComments.seq,
-            docComments.docId,
-            dec.docId,
-          );
-          const [comment] = await db
-            .insert(docComments)
-            .values({
-              memexId,
-              docId: dec.docId,
-              seq,
-              decisionId,
-              authorName,
-              content,
-              ...norm,
-            })
-            .returning();
-          return comment;
-        },
-        DOC_COMMENTS_SEQ_CONSTRAINT,
-      ),
-  );
+  return addCommentForTarget(DECISION_TARGET, memexId, decisionId, authorName, content, extras);
 }
 
 export async function listDecisionComments(
@@ -705,11 +797,7 @@ export async function listDecisionComments(
   decisionId: string,
   opts: ListCommentsOptions = {},
 ): Promise<DocComment[]> {
-  const rows = await db.query.docComments.findMany({
-    where: and(eq(docComments.decisionId, decisionId), eq(docComments.memexId, memexId)),
-    orderBy: (comments, { asc }) => [asc(comments.createdAt)],
-  });
-  return rows.filter((c) => matchesTypeFilter(c, opts.typeFilter));
+  return listCommentsForTarget(DECISION_TARGET, memexId, decisionId, opts);
 }
 
 // ── Work-item comments ─────────────────────────────────────
@@ -721,44 +809,7 @@ export async function addTaskComment(
   content: string,
   extras?: CommentExtras,
 ): Promise<Mutated<DocComment>> {
-  const norm = await normalizeExtras(memexId, extras);
-
-  const item = await db.query.tasks.findFirst({
-    where: and(eq(tasks.id, taskId), eq(tasks.memexId, memexId)),
-  });
-  if (!item) {
-    throw new NotFoundError(`Task ${taskId} not found`);
-  }
-
-  return mutate(
-    {},
-    { memexId, docId: item.docId, entity: "comment", action: "created" },
-    async () =>
-      withSeqRetry(
-        async () => {
-          const seq = await nextSeq(
-            docComments,
-            docComments.seq,
-            docComments.docId,
-            item.docId,
-          );
-          const [comment] = await db
-            .insert(docComments)
-            .values({
-              memexId,
-              docId: item.docId,
-              seq,
-              taskId,
-              authorName,
-              content,
-              ...norm,
-            })
-            .returning();
-          return comment;
-        },
-        DOC_COMMENTS_SEQ_CONSTRAINT,
-      ),
-  );
+  return addCommentForTarget(TASK_TARGET, memexId, taskId, authorName, content, extras);
 }
 
 export async function listTaskComments(
@@ -766,11 +817,7 @@ export async function listTaskComments(
   taskId: string,
   opts: ListCommentsOptions = {},
 ): Promise<DocComment[]> {
-  const rows = await db.query.docComments.findMany({
-    where: and(eq(docComments.taskId, taskId), eq(docComments.memexId, memexId)),
-    orderBy: (comments, { asc }) => [asc(comments.createdAt)],
-  });
-  return rows.filter((c) => matchesTypeFilter(c, opts.typeFilter));
+  return listCommentsForTarget(TASK_TARGET, memexId, taskId, opts);
 }
 
 // ── Resolve / unresolve (target-agnostic) ───────────────────
@@ -779,6 +826,12 @@ export async function resolveComment(
   memexId: string,
   commentId: string,
   resolution?: string,
+  // spec-259 dec-1 / ac-4: resolution is an activity-bearing mutation, so it must
+  // carry WHO (std-32). The acting user rides the explicit RequestCtx through
+  // mutate() — the route/MCP caller passes restCtx(c)/reqCtx(ctx). It defaults to
+  // an empty ctx so unattributed/system callers still resolve (degrading to no
+  // actor rather than throwing), matching the rest of the activity contract.
+  ctx: RequestCtx = {},
 ): Promise<Mutated<DocComment>> {
   // Pre-load to fail fast on the FK lookup before opening the mutate transaction.
   const existing = await db.query.docComments.findFirst({
@@ -790,7 +843,7 @@ export async function resolveComment(
   const docId = (await getDocIdForComment(existing)) ?? undefined;
 
   return mutate(
-    {},
+    ctx,
     { memexId, docId, entity: "comment", action: "updated" },
     async () => {
       const [updated] = await db
@@ -910,64 +963,60 @@ async function getDocCommentsGrouped(
     return byOpen.filter((c) => matchesTypeFilter(c, opts.typeFilter));
   };
 
-  // Section comments
+  // spec-375 dry-7: the three target groups share one shape — fetch the parents
+  // ordered by seq, batch-fetch their comments via an unscoped `inArray` on the
+  // target FK column (ordered by createdAt), then attach + open/type-filter and
+  // drop empty entries. `fetchGroup` runs that once per target; the unscoped
+  // comment fetch + the only-when-non-empty guard are reproduced verbatim (the
+  // parents are already memex-scoped by docId, so the comment fetch never needs
+  // its own memexId filter).
+  async function fetchGroup<P extends { id: string }>(
+    parents: P[],
+    listColumn:
+      | typeof docComments.sectionId
+      | typeof docComments.decisionId
+      | typeof docComments.taskId,
+    fkOf: (c: DocComment) => string | null,
+  ): Promise<{ parent: P; comments: DocComment[] }[]> {
+    const ids = parents.map((p) => p.id);
+    const comments =
+      ids.length > 0
+        ? await db.query.docComments.findMany({
+            where: inArray(listColumn, ids),
+            orderBy: (c, { asc }) => [asc(c.createdAt)],
+          })
+        : [];
+    return parents
+      .map((parent) => ({
+        parent,
+        comments: applyFilter(comments.filter((c) => fkOf(c) === parent.id)),
+      }))
+      .filter((e) => e.comments.length > 0);
+  }
+
   const sections = await db.query.docSections.findMany({
     where: eq(docSections.docId, docId),
     orderBy: (s, { asc }) => [asc(s.seq)],
   });
-  const sectionIds = sections.map((s) => s.id);
-  const sectionComments = sectionIds.length > 0
-    ? await db.query.docComments.findMany({
-        where: inArray(docComments.sectionId, sectionIds),
-        orderBy: (c, { asc }) => [asc(c.createdAt)],
-      })
-    : [];
-
-  // Decision comments
   const docDecisions = await db.query.decisions.findMany({
     where: eq(decisions.docId, docId),
     orderBy: (d, { asc }) => [asc(d.seq)],
   });
-  const decisionIds = docDecisions.map((d) => d.id);
-  const decisionComments = decisionIds.length > 0
-    ? await db.query.docComments.findMany({
-        where: inArray(docComments.decisionId, decisionIds),
-        orderBy: (c, { asc }) => [asc(c.createdAt)],
-      })
-    : [];
-
-  // Work-item comments
   const docTasks = await db.query.tasks.findMany({
     where: eq(tasks.docId, docId),
     orderBy: (w, { asc }) => [asc(w.seq)],
   });
-  const taskIds = docTasks.map((w) => w.id);
-  const taskComments = taskIds.length > 0
-    ? await db.query.docComments.findMany({
-        where: inArray(docComments.taskId, taskIds),
-        orderBy: (c, { asc }) => [asc(c.createdAt)],
-      })
-    : [];
+
+  const [sectionGroups, decisionGroups, taskGroups] = await Promise.all([
+    fetchGroup(sections, docComments.sectionId, (c) => c.sectionId),
+    fetchGroup(docDecisions, docComments.decisionId, (c) => c.decisionId),
+    fetchGroup(docTasks, docComments.taskId, (c) => c.taskId),
+  ]);
 
   return {
-    sections: sections
-      .map((section) => ({
-        section,
-        comments: applyFilter(sectionComments.filter((c) => c.sectionId === section.id)),
-      }))
-      .filter((e) => e.comments.length > 0),
-    decisions: docDecisions
-      .map((decision) => ({
-        decision,
-        comments: applyFilter(decisionComments.filter((c) => c.decisionId === decision.id)),
-      }))
-      .filter((e) => e.comments.length > 0),
-    tasks: docTasks
-      .map((task) => ({
-        task,
-        comments: applyFilter(taskComments.filter((c) => c.taskId === task.id)),
-      }))
-      .filter((e) => e.comments.length > 0),
+    sections: sectionGroups.map(({ parent, comments }) => ({ section: parent, comments })),
+    decisions: decisionGroups.map(({ parent, comments }) => ({ decision: parent, comments })),
+    tasks: taskGroups.map(({ parent, comments }) => ({ task: parent, comments })),
   };
 }
 

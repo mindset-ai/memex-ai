@@ -4,6 +4,21 @@ import { buildMetadata } from "./metadata.js";
 import type { AcEventPayload, TagAcOptions } from "./types.js";
 
 /**
+ * A reference to `fetch` bound ONCE at module load — before any test can replace
+ * the global (spec-302). Production emissions (driven from `setup.ts`) send
+ * through this, so a consumer test that stubs `globalThis.fetch` and never
+ * restores it cannot silently swallow the emission POST. The setupFile that
+ * imports this module is loaded once at worker init, before any `it()` runs, so
+ * the capture is guaranteed to be the genuine `fetch`.
+ *
+ * `emit()`'s `transport` parameter defaults to the *live* `globalThis.fetch` (not
+ * this captured ref) so the emitter's own unit tests keep mocking via
+ * `vi.stubGlobal('fetch', …)`; production opts into immunity by passing
+ * `capturedFetch` explicitly.
+ */
+export const capturedFetch: typeof fetch = globalThis.fetch.bind(globalThis);
+
+/**
  * Should the helper emit at all? Controlled by MEMEX_EMIT.
  *
  * Default: true (emit). When MEMEX_EMIT is `false`, `0`, `no`, or `off`
@@ -19,23 +34,6 @@ export function isEmissionEnabled(): boolean {
   if (raw === undefined) return true;
   const lc = raw.toLowerCase();
   return lc !== "false" && lc !== "0" && lc !== "no" && lc !== "off";
-}
-
-/**
- * Should this specific emission be marked hidden?
- *
- * Controlled by MEMEX_HIDDEN env var (global; all emissions in this run
- * hidden) or by per-call `{ hidden: true }` option.
- *
- * Default: false (visible). Hidden emissions are recorded server-side but
- * do not move the AC's displayed verification state.
- */
-export function isHidden(perCall?: boolean): boolean {
-  if (perCall === true) return true;
-  const raw = process.env.MEMEX_HIDDEN;
-  if (!raw) return false;
-  const lc = raw.toLowerCase();
-  return lc === "true" || lc === "1" || lc === "yes" || lc === "on";
 }
 
 /**
@@ -94,9 +92,9 @@ export function buildPayload({
     payload.actor = actor;
   }
 
-  if (isHidden(options?.hidden)) {
-    payload.hidden = true;
-  }
+  // spec-358: the emitter no longer sends a `hidden` field. Every real result
+  // counts; the server no longer honours an inbound `hidden`, so there is
+  // nothing to send. MEMEX_HIDDEN and the per-call `hidden` option are gone.
 
   const metadata = buildMetadata(options?.metadata);
   if (Object.keys(metadata).length > 0) {
@@ -106,8 +104,17 @@ export function buildPayload({
   return payload;
 }
 
-/** POST one emission to the Memex test-events endpoint. */
-export async function emit(args: EmitArgs): Promise<void> {
+/**
+ * POST one emission to the Memex test-events endpoint.
+ *
+ * `transport` is the HTTP sender, defaulting to the live `globalThis.fetch` so
+ * unit tests can mock it via `vi.stubGlobal`. Production callers (`setup.ts`)
+ * pass `capturedFetch` to be immune to later global-fetch replacement (spec-302).
+ */
+export async function emit(
+  args: EmitArgs,
+  transport: typeof fetch = globalThis.fetch,
+): Promise<void> {
   if (!isEmissionEnabled()) return;
 
   const url = deriveEventsUrl(args.ac_uid);
@@ -116,11 +123,11 @@ export async function emit(args: EmitArgs): Promise<void> {
   const payload = buildPayload(args);
 
   // ⚠ PROTOCOL CONTRACT — the POST shape below (method, Content-Type, Authorization: Bearer
-  // header, and the fail-safe "swallow non-2xx + network errors" behaviour at the end of
-  // this function) is documented language-agnostically in the `ac-emission-bootstrap`
-  // get_information topic (packages/server/src/guidance/ac-emission-bootstrap.json) so other
-  // languages can hand-roll a correct emitter. Change the transport/auth/behaviour here →
-  // update that topic too.
+  // header, the fail-safe "swallow non-2xx + network errors" behaviour at the end of this
+  // function, and surfacing the server's response body on a non-2xx) is documented
+  // language-agnostically in the `ac-emission-bootstrap` get_information topic
+  // (packages/server/src/guidance/ac-emission-bootstrap.json) so other languages can
+  // hand-roll a correct emitter. Change the transport/auth/behaviour here → update that topic too.
   //
   // spec-129: attach the emission key as a Bearer token when MEMEX_EMIT_KEY is set.
   // Authorization is redacted for free by Cloud Run + most proxies. When unset, the POST
@@ -132,7 +139,7 @@ export async function emit(args: EmitArgs): Promise<void> {
   }
 
   try {
-    const res = await fetch(url, {
+    const res = await transport(url, {
       method: "POST",
       headers,
       body: JSON.stringify(payload),
@@ -144,9 +151,18 @@ export async function emit(args: EmitArgs): Promise<void> {
       signal: AbortSignal.timeout(5000),
     });
     if (!res.ok) {
+      // spec-333: surface the server's RESPONSE BODY, not just the status code, so the
+      // actionable guidance a non-2xx carries (e.g. a 401 telling a coding agent to call
+      // provision_ac_emission for a fresh key) reaches the agent reading test output. The
+      // body read is guarded — a failure to read it must never break the fail-safe contract
+      // (a failed emission still never fails the test run).
+      const responseBody = await Promise.resolve()
+        .then(() => res.text())
+        .catch(() => "");
       // eslint-disable-next-line no-console
       console.warn(
-        `[ac-emit] POST ${url} returned ${res.status} for ac_uid=${args.ac_uid}`,
+        `[ac-emit] POST ${url} returned ${res.status} for ac_uid=${args.ac_uid}` +
+          (responseBody ? `: ${responseBody}` : ""),
       );
     }
     const warning = res.headers.get("x-memex-warning");

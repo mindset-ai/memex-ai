@@ -30,6 +30,7 @@ import { buildTenantUrl } from "../services/shared/tenant-url.js";
 import { memexSlugsById } from "./refs.js";
 import {
   toolSpecs,
+  AGENT_ONLY_SERVER_TOOLS,
   buildNudgeOrgBlocksGetter,
   type ToolCtx,
   type ResolvedRef,
@@ -38,7 +39,9 @@ import { applyPhaseDescriptionOverrides } from "./phase-descriptions.js";
 import { resolveRef as resolveCanonicalRef } from "../services/resolver.js";
 import { parseRef } from "../services/refs.js";
 import { logToolCall } from "../services/mcp-telemetry.js";
+import { recordMcpToolCalled } from "../services/funnel-events.js";
 import { runToolWithSpecTraffic } from "../services/spec-traffic.js";
+import { memexContext } from "../db/connection.js";
 import { bus } from "../services/bus.js";
 import { deriveActivity } from "../agent/derive-activity.js";
 import type { ToolSpec } from "../agent/tool-specs.js";
@@ -263,6 +266,12 @@ export function createMcpServer(
         errorMessage = formatErrorForTelemetry(err);
         return handleError(err);
       } finally {
+        // spec-297 (funnel stage 4): one mcp.tool_called usage_event per invocation
+        // (dec-3 — every call, not deduped). Direct, advisory emission, independent
+        // of the mcp_sessions audit row above. memex_id is the resolved Memex (NULL
+        // for the Memex-agnostic tools list_memexes / get_information); tool_name
+        // rides as a low-cardinality, non-PII prop. distinct_id is the acting user.
+        void recordMcpToolCalled(userId, toolName, getMemexId?.());
         if (sessionId) {
           void logToolCall({
             sessionId,
@@ -332,6 +341,10 @@ export function createMcpServer(
   // and pass it instead of `undefined`.
   const resolvedSpecs = applyPhaseDescriptionOverrides(toolSpecs, undefined);
   for (const spec of resolvedSpecs) {
+    // spec-360: agent-only server tools (propose_scaffold_change) are never
+    // registered on the MCP surface — they only make sense inside an in-app
+    // agent mode. Skip them here; the manifest parity check excludes them too.
+    if (AGENT_ONLY_SERVER_TOOLS.has(spec.name)) continue;
     // Per-call closure: each ctx resolver records the memexId it resolved
     // into this variable, and the telemetry wrap reads it in its finally
     // block to stamp memex_id on the mcp_tool_calls row. Safe under
@@ -352,6 +365,21 @@ export function createMcpServer(
     const handler = withTelemetry(
       spec.name,
       async (input: Record<string, unknown>) => {
+        // spec-199 t-14: RLS requires app.memex_id set in the rlsClient proxy
+        // before any DB query on a tenant table. The memexId is known only
+        // AFTER one of the resolvers fires (inside the handler), so we can't
+        // call memexContext.run() with a memexId up front — and enterWith()
+        // inside a resolver doesn't propagate upward to the handler's parent
+        // async context.
+        //
+        // Fix: start with a mutable store object and wrap the entire handler in
+        // memexContext.run(rlsStore, ...). memexContext.run stores a REFERENCE,
+        // not a copy, so when a resolver mutates rlsStore.memexId the proxy's
+        // subsequent getStore() calls on this async subtree see the updated
+        // value. Workspace-resolution queries (memexes, org_memberships) run
+        // while memexId is still empty and correctly fall through the proxy's
+        // `!ctx?.memexId` guard with no RLS injection.
+        const rlsStore: { memexId: string } = { memexId: "" };
         const ctx: ToolCtx = {
           userId,
           // spec-203 Layer 2 (dec-2): thread the dispatch-layer session id into
@@ -372,6 +400,7 @@ export function createMcpServer(
             );
             resolvedMemexId = memexId;
             enforceWriteGate(readOnly);
+            rlsStore.memexId = memexId;
             return memexId;
           },
           resolveMemexFromEntity: async (kind, id) => {
@@ -383,12 +412,33 @@ export function createMcpServer(
             );
             resolvedMemexId = memexId;
             enforceWriteGate(readOnly);
+            rlsStore.memexId = memexId;
             return memexId;
           },
           resolveRef: async (ref) => {
+            // spec-199 t-14: pre-populate rlsStore.memexId from the ref's
+            // namespace/memex slug before resolveRefForUser runs the canonical
+            // resolver, which queries the RLS-gated `documents` table.
+            // resolveWorkspaceForRead touches only non-RLS tables (namespaces,
+            // memexes, org_memberships, user_memex_access). Errors are swallowed
+            // — resolveRefForUser surfaces the authoritative failure.
+            const preParsed = parseRef(ref);
+            if (preParsed.ok) {
+              try {
+                const { memexId: preMemexId } = await resolveWorkspaceForRead(
+                  userId,
+                  `${preParsed.ref.namespace}/${preParsed.ref.memex}`,
+                  orgFilter,
+                );
+                rlsStore.memexId = preMemexId;
+              } catch {
+                // best-effort
+              }
+            }
             const result = await resolveRefForUser(userId, ref, orgFilter);
             resolvedMemexId = result.memexId;
             enforceWriteGate(result.readOnly);
+            rlsStore.memexId = result.memexId;
             return result;
           },
           workspaceUrl,
@@ -413,7 +463,12 @@ export function createMcpServer(
         // to may auto-advance phase and auto-assign the caller (see
         // services/spec-traffic.ts). Identical wiring on the in-app agent
         // surface (agent/tools.ts → executeServerTool) per dec-5.
-        return await runToolWithSpecTraffic(spec, input, ctx);
+        //
+        // spec-199 t-14: wrap in memexContext.run so the RLS proxy sees
+        // rlsStore on every getStore() call in this async subtree.
+        return await memexContext.run(rlsStore, () =>
+          runToolWithSpecTraffic(spec, input, ctx),
+        );
       },
       () => resolvedMemexId,
       // spec-156 ac-15: pass the spec so the wrap emits a 'mcp'-channel

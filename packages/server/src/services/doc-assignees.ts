@@ -22,17 +22,31 @@ import { db } from "../db/connection.js";
 import { docAssignees, documents, users } from "../db/schema.js";
 import type { DocAssignee } from "../db/schema.js";
 import { NotFoundError } from "../types/errors.js";
-import { mutate, type Mutated } from "./mutate.js";
+import { mutate, type Mutated, type RequestCtx } from "./mutate.js";
+import { actorName, resolveActorColumns } from "./actor.js";
 
 export type { DocAssignee };
 
-async function assertSpecInMemex(memexId: string, docId: string): Promise<void> {
+// Returns the Spec's handle (404 on a cross-tenant miss, std-7) so callers can
+// name it in the Pulse narrative instead of leaking the raw doc UUID (spec-122).
+async function assertSpecInMemex(memexId: string, docId: string): Promise<string> {
   const doc = await db.query.documents.findFirst({
     where: and(eq(documents.id, docId), eq(documents.memexId, memexId)),
+    columns: { handle: true },
   });
   if (!doc) {
     throw new NotFoundError(`Spec ${docId} not found in memex ${memexId}`);
   }
+  return doc.handle;
+}
+
+// The assignee's display snapshot for the Pulse narrative. spec-122.
+async function assigneeDisplayName(userId: string): Promise<string> {
+  const u = await db.query.users.findFirst({
+    where: eq(users.id, userId),
+    columns: { name: true, email: true },
+  });
+  return u ? actorName(u) : "a member";
 }
 
 export interface DocAssigneeView {
@@ -44,7 +58,12 @@ export interface DocAssigneeView {
 
 // The current assignees of a Spec, joined to users for display. Ordered by
 // assigned_at so the board renders the longest-standing assignee first.
-export async function listAssignees(memexId: string, docId: string): Promise<DocAssigneeView[]> {
+// includeEmail must be false for anonymous/non-member callers (Finding #1, spec-199).
+export async function listAssignees(
+  memexId: string,
+  docId: string,
+  includeEmail = true,
+): Promise<DocAssigneeView[]> {
   const rows = await db
     .select({
       userId: docAssignees.userId,
@@ -56,7 +75,7 @@ export async function listAssignees(memexId: string, docId: string): Promise<Doc
     .innerJoin(users, eq(users.id, docAssignees.userId))
     .where(and(eq(docAssignees.memexId, memexId), eq(docAssignees.docId, docId)))
     .orderBy(docAssignees.assignedAt);
-  return rows;
+  return rows.map((r) => ({ ...r, email: includeEmail ? r.email : null }));
 }
 
 // Batch roll-up of assignees for many Specs at once — backs the board list
@@ -153,11 +172,36 @@ export async function assign(
   docId: string,
   userId: string,
   assignedBy: string | null,
+  // spec-122 dec-5: WHO performed it + HOW, so the assign event is attributed to
+  // the acting human (not "System") with their resolved name. Defaults empty.
+  ctx: RequestCtx = {},
 ): Promise<Mutated<DocAssignee>> {
-  await assertSpecInMemex(memexId, docId);
+  const handle = await assertSpecInMemex(memexId, docId);
+  const who = await assigneeDisplayName(userId);
+  const actor = await resolveActorColumns(ctx);
+
+  // Already assigned? The write is a no-op, so emit NOTHING (std-32: an event
+  // must reflect a REAL change). spec-189's traffic-driven assignment calls this
+  // on every agent tool call, so emitting on an idempotent re-assign spammed the
+  // feed with "assigned X to Y" on every conversation turn.
+  const existing = await db.query.docAssignees.findFirst({
+    where: and(
+      eq(docAssignees.memexId, memexId),
+      eq(docAssignees.docId, docId),
+      eq(docAssignees.userId, userId),
+    ),
+  });
+
   return mutate(
-    {},
-    { memexId, docId, entity: "doc_assignee", action: "created" },
+    { ...ctx, actorUserId: actor.actorUserId ?? undefined, actorName: actor.actorName ?? undefined },
+    {
+      memexId,
+      docId,
+      entity: "doc_assignee",
+      action: "created",
+      // spec-122: name the spec + assignee instead of leaking the doc UUID.
+      narrative: `assigned ${handle} to ${who}`,
+    },
     async () => {
       await db
         .insert(docAssignees)
@@ -172,6 +216,8 @@ export async function assign(
       });
       return row!;
     },
+    // No real change ⇒ no emission. A genuine first-time assign still announces.
+    { silent: !!existing },
   );
 }
 
@@ -186,11 +232,20 @@ export async function unassign(
   memexId: string,
   docId: string,
   userId: string,
+  ctx: RequestCtx = {},
 ): Promise<Mutated<UnassignResult>> {
-  await assertSpecInMemex(memexId, docId);
+  const handle = await assertSpecInMemex(memexId, docId);
+  const who = await assigneeDisplayName(userId);
+  const actor = await resolveActorColumns(ctx);
   return mutate(
-    {},
-    { memexId, docId, entity: "doc_assignee", action: "deleted" },
+    { ...ctx, actorUserId: actor.actorUserId ?? undefined, actorName: actor.actorName ?? undefined },
+    {
+      memexId,
+      docId,
+      entity: "doc_assignee",
+      action: "deleted",
+      narrative: `unassigned ${who} from ${handle}`,
+    },
     async () => {
       await db
         .delete(docAssignees)

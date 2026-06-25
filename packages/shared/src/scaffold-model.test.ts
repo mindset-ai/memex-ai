@@ -22,8 +22,13 @@ import {
   type ToolNode,
   type TransitionRubric,
 } from './scaffold-model.js';
+import { BASE_SCAFFOLD } from './scaffold-data.js';
 
 const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-68/acs/ac-${n}`;
+// spec-360: the excludeIds arg is scaffold-assistant prompt-assembly (ac-10 —
+// the scaffold mode's server-composed system prompt drops the doc-bound blocks).
+const AC360 = (n: number) =>
+  `mindset-prod/memex-building-itself/specs/spec-360/acs/ac-${n}`;
 
 // ── helpers ──────────────────────────────────────────────────────────────
 
@@ -487,6 +492,79 @@ describe('toRubric composition', () => {
       'ORG-CHECK-A',
       'ORG-CHECK-B',
     ]);
+  });
+});
+
+// ── spec-360: toPromptBlocks excludeIds (scaffold-mode doc-block suppression) ─
+
+describe('toPromptBlocks excludeIds (spec-360 ac-10)', () => {
+  const dataset: ScaffoldDataset = {
+    ...EMPTY_DATASET,
+    phases: [
+      makePhase({
+        phase: 'specify',
+        promptBlockIds: ['role', 'mdx-components', 'ui-tools', 'context-awareness'],
+      }),
+    ],
+    promptBlocks: [
+      makePromptBlock({ id: 'role', text: 'ROLE-TEXT', surface: 'react_only' }),
+      makePromptBlock({ id: 'mdx-components', text: 'MDX-TEXT', surface: 'react_only' }),
+      makePromptBlock({ id: 'ui-tools', text: 'UI-TOOLS-TEXT', surface: 'react_only' }),
+      makePromptBlock({ id: 'context-awareness', text: 'CONTEXT-TEXT', surface: 'react_only' }),
+    ],
+  };
+
+  it('omits the excluded ids and keeps the rest in declared order', () => {
+    tagAc(AC360(10));
+
+    const blocks = toPromptBlocks(dataset, 'specify', new Set(['role']));
+    expect(blocks.map((b) => b.text)).toEqual([
+      'MDX-TEXT',
+      'UI-TOOLS-TEXT',
+      'CONTEXT-TEXT',
+    ]);
+  });
+
+  it('omits multiple excluded ids', () => {
+    tagAc(AC360(10));
+
+    const blocks = toPromptBlocks(
+      dataset,
+      'specify',
+      new Set(['role', 'context-awareness']),
+    );
+    expect(blocks.map((b) => b.text)).toEqual(['MDX-TEXT', 'UI-TOOLS-TEXT']);
+  });
+
+  it('no excludeIds → unchanged behaviour (back-compat)', () => {
+    tagAc(AC360(10));
+
+    const withUndefined = toPromptBlocks(dataset, 'specify');
+    const withEmptySet = toPromptBlocks(dataset, 'specify', new Set());
+    const expected = ['ROLE-TEXT', 'MDX-TEXT', 'UI-TOOLS-TEXT', 'CONTEXT-TEXT'];
+    expect(withUndefined.map((b) => b.text)).toEqual(expected);
+    expect(withEmptySet.map((b) => b.text)).toEqual(expected);
+  });
+
+  it('over BASE_SCAFFOLD: excluding the doc-bound ids drops them, keeps the rest in order', () => {
+    tagAc(AC360(10));
+
+    const full = toPromptBlocks(BASE_SCAFFOLD, 'specify');
+    const excluded = toPromptBlocks(
+      BASE_SCAFFOLD,
+      'specify',
+      new Set(['role', 'context-awareness', 'create-from-doc']),
+    );
+    // The excluded set is a strict, order-preserving subset of the full output.
+    expect(excluded.length).toBe(full.length - 3);
+    // None of the surviving blocks is one of the doc-bound role blocks.
+    expect(excluded.some((b) => b.text.includes('You are a document assistant'))).toBe(false);
+    expect(excluded.some((b) => b.text.includes('Never call `list_memexes`'))).toBe(false);
+    // Relative order of the survivors is unchanged.
+    const survivorsFromFull = full
+      .map((b) => b.text)
+      .filter((t) => excluded.some((e) => e.text === t));
+    expect(excluded.map((b) => b.text)).toEqual(survivorsFromFull);
   });
 });
 

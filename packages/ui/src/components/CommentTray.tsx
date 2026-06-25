@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import type { Comment, CommentTargetType } from '../api/types';
 import { useAuth } from './AuthContext';
 import {
@@ -7,14 +7,20 @@ import {
   createTaskComment,
   resolveComment as apiResolveComment,
   unresolveComment as apiUnresolveComment,
+  addCommentMentions,
+  assignComment as apiAssignComment,
+  fetchCommentMentions,
   type CommentExtras,
+  type CommentMentionView,
 } from '../api/client';
-import { TextArea } from './ui/TextArea';
-import { Button } from './ui';
+import { MentionComposer, type MentionSubmit } from './MentionComposer';
 import { CommentTypePill } from './CommentTypePill';
 import { CommentSourceAvatar } from './CommentSourceAvatar';
 import { DecisionLink, TaskLink, parseEntityRefs } from './DecisionLink';
 import { commentTypeAccentBorder } from '../utils/commentStyles';
+// spec-259 ac-5: render WHEN as the SAME relative phrase the MCP/agent surface
+// uses ("3d ago") so the web Specify readiness picture matches the agent's.
+import { timeAgo } from '../utils/timeAgo';
 
 interface CommentTrayProps {
   targetType: CommentTargetType;
@@ -50,10 +56,29 @@ function isAgentChatter(comment: Comment): boolean {
 
 export function CommentTray({ targetType, targetId, comments, onCommentsChange, canWrite = true, muteAgentChatter = false }: CommentTrayProps) {
   const { user } = useAuth();
-  const [content, setContent] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [showResolved, setShowResolved] = useState(false);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
+  // spec-320: mentions per comment, for rendering chips + resolving the assignee's
+  // display name (the assignee is also a mention).
+  const [mentionsByComment, setMentionsByComment] = useState<Record<string, CommentMentionView[]>>({});
+
+  const loadMentions = async (ids: string[]) => {
+    if (ids.length === 0) {
+      setMentionsByComment({});
+      return;
+    }
+    try {
+      setMentionsByComment(await fetchCommentMentions(ids));
+    } catch {
+      // Non-fatal: chips just don't render.
+    }
+  };
+
+  const commentIdsKey = comments.map((c) => c.id).join(',');
+  useEffect(() => {
+    void loadMentions(comments.map((c) => c.id));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [commentIdsKey]);
 
   // spec-164 dec-6: in a muted tray (the task tray) agent chatter
   // (plan/progress) is hidden by default and a discoverability note names the
@@ -76,26 +101,31 @@ export function CommentTray({ targetType, targetId, comments, onCommentsChange, 
 
   const authorName = user?.name ?? 'Anonymous';
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!content.trim()) return;
-    setSubmitting(true);
-    // Humans don't classify their comments — every human comment is a freeform
-    // 'discussion'. Pass undefined so the wire stays minimal and the server's REST
-    // default ('human' source, no type → discussion) takes effect. (spec-153 removed
-    // the human type picker; the typed taxonomy is an internal agent/system channel.)
+  // spec-320: create the comment, then attach @-mentions and (optionally) the
+  // assignee. Humans don't classify their comments — every human comment is a
+  // freeform 'discussion' (extras undefined → server defaults).
+  const handleComposerSubmit = async ({ content, mentionUserIds, assigneeUserId }: MentionSubmit) => {
     const extras: CommentExtras | undefined = undefined;
+    setSubmitting(true);
     try {
       let comment: Comment;
       if (targetType === 'decision') {
-        comment = await createDecisionComment(targetId, authorName, content.trim(), extras);
+        comment = await createDecisionComment(targetId, authorName, content, extras);
       } else if (targetType === 'task') {
-        comment = await createTaskComment(targetId, authorName, content.trim(), extras);
+        comment = await createTaskComment(targetId, authorName, content, extras);
       } else {
-        comment = await createComment(targetId, authorName, content.trim(), extras);
+        comment = await createComment(targetId, authorName, content, extras);
       }
-      updateComments([...comments, comment]);
-      setContent('');
+      if (mentionUserIds.length > 0) {
+        await addCommentMentions(comment.id, mentionUserIds);
+      }
+      if (assigneeUserId) {
+        // Returns the comment with assignee columns set (assign = mention + ownership).
+        comment = await apiAssignComment(comment.id, assigneeUserId);
+      }
+      const next = [...comments, comment];
+      updateComments(next);
+      await loadMentions(next.map((c) => c.id));
     } catch (err) {
       console.error('Failed to add comment:', err);
     } finally {
@@ -137,6 +167,7 @@ export function CommentTray({ targetType, targetId, comments, onCommentsChange, 
           <div key={comment.id} data-testid="comment-item" data-comment-id={comment.id}>
             <CommentBubble
               comment={comment}
+              mentions={mentionsByComment[comment.id] ?? []}
               onResolve={canWrite ? () => handleResolve(comment.id) : undefined}
             />
           </div>
@@ -156,6 +187,7 @@ export function CommentTray({ targetType, targetId, comments, onCommentsChange, 
                   <CommentBubble
                     key={comment.id}
                     comment={comment}
+                    mentions={mentionsByComment[comment.id] ?? []}
                     onUnresolve={canWrite ? () => handleUnresolve(comment.id) : undefined}
                   />
                 ))}
@@ -167,58 +199,48 @@ export function CommentTray({ targetType, targetId, comments, onCommentsChange, 
 
       {/* Input — hidden for read-only (non-member) viewers (spec-111 t-8). */}
       {canWrite && (
-      <form onSubmit={handleSubmit} className="mt-3 space-y-2">
-        <TextArea
-          ref={inputRef}
-          data-testid="comment-textarea"
-          placeholder="Add a comment..."
-          value={content}
-          onChange={(e) => setContent(e.target.value)}
-          rows={2}
-          textAreaSize="compact"
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && e.metaKey) {
-              handleSubmit(e);
-            }
-          }}
-        />
-        <Button
-          data-testid="comment-submit"
-          type="submit"
-          disabled={submitting || !content.trim()}
-          className="w-full"
-          size="sm"
-        >
-          {submitting ? 'Posting...' : 'Post'}
-        </Button>
-      </form>
+        <MentionComposer submitting={submitting} onSubmit={handleComposerSubmit} />
       )}
     </div>
   );
 }
 
+function mentionLabel(m: CommentMentionView): string {
+  return m.name?.trim() || m.email?.trim() || 'Unknown';
+}
+
 export function CommentBubble({
   comment,
   sectionTitle,
+  mentions = [],
   onResolve,
   onUnresolve,
   onNavigate,
 }: {
   comment: Comment;
   sectionTitle?: string;
+  mentions?: CommentMentionView[];
   onResolve?: () => void;
   onUnresolve?: () => void;
   onNavigate?: () => void;
 }) {
   const isResolved = !!comment.resolvedAt;
+  // spec-320: the assignee is also a mention — resolve its display name from the
+  // mention set rather than a second lookup.
+  const assignee = comment.assigneeUserId
+    ? mentions.find((m) => m.userId === comment.assigneeUserId)
+    : undefined;
   const isAgent = comment.source === 'agent';
   const accent = isAgent ? `border-l-2 ${commentTypeAccentBorder(comment.commentType)}` : '';
-  const date = new Date(comment.createdAt).toLocaleDateString('en-US', {
+  const absoluteDate = new Date(comment.createdAt).toLocaleDateString('en-US', {
     month: 'short',
     day: 'numeric',
     hour: 'numeric',
     minute: '2-digit',
   });
+  // spec-259 ac-5: WHEN is a relative phrase matching the agent surface; the
+  // exact timestamp stays available on hover.
+  const relative = timeAgo(comment.createdAt);
 
   return (
     <div
@@ -242,10 +264,21 @@ export function CommentBubble({
       <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-1.5 min-w-0">
           <CommentSourceAvatar source={comment.source} authorName={comment.authorName} />
-          <span className="text-xs font-medium text-primary truncate">{comment.authorName}</span>
+          <span
+            className="text-xs font-medium text-primary truncate"
+            data-testid="comment-byline-author"
+          >
+            {comment.authorName}
+          </span>
           <CommentTypePill type={comment.commentType} hideForDiscussion />
         </div>
-        <span className="text-xs text-muted shrink-0">{date}</span>
+        <span
+          className="text-xs text-muted shrink-0"
+          title={absoluteDate}
+          data-testid="comment-byline-when"
+        >
+          {relative}
+        </span>
       </div>
       <p className="text-sm text-primary whitespace-pre-wrap">
         {parseEntityRefs(comment.content).map((seg, i) =>
@@ -260,13 +293,40 @@ export function CommentBubble({
           ),
         )}
       </p>
+      {(mentions.length > 0 || assignee) && (
+        <div className="mt-1 flex flex-wrap items-center gap-1" data-testid="comment-mentions">
+          {assignee && (
+            <span
+              data-testid="comment-assignee"
+              data-user-id={assignee.userId}
+              className="inline-flex h-5 items-center rounded-full bg-accent/15 px-2 text-[10px] font-medium text-accent"
+            >
+              Assigned to {mentionLabel(assignee)}
+            </span>
+          )}
+          {mentions
+            .filter((m) => m.userId !== comment.assigneeUserId)
+            .map((m) => (
+              <span
+                key={m.userId}
+                data-testid="comment-mention-chip"
+                data-user-id={m.userId}
+                className="inline-flex h-5 items-center rounded-full bg-overlay px-2 text-[10px] text-muted"
+              >
+                @{mentionLabel(m)}
+              </span>
+            ))}
+        </div>
+      )}
       <div className="mt-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+        {/* spec-247: "Resolve" alone reads as resolving the DECISION the
+            comment sits on — name the actual effect. */}
         {!isResolved && onResolve && (
           <button
             onClick={onResolve}
             className="text-xs text-status-success-text hover:text-status-success-text/80 transition-colors"
           >
-            Resolve
+            Resolve Comment
           </button>
         )}
         {isResolved && onUnresolve && (

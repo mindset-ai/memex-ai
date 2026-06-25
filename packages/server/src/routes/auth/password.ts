@@ -6,6 +6,7 @@ import {
   markEmailVerified,
 } from "../../services/users.js";
 import { ensureUserMemex } from "../../services/user-namespaces.js";
+import { syncUserProfile } from "../../services/mixpanel-profile.js";
 import { hashPassword, verifyPassword, validatePasswordStrength } from "../../services/passwords.js";
 import { issueAuthToken, consumeAuthToken, AuthTokenError } from "../../services/auth-tokens.js";
 import { getEmailSender } from "../../services/email/sender.js";
@@ -15,7 +16,8 @@ import { sessionMiddleware, type SessionEnv } from "../../middleware/session.js"
 import type { MemexResolverEnv } from "../../middleware/memex-resolver.js";
 import { ValidationError } from "../../types/errors.js";
 import { readJsonBody, requireString } from "../validation.js";
-import { APP_BASE_URL, clientIp, withToken } from "./helpers.js";
+import { APP_BASE_URL, clientIp, setKnownCookie, withToken } from "./helpers.js";
+import { applyVisitorMerge } from "../../middleware/visitor.js";
 
 export const password = new Hono<MemexResolverEnv & SessionEnv>();
 
@@ -26,7 +28,7 @@ export const password = new Hono<MemexResolverEnv & SessionEnv>();
 // blocks sensitive actions until verification.
 password.post("/signup", async (c) => {
   const ip = clientIp(c);
-  const rl = rateLimit("signup", ip, AUTH_LIMITS.signup);
+  const rl = await rateLimit("signup", ip, AUTH_LIMITS.signup);
   if (!rl.ok) {
     return c.json(
       { error: "Too many signup attempts", retryAfterSec: rl.retryAfterSec },
@@ -71,6 +73,12 @@ password.post("/signup", async (c) => {
   // called for a pre-existing SSO user (returning the same row).
   await ensureUserMemex(user.id);
 
+  // spec-297 dec-7: set the user's Mixpanel profile (email_domain + org links) so
+  // the Users tab is populated and internal users are filterable from day one.
+  // Advisory + idempotent ($engage $set is an upsert); a no-op on self-hosted
+  // instances with no MIXPANEL_TOKEN.
+  void syncUserProfile(user.id);
+
   // Issue a verification token unless the email is already verified (e.g. the user was
   // previously created via Google SSO and is now adding a password).
   if (!user.emailVerifiedAt) {
@@ -86,6 +94,8 @@ password.post("/signup", async (c) => {
   }
 
   const session = await resolveSession(user.id, null);
+  setKnownCookie(c);
+  await applyVisitorMerge(c, user.id); // spec-254 — identify merge (signup)
   return c.json(withToken(session), 201);
 });
 
@@ -97,7 +107,7 @@ password.post("/signup", async (c) => {
 // so it can't be ground through.
 password.post("/probe", async (c) => {
   const ip = clientIp(c);
-  const rl = rateLimit("probe", ip, AUTH_LIMITS.probe);
+  const rl = await rateLimit("probe", ip, AUTH_LIMITS.probe);
   if (!rl.ok) {
     return c.json(
       { error: "Too many probe attempts", retryAfterSec: rl.retryAfterSec },
@@ -121,7 +131,7 @@ password.post("/login", async (c) => {
   const email = requireString(body?.email, "email");
   const passwordStr = requireString(body?.password, "password");
 
-  const rl = rateLimit("login", `${ip}|${email.toLowerCase()}`, AUTH_LIMITS.login);
+  const rl = await rateLimit("login", `${ip}|${email.toLowerCase()}`, AUTH_LIMITS.login);
   if (!rl.ok) {
     return c.json(
       { error: "Too many login attempts", retryAfterSec: rl.retryAfterSec },
@@ -158,6 +168,8 @@ password.post("/login", async (c) => {
       session = { ...session, currentMemexId: match.memexId, currentRole: match.role };
     }
   }
+  setKnownCookie(c);
+  await applyVisitorMerge(c, user.id); // spec-254 — identify merge (login)
   return c.json(withToken(session));
 });
 
@@ -185,6 +197,8 @@ password.post("/verify-email", async (c) => {
 
   await markEmailVerified(row.userId);
   const session = await resolveSession(row.userId, null);
+  setKnownCookie(c);
+  await applyVisitorMerge(c, row.userId); // spec-254 — identify merge (email verification)
   return c.json(withToken(session));
 });
 
@@ -196,7 +210,7 @@ password.post("/resend-verification", sessionMiddleware, async (c) => {
     return c.json({ ok: true, alreadyVerified: true });
   }
 
-  const rl = rateLimit("resendVerification", user.id, AUTH_LIMITS.resendVerification);
+  const rl = await rateLimit("resendVerification", user.id, AUTH_LIMITS.resendVerification);
   if (!rl.ok) {
     return c.json(
       { error: "Too many resend attempts", retryAfterSec: rl.retryAfterSec },

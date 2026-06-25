@@ -63,6 +63,9 @@ function makeTask(overrides = {}) {
     createdAt: baseDate,
     startedAt: null,
     completedAt: null,
+    actorUserId: null,
+    actorName: null,
+    channel: null,
     ...overrides,
   };
 }
@@ -111,8 +114,8 @@ describe("POST /api/tasks/doc/:docId", () => {
     });
 
     expect(res.status).toBe(201);
-    expect(createTask).toHaveBeenCalledWith(TEST_MEMEX_ID, 
-      "doc-1", "Build feature", "Build the feature", undefined, undefined
+    expect(createTask).toHaveBeenCalledWith(TEST_MEMEX_ID,
+      "doc-1", "Build feature", "Build the feature", undefined, undefined, expect.anything()
     );
   });
 
@@ -131,8 +134,8 @@ describe("POST /api/tasks/doc/:docId", () => {
       }),
     });
 
-    expect(createTask).toHaveBeenCalledWith(TEST_MEMEX_ID, 
-      "doc-1", "Task", "Desc", criteria, "section-2"
+    expect(createTask).toHaveBeenCalledWith(TEST_MEMEX_ID,
+      "doc-1", "Task", "Desc", criteria, "section-2", expect.anything()
     );
   });
 });
@@ -170,7 +173,7 @@ describe("POST /api/tasks/:id/status", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.status).toBe("in_progress");
-    expect(updateTaskStatus).toHaveBeenCalledWith(TEST_MEMEX_ID, "task-uuid-1", "in_progress");
+    expect(updateTaskStatus).toHaveBeenCalledWith(TEST_MEMEX_ID, "task-uuid-1", "in_progress", expect.anything());
   });
 
   it("returns 400 for invalid status", async () => {
@@ -259,7 +262,7 @@ describe("POST /api/tasks/:id/update", () => {
     expect(updateTask).toHaveBeenCalledWith(TEST_MEMEX_ID, "task-uuid-1", {
       title: "New title",
       description: "New desc",
-    });
+    }, expect.anything());
   });
 
   it("updates acceptance criteria", async () => {
@@ -275,7 +278,7 @@ describe("POST /api/tasks/:id/update", () => {
     expect(res.status).toBe(200);
     expect(updateTask).toHaveBeenCalledWith(TEST_MEMEX_ID, "task-uuid-1", {
       acceptanceCriteria: criteria,
-    });
+    }, expect.anything());
   });
 
   it("clears sectionRef with null", async () => {
@@ -290,7 +293,7 @@ describe("POST /api/tasks/:id/update", () => {
     expect(res.status).toBe(200);
     expect(updateTask).toHaveBeenCalledWith(TEST_MEMEX_ID, "task-uuid-1", {
       sectionRef: null,
-    });
+    }, expect.anything());
   });
 
   it("returns 404 for non-existent task", async () => {

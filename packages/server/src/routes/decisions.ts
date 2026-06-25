@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { restCtx } from "./_actor-ctx.js";
 import {
   createDecision,
   listDecisions,
@@ -10,22 +11,18 @@ import {
   AmbiguousDecisionHandleError,
   SpecParentMismatchError,
 } from "../services/decisions.js";
-import {
-  sessionMiddleware,
-  publicSessionMiddleware,
-  type SessionEnv,
-} from "../middleware/session.js";
+import { type SessionEnv } from "../middleware/session.js";
 import type { MemexResolverEnv } from "../middleware/memex-resolver.js";
 import { requireMemexId, resolveReadableMemexId } from "./shared.js";
+import { mountStandardSessionPolicy } from "./session-policy.js";
 
 type Env = MemexResolverEnv & SessionEnv;
 const decisionsRouter = new Hono<Env>();
-// spec-111 t-10 — per-verb session policy. GET reads go behind the permissive
-// public session (anonymous-friendly; each handler gates the memex via
-// resolveReadableMemexId → public read / private 404). Every mutating verb stays
-// strict so a non-member can never reach a write.
-decisionsRouter.on("GET", "/*", publicSessionMiddleware);
-decisionsRouter.on(["POST", "PUT", "PATCH", "DELETE"], "/*", sessionMiddleware);
+// spec-377 (was spec-111 t-10) — the standard per-verb session policy: GET reads
+// go behind the permissive public session (anonymous-friendly; each handler gates
+// the memex via resolveReadableMemexId → public read / private 404). Every
+// mutating verb stays strict so a non-member can never reach a write.
+mountStandardSessionPolicy(decisionsRouter);
 
 
 
@@ -114,7 +111,7 @@ decisionsRouter.post("/doc/:docId", async (c) => {
   }>();
   const sourceArg: "human" | "agent" =
     source === "agent" ? "agent" : "human";
-  const result = await createDecision(memexId, docId, title, context, sourceArg);
+  const result = await createDecision(memexId, docId, title, context, sourceArg, restCtx(c));
   return c.json(result, 201);
 });
 
@@ -125,23 +122,21 @@ decisionsRouter.post("/doc/:docId", async (c) => {
 decisionsRouter.post("/:id/resolve", async (c) => {
   const memexId = requireMemexId(c);
   const id = c.req.param("id");
+  // spec-247 dec-5: `resolution` is optional — when omitted alongside a
+  // chosenOptionIndex, the service defaults the prose to the chosen option's
+  // label (persist-on-select sends only the index).
   const { resolution, chosenOptionIndex } = await c.req.json<{
-    resolution: string;
+    resolution?: string;
     chosenOptionIndex?: number;
   }>();
-  // Pass chosenOptionIndex only when supplied — preserves the existing 3-arg call shape
-  // for clients that don't use multi-option decisions.
-  const result =
-    chosenOptionIndex !== undefined
-      ? await resolveDecision(memexId, id, resolution, chosenOptionIndex)
-      : await resolveDecision(memexId, id, resolution);
+  const result = await resolveDecision(memexId, id, resolution, chosenOptionIndex, restCtx(c));
   return c.json(result);
 });
 
 decisionsRouter.post("/:id/reopen", async (c) => {
   const memexId = requireMemexId(c);
   const id = c.req.param("id");
-  const result = await reopenDecision(memexId, id);
+  const result = await reopenDecision(memexId, id, restCtx(c));
   return c.json(result);
 });
 
@@ -153,7 +148,7 @@ decisionsRouter.post("/:id/reopen", async (c) => {
 decisionsRouter.post("/:id/approve", async (c) => {
   const memexId = requireMemexId(c);
   const id = c.req.param("id");
-  const result = await approveDecision(memexId, id);
+  const result = await approveDecision(memexId, id, restCtx(c));
   return c.json(result);
 });
 
@@ -161,7 +156,7 @@ decisionsRouter.post("/:id/reject", async (c) => {
   const memexId = requireMemexId(c);
   const id = c.req.param("id");
   const { reason } = await c.req.json<{ reason: string }>();
-  const result = await rejectDecision(memexId, id, reason);
+  const result = await rejectDecision(memexId, id, reason, restCtx(c));
   return c.json(result);
 });
 

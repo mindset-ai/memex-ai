@@ -1,6 +1,6 @@
 import { and, desc, eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
-import { db } from "../db/connection.js";
+import { db, runWithMemexId } from "../db/connection.js";
 import {
   shareTokens,
   documents,
@@ -31,11 +31,24 @@ export class ShareTokenError extends ValidationError {
   }
 }
 
+// Default TTL for share tokens. Configurable via SHARE_TOKEN_TTL_DAYS; null = no expiry.
+function defaultExpiresAt(): Date | null {
+  const days = process.env.SHARE_TOKEN_TTL_DAYS
+    ? parseInt(process.env.SHARE_TOKEN_TTL_DAYS, 10)
+    : 90;
+  if (!days || isNaN(days)) return null;
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return d;
+}
+
 // Creates a cryptographically random share token for the given document.
 // Caller (route handler) must enforce that the requester belongs to the document's account.
+// createdByUserId is recorded so tokens can be bulk-revoked when a member is removed (spec-199 t-3).
 export async function createShareToken(
   memexId: string,
-  documentId: string
+  documentId: string,
+  createdByUserId: string | null = null,
 ): Promise<Mutated<ShareToken>> {
   await assertDocBelongsToMemex(documentId, memexId);
 
@@ -44,9 +57,10 @@ export async function createShareToken(
     { memexId, docId: documentId, entity: "share_token", action: "created" },
     async () => {
       const token = randomUUID();
+      const expiresAt = defaultExpiresAt();
       const [created] = await db
         .insert(shareTokens)
-        .values({ documentId, token })
+        .values({ documentId, memexId, token, createdByUserId, expiresAt })
         .returning();
       return created;
     },
@@ -135,58 +149,67 @@ export async function getSharedDocumentByToken(token: string): Promise<SharedDoc
   if (tokenRow.revoked) {
     throw new ShareTokenError("revoked", "This link has been revoked");
   }
-
-  const doc = await db.query.documents.findFirst({
-    where: eq(documents.id, tokenRow.documentId),
-  });
-  if (!doc) {
-    // Should be impossible via CASCADE, but defensive
-    throw new ShareTokenError("unknown", "Invalid share link");
+  if (tokenRow.expiresAt && tokenRow.expiresAt < new Date()) {
+    throw new ShareTokenError("revoked", "This link has expired");
   }
 
-  const sections = await db
-    .select()
-    .from(docSections)
-    .where(eq(docSections.docId, doc.id))
-    .orderBy(docSections.seq);
+  // Bootstrap ALS so RLS policies are satisfied: share_tokens is not RLS-gated
+  // (no memex_id column in the 0081 policy list), so token resolution works
+  // without a context. All subsequent queries hit RLS-protected tables and
+  // require app.memex_id to be set, hence the runWithMemexId wrapper below.
+  return runWithMemexId(tokenRow.memexId, async () => {
+    const doc = await db.query.documents.findFirst({
+      where: eq(documents.id, tokenRow.documentId),
+    });
+    if (!doc) {
+      // Should be impossible via CASCADE, but defensive
+      throw new ShareTokenError("unknown", "Invalid share link");
+    }
 
-  const memex = await db.query.memexes.findFirst({
-    where: eq(memexes.id, doc.memexId),
+    const sections = await db
+      .select()
+      .from(docSections)
+      .where(eq(docSections.docId, doc.id))
+      .orderBy(docSections.seq);
+
+    const memex = await db.query.memexes.findFirst({
+      where: eq(memexes.id, doc.memexId),
+    });
+    const ns = memex
+      ? await db.query.namespaces.findFirst({
+          where: eq(namespaces.id, memex.namespaceId),
+        })
+      : null;
+
+    // Surface all comments on the doc so external commenters see the thread.
+    const comments = await db.query.docComments.findMany({
+      where: eq(docComments.memexId, doc.memexId),
+      orderBy: (c, { asc }) => [asc(c.createdAt)],
+    });
+
+    // Filter to only comments attached to this doc's children (sections/decisions/tasks),
+    // to avoid leaking comments from other docs in the same account.
+    const sectionIds = new Set(sections.map((s) => s.id));
+    const docDecisions = await db.select({ id: decisions.id }).from(decisions).where(eq(decisions.docId, doc.id));
+    const decisionIds = new Set(docDecisions.map((d) => d.id));
+    const docTasks = await db.select({ id: tasks.id }).from(tasks).where(eq(tasks.docId, doc.id));
+    const taskIds = new Set(docTasks.map((w) => w.id));
+
+    const scoped = comments.filter(
+      (c) =>
+        (c.sectionId && sectionIds.has(c.sectionId)) ||
+        (c.decisionId && decisionIds.has(c.decisionId)) ||
+        (c.taskId && taskIds.has(c.taskId))
+    );
+
+    return {
+      doc,
+      sections,
+      namespaceSlug: ns?.slug ?? "",
+      memexName: memex?.name ?? "",
+      comments: scoped,
+    };
   });
-  const ns = memex
-    ? await db.query.namespaces.findFirst({
-        where: eq(namespaces.id, memex.namespaceId),
-      })
-    : null;
-
-  // Surface all comments on the doc so external commenters see the thread.
-  const comments = await db.query.docComments.findMany({
-    where: eq(docComments.memexId, doc.memexId),
-    orderBy: (c, { asc }) => [asc(c.createdAt)],
-  });
-
-  // Filter to only comments attached to this doc's children (sections/decisions/tasks),
-  // to avoid leaking comments from other docs in the same account.
-  const sectionIds = new Set(sections.map((s) => s.id));
-  const docDecisions = await db.select({ id: decisions.id }).from(decisions).where(eq(decisions.docId, doc.id));
-  const decisionIds = new Set(docDecisions.map((d) => d.id));
-  const docTasks = await db.select({ id: tasks.id }).from(tasks).where(eq(tasks.docId, doc.id));
-  const taskIds = new Set(docTasks.map((w) => w.id));
-
-  const scoped = comments.filter(
-    (c) =>
-      (c.sectionId && sectionIds.has(c.sectionId)) ||
-      (c.decisionId && decisionIds.has(c.decisionId)) ||
-      (c.taskId && taskIds.has(c.taskId))
-  );
-
-  return {
-    doc,
-    sections,
-    namespaceSlug: ns?.slug ?? "",
-    memexName: memex?.name ?? "",
-    comments: scoped,
-  };
 }
 
 export type ShareCommentTarget =
@@ -224,6 +247,9 @@ export async function createExternalComment(
     throw new ShareTokenError("revoked", "This link has been revoked");
   }
 
+  // share.ts has no session middleware, so no ALS context is set. Bootstrap
+  // runWithMemexId from the token's memex_id so RLS-gated lookups below succeed.
+  return runWithMemexId(tokenRow.memexId, async () => {
   const doc = await db.query.documents.findFirst({
     where: eq(documents.id, tokenRow.documentId),
   });
@@ -288,5 +314,6 @@ export async function createExternalComment(
         DOC_COMMENTS_SEQ_CONSTRAINT,
       ),
   );
+  }); // end runWithMemexId
 }
 

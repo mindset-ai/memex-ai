@@ -1,0 +1,33 @@
+-- Exclude memex_emission_keys from RLS: it is an identity-ESTABLISHMENT table.
+--
+-- verifyEmissionKey() (services/emission-keys.ts) queries this table to
+-- AUTHENTICATE POST /api/test-events before any ALS tenant context exists:
+-- the key lookup is itself what resolves the tenant. This is the same
+-- chicken-and-egg that excluded user_memex_access from 0081 ("queried in
+-- publicSessionMiddleware before ALS sets memex_id; adding a standard policy
+-- breaks session establishment with 0 rows"), but this table was missed.
+--
+-- 2026-06-10 incident: the spec-199 t-14 role cutover (DATABASE_URL user
+-- postgres → memex_app, revision memex-api-00050-dnd) activated 0081's policy
+-- on this table. With no app.memex_id GUC set at verify time, the USING clause
+-- filtered every row, verifyEmissionKey() hit its null branch, and every
+-- emission key (UI-minted, freshly-minted, and CI's) returned 401 from
+-- /api/test-events. Platform-wide AC emission was down from 09:25:34Z (last
+-- test_event saved one second before the new revision took traffic). The
+-- fire-and-forget bumpLastUsed() UPDATE was silently filtered by the same
+-- policy.
+--
+-- Why exclusion is safe here:
+--   * Tenant isolation is enforced at the service layer: every read/write in
+--     services/emission-keys.ts is scoped by memexId in its WHERE clause
+--     (list, revoke), and the verify path's spec-129 ac-10 check confirms the
+--     key's memexId matches the memex named in ac_uid.
+--   * The stored secret is a SHA-256 hash of a 256-bit-entropy key, so row
+--     visibility carries no credential risk.
+--
+-- Guarded by __regression__/emission-key-contextless-verify.regression.test.ts,
+-- which pins "key verification must work before tenant context exists" against
+-- any future RLS sweep re-adding this table.
+DROP POLICY IF EXISTS memex_emission_keys_memex_isolation ON memex_emission_keys;
+ALTER TABLE memex_emission_keys NO FORCE ROW LEVEL SECURITY;
+ALTER TABLE memex_emission_keys DISABLE ROW LEVEL SECURITY;

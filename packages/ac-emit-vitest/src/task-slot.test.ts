@@ -20,7 +20,7 @@ describe("current-task slot survives module-instance duality (spec-156)", () => 
     try {
       instanceA._setCurrentTask(fakeTask);
       // The OTHER instance must observe the slot and attach the entry.
-      instanceB.tagAc("probe://dual-instance", { hidden: true });
+      instanceB.tagAc("probe://dual-instance", { metadata: { probe: "1" } });
       const entries = (fakeTask.meta.__memex_ac_uids as unknown[] | undefined) ?? [];
       expect(entries).toHaveLength(1);
     } finally {

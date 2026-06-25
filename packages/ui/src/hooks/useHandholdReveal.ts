@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react';
+import { PHASE_ORDER } from '@memex/shared';
 import type { SpecStatus } from '../api/types';
 
 /**
@@ -18,7 +19,9 @@ import type { SpecStatus } from '../api/types';
 
 // dec-4 Spec lifecycle order. The demo walks these in sequence; `done` is the
 // terminal phase (no "next" — the advance control becomes Reset there).
-export const REVEAL_PHASES = ['draft', 'specify', 'build', 'verify', 'done'] as const;
+// spec-355 dry-2: the canonical ordered phase array (was a local copy). The demo
+// walks these in sequence; `done` is terminal.
+export const REVEAL_PHASES = PHASE_ORDER;
 export type RevealPhase = (typeof REVEAL_PHASES)[number];
 
 const DEFAULT_PHASE: RevealPhase = 'draft';

@@ -27,8 +27,9 @@ import {
   validateSlugFormat,
 } from "./shared/slug.js";
 import { ConflictError, ValidationError } from "../types/errors.js";
+import { pgError } from "./shared/pg-error.js";
 import { isFreeEmailDomain } from "./free-email-domains.js";
-import { mutate, type Mutated } from "./mutate.js";
+import { mutate, type Mutated, type RequestCtx } from "./mutate.js";
 import { primaryMemexIdForOrg } from "./shared/memex-ownership.js";
 
 export async function getOrgById(id: string): Promise<Org | undefined> {
@@ -137,7 +138,7 @@ export async function createOrgWithOwner(
           return { org, namespace: updatedNamespace, membership };
         });
       } catch (err) {
-        if (err && typeof err === "object" && "code" in err && (err as { code?: string }).code === "23505") {
+        if (pgError(err)?.code === "23505") {
           throw new ConflictError(`Slug '${slug}' is already taken`);
         }
         throw err;
@@ -160,6 +161,10 @@ export interface OrgSummary {
   domainVerified: boolean;
   freeDomainsInUse: string[];
   verifiedDomains: Array<{ domain: string; method: "sso" | "email"; verifiedAt: Date }>;
+  // Designated billing contact (spec-171 t-1). Null means payment emails go to
+  // the org creator / all admins.
+  billingContactName: string | null;
+  billingContactEmail: string | null;
 }
 
 export async function getOrgSummary(orgId: string): Promise<OrgSummary | null> {
@@ -187,6 +192,8 @@ export async function getOrgSummary(orgId: string): Promise<OrgSummary | null> {
       method: v.verificationMethod as "sso" | "email",
       verifiedAt: v.verifiedAt,
     })),
+    billingContactName: org.billingContactName ?? null,
+    billingContactEmail: org.billingContactEmail ?? null,
   };
 }
 
@@ -194,11 +201,17 @@ export interface UpdateOrgInput {
   name?: string;
   emailDomains?: string[];
   autoGroupingEnabled?: boolean;
+  billingContactName?: string | null;
+  billingContactEmail?: string | null;
 }
 
 export async function updateOrgSettings(
   orgId: string,
   input: UpdateOrgInput,
+  // spec-122 dec-5 / std-32 — carries the activity contract (WHO/HOW) onto the
+  // emitted org.updated event. Optional so existing/system callers still type-check;
+  // an empty ctx emits an unattributed event (a visible defect per t-3, not a default).
+  ctx: RequestCtx = {},
 ): Promise<Mutated<OrgSummary>> {
   const current = await getOrgById(orgId);
   if (!current) throw new ValidationError(`Org ${orgId} not found`);
@@ -220,17 +233,26 @@ export async function updateOrgSettings(
     }
   }
 
+  if (input.billingContactEmail !== undefined && input.billingContactEmail !== null) {
+    // Basic format guard — no library per std-13 zero-dep bias.
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input.billingContactEmail)) {
+      throw new ValidationError("Invalid billing contact email");
+    }
+  }
+
   const patch: Partial<typeof orgs.$inferInsert> & { updatedAt: Date } = {
     updatedAt: new Date(),
   };
   if (input.name !== undefined) patch.name = input.name;
   if (input.emailDomains !== undefined) patch.emailDomains = resolvedDomains;
   if (input.autoGroupingEnabled !== undefined) patch.autoGroupingEnabled = resolvedAutoGrouping;
+  if (input.billingContactName !== undefined) patch.billingContactName = input.billingContactName;
+  if (input.billingContactEmail !== undefined) patch.billingContactEmail = input.billingContactEmail;
 
   const memexId = (await primaryMemexIdForOrg(orgId)) ?? "";
 
   return mutate(
-    {},
+    ctx,
     { memexId, entity: "org", action: "updated" },
     async () => {
       await db.update(orgs).set(patch).where(eq(orgs.id, orgId));
@@ -241,10 +263,45 @@ export async function updateOrgSettings(
   );
 }
 
-export async function refreshOrgDomainVerifiedFlag(orgId: string): Promise<Mutated<void>> {
+// Billing-side org writes (Stripe customer id, purchased seat count). The
+// settings-page UpdateOrgInput deliberately excludes these columns — they are set
+// from the billing/checkout route + Stripe webhook, not the settings form — so
+// they get their own input shape and their own wrapped writer. Like
+// updateOrgSettings, every write goes through mutate({entity:"org"}) so the React
+// UI billing surface gets the SSE refresh (std-8) and the change is attributed (std-32).
+export interface UpdateOrgBillingInput {
+  stripeCustomerId?: string;
+  seatsPurchased?: number;
+}
+
+export async function updateOrgBilling(
+  orgId: string,
+  input: UpdateOrgBillingInput,
+  ctx: RequestCtx = {},
+): Promise<Mutated<void>> {
+  const patch: Partial<typeof orgs.$inferInsert> & { updatedAt: Date } = {
+    updatedAt: new Date(),
+  };
+  if (input.stripeCustomerId !== undefined) patch.stripeCustomerId = input.stripeCustomerId;
+  if (input.seatsPurchased !== undefined) patch.seatsPurchased = input.seatsPurchased;
+
   const memexId = (await primaryMemexIdForOrg(orgId)) ?? "";
   return mutate(
-    {},
+    ctx,
+    { memexId, entity: "org", action: "updated" },
+    async () => {
+      await db.update(orgs).set(patch).where(eq(orgs.id, orgId));
+    },
+  );
+}
+
+export async function refreshOrgDomainVerifiedFlag(
+  orgId: string,
+  ctx: RequestCtx = {},
+): Promise<Mutated<void>> {
+  const memexId = (await primaryMemexIdForOrg(orgId)) ?? "";
+  return mutate(
+    ctx,
     { memexId, entity: "org", action: "updated" },
     async () => {
       const verified = await db.query.verifiedDomains.findFirst({

@@ -17,13 +17,28 @@ const AC206_7 = 'mindset-prod/memex-building-itself/specs/spec-206/acs/ac-7';
 
 describe('guide toolset — no product-data tools (ac-28)', () => {
   it('contains exactly the UI/guide tools and nothing else', () => {
-    // spec-206 added advance_demo (a pure UI affordance — no tenant data).
+    // spec-206 added advance_demo, spec-211 added start_walkthrough — both pure UI
+    // affordances (no tenant data).
     expect([...GUIDE_TOOL_NAMES].sort()).toEqual([
       'advance_demo',
       'highlight',
       'navigate',
       'search_guide',
+      'start_walkthrough',
     ]);
+  });
+
+  it('exposes start_walkthrough and neutralises advance_demo so the guide never self-advances (spec-211 ac-15)', () => {
+    const start = GUIDE_TOOLS.find((t) => t.name === 'start_walkthrough');
+    expect(start).toBeDefined();
+    expect(start!.description.toLowerCase()).toContain('accept');
+    expect(start!.description.toLowerCase()).toContain('do not advance the board yourself');
+
+    // advance_demo is kept on the rail but must NOT instruct the guide to call it
+    // per phase (that was the burst); its description tells the guide NOT to call it.
+    const advance = GUIDE_TOOLS.find((t) => t.name === 'advance_demo');
+    expect(advance!.description.toLowerCase()).toContain('do not call this');
+    tagAc('mindset-prod/memex-building-itself/specs/spec-211/acs/ac-15');
   });
 
   it('exposes advance_demo for the demo-specs walkthrough (spec-206 ac-7)', () => {

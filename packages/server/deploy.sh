@@ -91,6 +91,45 @@ else
   echo "  ⚠ elevenlabs-api-key not found — voice guide disabled (spec-190)"
   HAS_ELEVENLABS=0
 fi
+# MIXPANEL_TOKEN is optional (spec-244 analytics forwarder, dec-2/dec-9). Wired ONLY
+# if the secret exists, so a deploy never breaks before it's provisioned — the
+# forwarder simply stays in capture-only mode (events land in usage_events and are
+# queryable in SQL; nothing forwards) until the secret lands. Same two-step
+# provisioning as ELEVENLABS above (NO further code change): create the per-env
+# secret AND grant the Cloud Run runtime SA read access. The per-env separation
+# (dec-9) is the VALUE — the int secret holds the memex-int Mixpanel project token,
+# prod holds memex-prod's — so int events never reach the prod project.
+#   printf %s "<project-token>" | gcloud secrets create memex-mixpanel-token --data-file=- \
+#     --project "${GCP_PROJECT}" --replication-policy=user-managed --locations=us-east4
+#   gcloud secrets add-iam-policy-binding memex-mixpanel-token --project "${GCP_PROJECT}" \
+#     --member="serviceAccount:<cloud-run-runtime-SA>" \
+#     --role="roles/secretmanager.secretAccessor"
+if gcloud secrets describe memex-mixpanel-token --project "${GCP_PROJECT}" >/dev/null 2>&1; then
+  echo "  ✓ memex-mixpanel-token present — analytics forwarder enabled"
+  HAS_MIXPANEL=1
+else
+  echo "  ⚠ memex-mixpanel-token not found — analytics forwarder in capture-only mode (spec-244)"
+  HAS_MIXPANEL=0
+fi
+# STRIPE secrets are optional (spec-171 hosted purchase flow). Wired ONLY if BOTH
+# secrets exist, so an env without billing configured deploys fine. Same two-step
+# provisioning as MIXPANEL above (NO further code change): create the per-env
+# secrets AND grant the Cloud Run runtime SA read access. Per-env VALUES differ —
+# int holds Stripe TEST keys, prod holds LIVE keys (the secret's value carries the
+# separation, like MIXPANEL).
+#   printf %s "<sk_...>"    | gcloud secrets create memex-stripe-secret-key --data-file=- \
+#     --project "${GCP_PROJECT}" --replication-policy=user-managed --locations=us-east4
+#   printf %s "<whsec_...>" | gcloud secrets create memex-stripe-webhook-secret --data-file=- \
+#     --project "${GCP_PROJECT}" --replication-policy=user-managed --locations=us-east4
+#   # then add-iam-policy-binding secretAccessor for the Cloud Run runtime SA on each.
+if gcloud secrets describe memex-stripe-secret-key --project "${GCP_PROJECT}" >/dev/null 2>&1 \
+   && gcloud secrets describe memex-stripe-webhook-secret --project "${GCP_PROJECT}" >/dev/null 2>&1; then
+  echo "  ✓ Stripe secrets present — hosted purchase flow enabled"
+  HAS_STRIPE=1
+else
+  echo "  ⚠ Stripe secrets not found — hosted purchase flow disabled (spec-171)"
+  HAS_STRIPE=0
+fi
 
 # ── KMS prerequisite ─────────────────────────────────────────
 # The Slack token encryption path (services/slack/crypto.ts) requires a
@@ -157,6 +196,14 @@ sleep 3
 DB_PASS_ENC=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "${DB_PASS}")
 DB_URL="postgresql://${DB_USER}:${DB_PASS_ENC}@localhost:${PROXY_PORT}/${DB_NAME}"
 
+# Runtime credentials for Cloud Run (spec-199 t-14). Migrations ALWAYS use the
+# superuser path (DB_USER/DB_PASS) — RUNTIME_DB_* is the restricted memex_app
+# role that RLS enforces on. Defaults to DB_USER/DB_PASS until t-14 is rolled
+# out per environment via RUNTIME_DB_USER/RUNTIME_DB_PASS in the deploy-env secret.
+RUNTIME_DB_USER="${RUNTIME_DB_USER:-$DB_USER}"
+RUNTIME_DB_PASS="${RUNTIME_DB_PASS:-$DB_PASS}"
+RUNTIME_DB_PASS_ENC=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "${RUNTIME_DB_PASS}")
+
 echo "  1a. drizzle-kit journal migrations..."
 DATABASE_URL="${DB_URL}" pnpm db:migrate
 
@@ -222,8 +269,17 @@ DATABASE_URL="${DB_URL}" timeout 600 pnpm db:import-guide-content \
 # cost is just today's promotions and the first backfill resumes idempotently.
 # A missing Anthropic key just means no drafts land (next deploy retries) — it
 # never fails the deploy.
+#
+# The Anthropic key is wired into the Cloud Run SERVICE at step 4 (--set-secrets),
+# but that wiring never reaches THIS migration-phase shell on the CI runner, where
+# the generation script actually runs. So fetch it from Secret Manager here, the
+# same way scripts/deploy-config.sh sources DB_PASS (`versions access`). Guarded
+# with `|| true` so a fetch hiccup can't trip `set -e` and abort the deploy — an
+# empty key just yields no drafts, exactly like the missing-key case above. The
+# secret's existence is already asserted in the pre-flight block.
+ANTHROPIC_API_KEY="$(gcloud secrets versions access latest --secret=anthropic-api-key --project="${GCP_PROJECT}" 2>/dev/null)" || true
 echo "  1f. What's New generation (spec-200 t-3 / ac-8)..."
-DATABASE_URL="${DB_URL}" timeout 600 pnpm db:generate-whats-new \
+DATABASE_URL="${DB_URL}" ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY}" timeout 600 pnpm db:generate-whats-new \
   || echo "  ⚠ What's New generation timed out or failed (non-gating, exit $?) — deploy continues; next deploy resumes (idempotent)."
 
 kill $PROXY_PID 2>/dev/null
@@ -243,8 +299,15 @@ echo "Building container image (${IMAGE})..."
 # Submit from the repo root so the build context includes packages/shared
 # (workspace dep of @memex/server). The Dockerfile at the repo root is
 # workspace-aware; .gcloudignore there keeps the upload lean.
+#
+# spec-281 Fix 2: build via cloudbuild.yaml (not bare `--tag`) so the build reuses
+# cached layers from the previously-pushed image (`--cache-from` + BuildKit inline
+# cache). `--tag` gives the clean Cloud Build worker no cache, so the pnpm-install
+# `deps` layer rebuilt every deploy even when only source changed (~2min wasted on
+# int + prod). `_IMAGE` is env-keyed, so this lands identically on both.
 ( cd "${REPO_ROOT}" && gcloud builds submit \
-  --tag "${IMAGE}" \
+  --config cloudbuild.yaml \
+  --substitutions "_IMAGE=${IMAGE}" \
   --project "${GCP_PROJECT}" \
   --region "${REGION}" \
   --default-buckets-behavior=regional-user-owned-bucket )
@@ -259,6 +322,16 @@ echo "Deploying to Cloud Run..."
 SECRETS_WIRING="ANTHROPIC_API_KEY=anthropic-api-key:latest"
 SECRETS_WIRING+=",POSTMARK_SERVER_TOKEN=postmark-server-token:latest"
 SECRETS_WIRING+=",AUTH_JWT_SECRET=auth-jwt-secret:latest"
+# spec-341: Basic-auth credential for the Postmark delivery webhook
+# (/api/postmark/webhook). OPTIONAL — only wired if the secret exists (same
+# posture as COHERE below), so this deploy never breaks if it's not yet created.
+# Until the secret is present the webhook route returns 401 (deliveries rejected);
+# email send-logging + Stripe capture work regardless. Create with:
+#   gcloud secrets create postmark-webhook-token --replication-policy=user-managed \
+#     --locations=us-east4 --data-file=- --project "<project>"
+if gcloud secrets describe postmark-webhook-token --project "${GCP_PROJECT}" >/dev/null 2>&1; then
+  SECRETS_WIRING+=",POSTMARK_WEBHOOK_TOKEN=postmark-webhook-token:latest"
+fi
 SECRETS_WIRING+=",OPENAI_API_KEY=openai-api-key:latest"
 if [ "$HAS_SLACK" = "1" ]; then
   SECRETS_WIRING+=",SLACK_CLIENT_SECRET=slack-client-secret:latest"
@@ -268,6 +341,12 @@ if [ "$HAS_COHERE" = "1" ]; then
 fi
 if [ "$HAS_ELEVENLABS" = "1" ]; then
   SECRETS_WIRING+=",ELEVENLABS_API_KEY=elevenlabs-api-key:latest"
+fi
+if [ "$HAS_MIXPANEL" = "1" ]; then
+  SECRETS_WIRING+=",MIXPANEL_TOKEN=memex-mixpanel-token:latest"
+fi
+if [ "$HAS_STRIPE" = "1" ]; then
+  SECRETS_WIRING+=",STRIPE_SECRET_KEY=memex-stripe-secret-key:latest,STRIPE_WEBHOOK_SECRET=memex-stripe-webhook-secret:latest"
 fi
 
 # HIDDEN_FEATURES is appended to --update-env-vars ONLY when it is set (see
@@ -288,7 +367,7 @@ gcloud run deploy "${SERVICE}" \
   --min-instances 0 \
   --max-instances 3 \
   --add-cloudsql-instances "${CLOUD_SQL_INSTANCE_CONN}" \
-  --update-env-vars "^|^NODE_ENV=production|DATABASE_URL=postgresql://${DB_USER}:${DB_PASS_ENC}@localhost:${DB_PORT}/${DB_NAME}|CLOUD_SQL_SOCKET=/cloudsql/${CLOUD_SQL_INSTANCE_CONN}|GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}|EMAIL_FROM=${EMAIL_FROM}|APP_BASE_URL=${APP_BASE_URL}|OAUTH_ENABLED=1|SLACK_CLIENT_ID=${SLACK_CLIENT_ID}|SLACK_OAUTH_REDIRECT_URI=${API_BASE_URL}/api/auth/slack/callback|KMS_KEY_NAME=projects/${GCP_PROJECT}/locations/${REGION}/keyRings/memex/cryptoKeys/slack-tokens${HIDDEN_FEATURES+|HIDDEN_FEATURES=${HIDDEN_FEATURES}}${SIGNUP_DOMAIN_ALLOWLIST+|SIGNUP_DOMAIN_ALLOWLIST=${SIGNUP_DOMAIN_ALLOWLIST}}" \
+  --update-env-vars "^|^NODE_ENV=production|DATABASE_URL=postgresql://${RUNTIME_DB_USER}:${RUNTIME_DB_PASS_ENC}@localhost:${DB_PORT}/${DB_NAME}|CLOUD_SQL_SOCKET=/cloudsql/${CLOUD_SQL_INSTANCE_CONN}|GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}|EMAIL_FROM=${EMAIL_FROM}|APP_BASE_URL=${APP_BASE_URL}|OAUTH_ENABLED=1|SLACK_CLIENT_ID=${SLACK_CLIENT_ID}|SLACK_OAUTH_REDIRECT_URI=${API_BASE_URL}/api/auth/slack/callback|KMS_KEY_NAME=projects/${GCP_PROJECT}/locations/${REGION}/keyRings/memex/cryptoKeys/slack-tokens${HIDDEN_FEATURES+|HIDDEN_FEATURES=${HIDDEN_FEATURES}}${SIGNUP_DOMAIN_ALLOWLIST+|SIGNUP_DOMAIN_ALLOWLIST=${SIGNUP_DOMAIN_ALLOWLIST}}${STRIPE_PREMIUM_MONTHLY_PRICE_ID+|STRIPE_PREMIUM_MONTHLY_PRICE_ID=${STRIPE_PREMIUM_MONTHLY_PRICE_ID}}${STRIPE_PREMIUM_ANNUAL_PRICE_ID+|STRIPE_PREMIUM_ANNUAL_PRICE_ID=${STRIPE_PREMIUM_ANNUAL_PRICE_ID}}${STRIPE_ENTERPRISE_MONTHLY_PRICE_ID+|STRIPE_ENTERPRISE_MONTHLY_PRICE_ID=${STRIPE_ENTERPRISE_MONTHLY_PRICE_ID}}${STRIPE_ENTERPRISE_ANNUAL_PRICE_ID+|STRIPE_ENTERPRISE_ANNUAL_PRICE_ID=${STRIPE_ENTERPRISE_ANNUAL_PRICE_ID}}" \
   --update-secrets "${SECRETS_WIRING}"
 
 # ── Done ──────────────────────────────────────────────────────

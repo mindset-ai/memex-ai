@@ -446,7 +446,7 @@ describe("logToolCall — footer-only audit capture (spec-203 dec-3)", () => {
     process.env.GOOGLE_CLIENT_ID = "fake-client-for-test";
 
     const body = "# Spec X\nthe real tool output body";
-    const footer = 'BUILD handoff (full prompt: the "Build handoff" button). phase guidance';
+    const footer = 'You are now in build. phase guidance';
     await logToolCall({
       sessionId,
       userId,

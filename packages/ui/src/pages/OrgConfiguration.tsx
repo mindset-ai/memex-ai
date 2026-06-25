@@ -5,13 +5,14 @@ import { useAuth } from '../components/AuthContext';
 import { UsersTab } from '../components/account/UsersTab';
 import { InvitesTab } from '../components/account/InvitesTab';
 import { SettingsTab } from '../components/account/SettingsTab';
+import { BillingTab } from '../components/account/BillingTab';
 import { parseTenantFromPathname } from '../utils/tenantUrl';
 
-const TAB_IDS = ['users', 'invites', 'settings'] as const;
+const TAB_IDS = ['users', 'invites', 'settings', 'billing'] as const;
 type TabId = (typeof TAB_IDS)[number];
 
 function isTabId(s: string | null): s is TabId {
-  return s === 'users' || s === 'invites' || s === 'settings';
+  return s === 'users' || s === 'invites' || s === 'settings' || s === 'billing';
 }
 
 // Single admin Org Configuration page (t-8 / t-11 of doc-15). Replaces the standalone
@@ -28,6 +29,22 @@ export function OrgConfiguration() {
     ? session?.memberships.find((m) => m.slug === tenant.namespace && m.memexSlug === tenant.memex)
     : session?.memberships.find((m) => m.memexId === session?.currentMemexId);
   const isAdmin = currentMembership?.role === 'administrator';
+
+  // When this page is an ORG's tenant page (/<ns>/<mx>/org), the billable org is
+  // unambiguous — it's the one in the URL, and we've already gated on admin-of-it
+  // above. Hand it to BillingTab so it bills THAT org directly instead of showing
+  // a redundant org chooser (spec-171 verify fix). Null on the flat /org route or
+  // a personal-namespace page (no org), where BillingTab falls back to resolving
+  // the org from the caller's admin memberships.
+  const currentOrg =
+    tenant && currentMembership?.orgId
+      ? {
+          orgId: currentMembership.orgId,
+          name: currentMembership.name,
+          namespace: tenant.namespace,
+          memexSlug: tenant.memex,
+        }
+      : null;
 
   const onTabChange = useCallback(
     (id: string) => {
@@ -67,6 +84,7 @@ export function OrgConfiguration() {
           { id: 'users', label: 'Users' },
           { id: 'invites', label: 'Invites' },
           { id: 'settings', label: 'Settings' },
+          { id: 'billing', label: 'Billing' },
         ]}
         activeTab={tab}
         onChange={onTabChange}
@@ -75,6 +93,7 @@ export function OrgConfiguration() {
         {tab === 'users' && <UsersTab onSwitchTab={onTabChange} />}
         {tab === 'invites' && <InvitesTab />}
         {tab === 'settings' && <SettingsTab />}
+        {tab === 'billing' && <BillingTab currentOrg={currentOrg} />}
       </div>
     </div>
   );

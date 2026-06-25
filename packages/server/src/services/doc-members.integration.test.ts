@@ -156,11 +156,37 @@ describe("spec-118 promote / demote (frictionless, reversible, no last-editor lo
     createdDocIds.push(doc.id);
 
     const events = await captureEvents(memexId, async () => {
-      await promoteToEditor(memexId, doc.id, other.id);
-      await demoteToReviewer(memexId, doc.id, other.id);
+      // `human` performs the role change; ctx carries WHO + HOW (rest_ui).
+      await promoteToEditor(memexId, doc.id, other.id, {
+        actorUserId: human.id,
+        channel: "rest_ui",
+      });
+      await demoteToReviewer(memexId, doc.id, other.id, {
+        actorUserId: human.id,
+        channel: "rest_ui",
+      });
     });
     const mine = events.filter((e) => e.docId === doc.id && e.entity === "doc_member");
     expect(mine.map((e) => e.action)).toEqual(["created", "deleted"]);
+
+    // spec-122: readable Pulse narrative naming the spec handle + member, never
+    // the raw doc UUID (the "doc_member 322dda5d-…" bug report). `other` has no
+    // display name → actor_name falls back to the email.
+    const [created, deleted] = mine;
+    expect(created.narrative).toBe(`promoted spec118-other@example.com to editor on ${doc.handle}`);
+    expect(deleted.narrative).toBe(`demoted spec118-other@example.com to reviewer on ${doc.handle}`);
+    for (const e of mine) {
+      expect(e.narrative, "narrative must not contain the raw doc UUID").not.toContain(doc.id);
+    }
+
+    // spec-122 dec-5: ATTRIBUTED to the acting human + surface, not "System".
+    // channel is set and actor_name is resolved at write (creator has no name →
+    // his email).
+    for (const e of mine) {
+      expect(e.channel).toBe("rest_ui");
+      expect(e.actorUserId).toBe(human.id);
+      expect(e.actorName).toBe("spec118-creator@example.com");
+    }
   });
 
   it("a teammate can promote another member, and demoting the LAST editor succeeds (zero editors allowed) (ac-16)", async () => {
@@ -180,5 +206,33 @@ describe("spec-118 promote / demote (frictionless, reversible, no last-editor lo
     await demoteToReviewer(memexId, doc.id, third.id);
     expect(await listEditors(memexId, doc.id)).toHaveLength(0);
     expect(await resolveRole(memexId, doc.id, human.id)).toBe("reviewer");
+  });
+});
+
+const AC_199 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-199/acs/ac-${n}`;
+
+describe("spec-199 Finding #1 — email stripped from non-member/anonymous path (ac-1)", () => {
+  it("listEditors with includeEmail=false returns null email for every editor", async () => {
+    tagAc(AC_199(1));
+    const doc = await createDocDraft(memexId, "Email Strip Test", "purpose", "spec", undefined, undefined, human.id);
+    createdDocIds.push(doc.id);
+
+    const editors = await listEditors(memexId, doc.id, false);
+    expect(editors.length).toBeGreaterThan(0);
+    for (const e of editors) {
+      expect(e.email, "email must be null on the anonymous/non-member path").toBeNull();
+    }
+  });
+
+  it("listEditors with includeEmail=true (default) returns email for authenticated org members", async () => {
+    tagAc(AC_199(1));
+    const doc = await createDocDraft(memexId, "Email Present Test", "purpose", "spec", undefined, undefined, human.id);
+    createdDocIds.push(doc.id);
+
+    const editors = await listEditors(memexId, doc.id, true);
+    expect(editors.length).toBeGreaterThan(0);
+    for (const e of editors) {
+      expect(e.email, "email must be present for authenticated org members").not.toBeNull();
+    }
   });
 });

@@ -2,8 +2,23 @@
 // guide_content table (the voice guide's knowledge store).
 //
 // Usage:
-//   pnpm --filter @memex/server tsx scripts/import-guide-content.ts          # full import
+//   pnpm --filter @memex/server tsx scripts/import-guide-content.ts          # full app import
 //   pnpm --filter @memex/server tsx scripts/import-guide-content.ts --check  # validate only (CI gate, dec-7c)
+//
+// spec-222 t-8 (dec-3) — website corpus ingestion. A host site publishes a FLAT
+// llms-full.txt (no frontmatter); ingest it under that site's surface, reusing
+// the same chunk/hash/upsert primitives. Same idempotency + bounded, non-gating
+// posture as the app import. spec-251 generalised this to every website surface:
+//   pnpm --filter @memex/server tsx scripts/import-guide-content.ts \
+//     --surface=memex-website --source=https://memex.ai/llms-full.txt
+//   …--surface=mindset-website --source=https://www.mindset.ai/llms-full.txt
+//   …--surface=memex-website --source=/path/to/llms-full.txt   # local file
+//   …--surface=mindset-website --source=https://www.mindset.ai/guide-corpus.json
+// A guide-corpus.json source (screen-keyed: { screens: [{ key, path, title,
+// content }] }) is ingested PER SCREEN — every chunk carries that screen's
+// screen_key so Layer-1 prefetch serves the current page's content.
+// Each website import prunes orphans SCOPED to its own surface only — it never
+// touches the app corpus or another website surface.
 //
 // Idempotent + non-destructive on content: upsertGuideChunk skips re-embedding
 // any chunk whose content_hash is unchanged, and orphan rows (whose source file
@@ -22,11 +37,70 @@
 
 import {
   importGuideContent,
+  importWebsiteCorpus,
+  isWebsiteCorpusSurface,
+  WEBSITE_CORPUS_SURFACES,
   GuideContentValidationError,
+  type WebsiteCorpusSurface,
 } from "../src/services/guide-content-import.js";
+
+/** Pull a `--flag=value` argument's value (or undefined when absent). */
+function argValue(flag: string): string | undefined {
+  const prefix = `--${flag}=`;
+  const hit = process.argv.find((a) => a.startsWith(prefix));
+  return hit ? hit.slice(prefix.length) : undefined;
+}
+
+async function runWebsiteImport(
+  surface: WebsiteCorpusSurface,
+  source: string,
+  check: boolean,
+): Promise<void> {
+  console.log(
+    `[guide-content-import] starting ${surface} corpus import from ${source}` +
+      `${check ? " (check mode — fetch + chunk only, no DB writes)" : ""}…`,
+  );
+  // A URL goes through fetch; anything else is treated as a local file path.
+  const isUrl = /^https?:\/\//i.test(source);
+  const summary = await importWebsiteCorpus({
+    source: isUrl ? { url: source } : { path: source },
+    surface,
+    check,
+  });
+  const screensNote =
+    summary.screensSeen !== undefined ? `${summary.screensSeen} screen(s), ` : "";
+  console.log(
+    `[guide-content-import] ${surface} done — ${screensNote}${summary.chunksSeen} chunk(s): ` +
+      `${summary.chunksEmbedded} embedded, ${summary.chunksReused} reused, ` +
+      `${summary.chunksWithoutVector} without vector; ${summary.rowsPruned} orphan row(s) pruned.`,
+  );
+  process.exit(0);
+}
 
 async function main(): Promise<void> {
   const check = process.argv.includes("--check");
+
+  // spec-222 t-8 / spec-251: website-surface mode is selected by --surface=<host surface>.
+  const surface = argValue("surface");
+  if (surface && isWebsiteCorpusSurface(surface)) {
+    const source = argValue("source");
+    if (!source) {
+      console.error(
+        `[guide-content-import] --surface=${surface} requires --source=<url|path>`,
+      );
+      process.exit(1);
+    }
+    await runWebsiteImport(surface, source, check);
+    return;
+  }
+  if (surface && surface !== "memex-app") {
+    console.error(
+      `[guide-content-import] unknown --surface=${surface} ` +
+        `(expected memex-app | ${WEBSITE_CORPUS_SURFACES.join(" | ")})`,
+    );
+    process.exit(1);
+  }
+
   console.log(
     `[guide-content-import] starting${check ? " (check mode — validate only, no DB writes)" : ""}…`,
   );

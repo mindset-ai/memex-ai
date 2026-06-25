@@ -23,14 +23,14 @@
 // scope. The export form remains the read / external-paste path.
 
 import { and, desc, eq, sql } from "drizzle-orm";
-import { db } from "../db/connection.js";
+import { db, sqlClient } from "../db/connection.js";
 import { docComments, docSections, activityLog } from "../db/schema.js";
 import type { DocComment } from "../db/schema.js";
 import type { CommentAction } from "../types/roles.js";
 import { NotFoundError, ValidationError } from "../types/errors.js";
 import { resolveComment, unresolveComment } from "./comments.js";
 import { updateSection } from "./sections.js";
-import { mutate } from "./mutate.js";
+import { mutate, type RequestCtx } from "./mutate.js";
 import { hasAnchorMarker, extractMarkerSeqs, stripMarkersForSeq } from "./geo-anchor.js";
 
 // What the side agent is handed for an edit, and what it must return (new
@@ -46,6 +46,9 @@ export type AgentEditFn = (input: AgentEditInput) => Promise<string>;
 export interface ApplyActionDeps {
   runEdit: AgentEditFn;
   agentName?: string;
+  // spec-259 ac-4: the acting user, threaded to resolveComment so the ack/dismiss
+  // resolution carries WHO (std-32). Optional — defaults to unattributed.
+  ctx?: RequestCtx;
 }
 
 export interface ApplyActionResult {
@@ -56,23 +59,62 @@ export interface ApplyActionResult {
 }
 
 // ── Per-doc serialization (spec §3: one agent action at a time per spec) ──
-// In-memory promise chain keyed by docId. Subsequent actions on the same doc
-// queue behind the in-flight one rather than interleaving edits to the source.
-const docLocks = new Map<string, Promise<unknown>>();
-
+// spec-350 (REFACTOR, parent audit spec-345 perf-4): the original guard was a
+// process-local `Map<docId, Promise>` promise-chain. That serialises within ONE
+// Node process only — and prod runs up to 3 Cloud Run instances behind the LB,
+// so two instances handling concurrent comment-actions on the SAME source doc
+// could interleave their edits and corrupt marker/ordering state. The fix moves
+// serialisation into Postgres (shared by every instance) via an advisory lock
+// keyed by the doc id, so same-doc actions serialise across the whole fleet
+// while different-doc actions stay fully parallel.
+//
+// ── Why a SESSION-scoped lock on a reserved connection (not pg_advisory_xact_lock) ──
+// The spec sketched `pg_advisory_xact_lock(<bigint>)` inside the mutating
+// transaction. A transaction-scoped lock auto-releases on COMMIT/ROLLBACK, which
+// is the safer primitive — BUT it only protects writes that live in the SAME
+// transaction as the lock. Here the critical section is NOT one transaction: it
+// runs the agent edit (`runEdit`) and then calls updateSection() + resolveComment()
+// + the audit insert — each of which opens its OWN mutate()-wrapped pool
+// transaction (std-8). Folding all of those onto a single shared `tx` would mean
+// duplicating updateSection's ownership/attribution/re-embed logic and
+// resolveComment's attribution inline — drift-prone, and re-licensing well-tested
+// seams. Worse, holding ONE pool connection open across those inner writes while
+// THEY each need a pool connection is exactly the connection-starvation deadlock
+// default-standards.ts documents from spec-184 ("Do NOT 'fix' that with a held
+// advisory lock … starves the small connection pool … deadlocks the test suite").
+//
+// So we take a SESSION-scoped `pg_advisory_lock` on a DEDICATED reserved
+// connection (sqlClient.reserve()). That connection holds ONLY the lock; the
+// inner writes draw from the rest of the pool (max 5; ≥4 free), so there is no
+// starvation — the precise distinction from the spec-184 case, where the held
+// connection was also needed by the inner writes. The lock is released in
+// `finally` (pg_advisory_unlock) and the connection released back to the pool;
+// even on a crash the session lock auto-releases when the backend connection
+// drops, so it cannot leak indefinitely. Cross-instance serialisation holds
+// because the lock lives in shared Postgres, not in any one Node process.
+//
+// Key derivation: pg_advisory_lock takes a single signed bigint. We derive it
+// from the doc UUID with Postgres' own `hashtextextended(text, 0)` (a stable
+// 64-bit hash), computed server-side so it is identical on every instance. Doc
+// ids are UUIDs (high entropy), so advisory-key collisions across distinct docs
+// are vanishingly unlikely and harmless even if they occurred (two unrelated
+// docs would merely serialise against each other — never corrupt data).
 async function withDocLock<T>(docId: string, fn: () => Promise<T>): Promise<T> {
-  const prior = docLocks.get(docId) ?? Promise.resolve();
-  const run = prior.then(fn, fn);
-  // Keep the chain alive but swallow this run's result/throw for the *next*
-  // waiter — each caller still gets its own result/throw from `run`.
-  docLocks.set(
-    docId,
-    run.then(
-      () => undefined,
-      () => undefined,
-    ),
-  );
-  return run;
+  // Reserve a dedicated connection so the lock is held on a session that is NOT
+  // contended by the inner writes (which use the rest of the pool).
+  const conn = await sqlClient.reserve();
+  try {
+    await conn`SELECT pg_advisory_lock(hashtextextended(${docId}, 0))`;
+    return await fn();
+  } finally {
+    // Best-effort explicit release; the lock would also drop when the reserved
+    // connection is released/closed, but unlocking keeps the session reusable.
+    try {
+      await conn`SELECT pg_advisory_unlock(hashtextextended(${docId}, 0))`;
+    } finally {
+      conn.release();
+    }
+  }
 }
 
 function findAction(comment: DocComment, label: string): CommentAction {
@@ -115,7 +157,7 @@ export async function applyCommentAction(
   const action = findAction(comment, actionLabel);
 
   if (action.kind === "dismiss") {
-    const resolved = await resolveComment(memexId, commentId, `Dismissed via "${actionLabel}".`);
+    const resolved = await resolveComment(memexId, commentId, `Dismissed via "${actionLabel}".`, deps.ctx ?? {});
     return { kind: "dismiss", comment: resolved };
   }
 
@@ -167,6 +209,7 @@ export async function applyCommentAction(
       memexId,
       commentId,
       `Addressed via "${actionLabel}" by ${agentName}.`,
+      deps.ctx ?? {},
     );
 
     // Audit + undo record (spec §3 / ac-8). Wrapped in mutate({ silent: true })

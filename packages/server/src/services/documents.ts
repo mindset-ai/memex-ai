@@ -5,10 +5,16 @@ import type { Doc, DocSection, Decision } from "../db/schema.js";
 import type { DocSummary } from "../types/index.js";
 import { NotFoundError, ValidationError } from "../types/errors.js";
 import { mutate, type ChangeKey, type Mutated, type RequestCtx } from "./mutate.js";
+import { resolveActorColumns } from "./actor.js";
 import { isUuid } from "./shared/identifiers.js";
 import { withSeqRetry } from "./shared/sequence.js";
+import { docAttribution } from "./shared/doc-attribution.js";
 import { embedAndStoreSection, embedAndStoreDecision } from "./memex-embeddings.js";
-import { aggregateAcHealthForBriefs } from "./acs.js";
+import {
+  aggregateAcHealthForBriefs,
+  listAcsBlockingDone,
+  listNakedDecisionsBlockingVerify,
+} from "./acs.js";
 import { maybeAutoResolveIssuesForPromotedDoc } from "./issues.js";
 import { seedCreatorAsEditor } from "./doc-members.js";
 import { listAssigneesForDocs } from "./doc-assignees.js";
@@ -84,6 +90,14 @@ export interface CreateDocExtras {
    * survives the demo's idempotency guard + Reset. Defaults to false (real docs).
    */
   isDemo?: boolean;
+  /**
+   * spec-295 dec-3: deterministic initial phase for a newly created Spec.
+   * Defaults to 'draft'. The creation modal (in_app_agent channel) passes
+   * 'specify' so a new Spec lands team-visible WITHOUT relying on traffic-
+   * driven draft→specify advancement — which dec-3 removed for that channel.
+   * The mcp surface leaves this unset (keeps 'draft'; it still auto-advances).
+   */
+  initialStatus?: string;
 }
 
 export async function createDocDraft(
@@ -94,6 +108,12 @@ export async function createDocDraft(
   decisionInputs?: DecisionInput[],
   extras?: CreateDocExtras,
   createdByUserId?: string,
+  // spec-122 dec-2/dec-5 — the activity contract (WHO + HOW). Threaded onto the
+  // 'document created' event so Pulse attributes the create to the human + the
+  // surface (in_app_agent / mcp / rest_ui). Defaults empty for seed/system
+  // callers; actorUserId falls back to createdByUserId so the human is still
+  // attributed even when a caller passes only the legacy id.
+  ctx: RequestCtx = {},
 ): Promise<Mutated<Doc & { sections: DocSection[]; decisions: Decision[] }>> {
   // Per b-105 and std-1 (canonical URL paths):
   //   - specs         → `spec-N`    via nextSpecHandle
@@ -110,11 +130,47 @@ export async function createDocDraft(
   // `resolveRef`). Standards created through the dedicated React-UI flow
   // (`createStandard → nextStandardHandle`) were unaffected; MCP creates
   // route through this function and need the explicit branch.
+  // spec-297 (funnel stage 5/10, depth): tag the document.created event for SPEC
+  // docs with the Nth-spec ordinal for the acting user, so Mixpanel can build
+  // "first spec / 2nd / Nth spec" depth funnels from one event via a property
+  // filter. Counted by the same user the event keys on (distinct_id). Omitted when
+  // there's no human actor (seed / system creates) — a system spec has no funnel.
+  const funnelActor = ctx.actorUserId ?? createdByUserId ?? null;
+  let specIndex: number | undefined;
+  if (docType === "spec" && funnelActor) {
+    const [{ n }] = await db
+      .select({ n: count() })
+      .from(documents)
+      .where(and(eq(documents.createdByUserId, funnelActor), eq(documents.docType, "spec")));
+    // +1: this create will be the (existing + 1)th spec for the user. A small
+    // read-then-create race is acceptable for telemetry depth.
+    specIndex = Number(n) + 1;
+  }
+
   return mutate(
-    {},
+    // Attribute the create to the human (ctx.actorUserId, else the legacy
+    // createdByUserId) and the surface (ctx.channel). Without this the event
+    // reached the sink unattributed and Pulse's "Just me" scope dropped it.
+    { ...ctx, actorUserId: ctx.actorUserId ?? createdByUserId },
     // The new doc's id isn't known until the insert returns, so use a key
     // factory that reads it off the resolved result.
-    (created) => ({ memexId, docId: created.id, entity: "document", action: "created" }),
+    (created) => ({
+      memexId,
+      docId: created.id,
+      entity: "document",
+      action: "created",
+      // spec-306 dec-2: document.created attributes the NEW document itself
+      // (doc_id/doc_type), merged with the spec-297 funnel-depth prop.
+      payload: {
+        ...docAttribution(created.id, created.docType),
+        ...(specIndex !== undefined ? { spec_index: specIndex } : {}),
+        // spec-338 dec-1: the coarse creation SOURCE = the std-32 channel
+        // (rest_ui | mcp | in_app_agent | server), so funnels can split
+        // "where specs/docs are created" off the one outcome event — without
+        // a front-end creation event, and covering agent/MCP creates too.
+        ...(ctx.channel ? { source: ctx.channel } : {}),
+      },
+    }),
     async () => {
       // spec-187 (b-38 F-3 finally reaching documents): the handle mint is a
       // racy COALESCE(MAX(...))+1 read — two concurrent creates in the same
@@ -132,7 +188,7 @@ export async function createDocDraft(
                 : await nextDocHandle(memexId);
           const [row] = await db
             .insert(documents)
-            .values({ memexId, handle, title, docType, status: "draft", createdByUserId: createdByUserId ?? null, isDemo: extras?.isDemo ?? false })
+            .values({ memexId, handle, title, docType, status: extras?.initialStatus ?? "draft", createdByUserId: createdByUserId ?? null, isDemo: extras?.isDemo ?? false })
             .returning();
           return row;
         },
@@ -203,13 +259,35 @@ export async function createDocDraft(
         });
       }
 
+      // spec-122 dec-2/dec-5 — the activity contract (WHO + HOW) for the section
+      // and decision rows born with the doc. `doc_sections` and `decisions` each
+      // carry their own actor_user_id / actor_name / channel (they're activity-
+      // bearing per std-32), so the create must stamp them just like the
+      // 'document created' event above — otherwise every Spec's seed sections land
+      // unattributed (NULL actor, NULL channel = a silent 'server', which std-32
+      // calls a visible defect) and the create drops out of Pulse's 'me' scope.
+      // resolveActorColumns denormalises actor_name at write (one PK lookup when
+      // the ctx didn't carry it, ac-10) and degrades a stale id to null rather
+      // than breaking the insert. actorUserId falls back to the legacy
+      // createdByUserId; channel falls back to an explicit 'server' for seed/
+      // system callers that pass no ctx (never a silent NULL).
+      const resolved = await resolveActorColumns({
+        ...ctx,
+        actorUserId: ctx.actorUserId ?? createdByUserId,
+      });
+      const bornAttribution = {
+        actorUserId: resolved.actorUserId,
+        actorName: resolved.actorName,
+        channel: resolved.channel ?? "server",
+      };
+
       // spec-150 (dec-2): at creation the display `position` equals the identity `seq`.
       // spec-161: a standard inserts zero sections (born sectionless).
       const insertedSections =
         rows.length > 0
           ? await db
               .insert(docSections)
-              .values(rows.map((r) => ({ ...r, position: r.seq })))
+              .values(rows.map((r) => ({ ...r, position: r.seq, ...bornAttribution })))
               .returning()
           : [];
 
@@ -225,6 +303,7 @@ export async function createDocDraft(
               title: d.title,
               context: d.context ?? null,
               status: "open",
+              ...bornAttribution,
             }))
           )
           .returning();
@@ -573,6 +652,11 @@ export async function promoteToSpec(
   title: string,
   purpose?: string,
   createdByUserId?: string,
+  // spec-122 dec-2/dec-5 — the activity contract (WHO + HOW), threaded onto BOTH
+  // the createDocDraft create AND the lineage re-emit below so a promoted Spec is
+  // attributed to the human + surface exactly like a fresh create. Defaults empty
+  // for seed/system callers.
+  ctx: RequestCtx = {},
 ): Promise<Mutated<Doc & { sections: DocSection[]; decisions: Decision[] }>> {
   const trimmedTitle = typeof title === "string" ? title.trim() : "";
   if (trimmedTitle.length === 0) {
@@ -594,13 +678,14 @@ export async function promoteToSpec(
     undefined,
     undefined,
     createdByUserId,
+    ctx,
   );
 
   // Re-emit on promotion specifically — createDocDraft already fired a "created" event,
   // but the lineage edge is what downstream UI/MCP cares about, so let consumers see
   // the linked state too.
   return mutate(
-    {},
+    { ...ctx, actorUserId: ctx.actorUserId ?? createdByUserId },
     { memexId, docId: child.id, entity: "document", action: "updated" },
     async () => {
       const [linked] = await db
@@ -849,6 +934,54 @@ export async function updateDocStatus(
     throw new NotFoundError(`Document ${id} not found`);
   }
 
+  // ════════════════════════════════════════════════════════════════════════
+  // spec-391: the HARD advancement gates (dec-1 / dec-3 / dec-5).
+  // ════════════════════════════════════════════════════════════════════════
+  // The lifecycle is otherwise a soft gate (dec-6 of doc-12) — updateDocStatus
+  // accepts any forward move and assess_spec only nudges. spec-388 dec-2 makes
+  // two advancements a TRUE BLOCK at this single seam (every forward-move
+  // surface — REST UI, MCP update_doc, MCP publish_spec — funnels through here),
+  // for every spec regardless of domain. This blocks the SPEC ADVANCEMENT only,
+  // never the developer's code-work (create_task / test emission are untouched).
+  // Both gates derive through the same listAcsForBriefWithVerification path
+  // list_acs / assess_spec use, so the gate can never disagree with the badge.
+  if (doc.docType === "spec" && doc.status !== status) {
+    // dec-1 / dec-3 (ac-5, ac-6, ac-9): verify→done blocks on any active
+    // implementation AC that is untested or failing. `accepted` ACs (a
+    // reviewed-verification sign-off, dec-2) satisfy the gate — that is the
+    // sanctioned, audited escape hatch, and the ONLY one (the spec-258 editor
+    // override does not bypass this). `stale` does NOT block (dec-3).
+    if (doc.status === "verify" && status === "done") {
+      const blocking = await listAcsBlockingDone(memexId, id);
+      if (blocking.length > 0) {
+        const named = blocking.map((b) => `${b.handle} (${b.state})`).join(", ");
+        throw new ValidationError(
+          `Cannot move ${doc.handle} to done: ${blocking.length} active implementation ` +
+            `acceptance criteri${blocking.length === 1 ? "on is" : "a are"} unverified — ${named}. ` +
+            `Make the tagged test pass, or — if this AC genuinely cannot carry an automated test ` +
+            `(a config / prose / dashboard outcome) — record a reviewed-verification sign-off ` +
+            `(a named, dated human acceptance with a reason) so it satisfies the gate. ` +
+            `This is the only way past the gate; the verify→done block is not overridable.`,
+        );
+      }
+    }
+    // dec-5 (ac-11): build→verify blocks on any resolved decision with zero
+    // active implementation ACs — a commitment with no verification path. The
+    // existing specify→build advisory nudge (phase-assessment.ts) is unchanged.
+    if (doc.status === "build" && status === "verify") {
+      const naked = await listNakedDecisionsBlockingVerify(memexId, id);
+      if (naked.length > 0) {
+        throw new ValidationError(
+          `Cannot move ${doc.handle} to verify: ${naked.length} resolved decision` +
+            `${naked.length === 1 ? "" : "s"} (${naked.join(", ")}) ` +
+            `${naked.length === 1 ? "has" : "have"} no active implementation acceptance criteria — ` +
+            `a decision with no verification path. Author at least one implementation AC per naked ` +
+            `decision via create_ac({ kind: 'implementation', parent_decision_ref: '<dec-ref>', ... }).`,
+        );
+      }
+    }
+  }
+
   // spec-179 (ac-5): a Spec status flip emits a second, payload-carrying event
   // alongside the plain "updated" one (per std-8 dec-2: one event per logical
   // change). The activity-log sink persists it, giving an immutable {from, to}
@@ -862,7 +995,8 @@ export async function updateDocStatus(
       entity: "document",
       action: "status_changed",
       narrative: opts.narrative ?? `moved ${doc.handle} ${doc.status} → ${status}`,
-      payload: { from: doc.status, to: status },
+      // spec-306 dec-2: attribute the phase flip to the Spec, alongside {from,to}.
+      payload: { from: doc.status, to: status, ...docAttribution(id, doc.docType) },
     });
   }
 

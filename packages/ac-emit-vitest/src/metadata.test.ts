@@ -5,12 +5,39 @@ const AC = "mindset-prod/memex-building-itself/specs/spec-115/acs";
 
 describe("buildMetadata — CI auto-population", () => {
   beforeEach(() => {
-    // Clear platform signals so each test starts from a known baseline.
-    vi.stubEnv("CI", "");
-    vi.stubEnv("GITHUB_ACTIONS", "");
-    vi.stubEnv("GITLAB_CI", "");
-    vi.stubEnv("BUILDKITE", "");
-    vi.stubEnv("CIRCLECI", "");
+    // Clear platform signals AND their value-carrying vars so the ambient CI
+    // environment cannot leak into the auto-population assertions. This suite now
+    // runs in real GitHub Actions (spec-302 issue-1), where e.g. GITHUB_HEAD_REF
+    // is set to the PR branch and — because buildMetadata prefers it over
+    // GITHUB_REF_NAME — would otherwise override a stubbed branch. Each test then
+    // stubs exactly the vars it needs from a known-empty baseline.
+    for (const v of [
+      "CI",
+      "GITHUB_ACTIONS",
+      "GITLAB_CI",
+      "BUILDKITE",
+      "CIRCLECI",
+      "GITHUB_HEAD_REF",
+      "GITHUB_REF_NAME",
+      "GITHUB_SHA",
+      "GITHUB_RUN_ID",
+      "GITHUB_SERVER_URL",
+      "GITHUB_REPOSITORY",
+      "CI_COMMIT_REF_NAME",
+      "CI_COMMIT_SHA",
+      "CI_JOB_ID",
+      "CI_JOB_URL",
+      "BUILDKITE_BRANCH",
+      "BUILDKITE_COMMIT",
+      "BUILDKITE_BUILD_ID",
+      "BUILDKITE_BUILD_URL",
+      "CIRCLE_BRANCH",
+      "CIRCLE_SHA1",
+      "CIRCLE_BUILD_NUM",
+      "CIRCLE_BUILD_URL",
+    ]) {
+      vi.stubEnv(v, "");
+    }
   });
 
   afterEach(() => {

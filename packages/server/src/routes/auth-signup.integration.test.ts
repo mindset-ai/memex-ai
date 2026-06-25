@@ -61,10 +61,10 @@ beforeAll(async () => {
   // Clean slate for the dev user so rate limiters and previous tokens don't interfere.
 });
 
-beforeEach(() => {
+beforeEach(async () => {
   sender = new CapturingSender();
   setEmailSender(sender);
-  resetRateLimits();
+  await resetRateLimits();
 });
 
 afterAll(async () => {
@@ -490,5 +490,76 @@ describe("Google SSO (dev-mode fallback)", () => {
     expect(body.user.email).toBe("dev@memex.ai");
     expect(body.user.emailVerified).toBe(true);
     expect(typeof body.token).toBe("string");
+  });
+});
+
+// Endpoint-level coverage for the memex_known hint cookie (mindset-prod/memex-website
+// spec-15 ac-1): every successful auth endpoint must emit it. The cookie's *attributes*
+// (Domain=.memex.ai etc.) are unit-tested against a memex.ai host in
+// auth/known-cookie.test.ts; here APP_BASE_URL is the test default (localhost), so we
+// only assert the cookie is set — the marketing site's signal that the user is known.
+describe("memex_known cookie is set on successful auth (spec-15 ac-1)", () => {
+  const AC15_1 = "mindset-prod/memex-website/specs/spec-15/acs/ac-1";
+  const knownCookieSet = (res: Response) =>
+    /(^|[,;\s])memex_known=1(;|$)/.test(res.headers.get("set-cookie") ?? "");
+
+  it("password signup sets it", async () => {
+    tagAc(AC15_1);
+    const res = await app.request("/api/auth/signup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: uniqueEmail("known-signup"), password: "correctbattery" }),
+    });
+    expect(res.status).toBe(201);
+    expect(knownCookieSet(res)).toBe(true);
+  });
+
+  it("password login sets it", async () => {
+    tagAc(AC15_1);
+    const email = uniqueEmail("known-login");
+    await app.request("/api/auth/signup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password: "correctbattery" }),
+    });
+    const res = await app.request("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password: "correctbattery" }),
+    });
+    expect(res.status).toBe(200);
+    expect(knownCookieSet(res)).toBe(true);
+  });
+
+  it("magic-link consume sets it", async () => {
+    tagAc(AC15_1);
+    const email = uniqueEmail("known-magic");
+    await app.request("/api/auth/magic-link", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+    });
+    const res = await app.request("/api/auth/magic-link/consume", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: extractLinkToken(sender.sent[0].text)! }),
+    });
+    expect(res.status).toBe(200);
+    expect(knownCookieSet(res)).toBe(true);
+  });
+
+  it("Google SSO (dev fallback) sets it", async () => {
+    tagAc(AC15_1);
+    await markEmailVerified(
+      (await db.insert(users).values({ email: "dev@memex.ai" } as any).onConflictDoNothing().returning())[0]?.id ??
+        (await getUserByEmail("dev@memex.ai"))!.id,
+    ).catch(() => {});
+    const res = await app.request("/api/auth/sso/google", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ idToken: "" }),
+    });
+    expect(res.status).toBe(200);
+    expect(knownCookieSet(res)).toBe(true);
   });
 });

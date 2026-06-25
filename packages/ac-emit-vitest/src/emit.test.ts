@@ -1,8 +1,10 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
-import { isEmissionEnabled, isHidden, buildPayload, tagAc } from "./index.js";
+import { isEmissionEnabled, buildPayload, tagAc } from "./index.js";
+import type { TagAcOptions } from "./index.js";
 
 const AC = "mindset-prod/memex-building-itself/specs/spec-115/acs";
 const SPEC_89 = "mindset-prod/memex-building-itself/specs/spec-89/acs";
+const AC_358 = "mindset-prod/memex-building-itself/specs/spec-358/acs";
 
 beforeEach(() => {
   // Ensure no platform signals leak into payload-shape tests.
@@ -84,31 +86,6 @@ describe("isEmissionEnabled — MEMEX_EMIT parsing", () => {
   });
 });
 
-describe("isHidden — MEMEX_HIDDEN and per-call", () => {
-  it("returns false when both env and per-call are unset", () => {
-    expect(isHidden()).toBe(false);
-  });
-
-  it("returns true when per-call hidden=true", () => {
-    expect(isHidden(true)).toBe(true);
-  });
-
-  it("returns true when MEMEX_HIDDEN=true", () => {
-    vi.stubEnv("MEMEX_HIDDEN", "true");
-    expect(isHidden()).toBe(true);
-  });
-
-  it("returns true when MEMEX_HIDDEN=1", () => {
-    vi.stubEnv("MEMEX_HIDDEN", "1");
-    expect(isHidden()).toBe(true);
-  });
-
-  it("per-call true wins even when env disagrees", () => {
-    vi.stubEnv("MEMEX_HIDDEN", "false");
-    expect(isHidden(true)).toBe(true);
-  });
-});
-
 describe("buildPayload — wire format", () => {
   it("produces the minimal payload when no options and no env (ac-12) [spec-89 ac-4, spec-115 scope ac-5]", () => {
     tagAc(`${AC}/ac-12`);
@@ -164,7 +141,10 @@ describe("buildPayload — wire format", () => {
     expect("actor" in payload).toBe(false);
   });
 
-  it("includes hidden=true when MEMEX_HIDDEN is set", () => {
+  // spec-358 — the emitter no longer sends `hidden`. Neither MEMEX_HIDDEN nor a
+  // per-call option can put `hidden` on the wire: every real result counts.
+  it("never sends hidden even when MEMEX_HIDDEN is set [spec-358 ac-3]", () => {
+    tagAc(`${AC_358}/ac-3`);
     vi.stubEnv("MEMEX_HIDDEN", "true");
     const payload = buildPayload({
       ac_uid: "mindset-prod/foo/specs/spec-1/acs/ac-1",
@@ -172,23 +152,21 @@ describe("buildPayload — wire format", () => {
       test_identifier: "test.ts::it works",
       duration_ms: 42,
     });
-    expect(payload.hidden).toBe(true);
+    expect("hidden" in payload).toBe(false);
   });
 
-  it("includes hidden=true when per-call hidden:true [spec-115 scope ac-2]", () => {
-    // spec-115 scope ac-2: adopters can record without it affecting the
-    // displayed verification state. The hidden flag travels with the
-    // payload; server-side aggregation excludes hidden events (covered
-    // separately in packages/server services).
-    tagAc(`${AC}/ac-2`);
+  it("never sends hidden even when a per-call hidden option is forced [spec-358 ac-3]", () => {
+    tagAc(`${AC_358}/ac-3`);
     const payload = buildPayload({
       ac_uid: "mindset-prod/foo/specs/spec-1/acs/ac-1",
       status: "pass",
       test_identifier: "test.ts::it works",
       duration_ms: 42,
-      options: { hidden: true },
+      // The `hidden` option no longer exists on TagAcOptions; force it through an
+      // untyped cast to prove a stale caller still cannot put it on the wire.
+      options: { hidden: true } as unknown as TagAcOptions,
     });
-    expect(payload.hidden).toBe(true);
+    expect("hidden" in payload).toBe(false);
   });
 
   it("includes per-call metadata in the payload (ac-12)", () => {

@@ -3,9 +3,11 @@ import { db } from "../db/connection.js";
 import { decisions, documents, docComments } from "../db/schema.js";
 import type { Decision } from "../db/schema.js";
 import { ConflictError, NotFoundError, ValidationError } from "../types/errors.js";
-import { mutate, type Mutated } from "./mutate.js";
+import { mutate, type Mutated, type RequestCtx } from "./mutate.js";
+import { resolveActorColumns } from "./actor.js";
 import { nextSeq, withSeqRetry } from "./shared/sequence.js";
 import { isUuid, parseHandle } from "./shared/identifiers.js";
+import { docAttribution } from "./shared/doc-attribution.js";
 import { embedAndStoreDecision } from "./memex-embeddings.js";
 
 // Fire-and-forget embed for a decision whose searchable text just changed.
@@ -126,6 +128,7 @@ export async function createDecision(
   title: string,
   context?: string,
   source: "human" | "agent" = "human",
+  ctx: RequestCtx = {},
 ): Promise<Mutated<Decision>> {
   await assertDocInAccount(memexId, docId);
   // createDecision is the direct (REST + create_decision MCP) path. Default 'human'
@@ -134,7 +137,7 @@ export async function createDecision(
   // b-38 F-3 — wrap allocator + insert in withSeqRetry so concurrent createDecision
   // calls under the same doc don't 23505 on `decisions_doc_id_seq_unique`.
   const result = await mutate(
-    {},
+    ctx,
     { memexId, docId, entity: "decision", action: "created" },
     async () =>
       withSeqRetry(
@@ -142,7 +145,8 @@ export async function createDecision(
           const seq = await nextSeq(decisions, decisions.seq, decisions.docId, docId);
           const [decision] = await db
             .insert(decisions)
-            .values({ memexId, docId, seq, title, context: context ?? null, status: "open", source })
+            // spec-122 dec-2/dec-5 — stamp WHO + HOW at write time (ac-20).
+            .values({ memexId, docId, seq, title, context: context ?? null, status: "open", source, ...(await resolveActorColumns(ctx)) })
             .returning();
           return decision;
         },
@@ -511,7 +515,11 @@ async function loadOwnedDecision(memexId: string, id: string): Promise<Decision>
   return decision;
 }
 
-export async function approveDecision(memexId: string, id: string): Promise<Mutated<Decision>> {
+export async function approveDecision(
+  memexId: string,
+  id: string,
+  ctx: RequestCtx = {},
+): Promise<Mutated<Decision>> {
   const decision = await loadOwnedDecision(memexId, id);
   if (decision.status !== "candidate") {
     throw new ValidationError(
@@ -520,12 +528,12 @@ export async function approveDecision(memexId: string, id: string): Promise<Muta
   }
 
   return mutate(
-    {},
+    ctx,
     { memexId, docId: decision.docId, entity: "decision", action: "updated" },
     async () => {
       const [updated] = await db
         .update(decisions)
-        .set({ status: "open" })
+        .set({ status: "open", ...(await resolveActorColumns(ctx)) })
         .where(and(eq(decisions.id, id), eq(decisions.memexId, memexId)))
         .returning();
       return updated;
@@ -537,6 +545,7 @@ export async function rejectDecision(
   memexId: string,
   id: string,
   reason: string,
+  ctx: RequestCtx = {},
 ): Promise<Mutated<Decision>> {
   if (typeof reason !== "string" || reason.trim().length === 0) {
     throw new ValidationError("reason must be a non-empty string");
@@ -549,12 +558,17 @@ export async function rejectDecision(
   }
 
   const result = await mutate(
-    {},
+    ctx,
     { memexId, docId: decision.docId, entity: "decision", action: "updated" },
     async () => {
       const [updated] = await db
         .update(decisions)
-        .set({ status: "rejected", resolution: reason.trim(), resolvedAt: new Date() })
+        .set({
+          status: "rejected",
+          resolution: reason.trim(),
+          resolvedAt: new Date(),
+          ...(await resolveActorColumns(ctx)),
+        })
         .where(and(eq(decisions.id, id), eq(decisions.memexId, memexId)))
         .returning();
       return updated;
@@ -675,16 +689,18 @@ export async function setDecisionOptions(
 export async function resolveDecision(
   memexId: string,
   id: string,
-  resolution: string,
+  resolution?: string,
   chosenOptionIndex?: number,
+  ctx: RequestCtx = {},
 ): Promise<Mutated<Decision>> {
   const decision = await loadOwnedDecision(memexId, id);
-  // Strict transition: only `open` decisions can be resolved. Candidates need approval
-  // first; rejected/resolved decisions can't transition into resolved without going via
-  // reopen → open.
-  if (decision.status !== "open") {
+  // spec-247 dec-5 (persist-on-select): `open` AND `resolved` decisions accept
+  // resolve — re-resolving updates chosenOptionIndex/resolution in place so a
+  // later option click is a one-step correction, no reopen round-trip.
+  // Candidates still need approval first; rejected stays terminal-until-restore.
+  if (decision.status !== "open" && decision.status !== "resolved") {
     throw new ValidationError(
-      `Only open decisions can be resolved (current status: ${decision.status})`,
+      `Only open or resolved decisions can be resolved (current status: ${decision.status})`,
     );
   }
 
@@ -701,22 +717,62 @@ export async function resolveDecision(
     validateChosenIndex(decision.options as DecisionOption[] | null, effectiveChosenIndex);
   }
 
+  // spec-247 dec-5: resolution is optional when an option is being picked —
+  // the prose defaults to the chosen option's label so a bare option click is
+  // a complete resolution. Prose-only resolves (no index) still require text:
+  // with neither an option nor prose there is no resolution content at all.
+  const trimmedResolution = typeof resolution === "string" ? resolution.trim() : "";
+  let effectiveResolution = trimmedResolution;
+  if (!effectiveResolution) {
+    if (effectiveChosenIndex !== undefined) {
+      effectiveResolution = (decision.options as DecisionOption[])[effectiveChosenIndex].label;
+    } else {
+      throw new ValidationError(
+        "resolution is required unless chosenOptionIndex picks an option (then it defaults to that option's label)",
+      );
+    }
+  }
+
   const now = new Date();
+
+  // spec-306 dec-2: attribute the decision.resolved outcome to its parent Spec.
+  // resolveDecision only loads the decision row, so look up the parent doc's type
+  // (one small read on this rare path; dec-3 forbade a lookup only in the hot sink).
+  const parentDoc = await db.query.documents.findFirst({
+    columns: { docType: true },
+    where: and(eq(documents.id, decision.docId), eq(documents.memexId, memexId)),
+  });
 
   // The cascading docComments update is treated as part of the decision-resolution
   // logical action (not an independent invariant per dec-2): downstream subscribers
   // refetch the whole doc on the decision event, which pulls the new comment state too.
   // Both writes run in one mutate() so a failure in either path emits nothing.
   const updated = await mutate(
-    {},
-    { memexId, docId: decision.docId, entity: "decision", action: "updated" },
+    ctx,
+    [
+      { memexId, docId: decision.docId, entity: "decision", action: "updated" },
+      // spec-297 dec-2: a DISTINCT 'resolved' action alongside the generic
+      // 'updated' (mirrors the document status_changed two-key pattern), so the
+      // activation funnel has an unambiguous "decision resolved" step. Only
+      // 'decision.resolved' is whitelisted into usage_events; 'updated' (shared by
+      // many decision mutations) stays bus-only.
+      {
+        memexId,
+        docId: decision.docId,
+        entity: "decision",
+        action: "resolved",
+        ...(parentDoc ? { payload: docAttribution(decision.docId, parentDoc.docType) } : {}),
+      },
+    ],
     async () => {
       const [row] = await db
         .update(decisions)
         .set({
           status: "resolved",
-          resolution,
+          resolution: effectiveResolution,
           resolvedAt: now,
+          // spec-122 dec-2/dec-5 — record who resolved it, through which surface.
+          ...(await resolveActorColumns(ctx)),
           ...(effectiveChosenIndex !== undefined ? { chosenOptionIndex: effectiveChosenIndex } : {}),
         })
         .where(and(eq(decisions.id, id), eq(decisions.memexId, memexId)))
@@ -776,7 +832,11 @@ export async function resolveDecision(
   return updated;
 }
 
-export async function reopenDecision(memexId: string, id: string): Promise<Mutated<Decision>> {
+export async function reopenDecision(
+  memexId: string,
+  id: string,
+  ctx: RequestCtx = {},
+): Promise<Mutated<Decision>> {
   const decision = await loadOwnedDecision(memexId, id);
   // Strict transition: only `resolved` decisions can be reopened. Open decisions are
   // already in the target state; candidate / rejected decisions follow approve/reject
@@ -788,7 +848,7 @@ export async function reopenDecision(memexId: string, id: string): Promise<Mutat
   }
 
   const result = await mutate(
-    {},
+    ctx,
     { memexId, docId: decision.docId, entity: "decision", action: "updated" },
     async () => {
       const [updated] = await db
@@ -799,6 +859,7 @@ export async function reopenDecision(memexId: string, id: string): Promise<Mutat
           resolvedAt: null,
           // Clear chosen option on reopen — the choice is up for re-evaluation.
           chosenOptionIndex: null,
+          ...(await resolveActorColumns(ctx)),
         })
         .where(and(eq(decisions.id, id), eq(decisions.memexId, memexId)))
         .returning();

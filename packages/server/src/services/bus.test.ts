@@ -189,6 +189,40 @@ describe("bus action-allowlist filter (b-60)", () => {
   });
 });
 
+describe("localOnly subscribers — single-writer persistence sinks (spec-122)", () => {
+  it("a localOnly subscriber receives local emit() but NOT relayed emitRelayed()", () => {
+    tagAc(AC(6));
+    const local: ChangeEvent[] = [];
+    const both: ChangeEvent[] = [];
+    // The persistence sink: localOnly.
+    bus.subscribe({}, (e) => local.push(e), { localOnly: true });
+    // A live-delivery subscriber (SSE-style): default — sees relayed events too.
+    bus.subscribe({}, (e) => both.push(e));
+
+    // Foreign event fanned in from another instance via the relay.
+    bus.emitRelayed({ memexId: "m1", entity: "task", action: "created" });
+    // Locally-originated emit.
+    bus.emit({ memexId: "m1", entity: "task", action: "updated" });
+
+    // The localOnly sink saw ONLY the local emit — never the relayed one. This is
+    // what keeps activity_log single-writer across the 3 Cloud Run instances the
+    // spec-156 relay fans out to (the "duplicated 3×" Pulse report).
+    expect(local.map((e) => e.action)).toEqual(["updated"]);
+    // The live-delivery subscriber saw both — cross-instance delivery intact.
+    expect(both.map((e) => e.action)).toEqual(["created", "updated"]);
+  });
+
+  it("unsubscribing a localOnly subscriber stops further local delivery", () => {
+    const seen: ChangeEvent[] = [];
+    const unsub = bus.subscribe({}, (e) => seen.push(e), { localOnly: true });
+    bus.emit({ memexId: "m1", entity: "task", action: "created" });
+    expect(seen).toHaveLength(1);
+    unsub();
+    bus.emit({ memexId: "m1", entity: "task", action: "updated" });
+    expect(seen).toHaveLength(1);
+  });
+});
+
 describe("bus subscriber cleanup", () => {
   it("returned unsubscribe removes the listener", () => {
     const received: ChangeEvent[] = [];

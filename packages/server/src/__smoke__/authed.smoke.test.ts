@@ -46,6 +46,29 @@ function parseRef(text: string): string | null {
   return m ? m[1] : null;
 }
 
+/**
+ * Poll get_doc (verbose) until its text satisfies `ok`, or timeout. int runs
+ * MULTIPLE Cloud Run instances, so a read issued immediately after a write can
+ * land on an instance whose cache hasn't been invalidated yet (spec-156) — the
+ * just-changed section lingers for a beat. Polling makes the lifecycle smoke
+ * assert EVENTUAL convergence instead of a racy single read; the original
+ * assertions still run on the final text, so a genuine failure still fails.
+ */
+async function getDocTextUntil(
+  ref: string,
+  ok: (text: string) => boolean,
+  timeoutMs = 12_000,
+): Promise<string> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const text = mcpTextPayload(
+      (await callMcpTool("get_doc", { ref, verbose: true })).body,
+    );
+    if (ok(text) || Date.now() >= deadline) return text;
+    await new Promise((r) => setTimeout(r, 600));
+  }
+}
+
 // Refs we create during the journey, newest-deletable-first, swept in afterAll
 // so a mid-journey failure can't leave the throwaway namespace dirty.
 const createdTaskRefs: string[] = [];
@@ -352,8 +375,9 @@ describe.skipIf(!SMOKE_MCP_TOKEN)(
 
       // READ — heading + marker are present. Terse get_doc omits section
       // bodies, so these lifecycle reads use verbose mode.
-      let docText = mcpTextPayload(
-        (await callMcpTool("get_doc", { ref: docRef!, verbose: true })).body,
+      let docText = await getDocTextUntil(
+        docRef!,
+        (t) => t.includes("Smoke Lens") && t.includes(marker),
       );
       expect(docText).toContain("Smoke Lens");
       expect(docText).toContain(marker);
@@ -364,9 +388,7 @@ describe.skipIf(!SMOKE_MCP_TOKEN)(
         title: "Smoke Lens Renamed",
       });
       expect(retitled.body.result?.isError).toBeFalsy();
-      docText = mcpTextPayload(
-        (await callMcpTool("get_doc", { ref: docRef!, verbose: true })).body,
-      );
+      docText = await getDocTextUntil(docRef!, (t) => t.includes("Smoke Lens Renamed"));
       expect(docText).toContain("Smoke Lens Renamed");
       expect(docText).toContain(marker);
 
@@ -374,18 +396,23 @@ describe.skipIf(!SMOKE_MCP_TOKEN)(
       // (exercises the read-path filtering on the deployed image).
       const deleted = await callMcpTool("delete_section", { ref: sectionRef! });
       expect(deleted.body.result?.isError).toBeFalsy();
-      docText = mcpTextPayload(
-        (await callMcpTool("get_doc", { ref: docRef!, verbose: true })).body,
-      );
+      // After delete, the section's unique body MARKER must be gone — that is
+      // the proof the section content was dropped from the read path. We do NOT
+      // assert the section TITLE is absent: spec-249's read-surface activity
+      // overview legitimately reports `deleted section … "Smoke Lens Renamed"`
+      // in the get_doc footer, so the title persists in that recent-activity
+      // line by design (a substring match over the whole doc would always hit
+      // it). Poll the marker to absorb cross-instance read lag (spec-156).
+      docText = await getDocTextUntil(docRef!, (t) => !t.includes(marker));
       expect(docText).not.toContain(marker);
-      expect(docText).not.toContain("Smoke Lens Renamed");
     });
 
     // ── spec-189: traffic-driven phase advancement on the LIVE /mcp surface.
     //
     //    Specify-class traffic (create_decision) at a freshly-created draft
     //    Spec must auto-advance it draft → specify; build-class traffic
-    //    (create_task) must then advance it specify → build. This is the
+    //    (update_issue, post spec-327 — create_task no longer advances) must
+    //    then advance it specify → build. This is the
     //    deployed-contract probe for the runToolWithSpecTraffic seam — the
     //    exact class of /mcp wiring that std-17's first live run proved local
     //    suites can miss. The full matrix is locked by unit + integration
@@ -418,16 +445,35 @@ describe.skipIf(!SMOKE_MCP_TOKEN)(
       );
       expect(docText).toMatch(/\[spec,\s*specify\]|status:\s*specify|phase:\s*specify/i);
 
-      // Build-class traffic: task creation (also sweeps via createdTaskRefs).
-      const task = await callMcpTool("create_task", {
-        ref: specRef!,
-        title: "[smoke] spec-189 probe task",
-        description: "Throwaway — drives specify → build.",
+      // Build-class traffic: an Issue edit. spec-327 gated create_task to
+      // build/verify (it no longer advances), so the build-class advance
+      // exemplar is register_issue (the non-advancing parking lot, spec-295
+      // dec-2) followed by update_issue (still build-class) — the seam advances
+      // specify → build.
+      const issue = await callMcpTool("register_issue", {
+        spec_ref: specRef!,
+        title: "[smoke] spec-189 probe issue",
+        body: "Throwaway — seeded to drive specify → build via update_issue.",
+        type: "todo",
       });
-      expect(task.status).toBe(200);
-      expect(task.body.result?.isError).toBeFalsy();
-      const taskRef = parseRef(mcpTextPayload(task.body));
-      if (taskRef) createdTaskRefs.push(taskRef);
+      expect(issue.status).toBe(200);
+      expect(issue.body.result?.isError).toBeFalsy();
+      const issueRef = parseRef(mcpTextPayload(issue.body));
+      expect(issueRef, "register_issue should return a canonical ref").toBeTruthy();
+
+      // register_issue is non-advancing — still specify.
+      docText = mcpTextPayload(
+        (await callMcpTool("get_doc", { ref: specRef! })).body,
+      );
+      expect(docText).toMatch(/\[spec,\s*specify\]|status:\s*specify|phase:\s*specify/i);
+
+      // update_issue is build-class — advances specify → build.
+      const upd = await callMcpTool("update_issue", {
+        ref: issueRef!,
+        body: "Edited — build-class traffic drives specify → build.",
+      });
+      expect(upd.status).toBe(200);
+      expect(upd.body.result?.isError).toBeFalsy();
 
       docText = mcpTextPayload(
         (await callMcpTool("get_doc", { ref: specRef! })).body,

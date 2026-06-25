@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth, computeDefaultLanding } from '../components/AuthContext';
+import { isFeatureHidden } from '../utils/featureFlags';
 import { magicLinkConsumeApi, AuthApiError } from '../api/client';
 import { Spinner } from '../components/Spinner';
 
@@ -32,7 +33,11 @@ export function MagicLinkConsume() {
       .then((session) => {
         acceptSession(session);
         setStage('success');
-        const landing = computeDefaultLanding(session) ?? '/login';
+        // spec-312 dec-1: land on /home (the universal landing); fall back to the
+        // default tenant only when 'home' is hidden per-env.
+        const landing = isFeatureHidden(session, 'home')
+          ? (computeDefaultLanding(session) ?? '/login')
+          : '/home';
         window.setTimeout(() => {
           window.location.href = landing;
         }, 400);

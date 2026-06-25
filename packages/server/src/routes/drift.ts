@@ -23,6 +23,7 @@ import { docComments } from "../db/schema.js";
 import { sessionMiddleware, type SessionEnv } from "../middleware/session.js";
 import type { MemexResolverEnv } from "../middleware/memex-resolver.js";
 import { requireMemexId } from "./shared.js";
+import { restCtx } from "./_actor-ctx.js";
 import { listDriftInbox } from "../services/drift-inbox.js";
 import { parseProposedChangeBody } from "../services/standards.js";
 import { updateSection } from "../services/sections.js";
@@ -83,7 +84,7 @@ drift.post("/proposals/:commentId/accept", async (c) => {
   }
 
   await updateSection(memexId, comment.sectionId, parsed.proposed);
-  const resolved = await resolveComment(memexId, comment.id, "accepted");
+  const resolved = await resolveComment(memexId, comment.id, "accepted", restCtx(c));
 
   return c.json({ ok: true, comment: resolved });
 });

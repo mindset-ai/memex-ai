@@ -120,8 +120,9 @@ test.describe("spec-155 — agent-created Spec, live", () => {
     await modalInput.press("Enter");
 
     // ac-1: the modal transitions to its closed state — the text-entry is
-    // replaced by the "ready on the Kanban" notice + Close affordance.
-    const closedNotice = page.getByText(/ready on the Kanban below/i);
+    // replaced by the "ready" notice + Close affordance. (spec-230 t-3 reworded
+    // the notice and added a primary "Open Spec"; Close remains as secondary.)
+    const closedNotice = page.getByText(/Your spec is ready/i);
     await expect(closedNotice).toBeVisible({ timeout: 15_000 });
     // The modal header's X button also carries aria-label="Close"; the closed
     // state's affordance is the FOOTER Close button (visible text).

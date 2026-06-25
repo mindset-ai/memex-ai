@@ -2,6 +2,7 @@ import { db } from "../db/connection.js";
 import { waitlistEntries } from "../db/schema.js";
 import type { WaitlistEntry } from "../db/schema.js";
 import { ConflictError, ValidationError } from "../types/errors.js";
+import { isUniqueViolation } from "./shared/pg-error.js";
 import { mutate, type Mutated, type RequestCtx } from "./mutate.js";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -58,14 +59,5 @@ export async function addWaitlistEntry(
         throw err;
       }
     },
-  );
-}
-
-function isUniqueViolation(err: unknown): boolean {
-  return (
-    typeof err === "object" &&
-    err !== null &&
-    "code" in err &&
-    (err as { code?: string }).code === "23505"
   );
 }

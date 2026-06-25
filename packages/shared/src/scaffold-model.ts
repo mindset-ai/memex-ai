@@ -18,12 +18,15 @@
 // `spec-readiness.ts` and b-67's `tool-manifest.ts`.
 
 import type { ToolManifestEntry } from './tool-manifest.js';
+import type { SpecPhase } from './spec-readiness.js';
 
 // ──────────────────────────────────────────────────────────────────────────
-// Phase + transition vocabulary. Mirrors `SpecPhase` in spec-readiness.ts.
+// Phase + transition vocabulary. spec-355 dry-1: `Phase` IS the canonical
+// `SpecPhase` from spec-readiness.ts (kept as a local alias so the scaffold
+// model's `Phase` name and all its consumers are untouched).
 // ──────────────────────────────────────────────────────────────────────────
 
-export type Phase = 'draft' | 'specify' | 'build' | 'verify' | 'done';
+export type Phase = SpecPhase;
 
 /** Forward transitions only. Backward moves don't carry rubric prose. */
 export type Transition = 'specify' | 'build' | 'verify' | 'done';
@@ -151,6 +154,14 @@ export interface GuidanceBlock extends BaseNodeShape {
   order: number;
   // Org rows only — undefined on `source: 'base'` records.
   orgId?: string;
+  /** spec-193 t-5 (dec-6 grain): the workspace this Org row is scoped to.
+   *  `undefined` / NULL = account-wide — applies to every memex in the Org's
+   *  namespace (the existing default, kept for security / house-style blocks).
+   *  Set = applies ONLY to that memex (the override). Resolution merges
+   *  account-wide + per-memex at query time. Rationale: you can aggregate
+   *  account-wide items up, you cannot disaggregate a shared list back down per
+   *  memex. Org rows only — undefined on `source: 'base'` records. */
+  memexId?: string;
   authorId?: string;
   createdAt?: string;
   updatedAt?: string;
@@ -268,12 +279,14 @@ export interface ToButtonPromptInput {
 export function toPromptBlocks(
   dataset: ScaffoldDataset,
   phase: Phase,
+  excludeIds?: ReadonlySet<string>,
 ): SystemBlock[] {
   const phaseNode = dataset.phases.find((p) => p.phase === phase);
   if (!phaseNode) return [];
   const byId = new Map(dataset.promptBlocks.map((b) => [b.id, b]));
   const blocks: SystemBlock[] = [];
   for (const id of phaseNode.promptBlockIds) {
+    if (excludeIds?.has(id)) continue;
     const block = byId.get(id);
     if (!block) continue;
     if (block.surface !== 'react_only') continue;

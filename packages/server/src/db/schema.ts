@@ -1,4 +1,4 @@
-import { pgTable, text, uuid, timestamp, integer, unique, uniqueIndex, check, primaryKey, jsonb, boolean, index, customType, doublePrecision } from "drizzle-orm/pg-core";
+import { pgTable, text, uuid, timestamp, integer, unique, uniqueIndex, check, primaryKey, jsonb, boolean, index, customType, doublePrecision, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { relations, type InferSelectModel, type InferInsertModel, sql } from "drizzle-orm";
 import type { CommentAction, CommentAudience } from "../types/roles.js";
 
@@ -44,6 +44,21 @@ const inet = customType<{ data: string; driverData: string }>({
     return "inet";
   },
 });
+
+// std-32 (spec-122 dec-2) — the activity contract's load-bearing vocabularies.
+// HOW (`channel`) = the surface a write arrived through; WHO-kind (`actor_kind`) =
+// the class of actor behind it. These value lists are duplicated across every
+// activity-bearing table's CHECK; hoisting them to one source keeps the allowed
+// set authoritative and drift-proof. The fragment interpolates the table's own
+// column so the emitted SQL stays byte-identical to the per-site originals.
+//
+// NOTE: comms_log.channel is a *notification* channel ('email','in_app',…) — a
+// different vocabulary that intentionally does NOT use this helper.
+const activityChannelCheck = (column: AnyPgColumn) =>
+  sql`${column} IN ('rest_ui', 'mcp', 'in_app_agent', 'server')`;
+
+const activityActorKindCheck = (column: AnyPgColumn) =>
+  sql`${column} IN ('human', 'mcp_agent', 'in_app_agent', 'system')`;
 
 // Forward-declared so child tables can reference memexes.id. The actual memexes table
 // definition lives later in this file (multi-tenancy section). All resource tables carry
@@ -162,10 +177,18 @@ export const docSections = pgTable(
     // and read via raw SQL in services/memex-search.ts. Keeping them out
     // of the Drizzle schema preserves the InferSelectModel shape that every
     // existing DocSection fixture in the project expects.
+    // spec-122 dec-2/dec-5 — the activity contract (WHO + HOW). See acs above.
+    actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+    actorName: text("actor_name"),
+    channel: text("channel"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
+    check(
+      "doc_sections_channel_valid",
+      activityChannelCheck(table.channel),
+    ),
     // `seq` is the allocate-once identity (spec-150 dec-2): minted as MAX(seq)+1 and
     // never reused, so a deleted section's frozen seq can't collide with a live one.
     // (Partial index retained from spec-107; the allocate-once allocator now provides
@@ -174,6 +197,14 @@ export const docSections = pgTable(
       .on(table.docId, table.seq)
       .where(sql`status <> 'deleted'`),
     unique("doc_sections_doc_id_section_type_unique").on(table.docId, table.sectionType),
+    // spec-352 (0105) — Home activity_view feed. doc_sections has no memex_id
+    // (the view derives the tenant via a documents sub-select), so the Q-spark
+    // arm reduces to doc_id IN (...) AND created_at >= window. Q-mine filters by
+    // actor_user_id + window (partial: only attributable rows).
+    index("doc_sections_doc_created_at_idx").on(table.docId, table.createdAt),
+    index("doc_sections_actor_created_at_idx")
+      .on(table.actorUserId, table.createdAt)
+      .where(sql`${table.actorUserId} IS NOT NULL`),
   ]
 );
 
@@ -293,6 +324,10 @@ export const docComments = pgTable(
     // memex's namespace). Nullable for legacy comments without attribution.
     authorUserId: uuid("author_user_id"),
     authorNamespaceId: uuid("author_namespace_id"),
+    // spec-122 dec-2/dec-5 — the activity contract's HOW. WHO already lives in
+    // author_user_id / author_name; channel completes the contract so the
+    // doc_comments arm of the activity view projects the same uniform shape.
+    channel: text("channel"),
     content: text("content").notNull(),
     // Typed-comment columns (Section 7 of doc-10):
     //   commentType — discussion (default, human freeform) | plan | progress | issue |
@@ -326,6 +361,16 @@ export const docComments = pgTable(
     anchorSnippet: text("anchor_snippet"),
     audience: jsonb("audience").$type<CommentAudience>().notNull().default("all"),
     actions: jsonb("actions").$type<CommentAction[]>(),
+    // spec-320 (dec-1/dec-2): comment ASSIGNMENT (ownership). Single owner per
+    // comment, so it lives on the row (a column), NOT a join table — the
+    // cardinality is the inverse of doc_assignees (spec-118), where a Spec has
+    // many assignees. The open→resolved lifecycle reuses resolved_at/resolution
+    // (no assignment-specific status column). assigned_by / assigned_at are the
+    // std-32 WHO/WHEN of the assignment, stamped at write. ON DELETE SET NULL so
+    // removing a user keeps the comment (mirrors doc_assignees.assigned_by).
+    assigneeUserId: uuid("assignee_user_id").references(() => users.id, { onDelete: "set null" }),
+    assignedBy: uuid("assigned_by").references(() => users.id, { onDelete: "set null" }),
+    assignedAt: timestamp("assigned_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -340,6 +385,10 @@ export const docComments = pgTable(
     check(
       "doc_comments_source_valid",
       sql`${table.source} IN ('human', 'agent')`
+    ),
+    check(
+      "doc_comments_channel_valid",
+      activityChannelCheck(table.channel)
     ),
     // doc-26 t-4: cross_reference comments must point at exactly one target
     // kind (or zero, for legacy rows whose backfill couldn't resolve a
@@ -367,6 +416,22 @@ export const docComments = pgTable(
     // Per-doc seq scope (b-36 T-2). Backfilled deterministically by
     // ROW_NUMBER() OVER (PARTITION BY doc_id ORDER BY created_at, id).
     unique("doc_comments_doc_seq_unique").on(table.docId, table.seq),
+    // spec-320 (dec-2): the spec-315 "open assignments to me" read path —
+    // assignee_user_id = :me AND resolved_at IS NULL. Partial so the index only
+    // carries OPEN assignments (a resolved comment closes the assignment).
+    index("doc_comments_open_assignee_idx")
+      .on(table.assigneeUserId)
+      .where(sql`${table.resolvedAt} IS NULL`),
+    // spec-352 (0105) — Home activity_view feed. Q-spark covering composite
+    // (memex_id, doc_id, created_at); Q-mine on author_user_id (this arm's WHO).
+    index("doc_comments_memex_doc_created_at_idx").on(
+      table.memexId,
+      table.docId,
+      table.createdAt,
+    ),
+    index("doc_comments_author_created_at_idx")
+      .on(table.authorUserId, table.createdAt)
+      .where(sql`${table.authorUserId} IS NOT NULL`),
   ]
 );
 
@@ -401,11 +466,26 @@ export const decisions = pgTable(
     // update_decision. Lets the restore path return the decision to its prior
     // state without the caller having to remember it.
     previousStatus: text("previous_status"),
+    // spec-122 dec-2/dec-5 — the activity contract (WHO + HOW). See acs above.
+    actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+    actorName: text("actor_name"),
+    channel: text("channel"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     unique("decisions_doc_id_seq_unique").on(table.docId, table.seq),
     index("decisions_memex_id_idx").on(table.memexId),
+    // spec-352 (0105) — Home activity_view Q-spark covering composite. (Q-mine's
+    // actor_user_id is already served by decisions_actor_user_id_idx, 0098.)
+    index("decisions_memex_doc_created_at_idx").on(
+      table.memexId,
+      table.docId,
+      table.createdAt,
+    ),
+    check(
+      "decisions_channel_valid",
+      activityChannelCheck(table.channel),
+    ),
     check(
       "decisions_status_valid",
       sql`${table.status} IN ('open', 'resolved', 'candidate', 'rejected', 'deleted')`
@@ -441,6 +521,10 @@ export const tasks = pgTable(
     executionPlanDocId: uuid("execution_plan_doc_id").references(() => documents.id, {
       onDelete: "set null",
     }),
+    // spec-122 dec-2/dec-5 — the activity contract (WHO + HOW). See acs above.
+    actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+    actorName: text("actor_name"),
+    channel: text("channel"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     startedAt: timestamp("started_at", { withTimezone: true }),
     completedAt: timestamp("completed_at", { withTimezone: true }),
@@ -448,6 +532,20 @@ export const tasks = pgTable(
   (table) => [
     unique("tasks_doc_id_seq_unique").on(table.docId, table.seq),
     index("tasks_memex_id_idx").on(table.memexId),
+    // spec-352 (0105) — Home activity_view feed. Q-spark covering composite +
+    // Q-mine actor index (tasks lacked an actor_user_id index before 0105).
+    index("tasks_memex_doc_created_at_idx").on(
+      table.memexId,
+      table.docId,
+      table.createdAt,
+    ),
+    index("tasks_actor_created_at_idx")
+      .on(table.actorUserId, table.createdAt)
+      .where(sql`${table.actorUserId} IS NOT NULL`),
+    check(
+      "tasks_channel_valid",
+      activityChannelCheck(table.channel),
+    ),
   ]
 );
 
@@ -523,6 +621,23 @@ export const acs = pgTable(
     // never auto-deleted; un-accept nulls both columns.
     acceptedBy: text("accepted_by"),
     acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    // spec-391 dec-2 (0108): the reviewed-verification rationale — extends the
+    // spec-188 acceptance overlay into a named, dated, REASONED sign-off so a
+    // config/prose/Dashboard AC that cannot carry an automated test (Stripe
+    // settings, Apple notarization, policy ACs) satisfies the hard verify→done
+    // AC gate (dec-2) instead of permanently wedging the spec. Set together with
+    // accepted_by/accepted_at by the reviewed-verification sign-off service;
+    // NULL on a bare manual acceptance. The `accepted` verification state is
+    // still driven by accepted_at; reviewed_reason is the human-facing "why".
+    reviewedReason: text("reviewed_reason"),
+    // spec-122 dec-2/dec-5 — the activity contract (WHO + HOW), stamped at write
+    // time so the activity view (dec-1) projects one uniform shape across every
+    // arm. actor_name is denormalised so a later user rename/delete can't rewrite
+    // historical attribution (ac-10). All nullable: backfill-free — unknown on
+    // legacy rows and on any write that doesn't (yet) thread a RequestCtx.
+    actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+    actorName: text("actor_name"),
+    channel: text("channel"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -530,6 +645,13 @@ export const acs = pgTable(
     unique("acs_brief_id_seq_unique").on(table.briefId, table.seq),
     index("acs_memex_id_idx").on(table.memexId),
     index("acs_brief_id_idx").on(table.briefId),
+    // spec-352 (0105) — Home activity_view Q-spark covering composite. (Q-mine's
+    // actor_user_id is already served by acs_actor_user_id_idx, 0098.)
+    index("acs_memex_brief_created_at_idx").on(
+      table.memexId,
+      table.briefId,
+      table.createdAt,
+    ),
     check(
       "acs_kind_valid",
       sql`${table.kind} IN ('scope', 'implementation')`,
@@ -537,6 +659,13 @@ export const acs = pgTable(
     check(
       "acs_status_valid",
       sql`${table.status} IN ('proposed', 'active', 'rejected', 'superseded')`,
+    ),
+    // spec-122 dec-2 — channel is one of the four surfaces. NULL passes (a CHECK
+    // is satisfied when its predicate is NULL), so legacy / unthreaded writes are
+    // allowed while a stamped value is constrained to the contract's vocabulary.
+    check(
+      "acs_channel_valid",
+      activityChannelCheck(table.channel),
     ),
   ]
 );
@@ -686,6 +815,13 @@ export const testEvents = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     acUid: text("ac_uid").notNull(),
+    // spec-398 dec-4 (ac-8): tenancy is a first-class column stamped at write,
+    // resolved from the emitting Memex [per std-32] — no longer parsed out of
+    // ac_uid at read time. The activity_view test_events arm filters this column
+    // instead of the namespaces→memexes join that was the spec-396 leak surface
+    // (migration 0109). The RLS POLICY itself is spec-399's [per std-36]; this
+    // Spec adds the column + backfill + index only (ac-9, no RLS here).
+    memexId: uuid("memex_id").notNull(),
     status: text("status").notNull(),
     testIdentifier: text("test_identifier"),
     durationMs: integer("duration_ms"),
@@ -717,6 +853,23 @@ export const testEvents = pgTable(
   (table) => [
     index("test_events_ac_uid_created_at_idx").on(table.acUid, table.createdAt),
     index("test_events_test_identifier_idx").on(table.testIdentifier, table.createdAt),
+    // spec-352 (0105) — Home activity_view: the only prunable predicate on this
+    // arm is the created_at window (the spec_ref join is a substring of ac_uid).
+    index("test_events_created_at_idx").on(table.createdAt),
+    // spec-398 dec-1/dec-2 (ac-1, ac-2): the keep-last-10-per-(ac_uid,
+    // test_identifier) retention index — drives both the one-time rewrite-and-swap
+    // and the steady-state trim-on-write, and doubles as the per-test timeline read.
+    index("test_events_retention_idx").on(
+      table.acUid,
+      table.testIdentifier,
+      table.createdAt,
+    ),
+    // spec-398 dec-5 (ac-11): the activity_view per-Spec arm filters te.memex_id;
+    // this index turns that full Seq Scan into an index scan scoped to one tenant.
+    index("test_events_memex_id_created_at_idx").on(
+      table.memexId,
+      table.createdAt,
+    ),
     check(
       "test_events_status_valid",
       sql`${table.status} IN ('pass', 'fail', 'error')`,
@@ -754,6 +907,9 @@ export const testEventLatest = pgTable(
     latestStatus: text("latest_status").notNull(),
     latestRunAt: timestamp("latest_run_at", { withTimezone: true }).notNull(),
     runCount: integer("run_count").notNull().default(0),
+    // spec-398 dec-4 (ac-8): tenancy column mirroring test_events [per std-32],
+    // backfilled in the rewrite-and-swap migration. RLS is spec-399's (ac-9).
+    memexId: uuid("memex_id").notNull(),
   },
   (table) => [
     primaryKey({ columns: [table.acUid, table.testIdentifier] }),
@@ -763,6 +919,22 @@ export const testEventLatest = pgTable(
     ),
   ]
 );
+
+// ══════════════════════════════════════
+// AC first-verified (spec-398 t-6 / spec-125)
+// ══════════════════════════════════════
+//
+// Durable "when did this AC first go green" fact, keyed by ac_uid. The analytics
+// alignment-over-time curve (analytics.ts acsOverTime) needs the EARLIEST passing
+// emission per ac_uid — but spec-398's keep-last-10 retention deletes that oldest
+// row from test_events. This is the spec-125 operational/analytical tier split:
+// test_events is the bounded OPERATIONAL tier; this table is the durable analytical
+// snapshot retention never touches. Written by the emission path (recordFirstVerified,
+// LEAST-wins so the earliest survives out-of-order writes); backfilled in 0110.
+export const acFirstVerified = pgTable("ac_first_verified", {
+  acUid: text("ac_uid").primaryKey(),
+  firstVerifiedAt: timestamp("first_verified_at", { withTimezone: true }).notNull(),
+});
 
 // ══════════════════════════════════════
 // Conversations
@@ -849,6 +1021,54 @@ export const docCommentsRelations = relations(docComments, ({ one }) => ({
     fields: [docComments.referenceTaskId],
     references: [tasks.id],
     relationName: "doc_comments_reference_task",
+  }),
+}));
+
+// ══════════════════════════════════════
+// Comment mentions (spec-320)
+// ══════════════════════════════════════
+//
+// spec-320 (dec-1): @-mention a user in a comment. A JOIN TABLE because a single
+// comment can call out SEVERAL people (multi-mention, ac-1) — the inverse
+// cardinality of the single-owner assignee column on doc_comments. Tenancy on
+// memex_id (NOT NULL, denormalised, mirrors doc_comments) for RLS. comment_id →
+// doc_comments ON DELETE CASCADE (mentions die with their comment); user_id →
+// users ON DELETE CASCADE (mentions die with the user). mentioned_by is the
+// std-32 WHO (ON DELETE SET NULL so removing the actor keeps the mention); `at`
+// is the std-32 WHEN. unique(comment_id,user_id) makes mention-add idempotent —
+// one mention per user per comment. index(user_id) backs the spec-315
+// "mentions-me" read path. The invariant assignee ⊆ mentions (dec-2) is enforced
+// in the service layer: assigning a comment always writes the matching mention
+// row, so comment_mentions is the uniform "everyone called out" set.
+export const commentMentions = pgTable(
+  "comment_mentions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    memexId: uuid("memex_id").notNull(),
+    commentId: uuid("comment_id")
+      .notNull()
+      .references(() => docComments.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    mentionedBy: uuid("mentioned_by").references(() => users.id, { onDelete: "set null" }),
+    at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique("comment_mentions_comment_id_user_id_unique").on(table.commentId, table.userId),
+    index("comment_mentions_user_id_idx").on(table.userId),
+    index("comment_mentions_comment_id_idx").on(table.commentId),
+  ]
+);
+
+export const commentMentionsRelations = relations(commentMentions, ({ one }) => ({
+  comment: one(docComments, {
+    fields: [commentMentions.commentId],
+    references: [docComments.id],
+  }),
+  user: one(users, {
+    fields: [commentMentions.userId],
+    references: [users.id],
   }),
 }));
 
@@ -971,12 +1191,32 @@ export const orgs = pgTable(
     // Who created the org. Used for the 5-orgs-per-user-per-24h rate limit (std-3 /
     // dec-8). Nullable + ON DELETE SET NULL because user deletions don't unwind orgs.
     createdByUserId: uuid("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    // Designated billing contact (spec-171 t-1). Nullable — null means payment emails
+    // go to the org creator / all admins. Kept on the orgs table (not org_memberships)
+    // so the billing contact can be a non-member (e.g. finance@company.com).
+    billingContactName: text("billing_contact_name"),
+    billingContactEmail: text("billing_contact_email"),
+    // spec-171 t-2: enterprise trial state. null trial_status = never trialed or converted to paid.
+    trialStartedAt: timestamp("trial_started_at", { withTimezone: true }),
+    trialStatus: text("trial_status"),
+    trialConvertedAt: timestamp("trial_converted_at", { withTimezone: true }),
+    // Stripe customer ID — one per org, set on first purchase.
+    stripeCustomerId: text("stripe_customer_id"),
+    // spec-171 t-7: subscription state — kept in sync by stripe-webhook handler.
+    stripeSubscriptionId: text("stripe_subscription_id"),
+    planTier: text("plan_tier"),
+    seatsPurchased: integer("seats_purchased"),
+    // JSONB map of which trial nurture emails have been sent e.g. { day_1: true, day_4: true }.
+    trialEmailsSent: jsonb("trial_emails_sent").$type<Record<string, boolean>>().notNull().default({}),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     unique("orgs_namespace_id_unique").on(table.namespaceId),
+    unique("orgs_stripe_customer_id_unique").on(table.stripeCustomerId),
     index("orgs_created_by_user_id_idx").on(table.createdByUserId),
+    check("orgs_trial_status_valid", sql`${table.trialStatus} IN ('active', 'expired')`),
+    check("orgs_plan_tier_valid", sql`${table.planTier} IN ('premium', 'enterprise', 'self-hosted-enterprise')`),
   ]
 );
 
@@ -1093,12 +1333,48 @@ export const users = pgTable("users", {
   // blocked/denied audio start does NOT stamp it). True once-per-user across
   // devices, so the auto-greeting never re-fires.
   onboardingGreetedAt: timestamp("onboarding_greeted_at", { withTimezone: true }),
+  // spec-305 dec-4/dec-5: the captured onboarding profile. roleCoords holds the
+  // developer/designer/PM triangle as barycentric weights (sum 1); identityConfirmedAt
+  // stamps when the user completed the journey's identity step (confirm name + place
+  // the triangle, or skip to the centered default). needsOnboarding keys off this,
+  // NOT !name — SSO users arrive with a name from Google/Microsoft but still take
+  // the identity step.
+  roleCoords: jsonb("role_coords").$type<{ dev: number; design: number; pm: number }>(),
+  identityConfirmedAt: timestamp("identity_confirmed_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   check("users_status_valid", sql`${table.status} IN ('active', 'disabled')`),
   unique("users_namespace_id_unique").on(table.namespaceId),
 ]);
+
+// spec-260 t-1 (dec-6): per-user QA Reports read-state marker — the only net-new table
+// for the QA Report feature. One row per (user, memex) holding the last time the user
+// viewed the workspace QA Reports feed. Unread = count of qa_report* doc_sections in the
+// memex created after `lastViewedAt` (computed in the service layer, not stored). A
+// missing row means "never viewed" → every report counts.
+//
+// This is per-user state, NOT an activity-bearing doc table, so the std-32 activity-
+// contract columns (actor_*, channel) deliberately do NOT apply. Tenancy: it carries a
+// direct memex_id, so migration 0092 puts the same memex_isolation RLS policy on it as
+// the Phase-2 tenant tables (0081); per-user scoping is enforced at the service layer,
+// which always reads/writes the authenticated user's own row.
+export const qaReportViews = pgTable(
+  "qa_report_views",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    memexId: uuid("memex_id")
+      .notNull()
+      .references(() => memexes.id, { onDelete: "cascade" }),
+    lastViewedAt: timestamp("last_viewed_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.userId, table.memexId] })],
+);
+
+export type QaReportView = InferSelectModel<typeof qaReportViews>;
+export type NewQaReportView = InferInsertModel<typeof qaReportViews>;
 
 // Single-use tokens for email verification, magic-link login, and password reset.
 // Stored as a sha256 hash — the raw token is emailed and never persisted. `email` holds
@@ -1119,6 +1395,33 @@ export const authTokens = pgTable("auth_tokens", {
     "auth_tokens_purpose_valid",
     sql`${table.purpose} IN ('email_verification', 'magic_link', 'password_reset')`
   ),
+]);
+
+// Originating-session surrogate for the magic-link flow (spec-304 / embedded webview).
+// When a magic link is requested from an embedded webview, the link is clicked in an
+// EXTERNAL browser (different cookie jar), so the requesting webview never becomes
+// authenticated. This row is a polling handle: the requesting client holds `id` (a
+// high-entropy capability — it never sees the raw token) and polls the status endpoint.
+// When the link is consumed elsewhere, `verifiedAt` is stamped against the row whose
+// `tokenId` matches, and the next poll hands the requesting webview a session in-place.
+//
+// `id` yields a session once verified, so it is treated like a single-use token: short
+// TTL (mirrors the magic_link token), only honoured while genuinely verified AND unexpired.
+export const loginRequests = pgTable("login_requests", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  // The auth_tokens row this poll-handle is the surrogate for. CASCADE so token cleanup
+  // takes the surrogate with it.
+  tokenId: uuid("token_id")
+    .notNull()
+    .references(() => authTokens.id, { onDelete: "cascade" }),
+  email: text("email").notNull(),
+  // Stamped when the magic link is consumed (in the external browser). NULL until then.
+  verifiedAt: timestamp("verified_at", { withTimezone: true }),
+  // Mirrors the magic_link token TTL — the capability is dead once this passes.
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("login_requests_token_id_idx").on(table.tokenId),
 ]);
 
 export const orgMemberships = pgTable(
@@ -1308,9 +1611,24 @@ export const orgScaffoldAdditions = pgTable(
   "org_scaffold_additions",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    orgId: uuid("org_id")
-      .notNull()
-      .references(() => orgs.id, { onDelete: "cascade" }),
+    // spec-360 follow-up: ownership is additive — an addition is owned by an org
+    // OR a personal namespace, enforced by the owner-XOR check below. org_id is
+    // therefore NULLABLE now (a personal-owned row has org_id NULL +
+    // namespaceId set).
+    orgId: uuid("org_id").references(() => orgs.id, { onDelete: "cascade" }),
+    // spec-360 follow-up: personal-namespace owner. NULL for org-owned rows; set
+    // (with org_id NULL) for a personal namespace's own additions. ON DELETE
+    // CASCADE mirrors the org cascade — deleting the namespace drops its rows.
+    namespaceId: uuid("namespace_id").references(() => namespaces.id, {
+      onDelete: "cascade",
+    }),
+    // spec-193 t-5 (dec-6 grain): optional per-memex scope. NULL = account-wide
+    // — applies to every memex in the Org's namespace (existing behaviour, the
+    // default for security / house-style blocks). Set = applies ONLY to that
+    // memex (the override). Resolution merges account-wide + per-memex at query
+    // time. ON DELETE CASCADE so deleting a memex drops its scoped overrides;
+    // account-wide rows (NULL) are untouched.
+    memexId: uuid("memex_id").references(() => memexes.id, { onDelete: "cascade" }),
     // Phase the block attaches to. NULL = matches every phase.
     targetPhase: text("target_phase"),
     // Tool name the block attaches to. NULL = matches every tool.
@@ -1353,7 +1671,24 @@ export const orgScaffoldAdditions = pgTable(
       "org_scaffold_additions_emphasis_valid",
       sql`${table.emphasis} IS NULL OR ${table.emphasis} IN ('do', 'dont')`
     ),
+    // spec-360 follow-up: owner-XOR — a row is owned by exactly one of an org or
+    // a personal namespace. Mirrors migration 0107's CHECK constraint.
+    check(
+      "org_scaffold_additions_owner_xor",
+      sql`(${table.orgId} IS NOT NULL) <> (${table.namespaceId} IS NOT NULL)`
+    ),
     index("org_scaffold_additions_org_id_idx").on(table.orgId),
+    // spec-360 follow-up: personal-owner read path mirrors the org pair — keep
+    // `WHERE namespace_id = ? [AND (memex_id IS NULL OR = ?)]` an index scan.
+    index("org_scaffold_additions_namespace_id_idx").on(table.namespaceId),
+    index("org_scaffold_additions_namespace_id_memex_id_idx").on(
+      table.namespaceId,
+      table.memexId,
+    ),
+    // spec-193 t-5: the per-memex merge reads `WHERE org_id = ? AND (memex_id
+    // IS NULL OR memex_id = ?)`; index (org_id, memex_id) so account-wide +
+    // per-memex resolution stays an index scan.
+    index("org_scaffold_additions_org_id_memex_id_idx").on(table.orgId, table.memexId),
     index("org_scaffold_additions_org_id_target_idx").on(
       table.orgId,
       table.targetPhase,
@@ -1369,9 +1704,14 @@ export const shareTokens = pgTable("share_tokens", {
   documentId: uuid("document_id")
     .notNull()
     .references(() => documents.id, { onDelete: "cascade" }),
+  memexId: uuid("memex_id")
+    .notNull()
+    .references(() => memexes.id, { onDelete: "cascade" }),
   token: text("token").notNull().unique(),
   revoked: boolean("revoked").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  createdByUserId: uuid("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
 });
 
 // Long-lived MCP API tokens issued per (user × device). Token value `mxt_<random>` is
@@ -1427,6 +1767,22 @@ export const memexEmissionKeys = pgTable(
     }),
     lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    // spec-234: the two-key model. Both columns are nullable and a NULL pair is
+    // exactly today's permanent / CI key (human-minted, whole-memex, never
+    // expires) — so existing rows keep working unchanged.
+    //   expires_at         — when set, the key stops authorising emissions once
+    //                        now() passes it (verifyEmissionKey gate), with no
+    //                        human revoke. NULL = permanent. Agent keys set it
+    //                        ~2h ahead (dec-1).
+    //   scoped_spec_handle — when set, the key may ONLY emit for ACs of this Spec
+    //                        (the `spec-N` handle from the ac_uid's
+    //                        `/specs/<handle>/` segment, matched in the
+    //                        /api/test-events gate). NULL = whole-memex
+    //                        authorisation (the spec-129 default).
+    // The pair is the discriminator the Settings UI reads (ac-8): ephemeral =
+    // either column non-null. No separate `kind` column needed.
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    scopedSpecHandle: text("scoped_spec_handle"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -2017,6 +2373,13 @@ export const guideContent = pgTable(
   "guide_content",
   {
     id: uuid("id").primaryKey().defaultRandom(),
+    // spec-222 t-7 (dec-3): which product surface this chunk documents — the
+    // corpus-isolation key. 'memex-app' (the in-product app) or 'memex-website'
+    // (the public marketing site). Retrieval FILTERS every query by surface
+    // server-side so a website session can't see app content and vice versa
+    // (ac-4 / ac-11 / ac-12). Additive + backfilled: existing rows default to
+    // 'memex-app', so the established app retrieval path is unchanged.
+    surface: text("surface").notNull().default("memex-app"),
     // NULL for cross-screen concept chunks; set for per-screen chunks.
     screenKey: text("screen_key"),
     sourcePath: text("source_path").notNull(),
@@ -2038,6 +2401,11 @@ export const guideContent = pgTable(
     uniqueIndex("guide_content_source_path_chunk_idx").on(table.sourcePath, table.chunkIndex),
     // Layer-1 deterministic pre-fetch.
     index("guide_content_screen_key_idx").on(table.screenKey),
+    // spec-222 t-7 (dec-3): surface-keyed retrieval. Composite (surface,
+    // screen_key) serves the Layer-1 lookup; (surface) alone serves the
+    // Layer-2 search's surface filter.
+    index("guide_content_surface_screen_key_idx").on(table.surface, table.screenKey),
+    index("guide_content_surface_idx").on(table.surface),
     // Layer-2 FTS fallback.
     index("guide_content_content_tsv_idx").using("gin", table.contentTsv),
     // Model-scoped filter parity (HNSW vector index lives in the migration —
@@ -2264,6 +2632,11 @@ export const activityLog = pgTable(
       .references(() => memexes.id, { onDelete: "cascade" }),
     briefId: uuid("brief_id").references(() => documents.id, { onDelete: "set null" }),
     actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+    // spec-122 dec-2/dec-3 (ac-12) — the denormalised display snapshot, so an
+    // activity_log row (the arm the view UNIONs for sourceless events: checkpoint
+    // beats + status_changed) carries the full contract {actor_user_id, actor_name,
+    // channel} and renders with no read-time join, surviving a later rename (ac-10).
+    actorName: text("actor_name"),
     actorKind: text("actor_kind").notNull(),
     channel: text("channel").notNull(),
     clientId: text("client_id"),
@@ -2283,11 +2656,274 @@ export const activityLog = pgTable(
     ),
     check(
       "activity_log_actor_kind_valid",
-      sql`${table.actorKind} IN ('human', 'mcp_agent', 'in_app_agent', 'system')`
+      activityActorKindCheck(table.actorKind)
     ),
     check(
       "activity_log_channel_valid",
-      sql`${table.channel} IN ('rest_ui', 'mcp', 'in_app_agent', 'server')`
+      activityChannelCheck(table.channel)
+    ),
+  ]
+);
+
+// ══════════════════════════════════════
+// Usage events (spec-244) — product-engagement telemetry
+// ══════════════════════════════════════
+//
+// The durable store for front-end engagement telemetry and whitelisted back-end
+// outcomes. Deliberately SEPARATE from activity_log (spec-244 dec-1/§Architecture):
+// activity_log is the audit history of what CHANGED; usage_events is the
+// product-analytics feed of how people EXPERIENCE the product. Keeping them apart
+// stops high-volume usage from bloating the audit log.
+//
+// Two writers (spec-244 dec-4/dec-8): the POST /telemetry route (front-end
+// `track()` events, source='frontend') and a bus subscriber that mirrors
+// whitelisted mutate() outcomes (source='backend'). The forwarder (spec-244 dec-3)
+// tails this table — `forwarded_at` IS the outbox cursor: NULL until a row has been
+// shipped to the analytics sink, then stamped, giving at-least-once delivery that
+// survives a Cloud Run restart. `env` is the server-derived environment stamp
+// (spec-244 dec-9) so int and prod never co-mingle at the sink boundary.
+export const usageEvents = pgTable(
+  "usage_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // Tenancy scope. NULLABLE (spec-297 dec-1): most rows carry their real Memex,
+    // but user-scoped funnel events that have no Memex by nature — account.created
+    // (pre-Memex signup), mcp.connected (the handshake, before any tool names a
+    // Memex), and mcp.tool_called for the Memex-agnostic tools (list_memexes /
+    // get_information) — carry an honest NULL rather than a fabricated attribution.
+    // memex_id is never forwarded to Mixpanel (toMixpanelEvent omits it), so this is
+    // purely internal bookkeeping; the funnel keys on distinct_id. Extends spec-244's
+    // original NOT NULL invariant, written before user-scoped events existed.
+    memexId: uuid("memex_id").references(() => memexes.id, { onDelete: "cascade" }),
+    // WHO (the acting Memex user). Nullable: anonymous capture is a no-op so a
+    // null actor only arises for system-originated backend events.
+    actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+    // The anonymous-first identity join key (spec-254 dec-2). Plain uuid (no FK):
+    // a denormalised join column on a high-volume table, and an anonymous event can
+    // carry a visitor_id before any visitors row exists. The funnel joins this to visitors.
+    // DORMANT-BY-DESIGN (spec-367 dec-5): the client mints no visitor_id since the
+    // consent popup was retired, so this is ALWAYS NULL today. Retained — not removed —
+    // to hold the door open for a future anonymous→user stitch (which re-introduces a
+    // consent dialogue first, then resumes minting). Do not drop as dead code; no code
+    // branches on it being populated.
+    visitorId: uuid("visitor_id"),
+    // The registered event name, e.g. 'spec.create_clicked' or 'document.created'.
+    // Validated against the in-code registry before insert (spec-244 dec-5).
+    name: text("name").notNull(),
+    // Where the event was born: 'frontend' (track()) or 'backend' (whitelisted mutate()).
+    source: text("source").notNull(),
+    // Sanitised structured props — IDs / enums / counts only, NEVER content or
+    // keystrokes (spec-244 §open-source-safe). jsonb, nullable.
+    props: jsonb("props"),
+    // Server-derived environment stamp (spec-244 dec-9). Unspoofable by the client.
+    env: text("env").notNull(),
+    // When the event occurred. Defaults to insert time; the route may supply the
+    // client-observed occurrence time for front-end events.
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
+    // Outbox cursor (spec-244 dec-3). NULL = not yet forwarded to the sink.
+    forwardedAt: timestamp("forwarded_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // Outbox tail: the forwarder scans undrained rows oldest-first. Partial index
+    // on the unforwarded set so the scan stays tiny once most rows are drained.
+    index("usage_events_unforwarded_idx")
+      .on(table.occurredAt)
+      .where(sql`${table.forwardedAt} IS NULL`),
+    // SQL analytics + per-memex queries (rollout step one: queryable before any sink).
+    index("usage_events_memex_id_occurred_at_idx").on(table.memexId, table.occurredAt),
+    check("usage_events_source_valid", sql`${table.source} IN ('frontend', 'backend')`),
+    check(
+      "usage_events_env_valid",
+      sql`${table.env} IN ('int', 'prod', 'local', 'test')`
+    ),
+  ]
+);
+export type UsageEvent = InferSelectModel<typeof usageEvents>;
+export type UsageEventInsert = InferInsertModel<typeof usageEvents>;
+
+// ══════════════════════════════════════
+// Visitors — the anonymous-first identity spine (spec-254)
+// ══════════════════════════════════════
+//
+// DORMANT-BY-DESIGN (spec-367 dec-5): the anonymous consent popup and the client
+// visitor_id mint were retired (pre-signup capture is now identifier-less volume),
+// so NOTHING writes to this table today — it stays empty. It is deliberately RETAINED
+// (schema + the server reader visitorMiddleware/mergeVisitor) to hold the door open
+// for a future anonymous→user stitch, which would re-introduce a consent dialogue
+// first (PECR) and then resume minting. Do not remove as dead code.
+//
+// One durable id per browser, minted at first touch BEFORE any sign-in, persisted
+// in a .memex.ai first-party cookie + localStorage mirror, and carried on every
+// event. At sign-in the anonymous visitor_id MERGES into the now-known user (the
+// analytics "identify" step): user_id + merged_at get stamped. This is the
+// browser-only slice (spec-254 dec-2) and the embryo of spec-125's dim_actor —
+// when 125's formal model lands, this table becomes or feeds it.
+//
+// The bind-once invariant (spec-254 dec-3): a visitor_id binds to at most one user,
+// ever. Re-identifying the same user is a no-op; a merge that would re-point an
+// already-bound id to a DIFFERENT user does NOT overwrite — the caller mints a
+// fresh visitor_id instead. Erasure-reversible: nulling the row breaks the link
+// without losing the anonymous arc (user delete → set null, not cascade).
+export const visitors = pgTable(
+  "visitors",
+  {
+    // The client-minted opaque id (crypto.randomUUID()); also the .memex.ai cookie value.
+    visitorId: uuid("visitor_id").primaryKey(),
+    // First time we saw this browser (pre-auth). Defaults to insert time.
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    // WHO this visitor turned out to be, stamped at the identify merge. NULL while
+    // still anonymous. set null on user delete keeps the visitor row.
+    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    // When the anon->known merge happened. NULL while still anonymous.
+    mergedAt: timestamp("merged_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // Reverse lookup: every visitor id that resolved to a given user (per-user
+    // journey reconstruction / cohort joins, spec-254 ac-3). Partial — only merged
+    // rows carry a user_id, so the index stays small.
+    index("visitors_user_id_idx").on(table.userId).where(sql`${table.userId} IS NOT NULL`),
+  ]
+);
+export type Visitor = InferSelectModel<typeof visitors>;
+
+// spec-6 (memex-backstage) t-1 — comms_log: the unified per-user record of every
+// outbound communication to a user, across ALL channels (email / in-app / badge /
+// OS), scheduled and sent. Core (memex-ai) OWNS + WRITES this public table;
+// Backstage READS it cross-tenant via the memex_admin BYPASSRLS role and never
+// writes it (spec-6 dec-5; the spec-280 admin↔public boundary). It is the single
+// pane that lets ops see the TOTAL comms load on one human and avoid bombarding
+// them — the whole point of the comms-strategy work.
+//
+// METADATA ONLY (spec-6 dec-4): a one-line subject/summary + status + timestamps +
+// a source_ref pointer — NEVER the message body. Full content stays in the
+// system-of-record (Postmark / HubSpot / the in-app notification store), reached
+// via source_ref. Retention ~90 days, pruned core-side (spec-6 t-8).
+//
+// RLS — deliberately EXCLUDED, mirroring usage_events / visitors / activity_log
+// (drizzle/0090 §exclusions). comms_log is a CROSS-TENANT, user-scoped comms
+// dimension (keyed on user_id, NOT memex_id), written ADVISORILY from send paths
+// that often run with no request ALS / tenant GUC (a background Activation send, a
+// Postmark/Stripe delivery webhook) — a FORCE-RLS WITH CHECK would silently reject
+// those inserts, and a memex_id USING clause is meaningless on a user-keyed row.
+// The row holds only ids/enums/a summary line (no body, no credentials); isolation
+// is enforced at the service layer and, in Backstage, by the requireOperator gate.
+export const commsLog = pgTable(
+  "comms_log",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // WHO the communication is addressed to (the single human). Cascade on user
+    // delete: a user's comms history is erased with them — no orphan PII.
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    // WHICH channel it lands on. Badge + OS push are first-class alongside email +
+    // in-app so the timeline reflects the TOTAL load on the user.
+    channel: text("channel").notNull(),
+    // WHAT kind of comm — coarse intent ('transactional' | 'activation' |
+    // 'work_notification' | …) plus any sub-type. Free text so a new comm type
+    // needs no migration; validated against the in-code registry before insert.
+    type: text("type").notNull(),
+    // Lifecycle. 'scheduled' = planned ahead, not yet sent (sent_at null); 'sent'
+    // once dispatched; 'delivered'/'failed' applied later by delivery webhooks.
+    status: text("status").notNull().default("sent"),
+    // When the send is planned for (spec-6 dec-3). Set ahead for sends we control
+    // (time-based Activation, Postmark scheduled); NULL for immediate-fire channels.
+    scheduledFor: timestamp("scheduled_for", { withTimezone: true }),
+    // When it actually went out. NULL while still scheduled.
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    // One-line subject/summary for the timeline — NEVER the full body (dec-4).
+    subject: text("subject"),
+    // Pointer back to the system-of-record row (Postmark message id, HubSpot send
+    // id, app notification id). Delivery webhooks match on this to update status.
+    sourceRef: text("source_ref"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // Per-user timeline: every comm to one human, newest first (spec-6 ac-1).
+    index("comms_log_user_id_created_at_idx").on(table.userId, table.createdAt),
+    // Cross-user schedule view: upcoming sends only, soonest first (spec-6 ac-4).
+    // Partial on the unsent set so the scan stays tiny.
+    index("comms_log_scheduled_idx")
+      .on(table.scheduledFor)
+      .where(sql`${table.sentAt} IS NULL`),
+    check("comms_log_channel_valid", sql`${table.channel} IN ('email', 'in_app', 'badge', 'os')`),
+    check(
+      "comms_log_status_valid",
+      sql`${table.status} IN ('scheduled', 'sent', 'delivered', 'failed')`,
+    ),
+  ],
+);
+export type CommsLogRow = InferSelectModel<typeof commsLog>;
+export type VisitorInsert = InferInsertModel<typeof visitors>;
+
+// ══════════════════════════════════════
+// Presence (spec-122 dec-4)
+// ══════════════════════════════════════
+//
+// The ephemeral "who's here now" plane — present-tense and decaying, NOT a
+// durable log. A row counts as "here" when last_seen_at is within the decay
+// window (~30s); the presence service prunes / ignores older rows. Distinct
+// from activity_log on purpose: activity is what CHANGED (durable), presence is
+// who is THERE (ephemeral). Writers upsert a single row per
+// (doc_id, actor_user_id, channel, client_id) and bump last_seen_at on each
+// beat — built writer-agnostic so the deferred checkpoint feed (spec-132, dec-9)
+// slots in additively alongside the passive-telemetry floor and the browser
+// heartbeat. Tenancy-scoped (memex_id) but written by heartbeats, so per std-8
+// it is silent-allowed: no UI subscriber cares about last_seen_at drift, the
+// Pulse "Working now" zone reads it directly.
+export const presence = pgTable(
+  "presence",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    memexId: uuid("memex_id")
+      .notNull()
+      .references(() => memexes.id, { onDelete: "cascade" }),
+    // The spec the actor is present IN (the "where"). FK to documents so a
+    // deleted spec drops its presence rows.
+    docId: uuid("doc_id")
+      .notNull()
+      .references(() => documents.id, { onDelete: "cascade" }),
+    // Presence always resolves to a known user: the browser heartbeat carries the
+    // authenticated session user, and the passive agent floor carries
+    // mcp_sessions.user_id (NOT NULL). ON DELETE CASCADE — presence is ephemeral,
+    // a deleted user simply stops being "here".
+    actorUserId: uuid("actor_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    // Denormalised display name (user.name ?? email), same posture as the
+    // activity contract: the "Working now" line renders with no read-time join.
+    actorName: text("actor_name"),
+    actorKind: text("actor_kind").notNull(),
+    channel: text("channel").notNull(),
+    // The per-client discriminator (MCP session id / browser session id). NOT
+    // NULL DEFAULT '' so the upsert conflict target never sees a NULL (which
+    // Postgres treats as distinct, defeating the upsert). Multiple sessions of
+    // the same user on the same spec are distinct presence rows.
+    clientId: text("client_id").notNull().default(""),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // One row per (doc, actor, channel, client) — the upsert conflict target.
+    unique("presence_doc_actor_channel_client_unique").on(
+      table.docId,
+      table.actorUserId,
+      table.channel,
+      table.clientId,
+    ),
+    // The "who's here in this spec, recently" read path: filter by doc, order by
+    // recency, drop rows past the decay window.
+    index("presence_doc_id_last_seen_at_idx").on(table.docId, table.lastSeenAt),
+    // The Memex-wide "Working now" sweep across all specs.
+    index("presence_memex_id_last_seen_at_idx").on(table.memexId, table.lastSeenAt),
+    check(
+      "presence_actor_kind_valid",
+      activityActorKindCheck(table.actorKind),
+    ),
+    check(
+      "presence_channel_valid",
+      activityChannelCheck(table.channel),
     ),
   ]
 );
@@ -2333,6 +2969,8 @@ export type StandardClause = InferSelectModel<typeof standardClauses>;
 export type ClauseRef = InferSelectModel<typeof clauseRefs>;
 export type ClauseRefInsert = InferInsertModel<typeof clauseRefs>;
 export type DocComment = InferSelectModel<typeof docComments>;
+export type CommentMention = InferSelectModel<typeof commentMentions>;
+export type CommentMentionInsert = InferInsertModel<typeof commentMentions>;
 export type Decision = InferSelectModel<typeof decisions>;
 export type Task = InferSelectModel<typeof tasks>;
 export type Issue = InferSelectModel<typeof issues>;
@@ -2359,6 +2997,7 @@ export type DomainVerificationToken = InferSelectModel<typeof domainVerification
 export type NamespaceSlugReservation = InferSelectModel<typeof namespaceSlugReservations>;
 export type OrgConsentResponse = InferSelectModel<typeof orgConsentResponses>;
 export type AuthToken = InferSelectModel<typeof authTokens>;
+export type LoginRequest = InferSelectModel<typeof loginRequests>;
 export type McpToken = InferSelectModel<typeof mcpTokens>;
 export type MemexEmissionKey = InferSelectModel<typeof memexEmissionKeys>;
 export type MemexEmissionKeyInsert = InferInsertModel<typeof memexEmissionKeys>;
@@ -2536,3 +3175,49 @@ export const whatsNewSkips = pgTable(
 
 export type WhatsNewSkip = InferSelectModel<typeof whatsNewSkips>;
 export type WhatsNewSkipInsert = InferInsertModel<typeof whatsNewSkips>;
+
+// ── spec-171 t-2: enterprise schema (hosted-only) ────────────────────────────
+// Self-hosted tables (org_llm_keys, self_hosted_licenses, license_checkins) are
+// deferred to spec-323.
+
+// Idempotency log for Stripe webhook handlers. Unique on event_id prevents
+// double-processing on webhook retries (dec-8).
+export const stripeEvents = pgTable(
+  "stripe_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    eventId: text("event_id").notNull(),
+    eventType: text("event_type").notNull(),
+    processedAt: timestamp("processed_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique("stripe_events_event_id_unique").on(table.eventId),
+  ]
+);
+
+export type StripeEvent = InferSelectModel<typeof stripeEvents>;
+export type StripeEventInsert = InferInsertModel<typeof stripeEvents>;
+
+// ── spec-349: cross-instance auth rate-limit store ───────────────────────────
+// Backs services/auth-rate-limit.ts. The in-memory Map it replaced multiplied
+// every limit by the Cloud Run instance count (3) and reset on cold start
+// (spec-345 perf-3). One row per (scope, key); the limiter increments it with a
+// single atomic INSERT ... ON CONFLICT DO UPDATE so concurrent instances
+// serialise on the row lock. NOT tenant-scoped (keys are IP / email / user-id),
+// so no RLS — see migration 0105.
+export const rateLimitCounters = pgTable(
+  "rate_limit_counters",
+  {
+    scope: text("scope").notNull(),
+    key: text("key").notNull(),
+    count: integer("count").notNull(),
+    resetAt: timestamp("reset_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.scope, table.key] }),
+    index("rate_limit_counters_reset_at_idx").on(table.resetAt),
+  ]
+);
+
+export type RateLimitCounter = InferSelectModel<typeof rateLimitCounters>;
+export type RateLimitCounterInsert = InferInsertModel<typeof rateLimitCounters>;

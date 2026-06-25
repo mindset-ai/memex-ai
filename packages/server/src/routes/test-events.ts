@@ -26,9 +26,12 @@
 //                    post explicitly. A metadata.actor key (legacy
 //                    hand-rolled wire format) is stored opaquely as
 //                    metadata but is NOT promoted into this column.
-//   hidden           optional, boolean (spec-115 v0.1.0) — when true, the
-//                    event is stored but excluded from the AC's displayed
-//                    verification badge calculation
+//   hidden           DEPRECATED (spec-358) — accepted for backward
+//                    compatibility but NO LONGER HONOURED. An old / hand-rolled
+//                    emitter may still send it (any value); it is silently
+//                    ignored and the event is always stored as a counting
+//                    result. No inbound value can keep a new result off the
+//                    badge. (Historical hidden=true rows are frozen, untouched.)
 //   metadata         optional, object<string,string> (spec-115 v0.1.0) —
 //                    extensible context bag, surfaced in the UI tooltip.
 //                    Server-side caps: 4KB total, 32 keys, 256 chars per
@@ -48,6 +51,10 @@ import { Hono } from "hono";
 import { db } from "../db/connection.js";
 import { testEvents } from "../db/schema.js";
 import { applyEmissionToSummary } from "../services/test-event-latest.js";
+import {
+  trimTestEventsForPair,
+  recordFirstVerified,
+} from "../services/test-event-retention.js";
 import { maybeAutoResolveIssuesForAcUid } from "../services/issues.js";
 import {
   verifyEmissionKey,
@@ -55,7 +62,6 @@ import {
   resolveMemexId,
 } from "../services/emission-keys.js";
 import { mutate } from "../services/mutate.js";
-import { observeTestEventTraffic } from "../services/spec-traffic.js";
 import type { ChangeEntity } from "../services/bus.js";
 
 const testEventsRouter = new Hono();
@@ -151,6 +157,15 @@ function memexSlugFromAcUid(acUid: string): string {
   return parts.length >= 2 ? parts[1]! : "";
 }
 
+// spec-234: the Spec handle from an ac_uid (`<namespace>/<memex>/specs/<spec-N>/acs/<ac-M>`).
+// Used to enforce a spec-scoped (ephemeral / agent) key's scope. Returns "" when the ref
+// isn't a `/specs/…` AC ref — a scoped key then matches nothing and is rejected, which is
+// the safe default.
+function specHandleFromAcUid(acUid: string): string {
+  const parts = acUid.split("/");
+  return parts.length >= 4 && parts[2] === "specs" ? parts[3]! : "";
+}
+
 testEventsRouter.post("/", async (c) => {
   // ── Emission-key auth (spec-129 dec-3) ──────────────────────────
   // A valid per-Memex key is required for every emission. Authenticate from the
@@ -163,13 +178,19 @@ testEventsRouter.post("/", async (c) => {
     : "";
   const emissionKey = rawKey ? await verifyEmissionKey(rawKey) : null;
   if (!emissionKey) {
+    // spec-333 ac-6: verifyEmissionKey returns null for a missing, invalid, OR expired key
+    // alike. Give ONE remedy that fits all three (no expiry oracle, per spec-333's Architecture
+    // & Security section): a coding agent re-provisions over MCP; CI uses a human-minted key.
     return c.json(
       {
         error: "unauthorized",
         message:
-          "A valid emission key is required. Generate one in Memex settings " +
-          "(Emission Keys) and set it as MEMEX_EMIT_KEY in your test environment; " +
-          "the helper attaches it as `Authorization: Bearer <key>`.",
+          "A valid emission key is required (it may be missing, invalid, or expired). " +
+          "If you are a coding agent, call the `provision_ac_emission` MCP tool with the " +
+          "Spec you're working on to mint a fresh key, set it as MEMEX_EMIT_KEY in your " +
+          "test environment, and re-run. For CI, a human mints a long-lived key in Memex " +
+          "settings (Emission Keys) and stores it as the MEMEX_EMIT_KEY secret; the helper " +
+          "attaches it as `Authorization: Bearer <key>`.",
       },
       401,
     );
@@ -203,9 +224,13 @@ testEventsRouter.post("/", async (c) => {
   if (body.actor !== undefined && typeof body.actor !== "string") {
     return c.json({ error: "actor must be a string when provided" }, 400);
   }
-  if (body.hidden !== undefined && typeof body.hidden !== "boolean") {
-    return c.json({ error: "hidden must be a boolean when provided" }, 400);
-  }
+  // spec-358 (dec-3, ac-1/ac-11): the inbound `hidden` field is no longer
+  // honoured. We still accept it for backward compatibility — an old /
+  // hand-rolled emitter that sends it (any value, boolean or not) gets a
+  // normal 201, never a 400 — but it is silently ignored. The stored row is
+  // always a counting result (hidden=false below), so no emitter can keep a
+  // NEW result off the badge (ac-2). Historical hidden=true rows are frozen
+  // and untouched (dec-2/dec-5); the readers that exclude them are kept.
   if (
     body.metadata !== undefined &&
     (typeof body.metadata !== "object" ||
@@ -244,6 +269,33 @@ testEventsRouter.post("/", async (c) => {
     );
   }
 
+  // Spec-scope gate (spec-234 ac-11): an ephemeral / agent key carries a
+  // scoped_spec_handle and may emit ONLY for ACs of that one Spec — so an in-progress
+  // agent test run can't flip the verification bar of any other Spec on the shared
+  // board. A permanent (CI) key has a NULL handle and keeps whole-memex authorisation,
+  // so spec-129 keys are unaffected.
+  if (
+    emissionKey.scopedSpecHandle &&
+    emissionKey.scopedSpecHandle !== specHandleFromAcUid(body.ac_uid)
+  ) {
+    // spec-333 ac-7: name BOTH the key's scoped Spec and the target Spec, and hand a coding
+    // agent the exact provision_ac_emission call to get a key for the Spec it's actually
+    // emitting for. The route already holds both handles, so the breadcrumb is precise.
+    const targetSpecHandle = specHandleFromAcUid(body.ac_uid);
+    const targetSpecRef = `${refNamespace}/${memexSlugFromAcUid(body.ac_uid)}/specs/${targetSpecHandle}`;
+    return c.json(
+      {
+        error: "unauthorized",
+        message:
+          `This emission key is scoped to Spec ${emissionKey.scopedSpecHandle} and cannot ` +
+          `emit for Spec ${targetSpecHandle}. If you are a coding agent, call the ` +
+          `\`provision_ac_emission\` MCP tool with ref ${targetSpecRef} to mint a key for ` +
+          `that Spec, set it as MEMEX_EMIT_KEY, and re-run.`,
+      },
+      401,
+    );
+  }
+
   // spec-115 dec-2 / dec-3: validate metadata size caps and drop offending
   // keys server-side. The helper itself transmits caller-provided metadata
   // unmodified (ac-12); validation lives here so the protocol shape is
@@ -263,13 +315,19 @@ testEventsRouter.post("/", async (c) => {
   // `typeof body.ac_uid === "string"` narrowing across that function boundary.
   const insertValues = {
     acUid: body.ac_uid,
+    // spec-398 dec-4 (ac-8): stamp tenancy at write from the Memex the emission
+    // key already resolved + authorised above — no read-time ac_uid parsing.
+    memexId: targetMemexId,
     status: body.status,
     testIdentifier: (body.test_identifier as string | undefined) ?? null,
     durationMs: (body.duration_ms as number | undefined) ?? null,
     commitSha: (body.commit_sha as string | undefined) ?? null,
     runId: (body.run_id as string | undefined) ?? null,
     actor: (body.actor as string | undefined) ?? null,
-    hidden: (body.hidden as boolean | undefined) ?? false,
+    // spec-358: every ingested result counts. The inbound `hidden` field is
+    // ignored — the row is always stored as a counting result. The column is
+    // retained (dec-2) and write-frozen at false on this path.
+    hidden: false,
     metadata: metadataForStorage,
   };
 
@@ -290,6 +348,15 @@ testEventsRouter.post("/", async (c) => {
       memexId: targetMemexId,
       entity: TEST_EVENT_ENTITY,
       action: "created",
+      // Carry the outcome on the event so the Pulse test-signal volume monitor
+      // can colour the live tick (pass/fail/error) and surface failures in real
+      // time. test_event is NOT persisted to activity_log (it's the firehose),
+      // so this payload only ever rides the live SSE frame.
+      payload: {
+        status: insertValues.status,
+        acUid: insertValues.acUid,
+        hidden: insertValues.hidden,
+      },
     },
     // spec-162 dec-1: append the log row AND upsert the test_event_latest
     // summary in one transaction so the two can't diverge on a crash. The
@@ -304,11 +371,25 @@ testEventsRouter.post("/", async (c) => {
           .returning({ id: testEvents.id, createdAt: testEvents.createdAt });
         await applyEmissionToSummary(tx, {
           acUid: insertValues.acUid,
+          memexId: targetMemexId,
           testIdentifier: insertValues.testIdentifier,
           status: insertValues.status as "pass" | "fail" | "error",
           latestRunAt: inserted.createdAt,
           hidden: insertValues.hidden,
         });
+        // spec-398 (ac-1): keep this pair bounded to the latest RETENTION_KEEP
+        // runs — the steady-state trim-on-write, in the same transaction as the
+        // insert so the log never transiently exceeds the cap.
+        await trimTestEventsForPair(
+          tx,
+          insertValues.acUid,
+          insertValues.testIdentifier,
+        );
+        // spec-398 t-6: durably snapshot the earliest pass BEFORE retention can
+        // trim it away, so analytics keeps a true "first went green" date.
+        if (insertValues.status === "pass" && !insertValues.hidden) {
+          await recordFirstVerified(tx, insertValues.acUid, inserted.createdAt);
+        }
         return inserted;
       });
     },
@@ -318,23 +399,17 @@ testEventsRouter.post("/", async (c) => {
   // bump never blocks or fails the emission — it only leaves a slightly stale timestamp.
   bumpLastUsed(emissionKey.id);
 
-  // spec-189: a test_event arriving is verify-class traffic on the AC's Spec
-  // (dec-1) — a done Spec reopens to verify; a draft Spec advances to verify.
-  // Hidden emissions are excluded by design (`hidden: true` exists to keep an
-  // emission out of the visible signals — e.g. iterating on a done-phase
-  // regression fix must not reopen the Spec). Best-effort and non-throwing;
-  // no assignment (an emission key carries no acting user).
-  if (!insertValues.hidden) {
-    await observeTestEventTraffic(targetMemexId, insertValues.acUid);
-  }
+  // spec-342: a test_event NEVER changes a Spec's phase. It updates the AC
+  // verdict (applyEmissionToSummary, above) and the audit trail only; phase is
+  // a deliberate human / handoff placement. The former build→verify (and
+  // done→verify reopen) auto-promote was removed — see spec-traffic.ts.
 
   // Stdout log so observers can tail the dev server output during deploys
   // and behavioural probes. Cheap and useful.
   console.log(
     `[test-events] ${body.ac_uid} ${body.status}` +
       (body.test_identifier ? ` (${body.test_identifier})` : "") +
-      (body.run_id ? ` run=${body.run_id}` : "") +
-      (body.hidden === true ? " [hidden]" : ""),
+      (body.run_id ? ` run=${body.run_id}` : ""),
   );
 
   if (droppedKeys.length > 0) {

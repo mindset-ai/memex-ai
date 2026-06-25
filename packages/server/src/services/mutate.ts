@@ -12,6 +12,7 @@
 // `services/__test__/mutate-helpers.ts` (`testMutate()`).
 
 import { bus, type ChangeAction, type ChangeEntity, type ChangeEvent } from "./bus.js";
+import { isUuid } from "./shared/identifiers.js";
 
 declare const __mutated: unique symbol;
 
@@ -50,6 +51,14 @@ export interface RequestCtx {
   readonly clientId?: string;
   // Surface the mutation originated from. Mirrors ChangeEvent.channel.
   readonly channel?: "rest_ui" | "mcp" | "in_app_agent" | "server";
+  // spec-122 dec-5 — the WHO carried onto the write path. dec-5 resolved to
+  // "ride the existing explicit RequestCtx, not AsyncLocalStorage" (ac-18); the
+  // ctx had no actor field yet, so these are it. The source-table services stamp
+  // them onto the new contract columns at write time (actor_name denormalised so
+  // a later rename can't rewrite history, ac-10). actorUserId is the resolved
+  // Memex user id; actorName is its display snapshot (user.name ?? user.email).
+  readonly actorUserId?: string;
+  readonly actorName?: string;
 }
 
 export interface ChangeKey {
@@ -142,9 +151,13 @@ function resourceIdentifier(resolved: ChangeKey, result: unknown): string | unde
     const prefix = HANDLE_PREFIX[resolved.entity];
     if (prefix && typeof row.seq === "number") return `${prefix}${row.seq}`;
   }
-  // Fall back to whatever id the key/row carries (UUIDs as a last resort).
-  if (resolved.docId) return resolved.docId;
-  if (row && typeof row.id === "string" && row.id) return row.id;
+  // Last resort: an id off the key/row — but NEVER a raw UUID. A bare UUID in the
+  // Pulse feed reads as line noise ("created doc_member 322dda5d-…", spec-122
+  // bug report); better to omit the identifier entirely (→ "created doc_member")
+  // and let the emit site supply a human narrative naming the spec handle. Only
+  // a human handle (spec-N / std-N / doc-N) is ever surfaced here.
+  if (resolved.docId && !isUuid(resolved.docId)) return resolved.docId;
+  if (row && typeof row.id === "string" && row.id && !isUuid(row.id)) return row.id;
   return undefined;
 }
 
@@ -215,6 +228,14 @@ export async function mutate<T>(
       };
       if (ctx.clientId !== undefined) event.clientId = ctx.clientId;
       if (ctx.channel !== undefined) event.channel = ctx.channel;
+      // spec-122 dec-3/dec-5 — carry the actor onto the event so activity_log
+      // (the arm the view UNIONs for sourceless events) is attributed. Distinct
+      // from a per-resource ChangeKey.userId fan-out target, so we don't clobber
+      // one set explicitly on the key.
+      if (ctx.actorUserId !== undefined && event.actorUserId === undefined)
+        event.actorUserId = ctx.actorUserId;
+      if (ctx.actorName !== undefined && event.actorName === undefined)
+        event.actorName = ctx.actorName;
       bus.emit(event);
     }
   }

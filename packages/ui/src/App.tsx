@@ -1,34 +1,94 @@
-import { Fragment, useState, useEffect, useRef, useMemo, type ReactNode } from 'react';
+import {
+  Fragment,
+  Suspense,
+  lazy,
+  useState,
+  useEffect,
+  useRef,
+  useMemo,
+  type ReactNode,
+} from 'react';
 import { Routes, Route, useLocation, useParams, useNavigate, Navigate, Outlet } from 'react-router-dom';
-import { Pulse } from './pages/Pulse';
-import { Insights } from './pages/Insights';
-import { Decisions } from './pages/Decisions';
-import { SpecList } from './pages/SpecList';
-import { IssuesList } from './pages/IssuesList';
-import { NamespaceHome } from './pages/NamespaceHome';
-import { StandardList } from './pages/StandardList';
-import { Standard } from './pages/Standard';
-import { DriftInbox } from './pages/DriftInbox';
-import { DocumentList } from './pages/DocumentList';
-import { DocDocument } from './pages/DocDocument';
-import { InstallAuth } from './pages/InstallAuth';
-import { OauthAuthorize } from './pages/OauthAuthorize';
+// spec-351: route-level code-splitting. Every top-level routed page is loaded
+// as its own lazy chunk so the entry bundle no longer eagerly pulls all ~35
+// page surfaces (and their heavy transitive deps — nivo charts, pixi, the
+// markdown stack, the LangGraph runtime). The pages export named symbols, so
+// each lazy import re-maps the named export onto `default` (what React.lazy
+// expects). Non-route building blocks (AppShell, DocumentShell, the providers,
+// the voice layer, and the VerifyEmailGate that several layouts render inline)
+// stay eagerly imported below — splitting them would only add Suspense
+// boundaries on the critical path with no payload win.
+const Pulse = lazy(() => import('./pages/Pulse').then((m) => ({ default: m.Pulse })));
+const Insights = lazy(() => import('./pages/Insights').then((m) => ({ default: m.Insights })));
+const QaReports = lazy(() => import('./pages/QaReports').then((m) => ({ default: m.QaReports })));
+const Decisions = lazy(() => import('./pages/Decisions').then((m) => ({ default: m.Decisions })));
+const SpecList = lazy(() => import('./pages/SpecList').then((m) => ({ default: m.SpecList })));
+const IssuesList = lazy(() => import('./pages/IssuesList').then((m) => ({ default: m.IssuesList })));
+const NamespaceHome = lazy(() =>
+  import('./pages/NamespaceHome').then((m) => ({ default: m.NamespaceHome })),
+);
+const HomeCanvas = lazy(() => import('./pages/HomeCanvas').then((m) => ({ default: m.HomeCanvas })));
+const StandardList = lazy(() =>
+  import('./pages/StandardList').then((m) => ({ default: m.StandardList })),
+);
+const Standard = lazy(() => import('./pages/Standard').then((m) => ({ default: m.Standard })));
+const DriftInbox = lazy(() => import('./pages/DriftInbox').then((m) => ({ default: m.DriftInbox })));
+const DocumentList = lazy(() =>
+  import('./pages/DocumentList').then((m) => ({ default: m.DocumentList })),
+);
+const DocDocument = lazy(() =>
+  import('./pages/DocDocument').then((m) => ({ default: m.DocDocument })),
+);
+const InstallAuth = lazy(() => import('./pages/InstallAuth').then((m) => ({ default: m.InstallAuth })));
+const OauthAuthorize = lazy(() =>
+  import('./pages/OauthAuthorize').then((m) => ({ default: m.OauthAuthorize })),
+);
 // spec-141 dec-3: integrations consolidated into one open-core page.
 // /settings/tokens, /installation and /install now redirect here.
-import { SettingsIntegrations } from './pages/SettingsIntegrations';
-import { Onboarding } from './pages/Onboarding';
-import { InviteAccept } from './pages/InviteAccept';
-import { OrgConfiguration } from './pages/OrgConfiguration';
-import { ScaffoldInspect } from './pages/ScaffoldInspect';
-import { MemexSettings } from './pages/MemexSettings';
-import { MemexKeys } from './pages/MemexKeys';
-import { VerifyDomain } from './pages/VerifyDomain';
-import { SharedDocument } from './pages/SharedDocument';
-import { Backstage } from './pages/Backstage';
-import { VerifyEmail } from './pages/VerifyEmail';
+const SettingsIntegrations = lazy(() =>
+  import('./pages/SettingsIntegrations').then((m) => ({ default: m.SettingsIntegrations })),
+);
+const Onboarding = lazy(() => import('./pages/Onboarding').then((m) => ({ default: m.Onboarding })));
+const InviteAccept = lazy(() =>
+  import('./pages/InviteAccept').then((m) => ({ default: m.InviteAccept })),
+);
+const OrgConfiguration = lazy(() =>
+  import('./pages/OrgConfiguration').then((m) => ({ default: m.OrgConfiguration })),
+);
+const ScaffoldInspect = lazy(() =>
+  import('./pages/ScaffoldInspect').then((m) => ({ default: m.ScaffoldInspect })),
+);
+const MemexSettings = lazy(() =>
+  import('./pages/MemexSettings').then((m) => ({ default: m.MemexSettings })),
+);
+const MemexKeys = lazy(() => import('./pages/MemexKeys').then((m) => ({ default: m.MemexKeys })));
+const UpgradePlanSelect = lazy(() =>
+  import('./pages/upgrade/UpgradePlanSelect').then((m) => ({ default: m.UpgradePlanSelect })),
+);
+const UpgradeSeats = lazy(() =>
+  import('./pages/upgrade/UpgradeSeats').then((m) => ({ default: m.UpgradeSeats })),
+);
+const UpgradeConfirmation = lazy(() =>
+  import('./pages/upgrade/UpgradeConfirmation').then((m) => ({ default: m.UpgradeConfirmation })),
+);
+const VerifyDomain = lazy(() =>
+  import('./pages/VerifyDomain').then((m) => ({ default: m.VerifyDomain })),
+);
+const SharedDocument = lazy(() =>
+  import('./pages/SharedDocument').then((m) => ({ default: m.SharedDocument })),
+);
+const Backstage = lazy(() => import('./pages/Backstage').then((m) => ({ default: m.Backstage })));
+const VerifyEmail = lazy(() => import('./pages/VerifyEmail').then((m) => ({ default: m.VerifyEmail })));
+const MagicLinkConsume = lazy(() =>
+  import('./pages/MagicLinkConsume').then((m) => ({ default: m.MagicLinkConsume })),
+);
+const ResetPassword = lazy(() =>
+  import('./pages/ResetPassword').then((m) => ({ default: m.ResetPassword })),
+);
+// VerifyEmailGate stays eager — it is rendered inline by TenantLayout,
+// FlatShell, and RootRedirect (not as a routed element), so it sits on the
+// critical path for unverified users and is small.
 import { VerifyEmailGate } from './pages/VerifyEmailGate';
-import { MagicLinkConsume } from './pages/MagicLinkConsume';
-import { ResetPassword } from './pages/ResetPassword';
 import { AuthProvider, RequireAuth, useAuth, computeDefaultLanding } from './components/AuthContext';
 import { ThemeProvider } from './components/ThemeContext';
 import { ChatProvider } from './components/ChatContext';
@@ -39,16 +99,20 @@ import { parseTenantFromPathname } from './utils/tenantUrl';
 import { isFeatureHidden } from './utils/featureFlags';
 import { probePublicMemex, type PublicMemexProbe } from './api/client';
 import { PublicMemexProvider } from './components/PublicMemexContext';
-import { VoiceSessionProvider } from './voice/session/VoiceSessionContext';
+import {
+  VoiceSessionProvider,
+  createVoiceOrchestratorFactory,
+  setGuideBackend,
+} from '@memex/guide-sdk';
 import { VoiceLayer } from './voice/session/VoiceLayer';
-import { createVoiceOrchestratorFactory } from './voice/orchestrator/voiceGuideOrchestrator';
-import { currentScreenKey } from './voice/guideElements';
-import { guideElementsForScreen } from '@memex/shared';
+import { createReactRouterNavigationAdapter } from './voice/reactRouterNavigationAdapter';
 import { HandholdRevealProvider, useHandholdRevealValue } from './hooks/HandholdRevealContext';
-import { tenantBase } from './api/http';
+import { useTrackRouteChange } from './hooks/useTelemetry';
+import { tenantBase, BASE_URL, fetchWithRetry } from './api/http';
 import { SearchProvider } from './components/SearchContext';
 import { WhatsNewRibbonConnected } from './components/whats-new/WhatsNewRibbonConnected';
-import { FirstRunGreeting } from './components/onboarding/FirstRunGreeting';
+import { WhatsNewProvider } from './components/whats-new/WhatsNewContext';
+import { DemoWalkthroughController } from './voice/walkthrough/DemoWalkthroughController';
 
 declare const __BUILD_TIME__: string;
 
@@ -111,6 +175,11 @@ function TenantLayout() {
   const location = useLocation();
   const anonymous = !isAuthenticated && !session;
 
+  // spec-244 t-6: front-end engagement capture. Fire nav.route_changed (template
+  // only — no ids/query) as the user moves through the app. Disabled for anonymous
+  // visitors; honours Do-Not-Track / opt-out inside the hook.
+  useTrackRouteChange(anonymous ? null : location.pathname);
+
   // spec-111 t-8 (ac-6/ac-7/ac-10): an ANONYMOUS visitor (no token, no session)
   // on a PUBLIC-Memex tenant route gets the read-only public shell. AppShell
   // renders the "Log in / Sign up" CTAs in place of the switcher (ac-7) and
@@ -153,13 +222,13 @@ function TenantLayout() {
   // tick; the AuthContext useEffect runs synchronously after mount.
   if (!session) return null;
 
-  // Onboarding/verification gates take precedence — even with a valid tenant
-  // URL, an unverified user can't actually do anything yet.
+  // The email-verification gate takes precedence — even with a valid tenant URL, an
+  // unverified user can't actually do anything yet. spec-312 dec-3: this gate stays
+  // exactly as is; the needsOnboarding wall that used to sit here is gone — an
+  // incomplete-onboarding user is free to navigate anywhere (the journey lives on
+  // /home as a recede-able layer, not a wall).
   if (!session.user.emailVerified) {
     return <VerifyEmailGate />;
-  }
-  if (session.needsOnboarding) {
-    return <Onboarding />;
   }
 
   // Membership check: redirect to the user's default tenant when they aren't
@@ -199,18 +268,23 @@ function TenantLayout() {
             AppShell, so the shell needs no edit and the public branch — which never
             mounts VoiceGuideMount — has no voice surface. */}
         <VoiceGuideMount namespace={namespace ?? ''} memex={memex ?? ''}>
-          <OrgConsentDialog />
-          {/* spec-200: global What's New ribbon — authed shell only (inside
-              VoiceGuideMount so t-7's ear can reach the voice session). */}
-          <WhatsNewRibbonConnected />
-          {/* spec-206 t-3: first-run greeting controller — auto-starts Specky on
-              a user's first session (no modal, no tap). Renders nothing. */}
-          <FirstRunGreeting />
-          <AppShell>
-            <Fragment key={`${namespace}/${memex}`}>
-              <Outlet />
-            </Fragment>
-          </AppShell>
+          {/* spec-200: WhatsNewProvider lets the sidebar user menu re-open the
+              popup and gives the ribbon the menu anchor to animate "into" on
+              dismiss — so it wraps BOTH the ribbon and AppShell. */}
+          <WhatsNewProvider>
+            <OrgConsentDialog />
+            {/* spec-200: global What's New ribbon — authed shell only (inside
+                VoiceGuideMount so t-7's ear can reach the voice session). */}
+            <WhatsNewRibbonConnected />
+            {/* spec-305 dec-2: the Specky first-run greeting (FirstRunGreeting,
+                spec-206/242) is retired — onboarding is now the Home Canvas journey.
+                spec-312: it's a recede-able layer on /home, no longer a routing wall. */}
+            <AppShell>
+              <Fragment key={`${namespace}/${memex}`}>
+                <Outlet />
+              </Fragment>
+            </AppShell>
+          </WhatsNewProvider>
         </VoiceGuideMount>
       </HandholdRevealProvider>
     </ChatProvider>
@@ -239,6 +313,9 @@ function VoiceGuideMount({
   // orchestrator so the guide's `advance_demo` tool walks the board during the
   // synced walkthrough (dec-1). Read via the provider that wraps this component.
   const { advance: advanceDemo } = useHandholdRevealValue(namespace || null, memex || null);
+  // spec-211 t-3: the demo-walkthrough sequencer registers its start() here; the
+  // guide's start_walkthrough tool invokes it through the orchestrator dep below.
+  const walkthroughStartRef = useRef<() => void>(() => {});
   // All live values flow through this ref so the factory can be created ONCE and
   // never change identity. `navigate` in particular gets a new identity on router
   // re-renders; if the factory depended on it, the provider's memoized orchestrator
@@ -248,25 +325,41 @@ function VoiceGuideMount({
   liveRef.current = { token, namespace, memex, navigate, advanceDemo };
 
   const factory = useMemo(
-    () =>
-      createVoiceOrchestratorFactory({
+    () => {
+      // spec-222 (ac-9): the engine navigates ONLY through the injected adapter.
+      // The app supplies its react-router + @memex/shared backed implementation;
+      // it reads live values via liveRef so the factory stays stable for the
+      // component's lifetime. The token-carrying guide-chat leg + the retrying
+      // fetch are injected via setGuideBackend (replaces the engine's old reach
+      // into ./api/http + ./api/client).
+      setGuideBackend({ baseUrl: tenantBase() ?? BASE_URL, fetchImpl: fetchWithRetry });
+      const adapter = createReactRouterNavigationAdapter({
         navigate: (path: string) => liveRef.current.navigate(path),
+        namespace: liveRef.current.namespace,
+        memex: liveRef.current.memex,
+      });
+      return createVoiceOrchestratorFactory({
+        adapter,
+        // spec-222 t-6: the Memex app enables the demo-walkthrough capability so
+        // advance_demo / start_walkthrough are live (spec-206/211). The public
+        // website omits this, so those tools stay inert there (ac-6, ac-18).
+        capabilities: { walkthrough: true },
         advanceDemo: () => liveRef.current.advanceDemo(),
+        startWalkthrough: () => walkthroughStartRef.current(),
         authToken: () => liveRef.current.token,
         tenantBase: () => tenantBase(),
         origin: typeof window !== 'undefined' ? window.location.origin : '',
         getScreenContext: () => {
-          const screenKey = currentScreenKey(
-            typeof window !== 'undefined' ? window.location.pathname : '',
-          );
+          const screenKey = adapter.currentScreenKey();
           return {
             screenKey,
-            screenRegistry: screenKey ? guideElementsForScreen(screenKey) : [],
+            screenRegistry: adapter.elementsForScreen?.(screenKey) ?? [],
             namespace: liveRef.current.namespace,
             memex: liveRef.current.memex,
           };
         },
-      }),
+      });
+    },
     // Stable for the component's lifetime — live values are read via liveRef.
     [],
   );
@@ -274,22 +367,31 @@ function VoiceGuideMount({
   return (
     <VoiceSessionProvider orchestratorFactory={factory}>
       {children}
+      {/* spec-211 t-3: the demo-walkthrough sequencer (renders nothing). Inside the
+          provider so it can drive narratePhase; registers start() into the ref the
+          start_walkthrough tool calls. */}
+      <DemoWalkthroughController
+        namespace={namespace || null}
+        memex={memex || null}
+        startRef={walkthroughStartRef}
+      />
       <VoiceLayer />
     </VoiceSessionProvider>
   );
 }
 
-// `/` lands the authenticated user on their default tenant's specs page.
-// Pre-auth users won't reach this (RequireAuth intercepts), but if the
-// session loads with zero memberships we render the specs board behind
-// no tenant (a legitimately rare case — every user has exactly one personal
-// Memex by invariant; only stale local sessions hit this).
+// spec-312 dec-1: `/` lands every authenticated, email-verified user on /home — the
+// universal landing, regardless of onboarding/identity state. Pre-auth users won't
+// reach this (RequireAuth intercepts). When 'home' is hidden per-env the /home route
+// itself renders RootRedirect, so there we fall back to the default tenant landing to
+// avoid a redirect loop (and a session with zero memberships falls back to null → /).
 function RootRedirect() {
   const { session } = useAuth();
   if (!session) return null; // session bootstrap still pending
   if (session && !session.user.emailVerified) return <VerifyEmailGate />;
-  if (session?.needsOnboarding) return <Onboarding />;
-  const target = computeDefaultLanding(session);
+  // spec-312 dec-3: needsOnboarding / identity_confirmed_at no longer participate in
+  // routing. The only branch left is the per-env 'home' hide (loop-avoidance above).
+  const target = isFeatureHidden(session, 'home') ? computeDefaultLanding(session) : '/home';
   if (target) return <Navigate to={target} replace />;
   return null;
 }
@@ -297,6 +399,15 @@ function RootRedirect() {
 // Exported for the spec-146 t-4 route-gate tests (App.spec-146.test.tsx), which
 // mount the real route tree to assert the `/scaffold` route is registered iff
 // 'scaffold' isn't hidden.
+// spec-351: the fallback shown while a route's lazy chunk is in flight. We
+// render nothing (matching the existing "render null until ready" pattern that
+// TenantLayout/RootRedirect already use during session bootstrap) so there is
+// no chrome flash — the surrounding AppShell/DocumentShell chrome is itself
+// eager, so only the inner page area is ever suspended, and chunks resolve in
+// a tick. A single boundary wraps each <Routes> tree (not per-route), so it
+// covers whichever page matches without adding waterfalls.
+const RouteFallback = null;
+
 export function PostLoginRouter() {
   // spec-146 t-4 (ac-10/ac-11): gate the `/scaffold` route on the server-driven
   // hide list. When 'scaffold' is hidden we don't register the route at all, so
@@ -305,6 +416,7 @@ export function PostLoginRouter() {
   // react-router 7, so the `&&` short-circuit is a valid, no-op child when hidden.
   const { session } = useAuth();
   return (
+    <Suspense fallback={RouteFallback}>
     <Routes>
       {/* Flat (caller-scoped) routes — no tenant prefix. */}
       <Route path="/" element={<RootRedirect />} />
@@ -325,7 +437,33 @@ export function PostLoginRouter() {
       <Route path="/settings/integrations" element={<FlatShell><SettingsIntegrations /></FlatShell>} />
       <Route path="/invites" element={<Navigate to="/org?tab=invites" replace />} />
       <Route path="/org" element={<FlatShell><OrgConfiguration /></FlatShell>} />
+      {/* spec-171: in-app upgrade flow. Flat routes so website CTAs land here
+          without a tenant prefix. confirmation before :plan so it isn't caught
+          as a plan param. */}
+      <Route path="/upgrade" element={<FlatShell><UpgradePlanSelect /></FlatShell>} />
+      <Route path="/upgrade/confirmation" element={<FlatShell><UpgradeConfirmation /></FlatShell>} />
+      <Route path="/upgrade/:plan" element={<FlatShell><UpgradeSeats /></FlatShell>} />
       <Route path="/account" element={<Navigate to="/org" replace />} />
+      {/* spec-303 — Home Canvas: user-level, flat (not tenant-scoped). Gated on
+          the server-driven hide list (feature: 'home') so the surface can be
+          hidden per-env (e.g. prod) while live on int — same mechanism as /pulse.
+          When hidden we REDIRECT rather than drop the route: /home is a flat,
+          single-segment path, so an unregistered route would otherwise be claimed
+          by /:namespace below (resolving "home" as a namespace). RootRedirect
+          sends the user to their default landing instead. */}
+      <Route
+        path="/home"
+        element={
+          isFeatureHidden(session, 'home') ? (
+            <RootRedirect />
+          ) : (
+            <FlatShell>
+              <HomeCanvas />
+            </FlatShell>
+          )
+        }
+      />
+
 
       {/* doc-19 t-10: namespace home — /<namespace>/ renders the kind-aware
           OrgHome / Personal Home. More specific /:namespace/:memex routes below
@@ -348,6 +486,11 @@ export function PostLoginRouter() {
             server-driven gate mechanism as /pulse above. */}
         {!isFeatureHidden(session, 'insights') && (
           <Route path="insights" element={<Insights />} />
+        )}
+        {/* spec-260 (dec-5): QA Reports — the workspace feed of build-session
+            QA reports. Same server-driven hiddenFeatures gate as /pulse. */}
+        {!isFeatureHidden(session, 'qa-reports') && (
+          <Route path="qa-reports" element={<QaReports />} />
         )}
         <Route path="decisions" element={<Decisions />} />
         <Route path="specs" element={<SpecList />} />
@@ -437,6 +580,7 @@ export function PostLoginRouter() {
       {/* Anything else that doesn't match → bounce to the default tenant. */}
       <Route path="*" element={<RootRedirect />} />
     </Routes>
+    </Suspense>
   );
 }
 
@@ -446,7 +590,9 @@ export function PostLoginRouter() {
 function FlatShell({ children }: { children: React.ReactNode }) {
   const { session } = useAuth();
   if (session && !session.user.emailVerified) return <VerifyEmailGate />;
-  if (session?.needsOnboarding) return <Onboarding />;
+  // spec-312 dec-3: the needsOnboarding bounce-back that used to live here is gone —
+  // flat routes render for everyone past the email gate. Onboarding is a layer on
+  // /home, never a wall that ejects you from other surfaces.
   return (
     <ChatProvider>
       <OrgConsentDialog />
@@ -477,11 +623,13 @@ export function App() {
   ) {
     return (
       <ThemeProvider>
-        <Routes>
-          <Route path="/verify-domain/:token" element={<VerifyDomain />} />
-          <Route path="/share/:token" element={<SharedDocument />} />
-          <Route path="/backstage" element={<Backstage />} />
-        </Routes>
+        <Suspense fallback={RouteFallback}>
+          <Routes>
+            <Route path="/verify-domain/:token" element={<VerifyDomain />} />
+            <Route path="/share/:token" element={<SharedDocument />} />
+            <Route path="/backstage" element={<Backstage />} />
+          </Routes>
+        </Suspense>
       </ThemeProvider>
     );
   }
@@ -498,11 +646,13 @@ export function App() {
     <ThemeProvider>
       <AuthProvider>
         {isPublicAuthRoute ? (
-          <Routes>
-            <Route path="/verify-email" element={<VerifyEmail />} />
-            <Route path="/magic-link" element={<MagicLinkConsume />} />
-            <Route path="/reset-password" element={<ResetPassword />} />
-          </Routes>
+          <Suspense fallback={RouteFallback}>
+            <Routes>
+              <Route path="/verify-email" element={<VerifyEmail />} />
+              <Route path="/magic-link" element={<MagicLinkConsume />} />
+              <Route path="/reset-password" element={<ResetPassword />} />
+            </Routes>
+          </Suspense>
         ) : (
           <AuthGate>
             {/* spec-64 t-3 / spec-192 t-1: SearchProvider owns the single ⌘K

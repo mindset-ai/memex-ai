@@ -11,8 +11,10 @@ import {
   ensureUser,
   setUserName,
   setOnboardingGreeted,
+  setIdentityConfirmed,
   clearOrgMemberships,
   cleanup,
+  getPersonalMemexByEmail,
 } from "./seed.js";
 
 export const DEV_EMAIL = "dev@memex.ai";
@@ -34,6 +36,10 @@ export interface TestResources {
 }
 
 export const test = base.extend<{ resources: TestResources }>({
+  // spec-367 retired the anonymous consent banner entirely (no popup is ever
+  // mounted), so the old `seedConsent` pre-seed of a 'denied' choice is gone — there
+  // is nothing to suppress. Anonymous pre-signup capture is now identifier-less
+  // volume with no banner and no cookie.
   resources: async ({}, use) => {
     // Baseline reset of the dev user BEFORE each test (the schema-current
     // equivalent of the old clearMembershipsForEmail + named seedUser):
@@ -45,6 +51,10 @@ export const test = base.extend<{ resources: TestResources }>({
     await ensureUser(DEV_EMAIL);
     await clearOrgMemberships(DEV_EMAIL);
     await setUserName(DEV_EMAIL, DEV_NAME);
+    // spec-305: needsOnboarding now keys off identity_confirmed_at (not !name), so
+    // confirm the dev user each test — otherwise every journey redirects to /home.
+    // (the onboarding journey-34 deliberately un-confirms to walk the welcome step.)
+    await setIdentityConfirmed(DEV_EMAIL, true);
     // spec-206: pre-stamp the dev user as already greeted so Specky's first-run
     // auto-greeting never fires unexpectedly on a journey's first board load
     // (it would otherwise trigger wherever a mic is available, e.g. journey-21).
@@ -112,6 +122,26 @@ export function tenantPath(
 /** A bare (non-tenant) URL on the single origin — login, signup, invite-accept, etc. */
 export function bareUrl(path: string = "/"): string {
   return new URL(path, BASE_URL).toString();
+}
+
+/**
+ * Navigate to a user's personal-memex Specs board and wait for it to render.
+ *
+ * spec-312: the bare origin `/` now lands every authenticated user on `/home` (the
+ * universal landing), not the default-tenant Specs board. Journeys that need to start
+ * ON the Specs board navigate to it explicitly via this helper instead of relying on
+ * the old `/` → Specs hop. Defaults to the shared dev user.
+ */
+export async function gotoSpecsBoard(
+  page: Page,
+  email: string = DEV_EMAIL,
+): Promise<void> {
+  const memex = await getPersonalMemexByEmail(email);
+  if (!memex) throw new Error(`gotoSpecsBoard: no personal memex for ${email}`);
+  await page.goto(tenantPath(memex.namespaceSlug, memex.memexSlug, "/specs"));
+  await page
+    .getByRole("heading", { name: "Specs" })
+    .waitFor({ state: "visible", timeout: 15_000 });
 }
 
 /**

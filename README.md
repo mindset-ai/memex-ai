@@ -7,11 +7,11 @@
 **Memex turns the docs your team already argues over — decisions, open questions, the tasks that fall out of them — into living *Specs* that a human and Claude edit side by side, then *verifies* the shipped code actually does what the Spec says.** Write a Spec in the web UI; let Claude Code read and update the very same Spec over MCP. One source of truth, two kinds of author — and verification, not vibes.
 
 [![Fair-code](https://img.shields.io/badge/license-fair--code-FF6D5A.svg)](LICENSE.md)
-[![Discord](https://img.shields.io/badge/Discord-join%20the%20community-5865F2?logo=discord&logoColor=white)](https://discord.gg/fbZQACbm)
+[![Discord](https://img.shields.io/badge/Discord-join%20the%20community-5865F2?logo=discord&logoColor=white)](https://discord.gg/x8wUjnSC)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-22c55e.svg)](CONTRIBUTING.md)
 [![Built with TypeScript](https://img.shields.io/badge/built%20with-TypeScript-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 
-[**🌐 Website**](https://www.memex.ai) &nbsp;·&nbsp; [**🚀 Quickstart**](#-quickstart) &nbsp;·&nbsp; [**🤖 Use with Claude**](#-use-it-with-claude-mcp) &nbsp;·&nbsp; [**📖 Docs**](#-documentation) &nbsp;·&nbsp; [**💬 Discord**](https://discord.gg/fbZQACbm)
+[**🌐 Website**](https://www.memex.ai) &nbsp;·&nbsp; [**🚀 Quickstart**](#-quickstart) &nbsp;·&nbsp; [**🤖 Use with Claude**](#-use-it-with-claude-mcp) &nbsp;·&nbsp; [**📖 Docs**](#-documentation) &nbsp;·&nbsp; [**💬 Discord**](https://discord.gg/x8wUjnSC)
 
 <img src=".github/assets/screenshot.jpg" alt="Memex dashboard with green indicating fully Verified specs" width="820">
 
@@ -23,7 +23,7 @@
 
 Software teams keep their real thinking in scattered places — a doc here, a ticket there, a decision buried in a thread. The moment code changes, all of it drifts out of date.
 
-Memex makes that thinking a first-class, living artifact called a **Spec**: purpose, decisions, open questions, and tasks in one node that stays current. But a Spec isn't just written — it's **verified**: every Spec moves through an explicit pipeline (`draft → plan → build → verify → done`), and acceptance criteria are checked against real test runs, so "done" is a claim the system can back up. Underneath the Specs sit your **Standards** — the codified rules of how your system works — and Memex **monitors them for drift**, flagging when the code and the Standards stop agreeing. A Claude-powered agent works *inside* each Spec — in the web chat panel, and through the **Model Context Protocol (MCP)** so tools like Claude Code and Claude Desktop edit the same Spec you do.
+Memex makes that thinking a first-class, living artifact called a **Spec**: purpose, decisions, open questions, and tasks in one node that stays current. But a Spec isn't just written — it's **verified**: every Spec moves through an explicit pipeline (`draft → specify → build → verify → done`), and acceptance criteria are checked against real test runs, so "done" is a claim the system can back up. Underneath the Specs sit your **Standards** — the codified rules of how your system works — and Memex **monitors them for drift**, flagging when the code and the Standards stop agreeing. A Claude-powered agent works *inside* each Spec — in the web chat panel, and through the **Model Context Protocol (MCP)** so tools like Claude Code and Claude Desktop edit the same Spec you do.
 
 - 🧩 **Specs, not stale docs** — decisions, tasks, and comments live together and evolve as the work does.
 - ✅ **Verification, not vibes** — Specs carry acceptance criteria verified by real test runs; green means *proven*, and closing a Spec is always a human call.
@@ -104,7 +104,7 @@ Read **[CONTRIBUTING.md](CONTRIBUTING.md)** to get started — and please follow
 
 ## 💬 Community & support
 
-- 💬 **[Discord](https://discord.gg/fbZQACbm)** — questions, ideas, show-and-tell, release news
+- 💬 **[Discord](https://discord.gg/x8wUjnSC)** — questions, ideas, show-and-tell, release news
 - 🐛 **[Issues](../../issues)** — bugs and feature requests
 - 💡 **[Discussions](../../discussions)** — open-ended questions and proposals
 
@@ -126,6 +126,6 @@ Enterprise licensing enquiries: **[support@mindset.ai](mailto:support@mindset.ai
 
 <div align="center">
 
-Built by **[Mindset AI](https://mindset.ai)**. If Memex is useful to you, please ⭐ the repo and [join us on Discord](https://discord.gg/fbZQACbm).
+Built by **[Mindset AI](https://mindset.ai)**. If Memex is useful to you, please ⭐ the repo and [join us on Discord](https://discord.gg/x8wUjnSC).
 
 </div>

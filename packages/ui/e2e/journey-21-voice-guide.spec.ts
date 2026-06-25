@@ -1,4 +1,4 @@
-import { test, expect, bareUrl, emitAcEvents } from "./helpers/index.js";
+import { test, expect, gotoSpecsBoard, emitAcEvents } from "./helpers/index.js";
 
 // Journey 21 — voice guide session surface + lifecycle (spec-190 t-9).
 //
@@ -37,7 +37,7 @@ test.afterEach(async ({}, testInfo) => {
 test("voice affordance is in-view on a registered screen, not in the global nav (ac-1)", async ({
   page,
 }) => {
-  await page.goto(bareUrl("/"));
+  await gotoSpecsBoard(page);
   // Bare-domain landing auto-resolves to the dev user's personal-memex Specs board.
   await expect(page.getByRole("heading", { name: "Specs" })).toBeVisible({ timeout: 15_000 });
 
@@ -51,7 +51,7 @@ test("voice affordance is in-view on a registered screen, not in the global nav 
 test("start → pill → end, and an active session never blocks the app (ac-1 / ac-5)", async ({
   page,
 }) => {
-  await page.goto(bareUrl("/"));
+  await gotoSpecsBoard(page);
   await expect(page.getByRole("heading", { name: "Specs" })).toBeVisible({ timeout: 15_000 });
 
   // Start a session from the in-view affordance (this is what triggers the mic
@@ -68,7 +68,9 @@ test("start → pill → end, and an active session never blocks the app (ac-1 /
   // the app shell, not the page).
   await page.getByTestId("primary-nav").getByRole("link", { name: "Standards" }).click();
   await expect(page).toHaveURL(/\/standards(\?|#|$)/);
-  await expect(page.getByRole("heading", { name: "Standards" })).toBeVisible();
+  // `exact` so the page H1 doesn't also match the docked "Standards agent" panel
+  // heading (spec-389).
+  await expect(page.getByRole("heading", { name: "Standards", exact: true })).toBeVisible();
   await expect(pill).toBeVisible();
 
   // End the session (ac-5): the pill goes away and the in-view affordance returns

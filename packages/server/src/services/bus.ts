@@ -40,11 +40,25 @@ export type ChangeEntity =
   // `doc_assignee` fires on assign/unassign (std-8, ac-20).
   | "doc_member"
   | "doc_assignee"
+  // spec-320 — comment-level @-mention + assignment, scoped to a Spec via docId.
+  // `comment_mention` fires on mention-add; `comment_assignee` on assign/unassign
+  // (std-8). Mirrors the doc_member/doc_assignee posture (spec-118 dec-8) one level
+  // down — on a comment rather than a whole Spec — so open boards and the spec-315
+  // "where you're needed" home surface refresh live.
+  | "comment_mention"
+  | "comment_assignee"
   // Pulse (b-60) — read/activity entities with no resource target.
   // `query` is a search event (no docId); `tool_call` is the generic MCP
   // invocation fallback when no more specific entity applies.
   | "query"
   | "tool_call"
+  // CI test telemetry (spec-115/spec-162). A `test_event` created event fires on
+  // every accepted POST /api/test-events so live consumers (AC-health chips, the
+  // Pulse test-signal volume monitor) wake instantly. Memex-scoped (memexId set,
+  // no docId). Deliberately NOT persisted to activity_log — it's a high-volume
+  // firehose whose system of record is the test_events table (see
+  // services/activity-log.ts NON_TIMELINE_ENTITIES).
+  | "test_event"
   // Wave 3 — non-doc tenancy resources; `docId` is undefined for these
   | "org"
   | "org_membership"
@@ -64,9 +78,14 @@ export type ChangeEntity =
   // mutate({silent:true}) so the wrapper invariant holds even though no SSE
   // consumer subscribes — the brand and the coverage scanner stay structural.
   | "auth_token"
+  | "login_request"
   | "cli_auth_request"
   | "invite_token"
   | "slack_user_cache"
+  // spec-260 (dec-6): per-user QA-Reports read-state marker (qa_report_views
+  // upsert). Memex-scoped, per-user, silent-allowed per std-8 §6 — viewing a
+  // feed is not collaborative content; the badge zeroes client-locally.
+  | "qa_report_view"
   // OAuth 2.1 token-lifecycle entities (b-31). User/Org-scoped infrastructure
   // with no memexId — silent-allowed per std-8 §6, same as the auth_token group.
   // They flow through mutate({silent:true}) so the Mutated<T> brand and the
@@ -90,7 +109,11 @@ export type ChangeAction =
   // Spec's status flips, carrying `payload: {from, to}`. Persisted by the
   // activity-log sink so per-phase durations are exactly computable from
   // transition history (documents.statusChangedAt only keeps the latest).
-  | "status_changed";
+  | "status_changed"
+  // spec-297 dec-2 — emitted alongside the generic "updated" when a decision is
+  // RESOLVED, so the activation funnel has an unambiguous step ('decision.resolved'
+  // is whitelisted into usage_events; 'decision.updated' is not).
+  | "resolved";
 
 export interface ChangeEvent {
   memexId: string;
@@ -102,6 +125,14 @@ export interface ChangeEvent {
   userId?: string;
   entity: ChangeEntity;
   action: ChangeAction;
+  // spec-122 dec-3/dec-5 — the activity contract's WHO, propagated from the
+  // RequestCtx by mutate(). Distinct from `userId` (the /me/events fan-out
+  // target): `actorUserId` is WHO performed the action, written to
+  // activity_log.actor_user_id; `actorName` is the denormalised display snapshot
+  // (ac-12). The sink prefers actorUserId, falling back to userId for events that
+  // predate this threading.
+  actorUserId?: string;
+  actorName?: string;
   // Pulse (b-60). Human-readable one-line summary of the activity. Conceptually
   // required for read actions (viewed/searched/assessed/called) but typed
   // optional so existing mutation emits keep compiling unchanged.
@@ -160,6 +191,18 @@ export interface SubscribeOpts {
    * `doc-events.ts → bus` bridge installed during the t-1/t-2 migration window.
    */
   permanent?: boolean;
+  /**
+   * Single-writer persistence sink (spec-122). Deliver ONLY locally-originated
+   * `emit()`s — NEVER foreign events re-emitted from the cross-instance relay
+   * (`emitRelayed`). A durable-write subscriber (the activity-log sink) must run
+   * exactly ONCE per logical event, at the origin instance. Without this, the
+   * spec-156 relay fans every event out to all 3 Cloud Run instances and each
+   * instance's sink persists its own copy — one `activity_log` row PER INSTANCE
+   * (the "every event duplicated 3×" Pulse report). Live-delivery subscribers
+   * (SSE streams, cache invalidation) leave this UNSET so they DO receive relayed
+   * events — that cross-instance delivery is the relay's entire purpose.
+   */
+  localOnly?: boolean;
 }
 
 /**
@@ -178,6 +221,12 @@ export interface BusRelay {
 export class ChangeBus {
   private listeners = new Set<Listener>();
   private permanent = new Set<Listener>();
+  // Single-writer persistence sinks (spec-122). These receive ONLY
+  // locally-originated emits — `emitRelayed` (foreign events from the
+  // cross-instance relay) deliberately skips them so a durable write happens
+  // exactly once, at the origin instance, rather than once per Cloud Run
+  // instance the relay fans out to.
+  private localOnlyListeners = new Set<Listener>();
 
   // Cross-instance relay (spec-156). Optional — undefined means single-process
   // behaviour (the historical default, and the posture under test). Set once at
@@ -202,7 +251,10 @@ export class ChangeBus {
   }
 
   emit(event: ChangeEvent): void {
-    this.dispatch(event);
+    // Locally-originated emit: this instance is the ORIGIN, so it dispatches to
+    // every subscriber INCLUDING single-writer persistence sinks (localOnly) —
+    // it owns the one durable write for this event.
+    this.dispatch(event, true);
     // Forward to the cross-instance relay AFTER local dispatch. This is the
     // write-path NOTIFY (std-8 §6 read-emission posture): advisory, and the
     // relay swallows its own failures, so a relay problem can never disturb
@@ -227,15 +279,24 @@ export class ChangeBus {
    * relay's LISTEN handler (spec-156 ac-6/ac-7).
    */
   emitRelayed(event: ChangeEvent): void {
-    this.dispatch(event);
+    // Foreign event from another instance via the relay: dispatch for LIVE
+    // delivery (SSE streams, cache invalidation) but NOT to localOnly persistence
+    // sinks — those persist exactly once, at the origin instance. Re-persisting a
+    // relayed event here is the cross-instance multi-write (one row per instance)
+    // that spec-122 surfaced once Pulse rendered activity_log (spec-156 relay ×
+    // the b-60 sink).
+    this.dispatch(event, false);
   }
 
-  private dispatch(event: ChangeEvent): void {
+  private dispatch(event: ChangeEvent, includeLocalOnly: boolean): void {
     this.emits++;
     // Snapshot before iterating so a listener that unsubscribes itself (or
     // another) during dispatch doesn't perturb the iteration order or skip
-    // subscribers that were live at emit time.
-    const snapshot = [...this.listeners, ...this.permanent];
+    // subscribers that were live at emit time. localOnly sinks are included only
+    // for locally-originated emits (see emit/emitRelayed).
+    const snapshot = includeLocalOnly
+      ? [...this.listeners, ...this.permanent, ...this.localOnlyListeners]
+      : [...this.listeners, ...this.permanent];
     for (const listener of snapshot) {
       try {
         listener(event);
@@ -258,7 +319,7 @@ export class ChangeBus {
     return {
       emits: this.emits,
       subscriberErrors: this.subscriberErrors,
-      listenerCount: this.listeners.size + this.permanent.size,
+      listenerCount: this.listeners.size + this.permanent.size + this.localOnlyListeners.size,
     };
   }
 
@@ -285,7 +346,13 @@ export class ChangeBus {
       if (actionAllow !== undefined && !actionAllow.has(event.action)) return;
       handler(event);
     };
-    const target = opts?.permanent ? this.permanent : this.listeners;
+    // localOnly wins over permanent: the only localOnly subscriber today (the
+    // activity-log sink) is re-registered per process lifetime, never permanent.
+    const target = opts?.localOnly
+      ? this.localOnlyListeners
+      : opts?.permanent
+        ? this.permanent
+        : this.listeners;
     target.add(listener);
     return () => {
       target.delete(listener);
@@ -300,6 +367,7 @@ export class ChangeBus {
   /** @internal test reset; production code must never call this. Permanent subscribers are preserved. */
   _reset(): void {
     this.listeners.clear();
+    this.localOnlyListeners.clear();
   }
 
   /** @internal test introspection — whether a cross-instance relay is attached. */

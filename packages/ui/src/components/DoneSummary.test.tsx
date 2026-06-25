@@ -181,6 +181,26 @@ describe('DoneSummary', () => {
     expect(people.textContent).toContain('Barrie Hadfield');
   });
 
+  it('reads forward as the Done-tab preview: "will be completed", no past date (spec-258/dec-3)', () => {
+    tagAc('mindset-prod/memex-building-itself/specs/spec-258/acs/ac-4');
+    render(
+      <DoneSummary
+        doc={makeDoc()}
+        decisions={DECISIONS}
+        tasks={TASKS}
+        acs={ACS}
+        issues={ISSUES}
+        preview
+      />,
+    );
+    const report = screen.getByTestId('done-summary');
+    // Preview (spec not yet closed) → forward tense, and NOT the retrospective
+    // "was completed on <date>".
+    expect(report.textContent).toContain('This spec will be completed');
+    expect(report.textContent).not.toContain('was completed');
+    expect(report.textContent).not.toMatch(/completed on .*2026/);
+  });
+
   it('shows assignees in the People row when passed (still no fetch)', () => {
     tagAc(AC(8));
     const people: DocAssigneeView[] = [

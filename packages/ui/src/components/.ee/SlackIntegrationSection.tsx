@@ -199,14 +199,14 @@ function ConnectionRow({ label, status, disconnecting, connectUrl, onDisconnect 
           <button
             onClick={onDisconnect}
             disabled={disconnecting}
-            className="text-xs px-3 py-1.5 rounded border border-edge text-secondary hover:text-error hover:border-error/50 disabled:opacity-40 transition-colors"
+            className="text-xs px-3 py-1.5 rounded-sm border border-edge text-secondary hover:text-error hover:border-error/50 disabled:opacity-40 transition-colors"
           >
             {disconnecting ? 'Disconnecting…' : 'Disconnect'}
           </button>
         ) : (
           <a
             href={connectUrl}
-            className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded border border-edge bg-btn-secondary hover:bg-btn-secondary-hover text-primary font-medium transition-colors"
+            className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-sm border border-edge bg-btn-secondary hover:bg-btn-secondary-hover text-primary font-medium transition-colors"
           >
             <svg width="12" height="12" viewBox="0 0 54 54" fill="none" aria-hidden="true">
               <path d="M19.712.133a5.381 5.381 0 0 0-5.376 5.387 5.381 5.381 0 0 0 5.376 5.386h5.376V5.52A5.381 5.381 0 0 0 19.712.133m0 14.365H5.376A5.381 5.381 0 0 0 0 19.884a5.381 5.381 0 0 0 5.376 5.387h14.336a5.381 5.381 0 0 0 5.376-5.387 5.381 5.381 0 0 0-5.376-5.386" fill="#36C5F0"/>

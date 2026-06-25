@@ -1,5 +1,6 @@
 import { defineConfig, type PluginOption } from 'vite'
 import react from '@vitejs/plugin-react'
+import tailwindcss from '@tailwindcss/vite'
 import { fileURLToPath } from 'node:url'
 import { dirname, join, extname } from 'node:path'
 import { existsSync, createReadStream } from 'node:fs'
@@ -52,9 +53,83 @@ const API_TARGET = process.env.VITE_API_PROXY ?? 'http://localhost:8080'
 const UI_PORT = Number(process.env.VITE_PORT ?? 5173)
 
 export default defineConfig({
-  plugins: [serveVadAssetsRaw, react()],
+  // serveVadAssetsRaw stays first (its configureServer hook must register before
+  // Vite's transform middleware). tailwindcss() is the v4 engine (spec-290 dec-2),
+  // replacing the PostCSS + autoprefixer chain.
+  plugins: [serveVadAssetsRaw, tailwindcss(), react()],
+  resolve: {
+    alias: {
+      // spec-222 (KEYSTONE): consume @memex/guide-sdk FROM SOURCE so Vite compiles
+      // its tsx + svg imports (the package ships .ts/.tsx, not a pre-built bundle).
+      // The app's own toolchain owns the build of the engine's UI surface.
+      '@memex/guide-sdk': join(__dirname, '../guide-sdk/src/index.ts'),
+    },
+  },
   define: {
     __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
+  },
+  build: {
+    // spec-351: split the previously-monolithic bundle. Route-level React.lazy
+    // (in App.tsx) carves the per-page chunks; manualChunks below pulls the
+    // heavy, rarely-changing vendor families out of the entry chunk so first
+    // paint no longer pays for charts (nivo), the pixi-backed home canvas,
+    // markdown rendering, or the LangGraph runtime. Boundaries are grounded in
+    // the baseline build: the ~3.2 MB entry chunk was dominated by these deps.
+    chunkSizeWarningLimit: 900,
+    rollupOptions: {
+      output: {
+        manualChunks(id: string) {
+          if (!id.includes('node_modules')) return undefined;
+          // React core stays its own long-cached chunk (changes rarely).
+          if (
+            /[\\/]node_modules[\\/](react|react-dom|react-router|react-router-dom|scheduler)[\\/]/.test(
+              id,
+            )
+          ) {
+            return 'vendor-react';
+          }
+          // Charts / data-viz (Insights, Pulse, QaReports surfaces only).
+          if (/[\\/]node_modules[\\/](@nivo|d3-[^\\/]+)[\\/]/.test(id)) {
+            return 'vendor-charts';
+          }
+          // pixi.js — the WebGL renderer behind the Home Canvas. Large and
+          // only needed on /home. Rolldown already split RenderTargetSystem /
+          // Geometry; fold the rest of pixi into one named vendor chunk.
+          if (/[\\/]node_modules[\\/](pixi\.js|@pixi)[\\/]/.test(id)) {
+            return 'vendor-pixi';
+          }
+          // Markdown rendering stack (DocDocument / Spec pages).
+          if (
+            /[\\/]node_modules[\\/](react-markdown|remark-[^\\/]+|rehype-[^\\/]+|hast-[^\\/]+|mdast-[^\\/]+|micromark[^\\/]*|unified|unist-[^\\/]+|vfile[^\\/]*|property-information|space-separated-tokens|comma-separated-tokens|highlight\.js|lowlight|devlop|hastscript|web-namespaces|zwitch|bail|trough|decode-named-character-reference|character-entities[^\\/]*|trim-lines|html-url-attributes|markdown-table|ccount|longest-streak)[\\/]/.test(
+              id,
+            )
+          ) {
+            return 'vendor-markdown';
+          }
+          // Voice stack — the Silero VAD / onnxruntime-web WASM runtime behind
+          // the guide voice session (spec-190). Large and only pulled when the
+          // voice layer actually initialises; keep it off the shared vendor.
+          if (
+            /[\\/]node_modules[\\/](onnxruntime-web|onnxruntime-common|@ricky0123[\\/]vad-web)[\\/]/.test(
+              id,
+            )
+          ) {
+            return 'vendor-voice';
+          }
+          // LangGraph / LangChain runtime (the in-UI agent graph, std-11).
+          if (
+            /[\\/]node_modules[\\/](@langchain|langsmith|@cfworker|js-tiktoken)[\\/]/.test(
+              id,
+            )
+          ) {
+            return 'vendor-langgraph';
+          }
+          // Everything else from node_modules → a shared vendor chunk, keeping
+          // the entry chunk to app + route-shell code.
+          return 'vendor';
+        },
+      },
+    },
   },
   server: {
     port: UI_PORT,

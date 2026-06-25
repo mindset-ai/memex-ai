@@ -25,6 +25,17 @@ vi.mock('../components/StandardsMap', () => ({
 }));
 vi.mock('../components/NewSpecModal', () => ({ NewSpecModal: () => null }));
 
+// spec-389 t-5: both pages dock an agent rail. This test asserts the page
+// HEADERS only, so stub the rail's ChatProvider-dependent pieces (they'd
+// otherwise throw "useChat must be used within ChatProvider").
+vi.mock('../components/ChatPanel', () => ({ ChatPanel: () => null }));
+vi.mock('../components/chat/OpeningStandardsController', () => ({
+  OpeningStandardsController: () => null,
+}));
+vi.mock('../components/chat/OpeningIssuesController', () => ({
+  OpeningIssuesController: () => null,
+}));
+
 // Real PageHeader reads useAuth for the breadcrumb — give it a session so it
 // renders (getCurrentTenant + useAnonymousPublicMemex are null-safe without
 // providers). We deliberately DON'T mock PageHeader: that's the whole point.
