@@ -89,7 +89,9 @@ export async function encryptToken(raw: string): Promise<EncryptedToken> {
   const dek = randomBytes(DEK_BYTES);
   const iv = randomBytes(AES_GCM_IV_LENGTH);
 
-  const cipher = createCipheriv("aes-256-gcm", dek, iv);
+  const cipher = createCipheriv("aes-256-gcm", dek, iv, {
+    authTagLength: AES_GCM_TAG_LENGTH,
+  });
   const ciphertext = Buffer.concat([
     cipher.update(raw, "utf8"),
     cipher.final(),
@@ -144,7 +146,12 @@ export async function decryptToken(encrypted: EncryptedToken): Promise<string> {
   const tag = ciphertext.subarray(ciphertext.length - AES_GCM_TAG_LENGTH);
   const body = ciphertext.subarray(0, ciphertext.length - AES_GCM_TAG_LENGTH);
 
-  const decipher = createDecipheriv("aes-256-gcm", dek, Buffer.from(encrypted.iv));
+  // spec-403 dec-4: pin the auth-tag length explicitly. The tag is already enforced
+  // manually (length check + fixed 16-byte slice above), but the explicit option makes
+  // the guarantee local and clears the Semgrep gcm-no-tag-length finding.
+  const decipher = createDecipheriv("aes-256-gcm", dek, Buffer.from(encrypted.iv), {
+    authTagLength: AES_GCM_TAG_LENGTH,
+  });
   decipher.setAuthTag(tag);
 
   try {

@@ -94,7 +94,10 @@ const ROUTE_PATTERNS: RoutePattern[] = [
  * client (graph state).
  */
 export function resolveScreenKey(pathname: string): GuideScreenKey | null {
-  const segs = pathname.replace(/^\/+/, '').replace(/\/+$/, '').split('/');
+  // spec-403 dec-3: linear split. The previous `\/+$` strip backtracks polynomially
+  // (CodeQL js/polynomial-redos); split + filter(Boolean) drops leading/trailing (and
+  // any accidental internal) empties in linear time — equivalent for router pathnames.
+  const segs = pathname.split('/').filter(Boolean);
   if (segs.length < 2) return null; // need at least <namespace>/<memex>
   const sub = '/' + segs.slice(2).join('/');
   for (const p of ROUTE_PATTERNS) {
