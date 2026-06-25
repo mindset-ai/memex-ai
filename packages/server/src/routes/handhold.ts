@@ -19,6 +19,7 @@ import { sessionMiddleware, type SessionEnv } from "../middleware/session.js";
 import type { MemexResolverEnv } from "../middleware/memex-resolver.js";
 import type { Namespace } from "../db/schema.js";
 import { requireMemexId } from "./shared.js";
+import { restCtx } from "./_actor-ctx.js";
 import { resetHandholdDemo } from "../services/handhold-demo.js";
 
 type Env = MemexResolverEnv & SessionEnv;
@@ -46,7 +47,7 @@ handhold.post("/reset", async (c) => {
     return c.json({ error: "Not found" }, 404);
   }
 
-  const result = await resetHandholdDemo(memexId);
+  const result = await resetHandholdDemo(memexId, restCtx(c));
   return c.json({ status: "ok", seeded: result.seeded });
 });
 

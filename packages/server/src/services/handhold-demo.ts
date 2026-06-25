@@ -27,7 +27,7 @@ import {
   testEventLatest,
   activityLog,
 } from "../db/schema.js";
-import { mutate } from "./mutate.js";
+import { mutate, type RequestCtx } from "./mutate.js";
 import { createDocDraft } from "./documents.js";
 import { addSection } from "./sections.js";
 import { createDecision, resolveDecision } from "./decisions.js";
@@ -138,6 +138,10 @@ async function seedOnePhase(
   memexId: string,
   slice: HandholdPhaseSlice,
   slugs: { namespace: string; memex: string } | null,
+  // spec-406 (dec-7 / ac-26): the seed runs server-side on behalf of the new
+  // user, so every row it writes carries channel='server' + the seeded user as
+  // actor rather than landing fully unattributed in the activity contract (std-32).
+  ctx: RequestCtx = { channel: "server" },
 ): Promise<string> {
   const created = await createDocDraft(
     memexId,
@@ -150,6 +154,9 @@ async function seedOnePhase(
     // the terminal phase-flip below, the leftover is a proper demo doc (excluded from
     // search/agents, badged, removable by Reset), never a search-visible fake real spec.
     { isDemo: true },
+    // createdByUserId — seed the legacy attribution id from the same actor.
+    ctx.actorUserId,
+    ctx,
   );
   const docId = created.id;
 
@@ -158,13 +165,13 @@ async function seedOnePhase(
   for (const key of slice.includeSections) {
     if (key === "overview") continue;
     const meta = SECTION_META[key];
-    await addSection(memexId, docId, meta.sectionType, HANDHOLD_SECTIONS[key], meta.title);
+    await addSection(memexId, docId, meta.sectionType, HANDHOLD_SECTIONS[key], meta.title, undefined, ctx);
   }
 
   if (slice.includeDecisions) {
     for (const dec of HANDHOLD_DECISIONS) {
-      const createdDec = await createDecision(memexId, docId, dec.title, dec.context);
-      await resolveDecision(memexId, createdDec.id, dec.chosen);
+      const createdDec = await createDecision(memexId, docId, dec.title, dec.context, "human", ctx);
+      await resolveDecision(memexId, createdDec.id, dec.chosen, undefined, ctx);
     }
   }
 
@@ -180,11 +187,13 @@ async function seedOnePhase(
         task.title,
         task.body,
         acceptanceCriteria,
+        undefined,
+        ctx,
       );
       if (slice.tasksComplete) {
         // Safe to complete here: the doc is still 'draft', so updateTaskStatus's
         // build→verify auto-promote (which only fires on a 'build' Spec) is inert.
-        await updateTaskStatus(memexId, createdTask.id, "complete");
+        await updateTaskStatus(memexId, createdTask.id, "complete", ctx);
       }
     }
   }
@@ -192,12 +201,15 @@ async function seedOnePhase(
   const createdAcSeqs: number[] = [];
   if (slice.includeAcs) {
     for (const ac of HANDHOLD_ACS) {
-      const createdAc = await createAc({
-        memexId,
-        briefId: docId,
-        kind: ac.kind,
-        statement: ac.statement,
-      });
+      const createdAc = await createAc(
+        {
+          memexId,
+          briefId: docId,
+          kind: ac.kind,
+          statement: ac.statement,
+        },
+        ctx,
+      );
       createdAcSeqs.push(createdAc.seq);
     }
   }
@@ -207,7 +219,7 @@ async function seedOnePhase(
   // the load-bearing change is the status flip. Goes through mutate() (std-8) so the
   // document.updated event fires for live UIs.
   await mutate(
-    {},
+    ctx,
     { memexId, docId, entity: "document", action: "updated" },
     async () => {
       const [row] = await db
@@ -257,7 +269,13 @@ async function listDemoDocIds(memexId: string): Promise<string[]> {
  * + reset + repeated calls safe). Builds one frozen copy per HANDHOLD_PHASES
  * entry; sets documents.is_demo=true + the phase status on each.
  */
-export async function seedHandholdDemo(memexId: string): Promise<void> {
+export async function seedHandholdDemo(
+  memexId: string,
+  // spec-406 (ac-26): channel='server' + the seeded user as actor, threaded onto
+  // every row this seed writes. Defaults to a bare server ctx for callers (Reset)
+  // that have no user in scope.
+  ctx: RequestCtx = { channel: "server" },
+): Promise<void> {
   const existing = await listDemoDocIds(memexId);
   // Idempotency + self-healing (issue-2): a memex holding the EXACT full set is
   // already seeded → no-op. Any OTHER non-zero count is a NON-canonical leftover —
@@ -276,7 +294,7 @@ export async function seedHandholdDemo(memexId: string): Promise<void> {
   const slugs = anyAcs ? await resolveMemexSlugs(memexId) : null;
 
   for (const slice of HANDHOLD_PHASES) {
-    await seedOnePhase(memexId, slice, slugs);
+    await seedOnePhase(memexId, slice, slugs, ctx);
   }
 }
 
@@ -363,11 +381,14 @@ async function clearDemoDocs(memexId: string, demoDocIds: string[]): Promise<voi
  *
  * Returns { seeded } — the count of demo Specs after the re-seed (5).
  */
-export async function resetHandholdDemo(memexId: string): Promise<{ seeded: number }> {
+export async function resetHandholdDemo(
+  memexId: string,
+  ctx: RequestCtx = { channel: "server" },
+): Promise<{ seeded: number }> {
   const demoDocIds = await listDemoDocIds(memexId);
   await clearDemoDocs(memexId, demoDocIds);
   // Re-seed from the fixture. seedHandholdDemo now sees zero demo docs.
-  await seedHandholdDemo(memexId);
+  await seedHandholdDemo(memexId, ctx);
   return { seeded: HANDHOLD_PHASES.length };
 }
 

@@ -539,18 +539,24 @@ export async function setAcAcceptance(
   memexId: string,
   acId: string,
   actor: string,
+  ctx: RequestCtx = {},
 ): Promise<Mutated<Ac>> {
   if (!actor.trim()) {
     throw new ValidationError("actor is required to accept an AC");
   }
   const ac = await getAc(memexId, acId); // tenancy check
   return mutate(
-    {},
+    ctx,
     { memexId, docId: ac.briefId, entity: "ac", action: "updated" },
     async () => {
       const [row] = await db
         .update(acs)
-        .set({ acceptedBy: actor.trim(), acceptedAt: new Date(), updatedAt: new Date() })
+        .set({
+          acceptedBy: actor.trim(),
+          acceptedAt: new Date(),
+          updatedAt: new Date(),
+          ...(await resolveActorColumns(ctx)),
+        })
         .where(and(eq(acs.id, acId), eq(acs.memexId, memexId)))
         .returning();
       return row;
@@ -566,20 +572,27 @@ export async function setAcAcceptance(
 export async function clearAcAcceptance(
   memexId: string,
   acId: string,
+  ctx: RequestCtx = {},
 ): Promise<Mutated<Ac>> {
   const ac = await getAc(memexId, acId); // tenancy check
   if (ac.acceptedAt === null) {
     throw new ConflictError(`AC ${acId} has no acceptance to revoke`);
   }
   return mutate(
-    {},
+    ctx,
     { memexId, docId: ac.briefId, entity: "ac", action: "updated" },
     async () => {
       const [row] = await db
         .update(acs)
         // spec-391: clearing the acceptance also clears the reviewed-verification
         // rationale — the reason is meaningless without the sign-off it explains.
-        .set({ acceptedBy: null, acceptedAt: null, reviewedReason: null, updatedAt: new Date() })
+        .set({
+          acceptedBy: null,
+          acceptedAt: null,
+          reviewedReason: null,
+          updatedAt: new Date(),
+          ...(await resolveActorColumns(ctx)),
+        })
         .where(and(eq(acs.id, acId), eq(acs.memexId, memexId)))
         .returning();
       return row;

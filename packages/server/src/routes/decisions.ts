@@ -136,7 +136,7 @@ decisionsRouter.post("/:id/resolve", async (c) => {
 decisionsRouter.post("/:id/reopen", async (c) => {
   const memexId = requireMemexId(c);
   const id = c.req.param("id");
-  const result = await reopenDecision(memexId, id);
+  const result = await reopenDecision(memexId, id, restCtx(c));
   return c.json(result);
 });
 
@@ -148,7 +148,7 @@ decisionsRouter.post("/:id/reopen", async (c) => {
 decisionsRouter.post("/:id/approve", async (c) => {
   const memexId = requireMemexId(c);
   const id = c.req.param("id");
-  const result = await approveDecision(memexId, id);
+  const result = await approveDecision(memexId, id, restCtx(c));
   return c.json(result);
 });
 
@@ -156,7 +156,7 @@ decisionsRouter.post("/:id/reject", async (c) => {
   const memexId = requireMemexId(c);
   const id = c.req.param("id");
   const { reason } = await c.req.json<{ reason: string }>();
-  const result = await rejectDecision(memexId, id, reason);
+  const result = await rejectDecision(memexId, id, reason, restCtx(c));
   return c.json(result);
 });
 

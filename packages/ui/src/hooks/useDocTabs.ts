@@ -14,7 +14,7 @@ import type { DocWithGraph, SpecStatus } from '../api/types';
 // spec-282 (dec-1/dec-2): the SINGLE, ordered inventory of sub-tabs the unified
 // control carries in EVERY phase (Narrative · Comments · Decisions & ACs · Agent
 // Tasks & Issues · QA Report).
-export type SubTab = 'narrative' | 'comments' | 'decisions' | 'work' | 'qa-report';
+export type SubTab = 'narrative' | 'comments' | 'decisions' | 'work' | 'qa-report' | 'stats';
 
 // spec-282 (dec-3): each phase's preferred LANDING sub-tab. Selecting any other
 // tab is always free — this is only the default applied when the user navigates
