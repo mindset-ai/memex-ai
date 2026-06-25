@@ -5,6 +5,7 @@
 // connection shows inline (a green tick on mcpConnected) but is not itself a gate.
 import { useEffect, useRef, useState } from 'react';
 import { CodeBlock } from '../CodeBlock';
+import { StepDoneBadge } from './StepDoneBadge';
 import { fetchJourneyStateApi } from '../../api/journey';
 import { Instructions, TOOLS, detectOs, type Os, type Tool } from './ConnectAgentStep';
 // spec-372 — clipboard prompt prose lives in a dedicated util module (std-23 / b-68
@@ -198,7 +199,12 @@ export function CreateSpecStep({
 
       {/* Stage 2 — Create your first spec. */}
       <section data-testid="create-stage" className="rounded-2xl border border-edge bg-surface p-6">
-        <StageHeading title="Create your first spec" sub="Draft your first spec with your coding agent, or create it here in the app." />
+        {/* spec-372 issue-17 — the created state is a "✓ Created" badge by the heading,
+            mirroring Stage-1's "✓ Connected" badge (not a sentence at the bottom). */}
+        <div className="flex items-start justify-between gap-3">
+          <StageHeading title="Create your first spec" sub="Draft your first spec with your coding agent, or create it here in the app." />
+          {done && <StepDoneBadge label="Created" testId="create-spec-done" />}
+        </div>
 
         <div className="mb-5 inline-flex gap-1 rounded-xl bg-card-hover p-1">
           {(['agent', 'app'] as Method[]).map((m) => (
@@ -273,19 +279,16 @@ export function CreateSpecStep({
           </>
         )}
 
-        <div className="mt-5" data-testid="create-spec-status">
-          {done ? (
-            <div data-testid="create-spec-done" className="flex items-center gap-2.5 text-status-success-text">
-              <span className="h-2.5 w-2.5 flex-none rounded-full bg-status-success-text" />
-              <span className="font-semibold">Connected — and your first spec is in Memex.</span>
-            </div>
-          ) : (
+        {/* spec-372 issue-17 — done is shown as the "✓ Created" badge by the heading above;
+            the bottom status now only carries the waiting line. */}
+        {!done && (
+          <div className="mt-5" data-testid="create-spec-status">
             <div className="flex items-center gap-2.5 text-sm text-muted">
               <span className="h-2.5 w-2.5 flex-none animate-pulse rounded-full bg-accent" />
               Waiting for your agent to create the spec — this advances the moment it does.
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </section>
     </div>
   );

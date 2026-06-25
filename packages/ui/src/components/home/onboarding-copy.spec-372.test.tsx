@@ -142,6 +142,16 @@ describe('spec-372 — specs-match-reality (ac-4, ac-6, ac-15)', () => {
     expect(status.querySelector('.animate-pulse')).toBeNull();
   });
 
+  it('spec-372 issue-17: the done state shows a "✓ Grounded with your codebase" badge', async () => {
+    tagAc(AC(46));
+    fetchJourneyStateApi.mockResolvedValue({ milestones: { planGrounded: true } });
+    render(<SpecsMatchRealityStep />); // non-preview so it polls and resolves to done
+    const badge = await screen.findByTestId('specs-match-reality-done');
+    expect(badge.textContent).toContain('Grounded with your codebase');
+    expect(badge.textContent).toContain('✓');
+    expect(badge.className).toContain('rounded-full');
+  });
+
   it('spec-372 issue-15: the improve prompt injects the provided spec token (placeholder by default)', () => {
     tagAc(AC(43));
     const { rerender } = render(<SpecsMatchRealityStep preview specToken="spec-376" />);

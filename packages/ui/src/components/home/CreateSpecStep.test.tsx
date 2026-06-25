@@ -51,6 +51,7 @@ describe('CreateSpecStep', () => {
     // spec-336 dec-6: viewing a step you already finished shows it as done but must never
     // bump you forward to the next step.
     tagAc(AC(4));
+    tagAc(AC372(46)); // spec-372 issue-17 — done shows the "✓ Created" badge
     vi.useFakeTimers();
     fetchJourneyStateApi.mockResolvedValue({ milestones: { hasSpec: true } });
     const onComplete = vi.fn();
@@ -59,7 +60,10 @@ describe('CreateSpecStep', () => {
     await vi.advanceTimersByTimeAsync(4000); // a later poll still met, but the arrival was consumed
     await vi.advanceTimersByTimeAsync(2000); // well past any advance window
     expect(onComplete).not.toHaveBeenCalled();
-    expect(screen.getByTestId('create-spec-done')).toBeInTheDocument();
+    const badge = screen.getByTestId('create-spec-done');
+    expect(badge.textContent).toContain('Created');
+    expect(badge.textContent).toContain('✓');
+    expect(badge.className).toContain('rounded-full'); // pill, not the old dot+sentence
   });
 });
 

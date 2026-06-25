@@ -4,6 +4,7 @@
 // (create-spec and see-green are bespoke; this covers the two in-between steps.)
 import { useEffect, useRef, useState } from 'react';
 import { CodeBlock } from '../CodeBlock';
+import { StepDoneBadge } from './StepDoneBadge';
 import { SPEC_TOKEN_PLACEHOLDER } from './specToken';
 import { fetchJourneyStateApi } from '../../api/journey';
 import type { JourneyMilestones } from '../../api/journey';
@@ -124,7 +125,12 @@ export function AgentPromptStep({
 
   return (
     <div data-testid={`journey-step-${stepId}`} className="max-w-3xl animate-[panelIn_0.35s_ease]">
-      <h2 className="onboarding-heading mb-4">{cfg.headline}</h2>
+      {/* spec-372 issue-17 — done is a "✓ {eyebrow}" badge inline with the title, right-aligned
+          to the content; the bottom status carries only the waiting line. */}
+      <div className="flex items-start justify-between gap-3">
+        <h2 className="onboarding-heading mb-4">{cfg.headline}</h2>
+        {done && <StepDoneBadge label={cfg.eyebrow} testId="agent-prompt-done" />}
+      </div>
       {/* spec-372 t-13 — v3 sub-tagline weight is 600 (semibold), not bold. */}
       <p className="mb-5 text-xl font-semibold leading-snug text-primary">{cfg.sub}</p>
       <p className="mb-7 max-w-2xl leading-relaxed text-secondary">{cfg.body}</p>
@@ -133,19 +139,14 @@ export function AgentPromptStep({
         <CodeBlock code={cfg.prompt.replace('{spec}', specToken)} onCopy={() => onCtaClick?.('copy_prompt')} />
       </div>
 
-      <div className="mt-5" data-testid="agent-prompt-status">
-        {done ? (
-          <div data-testid="agent-prompt-done" className="flex items-center gap-2.5 text-status-success-text">
-            <span className="h-2.5 w-2.5 flex-none rounded-full bg-status-success-text" />
-            <span className="font-semibold">{cfg.doneLabel}</span>
-          </div>
-        ) : (
+      {!done && (
+        <div className="mt-5" data-testid="agent-prompt-status">
           <div className="flex items-center gap-2.5 text-sm text-muted">
             <span className="h-2.5 w-2.5 flex-none animate-pulse rounded-full bg-accent" />
             {cfg.waitingLabel}
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

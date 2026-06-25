@@ -67,6 +67,7 @@ describe('AgentPromptStep', () => {
   it('does NOT advance when the milestone is already met on arrival (revisiting a completed step)', async () => {
     // spec-336 dec-6: viewing a finished step shows it as done but never bumps you forward.
     tagAc(AC(13));
+    tagAc(AC372(46)); // spec-372 issue-17 — done shows the "✓ Decisions raised" badge
     vi.useFakeTimers();
     fetchJourneyStateApi.mockResolvedValue({ milestones: { hasResolvedDecision: true } });
     const onComplete = vi.fn();
@@ -75,6 +76,22 @@ describe('AgentPromptStep', () => {
     await vi.advanceTimersByTimeAsync(4000);
     await vi.advanceTimersByTimeAsync(2000); // well past any advance window
     expect(onComplete).not.toHaveBeenCalled();
-    expect(screen.getByTestId('agent-prompt-done')).toBeInTheDocument();
+    const badge = screen.getByTestId('agent-prompt-done');
+    expect(badge.textContent).toContain('Decisions raised');
+    expect(badge.textContent).toContain('✓');
+    expect(badge.className).toContain('rounded-full');
+  });
+
+  it('spec-372 issue-17: the add-ac done state shows a "✓ Acceptance criteria raised" badge', async () => {
+    tagAc(AC372(46));
+    vi.useFakeTimers();
+    fetchJourneyStateApi.mockResolvedValue({ milestones: { hasAc: true } });
+    render(<AgentPromptStep stepId="add-ac" />);
+    await vi.advanceTimersByTimeAsync(0); // first read — already met → done
+    await vi.advanceTimersByTimeAsync(4000);
+    const badge = screen.getByTestId('agent-prompt-done');
+    expect(badge.textContent).toContain('Acceptance criteria raised');
+    expect(badge.textContent).toContain('✓');
+    expect(badge.className).toContain('rounded-full');
   });
 });
