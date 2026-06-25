@@ -203,7 +203,7 @@ describe("POST /api/decisions/:id/reopen", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.status).toBe("open");
-    expect(reopenDecision).toHaveBeenCalledWith(TEST_MEMEX_ID, "dec-uuid-1");
+    expect(reopenDecision).toHaveBeenCalledWith(TEST_MEMEX_ID, "dec-uuid-1", expect.anything());
   });
 });
 
@@ -220,7 +220,7 @@ describe("POST /api/decisions/:id/approve", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.status).toBe("open");
-    expect(approveDecision).toHaveBeenCalledWith(TEST_MEMEX_ID, "dec-uuid-1");
+    expect(approveDecision).toHaveBeenCalledWith(TEST_MEMEX_ID, "dec-uuid-1", expect.anything());
   });
 
   it("returns 400 when the decision is not a candidate", async () => {
@@ -256,6 +256,7 @@ describe("POST /api/decisions/:id/reject", () => {
       TEST_MEMEX_ID,
       "dec-uuid-1",
       "Out of scope",
+      expect.anything(),
     );
   });
 

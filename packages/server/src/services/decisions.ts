@@ -515,7 +515,11 @@ async function loadOwnedDecision(memexId: string, id: string): Promise<Decision>
   return decision;
 }
 
-export async function approveDecision(memexId: string, id: string): Promise<Mutated<Decision>> {
+export async function approveDecision(
+  memexId: string,
+  id: string,
+  ctx: RequestCtx = {},
+): Promise<Mutated<Decision>> {
   const decision = await loadOwnedDecision(memexId, id);
   if (decision.status !== "candidate") {
     throw new ValidationError(
@@ -524,12 +528,12 @@ export async function approveDecision(memexId: string, id: string): Promise<Muta
   }
 
   return mutate(
-    {},
+    ctx,
     { memexId, docId: decision.docId, entity: "decision", action: "updated" },
     async () => {
       const [updated] = await db
         .update(decisions)
-        .set({ status: "open" })
+        .set({ status: "open", ...(await resolveActorColumns(ctx)) })
         .where(and(eq(decisions.id, id), eq(decisions.memexId, memexId)))
         .returning();
       return updated;
@@ -541,6 +545,7 @@ export async function rejectDecision(
   memexId: string,
   id: string,
   reason: string,
+  ctx: RequestCtx = {},
 ): Promise<Mutated<Decision>> {
   if (typeof reason !== "string" || reason.trim().length === 0) {
     throw new ValidationError("reason must be a non-empty string");
@@ -553,12 +558,17 @@ export async function rejectDecision(
   }
 
   const result = await mutate(
-    {},
+    ctx,
     { memexId, docId: decision.docId, entity: "decision", action: "updated" },
     async () => {
       const [updated] = await db
         .update(decisions)
-        .set({ status: "rejected", resolution: reason.trim(), resolvedAt: new Date() })
+        .set({
+          status: "rejected",
+          resolution: reason.trim(),
+          resolvedAt: new Date(),
+          ...(await resolveActorColumns(ctx)),
+        })
         .where(and(eq(decisions.id, id), eq(decisions.memexId, memexId)))
         .returning();
       return updated;
@@ -822,7 +832,11 @@ export async function resolveDecision(
   return updated;
 }
 
-export async function reopenDecision(memexId: string, id: string): Promise<Mutated<Decision>> {
+export async function reopenDecision(
+  memexId: string,
+  id: string,
+  ctx: RequestCtx = {},
+): Promise<Mutated<Decision>> {
   const decision = await loadOwnedDecision(memexId, id);
   // Strict transition: only `resolved` decisions can be reopened. Open decisions are
   // already in the target state; candidate / rejected decisions follow approve/reject
@@ -834,7 +848,7 @@ export async function reopenDecision(memexId: string, id: string): Promise<Mutat
   }
 
   const result = await mutate(
-    {},
+    ctx,
     { memexId, docId: decision.docId, entity: "decision", action: "updated" },
     async () => {
       const [updated] = await db
@@ -845,6 +859,7 @@ export async function reopenDecision(memexId: string, id: string): Promise<Mutat
           resolvedAt: null,
           // Clear chosen option on reopen — the choice is up for re-evaluation.
           chosenOptionIndex: null,
+          ...(await resolveActorColumns(ctx)),
         })
         .where(and(eq(decisions.id, id), eq(decisions.memexId, memexId)))
         .returning();

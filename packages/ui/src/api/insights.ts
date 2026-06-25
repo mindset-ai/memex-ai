@@ -165,3 +165,102 @@ export async function fetchTestRunVolume(): Promise<TestRunVolumePoint[]> {
   );
   return points;
 }
+
+// ── Per-spec stats (spec-406 — the Stats tab) ─────────────────────────────────
+// Spec-scoped siblings of the aggregates above. Shapes mirror the new functions
+// in packages/server/src/services/analytics.ts exactly. `specRef` is the spec
+// handle (spec-N) or UUID — it becomes the `/analytics/spec/<ref>/…` path segment.
+
+export interface PhaseSegment {
+  phase: SpecPhase;
+  start: string;
+  /** null = the open current phase, running to now. */
+  end: string | null;
+}
+
+export interface SpecPhaseDurations {
+  segments: PhaseSegment[];
+  totals: Array<{ phase: SpecPhase; days: number }>;
+  hasTransitionHistory: boolean;
+  fullHistory: boolean;
+  caveat: string | null;
+}
+
+export async function fetchSpecPhaseDurations(specRef: string): Promise<SpecPhaseDurations> {
+  return fetchJsonRaw<SpecPhaseDurations>(
+    fetchWithRetry,
+    `${tBase()}/analytics/spec/${encodeURIComponent(specRef)}/phase-durations`,
+  );
+}
+
+export interface SpecLifecycleSummary {
+  createdAt: string;
+  currentPhase: SpecPhase;
+  ageDays: number;
+  timeInCurrentPhaseDays: number;
+  tasks: { total: number; complete: number };
+  acs: { total: number; verified: number; failing: number; covered: number };
+}
+
+export async function fetchSpecSummary(specRef: string): Promise<SpecLifecycleSummary> {
+  return fetchJsonRaw<SpecLifecycleSummary>(
+    fetchWithRetry,
+    `${tBase()}/analytics/spec/${encodeURIComponent(specRef)}/summary`,
+  );
+}
+
+export interface SpecTaskVelocityPoint {
+  day: string;
+  created: number;
+  started: number;
+  completed: number;
+}
+
+export interface SpecTaskVelocity {
+  points: SpecTaskVelocityPoint[];
+  statusBreakdown: { not_started: number; in_progress: number; complete: number };
+}
+
+export async function fetchSpecTaskVelocity(specRef: string): Promise<SpecTaskVelocity> {
+  return fetchJsonRaw<SpecTaskVelocity>(
+    fetchWithRetry,
+    `${tBase()}/analytics/spec/${encodeURIComponent(specRef)}/task-velocity`,
+  );
+}
+
+export async function fetchSpecAcVerification(specRef: string): Promise<AcVerificationSummary> {
+  return fetchJsonRaw<AcVerificationSummary>(
+    fetchWithRetry,
+    `${tBase()}/analytics/spec/${encodeURIComponent(specRef)}/ac-verification`,
+  );
+}
+
+export interface SpecActivityRow {
+  at: string;
+  actorName: string | null;
+  channel: string | null;
+  kind: string;
+  action: string | null;
+  narrative: string | null;
+  entityId: string | null;
+}
+
+export interface SpecActivityAudit {
+  rows: SpecActivityRow[];
+  hasMore: boolean;
+}
+
+export async function fetchSpecActivity(
+  specRef: string,
+  opts: { showAll?: boolean; limit?: number; offset?: number } = {},
+): Promise<SpecActivityAudit> {
+  const q = new URLSearchParams();
+  if (opts.showAll) q.set('showAll', '1');
+  if (opts.limit != null) q.set('limit', String(opts.limit));
+  if (opts.offset != null) q.set('offset', String(opts.offset));
+  const qs = q.toString();
+  return fetchJsonRaw<SpecActivityAudit>(
+    fetchWithRetry,
+    `${tBase()}/analytics/spec/${encodeURIComponent(specRef)}/activity${qs ? `?${qs}` : ''}`,
+  );
+}

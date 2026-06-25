@@ -231,7 +231,7 @@ export const decisionsTools: ToolSpec[] = [
         // be using `resolve_decision`, `approve_candidate`,
         // `reject_candidate`, or `delete_decision` instead.
         if (current === "resolved" && target === "open") {
-          updated = await reopenDecision(memexId, entity.row.id);
+          updated = await reopenDecision(memexId, entity.row.id, reqCtx(ctx));
           mode = "reopened";
         } else if (current === "deleted") {
           updated = await restoreDecision(memexId, entity.row.id, target);
@@ -431,7 +431,7 @@ export const decisionsTools: ToolSpec[] = [
         );
       }
       const { memexId, doc, slugs, entity } = resolved;
-      const decision = await approveDecision(memexId, entity.row.id);
+      const decision = await approveDecision(memexId, entity.row.id, reqCtx(ctx));
       if (ctx.verbose) {
         const state = await fullDocState(memexId, decision.docId);
         const url = await ctx.workspaceUrl(memexId);
@@ -466,7 +466,7 @@ export const decisionsTools: ToolSpec[] = [
         );
       }
       const { memexId, doc, slugs, entity } = resolved;
-      const decision = await rejectDecision(memexId, entity.row.id, reason);
+      const decision = await rejectDecision(memexId, entity.row.id, reason, reqCtx(ctx));
       if (ctx.verbose) {
         const state = await fullDocState(memexId, decision.docId);
         const url = await ctx.workspaceUrl(memexId);
