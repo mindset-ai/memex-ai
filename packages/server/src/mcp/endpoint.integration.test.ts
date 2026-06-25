@@ -15,7 +15,6 @@ import {
   mcpTokens,
 } from "../db/schema.js";
 import { mintMcpToken, revokeMcpToken } from "../services/mcp-tokens.js";
-import { tagAc } from "@memex-ai-ac/vitest";
 
 // spec-31 ac-5 — "Existing mxt_ PAT users experience zero regression — the same
 // tools work with identical behaviour when accessed via Bearer mxt_ tokens."

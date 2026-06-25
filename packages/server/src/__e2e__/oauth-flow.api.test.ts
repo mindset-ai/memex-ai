@@ -32,7 +32,6 @@ import {
 import { upsertUserByEmail } from "../services/users.js";
 import { signSessionToken } from "../services/auth-jwt.js";
 import { verifyAccessToken } from "../services/oauth/access-tokens.js";
-import { tagAc } from "@memex-ai-ac/vitest";
 
 // spec-275 — the authorize redirect must MERGE params into a redirect_uri that
 // already carries a query string, not blindly concatenate `?code=`.
