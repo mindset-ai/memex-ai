@@ -97,3 +97,24 @@ describe('AppShell — bounded content wrapper on agent-rail routes (spec-389)',
     expect(contentWrapper().className).not.toContain('min-h-0');
   });
 });
+
+// spec-410: the Drift Inbox docks its agent via DocumentShell's two-pane shell
+// (not a ResizableChatRail), but the bounding need is identical — without a
+// `min-h-0` wrapper DocumentShell's `h-full` can't resolve and the whole <main>
+// scrolls as one unit, dragging the drift agent panel along with the rows. The
+// `/drift` route must get the same bounded wrapper as the agent-rail routes.
+const AC_410 = 'mindset-prod/memex-building-itself/specs/spec-410/acs/ac-5';
+
+describe('AppShell — bounded content wrapper on the drift route (spec-410, ac-5)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('gives the drift tenant route a bounded (min-h-0) wrapper so the agent stays fixed', () => {
+    tagAc(AC_410);
+    renderShell(['/acme/main/drift']);
+    const wrapper = contentWrapper();
+    expect(wrapper.className).toContain('min-h-0');
+    expect(wrapper.className).toContain('flex-1');
+  });
+});
