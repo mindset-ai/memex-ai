@@ -193,11 +193,11 @@ export function WhatsNewRibbon({ onExplain, fetcher = fetchWhatsNew }: WhatsNewR
                     </span>
                   </div>
                   <h3 className="mb-2 text-sm font-semibold">{e.title}</h3>
-                  <p className="mb-1 text-sm">
+                  <p className="mb-1 text-sm text-primary">
                     <span className="mr-2 text-[10px] uppercase tracking-wide text-muted">What</span>
                     {e.what}
                   </p>
-                  <p className="text-sm">
+                  <p className="text-sm text-primary">
                     <span className="mr-2 text-[10px] uppercase tracking-wide text-muted">Why</span>
                     {e.why}
                   </p>
