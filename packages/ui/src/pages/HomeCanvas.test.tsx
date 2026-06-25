@@ -19,10 +19,18 @@ import { tagAc } from '@memex-ai-ac/vitest';
 
 const fetchJourneyStateApi = vi.hoisted(() => vi.fn());
 const postJourneyEventApi = vi.hoisted(() => vi.fn());
+const fetchDocs = vi.hoisted(() => vi.fn());
 
 vi.mock('../api/journey', () => ({
   fetchJourneyStateApi,
   postJourneyEventApi,
+}));
+
+// spec-372 issues 13–16 — HomeCanvas fetches the user's specs to resolve the prompt
+// spec token. Preserve other api/docs exports; stub fetchDocs to no specs by default.
+vi.mock('../api/docs', async (orig) => ({
+  ...(await orig<typeof import('../api/docs')>()),
+  fetchDocs,
 }));
 
 vi.mock('../components/AuthContext', () => ({
@@ -41,6 +49,7 @@ import { HomeCanvas } from './HomeCanvas';
 
 const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-336/acs/ac-${n}`;
 const AC344 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-344/acs/ac-${n}`;
+const AC372 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-372/acs/ac-${n}`;
 
 const SIX = [
   'identity',
@@ -100,6 +109,8 @@ beforeEach(() => {
   fetchJourneyStateApi.mockReset();
   postJourneyEventApi.mockReset();
   postJourneyEventApi.mockResolvedValue(undefined);
+  fetchDocs.mockReset();
+  fetchDocs.mockResolvedValue([]);
   window.localStorage.clear();
 });
 
@@ -253,24 +264,48 @@ describe('HomeCanvas v2 — non-builder handoff (ac-12)', () => {
   });
 });
 
-describe('HomeCanvas v2 — collapse in place (ac-16)', () => {
-  it('the chevron collapses the tracker content in place (header stays) and re-expands', async () => {
+describe('HomeCanvas rail — done steps collapse + dim (spec-372 issue-10)', () => {
+  it('a done step you have moved past dims its title; the selected step stays prominent', async () => {
+    tagAc(AC372(38));
+    // Viewing create-spec with identity attained: identity is done + NOT selected → dimmed;
+    // create-spec is the selected step → heading colour (not dimmed).
+    fetchJourneyStateApi.mockResolvedValue(stateFor('create-spec', { attained: ['identity'] }));
+    renderCanvas();
+    await screen.findByTestId('journey-rail');
+
+    // The title is the first font-semibold span in the node (label text varies via views).
+    const doneTitle = screen.getByTestId('journey-rail-node-identity').querySelector('span.font-semibold');
+    expect(doneTitle?.className).toContain('text-muted');
+
+    const selectedTitle = screen.getByTestId('journey-rail-node-create-spec').querySelector('span.font-semibold');
+    expect(selectedTitle?.className).toContain('text-heading');
+    expect(selectedTitle?.className).not.toContain('text-muted');
+  });
+});
+
+describe('HomeCanvas v2 — tracker is always expanded (spec-372 issue-8)', () => {
+  it('has no collapse/expand chevron; the rail + panel are always shown beneath the header', async () => {
     tagAc(AC(6));
     tagAc(AC(16));
+    tagAc(AC372(36));
     fetchJourneyStateApi.mockResolvedValue(stateFor('create-spec', { roleCoords: DEV_HEAVY, attained: ['identity'] }));
     renderCanvas();
 
     await screen.findByTestId('journey-rail');
-    fireEvent.click(screen.getByTestId('journey-collapse'));
-
-    // Collapsed: the rail + panel hide, but the header stays so you can re-open in place.
-    await waitFor(() => expect(screen.queryByTestId('journey-rail')).toBeNull());
-    expect(screen.queryByTestId('journey-content')).toBeNull();
+    // spec-372 issue-8 — the in-place collapse/expand toggle + chevron were removed: the
+    // tracker header is static and the rail + content are always rendered.
+    expect(screen.queryByTestId('journey-collapse')).toBeNull();
     expect(screen.getByTestId('getting-started-title')).toBeInTheDocument();
+    expect(screen.getByTestId('journey-content')).toBeInTheDocument();
+  });
 
-    // Re-expand from the same chevron.
-    fireEvent.click(screen.getByTestId('journey-collapse'));
-    expect(await screen.findByTestId('journey-rail')).toBeInTheDocument();
+  it('spec-372 issue-7: the tracker title uses the onboarding accent #0482DC', async () => {
+    tagAc(AC372(35));
+    fetchJourneyStateApi.mockResolvedValue(stateFor('create-spec', { attained: ['identity'] }));
+    renderCanvas();
+    const title = await screen.findByTestId('getting-started-title');
+    expect(title.className).toContain('text-[#0482DC]');
+    expect(title.className).not.toContain('text-accent');
   });
 });
 

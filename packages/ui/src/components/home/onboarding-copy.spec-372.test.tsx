@@ -73,8 +73,8 @@ describe('spec-372 — step-1 reframe + prompts (ac-17, ac-18, ac-19)', () => {
     const h2 = screen.getByText('Build exactly what you decided');
     expect(h2.tagName).toBe('H2');
     expect(h2.textContent?.trim().endsWith('.')).toBe(false);
-    // The subtitle text is split by an inline <GlossaryTerm> around "Memex", so assert on
-    // the rendered text content rather than a single text node.
+    // spec-372 issue-5 — the "Memex" glossary tooltip was removed, so the subtitle is now
+    // plain text; assert on the rendered text content.
     expect(container.textContent).toContain(
       'Get the full magic of Memex by connecting to the MCP and using it in your coding agent',
     );
@@ -84,14 +84,18 @@ describe('spec-372 — step-1 reframe + prompts (ac-17, ac-18, ac-19)', () => {
     ).toBeInTheDocument();
   });
 
-  it('ac-17: the agent-method sample prompt instructs create AND fully flesh out (scope ACs + decisions)', () => {
+  it('ac-17: the agent-method sample prompt instructs create AND fully flesh out a rich spec (not bare create_doc)', () => {
     tagAc(AC(17));
+    tagAc(AC(39)); // spec-372 issue-11
     render(<CreateSpecStep preview />);
     const prompt = within(screen.getByTestId('create-spec-prompt')).getByText(/Using the Memex MCP/);
     const text = prompt.textContent ?? '';
+    // spec-372 issue-11 — the sample prompt is a rich PRD-style starting point: create + fully
+    // flesh out, a rich purpose narrative ("not just a feature list"), and dedicated spec
+    // sections — i.e. far more than a bare create_doc call.
     expect(text).toMatch(/create and fully flesh out/i);
-    expect(text).toMatch(/scope acceptance criteria/i);
-    expect(text).toMatch(/decisions/i);
+    expect(text).toMatch(/not just a feature list/i);
+    expect(text).toMatch(/Problem section/i);
   });
 
   it('ac-18: "Copy a prompt for your agent" copies the doc-grounded eval prompt; docs link points at the docs', async () => {
@@ -136,5 +140,25 @@ describe('spec-372 — specs-match-reality (ac-4, ac-6, ac-15)', () => {
     expect(status.textContent).not.toMatch(/working the codebase/i);
     // The idle indicator must NOT pulse (dec-4 — no animate-pulse on the unmet state).
     expect(status.querySelector('.animate-pulse')).toBeNull();
+  });
+
+  it('spec-372 issue-17: the done state shows a "✓ Grounded with your codebase" badge', async () => {
+    tagAc(AC(46));
+    fetchJourneyStateApi.mockResolvedValue({ milestones: { planGrounded: true } });
+    render(<SpecsMatchRealityStep />); // non-preview so it polls and resolves to done
+    const badge = await screen.findByTestId('specs-match-reality-done');
+    expect(badge.textContent).toContain('Grounded with your codebase');
+    expect(badge.textContent).toContain('✓');
+    expect(badge.className).toContain('rounded-full');
+  });
+
+  it('spec-372 issue-15: the improve prompt injects the provided spec token (placeholder by default)', () => {
+    tagAc(AC(43));
+    const { rerender } = render(<SpecsMatchRealityStep preview specToken="spec-376" />);
+    expect(screen.getByTestId('specs-match-reality-prompt').textContent).toMatch(/Improve spec-376, decisions/);
+    rerender(<SpecsMatchRealityStep preview />);
+    expect(screen.getByTestId('specs-match-reality-prompt').textContent).toMatch(
+      /Improve <insert a spec number of one of your specs>, decisions/,
+    );
   });
 });

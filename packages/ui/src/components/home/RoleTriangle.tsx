@@ -14,12 +14,16 @@ export interface RoleCoords {
 export const CENTERED_ROLE: RoleCoords = { dev: 1 / 3, design: 1 / 3, pm: 1 / 3 };
 
 // Equilateral triangle vertices in the SVG viewBox. Developer top, Designer
-// bottom-left, PM bottom-right. The viewBox leaves margin so the vertex labels
-// (centered on each corner) never clip.
+// bottom-left, PM bottom-right. spec-372 issue-2: the triangle is LEFT-ALIGNED so its
+// left point (the Design vertex) sits on the same vertical line as the heading/intro copy
+// above it — Design vertex at viewBox x=0, and the SVG itself is left-aligned (no mx-auto)
+// so its left edge = the content's left edge. The SVG is overflow-visible so the Design
+// vertex marker (centred on x=0) isn't clipped; the Design label is start-anchored so it
+// reads rightward and never crosses left of the content edge.
 const VERT = {
-  dev: { x: 140, y: 30 },
-  design: { x: 47, y: 190 },
-  pm: { x: 233, y: 190 },
+  dev: { x: 93, y: 30 },
+  design: { x: 0, y: 190 },
+  pm: { x: 186, y: 190 },
 } as const;
 
 // spec-372 (t-12, change-set #2 / ac-29) — v3 persona-vertex colours: Develop green,
@@ -173,13 +177,13 @@ export function RoleTriangle({
     <div className="w-full">
     <svg
       ref={svgRef}
-      viewBox="0 0 280 226"
+      viewBox="0 0 240 226"
       role="slider"
       aria-label="Place yourself between developer, designer, and product manager"
       aria-valuetext={personaLabel(value)}
       tabIndex={0}
       data-testid="role-triangle"
-      className={`mx-auto block w-full max-w-[22rem] touch-none select-none rounded-2xl focus:outline-hidden focus-visible:ring-2 focus-visible:ring-accent ${dragging ? 'cursor-grabbing' : 'cursor-grab'}`}
+      className={`block w-full max-w-[22rem] touch-none select-none overflow-visible rounded-2xl focus:outline-hidden focus-visible:ring-2 focus-visible:ring-accent ${dragging ? 'cursor-grabbing' : 'cursor-grab'}`}
       onPointerDown={(e) => {
         (e.target as Element).setPointerCapture?.(e.pointerId);
         setDragging(true);
@@ -231,7 +235,9 @@ export function RoleTriangle({
       <text x={VERT.dev.x} y={VERT.dev.y - 14} textAnchor="middle" className="fill-secondary text-[12px] font-semibold">
         Develop
       </text>
-      <text x={VERT.design.x} y={VERT.design.y + 24} textAnchor="middle" className="fill-secondary text-[12px] font-semibold">
+      {/* spec-372 issue-2 — start-anchored so the leftmost label reads rightward from the
+          left-aligned Design vertex and never clips past the content's left edge. */}
+      <text x={VERT.design.x} y={VERT.design.y + 24} textAnchor="start" className="fill-secondary text-[12px] font-semibold">
         Design
       </text>
       <text x={VERT.pm.x} y={VERT.pm.y + 24} textAnchor="middle" className="fill-secondary text-[12px] font-semibold">
