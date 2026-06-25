@@ -73,8 +73,8 @@ describe('spec-372 — step-1 reframe + prompts (ac-17, ac-18, ac-19)', () => {
     const h2 = screen.getByText('Build exactly what you decided');
     expect(h2.tagName).toBe('H2');
     expect(h2.textContent?.trim().endsWith('.')).toBe(false);
-    // The subtitle text is split by an inline <GlossaryTerm> around "Memex", so assert on
-    // the rendered text content rather than a single text node.
+    // spec-372 issue-5 — the "Memex" glossary tooltip was removed, so the subtitle is now
+    // plain text; assert on the rendered text content.
     expect(container.textContent).toContain(
       'Get the full magic of Memex by connecting to the MCP and using it in your coding agent',
     );
