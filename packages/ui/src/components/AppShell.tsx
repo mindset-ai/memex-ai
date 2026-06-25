@@ -5,6 +5,7 @@ import { useAuth } from './AuthContext';
 import { Logo } from './Logo';
 import { useTheme } from './ThemeContext';
 import { useDriftInboxCount } from '../hooks/useDriftInboxCount';
+import { useJourneyGraduated } from '../hooks/useJourneyGraduated';
 import { useMyIssuesCount } from '../hooks/useMyIssuesCount';
 import { useQaReportsUnreadCount } from '../hooks/useQaReports';
 import { useHiddenFeatures } from '../hooks/useIsFeatureHidden';
@@ -385,6 +386,7 @@ function NavItem({
   pathname,
   badge,
   flat,
+  showDot,
 }: {
   to: string;
   label: string;
@@ -395,6 +397,9 @@ function NavItem({
   badge?: number;
   /** spec-303 — flat (user-level) link: use `to` verbatim, no tenant expansion. */
   flat?: boolean;
+  /** spec-372 dec-8 — a subtle pulsing #0482DC dot nudging the user back to unfinished
+   *  onboarding. Static under prefers-reduced-motion (motion-safe variant). */
+  showDot?: boolean;
 }) {
   // t-23 of doc-15: NAV_LINKS hold the in-tenant path shape (e.g. "/specs").
   // resolveNavTo() expands this to /<ns>/<mx>/specs — falling back to the
@@ -427,6 +432,13 @@ function NavItem({
     >
       {icon}
       <span>{label}</span>
+      {showDot && (
+        <span
+          data-testid="home-comeback-dot"
+          aria-label="Unfinished onboarding"
+          className="ml-1.5 h-2 w-2 flex-none rounded-full bg-[#0482DC] motion-safe:animate-pulse"
+        />
+      )}
       {typeof badge === 'number' && badge > 0 && (
         <span
           className="ml-auto flex-none text-xs font-medium px-1.5 py-0.5 rounded-full bg-status-danger-bg text-status-danger-text border border-status-danger-border"
@@ -512,6 +524,12 @@ export function AppShell({ children }: { children: ReactNode }) {
   // Open standards drift count for the nav badge (b-63). Skipped on doc pages,
   // where the sidebar is hidden.
   const driftCount = useDriftInboxCount(!onDocPage);
+
+  // spec-372 dec-8 — the "come back to onboarding" nudge: a pulsing dot on the Home nav
+  // item, shown only while the onboarding journey is NOT graduated AND the user is off /home
+  // (null = not yet known → no dot, avoiding a flash). Hidden once graduated or on /home.
+  const journeyGraduated = useJourneyGraduated(!!user);
+  const showComeBackDot = journeyGraduated === false && location.pathname !== '/home';
   // spec-158: my open issues (Specs assigned to me) for the Issues nav badge.
   // spec-305: the issues-list endpoint is tenant-scoped (/api/:ns/:mx/issues-list),
   // so only fetch on a tenant page — otherwise the badge 404s on flat user-level
@@ -637,7 +655,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               Gated on the server-driven hide list (feature: 'home') so it can be
               hidden per-env (e.g. prod) while live on int — same mechanism as Pulse. */}
           {!isLinkHidden(HOME_NAV_LINK.feature) && (
-            <NavItem {...HOME_NAV_LINK} pathname={location.pathname} />
+            <NavItem {...HOME_NAV_LINK} pathname={location.pathname} showDot={showComeBackDot} />
           )}
 
           {/* spec-260 t-11: two labelled groups — PRINCIPLES (the working

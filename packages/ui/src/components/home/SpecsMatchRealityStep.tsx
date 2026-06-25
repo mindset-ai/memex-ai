@@ -13,7 +13,11 @@ import shotAcs from '../../assets/onboarding/specs-match-reality-2-acceptance-cr
 import shotTasks from '../../assets/onboarding/specs-match-reality-3-tasks-created.png';
 import shotTests from '../../assets/onboarding/specs-match-reality-4-unit-tests.png';
 
-const IMPROVE_PROMPT = `Using the Memex MCP, with access to my repo: Improve the spec, decisions and acceptance criteria against the reality of the codebase. Then break the work into tasks and add a unit test for each acceptance criterion.`;
+const IMPROVE_PROMPT = `Using the Memex MCP, with access to my repo:
+
+Improve the spec, decisions and acceptance criteria against the
+reality of the codebase. Then break the work into tasks and add a
+unit test for each acceptance criterion.`;
 
 const OUTCOMES: ReadonlyArray<{ img: string; title: string; desc: string }> = [
   { img: shotDecisions, title: 'Decisions improved against the codebase', desc: 'Each choice is re-checked against what the code already does.' },
@@ -76,8 +80,9 @@ export function SpecsMatchRealityStep({
 
   return (
     <div data-testid="journey-step-specs-match-reality" className="max-w-3xl animate-[panelIn_0.35s_ease]">
-      <h2 className="mb-4 text-5xl font-black leading-[1.04] tracking-tight text-heading">Specs that match reality.</h2>
-      <p className="mb-5 text-xl font-bold leading-snug text-primary">Refined against your actual codebase.</p>
+      <h2 className="onboarding-heading mb-4">Specs that match reality</h2>
+      {/* spec-372 t-13 — v3 sub-tagline weight is 600 (semibold), not bold. */}
+      <p className="mb-5 text-xl font-semibold leading-snug text-primary">Refined against your actual codebase</p>
       <p className="mb-6 max-w-2xl leading-relaxed text-secondary">
         With access to the repo, your agent grounds the whole plan in what&apos;s actually there: decisions and
         acceptance criteria are refined, the work is broken into tasks, and a unit test is written for each AC.
@@ -94,8 +99,10 @@ export function SpecsMatchRealityStep({
               <div className="text-base font-semibold text-heading">{o.title}</div>
               <div className="mt-1.5 max-w-xl text-sm leading-snug text-secondary">{o.desc}</div>
             </figcaption>
-            {/* Always-dark region — the assets are dark exports; do not theme this. */}
-            <div className="mt-3.5 w-full max-w-xl overflow-hidden rounded-xl border border-white/10 bg-slate-950 p-2">
+            {/* Always-dark region — the assets are dark exports; do not theme this.
+                spec-372 t-3 (change #4) — the shot fills the content column so it matches the
+                width of the prompt container above (v3 renders these full-width). */}
+            <div className="mt-3.5 w-full overflow-hidden rounded-xl border border-white/10 bg-slate-950 p-2">
               <img src={o.img} alt={o.title} loading="lazy" className="block w-full rounded-lg" />
             </div>
           </figure>
@@ -110,8 +117,10 @@ export function SpecsMatchRealityStep({
           </div>
         ) : (
           <div className="flex items-center gap-2.5 text-sm text-muted">
-            <span className="h-2.5 w-2.5 flex-none animate-pulse rounded-full bg-accent" />
-            Your agent is working the codebase…
+            {/* spec-372 dec-4 — honest waiting copy + a STATIC (non-pulsing) idle dot, so the
+                step never implies Memex is autonomously operating in the user's repo. */}
+            <span className="h-2.5 w-2.5 flex-none rounded-full bg-current opacity-50" />
+            Waiting for your agent to ground the plan in your codebase — this advances the moment it does.
           </div>
         )}
       </div>

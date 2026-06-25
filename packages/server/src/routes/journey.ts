@@ -56,22 +56,41 @@ journeyRouter.post("/journey-event", async (c) => {
     action?: unknown;
     step?: unknown;
     cta?: unknown;
+    persona?: unknown;
   };
   const action = body.action;
   const step = typeof body.step === "string" ? body.step : null;
 
-  if ((action !== "shown" && action !== "cta") || !step || !isValidStepId(step)) {
+  // spec-372 dec-6 — three measurement actions, all on the same authenticated ingress:
+  //   shown   → home_canvas.step_shown    (the funnel-spine, all 6 steps)
+  //   cta     → home_canvas.cta_clicked   (interaction discriminators)
+  //   persona → home_canvas.persona_selected (resolved persona label only, never coords)
+  if (
+    (action !== "shown" && action !== "cta" && action !== "persona") ||
+    !step ||
+    !isValidStepId(step)
+  ) {
     return c.json({ error: "Invalid journey event" }, 400);
   }
+
+  const name =
+    action === "shown"
+      ? "home_canvas.step_shown"
+      : action === "persona"
+        ? "home_canvas.persona_selected"
+        : "home_canvas.cta_clicked";
 
   await recordUsageEvent({
     memexId: null,
     actorUserId: user.id,
-    name: action === "shown" ? "home_canvas.step_shown" : "home_canvas.cta_clicked",
+    name,
     source: "frontend",
     props: {
       step,
-      ...(typeof body.cta === "string" ? { cta: body.cta } : {}),
+      ...(action === "cta" && typeof body.cta === "string" ? { cta: body.cta } : {}),
+      ...(action === "persona" && typeof body.persona === "string"
+        ? { persona: body.persona }
+        : {}),
     },
   });
 

@@ -5,7 +5,13 @@
 // step is attained (the server's all-milestones-met terminal rule).
 import { CodeBlock } from '../CodeBlock';
 
-const GO_BUILD_PROMPT = `Using the Memex MCP — the plan is complete: decisions resolved, acceptance criteria set, tasks queued and a test behind each one. Now build it. Work through the tasks in order: implement each one, run its tests, and report progress back to Memex as you go. Go build.`;
+const GO_BUILD_PROMPT = `Using the Memex MCP — the plan is complete: decisions resolved,
+acceptance criteria set, tasks queued and a test behind each one.
+
+Now build it. Work through the tasks in order: implement each one,
+run its tests, and report progress back to Memex as you go.
+
+Go build.`;
 
 export function AgentsBuildStep({
   onCtaClick,
@@ -14,11 +20,12 @@ export function AgentsBuildStep({
 } = {}) {
   return (
     <div data-testid="journey-step-agents-build" className="max-w-3xl animate-[panelIn_0.35s_ease]">
-      <h2 className="mb-5 text-6xl font-black leading-none tracking-tight text-heading">Agents build in lockstep.</h2>
+      <h2 className="onboarding-heading mb-5">Agents build in lockstep</h2>
       {/* Design copy reads "One coordinated team on your tasks." — reworded to avoid the
           reserved product noun "team" that std-1's UI copy sweep forbids (a metaphor here,
           not the workspace concept). Same meaning, no reserved noun. */}
-      <p className="mb-5 text-xl font-bold leading-snug text-primary">One coordinated effort across your tasks.</p>
+      {/* spec-372 t-13 — v3 sub-tagline weight is 600 (semibold), not bold. */}
+      <p className="mb-5 text-xl font-semibold leading-snug text-primary">One coordinated effort across your tasks.</p>
       <p className="mb-7 max-w-2xl leading-relaxed text-secondary">
         Your spec is complete — decisions resolved, acceptance criteria testable, tasks queued and tests in place. Hand
         it over and the plan executes, with every change checked back against what you intended.
