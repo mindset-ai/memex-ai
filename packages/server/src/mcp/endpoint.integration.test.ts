@@ -16,6 +16,12 @@ import {
 } from "../db/schema.js";
 import { mintMcpToken, revokeMcpToken } from "../services/mcp-tokens.js";
 
+// spec-31 ac-5 — "Existing mxt_ PAT users experience zero regression — the same
+// tools work with identical behaviour when accessed via Bearer mxt_ tokens."
+// These end-to-end calls drive real tools through /mcp with a real `Bearer mxt_`
+// PAT and assert they behave exactly as before the OAuth fork landed.
+const SPEC_31_AC_5 = "mindset-prod/memex-building-itself/specs/spec-31/acs/ac-5";
+
 // Force dev mode so sessionMiddleware (used by other routes the app mounts) doesn't
 // fail. /mcp itself doesn't depend on it.
 const originalClientId = process.env.GOOGLE_CLIENT_ID;
@@ -125,6 +131,7 @@ describe("/mcp endpoint", () => {
   });
 
   it("list_memexes returns the user's memberships", async () => {
+    tagAc(SPEC_31_AC_5); // mxt_ read path — no regression (spec-31)
     const { user, account } = await setup("listws");
     const { raw } = await mintMcpToken(user.id, "TestDevice");
 
@@ -142,6 +149,7 @@ describe("/mcp endpoint", () => {
   });
 
   it("create_doc resolves workspace from subdomain arg and creates the doc", async () => {
+    tagAc(SPEC_31_AC_5); // mxt_ write path — no regression (spec-31)
     const { user, account } = await setup("createdoc");
     const { raw } = await mintMcpToken(user.id, "TestDevice");
 
