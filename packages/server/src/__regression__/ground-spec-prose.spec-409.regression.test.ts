@@ -51,10 +51,10 @@ describe("spec-409 late-specify timing in the assembled Specify prompt (ac-5)", 
 });
 
 describe("spec-409 migration adds the grounding columns (ac-6)", () => {
-  it("0110 migration ALTERs documents with the four columns", () => {
+  it("0112 migration ALTERs documents with the four columns", () => {
     tagAc(AC(6));
     const sql = readFileSync(
-      resolve(SERVER_ROOT, "drizzle/0110_add_documents_code_grounding.sql"),
+      resolve(SERVER_ROOT, "drizzle/0112_add_documents_code_grounding.sql"),
       "utf8",
     );
     expect(sql).toMatch(/ALTER TABLE documents/i);
