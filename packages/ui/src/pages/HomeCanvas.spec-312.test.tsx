@@ -16,7 +16,7 @@
 //   ac-18 (impl)  — pearls derive from activity (state.steps); stable across remount.
 //   ac-19 (impl)  — collapse + re-open from the pearls; collapse never erases the row.
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { tagAc } from '@memex-ai-ac/vitest';
 
@@ -120,12 +120,12 @@ describe('spec-312 t-2: layered Home (dec-2)', () => {
     expect(await screen.findByTestId('journey-layer')).toBeInTheDocument();
     expect(screen.getByTestId('home-of-value')).toBeInTheDocument();
     unmount();
-    // graduated → the journey layer recedes (collapsed to pearls); home content prominent
+    // graduated → the journey layer remains visible (all ticks green); home content also present
     fetchJourneyStateApi.mockResolvedValue(stateFor('all-set', ALL_ATTAINED));
     renderCanvas();
     expect(await screen.findByTestId('home-of-value')).toBeInTheDocument();
     expect(screen.getByTestId('your-journeys')).toBeInTheDocument();
-    expect(screen.queryByTestId('journey-layer')).not.toBeInTheDocument();
+    expect(await screen.findByTestId('journey-layer')).toBeInTheDocument();
   });
 });
 
@@ -170,18 +170,11 @@ describe('spec-312 t-3: "Your Journeys" pearls (dec-4)', () => {
     expect(read()).toEqual(first);
   });
 
-  it('ac-19: graduation recedes the layer to the pearls; re-open from the pearls; the row is never erased', async () => {
+  it('ac-19: graduated → journey layer stays visible (all ticks green) alongside pearls; row never erased', async () => {
     tagAc(AC(19));
-    // spec-336 (2026-06-23) moved the CHEVRON to an in-place toggle; the recede-to-pearls
-    // is now triggered by graduation (the real signal), not the chevron — but the AC's
-    // intent (recede → pearls → re-open, never erased) is preserved and verified here.
     fetchJourneyStateApi.mockResolvedValue(stateFor('all-set', ALL_ATTAINED));
     renderCanvas();
-    // Graduated → the layer recedes; the pearls remain (escapable, never erasable).
-    expect(await screen.findByTestId('your-journeys')).toBeInTheDocument();
-    await waitFor(() => expect(screen.queryByTestId('journey-layer')).not.toBeInTheDocument());
-    // Re-open from the pearls.
-    fireEvent.click(screen.getByTestId('journey-pearls-onboarding'));
+    // Graduated → the layer remains (completed rail, no blank page); pearls are also present.
     expect(await screen.findByTestId('journey-layer')).toBeInTheDocument();
     expect(screen.getByTestId('your-journeys')).toBeInTheDocument();
   });
