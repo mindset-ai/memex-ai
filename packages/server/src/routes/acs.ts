@@ -42,6 +42,7 @@ import {
 import { type SessionEnv } from "../middleware/session.js";
 import type { MemexResolverEnv } from "../middleware/memex-resolver.js";
 import { requireMemexId, resolveReadableMemexId } from "./shared.js";
+import { restCtx } from "./_actor-ctx.js";
 import { mountStandardSessionPolicy } from "./session-policy.js";
 
 type Env = MemexResolverEnv & SessionEnv;
@@ -88,14 +89,14 @@ acsRouter.post("/:acId/acceptance", async (c) => {
   const acId = c.req.param("acId");
   const user = c.get("user");
   const actor = user?.name?.trim() || user?.email || "";
-  const result = await setAcAcceptance(memexId, acId, actor);
+  const result = await setAcAcceptance(memexId, acId, actor, restCtx(c));
   return c.json(result);
 });
 
 acsRouter.delete("/:acId/acceptance", async (c) => {
   const memexId = requireMemexId(c);
   const acId = c.req.param("acId");
-  const result = await clearAcAcceptance(memexId, acId);
+  const result = await clearAcAcceptance(memexId, acId, restCtx(c));
   return c.json(result);
 });
 

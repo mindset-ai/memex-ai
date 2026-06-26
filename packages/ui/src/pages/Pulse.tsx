@@ -282,10 +282,9 @@ export function Pulse() {
     setLiveRows([]);
   }, [scope, specId, clientId]);
 
-  // ── Working-now zone (ac-1): presence across every spec. The presence GET
-  // endpoint is per-spec, so we poll it for each spec handle and the hook merges
-  // the results into one "who's here now" set. We pass bare `spec-N` handles —
-  // the endpoint accepts either a full ref or a bare handle. ───────────────────
+  // ── Working-now zone (ac-1): presence across every spec. We pass every spec
+  // handle; usePresence makes ONE whole-workspace bulk request per poll (not one
+  // per spec) and returns the merged "who's here now" set (spec-407). ──────────
   const specRefs = useMemo(
     () => specDocs.map((d) => d.handle),
     [specDocs],

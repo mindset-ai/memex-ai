@@ -824,6 +824,13 @@ export const testEvents = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     acUid: text("ac_uid").notNull(),
+    // spec-398 dec-4 (ac-8): tenancy is a first-class column stamped at write,
+    // resolved from the emitting Memex [per std-32] — no longer parsed out of
+    // ac_uid at read time. The activity_view test_events arm filters this column
+    // instead of the namespaces→memexes join that was the spec-396 leak surface
+    // (migration 0109). The RLS POLICY itself is spec-399's [per std-36]; this
+    // Spec adds the column + backfill + index only (ac-9, no RLS here).
+    memexId: uuid("memex_id").notNull(),
     status: text("status").notNull(),
     testIdentifier: text("test_identifier"),
     durationMs: integer("duration_ms"),
@@ -858,6 +865,20 @@ export const testEvents = pgTable(
     // spec-352 (0105) — Home activity_view: the only prunable predicate on this
     // arm is the created_at window (the spec_ref join is a substring of ac_uid).
     index("test_events_created_at_idx").on(table.createdAt),
+    // spec-398 dec-1/dec-2 (ac-1, ac-2): the keep-last-10-per-(ac_uid,
+    // test_identifier) retention index — drives both the one-time rewrite-and-swap
+    // and the steady-state trim-on-write, and doubles as the per-test timeline read.
+    index("test_events_retention_idx").on(
+      table.acUid,
+      table.testIdentifier,
+      table.createdAt,
+    ),
+    // spec-398 dec-5 (ac-11): the activity_view per-Spec arm filters te.memex_id;
+    // this index turns that full Seq Scan into an index scan scoped to one tenant.
+    index("test_events_memex_id_created_at_idx").on(
+      table.memexId,
+      table.createdAt,
+    ),
     check(
       "test_events_status_valid",
       sql`${table.status} IN ('pass', 'fail', 'error')`,
@@ -895,6 +916,9 @@ export const testEventLatest = pgTable(
     latestStatus: text("latest_status").notNull(),
     latestRunAt: timestamp("latest_run_at", { withTimezone: true }).notNull(),
     runCount: integer("run_count").notNull().default(0),
+    // spec-398 dec-4 (ac-8): tenancy column mirroring test_events [per std-32],
+    // backfilled in the rewrite-and-swap migration. RLS is spec-399's (ac-9).
+    memexId: uuid("memex_id").notNull(),
   },
   (table) => [
     primaryKey({ columns: [table.acUid, table.testIdentifier] }),
@@ -904,6 +928,22 @@ export const testEventLatest = pgTable(
     ),
   ]
 );
+
+// ══════════════════════════════════════
+// AC first-verified (spec-398 t-6 / spec-125)
+// ══════════════════════════════════════
+//
+// Durable "when did this AC first go green" fact, keyed by ac_uid. The analytics
+// alignment-over-time curve (analytics.ts acsOverTime) needs the EARLIEST passing
+// emission per ac_uid — but spec-398's keep-last-10 retention deletes that oldest
+// row from test_events. This is the spec-125 operational/analytical tier split:
+// test_events is the bounded OPERATIONAL tier; this table is the durable analytical
+// snapshot retention never touches. Written by the emission path (recordFirstVerified,
+// LEAST-wins so the earliest survives out-of-order writes); backfilled in 0110.
+export const acFirstVerified = pgTable("ac_first_verified", {
+  acUid: text("ac_uid").primaryKey(),
+  firstVerifiedAt: timestamp("first_verified_at", { withTimezone: true }).notNull(),
+});
 
 // ══════════════════════════════════════
 // Conversations

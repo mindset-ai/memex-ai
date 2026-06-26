@@ -40,7 +40,8 @@ import {
 } from "../db/schema.js";
 import type { Issue, Task } from "../db/schema.js";
 import { NotFoundError, ValidationError } from "../types/errors.js";
-import { mutate, type Mutated } from "./mutate.js";
+import { mutate, type Mutated, type RequestCtx } from "./mutate.js";
+import { resolveActorColumns } from "./actor.js";
 import { nextSeq, withSeqRetry } from "./shared/sequence.js";
 import { embedAndStoreIssue } from "./memex-embeddings.js";
 import { buildAcRef } from "./acs.js";
@@ -347,6 +348,7 @@ export interface ConvertIssueToTaskResult {
 export async function convertIssueToTask(
   memexId: string,
   issueId: string,
+  ctx: RequestCtx = {},
 ): Promise<Mutated<ConvertIssueToTaskResult>> {
   const issue = await getIssue(memexId, issueId); // tenancy check (std-7)
 
@@ -369,8 +371,11 @@ export async function convertIssueToTask(
       ? `The bug from Issue issue-${issue.seq} ("${issue.title}") no longer reproduces.`
       : `The behaviour described by Issue issue-${issue.seq} ("${issue.title}") is delivered.`;
 
+  // Resolve WHO/HOW once (std-32) — stamped onto every row this conversion writes.
+  const actorCols = await resolveActorColumns(ctx);
+
   return mutate(
-    {},
+    ctx,
     [
       { memexId, docId: issue.docId, entity: "task", action: "created" },
       { memexId, docId: issue.docId, entity: "ac", action: "created" },
@@ -392,6 +397,7 @@ export async function convertIssueToTask(
             acceptanceCriteria: [],
             sectionRef: null,
             status: "not_started",
+            ...actorCols,
           })
           .returning();
 
@@ -406,6 +412,7 @@ export async function convertIssueToTask(
             kind: "implementation",
             statement: acStatement,
             status: "active",
+            ...actorCols,
           })
           .returning();
 
@@ -422,7 +429,7 @@ export async function convertIssueToTask(
         // 5. Issue → converted, recording the satisfying Task (ac-21).
         const [updatedIssue] = await tx
           .update(issues)
-          .set({ status: "converted", satisfyingTaskId: task.id, updatedAt: new Date() })
+          .set({ status: "converted", satisfyingTaskId: task.id, updatedAt: new Date(), ...actorCols })
           .where(and(eq(issues.id, issue.id), eq(issues.memexId, memexId)))
           .returning();
 

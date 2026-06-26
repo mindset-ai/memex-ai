@@ -23,6 +23,7 @@ import {
   isTerminal,
   runsPath,
   pollVerdict,
+  intCheckSha,
   runGate,
   // @ts-expect-error — plain .mjs at repo root, no .d.ts; imported for its runtime API.
 } from "../../../../scripts/ci/deploy-gate.mjs";
@@ -40,6 +41,31 @@ function fakeFetch(byKey: Record<string, unknown[]>) {
   return async ({ workflowFile, branch }: { workflowFile: string; branch: string }) =>
     byKey[`${workflowFile}@${branch}`] ?? [];
 }
+
+// A sha-AWARE fetchRuns double: keyed by `${workflowFile}@${branch}@${sha}`, so a run
+// can exist for one SHA but not another — the merge-commit-vs-develop-parent case.
+function fakeFetchBySha(byKey: Record<string, unknown[]>) {
+  return async ({
+    workflowFile,
+    branch,
+    sha,
+  }: {
+    workflowFile: string;
+    branch: string;
+    sha: string;
+  }) => byKey[`${workflowFile}@${branch}@${sha}`] ?? [];
+}
+
+// A commit-parents double: maps a SHA to its parents ([base(main), head(develop)] for
+// a GitHub merge commit). Unknown SHAs resolve to no parents.
+function fakeParents(map: Record<string, string[]>) {
+  return async ({ sha }: { sha: string }) => map[sha] ?? [];
+}
+
+// Stand-in parent SHAs for a release merge commit: [main-side base, develop-side head].
+// DEV_SHA is the develop tip that actually got the int deploy + smoke.
+const BASE_SHA = "ba5eba5eba5eba5eba5eba5eba5eba5eba5eba5e";
+const DEV_SHA = "deve10pdeve10pdeve10pdeve10pdeve10pdeve1";
 
 const fastDeps = (fr: ReturnType<typeof fakeFetch>) => ({
   fetchRuns: fr,
@@ -126,6 +152,16 @@ describe("spec-395 deploy gate — pure logic (classifyRuns / runsPath / pollVer
     expect(p).toContain("head_sha=abc123");
   });
 
+  it("ac-4: intCheckSha picks the develop-side parent (2nd parent) for a merge commit, else the commit itself", () => {
+    tagAc(AC4);
+    // A GitHub merge commit's parents are [base(main), head(develop)] — check the develop side.
+    expect(intCheckSha("mergesha", ["basesha", "devsha"])).toBe("devsha");
+    // No 2nd parent (non-merge / degenerate) → fall back to the commit itself.
+    expect(intCheckSha("solosha", ["basesha"])).toBe("solosha");
+    expect(intCheckSha("solosha", [])).toBe("solosha");
+    expect(intCheckSha("solosha", undefined)).toBe("solosha");
+  });
+
   it("ac-4: pollVerdict returns the last verdict on timeout (so a stuck 'absent'/'pending' fails closed)", async () => {
     tagAc(AC4);
     // Always absent → bounded poll returns 'absent' (the caller then fails closed).
@@ -196,7 +232,10 @@ describe("spec-395 deploy gate — runGate end-to-end (fail-closed semantics, de
     });
     const code = await runGate(
       { ...baseEnv, GITHUB_REF_NAME: "main", INT_SMOKE_ENFORCE: "warn" },
-      { fetchRunsImpl: fr },
+      {
+        fetchRunsImpl: fr,
+        fetchCommitParentsImpl: fakeParents({ [baseEnv.GITHUB_SHA]: [BASE_SHA, DEV_SHA] }),
+      },
     );
     expect(code).toBe(0); // WARN mode: reports, does not block prod.
   });
@@ -209,7 +248,10 @@ describe("spec-395 deploy gate — runGate end-to-end (fail-closed semantics, de
     });
     const code = await runGate(
       { ...baseEnv, GITHUB_REF_NAME: "main", INT_SMOKE_ENFORCE: "block" },
-      { fetchRunsImpl: fr },
+      {
+        fetchRunsImpl: fr,
+        fetchCommitParentsImpl: fakeParents({ [baseEnv.GITHUB_SHA]: [BASE_SHA, DEV_SHA] }),
+      },
     );
     expect(code).toBe(1);
   });
@@ -223,7 +265,101 @@ describe("spec-395 deploy gate — runGate end-to-end (fail-closed semantics, de
     });
     const code = await runGate(
       { ...baseEnv, GITHUB_REF_NAME: "main", INT_SMOKE_ENFORCE: "block" },
-      { fetchRunsImpl: fr },
+      {
+        fetchRunsImpl: fr,
+        fetchCommitParentsImpl: fakeParents({ [baseEnv.GITHUB_SHA]: [BASE_SHA, DEV_SHA] }),
+      },
+    );
+    expect(code).toBe(0);
+  });
+
+  it("ac-2/ac-5: PROD release MERGE COMMIT — the gate checks the develop-side PARENT's int deploy, not the merge commit (the 15-min-tax fix)", async () => {
+    tagAc(AC2);
+    tagAc(AC5);
+    // The merge commit landing on main never ran on develop → its OWN int deploy is
+    // absent; its 2nd parent (DEV_SHA) is the develop tip that DID get the int deploy.
+    const fr = fakeFetchBySha({
+      [`test.yml@main@${baseEnv.GITHUB_SHA}`]: [
+        { status: "completed", conclusion: "success", run_number: 9 },
+      ],
+      [`deploy.yml@develop@${DEV_SHA}`]: [
+        { status: "completed", conclusion: "success", run_number: 4 },
+      ],
+      // deploy.yml@develop@<merge commit> intentionally ABSENT.
+    });
+    // BLOCK mode makes the distinction load-bearing: checking the merge commit would
+    // see 'absent' → exit 1; resolving to the parent sees 'success' → exit 0 (no poll-to-timeout).
+    const code = await runGate(
+      { ...baseEnv, GITHUB_REF_NAME: "main", INT_SMOKE_ENFORCE: "block" },
+      {
+        fetchRunsImpl: fr,
+        fetchCommitParentsImpl: fakeParents({ [baseEnv.GITHUB_SHA]: [BASE_SHA, DEV_SHA] }),
+      },
+    );
+    expect(code).toBe(0);
+  });
+
+  it("ac-2/ac-5: PROD merge commit whose develop parent has NO int run (break-glass) ⇒ WARN does not block (exit 0)", async () => {
+    tagAc(AC2);
+    tagAc(AC5);
+    const fr = fakeFetchBySha({
+      [`test.yml@main@${baseEnv.GITHUB_SHA}`]: [
+        { status: "completed", conclusion: "success", run_number: 9 },
+      ],
+      // No int deploy run for the develop parent either (break-glass leaves no CI run).
+    });
+    const code = await runGate(
+      { ...baseEnv, GITHUB_REF_NAME: "main", INT_SMOKE_ENFORCE: "warn" },
+      {
+        fetchRunsImpl: fr,
+        fetchCommitParentsImpl: fakeParents({ [baseEnv.GITHUB_SHA]: [BASE_SHA, DEV_SHA] }),
+      },
+    );
+    expect(code).toBe(0);
+  });
+
+  it("ac-2/ac-5: a main commit with NO 2nd parent falls back to checking its own int deploy", async () => {
+    tagAc(AC2);
+    tagAc(AC5);
+    // Degenerate (non-merge) main commit: intCheckSha returns the commit itself, so
+    // the int check keys on baseEnv.GITHUB_SHA directly.
+    const fr = fakeFetchBySha({
+      [`test.yml@main@${baseEnv.GITHUB_SHA}`]: [
+        { status: "completed", conclusion: "success", run_number: 9 },
+      ],
+      [`deploy.yml@develop@${baseEnv.GITHUB_SHA}`]: [
+        { status: "completed", conclusion: "success", run_number: 4 },
+      ],
+    });
+    const code = await runGate(
+      { ...baseEnv, GITHUB_REF_NAME: "main", INT_SMOKE_ENFORCE: "block" },
+      {
+        fetchRunsImpl: fr,
+        fetchCommitParentsImpl: fakeParents({ [baseEnv.GITHUB_SHA]: [BASE_SHA] }), // single parent
+      },
+    );
+    expect(code).toBe(0);
+  });
+
+  it("ac-2/ac-5: when commit-parent resolution THROWS, the gate falls back to the commit (does not crash)", async () => {
+    tagAc(AC2);
+    tagAc(AC5);
+    const fr = fakeFetchBySha({
+      [`test.yml@main@${baseEnv.GITHUB_SHA}`]: [
+        { status: "completed", conclusion: "success", run_number: 9 },
+      ],
+      [`deploy.yml@develop@${baseEnv.GITHUB_SHA}`]: [
+        { status: "completed", conclusion: "success", run_number: 4 },
+      ],
+    });
+    const code = await runGate(
+      { ...baseEnv, GITHUB_REF_NAME: "main", INT_SMOKE_ENFORCE: "warn" },
+      {
+        fetchRunsImpl: fr,
+        fetchCommitParentsImpl: async () => {
+          throw new Error("boom");
+        },
+      },
     );
     expect(code).toBe(0);
   });

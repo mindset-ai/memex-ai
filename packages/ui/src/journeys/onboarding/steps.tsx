@@ -40,7 +40,7 @@ export const ONBOARDING_STEP_VIEWS: Record<string, JourneyStepView> = {
   'create-spec': {
     id: 'create-spec',
     mapLabel: 'Build exactly what you decided',
-    mapSubLabel: 'Turn intent into a living spec your agents follow',
+    mapSubLabel: 'Connect to MCP and create your first spec',
     headline: 'Build exactly what you decided.',
     primary: { label: 'Create your first spec', kind: 'action', target: 'create_spec' },
   },

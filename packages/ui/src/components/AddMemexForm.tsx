@@ -97,7 +97,10 @@ export function AddMemexForm({
         await createMemexApi(namespaceId, trimmed, undefined, token);
         if (onCreated) {
           onCreated(trimmed);
-        } else {
+        } else if (/^[a-z0-9-]+$/.test(trimmed)) {
+          // spec-403 dec-1: allowlist the slug right before navigating. Already
+          // server-validated (check.available); the explicit guard breaks the CodeQL
+          // js/xss-through-dom flow and proves a same-origin path (no scheme/colon).
           window.location.href = tenantPathFor(namespaceSlug, trimmed, '/specs');
         }
       } catch (err) {

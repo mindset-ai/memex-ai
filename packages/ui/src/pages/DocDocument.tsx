@@ -17,6 +17,7 @@ import type { Comment, DocWithGraph, Issue, SpecStatus, Tag } from '../api/types
 import { TagPicker } from '../components/TagPicker';
 import { CodeGroundedBadge } from '../components/CodeGroundedBadge';
 import { Spinner } from '../components/Spinner';
+import { StatsView } from '../components/insights/StatsView';
 import { DecisionPanel } from '../components/DecisionPanel';
 import { TaskPanel } from '../components/TaskPanel';
 import { IssuePanel } from '../components/IssuePanel';
@@ -862,6 +863,9 @@ export function DocDocument() {
     /* spec-282 dec-1: QA Report is present in every phase; before a report
        exists it renders an honest empty-state placeholder (ac-3). */
     { id: 'qa-report', label: 'QA Report', count: qaReports.length || undefined },
+    /* spec-406: per-spec Stats — phase-duration timeline, lifecycle charts, and a
+       who/what/when activity audit. Persistent across phases like the others. */
+    { id: 'stats', label: 'Stats' },
   ];
 
   // ── Reusable content fragments — each phase layout below composes these ─────
@@ -1076,6 +1080,8 @@ export function DocDocument() {
           emptyState="No QA report yet — generated when build hands off to verify"
         />
       )}
+      {/* spec-406: the per-spec Stats tab, keyed by the spec handle. */}
+      {effectiveSubTab === 'stats' && <StatsView specRef={doc.handle} />}
     </>
   );
 

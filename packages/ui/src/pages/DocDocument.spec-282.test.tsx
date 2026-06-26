@@ -6,7 +6,7 @@
 //
 //   ac-8 / ac-9 : one <Tabs> carrying the exact ordered inventory —
 //                 Narrative · Comments · Decisions & ACs · Agent Tasks & Issues ·
-//                 QA Report — in every phase.
+//                 QA Report · Stats — in every phase. (Stats appended by spec-406.)
 //   ac-1 / ac-2 : the same control persists across Specify/Build/Verify and the
 //                 set never shrinks (Narrative & Comments reachable in Build and
 //                 Verify).
@@ -139,7 +139,9 @@ function renderAt(status: DocWithGraph['status']) {
   );
 }
 
-const SUB_TABS = ['Narrative', 'Comments', 'Decisions & ACs', 'Agent Tasks & Issues', 'QA Report'];
+// spec-406 appended a 'Stats' sub-tab to the unified inventory (the per-spec
+// lifecycle/audit surface) — it accretes onto the end, after QA Report.
+const SUB_TABS = ['Narrative', 'Comments', 'Decisions & ACs', 'Agent Tasks & Issues', 'QA Report', 'Stats'];
 
 // The sub-tab bar is the Tabs underline row; anchor on the Narrative button and
 // read its sibling buttons in DOM order.
@@ -158,7 +160,7 @@ beforeEach(() => {
 });
 
 describe('spec-282 — unified sub-tab inventory & ordering (ac-8, ac-9)', () => {
-  it('renders exactly Narrative · Comments · Decisions & ACs · Agent Tasks & Issues · QA Report, in order', async () => {
+  it('renders exactly Narrative · Comments · Decisions & ACs · Agent Tasks & Issues · QA Report · Stats, in order', async () => {
     tagAc(AC(8));
     tagAc(AC(9));
     renderAt('specify');

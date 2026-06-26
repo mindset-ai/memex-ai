@@ -44,14 +44,24 @@ beforeEach(() => {
 // spec-336: v2 step 0 — greeting from SSO (no name field), the role triangle beside a
 // live persona title + description, and Continue. No Skip button.
 const AC336 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-336/acs/ac-${n}`;
+const AC372 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-372/acs/ac-${n}`;
 
 describe('IdentityStep (v2)', () => {
+  it('spec-372 ac-29: the persona panel has the "So you’re a…" eyebrow and a semibold (not black) role title', () => {
+    tagAc(AC372(29));
+    render(<IdentityStep />);
+    expect(screen.getByText("So you're a…")).toBeInTheDocument();
+    const label = screen.getByTestId('persona-label');
+    expect(label.className).toContain('font-semibold');
+    expect(label.className).not.toContain('font-black');
+  });
+
   it('greets by SSO first name and shows the triangle + live persona (no name field)', () => {
     tagAc(AC(2));
     tagAc(AC336(2));
     render(<IdentityStep />);
     expect(screen.getByTestId('journey-step-identity')).toBeInTheDocument();
-    expect(screen.getByText('Hi John, welcome to Memex.')).toBeInTheDocument();
+    expect(screen.getByText('Hi John, welcome to Memex AI.')).toBeInTheDocument();
     expect(screen.getByTestId('role-triangle')).toBeInTheDocument();
     expect(screen.getByTestId('persona-label')).toBeInTheDocument();
     expect(screen.getByTestId('persona-description')).toBeInTheDocument();
@@ -90,12 +100,63 @@ describe('IdentityStep (v2)', () => {
     const [, name] = updateProfileApi.mock.calls[0];
     expect(name).toBe('Jane Roe');
   });
+
+  it('spec-372 issue-4: the name field shows a confirm tick only after typing, and the tick submits', async () => {
+    tagAc(AC372(32));
+    authUser.value = { id: 'u-2', name: '', email: 'jane@example.com' };
+    render(<IdentityStep />);
+    // Hidden while the field is empty.
+    expect(screen.queryByTestId('identity-name-confirm')).toBeNull();
+    // Appears once at least one character is typed.
+    fireEvent.change(screen.getByTestId('identity-name'), { target: { value: 'Jane' } });
+    const confirm = screen.getByTestId('identity-name-confirm');
+    expect(confirm).toBeInTheDocument();
+    // Clicking it submits like Continue (persists the typed name).
+    fireEvent.click(confirm);
+    await waitFor(() => expect(updateProfileApi).toHaveBeenCalledTimes(1));
+    expect(updateProfileApi.mock.calls[0][1]).toBe('Jane');
+  });
+
+  it('spec-372 issue-3: the step-0 intro copy renders at 16px (text-base)', () => {
+    tagAc(AC372(31));
+    render(<IdentityStep />);
+    const intro = screen.getByText(/Let.s tailor Memex to how you actually work/);
+    expect(intro.className).toContain('text-base');
+    expect(intro.className).not.toContain('text-lg');
+  });
+});
+
+// spec-372 issue-2 — guard the two layout fixes so a future change can't silently
+// reintroduce the triangle "jump" or un-align its left point:
+//  • the two-column row top-aligns (items-start), so the fixed-size triangle is NOT
+//    re-centred when the variable-height persona panel reflows as the dot moves;
+//  • the triangle SVG left-aligns its left (Design) vertex to the content's left edge —
+//    no mx-auto, viewBox origin at 0 (Design vertex at x=0), overflow-visible so the
+//    vertex marker isn't clipped.
+describe('IdentityStep — issue-2 layout (no jump; left-aligned triangle)', () => {
+  it('the triangle/persona row top-aligns (items-start, never items-center)', () => {
+    tagAc(AC372(30));
+    const { container } = render(<IdentityStep />);
+    const row = container.querySelector('div.flex.flex-wrap');
+    expect(row).not.toBeNull();
+    expect(row!.className).toContain('items-start');
+    expect(row!.className).not.toContain('items-center');
+  });
+
+  it('the triangle SVG is left-aligned: no mx-auto, viewBox origin 0, overflow-visible', () => {
+    tagAc(AC372(30));
+    render(<IdentityStep />);
+    const svg = screen.getByTestId('role-triangle');
+    expect(svg.getAttribute('viewBox')).toBe('0 0 240 226'); // Design vertex at x=0
+    expect(svg.getAttribute('class')).toContain('overflow-visible');
+    expect(svg.getAttribute('class')).not.toContain('mx-auto');
+  });
 });
 
 describe('personaLabel (compass-rose, dec-6)', () => {
   it('the centered default reads as a generalist', () => {
     tagAc(AC(5));
-    expect(personaLabel(CENTERED_ROLE)).toBe('Full-stack generalist');
+    expect(personaLabel(CENTERED_ROLE)).toBe('Full stack generalist'); // spec-372 t-12: v3 drops the hyphen
   });
   it('changes in distinct bands toward a tip (lean → strong → all-in)', () => {
     // Near-tip granularity is the point — three different labels along the dev edge.

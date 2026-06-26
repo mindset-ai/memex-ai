@@ -51,6 +51,10 @@ import { Hono } from "hono";
 import { db } from "../db/connection.js";
 import { testEvents } from "../db/schema.js";
 import { applyEmissionToSummary } from "../services/test-event-latest.js";
+import {
+  trimTestEventsForPair,
+  recordFirstVerified,
+} from "../services/test-event-retention.js";
 import { maybeAutoResolveIssuesForAcUid } from "../services/issues.js";
 import {
   verifyEmissionKey,
@@ -174,13 +178,19 @@ testEventsRouter.post("/", async (c) => {
     : "";
   const emissionKey = rawKey ? await verifyEmissionKey(rawKey) : null;
   if (!emissionKey) {
+    // spec-333 ac-6: verifyEmissionKey returns null for a missing, invalid, OR expired key
+    // alike. Give ONE remedy that fits all three (no expiry oracle, per spec-333's Architecture
+    // & Security section): a coding agent re-provisions over MCP; CI uses a human-minted key.
     return c.json(
       {
         error: "unauthorized",
         message:
-          "A valid emission key is required. Generate one in Memex settings " +
-          "(Emission Keys) and set it as MEMEX_EMIT_KEY in your test environment; " +
-          "the helper attaches it as `Authorization: Bearer <key>`.",
+          "A valid emission key is required (it may be missing, invalid, or expired). " +
+          "If you are a coding agent, call the `provision_ac_emission` MCP tool with the " +
+          "Spec you're working on to mint a fresh key, set it as MEMEX_EMIT_KEY in your " +
+          "test environment, and re-run. For CI, a human mints a long-lived key in Memex " +
+          "settings (Emission Keys) and stores it as the MEMEX_EMIT_KEY secret; the helper " +
+          "attaches it as `Authorization: Bearer <key>`.",
       },
       401,
     );
@@ -268,12 +278,19 @@ testEventsRouter.post("/", async (c) => {
     emissionKey.scopedSpecHandle &&
     emissionKey.scopedSpecHandle !== specHandleFromAcUid(body.ac_uid)
   ) {
+    // spec-333 ac-7: name BOTH the key's scoped Spec and the target Spec, and hand a coding
+    // agent the exact provision_ac_emission call to get a key for the Spec it's actually
+    // emitting for. The route already holds both handles, so the breadcrumb is precise.
+    const targetSpecHandle = specHandleFromAcUid(body.ac_uid);
+    const targetSpecRef = `${refNamespace}/${memexSlugFromAcUid(body.ac_uid)}/specs/${targetSpecHandle}`;
     return c.json(
       {
         error: "unauthorized",
         message:
-          "This emission key is scoped to a single Spec and does not authorise the " +
-          "Spec named in ac_uid.",
+          `This emission key is scoped to Spec ${emissionKey.scopedSpecHandle} and cannot ` +
+          `emit for Spec ${targetSpecHandle}. If you are a coding agent, call the ` +
+          `\`provision_ac_emission\` MCP tool with ref ${targetSpecRef} to mint a key for ` +
+          `that Spec, set it as MEMEX_EMIT_KEY, and re-run.`,
       },
       401,
     );
@@ -298,6 +315,9 @@ testEventsRouter.post("/", async (c) => {
   // `typeof body.ac_uid === "string"` narrowing across that function boundary.
   const insertValues = {
     acUid: body.ac_uid,
+    // spec-398 dec-4 (ac-8): stamp tenancy at write from the Memex the emission
+    // key already resolved + authorised above — no read-time ac_uid parsing.
+    memexId: targetMemexId,
     status: body.status,
     testIdentifier: (body.test_identifier as string | undefined) ?? null,
     durationMs: (body.duration_ms as number | undefined) ?? null,
@@ -351,11 +371,25 @@ testEventsRouter.post("/", async (c) => {
           .returning({ id: testEvents.id, createdAt: testEvents.createdAt });
         await applyEmissionToSummary(tx, {
           acUid: insertValues.acUid,
+          memexId: targetMemexId,
           testIdentifier: insertValues.testIdentifier,
           status: insertValues.status as "pass" | "fail" | "error",
           latestRunAt: inserted.createdAt,
           hidden: insertValues.hidden,
         });
+        // spec-398 (ac-1): keep this pair bounded to the latest RETENTION_KEEP
+        // runs — the steady-state trim-on-write, in the same transaction as the
+        // insert so the log never transiently exceeds the cap.
+        await trimTestEventsForPair(
+          tx,
+          insertValues.acUid,
+          insertValues.testIdentifier,
+        );
+        // spec-398 t-6: durably snapshot the earliest pass BEFORE retention can
+        // trim it away, so analytics keeps a true "first went green" date.
+        if (insertValues.status === "pass" && !insertValues.hidden) {
+          await recordFirstVerified(tx, insertValues.acUid, inserted.createdAt);
+        }
         return inserted;
       });
     },

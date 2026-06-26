@@ -6,7 +6,7 @@
 import { useCallback, useState } from 'react';
 import { useAuth } from '../AuthContext';
 import { updateProfileApi } from '../../api/client';
-import { RoleTriangle, CENTERED_ROLE, personaLabel, personaDescription, type RoleCoords } from './RoleTriangle';
+import { RoleTriangle, CENTERED_ROLE, personaLabel, personaDescription, personaPromise, type RoleCoords } from './RoleTriangle';
 
 function firstName(name: string | null | undefined): string | null {
   if (!name) return null;
@@ -18,10 +18,13 @@ export function IdentityStep({
   preview = false,
   onComplete,
   onCtaClick,
+  onPersonaSelected,
 }: {
   preview?: boolean;
   onComplete?: () => void;
   onCtaClick?: (target: string) => void;
+  // spec-372 dec-6 Layer C — emit home_canvas.persona_selected with the RESOLVED label.
+  onPersonaSelected?: (persona: string) => void;
 } = {}) {
   const { token, user, updateSession } = useAuth();
   const [role, setRole] = useState<RoleCoords>(CENTERED_ROLE);
@@ -48,6 +51,8 @@ export function IdentityStep({
       try {
         const session = await updateProfileApi(token, finalName, coords);
         updateSession(session); // clears needsOnboarding
+        // spec-372 dec-6 — the persona is confirmed; record the resolved label (never coords).
+        onPersonaSelected?.(personaLabel(coords));
         onComplete?.(); // refetch journey-state so the canvas advances past identity
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.');
@@ -60,51 +65,84 @@ export function IdentityStep({
 
   return (
     <div data-testid="journey-step-identity" className="animate-[fadeIn_0.4s_ease]">
-      <p className="mb-2.5 text-base font-semibold text-muted">
-        {greeting ? `Hi ${greeting}, welcome to Memex.` : 'Welcome to Memex.'}
+      {/* spec-372 t-13 — v3 greeting is medium weight with a wider gap to the heading. */}
+      <p className="mb-6 text-base font-medium text-muted">
+        {greeting ? `Hi ${greeting}, welcome to Memex AI.` : 'Welcome to Memex AI.'}
       </p>
-      <h2 className="mb-3.5 text-4xl font-black leading-[1.1] tracking-tight text-heading">
-        Built around how you work.
+      <h2 className="onboarding-heading mb-3.5">
+        Built around how you work
       </h2>
-      <p className="mb-1.5 max-w-3xl text-lg leading-relaxed text-secondary">
-        A quick read on you and your stack — we&apos;ll tailor the next few steps to exactly what you need.
-      </p>
-      <p className="mb-1.5 max-w-3xl leading-relaxed text-secondary">
-        {greeting ? `Now, ${greeting}, nobody's just one thing anymore` : "Nobody's just one thing anymore"}: not just a
-        developer, not just a designer, not just a PM.
-      </p>
-      <p className="mb-6 mt-4 max-w-3xl leading-relaxed text-muted">
-        Drag the dot to where you fit. Most people land somewhere in between.
-      </p>
 
+      {/* spec-372 issue-4 — for nameless (native-auth) users the name field sits directly
+          below the heading, above the intro copy. The ✓ confirm button appears only once a
+          name has been typed (hidden while empty) and submits the step like Continue. */}
       {needsName && (
         <div className="mb-6 max-w-sm">
           <label htmlFor="identity-name" className="mb-1.5 block text-sm font-semibold text-secondary">
             Your name
           </label>
-          <input
-            id="identity-name"
-            data-testid="identity-name"
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="How should we address you?"
-            className="w-full rounded-xl border border-edge bg-surface px-4 py-3 text-base text-primary outline-hidden transition focus:border-accent"
-          />
+          <div className="relative">
+            <input
+              id="identity-name"
+              data-testid="identity-name"
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && name.trim()) submit(role);
+              }}
+              placeholder="How should we address you?"
+              className="w-full rounded-xl border border-edge bg-surface py-3 pl-4 pr-14 text-base text-primary outline-hidden transition focus:border-accent"
+            />
+            {name.trim() && (
+              <button
+                type="button"
+                data-testid="identity-name-confirm"
+                aria-label="Confirm your name"
+                onClick={() => submit(role)}
+                className="absolute right-2 top-1/2 inline-flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-lg bg-accent text-on-accent transition hover:bg-accent-hover"
+              >
+                <span aria-hidden>✓</span>
+              </button>
+            )}
+          </div>
         </div>
       )}
 
-      <div className="flex flex-wrap items-center gap-x-12 gap-y-6">
+      {/* spec-372 issue-4 — the two intro lines merged into one 16px paragraph. */}
+      <p className="mb-6 max-w-3xl text-base leading-relaxed text-secondary">
+        Let&apos;s tailor Memex to how you actually work. Most people building modern products do more than one job, so
+        where do you spend most of your time?
+      </p>
+
+      {/* spec-372 issue-2 — top-align the columns (NOT items-center). The persona panel's
+          height changes with the persona copy as the dot moves; centring re-positioned the
+          fixed-size triangle on every drag, making it jump. items-start anchors the triangle
+          to the top so the panel grows/shrinks downward only. */}
+      <div className="flex flex-wrap items-start gap-x-12 gap-y-6">
         <div className="w-full max-w-md flex-none">
           <RoleTriangle value={role} onChange={setRole} />
         </div>
         <div className="min-w-[16rem] flex-1">
-          <div data-testid="persona-label" className="text-3xl font-black tracking-tight text-heading">
+          {/* spec-372 t-12 — v3 "So you're a…" eyebrow + the semibold role title (was font-black). */}
+          <div className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-muted">So you&apos;re a…</div>
+          <div
+            data-testid="persona-label"
+            className="text-[23px] font-semibold leading-tight tracking-[-0.01em] text-heading"
+          >
             {personaLabel(role)}
           </div>
           <p data-testid="persona-description" className="mt-2.5 max-w-md text-lg leading-relaxed text-secondary">
             {personaDescription(role)}
           </p>
+
+          {/* spec-372 t-5 (change #10) — the persona-keyed "With Memex we promise" card,
+              copy verbatim from v3, switching live with the dominant vertex. */}
+          <div data-testid="persona-promise" className="mt-6 max-w-md rounded-2xl bg-surface/60 p-5">
+            <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted">With Memex we promise</div>
+            <p className="mb-2 text-base font-bold leading-snug text-heading">{personaPromise(role).head}</p>
+            <p className="text-sm leading-relaxed text-secondary">{personaPromise(role).detail}</p>
+          </div>
 
           {error && (
             <div
