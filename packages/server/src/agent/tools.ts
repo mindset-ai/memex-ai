@@ -475,6 +475,13 @@ const STANDARDS_SERVER_TOOLS = new Set<string>([
   "search_memex",
   "get_doc",
   "list_comments",
+  // spec-416 dec-1: the dedicated standard-creation verb. Adding it here (and
+  // ONLY here) lets the standards agent author a brand-new standard from
+  // scratch. Because the tool carries no `docType` parameter, the standards
+  // agent stays structurally unable to mint Specs / documents / execution-plans
+  // — the spec-389 scope boundary holds by construction. create_doc is
+  // deliberately NOT in this set.
+  "create_standard",
   "add_section",
   "retitle_section",
   "update_section",

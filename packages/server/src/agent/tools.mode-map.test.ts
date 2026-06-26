@@ -28,6 +28,18 @@ const AC_MODE_MAP =
 const AC_GATE =
   "mindset-prod/memex-building-itself/specs/spec-389/acs/ac-10";
 
+// spec-416 ac-5 (implementation, dec-1): the dedicated `create_standard` tool is
+// in the standards mode's subset, and the standards agent still CANNOT reach
+// create_doc / create_task / resolve_decision / register_issue — so it can
+// create standards but is structurally unable to mint Specs/docs/issues/tasks.
+const AC_CREATE_STANDARD =
+  "mindset-prod/memex-building-itself/specs/spec-416/acs/ac-5";
+// spec-416 ac-3 (scope): the scope boundary holds — granting standard-creation
+// does NOT let the standards agent create Specs/documents/execution-plans/Issues/
+// tasks. The mode-map inclusion/exclusion assertion IS that outcome.
+const AC_SCOPE_BOUNDARY =
+  "mindset-prod/memex-building-itself/specs/spec-416/acs/ac-3";
+
 // The read/grounding base every scoped mode shares.
 const READ_BASE = ["search_memex", "get_doc"];
 
@@ -51,6 +63,10 @@ const EXPECTED: Record<Exclude<AgentMode, "spec">, string[]> = {
     "search_memex",
     "get_doc",
     "list_comments",
+    // spec-416 dec-1: the dedicated standard-creation verb (no docType param) —
+    // lets the standards agent author a brand-new standard from scratch while
+    // remaining structurally unable to mint any other doc type.
+    "create_standard",
     "add_section",
     "retitle_section",
     "update_section",
@@ -109,6 +125,27 @@ describe("getToolDefinitions — each scoped mode exposes exactly its subset (ac
     expect(names).not.toContain("create_task");
     expect(names).not.toContain("resolve_decision");
     expect(names).not.toContain("register_issue");
+  });
+
+  it("spec-416 ac-5: standards mode INCLUDES create_standard but still EXCLUDES create_doc/create_task/resolve_decision/register_issue", () => {
+    tagAc(AC_CREATE_STANDARD);
+    // The same inclusion/exclusion IS the scope-boundary outcome (ac-3): the
+    // agent gains standard-creation and nothing else new.
+    tagAc(AC_SCOPE_BOUNDARY);
+    const names = getToolDefinitions({ mode: "standards" }).map((t) => t.name);
+    // The dedicated creation verb is present — the agent can author a new
+    // standard from scratch.
+    expect(names).toContain("create_standard");
+    // The free-string-docType create verb stays OUT — the spec-389 scope wall
+    // holds by construction: no docType param means no Spec/document/execution-plan.
+    expect(names).not.toContain("create_doc");
+    // And it gains none of the other broad mutation surfaces.
+    expect(names).not.toContain("create_task");
+    expect(names).not.toContain("resolve_decision");
+    expect(names).not.toContain("register_issue");
+    // The /tools/execute gate agrees: create_standard permitted, create_doc not.
+    expect(isToolAllowedInMode("standards", "create_standard")).toBe(true);
+    expect(isToolAllowedInMode("standards", "create_doc")).toBe(false);
   });
 
   it("the issues agent can manage Issues but cannot author Standards or Spec body", () => {

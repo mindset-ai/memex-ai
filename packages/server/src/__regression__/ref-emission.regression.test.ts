@@ -401,6 +401,19 @@ describe("regression: every entity-acting MCP tool emits `ref:` and no raw UUID 
         },
       ],
       [
+        // spec-416: the dedicated standard-creation verb (no docType). Like
+        // create_doc it mints a doc and emits its canonical `ref:` (a std-N
+        // standard ref), never a raw UUID.
+        "create_standard",
+        {
+          input: () => ({
+            memex: `${slugs.namespace}/${slugs.memex}`,
+            title: "RefEmit Standard (create_standard probe)",
+            purpose: "Rule: probe body for the create_standard ref-emission case.",
+          }),
+        },
+      ],
+      [
         "update_doc",
         {
           input: () => ({

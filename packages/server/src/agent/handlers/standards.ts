@@ -8,6 +8,7 @@ import {
 } from "zod";
 import {
   buildChildRef,
+  buildDocRef,
   memexSlugsById,
 } from "../../mcp/refs.js";
 import {
@@ -15,13 +16,80 @@ import {
   proposeStandardChange,
 } from "../../services/standards.js";
 import {
+  createDocDraft,
+} from "../../services/documents.js";
+import {
+  ValidationError,
+} from "../../types/errors.js";
+import {
+  MEMEX_DESC,
   VERBOSE_FIELD,
   buildStandardCommentRef,
+  fullDocState,
+  formatState,
+  reqCtx,
   resolveStandardSectionRef,
   type ToolSpec,
 } from "./shared.js";
 
 export const standardsTools: ToolSpec[] = [
+  {
+    // spec-416 dec-1: the standards agent's DEDICATED standard-creation verb.
+    // Deliberately has NO `docType` parameter — unlike create_doc (whose
+    // free-string docType could mint a Spec / document / execution_plan), this
+    // tool can only ever produce a STANDARD. That makes the spec-389 scope wall
+    // (standards agent = author rules, never mint Specs/Issues/docs) hold BY
+    // CONSTRUCTION, not by a guard that could regress. It is wired only into the
+    // standards mode's allow-set (STANDARDS_SERVER_TOOLS) and is agent-only
+    // (AGENT_ONLY_SERVER_TOOLS) — never registered on MCP, like
+    // propose_scaffold_change. Creation routes through the agent's
+    // render_confirmation gate (dec-2): the agent proposes, the user confirms,
+    // THEN this handler fires. The handler delegates to the same createDocDraft
+    // path create_doc uses with docType:'standard' — no duplicated logic.
+    name: "create_standard",
+    annotations: { title: "Create standard", readOnlyHint: false, destructiveHint: false },
+    description:
+      "Create a brand-new Standard (a durable team rule) from scratch. Pass `title` and `purpose` (the opening Rule narrative); flesh out the rest as clauses with `add_clause` / sections with `add_section` afterward. This is the ONLY way the standards agent mints a new doc — it can create Standards and nothing else (no Specs, free-form documents, execution-plans, or Issues). " +
+      "Propose the creation through `render_confirmation` FIRST, showing the title + opening rule; never create until the user confirms. " +
+      "**Run `search_memex({ query, kind: 'standard' })` first** to check an existing Standard doesn't already cover this — duplicate standards confuse the agent loop; surface any overlap in the confirmation before creating.",
+    schema: {
+      memex: z.string().optional().describe(MEMEX_DESC),
+      title: z.string().describe("Standard title (1–500 chars) — the rule's headline."),
+      purpose: z
+        .string()
+        .describe("The opening Rule narrative for the standard's Overview — what the rule is, in plain terms."),
+      verbose: VERBOSE_FIELD,
+    },
+    async handler(input, ctx) {
+      const args = input as { memex?: string; title: string; purpose?: string };
+      const memexId = await ctx.resolveMemex(args.memex);
+      if (!args.purpose) {
+        throw new ValidationError("create_standard requires `purpose` (the opening Rule narrative).");
+      }
+      // Delegate to the SAME create path create_doc uses with docType:'standard'
+      // (services/documents.ts: createDocDraft mints a std-N handle for standards).
+      // No docType is accepted from the caller — it is pinned to 'standard' here,
+      // which is what makes the scope boundary structural.
+      const doc = await createDocDraft(
+        memexId,
+        args.title,
+        args.purpose,
+        "standard",
+        undefined,
+        undefined,
+        ctx.userId,
+        reqCtx(ctx),
+      );
+      if (ctx.verbose) {
+        const state = await fullDocState(memexId, doc.id);
+        const url = await ctx.workspaceUrl(memexId);
+        return await formatState(url, state, ctx);
+      }
+      const slugs = await memexSlugsById(memexId);
+      const docRef = slugs ? buildDocRef(slugs, doc) : doc.handle;
+      return `Standard created: ref: ${docRef} "${doc.title}".`;
+    },
+  },
   {
     name: "flag_drift",
     annotations: { title: "Flag Standard drift", readOnlyHint: false, destructiveHint: false },
