@@ -4,6 +4,11 @@ import { Group, Panel, Separator } from 'react-resizable-panels';
 import { ChatPanel } from './ChatPanel';
 import { ChatCollapseProvider } from './chat/ChatCollapseContext';
 import { CollapsedChatStrip } from './chat/CollapsedChatStrip';
+// spec-415 (dec-1): the drift panel honours the SAME pixel floor as the rails
+// (standards/issues/scaffold) instead of a viewport percentage, so it can't shrink
+// below the shared minimum on laptop/tablet widths. react-resizable-panels v4
+// accepts a "<n>px" minSize. defaultSize/maxSize stay percentages — shared MINIMUM only.
+import { CHAT_MIN_W } from './chat/chatPanelWidth';
 import { useChat } from './ChatContext';
 import { useAuth } from './AuthContext';
 import { useMemexAccess } from '../hooks/useMemexAccess';
@@ -79,7 +84,7 @@ export function DocumentShell({ children }: { children: ReactNode }) {
     // Group id, so default-size changes only reach users on a fresh id —
     // v10 ships the slimmer 24% chat default (was 32%).
     <Group id="memex-shell-v10" orientation="horizontal" className="h-full">
-      <Panel id="chat" defaultSize="24%" minSize="16%" maxSize="45%">
+      <Panel id="chat" defaultSize="24%" minSize={`${CHAT_MIN_W}px`} maxSize="45%">
         <aside className="h-full relative">
           <div className="absolute inset-0">
             <ChatCollapseProvider onCollapse={() => setCollapsedPersist(true)}>

@@ -90,8 +90,6 @@ vi.mock('../api/client', () => ({
   fetchIssues: () => Promise.resolve([]),
   fetchDocAssignees: () => Promise.resolve([]),
   archiveDoc: vi.fn(),
-  pauseDoc: vi.fn(),
-  unpauseDoc: vi.fn(),
   updateDocStatus: (...a: unknown[]) => updateDocStatus(...a),
   // The header posture pill's switch path (unused in these directive tests,
   // but useSwitchPosture imports both).

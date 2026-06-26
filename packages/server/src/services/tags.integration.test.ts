@@ -21,6 +21,7 @@ import {
   setTagOnDoc,
   removeTagFromDoc,
   listDocTags,
+  listMemexTags,
   applyTagString,
 } from "./tags.js";
 import type { RequestCtx } from "./mutate.js";
@@ -184,6 +185,30 @@ describe("tags service [spec-136 t-2]", () => {
       .where(and(eq(documentTags.docId, docId), eq(documentTags.tagId, tag.id)));
     expect(link.length).toBe(1);
     expect(link[0].addedBy).toBe(author.id);
+  });
+
+  // ── spec-420: case-insensitive scope collision detection ──────────────────
+  it("ac-2 (spec-420): getOrCreateTag reuses existing tag when scope matches case-insensitively", async () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-420/acs/ac-2");
+    const existing = await getOrCreateTag(ctx, memexId, "DEPLOY", "26-July-A");
+    const reused = await getOrCreateTag(ctx, memexId, "Deploy", "26-July-A");
+    expect(reused.id).toBe(existing.id);
+    expect(reused.scope).toBe("DEPLOY"); // original casing preserved
+  });
+
+  it("ac-3 (spec-420): pre-existing tags with different scope casing are both returned by listMemexTags", async () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-420/acs/ac-3");
+    // Simulate legacy data: insert two rows with different scope casing directly,
+    // bypassing getOrCreateTag to represent data that existed before the fix.
+    const [tag1] = await db.insert(tags).values({ memexId, scope: "LEGACY", value: "ci-test" }).returning();
+    const [tag2] = await db.insert(tags).values({ memexId, scope: "legacy", value: "ci-test" }).returning();
+
+    const all = await listMemexTags(memexId);
+    const legacyTags = all.filter((t) => t.value === "ci-test");
+    expect(legacyTags.length).toBe(2);
+
+    await db.delete(tags).where(eq(tags.id, tag1.id));
+    await db.delete(tags).where(eq(tags.id, tag2.id));
   });
 
   it("applyTagString rejects a Spec that isn't in this Memex (same-tenant invariant)", async () => {

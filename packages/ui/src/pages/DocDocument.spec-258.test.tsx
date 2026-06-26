@@ -97,8 +97,6 @@ vi.mock('../api/client', () => ({
   fetchIssues: () => Promise.resolve([]),
   fetchDocAssignees: () => Promise.resolve([]),
   archiveDoc: vi.fn(),
-  pauseDoc: vi.fn(),
-  unpauseDoc: vi.fn(),
   updateDocStatus: (...a: unknown[]) => updateDocStatus(...a),
   promoteToEditor: (...a: unknown[]) => promoteToEditor(...a),
   demoteToReviewer: (...a: unknown[]) => demoteToReviewer(...a),

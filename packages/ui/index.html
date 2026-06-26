@@ -6,7 +6,12 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>Memex.AI</title>
   </head>
-  <body class="bg-slate-900 text-slate-100">
+  <!-- Token utilities (NOT hardcoded slate-*): html starts `.dark`, so this is a
+       dark pre-hydration splash, but `bg-page`/`text-primary` follow the theme once
+       React swaps html to `.light`. Hardcoded `bg-slate-900 text-slate-100` here used
+       to win over the theme rules (utilities layer beats base) and leaked a near-white
+       default text colour app-wide — invisible on light surfaces (spec-290). -->
+  <body class="bg-page text-primary">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

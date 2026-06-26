@@ -17,7 +17,6 @@ function spec(over: Partial<DocSummary>): DocSummary {
     createdAt: '',
     statusChangedAt: '',
     sectionCount: 0,
-    pausedAt: over.pausedAt ?? null,
     archivedAt: over.archivedAt ?? null,
     isDemo: over.isDemo,
   } as DocSummary;
@@ -40,8 +39,8 @@ describe('resolveSpecToken (spec-372 issues 13–16)', () => {
     expect(resolveSpecToken(docs)).toBe(SPEC_TOKEN_PLACEHOLDER);
   });
 
-  it('ignores archived/paused specs when counting', () => {
-    const docs = [spec({ handle: 'spec-376' }), spec({ id: 'd2', handle: 'spec-377', archivedAt: 'x' }), spec({ id: 'd3', handle: 'spec-378', pausedAt: 'x' })];
+  it('ignores archived specs when counting', () => {
+    const docs = [spec({ handle: 'spec-376' }), spec({ id: 'd2', handle: 'spec-377', archivedAt: 'x' })];
     expect(resolveSpecToken(docs)).toBe('spec-376');
   });
 

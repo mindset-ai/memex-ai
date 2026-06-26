@@ -49,18 +49,24 @@ export interface DocSummary {
   createdAt: Date;
   statusChangedAt: Date;
   sectionCount: number;
-  // Per doc-12 t-1 / t-13: lifecycle flags surfaced so the React UI can filter and dim
-  // paused Specs client-side. Both nullable (NULL = active). archivedAt is included
-  // for completeness; listDocs already filters archived rows out by default, so the
-  // value is ~always null in current responses, but exposing it keeps the wire shape
-  // honest if callers later opt into includeArchived.
-  pausedAt: Date | null;
+  // Per doc-12 t-1: archivedAt is nullable (NULL = active). listDocs already filters
+  // archived rows out by default, so the value is ~always null in current responses,
+  // but exposing it keeps the wire shape honest if callers later opt into includeArchived.
   archivedAt: Date | null;
   // spec-178 t-1 (ac-9): demo flag — true on the five frozen spec-64 copies seeded into
   // a personal Memex for the Handhold onboarding walkthrough. Always projected by
   // listDocs; drives the DEMO badge client-side and the Pulse/analytics exclusion
   // server-side. Optional on the type for other DocSummary constructors / legacy payloads.
   isDemo?: boolean;
+  // spec-409 (ac-1): the standalone code-grounded flag + provenance, projected on
+  // every DocSummary so the board card can render the compact "Code-grounded"
+  // marker. groundedStale is derived read-time (dec-4) in listDocs for grounded
+  // specs only; absent/false means "not stale". Optional for non-listDocs
+  // DocSummary constructors / legacy payloads.
+  groundedInCode?: boolean;
+  groundedAt?: Date | null;
+  groundedByName?: string | null;
+  groundedStale?: boolean;
   // Set when ?include=driftCount is requested (t-19 W2). Open `commentType='drift'` count
   // joined via doc_sections.doc_id = this.id. Undefined when not requested so callers
   // that don't pass `include` aren't paying for the join.

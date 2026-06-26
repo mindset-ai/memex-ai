@@ -20,6 +20,7 @@
 // when they exercise each tool.
 
 import "dotenv/config";
+import { randomBytes } from "node:crypto";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { eq, and } from "drizzle-orm";
@@ -38,10 +39,28 @@ import {
 import { mintMcpToken } from "../services/mcp-tokens.js";
 import { addTaskComment } from "../services/comments.js";
 import { COMMENT_TYPES } from "../types/roles.js";
+import { hashPassword, validatePasswordStrength } from "../services/passwords.js";
 
 const REVIEWER_EMAIL = "mcp-review@memex.ai";
 const ORG_NAMESPACE_SLUG = "memex-reviewer";
 const ORG_MEMEX_SLUG = "main";
+
+// The Anthropic reviewer signs in with email + password to complete the OAuth
+// consent flow (the authorize endpoint is session-gated — a PAT alone can't
+// drive the "Connect" flow the directory tests). Memex has no 2FA and the
+// account's email is pre-verified, so this password is all the reviewer needs;
+// it goes in the submission form's "Testing Account Credentials" field. Take it
+// from REVIEWER_PASSWORD if provided (so reruns can pin a known value),
+// otherwise generate a fresh strong one and print it.
+function makeReviewerPassword(): string {
+  const fromEnv = process.env.REVIEWER_PASSWORD;
+  if (fromEnv) {
+    validatePasswordStrength(fromEnv); // fail loudly rather than seed an unloggable account
+    return fromEnv;
+  }
+  // 24 url-safe chars — well over the 10-char minimum, no shell-hostile glyphs.
+  return `Rev-${randomBytes(18).toString("base64url")}`;
+}
 
 async function main() {
   const connectionString = process.env.DATABASE_URL;
@@ -52,6 +71,8 @@ async function main() {
   console.log("Seeding reviewer account…");
 
   // ── 1. User ─────────────────────────────────────────────────────────
+  const reviewerPassword = makeReviewerPassword();
+  const reviewerPasswordHash = await hashPassword(reviewerPassword);
   let user = await db.query.users.findFirst({ where: eq(users.email, REVIEWER_EMAIL) });
   if (!user) {
     [user] = await db
@@ -59,11 +80,20 @@ async function main() {
       .values({
         email: REVIEWER_EMAIL,
         emailVerifiedAt: new Date(),
+        passwordHash: reviewerPasswordHash,
       } as typeof users.$inferInsert)
       .returning();
     console.log(`  Created user ${user.id} <${REVIEWER_EMAIL}>`);
   } else {
-    console.log(`  User exists: ${user.id} <${REVIEWER_EMAIL}>`);
+    // Idempotent rerun: (re)set the password to the value we're about to print,
+    // and ensure the email stays verified, so the printed credential always
+    // works regardless of prior state.
+    [user] = await db
+      .update(users)
+      .set({ passwordHash: reviewerPasswordHash, emailVerifiedAt: user.emailVerifiedAt ?? new Date() })
+      .where(eq(users.id, user.id))
+      .returning();
+    console.log(`  User exists: ${user.id} <${REVIEWER_EMAIL}> — password reset to printed value`);
   }
 
   // ── 1a. Personal namespace + Memex ───────────────────────────────────
@@ -345,6 +375,7 @@ async function main() {
   console.log("");
   console.log("──────────────────────────────────────────────────────────");
   console.log(`Reviewer account:   ${REVIEWER_EMAIL}`);
+  console.log(`Password:           ${reviewerPassword}`);
   console.log(`User UUID:          ${user.id}`);
   console.log(`Personal namespace: ${personalSlug}`);
   console.log(`Org namespace:      ${ORG_NAMESPACE_SLUG}`);
@@ -353,8 +384,9 @@ async function main() {
   console.log(`mxt_ PAT (one-shot — copy NOW):`);
   console.log(`  ${minted.raw}`);
   console.log("");
-  console.log("Paste into the Anthropic submission form OR run the OAuth flow");
-  console.log("against this account from claude.ai.");
+  console.log("Email + password go in the form's Testing Account Credentials");
+  console.log("field (no 2FA, email pre-verified — the reviewer can sign in and");
+  console.log("run the OAuth Connect flow). The PAT is the manual-MCP-config path.");
   console.log("──────────────────────────────────────────────────────────");
 
   await client.end();

@@ -18,7 +18,6 @@ function doc(partial: Partial<DocSummary>): DocSummary {
     createdAt: '',
     statusChangedAt: '',
     sectionCount: 0,
-    pausedAt: null,
     archivedAt: null,
     isDemo: partial.isDemo,
   } as DocSummary;

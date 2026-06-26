@@ -557,6 +557,12 @@ describe("audit: field names referenced in descriptions exist in the schema", ()
     "list_decisions",
     "create_task", "update_task", "delete_task", "list_tasks",
     "add_section", "update_section",
+    // spec-416: clause-grain + creation + gate tool names cross-referenced in
+    // create_standard's description (it tells the agent to flesh out the new
+    // standard with add_clause / add_section and to gate through
+    // render_confirmation) — tool names, not schema fields.
+    "add_clause", "edit_clause", "delete_clause",
+    "create_standard", "render_confirmation",
     "add_comment", "list_comments", "update_comment",
     "list_memexes", "search_memex", "flag_drift", "propose_standard_change",
     "assess_spec", "publish_spec",
@@ -1014,6 +1020,15 @@ describe("audit: b-36 D-8 — every terse mutation/list response emits `ref:` an
             title: "Renamed for probe",
           }),
           memexId: memexIdForUpdate,
+        },
+      ],
+      [
+        // spec-409: ground_spec returns "Spec ref: <canonical> marked code-grounded…"
+        // — entity-acting (document/updated), emits ref + no raw UUID. codebase_present
+        // is the dec-3 presence assertion the tool requires.
+        "ground_spec",
+        {
+          input: () => ({ ref: docRef(slugs, docHandle), codebase_present: true }),
         },
       ],
       [

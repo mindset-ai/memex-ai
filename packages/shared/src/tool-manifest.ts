@@ -311,6 +311,15 @@ export const toolManifest: ToolManifestEntry[] = [
     readOnlyHint: false,
     trafficClass: null,
   },
+  {
+    name: 'ground_spec',
+    summary:
+      'Mark a Spec code-grounded (decisions verified against current source); MCP-only, requires codebase_present. Stamps who/when as a verification badge.',
+    args: 'ground_spec(ref, codebase_present)',
+    group: 'planning',
+    readOnlyHint: false,
+    trafficClass: null,
+  },
 
   // ── Build phase (build) ───────────────────────────────────
   {
