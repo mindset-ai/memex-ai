@@ -36,7 +36,7 @@ import {
 import { fetchDocs } from '../api/docs';
 import { resolveSpecToken, SPEC_TOKEN_PLACEHOLDER } from '../components/home/specToken';
 import { resolveStepView, activeJourney } from '../journeys/registry';
-import { BUILDER_ONLY_STEP_IDS } from '../journeys/onboarding/steps';
+import { BUILDER_ONLY_STEP_IDS, HIDDEN_STEP_IDS } from '../journeys/onboarding/steps';
 import { isJourneyGraduated } from '../journeys/graduation';
 import { YourJourneys, type PearlJourney } from '../components/home/YourJourneys';
 import { HomeValue } from '../components/home/HomeValue';
@@ -44,6 +44,7 @@ import { SHOW_GRADUATED_HOME } from './homeCanvasFlags';
 import { JourneyStepShell } from '../components/home/JourneyStepShell';
 import { IdentityStep } from '../components/home/IdentityStep';
 import { CreateSpecStep } from '../components/home/CreateSpecStep';
+import { CreateFirstSpecStep } from '../components/home/CreateFirstSpecStep';
 import { AgentPromptStep } from '../components/home/AgentPromptStep';
 import { SpecsMatchRealityStep } from '../components/home/SpecsMatchRealityStep';
 import { AgentsBuildStep } from '../components/home/AgentsBuildStep';
@@ -165,7 +166,9 @@ export function HomeCanvas() {
   const builder = isBuilderPersona(state?.roleCoords ?? null);
   const visibleSteps = useMemo(() => {
     const all = state?.steps ?? [];
-    return builder ? all : all.filter((s) => !(BUILDER_ONLY_STEP_IDS as readonly string[]).includes(s.id));
+    // spec-421: hidden steps are fully inert — not in the rail, no telemetry, no badges.
+    const withoutHidden = all.filter((s) => !(HIDDEN_STEP_IDS as readonly string[]).includes(s.id));
+    return builder ? withoutHidden : withoutHidden.filter((s) => !(BUILDER_ONLY_STEP_IDS as readonly string[]).includes(s.id));
   }, [state, builder]);
   const visibleIds = useMemo(() => visibleSteps.map((s) => s.id), [visibleSteps]);
 
@@ -305,8 +308,9 @@ export function HomeCanvas() {
     ];
   }, [visibleSteps, journey]);
 
-  const nonBuilderTerminal =
-    !builder && displayStepId === visibleIds[visibleIds.length - 1] && displayStepId === 'add-ac';
+  // spec-421: add-ac is hidden from the rail; the terminal visible step is create-first-spec
+  // for all persona types. nonBuilderTerminal is no longer applicable.
+  const nonBuilderTerminal = false;
 
   // The journey layer recedes to the pearls once graduated (spec-312), unless re-opened.
   const graduated = isJourneyGraduated(state ? { ...state, steps: visibleSteps } : null);
@@ -424,6 +428,14 @@ export function HomeCanvas() {
             preview={preview}
             onComplete={handleStepComplete}
             onCtaClick={trackStepCta}
+          />
+        );
+      case 'create-first-spec':
+        return (
+          <CreateFirstSpecStep
+            preview={preview}
+            onComplete={handleStepComplete}
+            onCtaClick={trackStepCta}
             onCreateInApp={() => {
               if (specsPath) navigate(`${specsPath}?new=1`);
             }}
@@ -489,7 +501,8 @@ function JourneyRail({
           const view = views[s.id];
           const isSelected = s.id === selectedStepId;
           const isCurrent = s.id === serverStepId;
-          const showDivider = s.id === 'specs-match-reality';
+          // spec-421: specs-match-reality is hidden from the rail so the divider never fires.
+          const showDivider = false;
           // spec-372 issue-10 — a done (attained) step you've moved past collapses: its
           // subtitle is hidden and its title dims. The selected step (even a done one you
           // clicked back to) stays expanded.

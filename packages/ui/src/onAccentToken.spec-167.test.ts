@@ -92,9 +92,12 @@ describe('spec-167: on-accent foreground token', () => {
       .filter((f) => readFileSync(join(SRC_DIR, f), 'utf8').includes('text-on-accent'))
       .map((f) => f.split(sep).join('/'))
       .sort();
+    // spec-421: CreateFirstSpecStep.tsx added as a new text-on-accent consumer
+    // (blue "Create your first spec" CTA button); CreateSpecStep.tsx's Stage-2
+    // "Create spec in Memex" button was removed, so it exits the set.
     expect(consumers).toEqual(
       [
-        'components/home/CreateSpecStep.tsx',
+        'components/home/CreateFirstSpecStep.tsx',
         'components/home/IdentityStep.tsx',
         'components/upgrade/PricingCard.tsx',
         'pages/OauthAuthorize.tsx',

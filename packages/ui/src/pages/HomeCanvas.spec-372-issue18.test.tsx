@@ -50,8 +50,12 @@ function stateFor(currentStepId: string, steps: Step[]) {
   };
 }
 
+// spec-421: resolve-decision is hidden; must include create-first-spec (not attained) so
+// the journey layer remains visible (otherwise all visible steps are attained → graduated).
 const NOT_GRADUATED: Step[] = [
+  { id: 'identity', attained: true },
   { id: 'create-spec', attained: true },
+  { id: 'create-first-spec', attained: false },
   { id: 'resolve-decision', attained: false },
 ];
 
