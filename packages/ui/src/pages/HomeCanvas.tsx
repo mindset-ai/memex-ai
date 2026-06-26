@@ -37,7 +37,6 @@ import { fetchDocs } from '../api/docs';
 import { resolveSpecToken, SPEC_TOKEN_PLACEHOLDER } from '../components/home/specToken';
 import { resolveStepView, activeJourney } from '../journeys/registry';
 import { BUILDER_ONLY_STEP_IDS, HIDDEN_STEP_IDS } from '../journeys/onboarding/steps';
-import { isJourneyGraduated } from '../journeys/graduation';
 import { YourJourneys, type PearlJourney } from '../components/home/YourJourneys';
 import { HomeValue } from '../components/home/HomeValue';
 import { SHOW_GRADUATED_HOME } from './homeCanvasFlags';
@@ -312,9 +311,10 @@ export function HomeCanvas() {
   // for all persona types. nonBuilderTerminal is no longer applicable.
   const nonBuilderTerminal = false;
 
-  // The journey layer recedes to the pearls once graduated (spec-312), unless re-opened.
-  const graduated = isJourneyGraduated(state ? { ...state, steps: visibleSteps } : null);
-  const layerVisible = !!state?.steps?.length && (!graduated || forceShow);
+  // spec-421 patch: remove the graduation gate — graduated users see the completed rail
+  // (all ticks green) rather than a blank page. forceShow re-opens the layer when
+  // SHOW_GRADUATED_HOME flips and the YourJourneys pearls are live (spec-312/315).
+  const layerVisible = !!state?.steps?.length || forceShow;
 
   // The rail reveals once the user is past the first step (prototype: full-width step 0).
   const showRail = !!displayStepId && displayStepId !== FIRST_STEP_ID && visibleSteps.length > 0;
