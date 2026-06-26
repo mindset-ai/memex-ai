@@ -18,7 +18,7 @@
 // single `added_by` FK to users (db/schema.ts) — passed here as `addedBy` (string|null),
 // NOT the author_name/author_namespace_id stub the pre-develop reference carried.
 
-import { and, eq, isNull, inArray, ne } from "drizzle-orm";
+import { and, eq, isNull, inArray, ne, sql } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import { documents, tags, documentTags } from "../db/schema.js";
 import type { Tag, DocumentTag } from "../db/schema.js";
@@ -75,6 +75,24 @@ export async function getOrCreateTag(
 
   const [existing] = await db.select().from(tags).where(matchTag).limit(1);
   if (existing) return existing;
+
+  // Case-insensitive scope fallback: if a tag with the same value and a
+  // case-insensitively matching scope already exists, reuse it rather than
+  // minting a near-duplicate (e.g. "Deploy::foo" when "DEPLOY::foo" is present).
+  if (scope !== null) {
+    const [ciMatch] = await db
+      .select()
+      .from(tags)
+      .where(
+        and(
+          eq(tags.memexId, memexId),
+          sql`lower(${tags.scope}) = lower(${scope})`,
+          eq(tags.value, value),
+        ),
+      )
+      .limit(1);
+    if (ciMatch) return ciMatch;
+  }
 
   const created = await mutate(
     ctx,
