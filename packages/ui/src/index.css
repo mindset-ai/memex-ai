@@ -321,13 +321,21 @@
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   }
 
+  /* spec-290 dec — the app-wide DEFAULT text colour is PRIMARY, not secondary.
+     The v4 migration left body defaulting to --ch-text-secondary (an anomaly: v3
+     defaulted body to a primary-weight gray, and the same migration also broke
+     text-body/border defaults, patched piecemeal). A secondary default is the
+     inverse of every framework's convention — it makes any element written
+     WITHOUT an explicit text-* utility render de-emphasised (invisible at large
+     sizes), the trap that bit the Stats tab (spec-406). De-emphasised copy opts
+     IN via text-secondary / text-muted; primary is the floor. */
   .dark body, .dark {
     background-color: rgb(var(--ch-page));
-    color: rgb(var(--ch-text-secondary));
+    color: rgb(var(--ch-text-primary));
   }
   .light body, .light {
     background-color: rgb(var(--ch-page));
-    color: rgb(var(--ch-text-secondary));
+    color: rgb(var(--ch-text-primary));
   }
 
   /* Thin, subtle scrollbars */
