@@ -129,8 +129,6 @@ vi.mock('../api/client', () => ({
   fetchIssues: () => Promise.resolve([]),
   fetchDocAssignees: () => Promise.resolve([]),
   archiveDoc: vi.fn(),
-  pauseDoc: vi.fn(),
-  unpauseDoc: vi.fn(),
   updateDocStatus: vi.fn(),
   promoteToEditor: vi.fn(),
   demoteToReviewer: vi.fn(),

@@ -24,7 +24,6 @@ function doc(overrides: Partial<DocSummary> = {}): DocSummary {
     createdAt: '2025-01-01T00:00:00Z',
     statusChangedAt: '2025-01-01T00:00:00Z',
     sectionCount: 0,
-    pausedAt: null,
     archivedAt: null,
     ...overrides,
   };

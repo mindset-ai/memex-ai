@@ -136,11 +136,11 @@ export async function observeSpecTraffic(event: SpecTrafficEvent): Promise<void>
     // which had opted in_app_agent INTO advancement. Presence + auto-assign
     // above still run for in_app_agent; only this phase move is excluded.
     if (event.channel !== "mcp") return;
-    // paused/archived are deliberate placements — auto-advance must not
-    // fight them (same principle as dec-5's rest_ui exclusion). Traffic
-    // never unflags; it also doesn't shuffle the phase underneath a flag.
+    // archived is a deliberate placement — auto-advance must not fight it
+    // (same principle as dec-5's rest_ui exclusion). Traffic never unflags;
+    // it also doesn't shuffle the phase underneath a flag.
     if (entry.trafficClass === null) return;
-    if (doc.pausedAt !== null || doc.archivedAt !== null) return;
+    if (doc.archivedAt !== null) return;
     if (!isSpecStatus(doc.status)) return;
 
     const next = nextPhaseForTraffic(doc.status, entry.trafficClass);

@@ -244,7 +244,7 @@ export async function runSectionFts(
 ): Promise<SectionRow[]> {
   const archivedClause = includeArchived
     ? sql``
-    : sql`AND d.archived_at IS NULL AND d.paused_at IS NULL`;
+    : sql`AND d.archived_at IS NULL`;
   const excludeClause = excludeDocId
     ? sql`AND d.id <> ${excludeDocId}::uuid`
     : sql``;
@@ -300,7 +300,7 @@ export async function runSectionVector(
   const literal = `[${queryVec.join(",")}]`;
   const archivedClause = includeArchived
     ? sql``
-    : sql`AND d.archived_at IS NULL AND d.paused_at IS NULL`;
+    : sql`AND d.archived_at IS NULL`;
   const excludeClause = excludeDocId
     ? sql`AND d.id <> ${excludeDocId}::uuid`
     : sql``;
@@ -350,7 +350,7 @@ export async function runDecisionFts(
 ): Promise<DecisionRow[]> {
   const archivedClause = includeArchived
     ? sql``
-    : sql`AND d.archived_at IS NULL AND d.paused_at IS NULL`;
+    : sql`AND d.archived_at IS NULL`;
   const excludeClause = excludeDocId
     ? sql`AND dec.doc_id <> ${excludeDocId}::uuid`
     : sql``;
@@ -414,7 +414,7 @@ export async function runDecisionVector(
   const literal = `[${queryVec.join(",")}]`;
   const archivedClause = includeArchived
     ? sql``
-    : sql`AND d.archived_at IS NULL AND d.paused_at IS NULL`;
+    : sql`AND d.archived_at IS NULL`;
   const excludeClause = excludeDocId
     ? sql`AND dec.doc_id <> ${excludeDocId}::uuid`
     : sql``;
@@ -466,7 +466,7 @@ export async function runIssueFts(
 ): Promise<IssueRow[]> {
   const archivedClause = includeArchived
     ? sql``
-    : sql`AND d.archived_at IS NULL AND d.paused_at IS NULL`;
+    : sql`AND d.archived_at IS NULL`;
   const excludeClause = excludeDocId
     ? sql`AND iss.doc_id <> ${excludeDocId}::uuid`
     : sql``;
@@ -528,7 +528,7 @@ export async function runIssueVector(
   const literal = `[${queryVec.join(",")}]`;
   const archivedClause = includeArchived
     ? sql``
-    : sql`AND d.archived_at IS NULL AND d.paused_at IS NULL`;
+    : sql`AND d.archived_at IS NULL`;
   const excludeClause = excludeDocId
     ? sql`AND iss.doc_id <> ${excludeDocId}::uuid`
     : sql``;

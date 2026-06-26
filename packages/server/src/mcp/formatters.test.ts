@@ -38,9 +38,12 @@ function makeDoc(overrides: Partial<Doc> = {}): Doc {
     createdAt: baseDate,
     statusChangedAt: baseDate,
     archivedAt: null,
-    pausedAt: null,
     narrativeLastConsolidatedAt: null,
     isDemo: false,
+    groundedInCode: false,
+    groundedAt: null,
+    groundedByUserId: null,
+    groundedByName: null,
     ...overrides,
   };
 }
@@ -276,7 +279,6 @@ describe("formatDocList", () => {
         createdAt: baseDate,
         statusChangedAt: baseDate,
         sectionCount: 3,
-        pausedAt: null,
         archivedAt: null,
       },
       {
@@ -290,7 +292,6 @@ describe("formatDocList", () => {
         createdAt: baseDate,
         statusChangedAt: baseDate,
         sectionCount: 5,
-        pausedAt: null,
         archivedAt: null,
       },
     ];

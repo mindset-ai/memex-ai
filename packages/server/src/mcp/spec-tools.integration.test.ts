@@ -482,11 +482,11 @@ describe("MCP lifecycle nudges (doc-12 t-6)", () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Doc-12 t-15 list_specs filters paused / archived / draft / done
+// Doc-12 t-15 list_specs filters archived / draft / done
 // ──────────────────────────────────────────────────────────────────────────────
 
 describe("list_specs active-only filter (doc-12 t-15)", () => {
-  it("excludes draft / done / paused / archived Specs; keeps specify / build / verify", async () => {
+  it("excludes draft / done / archived Specs; keeps specify / build / verify", async () => {
     const sub = `t15-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`.slice(0, 39);
     const [u] = await db
       .insert(users)
@@ -526,14 +526,6 @@ describe("list_specs active-only filter (doc-12 t-15)", () => {
     created.docs.push(doneM.id);
     await updateDocStatus(a.id, doneM.id, "done");
 
-    const pausedM = await createDocDraft(a.id, "PausedSpec", "P", "spec");
-    created.docs.push(pausedM.id);
-    await updateDocStatus(a.id, pausedM.id, "build");
-    await db
-      .update(documents)
-      .set({ pausedAt: new Date() })
-      .where(eq(documents.id, pausedM.id));
-
     const archivedM = await createDocDraft(a.id, "ArchivedSpec", "P", "spec");
     created.docs.push(archivedM.id);
     await db
@@ -555,7 +547,6 @@ describe("list_specs active-only filter (doc-12 t-15)", () => {
     // Excluded.
     expect(text).not.toContain("DraftSpec");
     expect(text).not.toContain("DoneSpec");
-    expect(text).not.toContain("PausedSpec");
     expect(text).not.toContain("ArchivedSpec");
   });
 });

@@ -92,7 +92,6 @@ const summary = (id: string, handle: string) => ({
   createdAt: baseDate,
   statusChangedAt: baseDate,
   sectionCount: 1,
-  pausedAt: null,
   archivedAt: null,
 });
 
@@ -212,7 +211,6 @@ describe("GET /api/docs/:id (tags inline)", () => {
       createdAt: baseDate,
       statusChangedAt: baseDate,
       archivedAt: null,
-      pausedAt: null,
       sections: [],
     } as never);
     vi.mocked(listDocTags).mockResolvedValue([tag("priority", "high")]);
