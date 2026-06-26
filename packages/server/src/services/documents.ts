@@ -10,11 +10,7 @@ import { isUuid } from "./shared/identifiers.js";
 import { withSeqRetry } from "./shared/sequence.js";
 import { docAttribution } from "./shared/doc-attribution.js";
 import { embedAndStoreSection, embedAndStoreDecision } from "./memex-embeddings.js";
-import {
-  aggregateAcHealthForBriefs,
-  listAcsBlockingDone,
-  listNakedDecisionsBlockingVerify,
-} from "./acs.js";
+import { aggregateAcHealthForBriefs } from "./acs.js";
 import { maybeAutoResolveIssuesForPromotedDoc } from "./issues.js";
 import { seedCreatorAsEditor } from "./doc-members.js";
 import { listAssigneesForDocs } from "./doc-assignees.js";
@@ -934,53 +930,14 @@ export async function updateDocStatus(
     throw new NotFoundError(`Document ${id} not found`);
   }
 
-  // ════════════════════════════════════════════════════════════════════════
-  // spec-391: the HARD advancement gates (dec-1 / dec-3 / dec-5).
-  // ════════════════════════════════════════════════════════════════════════
-  // The lifecycle is otherwise a soft gate (dec-6 of doc-12) — updateDocStatus
-  // accepts any forward move and assess_spec only nudges. spec-388 dec-2 makes
-  // two advancements a TRUE BLOCK at this single seam (every forward-move
-  // surface — REST UI, MCP update_doc, MCP publish_spec — funnels through here),
-  // for every spec regardless of domain. This blocks the SPEC ADVANCEMENT only,
-  // never the developer's code-work (create_task / test emission are untouched).
-  // Both gates derive through the same listAcsForBriefWithVerification path
-  // list_acs / assess_spec use, so the gate can never disagree with the badge.
-  if (doc.docType === "spec" && doc.status !== status) {
-    // dec-1 / dec-3 (ac-5, ac-6, ac-9): verify→done blocks on any active
-    // implementation AC that is untested or failing. `accepted` ACs (a
-    // reviewed-verification sign-off, dec-2) satisfy the gate — that is the
-    // sanctioned, audited escape hatch, and the ONLY one (the spec-258 editor
-    // override does not bypass this). `stale` does NOT block (dec-3).
-    if (doc.status === "verify" && status === "done") {
-      const blocking = await listAcsBlockingDone(memexId, id);
-      if (blocking.length > 0) {
-        const named = blocking.map((b) => `${b.handle} (${b.state})`).join(", ");
-        throw new ValidationError(
-          `Cannot move ${doc.handle} to done: ${blocking.length} active implementation ` +
-            `acceptance criteri${blocking.length === 1 ? "on is" : "a are"} unverified — ${named}. ` +
-            `Make the tagged test pass, or — if this AC genuinely cannot carry an automated test ` +
-            `(a config / prose / dashboard outcome) — record a reviewed-verification sign-off ` +
-            `(a named, dated human acceptance with a reason) so it satisfies the gate. ` +
-            `This is the only way past the gate; the verify→done block is not overridable.`,
-        );
-      }
-    }
-    // dec-5 (ac-11): build→verify blocks on any resolved decision with zero
-    // active implementation ACs — a commitment with no verification path. The
-    // existing specify→build advisory nudge (phase-assessment.ts) is unchanged.
-    if (doc.status === "build" && status === "verify") {
-      const naked = await listNakedDecisionsBlockingVerify(memexId, id);
-      if (naked.length > 0) {
-        throw new ValidationError(
-          `Cannot move ${doc.handle} to verify: ${naked.length} resolved decision` +
-            `${naked.length === 1 ? "" : "s"} (${naked.join(", ")}) ` +
-            `${naked.length === 1 ? "has" : "have"} no active implementation acceptance criteria — ` +
-            `a decision with no verification path. Author at least one implementation AC per naked ` +
-            `decision via create_ac({ kind: 'implementation', parent_decision_ref: '<dec-ref>', ... }).`,
-        );
-      }
-    }
-  }
+  // Advancement stays advisory (spec-12 soft-guidance, doc-12 dec-6): the
+  // service layer does NOT hard-block any status transition. spec-391 briefly
+  // made verify→done and build→verify true blocks (ValidationError) at this
+  // seam, departing from the soft-gate principle; that was reverted because
+  // moving a card on the kanban must never error out — the kanban (REST
+  // `POST /:id/status`) funnels through here, and spec-258 guarantees an editor
+  // always has a web-UI path forward. assess_spec still surfaces the same
+  // untested/failing-AC and naked-decision conditions as advisory nudges.
 
   // spec-179 (ac-5): a Spec status flip emits a second, payload-carrying event
   // alongside the plain "updated" one (per std-8 dec-2: one event per logical
