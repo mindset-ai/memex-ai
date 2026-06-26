@@ -8,8 +8,6 @@ import type { SessionPayload } from '../api/client';
 import { tagAc } from '@memex-ai-ac/vitest';
 
 const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-118/acs/ac-${n}`;
-// spec-147 t-1: the pause feature-hide ACs live in spec-147, not spec-118.
-const AC_147 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-147/acs/ac-${n}`;
 
 // Surfaces the current location.search so URL-reflection assertions can read it.
 function LocationDisplay() {
@@ -28,8 +26,6 @@ vi.mock('../api/client', () => ({
   fetchDocs: (...args: unknown[]) => fetchDocsMock(...args),
   updateDocStatus: vi.fn(),
   archiveDoc: vi.fn(),
-  pauseDoc: vi.fn(),
-  unpauseDoc: vi.fn(),
 }));
 
 // NewSpecModal pulls in heavy chat plumbing — stub so the test stays focused
@@ -97,44 +93,17 @@ function spec(overrides: Partial<DocSummary> = {}): DocSummary {
     createdAt: '2025-01-01T00:00:00Z',
     statusChangedAt: '2025-01-01T00:00:00Z',
     sectionCount: 0,
-    pausedAt: null,
     archivedAt: null,
     ...overrides,
   };
 }
 
-const SHOW_PAUSED_KEY = 'memex.spec-list.show-paused';
-
-// spec-147 t-1: a minimal signed-in session carrying the given hidden-feature
-// slugs. SpecList reads `memberships`/`currentMemexId` (CreateOrgBanner gate)
-// and `hiddenFeatures` (pause feature-hide) off the session; the rest satisfy
-// the type. Empty `memberships` keeps the personal banner suppressed.
-function sessionWith(hiddenFeatures: string[]): SessionPayload {
-  return {
-    user: {
-      id: 'u-1',
-      email: 'pause@example.com',
-      name: 'Pause Tester',
-      status: 'active',
-      emailVerified: true,
-    },
-    memberships: [],
-    currentMemexId: null,
-    currentRole: null,
-    needsOnboarding: false,
-    hiddenFeatures,
-  };
-}
-
 beforeEach(() => {
   vi.clearAllMocks();
-  // Default to no session → nothing hidden, i.e. today's behaviour.
+  // Default to no session, i.e. today's behaviour.
   mockSession.value = null;
   // Default read-only → matches the pre-existing anonymous-session suites.
   mockCanWrite.value = false;
-  // Tests assert localStorage persistence — wipe between cases so prior state
-  // doesn't leak into the "default off" assertions.
-  window.localStorage.removeItem(SHOW_PAUSED_KEY);
 });
 
 describe('SpecList', () => {
@@ -247,19 +216,13 @@ describe('SpecList', () => {
     expect(parentLabel).toHaveTextContent('Promoted from orphan-uuid');
   });
 
-  // doc-12 t-13: paused/archived filtering. Default view hides both; "Show paused"
-  // toggle re-includes paused (with a dimmed treatment + Paused pill); archived
-  // never renders here (no UI for it in this iteration).
-  describe('paused / archived filtering', () => {
-    it('excludes paused and archived specs by default', async () => {
+  // doc-12 t-13 / spec-409: archived + code-grounded filtering. Archived specs
+  // never render here; the "Code-grounded only" toggle (spec-409 ac-15) narrows
+  // the board to grounded specs.
+  describe('archived + code-grounded filtering', () => {
+    it('excludes archived specs by default', async () => {
       fetchDocsMock.mockResolvedValueOnce([
         spec({ id: 's-1', title: 'Active spec', handle: 'doc-1' }),
-        spec({
-          id: 's-2',
-          title: 'Paused spec',
-          handle: 'doc-2',
-          pausedAt: '2026-05-01T00:00:00Z',
-        }),
         spec({
           id: 's-3',
           title: 'Archived spec',
@@ -275,26 +238,15 @@ describe('SpecList', () => {
       );
 
       expect(await screen.findByText('Active spec')).toBeInTheDocument();
-      expect(screen.queryByText('Paused spec')).not.toBeInTheDocument();
       expect(screen.queryByText('Archived spec')).not.toBeInTheDocument();
     });
 
-    it('includes paused specs when "Show paused" is toggled on', async () => {
+    it('ac-15: "Code-grounded only" toggle narrows the board to grounded specs', async () => {
+      tagAc('mindset-prod/memex-building-itself/specs/spec-409/acs/ac-15');
       const user = userEvent.setup();
-      fetchDocsMock.mockResolvedValueOnce([
-        spec({ id: 's-1', title: 'Active spec', handle: 'doc-1' }),
-        spec({
-          id: 's-2',
-          title: 'Paused spec',
-          handle: 'doc-2',
-          pausedAt: '2026-05-01T00:00:00Z',
-        }),
-        spec({
-          id: 's-3',
-          title: 'Archived spec',
-          handle: 'doc-3',
-          archivedAt: '2026-05-01T00:00:00Z',
-        }),
+      fetchDocsMock.mockResolvedValue([
+        spec({ id: 's-1', title: 'Grounded spec', handle: 'doc-1', groundedInCode: true }),
+        spec({ id: 's-2', title: 'Ungrounded spec', handle: 'doc-2', groundedInCode: false }),
       ]);
 
       render(
@@ -303,248 +255,15 @@ describe('SpecList', () => {
         </MemoryRouter>
       );
 
-      // Wait for initial render before flipping the toggle.
-      await screen.findByText('Active spec');
-      expect(screen.queryByText('Paused spec')).not.toBeInTheDocument();
+      // Both visible by default.
+      expect(await screen.findByText('Grounded spec')).toBeInTheDocument();
+      expect(screen.getByText('Ungrounded spec')).toBeInTheDocument();
 
-      const toggle = screen.getByRole('checkbox', { name: /show paused/i });
-      await user.click(toggle);
-
-      expect(screen.getByText('Paused spec')).toBeInTheDocument();
-      // Archived is still hidden — the toggle only controls paused per t-13.
-      expect(screen.queryByText('Archived spec')).not.toBeInTheDocument();
+      // Flip the filter: only the grounded spec remains.
+      await user.click(screen.getByTestId('grounded-only-filter'));
+      expect(screen.getByText('Grounded spec')).toBeInTheDocument();
+      expect(screen.queryByText('Ungrounded spec')).not.toBeInTheDocument();
     });
-
-    it('marks shown paused specs with a "Paused" pill', async () => {
-      const user = userEvent.setup();
-      fetchDocsMock.mockResolvedValueOnce([
-        spec({
-          id: 's-2',
-          title: 'Paused spec',
-          handle: 'doc-2',
-          pausedAt: '2026-05-01T00:00:00Z',
-        }),
-      ]);
-
-      render(
-        <MemoryRouter>
-          <SpecList />
-        </MemoryRouter>
-      );
-
-      const toggle = await screen.findByRole('checkbox', { name: /show paused/i });
-      await user.click(toggle);
-
-      const pill = await screen.findByTestId('spec-paused-pill');
-      expect(pill).toHaveTextContent(/paused/i);
-    });
-
-    it('persists the "Show paused" toggle to localStorage', async () => {
-      const user = userEvent.setup();
-      fetchDocsMock.mockResolvedValueOnce([
-        spec({ id: 's-1', title: 'Active spec', handle: 'doc-1' }),
-      ]);
-
-      render(
-        <MemoryRouter>
-          <SpecList />
-        </MemoryRouter>
-      );
-
-      const toggle = await screen.findByRole('checkbox', { name: /show paused/i });
-      // Component writes the current state to storage on mount as a side-effect
-      // of the persistence effect, so the meaningful assertion is "click flips
-      // the value", not "value starts unset".
-      expect(window.localStorage.getItem(SHOW_PAUSED_KEY)).toBe('false');
-
-      await user.click(toggle);
-      expect(window.localStorage.getItem(SHOW_PAUSED_KEY)).toBe('true');
-
-      await user.click(toggle);
-      expect(window.localStorage.getItem(SHOW_PAUSED_KEY)).toBe('false');
-    });
-
-    it('reads the persisted toggle on mount', async () => {
-      window.localStorage.setItem(SHOW_PAUSED_KEY, 'true');
-      fetchDocsMock.mockResolvedValueOnce([
-        spec({ id: 's-1', title: 'Active spec', handle: 'doc-1' }),
-        spec({
-          id: 's-2',
-          title: 'Paused spec',
-          handle: 'doc-2',
-          pausedAt: '2026-05-01T00:00:00Z',
-        }),
-      ]);
-
-      render(
-        <MemoryRouter>
-          <SpecList />
-        </MemoryRouter>
-      );
-
-      // Paused spec visible on first paint — no toggle click required.
-      expect(await screen.findByText('Paused spec')).toBeInTheDocument();
-      const toggle = screen.getByRole('checkbox', { name: /show paused/i });
-      expect(toggle).toBeChecked();
-    });
-  });
-});
-
-// spec-147 t-1 (dec-1 / Option A): when 'spec-pause' is in the session's
-// hiddenFeatures the pause feature disappears from this board — the "Show
-// paused" header toggle and the per-card Pause/Unpause menu item are gone, and
-// the board STOPS dropping already-paused Specs (so hiding the feature never
-// silently loses in-flight work). ac-11 pins the no-regression baseline.
-describe('SpecList pause feature-hide (spec-147)', () => {
-  // Opens the per-card actions menu and returns the live <menu> element. The
-  // SpecMenu trigger is keyed off the card title and only renders under write
-  // access (mockCanWrite), so callers grant that first.
-  async function openCardMenu(title: string) {
-    const user = userEvent.setup();
-    const trigger = await screen.findByRole('button', { name: `Actions for ${title}` });
-    await user.click(trigger);
-    return screen.getByRole('menu');
-  }
-
-  it('ac-7: does NOT render the "Show paused" toggle when spec-pause is hidden', async () => {
-    tagAc(AC_147(7));
-    mockSession.value = sessionWith(['spec-pause']);
-    fetchDocsMock.mockResolvedValueOnce([
-      spec({ id: 's-1', title: 'Active spec', handle: 'doc-1' }),
-    ]);
-
-    render(
-      <MemoryRouter>
-        <SpecList />
-      </MemoryRouter>,
-    );
-
-    await screen.findByText('Active spec');
-    expect(screen.queryByRole('checkbox', { name: /show paused/i })).not.toBeInTheDocument();
-  });
-
-  it('ac-8: omits the Pause/Unpause menu item (no orphaned separator) when hidden', async () => {
-    tagAc(AC_147(8));
-    mockSession.value = sessionWith(['spec-pause']);
-    mockCanWrite.value = true; // SpecMenu renders only under write access.
-    fetchDocsMock.mockResolvedValueOnce([
-      spec({ id: 's-1', title: 'Active spec', handle: 'doc-1' }),
-    ]);
-
-    render(
-      <MemoryRouter>
-        <SpecList />
-      </MemoryRouter>,
-    );
-
-    const menu = await openCardMenu('Active spec');
-    const labels = within(menu)
-      .getAllByRole('menuitem')
-      .map((b) => b.textContent);
-    // Pause/Unpause gone; the remaining items keep their order.
-    expect(labels).toEqual(['Rename', 'Share', 'Move to another memex', 'Archive']);
-    expect(within(menu).queryByRole('menuitem', { name: /^(Pause|Unpause)$/ })).toBeNull();
-
-    // No orphaned / leading separator: a divider never precedes the first item,
-    // and the count of dividers matches the items that legitimately carry one
-    // (Move-to-another-memex inherits Pause's divider; Archive keeps its own).
-    const firstItem = within(menu).getByRole('menuitem', { name: 'Rename' });
-    expect(firstItem.parentElement?.querySelector('.border-t')).toBeNull();
-    const dividers = menu.querySelectorAll('.border-t');
-    expect(dividers).toHaveLength(2);
-  });
-
-  it('ac-9: a paused Spec STILL appears on the board when the feature is hidden', async () => {
-    tagAc(AC_147(9));
-    mockSession.value = sessionWith(['spec-pause']);
-    // No "Show paused" toggle exists to flip, and localStorage stays default-off
-    // — the Spec must show purely because the feature is hidden (Option A).
-    fetchDocsMock.mockResolvedValueOnce([
-      spec({ id: 's-1', title: 'Active spec', handle: 'doc-1' }),
-      spec({
-        id: 's-2',
-        title: 'Paused spec',
-        handle: 'doc-2',
-        pausedAt: '2026-05-01T00:00:00Z',
-      }),
-    ]);
-
-    render(
-      <MemoryRouter>
-        <SpecList />
-      </MemoryRouter>,
-    );
-
-    expect(await screen.findByText('Active spec')).toBeInTheDocument();
-    expect(screen.getByText('Paused spec')).toBeInTheDocument();
-  });
-
-  it('ac-10: the still-shown paused Spec keeps its "Paused" badge + dimming when hidden', async () => {
-    tagAc(AC_147(10));
-    mockSession.value = sessionWith(['spec-pause']);
-    fetchDocsMock.mockResolvedValueOnce([
-      spec({
-        id: 's-2',
-        title: 'Paused spec',
-        handle: 'doc-2',
-        pausedAt: '2026-05-01T00:00:00Z',
-      }),
-    ]);
-
-    render(
-      <MemoryRouter>
-        <SpecList />
-      </MemoryRouter>,
-    );
-
-    // The card renders without flipping any toggle (there is none).
-    const title = await screen.findByText('Paused spec');
-    // "Paused" badge surface (the sr-only test hook mirrors the visible Badge).
-    expect(screen.getByTestId('spec-paused-pill')).toHaveTextContent(/paused/i);
-    // Dimmed treatment: the card link carries the opacity-60 paused class.
-    const cardLink = title.closest('a');
-    expect(cardLink?.className).toContain('opacity-60');
-  });
-
-  it('ac-11: with hiddenFeatures [], the toggle, menu item, and paused-filter behave as today', async () => {
-    tagAc(AC_147(11));
-    mockSession.value = sessionWith([]); // feature NOT hidden.
-    mockCanWrite.value = true;
-    const user = userEvent.setup();
-    fetchDocsMock.mockResolvedValue([
-      spec({ id: 's-1', title: 'Active spec', handle: 'doc-1' }),
-      spec({
-        id: 's-2',
-        title: 'Paused spec',
-        handle: 'doc-2',
-        pausedAt: '2026-05-01T00:00:00Z',
-      }),
-    ]);
-
-    render(
-      <MemoryRouter>
-        <SpecList />
-      </MemoryRouter>,
-    );
-
-    // Paused-filter unchanged: paused Spec hidden by default, toggle present.
-    await screen.findByText('Active spec');
-    expect(screen.queryByText('Paused spec')).not.toBeInTheDocument();
-    const toggle = screen.getByRole('checkbox', { name: /show paused/i });
-    await user.click(toggle);
-    expect(screen.getByText('Paused spec')).toBeInTheDocument();
-
-    // Menu item present, in its original position with its own divider; the
-    // following "Move to another memex" carries no divider (today's layout).
-    const trigger = screen.getByRole('button', { name: 'Actions for Active spec' });
-    await user.click(trigger);
-    const menu = screen.getByRole('menu');
-    const labels = within(menu)
-      .getAllByRole('menuitem')
-      .map((b) => b.textContent);
-    expect(labels).toEqual(['Rename', 'Share', 'Pause', 'Move to another memex', 'Archive']);
-    // Two dividers: before Pause and before Archive (unchanged from today).
-    expect(menu.querySelectorAll('.border-t')).toHaveLength(2);
   });
 });
 

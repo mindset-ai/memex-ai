@@ -80,6 +80,8 @@ const MUTATING_MCP_TOOLS: Record<string, ToolMutation[]> = {
   // assess_spec: mode='consolidate' stamps narrativeLastConsolidatedAt via
   // markNarrativeConsolidated → document/updated (the other modes are read-only).
   assess_spec: [{ entity: "document", action: "updated" }],
+  // spec-409: ground_spec sets grounded_in_code + provenance → document/updated.
+  ground_spec: [{ entity: "document", action: "updated" }],
   // sections.ts
   add_section: [{ entity: "section", action: "created" }],
   update_section: [{ entity: "section", action: "updated" }],

@@ -1,6 +1,6 @@
-import { and, eq, ne, desc, count, isNull, inArray, or, exists, sql, type SQL } from "drizzle-orm";
+import { and, eq, ne, desc, count, isNull, inArray, or, exists, gt, sql, type SQL } from "drizzle-orm";
 import { db } from "../db/connection.js";
-import { documents, docSections, docComments, decisions, users, tags, documentTags } from "../db/schema.js";
+import { documents, docSections, docComments, decisions, acs, users, tags, documentTags } from "../db/schema.js";
 import type { Doc, DocSection, Decision } from "../db/schema.js";
 import type { DocSummary } from "../types/index.js";
 import { NotFoundError, ValidationError } from "../types/errors.js";
@@ -10,11 +10,7 @@ import { isUuid } from "./shared/identifiers.js";
 import { withSeqRetry } from "./shared/sequence.js";
 import { docAttribution } from "./shared/doc-attribution.js";
 import { embedAndStoreSection, embedAndStoreDecision } from "./memex-embeddings.js";
-import {
-  aggregateAcHealthForBriefs,
-  listAcsBlockingDone,
-  listNakedDecisionsBlockingVerify,
-} from "./acs.js";
+import { aggregateAcHealthForBriefs } from "./acs.js";
 import { maybeAutoResolveIssuesForPromotedDoc } from "./issues.js";
 import { seedCreatorAsEditor } from "./doc-members.js";
 import { listAssigneesForDocs } from "./doc-assignees.js";
@@ -331,11 +327,6 @@ export interface ListDocsOptions {
   // Default false — archived docs are hidden from the kanban. Set true to include them
   // (e.g. a future archive view or admin tooling).
   includeArchived?: boolean;
-  // Default true — paused docs ARE included (so the React UI kanban can render
-  // them under a "Show paused" toggle and filter client-side). Pass false to
-  // hide paused docs from the result; MCP `list_briefs` does this per doc-12
-  // t-15 to keep the agent focused on active work.
-  includePaused?: boolean;
   // Optional status whitelist. When provided, only docs whose `status` is in the
   // list are returned. Used by `list_briefs` (doc-12 t-15) to scope to the
   // active Spec phases (specify / build / verify) and exclude draft / done.
@@ -437,9 +428,6 @@ export async function listDocs(
   const conditions = [eq(documents.memexId, memexId)];
   if (opts.docType) conditions.push(eq(documents.docType, opts.docType));
   if (!opts.includeArchived) conditions.push(isNull(documents.archivedAt));
-  // Paused docs are included by default (React UI kanban renders them under a
-  // "Show paused" toggle). MCP list_missions passes includePaused=false.
-  if (opts.includePaused === false) conditions.push(isNull(documents.pausedAt));
   // spec-178 t-11 / dec-11 (ac-37): exclude demo specs from the agent/MCP
   // enumeration when asked. is_demo is NOT NULL DEFAULT false, but the
   // `isNull OR ne(true)` guard is robust against any legacy NULL while still
@@ -466,14 +454,18 @@ export async function listDocs(
       parentDocId: documents.parentDocId,
       createdAt: documents.createdAt,
       statusChangedAt: documents.statusChangedAt,
-      // doc-12 t-1 / t-13: lifecycle flags. archivedAt is already filtered out by
-      // default (see conditions above); pausedAt is the new client-side filter
-      // surface for the Specs kanban "Show paused" toggle.
-      pausedAt: documents.pausedAt,
+      // doc-12 t-1: archivedAt is already filtered out by default (see conditions
+      // above) but projected so the client can defend the contract locally.
       archivedAt: documents.archivedAt,
-      // spec-178 t-1 (ac-9): is_demo rides on every DocSummary (like pausedAt/archivedAt)
+      // spec-178 t-1 (ac-9): is_demo rides on every DocSummary (like archivedAt)
       // so the board can render the DEMO badge. Always projected — not behind an include opt.
       isDemo: documents.isDemo,
+      // spec-409 (ac-1): the code-grounded flag + provenance ride on every DocSummary
+      // so the board card can render the compact "Code-grounded" marker. groundedStale
+      // is derived below (read-time, dec-4) for the grounded ones.
+      groundedInCode: documents.groundedInCode,
+      groundedAt: documents.groundedAt,
+      groundedByName: documents.groundedByName,
       sectionCount: count(docSections.id),
       // LEFT JOIN — null when the doc predates migration 0036 or the creator
       // has been deleted (FK is ON DELETE SET NULL). The React UI renders
@@ -524,6 +516,19 @@ export async function listDocs(
         s.parent = parentById.get(s.parentDocId) ?? null;
       }
     }
+  }
+
+  // spec-409 (ac-1 / dec-4): read-time grounded-staleness for the board card
+  // marker. Only a grounded Spec can be stale, so compute it just for those
+  // (bounded N — mirrors the includeAcHealth restraint). The persisted flag is
+  // never mutated; groundedStale is derived only.
+  const groundedSummaries = summaries.filter((s) => s.groundedInCode);
+  if (groundedSummaries.length > 0) {
+    await Promise.all(
+      groundedSummaries.map(async (s) => {
+        s.groundedStale = await isGroundingStale(s.id, true, s.groundedAt ?? null);
+      }),
+    );
   }
 
   if (opts.includeAcHealth && summaries.length > 0) {
@@ -714,6 +719,11 @@ export async function getDoc(
     // (a fixture CONSTANT keyed by the doc's phase) the UI renders atop the demo
     // spec. Unset for non-demo docs and for any demo phase with no callout.
     demoValueCallout?: string;
+    // spec-409 (dec-4): read-time staleness for the code-grounded badge — true
+    // when the Spec is grounded but a decision/AC changed since groundedAt. The
+    // persisted flag (groundedInCode) rides along on `...doc`; this is the derived
+    // companion the UI uses to render the "stale" state.
+    groundedStale: boolean;
   }
 > {
   const idMatch = isUuid(idOrHandle)
@@ -756,17 +766,24 @@ export async function getDoc(
     if (u) creator = u;
   }
 
+  // spec-409 (dec-4): derive the grounded-but-drifted state at read time.
+  const groundedStale = await isGroundingStale(
+    doc.id,
+    doc.groundedInCode,
+    doc.groundedAt,
+  );
+
   // spec-178 dec-8 / ac-28: a demo Spec carries its phase's value-banner copy from
   // the fixture (a per-phase CONSTANT, never stored on the row). Non-demo docs are
   // untouched — no field is attached, so the wire shape is identical for them.
   if (doc.isDemo) {
     const callout = HANDHOLD_PHASES.find((p) => p.phase === doc.status)?.valueCallout;
     if (callout !== undefined) {
-      return { ...doc, sections, creator, demoValueCallout: callout };
+      return { ...doc, sections, creator, demoValueCallout: callout, groundedStale };
     }
   }
 
-  return { ...doc, sections, creator };
+  return { ...doc, sections, creator, groundedStale };
 }
 
 export async function updateDocTitle(memexId: string, id: string, title: string): Promise<Mutated<Doc>> {
@@ -831,32 +848,56 @@ export async function archiveDoc(memexId: string, id: string): Promise<Mutated<D
   );
 }
 
-// Pause/unpause are Spec-only flags but the column is on `documents` so the
-// query is uniform. Idempotent in both directions per the archive convention.
-// Per doc-12 Out-of-Scope: pause/resume are React-UI-only — not exposed over MCP.
-export async function pauseDoc(memexId: string, id: string): Promise<Mutated<Doc>> {
+// spec-409 (dec-1/dec-2/dec-5) — set the standalone code-grounded flag on a Spec
+// and stamp provenance. Called only by the `ground_spec` MCP handler, which
+// enforces the dec-3 presence checks (channel='mcp' + codebase_present) before it
+// gets here. WHO/WHEN ride the activity contract: `groundedAt` is now and
+// `groundedBy{UserId,Name}` come from resolveActorColumns (std-32) so the name is
+// denormalised at write and a later rename can't rewrite history (ac-2). The
+// write goes through mutate() with the threaded RequestCtx, so it emits a
+// document/updated event on the bus → activity_log (std-8, ac-11). Staleness
+// (dec-4) is never written here; it is computed at read time.
+export async function groundSpec(
+  memexId: string,
+  id: string,
+  ctx: RequestCtx,
+): Promise<Mutated<Doc>> {
+  // dec-3 (ac-8) defense-in-depth: grounding is only meaningful over the
+  // coding-agent MCP channel where the repo is in hand. The handler guards this
+  // too; enforcing here keeps the invariant true for any caller of the service.
+  if ((ctx.channel ?? "mcp") !== "mcp") {
+    throw new ValidationError(
+      `ground_spec requires channel='mcp' (got '${ctx.channel}') — only a coding agent with the codebase open can ground a Spec (dec-3).`,
+    );
+  }
   const doc = await db.query.documents.findFirst({
     where: and(eq(documents.id, id), eq(documents.memexId, memexId)),
   });
   if (!doc) {
     throw new NotFoundError(`Document ${id} not found`);
   }
-  if (doc.pausedAt) {
-    return mutate(
-      {},
-      { memexId, docId: id, entity: "document", action: "updated" },
-      async () => doc,
-      { silent: true },
-    );
-  }
+  const now = new Date();
+  const actor = await resolveActorColumns(ctx);
 
   return mutate(
-    {},
-    { memexId, docId: id, entity: "document", action: "updated" },
+    ctx,
+    {
+      memexId,
+      docId: id,
+      entity: "document",
+      action: "updated",
+      narrative: `grounded ${doc.handle} in code`,
+      payload: { grounded: true },
+    },
     async () => {
       const [updated] = await db
         .update(documents)
-        .set({ pausedAt: new Date() })
+        .set({
+          groundedInCode: true,
+          groundedAt: now,
+          groundedByUserId: actor.actorUserId,
+          groundedByName: actor.actorName,
+        })
         .where(and(eq(documents.id, id), eq(documents.memexId, memexId)))
         .returning();
       return updated;
@@ -864,34 +905,33 @@ export async function pauseDoc(memexId: string, id: string): Promise<Mutated<Doc
   );
 }
 
-export async function unpauseDoc(memexId: string, id: string): Promise<Mutated<Doc>> {
-  const doc = await db.query.documents.findFirst({
-    where: and(eq(documents.id, id), eq(documents.memexId, memexId)),
-  });
-  if (!doc) {
-    throw new NotFoundError(`Document ${id} not found`);
-  }
-  if (!doc.pausedAt) {
-    return mutate(
-      {},
-      { memexId, docId: id, entity: "document", action: "updated" },
-      async () => doc,
-      { silent: true },
+// spec-409 (dec-4) — read-time staleness. A grounded Spec is "stale" when a
+// decision or AC has changed since it was grounded, so the badge stops claiming a
+// state that drift has invalidated (std-20). Computed, never persisted — the flag
+// itself is untouched. `decisions` has no updatedAt column, so a decision counts
+// as changed when it was created OR resolved after groundedAt; `acs` carries
+// updatedAt (which defaults to createdAt, covering creation too).
+export async function isGroundingStale(
+  docId: string,
+  groundedInCode: boolean,
+  groundedAt: Date | null,
+): Promise<boolean> {
+  if (!groundedInCode || !groundedAt) return false;
+  const [d] = await db
+    .select({ c: count() })
+    .from(decisions)
+    .where(
+      and(
+        eq(decisions.docId, docId),
+        or(gt(decisions.createdAt, groundedAt), gt(decisions.resolvedAt, groundedAt)),
+      ),
     );
-  }
-
-  return mutate(
-    {},
-    { memexId, docId: id, entity: "document", action: "updated" },
-    async () => {
-      const [updated] = await db
-        .update(documents)
-        .set({ pausedAt: null })
-        .where(and(eq(documents.id, id), eq(documents.memexId, memexId)))
-        .returning();
-      return updated;
-    },
-  );
+  if (Number(d.c) > 0) return true;
+  const [a] = await db
+    .select({ c: count() })
+    .from(acs)
+    .where(and(eq(acs.briefId, docId), gt(acs.updatedAt, groundedAt)));
+  return Number(a.c) > 0;
 }
 
 // Re-export from the central enum (types/roles.ts) so the admin / route surface
@@ -934,53 +974,14 @@ export async function updateDocStatus(
     throw new NotFoundError(`Document ${id} not found`);
   }
 
-  // ════════════════════════════════════════════════════════════════════════
-  // spec-391: the HARD advancement gates (dec-1 / dec-3 / dec-5).
-  // ════════════════════════════════════════════════════════════════════════
-  // The lifecycle is otherwise a soft gate (dec-6 of doc-12) — updateDocStatus
-  // accepts any forward move and assess_spec only nudges. spec-388 dec-2 makes
-  // two advancements a TRUE BLOCK at this single seam (every forward-move
-  // surface — REST UI, MCP update_doc, MCP publish_spec — funnels through here),
-  // for every spec regardless of domain. This blocks the SPEC ADVANCEMENT only,
-  // never the developer's code-work (create_task / test emission are untouched).
-  // Both gates derive through the same listAcsForBriefWithVerification path
-  // list_acs / assess_spec use, so the gate can never disagree with the badge.
-  if (doc.docType === "spec" && doc.status !== status) {
-    // dec-1 / dec-3 (ac-5, ac-6, ac-9): verify→done blocks on any active
-    // implementation AC that is untested or failing. `accepted` ACs (a
-    // reviewed-verification sign-off, dec-2) satisfy the gate — that is the
-    // sanctioned, audited escape hatch, and the ONLY one (the spec-258 editor
-    // override does not bypass this). `stale` does NOT block (dec-3).
-    if (doc.status === "verify" && status === "done") {
-      const blocking = await listAcsBlockingDone(memexId, id);
-      if (blocking.length > 0) {
-        const named = blocking.map((b) => `${b.handle} (${b.state})`).join(", ");
-        throw new ValidationError(
-          `Cannot move ${doc.handle} to done: ${blocking.length} active implementation ` +
-            `acceptance criteri${blocking.length === 1 ? "on is" : "a are"} unverified — ${named}. ` +
-            `Make the tagged test pass, or — if this AC genuinely cannot carry an automated test ` +
-            `(a config / prose / dashboard outcome) — record a reviewed-verification sign-off ` +
-            `(a named, dated human acceptance with a reason) so it satisfies the gate. ` +
-            `This is the only way past the gate; the verify→done block is not overridable.`,
-        );
-      }
-    }
-    // dec-5 (ac-11): build→verify blocks on any resolved decision with zero
-    // active implementation ACs — a commitment with no verification path. The
-    // existing specify→build advisory nudge (phase-assessment.ts) is unchanged.
-    if (doc.status === "build" && status === "verify") {
-      const naked = await listNakedDecisionsBlockingVerify(memexId, id);
-      if (naked.length > 0) {
-        throw new ValidationError(
-          `Cannot move ${doc.handle} to verify: ${naked.length} resolved decision` +
-            `${naked.length === 1 ? "" : "s"} (${naked.join(", ")}) ` +
-            `${naked.length === 1 ? "has" : "have"} no active implementation acceptance criteria — ` +
-            `a decision with no verification path. Author at least one implementation AC per naked ` +
-            `decision via create_ac({ kind: 'implementation', parent_decision_ref: '<dec-ref>', ... }).`,
-        );
-      }
-    }
-  }
+  // Advancement stays advisory (spec-12 soft-guidance, doc-12 dec-6): the
+  // service layer does NOT hard-block any status transition. spec-391 briefly
+  // made verify→done and build→verify true blocks (ValidationError) at this
+  // seam, departing from the soft-gate principle; that was reverted because
+  // moving a card on the kanban must never error out — the kanban (REST
+  // `POST /:id/status`) funnels through here, and spec-258 guarantees an editor
+  // always has a web-UI path forward. assess_spec still surfaces the same
+  // untested/failing-AC and naked-decision conditions as advisory nudges.
 
   // spec-179 (ac-5): a Spec status flip emits a second, payload-carrying event
   // alongside the plain "updated" one (per std-8 dec-2: one event per logical

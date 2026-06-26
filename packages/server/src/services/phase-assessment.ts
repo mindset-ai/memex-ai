@@ -1,9 +1,9 @@
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, gt } from "drizzle-orm";
 import { db } from "../db/connection.js";
-import { documents, decisions, tasks, docComments, docSections, issues } from "../db/schema.js";
+import { documents, decisions, tasks, docComments, docSections, issues, acs } from "../db/schema.js";
 import type { Decision, Task, DocSection } from "../db/schema.js";
 import {
   listResolvedDecisionImplAcCoverage,
@@ -331,6 +331,20 @@ export interface PhaseAssessment {
    * verbatim prompt under `## Code grounding`.
    */
   codeGroundingPromptPending?: boolean;
+  /**
+   * spec-409 (dec-6, ac-13): the specify→build code-grounding gate verdict,
+   * read from the PERSISTED `grounded_in_code` flag (dec-5/ac-12) rather than a
+   * throwaway self-classification:
+   *   - `grounded`        — flag set and not stale; gate passes.
+   *   - `stale`           — grounded, but a decision/AC changed since (dec-4); re-ground.
+   *   - `not_applicable`  — agent declared the scope non-code-touching (an override path).
+   *   - `override`        — agent chose to proceed ungrounded (`not_verified`); attributed.
+   *   - `blocked`         — ungrounded and no override supplied; gate not satisfied.
+   * Advisory per dec-6 ("enforcement lives in the rubric") — it never hard-blocks
+   * the transition, it makes the gate state visible and attributable. Always
+   * `undefined` for targets other than `build`.
+   */
+  groundingGate?: "grounded" | "stale" | "not_applicable" | "override" | "blocked";
   /**
    * spec-259 t-3: the open-comment survey for this Spec (anchor-kind grouping +
    * per-comment WHO/WHEN), populated ONLY on the specify→build transition so
@@ -873,16 +887,49 @@ export async function assessPhaseTransition(
     ...nudgeOpenCommentsAtBuild(openCommentsDetail, targetPhase),
   ];
 
-  // Code-grounding self-classification (doc-27). Only applies on the
-  // specify→build transition (`target === 'build'`). On other targets the
-  // parameter is silently ignored — no prompt, no nudge, no behaviour change.
+  // Code-grounding gate (doc-27 → spec-409). Only applies on the specify→build
+  // transition; on other targets the parameter is silently ignored.
+  //
+  // spec-409 dec-5/ac-12: this now READS the persisted `grounded_in_code` flag
+  // first. A Spec grounded via `ground_spec` needs no throwaway self-
+  // classification — the flag (set with provenance, over channel='mcp') is the
+  // answer. The transient `codeGrounding` param survives only as the OVERRIDE
+  // path for an ungrounded Spec (dec-6/ac-13): `not_applicable` (non-code-
+  // touching) or `not_verified` (proceed-anyway). Advisory throughout — the gate
+  // makes its verdict visible (`groundingGate`) but never hard-blocks the move
+  // (dec-6; the rubric decides), so ungrounded behaviour is byte-identical to
+  // the legacy doc-27 flow and its tests.
   let effectiveCodeGrounding: CodeGrounding | undefined;
   let codeGroundingPromptPending = false;
+  let groundingGate: PhaseAssessment["groundingGate"];
   if (targetPhase === "build") {
-    if (codeGrounding === undefined) {
+    const grounded = spec.groundedInCode === true;
+    const stale =
+      grounded && spec.groundedAt
+        ? await isBuildGroundingStale(briefId, spec.groundedAt, allDecisions)
+        : false;
+    if (grounded && !stale) {
+      // Persisted flag wins — read it, don't ask (ac-12).
+      effectiveCodeGrounding = "verified";
+      groundingGate = "grounded";
+      nudges.push(CODE_GROUNDING_NUDGE.verified);
+    } else if (grounded && stale) {
+      // Grounded once, but drifted since (dec-4) — prompt to re-ground.
+      groundingGate = "stale";
+      codeGroundingPromptPending = true;
+    } else if (codeGrounding === undefined) {
+      // Ungrounded, no override supplied — gate not satisfied; prompt as before.
+      groundingGate = "blocked";
       codeGroundingPromptPending = true;
     } else {
+      // Ungrounded but the agent supplied an explicit, attributed override.
       effectiveCodeGrounding = codeGrounding;
+      groundingGate =
+        codeGrounding === "not_applicable"
+          ? "not_applicable"
+          : codeGrounding === "verified"
+            ? "grounded"
+            : "override";
       nudges.push(CODE_GROUNDING_NUDGE[codeGrounding]);
     }
   }
@@ -950,8 +997,33 @@ export async function assessPhaseTransition(
     nudges,
     codeGrounding: effectiveCodeGrounding,
     codeGroundingPromptPending: codeGroundingPromptPending || undefined,
+    groundingGate,
     openCommentsDetail,
   };
+}
+
+// spec-409 (dec-4, ac-13): read-time staleness for the specify→build gate. A
+// grounded Spec is stale when a decision or AC has changed since groundedAt.
+// Decisions carry no updatedAt, so a decision counts when created OR resolved
+// after groundedAt; ACs carry updatedAt (defaulting to createdAt). The decision
+// set is already in memory; only the AC check needs a query. Mirrors
+// documents.isGroundingStale but reuses the assessment's loaded decisions.
+async function isBuildGroundingStale(
+  briefId: string,
+  groundedAt: Date,
+  allDecisions: readonly Decision[],
+): Promise<boolean> {
+  const decisionChanged = allDecisions.some(
+    (d) =>
+      d.createdAt > groundedAt ||
+      (d.resolvedAt != null && d.resolvedAt > groundedAt),
+  );
+  if (decisionChanged) return true;
+  const staleAc = await db.query.acs.findFirst({
+    where: and(eq(acs.briefId, briefId), gt(acs.updatedAt, groundedAt)),
+    columns: { id: true },
+  });
+  return staleAc != null;
 }
 
 // sol-5 (spec-368): `formatPhaseAssessment` is presentation, not assessment

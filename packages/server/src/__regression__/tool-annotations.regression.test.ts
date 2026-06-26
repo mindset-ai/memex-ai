@@ -14,7 +14,15 @@
 // in lockstep with the spec — diverging from it fails the test.
 
 import { describe, it, expect } from "vitest";
+import { tagAc } from "@memex-ai-ac/vitest";
 import { toolSpecs } from "../agent/tool-specs.js";
+
+// spec-31 ac-2 — the Anthropic Connectors Directory requires every tool to
+// surface a correct annotation triple in tools/list. The classification matrix
+// below IS the source of truth those annotations are checked against, so the
+// matrix tests double as ac-2 verification (the live tools/list catalogue,
+// incl. list_memexes, is asserted in mcp/tools-list-annotations.spec-31.test.ts).
+const SPEC_31_AC_2 = "mindset-prod/memex-building-itself/specs/spec-31/acs/ac-2";
 
 // Classification matrix — keep in sync with the spec annotations.
 // Read-only: list_*, get_*, search_*, code_search, list_memexes, export_doc.
@@ -68,6 +76,7 @@ const DESTRUCTIVE = new Set<string>([
 
 describe("regression: MCP tool annotations (b-31 W2)", () => {
   it("every shared spec carries annotations", () => {
+    tagAc(SPEC_31_AC_2);
     for (const spec of toolSpecs) {
       expect(spec.annotations, `${spec.name} is missing annotations`).toBeDefined();
       expect(spec.annotations.title.length, `${spec.name} annotation.title is empty`).toBeGreaterThan(0);
@@ -77,6 +86,7 @@ describe("regression: MCP tool annotations (b-31 W2)", () => {
   });
 
   it("read-only classification matches the expected matrix", () => {
+    tagAc(SPEC_31_AC_2);
     for (const spec of toolSpecs) {
       const expected = READ_ONLY.has(spec.name);
       expect(
@@ -87,6 +97,7 @@ describe("regression: MCP tool annotations (b-31 W2)", () => {
   });
 
   it("destructive classification matches the expected matrix", () => {
+    tagAc(SPEC_31_AC_2);
     for (const spec of toolSpecs) {
       const expected = DESTRUCTIVE.has(spec.name);
       expect(

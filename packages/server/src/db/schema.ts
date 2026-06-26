@@ -94,9 +94,6 @@ export const documents = pgTable("documents", {
   // kanban lane when unarchived. All list/get queries filter out archived rows by
   // default — pass includeArchived to opt in.
   archivedAt: timestamp("archived_at", { withTimezone: true }),
-  // NULL = active, set = paused. Spec-only lifecycle flag — paused Specs stop
-  // receiving agent work but stay visible in their kanban lane.
-  pausedAt: timestamp("paused_at", { withTimezone: true }),
   // Last time the Spec narrative was consolidated by the agent. NULL = never
   // consolidated. Spec-only.
   narrativeLastConsolidatedAt: timestamp("narrative_last_consolidated_at", { withTimezone: true }),
@@ -109,6 +106,18 @@ export const documents = pgTable("documents", {
   // .../handhold/reset) hard-deletes all is_demo docs in the memex + their seeded
   // test-event emissions and re-seeds from handhold-demo.fixture.ts.
   isDemo: boolean("is_demo").notNull().default(false),
+  // spec-409 — the "code-grounded" flag: a Spec is grounded when an agent has
+  // verified its resolved decisions against the actual codebase. Standalone
+  // Spec-level boolean (dec-1) — NOT derived from per-node grounded_against
+  // (spec-76 is draft, no code). Set only via the `ground_spec` MCP tool over
+  // channel='mcp' with a `codebase_present` assertion (dec-3). Provenance is
+  // stamped at write (dec-2): grounded_by_name is denormalised per std-32 so a
+  // later rename can't rewrite history. Staleness is computed at read time
+  // (decision/AC updated_at > grounded_at, dec-4) — never mutated here.
+  groundedInCode: boolean("grounded_in_code").notNull().default(false),
+  groundedAt: timestamp("grounded_at", { withTimezone: true }),
+  groundedByUserId: uuid("grounded_by_user_id"),
+  groundedByName: text("grounded_by_name"),
 }, (table) => [
   unique("documents_memex_id_handle_unique").on(table.memexId, table.handle),
   index("documents_memex_id_idx").on(table.memexId),

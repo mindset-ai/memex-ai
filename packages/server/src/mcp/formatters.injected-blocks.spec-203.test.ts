@@ -27,9 +27,12 @@ function makeSpec(): Doc & { sections: DocSection[] } {
     createdAt: baseDate,
     statusChangedAt: baseDate,
     archivedAt: null,
-    pausedAt: null,
     narrativeLastConsolidatedAt: null,
     isDemo: false,
+    groundedInCode: false,
+    groundedAt: null,
+    groundedByUserId: null,
+    groundedByName: null,
     sections: [
       {
         id: "section-uuid-1",

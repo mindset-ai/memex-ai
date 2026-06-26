@@ -5,6 +5,7 @@ import { statusTextClass } from '../../utils/statusStyles';
 import { phaseDisplayName } from '../../utils/phaseDisplay';
 import { formatDate, docSeq } from '../../utils/format';
 import { Badge } from '../ui';
+import { CodeGroundedBadge } from '../CodeGroundedBadge';
 import { SpecMenu, type SpecMenuItem } from '../SpecMenu';
 import { TagChip } from '../TagChip';
 import { tenantPath } from '../../utils/tenantUrl';
@@ -107,10 +108,6 @@ export function KanbanColumn(props: KanbanColumnProps) {
         {docs.map((d) => {
           const inListParent = d.parentDocId ? docsById.get(d.parentDocId) : null;
           const parent = inListParent ?? d.parent ?? null;
-          // doc-12 t-13: paused Specs render with a subtle dimmed treatment
-          // and a "Paused" pill so they're visually distinct from active work
-          // when the user opts into the wider view via the header toggle.
-          const isPaused = !!d.pausedAt;
           // b-66: per-card AC-health treatment. `acHealth` is populated by the
           // server-side aggregator behind `?include=acHealth`; undefined means
           // either the request omitted the include flag, or the Spec has zero
@@ -134,11 +131,14 @@ export function KanbanColumn(props: KanbanColumnProps) {
                 }
                 onDragStart={canWrite ? (e) => onDragStart(e, d.id) : undefined}
                 onDragEnd={canWrite ? onDragEnd : undefined}
-                className={`block border rounded-md p-3 pr-9 transition-all bg-panel border-edge-subtle hover:border-edge hover:bg-card-hover ${
+                className={`block border rounded-md p-3 transition-all bg-panel border-edge-subtle hover:border-edge hover:bg-card-hover ${
                   draggingId === d.id ? 'opacity-40' : ''
-                } ${isPaused ? 'opacity-60' : ''} ${healthBorder}`}
+                } ${healthBorder}`}
               >
-                <div className="flex items-start gap-2 mb-2">
+                {/* pr-9 only on the title row — clears the absolute top-right
+                    hover menu without indenting the footer (so the grounded
+                    name + seal can sit flush to the card's right edge). */}
+                <div className="flex items-start gap-2 mb-2 pr-6">
                   <h3 className="flex-1 text-sm font-medium text-heading leading-snug">
                     {docSeq(d.handle) && (
                       <span className="text-muted font-normal mr-1">{docSeq(d.handle)}.</span>
@@ -147,35 +147,17 @@ export function KanbanColumn(props: KanbanColumnProps) {
                   </h3>
                   {/* spec-178 ac-3/ac-12: the DEMO badge marks each frozen
                       Handhold demo spec on the board. Real specs carry no
-                      `isDemo`, so they never render it (ac-11/ac-12). Mirrors the
-                      Paused badge's chrome; the two can co-exist on one card. */}
+                      `isDemo`, so they never render it (ac-11/ac-12). */}
                   {d.isDemo && (
                     <Badge status="demo" label="DEMO" className="flex-none" />
                   )}
-                  {isPaused && (
-                    <Badge
-                      status="paused"
-                      label="Paused"
-                      className="flex-none"
-                      // data-testid via wrapper span — Badge renders a single
-                      // <span>, so test selectors latch onto the label text.
-                    />
-                  )}
                 </div>
                 {d.isDemo && (
-                  // Hidden DOM hook for the test — mirrors the paused pill: the
-                  // visible Badge above is the user-facing surface, this lets a
-                  // test assert the DEMO pill without coupling to Badge classes.
+                  // Hidden DOM hook for the test — the visible Badge above is
+                  // the user-facing surface, this lets a test assert the DEMO
+                  // pill without coupling to Badge classes.
                   <span data-testid="spec-demo-pill" className="sr-only">
                     DEMO
-                  </span>
-                )}
-                {isPaused && (
-                  // Hidden DOM hook for the test — the visible Badge above is
-                  // the user-facing surface; this lets us assert the pill
-                  // without coupling tests to the Badge's class names.
-                  <span data-testid="spec-paused-pill" className="sr-only">
-                    Paused
                   </span>
                 )}
                 {d.parentDocId && (
@@ -199,7 +181,25 @@ export function KanbanColumn(props: KanbanColumnProps) {
                       {formatDate(d.createdAt)} · {d.creator?.name?.trim() || d.creator?.email?.trim() || 'Unknown'}
                     </div>
                   </div>
-                  <SpecHealthChip health={d.acHealth} />
+                  {/* spec-409 (ac-1): compact code-grounded seal lives on the
+                      roomy bottom-right footer (beside the health chip) so it
+                      never eats the title line. Renders only for a grounded Spec
+                      (null otherwise); stale tint when a decision/AC changed
+                      since grounding. */}
+                  <div className="flex items-center gap-1.5 flex-none">
+                    <SpecHealthChip health={d.acHealth} />
+                    {/* spec-409: the seal is always the card's bottom-right corner
+                        element (rightmost in this footer group, after the health
+                        chip). Grounder name is dropped from the card — it lives in
+                        the seal's hover tooltip + the spec page. */}
+                    <CodeGroundedBadge
+                      groundedInCode={d.groundedInCode ?? false}
+                      groundedStale={d.groundedStale ?? false}
+                      groundedBy={d.groundedByName ?? null}
+                      groundedAt={d.groundedAt ? new Date(d.groundedAt).toLocaleDateString() : null}
+                      compact
+                    />
+                  </div>
                 </div>
                 {/* spec-136 t-5 (ac-4): the Spec's tags render as read-only chips
                     on the card, straight from the list payload (`d.tags`, which

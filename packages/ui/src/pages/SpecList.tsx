@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { fetchDocs, archiveDoc, pauseDoc, unpauseDoc, resetHandholdDemo } from '../api/client';
+import { fetchDocs, archiveDoc, resetHandholdDemo } from '../api/client';
 import { type DocSummary } from '../api/types';
 import { statusTextClass } from '../utils/statusStyles';
 import { useDocChangeStream } from '../hooks/useDocChangeStream';
@@ -16,7 +16,6 @@ import { getCurrentTenant } from '../utils/tenantUrl';
 import { useAuth } from '../components/AuthContext';
 import { nextRevealPhase } from '../hooks/useHandholdReveal';
 import { useHandholdRevealValue } from '../hooks/HandholdRevealContext';
-import { useIsFeatureHidden } from '../hooks/useIsFeatureHidden';
 import { useMemexAccess } from '../hooks/useMemexAccess';
 import { CreateOrgBanner } from '../components/CreateOrgBanner';
 import { PageHeader } from '../components/PageHeader';
@@ -25,11 +24,6 @@ import { phaseDisplayName } from '../utils/phaseDisplay';
 import { KanbanColumn } from '../components/spec-board/KanbanColumn';
 import { type SpecKanbanStatus, type ActiveStatus } from '../components/spec-board/types';
 import { useSpecBoard } from '../hooks/useSpecBoard';
-
-// doc-12 t-13: persist the "Show paused" toggle so navigation doesn't reset it.
-// Default is false — the kanban hides paused (and always-archived) Specs out
-// of the box; users opt into the cluttered view per session.
-const SHOW_PAUSED_KEY = 'memex.spec-list.show-paused';
 
 // spec-181: column labels come from the shared phase display-name layer (now a
 // plain capitaliser); the `specify` column reads "Specify" straight from the
@@ -93,13 +87,24 @@ export function SpecList() {
   // current Memex. A non-member on a public Memex reads the full board but sees
   // no "+ New Spec", no add-card, no per-card menu, and no drag-to-restatus.
   const { canWrite } = useMemexAccess();
-  // spec-147 t-1 (dec-1 / Option A): when 'spec-pause' is in the session's
-  // hiddenFeatures the pause affordances disappear — the "Show paused" header
-  // toggle and the per-card Pause/Unpause menu item are not rendered, and the
-  // board stops filtering out already-paused Specs (so hiding the feature never
-  // silently drops in-flight work). Fail-open: no session / missing field →
-  // not hidden, i.e. today's behavior.
-  const pauseHidden = useIsFeatureHidden('spec-pause');
+  // spec-409: the board can be narrowed to only code-grounded Specs. URL-reflected
+  // (?grounded=1) so a filtered board is shareable, matching the assignee/tag
+  // filter conventions.
+  const groundedOnly = searchParams.get('grounded') === '1';
+  const setGroundedOnly = useCallback(
+    (on: boolean) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          if (on) next.set('grounded', '1');
+          else next.delete('grounded');
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
   // doc-19 dec-8: surface the Create-an-Org banner only when the user is
   // looking at their personal Memex's Specs page. The CreateOrgBanner
   // component handles the dismissal + has-org-membership suppression itself.
@@ -159,32 +164,6 @@ export function SpecList() {
     handleDragOver,
     handleDrop,
   } = useSpecBoard({ docs, setDocs, canWrite, setDoneExpanded });
-  // doc-12 t-13: "Show paused" toggle. Reads localStorage on first render so
-  // the user's preference survives navigation. Archived Specs are always
-  // hidden from this board (no UI for them in this iteration — deferred).
-  const [showPaused, setShowPaused] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return false;
-    try {
-      return window.localStorage.getItem(SHOW_PAUSED_KEY) === 'true';
-    } catch {
-      // localStorage can throw under privacy modes / disabled storage — fall
-      // back to the default-off behavior rather than crashing the page.
-      return false;
-    }
-  });
-
-  // Persist on every flip. Writing 'true' / 'false' (not removing on false)
-  // makes the read deterministic — distinguishes "user explicitly opted out"
-  // from "first visit", though the read above treats both the same today.
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    try {
-      window.localStorage.setItem(SHOW_PAUSED_KEY, showPaused ? 'true' : 'false');
-    } catch {
-      // Same fallback as the reader — silent on storage failures.
-    }
-  }, [showPaused]);
-
   // spec-178 t-10 (dec-10): when the demo has been walked all the way to 'done'
   // the revealed card lives in the Done rail — which collapses by default.
   // Auto-expand it whenever a done-phase demo is the revealed card so the
@@ -281,24 +260,6 @@ export function SpecList() {
     }
   }, [docs]);
 
-  const handleTogglePause = useCallback(async (doc: DocSummary) => {
-    const wasPaused = !!doc.pausedAt;
-    const previous = docs;
-    // Optimistic — SSE confirms for other clients.
-    setDocs((prev) =>
-      prev.map((d) =>
-        d.id === doc.id ? { ...d, pausedAt: wasPaused ? null : new Date().toISOString() } : d,
-      ),
-    );
-    try {
-      await (wasPaused ? unpauseDoc(doc.id) : pauseDoc(doc.id));
-    } catch (err) {
-      console.error('Failed to toggle pause', err);
-      setDocs(previous);
-      window.alert(err instanceof Error ? err.message : 'Failed to update pause state');
-    }
-  }, [docs]);
-
   // spec-178 ac-18/ac-19: re-seed the personal Memex's Handhold demo. The button
   // that calls this is shown ONLY when at least one demo spec is on the board (see
   // hasDemoSpecs below); a window.confirm step (ac-19) gates the destructive
@@ -337,26 +298,12 @@ export function SpecList() {
       const items: SpecMenuItem[] = [
         { label: 'Rename', onClick: () => setRenameDoc(doc) },
         { label: 'Share', onClick: () => setShareDocId(doc.id) },
-      ];
-      // spec-147 t-1: omit Pause/Unpause when the pause feature is hidden. The
-      // Pause item carries the divider that separates the rename/share group
-      // from the move/archive group — when it's gone, move that divider onto
-      // "Move to another memex" so the grouping stays correct and we never
-      // leave an orphaned (or leading) separator.
-      if (!pauseHidden) {
-        items.push({
-          label: doc.pausedAt ? 'Unpause' : 'Pause',
-          onClick: () => handleTogglePause(doc),
-          separatorBefore: true,
-        });
-      }
-      items.push(
-        { label: 'Move to another memex', onClick: () => setMoveDoc(doc), separatorBefore: pauseHidden },
+        { label: 'Move to another memex', onClick: () => setMoveDoc(doc), separatorBefore: true },
         { label: 'Archive', onClick: () => handleArchive(doc), danger: true, separatorBefore: true },
-      );
+      ];
       return items;
     },
-    [handleArchive, handleTogglePause, pauseHidden],
+    [handleArchive],
   );
 
   if (loading) {
@@ -384,19 +331,14 @@ export function SpecList() {
     verify: [],
     done: [],
   };
-  // spec-147 t-1 (Option A): when the pause feature is hidden the "Show paused"
-  // toggle is gone, so a paused Spec could otherwise vanish from the board with
-  // no way to bring it back. Force-include paused Specs in that case — they keep
-  // their "Paused" badge + dimming, they just stop being filterable.
-  const effectiveShowPaused = pauseHidden || showPaused;
   for (const d of docs) {
     // doc-12 t-13: archived Specs are always hidden from the kanban (the
     // server already filters them out by default, but defending here keeps
-    // the contract local). Paused Specs are hidden unless the user has
-    // flipped the "Show paused" toggle (or the pause feature is hidden — see
-    // effectiveShowPaused above).
+    // the contract local).
     if (d.archivedAt) continue;
-    if (d.pausedAt && !effectiveShowPaused) continue;
+    // spec-409 (ac-15): when the "Code-grounded only" filter is on, hide Specs
+    // that are not grounded in code.
+    if (groundedOnly && !d.groundedInCode) continue;
     // spec-178 ac-33/ac-34 (dec-10): progressive reveal. fetchDocs returns all
     // five demo specs (one per phase), but the board shows only the one whose
     // status matches the reveal pointer — hide the other four client-side. Real
@@ -462,23 +404,19 @@ export function SpecList() {
                 ))}
               </select>
             </label>
-            {/* doc-12 t-13: "Show paused" header toggle. Native checkbox styled
-                to match the lightweight visual language of the kanban header —
-                no dedicated Toggle primitive in the UI kit yet, and a labelled
-                checkbox plays nicely with the existing test surface.
-                spec-147 t-1: suppressed entirely when the pause feature is
-                hidden (the board force-includes paused Specs in that case). */}
-            {!pauseHidden && (
-              <label className="flex items-center gap-2 text-xs text-secondary cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={showPaused}
-                  onChange={(e) => setShowPaused(e.target.checked)}
-                  className="cursor-pointer"
-                />
-                Show paused
-              </label>
-            )}
+            {/* spec-409 (ac-15): "Code-grounded only" header toggle — narrows the
+                board to Specs whose decisions have been verified against the code.
+                URL-reflected (?grounded=1) so the filtered board is shareable. */}
+            <label className="flex items-center gap-2 text-xs text-secondary cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={groundedOnly}
+                onChange={(e) => setGroundedOnly(e.target.checked)}
+                className="cursor-pointer"
+                data-testid="grounded-only-filter"
+              />
+              Code-grounded only
+            </label>
             {/* spec-178 ac-18: the Reset-demo button appears on the board header
                 ONLY when at least one demo spec is present, and is absent
                 otherwise. ac-19: clicking it confirms before the re-seed runs.
