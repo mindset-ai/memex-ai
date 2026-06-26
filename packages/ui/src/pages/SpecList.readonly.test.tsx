@@ -15,8 +15,6 @@ vi.mock('../api/client', () => ({
   fetchDocs: (...args: unknown[]) => fetchDocsMock(...args),
   updateDocStatus: vi.fn(),
   archiveDoc: vi.fn(),
-  pauseDoc: vi.fn(),
-  unpauseDoc: vi.fn(),
 }));
 
 vi.mock('../components/NewSpecModal', () => ({ NewSpecModal: () => null }));
@@ -44,7 +42,6 @@ function spec(over: Partial<DocSummary> = {}): DocSummary {
     createdAt: '2025-01-01T00:00:00Z',
     statusChangedAt: '2025-01-01T00:00:00Z',
     sectionCount: 0,
-    pausedAt: null,
     archivedAt: null,
     ...over,
   };

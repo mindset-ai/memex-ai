@@ -628,7 +628,7 @@ describe("formatSearchResults — issue hit rendering (spec-112 t-4)", () => {
   });
 });
 
-describe("searchMemex — archived / paused exclusion", () => {
+describe("searchMemex — archived exclusion", () => {
   it("archived specs are excluded by default", async () => {
     const provider = makeFakeProvider();
     const spec = await seedSpec(
@@ -653,35 +653,8 @@ describe("searchMemex — archived / paused exclusion", () => {
       disableVector: true,
       includeArchived: true,
     });
-    // Wait — includeArchived also unhides paused. But archived-only docs that
-    // were just hidden should re-appear. We may not see it depending on whether
-    // the direct lookup short-circuit fires; this is FTS so we should see it.
-    expect(includeHits.find((h) => h.id === spec.id)).toBeDefined();
-  });
-
-  it("paused specs are excluded by default", async () => {
-    const provider = makeFakeProvider();
-    const spec = await seedSpec(
-      memexId,
-      "Paused spec target",
-      "searchhiddenpauseduniquex content here.",
-      [],
-      provider,
-    );
-
-    await db.execute(sql`UPDATE documents SET paused_at = now() WHERE id = ${spec.id}`);
-
-    const defaultHits = await searchMemex(memexId, "searchhiddenpauseduniquex", {
-      provider,
-      disableVector: true,
-    });
-    expect(defaultHits.find((h) => h.id === spec.id)).toBeUndefined();
-
-    const includeHits = await searchMemex(memexId, "searchhiddenpauseduniquex", {
-      provider,
-      disableVector: true,
-      includeArchived: true,
-    });
+    // archived-only docs that were just hidden re-appear under includeArchived;
+    // this is FTS so we see it.
     expect(includeHits.find((h) => h.id === spec.id)).toBeDefined();
   });
 });

@@ -895,6 +895,8 @@ const TOOL_RATIONALES: Record<string, string> = {
     'Deterministic Spec assessment — phase rubric, narrative freshness, comments survey, or consolidate. Called before any forward phase move.',
   publish_spec:
     'Transition a Spec out of draft. Refuses already-published Specs; the user owns the phase transition in both directions.',
+  ground_spec:
+    'Mark a Spec code-grounded after verifying its resolved decisions against current source. MCP-only, requires codebase_present; stamps who/when as a verification badge.',
   create_task:
     'Create a build-phase task. Refuses tasks in draft/specify. Acceptance criteria are part of the contract for `complete`.',
   update_task:
@@ -2050,6 +2052,8 @@ Hold the overview, the narrative, and the existing decisions together before pro
 
 ── STEP 2: ground — against the code AND the Standards ──
 CODE. Where the narrative or a decision names code shape (files / symbols / schema / routes / existing patterns), read the actual source to confirm it exists and means what the Spec assumes. A decision grounded in stale or imagined code is a decision built on sand — locate the real construct, and if the Spec's claim has drifted from reality, say so and let that correct the narrative. If the plan says to mirror or reuse another Spec or an existing primitive, verify that target is actually present (grep the named symbol; get_doc its phase) before depending on it.
+
+GROUND IT — then RECORD the grounding. Once you have read the actual source behind each resolved decision and confirmed (or repaired) the decisions and their acceptance criteria against it, ground this Spec in the code: call ground_spec({ ref: '{namespace}/{memex}/specs/{handle}', codebase_present: true }) to mark it code-grounded — this stamps WHO grounded it and WHEN and lights the verification badge on the Spec. \`codebase_present\` asserts the repository is actually open in this session, so only call it from a session where the code is present. Do this in the LATTER PART OF specify, before you recommend build — grounding against real source is what surfaces the true decisions and ACs, so it must happen here in specify; if it slips into build, those decisions get made late, after tasks have already formed, which is exactly the drift specify exists to prevent.
 STANDARDS. For every load-bearing concern the Spec touches (data, auth, tenancy, API, testing, prompts, licensing — whatever applies): search_memex({ query, kind: 'standard' }) and read any standard the Spec cites as [per std-N]. If the search returns nothing for an area, this Memex has no Standard there yet — that is normal; proceed. Where a Standard exists and contradicts the Spec's direction, STOP and surface it — drift is the enemy; don't quietly pick one.
 Do this as a PREDICTIVE pass: classify the work AHEAD against the coarse practice categories it touches (testing tiers, end-to-end / user-facing flows, security, DB schema & migrations, API contracts, deploy / rollout, code style, observability, accessibility, docs, dependencies, …) and pull each governing standard in so the rules SHAPE the plan — surfacing the journey / test / migration work this Spec must own now, not after the diff. A category with no standard simply means none exists yet — proceed; ensuring coverage is admin / setup governance, not your chore, and you never author a standard to fill the gap.
 

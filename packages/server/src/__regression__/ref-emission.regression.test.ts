@@ -424,6 +424,15 @@ describe("regression: every entity-acting MCP tool emits `ref:` and no raw UUID 
         },
       ],
       [
+        // spec-409: ground_spec returns "Spec ref: <canonical> marked code-grounded…"
+        // — entity-acting (document/updated), emits ref + no raw UUID. codebase_present
+        // is the dec-3 presence assertion the tool requires.
+        "ground_spec",
+        {
+          input: () => ({ ref: refForDoc(slugs, docHandle), codebase_present: true }),
+        },
+      ],
+      [
         "add_section",
         {
           input: () => ({

@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { listDocs, getDoc, updateDocStatus, updateDocTitle, archiveDoc, pauseDoc, unpauseDoc } from "../services/documents.js";
+import { listDocs, getDoc, updateDocStatus, updateDocTitle, archiveDoc } from "../services/documents.js";
 import { restCtx } from "./_actor-ctx.js";
 import { moveDoc } from "../services/doc-move.js";
 import { splitSection, updateSection } from "../services/sections.js";
@@ -246,20 +246,6 @@ docs.post("/:id/archive", async (c) => {
   const memexId = requireMemexId(c);
   const id = c.req.param("id");
   const updated = await archiveDoc(memexId, id);
-  return c.json(updated);
-});
-
-docs.post("/:id/pause", async (c) => {
-  const memexId = requireMemexId(c);
-  const id = c.req.param("id");
-  const updated = await pauseDoc(memexId, id);
-  return c.json(updated);
-});
-
-docs.post("/:id/unpause", async (c) => {
-  const memexId = requireMemexId(c);
-  const id = c.req.param("id");
-  const updated = await unpauseDoc(memexId, id);
   return c.json(updated);
 });
 
