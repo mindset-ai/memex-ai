@@ -15,7 +15,7 @@
 //     still instructing handoff for out-of-lane asks.
 
 import { describe, it, expect, afterAll } from "vitest";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { tagAc } from "@memex-ai-ac/vitest";
 import { db } from "../db/connection.js";
 import {
@@ -85,9 +85,13 @@ describe("spec-416 dec-1/dec-2: create_standard mints a standard via the gated c
     const handle = out.match(/standards\/(std-\d+)/)?.[1];
     expect(handle, `create_standard should report a std-N ref; got: ${out}`).toBeTruthy();
 
+    // std-37: handles are per-memex (every memex has its own std-1), so the
+    // lookup MUST be scoped by memexId — otherwise a parallel worker's same-handle
+    // standard in a different memex can match here and flip the assertions below.
     const doc = await db.query.documents.findFirst({
-      where: eq(documents.handle, handle!),
+      where: and(eq(documents.handle, handle!), eq(documents.memexId, actor.memexId)),
     });
+    expect(doc, `no standard ${handle} found in memex ${actor.memexId}`).toBeTruthy();
     created.docs.push(doc!.id);
 
     // It created a STANDARD — not a spec / document / execution_plan. The tool
