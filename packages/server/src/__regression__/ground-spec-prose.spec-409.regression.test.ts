@@ -4,8 +4,7 @@
 // the work ships fair-code (no .ee markers on the files this spec touches).
 
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
-import { execSync } from "node:child_process";
+import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { tagAc } from "@memex-ai-ac/vitest";
 import { toolManifest, BASE_SCAFFOLD } from "@memex/shared";
@@ -77,30 +76,41 @@ describe("spec-409 ground_spec is in the shared tool manifest (ac-11)", () => {
 });
 
 describe("spec-409 ships fair-code (ac-14)", () => {
-  it("no file touched by this branch carries a .ee. / .ee marker", () => {
+  // The defining footprint of this Spec: every file that carries the grounding
+  // feature (schema + migration, the MCP/agent path, the prompt prose, the React
+  // surfaces). std-25 decides the licence boundary per-Spec up front — this asserts
+  // it: none of these is EE-marked, so the whole feature ships fair-code.
+  //
+  // Why an explicit list rather than a git diff: the earlier `git diff develop...HEAD`
+  // form passed locally but went empty in CI's shallow PR checkout (depth-1, detached
+  // HEAD — `develop` isn't even fetched), so the sanity guard tripped (`expected 0 to
+  // be greater than 0`). The licence marker lives in the PATH (std-25), so reading the
+  // paths off disk is both deterministic across environments and the actual invariant.
+  const SPEC_409_FILES = [
+    "packages/server/src/db/schema.ts",
+    "packages/server/drizzle/0112_add_documents_code_grounding.sql",
+    "packages/server/drizzle/0113_drop_documents_paused_at.sql",
+    "packages/server/src/agent/handlers/lifecycle.ts",
+    "packages/server/src/agent/phases/_base/code-grounding.md",
+    "packages/server/src/services/documents.ts",
+    "packages/server/src/services/phase-assessment.ts",
+    "packages/shared/src/tool-manifest.ts",
+    "packages/shared/src/scaffold-data.ts",
+    "packages/ui/src/components/CodeGroundedBadge.tsx",
+    "packages/ui/src/components/spec-board/KanbanColumn.tsx",
+    "packages/ui/src/pages/DocDocument.tsx",
+    "packages/ui/src/pages/SpecList.tsx",
+  ];
+
+  it("every file this Spec introduces exists and carries no .ee. / .ee marker", () => {
     tagAc(AC(14));
-    // The files this branch touched: committed changes vs the develop base PLUS
-    // any uncommitted / untracked work. Diffing against develop (not just
-    // `git diff HEAD`) keeps the scan correct AFTER the work is committed — the
-    // old HEAD-only form went empty post-commit and tripped the sanity check
-    // (a brittle false-fail). `|| true` keeps a missing ref from throwing.
-    const out = execSync(
-      "git diff --name-only develop...HEAD || true; " +
-        "git diff --name-only HEAD || true; " +
-        "git ls-files --others --exclude-standard || true",
-      { cwd: REPO_ROOT, encoding: "utf8" },
+    // Sanity: the footprint is real — each listed file is actually on disk. A
+    // renamed/removed feature file fails here instead of silently shrinking the scan.
+    const missing = SPEC_409_FILES.filter(
+      (p) => !existsSync(resolve(REPO_ROOT, p)),
     );
-    const touched = [
-      ...new Set(
-        out
-          .split("\n")
-          .map((s) => s.trim())
-          .filter((s) => s.length > 0),
-      ),
-    ];
-    // Sanity: a real branch always touches something vs develop.
-    expect(touched.length).toBeGreaterThan(0);
-    const eeMarked = touched.filter((p) => /\.ee\.|\/\.ee\//.test(p));
+    expect(missing).toEqual([]);
+    const eeMarked = SPEC_409_FILES.filter((p) => /\.ee\.|\/\.ee\//.test(p));
     expect(eeMarked).toEqual([]);
   });
 });
