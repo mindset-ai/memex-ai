@@ -31,9 +31,9 @@ const chip = (selected: boolean) =>
   }`;
 
 // spec-372 t-13 — v3 stage heading: 28px / 600, no number prefix (the v2 mono "1/2" is gone).
-function StageHeading({ title, sub }: { title: string; sub: string }) {
+function StageHeading({ title, sub, compact = false }: { title: string; sub: string; compact?: boolean }) {
   return (
-    <div className="mb-4">
+    <div className={compact ? '' : 'mb-4'}>
       <div className="text-[28px] font-semibold leading-tight tracking-[-0.015em] text-heading">{title}</div>
       <div className="mt-1 text-base text-secondary">{sub}</div>
     </div>
@@ -150,13 +150,26 @@ export function CreateSpecStep({
       </p>
 
       {/* Stage 1 — Connect to Memex MCP (reuses the real per-tool/OS installer).
-          spec-372 t-13 — v3 highlights this card: 1.5px accent border + a soft accent glow ring. */}
+          spec-372 t-13 — v3 highlights this card: 1.5px accent border + a soft accent glow ring.
+          spec-372 issue-19 — once connected the card transitions to a muted completed style. */}
       <section
         data-testid="connect-stage"
-        className="mb-5 rounded-2xl border-[1.5px] border-accent bg-surface p-6 ring-[5px] ring-accent/10"
+        className={`mb-5 rounded-2xl p-6 transition-all duration-300 ${
+          connected
+            ? 'border border-edge bg-surface'
+            : 'border-[1.5px] border-accent bg-surface ring-[5px] ring-accent/10'
+        }`}
       >
         <div className="flex items-start justify-between gap-3">
-          <StageHeading title="Connect to the Memex MCP" sub="Use the command below to install the MCP for your coding agent." />
+          <StageHeading
+            title={connected ? 'Connected to the Memex MCP' : 'Connect to the Memex MCP'}
+            sub={
+              connected
+                ? "You're connected to the Memex MCP. Need to make changes? Manage it any time from the Integrations page under your profile menu."
+                : 'Use the command below to install the MCP for your coding agent.'
+            }
+            compact={connected}
+          />
           {connected && (
             <span
               data-testid="create-spec-connected"
@@ -197,97 +210,115 @@ export function CreateSpecStep({
         )}
       </section>
 
-      {/* Stage 2 — Create your first spec. */}
-      <section data-testid="create-stage" className="rounded-2xl border border-edge bg-surface p-6">
+      {/* Stage 2 — Create your first spec.
+          spec-372 issue-19 — blue focus ring moves here once MCP connected; muted when done. */}
+      <section
+        data-testid="create-stage"
+        className={`rounded-2xl p-6 transition-all duration-300 ${
+          done
+            ? 'border border-edge bg-surface'
+            : connected
+              ? 'border-[1.5px] border-accent bg-surface ring-[5px] ring-accent/10'
+              : 'border border-edge bg-surface'
+        }`}
+      >
         {/* spec-372 issue-17 — the created state is a "✓ Created" badge by the heading,
             mirroring Stage-1's "✓ Connected" badge (not a sentence at the bottom). */}
         <div className="flex items-start justify-between gap-3">
-          <StageHeading title="Create your first spec" sub="Draft your first spec with your coding agent, or create it here in the app." />
+          <StageHeading
+            title={done ? 'Created your first spec' : 'Create your first spec'}
+            sub={
+              done
+                ? 'Nice work, your first spec is in Memex. Next up, your agent surfaces the key decisions and locks in acceptance criteria, so your build starts on solid ground.'
+                : 'Draft your first spec with your coding agent, or create it here in the app.'
+            }
+            compact={done}
+          />
           {done && <StepDoneBadge label="Created" testId="create-spec-done" />}
         </div>
 
-        <div className="mb-5 inline-flex gap-1 rounded-xl bg-card-hover p-1">
-          {(['agent', 'app'] as Method[]).map((m) => (
-            <button
-              key={m}
-              type="button"
-              data-testid={`method-${m}`}
-              onClick={() => {
-                setMethod(m);
-                onCtaClick?.('create_method');
-              }}
-              className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${
-                method === m ? 'bg-surface text-accent shadow-sm' : 'text-muted hover:text-secondary'
-              }`}
-            >
-              {m === 'agent' ? 'With your coding agent' : 'In the app'}
-            </button>
-          ))}
-        </div>
-
-        <span className="mb-2.5 block text-sm font-semibold text-primary">Starting point</span>
-        <div className="mb-4 flex flex-wrap gap-2.5">
-          <button
-            type="button"
-            data-testid="source-sample"
-            onClick={() => {
-              setSource('sample');
-              onCtaClick?.('starting_point');
-            }}
-            className={chip(source === 'sample')}
-          >
-            Use our sample
-          </button>
-          <button
-            type="button"
-            data-testid="source-prd"
-            onClick={() => {
-              setSource('prd');
-              onCtaClick?.('starting_point');
-            }}
-            className={chip(source === 'prd')}
-          >
-            Point at my PRD
-          </button>
-        </div>
-
-        {method === 'agent' ? (
-          <div data-testid="create-spec-prompt">
-            <CodeBlock code={source === 'sample' ? SAMPLE_PROMPT : PRD_PROMPT} onCopy={() => onCtaClick?.('copy_create_prompt')} />
-          </div>
-        ) : (
-          <>
-            {/* spec-372 — the in-app method also shows the (fleshed-out) prompt, matching v3. */}
-            <div className="mb-4" data-testid="create-spec-app-prompt">
-              <CodeBlock
-                code={source === 'sample' ? APP_SAMPLE_PROMPT : APP_PRD_PROMPT}
-                onCopy={() => onCtaClick?.('copy_create_prompt')}
-              />
-            </div>
-            <button
-              type="button"
-              data-testid="create-spec-in-app"
-              onClick={() => {
-                onCtaClick?.('create_spec');
-                onCreateInApp?.();
-              }}
-              className="inline-flex items-center gap-2 rounded-xl bg-accent px-6 py-3.5 text-base font-bold text-on-accent shadow-lg transition hover:bg-accent-hover"
-            >
-              Create spec in Memex
-              <span aria-hidden>→</span>
-            </button>
-          </>
-        )}
-
-        {/* spec-372 issue-17 — done is shown as the "✓ Created" badge by the heading above;
-            the bottom status now only carries the waiting line. */}
         {!done && (
-          <div className="mt-5" data-testid="create-spec-status">
-            <div className="flex items-center gap-2.5 text-sm text-muted">
-              <span className="h-2.5 w-2.5 flex-none animate-pulse rounded-full bg-accent" />
-              Waiting for your agent to create the spec — this advances the moment it does.
+          <>
+            <div className="mb-5 inline-flex gap-1 rounded-xl bg-card-hover p-1">
+              {(['agent', 'app'] as Method[]).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  data-testid={`method-${m}`}
+                  onClick={() => {
+                    setMethod(m);
+                    onCtaClick?.('create_method');
+                  }}
+                  className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${
+                    method === m ? 'bg-surface text-accent shadow-sm' : 'text-muted hover:text-secondary'
+                  }`}
+                >
+                  {m === 'agent' ? 'With your coding agent' : 'In the app'}
+                </button>
+              ))}
             </div>
-          </div>
+
+            <span className="mb-2.5 block text-sm font-semibold text-primary">Starting point</span>
+            <div className="mb-4 flex flex-wrap gap-2.5">
+              <button
+                type="button"
+                data-testid="source-sample"
+                onClick={() => {
+                  setSource('sample');
+                  onCtaClick?.('starting_point');
+                }}
+                className={chip(source === 'sample')}
+              >
+                Use our sample
+              </button>
+              <button
+                type="button"
+                data-testid="source-prd"
+                onClick={() => {
+                  setSource('prd');
+                  onCtaClick?.('starting_point');
+                }}
+                className={chip(source === 'prd')}
+              >
+                Point at my PRD
+              </button>
+            </div>
+
+            {method === 'agent' ? (
+              <div data-testid="create-spec-prompt">
+                <CodeBlock code={source === 'sample' ? SAMPLE_PROMPT : PRD_PROMPT} onCopy={() => onCtaClick?.('copy_create_prompt')} />
+              </div>
+            ) : (
+              <>
+                {/* spec-372 — the in-app method also shows the (fleshed-out) prompt, matching v3. */}
+                <div className="mb-4" data-testid="create-spec-app-prompt">
+                  <CodeBlock
+                    code={source === 'sample' ? APP_SAMPLE_PROMPT : APP_PRD_PROMPT}
+                    onCopy={() => onCtaClick?.('copy_create_prompt')}
+                  />
+                </div>
+                <button
+                  type="button"
+                  data-testid="create-spec-in-app"
+                  onClick={() => {
+                    onCtaClick?.('create_spec');
+                    onCreateInApp?.();
+                  }}
+                  className="inline-flex items-center gap-2 rounded-xl bg-accent px-6 py-3.5 text-base font-bold text-on-accent shadow-lg transition hover:bg-accent-hover"
+                >
+                  Create spec in Memex
+                  <span aria-hidden>→</span>
+                </button>
+              </>
+            )}
+
+            <div className="mt-5" data-testid="create-spec-status">
+              <div className="flex items-center gap-2.5 text-sm text-muted">
+                <span className="h-2.5 w-2.5 flex-none animate-pulse rounded-full bg-accent" />
+                Waiting for your agent to create the spec — this advances the moment it does.
+              </div>
+            </div>
+          </>
         )}
       </section>
     </div>
