@@ -7,10 +7,9 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { ChatCollapseProvider } from './ChatCollapseContext';
 import { CollapsedChatStrip } from './CollapsedChatStrip';
-
-const CHAT_MIN_W = 300;
-const CHAT_MAX_W = 720;
-const CHAT_DEFAULT_W = 384; // = the old fixed w-96
+// spec-415 (dec-2): the width bounds now live in one shared module so the rail floor
+// and the drift panel's floor (DocumentShell.tsx) can't diverge again.
+import { CHAT_MIN_W, CHAT_DEFAULT_W, CHAT_MAX_W } from './chatPanelWidth';
 
 export interface ResizableChatRailProps {
   /** Per-surface localStorage key, e.g. 'scaffold-chat-width', 'standards-chat-width'. */
