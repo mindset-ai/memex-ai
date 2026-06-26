@@ -54,12 +54,19 @@ function stateFor(currentStepId: string, steps: Step[]) {
   };
 }
 
+// spec-421: resolve-decision is now in HIDDEN_STEP_IDS, so visible steps are filtered to
+// [identity, create-spec, create-first-spec]. NOT_GRADUATED must include at least one
+// non-attained visible step so the journey layer stays open (not graduated).
 const NOT_GRADUATED: Step[] = [
+  { id: 'identity', attained: true },
   { id: 'create-spec', attained: true },
+  { id: 'create-first-spec', attained: false },
   { id: 'resolve-decision', attained: false },
 ];
 const GRADUATED: Step[] = [
+  { id: 'identity', attained: true },
   { id: 'create-spec', attained: true },
+  { id: 'create-first-spec', attained: true },
   { id: 'resolve-decision', attained: true },
 ];
 
@@ -121,16 +128,19 @@ describe('spec-372 t-2: Home layout (ac-5)', () => {
   });
 });
 
-describe('spec-372 t-10: funnel-spine step_shown (ac-21)', () => {
-  it('ac-21: the active step emits home_canvas.step_shown, and all six steps are milestone steps', async () => {
+describe('spec-372 t-10 / spec-421: funnel-spine step_shown (ac-21)', () => {
+  it('ac-21: the active step emits home_canvas.step_shown; spec-421 adds create-first-spec as a milestone step', async () => {
     tagAc(AC(21));
-    fetchJourneyStateApi.mockResolvedValue(stateFor('resolve-decision', NOT_GRADUATED));
+    // spec-421: resolve-decision is hidden; visible steps are identity, create-spec, create-first-spec.
+    // The canvas clamps the server step to the last visible, which is create-first-spec.
+    fetchJourneyStateApi.mockResolvedValue(stateFor('create-first-spec', NOT_GRADUATED));
     renderCanvas();
-    await waitFor(() => expect(postJourneyEventApi).toHaveBeenCalledWith('resolve-decision', 'shown'));
-    // The funnel spine covers all six v3 steps (each fires step_shown when active).
+    await waitFor(() => expect(postJourneyEventApi).toHaveBeenCalledWith('create-first-spec', 'shown'));
+    // spec-421: create-first-spec added between create-spec and resolve-decision.
     expect([...ONBOARDING_MILESTONE_STEP_IDS]).toEqual([
       'identity',
       'create-spec',
+      'create-first-spec',
       'resolve-decision',
       'add-ac',
       'specs-match-reality',

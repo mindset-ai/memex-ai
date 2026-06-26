@@ -25,6 +25,7 @@ import { WelcomeStep } from './WelcomeStep';
 import { IdentityStep } from './IdentityStep';
 import { ConnectAgentStep } from './ConnectAgentStep';
 import { CreateSpecStep } from './CreateSpecStep';
+import { CreateFirstSpecStep } from './CreateFirstSpecStep';
 import { AgentPromptStep } from './AgentPromptStep';
 import { SeeGreenStep } from './SeeGreenStep';
 
@@ -68,13 +69,15 @@ describe('custom journey steps fire onCtaClick on their primary interaction (spe
     await waitFor(() => expect(onCtaClick).toHaveBeenCalledWith('copy_install'));
   });
 
-  it('create-spec → "copy_create_prompt" on copying the prompt', async () => {
-    // spec-372 t-10 (dec-6 Layer C) — the create-spec prompt copy now emits the specific
-    // cta discriminator `copy_create_prompt` (was the generic `copy_prompt`).
+  it('create-first-spec → "copy_create_prompt" on copying the sample prompt', async () => {
+    // spec-421 t-3b: the copy_create_prompt CTA moved from CreateSpecStep's Stage-2 prompt
+    // to CreateFirstSpecStep's collapsible sample-prompt helper (spec-372 t-10 dec-6 intent preserved).
+    const AC421 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-421/acs/ac-${n}`;
     tagAc(AC2);
+    tagAc(AC421(9)); // copying the sample prompt emits copy_create_prompt
     const onCtaClick = vi.fn();
-    render(<CreateSpecStep onCtaClick={onCtaClick} />);
-    await clickCopyWithin('create-spec-prompt');
+    render(<CreateFirstSpecStep preview onCtaClick={onCtaClick} />);
+    await clickCopyWithin('sample-prompt-helper');
     await waitFor(() => expect(onCtaClick).toHaveBeenCalledWith('copy_create_prompt'));
   });
 
