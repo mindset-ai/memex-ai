@@ -79,16 +79,26 @@ describe("spec-409 ground_spec is in the shared tool manifest (ac-11)", () => {
 describe("spec-409 ships fair-code (ac-14)", () => {
   it("no file touched by this branch carries a .ee. / .ee marker", () => {
     tagAc(AC(14));
-    // The files this spec added or modified, per git, relative to the worktree root.
+    // The files this branch touched: committed changes vs the develop base PLUS
+    // any uncommitted / untracked work. Diffing against develop (not just
+    // `git diff HEAD`) keeps the scan correct AFTER the work is committed — the
+    // old HEAD-only form went empty post-commit and tripped the sanity check
+    // (a brittle false-fail). `|| true` keeps a missing ref from throwing.
     const out = execSync(
-      "git diff --name-only HEAD; git ls-files --others --exclude-standard",
+      "git diff --name-only develop...HEAD || true; " +
+        "git diff --name-only HEAD || true; " +
+        "git ls-files --others --exclude-standard || true",
       { cwd: REPO_ROOT, encoding: "utf8" },
     );
-    const touched = out
-      .split("\n")
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0);
-    // Sanity: we should have touched something.
+    const touched = [
+      ...new Set(
+        out
+          .split("\n")
+          .map((s) => s.trim())
+          .filter((s) => s.length > 0),
+      ),
+    ];
+    // Sanity: a real branch always touches something vs develop.
     expect(touched.length).toBeGreaterThan(0);
     const eeMarked = touched.filter((p) => /\.ee\.|\/\.ee\//.test(p));
     expect(eeMarked).toEqual([]);
