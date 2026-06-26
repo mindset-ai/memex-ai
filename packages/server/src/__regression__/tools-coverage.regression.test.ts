@@ -70,6 +70,12 @@ const AGENT_ONLY_NON_UI = new Set<string>([
   // composed scaffold grounding context), so it is never registered on MCP —
   // the same one-surface justification as list_memexes being MCP-only.
   "propose_scaffold_change",
+  // spec-416: the standards agent's dedicated standard-creation verb. Agent-only
+  // by design (the in-app `standards` mode) — never on MCP, where coding agents
+  // already mint standards via create_doc({docType:'standard'}). Its missing
+  // docType param is what keeps the spec-389 scope wall structural. Same
+  // one-surface justification as propose_scaffold_change above.
+  "create_standard",
 ]); // every other non-UI agent tool is also on MCP
 
 describe("regression: agent ↔ MCP tool coverage parity (doc-14 dec-4)", () => {
@@ -140,11 +146,23 @@ describe("regression: agent ↔ MCP tool coverage parity (doc-14 dec-4)", () => 
     const mcp = listMcpToolNames();
     const { all: agentAll } = listAgentToolNames();
 
+    // spec-416: `create_standard` was a removed MCP tool name (folded into
+    // create_doc({docType:'standard'}) by doc-14) — and it STAYS removed on the
+    // MCP surface, so a stale MCP caller still gets the migration note. spec-416
+    // reintroduces the SAME name as a NEW, AGENT-ONLY tool for the in-app
+    // standards mode (no docType param → scope wall by construction). The
+    // migration entry remains for the MCP boundary; the name is deliberately
+    // live again on the agent surface, so it is exempt from the agent-side
+    // absence assertion below.
+    const REINTRODUCED_AGENT_ONLY = new Set<string>(["create_standard"]);
+
     const stillOnMcp: string[] = [];
     const stillOnAgent: string[] = [];
     for (const oldName of REMOVED_TOOL_NAMES) {
       if (mcp.has(oldName)) stillOnMcp.push(oldName);
-      if (agentAll.has(oldName)) stillOnAgent.push(oldName);
+      if (agentAll.has(oldName) && !REINTRODUCED_AGENT_ONLY.has(oldName)) {
+        stillOnAgent.push(oldName);
+      }
     }
 
     expect(stillOnMcp, stillOnMcp.length === 0
