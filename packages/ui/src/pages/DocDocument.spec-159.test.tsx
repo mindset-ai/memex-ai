@@ -153,8 +153,6 @@ vi.mock('../api/client', () => ({
   fetchIssues: () => Promise.resolve([]),
   fetchDocAssignees: () => Promise.resolve([]),
   archiveDoc: vi.fn(),
-  pauseDoc: vi.fn(),
-  unpauseDoc: vi.fn(),
   updateDocStatus: (...a: unknown[]) => updateDocStatus(...a),
   // spec-159 ac-19 (amended): the header posture pill → useSwitchPosture calls
   // promoteToEditor / demoteToReviewer, then refetches the role.
@@ -785,13 +783,15 @@ describe('spec-159 ac-17 — next-action handoff line', () => {
 
     const line = await screen.findByTestId('phase-handoff-line');
     expect(line.textContent).toContain(
-      'Copy the Specify prompt into your coding agent to create Decisions and ACs.',
+      'Copy the Specify prompt into your coding agent to create Decisions and ACs, grounded in the code.',
     );
     // The entity names render bold (<strong>) — "ACs" abbreviated since the
     // Rubicon line above already spells it out in full.
     const bolded = Array.from(line.querySelectorAll('strong')).map((el) => el.textContent);
     expect(bolded).toContain('Decisions');
     expect(bolded).toContain('ACs');
+    // spec-409: the code-grounding tail is bold too, matching the entity pattern.
+    expect(bolded).toContain('grounded in the code');
     // issue-4: the clickable words LEAD the line and NAME the prompt (matching
     // the tab bar's phase display name); the accessible name carries the full
     // sentence.
@@ -911,7 +911,7 @@ describe('spec-164 issue-1 — draft hides the create-Decisions-and-ACs handoff'
 
     const line = await screen.findByTestId('phase-handoff-line');
     expect(line.textContent).toContain(
-      'Copy the Specify prompt into your coding agent to create Decisions and ACs.',
+      'Copy the Specify prompt into your coding agent to create Decisions and ACs, grounded in the code.',
     );
   });
 });

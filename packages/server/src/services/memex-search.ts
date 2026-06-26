@@ -360,7 +360,6 @@ export async function resolveJumpTo(
     WHERE d.memex_id = ${memexId}
       AND d.doc_type = 'spec'
       AND d.archived_at IS NULL
-      AND d.paused_at IS NULL
       AND d.is_demo IS NOT TRUE
       AND d.title ILIKE ${pattern} ESCAPE '\\'
     ORDER BY length(d.title) ASC, d.title ASC

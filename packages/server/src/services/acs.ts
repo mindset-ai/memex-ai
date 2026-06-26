@@ -539,18 +539,24 @@ export async function setAcAcceptance(
   memexId: string,
   acId: string,
   actor: string,
+  ctx: RequestCtx = {},
 ): Promise<Mutated<Ac>> {
   if (!actor.trim()) {
     throw new ValidationError("actor is required to accept an AC");
   }
   const ac = await getAc(memexId, acId); // tenancy check
   return mutate(
-    {},
+    ctx,
     { memexId, docId: ac.briefId, entity: "ac", action: "updated" },
     async () => {
       const [row] = await db
         .update(acs)
-        .set({ acceptedBy: actor.trim(), acceptedAt: new Date(), updatedAt: new Date() })
+        .set({
+          acceptedBy: actor.trim(),
+          acceptedAt: new Date(),
+          updatedAt: new Date(),
+          ...(await resolveActorColumns(ctx)),
+        })
         .where(and(eq(acs.id, acId), eq(acs.memexId, memexId)))
         .returning();
       return row;
@@ -566,20 +572,27 @@ export async function setAcAcceptance(
 export async function clearAcAcceptance(
   memexId: string,
   acId: string,
+  ctx: RequestCtx = {},
 ): Promise<Mutated<Ac>> {
   const ac = await getAc(memexId, acId); // tenancy check
   if (ac.acceptedAt === null) {
     throw new ConflictError(`AC ${acId} has no acceptance to revoke`);
   }
   return mutate(
-    {},
+    ctx,
     { memexId, docId: ac.briefId, entity: "ac", action: "updated" },
     async () => {
       const [row] = await db
         .update(acs)
         // spec-391: clearing the acceptance also clears the reviewed-verification
         // rationale — the reason is meaningless without the sign-off it explains.
-        .set({ acceptedBy: null, acceptedAt: null, reviewedReason: null, updatedAt: new Date() })
+        .set({
+          acceptedBy: null,
+          acceptedAt: null,
+          reviewedReason: null,
+          updatedAt: new Date(),
+          ...(await resolveActorColumns(ctx)),
+        })
         .where(and(eq(acs.id, acId), eq(acs.memexId, memexId)))
         .returning();
       return row;
@@ -1264,73 +1277,6 @@ export async function listAcAlignmentOverTime(
     total: Number(r.total),
     verified: Number(r.verified),
   }));
-}
-
-// ══════════════════════════════════════════════════════════════════════
-// Advancement gates (spec-391) — the HARD blocks at the spec-advancement
-// checkpoints. Computed here, in the same module as the verification
-// derivation, so the gate verdict and list_acs / assess_spec can never
-// disagree (they all flow through listAcsForBriefWithVerification →
-// deriveVerificationState). Enforcement is wired into
-// services/documents.ts:updateDocStatus (the single seam every forward-move
-// surface funnels through). See spec-391 dec-1 / dec-3 / dec-5.
-//
-// These are pure read functions returning a structured blocker description;
-// the throwing lives at the seam so the error shape stays the caller's
-// concern. They never block code-work — only the verify→done / build→verify
-// advancements call them.
-
-/**
- * spec-391 dec-1 / dec-3 (ac-5, ac-6, ac-9): the verify→done AC gate.
- *
- * Returns the handles of every ACTIVE IMPLEMENTATION AC that is `untested` or
- * `failing` — the conditions that HARD-BLOCK the verify→done advancement. An
- * empty array means the advancement is clear.
- *
- * - Only `implementation` ACs gate (scope ACs are manager-authored outcomes,
- *   not mechanism proofs).
- * - `accepted` ACs (a reviewed-verification sign-off, spec-391 dec-2) satisfy
- *   the gate — that is the escape hatch.
- * - `stale` does NOT block (dec-3): stale means the proof aged, not that it's
- *   wrong; a recency clock is a poor hard gate. (assess_spec still nudges.)
- * - `verified` satisfies the gate.
- *
- * Derivation is the EXACT listAcsForBriefWithVerification path list_acs and
- * assess_spec use — the gate cannot disagree with the displayed badge.
- */
-export async function listAcsBlockingDone(
-  memexId: string,
-  briefId: string,
-): Promise<{ handle: string; state: VerificationState }[]> {
-  const rows = await listAcsForBriefWithVerification(memexId, briefId);
-  return rows
-    .filter(
-      (r) =>
-        r.ac.kind === "implementation" &&
-        r.ac.status === "active" &&
-        (r.verificationState === "untested" || r.verificationState === "failing"),
-    )
-    .map((r) => ({ handle: `ac-${r.ac.seq}`, state: r.verificationState }));
-}
-
-/**
- * spec-391 dec-5 (ac-11): the build→verify naked-decision gate.
- *
- * Returns the handles of every RESOLVED decision on the spec that has zero
- * active implementation ACs — a commitment with no verification path. Any
- * non-empty result HARD-BLOCKS the build→verify advancement. Reuses
- * listResolvedDecisionImplAcCoverage (the same derivation the existing
- * specify→build advisory nudge uses), so the early nudge and the hard block
- * speak with one voice.
- */
-export async function listNakedDecisionsBlockingVerify(
-  memexId: string,
-  briefId: string,
-): Promise<string[]> {
-  const coverage = await listResolvedDecisionImplAcCoverage(memexId, briefId);
-  return coverage
-    .filter((c) => c.implementationAcCount === 0)
-    .map((c) => c.decisionHandle);
 }
 
 // ══════════════════════════════════════════════════════════════════════

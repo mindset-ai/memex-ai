@@ -7,15 +7,19 @@
 // its own fixed-dark surface rather than theme tokens.
 import { useEffect, useRef, useState } from 'react';
 import { CodeBlock } from '../CodeBlock';
+import { StepDoneBadge } from './StepDoneBadge';
 import { fetchJourneyStateApi } from '../../api/journey';
+import { SPEC_TOKEN_PLACEHOLDER } from './specToken';
 import shotDecisions from '../../assets/onboarding/specs-match-reality-1-decisions-improved.png';
 import shotAcs from '../../assets/onboarding/specs-match-reality-2-acceptance-criteria-improved.png';
 import shotTasks from '../../assets/onboarding/specs-match-reality-3-tasks-created.png';
 import shotTests from '../../assets/onboarding/specs-match-reality-4-unit-tests.png';
 
+// spec-372 issue-15 — {spec} is replaced at render with the user's real spec handle (or a
+// fill-in placeholder); see specToken.ts / resolveSpecToken.
 const IMPROVE_PROMPT = `Using the Memex MCP, with access to my repo:
 
-Improve the spec, decisions and acceptance criteria against the
+Improve {spec}, decisions and acceptance criteria against the
 reality of the codebase. Then break the work into tasks and add a
 unit test for each acceptance criterion.`;
 
@@ -30,10 +34,13 @@ export function SpecsMatchRealityStep({
   preview = false,
   onComplete,
   onCtaClick,
+  specToken = SPEC_TOKEN_PLACEHOLDER,
 }: {
   preview?: boolean;
   onComplete?: () => void;
   onCtaClick?: (target: string) => void;
+  // spec-372 issue-15 — the real spec handle (or placeholder) injected into the prompt.
+  specToken?: string;
 } = {}) {
   const [done, setDone] = useState(false);
   const doneRef = useRef(false);
@@ -80,7 +87,12 @@ export function SpecsMatchRealityStep({
 
   return (
     <div data-testid="journey-step-specs-match-reality" className="max-w-3xl animate-[panelIn_0.35s_ease]">
-      <h2 className="onboarding-heading mb-4">Specs that match reality</h2>
+      {/* spec-372 issue-17 — done is a "✓ Grounded with your codebase" badge inline with the
+          title, right-aligned to the content; the bottom status carries only the waiting line. */}
+      <div className="flex items-start justify-between gap-3">
+        <h2 className="onboarding-heading mb-4">Specs that match reality</h2>
+        {done && <StepDoneBadge label="Grounded with your codebase" testId="specs-match-reality-done" />}
+      </div>
       {/* spec-372 t-13 — v3 sub-tagline weight is 600 (semibold), not bold. */}
       <p className="mb-5 text-xl font-semibold leading-snug text-primary">Refined against your actual codebase</p>
       <p className="mb-6 max-w-2xl leading-relaxed text-secondary">
@@ -89,7 +101,7 @@ export function SpecsMatchRealityStep({
       </p>
 
       <div className="mb-7" data-testid="specs-match-reality-prompt">
-        <CodeBlock code={IMPROVE_PROMPT} onCopy={() => onCtaClick?.('copy_prompt')} />
+        <CodeBlock code={IMPROVE_PROMPT.replace('{spec}', specToken)} onCopy={() => onCtaClick?.('copy_prompt')} />
       </div>
 
       <div className="flex flex-col gap-8" data-testid="specs-match-reality-outcomes">
@@ -109,21 +121,16 @@ export function SpecsMatchRealityStep({
         ))}
       </div>
 
-      <div className="mt-7" data-testid="specs-match-reality-status">
-        {done ? (
-          <div data-testid="specs-match-reality-done" className="flex items-center gap-2.5 text-status-success-text">
-            <span className="h-2.5 w-2.5 flex-none rounded-full bg-status-success-text" />
-            <span className="font-semibold">Plan grounded in your codebase.</span>
-          </div>
-        ) : (
+      {!done && (
+        <div className="mt-7" data-testid="specs-match-reality-status">
           <div className="flex items-center gap-2.5 text-sm text-muted">
             {/* spec-372 dec-4 — honest waiting copy + a STATIC (non-pulsing) idle dot, so the
                 step never implies Memex is autonomously operating in the user's repo. */}
             <span className="h-2.5 w-2.5 flex-none rounded-full bg-current opacity-50" />
             Waiting for your agent to ground the plan in your codebase — this advances the moment it does.
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

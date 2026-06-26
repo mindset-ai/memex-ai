@@ -17,6 +17,7 @@ import { type SessionEnv } from "../middleware/session.js";
 import type { MemexResolverEnv } from "../middleware/memex-resolver.js";
 import { requireMemexId, resolveReadableMemexId } from "./shared.js";
 import { mountStandardSessionPolicy } from "./session-policy.js";
+import { restCtx } from "./_actor-ctx.js";
 
 // Thin REST mirror of the Issues service (spec-112 t-10). The React UI's
 // IssuePanel talks to this surface exactly as TaskPanel talks to /api/tasks;
@@ -104,7 +105,7 @@ issuesRouter.delete("/:id", async (c) => {
 issuesRouter.post("/:id/convert-to-task", async (c) => {
   const memexId = requireMemexId(c);
   const id = c.req.param("id");
-  const result = await convertIssueToTask(memexId, id);
+  const result = await convertIssueToTask(memexId, id, restCtx(c));
   return c.json(result, 201);
 });
 

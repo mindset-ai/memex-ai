@@ -454,23 +454,6 @@ describe("spec-189: traffic-driven phase advancement through real MCP tool calls
     expect(ids.filter((id) => id === actor.member.id)).toHaveLength(1);
   });
 
-  it("paused Specs still assign but never auto-transition; hidden-style flags stay untouched", async () => {
-    const spec = await makeSpec("Paused stays put");
-    const taskRef = await seedTaskRef(spec);
-    await db
-      .update(documents)
-      .set({ pausedAt: new Date() })
-      .where(eq(documents.id, spec.id));
-    const res = await callMcp(actor.member.id, "update_task", {
-      ref: taskRef,
-      title: "Edit at a paused Spec — should assign, not move.",
-    });
-    expect(res.isError).toBeFalsy();
-    expect(await specStatus(spec.id)).toBe("draft");
-    expect(await assigneeIds(spec.id)).toContain(actor.member.id);
-    const row = await db.query.documents.findFirst({ where: eq(documents.id, spec.id) });
-    expect(row!.pausedAt).not.toBeNull();
-  });
 });
 
 // ──────────────────────────────────────────────────────────────────────────

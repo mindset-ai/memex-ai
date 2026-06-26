@@ -20,8 +20,6 @@ vi.mock('../api/client', () => ({
   fetchDocs: (...args: unknown[]) => fetchDocsMock(...args),
   updateDocStatus: vi.fn(),
   archiveDoc: vi.fn(),
-  pauseDoc: vi.fn(),
-  unpauseDoc: vi.fn(),
   resetHandholdDemo: vi.fn(),
 }));
 vi.mock('../components/NewSpecModal', () => ({ NewSpecModal: () => null }));

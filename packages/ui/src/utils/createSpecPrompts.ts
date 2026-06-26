@@ -11,28 +11,55 @@
 // fully flesh out a complete, build-ready spec (scope ACs + surface decisions), not just
 // create_doc. Agent variants are MCP step lists; the in-app variants are natural-language
 // prompts pasted into Memex's own creator.
-export const SAMPLE_PROMPT = `Using the Memex MCP, create and fully flesh out my first spec in my personal Memex from:
+// spec-372 issue-11 — the "Use our sample" agent prompt is a rich PRD-style starting point
+// (problem / users / success / non-goals / constraints / risks) + explicit create_doc and
+// per-section instructions, not a terse step list.
+export const SAMPLE_PROMPT = `Using the Memex MCP, create and fully flesh out a spec for the following:
 
-  "Orders Dashboard — a small internal dashboard over a sample sales DB
-   (à la Northwind): list orders, filter by customer and date, and a
-   revenue-by-month chart."
+Orders Dashboard
 
-1. Call list_memexes and pick my personal workspace.
-2. Call create_doc with the title "Orders Dashboard" and a clear purpose.
-3. Add scope acceptance criteria capturing what "done" looks like.
-4. Surface the decisions the build hinges on for me to resolve.
-5. Leave it fully fleshed out — not just a stub — so all that's left is for me to resolve the decisions and build.
+Problem: Our ops and sales teams ping engineering 3–5 times a week for ad-hoc data pulls — "show me all orders for Acme Corp in Q1", "what was revenue last month?" Each request takes 24–48 hours and pulls an engineer off real work. We need to eliminate those requests entirely by giving the team a self-service view they can operate without SQL or engineering help.
 
-Then tell me the spec handle (spec-N) you created.`;
+Users: Four internal people — two ops analysts who check order status daily, one sales manager who filters by customer before calls, and one exec who glances at monthly revenue trends. None of them write SQL. They use this reactively (answer a specific question), not as an always-on dashboard.
 
+What to build: A read-only internal web dashboard over a Northwind-style sample sales DB with three capabilities:
+- A paginated, sortable order list (Order ID, customer, date, status, total)
+- Customer filter (typeahead) + date-range picker that narrow both the list and the chart simultaneously
+- A revenue-by-month bar chart that responds to the active filters
+
+Measurable success: Engineering receives zero ad-hoc CSV export requests within two weeks of the dashboard going live. Any of the four users can answer their own question in under 30 seconds without help.
+
+Explicit non-goals (do not build):
+- Order editing or any write operations
+- Product-level drill-down or line-item detail view
+- CSV / Excel export
+- Mobile layout
+- Role-based access or per-user permissions
+
+Constraints:
+- React + TypeScript preferred (Vite, not Next.js)
+- SQLite with a Northwind seed script is fine — no need to scale beyond the sample dataset
+- Deploy target: either localhost with a docker compose up or a shared Fly.io URL so the team can bookmark it
+
+Risks to call out:
+- Filter query performance if the orders table ever grows beyond the sample size
+- Revenue chart misrepresenting partial months at the start/end edges of a date range
+- SQLite file not persisting if we later move to a serverless deployment
+
+From this, please:
+1. create_doc with a rich purpose narrative that captures the problem, users, and success definition — not just a feature list
+2. Add a Problem section, a Non-Goals section, and a Risks section as separate spec sections
+
+Tell me the spec handle when done.`;
+
+// spec-372 issue-12 — the "Point at my PRD" agent prompt is the short 4-step version with a
+// fill-in path placeholder (drops the add-ACs / surface-decisions steps).
 export const PRD_PROMPT = `Using the Memex MCP, create and fully flesh out my first spec in my personal Memex from my PRD:
 
-1. Read my PRD at ./docs/prd.md locally.
+1. Read my PRD at <your path to our PRD> locally.
 2. Call list_memexes and pick my personal workspace.
 3. Call create_doc with a title and a clear purpose drawn from the PRD.
-4. Add scope acceptance criteria capturing what "done" looks like.
-5. Surface the decisions the build hinges on for me to resolve.
-6. Leave it fully fleshed out — not just a stub — so all that's left is for me to resolve the decisions and build.
+4. Leave it fully fleshed out — not just a stub.
 
 Then tell me the spec handle (spec-N) you created.`;
 

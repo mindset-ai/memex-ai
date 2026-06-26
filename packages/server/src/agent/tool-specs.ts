@@ -74,6 +74,15 @@ import { scaffoldTools } from "./handlers/scaffold.js";
 // manifest parity check (`manifestVsSpecsDiff`) both consult.
 export const AGENT_ONLY_SERVER_TOOLS: ReadonlySet<string> = new Set([
   "propose_scaffold_change",
+  // spec-416 dec-1: the standards agent's dedicated standard-creation verb.
+  // Like propose_scaffold_change, it only makes sense inside an in-app agent
+  // mode (the `standards` mode), so it is NOT registered on MCP and is
+  // intentionally absent from the @memex/shared manifest — excluded from the
+  // b-67 manifest↔MCP parity cross-check the same way. (MCP coding agents
+  // already mint standards via create_doc({docType:'standard'}); the scope wall
+  // this tool enforces is specifically about the constrained in-app standards
+  // agent.)
+  "create_standard",
 ]);
 
 export const toolSpecs: ToolSpec[] = [

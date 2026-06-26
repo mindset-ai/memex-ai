@@ -156,7 +156,6 @@ export async function listSpecsAssignedToUser(
         eq(docAssignees.userId, userId),
         eq(documents.memexId, memexId),
         isNull(documents.archivedAt),
-        isNull(documents.pausedAt),
       ),
     )
     .orderBy(sql`${documents.handle}`);

@@ -11,6 +11,7 @@ import { AgentPromptStep } from './AgentPromptStep';
 const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-305/acs/ac-${n}`;
 // spec-336 ac-4: steps 2–4 each present the copyable MCP prompt that drives that stage.
 const AC336 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-336/acs/ac-${n}`;
+const AC372 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-372/acs/ac-${n}`;
 
 beforeEach(() => {
   fetchJourneyStateApi.mockReset();
@@ -35,6 +36,18 @@ describe('AgentPromptStep', () => {
     render(<AgentPromptStep stepId="add-ac" preview />);
     expect(screen.getByTestId('journey-step-add-ac')).toBeInTheDocument();
     expect(screen.getByTestId('agent-prompt').textContent).toMatch(/raising acceptance criteria for each decision/);
+    // spec-372 issue-14 — the closing line refers to acceptance criteria, not decisions.
+    tagAc(AC372(42));
+    expect(screen.getByTestId('agent-prompt').textContent).toMatch(/the acceptance criteria \(ac-N\) you added/);
+  });
+  it('spec-372 issue-13/14: injects the provided spec token into the prompt', () => {
+    tagAc(AC372(41));
+    render(<AgentPromptStep stepId="resolve-decision" preview specToken="spec-376" />);
+    expect(screen.getByTestId('agent-prompt').textContent).toMatch(/Look at spec-376, look at the repo/);
+  });
+  it('spec-372 issue-13/14: falls back to the placeholder when no token is provided', () => {
+    render(<AgentPromptStep stepId="resolve-decision" preview />);
+    expect(screen.getByTestId('agent-prompt').textContent).toMatch(/Look at <insert a spec number of one of your specs>,/);
   });
   it('advances when the step milestone becomes met while the step is open', async () => {
     tagAc(AC(13));
@@ -54,6 +67,7 @@ describe('AgentPromptStep', () => {
   it('does NOT advance when the milestone is already met on arrival (revisiting a completed step)', async () => {
     // spec-336 dec-6: viewing a finished step shows it as done but never bumps you forward.
     tagAc(AC(13));
+    tagAc(AC372(46)); // spec-372 issue-17 — done shows the "✓ Decisions raised" badge
     vi.useFakeTimers();
     fetchJourneyStateApi.mockResolvedValue({ milestones: { hasResolvedDecision: true } });
     const onComplete = vi.fn();
@@ -62,6 +76,22 @@ describe('AgentPromptStep', () => {
     await vi.advanceTimersByTimeAsync(4000);
     await vi.advanceTimersByTimeAsync(2000); // well past any advance window
     expect(onComplete).not.toHaveBeenCalled();
-    expect(screen.getByTestId('agent-prompt-done')).toBeInTheDocument();
+    const badge = screen.getByTestId('agent-prompt-done');
+    expect(badge.textContent).toContain('Decisions raised');
+    expect(badge.textContent).toContain('✓');
+    expect(badge.className).toContain('rounded-full');
+  });
+
+  it('spec-372 issue-17: the add-ac done state shows a "✓ Acceptance criteria raised" badge', async () => {
+    tagAc(AC372(46));
+    vi.useFakeTimers();
+    fetchJourneyStateApi.mockResolvedValue({ milestones: { hasAc: true } });
+    render(<AgentPromptStep stepId="add-ac" />);
+    await vi.advanceTimersByTimeAsync(0); // first read — already met → done
+    await vi.advanceTimersByTimeAsync(4000);
+    const badge = screen.getByTestId('agent-prompt-done');
+    expect(badge.textContent).toContain('Acceptance criteria raised');
+    expect(badge.textContent).toContain('✓');
+    expect(badge.className).toContain('rounded-full');
   });
 });

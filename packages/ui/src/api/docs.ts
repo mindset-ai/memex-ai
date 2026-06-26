@@ -233,26 +233,6 @@ export async function archiveDoc(docId: string): Promise<void> {
   }
 }
 
-export async function pauseDoc(docId: string): Promise<void> {
-  const res = await fetchWithRetry(`${tBase()}/docs/${docId}/pause`, {
-    method: 'POST',
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(text || `Failed to pause spec: ${res.status}`);
-  }
-}
-
-export async function unpauseDoc(docId: string): Promise<void> {
-  const res = await fetchWithRetry(`${tBase()}/docs/${docId}/unpause`, {
-    method: 'POST',
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(text || `Failed to unpause spec: ${res.status}`);
-  }
-}
-
 // spec-178 (UI CLIENT CONTRACT): re-seed the personal Memex's Handhold demo. POSTs
 // the route the ROUTE agent owns — POST /api/:namespace/:memex/handhold/reset — which
 // hard-deletes the existing demo specs (+ their seeded emissions) and re-seeds the five

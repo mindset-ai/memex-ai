@@ -520,6 +520,13 @@ export function AppShell({ children }: { children: ReactNode }) {
   const onStandardsListPage = !!useMatch('/:namespace/:memex/standards');
   const onIssuesPage = !!useMatch('/:namespace/:memex/issues');
   const onAgentRailPage = onScaffoldPage || onStandardsListPage || onIssuesPage;
+  // spec-410: the Drift Inbox is the odd one out — it's not a doc page (it keeps
+  // the sidebar + drift badge), but it docks the agent via DocumentShell's
+  // two-pane shell rather than a ResizableChatRail. Either way the bounding need
+  // is identical: without a `min-h-0` wrapper DocumentShell's `h-full` can't
+  // resolve, the shell grows to content height, and the whole <main> scrolls as
+  // one unit — dragging the agent panel along with the drift rows. Bound it too.
+  const onDriftPage = !!useMatch('/:namespace/:memex/drift');
 
   // Open standards drift count for the nav badge (b-63). Skipped on doc pages,
   // where the sidebar is hidden.
@@ -719,8 +726,11 @@ export function AppShell({ children }: { children: ReactNode }) {
         {/* spec-360 / spec-389: an agent-rail page (scaffold, standards, issues)
             gets a bounded wrapper so its `h-full` resolves and the rail scrolls
             internally; content-flow pages keep the natural `flex-1` and scroll at
-            the <main> level. */}
-        <div className={onAgentRailPage ? 'flex-1 min-h-0' : 'flex-1'}>{children}</div>
+            the <main> level. spec-410: the Drift Inbox needs the same bounding —
+            it docks the agent via DocumentShell's two-pane shell. */}
+        <div className={onAgentRailPage || onDriftPage ? 'flex-1 min-h-0' : 'flex-1'}>
+          {children}
+        </div>
       </main>
 
       {/* spec-141 dec-2: invite dialog (portal-rendered to body). Opened from

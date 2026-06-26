@@ -4,8 +4,11 @@
 // against intent. Terminal: no milestone to wait on — its rail orb ticks once every prior
 // step is attained (the server's all-milestones-met terminal rule).
 import { CodeBlock } from '../CodeBlock';
+import { SPEC_TOKEN_PLACEHOLDER } from './specToken';
 
-const GO_BUILD_PROMPT = `Using the Memex MCP — the plan is complete: decisions resolved,
+// spec-372 issue-16 — kept a BUILD prompt; only {spec} is injected at render with the user's
+// real spec handle (or a fill-in placeholder); see specToken.ts / resolveSpecToken.
+const GO_BUILD_PROMPT = `Using the Memex MCP — the plan for {spec} is complete: decisions resolved,
 acceptance criteria set, tasks queued and a test behind each one.
 
 Now build it. Work through the tasks in order: implement each one,
@@ -15,8 +18,11 @@ Go build.`;
 
 export function AgentsBuildStep({
   onCtaClick,
+  specToken = SPEC_TOKEN_PLACEHOLDER,
 }: {
   onCtaClick?: (target: string) => void;
+  // spec-372 issue-16 — the real spec handle (or placeholder) injected into the prompt.
+  specToken?: string;
 } = {}) {
   return (
     <div data-testid="journey-step-agents-build" className="max-w-3xl animate-[panelIn_0.35s_ease]">
@@ -32,7 +38,7 @@ export function AgentsBuildStep({
       </p>
 
       <div data-testid="agents-build-prompt">
-        <CodeBlock code={GO_BUILD_PROMPT} onCopy={() => onCtaClick?.('copy_prompt')} />
+        <CodeBlock code={GO_BUILD_PROMPT.replace('{spec}', specToken)} onCopy={() => onCtaClick?.('copy_prompt')} />
       </div>
     </div>
   );

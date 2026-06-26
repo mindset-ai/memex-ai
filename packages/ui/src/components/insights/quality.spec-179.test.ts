@@ -32,6 +32,9 @@ const CHART_FILES = [
   'AcVerificationChart.tsx',
   'AcsOverTimeChart.tsx',
   'TestRunVolumeChart.tsx',
+  // spec-406: the per-spec Stats tab's Nivo chart. (The phase-timeline Gantt is a
+  // custom SVG — no @nivo import — so it is intentionally NOT in this list.)
+  'SpecTaskVelocityChart.tsx',
 ];
 
 function chartSource(file: string): string {
