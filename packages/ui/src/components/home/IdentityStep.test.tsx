@@ -101,8 +101,12 @@ describe('IdentityStep (v2)', () => {
     expect(name).toBe('Jane Roe');
   });
 
-  it('spec-372 issue-4: the name field shows a confirm tick only after typing, and the tick submits', async () => {
+  it('spec-372 issue-4: the name field shows a confirm tick only after typing; spec-421 t-1: the tick blurs (does not submit)', async () => {
+    // spec-372 issue-4 / ac-32: tick appears after typing. spec-421 t-1 fixes the Enter-submits
+    // bug by making the tick blur the field only — Continue is the sole step-advance path.
     tagAc(AC372(32));
+    const AC421 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-421/acs/ac-${n}`;
+    tagAc(AC421(1));
     authUser.value = { id: 'u-2', name: '', email: 'jane@example.com' };
     render(<IdentityStep />);
     // Hidden while the field is empty.
@@ -111,8 +115,11 @@ describe('IdentityStep (v2)', () => {
     fireEvent.change(screen.getByTestId('identity-name'), { target: { value: 'Jane' } });
     const confirm = screen.getByTestId('identity-name-confirm');
     expect(confirm).toBeInTheDocument();
-    // Clicking it submits like Continue (persists the typed name).
+    // Clicking the tick blurs the field — it does NOT submit (spec-421 t-1: Continue is the sole submit path).
     fireEvent.click(confirm);
+    expect(updateProfileApi).not.toHaveBeenCalled();
+    // Continue still submits normally.
+    fireEvent.click(screen.getByTestId('identity-continue'));
     await waitFor(() => expect(updateProfileApi).toHaveBeenCalledTimes(1));
     expect(updateProfileApi.mock.calls[0][1]).toBe('Jane');
   });

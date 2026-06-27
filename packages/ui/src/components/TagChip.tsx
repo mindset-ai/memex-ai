@@ -47,7 +47,7 @@ export function TagChip({ tag, onRemove, removeLabel, className = '' }: TagChipP
         <>
           <span
             data-testid="tag-chip-scope"
-            className="font-semibold uppercase tracking-wide text-accent"
+            className="font-semibold tracking-wide text-accent"
           >
             {tag.scope}
           </span>
