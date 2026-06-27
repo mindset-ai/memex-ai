@@ -150,7 +150,40 @@ if ! gcloud kms keys describe slack-tokens \
 fi
 echo "  ✓ KMS key 'slack-tokens' present"
 
-# ── Step 1: Run database migrations ───────────────────────────
+# ── Step 1: Local build check ────────────────────────────────
+# spec-417 dec-5 — build-before-migrate reorder. The local build check and the
+# container build+push (Steps 1–2) now run BEFORE migrations (Step 3), so the
+# schema change commits immediately before the Cloud Run cutover (Step 4) instead
+# of ~minutes earlier. This collapses the window in which the OLD revision runs
+# against the NEW schema from ~build-duration (≈20 min on the 2026-06-26 incident)
+# to roughly migration-apply + cutover time. Migrations still land BEFORE the
+# revision swap, so the b-36 invariant in Step 3 is preserved — and a build failure
+# now aborts BEFORE any migration runs, which is strictly safer.
+echo ""
+echo "Running local build check..."
+pnpm run build
+
+# ── Step 2: Build and push container ──────────────────────────
+echo ""
+echo "Building container image (${IMAGE})..."
+
+# Submit from the repo root so the build context includes packages/shared
+# (workspace dep of @memex/server). The Dockerfile at the repo root is
+# workspace-aware; .gcloudignore there keeps the upload lean.
+#
+# spec-281 Fix 2: build via cloudbuild.yaml (not bare `--tag`) so the build reuses
+# cached layers from the previously-pushed image (`--cache-from` + BuildKit inline
+# cache). `--tag` gives the clean Cloud Build worker no cache, so the pnpm-install
+# `deps` layer rebuilt every deploy even when only source changed (~2min wasted on
+# int + prod). `_IMAGE` is env-keyed, so this lands identically on both.
+( cd "${REPO_ROOT}" && gcloud builds submit \
+  --config cloudbuild.yaml \
+  --substitutions "_IMAGE=${IMAGE}" \
+  --project "${GCP_PROJECT}" \
+  --region "${REGION}" \
+  --default-buckets-behavior=regional-user-owned-bucket )
+
+# ── Step 3: Run database migrations ───────────────────────────
 # Two phases, matching the project convention (packages/server/TEST.md):
 #   1a. drizzle-kit migrate  → journal-tracked files (0000–0008)
 #   1b. apply-hand-migrations.sh → hand-written files (0009+), tracked in manual_migrations
@@ -160,8 +193,11 @@ echo "  ✓ KMS key 'slack-tokens' present"
 # ref + `seq` columns added in 0052 (doc_comments_seq) and rejects UUID inputs
 # at the MCP boundary. Swapping the revision first would leave the old code
 # running against a fresh schema (harmless) but the new code running against
-# the old schema (broken section / comment lookups). Keep this script's step
-# order: migrations → build → push → deploy.
+# the old schema (broken section / comment lookups). The invariant is only that
+# migrations land BEFORE the Cloud Run revision swap (Step 4) — NOT before the
+# image build. Per spec-417 dec-5 the order is now build → push → migrations →
+# deploy, which preserves this invariant while shrinking the window in which the
+# OLD revision runs against the NEW schema to ~migration-apply + cutover time.
 #
 # FIRST-TIME BOOTSTRAP (run once per environment before the first deploy through this
 # path, e.g. against prod that's had 0009–0017 applied manually):
@@ -286,31 +322,6 @@ kill $PROXY_PID 2>/dev/null
 wait $PROXY_PID 2>/dev/null || true
 
 echo "Migrations complete."
-
-# ── Step 2: Local build check ────────────────────────────────
-echo ""
-echo "Running local build check..."
-pnpm run build
-
-# ── Step 3: Build and push container ──────────────────────────
-echo ""
-echo "Building container image (${IMAGE})..."
-
-# Submit from the repo root so the build context includes packages/shared
-# (workspace dep of @memex/server). The Dockerfile at the repo root is
-# workspace-aware; .gcloudignore there keeps the upload lean.
-#
-# spec-281 Fix 2: build via cloudbuild.yaml (not bare `--tag`) so the build reuses
-# cached layers from the previously-pushed image (`--cache-from` + BuildKit inline
-# cache). `--tag` gives the clean Cloud Build worker no cache, so the pnpm-install
-# `deps` layer rebuilt every deploy even when only source changed (~2min wasted on
-# int + prod). `_IMAGE` is env-keyed, so this lands identically on both.
-( cd "${REPO_ROOT}" && gcloud builds submit \
-  --config cloudbuild.yaml \
-  --substitutions "_IMAGE=${IMAGE}" \
-  --project "${GCP_PROJECT}" \
-  --region "${REGION}" \
-  --default-buckets-behavior=regional-user-owned-bucket )
 
 # ── Step 4: Deploy to Cloud Run ───────────────────────────────
 echo ""
