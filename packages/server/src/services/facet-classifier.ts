@@ -27,9 +27,22 @@ import { vocabForMemex, type VocabFacet } from "./facet-vocab.js";
 // classifier is a one-off local backfill, so it runs on the most capable tier.
 const MODEL = "claude-opus-4-8";
 
-// How many clauses to classify concurrently. Bounded so a large standards corpus
-// doesn't open hundreds of simultaneous Anthropic requests (ac-39: bounded concurrency).
-const CONCURRENCY = 8;
+// Per-clause LLM calls are independent, so the backfill runs them through a bounded
+// pool rather than one-at-a-time — the difference between a ~hour and a few minutes
+// over the full corpus. The cap keeps us inside Anthropic's rate limits. 16 keeps the
+// full ~2k-clause corpus under ~4 min while staying inside the per-tier limit; push it
+// higher via CLASSIFY_CONCURRENCY when the key's tier allows.
+function defaultConcurrency(): number {
+  const fromEnv = Number(process.env.CLASSIFY_CONCURRENCY);
+  return Number.isFinite(fromEnv) && fromEnv > 0 ? Math.floor(fromEnv) : 16;
+}
+
+// A long backfill against a rate-limited endpoint WILL see transient blips
+// (429/overload/5xx/network). Without a retry, a single blip rejects the whole pool
+// and aborts the run partway. Retry transients with exponential backoff + jitter so
+// one blip never aborts a long run.
+const MAX_RETRIES = 5;
+const RETRY_BASE_MS = 500;
 
 // Structured-output contract: the facet slugs the clause GOVERNS. Empty = the clause
 // governs nothing (explicit none). Kept to a plain string array so the JSON Schema
@@ -57,26 +70,62 @@ export interface ClassifyOptions {
    * LLM is never called — used to test the orchestration + persistence key-free.
    */
   classify?: (clauseBody: string, vocab: VocabFacet[]) => Promise<string[]> | string[];
+  /**
+   * Max in-flight clause classifications. Defaults to CLASSIFY_CONCURRENCY env or 16.
+   * A pool, not a batch — each clause is still its own LLM call + DB write.
+   */
+  concurrency?: number;
+  /** Progress hook for long runs (called after each clause is tagged). */
+  onProgress?: (done: number, total: number) => void;
 }
 
-// Run `fn` over `items` with at most `limit` in flight at once — bounded-concurrency
-// parallelism (ac-39). Order of results matches input order.
-async function mapWithConcurrency<T, R>(
+/** Transient = worth retrying (rate-limit, overload, gateway, connection blip). */
+function isTransient(err: unknown): boolean {
+  const status = (err as { status?: number })?.status;
+  if (typeof status === "number") {
+    return status === 408 || status === 409 || status === 429 || (status >= 500 && status <= 599);
+  }
+  // Network-layer errors (no HTTP status) — connection reset/timeout/etc.
+  const name = (err as { name?: string })?.name ?? "";
+  return /connection|timeout|socket|network|fetch/i.test(name);
+}
+
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Retry a thunk on transient failures with exponential backoff + jitter. */
+async function withTransientRetry<T>(fn: () => Promise<T>): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (attempt >= MAX_RETRIES || !isTransient(err)) throw err;
+      const backoff = RETRY_BASE_MS * 2 ** attempt;
+      const jitter = Math.floor(backoff * 0.25 * Math.random());
+      await sleep(backoff + jitter);
+    }
+  }
+}
+
+/**
+ * Run `fn` over `items` with at most `limit` concurrent in-flight — bounded-concurrency
+ * parallelism (ac-39). Side-effecting (each unit classifies + persists one clause). A
+ * worker that throws rejects the whole run — callers want a hard failure, not silent gaps.
+ */
+async function forEachConcurrent<T>(
   items: readonly T[],
   limit: number,
-  fn: (item: T, index: number) => Promise<R>,
-): Promise<R[]> {
-  const results = new Array<R>(items.length);
+  fn: (item: T, index: number) => Promise<void>,
+): Promise<void> {
   let next = 0;
-  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+  const worker = async (): Promise<void> => {
     while (true) {
       const i = next++;
       if (i >= items.length) return;
-      results[i] = await fn(items[i], i);
+      await fn(items[i], i);
     }
-  });
-  await Promise.all(workers);
-  return results;
+  };
+  const lanes = Math.max(1, Math.min(limit, items.length));
+  await Promise.all(Array.from({ length: lanes }, () => worker()));
 }
 
 function classifierSystemPrompt(vocab: VocabFacet[]): string {
@@ -108,13 +157,27 @@ export async function classifyClauseWithLlm(
     return filterToVocab(await opts.classify(clauseBody, vocab), vocab);
   }
   const client = opts.client ?? (getAnthropicClient() as unknown as AnthropicLike);
-  const message = await client.messages.parse({
-    model: MODEL,
-    max_tokens: 1024,
-    system: classifierSystemPrompt(vocab),
-    output_config: { format: zodOutputFormat(FacetVerdictSchema) },
-    messages: [{ role: "user", content: `Clause:\n\n${clauseBody}` }],
-  });
+  const message = await withTransientRetry(() =>
+    client.messages.parse({
+      model: MODEL,
+      max_tokens: 1024,
+      // The vocab system prompt is byte-identical across every clause in a run, so it's
+      // the repeated prefix to cache (Anthropic caching is explicit — std-30). CAVEAT:
+      // caching only fires once the cached prefix clears the model's minimum (Opus 4.8 =
+      // 4096 tokens). Today's 16-facet prompt is ~1.8k tokens, so on Opus this marker is
+      // an inert no-op; it starts paying off if the vocab grows past the floor or the
+      // model moves to a lower one.
+      system: [
+        {
+          type: "text",
+          text: classifierSystemPrompt(vocab),
+          cache_control: { type: "ephemeral" },
+        },
+      ],
+      output_config: { format: zodOutputFormat(FacetVerdictSchema) },
+      messages: [{ role: "user", content: `Clause:\n\n${clauseBody}` }],
+    }),
+  );
   if (!message.parsed_output) {
     throw new Error("facet-classifier: structured output returned no parsed_output");
   }
@@ -148,16 +211,21 @@ export async function tagClause(
   });
 }
 
-// Classify + tag a set of clauses with bounded-concurrency parallelism (ac-39).
+// Classify + tag a set of clauses through a bounded-concurrency pool (ac-39). Each unit
+// is its own LLM call (with transient retry) + DB write; the pool just runs
+// `concurrency` of them at once and reports progress for long runs.
 async function classifyAndTagClauses(
   memexId: string,
   clauses: { id: string; body: string }[],
   vocab: VocabFacet[],
   opts: ClassifyOptions,
 ): Promise<void> {
-  await mapWithConcurrency(clauses, CONCURRENCY, async (cl) => {
+  let done = 0;
+  await forEachConcurrent(clauses, opts.concurrency ?? defaultConcurrency(), async (cl) => {
     const keys = await classifyClauseWithLlm(cl.body, vocab, opts);
     await tagClause(memexId, cl.id, keys, vocab);
+    done += 1;
+    opts.onProgress?.(done, clauses.length);
   });
 }
 

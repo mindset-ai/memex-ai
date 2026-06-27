@@ -25,7 +25,15 @@ async function main(): Promise<void> {
     process.exit(1);
   }
   console.log(`[facet-backfill] classifying standards' clauses for memex ${memexId}…`);
-  const { standards, clauses } = await backfillFacetTagsForMemex(memexId);
+  // Progress ticks for the long run — every 25 clauses and at the end (the pool runs
+  // CLASSIFY_CONCURRENCY in flight, so this reports completions, not start order).
+  const { standards, clauses } = await backfillFacetTagsForMemex(memexId, {
+    onProgress: (done, total) => {
+      if (done % 25 === 0 || done === total) {
+        console.log(`[facet-backfill]   ${done}/${total} clauses classified…`);
+      }
+    },
+  });
   console.log(`[facet-backfill] done — ${standards} standard(s), ${clauses} clause(s) classified + tagged.`);
   process.exit(0);
 }

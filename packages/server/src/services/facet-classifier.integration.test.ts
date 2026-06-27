@@ -159,4 +159,47 @@ describe("facet classifier engine (spec-340 t-4)", () => {
     const c0 = await db.select().from(standardClauseFacets).where(eq(standardClauseFacets.clauseId, clauseIds[0]));
     expect(c0.length).toBe(1);
   });
+
+  it("retries a transient blip and still tags every clause — one 429 never aborts the run (ac-39)", async () => {
+    tagAc(AC(39));
+    // The first parse call across the whole run throws a 429; the pool must retry it
+    // (backoff) and complete rather than abort — the robustness a long backfill needs.
+    let calls = 0;
+    let threwOnce = false;
+    const stub: AnthropicLike = {
+      messages: {
+        parse: async () => {
+          calls++;
+          if (!threwOnce) {
+            threwOnce = true;
+            throw Object.assign(new Error("overloaded"), { status: 429 });
+          }
+          return { parsed_output: { facetKeys: ["security"] } };
+        },
+      },
+    };
+
+    await classifyStandard(memexId, docId, { client: stub });
+
+    // One retry = exactly one extra call beyond the clause count, and every clause tagged.
+    expect(calls).toBe(clauseIds.length + 1);
+    const rows = await db
+      .select()
+      .from(standardClauseFacets)
+      .where(eq(standardClauseFacets.memexId, memexId));
+    const tagged = new Set(rows.map((r) => r.clauseId));
+    for (const id of clauseIds) expect(tagged.has(id)).toBe(true);
+  });
+
+  it("does NOT retry a non-transient error — it surfaces and aborts (ac-39)", async () => {
+    tagAc(AC(39));
+    const stub: AnthropicLike = {
+      messages: {
+        parse: async () => {
+          throw Object.assign(new Error("bad request"), { status: 400 });
+        },
+      },
+    };
+    await expect(classifyStandard(memexId, docId, { client: stub })).rejects.toThrow();
+  });
 });
