@@ -54,6 +54,11 @@ export function validateBallot(input: BallotInput, vocab: VocabFacet[]): BallotC
   const slugs = vocab.map((f) => f.key);
   const slugSet = new Set(slugs);
 
+  // An empty vocabulary is vacuously complete — there is nothing to adjudicate, so
+  // no ballot is required (a Memex whose owner has no facet vocabulary yet, including
+  // every test fixture). The forced ballot only bites where a vocabulary exists.
+  if (slugs.length === 0) return { ok: true };
+
   // Unknown keys first — a stale/hallucinated slug means the agent is working from
   // the wrong vocabulary, so re-hand before anything else.
   const unknown = Object.keys(verdict).filter((k) => !slugSet.has(k));

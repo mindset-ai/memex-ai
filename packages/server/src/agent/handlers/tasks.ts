@@ -22,6 +22,11 @@ import {
   addBlocker,
   removeBlocker,
 } from "../../services/shared/blockers.js";
+// spec-423 dec-5 — the forced facet ballot + payoff readout. Vocab is read via
+// facet-ballot.ts → facet-vocab.ts (NO-LLM); the classifier engine is never imported
+// on this request path (the facet-classifier-no-request-path regression guard).
+import { validateBallotForMemex } from "../../services/facet-ballot.js";
+import { parseBallotArg, storeRouteAndReadout } from "../../services/facet-consume.js";
 import {
   ValidationError,
 } from "../../types/errors.js";
@@ -136,6 +141,20 @@ export const tasksTools: ToolSpec[] = [
         .optional()
         .describe("Checklist items that gate completion. Each {description, done?:false}."),
       sectionRef: z.string().optional().describe("Section type this task delivers against."),
+      // spec-423 dec-5 — the forced facet ballot. A COMPLETE verdict over the Memex's
+      // facet vocabulary: an explicit true/false for each facet, or none:true for
+      // honest no-facet work. Required where the Memex has a vocabulary; an empty,
+      // contradictory, incomplete, or unknown-key ballot is rejected with the
+      // vocabulary re-handed (call the `facets` tool, verb 'list', to read it).
+      facetBallot: z
+        .object({
+          verdict: z.record(z.string(), z.boolean()).describe("Complete map: facet slug → true/false."),
+          none: z.boolean().describe("true = this work governs no facet (every verdict false)."),
+        })
+        .optional()
+        .describe(
+          "The facets this work touches (dec-5). A complete verdict over the Memex's facet vocabulary; the response hands back the governing standards to keep top-of-mind.",
+        ),
       verbose: VERBOSE_FIELD,
     },
     async handler(input, ctx) {
@@ -154,6 +173,10 @@ export const tasksTools: ToolSpec[] = [
         );
       }
       const { memexId, doc, slugs } = resolved;
+      // Validate the ballot BEFORE creating the task, so a rejected ballot (re-handing
+      // the vocabulary) never leaves an orphan task behind (dec-5).
+      const ballot = parseBallotArg(input.facetBallot);
+      const vocab = await validateBallotForMemex(memexId, ballot);
       const task = await createTask(
         memexId,
         doc.id,
@@ -163,13 +186,26 @@ export const tasksTools: ToolSpec[] = [
         sectionRef,
         reqCtx(ctx),
       );
+      const taskRef = buildChildRef(slugs, doc, { type: "tasks", seq: task.seq });
+      // Store the ballot, route + rank its facets, log the decision, and append the
+      // top-K governing-standards readout — the payoff (dec-1/dec-2/dec-4).
+      const readout = await storeRouteAndReadout({
+        memexId,
+        specDocId: doc.id,
+        noun: "task",
+        rowId: task.id,
+        ownerRef: taskRef,
+        queryText: `${title}\n${description}`,
+        ballot,
+        vocab,
+        ctx: reqCtx(ctx),
+      });
       if (ctx.verbose) {
         const state = await fullDocState(memexId, doc.id);
         const url = await ctx.workspaceUrl(memexId);
-        return await formatState(url, state, ctx);
+        return (await formatState(url, state, ctx)) + readout;
       }
-      const taskRef = buildChildRef(slugs, doc, { type: "tasks", seq: task.seq });
-      return `Task created: ref: ${taskRef} "${task.title}"`;
+      return `Task created: ref: ${taskRef} "${task.title}"${readout}`;
     },
   },
   {
