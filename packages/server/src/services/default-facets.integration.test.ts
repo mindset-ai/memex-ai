@@ -4,7 +4,7 @@
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { tagAc } from "@memex-ai-ac/vitest";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import { facets, namespaces, memexes } from "../db/schema.js";
 import { DEFAULT_FACETS } from "../db/default-facets.fixture.js";
