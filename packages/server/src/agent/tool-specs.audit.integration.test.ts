@@ -740,6 +740,9 @@ const REF_PROBE_SKIP = new Map<string, string>([
   // dec-1 sense. Tested separately via the verbose path and by the
   // per-mode pins.
   ["assess_spec", "returns analysis text keyed on handle, not a per-entity UUID confirmation"],
+  // spec-340: the facets list verb is a discovery/read tool — output is the facet
+  // vocabulary listing (key/name/description), not a per-entity `ref:` confirmation.
+  ["facets", "discovery tool — facet vocabulary listing, no per-entity confirmation"],
   // search_memex (b-34) is a discovery tool, not entity-acting — its output is a
   // ranked hit list with canonical URL paths as headings (no `ref:` lines per
   // hit and no per-call entity confirmation). Audited in ref-emission.regression

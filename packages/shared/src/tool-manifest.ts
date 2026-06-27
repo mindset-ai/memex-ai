@@ -386,6 +386,15 @@ export const toolManifest: ToolManifestEntry[] = [
     readOnlyHint: false,
     trafficClass: null,
   },
+  {
+    name: 'facets',
+    summary:
+      "Read your Memex's facet vocabulary — the closed, per-owner set of cross-cutting practice areas a standard's clauses are tagged with. Verb-dispatched so the surface stays one tool as it grows; v0 supports verb:'list'.",
+    args: 'facets(verb, memex?)',
+    group: 'read',
+    readOnlyHint: true,
+    trafficClass: null,
+  },
 
   // ── Issues (any phase) ────────────────────────────────────
   {

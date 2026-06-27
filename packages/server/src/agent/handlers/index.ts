@@ -12,4 +12,5 @@ export { lifecycleTools } from "./lifecycle.js";
 export { issuesTools } from "./issues.js";
 export { rolesTools } from "./roles.js";
 export { standardsTools } from "./standards.js";
+export { facetsTools } from "./facets.js";
 export { integrationsTools } from "./integrations.js";

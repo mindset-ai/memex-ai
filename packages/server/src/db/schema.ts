@@ -2937,6 +2937,86 @@ export const presence = pgTable(
   ]
 );
 
+// ══════════════════════════════════════
+// Facets (spec-340 — the inert foundation, phase 1)
+// ══════════════════════════════════════
+
+// The facet vocabulary (spec-340 dec-7). A closed per-owner set of cross-cutting
+// practice areas (security, db-migrations, e2e-testing, …); each owner gets its own
+// editable copy of the default 16, seeded at provisioning (t-2/t-3).
+//
+// Owner is POLYMORPHIC (dec-7): `ownerType` ∈ {org, memex} + `ownerId`. An
+// org-owned memex shares its org's vocabulary (ownerType='org', ownerId=org.id, per
+// std-4); a personal memex with no owning org carries its own (ownerType='memex',
+// ownerId=memex.id). This supersedes the original org_id-only model so personal
+// memexes — which are NOT modelled as their own org — still get a vocabulary.
+// `ownerId` is intentionally NOT a foreign key (it points at one of two tables);
+// referential integrity for the org case is enforced by the seeding paths, not the
+// schema. Owner-config posture like org_scaffold_additions — NO memex_id, so NO
+// memex_isolation RLS (a row could never satisfy a memex_id=GUC predicate); access
+// is gated at the service layer by owner resolution + membership.
+export const facets = pgTable(
+  "facets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ownerType: text("owner_type").notNull(),
+    ownerId: uuid("owner_id").notNull(),
+    // Stable slug — the code/prompt/LLM anchor AND the pill label by default.
+    // Clause tags (and, in phase 2, ballots) anchor on this; a display rename never
+    // rewrites it (dec-5).
+    key: text("key").notNull(),
+    // Renameable display override; the pill shows name ?? key.
+    name: text("name"),
+    // REQUIRED disambiguating rubric the classifier reads (dec-7) — never null.
+    description: text("description").notNull(),
+    // Advisory display order.
+    ord: integer("ord").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // Per-owner uniqueness — two owners may diverge under the same key (dec-7).
+    unique("facets_owner_key_unique").on(table.ownerType, table.ownerId, table.key),
+    index("facets_owner_idx").on(table.ownerType, table.ownerId),
+    check("facets_owner_type_valid", sql`${table.ownerType} IN ('org', 'memex')`),
+  ],
+);
+
+// Clause→facet tags (spec-340 dec-2/dec-8) — assigned by the agent-driven classifier
+// (local backfill in phase 1; NOT a hand-maintained join — the distinction the
+// spec-193 guard reconciliation rides, t-7). Memex-scoped (rides the standards
+// corpus). The tri-state the design requires is encoded by the nullable facet_id:
+//   • NO rows for a clause            → not-yet-classified
+//   • exactly one row, facet_id NULL  → explicit "governs nothing"
+//   • one row per member facet         → governs those facets
+// Standard-level pills are the union over member rows only.
+export const standardClauseFacets = pgTable(
+  "standard_clause_facets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    memexId: uuid("memex_id").notNull(),
+    clauseId: uuid("clause_id")
+      .notNull()
+      .references(() => standardClauses.id, { onDelete: "cascade" }),
+    // NULL = the explicit "governs nothing" marker, distinguishable from no rows.
+    facetId: uuid("facet_id").references(() => facets.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // At most one membership row per (clause, facet).
+    uniqueIndex("standard_clause_facets_clause_facet_unique")
+      .on(table.clauseId, table.facetId)
+      .where(sql`${table.facetId} IS NOT NULL`),
+    // At most one explicit-none marker per clause.
+    uniqueIndex("standard_clause_facets_clause_none_unique")
+      .on(table.clauseId)
+      .where(sql`${table.facetId} IS NULL`),
+    index("standard_clause_facets_clause_id_idx").on(table.clauseId),
+    index("standard_clause_facets_facet_id_idx").on(table.facetId),
+    index("standard_clause_facets_memex_id_idx").on(table.memexId),
+  ],
+);
+
 // ── Relations (codebase intelligence) ────────────
 // Minimum set the services are likely to need. Extend as needed.
 
@@ -2975,6 +3055,10 @@ export const symbolsRelations = relations(symbols, ({ one }) => ({
 export type Doc = InferSelectModel<typeof documents>;
 export type DocSection = InferSelectModel<typeof docSections>;
 export type StandardClause = InferSelectModel<typeof standardClauses>;
+export type Facet = InferSelectModel<typeof facets>;
+export type FacetInsert = InferInsertModel<typeof facets>;
+export type StandardClauseFacet = InferSelectModel<typeof standardClauseFacets>;
+export type StandardClauseFacetInsert = InferInsertModel<typeof standardClauseFacets>;
 export type ClauseRef = InferSelectModel<typeof clauseRefs>;
 export type ClauseRefInsert = InferInsertModel<typeof clauseRefs>;
 export type DocComment = InferSelectModel<typeof docComments>;
