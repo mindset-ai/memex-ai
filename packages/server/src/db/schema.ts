@@ -3017,6 +3017,92 @@ export const standardClauseFacets = pgTable(
   ],
 );
 
+// ── Facet consume-side: ballots + routing log (spec-423 phase 2) ──────────────
+// Bespoke per-noun ballot tables (dec-7). Each carries the COMPLETE boolean verdict
+// map keyed on facet slug + an explicit `none` flag + a `vocabulary_keys` snapshot
+// (completeness judged at cast time) + std-32 actor stamping + memex_id (ENABLE-not-
+// FORCE RLS, std-36). Ballots anchor on facet KEYS (strings), never owner ids, so
+// they stay owner-model-agnostic across spec-340's polymorphic owner.
+export const taskFacetBallots = pgTable(
+  "task_facet_ballots",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    memexId: uuid("memex_id").notNull(),
+    taskId: uuid("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    // Complete boolean map keyed on facet slug (full map, not sparse).
+    verdict: jsonb("verdict").notNull().$type<Record<string, boolean>>(),
+    // Explicit "this work governs no facet" — honest no-facet work.
+    none: boolean("none").notNull().default(false),
+    // Slugs the ballot was cast against — completeness judged at cast time (dec-7).
+    vocabularyKeys: jsonb("vocabulary_keys").notNull().$type<string[]>(),
+    actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+    actorName: text("actor_name"),
+    channel: text("channel"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // One ballot per task (upsert target).
+    unique("task_facet_ballots_task_id_unique").on(table.taskId),
+    index("task_facet_ballots_memex_id_idx").on(table.memexId),
+  ],
+);
+
+// dec-6: a decision's ballot is a WORK-SIDE routing hook only — it routes the
+// governing STANDARDS, and is NEVER surfaced as binding precedent.
+export const decisionFacetBallots = pgTable(
+  "decision_facet_ballots",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    memexId: uuid("memex_id").notNull(),
+    decisionId: uuid("decision_id")
+      .notNull()
+      .references(() => decisions.id, { onDelete: "cascade" }),
+    verdict: jsonb("verdict").notNull().$type<Record<string, boolean>>(),
+    none: boolean("none").notNull().default(false),
+    vocabularyKeys: jsonb("vocabulary_keys").notNull().$type<string[]>(),
+    actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+    actorName: text("actor_name"),
+    channel: text("channel"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique("decision_facet_ballots_decision_id_unique").on(table.decisionId),
+    index("decision_facet_ballots_memex_id_idx").on(table.memexId),
+  ],
+);
+
+// Append-only routing telemetry (dec-4). One row per routing call on create_task /
+// resolve_decision: query, the full candidate set with ALL scores + surfaced flag,
+// the top-K cut, ranker provenance, owning ref, timestamp. OFF the SSE bus
+// (telemetry-log posture, std-8 silent-allowed). The substrate to tune K and
+// rebuild a clean relevance gold set from real traffic.
+export const facetRoutingLog = pgTable(
+  "facet_routing_log",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    memexId: uuid("memex_id").notNull(),
+    ownerRef: text("owner_ref").notNull(),
+    noun: text("noun").notNull(),
+    queryText: text("query_text").notNull(),
+    facetKeys: jsonb("facet_keys").notNull().$type<string[]>(),
+    candidates: jsonb("candidates")
+      .notNull()
+      .$type<Array<{ handle: string; title: string; score: number; surfaced: boolean }>>(),
+    k: integer("k").notNull(),
+    rankerModel: text("ranker_model").notNull(),
+    rankerParams: jsonb("ranker_params").$type<Record<string, unknown>>(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("facet_routing_log_memex_id_idx").on(table.memexId),
+    index("facet_routing_log_created_at_idx").on(table.createdAt),
+  ],
+);
+
 // ── Relations (codebase intelligence) ────────────
 // Minimum set the services are likely to need. Extend as needed.
 
