@@ -1,32 +1,41 @@
-import { test, expect, emitAcEvents } from "./helpers/index.js";
+import { test, expect, bareUrl, emitAcEvents } from "./helpers/index.js";
 
-// Journey 45 — spec-304 t-13 (std-28, ac-28): the desktop app's in-app "Install
-// MCP" flow is session-minted. The native installMcp bridge only exists inside
-// the Flutter webview (it cannot be driven from a browser), so the part this
-// PR-gate journey owns is the SESSION-MINT: a logged-in web session mints an MCP
-// token via POST /api/mcp/tokens — no terminal, no CLI device flow — and that
-// token is a real, persisted token exposing only its safe prefix. (The bridge
-// handoff itself is covered desktop-side by memex-clients' installMcp tests.)
+// Journey 45 — spec-304 t-13 + t-55 (std-28): the desktop app's in-app "Install
+// Memex MCP" flow.
 //
-// Unlike the server integration test (which hits Hono in-process), this drives
-// the request through the running app's real HTTP surface: the UI origin's /api
-// proxy → the live server, the same path the embedded webview uses in dev mode.
+//  • t-13 (ac-28): the SESSION-MINT — a logged-in web session mints an MCP token
+//    via POST /api/mcp/tokens with no terminal / CLI device flow, persisted as a
+//    real token exposing only its safe prefix.
+//  • t-55 (ac-6 / ac-4 / ac-45): the IN-APP INSTALL UI — inside the desktop shell
+//    the DesktopMcpSection renders, mints from the live session, and hands the
+//    raw token to the native installMcp bridge (never showing it). The Flutter
+//    bridge only exists in the embedded webview, so here we STUB
+//    window.flutter_inappwebview to record the handoff and drive the React flow
+//    end-to-end against the running app; the native write itself is covered
+//    desktop-side by memex-clients' installMcp tests.
 
 const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-304/acs/ac-${n}`;
 const API_URL = process.env.E2E_API_URL ?? "http://localhost:8090";
 
+const ACS_BY_TEST: Record<string, string[]> = {};
+
 test.afterEach(async ({}, testInfo) => {
+  if (testInfo.status === "skipped") return;
+  const acRefs = ACS_BY_TEST[testInfo.title] ?? [];
+  if (acRefs.length === 0) return;
   await emitAcEvents(
-    [AC(28)],
+    acRefs,
     testInfo.status === "passed" ? "pass" : "fail",
     `packages/ui/e2e/journey-45-spec-304-mcp-session-mint.spec.ts::${testInfo.title}`,
     testInfo.duration,
   );
 });
 
-test("a logged-in session mints an MCP token with no device flow, and it persists as a safe-prefixed token", async ({
-  page,
-}) => {
+const MINT_TEST =
+  "a logged-in session mints an MCP token with no device flow, and it persists as a safe-prefixed token";
+ACS_BY_TEST[MINT_TEST] = [AC(28)];
+
+test(MINT_TEST, async ({ page }) => {
   const label = `Desktop e2e ${Date.now()}`;
 
   // The session-mint under test, through the running app's HTTP surface (the
@@ -53,4 +62,77 @@ test("a logged-in session mints an MCP token with no device flow, and it persist
   expect(found?.prefix.startsWith("mxt_")).toBe(true);
   // The list never echoes the raw secret back.
   expect(JSON.stringify(found)).not.toContain(minted.token);
+});
+
+const INSTALL_TEST =
+  "inside the desktop shell, Install mints from the session and hands the token to the native bridge — never shown";
+ACS_BY_TEST[INSTALL_TEST] = [AC(6), AC(4), AC(45)];
+
+test(INSTALL_TEST, async ({ page }) => {
+  // Stub the Flutter bridge BEFORE any page script runs so isDesktopShell() is
+  // true and DesktopMcpSection renders. callHandler records every call and
+  // returns canned native results; the recorded calls let us assert the token
+  // handoff without a real Flutter runtime.
+  await page.addInitScript(() => {
+    const calls: Array<{ name: string; args: unknown }> = [];
+    (window as unknown as { __bridgeCalls: typeof calls }).__bridgeCalls = calls;
+    (window as unknown as { flutter_inappwebview: unknown }).flutter_inappwebview = {
+      callHandler: (name: string, args: unknown) => {
+        calls.push({ name, args });
+        switch (name) {
+          case "mcpStatus":
+            return {
+              ok: true,
+              targets: {
+                claudeCode: { installed: false, urlMatches: false, tokenPrefix: null },
+                claudeDesktop: { installed: false, urlMatches: false, tokenPrefix: null },
+              },
+            };
+          case "installMcp":
+            return {
+              ok: true,
+              name: "Claude Code",
+              path: "/home/dev/.claude.json",
+              backupPath: "/home/dev/.claude.json.bak",
+            };
+          default:
+            return { ok: true };
+        }
+      },
+    };
+  });
+
+  await page.goto(bareUrl("/settings/integrations"));
+
+  // The in-app install surface is present (desktop-shell only).
+  await expect(
+    page.getByRole("heading", { name: "Install Memex MCP" }),
+  ).toBeVisible({ timeout: 15_000 });
+
+  const codeRow = page.getByTestId("mcp-client-claudeCode");
+  await expect(codeRow).toBeVisible();
+
+  // A never-installed client reads "Not installed" with an Install action.
+  await expect(page.getByTestId("mcp-status-claudeCode")).toHaveText("Not installed");
+  await codeRow.getByRole("button", { name: "Install" }).click();
+
+  // Success surfaces a restart prompt (ac-7's user-facing instruction).
+  await expect(page.getByRole("status")).toContainText("Restart Claude Code", {
+    timeout: 15_000,
+  });
+
+  // The flow minted from the session and handed the RAW token to installMcp —
+  // and the token never appeared in the DOM (ac-6).
+  const calls = await page.evaluate(
+    () => (window as unknown as { __bridgeCalls: Array<{ name: string; args: { token?: string } }> }).__bridgeCalls,
+  );
+  const install = calls.find((c) => c.name === "installMcp");
+  expect(install).toBeTruthy();
+  expect(install?.args.token).toMatch(/^mxt_/);
+  expect(install?.args.token?.length).toBeGreaterThan(12);
+
+  const rawToken = install!.args.token!;
+  expect(await page.content()).not.toContain(rawToken);
+  // Success was announced natively (dec-22 / ac-51).
+  expect(calls.some((c) => c.name === "showNotification")).toBe(true);
 });
