@@ -141,7 +141,7 @@ export function DesktopMcpSection() {
   return (
     <section id="desktop-mcp" aria-labelledby="desktop-mcp-heading">
       <h2 id="desktop-mcp-heading" className="text-xl font-semibold mb-2 text-heading">
-        Install Memex MCP
+        Install Memex MCP on this device
       </h2>
       <p className="text-sm mb-6 text-secondary">
         Connect Claude to your Memexes from this app — no terminal, no copy-pasted token.

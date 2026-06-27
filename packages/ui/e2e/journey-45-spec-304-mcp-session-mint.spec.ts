@@ -106,7 +106,7 @@ test(INSTALL_TEST, async ({ page }) => {
 
   // The in-app install surface is present (desktop-shell only).
   await expect(
-    page.getByRole("heading", { name: "Install Memex MCP" }),
+    page.getByRole("heading", { name: "Install Memex MCP on this device" }),
   ).toBeVisible({ timeout: 15_000 });
 
   const codeRow = page.getByTestId("mcp-client-claudeCode");

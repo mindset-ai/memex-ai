@@ -67,7 +67,7 @@ describe('spec-304 ac-45 / ac-50: the in-app MCP surface in Settings → Integra
     render(<DesktopMcpSection />);
 
     expect(
-      await screen.findByRole('heading', { name: 'Install Memex MCP' }),
+      await screen.findByRole('heading', { name: 'Install Memex MCP on this device' }),
     ).toBeInTheDocument();
     expect(screen.getByTestId('mcp-client-claudeCode')).toBeInTheDocument();
     expect(screen.getByTestId('mcp-client-claudeDesktop')).toBeInTheDocument();
