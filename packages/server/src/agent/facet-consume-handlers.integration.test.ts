@@ -86,8 +86,9 @@ afterAll(async () => {
 const fullBallot = { verdict: { "xc-security": true, "xc-perf": false }, none: false };
 
 describe("create_task forces a ballot and hands back the governing standards (spec-423 t-5, dec-5)", () => {
-  it("rejects a missing/incomplete ballot with the vocabulary re-handed (ac-13)", async () => {
+  it("rejects a missing/incomplete ballot with the vocabulary re-handed (ac-13, ac-2)", async () => {
     tagAc(AC(13));
+    tagAc(AC(2)); // scope: both tools force a ballot; empty/contradictory rejected + re-handed
     await expect(
       executeServerTool(memexId, "create_task", { ref: specRef, title: "no ballot", description: "x" }, userId),
     ).rejects.toThrow(/xc-security/);
@@ -101,8 +102,10 @@ describe("create_task forces a ballot and hands back the governing standards (sp
     ).rejects.toThrow(/xc-perf/);
   });
 
-  it("accepts a complete ballot, stores it, and appends the ranked top-K readout (ac-13)", async () => {
+  it("accepts a complete ballot, stores it, and appends the ranked top-K readout (ac-13, ac-1, ac-6)", async () => {
     tagAc(AC(13));
+    tagAc(AC(1)); // scope: the agent is handed an explicit ranked <=K list with scores
+    tagAc(AC(6)); // scope: every routing call is logged with query/candidates/scores/cut
     const out = await executeServerTool(
       memexId,
       "create_task",
@@ -123,8 +126,9 @@ describe("create_task forces a ballot and hands back the governing standards (sp
 });
 
 describe("resolve_decision forces a ballot and stores it work-side (spec-423 t-5, dec-6)", () => {
-  it("rejects a missing ballot, then accepts a complete one and stores it in decision_facet_ballots (ac-14)", async () => {
+  it("rejects a missing ballot, then accepts a complete one and stores it in decision_facet_ballots (ac-14, ac-5)", async () => {
     tagAc(AC(14));
+    tagAc(AC(5)); // scope: decisions route to standards (work-side), never as binding precedent
     const decRef = `${nsSlug}/main/specs/spec-1/decisions/dec-1`;
     await expect(
       executeServerTool(memexId, "resolve_decision", { ref: decRef, resolution: "done" }, userId),

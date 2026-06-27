@@ -70,8 +70,9 @@ afterAll(async () => {
 });
 
 describe("add_clause hard-fails without a valid facet verdict (spec-423 t-6, dec-9)", () => {
-  it("rejects an absent verdict, re-handing the valid keys + the facets list verb (ac-16)", async () => {
+  it("rejects an absent verdict, re-handing the valid keys + the facets list verb (ac-16, ac-8)", async () => {
     tagAc(AC(16));
+    tagAc(AC(8)); // scope: authoring a standard keeps clauses facet-tagged (add_clause requires a verdict)
     await expect(
       executeServerTool(memexId, "add_clause", { ref: sectionRef, body: "a rule" }, userId),
     ).rejects.toThrow(/xd-security[\s\S]*facets/);

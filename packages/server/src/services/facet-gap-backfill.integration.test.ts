@@ -91,8 +91,9 @@ describe("gap-backfill classifies only untagged clauses (spec-423 t-7, dec-9)", 
     }
   });
 
-  it("no clause is left silently unclassified after the gap-backfill (ac-16)", async () => {
+  it("no clause is left silently unclassified after the gap-backfill (ac-16, ac-8)", async () => {
     tagAc(AC(16));
+    tagAc(AC(8)); // scope: gap-backfill tags every clause authored in the Phase-1->Phase-2 window
     for (const id of clauseIds) {
       const tags = await db.select().from(standardClauseFacets).where(eq(standardClauseFacets.clauseId, id));
       expect(tags.length).toBeGreaterThanOrEqual(1); // every clause has a tag (member or none-marker)

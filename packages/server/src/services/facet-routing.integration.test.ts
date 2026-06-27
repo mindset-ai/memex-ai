@@ -84,8 +84,9 @@ afterAll(async () => {
 });
 
 describe("recall-first routing (spec-423 t-3, dec-1)", () => {
-  it("returns EVERY standard governing a balloted facet, and only those (ac-9)", async () => {
+  it("returns EVERY standard governing a balloted facet, and only those (ac-9, ac-3)", async () => {
     tagAc(AC(9));
+    tagAc(AC(3)); // scope: recall-first — no governing standard dropped by a relevance threshold
     const r = await routeFacets(memexId, ["zb-security"], "work about auth", null);
     const handles = new Set(r.all.map((s) => s.handle));
     expect(handles).toEqual(new Set(["std-zb-focused", "std-zb-catchall", "std-zb-third"]));
@@ -123,8 +124,9 @@ describe("surfacing cut — top-K, no relevance floor, scores shown (spec-423 t-
     }
   });
 
-  it("applies NO relevance floor — a low-score candidate still surfaces within K (ac-10)", async () => {
+  it("applies NO relevance floor — a low-score candidate still surfaces within K (ac-10, ac-3)", async () => {
     tagAc(AC(10));
+    tagAc(AC(3)); // scope: only the top-K cap limits the list; a low-score standard is never floored
     // Default K (10) comfortably holds all 3 candidates. The catch-all scores only
     // 0.25 — a relevance floor would drop it; with no floor it is surfaced anyway.
     const r = await routeFacets(memexId, ["zb-security"], "auth", null);
@@ -143,8 +145,9 @@ describe("surfacing cut — top-K, no relevance floor, scores shown (spec-423 t-
 });
 
 describe("ranking backend — keyless baseline + re-ranker degrade (spec-423 t-3, dec-3)", () => {
-  it("uses the keyless density baseline when no credential is present (ac-11)", async () => {
+  it("uses the keyless density baseline when no credential is present (ac-11, ac-4)", async () => {
     tagAc(AC(11));
+    tagAc(AC(4)); // scope: no key on self-host/free tier -> keyless density top-K
     const r = await routeFacets(memexId, ["zb-security"], "auth", null);
     expect(r.rankerModel).toBe(KEYLESS_MODEL);
   });
@@ -163,8 +166,9 @@ describe("ranking backend — keyless baseline + re-ranker degrade (spec-423 t-3
     expect(r.all[0].handle).toBe("std-zb-catchall"); // reranker order won
   });
 
-  it("degrades to the keyless baseline on re-ranker error — never throws (ac-11)", async () => {
+  it("degrades to the keyless baseline on re-ranker error — never throws (ac-11, ac-4)", async () => {
     tagAc(AC(11));
+    tagAc(AC(4)); // scope: re-ranker unavailable -> keyless density top-K, work never blocked
     const boom: Reranker = {
       model: "mock:boom",
       rerank: async () => {
