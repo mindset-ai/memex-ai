@@ -97,6 +97,16 @@ const ALLOWLIST: Record<string, string> = {
   // now verifies them like any other service.
   "services/mcp-telemetry.ts":
     "MCP tool-call telemetry (mcp_sessions, mcp_tool_calls). Cross-tenant observability rows — no memex_id, no bus entity, no SSE fan-out. The bus is keyed on memexId for tenant fan-out; telemetry rows have no tenancy by design (they record cross-Memex MCP traffic).",
+  // spec-340 phase 1 (the inert foundation). facets is an owner-config vocabulary
+  // table (like org_scaffold_additions) seeded per owner; standard_clause_facets are
+  // auto-assigned clause→facet tags. Neither has a bus entity or an SSE subscriber in
+  // phase 1 — nothing reads the tags until phase 2 (spec-423) — so the seed/tag writes
+  // do not route through mutate(). Route them through mutate() in phase 2 when a live
+  // editing/pill surface lands. Silent-allowed per std-8 §6.
+  "services/default-facets.ts":
+    "spec-340 phase 1 — seeds the per-owner default facet vocabulary (facets, owner-config like org_scaffold_additions). No bus entity, no SSE subscriber in phase 1 (the inert foundation); mutate() wrap deferred to phase 2 when a live editing/pill surface lands.",
+  "services/facet-classifier.ts":
+    "spec-340 phase 1 — tagClause writes auto-assigned clause→facet tags (standard_clause_facets) from the agent-driven/local-backfill classifier only (dec-8). No bus entity, no SSE subscriber in phase 1 (nothing reads the tags until phase 2); mutate() wrap deferred to phase 2.",
   "routes/backstage.ts":
     "Dev-mode-only org_membership grant (DEV_USER_EMAIL admin self-grant). org_membership is an access-control bootstrap row — no memex_id, no bus entity, not Memex-scoped tenant content; nothing subscribes to it over SSE.",
   "middleware/session.ts":

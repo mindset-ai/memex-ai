@@ -159,6 +159,11 @@ export default defineConfig({
       // detached seed on the same ensureUserNamespace path. Off suite-wide; the seed's
       // own suites stub it back on per-test.
       MEMEX_DEFAULT_STANDARDS_SIGNUP_SEED: "off",
+      // spec-340: same treatment for the default-facets auto-seed (on org creation AND
+      // personal-memex creation). Off suite-wide so org/user-creation tests don't each
+      // seed + clean up 16 facet rows; the seed's own suite stubs it back on per-test
+      // (the gate reads env at call time).
+      MEMEX_DEFAULT_FACETS_SEED: "off",
     },
     typecheck: { enabled: false },
     coverage: {

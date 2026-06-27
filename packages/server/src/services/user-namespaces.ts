@@ -6,6 +6,7 @@ import { ValidationError } from "../types/errors.js";
 import { mutate, type Mutated } from "./mutate.js";
 import { seedHandholdDemo } from "./handhold-demo.js";
 import { seedDefaultStandards } from "./default-standards.js";
+import { seedDefaultFacetsForMemexBestEffort } from "./default-facets.js";
 
 // Canonical display name for personal memexes. Per product decision, personal memexes
 // cannot be renamed — the switcher always shows "Personal Memex" so there's no ambiguity
@@ -243,6 +244,12 @@ async function seedNewPersonalMemex(memexId: string, ownerUserId: string): Promi
   await Promise.allSettled([
     seedHandholdDemoBestEffort(memexId, ownerUserId),
     seedDefaultStandardsBestEffort(memexId),
+    // spec-340 t-3 (dec-7): seed the personal memex's own facet vocabulary
+    // (owner_type='memex' — a personal memex is not modelled as its own org, so it
+    // owns its facets directly). Best-effort + idempotent, isolated by allSettled so
+    // a seed failure never blocks signup. Reached only on the personal-namespace
+    // create path, so seeding is inherently personal-only.
+    seedDefaultFacetsForMemexBestEffort(memexId),
   ]);
 }
 

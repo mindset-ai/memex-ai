@@ -41,6 +41,33 @@ export async function orgIdForMemex(memexId: string): Promise<string | null> {
   return row?.ownerOrgId ?? null;
 }
 
+// The polymorphic facet owner (spec-340 dec-7): either an org (its vocabulary is
+// shared across all the org's memexes, per std-4) or a personal memex with no owning
+// org (it owns its vocabulary directly).
+export type FacetOwner = { ownerType: "org" | "memex"; ownerId: string };
+
+// Resolve the facet-vocabulary owner for a memex (spec-340 dec-7 — the owner-resolution
+// rule, load-bearing for seeding AND the read tool). Org-owned namespace → the org owns
+// the vocabulary (ownerType='org', ownerId=org.id). Personal namespace (kind='user',
+// no ownerOrgId) → the memex owns it directly (ownerType='memex', ownerId=memexId).
+// orgIdForMemex returns null for a personal memex — that null is exactly the case the
+// 'memex' branch must catch; a naive port that only seeds where an org resolves would
+// leave every personal memex with zero facets, the bug this Spec exists to prevent.
+// Returns null only in the pathological no-namespace state.
+export async function ownerForMemex(memexId: string): Promise<FacetOwner | null> {
+  const [row] = await db
+    .select({ kind: namespaces.kind, ownerOrgId: namespaces.ownerOrgId })
+    .from(memexes)
+    .innerJoin(namespaces, eq(namespaces.id, memexes.namespaceId))
+    .where(eq(memexes.id, memexId))
+    .limit(1);
+  if (!row) return null;
+  if (row.kind === "org" && row.ownerOrgId) {
+    return { ownerType: "org", ownerId: row.ownerOrgId };
+  }
+  return { ownerType: "memex", ownerId: memexId };
+}
+
 // Returns the document if it belongs to memexId, otherwise throws NotFoundError.
 // We return NotFoundError (not ForbiddenError) intentionally — leaking "this doc exists
 // but isn't yours" via a 403 enables enumeration attacks.

@@ -62,6 +62,9 @@ const READ_ONLY = new Set<string>([
   // nothing — the write happens only on the admin's approval through the
   // existing scaffold route — so readOnlyHint: true.
   "propose_scaffold_change",
+  // spec-340: the facets tool's v0 `list` verb only READS the vocabulary — no
+  // mutation, so readOnlyHint: true.
+  "facets",
 ]);
 
 // spec-358: discontinue_test_events now hard-deletes the orphan's emissions
