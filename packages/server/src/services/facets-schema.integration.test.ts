@@ -13,7 +13,6 @@ import {
   standardClauseFacets,
   namespaces,
   memexes,
-  orgs,
   documents,
   docSections,
   standardClauses,
