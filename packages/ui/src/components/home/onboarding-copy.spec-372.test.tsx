@@ -16,6 +16,7 @@ vi.mock('../../api/journey', async () => {
 });
 
 import { CreateSpecStep } from './CreateSpecStep';
+import { CreateFirstSpecStep } from './CreateFirstSpecStep';
 import { SpecsMatchRealityStep } from './SpecsMatchRealityStep';
 import { RoleTriangle, CENTERED_ROLE, personaLabel, personaPromise } from './RoleTriangle';
 
@@ -67,32 +68,30 @@ describe('spec-372 — v3 role triangle (ac-29, ac-2)', () => {
 });
 
 describe('spec-372 — step-1 reframe + prompts (ac-17, ac-18, ac-19)', () => {
-  it('ac-19: step-1 presents the reframed copy with no trailing period on the header', () => {
+  it('ac-19: step-1 presents the renamed "Connect to the Memex MCP" copy with no trailing period', () => {
+    // spec-421 t-2: step 2 renamed from "Build exactly what you decided" →
+    // "Connect to the Memex MCP". Stage-2 prose removed from this step.
     tagAc(AC(19));
     const { container } = render(<CreateSpecStep preview />);
-    const h2 = screen.getByText('Build exactly what you decided');
-    expect(h2.tagName).toBe('H2');
-    expect(h2.textContent?.trim().endsWith('.')).toBe(false);
-    // spec-372 issue-5 — the "Memex" glossary tooltip was removed, so the subtitle is now
-    // plain text; assert on the rendered text content.
-    expect(container.textContent).toContain(
-      'Get the full magic of Memex by connecting to the MCP and using it in your coding agent',
-    );
-    expect(screen.getByText('Connect to the Memex MCP')).toBeInTheDocument();
-    expect(
-      screen.getByText('Draft your first spec with your coding agent, or create it here in the app.'),
-    ).toBeInTheDocument();
+    const h2 = container.querySelector('h2');
+    expect(h2).not.toBeNull();
+    expect(h2!.textContent?.trim()).toBe('Connect to the Memex MCP');
+    expect(h2!.textContent?.trim().endsWith('.')).toBe(false);
+    // Subtitle still references the MCP magic.
+    expect(container.textContent).toContain('Get the full magic of Memex by connecting to the MCP');
+    // Stage-2 prose no longer in CreateSpecStep (moved to CreateFirstSpecStep).
+    expect(screen.queryByText(/Draft your first spec/)).toBeNull();
   });
 
-  it('ac-17: the agent-method sample prompt instructs create AND fully flesh out a rich spec (not bare create_doc)', () => {
+  it('ac-17: the sample prompt in step-3 (CreateFirstSpecStep) instructs create AND fully flesh out a rich spec', () => {
+    // spec-421: the rich sample prompt moved from CreateSpecStep (Stage 2) to
+    // CreateFirstSpecStep's collapsible helper. The richness requirement still holds.
     tagAc(AC(17));
     tagAc(AC(39)); // spec-372 issue-11
-    render(<CreateSpecStep preview />);
-    const prompt = within(screen.getByTestId('create-spec-prompt')).getByText(/Using the Memex MCP/);
-    const text = prompt.textContent ?? '';
-    // spec-372 issue-11 — the sample prompt is a rich PRD-style starting point: create + fully
-    // flesh out, a rich purpose narrative ("not just a feature list"), and dedicated spec
-    // sections — i.e. far more than a bare create_doc call.
+    render(<CreateFirstSpecStep preview />);
+    const container = screen.getByTestId('sample-prompt-container');
+    const text = container.textContent ?? '';
+    // The sample prompt is a rich PRD-style starting point.
     expect(text).toMatch(/create and fully flesh out/i);
     expect(text).toMatch(/not just a feature list/i);
     expect(text).toMatch(/Problem section/i);

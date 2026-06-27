@@ -190,22 +190,27 @@ describe("Home Canvas journey-state (ac-3 derived position)", () => {
 });
 
 describe("Home Canvas journey-state (ac-5 self-advance through the v2 arc)", () => {
-  it("advances one step at a time through the whole six-step arc", async () => {
+  it("advances one step at a time through the full arc", async () => {
+    // spec-421: arc is now identity → create-spec (mcpConnected) → create-first-spec (hasSpec)
+    // → resolve-decision → add-ac → specs-match-reality → agents-build (terminal).
     tagAc(AC336(5));
     tagAc(AC336(8));
+    const AC421 = (n: number) =>
+      `mindset-prod/memex-building-itself/specs/spec-421/acs/ac-${n}`;
+    tagAc(AC421(5)); // create-spec completes on mcpConnected
+    tagAc(AC421(10)); // create-first-spec completes on hasSpec
     const user = await newUser();
     expect((await state(user.id)).body.currentStepId).toBe("identity");
 
     await confirmIdentity(user.id);
-    // spec-336: connect is folded into the create-spec card (Stage 1) — connecting is
-    // shown inline, but the STEP advances on hasSpec, so identity → create-spec directly.
     expect((await state(user.id)).body.currentStepId).toBe("create-spec");
 
     await connectMcp(user.id);
-    // mcpConnected no longer gates a dedicated step — still on create-spec until a spec exists.
-    expect((await state(user.id)).body.currentStepId).toBe("create-spec");
+    // spec-421: create-spec now completes on mcpConnected → advances to create-first-spec.
+    expect((await state(user.id)).body.currentStepId).toBe("create-first-spec");
 
     const doc = await seedSpec(user.id);
+    // spec-421: create-first-spec completes on hasSpec → advances to resolve-decision.
     expect((await state(user.id)).body.currentStepId).toBe("resolve-decision");
 
     await seedResolvedDecision(user.id, doc.id);
@@ -238,8 +243,10 @@ describe("Home Canvas journey-state (ac-5 self-advance through the v2 arc)", () 
     const colleague = await newUser();
     await confirmIdentity(me.id);
     await connectMcp(me.id);
+    // spec-421: after mcpConnected, I'm now on create-first-spec (create-spec completed).
+    // Colleague's spec does NOT satisfy MY hasSpec → I stay on create-first-spec.
     await seedSpec(colleague.id); // the colleague's spec, not mine
-    expect((await state(me.id)).body.currentStepId).toBe("create-spec");
+    expect((await state(me.id)).body.currentStepId).toBe("create-first-spec");
   });
 });
 

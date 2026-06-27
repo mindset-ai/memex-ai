@@ -51,6 +51,27 @@ describe('TagChip', () => {
     expect(chip.textContent).toBe('bug');
   });
 
+  // spec-420 ac-1: scope renders in stored casing, no forced uppercase
+  it('renders scope in stored casing — no uppercase CSS transform (ac-1)', () => {
+    tagAc('mindset-prod/memex-building-itself/specs/spec-420/acs/ac-1');
+
+    render(<TagChip tag={{ scope: 'Deploy', value: '26-July-A' }} />);
+
+    const scope = screen.getByTestId('tag-chip-scope');
+    expect(scope.textContent).toBe('Deploy');
+    expect(scope.className).not.toContain('uppercase');
+  });
+
+  // spec-420 ac-4: uppercase scope still renders uppercase — no regression
+  it('renders uppercase scope as-is when stored in uppercase (ac-4)', () => {
+    tagAc('mindset-prod/memex-building-itself/specs/spec-420/acs/ac-4');
+
+    render(<TagChip tag={{ scope: 'DEPLOY', value: '26-July-A' }} />);
+
+    const scope = screen.getByTestId('tag-chip-scope');
+    expect(scope.textContent).toBe('DEPLOY');
+  });
+
   it('renders tag text escaped (user input is not interpreted as HTML)', () => {
     tagAc('mindset-prod/memex-building-itself/specs/spec-136/acs/ac-4');
 

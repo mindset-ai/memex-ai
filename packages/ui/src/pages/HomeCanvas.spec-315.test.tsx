@@ -64,8 +64,8 @@ describe('HomeCanvas — graduated layout (spec-315)', () => {
     // ac-3: journeys still render as the spec-312 pearls (consumed, not rebuilt).
     const pearls = await screen.findByTestId('your-journeys');
     const homeOfValue = screen.getByTestId('home-of-value');
-    // graduated ⇒ the expanded journey layer is gone.
-    expect(screen.queryByTestId('journey-layer')).toBeNull();
+    // graduated ⇒ the journey layer remains visible (all ticks green, no blank page).
+    expect(screen.queryByTestId('journey-layer')).toBeInTheDocument();
     // ac-9: the home-of-value surface precedes the pearls in the DOM.
     expect(
       homeOfValue.compareDocumentPosition(pearls) & Node.DOCUMENT_POSITION_FOLLOWING,
