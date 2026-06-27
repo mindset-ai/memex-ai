@@ -142,6 +142,9 @@ const SKIPS = new Map<string, string>([
   // before/after), not an entity confirmation — it writes nothing and emits no
   // `ref:` line. The actual write happens on approval through the scaffold route.
   ["propose_scaffold_change", "agent-only scaffold proposal — returns a proposal, not entity-acting"],
+  // spec-340: the facets list verb returns the vocabulary listing (key/name/description),
+  // a discovery output like list_docs — not an entity confirmation, so no `ref:` line.
+  ["facets", "facet vocabulary listing — read tool, not entity-acting"],
   // search_memex is the T-8 sister deliverable. It's a discovery tool whose
   // output mirrors list_memexes / list_docs; not an entity-acting tool, so
   // ref emission isn't required. Skip until T-8 confirms the shape.

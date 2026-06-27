@@ -909,6 +909,8 @@ const TOOL_RATIONALES: Record<string, string> = {
     "Flag drift on a standard section: post a typed `drift` comment (sourced 'agent') when the rule is right but the codebase has diverged from it. Surfaces in the Drift Inbox; use propose_standard_change instead when the rule itself is wrong.",
   propose_standard_change:
     "Propose a corrected version of a standard section: lands a typed `plan_revision` comment (sourced 'agent') with the full replacement markdown and a rationale, for the standard owner to accept or reject in the Drift Inbox.",
+  facets:
+    "Read (and later manage) your Memex's facet vocabulary — the closed, per-owner set of cross-cutting practice areas a standard's clauses are tagged with. Verb-dispatched so the surface stays one tool; v0 supports verb:'list'.",
   create_ac:
     'Create an Acceptance Criterion under a Spec. Scope ACs are manager-authored outcomes; implementation ACs are agent-spawned from resolved Decisions.',
   list_acs:

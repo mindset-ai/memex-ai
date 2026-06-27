@@ -95,6 +95,25 @@ export async function makeTestMemex(prefix = "ta"): Promise<string> {
   return result.id;
 }
 
+// Create a PERSONAL memex: a user-kind namespace with no owning org (spec-340 dec-7).
+// Its facet-vocabulary owner resolves to the memex itself (owner_type='memex'). Used
+// by the facet seeding tests to exercise the personal-memex branch.
+export async function makePersonalTestMemex(prefix = "pers"): Promise<string> {
+  const slug = uniqueSlug(prefix);
+  const result = await db.transaction(async (tx) => {
+    const [ns] = await tx
+      .insert(namespaces)
+      .values({ slug, kind: "user" })
+      .returning();
+    const [memex] = await tx
+      .insert(memexes)
+      .values({ namespaceId: ns.id, slug: "main", name: "Personal" })
+      .returning();
+    return memex;
+  });
+  return result.id;
+}
+
 // Returns the memex id and the namespace slug, plus enrolls the dev user as
 // administrator of the org so route-level integration tests can hit the API
 // through tenant + session middleware.
