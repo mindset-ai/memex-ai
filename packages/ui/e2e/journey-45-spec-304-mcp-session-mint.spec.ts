@@ -102,6 +102,32 @@ test(INSTALL_TEST, async ({ page }) => {
     };
   });
 
+  // Intercept the session-mint POST so the UI flow is deterministic and isn't
+  // coupled to live in-page POST timing (test 1 above already covers the REAL
+  // /api/mcp/tokens endpoint end-to-end). GET/other methods hit the real server.
+  // This still proves the UI mints via the session endpoint (the route fires),
+  // then routes the raw token to the native bridge — never the DOM.
+  const MINTED = "mxt_e2e0token0123456789abcdef";
+  let mintPosted = false;
+  await page.route("**/api/mcp/tokens", async (route) => {
+    if (route.request().method() === "POST") {
+      mintPosted = true;
+      await route.fulfill({
+        status: 201,
+        contentType: "application/json",
+        body: JSON.stringify({
+          token: MINTED,
+          id: "tok_e2e",
+          label: "Memex Desktop",
+          prefix: MINTED.slice(0, 12),
+          createdAt: "2026-06-27T00:00:00.000Z",
+        }),
+      });
+    } else {
+      await route.continue();
+    }
+  });
+
   await page.goto(bareUrl("/settings/integrations"));
 
   // The in-app install surface is present (desktop-shell only).
@@ -121,8 +147,11 @@ test(INSTALL_TEST, async ({ page }) => {
     timeout: 15_000,
   });
 
-  // The flow minted from the session and handed the RAW token to installMcp —
-  // and the token never appeared in the DOM (ac-6).
+  // The token came from the session-mint endpoint (no terminal / device flow).
+  expect(mintPosted).toBe(true);
+
+  // The flow handed the RAW minted token to installMcp — and it never appeared
+  // in the DOM (ac-6).
   const calls = await page.evaluate(
     () => (window as unknown as { __bridgeCalls: Array<{ name: string; args: { token?: string } }> }).__bridgeCalls,
   );
