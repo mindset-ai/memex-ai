@@ -198,7 +198,7 @@ export const toolManifest: ToolManifestEntry[] = [
     name: 'add_clause',
     summary:
       'Append (or insert at a position) a clause to a STANDARD section — one self-contained aspect. Standards only; the new clause gets an addressable cl-N handle.',
-    args: 'add_clause(ref, body, position?)',
+    args: 'add_clause(ref, body, position?, facets?)',
     group: 'planning',
     readOnlyHint: false,
     trafficClass: null,
@@ -207,7 +207,7 @@ export const toolManifest: ToolManifestEntry[] = [
     name: 'edit_clause',
     summary:
       "Edit a STANDARD clause's body by its cl-N ref; the section content (the join of its clauses) regenerates. Standards only.",
-    args: 'edit_clause(ref, body)',
+    args: 'edit_clause(ref, body, facets?)',
     group: 'planning',
     readOnlyHint: false,
     trafficClass: null,
@@ -270,7 +270,7 @@ export const toolManifest: ToolManifestEntry[] = [
     name: 'resolve_decision',
     summary:
       'Resolve a decision; may unblock waiting tasks. chosenOptionIndex marks a structured option — resolution is then optional (defaults to its label). Re-resolving updates the choice in place.',
-    args: 'resolve_decision(ref, resolution?, chosenOptionIndex?)',
+    args: 'resolve_decision(ref, resolution?, chosenOptionIndex?, facetBallot?)',
     group: 'planning',
     readOnlyHint: false,
     trafficClass: 'specify',
@@ -326,7 +326,7 @@ export const toolManifest: ToolManifestEntry[] = [
     name: 'create_task',
     summary:
       'Create a task (build-phase only); resolve open decisions first. Include acceptance criteria.',
-    args: 'create_task(ref, title, description, acceptanceCriteria?, sectionRef?)',
+    args: 'create_task(ref, title, description, acceptanceCriteria?, sectionRef?, facetBallot?)',
     group: 'build',
     readOnlyHint: false,
     // spec-327 dec-3: NON-ADVANCING. The createTask service guard (dec-1) rejects
