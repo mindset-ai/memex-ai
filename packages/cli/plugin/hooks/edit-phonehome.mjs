@@ -27,16 +27,21 @@ function readStdin() {
   });
 }
 
-// Where the installer planted { api_base, hook_key }. Env vars override (CI).
-function loadConfig() {
-  const apiBase = process.env.MEMEX_CHECKOUT_API_BASE;
-  const hookKey = process.env.MEMEX_CHECKOUT_HOOK_KEY;
-  if (apiBase && hookKey) return { apiBase, hookKey };
+// Where the bootstrap stored { api_base, keys: { "<ns>/<memex>": "mxh_…" } } — keyed
+// per memex (dec-10). Env vars override (CI); a legacy single `hook_key` still works.
+// Resolves the key for the CLAIMED memex so a multi-memex user phones each home with
+// the right scoped credential.
+function loadConfig(memexRef) {
+  const envBase = process.env.MEMEX_CHECKOUT_API_BASE;
+  const envKey = process.env.MEMEX_CHECKOUT_HOOK_KEY;
+  if (envBase && envKey) return { apiBase: envBase, hookKey: envKey };
   try {
     const cfg = JSON.parse(readFileSync(join(homedir(), ".memex", "checkout.json"), "utf8"));
-    if (cfg && typeof cfg.api_base === "string" && typeof cfg.hook_key === "string") {
-      return { apiBase: cfg.api_base, hookKey: cfg.hook_key };
-    }
+    const apiBase = typeof cfg.api_base === "string" ? cfg.api_base : envBase;
+    const perMemex =
+      cfg.keys && memexRef && typeof cfg.keys[memexRef] === "string" ? cfg.keys[memexRef] : null;
+    const hookKey = perMemex ?? (typeof cfg.hook_key === "string" ? cfg.hook_key : null);
+    if (apiBase && hookKey) return { apiBase, hookKey };
   } catch {
     /* not installed / unreadable → fail quiet */
   }
@@ -107,7 +112,7 @@ async function main() {
     return;
   }
   // 'phone-home': this thread holds a fresh claim → report the edit.
-  const cfg = loadConfig();
+  const cfg = loadConfig(decision.claim.memex);
   if (!cfg) return; // no key planted → fail quiet, nothing leaves
   const paths = changedPaths(p);
   if (paths.length === 0) return;
