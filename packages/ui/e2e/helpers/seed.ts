@@ -113,6 +113,8 @@ export async function seedSpecInMemex(opts: {
   title: string;
   purpose?: string;
   createdByUserId?: string;
+  /** spec-421: seed as a DEMO spec (isDemo=true) — does NOT count toward hasSpec. */
+  isDemo?: boolean;
 }): Promise<{ docId: string; handle: string; sectionId: string | null }> {
   return call<{ docId: string; handle: string; sectionId: string | null }>(
     "POST",

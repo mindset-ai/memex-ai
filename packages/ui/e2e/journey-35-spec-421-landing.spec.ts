@@ -31,6 +31,7 @@ import {
 const S312_AC2 = "mindset-prod/memex-building-itself/specs/spec-312/acs/ac-2";
 const S312_AC3 = "mindset-prod/memex-building-itself/specs/spec-312/acs/ac-3";
 const S421_AC14 = "mindset-prod/memex-building-itself/specs/spec-421/acs/ac-14";
+const S421_AC15 = "mindset-prod/memex-building-itself/specs/spec-421/acs/ac-15";
 const S421_AC16 = "mindset-prod/memex-building-itself/specs/spec-421/acs/ac-16";
 
 const FILE = "packages/ui/e2e/journey-35-spec-421-landing.spec.ts";
@@ -49,7 +50,9 @@ test.afterEach(async ({}, testInfo) => {
   const status = testInfo.status === "passed" ? "pass" : "fail";
   const acs = testInfo.title.includes("Specs board")
     ? [S421_AC14, S421_AC16]
-    : [S312_AC2, S312_AC3];
+    : testInfo.title.includes("demo spec")
+      ? [S421_AC15]
+      : [S312_AC2, S312_AC3];
   await emitAcEvents(acs, status, `${FILE}::${testInfo.title}`, testInfo.duration);
 });
 
@@ -98,4 +101,31 @@ test("a user who has created their first spec lands on the Specs board, not Home
   // spec-421 ac-14 / ac-16: engaged ⇒ straight to the Specs board, NOT /home.
   await expect(page).toHaveURL(/\/specs(\?|#|$)/, { timeout: 15_000 });
   await expect(page).not.toHaveURL(/\/home(\?|#|$)/);
+});
+
+test("a user whose only spec is a demo spec still lands on Home (demo specs don't count)", async ({
+  page,
+}) => {
+  const userId = await ensureUser(DEV_EMAIL);
+  await setUserName(DEV_EMAIL, DEV_NAME);
+  await setIdentityConfirmed(DEV_EMAIL, true);
+
+  // Seed a DEMO spec (isDemo=true) — the kind spec-178 auto-seeds into every new Memex.
+  // It must NOT count toward the hasSpec milestone, so the user is still "getting started".
+  const memex = await getPersonalMemexByEmail(DEV_EMAIL);
+  if (!memex) throw new Error("dev personal memex not provisioned");
+  const demo = await seedSpecInMemex({
+    memexId: memex.memexId,
+    title: "Demo spec (landing journey)",
+    createdByUserId: userId,
+    isDemo: true,
+  });
+  seededSpecId = demo.docId;
+
+  await page.goto(bareUrl("/"));
+
+  // spec-421 ac-15: a demo-only user has hasSpec=false ⇒ lands on /home, not the board.
+  await expect(page).toHaveURL(/\/home(\?|#|$)/, { timeout: 15_000 });
+  await expect(page.getByTestId("home-canvas")).toBeVisible({ timeout: 15_000 });
+  await expect(page).not.toHaveURL(/\/specs(\?|#|$)/);
 });

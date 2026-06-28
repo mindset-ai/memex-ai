@@ -75,6 +75,7 @@ let journeyFetch: () => Promise<JourneyStateResponse> = () => new Promise(() => 
 const fetchJourneyStateApi = vi.fn(() => journeyFetch());
 
 const trackMock = vi.fn();
+const trackAnonymousMock = vi.fn();
 
 vi.mock('./api/journey', async () => {
   const real = await vi.importActual<typeof import('./api/journey')>('./api/journey');
@@ -84,7 +85,7 @@ vi.mock('./api/journey', async () => {
 vi.mock('./hooks/useTelemetry', () => ({
   useTelemetry: () => ({ track: trackMock, optedOut: false, setOptOut: vi.fn() }),
   useTrackRouteChange: () => {},
-  trackAnonymous: vi.fn(),
+  trackAnonymous: (...args: unknown[]) => trackAnonymousMock(...args),
   isOptedOut: () => false,
   telemetryEnabled: () => true,
   routeTemplate: (p: string) => p,
@@ -148,6 +149,7 @@ describe('RootRedirect lands users by a read-only onboarding-state check (spec-4
     vi.stubEnv('VITE_GOOGLE_CLIENT_ID', 'test-client-id');
     fetchJourneyStateApi.mockClear();
     trackMock.mockClear();
+    trackAnonymousMock.mockClear();
     journeyFetch = () => new Promise(() => {}); // default: never resolves
   });
   afterEach(() => {
@@ -211,11 +213,14 @@ describe('RootRedirect lands users by a read-only onboarding-state check (spec-4
     mockSession = makeSession({ hiddenFeatures: [] });
     journeyFetch = () => Promise.resolve(journeyState(true));
     renderAt('/');
+    // The event fires via track() when a tenant resolves, else the trackAnonymous()
+    // fallback — assert it landed through whichever path with the right props.
     await waitFor(() => {
-      expect(trackMock).toHaveBeenCalledWith('home.landing_routed', {
-        destination: 'specs',
-        graduated: true,
-      });
+      const viaTrack = trackMock.mock.calls.find((c) => c[0] === 'home.landing_routed');
+      const viaAnon = trackAnonymousMock.mock.calls.find((c) => c[0] === 'home.landing_routed');
+      const call = viaTrack ?? viaAnon;
+      expect(call, 'home.landing_routed should fire via track or trackAnonymous').toBeTruthy();
+      expect(call?.[1]).toEqual({ destination: 'specs', graduated: true });
     });
   });
 

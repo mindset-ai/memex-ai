@@ -107,7 +107,7 @@ import {
 import { VoiceLayer } from './voice/session/VoiceLayer';
 import { createReactRouterNavigationAdapter } from './voice/reactRouterNavigationAdapter';
 import { HandholdRevealProvider, useHandholdRevealValue } from './hooks/HandholdRevealContext';
-import { useTrackRouteChange, useTelemetry } from './hooks/useTelemetry';
+import { useTrackRouteChange, useTelemetry, trackAnonymous } from './hooks/useTelemetry';
 import { useShouldLandOnHome } from './journeys/landing';
 import { tenantBase, BASE_URL, fetchWithRetry } from './api/http';
 import { SearchProvider } from './components/SearchContext';
@@ -411,10 +411,13 @@ function RootRedirect() {
   useEffect(() => {
     if (!needDecision || landOnHome === null || firedRef.current) return;
     firedRef.current = true;
-    track('home.landing_routed', {
-      destination: landOnHome ? 'home' : 'specs',
-      graduated: !landOnHome,
-    });
+    const props = { destination: landOnHome ? 'home' : 'specs', graduated: !landOnHome };
+    // RootRedirect renders at the flat `/` (or `/login`), where `track()` resolves the
+    // tenant from the cached session. In the rare case there's no resolvable tenant (e.g.
+    // a session with no current Memex yet), fall back to the anonymous ingress so the
+    // engagement data point still lands. Both are advisory and never throw into routing.
+    if (tenantBase()) track('home.landing_routed', props);
+    else trackAnonymous('home.landing_routed', props);
   }, [needDecision, landOnHome, track]);
 
   if (!session) return null; // session bootstrap still pending

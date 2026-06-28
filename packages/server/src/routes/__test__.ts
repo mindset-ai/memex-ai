@@ -248,6 +248,9 @@ const seedSpecSchema = z.object({
   title: z.string(),
   purpose: z.string().optional(),
   createdByUserId: z.string().uuid().optional(),
+  // spec-421: seed a DEMO spec (isDemo=true) so journeys can assert that demo specs
+  // (spec-178 seeds 5 per Memex) do NOT count toward the hasSpec milestone / landing.
+  isDemo: z.boolean().optional(),
 });
 testOnlyRouter.post("/seed-spec", async (c) => {
   const body = await c.req.json().catch(() => null);
@@ -255,8 +258,16 @@ testOnlyRouter.post("/seed-spec", async (c) => {
   if (!parsed.success) {
     return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
   }
-  const { memexId, title, purpose = "Seeded purpose.", createdByUserId } = parsed.data;
-  const result = await createDocDraft(memexId, title, purpose, "spec", undefined, undefined, createdByUserId);
+  const { memexId, title, purpose = "Seeded purpose.", createdByUserId, isDemo } = parsed.data;
+  const result = await createDocDraft(
+    memexId,
+    title,
+    purpose,
+    "spec",
+    undefined,
+    isDemo ? { isDemo: true } : undefined,
+    createdByUserId,
+  );
   // The first (overview/purpose) section id — handy for journeys that mutate a
   // section over the API (e.g. the reactivity round-trips in journey-16).
   return c.json({ docId: result.id, handle: result.handle, sectionId: result.sections[0]?.id ?? null });
