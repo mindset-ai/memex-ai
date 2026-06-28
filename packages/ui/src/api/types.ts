@@ -365,6 +365,9 @@ export interface Decision {
   options: DecisionOption[] | null;
   chosenOptionIndex: number | null;
   source?: DecisionSource;
+  /** spec-423 (dec-7): the facet keys this decision's ballot marked true, rendered
+   *  as pills. Optional — legacy / partial payloads omit it; defaults to []. */
+  facetKeys?: string[];
 }
 
 export interface AcceptanceCriterion {
@@ -391,6 +394,9 @@ export interface Task {
    *  graph view to mark such nodes visually. Optional because legacy / partial
    *  payloads may omit it. */
   executionPlanDocId?: string | null;
+  /** spec-423 (dec-7): the facet keys this task's ballot marked true, rendered as
+   *  pills. Optional — legacy / partial payloads omit it; defaults to []. */
+  facetKeys?: string[];
 }
 
 // ── Issues (spec-112) ──

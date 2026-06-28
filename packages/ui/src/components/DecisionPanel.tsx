@@ -15,6 +15,7 @@ import { useAuth } from './AuthContext';
 import { useChat } from './ChatContext';
 import { CommentTray } from './CommentTray';
 import { Badge, Button } from './ui';
+import { FacetPills } from './FacetPills';
 import { DecisionAcStrip } from './DecisionAcStrip';
 import { PromptButton } from './PromptButton';
 import { TextArea } from './ui/TextArea';
@@ -421,6 +422,8 @@ export function DecisionPanel({ docId, decisions, commentsByDecision = {}, force
                   <span className="flex-none text-xs font-mono text-muted">D-{dec.seq}</span>
                 </div>
 
+                <FacetPills facetKeys={dec.facetKeys} className="mt-1.5" />
+
                 {dec.context && (
                   <div className="mt-2 pl-2 border-l-2 border-edge-subtle">
                     <span className="text-[10px] uppercase tracking-wider text-muted font-medium">Context</span>
@@ -552,6 +555,8 @@ export function DecisionPanel({ docId, decisions, commentsByDecision = {}, force
                   <Badge status="open" className="flex-none" />
                   <span className="flex-none text-xs font-mono text-muted">D-{dec.seq}</span>
                 </div>
+
+                <FacetPills facetKeys={dec.facetKeys} className="mt-1.5 ml-5" />
 
                 {isExpanded && (
                   <>
@@ -707,6 +712,8 @@ export function DecisionPanel({ docId, decisions, commentsByDecision = {}, force
                   </button>
                   <span className="flex-none text-xs font-mono text-muted">dec-{dec.seq}</span>
                 </div>
+
+                <FacetPills facetKeys={dec.facetKeys} className="mt-1.5" />
 
                 {dec.options && shownChosenIdx !== null && dec.options[shownChosenIdx] && (
                   <div className="mt-1 pl-6 text-xs text-muted">
