@@ -8,10 +8,30 @@
 // nothing to ballot, nothing to route.
 
 import { trueFacetsOf, storeTaskBallot, storeDecisionBallot, type BallotInput } from "./facet-ballot.js";
-import { routeFacets, formatRoutedStandards } from "./facet-routing.js";
+import { routeFacets, formatRoutedStandards, type ReadoutOccasion } from "./facet-routing.js";
 import { logRouting } from "./facet-routing-log.js";
 import type { VocabFacet } from "./facet-vocab.js";
 import type { RequestCtx } from "./mutate.js";
+
+/**
+ * Route a set of true facets to the governing standards, log the routing decision
+ * (dec-4, with the lifecycle occasion), and return the formatted readout. The shared
+ * core of both the create/resolve cast path and the in_progress re-surface (dec-10).
+ * Does NOT touch the ballot — the caller owns whether a ballot is stored.
+ */
+export async function routeAndReadout(args: {
+  memexId: string;
+  ownerRef: string;
+  noun: "task" | "decision";
+  queryText: string;
+  facetKeys: string[];
+  occasion: ReadoutOccasion;
+}): Promise<string> {
+  const { memexId, ownerRef, noun, queryText, facetKeys, occasion } = args;
+  const result = await routeFacets(memexId, facetKeys, queryText);
+  await logRouting(memexId, ownerRef, noun, queryText, facetKeys, result, occasion);
+  return formatRoutedStandards(result, occasion);
+}
 
 // Parse the optional `facetBallot` tool arg into a BallotInput. A missing arg becomes
 // the empty ballot — which validateBallotForMemex rejects (re-handing the vocabulary)
@@ -49,7 +69,5 @@ export async function storeRouteAndReadout(args: StoreRouteArgs): Promise<string
   }
 
   const facetKeys = trueFacetsOf(ballot, vocab);
-  const result = await routeFacets(memexId, facetKeys, queryText);
-  await logRouting(memexId, ownerRef, noun, queryText, facetKeys, result);
-  return formatRoutedStandards(result);
+  return routeAndReadout({ memexId, ownerRef, noun, queryText, facetKeys, occasion: "created" });
 }

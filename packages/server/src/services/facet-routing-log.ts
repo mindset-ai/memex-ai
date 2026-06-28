@@ -20,6 +20,10 @@ export async function logRouting(
   queryText: string,
   facetKeys: string[],
   result: RoutingResult,
+  // dec-10: the lifecycle moment this routing fired at ('created' | 'in_progress'),
+  // recorded in ranker_params so the dec-4 tuning data can tell which surfacing the
+  // agent acted on — no schema change.
+  occasion?: string,
 ): Promise<void> {
   await db.insert(facetRoutingLog).values({
     memexId,
@@ -32,5 +36,6 @@ export async function logRouting(
     candidates: result.all.map((s) => ({ handle: s.handle, title: s.title, score: s.score, surfaced: s.surfaced })),
     k: result.k,
     rankerModel: result.rankerModel,
+    rankerParams: occasion ? { occasion } : null,
   });
 }

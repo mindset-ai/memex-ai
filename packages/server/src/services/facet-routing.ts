@@ -180,14 +180,25 @@ export async function routeFacets(
   return { surfaced: all.filter((r) => r.surfaced), all, k, rankerModel };
 }
 
+// The lifecycle moment a readout is surfaced at (dec-10). Drives both the heading
+// wording (execution-framed at in_progress so it doesn't read as a duplicate of the
+// creation footer) and the dec-4 routing-log occasion.
+export type ReadoutOccasion = "created" | "in_progress";
+
 /**
  * Render the surfaced standards as the payoff readout appended to the create_task /
- * resolve_decision response. Scores are SHOWN so the agent triages weak matches
- * itself (dec-2). Empty when nothing is governed.
+ * resolve_decision response (occasion 'created') or the update_task → in_progress
+ * response (occasion 'in_progress', dec-10). Scores are SHOWN so the agent triages
+ * weak matches itself (dec-2). Empty when nothing is governed.
  */
-export function formatRoutedStandards(result: RoutingResult): string {
+export function formatRoutedStandards(result: RoutingResult, occasion: ReadoutOccasion = "created"): string {
   if (result.surfaced.length === 0) return "";
-  const lines = ["", `Standards to keep top-of-mind for this work (top ${result.surfaced.length}, ranked — consult before you code):`];
+  const n = result.surfaced.length;
+  const heading =
+    occasion === "in_progress"
+      ? `You're starting this task now — consult ${n} governing standard${n === 1 ? "" : "s"} before you write code (ranked):`
+      : `Standards to keep top-of-mind for this work (top ${n}, ranked — consult before you code):`;
+  const lines = ["", heading];
   for (const s of result.surfaced) {
     lines.push(`- ${s.handle} (${s.score.toFixed(2)}) [${s.facetKeys.join(", ")}] — ${s.title}`);
   }

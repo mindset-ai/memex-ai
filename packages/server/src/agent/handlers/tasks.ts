@@ -25,8 +25,8 @@ import {
 // spec-423 dec-5 — the forced facet ballot + payoff readout. Vocab is read via
 // facet-ballot.ts → facet-vocab.ts (NO-LLM); the classifier engine is never imported
 // on this request path (the facet-classifier-no-request-path regression guard).
-import { validateBallotForMemex } from "../../services/facet-ballot.js";
-import { parseBallotArg, storeRouteAndReadout } from "../../services/facet-consume.js";
+import { validateBallotForMemex, taskBallotTrueFacets } from "../../services/facet-ballot.js";
+import { parseBallotArg, storeRouteAndReadout, routeAndReadout } from "../../services/facet-consume.js";
 import {
   ValidationError,
 } from "../../types/errors.js";
@@ -294,6 +294,8 @@ export const tasksTools: ToolSpec[] = [
       };
 
       const messages: string[] = [];
+      // dec-10: the routed-standards footer re-surfaced when a task goes in_progress.
+      let inProgressReadout = "";
       if (
         title !== undefined ||
         description !== undefined ||
@@ -311,6 +313,30 @@ export const tasksTools: ToolSpec[] = [
       }
       if (status !== undefined) {
         const updated = await updateTaskStatus(memexId, taskUuid, status, reqCtx(ctx));
+        // dec-10: at the moment execution begins, re-surface the governing standards —
+        // re-derived from the task's STORED ballot over the CURRENT standards corpus
+        // (no new ballot). Often a fresh session picks the task up here with none of the
+        // creation context. Advisory + non-blocking: a routing failure never fails the
+        // update, and a task with no ballot surfaces nothing.
+        if (status === "in_progress") {
+          try {
+            const facetKeys = await taskBallotTrueFacets(taskUuid);
+            if (facetKeys.length > 0) {
+              const fresh = await getTask(memexId, taskUuid);
+              const inProgRef = buildChildRef(slugs, doc, { type: "tasks", seq: fresh.seq });
+              inProgressReadout = await routeAndReadout({
+                memexId,
+                ownerRef: inProgRef,
+                noun: "task",
+                queryText: `${fresh.title}\n${fresh.description}`,
+                facetKeys,
+                occasion: "in_progress",
+              });
+            }
+          } catch {
+            // advisory — never fail update_task on a routing hiccup.
+          }
+        }
         let unblockedHint = "";
         // Per dec-1: when completing a task unblocks dependents, name them so
         // the agent skips the follow-up `list_tasks(readyOnly:true)` call. This
@@ -369,13 +395,13 @@ export const tasksTools: ToolSpec[] = [
         // spec-219 Phase 2 (sole-author): the completion steer is already
         // signalled above (kind:'task_completed'); composeGuidanceEnvelope owns
         // the prose for terse AND verbose. Nothing to park here.
-        return await formatState(url, state, ctx);
+        return (await formatState(url, state, ctx)) + inProgressReadout;
       }
 
       if (messages.length === 0) {
         return "No-op: pass at least one of status, title, description, acceptanceCriteria, sectionRef, addBlockerRef, removeBlockerRef.";
       }
-      return messages.join(" ");
+      return messages.join(" ") + inProgressReadout;
     },
   },
   {

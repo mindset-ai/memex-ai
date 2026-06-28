@@ -146,3 +146,48 @@ describe("resolve_decision forces a ballot and stores it work-side (spec-423 t-5
     expect(ballots[0].verdict).toEqual({ "xc-security": true, "xc-perf": false });
   });
 });
+
+describe("update_task re-surfaces the routed standards at in_progress (spec-423 t-9, dec-10)", () => {
+  const refOf = (out: string) => out.match(/ref:\s+(\S+)/)![1];
+
+  it("appends an execution-framed readout re-derived from the stored ballot, logged occasion in_progress (ac-17)", async () => {
+    tagAc(AC(17));
+    const created = await executeServerTool(
+      memexId,
+      "create_task",
+      { ref: specRef, title: "Wire the auth guard", description: "harden authz", facetBallot: fullBallot },
+      userId,
+    );
+    const taskRef = refOf(created);
+
+    const out = await executeServerTool(memexId, "update_task", { ref: taskRef, status: "in_progress" }, userId);
+    // The governing standard is re-surfaced, with the execution-framed lead.
+    expect(out).toContain("std-1");
+    expect(out).toContain("You're starting this task");
+
+    // The re-route was logged with occasion 'in_progress' (no new ballot cast).
+    const logs = await db
+      .select()
+      .from(facetRoutingLog)
+      .where(and(eq(facetRoutingLog.memexId, memexId), eq(facetRoutingLog.ownerRef, taskRef)));
+    expect(logs.some((l) => (l.rankerParams as { occasion?: string } | null)?.occasion === "in_progress")).toBe(true);
+  });
+
+  it("surfaces no footer for a task whose ballot governs no facet (ac-17)", async () => {
+    tagAc(AC(17));
+    const created = await executeServerTool(
+      memexId,
+      "create_task",
+      {
+        ref: specRef,
+        title: "A no-facet chore",
+        description: "docs only",
+        facetBallot: { verdict: { "xc-security": false, "xc-perf": false }, none: true },
+      },
+      userId,
+    );
+    const out = await executeServerTool(memexId, "update_task", { ref: refOf(created), status: "in_progress" }, userId);
+    expect(out).not.toContain("std-1");
+    expect(out).not.toContain("You're starting this task");
+  });
+});
