@@ -28,6 +28,10 @@ import {
   type McpTargetKey,
 } from '../desktop/bridge';
 import type { ClientStatus, McpStatusResult } from '../desktop/mcpStatus';
+import {
+  isPillNotificationEnabled,
+  setPillNotificationEnabled,
+} from '../desktop/mcpPillPrefs';
 import { runInstall } from '../desktop/install';
 import { ClaudeConnectorDialog } from './ClaudeConnectorDialog';
 
@@ -118,8 +122,9 @@ export function DesktopMcpSection() {
               </div>
             </div>
             {transport === 'connector' ? (
-              // Claude Desktop: open the connector-instructions dialog. No token
-              // logic, no in-app file write — the app can't add a connector (dec-23).
+              // Claude Desktop – Org Connector: open the connector-instructions
+              // dialog. No token logic, no in-app file write, and no pill — the
+              // app can't add or detect an account-level connector (dec-23/dec-24).
               <button
                 onClick={() => setConnectorOpen(true)}
                 className="text-xs px-3 py-1.5 rounded-sm bg-accent text-on-accent hover:opacity-90"
@@ -127,13 +132,31 @@ export function DesktopMcpSection() {
                 {BUTTON_LABEL.connector}
               </button>
             ) : (
-              <button
-                onClick={() => handleInstall(key as McpTargetKey, name)}
-                disabled={busy !== null}
-                className="text-xs px-3 py-1.5 rounded-sm bg-accent text-on-accent hover:opacity-90 disabled:opacity-50"
-              >
-                {busy === key ? 'Installing MCP…' : BUTTON_LABEL[status.button]}
-              </button>
+              // Token clients (Claude Code): the install action PLUS a per-client
+              // "MCP status notification" toggle (dec-24, ac-57). Off → this
+              // client no longer drives the native pill; the inline status above
+              // stays. Lets a user who'll never use this client silence the pill.
+              <div className="flex items-center gap-3">
+                <label
+                  className="flex items-center gap-1.5 text-xs text-secondary cursor-pointer select-none"
+                  title="Show this client's MCP status in the desktop app's pill"
+                  data-testid={`mcp-notify-${key}`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={isPillNotificationEnabled(key)}
+                    onChange={(e) => setPillNotificationEnabled(key, e.target.checked)}
+                  />
+                  MCP status notification
+                </label>
+                <button
+                  onClick={() => handleInstall(key as McpTargetKey, name)}
+                  disabled={busy !== null}
+                  className="text-xs px-3 py-1.5 rounded-sm bg-accent text-on-accent hover:opacity-90 disabled:opacity-50"
+                >
+                  {busy === key ? 'Installing MCP…' : BUTTON_LABEL[status.button]}
+                </button>
+              </div>
             )}
           </div>
         ))}

@@ -132,35 +132,21 @@ describe('spec-304 ac-52 (issue-23): "connected" is PER-TOKEN, never the user-sc
   });
 });
 
-describe('spec-304 ac-56 (t-56): Claude Desktop connector status from the mcp.connected signal', () => {
-  it('connected signal present → "MCP connected" (independent of any local config)', () => {
+describe('spec-304 ac-56 (dec-24): Claude Desktop connector never asserts "connected"', () => {
+  it('is a neutral, signal-free setup state — there is no per-connector signal to prove a connection', () => {
     tagAc(AC_CONNECTOR);
-    expect(deriveConnectorStatus({ connected: true })).toEqual({
-      kind: 'connected',
-      label: 'MCP connected',
+    // deriveConnectorStatus takes NO connection input — it cannot, and must not,
+    // claim "connected" off the user-scoped (monotonic, un-attributable) signal.
+    expect(deriveConnectorStatus()).toEqual({
+      kind: 'not_installed',
+      label: 'Set up in Claude',
       button: 'connector',
     });
   });
 
-  it('no connection yet → "Not connected", connector instructions still offered', () => {
+  it('the connector label never reads "connected"', () => {
     tagAc(AC_CONNECTOR);
-    expect(deriveConnectorStatus({ connected: false })).toEqual({
-      kind: 'not_installed',
-      label: 'Not connected',
-      button: 'connector',
-    });
-  });
-
-  it('a connected connector contributes "connected" to the aggregate indicator', () => {
-    tagAc(AC_CONNECTOR);
-    // CD connected + CC not installed → the pill reads connected (CD counts).
-    const cd = deriveConnectorStatus({ connected: true });
-    const cc: ClientStatus = {
-      kind: 'not_installed',
-      label: 'Not installed',
-      button: 'install',
-    };
-    expect(deriveIndicator([cc, cd]).kind).toBe('connected');
+    expect(deriveConnectorStatus().label.toLowerCase()).not.toContain('connect');
   });
 });
 

@@ -97,20 +97,24 @@ export function deriveClientStatus(
 }
 
 /**
- * Classify a CONNECTOR-based client (Claude Desktop, dec-23 / t-56). The
- * account-level Custom Connector is NOT in claude_desktop_config.json, so there
- * is no local entry and no per-token signal to read — its only honest truth is
- * the user-scoped `mcp.connected` usage signal. When a handshake has been seen
- * the client reads "MCP connected"; otherwise it is "Not connected" and the
- * "Install for my org" connector instructions stay available (never an alarm).
- * The button always opens the instructions dialog (the app cannot write a
- * connector), so it is offered in both states.
+ * Classify a CONNECTOR-based client (Claude Desktop "Org Connector", dec-24,
+ * revises dec-23/t-56). The account-level Custom Connector is NOT in
+ * claude_desktop_config.json and is NOT an `mxt_` token in the user's token
+ * list, so there is NO signal that can attribute a connection to THIS client.
+ * The only thing available — the user-scoped `mcp.connected` milestone — is a
+ * monotonic "have you ever connected by anything" flag (it stayed true even
+ * after every memex entry was wiped, falsely painting the row "connected").
+ *
+ * So the connector NEVER asserts "connected" and NEVER drives the native pill
+ * (the caller excludes connector clients from the pill aggregate). It is a
+ * setup-only row: a neutral "Set up in Claude" inline status plus the
+ * "Install for my org" instructions dialog. A false "not set up" prompt is
+ * benign; a false "connected" is not. The precise "Last connected: <date>" /
+ * "Never used" status — and the per-credential signal that powers it — are
+ * deferred to issue-26.
  */
-export function deriveConnectorStatus(opts: { connected: boolean }): ClientStatus {
-  if (opts.connected) {
-    return { kind: 'connected', label: 'MCP connected', button: 'connector' };
-  }
-  return { kind: 'not_installed', label: 'Not connected', button: 'connector' };
+export function deriveConnectorStatus(): ClientStatus {
+  return { kind: 'not_installed', label: 'Set up in Claude', button: 'connector' };
 }
 
 export type IndicatorKind = 'connected' | 'ready' | 'repair' | 'install';
@@ -162,5 +166,9 @@ export const MCP_CLIENTS: ReadonlyArray<{
   transport: ClientTransport;
 }> = [
   { key: 'claudeCode', name: 'Claude Code', transport: 'token' },
-  { key: 'claudeDesktop', name: 'Claude Desktop', transport: 'connector' },
+  {
+    key: 'claudeDesktop',
+    name: 'Claude Desktop – Org Connector',
+    transport: 'connector',
+  },
 ];
