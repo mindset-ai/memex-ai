@@ -79,7 +79,7 @@ async function phoneHome(cfg, body) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), 4000); // deterministic; hard 4s cap
   try {
-    await fetch(`${cfg.apiBase}/api/spec-checkout/edit`, {
+    await fetch(`${cfg.apiBase}/api/spec-checkout`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

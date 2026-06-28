@@ -8,6 +8,7 @@ import { mintHookKey } from "../services/hook-keys.js";
 import { listCheckoutEditsForSpec } from "../services/spec-checkout.js";
 import { listPresent } from "../services/presence.js";
 import { specCheckoutRouter } from "./spec-checkout.js";
+import { app as realApp } from "../app.js";
 
 // spec-371 t-4 — the record-only phone-home endpoint, driven through the REAL
 // route against a real Postgres with a real (minted) hook key.
@@ -56,7 +57,7 @@ async function setup(prefix: string): Promise<Ctx> {
 function post(rawKey: string | null, body: unknown) {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (rawKey) headers.Authorization = `Bearer ${rawKey}`;
-  return app.request("/api/spec-checkout/edit", {
+  return app.request("/api/spec-checkout", {
     method: "POST",
     headers,
     body: JSON.stringify(body),
@@ -129,5 +130,24 @@ describe("spec-371: record-only phone-home (ac-3, ac-11, ac-16)", () => {
     const json = (await res.json()) as Record<string, unknown>;
     expect(Object.keys(json)).toEqual(["recorded"]);
     expect(json.recorded).toBe(true);
+  });
+
+  // REGRESSION GUARD (the blind spot): the tests above mount specCheckoutRouter on a
+  // FRESH isolated Hono, so they pass even when the route is unreachable in the real
+  // app. A 3-segment flat route (`/api/spec-checkout/edit`) with no
+  // `/api/:namespace/:memex` twin was silently dropped by Hono's RegExpRouter in the
+  // assembled app (registered but never matched → 404). This asserts reachability
+  // through the REAL app — a 404 here means the endpoint is dead in production.
+  it("the endpoint is REACHABLE through the fully-assembled app (not just in isolation)", async () => {
+    tagAc(AC_3);
+    tagAc(AC_16);
+    const res = await realApp.request("/api/spec-checkout", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer mxh_unreachable-probe" },
+      body: JSON.stringify({ ref: "x/y/specs/spec-1", thread_uid: "t", changed_paths: [] }),
+    });
+    // 401 = route matched and hit the hook-key auth gate. 404 = route shadowed/dropped.
+    expect(res.status).not.toBe(404);
+    expect(res.status).toBe(401);
   });
 });

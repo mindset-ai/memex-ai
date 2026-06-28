@@ -1,4 +1,4 @@
-// POST /api/spec-checkout/edit — the RECORD-ONLY phone-home (spec-371).
+// POST /api/spec-checkout — the RECORD-ONLY phone-home (spec-371).
 //
 // The client-side checkout hook calls this on a file edit, and ONLY when the
 // local marker says this thread is claimed — the privacy gate is client-side
@@ -45,7 +45,11 @@ function parseSpecRef(
   return { namespace: parts[0]!, memexSlug: parts[1]!, specHandle: parts[3]! };
 }
 
-specCheckoutRouter.post("/edit", async (c) => {
+// POST /api/spec-checkout (2-segment, mirrors /api/test-events). NOT /edit: a
+// 3-segment flat route with no /api/:namespace/:memex twin is silently dropped by
+// Hono's RegExpRouter in the full app (registered but never matched → 404). The
+// record-only sibling test-events posts to its router root for the same reason.
+specCheckoutRouter.post("/", async (c) => {
   // ── Hook-key auth (dec-6) — the dedicated scoped credential, never the PAT ──
   const authHeader = c.req.header("Authorization") ?? "";
   const rawKey = authHeader.startsWith("Bearer ")
