@@ -6,6 +6,12 @@ import { DesktopMcpSection } from './DesktopMcpSection';
 const AC_UMBRELLA = 'mindset-prod/memex-building-itself/specs/spec-304/acs/ac-45';
 const AC_INSTALL = 'mindset-prod/memex-building-itself/specs/spec-304/acs/ac-4';
 const AC_REACH = 'mindset-prod/memex-building-itself/specs/spec-304/acs/ac-50';
+// t-56: Claude Desktop is connector-based — single "Install for my org" button
+// opening the instructions dialog (no npx install), and connected-via-signal.
+const AC_CONNECTOR_DIALOG =
+  'mindset-prod/memex-building-itself/specs/spec-304/acs/ac-55';
+const AC_CONNECTOR_STATUS =
+  'mindset-prod/memex-building-itself/specs/spec-304/acs/ac-56';
 
 // ── Mocks ────────────────────────────────────────────────────────────────
 vi.mock('./AuthContext', () => ({ useAuth: () => ({ token: 'test-token' }) }));
@@ -73,7 +79,7 @@ describe('spec-304 ac-45 / ac-50: the in-app MCP surface in Settings → Integra
     expect(screen.getByTestId('mcp-client-claudeDesktop')).toBeInTheDocument();
   });
 
-  it('derives the honest per-client status from local config + tokens + connection', async () => {
+  it('Claude Code connected reads from the per-token handshake (lastUsedAt), not the user signal', async () => {
     tagAc(AC_UMBRELLA);
     installShell({
       mcpStatus: () => ({
@@ -85,20 +91,20 @@ describe('spec-304 ac-45 / ac-50: the in-app MCP surface in Settings → Integra
       }),
     });
     listMcpTokensApi.mockResolvedValue([
-      { id: '1', label: 'Memex Desktop', prefix: 'mxt_active123', revokedAt: null },
+      { id: '1', label: 'Memex Desktop', prefix: 'mxt_active123', lastUsedAt: '2026-06-28T10:00:00Z', revokedAt: null },
     ]);
-    fetchJourneyStateApi.mockResolvedValue({ milestones: { mcpConnected: true } });
+    // user-scoped signal is false — CC connected must come from the token only.
+    fetchJourneyStateApi.mockResolvedValue({ milestones: { mcpConnected: false } });
 
     render(<DesktopMcpSection />);
 
     await waitFor(() =>
       expect(screen.getByTestId('mcp-status-claudeCode')).toHaveTextContent('MCP connected'),
     );
-    expect(screen.getByTestId('mcp-status-claudeDesktop')).toHaveTextContent('Not installed');
   });
 });
 
-describe('spec-304 ac-4: install from the app mints + writes via the bridge', () => {
+describe('spec-304 ac-4: Claude Code install from the app mints + writes via the bridge', () => {
   it('clicking Install runs mint→installMcp and shows a restart prompt (token never shown)', async () => {
     tagAc(AC_INSTALL);
     tagAc(AC_UMBRELLA);
@@ -127,5 +133,38 @@ describe('spec-304 ac-4: install from the app mints + writes via the bridge', ()
     expect(document.body.innerHTML).not.toContain('mxt_minted_secret_999');
     // Success was announced natively (dec-22).
     expect(showNotification).toHaveBeenCalled();
+  });
+});
+
+describe('spec-304 ac-55 / ac-56 (t-56): Claude Desktop is connector-based, not npx', () => {
+  it('Claude Desktop shows a single "Install for my org" button that opens the connector dialog — no installMcp', async () => {
+    tagAc(AC_CONNECTOR_DIALOG);
+    const installMcp = vi.fn(() => ({ ok: true }));
+    installShell({ mcpStatus: () => STATUS_ABSENT, installMcp });
+
+    render(<DesktopMcpSection />);
+    const cdRow = await screen.findByTestId('mcp-client-claudeDesktop');
+    // The npx-era Install/Reinstall/Repair button is gone for Claude Desktop.
+    const button = within(cdRow).getByRole('button', { name: 'Install for my org' });
+    fireEvent.click(button);
+
+    // The connector-instructions dialog opens…
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByTestId('connector-url')).toHaveTextContent('/mcp');
+    // …and NO npx/file-write install was attempted for Claude Desktop.
+    expect(installMcp).not.toHaveBeenCalled();
+    expect(mintMcpTokenApi).not.toHaveBeenCalled();
+  });
+
+  it('Claude Desktop reads "MCP connected" from the mcp.connected signal with no local entry (ac-56)', async () => {
+    tagAc(AC_CONNECTOR_STATUS);
+    installShell({ mcpStatus: () => STATUS_ABSENT }); // no local CD entry at all
+    fetchJourneyStateApi.mockResolvedValue({ milestones: { mcpConnected: true } });
+
+    render(<DesktopMcpSection />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId('mcp-status-claudeDesktop')).toHaveTextContent('MCP connected'),
+    );
   });
 });

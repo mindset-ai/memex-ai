@@ -1,114 +1,59 @@
-// spec-304 t-55 (dec-19..22): the in-app "Install Memex MCP" surface for the
-// desktop shell. Open core. This is the canonical install/status/manage UI the
-// native nav-bar pill and tray item open into (dec-19); it renders ONLY inside
-// the Memex desktop shell — a plain browser can't write `~/.claude.json`, so the
-// section is hidden there and Settings → Integrations shows the CLI installer
-// instead.
+// spec-304 t-55/t-56/t-58 (dec-19..23): the in-app "Install Memex MCP" surface
+// for the desktop shell. Open core. This is the canonical install/status/manage
+// UI the native nav-bar pill and tray item open into (dec-19); it renders ONLY
+// inside the Memex desktop shell — a plain browser can't write `~/.claude.json`,
+// so the section is hidden there and Settings → Integrations shows the CLI
+// installer instead.
 //
-// React owns intent + credential (mint from the live session) and the status
-// derivation; Dart owns the OS-capable actions (config write, native toast) via
-// the bridge. The session token is minted in-process and never shown.
+// Two transports per dec-23:
+//  - Claude Code (token): mint from the live session → installMcp bridge writes
+//    the HTTP entry. The session token never leaves the webview.
+//  - Claude Desktop (connector): a single "Install for my org" button opens a
+//    connector-instructions dialog (the app cannot write an account-level
+//    connector — it's guidance, not a file write). The npx mcp-remote path is
+//    GONE from the UI (t-56).
+//
+// The status derivation + native pill push are app-global (useDesktopMcpStatus,
+// issue-24 #1); this section reuses the same hook for its per-client rows and to
+// refresh after an install.
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useAuth } from './AuthContext';
-import { useUserChangeStream } from '../hooks/useUserChangeStream';
-import { listMcpTokensApi, mintMcpTokenApi } from '../api/mcp';
-import { fetchJourneyStateApi } from '../api/journey';
+import { mintMcpTokenApi } from '../api/mcp';
+import { useDesktopMcpStatus } from '../hooks/useDesktopMcpStatus';
 import {
+  desktopServerBase,
   installMcpBridge,
-  isDesktopShell,
-  mcpStatusBridge,
-  setMcpStatusBridge,
   showNotificationBridge,
   type McpTargetKey,
 } from '../desktop/bridge';
-import {
-  deriveClientStatus,
-  deriveIndicator,
-  MCP_CLIENTS,
-  type ClientStatus,
-  type McpStatusResult,
-} from '../desktop/mcpStatus';
+import type { ClientStatus, McpStatusResult } from '../desktop/mcpStatus';
 import { runInstall } from '../desktop/install';
-
-type Phase = 'idle' | 'loading' | 'ready' | 'error';
-
-interface PerClient {
-  key: keyof McpStatusResult;
-  name: string;
-  status: ClientStatus;
-}
+import { ClaudeConnectorDialog } from './ClaudeConnectorDialog';
 
 const BUTTON_LABEL: Record<ClientStatus['button'], string> = {
   install: 'Install',
   reinstall: 'Reinstall',
   repair: 'Repair',
+  connector: 'Install for my org',
 };
+
+/** The env-derived MCP connector URL the Claude Desktop dialog hands the user. */
+function connectorUrl(): string {
+  const base = desktopServerBase();
+  return base ? `${base}/mcp` : '/mcp';
+}
 
 export function DesktopMcpSection() {
   const { token } = useAuth();
-  const [phase, setPhase] = useState<Phase>('idle');
-  const [clients, setClients] = useState<PerClient[]>([]);
+  const { inShell, phase, clients, error: statusError, refresh } = useDesktopMcpStatus();
   const [busy, setBusy] = useState<keyof McpStatusResult | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // Debounce: a single failed local probe must not flash an error state (dec-20).
-  const failedProbes = useRef(0);
+  // The Claude Desktop connector-instructions dialog (t-56).
+  const [connectorOpen, setConnectorOpen] = useState(false);
 
-  const inShell = isDesktopShell();
-
-  const refresh = useCallback(async () => {
-    if (!inShell) return;
-    setPhase((p) => (p === 'ready' ? p : 'loading'));
-    try {
-      const [local, tokens, journey] = await Promise.all([
-        mcpStatusBridge(),
-        listMcpTokensApi(token),
-        fetchJourneyStateApi().catch(() => null),
-      ]);
-      if (!local) {
-        // Probe failed — tolerate transient failures before showing an error.
-        failedProbes.current += 1;
-        if (failedProbes.current >= 2 && phase !== 'ready') setPhase('error');
-        return;
-      }
-      failedProbes.current = 0;
-
-      const activePrefixes = new Set(
-        tokens.filter((t) => !t.revokedAt).map((t) => t.prefix),
-      );
-      const connected = journey?.milestones.mcpConnected ?? false;
-
-      const per: PerClient[] = MCP_CLIENTS.map(({ key, name }) => ({
-        key,
-        name,
-        status: deriveClientStatus(local[key], {
-          activeTokenPrefixes: activePrefixes,
-          connected,
-        }),
-      }));
-      setClients(per);
-      setPhase('ready');
-
-      // Push the aggregate indicator to the native pill (dec-21). React owns the
-      // truth; the shell owns the on-open timing + visibility policy.
-      void setMcpStatusBridge(deriveIndicator(per.map((c) => c.status)));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not read MCP status');
-      setPhase('error');
-    }
-  }, [inShell, token, phase]);
-
-  useEffect(() => {
-    void refresh();
-    // Re-derive when the user mints/revokes a token elsewhere.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [inShell, token]);
-
-  // Real-time: a token minted/revoked on another device re-derives status.
-  useUserChangeStream(() => void refresh(), ['mcp_token']);
-
-  const handleAction = useCallback(
+  const handleInstall = useCallback(
     async (target: McpTargetKey, name: string) => {
       setBusy(target);
       setMessage(null);
@@ -139,24 +84,28 @@ export function DesktopMcpSection() {
   if (!inShell) return null;
 
   return (
-    <section id="desktop-mcp" aria-labelledby="desktop-mcp-heading">
+    // scroll-mt keeps the heading off the very top edge when deep-linked (issue-25).
+    <section id="desktop-mcp" aria-labelledby="desktop-mcp-heading" className="scroll-mt-6">
       <h2 id="desktop-mcp-heading" className="text-xl font-semibold mb-2 text-heading">
         Install Memex MCP on this device
       </h2>
       <p className="text-sm mb-6 text-secondary">
-        Connect Claude to your Memexes from this app — no terminal, no copy-pasted token.
-        We mint a token from your current login and write it into the client's config
-        (a <code>.bak</code> is saved first). Restart the client afterwards to finish connecting.
+        Connect Claude to your Memexes from this app. For Claude Code we mint a token from your
+        current login and write it into the client's config (a <code>.bak</code> is saved first) —
+        no terminal, no copy-pasted token. Claude Desktop connects through a connector you add
+        inside Claude. Restart the client afterwards to finish connecting.
       </p>
 
       {phase === 'loading' && <p className="text-sm text-secondary">Checking MCP status…</p>}
-      {error && <p className="text-sm text-error mb-4" role="alert">{error}</p>}
+      {(error ?? statusError) && (
+        <p className="text-sm text-error mb-4" role="alert">{error ?? statusError}</p>
+      )}
       {message && (
         <p className="text-sm text-status-success-text mb-4" role="status">{message}</p>
       )}
 
       <div className="border rounded-lg overflow-hidden bg-overlay border-edge">
-        {clients.map(({ key, name, status }) => (
+        {clients.map(({ key, name, transport, status }) => (
           <div
             key={key}
             data-testid={`mcp-client-${key}`}
@@ -164,23 +113,38 @@ export function DesktopMcpSection() {
           >
             <div>
               <div className="text-sm text-primary">{name}</div>
-              <div
-                className="text-xs text-secondary"
-                data-testid={`mcp-status-${key}`}
-              >
+              <div className="text-xs text-secondary" data-testid={`mcp-status-${key}`}>
                 {status.label}
               </div>
             </div>
-            <button
-              onClick={() => handleAction(key as McpTargetKey, name)}
-              disabled={busy !== null}
-              className="text-xs px-3 py-1.5 rounded-sm bg-accent text-on-accent hover:opacity-90 disabled:opacity-50"
-            >
-              {busy === key ? 'Installing MCP…' : BUTTON_LABEL[status.button]}
-            </button>
+            {transport === 'connector' ? (
+              // Claude Desktop: open the connector-instructions dialog. No token
+              // logic, no in-app file write — the app can't add a connector (dec-23).
+              <button
+                onClick={() => setConnectorOpen(true)}
+                className="text-xs px-3 py-1.5 rounded-sm bg-accent text-on-accent hover:opacity-90"
+              >
+                {BUTTON_LABEL.connector}
+              </button>
+            ) : (
+              <button
+                onClick={() => handleInstall(key as McpTargetKey, name)}
+                disabled={busy !== null}
+                className="text-xs px-3 py-1.5 rounded-sm bg-accent text-on-accent hover:opacity-90 disabled:opacity-50"
+              >
+                {busy === key ? 'Installing MCP…' : BUTTON_LABEL[status.button]}
+              </button>
+            )}
           </div>
         ))}
       </div>
+
+      {connectorOpen && (
+        <ClaudeConnectorDialog
+          connectorUrl={connectorUrl()}
+          onClose={() => setConnectorOpen(false)}
+        />
+      )}
     </section>
   );
 }
