@@ -20,6 +20,12 @@ vi.mock("../services/tasks.js", () => ({
   getTask: vi.fn(),
 }));
 
+// spec-423 t-8: the doc/:docId route enriches tasks with cast facet keys; mock the
+// projection so these unit tests stay DB-free.
+vi.mock("../services/facet-ballot.js", () => ({
+  facetKeysByTask: vi.fn().mockResolvedValue(new Map()),
+}));
+
 vi.mock("../services/shared/blockers.js", () => ({
   addBlocker: vi.fn(),
   removeBlocker: vi.fn(),

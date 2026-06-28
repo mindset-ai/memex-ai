@@ -13,21 +13,30 @@
 // (The separate scripts/backfill-default-facets.ts seeds the VOCABULARY and makes no
 // LLM calls — run that first so there is a vocabulary to classify against.)
 //
+// spec-423 t-7 / dec-9 — the GAP-BACKFILL: pass `--gap-only` to classify ONLY clauses
+// that have no facet tag yet (those authored while Phase 1 was inert, before the
+// add_clause hard-fail landed). Run this ONCE per memex just before the Phase 2 deploy
+// serves, so no clause is left silently unclassified.
+//
 // Usage:
-//   pnpm --filter @memex/server tsx scripts/backfill-facet-tags.ts <memexId>
+//   pnpm --filter @memex/server tsx scripts/backfill-facet-tags.ts <memexId> [--gap-only]
 
 import { backfillFacetTagsForMemex } from "../src/services/facet-classifier.js";
 
 async function main(): Promise<void> {
   const memexId = process.argv[2];
-  if (!memexId) {
-    console.error("usage: tsx scripts/backfill-facet-tags.ts <memexId>");
+  const gapOnly = process.argv.includes("--gap-only");
+  if (!memexId || memexId.startsWith("--")) {
+    console.error("usage: tsx scripts/backfill-facet-tags.ts <memexId> [--gap-only]");
     process.exit(1);
   }
-  console.log(`[facet-backfill] classifying standards' clauses for memex ${memexId}…`);
+  console.log(
+    `[facet-backfill] classifying ${gapOnly ? "UNTAGGED " : ""}clauses for memex ${memexId}…`,
+  );
   // Progress ticks for the long run — every 25 clauses and at the end (the pool runs
   // CLASSIFY_CONCURRENCY in flight, so this reports completions, not start order).
   const { standards, clauses } = await backfillFacetTagsForMemex(memexId, {
+    gapOnly,
     onProgress: (done, total) => {
       if (done % 25 === 0 || done === total) {
         console.log(`[facet-backfill]   ${done}/${total} clauses classified…`);

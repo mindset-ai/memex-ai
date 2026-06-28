@@ -107,6 +107,8 @@ const ALLOWLIST: Record<string, string> = {
     "spec-340 phase 1 — seeds the per-owner default facet vocabulary (facets, owner-config like org_scaffold_additions). No bus entity, no SSE subscriber in phase 1 (the inert foundation); mutate() wrap deferred to phase 2 when a live editing/pill surface lands.",
   "services/facet-classifier.ts":
     "spec-340 phase 1 — tagClause writes auto-assigned clause→facet tags (standard_clause_facets) from the agent-driven/local-backfill classifier only (dec-8). No bus entity, no SSE subscriber in phase 1 (nothing reads the tags until phase 2); mutate() wrap deferred to phase 2.",
+  "services/facet-routing-log.ts":
+    "spec-423 phase 2 (dec-4) — append-only routing telemetry (facet_routing_log): one row per create_task / resolve_decision routing call (query, candidates, scores, surfaced/cut, K, ranker). No bus entity, no SSE subscriber by design — a routing decision is not user-observable content. Same telemetry-log posture as services/mcp-telemetry.ts; routing it through mutate() would emit a meaningless UI refetch. Silent-allowed per std-8 §6.",
   "routes/backstage.ts":
     "Dev-mode-only org_membership grant (DEV_USER_EMAIL admin self-grant). org_membership is an access-control bootstrap row — no memex_id, no bus entity, not Memex-scoped tenant content; nothing subscribes to it over SSE.",
   "middleware/session.ts":
