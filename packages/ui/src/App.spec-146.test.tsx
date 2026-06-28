@@ -89,6 +89,25 @@ vi.mock('./pages/ScaffoldInspect', () => ({
   ScaffoldInspect: () => <div data-testid="scaffold-inspect-page">scaffold</div>,
 }));
 
+// spec-421 dec-5: RootRedirect now reads journey-state to choose the landing. This gate
+// test only cares that a hidden feature falls through to the universal landing; pin a
+// not-graduated read so that landing resolves deterministically to /home.
+vi.mock('./api/journey', async () => {
+  const real = await vi.importActual<typeof import('./api/journey')>('./api/journey');
+  return {
+    ...real,
+    fetchJourneyStateApi: () =>
+      Promise.resolve({
+        milestones: { identityConfirmed: true, mcpConnected: false, mcpToolCalled: false, hasSpec: false, hasResolvedDecision: false, hasAc: false, acVerified: false, planGrounded: false },
+        roleCoords: null,
+        currentStepId: 'create-spec',
+        steps: [{ id: 'identity', attained: true }, { id: 'create-spec', attained: false }],
+        preview: false,
+        canPreview: false,
+      }),
+  };
+});
+
 import { PostLoginRouter } from './App';
 
 function LocationProbe() {

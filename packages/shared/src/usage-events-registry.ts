@@ -198,6 +198,12 @@ export const USAGE_EVENT_REGISTRY = [
       "The voice entry point was presented to the user (the adoption denominator). Fired once per mount, not per render. props.surface is where it appeared (icon | pill).",
     source: "frontend",
   },
+  {
+    name: "home.landing_routed",
+    description:
+      "The app router (RootRedirect) decided a user's first-load landing from a read-only onboarding-state check (spec-421 dec-5). props.destination is where they were sent (home | specs); props.graduated (bool) is whether the onboarding journey was graduated. Lets us measure whether routing graduated users straight to their Specs board lifts engagement. Advisory (never throws into routing).",
+    source: "frontend",
+  },
   // ── Back-end outcomes (whitelisted mutate() events, dec-8) ───────────────────
   // Name is EXACTLY `${entity}.${action}` so the t-3 whitelist maps 1:1.
   {

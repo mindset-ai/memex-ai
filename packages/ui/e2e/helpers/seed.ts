@@ -152,6 +152,16 @@ export async function clearOrgMemberships(email: string): Promise<void> {
 }
 
 /**
+ * Delete every NON-DEMO spec a user authored (demo specs are left intact). spec-421:
+ * the first-load landing routes by the hasSpec milestone, so the per-test dev baseline
+ * must start with no user-created spec — otherwise a real spec leaked by an earlier
+ * journey would send the shared dev user to the Specs board where a journey expects /home.
+ */
+export async function clearUserSpecs(email: string): Promise<void> {
+  await call("POST", "/clear-user-specs", { email });
+}
+
+/**
  * Tear down test-created namespaces (and everything under them) and/or loose
  * docs. Best-effort cleanup driven by the per-test resource tracker.
  */

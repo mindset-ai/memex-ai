@@ -331,6 +331,32 @@ testOnlyRouter.post("/clear-org-memberships", async (c) => {
   return c.json({ ok: true, cleared: deleted.length });
 });
 
+// spec-421: delete every NON-DEMO spec a user authored, so the per-test dev baseline
+// starts with hasSpec=false. The first-load landing now routes by the hasSpec milestone
+// (spec-421 dec-5), so a real spec leaked by an earlier journey would otherwise send the
+// shared dev user to the Specs board where a journey expects /home. Demo specs (spec-178)
+// are left intact — they never count toward hasSpec.
+testOnlyRouter.post("/clear-user-specs", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = z.object({ email: z.string().email() }).safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
+  }
+  const user = await getUserByEmail(parsed.data.email);
+  if (!user) return c.json({ ok: true, cleared: 0 });
+  const deleted = await db
+    .delete(documents)
+    .where(
+      and(
+        eq(documents.createdByUserId, user.id),
+        eq(documents.docType, "spec"),
+        eq(documents.isDemo, false),
+      ),
+    )
+    .returning();
+  return c.json({ ok: true, cleared: deleted.length });
+});
+
 // Tear down a namespace (and everything under it) that a test created. Accepts
 // a namespace slug; deletes memexes → org memberships → orgs → the namespace,
 // breaking the namespace↔org owner cycle first. Best-effort cleanup surface for

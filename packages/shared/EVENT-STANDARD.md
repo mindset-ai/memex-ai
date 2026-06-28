@@ -35,6 +35,7 @@ versa.
 - `voice.session_ended` — The voice agent session ended. props.durationMs only.
 - `home_canvas.step_shown` — A Home Canvas onboarding journey step became the active card (spec-303/305). props.step is the step id. Recorded via POST /api/me/journey-event.
 - `home_canvas.cta_clicked` — A Home Canvas journey step's CTA was clicked. props.step is the step id; props.cta names the CTA target. The intent signal; the step's outcome stays its own event (std-35 cl-12).
+- `home_canvas.persona_selected` — The user confirmed their persona on the Home onboarding identity step (spec-372 dec-6). props.persona is the RESOLVED persona label/enum — never the raw triangle coordinates; props.step is 'identity'. Recorded via POST /api/me/journey-event.
 - `signup.form_viewed` — A visitor saw the signup form, pre-auth (the funnel head). Recorded IDENTIFIER-LESS via the anonymous ingress (POST /api/telemetry) under legitimate interest — no consent, no visitor_id; pure volume (spec-367). The identified seam is account.created.
 - `signup.cta_clicked` — A visitor clicked the primary signup CTA (between form_viewed and account.created). Recorded IDENTIFIER-LESS via the anonymous ingress under legitimate interest — no consent, no visitor_id; pure volume (spec-367). props.method is the auth method enum.
 - `auth.login_started` — A sign-in attempt was initiated. props.method is the auth method enum (google | password | magic_link). Pre-auth → trackAnonymous().
@@ -50,6 +51,7 @@ versa.
 - `workspace.switched` — The active Memex was switched via the workspace switcher. props.memexId (target Memex UUID).
 - `voice.mic_permission_result` — The mic permission prompt resolved during a voice attempt. props.result (granted | denied | dismissed).
 - `voice.icon_shown` — The voice entry point was presented (adoption denominator). Fired once per mount. props.surface (icon | pill).
+- `home.landing_routed` — The app router decided a user's first-load landing from a read-only onboarding-state check (spec-421 dec-5). props.destination (home | specs), props.graduated (bool). Measures whether routing graduated users straight to Specs lifts engagement. Advisory.
 
 ## Back-end outcomes (whitelisted `mutate()` events, dec-8)
 
@@ -58,6 +60,7 @@ versa.
 - `conversation_message.created` — A message was added to an in-app agent conversation.
 - `task.created` — A task was created on a Spec (funnel stage 7). Already on the bus; whitelisted into usage_events (spec-297).
 - `decision.resolved` — A decision was resolved (funnel stage 6). A distinct bus action, separate from the shared `decision.updated`, so the funnel step is unambiguous (spec-297 dec-2).
+- `ac.created` — An acceptance criterion was created on a Spec. Already on the bus from createAc; whitelisted into usage_events as the success signal for the Home onboarding 'add-ac' step (spec-372 dec-6 Layer B).
 
 ## Direct-path user-scoped funnel events (spec-297 dec-1)
 

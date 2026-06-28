@@ -157,9 +157,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setAuthError(null);
 
     // t-23 of doc-15: same-origin path-based routing means we no longer need a
-    // cross-subdomain handoff. After a successful login we route the user to
-    // /home — the universal landing (spec-312 dec-1) — falling back to the
-    // default-tenant Specs board only when 'home' is hidden per-env.
+    // cross-subdomain handoff. The landing decision is owned by RootRedirect (the route
+    // element for both `/` and `/login`): after acceptSession updates the session it
+    // re-renders and routes by onboarding state (spec-421 dec-5: graduated → Specs, else
+    // /home). So acceptSession itself does NOT force a landing in the normal case — it
+    // only honours an explicit returnTo, and sends to the default tenant when 'home' is
+    // hidden per-env.
     //
     // If the URL carries a `?returnTo=…` (legacy SSO bounce parameter), we
     // honour it when it points at our own host.
@@ -179,12 +182,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      // spec-312 dec-1: the post-login landing is /home (the universal landing), not the
-      // default-tenant Specs board. Fall back to computeDefaultLanding only when 'home'
-      // is hidden per-env (mirrors RootRedirect's loop-avoidance).
-      const landing = isFeatureHidden(s, 'home') ? computeDefaultLanding(s) : '/home';
-      if (landing && window.location.pathname === '/') {
-        window.location.href = landing;
+      // spec-421 dec-5: the landing decision is owned by RootRedirect (the route element
+      // for BOTH `/` and `/login`). Once acceptSession updates the session, RootRedirect
+      // re-renders and routes by onboarding state (graduated → Specs, else /home). So we
+      // do NOT force a landing here for the normal (home-visible) case — the old spec-312
+      // `/home` hard-redirect would override the graduated→Specs decision (and fire before
+      // RootRedirect's read could run). We still send to the default tenant directly only
+      // when 'home' is hidden per-env, mirroring RootRedirect's loop-avoidance.
+      if (isFeatureHidden(s, 'home')) {
+        const landing = computeDefaultLanding(s);
+        if (landing && window.location.pathname === '/') {
+          window.location.href = landing;
+        }
       }
     }
   }, [updateSession]);
