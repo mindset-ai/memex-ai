@@ -118,6 +118,15 @@ export const documents = pgTable("documents", {
   groundedAt: timestamp("grounded_at", { withTimezone: true }),
   groundedByUserId: uuid("grounded_by_user_id"),
   groundedByName: text("grounded_by_name"),
+  // spec-371 rework (dec-5/dec-11/dec-12): the durable, single-holder CHECKOUT
+  // record — NOT presence (which is ephemeral and untouched here). One current
+  // holder per spec; the gate (dec-11) keys on checked_out_by + checked_out_at.
+  // checked_out_thread is the Claude Code conversation UID (or "web"/null), the
+  // join key for "return me to the conversation that worked on this spec" (dec-12).
+  // FK lives in the migration SQL (mirrors created_by_user_id).
+  checkedOutBy: uuid("checked_out_by"),
+  checkedOutAt: timestamp("checked_out_at", { withTimezone: true }),
+  checkedOutThread: text("checked_out_thread"),
 }, (table) => [
   unique("documents_memex_id_handle_unique").on(table.memexId, table.handle),
   index("documents_memex_id_idx").on(table.memexId),

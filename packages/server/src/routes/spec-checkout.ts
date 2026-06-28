@@ -24,7 +24,7 @@ import { documents } from "../db/schema.js";
 import { verifyHookKey, bumpHookKeyLastUsed } from "../services/hook-keys.js";
 import { resolveMemexId } from "../services/emission-keys.js";
 import { recordCheckoutEdit } from "../services/spec-checkout.js";
-import { markPresent } from "../services/presence.js";
+import { setCheckoutThread } from "../services/checkout.js";
 
 const specCheckoutRouter = new Hono();
 
@@ -134,17 +134,14 @@ specCheckoutRouter.post("/", async (c) => {
     actorUserId,
   });
 
-  // Beat presence keyed on the thread so the holder reads as "working on spec-N
-  // now" (dec-5). Silent / out-of-band (std-8). Skipped when the key has no owner.
+  // Reconcile checked_out_thread to the CONVERSATION UID (dec-12, ac-23). The
+  // server never sees the conversation UID on a raw MCP call (dec-3), so the hook
+  // carries it here as thread_uid; this is the join key for "return me to the
+  // conversation that worked on this spec". Only updates when this user currently
+  // holds the spec, so a stray report can't relabel another holder. Does NOT write
+  // presence — checkout is decoupled from the presence plane (dec-5).
   if (actorUserId) {
-    await markPresent({
-      memexId,
-      docId: doc.id,
-      actorUserId,
-      actorKind: "mcp_agent",
-      channel: "mcp",
-      clientId: body.thread_uid,
-    });
+    await setCheckoutThread({ docId: doc.id, userId: actorUserId, thread: body.thread_uid });
   }
 
   bumpHookKeyLastUsed(hookKey.id);
