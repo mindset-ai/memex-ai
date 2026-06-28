@@ -12,7 +12,7 @@
 // Writes route through mutate() so the task/decision card refetches its pills
 // (dec-7 reverses spec-340's inert-phase bus allowlist).
 
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import { taskFacetBallots, decisionFacetBallots } from "../db/schema.js";
 import { ValidationError } from "../types/errors.js";
@@ -241,25 +241,28 @@ function trueKeysOf(verdict: Record<string, boolean>): string[] {
  * projection, t-8). Tasks with no ballot (or an all-false `none` ballot) are absent
  * from the map — the caller defaults to [].
  */
-export async function facetKeysByTask(taskIds: string[]): Promise<Map<string, string[]>> {
+export async function facetKeysByTask(memexId: string, taskIds: string[]): Promise<Map<string, string[]>> {
   const out = new Map<string, string[]>();
   if (taskIds.length === 0) return out;
+  // Filter by memexId EXPLICITLY (not just RLS): on the read path the app.memex_id GUC
+  // may be unset, and the runtime role is RLS-subject — an id-only query would return
+  // nothing. Matches the standard_clause_facets query pattern.
   const rows = await db
     .select({ taskId: taskFacetBallots.taskId, verdict: taskFacetBallots.verdict })
     .from(taskFacetBallots)
-    .where(inArray(taskFacetBallots.taskId, taskIds));
+    .where(and(eq(taskFacetBallots.memexId, memexId), inArray(taskFacetBallots.taskId, taskIds)));
   for (const r of rows) out.set(r.taskId, trueKeysOf(r.verdict as Record<string, boolean>));
   return out;
 }
 
 /** Batch: the TRUE facet keys for a set of decisions, keyed by decision id (t-8). */
-export async function facetKeysByDecision(decisionIds: string[]): Promise<Map<string, string[]>> {
+export async function facetKeysByDecision(memexId: string, decisionIds: string[]): Promise<Map<string, string[]>> {
   const out = new Map<string, string[]>();
   if (decisionIds.length === 0) return out;
   const rows = await db
     .select({ decisionId: decisionFacetBallots.decisionId, verdict: decisionFacetBallots.verdict })
     .from(decisionFacetBallots)
-    .where(inArray(decisionFacetBallots.decisionId, decisionIds));
+    .where(and(eq(decisionFacetBallots.memexId, memexId), inArray(decisionFacetBallots.decisionId, decisionIds)));
   for (const r of rows) out.set(r.decisionId, trueKeysOf(r.verdict as Record<string, boolean>));
   return out;
 }

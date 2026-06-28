@@ -61,14 +61,14 @@ afterAll(async () => {
 describe("doc-view facet projection (spec-423 t-8, dec-7)", () => {
   it("projects each task's true facet keys; an unballoted task projects nothing (ac-15)", async () => {
     tagAc(AC(15));
-    const map = await facetKeysByTask([balloted, unballoted]);
+    const map = await facetKeysByTask(memexId, [balloted, unballoted]);
     expect(map.get(balloted)).toEqual(["xf-security"]);
     expect(map.get(unballoted)).toBeUndefined(); // caller defaults to []
   });
 
   it("projects each decision's true facet keys (ac-15)", async () => {
     tagAc(AC(15));
-    const map = await facetKeysByDecision([decId]);
+    const map = await facetKeysByDecision(memexId, [decId]);
     expect(map.get(decId)).toEqual(["xf-perf"]);
   });
 });

@@ -209,8 +209,8 @@ docs.get("/:id", async (c) => {
 
   // spec-423 t-8 (dec-7) — attach each task/decision's cast facet keys for the pills.
   // Tasks/decisions with no ballot get [] (the empty-vocab + not-yet-balloted case).
-  const taskFacets = await facetKeysByTask(tasks.map((t) => t.id));
-  const decisionFacets = await facetKeysByDecision(decs.map((d) => d.id));
+  const taskFacets = await facetKeysByTask(memexId, tasks.map((t) => t.id));
+  const decisionFacets = await facetKeysByDecision(memexId, decs.map((d) => d.id));
   const tasksWithFacets = tasks.map((t) => ({ ...t, facetKeys: taskFacets.get(t.id) ?? [] }));
   const decsWithFacets = decs.map((d) => ({ ...d, facetKeys: decisionFacets.get(d.id) ?? [] }));
 

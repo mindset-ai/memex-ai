@@ -167,6 +167,14 @@ export async function seedOpenDecision(opts: {
   return call("POST", "/seed-open-decision", opts);
 }
 
+/** spec-423 t-8: seed a facet vocabulary + a balloted task + a balloted decision into
+ *  a memex, returning the spec handle + the facet key the pills should show. */
+export async function seedFacetScenario(opts: {
+  memexId: string;
+}): Promise<{ specHandle: string; facetKey: string }> {
+  return call("POST", "/seed-facet-scenario", opts);
+}
+
 /** Resolve a user's role on a doc (editor / reviewer). A freshly seeded doc has
  *  no editor row, so dev resolves to 'reviewer' until promoted in the UI. */
 export async function getDocRole(
