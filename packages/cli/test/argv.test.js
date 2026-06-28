@@ -14,6 +14,7 @@ describe("parseArgs", () => {
       apiBase: DEFAULT_API_BASE,
       adminBase: null,
       label: null,
+      memex: null,
       yes: false,
       help: false,
       skipBrowser: false,

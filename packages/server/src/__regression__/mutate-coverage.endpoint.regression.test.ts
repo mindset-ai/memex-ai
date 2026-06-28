@@ -60,6 +60,10 @@ const NON_DB_MUTATORS: Record<string, string> = {
     "Sends a Slack message via the user's connected account — an external side-effect, not a Memex DB row. No mutate() write, so nothing to fan out on the bus.",
   memex__send_discord_message:
     "Sends a Discord message via the org's configured webhook (spec-138) — an external side-effect, not a Memex DB row. No mutate() write, so nothing to fan out on the bus.",
+  claim_spec:
+    "spec-371 checkout. Its only write is a silent/out-of-band PRESENCE heartbeat (markPresent, spec-122 / std-8 §presence) — deliberately NOT routed through mutate(), so there is no bus ChangeEvent to catalogue. The durable edit ledger is written by the phone-home ENDPOINT, not this tool.",
+  unclaim_spec:
+    "spec-371 check-in. Its only write is a silent/out-of-band PRESENCE delete (clearPresent, spec-122 / std-8 §presence) — deliberately NOT routed through mutate(), so there is no bus ChangeEvent to catalogue.",
 };
 
 // Catalogue of mutation entry points by MCP tool name → the change-event shape its

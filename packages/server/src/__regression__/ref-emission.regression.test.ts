@@ -640,6 +640,9 @@ describe("regression: every entity-acting MCP tool emits `ref:` and no raw UUID 
       ],
       ["assign_spec", { input: () => ({ ref: refForDoc(slugs, docHandle), user: userId }) }],
       ["unassign_spec", { input: () => ({ ref: refForDoc(slugs, docHandle), user: userId }) }],
+      // ── Spec checkout (spec-371) — echo the Spec ref, no UUID; presence-only. ──
+      ["claim_spec", { input: () => ({ ref: refForDoc(slugs, docHandle) }) }],
+      ["unclaim_spec", { input: () => ({ ref: refForDoc(slugs, docHandle) }) }],
       // ── Standards drift tools (spec-143 dec-1, ac-14) ──
       // Canonical standard-section `ref` in, `ref:` to the comment under the
       // standard's std-N handle out.

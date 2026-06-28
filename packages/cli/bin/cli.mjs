@@ -14,6 +14,7 @@ import { parseArgs, DEFAULT_API_BASE } from "../lib/argv.js";
 import { getConfigTargets } from "../lib/config-paths.js";
 import { writeMemexEntry, removeMemexEntry } from "../lib/config-merge.js";
 import { startCliAuth, pollForToken } from "../lib/auth-flow.js";
+import { ensureHookKey } from "../lib/checkout-bootstrap.js";
 
 const BOLD = "\x1b[1m";
 const GREEN = "\x1b[32m";
@@ -27,9 +28,11 @@ function printHelp() {
   console.log(`  ${BOLD}Usage:${RESET}`);
   console.log(`    memex-ai install         Authorize this device + write Claude configs (default)`);
   console.log(`    memex-ai uninstall       Remove memex from Claude configs`);
+  console.log(`    memex-ai checkout-setup  Mint the spec-checkout plugin's scoped key (one sign-in)`);
   console.log();
   console.log(`  ${BOLD}Options:${RESET}`);
   console.log(`    --label <name>           Device label (default: hostname)`);
+  console.log(`    --memex <ns>/<memex>     Target memex for checkout-setup (e.g. mindset-prod/memex-building-itself)`);
   console.log(`    --api-base <url>         Memex server (default: ${DEFAULT_API_BASE})`);
   console.log(`    --admin-base <url>       Memex UI base URL for the auth confirm page (default: derived from --api-base)`);
   console.log(`    --no-browser             Skip auto-opening the browser; print URL only`);
@@ -119,10 +122,65 @@ async function install({ apiBase, adminBase: adminBaseArg, label, skipBrowser })
   console.log();
 }
 
+// checkout-setup: provision the scoped hook key the spec-checkout plugin uses, off the
+// SAME single Memex device-flow sign-in (spec-371 dec-10). No key is ever pasted; an
+// existing key short-circuits with no sign-in. Stores ~/.memex/checkout.json; never
+// touches settings.json (the plugin owns hooks + MCP declaratively, dec-9).
+async function checkoutSetup({ apiBase, memex, skipBrowser }) {
+  if (!memex || !memex.includes("/")) {
+    throw new Error(
+      "checkout-setup needs --memex <namespace>/<memex> (e.g. mindset-prod/memex-building-itself)",
+    );
+  }
+  console.log(
+    `  ${BOLD}Step 1/2${RESET} — sign in to mint a scoped checkout key for ${BOLD}${memex}${RESET}...`,
+  );
+  const res = await ensureHookKey({
+    apiBase,
+    memexRef: memex,
+    deps: {
+      // Always surface the URL; auto-open unless --no-browser.
+      openBrowser: (url) => {
+        console.log();
+        console.log(`  ${BOLD}Step 2/2${RESET} — open this URL in your browser to authorize:`);
+        console.log();
+        console.log(`    ${CYAN}${url}${RESET}`);
+        console.log();
+        if (!skipBrowser && openInBrowser(url)) {
+          console.log(`  ${DIM}(opened in your default browser)${RESET}`);
+        } else if (!skipBrowser) {
+          console.log(`  ${YELLOW}Could not auto-open browser; copy the URL above.${RESET}`);
+        }
+        console.log();
+        console.log(`  ${DIM}waiting for authorization...${RESET}`);
+      },
+    },
+  });
+
+  console.log();
+  if (res.provisioned) {
+    console.log(`  ${GREEN}✓${RESET} Checkout key minted + stored for ${BOLD}${memex}${RESET}.`);
+  } else {
+    console.log(
+      `  ${GREEN}✓${RESET} Already set up — a checkout key for ${BOLD}${memex}${RESET} is present (no sign-in needed).`,
+    );
+  }
+  console.log(
+    `  ${DIM}While you're checked out (claim_spec), the plugin's edit hook reports edits to this memex.${RESET}`,
+  );
+  console.log();
+}
+
 async function main() {
   const args = parseArgs(process.argv);
+  const label =
+    args.command === "uninstall"
+      ? "Uninstaller"
+      : args.command === "checkout-setup"
+        ? "Checkout Setup"
+        : "Installer";
   console.log();
-  console.log(`  ${BOLD}Memex AI${RESET} — MCP ${args.command === "uninstall" ? "Uninstaller" : "Installer"}`);
+  console.log(`  ${BOLD}Memex AI${RESET} — MCP ${label}`);
   console.log();
 
   if (args.help) {
@@ -132,6 +190,11 @@ async function main() {
 
   if (args.command === "uninstall") {
     await uninstall();
+    return;
+  }
+
+  if (args.command === "checkout-setup") {
+    await checkoutSetup(args);
     return;
   }
 
