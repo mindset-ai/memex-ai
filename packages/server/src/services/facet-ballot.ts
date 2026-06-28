@@ -12,7 +12,7 @@
 // Writes route through mutate() so the task/decision card refetches its pills
 // (dec-7 reverses spec-340's inert-phase bus allowlist).
 
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import { taskFacetBallots, decisionFacetBallots } from "../db/schema.js";
 import { ValidationError } from "../types/errors.js";
@@ -230,4 +230,36 @@ export async function decisionBallotTrueFacets(decisionId: string): Promise<stri
   const [row] = await db.select().from(decisionFacetBallots).where(eq(decisionFacetBallots.decisionId, decisionId));
   if (!row) return [];
   return Object.entries(row.verdict as Record<string, boolean>).filter(([, v]) => v === true).map(([k]) => k);
+}
+
+function trueKeysOf(verdict: Record<string, boolean>): string[] {
+  return Object.entries(verdict).filter(([, v]) => v === true).map(([k]) => k).sort();
+}
+
+/**
+ * Batch: the TRUE facet keys for a set of tasks, keyed by task id (the doc-view
+ * projection, t-8). Tasks with no ballot (or an all-false `none` ballot) are absent
+ * from the map — the caller defaults to [].
+ */
+export async function facetKeysByTask(taskIds: string[]): Promise<Map<string, string[]>> {
+  const out = new Map<string, string[]>();
+  if (taskIds.length === 0) return out;
+  const rows = await db
+    .select({ taskId: taskFacetBallots.taskId, verdict: taskFacetBallots.verdict })
+    .from(taskFacetBallots)
+    .where(inArray(taskFacetBallots.taskId, taskIds));
+  for (const r of rows) out.set(r.taskId, trueKeysOf(r.verdict as Record<string, boolean>));
+  return out;
+}
+
+/** Batch: the TRUE facet keys for a set of decisions, keyed by decision id (t-8). */
+export async function facetKeysByDecision(decisionIds: string[]): Promise<Map<string, string[]>> {
+  const out = new Map<string, string[]>();
+  if (decisionIds.length === 0) return out;
+  const rows = await db
+    .select({ decisionId: decisionFacetBallots.decisionId, verdict: decisionFacetBallots.verdict })
+    .from(decisionFacetBallots)
+    .where(inArray(decisionFacetBallots.decisionId, decisionIds));
+  for (const r of rows) out.set(r.decisionId, trueKeysOf(r.verdict as Record<string, boolean>));
+  return out;
 }

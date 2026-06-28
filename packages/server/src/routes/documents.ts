@@ -5,6 +5,9 @@ import { moveDoc } from "../services/doc-move.js";
 import { splitSection, updateSection } from "../services/sections.js";
 import { listDecisions } from "../services/decisions.js";
 import { listTasks } from "../services/tasks.js";
+// spec-423 t-8 (dec-7) — project each task/decision's cast facet keys so the doc view
+// renders them as pills.
+import { facetKeysByTask, facetKeysByDecision } from "../services/facet-ballot.js";
 import {
   listDocTags,
   listMemexTags,
@@ -204,6 +207,13 @@ docs.get("/:id", async (c) => {
   const decs = await listDecisions(memexId, result.id);
   const tasks = await listTasks(memexId, result.id);
 
+  // spec-423 t-8 (dec-7) — attach each task/decision's cast facet keys for the pills.
+  // Tasks/decisions with no ballot get [] (the empty-vocab + not-yet-balloted case).
+  const taskFacets = await facetKeysByTask(tasks.map((t) => t.id));
+  const decisionFacets = await facetKeysByDecision(decs.map((d) => d.id));
+  const tasksWithFacets = tasks.map((t) => ({ ...t, facetKeys: taskFacets.get(t.id) ?? [] }));
+  const decsWithFacets = decs.map((d) => ({ ...d, facetKeys: decisionFacets.get(d.id) ?? [] }));
+
   // Pulse (b-60). Emit a `viewed` activity event for this human read. Advisory,
   // throttled per (user, doc, 60s), and a no-op on failure — emitViewed swallows
   // everything so the read response below is unaffected.
@@ -227,7 +237,7 @@ docs.get("/:id", async (c) => {
 
   // spec-136 t-4: include the doc's tags so the React doc view renders them inline.
   const docTags = await listDocTags(memexId, result.id);
-  return c.json({ ...result, decisions: decs, tasks, tags: docTags });
+  return c.json({ ...result, decisions: decsWithFacets, tasks: tasksWithFacets, tags: docTags });
 });
 
 docs.post("/:id/status", async (c) => {
