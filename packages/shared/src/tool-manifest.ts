@@ -502,6 +502,26 @@ export const toolManifest: ToolManifestEntry[] = [
     trafficClass: null,
     autoAssignExempt: true,
   },
+  {
+    name: 'claim_spec',
+    summary:
+      "Check out a Spec for the thread you're working in — the explicit nomination that binds this coding session to it. Writes a soft presence marker (a courtesy lock, never a hard block) and returns who else holds it. Idempotent.",
+    args: 'claim_spec(ref)',
+    group: 'build',
+    readOnlyHint: false,
+    trafficClass: null,
+    autoAssignExempt: true,
+  },
+  {
+    name: 'unclaim_spec',
+    summary:
+      "Release your checkout on a Spec — the explicit check-in. Clears your presence marker and returns the thread to the silent default. No-op if you weren't holding it.",
+    args: 'unclaim_spec(ref)',
+    group: 'build',
+    readOnlyHint: false,
+    trafficClass: null,
+    autoAssignExempt: true,
+  },
 
   // ── Acceptance Criteria (specify + build) ─────────────────
   {

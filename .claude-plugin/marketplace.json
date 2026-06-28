@@ -1,0 +1,17 @@
+{
+  "name": "memex",
+  "owner": {
+    "name": "Mindset AI",
+    "url": "https://memex.ai"
+  },
+  "metadata": {
+    "description": "Memex plugins for coding agents — the Memex MCP server plus light-touch spec-checkout hooks, bundled so they install in one move."
+  },
+  "plugins": [
+    {
+      "name": "memex-checkout",
+      "source": "./packages/cli/plugin",
+      "description": "Binds your coding thread to a Memex Spec and records in-flow edits against it (claim-gated, privacy-first). Bundles the Memex MCP server and the spec-checkout hooks as one opt-in, trivially-uninstallable unit. Sends only changed file paths + the claimed spec; never source code or prompts."
+    }
+  ]
+}

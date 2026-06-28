@@ -4,6 +4,7 @@
 // /installation):
 //   - <SlackIntegrationSection/>   — Enterprise (lives under components/.ee/)
 //   - <DiscordIntegrationSection/> — Enterprise (lives under components/.ee/, spec-138)
+//   - <DesktopMcpSection/>         — open core (spec-304 t-55: in-app MCP install; desktop-shell only).
 //   - <McpTokensSection/>          — open core (MCP token management).
 //   - <CliInstallSection/>         — open core (install instructions).
 //   - <GenesisPromptSection/>      — open core (spec-201: one-paste agent setup).
@@ -12,6 +13,7 @@
 
 import { SlackIntegrationSection } from '../components/.ee/SlackIntegrationSection';
 import { DiscordIntegrationSection } from '../components/.ee/DiscordIntegrationSection';
+import { DesktopMcpSection } from '../components/DesktopMcpSection';
 import { McpTokensSection } from '../components/McpTokensSection';
 import { CliInstallSection } from '../components/CliInstallSection';
 import { GenesisPromptSection } from '../components/GenesisPromptSection';
@@ -32,6 +34,8 @@ export function SettingsIntegrations() {
 
         <SlackIntegrationSection />
         <DiscordIntegrationSection />
+        {/* Desktop-shell only (spec-304 t-55): self-hides in a plain browser. */}
+        <DesktopMcpSection />
         <McpTokensSection />
         <CliInstallSection />
         <GenesisPromptSection />

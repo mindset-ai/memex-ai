@@ -1800,6 +1800,72 @@ export const memexEmissionKeys = pgTable(
   ]
 );
 
+// spec-371: the SCOPED HOOK CREDENTIAL — the least-privilege key the client-side
+// checkout hook uses to authenticate its record-only phone-home (POST
+// /api/spec-checkout/edit) and NOTHING else. Modeled on memex_emission_keys: the
+// raw key `mxh_<base64url>` is stored only as a SHA-256 hash (`hashed_key`,
+// unique-indexed for O(1) auth), and `prefix` keeps the leading chars for an
+// `mxh_xxxxxxxx…` settings display (never the raw key, never the hash). Revoking
+// sets `revoked_at` (rows are never hard-deleted, so the audit trail survives).
+// Per-Memex: a key authorises edit reports for its OWN Memex only — and it is
+// emphatically NOT the user's mxt_ PAT or rotating OAuth token (spec-371 dec-6),
+// so a planted hook can fetch routing and report edits, nothing more.
+export const memexHookKeys = pgTable(
+  "memex_hook_keys",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    memexId: uuid("memex_id")
+      .notNull()
+      .references(() => memexes.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    hashedKey: text("hashed_key").notNull().unique(),
+    prefix: text("prefix").notNull(),
+    createdByUserId: uuid("created_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("memex_hook_keys_memex_id_idx").on(table.memexId),
+    index("memex_hook_keys_created_by_user_id_idx").on(table.createdByUserId),
+  ]
+);
+
+// spec-371: the RECORD-ONLY edit ledger + footprint join key (dec-8). One row per
+// claimed-thread file edit reported by the checkout hook's phone-home: WHICH spec
+// (memex_id + doc_id), WHICH thread (thread_uid = the agent's hook session id),
+// WHAT changed (changed_paths), and the git footprint (commit_sha, branch) when
+// available. High-frequency by design, so it is its OWN table — kept OUT of
+// activity_log (the firehose), mirroring how test_event is not persisted there.
+// Feeds the efficacy ledger (spec-125) and the commit/branch/thread links later
+// specs hang off this. actor_user_id is the user the hook key resolved to.
+export const specCheckoutEdits = pgTable(
+  "spec_checkout_edits",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    memexId: uuid("memex_id")
+      .notNull()
+      .references(() => memexes.id, { onDelete: "cascade" }),
+    docId: uuid("doc_id")
+      .notNull()
+      .references(() => documents.id, { onDelete: "cascade" }),
+    threadUid: text("thread_uid").notNull(),
+    changedPaths: jsonb("changed_paths").$type<string[]>().notNull(),
+    commitSha: text("commit_sha"),
+    branch: text("branch"),
+    actorUserId: uuid("actor_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("spec_checkout_edits_memex_doc_idx").on(table.memexId, table.docId),
+    index("spec_checkout_edits_thread_uid_idx").on(table.threadUid),
+  ]
+);
+
 // Per-user Slack OAuth credentials (doc-23 / b-56). Token is encrypted at rest via GCP KMS
 // envelope encryption (per D-2 of doc-23): `ciphertext` is AES-256-GCM(token) with a
 // per-row DEK + 12-byte IV; `wrapped_dek` is the DEK encrypted by the master
@@ -3180,6 +3246,9 @@ export type LoginRequest = InferSelectModel<typeof loginRequests>;
 export type McpToken = InferSelectModel<typeof mcpTokens>;
 export type MemexEmissionKey = InferSelectModel<typeof memexEmissionKeys>;
 export type MemexEmissionKeyInsert = InferInsertModel<typeof memexEmissionKeys>;
+export type MemexHookKey = InferSelectModel<typeof memexHookKeys>;
+export type SpecCheckoutEdit = InferSelectModel<typeof specCheckoutEdits>;
+export type SpecCheckoutEditInsert = InferInsertModel<typeof specCheckoutEdits>;
 export type CliAuthRequest = InferSelectModel<typeof cliAuthRequests>;
 export type Redirect = InferSelectModel<typeof redirects>;
 export type UserSlackToken = InferSelectModel<typeof userSlackTokens>;

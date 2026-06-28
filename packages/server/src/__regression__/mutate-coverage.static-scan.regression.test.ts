@@ -174,6 +174,9 @@ const ALLOWLIST: Record<string, string> = {
   // ── Ephemeral presence (spec-122 dec-4) ───────────────────────────────────
   "services/presence.ts":
     "presence — ephemeral, decaying heartbeat store (spec-122 dec-4). markPresent() is a silent/out-of-band upsert keyed by (doc_id, actor_user_id, channel, client_id) that bumps last_seen_at on each beat: it is NOT a 'what's moving' activity line (ac-17 — reads/presence must never produce an activity-stream row), no UI subscriber cares about last_seen_at drift, and routing it through mutate() would spam the bus with a heartbeat every ~15s per viewer. Same silent-allowed category as the std-32 contract describes for the presence plane; classified silent-allowed in std-8 §table-by-table.",
+  // ── spec-371 record-only edit ledger ──────────────────────────────────────
+  "services/spec-checkout.ts":
+    "spec-371 record-only checkout ledger. recordCheckoutEdit() does a plain insert into spec_checkout_edits — a HIGH-FREQUENCY edit firehose (one row per file edit the checkout hook reports), the same silent-allowed category as the test_event firehose: no SSE doc-entity subscribes to it, and a per-edit mutate() bus emit would be the wrong cost on a hot path (dec-8). The claim/release helpers here only touch presence (services/presence.ts, already allowlisted). Steering/consumers layer on this stream later; v1 is record-only.",
   // ── Global, non-tenant feed ──────────────────────────────────────────────
   "services/whats-new.ts":
     "Global append-only release-notes feed (spec-200). whats_new_entries has NO memexId/userId — it is one global feed (dec-3), identical for every user, generated at deploy time (dec-1/dec-2). With no tenant/doc entity there is nothing to emit on the memexId-keyed SSE bus; the UI reads it on load (deliberately no live SSE — dec-4). Same category as test-event-latest.ts / activity-log.ts: append-only, must not emit.",
