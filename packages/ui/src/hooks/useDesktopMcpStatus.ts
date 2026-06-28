@@ -18,8 +18,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuth } from '../components/AuthContext';
 import { useUserChangeStream } from './useUserChangeStream';
 import { listMcpTokensApi } from '../api/mcp';
-import { fetchJourneyStateApi } from '../api/journey';
 import {
+  clearMcpStatusBridge,
   isDesktopShell,
   mcpStatusBridge,
   setMcpStatusBridge,
@@ -34,6 +34,7 @@ import {
   type ClientTransport,
   type McpStatusResult,
 } from '../desktop/mcpStatus';
+import { isPillNotificationEnabled, subscribePillPrefs } from '../desktop/mcpPillPrefs';
 
 export type McpPhase = 'idle' | 'loading' | 'ready' | 'error';
 
@@ -71,15 +72,17 @@ export function useDesktopMcpStatus(): DesktopMcpStatus {
   // `phase` dep caused re-subscription on every status change).
   const phaseRef = useRef<McpPhase>('idle');
   phaseRef.current = phase;
+  // Bumped whenever the per-client pill preferences change, so the push effect
+  // below re-runs and re-derives what the pill should show (dec-24).
+  const [prefsVersion, setPrefsVersion] = useState(0);
 
   const refresh = useCallback(async () => {
     if (!inShell) return;
     setPhase((p) => (p === 'ready' ? p : 'loading'));
     try {
-      const [local, tokens, journey] = await Promise.all([
+      const [local, tokens] = await Promise.all([
         mcpStatusBridge(),
         listMcpTokensApi(token),
-        fetchJourneyStateApi().catch(() => null),
       ]);
       if (!local) {
         // Probe failed — tolerate transient failures before showing an error.
@@ -94,27 +97,22 @@ export function useDesktopMcpStatus(): DesktopMcpStatus {
       const activeTokens: ActiveToken[] = tokens
         .filter((t) => !t.revokedAt)
         .map((t) => ({ prefix: t.prefix, lastUsedAt: t.lastUsedAt }));
-      // User-scoped MCP connection signal — the Claude Desktop CONNECTOR has no
-      // local entry to read, so its "connected" derives from this (dec-23).
-      const userConnected = journey?.milestones.mcpConnected ?? false;
 
       const per: DesktopMcpClient[] = MCP_CLIENTS.map(({ key, name, transport }) => ({
         key,
         name,
         transport,
+        // Connector clients (Claude Desktop – Org Connector) have no detectable
+        // per-client signal, so they get a neutral setup status and never drive
+        // the pill (dec-24). Token clients derive from local config ⨝ tokens.
         status:
           transport === 'connector'
-            ? deriveConnectorStatus({ connected: userConnected })
+            ? deriveConnectorStatus()
             : deriveClientStatus(local[key], { activeTokens }),
       }));
       setClients(per);
       setError(null);
       setPhase('ready');
-
-      // Push the aggregate indicator to the native pill (dec-21). React owns the
-      // truth; the shell owns the on-open timing + visibility policy. This is the
-      // push that makes the pill app-global (issue-24 #1).
-      void setMcpStatusBridge(deriveIndicator(per.map((c) => c.status)));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not read MCP status');
       setPhase('error');
@@ -124,6 +122,28 @@ export function useDesktopMcpStatus(): DesktopMcpStatus {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // Push the aggregate indicator to the native pill (dec-21, dec-24) — in its
+  // own effect (not inside refresh) so a pill-preference TOGGLE re-pushes
+  // without re-probing. Only ENABLED, token-transport clients drive the pill;
+  // connector clients never do. When none drive a state, push the explicit HIDE
+  // so the pill clears (no "Install MCP" nag for a client the user opted out of).
+  useEffect(() => {
+    if (!inShell || clients.length === 0) return;
+    const pillClients = clients.filter(
+      (c) => c.transport === 'token' && isPillNotificationEnabled(c.key),
+    );
+    if (pillClients.length === 0) {
+      void clearMcpStatusBridge();
+      return;
+    }
+    void setMcpStatusBridge(deriveIndicator(pillClients.map((c) => c.status)));
+  }, [inShell, clients, prefsVersion]);
+
+  // Re-derive the pill when the per-client notification preference changes
+  // (toggled in DesktopMcpSection). The store is shared across hook instances so
+  // the app-global sync and the Settings section never disagree.
+  useEffect(() => subscribePillPrefs(() => setPrefsVersion((v) => v + 1)), []);
 
   // Real-time: a token minted/revoked anywhere re-derives status (and the mint
   // that an in-app install performs flows back through here to update the pill).

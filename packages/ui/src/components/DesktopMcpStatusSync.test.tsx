@@ -44,6 +44,7 @@ const STATUS = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  localStorage.clear(); // pill-notification prefs persist per-device — reset between tests
   listMcpTokensApi.mockResolvedValue([
     { id: '1', label: 'Memex Desktop', prefix: 'mxt_active123', lastUsedAt: null, revokedAt: null },
   ]);
