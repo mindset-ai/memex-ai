@@ -42,6 +42,12 @@ import { createDomainVerificationToken } from "../services/domain-verification.j
 import { upsertVerifiedDomain } from "../services/verified-domains.js";
 // spec-172 t-5: additive seed/read surface for the retained journeys (5, 11, 12).
 import { createTask } from "../services/tasks.js";
+// spec-423 t-8 journey — seed a facet vocabulary + a balloted task/decision so the
+// journey can assert the facet pills render.
+import { ownerForMemex } from "../services/shared/memex-ownership.js";
+import { seedDefaultFacetsForOwner } from "../services/default-facets.js";
+import { vocabForMemex } from "../services/facet-vocab.js";
+import { castTaskBallot, castDecisionBallot } from "../services/facet-ballot.js";
 // spec-188 t-5: seed surface for the verify-phase journey (ACs, issues,
 // test-event emissions for the acceptance-precedence path).
 import { createAc, buildAcRef } from "../services/acs.js";
@@ -462,6 +468,39 @@ testOnlyRouter.post("/seed-open-decision", async (c) => {
     .set({ options })
     .where(eq(decisions.id, decision.id));
   return c.json({ decisionId: decision.id, seq: decision.seq });
+});
+
+// spec-423 t-8 (dec-7) — seed a complete facet scenario for the pills journey: the
+// owner's default facet vocabulary, a spec in build, and a task + a decision that each
+// carry a cast ballot marking one facet true. Returns the spec handle + the facet key
+// the pills should display.
+const seedFacetScenarioSchema = z.object({ memexId: z.string() });
+testOnlyRouter.post("/seed-facet-scenario", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = seedFacetScenarioSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
+  }
+  const { memexId } = parsed.data;
+
+  const owner = await ownerForMemex(memexId);
+  if (!owner) return c.json({ error: "no owner for memex" }, 400);
+  await seedDefaultFacetsForOwner(owner);
+  const vocab = await vocabForMemex(memexId);
+  const chosen = vocab[0].key;
+  // A COMPLETE ballot: one facet true, the rest false.
+  const verdict: Record<string, boolean> = {};
+  for (const f of vocab) verdict[f.key] = f.key === chosen;
+  const ballot = { verdict, none: false };
+
+  const spec = await createDocDraft(memexId, "Facet Pills Spec", "Seeded for the pills journey.", "spec", undefined, undefined);
+  await updateDocStatus(memexId, spec.id, "build", { source: "rest" });
+  const task = await createTask(memexId, spec.id, "Harden the auth guard", "Seeded balloted task.", undefined, undefined, {});
+  await castTaskBallot(memexId, spec.id, task.id, ballot, {});
+  const decision = await createDecision(memexId, spec.id, "A balloted decision", undefined, "human");
+  await castDecisionBallot(memexId, spec.id, decision.id, ballot, {});
+
+  return c.json({ specHandle: spec.handle, facetKey: chosen });
 });
 
 // Real native-auth signup [per std-13] that ALSO returns the raw email-

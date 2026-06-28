@@ -107,6 +107,8 @@ const ALLOWLIST: Record<string, string> = {
     "spec-340 phase 1 — seeds the per-owner default facet vocabulary (facets, owner-config like org_scaffold_additions). No bus entity, no SSE subscriber in phase 1 (the inert foundation); mutate() wrap deferred to phase 2 when a live editing/pill surface lands.",
   "services/facet-classifier.ts":
     "spec-340 phase 1 — tagClause writes auto-assigned clause→facet tags (standard_clause_facets) from the agent-driven/local-backfill classifier only (dec-8). No bus entity, no SSE subscriber in phase 1 (nothing reads the tags until phase 2); mutate() wrap deferred to phase 2.",
+  "services/facet-routing-log.ts":
+    "spec-423 phase 2 (dec-4) — append-only routing telemetry (facet_routing_log): one row per create_task / resolve_decision routing call (query, candidates, scores, surfaced/cut, K, ranker). No bus entity, no SSE subscriber by design — a routing decision is not user-observable content. Same telemetry-log posture as services/mcp-telemetry.ts; routing it through mutate() would emit a meaningless UI refetch. Silent-allowed per std-8 §6.",
   "routes/backstage.ts":
     "Dev-mode-only org_membership grant (DEV_USER_EMAIL admin self-grant). org_membership is an access-control bootstrap row — no memex_id, no bus entity, not Memex-scoped tenant content; nothing subscribes to it over SSE.",
   "middleware/session.ts":
@@ -172,6 +174,11 @@ const ALLOWLIST: Record<string, string> = {
   // ── Ephemeral presence (spec-122 dec-4) ───────────────────────────────────
   "services/presence.ts":
     "presence — ephemeral, decaying heartbeat store (spec-122 dec-4). markPresent() is a silent/out-of-band upsert keyed by (doc_id, actor_user_id, channel, client_id) that bumps last_seen_at on each beat: it is NOT a 'what's moving' activity line (ac-17 — reads/presence must never produce an activity-stream row), no UI subscriber cares about last_seen_at drift, and routing it through mutate() would spam the bus with a heartbeat every ~15s per viewer. Same silent-allowed category as the std-32 contract describes for the presence plane; classified silent-allowed in std-8 §table-by-table.",
+  // ── spec-371 record-only edit ledger ──────────────────────────────────────
+  "services/spec-checkout.ts":
+    "spec-371 record-only checkout ledger. recordCheckoutEdit() does a plain insert into spec_checkout_edits — a HIGH-FREQUENCY edit firehose (one row per file edit the checkout hook reports), the same silent-allowed category as the test_event firehose: no SSE doc-entity subscribes to it, and a per-edit mutate() bus emit would be the wrong cost on a hot path (dec-8). Steering/consumers layer on this stream later; v1 is record-only.",
+  "services/checkout.ts":
+    "spec-371 rework — the durable, single-holder CHECKOUT record on documents (checked_out_by/at/thread; dec-5/dec-11/dec-12). stampCheckout/setCheckoutThread/releaseCheckout are silent, out-of-band STATE writes (the checkout columns), NOT a 'what's moving' activity line: a checkout — and its per-mutation refresh via the gate — is high-frequency and already self-evident from the mutation that triggered it, so routing each stamp through mutate() would spam the bus. Same silent-allowed category as the presence plane; read on demand by services/checkout-gate.ts.",
   // ── Global, non-tenant feed ──────────────────────────────────────────────
   "services/whats-new.ts":
     "Global append-only release-notes feed (spec-200). whats_new_entries has NO memexId/userId — it is one global feed (dec-3), identical for every user, generated at deploy time (dec-1/dec-2). With no tenant/doc entity there is nothing to emit on the memexId-keyed SSE bus; the UI reads it on load (deliberately no live SSE — dec-4). Same category as test-event-latest.ts / activity-log.ts: append-only, must not emit.",

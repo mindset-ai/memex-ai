@@ -151,7 +151,12 @@ function formatTagStrip(tags: Tag[] | undefined): string | null {
 }
 
 export function formatFullDocState(
-  doc: Doc & { sections: DocSection[] },
+  // spec-371: checkoutHolder is the resolved holder name (getDoc attaches it);
+  // checked_out_by/at ride along on Doc. Optional so plain-Doc callers still compile.
+  doc: Doc & {
+    sections: DocSection[];
+    checkoutHolder?: { name: string | null; email: string | null } | null;
+  },
   decisions: Decision[],
   tasks: TaskWithBlockers[],
   appBaseUrl?: string,
@@ -187,6 +192,19 @@ export function formatFullDocState(
   lines.push(`ref: ${maybeDocRef(slugs, doc)}`);
   lines.push(`Type: ${doc.docType} | Handle: ${doc.handle}`);
   lines.push(`Status: ${doc.status} (changed ${formatDate(doc.statusChangedAt)})`);
+  // spec-371: surface who currently holds the checkout + how long ago, so a reader
+  // (or an agent about to edit) sees it before stepping on a colleague. Only when a
+  // spec is actually held.
+  if (doc.docType === "spec" && doc.checkedOutBy && doc.checkedOutAt) {
+    const who =
+      doc.checkoutHolder?.name?.trim() || doc.checkoutHolder?.email || "someone";
+    const mins = Math.max(
+      0,
+      Math.round((Date.now() - new Date(doc.checkedOutAt).getTime()) / 60_000),
+    );
+    const ago = mins < 1 ? "less than a minute ago" : `${mins} minute${mins === 1 ? "" : "s"} ago`;
+    lines.push(`Checked out by: ${who} (${ago})`);
+  }
   if (appBaseUrl) {
     lines.push(`URL: ${docUrl(appBaseUrl, doc.docType, doc.handle)}`);
   }

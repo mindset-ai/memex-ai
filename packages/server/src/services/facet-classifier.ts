@@ -77,6 +77,12 @@ export interface ClassifyOptions {
   concurrency?: number;
   /** Progress hook for long runs (called after each clause is tagged). */
   onProgress?: (done: number, total: number) => void;
+  /**
+   * spec-423 t-6/dec-9 — the GAP-backfill mode: classify ONLY clauses that have no
+   * standard_clause_facets row yet (authored while Phase 1 was inert / before the
+   * add_clause hard-fail landed). Leaves already-classified clauses untouched.
+   */
+  gapOnly?: boolean;
 }
 
 /** Transient = worth retrying (rate-limit, overload, gateway, connection blip). */
@@ -273,8 +279,20 @@ export async function backfillFacetTagsForMemex(
     allClauses.push(...cls);
   }
 
-  await classifyAndTagClauses(memexId, allClauses, vocab, opts);
-  return { standards: standardDocs.length, clauses: allClauses.length };
+  // GAP-backfill (dec-9): keep only clauses with NO existing tag row, so the one-off
+  // pre-Phase-2 run classifies the inert-window clauses without re-touching the rest.
+  let clauses = allClauses;
+  if (opts.gapOnly) {
+    const tagged = await db
+      .select({ clauseId: standardClauseFacets.clauseId })
+      .from(standardClauseFacets)
+      .where(eq(standardClauseFacets.memexId, memexId));
+    const taggedSet = new Set(tagged.map((t) => t.clauseId));
+    clauses = allClauses.filter((c) => !taggedSet.has(c.id));
+  }
+
+  await classifyAndTagClauses(memexId, clauses, vocab, opts);
+  return { standards: standardDocs.length, clauses: clauses.length };
 }
 
 /**

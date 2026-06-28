@@ -1280,6 +1280,9 @@ describe("audit: b-36 D-8 — every terse mutation/list response emits `ref:` an
       ],
       ["assign_spec", { input: () => ({ ref: docRef(slugs, docHandle), user: userId }) }],
       ["unassign_spec", { input: () => ({ ref: docRef(slugs, docHandle), user: userId }) }],
+      // ── Spec checkout (spec-371) — echo the Spec ref, no UUID; presence-only. ──
+      ["claim_spec", { input: () => ({ ref: docRef(slugs, docHandle) }) }],
+      ["unclaim_spec", { input: () => ({ ref: docRef(slugs, docHandle) }) }],
       // ── Standards drift tools (spec-143 dec-1, ac-14) ──
       // Both take a canonical standard-section `ref` and emit a `ref:` to the
       // comment that lands under the standard's std-N handle.

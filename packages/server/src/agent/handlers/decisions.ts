@@ -35,6 +35,10 @@ import {
 import {
   resolveEmbeddingProvider,
 } from "../../services/embedding-provider.js";
+// spec-423 dec-5/dec-6 — forced facet ballot on resolve_decision. Vocab via
+// facet-ballot.ts → facet-vocab.ts (NO-LLM); classifier engine never imported here.
+import { validateBallotForMemex } from "../../services/facet-ballot.js";
+import { parseBallotArg, storeRouteAndReadout } from "../../services/facet-consume.js";
 import {
   VERBOSE_FIELD,
   formatState,
@@ -327,6 +331,18 @@ export const decisionsTools: ToolSpec[] = [
         .describe(
           "Zero-based index of the chosen option (only valid if the decision has structured options).",
         ),
+      // spec-423 dec-5 — decisions are a more reliably-created hook than tasks, so
+      // resolving one also forces a complete facet ballot (dec-6: work-side routing
+      // only — never surfaced as binding precedent). Same shape + re-hand as create_task.
+      facetBallot: z
+        .object({
+          verdict: z.record(z.string(), z.boolean()).describe("Complete map: facet slug → true/false."),
+          none: z.boolean().describe("true = this work governs no facet (every verdict false)."),
+        })
+        .optional()
+        .describe(
+          "The facets this decision's work touches (dec-5). A complete verdict over the Memex's facet vocabulary; the response hands back the governing standards to keep top-of-mind.",
+        ),
       verbose: VERBOSE_FIELD,
     },
     async handler(input, ctx) {
@@ -341,11 +357,29 @@ export const decisionsTools: ToolSpec[] = [
         );
       }
       const { memexId, doc, slugs, entity } = resolved;
+      // Validate the ballot BEFORE resolving, so a rejected ballot re-hands the
+      // vocabulary without mutating the decision (dec-5).
+      const ballot = parseBallotArg(input.facetBallot);
+      const vocab = await validateBallotForMemex(memexId, ballot);
       const decision = await resolveDecision(memexId, entity.row.id, resolution, chosenOptionIndex, reqCtx(ctx));
+      const decRef = buildChildRef(slugs, doc, { type: "decisions", seq: decision.seq });
+      // Store the ballot (work-side, dec-6), route + rank, log, and build the payoff
+      // readout appended to the response.
+      const readout = await storeRouteAndReadout({
+        memexId,
+        specDocId: decision.docId,
+        noun: "decision",
+        rowId: entity.row.id,
+        ownerRef: decRef,
+        queryText: `${decision.title}\n${decision.resolution ?? resolution ?? ""}`,
+        ballot,
+        vocab,
+        ctx: reqCtx(ctx),
+      });
       if (ctx.verbose) {
         const state = await fullDocState(memexId, decision.docId);
         const url = await ctx.workspaceUrl(memexId);
-        return await formatState(url, state, ctx);
+        return (await formatState(url, state, ctx)) + readout;
       }
       // Per dec-1 of doc-20: if this was the last open decision on a Spec
       // in 'specify', surface the unblocked phase move so the agent doesn't have
@@ -358,7 +392,6 @@ export const decisionsTools: ToolSpec[] = [
           hint = " This was the last open decision; Spec can move to build.";
         }
       }
-      const decRef = buildChildRef(slugs, doc, { type: "decisions", seq: decision.seq });
       // JIT nudge: a resolved decision is a commitment without a verification
       // path until its implementation AC(s) exist. Surface the create_ac
       // syntax at exactly the moment the decision flips so the next move is
@@ -406,7 +439,7 @@ export const decisionsTools: ToolSpec[] = [
       if (ctx.footerSlot) {
         ctx.footerSlot.signal = { kind: "decision_resolved", decRef, linkedAcs, issueHits };
       }
-      return `Decision resolved: ref: ${decRef} "${decision.title}" — ${decision.resolution}.${hint}`;
+      return `Decision resolved: ref: ${decRef} "${decision.title}" — ${decision.resolution}.${hint}${readout}`;
     },
   },
   {

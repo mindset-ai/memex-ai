@@ -11,6 +11,7 @@ export { commentsTools } from "./comments.js";
 export { lifecycleTools } from "./lifecycle.js";
 export { issuesTools } from "./issues.js";
 export { rolesTools } from "./roles.js";
+export { checkoutTools } from "./checkout.js";
 export { standardsTools } from "./standards.js";
 export { facetsTools } from "./facets.js";
 export { integrationsTools } from "./integrations.js";
