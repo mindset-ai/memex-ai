@@ -254,6 +254,9 @@ const seedSpecSchema = z.object({
   title: z.string(),
   purpose: z.string().optional(),
   createdByUserId: z.string().uuid().optional(),
+  // spec-421: seed a DEMO spec (isDemo=true) so journeys can assert that demo specs
+  // (spec-178 seeds 5 per Memex) do NOT count toward the hasSpec milestone / landing.
+  isDemo: z.boolean().optional(),
 });
 testOnlyRouter.post("/seed-spec", async (c) => {
   const body = await c.req.json().catch(() => null);
@@ -261,8 +264,16 @@ testOnlyRouter.post("/seed-spec", async (c) => {
   if (!parsed.success) {
     return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
   }
-  const { memexId, title, purpose = "Seeded purpose.", createdByUserId } = parsed.data;
-  const result = await createDocDraft(memexId, title, purpose, "spec", undefined, undefined, createdByUserId);
+  const { memexId, title, purpose = "Seeded purpose.", createdByUserId, isDemo } = parsed.data;
+  const result = await createDocDraft(
+    memexId,
+    title,
+    purpose,
+    "spec",
+    undefined,
+    isDemo ? { isDemo: true } : undefined,
+    createdByUserId,
+  );
   // The first (overview/purpose) section id — handy for journeys that mutate a
   // section over the API (e.g. the reactivity round-trips in journey-16).
   return c.json({ docId: result.id, handle: result.handle, sectionId: result.sections[0]?.id ?? null });
@@ -333,6 +344,32 @@ testOnlyRouter.post("/clear-org-memberships", async (c) => {
   const deleted = await db
     .delete(orgMemberships)
     .where(eq(orgMemberships.userId, user.id))
+    .returning();
+  return c.json({ ok: true, cleared: deleted.length });
+});
+
+// spec-421: delete every NON-DEMO spec a user authored, so the per-test dev baseline
+// starts with hasSpec=false. The first-load landing now routes by the hasSpec milestone
+// (spec-421 dec-5), so a real spec leaked by an earlier journey would otherwise send the
+// shared dev user to the Specs board where a journey expects /home. Demo specs (spec-178)
+// are left intact — they never count toward hasSpec.
+testOnlyRouter.post("/clear-user-specs", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = z.object({ email: z.string().email() }).safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
+  }
+  const user = await getUserByEmail(parsed.data.email);
+  if (!user) return c.json({ ok: true, cleared: 0 });
+  const deleted = await db
+    .delete(documents)
+    .where(
+      and(
+        eq(documents.createdByUserId, user.id),
+        eq(documents.docType, "spec"),
+        eq(documents.isDemo, false),
+      ),
+    )
     .returning();
   return c.json({ ok: true, cleared: deleted.length });
 });

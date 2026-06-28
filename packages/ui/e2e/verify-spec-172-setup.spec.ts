@@ -16,7 +16,7 @@
 // by default" half of ac-10.
 
 import { test, expect } from "@playwright/test";
-import { getPersonalMemexByEmail, DEV_EMAIL } from "./helpers/index.js";
+import { getPersonalMemexByEmail, clearUserSpecs, DEV_EMAIL } from "./helpers/index.js";
 import { emitAcEvents } from "./helpers/emit-ac.js";
 
 const AC10 = ["mindset-prod/memex-building-itself/specs/spec-172/acs/ac-10"];
@@ -36,6 +36,13 @@ test("globalSetup leaves dev@memex.ai named so a cold-DB journey lands on Home, 
   // globalSetup provisioned the personal memex; it must resolve.
   const memex = await getPersonalMemexByEmail(DEV_EMAIL);
   expect(memex, "globalSetup should have provisioned dev@memex.ai's personal memex").not.toBeNull();
+
+  // spec-421 dec-5: the first-load landing now routes by the hasSpec milestone. This spec
+  // verifies the NAMING/onboarding gate (a named dev reaches the real app, not Onboarding),
+  // so isolate that by clearing any spec an earlier journey leaked onto the shared dev user
+  // — a brand-new named dev (no spec) lands on /home. (This test uses the raw `test`, not the
+  // fixture, to avoid masking globalSetup's naming; clearing specs doesn't touch the name.)
+  await clearUserSpecs(DEV_EMAIL);
 
   // Bare origin → spec-312: every authenticated user lands on /home (the universal
   // landing), where the Home Canvas renders. The point of ac-10 holds: a cold-DB

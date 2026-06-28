@@ -58,6 +58,38 @@ vi.mock('./pages/SpecList', () => ({ SpecList: () => <div data-testid="specs-pag
 vi.mock('./pages/VerifyEmailGate', () => ({ VerifyEmailGate: () => <div data-testid="verify-email-gate">verify</div> }));
 vi.mock('./pages/Onboarding', () => ({ Onboarding: () => <div data-testid="onboarding-page">legacy</div> }));
 
+// spec-421 dec-5 NARROWED spec-372 dec-7 ("post-login landing is /home, never the board"):
+// RootRedirect now reads journey-state and routes GRADUATED users to the Specs board. The
+// surviving truth — a NOT-yet-graduated user lands on /home — holds with a not-graduated read.
+// The graduated→Specs behaviour is covered in App.onboarding-home-gate.test.tsx.
+vi.mock('./api/journey', async () => {
+  const real = await vi.importActual<typeof import('./api/journey')>('./api/journey');
+  return {
+    ...real,
+    fetchJourneyStateApi: () =>
+      Promise.resolve({
+        milestones: {
+          identityConfirmed: true,
+          mcpConnected: false,
+          mcpToolCalled: false,
+          hasSpec: false,
+          hasResolvedDecision: false,
+          hasAc: false,
+          acVerified: false,
+          planGrounded: false,
+        },
+        roleCoords: null,
+        currentStepId: 'create-spec',
+        steps: [
+          { id: 'identity', attained: true },
+          { id: 'create-spec', attained: false },
+        ],
+        preview: false,
+        canPreview: false,
+      }),
+  };
+});
+
 import { PostLoginRouter } from './App';
 
 function renderAt(path: string) {

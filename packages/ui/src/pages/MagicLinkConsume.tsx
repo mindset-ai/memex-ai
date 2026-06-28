@@ -33,11 +33,14 @@ export function MagicLinkConsume() {
       .then((session) => {
         acceptSession(session);
         setStage('success');
-        // spec-312 dec-1: land on /home (the universal landing); fall back to the
-        // default tenant only when 'home' is hidden per-env.
+        // spec-421 dec-5: route through /login (whose element is RootRedirect) so the
+        // onboarding-state landing decision applies — a returning engaged user lands on
+        // their Specs board, a new user on /home. /login is a real SPA path (never the
+        // apex `/`, which 301s to marketing). Fall back to the default tenant directly
+        // only when 'home' is hidden per-env (mirrors RootRedirect's loop-avoidance).
         const landing = isFeatureHidden(session, 'home')
           ? (computeDefaultLanding(session) ?? '/login')
-          : '/home';
+          : '/login';
         window.setTimeout(() => {
           window.location.href = landing;
         }, 400);

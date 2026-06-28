@@ -13,6 +13,7 @@ import {
   setOnboardingGreeted,
   setIdentityConfirmed,
   clearOrgMemberships,
+  clearUserSpecs,
   cleanup,
   getPersonalMemexByEmail,
 } from "./seed.js";
@@ -50,6 +51,11 @@ export const test = base.extend<{ resources: TestResources }>({
     //      can't leak a nameless dev user into the next test.
     await ensureUser(DEV_EMAIL);
     await clearOrgMemberships(DEV_EMAIL);
+    // spec-421: the first-load landing routes by the hasSpec milestone, so reset the dev
+    // user's authored specs each test — otherwise a real spec leaked by an earlier journey
+    // would send the shared dev user to the Specs board where a journey expects /home.
+    // (Demo specs are left intact; they never count toward hasSpec.)
+    await clearUserSpecs(DEV_EMAIL);
     await setUserName(DEV_EMAIL, DEV_NAME);
     // spec-305: needsOnboarding now keys off identity_confirmed_at (not !name), so
     // confirm the dev user each test — otherwise every journey redirects to /home.

@@ -102,6 +102,38 @@ vi.mock('./pages/Onboarding', () => ({
   Onboarding: () => <div data-testid="onboarding-page">legacy onboarding</div>,
 }));
 
+// spec-421 dec-5 NARROWED spec-312 dec-1: RootRedirect now reads journey-state and sends
+// GRADUATED users to the Specs board. spec-312's surviving truth — an authenticated, NOT-yet-
+// graduated user lands on /home regardless of the legacy needsOnboarding bit — holds with a
+// not-graduated read. The graduated→Specs behaviour is covered in App.onboarding-home-gate.test.tsx.
+vi.mock('./api/journey', async () => {
+  const real = await vi.importActual<typeof import('./api/journey')>('./api/journey');
+  return {
+    ...real,
+    fetchJourneyStateApi: () =>
+      Promise.resolve({
+        milestones: {
+          identityConfirmed: true,
+          mcpConnected: false,
+          mcpToolCalled: false,
+          hasSpec: false,
+          hasResolvedDecision: false,
+          hasAc: false,
+          acVerified: false,
+          planGrounded: false,
+        },
+        roleCoords: null,
+        currentStepId: 'create-spec',
+        steps: [
+          { id: 'identity', attained: true },
+          { id: 'create-spec', attained: false },
+        ],
+        preview: false,
+        canPreview: false,
+      }),
+  };
+});
+
 import { PostLoginRouter } from './App';
 
 function renderAt(path: string) {
