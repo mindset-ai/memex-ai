@@ -699,6 +699,9 @@ export async function findStandardsAffectedByDecision(
           groundedAt: null,
           groundedByUserId: null,
           groundedByName: null,
+          checkedOutBy: null,
+          checkedOutAt: null,
+          checkedOutThread: null,
         },
         matchingSections: [],
       };

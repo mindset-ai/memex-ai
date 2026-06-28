@@ -2,7 +2,7 @@
   "hooks": {
     "PostToolUse": [
       {
-        "matcher": "mcp__memex__(claim_spec|unclaim_spec|update_doc)",
+        "matcher": "mcp__memex__.*",
         "hooks": [
           {
             "type": "command",

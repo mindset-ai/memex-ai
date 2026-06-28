@@ -105,32 +105,74 @@ export function resolveActiveClaim(sessionId, opts = {}) {
   return { memex: m.memex, spec: m.spec, ref: `${m.memex}/specs/${m.spec}` };
 }
 
-// Decide what the EDIT hook should do, given the session's marker state. This is
-// the privacy gate (dec-2) + the speak-only-on-change nudge (dec-8) as PURE logic:
-//   - 'phone-home' : claimed (fresh marker) → report the edit, refresh the TTL.
-//   - 'nudge'      : unclaimed AND not yet nudged this session → emit ONE nudge,
-//                    write the sentinel. NO network call.
-//   - 'silent'     : unclaimed AND already nudged → do nothing, NO network call.
-// The crucial invariant (ac-2 / ac-5): ONLY 'phone-home' ever leaves the machine.
+// Decide what the EDIT hook should do, given the session's marker state. PURE
+// logic — the privacy gate (dec-2), and NO nudge (dec-8 rework: the first-edit
+// nudge is removed; the only interruption anywhere is the server's collision
+// takeover, dec-11):
+//   - 'phone-home' : checked out (fresh marker) → report the edit, refresh the TTL.
+//   - 'silent'     : NOT checked out → do nothing, NO network call, no nudge.
+// The crucial invariant (ac-2 / ac-16): only 'phone-home' ever leaves the machine,
+// and a thread that isn't a Memex thread is simply silent.
 export function decideEditAction(sessionId, opts = {}) {
   const claim = resolveActiveClaim(sessionId, opts);
   if (claim) {
     touchMarker(sessionId, opts); // refresh TTL on activity
     return { action: "phone-home", claim };
   }
-  const sentinel = nudgeSentinelPath(sessionId, opts);
-  if (existsSync(sentinel)) return { action: "silent" };
-  mkdirSync(checkoutDir(opts), { recursive: true });
-  writeFileSync(sentinel, String(opts.now ?? Date.now()), "utf8");
-  return { action: "nudge" };
+  return { action: "silent" };
 }
 
 // Parse a Memex MCP tool_input `ref` into { memex: "ns/slug", spec: "spec-N", ref }
-// when it is a spec ref, else null. The (memex, spec) the marker is keyed on. No
-// VCS state is consulted anywhere in this module.
+// when it names a spec (directly OR via any sub-entity — section/decision/task/ac
+// refs all carry .../specs/spec-N/...), else null. The (memex, spec) the marker is
+// keyed on. No VCS state is consulted anywhere in this module.
 export function parseSpecRef(ref) {
   if (typeof ref !== "string") return null;
   const parts = ref.split("/");
   if (parts.length < 4 || parts[2] !== "specs") return null;
   return { memex: `${parts[0]}/${parts[1]}`, spec: parts[3], ref };
+}
+
+// The spec-mutating MCP tools whose SUCCESS implicitly checks out the spec for this
+// thread — mirrors the server gate (services/checkout-gate.ts GATED_SPEC_TOOLS) plus
+// the explicit claim_spec. A successful call to any of these ARMS the thread (writes
+// the marker); unclaim_spec disarms it; everything else (reads, a collision-fail)
+// leaves the marker untouched (dec-11, ac-9).
+export const ARMING_TOOLS = new Set([
+  "claim_spec",
+  "update_doc",
+  "update_section", "add_section", "retitle_section", "delete_section",
+  "create_decision", "update_decision", "resolve_decision", "delete_decision",
+  "approve_candidate", "reject_candidate",
+  "add_clause", "edit_clause", "delete_clause",
+  "create_task", "update_task", "delete_task",
+  "create_ac", "update_ac", "delete_ac", "link_ac_to_decision",
+  "write_qa_report", "ground_spec",
+]);
+
+// True when the PostToolUse payload shows the tool call FAILED — so a rejected
+// mutation (notably the gate's collision-takeover error) does NOT arm the thread
+// (ac-9). Defensive across payload shapes: an MCP error result sets isError, and
+// the gate's message carries a stable sentinel.
+function toolCallFailed(payload) {
+  const r = payload?.tool_response;
+  if (r && typeof r === "object" && (r.isError === true || r.is_error === true)) return true;
+  const text = typeof r === "string" ? r : JSON.stringify(r ?? "");
+  return text.includes("call claim_spec({"); // the collision-takeover sentinel
+}
+
+// Decide the marker action for a PostToolUse payload on a Memex MCP tool:
+//   { action: 'clear' }              — unclaim_spec
+//   { action: 'write', memex, spec } — an arming tool that SUCCEEDED on a spec
+//   { action: 'skip' }               — reads, failures, non-spec refs
+// The caller keys the marker on payload.session_id (the conversation UID).
+export function decideMarkerAction(payload) {
+  const toolName = typeof payload?.tool_name === "string" ? payload.tool_name : "";
+  const bare = toolName.replace(/^mcp__memex__/, "");
+  if (bare === "unclaim_spec") return { action: "clear" };
+  if (!ARMING_TOOLS.has(bare)) return { action: "skip" };
+  if (toolCallFailed(payload)) return { action: "skip" };
+  const parsed = parseSpecRef((payload?.tool_input ?? {}).ref);
+  if (!parsed) return { action: "skip" };
+  return { action: "write", memex: parsed.memex, spec: parsed.spec };
 }
