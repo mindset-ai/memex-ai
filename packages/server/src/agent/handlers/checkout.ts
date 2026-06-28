@@ -1,21 +1,23 @@
 // spec-371: the spec-checkout tools — claim_spec / unclaim_spec.
 //
-// A claim is the explicit checkout that binds a coding-agent thread to a Spec.
-// Server-side it is RECORD-ONLY + a soft presence write (dec-5, dec-8): it
-// confirms the caller can reach the Spec, writes a presence row on spec-122's
-// plane (so teammates see "X is working on spec-N now"), and returns who else is
-// present — a SOFT lock surfaced for the human, never a hard block, with no
-// takeover / eviction path in v1. The durable thread→Spec binding the edit hook
-// reads lives in the CLIENT marker (the plugin watches these very tool calls);
-// nothing here reads or needs the MCP transport session beyond presence.
+// A claim is the EXPLICIT checkout that binds a thread to a Spec. Server-side it
+// stamps the durable, single-holder CHECKOUT record on the spec's own documents
+// row (checked_out_by/at/thread, dec-5) — NOT the presence plane (the merged v1's
+// mistake; presence is ephemeral viewing and untouched here). Explicit claim
+// ALWAYS succeeds and takes over, even when another user holds it within the
+// collision window — it returns a who/when heads-up but never errors or blocks
+// (dec-11, ac-22). The durable thread→Spec binding the edit hook reads still lives
+// in the CLIENT marker (the plugin watches these very tool calls).
 
 import { z } from "zod";
 import { ValidationError } from "../../types/errors.js";
 import {
-  claimSpecPresence,
-  releaseSpecPresence,
-} from "../../services/spec-checkout.js";
-import type { PresenceChannel, ActorKind } from "../../services/presence.js";
+  getCheckout,
+  collisionAgainst,
+  stampCheckout,
+  describeCollision,
+  releaseCheckout,
+} from "../../services/checkout.js";
 import {
   VERBOSE_FIELD,
   resolveRefArg,
@@ -25,13 +27,6 @@ import {
 } from "./shared.js";
 
 const REF_DESC = "Canonical ref to the Spec, e.g. `mindset/main/specs/spec-3`.";
-
-function presenceChannelFor(ctx: ToolCtx): PresenceChannel {
-  return ctx.channel === "in_app_agent" ? "in_app_agent" : "mcp";
-}
-function actorKindFor(ctx: ToolCtx): ActorKind {
-  return ctx.channel === "in_app_agent" ? "in_app_agent" : "mcp_agent";
-}
 
 async function resolveSpec(ctx: ToolCtx, ref: string, tool: string) {
   const resolved = await resolveRefArg(ctx, ref);
@@ -49,33 +44,31 @@ export const checkoutTools: ToolSpec[] = [
     annotations: { title: "Claim spec", readOnlyHint: false, destructiveHint: false },
     description:
       "Check out a Spec for the thread you're working in — the explicit nomination that binds this coding " +
-      "session to this Spec, so your in-flow edits are attributed to it. Writes a soft presence marker " +
-      "('working on this now') your teammates can see; it is a courtesy lock, never a hard block — anyone " +
-      "can still work. Returns who else, if anyone, currently holds it. Idempotent: re-claiming refreshes " +
-      "your presence.",
+      "session to this Spec, so your in-flow edits are attributed to it. You rarely need to call this by " +
+      "hand: editing anything on a Spec checks it out for you automatically. Use it to take over a Spec a " +
+      "colleague recently held (it always succeeds — never blocked), or to bind a Spec you'll build in a " +
+      "different thread. Returns a heads-up if you've just taken it over from someone. Idempotent.",
     schema: {
       ref: z.string().describe(REF_DESC),
       verbose: VERBOSE_FIELD,
     },
     async handler(input, ctx) {
       const ref = input.ref as string;
-      const { memexId, doc } = await resolveSpec(ctx, ref, "claim_spec");
-      const { othersPresent } = await claimSpecPresence({
-        memexId,
-        docId: doc.id,
-        actorUserId: ctx.userId,
-        actorName: ctx.userName ?? null,
-        actorKind: actorKindFor(ctx),
-        channel: presenceChannelFor(ctx),
-        clientId: ctx.sessionId,
-      });
-      const lock =
-        othersPresent.length > 0
-          ? ` Also working here right now: ${othersPresent.join(", ")} — a soft lock, you can both work; coordinate if you'll collide.`
-          : "";
+      const { doc } = await resolveSpec(ctx, ref, "claim_spec");
+      // Compute the collision BEFORE we overwrite the holder, for the heads-up.
+      const collision = collisionAgainst(await getCheckout(doc.id), ctx.userId);
+      // Explicit claim ALWAYS takes over — never errors, even on a collision (ac-22).
+      await stampCheckout({ docId: doc.id, userId: ctx.userId, thread: ctx.sessionId ?? null });
+      let heads = "";
+      if (collision) {
+        const { holderName, minutesAgo } = await describeCollision(collision);
+        heads =
+          ` Heads-up: ${holderName} checked this out ${minutesAgo} minute${minutesAgo === 1 ? "" : "s"} ago` +
+          ` — you've taken it over. Coordinate with them if you'll collide.`;
+      }
       return (
         `ref: ${ref} — checked out for this thread; your in-flow edits are attributed to it ` +
-        `until you unclaim or the checkout expires.${lock}`
+        `until you unclaim or it's taken over.${heads}`
       );
     },
   },
@@ -83,9 +76,9 @@ export const checkoutTools: ToolSpec[] = [
     name: "unclaim_spec",
     annotations: { title: "Unclaim spec", readOnlyHint: false, destructiveHint: false },
     description:
-      "Release your checkout on a Spec — the explicit check-in. Clears your presence marker so teammates " +
-      "see it's free, and returns this thread to the silent default (your edits stop being attributed). A " +
-      "no-op if you weren't holding it.",
+      "Release your checkout on a Spec — the explicit check-in. Frees the Spec so it reads as un-held, and " +
+      "returns this thread to the silent default (your edits stop being attributed). A no-op if you weren't " +
+      "the current holder (so it can't evict whoever took it over).",
     schema: {
       ref: z.string().describe(REF_DESC),
       verbose: VERBOSE_FIELD,
@@ -93,12 +86,7 @@ export const checkoutTools: ToolSpec[] = [
     async handler(input, ctx) {
       const ref = input.ref as string;
       const { doc } = await resolveSpec(ctx, ref, "unclaim_spec");
-      await releaseSpecPresence({
-        docId: doc.id,
-        actorUserId: ctx.userId,
-        channel: presenceChannelFor(ctx),
-        clientId: ctx.sessionId,
-      });
+      await releaseCheckout(doc.id, ctx.userId);
       return `ref: ${ref} — released; this thread is no longer checked out.`;
     },
   },

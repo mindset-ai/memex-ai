@@ -1,21 +1,16 @@
 #!/usr/bin/env node
 // spec-371 Hook B — the EDIT PHONE-HOME. A Claude Code PostToolUse hook matched to
 // file edits. It consults the local marker (the privacy gate, dec-2): only when
-// this thread holds a FRESH claim does anything leave the machine. Unclaimed → ONE
-// in-context nudge to claim, then silence. Non-blocking; never throws.
+// this thread is checked out does anything leave the machine. NOT checked out →
+// silence, no nudge (dec-8 rework). Non-blocking; never throws.
 //
-// What it ever sends: changed file paths + the claimed spec ref + the git
-// commit/branch. Never source code, never your prompts.
+// What it ever sends: changed file paths + the checked-out spec ref + the git
+// commit/branch + the conversation UID. Never source code, never your prompts.
 import { decideEditAction } from "../lib/checkout-marker.js";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
-
-const NUDGE =
-  "You're editing files but no Memex spec is checked out for this thread. If this " +
-  "is work on a spec, call claim_spec to bind it — your edits get attributed and " +
-  "teammates see you're on it. If it's not Memex work, ignore this; nothing is sent.";
 
 function readStdin() {
   return new Promise((resolve) => {
@@ -67,14 +62,6 @@ function gitOut(cwd, args) {
   }
 }
 
-function emitNudge() {
-  process.stdout.write(
-    JSON.stringify({
-      hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: NUDGE },
-    }),
-  );
-}
-
 async function phoneHome(cfg, body) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), 4000); // deterministic; hard 4s cap
@@ -106,12 +93,8 @@ async function main() {
   if (!sessionId) return;
 
   const decision = decideEditAction(sessionId);
-  if (decision.action === "silent") return;
-  if (decision.action === "nudge") {
-    emitNudge();
-    return;
-  }
-  // 'phone-home': this thread holds a fresh claim → report the edit.
+  if (decision.action !== "phone-home") return; // not checked out → silent, no nudge
+  // 'phone-home': this thread is checked out → report the edit.
   const cfg = loadConfig(decision.claim.memex);
   if (!cfg) return; // no key planted → fail quiet, nothing leaves
   const paths = changedPaths(p);

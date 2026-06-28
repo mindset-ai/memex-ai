@@ -1,15 +1,11 @@
 import { eq, and, desc } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import { specCheckoutEdits, type SpecCheckoutEdit } from "../db/schema.js";
-import {
-  markPresent,
-  clearPresent,
-  listPresent,
-  type PresenceChannel,
-  type ActorKind,
-} from "./presence.js";
 
-// spec-371: the checkout domain. v1 is RECORD-ONLY (dec-8) — the phone-home
+// spec-371: the edit-ledger half of the checkout domain. The durable CHECKOUT
+// RECORD (who/when/thread on the document) lives in services/checkout.ts; the
+// merged v1's presence-coupled claim (claimSpecPresence/releaseSpecPresence) is
+// removed — checkout is no longer a presence write (dec-5). v1 is RECORD-ONLY (dec-8) — the phone-home
 // records an edit against the claimed spec, feeding spec-125's durable stream and
 // the commit/branch/thread footprint join key later specs hang off.
 //
@@ -65,49 +61,3 @@ export async function listCheckoutEditsForSpec(
   });
 }
 
-// ── Claim presence (the soft lock, dec-5) ───────────────────────────────────
-
-export interface ClaimPresenceInput {
-  memexId: string;
-  docId: string;
-  actorUserId: string;
-  actorName?: string | null;
-  actorKind: ActorKind;
-  channel: PresenceChannel;
-  clientId?: string;
-}
-
-// Record a claim's SOFT presence and return who ELSE is currently present on the
-// Spec (excluding this exact session) — the soft-lock surface. No hard lock, no
-// eviction; teammates simply become visible to each other (dec-5).
-export async function claimSpecPresence(
-  input: ClaimPresenceInput,
-): Promise<{ othersPresent: string[] }> {
-  await markPresent({
-    memexId: input.memexId,
-    docId: input.docId,
-    actorUserId: input.actorUserId,
-    actorName: input.actorName ?? null,
-    actorKind: input.actorKind,
-    channel: input.channel,
-    clientId: input.clientId,
-  });
-  const present = await listPresent(input.memexId, input.docId);
-  const others = present.filter(
-    (p) => !(p.actorUserId === input.actorUserId && p.clientId === (input.clientId ?? "")),
-  );
-  const othersPresent = [
-    ...new Set(others.map((p) => p.actorName).filter((n): n is string => !!n)),
-  ];
-  return { othersPresent };
-}
-
-// Explicit check-in: drop this session's presence so the Spec reads as free again.
-export async function releaseSpecPresence(input: {
-  docId: string;
-  actorUserId: string;
-  channel: PresenceChannel;
-  clientId?: string;
-}): Promise<void> {
-  await clearPresent(input);
-}

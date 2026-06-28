@@ -445,8 +445,15 @@ describe("spec-189: traffic-driven phase advancement through real MCP tool calls
   it("auto-assignment is additive and idempotent: many assignees, repeat traffic adds nothing (ac-5)", async () => {
     tagAc(AC(5));
     const spec = await makeSpec("Multi-assignee");
+    // spec-371: rapid cross-user edits on one spec collide on the checkout gate
+    // (another user held it seconds ago, inside the window). The real flow is that
+    // each user explicitly takes it over first — claim_spec is never gated and is
+    // auto-assign-exempt, so assignment still comes from the create_decision below.
+    await callMcp(actor.member.id, "claim_spec", { ref: spec.ref });
     await callMcp(actor.member.id, "create_decision", { ref: spec.ref, title: "One" });
+    await callMcp(actor.owner.id, "claim_spec", { ref: spec.ref });
     await callMcp(actor.owner.id, "create_decision", { ref: spec.ref, title: "Two" });
+    await callMcp(actor.member.id, "claim_spec", { ref: spec.ref });
     await callMcp(actor.member.id, "create_decision", { ref: spec.ref, title: "Three" });
     const ids = await assigneeIds(spec.id);
     expect(ids).toContain(actor.member.id);

@@ -15,6 +15,8 @@ const AC_9 = `${NS}/ac-9`; // claim_spec + phase-advance write the local marker
 const AC_10 = `${NS}/ac-10`; // edit hook: outbound only when claimed; else no call
 const AC_12 = `${NS}/ac-12`; // unclaim clears the marker
 const AC_15 = `${NS}/ac-15`; // a single Claude Code plugin; no Cursor/Copilot adapter
+const AC_16 = `${NS}/ac-16`; // no first-edit nudge; unchecked-out thread is silent
+void AC_7; // (ac-7 now covered server-side by the gate test)
 
 const HOOKS = resolve(dirname(fileURLToPath(import.meta.url)), "../plugin/hooks");
 const PLUGIN = resolve(dirname(fileURLToPath(import.meta.url)), "../plugin");
@@ -40,7 +42,7 @@ const markerExists = (home, sid) =>
   existsSync(join(home, ".memex", "checkouts", `${sid}.json`));
 
 describe("spec-371 hooks e2e (ac-7, ac-9, ac-10, ac-12, ac-15)", () => {
-  it("marker-write: claim_spec and a build-ward update_doc each write the marker; draft does not (ac-9)", () => {
+  it("marker-write: claim_spec + any successful spec mutation arm the marker; a collision-fail does not (ac-9)", () => {
     tagAc(AC_9);
     withHome((home) => {
       run("marker-write.mjs", {
@@ -50,19 +52,23 @@ describe("spec-371 hooks e2e (ac-7, ac-9, ac-10, ac-12, ac-15)", () => {
       }, home);
       expect(markerOf(home, "claim")).toMatchObject({ memex: "ns/m", spec: "spec-371" });
 
+      // ANY successful spec mutation arms the thread — incl. a sub-entity edit
+      // (resolves to its parent spec) and any update_doc (not just build-ward).
       run("marker-write.mjs", {
-        session_id: "adv",
-        tool_name: "mcp__memex__update_doc",
-        tool_input: { ref: "ns/m/specs/spec-9", status: "build" },
+        session_id: "edit",
+        tool_name: "mcp__memex__update_section",
+        tool_input: { ref: "ns/m/specs/spec-9/sections/s-2" },
       }, home);
-      expect(markerOf(home, "adv")).toMatchObject({ spec: "spec-9" });
+      expect(markerOf(home, "edit")).toMatchObject({ spec: "spec-9" });
 
+      // A FAILED mutation (the gate's collision takeover) must NOT arm the thread.
       run("marker-write.mjs", {
-        session_id: "draft",
-        tool_name: "mcp__memex__update_doc",
-        tool_input: { ref: "ns/m/specs/spec-9", status: "draft" },
+        session_id: "blocked",
+        tool_name: "mcp__memex__update_section",
+        tool_input: { ref: "ns/m/specs/spec-9/sections/s-2" },
+        tool_response: { isError: true },
       }, home);
-      expect(markerExists(home, "draft")).toBe(false); // not build-ward → no implicit checkout
+      expect(markerExists(home, "blocked")).toBe(false);
     });
   });
 
@@ -84,28 +90,20 @@ describe("spec-371 hooks e2e (ac-7, ac-9, ac-10, ac-12, ac-15)", () => {
     });
   });
 
-  it("edit hook: unclaimed → ONE advisory nudge, never a block; nothing leaves (ac-10, ac-7)", () => {
+  it("edit hook: no checkout → SILENT, no nudge, nothing leaves (ac-10, ac-16)", () => {
     tagAc(AC_10);
-    tagAc(AC_7);
+    tagAc(AC_16);
     withHome((home) => {
+      // An unchecked-out thread editing files emits NOTHING — no nudge, no network.
       const out = run("edit-phonehome.mjs", {
         session_id: "u",
         tool_name: "Edit",
         tool_input: { file_path: "/x/y.ts" },
       }, home);
-      const parsed = JSON.parse(out);
-      // advisory context injection — NOT a block/deny (non-blocking, ac-7)
-      expect(parsed.hookSpecificOutput.hookEventName).toBe("PostToolUse");
-      expect(parsed.hookSpecificOutput.additionalContext).toMatch(/claim_spec/);
+      expect(out.trim()).toBe("");
+      // and it never blocks/denies the edit.
       expect(out).not.toMatch(/"decision"\s*:\s*"block"/);
       expect(out).not.toMatch(/"permissionDecision"\s*:\s*"deny"/);
-      // a second unclaimed edit is silent — no repeat nudge, still no network.
-      const out2 = run("edit-phonehome.mjs", {
-        session_id: "u",
-        tool_name: "Edit",
-        tool_input: { file_path: "/x/y.ts" },
-      }, home);
-      expect(out2.trim()).toBe("");
     });
   });
 
