@@ -136,3 +136,21 @@ export async function setMcpStatusBridge(push: McpIndicatorPush): Promise<void> 
     // An older shell without setMcpStatus must never break the web surface.
   }
 }
+
+/**
+ * Hide the native pill (spec-304 t-60, dec-24): the explicit "nothing to show"
+ * signal, pushed when no enabled, pill-driving client has a state (e.g. the
+ * user switched off the only client's notification, or uses only the connector,
+ * which never drives the pill). Sent as `setMcpStatus { kind: 'none' }` so it
+ * needs no new handler; a shell that predates it treats the unknown kind as a
+ * malformed no-op, leaving the pill as-is — acceptable for an older build.
+ */
+export async function clearMcpStatusBridge(): Promise<void> {
+  const b = bridge();
+  if (!b) return;
+  try {
+    await b.callHandler('setMcpStatus', { kind: 'none' });
+  } catch {
+    // Older shell / no handler — never break the web surface.
+  }
+}

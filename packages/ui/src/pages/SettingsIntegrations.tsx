@@ -18,8 +18,13 @@ import { McpTokensSection } from '../components/McpTokensSection';
 import { CliInstallSection } from '../components/CliInstallSection';
 import { GenesisPromptSection } from '../components/GenesisPromptSection';
 import { AcEmitterSection } from '../components/AcEmitterSection';
+import { useScrollToHash } from '../hooks/useScrollToHash';
 
 export function SettingsIntegrations() {
+  // Deep-link from the native MCP pill / tray item lands on
+  // …/settings/integrations#desktop-mcp — scroll that section into view on first
+  // navigation (issue-25), not only after a second click.
+  useScrollToHash();
   // AppShell's <main> is `overflow-hidden`, so each page owns its own scroll
   // container (same pattern as Standard.tsx).
   return (

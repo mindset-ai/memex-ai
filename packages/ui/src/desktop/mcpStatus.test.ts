@@ -2,7 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { tagAc } from '@memex-ai-ac/vitest';
 import {
   deriveClientStatus,
+  deriveConnectorStatus,
   deriveIndicator,
+  type ActiveToken,
   type ClientStatus,
   type McpTargetStatus,
 } from './mcpStatus';
@@ -10,8 +12,22 @@ import {
 const AC_DERIVE = 'mindset-prod/memex-building-itself/specs/spec-304/acs/ac-48';
 const AC_INDICATOR =
   'mindset-prod/memex-building-itself/specs/spec-304/acs/ac-49';
+// issue-23 → t-57: "connected" must be PER-TOKEN (lastUsedAt), not the
+// user-scoped journey milestone.
+const AC_PER_TOKEN =
+  'mindset-prod/memex-building-itself/specs/spec-304/acs/ac-52';
+// t-56 → dec-23: Claude Desktop connector status derives from the mcp.connected
+// signal, independent of local config.
+const AC_CONNECTOR =
+  'mindset-prod/memex-building-itself/specs/spec-304/acs/ac-56';
 
-const ACTIVE = new Set(['mxt_active1234']);
+// An active token whose matching local entry HAS handshaked (lastUsedAt set).
+const CONNECTED_TOKEN: ActiveToken = {
+  prefix: 'mxt_active1234',
+  lastUsedAt: '2026-06-28T10:00:00.000Z',
+};
+// An active token freshly minted — authorized but never used against /mcp yet.
+const FRESH_TOKEN: ActiveToken = { prefix: 'mxt_active1234', lastUsedAt: null };
 
 function local(over: Partial<McpTargetStatus> = {}): McpTargetStatus {
   return {
@@ -22,16 +38,15 @@ function local(over: Partial<McpTargetStatus> = {}): McpTargetStatus {
   };
 }
 
-describe('spec-304 ac-48: per-client status derivation (local ⨝ active tokens ⨝ connection)', () => {
+describe('spec-304 ac-48: per-client status derivation (local ⨝ active tokens ⨝ handshake)', () => {
   it('absent config → Not installed / Install (never an error)', () => {
     tagAc(AC_DERIVE);
     expect(
-      deriveClientStatus(undefined, { activeTokenPrefixes: ACTIVE, connected: false }),
+      deriveClientStatus(undefined, { activeTokens: [CONNECTED_TOKEN] }),
     ).toEqual({ kind: 'not_installed', label: 'Not installed', button: 'install' });
     expect(
       deriveClientStatus(local({ installed: false }), {
-        activeTokenPrefixes: ACTIVE,
-        connected: false,
+        activeTokens: [CONNECTED_TOKEN],
       }).kind,
     ).toBe('not_installed');
   });
@@ -39,14 +54,14 @@ describe('spec-304 ac-48: per-client status derivation (local ⨝ active tokens 
   it('installed + active token + no handshake → MCP ready / Reinstall', () => {
     tagAc(AC_DERIVE);
     expect(
-      deriveClientStatus(local(), { activeTokenPrefixes: ACTIVE, connected: false }),
+      deriveClientStatus(local(), { activeTokens: [FRESH_TOKEN] }),
     ).toEqual({ kind: 'ready', label: 'MCP ready', button: 'reinstall' });
   });
 
   it('installed + active token + handshake observed → MCP connected', () => {
     tagAc(AC_DERIVE);
     expect(
-      deriveClientStatus(local(), { activeTokenPrefixes: ACTIVE, connected: true }),
+      deriveClientStatus(local(), { activeTokens: [CONNECTED_TOKEN] }),
     ).toEqual({ kind: 'connected', label: 'MCP connected', button: 'reinstall' });
   });
 
@@ -54,8 +69,8 @@ describe('spec-304 ac-48: per-client status derivation (local ⨝ active tokens 
     tagAc(AC_DERIVE);
     expect(
       deriveClientStatus(local({ tokenPrefix: 'mxt_revoked999' }), {
-        activeTokenPrefixes: ACTIVE,
-        connected: true, // even a stale handshake must not mask a dead token
+        // even a used token elsewhere must not mask THIS entry's dead token
+        activeTokens: [CONNECTED_TOKEN],
       }),
     ).toEqual({ kind: 'repair', label: 'Token invalid', button: 'repair' });
   });
@@ -64,8 +79,7 @@ describe('spec-304 ac-48: per-client status derivation (local ⨝ active tokens 
     tagAc(AC_DERIVE);
     expect(
       deriveClientStatus(local({ tokenPrefix: null }), {
-        activeTokenPrefixes: ACTIVE,
-        connected: false,
+        activeTokens: [CONNECTED_TOKEN],
       }).kind,
     ).toBe('repair');
   });
@@ -74,10 +88,65 @@ describe('spec-304 ac-48: per-client status derivation (local ⨝ active tokens 
     tagAc(AC_DERIVE);
     expect(
       deriveClientStatus(local({ urlMatches: false }), {
-        activeTokenPrefixes: ACTIVE,
-        connected: false,
+        activeTokens: [CONNECTED_TOKEN],
       }),
     ).toEqual({ kind: 'reinstall', label: 'Points elsewhere', button: 'reinstall' });
+  });
+});
+
+describe('spec-304 ac-52 (issue-23): "connected" is PER-TOKEN, never the user-scoped milestone', () => {
+  it('a freshly-installed token (lastUsedAt null) reads "MCP ready" — NOT connected — even when the user has connected elsewhere', () => {
+    tagAc(AC_PER_TOKEN);
+    // The bug: a prior MCP connection set the user-scoped mcp.connected milestone
+    // true, so the just-reinstalled client falsely showed "MCP connected" before
+    // its OWN token handshaked. The fix joins on the token's lastUsedAt: a fresh
+    // mint is null until THAT token hits /mcp.
+    const status = deriveClientStatus(local(), { activeTokens: [FRESH_TOKEN] });
+    expect(status.kind).toBe('ready');
+    expect(status.label).toBe('MCP ready');
+    expect(status.label).not.toContain('connected');
+  });
+
+  it('the SAME token flips to "MCP connected" only once its lastUsedAt is non-null', () => {
+    tagAc(AC_PER_TOKEN);
+    expect(deriveClientStatus(local(), { activeTokens: [FRESH_TOKEN] }).kind).toBe(
+      'ready',
+    );
+    expect(
+      deriveClientStatus(local(), { activeTokens: [CONNECTED_TOKEN] }).kind,
+    ).toBe('connected');
+  });
+
+  it('a handshake on a DIFFERENT token does not mark this install connected', () => {
+    tagAc(AC_PER_TOKEN);
+    // This install's entry carries mxt_active1234 (fresh); another active token
+    // has been used. The other token must not paint this entry "connected".
+    const otherUsed: ActiveToken = {
+      prefix: 'mxt_other99999',
+      lastUsedAt: '2026-06-28T09:00:00.000Z',
+    };
+    const status = deriveClientStatus(local(), {
+      activeTokens: [FRESH_TOKEN, otherUsed],
+    });
+    expect(status.kind).toBe('ready');
+  });
+});
+
+describe('spec-304 ac-56 (dec-24): Claude Desktop connector never asserts "connected"', () => {
+  it('is a neutral, signal-free setup state — there is no per-connector signal to prove a connection', () => {
+    tagAc(AC_CONNECTOR);
+    // deriveConnectorStatus takes NO connection input — it cannot, and must not,
+    // claim "connected" off the user-scoped (monotonic, un-attributable) signal.
+    expect(deriveConnectorStatus()).toEqual({
+      kind: 'not_installed',
+      label: 'Set up in Claude',
+      button: 'connector',
+    });
+  });
+
+  it('the connector label never reads "connected"', () => {
+    tagAc(AC_CONNECTOR);
+    expect(deriveConnectorStatus().label.toLowerCase()).not.toContain('connect');
   });
 });
 

@@ -95,6 +95,7 @@ import { ChatProvider } from './components/ChatContext';
 import { AppShell } from './components/AppShell';
 import { DocumentShell } from './components/DocumentShell';
 import { OrgConsentDialog } from './components/OrgConsentDialog';
+import { DesktopMcpStatusSync } from './components/DesktopMcpStatusSync';
 import { parseTenantFromPathname } from './utils/tenantUrl';
 import { isFeatureHidden } from './utils/featureFlags';
 import { probePublicMemex, type PublicMemexProbe } from './api/client';
@@ -454,6 +455,10 @@ export function PostLoginRouter() {
   const { session } = useAuth();
   return (
     <Suspense fallback={RouteFallback}>
+    {/* spec-304 t-58 (issue-24 #1): app-global MCP status sync — mounted once,
+        outside <Routes>, so the native pill is driven on EVERY route, not only
+        on Settings → Integrations. Renders nothing; no-op in a plain browser. */}
+    <DesktopMcpStatusSync />
     <Routes>
       {/* Flat (caller-scoped) routes — no tenant prefix. */}
       <Route path="/" element={<RootRedirect />} />

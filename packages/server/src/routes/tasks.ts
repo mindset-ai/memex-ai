@@ -12,6 +12,7 @@ import {
   getTaskByHandle,
 } from "../services/tasks.js";
 import type { AcceptanceCriterion } from "../services/tasks.js";
+import { facetKeysByTask } from "../services/facet-ballot.js";
 import { addBlocker, removeBlocker } from "../services/shared/blockers.js";
 import { type SessionEnv } from "../middleware/session.js";
 import type { MemexResolverEnv } from "../middleware/memex-resolver.js";
@@ -52,7 +53,9 @@ tasksRouter.get("/doc/:docId", async (c) => {
   const memexId = await resolveReadableMemexId(c);
   const docId = c.req.param("docId");
   const result = await listTasks(memexId, docId);
-  return c.json(result);
+  // spec-423 t-8 (dec-7) — attach each task's cast facet keys for the pills.
+  const facets = await facetKeysByTask(memexId, result.map((t) => t.id));
+  return c.json(result.map((t) => ({ ...t, facetKeys: facets.get(t.id) ?? [] })));
 });
 
 tasksRouter.get("/doc/:docId/ready", async (c) => {

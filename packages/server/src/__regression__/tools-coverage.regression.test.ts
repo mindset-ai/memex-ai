@@ -387,13 +387,18 @@ describe("regression: manifest traffic-class classification (spec-189 dec-4)", (
       .sort();
     // Tools whose JOB is managing the assignment/role axis must not be fought
     // by auto-assignment (unassign_spec(self) would instantly undo itself);
-    // the messaging tools mutate nothing on the Spec.
+    // the messaging tools mutate nothing on the Spec. The checkout tools
+    // (claim_spec/unclaim_spec) manage transient PRESENCE — a distinct axis from
+    // assignment — so auto-assigning their caller would conflate the two (a
+    // claim is not "take ownership"); they are exempt for the same reason.
     expect(exempt).toEqual([
       "assign_spec",
+      "claim_spec",
       "memex__send_discord_message",
       "memex__send_slack_message",
       "set_spec_role",
       "unassign_spec",
+      "unclaim_spec",
     ]);
     for (const e of toolManifest) {
       if (e.autoAssignExempt) {
