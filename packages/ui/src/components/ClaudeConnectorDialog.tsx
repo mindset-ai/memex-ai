@@ -112,16 +112,16 @@ export function ClaudeConnectorDialog({ connectorUrl, onClose }: ClaudeConnector
             <li>Open <span className="text-primary">Claude → Settings → Connectors</span>.</li>
             <li>Click <span className="text-primary">Add custom connector</span>.</li>
             <li>Paste the connector URL above.</li>
-            <li>Keep <span className="text-primary">Individual sign-in</span> selected (each person signs in with their own Memex account).</li>
+            <li>Keep <span className="text-primary">Individual sign-in</span> selected (each person signs in with their own Memex login).</li>
             <li>Click <span className="text-primary">Add</span>, then sign in to Memex when prompted.</li>
             <li>Restart Claude Desktop to finish connecting.</li>
           </ol>
 
           {/* The admin reality on Team/Enterprise (dec-23). */}
           <p className="rounded-md bg-overlay px-3 py-2 text-xs text-muted border border-edge-subtle">
-            <span className="font-medium text-secondary">Team or Enterprise?</span> Only a workspace
+            <span className="font-medium text-secondary">Managed Claude plan?</span> Only a workspace
             Owner can add a custom connector. Once an Owner has added it, every member signs in
-            individually with their own Memex account.
+            individually with their own Memex login.
           </p>
         </div>
 

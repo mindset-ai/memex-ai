@@ -92,8 +92,8 @@ export function DesktopMcpSection() {
       <p className="text-sm mb-6 text-secondary">
         Connect Claude to your Memexes from this app. For Claude Code we mint a token from your
         current login and write it into the client's config (a <code>.bak</code> is saved first) —
-        no terminal, no copy-pasted token. Claude Desktop connects through an account-level
-        connector you add inside Claude. Restart the client afterwards to finish connecting.
+        no terminal, no copy-pasted token. Claude Desktop connects through a connector you add
+        inside Claude. Restart the client afterwards to finish connecting.
       </p>
 
       {phase === 'loading' && <p className="text-sm text-secondary">Checking MCP status…</p>}
