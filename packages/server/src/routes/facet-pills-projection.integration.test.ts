@@ -2,7 +2,7 @@
 // project each task/decision's cast facet keys so the UI renders pills. Reproduces the
 // exact seed-facet-scenario flow and asserts facetKeys reaches the route response.
 
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { eq } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import { decisionFacetBallots } from "../db/schema.js";
@@ -20,12 +20,15 @@ let slug: string;
 let handle: string;
 let decisionId: string;
 let chosen: string;
+let testMemexId: string;
 
 beforeAll(async () => {
   const { memexId, slug: nsSlug } = await makeTestMemexWithDevAdmin("fpp");
+  testMemexId = memexId;
   slug = nsSlug;
   // Make it public so the anonymous app.request reads succeed (the route's auth is
-  // not what's under test here — the facetKeys projection is).
+  // not what's under test here — the facetKeys projection is). Reverted in afterAll so
+  // it doesn't pollute the per-worker "all memexes are private" invariant (spec-111).
   await updateMemexVisibility(memexId, "public");
   const owner = await ownerForMemex(memexId);
   await seedDefaultFacetsForOwner(owner!);
@@ -43,6 +46,12 @@ beforeAll(async () => {
   const decision = await createDecision(memexId, spec.id, "A balloted decision", undefined, "human");
   decisionId = decision.id;
   await castDecisionBallot(memexId, spec.id, decision.id, ballot, {});
+});
+
+afterAll(async () => {
+  // Restore the private default so the shared per-worker DB keeps the spec-111
+  // "every memexes row is private" invariant.
+  if (testMemexId) await updateMemexVisibility(testMemexId, "private").catch(() => {});
 });
 
 describe("facet-pills projection through the doc-read route (spec-423 t-8)", () => {
