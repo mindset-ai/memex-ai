@@ -1,21 +1,21 @@
 // spec-421 issue-2 — the in-Home half of Barrie's clunkiness report.
 //
-// Navigating to /home, the "Getting started on Memex" tracker used to first render in a
-// pre-data state (the whole journey layer absent while `state === null`) and then POP into
-// existence once GET /api/me/journey-state resolved — the visible flicker Barrie reported
-// (sibling to issue-1, which fixed the routing half in RootRedirect).
+// Barrie (Slack 2026-06-27): the journey state was "only assessed when the page is drawn,
+// so you get the old state first and then a redraw." His fix — assess it BEFORE draw, as a
+// quick read-only that is NOT stored. issue-1 did this for the LANDING decision in
+// RootRedirect; this is the in-Home tracker.
 //
-// The fix applies Barrie's "assess read-only before draw" discipline to HomeCanvas: while
-// the journey-state fetch is in flight, a stable-height SKELETON holds the first paint
-// (no empty→populated layer pop); when state resolves the real tracker swaps in at its true
-// progress. Because the skeleton (not a 0% layer) occupies the loading frame, the progress
-// bar mounts fresh at its true width — no 0%→fill enter animation.
+// The first attempt (a skeleton over an after-draw fetch, PR #400) did NOT follow that — it
+// still assessed after draw and still redrew (skeleton→tracker). The correct fix: the app
+// assesses journey-state once, read-only, and shares it IN-MEMORY (journeyStateCache); when
+// the user navigates to /home, HomeCanvas seeds its first paint from that shared assessment,
+// so the tracker renders already-correct on the FIRST commit — no from-null redraw.
 //
-//   ac-21 (bug)  — the issue-2 flicker no longer reproduces (skeleton holds first paint).
-//   ac-22        — skeleton shown while loading; no real layer / no 0% frame; swaps cleanly.
-//   ac-23        — on resolve, true progress on first data frame (graduated 100% + ✓s;
-//                  in-progress correct partial %).
-//   ac-24        — journey state read fresh from the API, never persisted as source of truth.
+//   ac-21 — the issue-2 flicker no longer reproduces (first paint is the real tracker).
+//   ac-22 — on navigation, the tracker paints from the shared assessment on first render.
+//   ac-23 — completed user 100%+✓ / in-progress correct % on first paint; cold load shows
+//           nothing (never a wrong/0% frame) until the read resolves.
+//   ac-24 — assessed read-only from the API; never persisted to localStorage / a client store.
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
@@ -40,6 +40,7 @@ vi.mock('../components/AuthContext', () => ({
 vi.mock('../hooks/useUserChangeStream', () => ({ useUserChangeStream: () => undefined }));
 
 import { HomeCanvas } from './HomeCanvas';
+import { setCachedJourneyState, resetCachedJourneyState } from '../journeys/journeyStateCache';
 
 const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-421/acs/ac-${n}`;
 
@@ -55,7 +56,7 @@ const ALL_STEPS = [
 
 function stateFor(currentStepId: string, attained: readonly string[] = []) {
   return {
-    milestones: {},
+    milestones: { hasSpec: attained.includes('create-first-spec') },
     roleCoords: null,
     currentStepId,
     steps: ALL_STEPS.map((id) => ({ id, attained: attained.includes(id) })),
@@ -64,15 +65,15 @@ function stateFor(currentStepId: string, attained: readonly string[] = []) {
   };
 }
 
-// A promise we resolve by hand, so we can observe the render WHILE the fetch is in flight.
+const GRADUATED = stateFor('create-first-spec', ['identity', 'create-spec', 'create-first-spec']);
+const IN_PROGRESS = stateFor('create-spec', ['identity']);
+
 function deferred<T>() {
   let resolve!: (v: T) => void;
-  let reject!: (e?: unknown) => void;
-  const promise = new Promise<T>((res, rej) => {
+  const promise = new Promise<T>((res) => {
     resolve = res;
-    reject = rej;
   });
-  return { promise, resolve, reject };
+  return { promise, resolve };
 }
 
 function renderCanvas(entry = '/home') {
@@ -90,83 +91,81 @@ beforeEach(() => {
   fetchDocs.mockReset();
   fetchDocs.mockResolvedValue([]);
   window.localStorage.clear();
+  resetCachedJourneyState();
 });
 
-describe('spec-421 issue-2 — no flicker: assess journey-state before paint', () => {
-  it('holds first paint behind a skeleton while journey-state is loading — no layer pop, no 0% frame (ac-21, ac-22)', async () => {
+describe('spec-421 issue-2 — assess journey-state before draw (in-memory, shared)', () => {
+  it('navigating to /home paints the completed tracker on the FIRST render from the shared assessment — no redraw (ac-21, ac-22, ac-23)', () => {
     tagAc(AC(21));
     tagAc(AC(22));
-    const d = deferred<ReturnType<typeof stateFor>>();
-    fetchJourneyStateApi.mockReturnValue(d.promise);
+    tagAc(AC(23));
+    // The app already assessed journey-state at login (RootRedirect / useShouldLandOnHome)
+    // and shared it in-memory. A graduated user now navigates to Home.
+    setCachedJourneyState(GRADUATED);
+    fetchJourneyStateApi.mockResolvedValue(GRADUATED);
 
     renderCanvas();
 
-    // WHILE the fetch is in flight: a stable-height skeleton holds the tracker's place.
-    // The real journey layer must NOT be mounted, and there must be no transient progress
-    // frame (no "0% complete") that would later snap to the real value.
-    expect(screen.getByTestId('journey-layer-skeleton')).toBeInTheDocument();
-    expect(screen.queryByTestId('journey-layer')).toBeNull();
-    expect(screen.queryByTestId('journey-progress')).toBeNull();
-
-    // Resolve to an in-progress user → the real tracker swaps in, the skeleton is gone.
-    d.resolve(stateFor('create-spec', ['identity']));
-    expect(await screen.findByTestId('journey-layer')).toBeInTheDocument();
+    // FIRST COMMIT — asserted synchronously, with NO await: the tracker is already correct.
+    // (Pre-fix the component initialised state=null and only an empty/skeleton frame painted
+    // here; this is the line that fails until first paint is seeded from the assessment.)
+    expect(screen.getByTestId('journey-layer')).toBeInTheDocument();
+    expect(screen.getByTestId('journey-progress')).toHaveTextContent('100% complete');
+    expect(screen.getByTestId('journey-progress-bar').firstElementChild).toHaveStyle({ width: '100%' });
+    // No skeleton placeholder is rendered (the old approach is gone).
     expect(screen.queryByTestId('journey-layer-skeleton')).toBeNull();
   });
 
-  it('a completed (graduated) user sees the completed tracker on first data frame — 100% + ✓ steps (ac-23)', async () => {
-    tagAc(AC(23));
-    // All three visible steps attained → graduated; develop shows the completed rail (PR #382).
-    fetchJourneyStateApi.mockResolvedValue(
-      stateFor('create-first-spec', ['identity', 'create-spec', 'create-first-spec']),
-    );
-
-    renderCanvas();
-
-    await screen.findByTestId('journey-layer');
-    expect(screen.getByTestId('journey-progress')).toHaveTextContent('100% complete');
-    // The progress bar fill carries its true width (100%), not a 0% that animates up.
-    const fill = screen.getByTestId('journey-progress-bar').firstElementChild as HTMLElement;
-    expect(fill.style.width).toBe('100%');
-    // Every visible rail node shows its ✓ (attained) state.
-    for (const id of ['identity', 'create-spec', 'create-first-spec']) {
-      expect(screen.getByTestId(`journey-rail-node-${id}`).getAttribute('data-attained')).toBe('true');
-    }
-  });
-
-  it('an in-progress user sees their correct partial state on first data frame — no empty→populated pop (ac-22, ac-23)', async () => {
+  it('an in-progress user navigating to /home sees their correct partial state on first render (ac-22, ac-23)', () => {
     tagAc(AC(22));
     tagAc(AC(23));
-    fetchJourneyStateApi.mockResolvedValue(stateFor('create-spec', ['identity']));
+    setCachedJourneyState(IN_PROGRESS);
+    fetchJourneyStateApi.mockResolvedValue(IN_PROGRESS);
 
     renderCanvas();
 
-    await screen.findByTestId('journey-layer');
-    // 1 of 3 visible steps attained → 33%.
+    // 1 of 3 visible steps attained → 33%, painted on the first commit.
     expect(screen.getByTestId('journey-progress')).toHaveTextContent('33% complete');
     expect(screen.getByTestId('journey-rail-node-identity').getAttribute('data-attained')).toBe('true');
     expect(screen.getByTestId('journey-rail-node-create-spec').getAttribute('data-attained')).toBe('false');
   });
 
-  it('assesses journey-state read-only from the API and never persists it as source of truth (ac-24)', async () => {
+  it('cold load with no prior assessment shows no tracker (never a wrong/0% frame) until the read resolves (ac-23)', async () => {
+    tagAc(AC(23));
+    // No cache seeded → cold. Hold the read so we can observe the pre-resolve frame.
+    const d = deferred<ReturnType<typeof stateFor>>();
+    fetchJourneyStateApi.mockReturnValue(d.promise);
+
+    renderCanvas();
+
+    // Before the read resolves: the tracker region renders nothing — crucially NOT a stale
+    // 0%/empty tracker that would later snap to the real value.
+    expect(screen.queryByTestId('journey-layer')).toBeNull();
+    expect(screen.queryByTestId('journey-progress')).toBeNull();
+
+    d.resolve(GRADUATED);
+    expect(await screen.findByTestId('journey-layer')).toBeInTheDocument();
+    expect(screen.getByTestId('journey-progress')).toHaveTextContent('100% complete');
+  });
+
+  it('assesses journey-state read-only from the API and never persists it to a client store (ac-24)', async () => {
     tagAc(AC(24));
-    fetchJourneyStateApi.mockResolvedValue(stateFor('create-spec', ['identity']));
+    setCachedJourneyState(GRADUATED);
+    fetchJourneyStateApi.mockResolvedValue(GRADUATED);
 
     renderCanvas();
     await screen.findByTestId('journey-layer');
 
-    // Read-only: the tracker derives from a fresh API read on load.
+    // Read-only refresh on mount (authoritative live read).
     expect(fetchJourneyStateApi).toHaveBeenCalled();
-
-    // Not persisted: no journey/attainment state is written to localStorage as the source of
-    // truth. (The spec-336 per-user viewing cursor is a separate, allowed concern — it stores
-    // only a bare step id, never the journey-state shape.)
+    // Not persisted: the shared assessment lives in-memory (a module variable), never in
+    // localStorage / sessionStorage / any client store (Barrie: "not stored"; ac-24).
     for (let i = 0; i < window.localStorage.length; i += 1) {
       const key = window.localStorage.key(i)!;
       const value = window.localStorage.getItem(key) ?? '';
       expect(value).not.toContain('currentStepId');
       expect(value).not.toContain('"steps"');
-      expect(value).not.toContain('attained');
+      expect(value).not.toContain('hasSpec');
     }
   });
 });

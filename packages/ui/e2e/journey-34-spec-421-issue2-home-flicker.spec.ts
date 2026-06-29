@@ -6,73 +6,91 @@ import {
   ensureUser,
   setUserName,
   setIdentityConfirmed,
+  seedSpecInMemex,
+  getPersonalMemexByEmail,
+  deleteDoc,
   DEV_EMAIL,
   DEV_NAME,
 } from "./helpers/index.js";
 
 // Journey 34b — spec-421 issue-2: the Home "Getting started" tracker no longer flickers on
-// draw. Navigating to /home, the tracker used to render in a pre-data state (the whole
-// journey layer absent while journey-state was in flight) and then POP into existence once
-// GET /api/me/journey-state resolved. The fix holds first paint behind a stable-height
-// skeleton (Barrie's "assess read-only before draw"), so the real tracker swaps in at its
-// true progress with no empty→populated pop and no transient 0% frame.
+// draw. Barrie's prescription (Slack 2026-06-27): the state was "only assessed when the page
+// is drawn, so you get the old state first and then a redraw" → assess it BEFORE draw, as a
+// quick read-only that is NOT stored. The app assesses journey-state once at landing
+// (RootRedirect) and shares it in-memory; navigating to /home paints the tracker from that
+// already-assessed state instead of re-assessing from null after draw.
 //
-//   ac-25 (spec-421) — an e2e journey navigates to /home for a user with onboarding progress
-//          and asserts the tracker shows the correct progress with no transient empty/0% frame
-//          (the skeleton holds first paint until journey-state resolves).
+// This journey proves it deterministically: warm the assessment by landing once, then make
+// the journey-state read HANG, then navigate to /home client-side. The tracker must still
+// appear at its correct state well within the hung read — which is only possible if it
+// painted from the shared (before-draw) assessment, not a fresh after-draw fetch.
+//
+//   ac-25 (spec-421) — e2e: after the app has assessed journey-state, navigating to /home
+//          shows the correct tracker immediately, with no transient empty/0% frame.
 //   ac-21 (spec-421) — cross-surface confirmation the issue-2 flicker no longer reproduces.
 const AC25 = "mindset-prod/memex-building-itself/specs/spec-421/acs/ac-25";
 const AC21 = "mindset-prod/memex-building-itself/specs/spec-421/acs/ac-21";
+const FILE = "packages/ui/e2e/journey-34-spec-421-issue2-home-flicker.spec.ts";
+
+let seededSpecId: string | null = null;
 
 const TITLE =
-  "navigating to /home holds first paint behind a skeleton (no empty/0% flash), then shows the correct tracker";
+  "after assessing journey-state at landing, navigating to /home paints the tracker from the shared assessment (no flicker even if a fresh read hangs)";
 
 test.afterEach(async ({}, testInfo) => {
-  // Re-confirm identity so the shared dev user lands on its board for other journeys.
+  if (seededSpecId) {
+    await deleteDoc(seededSpecId);
+    seededSpecId = null;
+  }
   await setIdentityConfirmed(DEV_EMAIL, true);
   if (testInfo.status === "skipped") return;
   await emitAcEvents(
     [AC25, AC21],
     testInfo.status === "passed" ? "pass" : "fail",
-    `packages/ui/e2e/journey-34-spec-421-issue2-home-flicker.spec.ts::${testInfo.title}`,
+    `${FILE}::${testInfo.title}`,
     testInfo.duration,
   );
 });
 
 test(TITLE, async ({ page }) => {
-  await ensureUser(DEV_EMAIL);
+  const userId = await ensureUser(DEV_EMAIL);
   await setUserName(DEV_EMAIL, DEV_NAME);
-  // Identity confirmed → the user has onboarding progress (past step 0): the tracker shows a
-  // non-zero, multi-step rail (so a stale empty/0% frame would be plainly visible if it flashed).
   await setIdentityConfirmed(DEV_EMAIL, true);
 
-  // Hold the journey-state response until we've checked the loading frame. This makes the
-  // "no flicker" guarantee deterministic: while the read-only fetch is in flight, the page
-  // must show the skeleton — never the real layer or a 0% progress value.
-  let releaseJourneyState!: () => void;
-  const gate = new Promise<void>((resolve) => {
-    releaseJourneyState = resolve;
+  // A real (non-demo) spec → the user is engaged (hasSpec). RootRedirect will land them on
+  // the Specs board, and the journey-state it reads warms the shared in-memory assessment.
+  const memex = await getPersonalMemexByEmail(DEV_EMAIL);
+  if (!memex) throw new Error("dev personal memex not provisioned");
+  const spec = await seedSpecInMemex({
+    memexId: memex.memexId,
+    title: "First spec (issue-2 flicker journey)",
+    createdByUserId: userId,
   });
-  await page.route("**/api/me/journey-state*", async (route) => {
-    await gate;
-    await route.continue();
+  seededSpecId = spec.docId;
+
+  // 1) Land at `/`: RootRedirect performs the ONE read-only journey-state assessment and,
+  //    because the user is engaged, routes them to the Specs board. Waiting for /specs
+  //    guarantees that read completed and the shared assessment is now warm.
+  await page.goto(bareUrl("/"));
+  await expect(page).toHaveURL(/\/specs(\?|#|$)/, { timeout: 15_000 });
+
+  // 2) Now make any FRESH journey-state read hang. If the Home tracker depended on an
+  //    after-draw fetch, it could only show a blank/old frame until this resolved.
+  await page.route("**/api/me/journey-state*", async () => {
+    // Never fulfilled within the test — simulates a slow read.
   });
 
-  await page.goto(bareUrl("/home"));
+  // 3) Navigate to /home CLIENT-SIDE (no full reload, so the in-memory assessment survives).
+  await page.getByTestId("primary-nav").getByRole("link", { name: "Home" }).click();
+  await expect(page).toHaveURL(/\/home(\?|#|$)/, { timeout: 15_000 });
 
-  // FIRST PAINT (fetch still in flight): the skeleton holds the tracker's place. The real
-  // journey layer is NOT mounted, and there is no transient "0% complete" progress frame.
-  await expect(page.getByTestId("journey-layer-skeleton")).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByTestId("journey-layer")).toHaveCount(0);
-  await expect(page.getByTestId("journey-progress")).toHaveCount(0);
-
-  // Release the read-only journey-state read → the real tracker swaps in at its true state.
-  releaseJourneyState();
-
-  // The real tracker is now shown: the 3-node rail, a non-zero progress, identity ✓ — and the
-  // skeleton is gone. No empty→populated pop was ever visible.
-  await expect(page.getByTestId("journey-rail")).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByTestId("journey-layer-skeleton")).toHaveCount(0);
+  // 4) The tracker paints from the shared assessment — promptly, despite the hung read —
+  //    at the correct engaged state (the first-spec step ticked), never an empty/0% frame.
+  await expect(page.getByTestId("journey-layer")).toBeVisible({ timeout: 5_000 });
+  await expect(page.getByTestId("journey-progress")).toBeVisible();
   await expect(page.getByTestId("journey-progress")).not.toHaveText("0% complete");
-  await expect(page.getByTestId("journey-rail-node-identity")).toHaveAttribute("data-attained", "true");
+  await expect(page.getByTestId("journey-rail-node-create-first-spec")).toHaveAttribute(
+    "data-attained",
+    "true",
+  );
 });
