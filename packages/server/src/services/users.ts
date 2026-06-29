@@ -5,6 +5,7 @@ import type { User } from "../db/schema.js";
 import { ForbiddenError, ValidationError } from "../types/errors.js";
 import { mutate, type Mutated } from "./mutate.js";
 import { recordAccountCreated } from "./funnel-events.js";
+import { sendWelcomeEmail } from "./email/welcome-send.js";
 
 export interface MembershipSummary {
   // Memex id (the "current memex" in tenancy contexts).
@@ -194,6 +195,11 @@ export async function markEmailVerified(userId: string): Promise<User> {
     .set({ emailVerifiedAt: new Date(), updatedAt: new Date() })
     .where(eq(users.id, userId))
     .returning();
+  // spec-428 dec-1: the FIRST email-verification is the welcome trigger, across all
+  // three auth paths (this is their single chokepoint). Advisory + fire-and-forget —
+  // a welcome failure must never break verification (sendWelcomeEmail swallows its own
+  // errors); idempotent via the `welcome` comms_log key (dec-7).
+  void sendWelcomeEmail(updated);
   return updated;
 }
 

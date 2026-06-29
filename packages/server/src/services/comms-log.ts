@@ -102,6 +102,27 @@ export async function recordComm(
   }
 }
 
+/**
+ * spec-428 dec-7 — has this user already been sent a comm of this `type`? Used to
+ * make the once-per-user welcome idempotent across repeated signup/verify events.
+ * Advisory read: on error returns false (risking a duplicate beats suppressing a
+ * real send).
+ */
+export async function hasComm(userId: string, type: string, conn: Db = db): Promise<boolean> {
+  if (!userId) return false;
+  try {
+    const [row] = await conn
+      .select({ id: commsLog.id })
+      .from(commsLog)
+      .where(and(eq(commsLog.userId, userId), eq(commsLog.type, type)))
+      .limit(1);
+    return !!row;
+  } catch (err) {
+    log("hasComm read failed (advisory — returning false):", err instanceof Error ? err.message : err);
+    return false;
+  }
+}
+
 // ── Delivery-status update (spec-6 t-3 / ac-8) ───────────────────────────────
 
 /** The terminal/delivery outcomes a webhook applies to an already-recorded comm. */
