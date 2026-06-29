@@ -15,6 +15,7 @@
 // a reassess-and-re-persist per render — the very clunk this replaces.
 import { useEffect, useState } from 'react';
 import { fetchJourneyStateApi, type JourneyStateResponse } from '../api/journey';
+import { setCachedJourneyState } from './journeyStateCache';
 
 /**
  * Pure predicate: should this user land on /home, or go straight to the Specs board?
@@ -58,6 +59,10 @@ export function useShouldLandOnHome(enabled = true): boolean | null {
     const read = (attempt: number): void => {
       fetchJourneyStateApi()
         .then((s) => {
+          // spec-421 issue-2 — share this read-only assessment in-memory so a later in-app
+          // navigation to /home paints the tracker from it (before draw) instead of
+          // re-assessing from null after mount (the flicker). Not persisted (Barrie).
+          setCachedJourneyState(s);
           if (alive) setLandOnHome(shouldLandOnHome(s));
         })
         .catch(() => {

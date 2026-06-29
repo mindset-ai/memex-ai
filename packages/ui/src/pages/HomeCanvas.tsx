@@ -37,6 +37,7 @@ import { fetchDocs } from '../api/docs';
 import { resolveSpecToken, SPEC_TOKEN_PLACEHOLDER } from '../components/home/specToken';
 import { resolveStepView, activeJourney } from '../journeys/registry';
 import { BUILDER_ONLY_STEP_IDS, HIDDEN_STEP_IDS } from '../journeys/onboarding/steps';
+import { getCachedJourneyState, setCachedJourneyState } from '../journeys/journeyStateCache';
 import { YourJourneys, type PearlJourney } from '../components/home/YourJourneys';
 import { HomeValue } from '../components/home/HomeValue';
 import { SHOW_GRADUATED_HOME } from './homeCanvasFlags';
@@ -118,7 +119,16 @@ export function HomeCanvas() {
 
   useDocumentTitle({ kind: 'page', title: 'Home' });
 
-  const [state, setState] = useState<JourneyStateResponse | null>(null);
+  // spec-421 issue-2 — assess BEFORE draw (Barrie). Seed the first paint from the shared
+  // in-memory journey-state the app already assessed read-only at login (useShouldLandOnHome
+  // / RootRedirect), so an in-app navigation to /home paints the tracker at its real state
+  // immediately instead of re-assessing from null after draw (the flicker). Preview reads
+  // are operator-pinned and must not seed from (or write to) the shared cache. On a cold
+  // load with no prior assessment this is null → the tracker region renders nothing until
+  // the read below resolves (a momentary blank, never a wrong/stale state).
+  const [state, setState] = useState<JourneyStateResponse | null>(() =>
+    previewParam ? null : getCachedJourneyState(),
+  );
   const [cursor, setCursor] = useState<string | null>(null);
   const [pinned, setPinned] = useState(false);
   const [restored, setRestored] = useState(false);
@@ -128,21 +138,17 @@ export function HomeCanvas() {
   // spec-372 issue-8 — the in-place collapse/expand of the tracker content was removed; the
   // tracker is always expanded, so there is no `contentCollapsed` state any more.
   const [forceShow, setForceShow] = useState(false);
-  // spec-421 issue-2 — has the journey-state fetch settled at least once? Until it has, we
-  // hold the tracker's first paint behind a stable-height skeleton (no empty→populated pop,
-  // Barrie's "assess read-only before draw"). A hard failure flips this true with state still
-  // null, so we fall back to the old no-layer behaviour rather than a forever-skeleton.
-  const [loadSettled, setLoadSettled] = useState(false);
 
   const load = useCallback(() => {
     fetchJourneyStateApi(previewParam)
       .then((s) => {
         setState(s);
-        setLoadSettled(true);
+        // Refresh the shared assessment so the next surface paints from the latest read.
+        // Never cache a preview-pinned read (it isn't the user's real state).
+        if (!previewParam) setCachedJourneyState(s);
       })
       .catch(() => {
         /* keep last good state — the canvas never hard-crashes on a fetch blip */
-        setLoadSettled(true);
       });
   }, [previewParam]);
 
@@ -344,14 +350,7 @@ export function HomeCanvas() {
         </p>
       </div>
 
-      {/* spec-421 issue-2 — while the read-only journey-state fetch is in flight, a
-          stable-height skeleton holds the tracker's place so the real layer never pops in
-          from nothing (and the progress bar mounts fresh at its true width — no 0%→fill).
-          Once the fetch settles the real layer (or nothing, if the user has no steps / a
-          hard failure) swaps in with no layout shift. */}
-      {state === null && !loadSettled ? (
-        <JourneyLayerSkeleton />
-      ) : layerVisible ? (
+      {layerVisible ? (
         <section data-testid="journey-layer" className="relative">
           {/* spec-372 issue-18 (dec-9) — same calc(25% + 48rem) cap as the header so the
               two surfaces stay aligned and the 25% gutter reduction is uniform. */}
@@ -487,42 +486,6 @@ export function HomeCanvas() {
         );
     }
   }
-}
-
-// spec-421 issue-2 — the loading placeholder for the journey layer. It mirrors the real
-// layer's outer container, header row, and rail+panel split so that when journey-state
-// resolves the real tracker swaps in with no layout shift and no empty→populated pop. It
-// renders NO progress value — there is no transient "0% complete" frame to flash before the
-// true value. Purely presentational (aria-hidden); the real tracker carries the semantics.
-function JourneyLayerSkeleton() {
-  return (
-    <section data-testid="journey-layer-skeleton" aria-hidden className="relative animate-pulse">
-      <div className="mx-auto max-w-[calc(25%_+_48rem)] px-4 pt-6 sm:px-6">
-        {/* Header row — title placeholder + progress placeholder. */}
-        <div className="flex flex-wrap items-center gap-3 rounded-xl border-b border-edge px-2 pb-4 pt-1">
-          <div className="h-6 w-56 rounded-sm bg-edge" />
-          <div className="ml-auto flex items-center gap-3">
-            <div className="h-2 w-40 rounded-full bg-edge sm:w-64" />
-            <div className="h-4 w-20 rounded-sm bg-edge" />
-          </div>
-        </div>
-        {/* Rail + content split — same gutter as the real layer. */}
-        <div className="mt-6 flex flex-col gap-8 md:flex-row md:gap-16">
-          <div className="w-full flex-none md:w-64">
-            <div className="flex flex-col gap-3">
-              <div className="h-12 rounded-xl bg-edge" />
-              <div className="h-12 rounded-xl bg-edge" />
-              <div className="h-12 rounded-xl bg-edge" />
-            </div>
-          </div>
-          <div className="min-w-0 flex-1 pt-1">
-            <div className="h-8 w-2/3 rounded-sm bg-edge" />
-            <div className="mt-4 h-40 rounded-2xl bg-edge" />
-          </div>
-        </div>
-      </div>
-    </section>
-  );
 }
 
 // spec-336 — the persistent vertical rail. Every visible step is a node: orb state from
