@@ -1,10 +1,13 @@
 import { Hono } from "hono";
 import { resolveSession } from "../../services/auth.js";
 import {
+  getUserById,
   getUserByEmail,
   createUserWithPassword,
   markEmailVerified,
 } from "../../services/users.js";
+import { parseAttributionCookie, saveAttribution, hashEmail } from "../../services/attribution.js";
+import { fireAllConversions } from "../../services/conversion-apis.js";
 import { ensureUserMemex } from "../../services/user-namespaces.js";
 import { syncUserProfile } from "../../services/mixpanel-profile.js";
 import { hashPassword, verifyPassword, validatePasswordStrength } from "../../services/passwords.js";
@@ -195,11 +198,34 @@ password.post("/verify-email", async (c) => {
     return c.json({ error: "Token has no associated user" }, 400);
   }
 
+  const preVerifyUser = await getUserById(row.userId);
+  const isNewAccount = !preVerifyUser?.emailVerifiedAt;
+
   await markEmailVerified(row.userId);
+
+  if (isNewAccount) {
+    const attribution = parseAttributionCookie(c.req.header("cookie"));
+    if (attribution) {
+      const eventId = await saveAttribution(row.userId, attribution).catch((err) => {
+        console.error("[spec-21] failed to save attribution:", err instanceof Error ? err.message : String(err));
+        return null;
+      });
+      if (eventId && preVerifyUser) {
+        fireAllConversions({
+          email: preVerifyUser.email,
+          hashedEmail: hashEmail(preVerifyUser.email),
+          eventId,
+          attribution,
+          conversionDateTime: new Date().toISOString(),
+        });
+      }
+    }
+  }
+
   const session = await resolveSession(row.userId, null);
   setKnownCookie(c);
   await applyVisitorMerge(c, row.userId); // spec-254 — identify merge (email verification)
-  return c.json(withToken(session));
+  return c.json({ ...withToken(session), isNewAccount });
 });
 
 // POST /api/auth/resend-verification (authenticated)

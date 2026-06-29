@@ -82,6 +82,9 @@ export interface SessionPayload {
   /** Fresh session token (present on signup/login/SSO/magic-link responses). Client stores
    *  as `memex-auth-token`. Absent on session refresh responses (client already has it). */
   token?: string;
+  /** Present on verify-email and magic-link/consume responses only. True when this was
+   *  the first verification (a new account), false/absent for subsequent logins. */
+  isNewAccount?: boolean;
   /**
    * Orgs the user is an active member of that have no Memexes yet (doc-19 dec-1).
    * These are invisible in `memberships` (memex-keyed) but must appear in the

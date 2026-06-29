@@ -1442,6 +1442,26 @@ export const loginRequests = pgTable("login_requests", {
   index("login_requests_token_id_idx").on(table.tokenId),
 ]);
 
+// spec-21 t-4: marketing attribution captured at account creation (first email verification).
+// One row per new-account event; userId FK cascades so rows are deleted with the user.
+export const userAttributions = pgTable("user_attributions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  // Server-generated UUID used to deduplicate server-to-server conversion API calls.
+  eventId: text("event_id").notNull(),
+  gclid: text("gclid"),
+  liFatId: text("li_fat_id"),
+  oppref: text("oppref"),
+  utmSource: text("utm_source"),
+  utmMedium: text("utm_medium"),
+  utmCampaign: text("utm_campaign"),
+  utmContent: text("utm_content"),
+  utmTerm: text("utm_term"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("user_attributions_user_id_idx").on(table.userId),
+]);
+
 export const orgMemberships = pgTable(
   "org_memberships",
   {
