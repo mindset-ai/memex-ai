@@ -3,6 +3,7 @@ import {
   getUserById,
   listMemberships,
   listMembershipsMatchingDomain,
+  listEmptyOrgs,
   type MembershipSummary,
 } from "./users.js";
 import { upsertVerifiedDomain } from "./verified-domains.js";
@@ -42,6 +43,18 @@ export interface SessionPayload {
   /** Server-issued JWT the client stores as `memex-auth-token`. Omitted when the
    * session is refreshed via /api/auth/me (the caller already has the token). */
   token?: string;
+  /**
+   * Orgs the user is an active member of that have no Memexes yet (doc-19 dec-1:
+   * new orgs start empty). These are invisible in `memberships` (which is
+   * memex-keyed) but must appear in the switcher so the user can navigate to them
+   * and create their first Memex. Optional for back-compat with cached sessions.
+   */
+  emptyOrgs?: Array<{
+    orgId: string;
+    slug: string;
+    name: string;
+    role: "member" | "administrator";
+  }>;
 }
 
 // Parses the HIDDEN_FEATURES env var (comma-separated feature slugs) into a list.
@@ -233,7 +246,10 @@ export async function resolveSession(
     throw new DisabledUserError(user.email);
   }
 
-  const memberships = await listMemberships(user.id);
+  const [memberships, emptyOrgs] = await Promise.all([
+    listMemberships(user.id),
+    listEmptyOrgs(user.id),
+  ]);
   const current = pickCurrentMemex(memberships, requestedMemexId);
 
   return {
@@ -245,6 +261,7 @@ export async function resolveSession(
       emailVerified: !!user.emailVerifiedAt,
     },
     memberships,
+    emptyOrgs,
     currentMemexId: current?.memexId ?? null,
     currentRole: current?.role ?? null,
     needsOnboarding: !user.identityConfirmedAt, // spec-305 dec-2/dec-4: gate on the identity step, not just a name (SSO users arrive named)
