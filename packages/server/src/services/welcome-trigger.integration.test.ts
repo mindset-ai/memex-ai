@@ -3,9 +3,10 @@ import { tagAc } from "@memex-ai-ac/vitest";
 import { upsertUserByEmail, markEmailVerified } from "./users.js";
 import { setEmailSender, type EmailMessage } from "./email/sender.js";
 
-// spec-428 dec-1 (ac-6) — markEmailVerified fires the welcome on the FIRST
-// verification, and never a second time (the already-verified early-return).
-const AC_TRIGGER = "mindset-prod/memex-building-itself/specs/spec-428/acs/ac-6";
+// spec-428 — markEmailVerified fires the welcome on the FIRST verification (ac-6),
+// via the SSO/magic-link `upsertUserByEmail` row not the account.created event
+// (ac-7), once per user (ac-1), and never a second time (already-verified return).
+const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-428/acs/ac-${n}`;
 
 let sent: EmailMessage[];
 beforeEach(() => {
@@ -27,7 +28,9 @@ async function waitForSend(): Promise<void> {
 
 describe("welcome trigger via markEmailVerified", () => {
   it("fires exactly one welcome on first verification and none on a repeat", async () => {
-    tagAc(AC_TRIGGER);
+    tagAc(AC(6)); // fires on the email-verified transition
+    tagAc(AC(7)); // upsertUserByEmail is the SSO/magic-link path — no account.created
+    tagAc(AC(1)); // the user receives the welcome
     const email = `welcome-trigger-${Date.now()}@example.test`;
     const user = await upsertUserByEmail(email);
 
