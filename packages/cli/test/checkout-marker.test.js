@@ -10,9 +10,11 @@ import {
   isExpired,
   resolveActiveClaim,
   decideEditAction,
+  decideEditSteer,
   decideMarkerAction,
   parseSpecRef,
   DEFAULT_TTL_MS,
+  NAG_MIN_INTERVAL_MS,
 } from "../plugin/lib/checkout-marker.js";
 
 // spec-371 t-11 — the client-side marker logic (the privacy gate; no nudge), pure.
@@ -134,5 +136,44 @@ describe("decideMarkerAction: arm on any successful spec mutation, not on a fail
     expect(decideMarkerAction(ev("mcp__memex__create_decision", "ns/m/specs/spec-1", collision)).action).toBe(
       "skip",
     );
+  });
+});
+
+// The task-sync STEER: a short, CONDITIONAL nag emitted after a file edit in a
+// CHECKED-OUT session, nudging the agent to keep task STATE honest in Memex.
+// NOTE: this is new behavior that reverses the rework's "no nudge" stance for the
+// checked-out case. It needs a dedicated decision + AC on spec-371; tagging is
+// deferred until that AC exists (so this suite doesn't emit a phantom AC to prod).
+describe("task-sync steer: conditional nag on a checked-out edit (spec-371, AC pending)", () => {
+  it("no checkout → no steer (the privacy gate gates the nag too)", () => {
+    expect(decideEditSteer("none", o()).nag).toBe(false);
+  });
+
+  it("a checked-out edit → a conditional nag naming the spec + all three task-state moves, plus the no-op license", () => {
+    writeMarker("s", { memex: "ns/m", spec: "spec-371" }, o({ now: 1000 }));
+    const r = decideEditSteer("s", o({ now: 1001 }));
+    expect(r.nag).toBe(true);
+    expect(r.text).toContain("spec-371");
+    expect(r.text).toContain("update_task"); // completed a task → done
+    expect(r.text).toContain("in progress"); // started a picked-up task → in progress
+    expect(r.text).toContain("create_task"); // untracked work → create the task
+    expect(r.text).toMatch(/no update is needed/i); // mid-task edit → explicitly no premature update
+  });
+
+  it("ships as the simple stick (every edit) but is throttle-ready: NAG_MIN_INTERVAL_MS + lastNagAt", () => {
+    expect(NAG_MIN_INTERVAL_MS).toBe(0); // v1 default: nag after every edit
+    writeMarker("t", { memex: "ns/m", spec: "spec-9" }, o({ now: 0 }));
+    // simulate a throttle window via opts.nagIntervalMs (the constant in prod)
+    expect(decideEditSteer("t", o({ now: 100, nagIntervalMs: 1000 })).nag).toBe(true); // first → nag + stamp
+    expect(decideEditSteer("t", o({ now: 200, nagIntervalMs: 1000 })).nag).toBe(false); // within window → throttled
+    expect(decideEditSteer("t", o({ now: 1200, nagIntervalMs: 1000 })).nag).toBe(true); // past window → nag again
+  });
+
+  it("edit activity preserves the nag clock — the throttle survives intervening edits", () => {
+    writeMarker("p", { memex: "ns/m", spec: "spec-9" }, o({ now: 0 }));
+    decideEditSteer("p", o({ now: 100, nagIntervalMs: 10000 })); // stamps lastNagAt=100
+    decideEditAction("p", o({ now: 500 })); // a later edit refreshes TTL (touch) but must NOT reset the nag clock
+    expect(readMarker("p", o()).lastNagAt).toBe(100); // preserved across touch
+    expect(decideEditSteer("p", o({ now: 600, nagIntervalMs: 10000 })).nag).toBe(false); // still throttled
   });
 });

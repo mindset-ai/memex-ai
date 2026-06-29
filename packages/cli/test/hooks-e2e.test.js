@@ -90,11 +90,12 @@ describe("spec-371 hooks e2e (ac-7, ac-9, ac-10, ac-12, ac-15)", () => {
     });
   });
 
-  it("edit hook: no checkout → SILENT, no nudge, nothing leaves (ac-10, ac-16)", () => {
+  it("edit hook: no checkout → SILENT — no steer, no network, nothing leaves (ac-10, ac-16)", () => {
     tagAc(AC_10);
     tagAc(AC_16);
     withHome((home) => {
-      // An unchecked-out thread editing files emits NOTHING — no nudge, no network.
+      // An unchecked-out thread editing files emits NOTHING — the steer is gated off
+      // by the same checkout marker, so there's no nudge and no network.
       const out = run("edit-phonehome.mjs", {
         session_id: "u",
         tool_name: "Edit",
@@ -107,7 +108,7 @@ describe("spec-371 hooks e2e (ac-7, ac-9, ac-10, ac-12, ac-15)", () => {
     });
   });
 
-  it("edit hook: a claim with no key planted fails quiet — nothing leaves (ac-10)", () => {
+  it("edit hook: a CHECKED-OUT edit emits the task-sync STEER (additionalContext), non-blocking, even with no key (the steer is local, key-independent) (ac-10)", () => {
     tagAc(AC_10);
     withHome((home) => {
       run("marker-write.mjs", {
@@ -115,14 +116,24 @@ describe("spec-371 hooks e2e (ac-7, ac-9, ac-10, ac-12, ac-15)", () => {
         tool_name: "mcp__memex__claim_spec",
         tool_input: { ref: "ns/m/specs/spec-371" },
       }, home);
-      // claimed, but no ~/.memex/checkout.json and no env key → no phone-home, no output.
+      // No ~/.memex/checkout.json + no env key → the phone-home (network) is skipped,
+      // but the STEER is emitted locally on stdout — it does not depend on the key.
       const out = run("edit-phonehome.mjs", {
         session_id: "c",
         tool_name: "Edit",
         tool_input: { file_path: "/x/y.ts" },
         cwd: home,
       }, home);
-      expect(out.trim()).toBe("");
+      const parsed = JSON.parse(out);
+      expect(parsed.hookSpecificOutput.hookEventName).toBe("PostToolUse");
+      const ctx = parsed.hookSpecificOutput.additionalContext;
+      expect(ctx).toContain("spec-371");
+      expect(ctx).toContain("update_task");
+      expect(ctx).toContain("create_task");
+      expect(ctx).toMatch(/no update is needed/i); // never forces a premature update
+      // non-blocking: it never denies/blocks the edit.
+      expect(out).not.toMatch(/"decision"\s*:\s*"block"/);
+      expect(out).not.toMatch(/"permissionDecision"\s*:\s*"deny"/);
     });
   });
 
