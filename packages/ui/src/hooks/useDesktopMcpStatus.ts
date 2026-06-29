@@ -75,6 +75,12 @@ export function useDesktopMcpStatus(): DesktopMcpStatus {
   // Bumped whenever the per-client pill preferences change, so the push effect
   // below re-runs and re-derives what the pill should show (dec-24).
   const [prefsVersion, setPrefsVersion] = useState(0);
+  // The last indicator pushed to the native pill, so a redundant re-derive (a
+  // background SSE event fires `refresh`, minting a NEW `clients` array on
+  // nearly every navigation) doesn't re-push an identical state — re-pushing
+  // makes the pill re-reveal/pop by itself (issue-27, ac-58). '__none__' marks
+  // the explicit hide so it, too, is pushed only once.
+  const lastPushRef = useRef<string | null>(null);
 
   const refresh = useCallback(async () => {
     if (!inShell) return;
@@ -134,10 +140,20 @@ export function useDesktopMcpStatus(): DesktopMcpStatus {
       (c) => c.transport === 'token' && isPillNotificationEnabled(c.key),
     );
     if (pillClients.length === 0) {
-      void clearMcpStatusBridge();
+      if (lastPushRef.current !== '__none__') {
+        lastPushRef.current = '__none__';
+        void clearMcpStatusBridge();
+      }
       return;
     }
-    void setMcpStatusBridge(deriveIndicator(pillClients.map((c) => c.status)));
+    const indicator = deriveIndicator(pillClients.map((c) => c.status));
+    // De-dupe (issue-27, ac-58): only push when the derived indicator actually
+    // changed. A re-derive that lands on the same state must NOT re-push, or the
+    // native pill re-reveals on every navigation.
+    const key = `${indicator.kind}|${indicator.label}|${indicator.visibility}`;
+    if (lastPushRef.current === key) return;
+    lastPushRef.current = key;
+    void setMcpStatusBridge(indicator);
   }, [inShell, clients, prefsVersion]);
 
   // Re-derive the pill when the per-client notification preference changes
