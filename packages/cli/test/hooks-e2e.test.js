@@ -90,6 +90,21 @@ describe("spec-371 hooks e2e (ac-7, ac-9, ac-10, ac-12, ac-15)", () => {
     });
   });
 
+  it("marker-write: arms the thread when the MCP tool is plugin-namespaced — the real install shape (ac-9)", () => {
+    tagAc(AC_9);
+    withHome((home) => {
+      // When the Memex server ships inside the plugin, Claude Code names the tool
+      // `mcp__plugin_memex-checkout_memex__claim_spec` — the exact name a real
+      // install fires the hook with. The marker must still be written.
+      run("marker-write.mjs", {
+        session_id: "plug",
+        tool_name: "mcp__plugin_memex-checkout_memex__claim_spec",
+        tool_input: { ref: "ns/m/specs/spec-371" },
+      }, home);
+      expect(markerOf(home, "plug")).toMatchObject({ memex: "ns/m", spec: "spec-371" });
+    });
+  });
+
   it("edit hook: no checkout → SILENT — no steer, no network, nothing leaves (ac-10, ac-16)", () => {
     tagAc(AC_10);
     tagAc(AC_16);

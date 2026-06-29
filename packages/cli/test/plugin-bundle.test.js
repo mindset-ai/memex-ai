@@ -37,6 +37,24 @@ describe("plugin bundle: MCP + hooks as one unit (spec-371 ac-15)", () => {
     expect(cmds.some((c) => c.includes("edit-phonehome.mjs"))).toBe(true);
   });
 
+  it("the marker-write matcher fires on the plugin-namespaced MCP tool, not just the bare name (regression: v0.1.0 plugin install)", () => {
+    tagAc(AC_15);
+    const hooks = readJson(resolve(pluginRoot, "hooks/hooks.json"));
+    // The PostToolUse entry that runs marker-write.mjs is the one guarding Memex MCP calls.
+    const entry = (hooks.hooks?.PostToolUse ?? []).find((e) =>
+      e.hooks.some((h) => h.command.includes("marker-write.mjs")),
+    );
+    expect(entry).toBeTruthy();
+    // Anchored is the strict reading (the original `.*` suffix implies start-anchoring);
+    // if it passes anchored it passes a looser substring match too.
+    const re = new RegExp(`^${entry.matcher}$`);
+    // Direct install exposes `mcp__memex__<tool>`; bundled-as-plugin exposes
+    // `mcp__plugin_<plugin>_memex__<tool>`. The matcher MUST catch BOTH, or the hook
+    // never fires on the plugin's own bundled MCP (the shipped v0.1.0 bug).
+    expect(re.test("mcp__memex__claim_spec")).toBe(true);
+    expect(re.test("mcp__plugin_memex-checkout_memex__claim_spec")).toBe(true);
+  });
+
   it("the bundled MCP entry bakes NO per-user token (OAuth runs on enable)", () => {
     tagAc(AC_15);
     // A committed file must never carry a per-user bearer token; the server's

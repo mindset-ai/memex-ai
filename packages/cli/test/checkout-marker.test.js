@@ -137,6 +137,27 @@ describe("decideMarkerAction: arm on any successful spec mutation, not on a fail
       "skip",
     );
   });
+
+  it("arms/clears identically when the MCP is plugin-namespaced (mcp__plugin_<plugin>_memex__...) (ac-9)", () => {
+    tagAc(AC_9);
+    // The SAME Memex server, bundled as a Claude Code plugin, exposes its tools as
+    // `mcp__plugin_memex-checkout_memex__<tool>`. The bare-name strip must still
+    // resolve the tool, or no marker is ever written on a real plugin install.
+    expect(
+      decideMarkerAction(ev("mcp__plugin_memex-checkout_memex__claim_spec", "ns/m/specs/spec-1")),
+    ).toEqual({ action: "write", memex: "ns/m", spec: "spec-1" });
+    expect(
+      decideMarkerAction(
+        ev("mcp__plugin_memex-checkout_memex__update_section", "ns/m/specs/spec-1/sections/s-2"),
+      ),
+    ).toEqual({ action: "write", memex: "ns/m", spec: "spec-1" });
+    expect(
+      decideMarkerAction(ev("mcp__plugin_memex-checkout_memex__unclaim_spec", "ns/m/specs/spec-1")),
+    ).toEqual({ action: "clear" });
+    expect(
+      decideMarkerAction(ev("mcp__plugin_memex-checkout_memex__get_doc", "ns/m/specs/spec-1")).action,
+    ).toBe("skip");
+  });
 });
 
 // The task-sync STEER: a short, CONDITIONAL nag emitted after a file edit in a
