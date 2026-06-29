@@ -1,35 +1,30 @@
-// HTTP routes for the scoped HOOK KEY surface (spec-371). Tenant-scoped, mounted
-// under /api/:namespace/:memex/hook-keys. Mirrors routes/emission-keys.ts: every
-// verb is a membership-gated operation (the key is a secret).
+// HTTP routes for the scoped HOOK KEY surface (spec-371, spec-430). USER-level:
+// mounted at /api/hook-keys with NO memex in the path (spec-430 dec-3 — a hook key is
+// per user, never per memex). Modelled on the user-level mcpTokensRouter
+// (/api/mcp/tokens): every verb operates on the AUTHENTICATED caller's own keys.
 //
-// The plugin installer (packages/cli) calls POST / after its device-flow auth to
-// plant a least-privilege key the checkout hook authenticates with — never the
-// user's MCP PAT or OAuth token (dec-6). The raw key is returned exactly once.
+// The plugin installer (packages/cli) calls POST / after its single device-flow auth
+// to plant the least-privilege key the checkout hook authenticates with — never the
+// user's MCP PAT or OAuth token (spec-371 dec-6). The raw key is returned exactly once.
 //
-// Auth note (spec-371): the device flow yields an mxt_ MCP token, not a web-session
-// JWT, so this surface uses sessionWithMcpTokenMiddleware — the one session route
-// that also accepts a valid mxt_ PAT. dec-6 is preserved: the PAT only AUTHENTICATES
-// the mint; the credential we PLANT is still the least-privilege mxh_ this route
-// returns. Membership is still enforced (the PAT resolves a user, the std-5 tail
-// 404s a non-member), so a PAT can only mint a key for a memex its owner belongs to.
+// Auth note: the installer holds an mxt_ MCP token (not a web-session JWT), so this
+// surface uses sessionWithMcpTokenMiddleware — the one session middleware that also
+// accepts a valid mxt_ PAT. dec-6 is preserved: the PAT only AUTHENTICATES the mint;
+// the credential we PLANT is still the least-privilege mxh_ this route returns.
 
 import { Hono } from "hono";
 import {
   mintHookKey,
-  listHookKeysForMemex,
+  listHookKeysForUser,
   revokeHookKey,
 } from "../services/hook-keys.js";
 import {
   sessionWithMcpTokenMiddleware,
   type SessionEnv,
 } from "../middleware/session.js";
-import type { MemexResolverEnv } from "../middleware/memex-resolver.js";
-import { requireMemexId } from "./shared.js";
 import type { MemexHookKey } from "../db/schema.js";
 
-type Env = MemexResolverEnv & SessionEnv;
-
-const hookKeysRouter = new Hono<Env>();
+const hookKeysRouter = new Hono<SessionEnv>();
 hookKeysRouter.use("/*", sessionWithMcpTokenMiddleware);
 
 // Display-safe projection: the hashed_key and the raw key are NEVER serialised.
@@ -47,28 +42,28 @@ function toSafe(row: MemexHookKey) {
 }
 
 hookKeysRouter.post("/", async (c) => {
-  const memexId = requireMemexId(c);
-  const createdByUserId = c.get("currentUserId") as string;
+  const userId = c.get("currentUserId") as string;
   const { name } = await c.req.json<{ name?: unknown }>().catch(() => ({ name: undefined }));
   const label =
     typeof name === "string" && name.trim().length > 0
       ? name.trim()
       : "memex checkout hook";
-  const result = await mintHookKey(memexId, label, createdByUserId);
+  const result = await mintHookKey(label, userId);
   // The ONLY time the raw key is ever returned — unrecoverable afterwards.
   return c.json({ key: result.raw, ...toSafe(result.row) }, 201);
 });
 
 hookKeysRouter.get("/", async (c) => {
-  const memexId = requireMemexId(c);
-  const rows = await listHookKeysForMemex(memexId);
+  const userId = c.get("currentUserId") as string;
+  const rows = await listHookKeysForUser(userId);
   return c.json(rows.map(toSafe));
 });
 
 hookKeysRouter.post("/:id/revoke", async (c) => {
-  const memexId = requireMemexId(c);
+  // Owner-scoped (spec-430 dec-1): the caller revokes their OWN key by id.
+  const userId = c.get("currentUserId") as string;
   const id = c.req.param("id");
-  const result = await revokeHookKey(id, memexId);
+  const result = await revokeHookKey(id, userId);
   if (!result) return c.json({ error: "Hook key not found" }, 404);
   return c.json(toSafe(result));
 });

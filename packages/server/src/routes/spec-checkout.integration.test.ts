@@ -20,6 +20,9 @@ const AC_3 = "mindset-prod/memex-building-itself/specs/spec-371/acs/ac-3";
 const AC_11 = "mindset-prod/memex-building-itself/specs/spec-371/acs/ac-11";
 const AC_16 = "mindset-prod/memex-building-itself/specs/spec-371/acs/ac-16";
 const AC_23 = "mindset-prod/memex-building-itself/specs/spec-371/acs/ac-23"; // checked_out_thread = conversation UID
+// spec-430 ac-4 — after the single sign-in, a claimed spec's in-flow edits are recorded
+// server-side, with no separate checkout-setup invocation.
+const AC_4_430 = "mindset-prod/memex-building-itself/specs/spec-430/acs/ac-4";
 
 const app = new Hono();
 app.route("/api/spec-checkout", specCheckoutRouter);
@@ -36,7 +39,7 @@ interface Ctx {
 async function setup(prefix: string): Promise<Ctx> {
   const made = await makeTestMemexWithDevAdmin(prefix);
   const owner = await upsertUserByEmail("dev@memex.ai");
-  const minted = await mintHookKey(made.memexId, "test hook", owner.id);
+  const minted = await mintHookKey("test hook", owner.id);
   const doc = await createDocDraft(
     made.memexId,
     "Phone-home spec",
@@ -76,6 +79,7 @@ describe("spec-371: record-only phone-home (ac-3, ac-11, ac-16)", () => {
     tagAc(AC_3);
     tagAc(AC_11);
     tagAc(AC_16);
+    tagAc(AC_4_430); // spec-430: in-flow edits recorded server-side, no separate checkout-setup
     const res = await post(ctx.rawKey, {
       ref: ctx.ref,
       thread_uid: "thread-phc-1",
@@ -111,11 +115,14 @@ describe("spec-371: record-only phone-home (ac-3, ac-11, ac-16)", () => {
     ).toBe(401);
   });
 
-  it("a key for a DIFFERENT memex cannot record against this spec (cross-tenant → 401)", async () => {
+  it("a key whose creator is NOT a member of the spec's memex cannot record (→ 401, spec-430 dec-1)", async () => {
     tagAc(AC_11);
-    const other = await setup("phc2");
-    const res = await post(other.rawKey, {
-      ref: ctx.ref, // the FIRST memex's spec
+    // A user-scoped key authorises by MEMBERSHIP. Mint one for a stranger who is a
+    // member of NO org that owns ctx's memex, then post against ctx's spec.
+    const stranger = await upsertUserByEmail("stranger@example.com");
+    const strangerKey = (await mintHookKey("stranger hook", stranger.id)).raw;
+    const res = await post(strangerKey, {
+      ref: ctx.ref, // the FIRST memex's spec — stranger is not a member there
       thread_uid: "thread-x",
       changed_paths: ["x.ts"],
     });

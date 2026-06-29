@@ -22,6 +22,8 @@ import { createOrgWithMemexAndOwner } from "../services/__test__/seed-org.js";
 
 // ac-14 — the hook key is a least-privilege mxh_, never the user's mxt_/OAuth.
 const AC_14 = "mindset-prod/memex-building-itself/specs/spec-371/acs/ac-14";
+// spec-430 ac-8 — minting is USER-level (POST /api/hook-keys, no memex in the path).
+const AC_8 = "mindset-prod/memex-building-itself/specs/spec-430/acs/ac-8";
 
 const createdUserIds: string[] = [];
 const createdMemexIds: string[] = [];
@@ -99,12 +101,13 @@ describe("hook-key mint accepts the device-flow mxt_ token (spec-371 ac-14)", ()
     });
     memexId = seeded.memex.id;
     createdMemexIds.push(memexId);
-    hookKeysBase = `/api/${seeded.namespace.slug}/${seeded.memex.slug}/hook-keys`;
+    hookKeysBase = `/api/hook-keys`; // spec-430 dec-3: user-level, no memex in the path
     emissionKeysBase = `/api/${seeded.namespace.slug}/${seeded.memex.slug}/emission-keys`;
   });
 
-  it("THE FIX — a valid mxt_ PAT mints a key; the PLANTED credential is a least-privilege mxh_ (ac-14)", async () => {
+  it("THE FIX — a valid mxt_ PAT mints a key at the user-level endpoint; the PLANTED credential is a least-privilege mxh_ (ac-14, spec-430 ac-8)", async () => {
     tagAc(AC_14);
+    tagAc(AC_8);
     const { res, body } = await mint(hookKeysBase, ownerMxt);
     expect(res.status).toBe(201);
     // dec-6: the mxt_ only AUTHENTICATES; what we hand back is the scoped mxh_.
@@ -113,11 +116,13 @@ describe("hook-key mint accepts the device-flow mxt_ token (spec-371 ac-14)", ()
     expect(body.key as string).not.toMatch(/^mxt_/);
     expect(body.createdByUserId).toBe(ownerUserId);
 
-    // The mint persisted a real row for this memex, owned by the PAT's user.
+    // The mint persisted a real row owned by the PAT's user. spec-430 dec-1: the key
+    // is USER-scoped, so the row has NO home memex (memexId null) — authz is by
+    // membership, not key granularity.
     const row = await db.query.memexHookKeys.findFirst({
       where: eq(memexHookKeys.id, body.id as string),
     });
-    expect(row?.memexId).toBe(memexId);
+    expect(row?.memexId).toBeNull();
     expect(row?.createdByUserId).toBe(ownerUserId);
   });
 
@@ -140,13 +145,17 @@ describe("hook-key mint accepts the device-flow mxt_ token (spec-371 ac-14)", ()
     expect(res.status).toBe(401);
   });
 
-  it("a valid mxt_ for a NON-MEMBER cannot mint — membership is still enforced → 404 (std-7)", async () => {
-    tagAc(AC_14);
+  it("any authenticated user mints their OWN user-scoped key — no membership required (spec-430 dec-3, ac-8)", async () => {
+    tagAc(AC_8);
+    // A hook key is per USER. A user who belongs to no org still mints their own key —
+    // the credential is user-level, not gated on memex membership.
     const strangerId = await seedUser();
     const { raw: strangerMxt } = await mintMcpToken(strangerId, "stranger device");
-    const { res } = await mint(hookKeysBase, strangerMxt);
-    expect(res.status).toBe(404);
-    // Belt-and-braces: no membership was created as a side effect.
+    const { res, body } = await mint(hookKeysBase, strangerMxt);
+    expect(res.status).toBe(201);
+    expect(body.key as string).toMatch(/^mxh_/);
+    expect(body.createdByUserId).toBe(strangerId);
+    // The mint created NO org membership as a side effect — purely a user credential.
     const membership = await db.query.orgMemberships.findFirst({
       where: eq(orgMemberships.userId, strangerId),
     });

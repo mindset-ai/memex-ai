@@ -6,6 +6,10 @@ import { installBase, mcpUrl } from '../utils/mcpUrl';
 
 const AC_URL_DERIVED = 'mindset-prod/memex-building-itself/specs/spec-201/acs/ac-15';
 const AC_MORE_CLIENTS = 'mindset-prod/memex-building-itself/specs/spec-201/acs/ac-16';
+// spec-430 ac-9: the Integrations install section describes the unified Claude Code
+// flow (npx -y memex-ai install → checkout plugin), with the Claude-Code-only plugin
+// kept out of the OAuth-on-connect "Other clients" (Cursor / VS Code / web) guidance.
+const AC430_9 = 'mindset-prod/memex-building-itself/specs/spec-430/acs/ac-9';
 
 describe('spec-201 ac-15: connect instructions derive the MCP URL from the environment', () => {
   it('renders the MCP URL as installBase + /mcp, not a hardcoded host', () => {
@@ -55,5 +59,39 @@ describe('spec-253: native-IDE OAuth connect steps (VS Code)', () => {
   it('frames the OAuth-on-connect clients as native IDEs (Cursor, VS Code, Windsurf, Zed)', () => {
     render(<CliInstallSection />);
     expect(screen.getByText(/Cursor, VS Code, Windsurf, Zed/)).toBeInTheDocument();
+  });
+});
+
+// spec-430: the Claude Code install is now the unified `npx -y memex-ai install`
+// (one sign-in → MCP token + checkout key) plus the Claude-Code-ONLY spec-checkout
+// plugin. The plugin must NOT appear in the OAuth-on-connect "Other clients" block.
+describe('spec-430 ac-9: unified Claude Code install + Claude-Code-gated checkout plugin', () => {
+  it('shows the unified installer and the checkout plugin under a Claude Code heading', () => {
+    tagAc(AC430_9);
+    render(<CliInstallSection />);
+    const cc = screen.getByRole('heading', { name: 'Claude Code' });
+    expect(cc).toBeInTheDocument();
+    // The unified installer (one sign-in → MCP token + checkout key) appears — it's
+    // referenced more than once (the command block + the Claude Desktop footnote).
+    expect(screen.getAllByText(/npx -y memex-ai install/).length).toBeGreaterThanOrEqual(1);
+    // …and the two Claude-Code-only plugin commands (in one code block).
+    const plugin = screen.getByText(/claude plugin marketplace add mindset-ai\/memex-ai/);
+    expect(plugin.textContent).toContain('claude plugin install memex-checkout@memex');
+  });
+
+  it('does NOT surface the checkout plugin in the OAuth-on-connect Other clients block', () => {
+    tagAc(AC430_9);
+    render(<CliInstallSection />);
+    // The plugin is Claude Code only — it must not appear in the Cursor/VS Code/web copy.
+    const others = document.getElementById('other-clients');
+    expect(others).not.toBeNull();
+    expect(others?.textContent ?? '').not.toContain('memex-checkout');
+    expect(others?.textContent ?? '').not.toContain('claude plugin');
+  });
+
+  it('drops the old curl/irm install.sh bootstrap one-liner (superseded by the unified installer)', () => {
+    tagAc(AC430_9);
+    render(<CliInstallSection />);
+    expect(screen.queryByText(/install\.sh|install\.ps1/)).toBeNull();
   });
 });

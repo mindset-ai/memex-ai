@@ -35,8 +35,16 @@ export const TOOLS: ReadonlyArray<{ id: Tool; label: string }> = [
   { id: 'windsurf-zed', label: 'Windsurf / Zed' },
 ];
 
-const shInstall = `curl -fsSL ${installBase}/install.sh | sh`;
-const psInstall = `irm ${installBase}/install.ps1 | iex`;
+// spec-430 dec-2/dec-4: the unified installer replaces the old curl/irm one-liners
+// for Claude Code — ONE browser sign-in plants the Memex MCP token AND mints the
+// single per-user checkout key (no second sign-in, no per-memex keys, nothing pasted
+// by hand). Same `--api-base` derivation as the genesis prompt: prod is the bare
+// command, any other env passes the host. Claude Desktop reuses this installer for
+// the MCP but NOT the plugin (the spec-checkout plugin is Claude Code only).
+const installApiBaseFlag = installBase === 'https://memex.ai' ? '' : ` --api-base ${installBase}`;
+const memexInstall = `npx -y memex-ai install${installApiBaseFlag}`;
+// Claude Code ONLY — the hooks-only spec-checkout plugin (no MCP bundled).
+const pluginInstall = `claude plugin marketplace add mindset-ai/memex-ai\nclaude plugin install memex-checkout@memex`;
 const cursorCfg = `{\n  "mcpServers": {\n    "memex": {\n      "url": "${mcpUrl}"\n    }\n  }\n}`;
 const vscodeCfg = `{\n  "servers": {\n    "memex": {\n      "type": "http",\n      "url": "${mcpUrl}"\n    }\n  }\n}`;
 
@@ -45,15 +53,39 @@ const ASK_PROMPT = `Using Memex (you're connected now), answer me:
 
 "What is Memex, and what are its core principles? Use the get_information tool, then explain it simply — like I'm new."`;
 
-export function Instructions({ tool, os, onCopy }: { tool: Tool; os: Os; onCopy?: () => void }) {
-  if (tool === 'claude-code' || tool === 'claude-desktop') {
+// spec-430: `os` is retained on the signature for call-site compatibility, but the
+// unified installer command is identical across platforms, so it no longer selects
+// the command. Claude Code gets the install + the (Claude-Code-only) checkout plugin;
+// Claude Desktop reuses the installer for the MCP but never the plugin.
+export function Instructions({ tool, onCopy }: { tool: Tool; os?: Os; onCopy?: () => void }) {
+  if (tool === 'claude-code') {
+    return (
+      <div className="space-y-3" data-testid="claude-code-instructions">
+        <p className="text-sm text-secondary">
+          Paste this into your terminal. One browser sign-in plants the Memex MCP token{' '}
+          <strong>and</strong> mints your single per-user checkout key — no second sign-in,
+          no per-memex keys, nothing pasted by hand:
+        </p>
+        <CodeBlock code={memexInstall} onCopy={onCopy} />
+        <p className="text-sm text-secondary">
+          Then add the spec-checkout plugin (the in-flow edit hooks). This plugin is{' '}
+          <strong>Claude Code only</strong> — it no longer bundles an MCP; the install above
+          already planted it:
+        </p>
+        <CodeBlock code={pluginInstall} onCopy={onCopy} />
+        <p className="text-xs text-muted">Reload the window afterwards — the hooks load at session start.</p>
+      </div>
+    );
+  }
+  if (tool === 'claude-desktop') {
     return (
       <div className="space-y-2">
         <p className="text-sm text-secondary">
-          Paste this into your terminal. It opens your browser once to authorize this
-          device, then writes the Memex MCP entry into your {tool === 'claude-desktop' ? 'Claude Desktop' : 'Claude'} config.
+          Paste this into your terminal. One browser sign-in plants the Memex MCP token into
+          your Claude Desktop config — no token to paste. (The spec-checkout plugin is Claude
+          Code only, so there's nothing more to install here.)
         </p>
-        <CodeBlock code={os === 'windows' ? psInstall : shInstall} onCopy={onCopy} />
+        <CodeBlock code={memexInstall} onCopy={onCopy} />
         <p className="text-xs text-muted">One install, a long-lived token, no expiry.</p>
       </div>
     );
@@ -130,7 +162,6 @@ export function ConnectAgentStep({
   // spec-324 — record the step's primary CTA (copy the setup command) as home_canvas.cta_clicked.
   onCtaClick?: (target: string) => void;
 } = {}) {
-  const [os, setOs] = useState<Os>(detectOs);
   const [tool, setTool] = useState<Tool>('claude-code');
   const [connected, setConnected] = useState(false);
   const doneRef = useRef(false);
@@ -168,8 +199,6 @@ export function ConnectAgentStep({
       clearInterval(id);
     };
   }, [preview, onComplete, onConnected]);
-
-  const osMatters = tool === 'claude-code' || tool === 'claude-desktop';
 
   return (
     <div className="flex min-h-[70vh] items-center justify-center px-4 py-10">
@@ -228,29 +257,8 @@ export function ConnectAgentStep({
               agent does the work while you watch it land.
             </p>
 
-            {osMatters && (
-              <div className="mt-7">
-                <span className="mb-2 block text-sm font-medium text-secondary">Your machine</span>
-                <div className="flex flex-wrap gap-2">
-                  {(['mac', 'windows', 'linux'] as Os[]).map((o) => (
-                    <button
-                      key={o}
-                      type="button"
-                      data-testid={`os-${o}`}
-                      onClick={() => setOs(o)}
-                      className={`rounded-lg border px-3 py-1.5 text-sm transition ${
-                        o === os
-                          ? 'border-accent bg-accent/10 font-medium text-accent'
-                          : 'border-edge text-secondary hover:bg-card-hover'
-                      }`}
-                    >
-                      {OS_LABEL[o]}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
+            {/* spec-430: the unified `npx -y memex-ai install` command is identical across
+                platforms, so the per-OS selector is gone — nothing it set changed the command. */}
             <div className="mt-6">
               <span className="mb-2 block text-sm font-medium text-secondary">Your coding agent</span>
               <div className="flex flex-wrap gap-2">
@@ -273,7 +281,7 @@ export function ConnectAgentStep({
             </div>
 
             <div className="mt-6" data-testid="connect-instructions">
-              <Instructions tool={tool} os={os} onCopy={() => onCtaClick?.('copy_install')} />
+              <Instructions tool={tool} onCopy={() => onCtaClick?.('copy_install')} />
             </div>
 
             <div className="mt-7 flex items-center gap-2 text-sm text-muted" data-testid="connect-waiting">

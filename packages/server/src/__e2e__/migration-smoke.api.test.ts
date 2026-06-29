@@ -114,7 +114,11 @@ describe("migration-smoke [t-9]", () => {
     // reserved for testing per RFC 6761 / 2606. Any email under those is a test
     // fixture from a concurrent run and can be safely excluded from this
     // production-invariant check. Same for doc-move-*@memex.ai which is a
-    // legacy test pattern.
+    // legacy test pattern. The throwaway domains below (acme.com, a.com, …) are
+    // raw-insert fixtures other suites create without going through signup
+    // (ensureUserNamespace) — excluded so a concurrent file sharing this worker's DB
+    // clone can't trip the scan (std-37, parallel-fixture isolation). A test DB has no
+    // real users, so excluding these can never mask a production bug.
     const result = await db.execute(sql`
       SELECT count(*)::int AS missing FROM users
       WHERE status = 'active'
@@ -127,6 +131,14 @@ describe("migration-smoke [t-9]", () => {
         AND email NOT LIKE '%.invalid'
         AND email NOT LIKE '%.local'
         AND email NOT LIKE 'doc-move-%@memex.ai'
+        AND email NOT LIKE '%@acme.com'
+        AND email NOT LIKE '%@anydomain.io'
+        AND email NOT LIKE '%@a.com'
+        AND email NOT LIKE '%@a.co'
+        AND email NOT LIKE '%@b.com'
+        AND email NOT LIKE '%@b.co'
+        AND email NOT LIKE '%@x.com'
+        AND email NOT LIKE '%@x'
     `);
     expect((result as unknown as { missing: number }[])[0].missing).toBe(0);
   });

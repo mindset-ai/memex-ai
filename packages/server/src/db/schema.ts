@@ -1823,9 +1823,10 @@ export const memexHookKeys = pgTable(
   "memex_hook_keys",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    memexId: uuid("memex_id")
-      .notNull()
-      .references(() => memexes.id, { onDelete: "cascade" }),
+    // spec-430 dec-1: NULL = USER-scoped (the key authorizes any memex its creator is
+    // an active member of). A non-null value is a legacy per-memex key, additionally
+    // pinned to that memex by the /api/spec-checkout authz. New keys mint NULL.
+    memexId: uuid("memex_id").references(() => memexes.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     hashedKey: text("hashed_key").notNull().unique(),
     prefix: text("prefix").notNull(),
