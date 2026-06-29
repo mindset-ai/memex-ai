@@ -139,6 +139,13 @@ export function MemexSwitcher({ variant = 'topbar' }: { variant?: 'topbar' | 'si
       });
     }
   }
+  // Orgs with no Memexes yet (doc-19 dec-1) don't appear in `memberships` at all.
+  // Seed them with an empty memexes array so they still show up in the switcher.
+  for (const org of session?.emptyOrgs ?? []) {
+    if (!orgsByNamespace.has(org.slug)) {
+      orgsByNamespace.set(org.slug, { name: org.name, role: org.role, memexes: [] });
+    }
+  }
 
   const isSidebar = variant === 'sidebar';
   const triggerClass = isSidebar
@@ -199,20 +206,32 @@ export function MemexSwitcher({ variant = 'topbar' }: { variant?: 'topbar' | 'si
                           {group.role}
                         </div>
                       </div>
-                      {group.memexes.map((mx) => {
-                        const mxSlug = mx.memexSlug ?? 'main';
-                        const active =
-                          isCurrentOrg && current?.memex === mxSlug;
-                        return (
-                          <SwitcherRow
-                            key={mx.memexId}
-                            title={mx.memexName ?? mx.name}
-                            active={active}
-                            onClick={() => goToOrgMemex(mx)}
-                            indent
-                          />
-                        );
-                      })}
+                      {group.memexes.length === 0 ? (
+                        <button
+                          onClick={() => {
+                            setOpen(false);
+                            navigate(namespaceHomePath(nsSlug));
+                          }}
+                          className="w-full text-left pl-6 pr-3 py-1.5 text-xs text-muted hover:text-primary hover:bg-overlay transition-colors"
+                        >
+                          No Memex yet — go to org
+                        </button>
+                      ) : (
+                        group.memexes.map((mx) => {
+                          const mxSlug = mx.memexSlug ?? 'main';
+                          const active =
+                            isCurrentOrg && current?.memex === mxSlug;
+                          return (
+                            <SwitcherRow
+                              key={mx.memexId}
+                              title={mx.memexName ?? mx.name}
+                              active={active}
+                              onClick={() => goToOrgMemex(mx)}
+                              indent
+                            />
+                          );
+                        })
+                      )}
                     </div>
                   );
                 })}
