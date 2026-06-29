@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import { CopyButton } from '../CodeBlock';
 import { StepDoneBadge } from './StepDoneBadge';
 import { fetchJourneyStateApi } from '../../api/journey';
+import { getCachedJourneyState } from '../../journeys/journeyStateCache';
 import { SAMPLE_PROMPT } from '../../utils/createSpecPrompts';
 
 export function CreateFirstSpecStep({
@@ -19,10 +20,17 @@ export function CreateFirstSpecStep({
   onCreateInApp?: () => void;
   onCtaClick?: (target: string) => void;
 } = {}) {
-  const [done, setDone] = useState(false);
+  // spec-421 issue-2 — assess "done" BEFORE draw from the shared in-memory journey-state
+  // (same read RootRedirect warmed at landing). A revisiting user who already has a spec
+  // sees "Created your first spec" on the FIRST paint instead of the not-done card flipping
+  // to done after an after-mount fetch (the in-Home flicker). doneRef/initRef start seeded
+  // so the effect treats this as "already known, do not advance" (mirrors its first-read
+  // revisiting branch). Cold (no cached assessment) → false, i.e. today's behaviour.
+  const seededDone = !preview && !!getCachedJourneyState()?.milestones?.hasSpec;
+  const [done, setDone] = useState(seededDone);
   const [expanded, setExpanded] = useState(false);
-  const doneRef = useRef(false);
-  const initRef = useRef(false);
+  const doneRef = useRef(seededDone);
+  const initRef = useRef(seededDone);
 
   useEffect(() => {
     if (preview) return;
@@ -77,7 +85,7 @@ export function CreateFirstSpecStep({
       ) : (
         <>
           <p className="mb-8 text-xl font-medium leading-snug text-primary">
-            Get the full magic of Memex by connecting to the MCP and using it in your Agent
+            Draft your first spec with your coding agent, or create it here in the app.
           </p>
 
           {/* Primary CTA — opens New Spec dialog on the Specs page via ?new=1 (dec-4). */}

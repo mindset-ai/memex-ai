@@ -37,6 +37,7 @@ import { fetchDocs } from '../api/docs';
 import { resolveSpecToken, SPEC_TOKEN_PLACEHOLDER } from '../components/home/specToken';
 import { resolveStepView, activeJourney } from '../journeys/registry';
 import { BUILDER_ONLY_STEP_IDS, HIDDEN_STEP_IDS } from '../journeys/onboarding/steps';
+import { getCachedJourneyState, setCachedJourneyState } from '../journeys/journeyStateCache';
 import { YourJourneys, type PearlJourney } from '../components/home/YourJourneys';
 import { HomeValue } from '../components/home/HomeValue';
 import { SHOW_GRADUATED_HOME } from './homeCanvasFlags';
@@ -118,7 +119,16 @@ export function HomeCanvas() {
 
   useDocumentTitle({ kind: 'page', title: 'Home' });
 
-  const [state, setState] = useState<JourneyStateResponse | null>(null);
+  // spec-421 issue-2 — assess BEFORE draw (Barrie). Seed the first paint from the shared
+  // in-memory journey-state the app already assessed read-only at login (useShouldLandOnHome
+  // / RootRedirect), so an in-app navigation to /home paints the tracker at its real state
+  // immediately instead of re-assessing from null after draw (the flicker). Preview reads
+  // are operator-pinned and must not seed from (or write to) the shared cache. On a cold
+  // load with no prior assessment this is null → the tracker region renders nothing until
+  // the read below resolves (a momentary blank, never a wrong/stale state).
+  const [state, setState] = useState<JourneyStateResponse | null>(() =>
+    previewParam ? null : getCachedJourneyState(),
+  );
   const [cursor, setCursor] = useState<string | null>(null);
   const [pinned, setPinned] = useState(false);
   const [restored, setRestored] = useState(false);
@@ -131,7 +141,12 @@ export function HomeCanvas() {
 
   const load = useCallback(() => {
     fetchJourneyStateApi(previewParam)
-      .then(setState)
+      .then((s) => {
+        setState(s);
+        // Refresh the shared assessment so the next surface paints from the latest read.
+        // Never cache a preview-pinned read (it isn't the user's real state).
+        if (!previewParam) setCachedJourneyState(s);
+      })
       .catch(() => {
         /* keep last good state — the canvas never hard-crashes on a fetch blip */
       });

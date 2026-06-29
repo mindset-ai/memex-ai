@@ -42,6 +42,12 @@ import { createDomainVerificationToken } from "../services/domain-verification.j
 import { upsertVerifiedDomain } from "../services/verified-domains.js";
 // spec-172 t-5: additive seed/read surface for the retained journeys (5, 11, 12).
 import { createTask } from "../services/tasks.js";
+// spec-423 t-8 journey — seed a facet vocabulary + a balloted task/decision so the
+// journey can assert the facet pills render.
+import { ownerForMemex } from "../services/shared/memex-ownership.js";
+import { seedDefaultFacetsForOwner } from "../services/default-facets.js";
+import { vocabForMemex } from "../services/facet-vocab.js";
+import { castTaskBallot, castDecisionBallot } from "../services/facet-ballot.js";
 // spec-188 t-5: seed surface for the verify-phase journey (ACs, issues,
 // test-event emissions for the acceptance-precedence path).
 import { createAc, buildAcRef } from "../services/acs.js";
@@ -248,6 +254,9 @@ const seedSpecSchema = z.object({
   title: z.string(),
   purpose: z.string().optional(),
   createdByUserId: z.string().uuid().optional(),
+  // spec-421: seed a DEMO spec (isDemo=true) so journeys can assert that demo specs
+  // (spec-178 seeds 5 per Memex) do NOT count toward the hasSpec milestone / landing.
+  isDemo: z.boolean().optional(),
 });
 testOnlyRouter.post("/seed-spec", async (c) => {
   const body = await c.req.json().catch(() => null);
@@ -255,8 +264,16 @@ testOnlyRouter.post("/seed-spec", async (c) => {
   if (!parsed.success) {
     return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
   }
-  const { memexId, title, purpose = "Seeded purpose.", createdByUserId } = parsed.data;
-  const result = await createDocDraft(memexId, title, purpose, "spec", undefined, undefined, createdByUserId);
+  const { memexId, title, purpose = "Seeded purpose.", createdByUserId, isDemo } = parsed.data;
+  const result = await createDocDraft(
+    memexId,
+    title,
+    purpose,
+    "spec",
+    undefined,
+    isDemo ? { isDemo: true } : undefined,
+    createdByUserId,
+  );
   // The first (overview/purpose) section id — handy for journeys that mutate a
   // section over the API (e.g. the reactivity round-trips in journey-16).
   return c.json({ docId: result.id, handle: result.handle, sectionId: result.sections[0]?.id ?? null });
@@ -327,6 +344,32 @@ testOnlyRouter.post("/clear-org-memberships", async (c) => {
   const deleted = await db
     .delete(orgMemberships)
     .where(eq(orgMemberships.userId, user.id))
+    .returning();
+  return c.json({ ok: true, cleared: deleted.length });
+});
+
+// spec-421: delete every NON-DEMO spec a user authored, so the per-test dev baseline
+// starts with hasSpec=false. The first-load landing now routes by the hasSpec milestone
+// (spec-421 dec-5), so a real spec leaked by an earlier journey would otherwise send the
+// shared dev user to the Specs board where a journey expects /home. Demo specs (spec-178)
+// are left intact — they never count toward hasSpec.
+testOnlyRouter.post("/clear-user-specs", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = z.object({ email: z.string().email() }).safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
+  }
+  const user = await getUserByEmail(parsed.data.email);
+  if (!user) return c.json({ ok: true, cleared: 0 });
+  const deleted = await db
+    .delete(documents)
+    .where(
+      and(
+        eq(documents.createdByUserId, user.id),
+        eq(documents.docType, "spec"),
+        eq(documents.isDemo, false),
+      ),
+    )
     .returning();
   return c.json({ ok: true, cleared: deleted.length });
 });
@@ -436,6 +479,39 @@ testOnlyRouter.post("/seed-open-decision", async (c) => {
     .set({ options })
     .where(eq(decisions.id, decision.id));
   return c.json({ decisionId: decision.id, seq: decision.seq });
+});
+
+// spec-423 t-8 (dec-7) — seed a complete facet scenario for the pills journey: the
+// owner's default facet vocabulary, a spec in build, and a task + a decision that each
+// carry a cast ballot marking one facet true. Returns the spec handle + the facet key
+// the pills should display.
+const seedFacetScenarioSchema = z.object({ memexId: z.string() });
+testOnlyRouter.post("/seed-facet-scenario", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = seedFacetScenarioSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
+  }
+  const { memexId } = parsed.data;
+
+  const owner = await ownerForMemex(memexId);
+  if (!owner) return c.json({ error: "no owner for memex" }, 400);
+  await seedDefaultFacetsForOwner(owner);
+  const vocab = await vocabForMemex(memexId);
+  const chosen = vocab[0].key;
+  // A COMPLETE ballot: one facet true, the rest false.
+  const verdict: Record<string, boolean> = {};
+  for (const f of vocab) verdict[f.key] = f.key === chosen;
+  const ballot = { verdict, none: false };
+
+  const spec = await createDocDraft(memexId, "Facet Pills Spec", "Seeded for the pills journey.", "spec", undefined, undefined);
+  await updateDocStatus(memexId, spec.id, "build", { source: "rest" });
+  const task = await createTask(memexId, spec.id, "Harden the auth guard", "Seeded balloted task.", undefined, undefined, {});
+  await castTaskBallot(memexId, spec.id, task.id, ballot, {});
+  const decision = await createDecision(memexId, spec.id, "A balloted decision", undefined, "human");
+  await castDecisionBallot(memexId, spec.id, decision.id, ballot, {});
+
+  return c.json({ specHandle: spec.handle, facetKey: chosen });
 });
 
 // Real native-auth signup [per std-13] that ALSO returns the raw email-

@@ -18,6 +18,12 @@ vi.mock("../services/decisions.js", () => ({
   rejectDecision: vi.fn(),
 }));
 
+// spec-423 t-8: the doc/:docId route enriches decisions with cast facet keys; mock
+// the projection so these unit tests stay DB-free.
+vi.mock("../services/facet-ballot.js", () => ({
+  facetKeysByDecision: vi.fn().mockResolvedValue(new Map()),
+}));
+
 import { decisionsRouter } from "./decisions.js";
 import {
   createDecision,

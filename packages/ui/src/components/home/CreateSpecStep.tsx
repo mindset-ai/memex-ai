@@ -3,6 +3,7 @@
 // Stage 2 (create the spec) moved to CreateFirstSpecStep / step "create-first-spec".
 import { useEffect, useRef, useState } from 'react';
 import { fetchJourneyStateApi } from '../../api/journey';
+import { getCachedJourneyState } from '../../journeys/journeyStateCache';
 import { Instructions, TOOLS, detectOs, type Os, type Tool } from './ConnectAgentStep';
 import { EXPLORE_PROMPT, DOCS_HREF } from '../../utils/createSpecPrompts';
 
@@ -24,10 +25,16 @@ export function CreateSpecStep({
   // spec-372 issue-6 — OS is auto-detected; the manual "Your machine" selector is removed.
   const [os] = useState<Os>(detectOs);
   const [tool, setTool] = useState<Tool>('claude-code');
-  const [connected, setConnected] = useState(false);
+  // spec-421 issue-2 — assess "connected" BEFORE draw from the shared in-memory journey-state
+  // (the read RootRedirect warmed at landing), so a revisiting user who has already connected
+  // MCP sees the "Connected to the Memex MCP" card on the FIRST paint instead of the connect
+  // card flipping to connected after an after-mount fetch (the in-Home flicker). Seeded refs
+  // make the effect treat it as "already known, do not advance". Cold → false (today's path).
+  const seededConnected = !preview && !!getCachedJourneyState()?.milestones?.mcpConnected;
+  const [connected, setConnected] = useState(seededConnected);
   const [exploreCopied, setExploreCopied] = useState(false);
-  const connectedRef = useRef(false);
-  const initRef = useRef(false);
+  const connectedRef = useRef(seededConnected);
+  const initRef = useRef(seededConnected);
 
   // spec-372 change #13 — copy the doc-grounded evaluation prompt to the clipboard.
   const copyExplorePrompt = () => {

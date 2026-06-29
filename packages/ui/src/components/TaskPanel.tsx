@@ -9,6 +9,7 @@ import {
   PLAN_STATE_CLASSES,
 } from './ExecutionPlanModal';
 import { Badge } from './ui';
+import { FacetPills } from './FacetPills';
 import { Metric } from './MetricBar';
 
 interface TaskPanelProps {
@@ -176,6 +177,7 @@ export function TaskPanel({ docId: _docId, doc: _doc, tasks, onUpdate, canWrite:
                   {t.sectionRef && (
                     <Badge status="archived" label={t.sectionRef} className="mt-1" />
                   )}
+                  <FacetPills facetKeys={t.facetKeys} className="mt-1.5" />
                   {t.acceptanceCriteria && t.acceptanceCriteria.length > 0 && (
                     <div className="mt-1.5 space-y-0.5">
                       {t.acceptanceCriteria.map((ac, i) => (

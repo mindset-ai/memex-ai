@@ -715,6 +715,11 @@ export async function getDoc(
   Doc & {
     sections: DocSection[];
     creator: { name: string | null; email: string | null } | null;
+    // spec-371: the current checkout holder's display fields, resolved from
+    // checked_out_by (the durable checkout record rides along on `...doc`). null
+    // when the spec is free or the holder was wiped (FK ON DELETE SET NULL). The
+    // formatter renders "Checked out by X (N minutes ago)" from this + checked_out_at.
+    checkoutHolder: { name: string | null; email: string | null } | null;
     // spec-178 dec-8 / ac-28: for is_demo docs, the per-phase value-banner copy
     // (a fixture CONSTANT keyed by the doc's phase) the UI renders atop the demo
     // spec. Unset for non-demo docs and for any demo phase with no callout.
@@ -766,6 +771,17 @@ export async function getDoc(
     if (u) creator = u;
   }
 
+  // spec-371: resolve the current checkout holder (mirrors creator). Skipped when
+  // the spec is free or the holder was wiped.
+  let checkoutHolder: { name: string | null; email: string | null } | null = null;
+  if (doc.checkedOutBy) {
+    const [u] = await db
+      .select({ name: users.name, email: users.email })
+      .from(users)
+      .where(eq(users.id, doc.checkedOutBy));
+    if (u) checkoutHolder = u;
+  }
+
   // spec-409 (dec-4): derive the grounded-but-drifted state at read time.
   const groundedStale = await isGroundingStale(
     doc.id,
@@ -779,11 +795,11 @@ export async function getDoc(
   if (doc.isDemo) {
     const callout = HANDHOLD_PHASES.find((p) => p.phase === doc.status)?.valueCallout;
     if (callout !== undefined) {
-      return { ...doc, sections, creator, demoValueCallout: callout, groundedStale };
+      return { ...doc, sections, creator, checkoutHolder, demoValueCallout: callout, groundedStale };
     }
   }
 
-  return { ...doc, sections, creator, groundedStale };
+  return { ...doc, sections, creator, checkoutHolder, groundedStale };
 }
 
 export async function updateDocTitle(memexId: string, id: string, title: string): Promise<Mutated<Doc>> {

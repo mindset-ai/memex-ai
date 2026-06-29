@@ -77,10 +77,36 @@ export interface ClassifyOptions {
   concurrency?: number;
   /** Progress hook for long runs (called after each clause is tagged). */
   onProgress?: (done: number, total: number) => void;
+  /**
+   * spec-423 t-6/dec-9 — the GAP-backfill mode: classify ONLY clauses that have no
+   * standard_clause_facets row yet (authored while Phase 1 was inert / before the
+   * add_clause hard-fail landed). Leaves already-classified clauses untouched.
+   */
+  gapOnly?: boolean;
+  /**
+   * Bulk-backfill resilience. When set, a clause that STILL fails after all retries is
+   * left UNclassified (no row written — never a wrong explicit-none) and this hook is
+   * called so the caller can log it; the run continues instead of aborting. When unset,
+   * a clause failure throws (the strict single-doc contract). Pairs with gapOnly: a
+   * permanently-poison clause is skipped rather than blocking every resumed run forever.
+   */
+  onClauseError?: (clauseId: string, err: unknown) => void;
+}
+
+/** The model returned no parseable structured output. Retryable (see isTransient). */
+class NoStructuredOutputError extends Error {
+  constructor() {
+    super("facet-classifier: structured output returned no parsed_output");
+    this.name = "NoStructuredOutputError";
+  }
 }
 
 /** Transient = worth retrying (rate-limit, overload, gateway, connection blip). */
 function isTransient(err: unknown): boolean {
+  // A missing structured output (model returned a non-conforming / empty / refused
+  // response) is routine for an LLM at scale and almost always clears on a re-ask —
+  // treat it as retryable, never a hard failure that aborts the run.
+  if (err instanceof NoStructuredOutputError) return true;
   const status = (err as { status?: number })?.status;
   if (typeof status === "number") {
     return status === 408 || status === 409 || status === 429 || (status >= 500 && status <= 599);
@@ -157,10 +183,14 @@ export async function classifyClauseWithLlm(
     return filterToVocab(await opts.classify(clauseBody, vocab), vocab);
   }
   const client = opts.client ?? (getAnthropicClient() as unknown as AnthropicLike);
-  const message = await withTransientRetry(() =>
-    client.messages.parse({
+  // The null-output check lives INSIDE the retried thunk so a missing structured output
+  // is re-asked (with backoff) rather than thrown straight through — an LLM returns the
+  // occasional non-conforming response and a single one must never abort a long backfill.
+  // Only a failure that persists across every retry propagates.
+  const facetKeys = await withTransientRetry(async () => {
+    const message = await client.messages.parse({
       model: MODEL,
-      max_tokens: 1024,
+      max_tokens: 2048,
       // The vocab system prompt is byte-identical across every clause in a run, so it's
       // the repeated prefix to cache (Anthropic caching is explicit — std-30). CAVEAT:
       // caching only fires once the cached prefix clears the model's minimum (Opus 4.8 =
@@ -176,12 +206,11 @@ export async function classifyClauseWithLlm(
       ],
       output_config: { format: zodOutputFormat(FacetVerdictSchema) },
       messages: [{ role: "user", content: `Clause:\n\n${clauseBody}` }],
-    }),
-  );
-  if (!message.parsed_output) {
-    throw new Error("facet-classifier: structured output returned no parsed_output");
-  }
-  return filterToVocab(message.parsed_output.facetKeys, vocab);
+    });
+    if (!message.parsed_output) throw new NoStructuredOutputError();
+    return message.parsed_output.facetKeys;
+  });
+  return filterToVocab(facetKeys, vocab);
 }
 
 /**
@@ -222,8 +251,16 @@ async function classifyAndTagClauses(
 ): Promise<void> {
   let done = 0;
   await forEachConcurrent(clauses, opts.concurrency ?? defaultConcurrency(), async (cl) => {
-    const keys = await classifyClauseWithLlm(cl.body, vocab, opts);
-    await tagClause(memexId, cl.id, keys, vocab);
+    try {
+      const keys = await classifyClauseWithLlm(cl.body, vocab, opts);
+      await tagClause(memexId, cl.id, keys, vocab);
+    } catch (err) {
+      // Strict contract (no handler): a clause failure aborts. Bulk contract (handler
+      // set): skip this one clause UNtagged and keep going — one bad clause never kills
+      // a long run, and the gapOnly re-run will retry it next time.
+      if (!opts.onClauseError) throw err;
+      opts.onClauseError(cl.id, err);
+    }
     done += 1;
     opts.onProgress?.(done, clauses.length);
   });
@@ -273,8 +310,20 @@ export async function backfillFacetTagsForMemex(
     allClauses.push(...cls);
   }
 
-  await classifyAndTagClauses(memexId, allClauses, vocab, opts);
-  return { standards: standardDocs.length, clauses: allClauses.length };
+  // GAP-backfill (dec-9): keep only clauses with NO existing tag row, so the one-off
+  // pre-Phase-2 run classifies the inert-window clauses without re-touching the rest.
+  let clauses = allClauses;
+  if (opts.gapOnly) {
+    const tagged = await db
+      .select({ clauseId: standardClauseFacets.clauseId })
+      .from(standardClauseFacets)
+      .where(eq(standardClauseFacets.memexId, memexId));
+    const taggedSet = new Set(tagged.map((t) => t.clauseId));
+    clauses = allClauses.filter((c) => !taggedSet.has(c.id));
+  }
+
+  await classifyAndTagClauses(memexId, clauses, vocab, opts);
+  return { standards: standardDocs.length, clauses: clauses.length };
 }
 
 /**

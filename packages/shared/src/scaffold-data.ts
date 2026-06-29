@@ -961,6 +961,10 @@ const TOOL_RATIONALES: Record<string, string> = {
     'Assign a user to a Spec — ticket-style responsibility (who is moving this Spec now). Independent of role: any active org member, including a reviewer, can be assigned, and assigning never changes a role. Idempotent; omit the user to self-assign.',
   unassign_spec:
     "Remove a user's assignment from a Spec. Idempotent and leaves the user's role untouched (assignment and role are independent axes).",
+  claim_spec:
+    "Check out a Spec for the coding thread you're in — the explicit nomination that binds this session to it so in-flow edits are attributed to it. Writes a SOFT presence marker (a courtesy 'working on this now' lock, never a hard block) and returns who else holds it. Distinct from assignment: a checkout is transient, present-tense presence, not the persistent who-owns-this axis. Idempotent; re-claiming refreshes presence.",
+  unclaim_spec:
+    "Release your checkout on a Spec — the explicit check-in. Clears your presence marker so teammates see it's free and returns the thread to the silent default. Idempotent; a no-op if you weren't holding it.",
 };
 
 const TOOLS: ToolNode[] = toolManifest.map(

@@ -45,14 +45,16 @@ export function VerifyEmail() {
   }, [token, acceptSession]);
 
   if (stage === 'success') {
-    // After verification the session is set client-side; the Continue button lands the
-    // user on /home — the universal landing (spec-312 dec-1) — skipping the apex `/`
-    // (which 301s to www.memex.ai marketing per b-9 dec-2). Fall back to the default
-    // tenant only when 'home' is hidden per-env (mirrors RootRedirect's loop-avoidance).
+    // spec-421 dec-5: the Continue button routes through /login (whose element is
+    // RootRedirect) so the onboarding-state landing decision applies. /login is a real SPA
+    // path — never the apex `/`, which 301s to www.memex.ai marketing (b-9 dec-2). A
+    // just-verified user is brand-new (no spec) so they land on /home; routing via
+    // RootRedirect keeps every post-auth entry consistent. Fall back to the default tenant
+    // only when 'home' is hidden per-env (mirrors RootRedirect's loop-avoidance).
     const landing = session
       ? isFeatureHidden(session, 'home')
         ? computeDefaultLanding(session)
-        : '/home'
+        : '/login'
       : null;
     return <VerifySuccess email={session?.user.email} landing={landing} />;
   }

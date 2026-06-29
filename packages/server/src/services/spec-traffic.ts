@@ -44,6 +44,7 @@ import { assign } from "./doc-assignees.js";
 import { promoteToEditor } from "./doc-members.js";
 import { markPresent } from "./presence.js";
 import { updateDocStatus } from "./documents.js";
+import { enforceCheckoutGate } from "./checkout-gate.js";
 // Type-only imports — erased at compile time, so no runtime cycle with
 // agent/tool-specs.ts (which imports this module's consumers).
 import type { ToolCtx, FooterSlot } from "../agent/tool-specs.js";
@@ -195,6 +196,10 @@ export async function runToolWithSpecTraffic(
       target = { memexId, docId };
     },
   };
+  // spec-371 (dec-11): enforce the checkout gate BEFORE the handler writes. A
+  // recent-colleague collision throws the agent-actionable takeover error here, so
+  // the mutation never runs; otherwise this stamps the implicit checkout/refresh.
+  await enforceCheckoutGate(spec.name, input, ctx);
   const text = await spec.handler(input, wrappedCtx);
   // Awaited (not detached) so the effects are deterministic for callers and
   // tests; observeSpecTraffic never throws.
