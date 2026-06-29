@@ -11,6 +11,7 @@
 
 import type { EmailMessage } from "./sender.js";
 import {
+  buildWelcomeEmail,
   buildVerificationEmail,
   buildMagicLinkEmail,
   buildPasswordResetEmail,
@@ -31,6 +32,7 @@ const SAMPLE_TOKEN = "SAMPLE_TOKEN_a1b2c3d4e5f6";
  * and it is instantly reachable from both the preview route and the send-test script.
  */
 export const EMAIL_PREVIEW_SAMPLES: Record<string, (to: string) => EmailMessage> = {
+  welcome: (to) => buildWelcomeEmail({ to, appUrl: BASE, firstName: "Sample" }),
   verification: (to) =>
     buildVerificationEmail({ to, verifyUrl: sampleUrl(`/verify-email?token=${SAMPLE_TOKEN}`) }),
   "magic-link": (to) =>
