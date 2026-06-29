@@ -138,3 +138,27 @@ describe('CreateSpecStep — spec-372 issue-19 connected-card state', () => {
     expect(stage.className).toContain('transition-all'); // animated change
   });
 });
+
+// spec-421 issue-4 (Frederic Zingg, via Slack) — users paste the install command and
+// expect the box to tick immediately; it only ticks once the agent first connects. The
+// not-connected card must spell out when the step completes.
+describe('CreateSpecStep — spec-421 issue-4: clarify when the step ticks', () => {
+  it('shows a hint that the card ticks when the agent first connects, not on paste', () => {
+    tagAc(AC421(27));
+    render(<CreateSpecStep preview />);
+    const hint = screen.getByTestId('connect-tick-hint');
+    const text = hint.textContent?.toLowerCase() ?? '';
+    expect(text).toContain('connects'); // tells the user the tick is gated on the agent connecting
+    expect(text).toContain('agent'); // names what they must launch
+  });
+
+  it('hides the tick hint once connected', async () => {
+    tagAc(AC421(27));
+    vi.useFakeTimers();
+    fetchJourneyStateApi.mockResolvedValue({ milestones: { mcpConnected: true } });
+    render(<CreateSpecStep />);
+    await vi.advanceTimersByTimeAsync(0); // first read — init branch sets connected
+    await vi.advanceTimersByTimeAsync(4000); // settle the re-render
+    expect(screen.queryByTestId('connect-tick-hint')).toBeNull();
+  });
+});

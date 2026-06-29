@@ -172,6 +172,15 @@ export function CreateSpecStep({
             <div data-testid="connect-instructions">
               <Instructions tool={tool} os={os} onCopy={() => onCtaClick?.('copy_install')} />
             </div>
+            {/* spec-421 issue-4 — make it clear the step doesn't tick on paste: it ticks the
+                first time the agent actually connects (Frederic Zingg, via Slack). */}
+            <div className="mt-4 flex items-start gap-2 text-sm text-muted" data-testid="connect-tick-hint">
+              <span className="mt-0.5 h-2 w-2 flex-none animate-pulse rounded-full bg-accent" aria-hidden />
+              <span>
+                Run the command, then start your coding agent — this step ticks the first time your agent
+                connects, not when you copy the command.
+              </span>
+            </div>
           </>
         )}
       </section>
