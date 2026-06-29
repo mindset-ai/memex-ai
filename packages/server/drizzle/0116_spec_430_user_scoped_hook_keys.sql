@@ -1,0 +1,11 @@
+-- spec-430 dec-1: the mxh_ hook key becomes USER-scoped, not per-memex. A checkout
+-- phone-home write is now authorized when the key's creator is an ACTIVE member of
+-- the org owning the spec named in the request (membership + RLS, std-36), so a
+-- personal -> org graduation needs no new key and no new sign-in (ac-5).
+--
+-- New keys are minted with memex_id NULL (user-scoped). Existing per-memex rows keep
+-- their memex_id and continue to work — their creator is a member of that memex's
+-- org, so they still authorize there; the route additionally pins a non-null
+-- memex_id to its own memex (back-compat). Hand-written additive ALTER (idempotent),
+-- same mechanism as 0115_spec_371_checkout_columns.
+ALTER TABLE "memex_hook_keys" ALTER COLUMN "memex_id" DROP NOT NULL;

@@ -23,6 +23,8 @@ import { db, runWithMemexId } from "../db/connection.js";
 import { documents } from "../db/schema.js";
 import { verifyHookKey, bumpHookKeyLastUsed } from "../services/hook-keys.js";
 import { resolveMemexId } from "../services/emission-keys.js";
+import { getOrgIdForMemex } from "../services/memexes.js";
+import { isActiveOrgMember } from "../services/org-memberships.js";
 import { recordCheckoutEdit } from "../services/spec-checkout.js";
 import { setCheckoutThread } from "../services/checkout.js";
 
@@ -97,9 +99,19 @@ specCheckoutRouter.post("/", async (c) => {
   // Not a spec ref → fail quiet, record nothing (std-7). Never an error.
   if (!parsed) return c.json({ recorded: false, reason: "not_a_spec_ref" }, 200);
 
-  // The key only authorises its OWN Memex — mirror the test-events cross-tenant guard.
+  // Authorize by MEMBERSHIP (spec-430 dec-1): a user-scoped key (memexId NULL) writes
+  // for ANY memex its creator is an active member of, so a personal->org graduation
+  // needs no new key (ac-5). A legacy per-memex key (memexId set) is additionally
+  // pinned to its own memex. Tenant isolation is membership + RLS, not key
+  // granularity. These lookups read the CONTROL PLANE (memexes/orgs/org_memberships),
+  // not RLS-tenant tables, so they run correctly before the runWithMemexId wrap below.
   const memexId = await resolveMemexId(parsed.namespace, parsed.memexSlug);
-  if (!memexId || memexId !== hookKey.memexId) {
+  const actorUserId = hookKey.createdByUserId ?? null;
+  const scopeOk = hookKey.memexId === null || hookKey.memexId === memexId;
+  const orgId = memexId ? await getOrgIdForMemex(memexId) : null;
+  const authorized =
+    !!memexId && scopeOk && !!actorUserId && !!orgId && (await isActiveOrgMember(actorUserId, orgId));
+  if (!authorized) {
     return c.json(
       {
         error: "unauthorized",
@@ -138,7 +150,6 @@ specCheckoutRouter.post("/", async (c) => {
       .limit(1);
     if (!doc) return c.json({ recorded: false, reason: "spec_not_found" }, 200);
 
-    const actorUserId = hookKey.createdByUserId ?? null;
     await recordCheckoutEdit({
       memexId,
       docId: doc.id,

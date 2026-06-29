@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
 import { tagAc } from "@memex-ai-ac/vitest";
-import { makeTestMemex } from "./test-helpers.js";
 import { upsertUserByEmail } from "./users.js";
 import {
   mintHookKey,
@@ -15,29 +14,29 @@ import {
 const AC_14 = "mindset-prod/memex-building-itself/specs/spec-371/acs/ac-14";
 
 describe("hook-keys: mint / verify / revoke (spec-371 ac-14)", () => {
-  it("mint → verify round-trips to the same unrevoked row, scoped to its memex", async () => {
+  it("mint → verify round-trips to the same unrevoked row; the key is USER-scoped (memexId null, spec-430 dec-1)", async () => {
     tagAc(AC_14);
-    const memexId = await makeTestMemex("hk");
     const user = await upsertUserByEmail("dev@memex.ai");
 
-    const minted = await mintHookKey(memexId, "spec-371 install", user.id);
+    const minted = await mintHookKey("spec-371 install", user.id);
     expect(minted.raw.startsWith("mxh_")).toBe(true);
-    expect(minted.row.memexId).toBe(memexId);
+    // spec-430 dec-1: minted keys are user-scoped — no home memex on the row.
+    expect(minted.row.memexId).toBeNull();
+    expect(minted.row.createdByUserId).toBe(user.id);
 
     const found = await verifyHookKey(minted.raw);
     expect(found?.id).toBe(minted.row.id);
-    expect(found?.memexId).toBe(memexId);
+    expect(found?.memexId).toBeNull();
     expect(found?.revokedAt).toBeNull();
   });
 
-  it("a revoked key never verifies again", async () => {
+  it("a revoked key never verifies again (owner-scoped revoke, spec-430 dec-1)", async () => {
     tagAc(AC_14);
-    const memexId = await makeTestMemex("hk");
     const user = await upsertUserByEmail("dev@memex.ai");
-    const minted = await mintHookKey(memexId, "to-revoke", user.id);
+    const minted = await mintHookKey("to-revoke", user.id);
 
     expect(await verifyHookKey(minted.raw)).not.toBeNull();
-    const revoked = await revokeHookKey(minted.row.id, memexId);
+    const revoked = await revokeHookKey(minted.row.id, user.id);
     expect(revoked?.id).toBe(minted.row.id);
     expect(await verifyHookKey(minted.raw)).toBeNull();
   });

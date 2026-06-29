@@ -7,24 +7,25 @@ import { dirname, resolve } from "node:path";
 // spec-371 t-5 / t-6 — the plugin IS the installer: one Claude Code plugin that
 // bundles the Memex MCP server + the checkout hooks, distributed from a committed
 // marketplace (dec-9), NOT by hand-planting into ~/.claude/settings.json.
-const AC_15 = "mindset-prod/memex-building-itself/specs/spec-371/acs/ac-15"; // single plugin bundles hooks + MCP + tools
+const AC_15 = "mindset-prod/memex-building-itself/specs/spec-371/acs/ac-15"; // single Claude Code plugin; no per-vendor adapter
 const AC_17 = "mindset-prod/memex-building-itself/specs/spec-371/acs/ac-17"; // marketplace install; settings-planting retired
 const AC_8 = "mindset-prod/memex-building-itself/specs/spec-371/acs/ac-8"; // install transparency / no residue
+const AC_6_430 = "mindset-prod/memex-building-itself/specs/spec-430/acs/ac-6"; // exactly one Memex MCP toolset (plugin is hooks-only)
 
 const here = dirname(fileURLToPath(import.meta.url));
 const pluginRoot = resolve(here, "../plugin");
 const repoRoot = resolve(here, "../../..");
 const readJson = (p) => JSON.parse(readFileSync(p, "utf8"));
 
-describe("plugin bundle: MCP + hooks as one unit (spec-371 ac-15)", () => {
-  it("the plugin manifest bundles the Memex remote MCP server", () => {
-    tagAc(AC_15);
+describe("plugin bundle: hooks-only — the CLI plants the MCP (spec-430 dec-2/dec-4)", () => {
+  it("the plugin manifest declares NO MCP server — it is hooks-only (spec-430 ac-6)", () => {
+    tagAc(AC_6_430);
+    // spec-430 dec-2/dec-4 supersedes spec-371's MCP-bundling plugin: a single
+    // device-flow sign-in plants the mxt_ MCP via `npx memex-ai install`, so the
+    // plugin must NOT also declare an MCP — otherwise the two coexist as duplicate
+    // toolsets AND the plugin's OAuth MCP re-introduces a second sign-in.
     const manifest = readJson(resolve(pluginRoot, ".claude-plugin/plugin.json"));
-    expect(manifest.mcpServers?.memex).toBeTruthy();
-    // Remote Streamable-HTTP server — the same transport the CLI installer plants
-    // for Claude Code (lib/config-paths.js: { type:'http', url, headers }).
-    expect(manifest.mcpServers.memex.type).toBe("http");
-    expect(manifest.mcpServers.memex.url).toBe("https://memex.ai/mcp");
+    expect(manifest.mcpServers).toBeUndefined();
   });
 
   it("the plugin still declares both checkout hooks (marker-write + edit-phonehome)", () => {
@@ -55,12 +56,12 @@ describe("plugin bundle: MCP + hooks as one unit (spec-371 ac-15)", () => {
     expect(re.test("mcp__plugin_memex-checkout_memex__claim_spec")).toBe(true);
   });
 
-  it("the bundled MCP entry bakes NO per-user token (OAuth runs on enable)", () => {
-    tagAc(AC_15);
-    // A committed file must never carry a per-user bearer token; the server's
-    // OAuth flow (app.ts WWW-Authenticate discovery) authenticates on enable.
+  it("no committed token risk — the manifest carries no mcpServers block at all", () => {
+    tagAc(AC_6_430);
+    // With the MCP planted by the CLI (not bundled), there is no committed MCP entry
+    // that could ever carry a per-user bearer token.
     const manifest = readJson(resolve(pluginRoot, ".claude-plugin/plugin.json"));
-    expect(manifest.mcpServers.memex.headers).toBeUndefined();
+    expect("mcpServers" in manifest).toBe(false);
   });
 });
 

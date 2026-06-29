@@ -21,18 +21,30 @@ Memex hosts our Specs — living plans that capture a piece of work's purpose, i
 - Reference items by handle: spec-N, dec-N, t-N, ac-N.`;
 
 export function buildClaudeCodePrompt(mcpUrl: string): string {
-  return `Set up Memex in this repo:
+  // spec-430 dec-2/dec-4 (supersedes spec-201's `claude mcp add` for Claude Code):
+  // the unified `npx memex-ai install` plants the MCP token AND mints the single
+  // per-user checkout key off ONE browser sign-in; the hooks-only spec-checkout
+  // plugin is then added with `claude plugin …`. This flow is CLAUDE-CODE-ONLY — the
+  // plugin does not work in Cursor (buildCursorPrompt stays MCP-only, no plugin).
+  const apiBase = mcpUrl.replace(/\/mcp$/, '');
+  const apiBaseFlag = apiBase === 'https://memex.ai' ? '' : ` --api-base ${apiBase}`;
+  return `Set up Memex in this repo for me, and explain each step as you run it:
 
-1. Register the Memex MCP server:
-   claude mcp add --transport http memex ${mcpUrl}
-   Then complete the browser sign-in if you're prompted to authorize.
+1. Install the Memex MCP server + your checkout key (ONE browser sign-in):
+   npx -y memex-ai install${apiBaseFlag}
 
-2. Add the following to this project's CLAUDE.md (create the file if it doesn't
+2. Install the spec-checkout plugin (the in-flow edit hooks):
+   claude plugin marketplace add mindset-ai/memex-ai
+   claude plugin install memex-checkout@memex
+
+3. Then tell me to reload the window — the hooks load at session start.
+
+4. Add the following to this project's CLAUDE.md (create the file if it doesn't
    exist; if a "Using Memex" section is already there, leave it):
 
 ${MEMEX_USAGE_GUIDANCE}
 
-Then confirm both steps are done and that calling \`list_memexes\` works.`;
+If a step is already done, say so and skip it; never ask me to paste a key by hand. Then confirm \`list_memexes\` works.`;
 }
 
 export function buildCursorPrompt(mcpUrl: string): string {

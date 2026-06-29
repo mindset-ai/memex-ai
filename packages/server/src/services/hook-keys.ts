@@ -41,24 +41,26 @@ export interface MintedHookKey {
   row: MemexHookKey;
 }
 
-// Mint a scoped hook key for a Memex. `createdByUserId` records the minting member
-// (the plugin-install path passes the authenticated user). Returns the RAW key
-// exactly once — only the SHA-256 hash + prefix are persisted, so the raw value
-// cannot be recovered afterwards.
+// Mint a USER-scoped hook key (spec-430 dec-1 / dec-3). The minted row has
+// `memexId: null` — it authorizes a checkout write for ANY memex its creator is an
+// active member of, so a personal->org graduation needs no new key. `createdByUserId`
+// is the scoping identity (the authenticated user the user-level mint endpoint
+// resolved). There is NO memex anywhere: the reactivity emit fires non-scoped
+// (memexId ""), mirroring bumpHookKeyLastUsed. Returns the RAW key exactly once — only
+// the SHA-256 hash + prefix are persisted, so the raw value cannot be recovered after.
 export async function mintHookKey(
-  memexId: string,
   name: string,
   createdByUserId: string,
 ): Promise<Mutated<MintedHookKey>> {
   const raw = generateRawHookKey();
   return mutate(
     {},
-    { memexId, userId: createdByUserId, entity: HOOK_KEY_ENTITY, action: "created" },
+    { memexId: "", userId: createdByUserId, entity: HOOK_KEY_ENTITY, action: "created" },
     async () => {
       const [row] = await db
         .insert(memexHookKeys)
         .values({
-          memexId,
+          memexId: null, // user-scoped (spec-430 dec-1); authz is by membership, not key granularity
           name,
           hashedKey: hashHookKey(raw),
           prefix: hookKeyDisplayPrefix(raw),
@@ -102,30 +104,33 @@ export function bumpHookKeyLastUsed(keyId: string): void {
 }
 
 // Soft-revoke (sets revokedAt, never deletes) so the audit trail and sibling keys
-// survive. Scoped to the owning Memex. Returns the updated row, or null when no
-// row matches.
+// survive. Scoped to the OWNER (spec-430 dec-1): keys are user-scoped (memexId NULL),
+// so a member revokes their own key by id + createdByUserId — a memex scope can no
+// longer match a user-scoped row. Returns the updated row, or null when no row
+// matches (wrong id, or not the caller's key).
 export async function revokeHookKey(
   keyId: string,
-  memexId: string,
+  ownerUserId: string,
 ): Promise<Mutated<MemexHookKey | null>> {
   return mutate(
     {},
-    { memexId, entity: HOOK_KEY_ENTITY, action: "deleted" },
+    { memexId: "", userId: ownerUserId, entity: HOOK_KEY_ENTITY, action: "deleted" },
     async () => {
       const [row] = await db
         .update(memexHookKeys)
         .set({ revokedAt: sql`now()` })
-        .where(and(eq(memexHookKeys.id, keyId), eq(memexHookKeys.memexId, memexId)))
+        .where(and(eq(memexHookKeys.id, keyId), eq(memexHookKeys.createdByUserId, ownerUserId)))
         .returning();
       return row ?? null;
     },
   );
 }
 
-// Every key on the Memex, newest first (the future settings list).
-export async function listHookKeysForMemex(memexId: string): Promise<MemexHookKey[]> {
+// Every key a USER owns, newest first (spec-430 dec-3 — keys are user-scoped, so the
+// settings list is per user, never per memex).
+export async function listHookKeysForUser(userId: string): Promise<MemexHookKey[]> {
   return db.query.memexHookKeys.findMany({
-    where: eq(memexHookKeys.memexId, memexId),
+    where: eq(memexHookKeys.createdByUserId, userId),
     orderBy: [desc(memexHookKeys.createdAt)],
   });
 }
