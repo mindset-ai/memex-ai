@@ -30,6 +30,19 @@ const INSTALL_COMMAND = `npx -y memex-ai install${INSTALL_API_BASE_FLAG}`;
 const PLUGIN_COMMANDS = `claude plugin marketplace add mindset-ai/memex-ai
 claude plugin install memex-checkout@memex`;
 
+// spec-430 dec-4: the agent-guided install is the PRINCIPAL Claude Code path. The
+// user pastes THIS one prompt into a Claude Code session and the agent runs every
+// step itself — pausing only for the single browser sign-in. Step 1 reuses
+// INSTALL_COMMAND so its `--api-base` stays correct per environment. The manual
+// commands remain below as the run-it-yourself fallback.
+const INSTALL_PROMPT = `Set up Memex in this session. Run each step yourself, explain it in one line, and pause for me when a browser sign-in opens:
+
+1. \`${INSTALL_COMMAND}\`. One sign-in that writes the Memex MCP server into my Claude config and mints my checkout key.
+2. \`claude plugin marketplace add mindset-ai/memex-ai\`
+3. \`claude plugin install memex-checkout@memex\`
+
+Then tell me to reload the window so the hooks load. If a step errors, show me the error and what to do, and never ask me to paste a key by hand.`;
+
 // spec-201 dec-4: the canonical MCP endpoint, shared by the claude.ai web and
 // Cursor connect steps below. Same derivation as the manual configs.
 const MCP_URL = `${installBase}/mcp`;
@@ -60,6 +73,17 @@ const VSCODE_CONFIG = `{
 
 export function CliInstallSection() {
   const [showFallback, setShowFallback] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const copyInstallPrompt = async () => {
+    try {
+      await navigator.clipboard.writeText(INSTALL_PROMPT);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    } catch {
+      /* clipboard unavailable — no-op */
+    }
+  };
 
   return (
     <section id="install-cli" aria-labelledby="install-cli-heading">
@@ -74,9 +98,26 @@ export function CliInstallSection() {
           mints the per-user checkout key; the hooks-only plugin is Claude-Code-only. */}
       <div className="mb-10">
         <h3 className="text-base font-medium mb-3 text-heading">Claude Code</h3>
+
+        {/* spec-430 dec-4: the PRINCIPAL path — let Claude Code drive the install. */}
         <p className="text-sm mb-3 text-secondary">
-          Paste this into your terminal. One browser sign-in plants the Memex MCP token{' '}
-          <strong>and</strong> mints your single per-user checkout key — no second sign-in,
+          The easiest way is to let Claude Code install everything for you. Copy this prompt,
+          paste it into a Claude Code session, and the agent runs the whole setup (the MCP
+          server, your checkout key, and the spec-checkout plugin), pausing only for the one
+          browser sign-in.
+        </p>
+        <button
+          type="button"
+          onClick={copyInstallPrompt}
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-sm text-sm font-medium bg-btn-primary text-white hover:opacity-90 transition-opacity"
+        >
+          {copied ? '✓ Copied, now paste it into Claude Code' : 'Copy install prompt for Claude Code'}
+        </button>
+
+        {/* Fallback: run the commands yourself. */}
+        <p className="text-sm mb-3 mt-8 text-secondary">
+          Prefer to run the commands yourself? One browser sign-in plants the Memex MCP token{' '}
+          <strong>and</strong> mints your single per-user checkout key. No second sign-in,
           no per-memex keys, nothing pasted by hand:
         </p>
         <CodeBlock code={INSTALL_COMMAND} />
