@@ -20,6 +20,7 @@ import {
   getUserById,
   listMemberships,
   listMembershipsMatchingDomain,
+  listEmptyOrgs,
 } from "./users.js";
 
 const createdUserIds: string[] = [];
@@ -189,5 +190,57 @@ describe("listMemberships / listMembershipsMatchingDomain", () => {
 
     const matches = await listMembershipsMatchingDomain(user.id, "IVY.COM");
     expect(matches).toHaveLength(1);
+  });
+});
+
+// spec-431: orgs with no Memex were invisible in the switcher because
+// listMemberships uses an INNER JOIN on memexes. listEmptyOrgs surfaces them.
+describe("listEmptyOrgs", () => {
+  // Seed an org namespace WITHOUT a memex (unlike seedMemexTuple which always
+  // creates one). Returns { org, namespace }.
+  async function seedEmptyOrg(opts: { name: string; slug: string }) {
+    const [ns] = await db.insert(namespaces).values({ slug: opts.slug, kind: "org" }).returning();
+    const [org] = await db
+      .insert(orgs)
+      .values({ namespaceId: ns.id, name: opts.name, emailDomains: [] })
+      .returning();
+    await db.update(namespaces).set({ ownerOrgId: org.id }).where(eq(namespaces.id, ns.id));
+    return { org, namespace: ns };
+  }
+
+  it("returns the org when the user is a member and it has no Memexes", async () => {
+    const user = await upsertUserByEmail(uniqueEmail("empty-org-a"));
+    createdUserIds.push(user.id);
+
+    const { org } = await seedEmptyOrg({ name: "Empty Co", slug: uniqueSubdomain("emptyco") });
+
+    await db.insert(orgMemberships).values({ userId: user.id, orgId: org.id, role: "administrator" });
+
+    const result = await listEmptyOrgs(user.id);
+    const match = result.find((r) => r.orgId === org.id);
+    expect(match).toBeDefined();
+    expect(match!.name).toBe("Empty Co");
+    expect(match!.role).toBe("administrator");
+  });
+
+  it("does NOT return an org that already has a Memex", async () => {
+    const user = await upsertUserByEmail(uniqueEmail("empty-org-b"));
+    createdUserIds.push(user.id);
+
+    const { memex, org } = await seedMemexTuple({ name: "Full Co", slug: uniqueSubdomain("fullco") });
+    createdAccountIds.push(memex.id);
+
+    await db.insert(orgMemberships).values({ userId: user.id, orgId: org.id, role: "member" });
+
+    const result = await listEmptyOrgs(user.id);
+    expect(result.find((r) => r.orgId === org.id)).toBeUndefined();
+  });
+
+  it("returns empty array when user has no org memberships", async () => {
+    const user = await upsertUserByEmail(uniqueEmail("empty-org-c"));
+    createdUserIds.push(user.id);
+
+    const result = await listEmptyOrgs(user.id);
+    expect(result).toHaveLength(0);
   });
 });

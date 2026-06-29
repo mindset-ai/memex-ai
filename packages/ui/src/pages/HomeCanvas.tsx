@@ -358,7 +358,7 @@ export function HomeCanvas() {
             {/* Header — static (spec-372 issue-8 removed the collapse/expand toggle + chevron). */}
             <div className="flex flex-wrap items-center gap-3 rounded-xl border-b border-edge px-2 pb-4 pt-1">
               {/* spec-372 issue-7 — title is black (not the global accent blue) and medium weight. */}
-              <h2 data-testid="getting-started-title" className="whitespace-nowrap text-lg font-medium text-black">
+              <h2 data-testid="getting-started-title" className="whitespace-nowrap text-lg font-medium text-foreground">
                 Getting started on Memex
               </h2>
               <div className="ml-auto flex items-center gap-3">

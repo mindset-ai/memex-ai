@@ -334,12 +334,12 @@ describe('HomeCanvas v2 — tracker is always expanded (spec-372 issue-8)', () =
     expect(screen.getByTestId('journey-content')).toBeInTheDocument();
   });
 
-  it('spec-372 issue-7: the tracker title is black and medium weight (not blue, not bold)', async () => {
+  it('spec-372 issue-7: the tracker title is theme-aware and medium weight (not blue, not bold)', async () => {
     tagAc(AC372(48));
     fetchJourneyStateApi.mockResolvedValue(stateFor('create-spec', { attained: ['identity'] }));
     renderCanvas();
     const title = await screen.findByTestId('getting-started-title');
-    expect(title.className).toContain('text-black');
+    expect(title.className).toContain('text-foreground');
     expect(title.className).toContain('font-medium');
     expect(title.className).not.toContain('text-[#0482DC]');
     expect(title.className).not.toContain('font-bold');
