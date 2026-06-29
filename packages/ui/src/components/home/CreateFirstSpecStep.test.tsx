@@ -122,6 +122,17 @@ describe('CreateFirstSpecStep — spec-421 step 3', () => {
     expect(badge.className).toContain('rounded-full');
   });
 
+  it('ac-26: the content-area subtitle is the create-spec copy, not the MCP-step subtitle (issue-3)', () => {
+    // issue-3 — the content panel duplicated the "Connect to the Memex MCP" subtitle.
+    // The create-spec step must show its own subtitle and NOT the MCP one.
+    tagAc(AC421(26));
+    const { container } = render(<CreateFirstSpecStep preview />);
+    expect(container.textContent).toContain(
+      'Draft your first spec with your coding agent, or create it here in the app.',
+    );
+    expect(container.textContent).not.toContain('Get the full magic of Memex by connecting to the MCP');
+  });
+
   it('ac-11: no method selector or starting-point selector', () => {
     tagAc(AC421(11));
     render(<CreateFirstSpecStep preview />);
