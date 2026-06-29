@@ -12,8 +12,6 @@ const BRAND_CORAL = "#FC4F64";
 const BRAND_SKY = "#0C9FE3";
 const BRAND_MUTED = "#6B7280";
 const BRAND_BORDER = "#E5E7EB";
-const BRAND_LINK = "#CA1A73";
-const CTA_GRADIENT = "linear-gradient(135deg, #CA1A73 0%, #FC4F64 100%)";
 const FONT_STACK =
   "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
 const MONO_STACK = "'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace";
@@ -77,19 +75,18 @@ function renderEmailHtml(input: RenderInput): string {
         <td align="center" style="padding:40px 16px;">
           <table role="presentation" width="560" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;width:100%;background-color:#FFFFFF;border:1px solid ${BRAND_BORDER};border-radius:12px;overflow:hidden;">
             <tr>
-              <td width="4" style="width:4px;background:${CTA_GRADIENT};font-size:0;line-height:0;">&nbsp;</td>
               <td style="padding:32px 40px;">
                 <div style="font-size:20px;font-weight:700;letter-spacing:-0.01em;color:${BRAND_INK};">Memex<span style="font-weight:500;color:${BRAND_CORAL};">.AI</span></div>
-                <div style="margin:28px 0 10px;font-family:${MONO_STACK};font-size:11px;font-weight:600;letter-spacing:0.14em;text-transform:uppercase;color:${BRAND_SKY};">${escapeHtml(input.eyebrow)}</div>
+                <div style="margin:28px 0 10px;font-family:${MONO_STACK};font-size:11px;font-weight:600;letter-spacing:0.14em;color:${BRAND_SKY};">${escapeHtml(input.eyebrow)}</div>
                 <h1 style="margin:0 0 16px;color:${BRAND_INK};font-size:22px;line-height:1.3;font-weight:600;letter-spacing:-0.01em;">${escapeHtml(input.heading)}</h1>
                 ${paragraphs}
                 <div style="margin:24px 0 8px;">
-                  <a href="${safeUrl}" style="display:inline-block;padding:12px 24px;background:${CTA_GRADIENT};color:#FFFFFF;font-size:15px;font-weight:600;text-decoration:none;border-radius:8px;">${escapeHtml(input.ctaLabel)}</a>
+                  <a href="${safeUrl}" style="display:inline-block;padding:12px 24px;background:${BRAND_INK};color:#FFFFFF;font-size:15px;font-weight:600;text-decoration:none;border-radius:8px;">${escapeHtml(input.ctaLabel)}</a>
                 </div>
-                <p style="margin:16px 0 0;color:${BRAND_MUTED};font-size:13px;line-height:1.5;">Or paste this link into your browser:<br><a href="${safeUrl}" style="color:${BRAND_LINK};word-break:break-all;">${safeUrl}</a></p>
+                <p style="margin:16px 0 0;color:${BRAND_MUTED};font-size:13px;line-height:1.5;">Or paste this link into your browser:<br><a href="${safeUrl}" style="color:${BRAND_SKY};word-break:break-all;">${safeUrl}</a></p>
                 <div style="margin:28px 0 0;padding-top:20px;border-top:1px solid ${BRAND_BORDER};">
                   <p style="margin:0;color:${BRAND_MUTED};font-size:12px;line-height:1.5;">${escapeHtml(input.footerNote)}</p>
-                  <p style="margin:8px 0 0;color:${BRAND_MUTED};font-size:12px;line-height:1.5;">— Memex<span style="color:${BRAND_CORAL};">.AI</span> · <a href="https://memex.ai" style="color:${BRAND_MUTED};">memex.ai</a></p>
+                  <p style="margin:8px 0 0;color:${BRAND_MUTED};font-size:12px;line-height:1.5;"><a href="https://memex.ai" style="color:${BRAND_MUTED};">memex.ai</a></p>
                 </div>
               </td>
             </tr>
