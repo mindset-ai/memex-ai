@@ -153,7 +153,7 @@ export const tasksTools: ToolSpec[] = [
         })
         .optional()
         .describe(
-          "The facets this work touches (dec-5). A complete verdict over the Memex's facet vocabulary; the response hands back the governing standards to keep top-of-mind.",
+          "The facets this work touches: a complete verdict over the Memex's facet vocabulary, which surfaces the standards governing that work so they stay top-of-mind. First call the `facets` tool (verb:'list') to read the vocabulary, then pass a true/false verdict for EVERY facet, or none:true for honest no-facet work.",
         ),
       verbose: VERBOSE_FIELD,
     },
@@ -173,10 +173,15 @@ export const tasksTools: ToolSpec[] = [
         );
       }
       const { memexId, doc, slugs } = resolved;
-      // Validate the ballot BEFORE creating the task, so a rejected ballot (re-handing
-      // the vocabulary) never leaves an orphan task behind (dec-5).
+      // FACET BALLOT — OPTIONAL (relaxed from spec-423 dec-5's forced ballot). A client
+      // on an OLDER tool signature — no facetBallot param (e.g. an MCP client that hasn't
+      // reloaded since the facets release) — must NOT hit an error. So: ABSENT ballot →
+      // create the task WITHOUT facet adjudication; PROVIDED ballot → validate strictly
+      // BEFORE creating (re-hand the vocabulary on an invalid one, so no orphan task is
+      // left behind) and store it. Re-tightening to a forced ballot is a later step.
+      const hasBallot = input.facetBallot !== undefined;
       const ballot = parseBallotArg(input.facetBallot);
-      const vocab = await validateBallotForMemex(memexId, ballot);
+      const vocab = hasBallot ? await validateBallotForMemex(memexId, ballot) : [];
       const task = await createTask(
         memexId,
         doc.id,
@@ -187,19 +192,21 @@ export const tasksTools: ToolSpec[] = [
         reqCtx(ctx),
       );
       const taskRef = buildChildRef(slugs, doc, { type: "tasks", seq: task.seq });
-      // Store the ballot, route + rank its facets, log the decision, and append the
-      // top-K governing-standards readout — the payoff (dec-1/dec-2/dec-4).
-      const readout = await storeRouteAndReadout({
-        memexId,
-        specDocId: doc.id,
-        noun: "task",
-        rowId: task.id,
-        ownerRef: taskRef,
-        queryText: `${title}\n${description}`,
-        ballot,
-        vocab,
-        ctx: reqCtx(ctx),
-      });
+      // Store + route the ballot only when one was provided (the top-K governing-standards
+      // readout is its payoff); an absent ballot contributes no facet routing.
+      const readout = hasBallot
+        ? await storeRouteAndReadout({
+            memexId,
+            specDocId: doc.id,
+            noun: "task",
+            rowId: task.id,
+            ownerRef: taskRef,
+            queryText: `${title}\n${description}`,
+            ballot,
+            vocab,
+            ctx: reqCtx(ctx),
+          })
+        : "";
       if (ctx.verbose) {
         const state = await fullDocState(memexId, doc.id);
         const url = await ctx.workspaceUrl(memexId);
