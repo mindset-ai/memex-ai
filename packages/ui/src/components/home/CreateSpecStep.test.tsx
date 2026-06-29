@@ -9,15 +9,35 @@ const fetchJourneyStateApi = vi.hoisted(() => vi.fn());
 vi.mock('../../api/journey', () => ({ fetchJourneyStateApi }));
 
 import { CreateSpecStep } from './CreateSpecStep';
+import { setCachedJourneyState, resetCachedJourneyState } from '../../journeys/journeyStateCache';
 const AC372 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-372/acs/ac-${n}`;
 const AC421 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-421/acs/ac-${n}`;
 
 beforeEach(() => {
   fetchJourneyStateApi.mockReset();
   fetchJourneyStateApi.mockResolvedValue({ milestones: { mcpConnected: false } });
+  resetCachedJourneyState();
 });
 afterEach(() => {
   vi.useRealTimers();
+});
+
+// spec-421 issue-2 — same before-draw fix as CreateFirstSpecStep: a revisiting user who has
+// already connected MCP must see the "Connected" card on first paint, not the connect card
+// flipping to connected after an after-mount fetch.
+describe('CreateSpecStep — assess connected before draw (spec-421 issue-2)', () => {
+  it('a revisiting user (mcpConnected, cached assessment) sees the Connected card on the FIRST render (ac-21, ac-22)', () => {
+    tagAc(AC421(21));
+    tagAc(AC421(22));
+    setCachedJourneyState({ milestones: { mcpConnected: true } } as never);
+
+    render(<CreateSpecStep onComplete={vi.fn()} />);
+
+    // Synchronous first render — no await: the connected done-badge (rendered only when
+    // `connected` is true) is present immediately, never the not-connected→connected flip.
+    expect(screen.getByTestId('create-spec-connected')).toBeInTheDocument();
+    expect(screen.getByText('Connected to the Memex MCP')).toBeInTheDocument();
+  });
 });
 
 describe('CreateSpecStep — spec-421: MCP connect only, completes on mcpConnected', () => {

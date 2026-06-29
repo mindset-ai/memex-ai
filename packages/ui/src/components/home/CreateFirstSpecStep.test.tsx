@@ -13,15 +13,43 @@ const fetchJourneyStateApi = vi.hoisted(() => vi.fn());
 vi.mock('../../api/journey', () => ({ fetchJourneyStateApi }));
 
 import { CreateFirstSpecStep } from './CreateFirstSpecStep';
+import { setCachedJourneyState, resetCachedJourneyState } from '../../journeys/journeyStateCache';
 
 const AC421 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-421/acs/ac-${n}`;
 
 beforeEach(() => {
   fetchJourneyStateApi.mockReset();
   fetchJourneyStateApi.mockResolvedValue({ milestones: { hasSpec: false } });
+  resetCachedJourneyState();
 });
 afterEach(() => {
   vi.useRealTimers();
+});
+
+// spec-421 issue-2 — the in-Home flicker was the content panel, not the rail: `done` started
+// false and flipped true after an after-mount journey-state fetch ("Create" → "Created").
+// With the shared assessment warm, a revisiting user must see the DONE state on first paint.
+describe('CreateFirstSpecStep — assess done before draw (spec-421 issue-2)', () => {
+  it('a revisiting user (hasSpec, cached assessment) sees "Created" on the FIRST render — no Create→Created flip (ac-21, ac-22)', () => {
+    tagAc(AC421(21));
+    tagAc(AC421(22));
+    setCachedJourneyState({ milestones: { hasSpec: true } } as never);
+
+    render(<CreateFirstSpecStep onComplete={vi.fn()} />);
+
+    // Synchronous first render — no await: already the done state, never the "Create" card.
+    expect(screen.getByRole('heading', { level: 2 }).textContent).toMatch(/Created your first spec/);
+    expect(screen.getByTestId('create-first-spec-done')).toBeInTheDocument();
+    expect(screen.queryByTestId('create-first-spec-btn')).toBeNull();
+    expect(screen.queryByTestId('create-first-spec-status')).toBeNull();
+  });
+
+  it('with no cached assessment the first paint is unchanged (not-done) — cold path preserved (ac-23)', () => {
+    tagAc(AC421(23));
+    render(<CreateFirstSpecStep onComplete={vi.fn()} />);
+    expect(screen.getByRole('heading', { level: 2 }).textContent).toMatch(/^Create your first spec/);
+    expect(screen.queryByTestId('create-first-spec-done')).toBeNull();
+  });
 });
 
 describe('CreateFirstSpecStep — spec-421 step 3', () => {

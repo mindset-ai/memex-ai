@@ -93,4 +93,9 @@ test(TITLE, async ({ page }) => {
     "data-attained",
     "true",
   );
+  // NB: the content panel's step component (its own Create→Created / Connect→Connected
+  // done-flip — the real flicker site) is proven seeded-before-draw at the unit level
+  // (CreateFirstSpecStep / CreateSpecStep tests). Which step shows here depends on the
+  // user's milestone profile (this fixture has a spec but no MCP, so the displayed step is
+  // the genuinely-not-connected create-spec), so the content-done assertion lives in units.
 });
