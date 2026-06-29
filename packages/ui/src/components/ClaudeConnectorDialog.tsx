@@ -109,7 +109,8 @@ export function ClaudeConnectorDialog({ connectorUrl, onClose }: ClaudeConnector
           </div>
 
           <ol className="list-decimal pl-5 space-y-1.5 text-sm text-secondary">
-            <li>Open <span className="text-primary">Claude → Settings → Connectors</span>.</li>
+            <li>Open <span className="text-primary">Claude → Customize → Connectors</span>.</li>
+            <li>Click the <span className="text-primary">+</span> next to Connectors.</li>
             <li>Click <span className="text-primary">Add custom connector</span>.</li>
             <li>Paste the connector URL above.</li>
             <li>Keep <span className="text-primary">Individual sign-in</span> selected (each person signs in with their own Memex login).</li>

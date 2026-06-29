@@ -82,6 +82,18 @@ export interface SessionPayload {
   /** Fresh session token (present on signup/login/SSO/magic-link responses). Client stores
    *  as `memex-auth-token`. Absent on session refresh responses (client already has it). */
   token?: string;
+  /**
+   * Orgs the user is an active member of that have no Memexes yet (doc-19 dec-1).
+   * These are invisible in `memberships` (memex-keyed) but must appear in the
+   * switcher so the user can navigate to them. Optional for back-compat with
+   * sessions cached before this field shipped.
+   */
+  emptyOrgs?: Array<{
+    orgId: string;
+    slug: string;
+    name: string;
+    role: 'member' | 'administrator';
+  }>;
 }
 
 async function authEndpoint(

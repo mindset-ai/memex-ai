@@ -224,7 +224,12 @@ function toolCallFailed(payload) {
 // The caller keys the marker on payload.session_id (the conversation UID).
 export function decideMarkerAction(payload) {
   const toolName = typeof payload?.tool_name === "string" ? payload.tool_name : "";
-  const bare = toolName.replace(/^mcp__memex__/, "");
+  // Strip the MCP server prefix down to the bare tool name. The Memex server is
+  // exposed as `mcp__memex__<tool>` when configured directly, but as
+  // `mcp__plugin_<plugin>_memex__<tool>` when the SAME server ships inside this
+  // plugin (Claude Code namespaces a plugin's MCP servers). Accept both, or the
+  // gate silently no-ops on every real plugin install.
+  const bare = toolName.replace(/^mcp__(?:plugin_[a-z0-9-]+_)?memex__/, "");
   if (bare === "unclaim_spec") return { action: "clear" };
   if (!ARMING_TOOLS.has(bare)) return { action: "skip" };
   if (toolCallFailed(payload)) return { action: "skip" };

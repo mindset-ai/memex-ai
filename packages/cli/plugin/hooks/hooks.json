@@ -2,7 +2,7 @@
   "hooks": {
     "PostToolUse": [
       {
-        "matcher": "mcp__memex__.*",
+        "matcher": "mcp__.*memex__.*",
         "hooks": [
           {
             "type": "command",
