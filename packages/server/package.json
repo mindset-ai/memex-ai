@@ -50,6 +50,7 @@
     "test:regression": "vitest run src/__regression__",
     "test:coverage": "vitest run --coverage",
     "notify:mcp-refs": "tsx scripts/notify-mcp-canonical-refs.ts",
+    "email:send-test": "tsx scripts/send-test-email.ts",
     "smoke:canonical-refs": "tsx scripts/smoke-canonical-refs.ts",
     "smoke": "vitest run --config vitest.smoke.config.ts"
   },
