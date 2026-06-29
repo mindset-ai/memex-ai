@@ -202,4 +202,67 @@ describe("facet classifier engine (spec-340 t-4)", () => {
     };
     await expect(classifyStandard(memexId, docId, { client: stub })).rejects.toThrow();
   });
+
+  it("retries a null/non-conforming structured output then succeeds — a bad LLM response never aborts (ac-39)", async () => {
+    tagAc(AC(39));
+    // The first parse returns NO parsed_output (the failure mode that killed the prod
+    // backfill). It must be re-asked, not thrown straight through.
+    let nulledOnce = false;
+    const stub: AnthropicLike = {
+      messages: {
+        parse: async () => {
+          if (!nulledOnce) {
+            nulledOnce = true;
+            return { parsed_output: null };
+          }
+          return { parsed_output: { facetKeys: ["security"] } };
+        },
+      },
+    };
+    await classifyStandard(memexId, docId, { client: stub });
+    const rows = await db
+      .select()
+      .from(standardClauseFacets)
+      .where(eq(standardClauseFacets.memexId, memexId));
+    const tagged = new Set(rows.map((r) => r.clauseId));
+    for (const id of clauseIds) expect(tagged.has(id)).toBe(true);
+  });
+
+  it("tolerates a clause that persistently fails — skips + reports it, classifies the rest (ac-39)", async () => {
+    tagAc(AC(39));
+    // One clause always errors non-transiently; with onClauseError the run skips it
+    // (no row written) and continues instead of aborting the whole backfill.
+    // Start clean — earlier tests in this file tag these shared clauses.
+    await db.delete(standardClauseFacets).where(eq(standardClauseFacets.memexId, memexId));
+    const poison = "Use parameterized queries and never interpolate untrusted input.";
+    const stub: AnthropicLike = {
+      messages: {
+        parse: async (args: { messages: { content: string }[] }) => {
+          if (args.messages[0].content.includes(poison)) {
+            throw Object.assign(new Error("bad request"), { status: 400 });
+          }
+          return { parsed_output: { facetKeys: ["security"] } };
+        },
+      },
+    };
+    const failed: string[] = [];
+    await classifyStandard(memexId, docId, {
+      client: stub,
+      onClauseError: (clauseId) => failed.push(clauseId),
+    });
+    // Exactly the one poison clause was reported, and it carries no tag row…
+    expect(failed.length).toBe(1);
+    const poisonRows = await db
+      .select()
+      .from(standardClauseFacets)
+      .where(eq(standardClauseFacets.clauseId, failed[0]));
+    expect(poisonRows.length).toBe(0);
+    // …while the others were classified.
+    const tagged = new Set(
+      (await db.select().from(standardClauseFacets).where(eq(standardClauseFacets.memexId, memexId))).map(
+        (r) => r.clauseId,
+      ),
+    );
+    expect([...tagged].length).toBeGreaterThanOrEqual(clauseIds.length - 1);
+  });
 });
