@@ -82,3 +82,39 @@ describe('CreateSpecStep — spec-372 step-1 polish (issues 5/6)', () => {
     expect(screen.queryByText('Your machine')).toBeNull();
   });
 });
+
+// spec-372 issue-19 — the Connect-MCP card's connected (done) state. This is the slice of
+// issue-19 that survived spec-421's onboarding-v4 split intact (the create-spec-card ACs
+// ac-49/50/51/54/55/56 moved to / were redesigned in CreateFirstSpecStep, so they are not
+// covered here). Reach the connected state via the polled milestone, as the advance tests
+// above do.
+describe('CreateSpecStep — spec-372 issue-19 connected-card state', () => {
+  // Reach the connected state deterministically with fake timers (mirrors the
+  // "does NOT advance … on arrival" test above) — the first poll's init branch sets
+  // connected=true. Wall-clock findBy* is flaky under CI's coverage-instrumented load.
+  const renderConnected = async () => {
+    vi.useFakeTimers();
+    fetchJourneyStateApi.mockResolvedValue({ milestones: { mcpConnected: true } });
+    render(<CreateSpecStep />);
+    await vi.advanceTimersByTimeAsync(0); // first read — init branch sets connected
+    await vi.advanceTimersByTimeAsync(4000); // a later poll — settle the re-render
+  };
+
+  it('ac-52: the connected MCP card shows the "Connected to the Memex MCP" heading + manage-from-Integrations description', async () => {
+    tagAc(AC372(52));
+    await renderConnected();
+    expect(screen.getByText('Connected to the Memex MCP')).toBeInTheDocument();
+    expect(
+      screen.getByText(/You're connected to the Memex MCP\. Need to make changes\? Manage it any time from the Integrations page under your profile menu\./),
+    ).toBeInTheDocument();
+  });
+
+  it('ac-53: the connected MCP card uses the muted completed style (plain border, no glow ring) with a CSS transition', async () => {
+    tagAc(AC372(53));
+    await renderConnected();
+    const stage = screen.getByTestId('connect-stage');
+    expect(stage.className).toContain('border-edge'); // plain edge border
+    expect(stage.className).not.toContain('ring-accent'); // glow ring gone
+    expect(stage.className).toContain('transition-all'); // animated change
+  });
+});
