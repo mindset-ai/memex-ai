@@ -341,7 +341,7 @@ export const decisionsTools: ToolSpec[] = [
         })
         .optional()
         .describe(
-          "The facets this decision's work touches (dec-5). A complete verdict over the Memex's facet vocabulary; the response hands back the governing standards to keep top-of-mind.",
+          "The facets this decision's work touches: a complete verdict over the Memex's facet vocabulary, which surfaces the standards governing that work so they stay top-of-mind. First call the `facets` tool (verb:'list') to read the vocabulary, then pass a true/false verdict for EVERY facet, or none:true for honest no-facet work.",
         ),
       verbose: VERBOSE_FIELD,
     },
@@ -357,25 +357,32 @@ export const decisionsTools: ToolSpec[] = [
         );
       }
       const { memexId, doc, slugs, entity } = resolved;
-      // Validate the ballot BEFORE resolving, so a rejected ballot re-hands the
-      // vocabulary without mutating the decision (dec-5).
+      // FACET BALLOT — OPTIONAL (relaxed from spec-423 dec-5's forced ballot). A client
+      // on an OLDER tool signature — e.g. an MCP client that hasn't reloaded since the
+      // facets release, so it has no `facetBallot` param to send — must NOT hit an error.
+      // So: ABSENT ballot → resolve WITHOUT facet adjudication; PROVIDED ballot → validate
+      // strictly BEFORE resolving (re-hand the vocabulary on an invalid one) and store it.
+      // Re-tightening to a forced ballot is a later, deliberate step.
+      const hasBallot = input.facetBallot !== undefined;
       const ballot = parseBallotArg(input.facetBallot);
-      const vocab = await validateBallotForMemex(memexId, ballot);
+      const vocab = hasBallot ? await validateBallotForMemex(memexId, ballot) : [];
       const decision = await resolveDecision(memexId, entity.row.id, resolution, chosenOptionIndex, reqCtx(ctx));
       const decRef = buildChildRef(slugs, doc, { type: "decisions", seq: decision.seq });
-      // Store the ballot (work-side, dec-6), route + rank, log, and build the payoff
-      // readout appended to the response.
-      const readout = await storeRouteAndReadout({
-        memexId,
-        specDocId: decision.docId,
-        noun: "decision",
-        rowId: entity.row.id,
-        ownerRef: decRef,
-        queryText: `${decision.title}\n${decision.resolution ?? resolution ?? ""}`,
-        ballot,
-        vocab,
-        ctx: reqCtx(ctx),
-      });
+      // Store + route the ballot only when one was provided (work-side, dec-6); an absent
+      // ballot contributes no facet routing, so the readout is empty.
+      const readout = hasBallot
+        ? await storeRouteAndReadout({
+            memexId,
+            specDocId: decision.docId,
+            noun: "decision",
+            rowId: entity.row.id,
+            ownerRef: decRef,
+            queryText: `${decision.title}\n${decision.resolution ?? resolution ?? ""}`,
+            ballot,
+            vocab,
+            ctx: reqCtx(ctx),
+          })
+        : "";
       if (ctx.verbose) {
         const state = await fullDocState(memexId, decision.docId);
         const url = await ctx.workspaceUrl(memexId);
