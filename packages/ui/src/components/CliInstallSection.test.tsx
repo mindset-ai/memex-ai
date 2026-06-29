@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi } from 'vitest';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { tagAc } from '@memex-ai-ac/vitest';
 import { CliInstallSection } from './CliInstallSection';
 import { installBase, mcpUrl } from '../utils/mcpUrl';
@@ -93,5 +93,30 @@ describe('spec-430 ac-9: unified Claude Code install + Claude-Code-gated checkou
     tagAc(AC430_9);
     render(<CliInstallSection />);
     expect(screen.queryByText(/install\.sh|install\.ps1/)).toBeNull();
+  });
+});
+
+// spec-430 dec-4: the agent-guided install is the principal Claude Code path — a CTA
+// copies a single prompt the user pastes into Claude Code, which then runs the whole
+// install itself. The manual commands stay below as the run-it-yourself fallback.
+describe('spec-430 dec-4: copy-the-install-prompt CTA', () => {
+  it('copies the install prompt (unified install + the checkout plugin) to the clipboard', async () => {
+    tagAc(AC430_9);
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+    render(<CliInstallSection />);
+
+    fireEvent.click(
+      screen.getByRole('button', { name: /copy install prompt for claude code/i }),
+    );
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
+    const prompt = writeText.mock.calls[0][0] as string;
+    expect(prompt).toContain('npx -y memex-ai install');
+    expect(prompt).toContain('claude plugin marketplace add mindset-ai/memex-ai');
+    expect(prompt).toContain('claude plugin install memex-checkout@memex');
+    expect(prompt).toMatch(/reload the window/i);
+    // The button confirms the copy back to the user.
+    expect(await screen.findByText(/Copied/)).toBeInTheDocument();
   });
 });

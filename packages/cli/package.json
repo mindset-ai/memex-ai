@@ -1,6 +1,6 @@
 {
   "name": "memex-ai",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "description": "Install the Memex AI MCP server for Claude Code and Claude Desktop",
   "type": "module",
   "bin": {
