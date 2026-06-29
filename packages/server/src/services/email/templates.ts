@@ -25,6 +25,18 @@ function escapeHtml(value: string): string {
     .replace(/'/g, "&#39;");
 }
 
+// spec-226 dec-2 — reusable layout primitives the activation/welcome emails need.
+export interface EmailStep {
+  label: string; // e.g. "// Step 1"
+  title: string;
+  body: string;
+}
+export interface EmailResource {
+  title: string;
+  description: string;
+  url: string;
+}
+
 interface RenderInput {
   preheader: string;
   eyebrow: string;
@@ -34,6 +46,13 @@ interface RenderInput {
   ctaLabel: string;
   ctaUrl: string;
   footerNote: string;
+  // Optional layout blocks (spec-226 dec-2). Absent → not rendered (the existing
+  // 6 emails set neither and render exactly as before).
+  steps?: EmailStep[];
+  resources?: EmailResource[];
+  // The auth emails show a "paste this link" line; activation/welcome emails don't.
+  // Defaults to true so the existing 6 emails are unchanged.
+  showPasteLink?: boolean;
 }
 
 // Shared plain-text body: intro paragraph(s), optional URL, closing, signoff.
@@ -49,6 +68,39 @@ function renderEmailText(input: {
   return parts.join("\n\n");
 }
 
+// spec-226 dec-2 — the step block ("// Step 1" label / title / body), stacked
+// vertically. Inline styles, no imagery. Returns "" when there are no steps.
+export function renderSteps(steps?: EmailStep[]): string {
+  if (!steps?.length) return "";
+  return steps
+    .map(
+      (s) =>
+        `<div style="margin:20px 0;">` +
+        `<div style="font-family:${MONO_STACK};font-size:11px;font-weight:600;letter-spacing:0.08em;color:${BRAND_SKY};">${escapeHtml(s.label)}</div>` +
+        `<div style="margin:4px 0 2px;font-size:16px;font-weight:600;color:${BRAND_INK};">${escapeHtml(s.title)}</div>` +
+        `<div style="color:${BRAND_INK};font-size:15px;line-height:1.6;">${escapeHtml(s.body)}</div>` +
+        `</div>`,
+    )
+    .join("");
+}
+
+// spec-226 dec-2 — the "resources" block: a TABLE of title-link + description
+// rows (a table construct, NOT image buttons, per the Postmark constraints).
+// Returns "" when there are no resources.
+export function renderResources(resources?: EmailResource[]): string {
+  if (!resources?.length) return "";
+  const rows = resources
+    .map(
+      (r) =>
+        `<tr><td style="padding:12px 0;border-top:1px solid ${BRAND_BORDER};">` +
+        `<a href="${escapeHtml(r.url)}" style="color:${BRAND_INK};font-size:15px;font-weight:600;text-decoration:none;">${escapeHtml(r.title)}</a>` +
+        `<div style="margin-top:2px;color:${BRAND_MUTED};font-size:13px;line-height:1.5;">${escapeHtml(r.description)}</div>` +
+        `</td></tr>`,
+    )
+    .join("");
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:24px 0 0;">${rows}</table>`;
+}
+
 function renderEmailHtml(input: RenderInput): string {
   const paragraphs = input.bodyParagraphs
     .map(
@@ -58,6 +110,11 @@ function renderEmailHtml(input: RenderInput): string {
     .join("");
 
   const safeUrl = escapeHtml(input.ctaUrl);
+  const stepsHtml = renderSteps(input.steps);
+  const resourcesHtml = renderResources(input.resources);
+  const pasteLink = (input.showPasteLink ?? true)
+    ? `<p style="margin:16px 0 0;color:${BRAND_MUTED};font-size:13px;line-height:1.5;">Or paste this link into your browser:<br><a href="${safeUrl}" style="color:${BRAND_SKY};word-break:break-all;">${safeUrl}</a></p>`
+    : "";
 
   return `<!doctype html>
 <html lang="en">
@@ -80,10 +137,12 @@ function renderEmailHtml(input: RenderInput): string {
                 <div style="margin:28px 0 10px;font-family:${MONO_STACK};font-size:11px;font-weight:600;letter-spacing:0.14em;color:${BRAND_SKY};">${escapeHtml(input.eyebrow)}</div>
                 <h1 style="margin:0 0 16px;color:${BRAND_INK};font-size:22px;line-height:1.3;font-weight:600;letter-spacing:-0.01em;">${escapeHtml(input.heading)}</h1>
                 ${paragraphs}
+                ${stepsHtml}
                 <div style="margin:24px 0 8px;">
                   <a href="${safeUrl}" style="display:inline-block;padding:12px 24px;background:${BRAND_INK};color:#FFFFFF;font-size:15px;font-weight:600;text-decoration:none;border-radius:8px;">${escapeHtml(input.ctaLabel)}</a>
                 </div>
-                <p style="margin:16px 0 0;color:${BRAND_MUTED};font-size:13px;line-height:1.5;">Or paste this link into your browser:<br><a href="${safeUrl}" style="color:${BRAND_SKY};word-break:break-all;">${safeUrl}</a></p>
+                ${pasteLink}
+                ${resourcesHtml}
                 <div style="margin:28px 0 0;padding-top:20px;border-top:1px solid ${BRAND_BORDER};">
                   <p style="margin:0;color:${BRAND_MUTED};font-size:12px;line-height:1.5;">${escapeHtml(input.footerNote)}</p>
                   <p style="margin:8px 0 0;color:${BRAND_MUTED};font-size:12px;line-height:1.5;"><a href="https://memex.ai" style="color:${BRAND_MUTED};">memex.ai</a></p>
