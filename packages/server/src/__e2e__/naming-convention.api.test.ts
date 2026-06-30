@@ -595,12 +595,19 @@ describe("naming-convention [std-1] [t-6]", () => {
       const source = readFileSync(emailTemplatesPath, "utf8");
       const strings = extractEmailTemplateStrings(source);
 
+      // std-1 forbids the product-vocabulary "team"/"account" (we say Org / namespace
+      // / memex). "The Memex AI team" is the deliberate BRAND sender identity / sign-off
+      // (spec-428 dec-1/dec-3, spec-427 dec-1) — the team *behind* Memex, not the
+      // product concept. Allow that exact phrase; any OTHER "team" in a template still
+      // fails. (flagged to the std-1 owner via flag_drift.)
+      const BRAND_TEAM = "The Memex AI team";
+
       const offenders: string[] = [];
       for (const text of strings) {
         if (ACCOUNT_RE.test(text)) {
           offenders.push(`email templates: "${text.slice(0, 80)}" matches /account/`);
         }
-        if (TEAM_RE.test(text)) {
+        if (TEAM_RE.test(text.split(BRAND_TEAM).join(""))) {
           offenders.push(`email templates: "${text.slice(0, 80)}" matches /team/`);
         }
       }
