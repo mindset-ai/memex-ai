@@ -99,9 +99,9 @@ beforeAll(async () => {
   ]);
   const acPrefix = `${slug}/main/specs/spec-phase/acs`;
   await db.insert(testEventLatest).values([
-    { memexId, acUid: `${acPrefix}/ac-1`, testIdentifier: "t1", latestStatus: "pass", latestRunAt: new Date(), runCount: 1 },
-    { memexId, acUid: `${acPrefix}/ac-2`, testIdentifier: "t1", latestStatus: "pass", latestRunAt: new Date(), runCount: 1 },
-    { memexId, acUid: `${acPrefix}/ac-2`, testIdentifier: "t2", latestStatus: "fail", latestRunAt: new Date(), runCount: 1 },
+    { memexId, subjectRef: `${acPrefix}/ac-1`, testIdentifier: "t1", latestStatus: "pass", latestRunAt: new Date(), runCount: 1 },
+    { memexId, subjectRef: `${acPrefix}/ac-2`, testIdentifier: "t1", latestStatus: "pass", latestRunAt: new Date(), runCount: 1 },
+    { memexId, subjectRef: `${acPrefix}/ac-2`, testIdentifier: "t2", latestStatus: "fail", latestRunAt: new Date(), runCount: 1 },
   ]);
 
   // ── preSpec: no transition events at all (pre-emission), sits in build.
@@ -121,7 +121,7 @@ beforeAll(async () => {
   ]);
   await db.insert(testEvents).values({
     memexId,
-    acUid: `${slug}/main/specs/spec-audit/acs/ac-1`,
+    subjectRef: `${slug}/main/specs/spec-audit/acs/ac-1`,
     status: "pass",
     testIdentifier: "t-audit",
     hidden: false,

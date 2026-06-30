@@ -27,8 +27,8 @@ const createdAcUids: string[] = [];
 
 afterAll(async () => {
   if (createdAcUids.length) {
-    await db.delete(testEvents).where(inArray(testEvents.acUid, createdAcUids)).catch(() => {});
-    await db.delete(testEventLatest).where(inArray(testEventLatest.acUid, createdAcUids)).catch(() => {});
+    await db.delete(testEvents).where(inArray(testEvents.subjectRef, createdAcUids)).catch(() => {});
+    await db.delete(testEventLatest).where(inArray(testEventLatest.subjectRef, createdAcUids)).catch(() => {});
   }
   for (const id of createdDocIds) {
     await db.delete(acs).where(eq(acs.briefId, id)).catch(() => {});
@@ -71,12 +71,12 @@ async function passAc(
 ): Promise<void> {
   const ref = refOf(briefHandle, seq);
   createdAcUids.push(ref);
-  await seedTestEvent({ acUid: ref, status: "pass", createdAt: new Date(), testIdentifier: "t::ci" });
+  await seedTestEvent({ subjectRef: ref, status: "pass", createdAt: new Date(), testIdentifier: "t::ci" });
   if (provenance) {
     const [latest] = await db
       .select({ id: testEvents.id })
       .from(testEvents)
-      .where(eq(testEvents.acUid, ref))
+      .where(eq(testEvents.subjectRef, ref))
       .orderBy(desc(testEvents.createdAt))
       .limit(1);
     await db

@@ -34,7 +34,7 @@ const createdAcUids: string[] = [];
 
 afterAll(async () => {
   if (createdAcUids.length) {
-    await db.delete(testEvents).where(inArray(testEvents.acUid, createdAcUids)).catch(() => {});
+    await db.delete(testEvents).where(inArray(testEvents.subjectRef, createdAcUids)).catch(() => {});
   }
   if (createdMemexIds.length) {
     await db
@@ -66,7 +66,7 @@ let ownerUserId: string;
 let acUidSpec1: string;
 let acUidSpec2: string;
 
-async function postEvent(acUid: string, bearer: string): Promise<Response> {
+async function postEvent(subjectRef: string, bearer: string): Promise<Response> {
   return app.request("/api/test-events", {
     method: "POST",
     headers: {
@@ -75,7 +75,7 @@ async function postEvent(acUid: string, bearer: string): Promise<Response> {
       Authorization: `Bearer ${bearer}`,
     },
     body: JSON.stringify({
-      ac_uid: acUid,
+      ac_uid: subjectRef,
       status: "pass",
       test_identifier: "tests/eph.test.ts::it works",
       duration_ms: 2,

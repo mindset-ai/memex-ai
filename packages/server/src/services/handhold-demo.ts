@@ -91,18 +91,18 @@ async function resolveMemexSlugs(
 // row AND maintain its test_event_latest summary in ONE transaction, so the badge
 // read paths (aggregateAcHealthForBriefs / listAcsForBriefWithVerification) see the
 // emission as soon as the seed commits. Mirrors the real emission route (spec-162).
-async function seedPassingEmission(acUid: string): Promise<void> {
+async function seedPassingEmission(subjectRef: string): Promise<void> {
   // spec-398 ac-8: stamp tenancy from the ac_uid prefix (the demo memex exists).
-  const [ns, mx] = acUid.split("/");
+  const [ns, mx] = subjectRef.split("/");
   const memexId = ns && mx ? await resolveMemexId(ns, mx) : null;
   if (!memexId) {
-    throw new Error(`seedPassingEmission: ac_uid '${acUid}' does not resolve to a memex`);
+    throw new Error(`seedPassingEmission: ac_uid '${subjectRef}' does not resolve to a memex`);
   }
   await db.transaction(async (tx) => {
     const [row] = await tx
       .insert(testEvents)
       .values({
-        acUid,
+        subjectRef,
         memexId,
         status: "pass",
         testIdentifier: HANDHOLD_TEST_IDENTIFIER,
@@ -110,7 +110,7 @@ async function seedPassingEmission(acUid: string): Promise<void> {
       })
       .returning({ createdAt: testEvents.createdAt });
     await applyEmissionToSummary(tx, {
-      acUid,
+      subjectRef,
       memexId,
       testIdentifier: HANDHOLD_TEST_IDENTIFIER,
       status: "pass",
@@ -237,7 +237,7 @@ async function seedOnePhase(
   if (slice.includeAcs && createdAcSeqs.length > 0) {
     const resolvedSlugs = slugs ?? (await resolveMemexSlugs(memexId));
     for (const seq of createdAcSeqs) {
-      const acUid = buildAcRef(
+      const subjectRef = buildAcRef(
         {
           namespace: resolvedSlugs.namespace,
           memex: resolvedSlugs.memex,
@@ -245,7 +245,7 @@ async function seedOnePhase(
         },
         seq,
       );
-      await seedPassingEmission(acUid);
+      await seedPassingEmission(subjectRef);
     }
   }
 
@@ -343,8 +343,8 @@ async function clearDemoDocs(memexId: string, demoDocIds: string[]): Promise<voi
   if (acUids.length > 0) {
     // Delete the log rows AND the derived summary rows so no orphaned emission or
     // stale 'latest' survives (test_events has no docId cascade).
-    await db.delete(testEvents).where(inArray(testEvents.acUid, acUids));
-    await db.delete(testEventLatest).where(inArray(testEventLatest.acUid, acUids));
+    await db.delete(testEvents).where(inArray(testEvents.subjectRef, acUids));
+    await db.delete(testEventLatest).where(inArray(testEventLatest.subjectRef, acUids));
   }
 
   // issue-1 / ac-39: drop the demo docs' activity_log rows BEFORE the hard-delete.

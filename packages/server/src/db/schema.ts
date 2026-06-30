@@ -842,7 +842,11 @@ export const testEvents = pgTable(
   "test_events",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    acUid: text("ac_uid").notNull(),
+    // spec-151 dec-3: the tagged subject is a "verifiable subject" ref — an AC ref
+    // OR a standard-clause ref (`…/standards/std-N/clauses/cl-N`). Renamed ac_uid →
+    // subject_ref so the column name stops being an AC-specific misnomer (the old
+    // name was a std-1-style partial-rename seam). Still a plain text ref, no FK.
+    subjectRef: text("subject_ref").notNull(),
     // spec-398 dec-4 (ac-8): tenancy is a first-class column stamped at write,
     // resolved from the emitting Memex [per std-32] — no longer parsed out of
     // ac_uid at read time. The activity_view test_events arm filters this column
@@ -879,7 +883,7 @@ export const testEvents = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    index("test_events_ac_uid_created_at_idx").on(table.acUid, table.createdAt),
+    index("test_events_ac_uid_created_at_idx").on(table.subjectRef, table.createdAt),
     index("test_events_test_identifier_idx").on(table.testIdentifier, table.createdAt),
     // spec-352 (0105) — Home activity_view: the only prunable predicate on this
     // arm is the created_at window (the spec_ref join is a substring of ac_uid).
@@ -888,7 +892,7 @@ export const testEvents = pgTable(
     // test_identifier) retention index — drives both the one-time rewrite-and-swap
     // and the steady-state trim-on-write, and doubles as the per-test timeline read.
     index("test_events_retention_idx").on(
-      table.acUid,
+      table.subjectRef,
       table.testIdentifier,
       table.createdAt,
     ),
@@ -930,7 +934,8 @@ export const testEvents = pgTable(
 export const testEventLatest = pgTable(
   "test_event_latest",
   {
-    acUid: text("ac_uid").notNull(),
+    // spec-151 dec-3: renamed ac_uid → subject_ref (AC ref OR clause ref).
+    subjectRef: text("subject_ref").notNull(),
     testIdentifier: text("test_identifier").notNull().default(""),
     latestStatus: text("latest_status").notNull(),
     latestRunAt: timestamp("latest_run_at", { withTimezone: true }).notNull(),
@@ -940,7 +945,7 @@ export const testEventLatest = pgTable(
     memexId: uuid("memex_id").notNull(),
   },
   (table) => [
-    primaryKey({ columns: [table.acUid, table.testIdentifier] }),
+    primaryKey({ columns: [table.subjectRef, table.testIdentifier] }),
     check(
       "test_event_latest_status_valid",
       sql`${table.latestStatus} IN ('pass', 'fail', 'error')`,
@@ -960,7 +965,8 @@ export const testEventLatest = pgTable(
 // snapshot retention never touches. Written by the emission path (recordFirstVerified,
 // LEAST-wins so the earliest survives out-of-order writes); backfilled in 0110.
 export const acFirstVerified = pgTable("ac_first_verified", {
-  acUid: text("ac_uid").primaryKey(),
+  // spec-151 dec-3: renamed ac_uid → subject_ref (AC ref OR clause ref).
+  subjectRef: text("subject_ref").primaryKey(),
   firstVerifiedAt: timestamp("first_verified_at", { withTimezone: true }).notNull(),
 });
 

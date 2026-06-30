@@ -145,15 +145,15 @@ export function validateMetadata(
   return { metadata: Object.fromEntries(entries), dropped };
 }
 
-function namespaceFromAcUid(acUid: string): string {
-  const slashIdx = acUid.indexOf("/");
-  return slashIdx > 0 ? acUid.slice(0, slashIdx) : "";
+function namespaceFromAcUid(subjectRef: string): string {
+  const slashIdx = subjectRef.indexOf("/");
+  return slashIdx > 0 ? subjectRef.slice(0, slashIdx) : "";
 }
 
 // Second path segment of an ac_uid (`<namespace>/<memex>/specs/...`). Used to confirm
 // the authenticated key authorises the Memex named in the ref (spec-129 ac-10).
-function memexSlugFromAcUid(acUid: string): string {
-  const parts = acUid.split("/");
+function memexSlugFromAcUid(subjectRef: string): string {
+  const parts = subjectRef.split("/");
   return parts.length >= 2 ? parts[1]! : "";
 }
 
@@ -161,8 +161,8 @@ function memexSlugFromAcUid(acUid: string): string {
 // Used to enforce a spec-scoped (ephemeral / agent) key's scope. Returns "" when the ref
 // isn't a `/specs/…` AC ref — a scoped key then matches nothing and is rejected, which is
 // the safe default.
-function specHandleFromAcUid(acUid: string): string {
-  const parts = acUid.split("/");
+function specHandleFromAcUid(subjectRef: string): string {
+  const parts = subjectRef.split("/");
   return parts.length >= 4 && parts[2] === "specs" ? parts[3]! : "";
 }
 
@@ -314,7 +314,7 @@ testEventsRouter.post("/", async (c) => {
   // lives inside the mutate() callback, and TypeScript does not preserve the
   // `typeof body.ac_uid === "string"` narrowing across that function boundary.
   const insertValues = {
-    acUid: body.ac_uid,
+    subjectRef: body.ac_uid,
     // spec-398 dec-4 (ac-8): stamp tenancy at write from the Memex the emission
     // key already resolved + authorised above — no read-time ac_uid parsing.
     memexId: targetMemexId,
@@ -354,7 +354,7 @@ testEventsRouter.post("/", async (c) => {
       // so this payload only ever rides the live SSE frame.
       payload: {
         status: insertValues.status,
-        acUid: insertValues.acUid,
+        subjectRef: insertValues.subjectRef,
         hidden: insertValues.hidden,
       },
     },
@@ -370,7 +370,7 @@ testEventsRouter.post("/", async (c) => {
           .values(insertValues)
           .returning({ id: testEvents.id, createdAt: testEvents.createdAt });
         await applyEmissionToSummary(tx, {
-          acUid: insertValues.acUid,
+          subjectRef: insertValues.subjectRef,
           memexId: targetMemexId,
           testIdentifier: insertValues.testIdentifier,
           status: insertValues.status as "pass" | "fail" | "error",
@@ -382,13 +382,13 @@ testEventsRouter.post("/", async (c) => {
         // insert so the log never transiently exceeds the cap.
         await trimTestEventsForPair(
           tx,
-          insertValues.acUid,
+          insertValues.subjectRef,
           insertValues.testIdentifier,
         );
         // spec-398 t-6: durably snapshot the earliest pass BEFORE retention can
         // trim it away, so analytics keeps a true "first went green" date.
         if (insertValues.status === "pass" && !insertValues.hidden) {
-          await recordFirstVerified(tx, insertValues.acUid, inserted.createdAt);
+          await recordFirstVerified(tx, insertValues.subjectRef, inserted.createdAt);
         }
         return inserted;
       });

@@ -40,7 +40,7 @@ afterAll(async () => {
   if (createdSubjectRefs.length) {
     await db
       .delete(testEvents)
-      .where(inArray(testEvents.acUid, createdSubjectRefs))
+      .where(inArray(testEvents.subjectRef, createdSubjectRefs))
       .catch(() => {});
   }
   if (createdMemexIds.length) {
@@ -134,7 +134,7 @@ describe("spec-151 — a standard clause is a first-class emission subject (dec-
     const rows = await db
       .select()
       .from(testEvents)
-      .where(eq(testEvents.acUid, clauseRef));
+      .where(eq(testEvents.subjectRef, clauseRef));
     expect(rows.length).toBeGreaterThanOrEqual(1);
     expect(rows[0]!.status).toBe("pass");
   });
@@ -152,8 +152,8 @@ describe("spec-151 — a standard clause is a first-class emission subject (dec-
     const both = await db
       .select()
       .from(testEvents)
-      .where(inArray(testEvents.acUid, [acRef, otherClauseRef]));
-    const refs = new Set(both.map((r) => r.acUid));
+      .where(inArray(testEvents.subjectRef, [acRef, otherClauseRef]));
+    const refs = new Set(both.map((r) => r.subjectRef));
     expect(refs.has(acRef)).toBe(true);
     expect(refs.has(otherClauseRef)).toBe(true);
   });
