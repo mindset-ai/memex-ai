@@ -35,9 +35,11 @@ vi.hoisted(() => {
 
 import { db } from "../db/connection.js";
 import { app } from "../app.js";
-import { users } from "../db/schema.js";
+import { users, documents } from "../db/schema.js";
 import { upsertUserByEmail, getUserById } from "../services/users.js";
 import { signSessionToken } from "../services/auth-jwt.js";
+import { recordMcpConnected } from "../services/funnel-events.js";
+import { makeTestMemex } from "../services/test-helpers.js";
 import { tagAc } from "@memex-ai-ac/vitest";
 
 const AC = (n: number) =>
@@ -111,7 +113,20 @@ describe("onboarding_greeted_at backfill (spec-213 t-1)", () => {
   it("a pre-existing (null) user is stamped by the backfill → greet=false", async () => {
     tagAc(AC(6));
     const u = await makeUser("sp213-existing");
-    // Pre-existing user: null flag, so the gate would greet them.
+    // Pre-existing user: null flag. spec-434: gate also requires mcpConnected+hasSpec,
+    // so seed both to make this a faithful "would greet → backfill prevents it" probe.
+    await recordMcpConnected(u.id);
+    const memexId = await makeTestMemex("sp213bt");
+    await db.insert(documents).values({
+      memexId,
+      title: "Backfill test spec",
+      status: "draft",
+      handle: "spec-1",
+      docType: "spec",
+      isDemo: false,
+      createdByUserId: u.id,
+      statusChangedAt: new Date(),
+    });
     expect((await getUserById(u.id))!.onboardingGreetedAt).toBeNull();
     expect(await greet(u.bearer)).toBe(true);
 
@@ -130,8 +145,22 @@ describe("onboarding_greeted_at backfill (spec-213 t-1)", () => {
     expect((await getUserById(existing.id))!.onboardingGreetedAt).toBeInstanceOf(Date);
 
     // ...then a brand-new signup arrives. It was NOT in the backfill set, so its
-    // flag is null and the spec-206 first-run greeting still fires for it.
+    // flag is null and the spec-206 first-run greeting fires when they are ready.
+    // spec-434: gate requires mcpConnected+hasSpec — seed both to prove null flag
+    // preserves greet eligibility for new signups once they reach that milestone.
     const newcomer = await makeUser("sp213-newcomer");
+    await recordMcpConnected(newcomer.id);
+    const ncMemexId = await makeTestMemex("sp213nc");
+    await db.insert(documents).values({
+      memexId: ncMemexId,
+      title: "Newcomer test spec",
+      status: "draft",
+      handle: "spec-1",
+      docType: "spec",
+      isDemo: false,
+      createdByUserId: newcomer.id,
+      statusChangedAt: new Date(),
+    });
     expect((await getUserById(newcomer.id))!.onboardingGreetedAt).toBeNull();
     expect(await greet(newcomer.bearer)).toBe(true);
   });
