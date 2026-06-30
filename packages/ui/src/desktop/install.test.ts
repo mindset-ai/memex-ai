@@ -192,6 +192,28 @@ describe('spec-304 ac-69 (dec-25): install failure raises a native failure notif
     expect(out.failure).toBe('config-write');
   });
 
+  it('an UNKNOWN failure (mint returns a falsy token, no throw) → failure:"unknown" and still notifies', async () => {
+    tagAc(AC_FAIL_NOTIFY);
+    const notify = vi.fn(async () => true);
+    const install = vi.fn();
+    const out = await runInstall('claudeCode', 'Claude Code', deps({
+      mint: vi.fn(async () => ({ token: '' })),
+      install,
+      notify,
+    }));
+    expect(out.ok).toBe(false);
+    if (out.ok) throw new Error('unreachable');
+    // The defensive falsy-token-without-throw branch classifies as 'unknown'…
+    expect(out.failure).toBe('unknown');
+    // …never touches the bridge (no token to write)…
+    expect(install).not.toHaveBeenCalled();
+    // …and still raises the best-effort native failure notification (ac-69).
+    expect(notify).toHaveBeenCalledTimes(1);
+    const arg = notify.mock.calls[0][0];
+    expect(arg.title).toMatch(/MCP/);
+    expect(arg.target).toBe('mcp');
+  });
+
   it('a CANCELLED JSONC overwrite is NOT a failure — no notification', async () => {
     tagAc(AC_FAIL_NOTIFY);
     const notify = vi.fn(async () => true);

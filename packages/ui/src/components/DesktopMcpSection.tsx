@@ -149,6 +149,9 @@ export function DesktopMcpSection() {
     try {
       await navigator.clipboard.writeText(diagnosticText(f));
       setCopied(true);
+      // Revert the label so a second copy is discoverable (the first copy
+      // otherwise leaves the button reading "Copied" indefinitely).
+      window.setTimeout(() => setCopied(false), 2000);
     } catch {
       // A clipboard denial must not throw — the user can still read the cause.
       setCopied(false);

@@ -156,12 +156,16 @@ async function fail(
       target: 'mcp',
     })
     .catch(() => false);
+  // Scrub any echoed session token from EVERY field of the failure outcome —
+  // this is the single chokepoint through which all failures flow, so redacting
+  // here guarantees no `mxt_…` reaches the surface, diagnostic, or clipboard,
+  // whether the text came from a thrown error or the bridge's structured result.
   return {
     ok: false,
-    reason: detail.reason,
+    reason: redactToken(detail.reason),
     failure: detail.failure,
-    ...(detail.configPath ? { configPath: detail.configPath } : {}),
-    ...(detail.error ? { error: detail.error } : {}),
+    ...(detail.configPath ? { configPath: redactToken(detail.configPath) } : {}),
+    ...(detail.error ? { error: redactToken(detail.error) } : {}),
   };
 }
 
@@ -172,4 +176,20 @@ function reason(err: unknown, fallback: string): string {
 /** The underlying error text for the copyable diagnostic — never a secret. */
 function errText(err: unknown): string | undefined {
   return err instanceof Error && err.message ? err.message : undefined;
+}
+
+/**
+ * SECURITY (dec-25, defensive): scrub any `mxt_…` session-token substring from a
+ * string before it can reach the failure outcome — and from there the copyable
+ * diagnostic, the Integrations error surface, or the native notification.
+ * `runInstall` never puts the token into the outcome itself, but `error` and
+ * `configPath` are verbatim pass-throughs of the Dart bridge's `res.error` /
+ * thrown message; a future bridge regression that echoes the minted token back
+ * in its own error string must not be able to leak it through the React layer.
+ */
+function redactToken(text: string): string {
+  // Match the `mxt_` prefix plus the whole token-like run that follows
+  // (word chars cover the real base62 token and any underscore-bearing variant),
+  // and replace with a marker that itself contains no `mxt_` substring.
+  return text.replace(/mxt_\w+/g, '[redacted-token]');
 }

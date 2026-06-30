@@ -237,6 +237,58 @@ describe('spec-304 ac-68 (dec-25): a failed Claude Code install surfaces a usefu
     expect(surface).not.toHaveTextContent(/session expired/i);
   });
 
+  it('an UNKNOWN failure (mint returns a falsy token) shows the default plain-language cause', async () => {
+    tagAc(AC_FAIL_SURFACE);
+    // A token comes back falsy with no thrown error — the defensive 'unknown'
+    // branch. The surface still explains itself with the default cause copy.
+    mintMcpTokenApi.mockResolvedValue({ token: '', prefix: null });
+    const installMcp = vi.fn(() => ({ ok: true }));
+    installShell({ mcpStatus: () => STATUS_ABSENT, installMcp });
+
+    render(<DesktopMcpSection />);
+    await clickInstall();
+
+    const surface = await screen.findByTestId('mcp-install-error');
+    // The default cause invites copying the details below — and is NOT the
+    // mint/auth-specific or config-write-specific wording.
+    expect(surface).toHaveTextContent(/copy the details below/i);
+    expect(surface).not.toHaveTextContent(/sign-in may have expired/i);
+    expect(surface).not.toHaveTextContent(/config file/i);
+    // No token reached the bridge.
+    expect(installMcp).not.toHaveBeenCalled();
+    expect(within(surface).getByRole('button', { name: /retry/i })).toBeInTheDocument();
+    expect(within(surface).getByRole('button', { name: /copy details/i })).toBeInTheDocument();
+  });
+
+  it('a bridge error string that itself embeds the secret token is REDACTED from the diagnostic + surface', async () => {
+    tagAc(AC_FAIL_SURFACE);
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.assign(navigator, { clipboard: { writeText } });
+    // SECURITY (defensive): a future bridge regression echoes the minted token
+    // back inside its own error string. The React layer must scrub any mxt_…
+    // substring before it reaches the surface, the diagnostic, or the clipboard.
+    const installMcp = vi.fn(() => ({
+      ok: false,
+      error: 'write failed for token mxt_minted_secret_999 at /home/u/.claude.json',
+      path: '/home/u/.claude.json',
+    }));
+    installShell({ mcpStatus: () => STATUS_ABSENT, installMcp });
+
+    render(<DesktopMcpSection />);
+    await clickInstall();
+
+    const surface = await screen.findByTestId('mcp-install-error');
+    fireEvent.click(within(surface).getByRole('button', { name: /copy details/i }));
+
+    await waitFor(() => expect(writeText).toHaveBeenCalled());
+    const diag = writeText.mock.calls[0][0] as string;
+    // The token is scrubbed from the copied diagnostic…
+    expect(diag).not.toContain('mxt_minted_secret_999');
+    expect(diag).not.toContain('mxt_');
+    // …and never reaches the rendered surface either.
+    expect(document.body.textContent ?? '').not.toContain('mxt_');
+  });
+
   it('Retry re-runs the install — a transient failure then succeeds', async () => {
     tagAc(AC_FAIL_SURFACE);
     const installMcp = vi
