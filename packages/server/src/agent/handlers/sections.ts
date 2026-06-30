@@ -74,6 +74,12 @@ export const sectionsTools: ToolSpec[] = [
         .describe(
           "For STANDARDS only: the section's clauses, one self-contained aspect each, in order. A clause is a single granular rule/definition/example — not a compound paragraph. The section's content becomes these clauses joined; each gets an addressable `cl-N` handle returned in the response. Mutually exclusive with `content`.",
         ),
+      clauseFacets: z
+        .array(z.array(z.string()))
+        .optional()
+        .describe(
+          "For STANDARDS only (spec-437 dec-1): the per-clause facet verdict, parallel to `clauses` (one entry per clause). Each entry is an array of facet keys, or [] for \"governs nothing\". Required where the Memex has a vocabulary — an absent verdict is rejected. Call the `facets` tool (verb 'list') to read the vocabulary.",
+        ),
       title: z.string().optional().describe("Optional human-readable section heading. Falls back to sectionType. Do NOT prefix with the section number — the renderer auto-prefixes `${seq}. `. Pass just the heading, e.g. 'Grammar', not '2. Grammar'."),
       description: z.string().optional().describe("Optional free-text metadata describing the section's purpose. Travels with the section everywhere (get_doc/list_docs/section responses) and is editable later via update_section."),
       verbose: VERBOSE_FIELD,
@@ -83,6 +89,7 @@ export const sectionsTools: ToolSpec[] = [
       const sectionType = input.sectionType as string;
       const content = input.content as string | undefined;
       const clauses = input.clauses as string[] | undefined;
+      const clauseFacets = input.clauseFacets as string[][] | undefined;
       const title = input.title as string | undefined;
       const description = input.description as string | undefined;
 
@@ -108,7 +115,12 @@ export const sectionsTools: ToolSpec[] = [
         // Born clause-first: create the (empty) section, then author its clauses; the
         // service regenerates content = clauses joined.
         const sectionMut = await addSection(memexId, doc.id, sectionType, "", title, description, reqCtx(ctx));
-        const clauseMut = await addClausesToSection(memexId, sectionMut.id, clauses!);
+        const clauseMut = await addClausesToSection(
+          memexId,
+          sectionMut.id,
+          clauses!.map((body, i) => ({ body, facets: clauseFacets?.[i] })),
+          reqCtx(ctx),
+        );
         if (ctx.verbose) {
           const state = await fullDocState(memexId, doc.id);
           const url = await ctx.workspaceUrl(memexId);

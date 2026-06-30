@@ -14,11 +14,15 @@ import {
   documents,
   docSections,
   standardClauses,
+  standardClauseFacets,
+  facets,
   namespaces,
   memexes,
   users,
 } from "../db/schema.js";
 import { seedDefaultStandards, backfillDefaultStandards } from "./default-standards.js";
+import { seedDefaultFacetsForOwner } from "./default-facets.js";
+import { ownerForMemex } from "./shared/memex-ownership.js";
 import * as defaultStandardsModule from "./default-standards.js";
 import { createDocDraft } from "./documents.js";
 import { updateClause } from "./clauses.js";
@@ -78,6 +82,58 @@ afterAll(async () => {
   if (createdUserIds.length) {
     await db.delete(users).where(inArray(users.id, createdUserIds)).catch(() => {});
   }
+});
+
+describe("seedDefaultStandards — facet verdicts (spec-437 dec-1)", () => {
+  let memexId: string;
+
+  beforeAll(async () => {
+    ({ memexId } = await makePersonalMemex());
+    // spec-437 dec-1: the vocabulary must exist before the standards seed, so every
+    // default clause's verdict persists (the production order, seedNewPersonalMemex).
+    // Seed via the non-env-gated owner path so the test doesn't depend on the
+    // MEMEX_DEFAULT_FACETS_SEED flag.
+    const owner = await ownerForMemex(memexId);
+    await seedDefaultFacetsForOwner(owner!);
+    await seedDefaultStandards(memexId);
+  });
+
+  it("seeds every default clause with a deliberate verdict; security rules tagged, methodology governs-nothing (ac-1)", async () => {
+    tagAc(AC(1));
+    const clauses = await db
+      .select({ id: standardClauses.id, body: standardClauses.body })
+      .from(standardClauses)
+      .innerJoin(documents, eq(documents.id, standardClauses.docId))
+      .where(and(eq(documents.memexId, memexId), eq(documents.docType, "standard")));
+    expect(clauses.length).toBeGreaterThan(0);
+    // No clause is left ballotless: each has at least one standard_clause_facets row
+    // (a named-facet member row, or a single facet_id NULL "governs nothing" marker).
+    for (const c of clauses) {
+      const ballot = await db
+        .select()
+        .from(standardClauseFacets)
+        .where(eq(standardClauseFacets.clauseId, c.id));
+      expect(ballot.length, `clause "${c.body.slice(0, 48)}" has no verdict`).toBeGreaterThan(0);
+    }
+    // The unauthorized-access rule clause is tagged `security`.
+    const securityClause = clauses.find((c) => c.body.includes("HTTP 404"));
+    expect(securityClause, "expected the HTTP-404 rule clause").toBeTruthy();
+    const secBallot = await db
+      .select({ key: facets.key })
+      .from(standardClauseFacets)
+      .leftJoin(facets, eq(facets.id, standardClauseFacets.facetId))
+      .where(eq(standardClauseFacets.clauseId, securityClause!.id));
+    expect(secBallot.map((b) => b.key)).toContain("security");
+    // A methodology clause governs nothing → exactly one NULL-facet marker row.
+    const methClause = clauses.find((c) => c.body.includes("durable unit of work"));
+    expect(methClause, "expected a methodology clause").toBeTruthy();
+    const methBallot = await db
+      .select()
+      .from(standardClauseFacets)
+      .where(eq(standardClauseFacets.clauseId, methClause!.id));
+    expect(methBallot).toHaveLength(1);
+    expect(methBallot[0].facetId).toBeNull();
+  });
 });
 
 describe("seedDefaultStandards — the six default Standards", () => {

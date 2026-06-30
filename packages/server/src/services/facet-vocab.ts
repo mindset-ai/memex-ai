@@ -101,6 +101,40 @@ export async function validateClauseFacets(
 }
 
 /**
+ * Bulk sibling of validateClauseFacets (spec-437 dec-1): validate MANY verdicts against
+ * the owner's vocabulary with a SINGLE vocab load, returning the resolved facet ids per
+ * verdict (or null-for-all when the Memex has no vocabulary). Used by the bulk authoring
+ * path (addClausesToSection) so seeding / multi-clause sections don't re-query the vocab
+ * once per clause — the per-clause query storm that regressed signup latency under load.
+ * Same semantics as validateClauseFacets: an undefined verdict throws (required where a
+ * vocabulary exists); unknown keys throw; [] resolves to [] (the governs-nothing marker).
+ */
+export async function validateClauseFacetsBatch(
+  memexId: string,
+  verdicts: (string[] | undefined)[],
+): Promise<(string[] | null)[]> {
+  const owner = await ownerForMemex(memexId);
+  if (!owner) return verdicts.map(() => null);
+  const vocab = await db
+    .select({ key: facets.key, name: facets.name, description: facets.description, ord: facets.ord, id: facets.id })
+    .from(facets)
+    .where(and(eq(facets.ownerType, owner.ownerType), eq(facets.ownerId, owner.ownerId)))
+    .orderBy(asc(facets.ord));
+  if (vocab.length === 0) return verdicts.map(() => null);
+  const idByKey = new Map(vocab.map((f) => [f.key, f.id]));
+  return verdicts.map((verdict) => {
+    if (verdict === undefined) {
+      throw new ValidationError(reHandClause(vocab, "A facet verdict is required for each clause."));
+    }
+    const unknown = verdict.filter((k) => !idByKey.has(k));
+    if (unknown.length > 0) {
+      throw new ValidationError(reHandClause(vocab, `Unknown facet key(s): ${unknown.join(", ")}.`));
+    }
+    return [...new Set(verdict)].map((k) => idByKey.get(k)!);
+  });
+}
+
+/**
  * Persist a clause's facet verdict as standard_clause_facets rows (dec-2 tri-state):
  * replace any existing tags, then write one member row per facet id, OR a single
  * facet_id NULL marker for the explicit "governs nothing" verdict ([]). Routed through
