@@ -62,3 +62,26 @@ export function tagAc(ac_uid: string, options?: TagAcOptions): void {
   const existing = _readCurrentEntries(currentTask);
   currentTask.meta[META_KEY] = [...existing, { ac_uid, options }];
 }
+
+/**
+ * Tag the current test with a standard-CLAUSE reference (spec-151 dec-1).
+ *
+ * A clause ref and an AC ref are both just canonical refs naming a *verifiable
+ * subject*; the emit pipeline routes purely on the ref's namespace prefix
+ * (`deriveEventsUrl`) and stores the ref verbatim, so a clause attestation rides
+ * the SAME shared emitter as an AC attestation — there is no parallel pipeline.
+ * This is the thin sibling that dec-1 settled on: it forwards to `tagAc`, which
+ * is the single collection point feeding `emit()`.
+ *
+ * Use it inside an `it()` / `test()` body to attest that a standard clause holds.
+ * Because a clause is *universal* (it must hold everywhere it applies, unlike an
+ * existential AC), pass the swept surface and check-kind via `options.metadata`
+ * (e.g. `{ clause_surface, clause_kind }`) so the coverage view can tell a
+ * whole-surface scan from a spot check.
+ *
+ * @param clause_ref Canonical clause ref: `<namespace>/<memex>/standards/<std-N>/clauses/cl-<N>`
+ * @param options Per-call overrides for metadata
+ */
+export function tagClause(clause_ref: string, options?: TagAcOptions): void {
+  tagAc(clause_ref, options);
+}
