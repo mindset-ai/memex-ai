@@ -1,0 +1,57 @@
+#!/usr/bin/env node
+// spec-430 dec-4 — the SessionStart self-heal guide. When the checkout key isn't set
+// up on this machine (no `hook_key` in ~/.memex/checkout.json and no env override),
+// emit a short additionalContext steer so Claude Code can OFFER to finish setup. Once
+// set up, it is fully silent. Non-blocking; never errors the session; exits 0.
+//
+// This is the pre-MCP priming layer: the MCP's own instructions can't guide a user
+// before the MCP is connected, so the bundled hook closes that gap.
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+
+function readStdin() {
+  return new Promise((resolve) => {
+    let data = "";
+    process.stdin.setEncoding("utf8");
+    process.stdin.on("data", (c) => (data += c));
+    process.stdin.on("end", () => resolve(data));
+    process.stdin.on("error", () => resolve(data));
+  });
+}
+
+// Is a usable checkout key present? Env override (CI) or a stored single key, or any
+// value in a legacy per-memex map (back-compat) — the key is user-scoped either way.
+function isSetUp() {
+  if (process.env.MEMEX_CHECKOUT_HOOK_KEY) return true;
+  try {
+    const cfg = JSON.parse(readFileSync(join(homedir(), ".memex", "checkout.json"), "utf8"));
+    if (typeof cfg.hook_key === "string" && cfg.hook_key) return true;
+    if (cfg.keys && typeof cfg.keys === "object") {
+      return Object.values(cfg.keys).some((v) => typeof v === "string" && v);
+    }
+  } catch {
+    /* absent / unreadable → not set up */
+  }
+  return false;
+}
+
+const STEER = [
+  "Memex spec-checkout is installed but not fully set up on this machine: no checkout",
+  "key is present, so in-flow edits to a claimed Spec won't be recorded yet. If the",
+  "user wants Memex spec-checkout working, OFFER (don't nag) to finish setup by running",
+  "`npx -y memex-ai install` — one browser sign-in that plants the MCP token and mints",
+  "the user checkout key. If they decline, stay silent for the rest of the session.",
+].join(" ");
+
+async function main() {
+  await readStdin(); // drain the SessionStart payload; we only need local state
+  if (isSetUp()) return; // set up → silent
+  process.stdout.write(
+    JSON.stringify({
+      hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: STEER },
+    }),
+  );
+}
+
+main().catch(() => {});

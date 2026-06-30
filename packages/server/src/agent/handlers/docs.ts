@@ -120,7 +120,7 @@ export const docsTools: ToolSpec[] = [
     name: "list_docs",
     annotations: { title: "List documents", readOnlyHint: true, destructiveHint: false },
     description:
-      "List active Specs in a Memex with decision/task counts and lineage. Active means status in specify/build/verify; paused/archived/draft/done are hidden. Pass `docType` to filter by document type (defaults to 'spec'). Pass `tags` to narrow to Specs carrying the given tags — facet semantics: AND across different scopes, OR within one scope.",
+      "List active Specs in a Memex with decision/task counts and lineage. Active means status in specify/build/verify; archived/draft/done are hidden. Pass `docType` to filter by document type (defaults to 'spec'). Pass `tags` to narrow to Specs carrying the given tags — facet semantics: AND across different scopes, OR within one scope.",
     schema: {
       memex: z.string().optional().describe(MEMEX_DESC),
       docType: z
@@ -153,7 +153,6 @@ export const docsTools: ToolSpec[] = [
 
       const docs = await listDocs(memexId, {
         docType: docTypeArg,
-        includePaused: false,
         statusIn: ["specify", "build", "verify"],
         // spec-178 t-11 / dec-11 (ac-37): the MCP/agent enumeration must NOT
         // surface handhold demo specs. The REST board route omits this flag so

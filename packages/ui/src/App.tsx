@@ -95,6 +95,7 @@ import { ChatProvider } from './components/ChatContext';
 import { AppShell } from './components/AppShell';
 import { DocumentShell } from './components/DocumentShell';
 import { OrgConsentDialog } from './components/OrgConsentDialog';
+import { DesktopMcpStatusSync } from './components/DesktopMcpStatusSync';
 import { parseTenantFromPathname } from './utils/tenantUrl';
 import { isFeatureHidden } from './utils/featureFlags';
 import { probePublicMemex, type PublicMemexProbe } from './api/client';
@@ -107,7 +108,8 @@ import {
 import { VoiceLayer } from './voice/session/VoiceLayer';
 import { createReactRouterNavigationAdapter } from './voice/reactRouterNavigationAdapter';
 import { HandholdRevealProvider, useHandholdRevealValue } from './hooks/HandholdRevealContext';
-import { useTrackRouteChange } from './hooks/useTelemetry';
+import { useTrackRouteChange, useTelemetry, trackAnonymous } from './hooks/useTelemetry';
+import { useShouldLandOnHome } from './journeys/landing';
 import { tenantBase, BASE_URL, fetchWithRetry } from './api/http';
 import { SearchProvider } from './components/SearchContext';
 import { WhatsNewRibbonConnected } from './components/whats-new/WhatsNewRibbonConnected';
@@ -380,18 +382,54 @@ function VoiceGuideMount({
   );
 }
 
-// spec-312 dec-1: `/` lands every authenticated, email-verified user on /home — the
-// universal landing, regardless of onboarding/identity state. Pre-auth users won't
-// reach this (RequireAuth intercepts). When 'home' is hidden per-env the /home route
-// itself renders RootRedirect, so there we fall back to the default tenant landing to
-// avoid a redirect loop (and a session with zero memberships falls back to null → /).
+// spec-421 dec-5 (supersedes spec-312 dec-1): `/` decides where an authenticated,
+// email-verified user lands FROM A READ-ONLY ONBOARDING-STATE CHECK — not-yet-graduated
+// → /home (the onboarding journey); graduated → the default-tenant Specs board. The
+// decision is made here in the app router on first load, before drawing, so there is no
+// stale-state flash. spec-312 made /home the universal landing because its final step was
+// developer-only (Specs stranded non-developers); spec-421 hid those steps, so graduation
+// is now "created your first spec" and engaged users go straight to their board.
+//
+// `useShouldLandOnHome` does a one-shot read of /api/me/journey-state (nothing is
+// persisted — Barrie's constraint) and returns null while in flight. Pre-auth users
+// won't reach this (RequireAuth intercepts). When 'home' is hidden per-env the /home
+// route itself renders RootRedirect, so there we keep the loop-avoidance fallback to the
+// default tenant — and skip the journey-state read entirely (no Home-vs-Specs choice to
+// make). A session with zero memberships falls back to null → /.
 function RootRedirect() {
   const { session } = useAuth();
+  const emailVerified = !!session?.user.emailVerified;
+  const homeHidden = !!session && isFeatureHidden(session, 'home');
+  // Only consult journey-state when we genuinely face the Home-vs-Specs choice
+  // (authenticated, verified, and 'home' visible). Otherwise skip the read.
+  const needDecision = !!session && emailVerified && !homeHidden;
+  const landOnHome = useShouldLandOnHome(needDecision);
+
+  // Engagement telemetry (advisory, fires once): record which way the router sent the
+  // user so the Specs-vs-Home routing change can be measured (spec-421 dec-5 ac-20).
+  const { track } = useTelemetry(true);
+  const firedRef = useRef(false);
+  useEffect(() => {
+    if (!needDecision || landOnHome === null || firedRef.current) return;
+    firedRef.current = true;
+    const props = { destination: landOnHome ? 'home' : 'specs', graduated: !landOnHome };
+    // RootRedirect renders at the flat `/` (or `/login`), where `track()` resolves the
+    // tenant from the cached session. In the rare case there's no resolvable tenant (e.g.
+    // a session with no current Memex yet), fall back to the anonymous ingress so the
+    // engagement data point still lands. Both are advisory and never throw into routing.
+    if (tenantBase()) track('home.landing_routed', props);
+    else trackAnonymous('home.landing_routed', props);
+  }, [needDecision, landOnHome, track]);
+
   if (!session) return null; // session bootstrap still pending
-  if (session && !session.user.emailVerified) return <VerifyEmailGate />;
-  // spec-312 dec-3: needsOnboarding / identity_confirmed_at no longer participate in
-  // routing. The only branch left is the per-env 'home' hide (loop-avoidance above).
-  const target = isFeatureHidden(session, 'home') ? computeDefaultLanding(session) : '/home';
+  if (!emailVerified) return <VerifyEmailGate />;
+  if (homeHidden) {
+    // Loop-avoidance: 'home' hidden ⇒ land on the default tenant, no journey read.
+    const fallback = computeDefaultLanding(session);
+    return fallback ? <Navigate to={fallback} replace /> : null;
+  }
+  if (landOnHome === null) return null; // assessing onboarding state — draw nothing yet
+  const target = landOnHome ? '/home' : computeDefaultLanding(session);
   if (target) return <Navigate to={target} replace />;
   return null;
 }
@@ -417,6 +455,10 @@ export function PostLoginRouter() {
   const { session } = useAuth();
   return (
     <Suspense fallback={RouteFallback}>
+    {/* spec-304 t-58 (issue-24 #1): app-global MCP status sync — mounted once,
+        outside <Routes>, so the native pill is driven on EVERY route, not only
+        on Settings → Integrations. Renders nothing; no-op in a plain browser. */}
+    <DesktopMcpStatusSync />
     <Routes>
       {/* Flat (caller-scoped) routes — no tenant prefix. */}
       <Route path="/" element={<RootRedirect />} />

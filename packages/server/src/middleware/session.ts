@@ -5,6 +5,7 @@ import { memexes, namespaces, orgs, orgMemberships } from "../db/schema.js";
 import { getUserByEmail, getUserById, listMemberships, upsertUserByEmail } from "../services/users.js";
 import { ensureUserNamespace } from "../services/user-namespaces.js";
 import { verifySessionToken, InvalidTokenError } from "../services/auth-jwt.js";
+import { verifyMcpToken, bumpLastUsed } from "../services/mcp-tokens.js";
 import type { User, Memex, Namespace } from "../db/schema.js";
 
 export type SessionEnv = {
@@ -153,6 +154,7 @@ type BearerResolution =
  */
 async function resolveBearerUser(
   c: Parameters<Parameters<typeof createMiddleware<SessionEnv>>[0]>[0],
+  opts: { allowMcpToken?: boolean } = {},
 ): Promise<BearerResolution> {
   // Evaluate the dev flag BEFORE any token work so the b-38 F-1 prod guard
   // (isDevMode() throws when GOOGLE_CLIENT_ID is missing in production) still
@@ -191,6 +193,30 @@ async function resolveBearerUser(
     return { kind: "user", user };
   } catch (err) {
     if (err instanceof InvalidTokenError) {
+      // Not a session JWT. On routes that OPT IN (allowMcpToken — today only the
+      // hook-key mint, hit by the CLI installer whose device-flow auth yields an
+      // mxt_ MCP token, NOT a web-session JWT — spec-371), accept a valid mxt_
+      // PAT as proof of identity. It resolves to the same user; minting a
+      // strictly-less-privileged scoped hook key off a full PAT is no escalation,
+      // and dec-6 keeps the PLANTED credential a least-privilege mxh_ — the PAT
+      // only authenticates the mint. Every other session route stays JWT-only.
+      if (opts.allowMcpToken && token.startsWith("mxt_")) {
+        const mcpToken = await verifyMcpToken(token);
+        if (mcpToken) {
+          const user = await getUserById(mcpToken.userId);
+          if (user) {
+            bumpLastUsed(mcpToken.id);
+            return { kind: "user", user };
+          }
+          // Valid PAT whose subject was deleted: same userGone semantics as a JWT.
+          if (devMode) {
+            return { kind: "user", user: await resolveDevUser() };
+          }
+          return { kind: "userGone" };
+        }
+        // An mxt_-shaped bearer that doesn't verify falls through to the normal
+        // invalid-token handling below (→ anonymous → strict 401).
+      }
       // Malformed/expired token: dev mode keeps the no-token convenience
       // (fall back to the dev user); real mode reports anonymous.
       if (devMode) {
@@ -280,8 +306,9 @@ async function establishUserSession(
   return null;
 }
 
-export const sessionMiddleware = createMiddleware<SessionEnv>(async (c, next) => {
-  const resolution = await resolveBearerUser(c);
+function makeSessionMiddleware(opts: { allowMcpToken?: boolean } = {}) {
+  return createMiddleware<SessionEnv>(async (c, next) => {
+  const resolution = await resolveBearerUser(c, opts);
 
   if (resolution.kind === "reject") {
     return resolution.response;
@@ -304,6 +331,21 @@ export const sessionMiddleware = createMiddleware<SessionEnv>(async (c, next) =>
   const short = await establishUserSession(c, resolution.user);
   if (short) return short;
   return runWithMemexId(c.get("currentMemexId"), next);
+  });
+}
+
+// Strict session: a valid web-session JWT (or, in dev, the token-less fallback).
+// This is the default for every gated route.
+export const sessionMiddleware = makeSessionMiddleware();
+
+// spec-371 — the hook-key mint (routes/hook-keys.ts) is the ONE session route that
+// ALSO accepts a valid mxt_ MCP token. The CLI installer authenticates via the
+// device flow, which yields an MCP PAT rather than a web-session JWT; without this
+// it could never mint the scoped hook key it plants. Strictly opt-in: every other
+// route keeps `sessionMiddleware` and stays JWT-only, so a PAT can't drive the web
+// API at large.
+export const sessionWithMcpTokenMiddleware = makeSessionMiddleware({
+  allowMcpToken: true,
 });
 
 /**

@@ -94,9 +94,6 @@ export const documents = pgTable("documents", {
   // kanban lane when unarchived. All list/get queries filter out archived rows by
   // default — pass includeArchived to opt in.
   archivedAt: timestamp("archived_at", { withTimezone: true }),
-  // NULL = active, set = paused. Spec-only lifecycle flag — paused Specs stop
-  // receiving agent work but stay visible in their kanban lane.
-  pausedAt: timestamp("paused_at", { withTimezone: true }),
   // Last time the Spec narrative was consolidated by the agent. NULL = never
   // consolidated. Spec-only.
   narrativeLastConsolidatedAt: timestamp("narrative_last_consolidated_at", { withTimezone: true }),
@@ -109,6 +106,27 @@ export const documents = pgTable("documents", {
   // .../handhold/reset) hard-deletes all is_demo docs in the memex + their seeded
   // test-event emissions and re-seeds from handhold-demo.fixture.ts.
   isDemo: boolean("is_demo").notNull().default(false),
+  // spec-409 — the "code-grounded" flag: a Spec is grounded when an agent has
+  // verified its resolved decisions against the actual codebase. Standalone
+  // Spec-level boolean (dec-1) — NOT derived from per-node grounded_against
+  // (spec-76 is draft, no code). Set only via the `ground_spec` MCP tool over
+  // channel='mcp' with a `codebase_present` assertion (dec-3). Provenance is
+  // stamped at write (dec-2): grounded_by_name is denormalised per std-32 so a
+  // later rename can't rewrite history. Staleness is computed at read time
+  // (decision/AC updated_at > grounded_at, dec-4) — never mutated here.
+  groundedInCode: boolean("grounded_in_code").notNull().default(false),
+  groundedAt: timestamp("grounded_at", { withTimezone: true }),
+  groundedByUserId: uuid("grounded_by_user_id"),
+  groundedByName: text("grounded_by_name"),
+  // spec-371 rework (dec-5/dec-11/dec-12): the durable, single-holder CHECKOUT
+  // record — NOT presence (which is ephemeral and untouched here). One current
+  // holder per spec; the gate (dec-11) keys on checked_out_by + checked_out_at.
+  // checked_out_thread is the Claude Code conversation UID (or "web"/null), the
+  // join key for "return me to the conversation that worked on this spec" (dec-12).
+  // FK lives in the migration SQL (mirrors created_by_user_id).
+  checkedOutBy: uuid("checked_out_by"),
+  checkedOutAt: timestamp("checked_out_at", { withTimezone: true }),
+  checkedOutThread: text("checked_out_thread"),
 }, (table) => [
   unique("documents_memex_id_handle_unique").on(table.memexId, table.handle),
   index("documents_memex_id_idx").on(table.memexId),
@@ -1791,6 +1809,73 @@ export const memexEmissionKeys = pgTable(
   ]
 );
 
+// spec-371: the SCOPED HOOK CREDENTIAL — the least-privilege key the client-side
+// checkout hook uses to authenticate its record-only phone-home (POST
+// /api/spec-checkout/edit) and NOTHING else. Modeled on memex_emission_keys: the
+// raw key `mxh_<base64url>` is stored only as a SHA-256 hash (`hashed_key`,
+// unique-indexed for O(1) auth), and `prefix` keeps the leading chars for an
+// `mxh_xxxxxxxx…` settings display (never the raw key, never the hash). Revoking
+// sets `revoked_at` (rows are never hard-deleted, so the audit trail survives).
+// Per-Memex: a key authorises edit reports for its OWN Memex only — and it is
+// emphatically NOT the user's mxt_ PAT or rotating OAuth token (spec-371 dec-6),
+// so a planted hook can fetch routing and report edits, nothing more.
+export const memexHookKeys = pgTable(
+  "memex_hook_keys",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // spec-430 dec-1: NULL = USER-scoped (the key authorizes any memex its creator is
+    // an active member of). A non-null value is a legacy per-memex key, additionally
+    // pinned to that memex by the /api/spec-checkout authz. New keys mint NULL.
+    memexId: uuid("memex_id").references(() => memexes.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    hashedKey: text("hashed_key").notNull().unique(),
+    prefix: text("prefix").notNull(),
+    createdByUserId: uuid("created_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("memex_hook_keys_memex_id_idx").on(table.memexId),
+    index("memex_hook_keys_created_by_user_id_idx").on(table.createdByUserId),
+  ]
+);
+
+// spec-371: the RECORD-ONLY edit ledger + footprint join key (dec-8). One row per
+// claimed-thread file edit reported by the checkout hook's phone-home: WHICH spec
+// (memex_id + doc_id), WHICH thread (thread_uid = the agent's hook session id),
+// WHAT changed (changed_paths), and the git footprint (commit_sha, branch) when
+// available. High-frequency by design, so it is its OWN table — kept OUT of
+// activity_log (the firehose), mirroring how test_event is not persisted there.
+// Feeds the efficacy ledger (spec-125) and the commit/branch/thread links later
+// specs hang off this. actor_user_id is the user the hook key resolved to.
+export const specCheckoutEdits = pgTable(
+  "spec_checkout_edits",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    memexId: uuid("memex_id")
+      .notNull()
+      .references(() => memexes.id, { onDelete: "cascade" }),
+    docId: uuid("doc_id")
+      .notNull()
+      .references(() => documents.id, { onDelete: "cascade" }),
+    threadUid: text("thread_uid").notNull(),
+    changedPaths: jsonb("changed_paths").$type<string[]>().notNull(),
+    commitSha: text("commit_sha"),
+    branch: text("branch"),
+    actorUserId: uuid("actor_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("spec_checkout_edits_memex_doc_idx").on(table.memexId, table.docId),
+    index("spec_checkout_edits_thread_uid_idx").on(table.threadUid),
+  ]
+);
+
 // Per-user Slack OAuth credentials (doc-23 / b-56). Token is encrypted at rest via GCP KMS
 // envelope encryption (per D-2 of doc-23): `ciphertext` is AES-256-GCM(token) with a
 // per-row DEK + 12-byte IV; `wrapped_dek` is the DEK encrypted by the master
@@ -2928,6 +3013,172 @@ export const presence = pgTable(
   ]
 );
 
+// ══════════════════════════════════════
+// Facets (spec-340 — the inert foundation, phase 1)
+// ══════════════════════════════════════
+
+// The facet vocabulary (spec-340 dec-7). A closed per-owner set of cross-cutting
+// practice areas (security, db-migrations, e2e-testing, …); each owner gets its own
+// editable copy of the default 16, seeded at provisioning (t-2/t-3).
+//
+// Owner is POLYMORPHIC (dec-7): `ownerType` ∈ {org, memex} + `ownerId`. An
+// org-owned memex shares its org's vocabulary (ownerType='org', ownerId=org.id, per
+// std-4); a personal memex with no owning org carries its own (ownerType='memex',
+// ownerId=memex.id). This supersedes the original org_id-only model so personal
+// memexes — which are NOT modelled as their own org — still get a vocabulary.
+// `ownerId` is intentionally NOT a foreign key (it points at one of two tables);
+// referential integrity for the org case is enforced by the seeding paths, not the
+// schema. Owner-config posture like org_scaffold_additions — NO memex_id, so NO
+// memex_isolation RLS (a row could never satisfy a memex_id=GUC predicate); access
+// is gated at the service layer by owner resolution + membership.
+export const facets = pgTable(
+  "facets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ownerType: text("owner_type").notNull(),
+    ownerId: uuid("owner_id").notNull(),
+    // Stable slug — the code/prompt/LLM anchor AND the pill label by default.
+    // Clause tags (and, in phase 2, ballots) anchor on this; a display rename never
+    // rewrites it (dec-5).
+    key: text("key").notNull(),
+    // Renameable display override; the pill shows name ?? key.
+    name: text("name"),
+    // REQUIRED disambiguating rubric the classifier reads (dec-7) — never null.
+    description: text("description").notNull(),
+    // Advisory display order.
+    ord: integer("ord").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // Per-owner uniqueness — two owners may diverge under the same key (dec-7).
+    unique("facets_owner_key_unique").on(table.ownerType, table.ownerId, table.key),
+    index("facets_owner_idx").on(table.ownerType, table.ownerId),
+    check("facets_owner_type_valid", sql`${table.ownerType} IN ('org', 'memex')`),
+  ],
+);
+
+// Clause→facet tags (spec-340 dec-2/dec-8) — assigned by the agent-driven classifier
+// (local backfill in phase 1; NOT a hand-maintained join — the distinction the
+// spec-193 guard reconciliation rides, t-7). Memex-scoped (rides the standards
+// corpus). The tri-state the design requires is encoded by the nullable facet_id:
+//   • NO rows for a clause            → not-yet-classified
+//   • exactly one row, facet_id NULL  → explicit "governs nothing"
+//   • one row per member facet         → governs those facets
+// Standard-level pills are the union over member rows only.
+export const standardClauseFacets = pgTable(
+  "standard_clause_facets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    memexId: uuid("memex_id").notNull(),
+    clauseId: uuid("clause_id")
+      .notNull()
+      .references(() => standardClauses.id, { onDelete: "cascade" }),
+    // NULL = the explicit "governs nothing" marker, distinguishable from no rows.
+    facetId: uuid("facet_id").references(() => facets.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // At most one membership row per (clause, facet).
+    uniqueIndex("standard_clause_facets_clause_facet_unique")
+      .on(table.clauseId, table.facetId)
+      .where(sql`${table.facetId} IS NOT NULL`),
+    // At most one explicit-none marker per clause.
+    uniqueIndex("standard_clause_facets_clause_none_unique")
+      .on(table.clauseId)
+      .where(sql`${table.facetId} IS NULL`),
+    index("standard_clause_facets_clause_id_idx").on(table.clauseId),
+    index("standard_clause_facets_facet_id_idx").on(table.facetId),
+    index("standard_clause_facets_memex_id_idx").on(table.memexId),
+  ],
+);
+
+// ── Facet consume-side: ballots + routing log (spec-423 phase 2) ──────────────
+// Bespoke per-noun ballot tables (dec-7). Each carries the COMPLETE boolean verdict
+// map keyed on facet slug + an explicit `none` flag + a `vocabulary_keys` snapshot
+// (completeness judged at cast time) + std-32 actor stamping + memex_id (ENABLE-not-
+// FORCE RLS, std-36). Ballots anchor on facet KEYS (strings), never owner ids, so
+// they stay owner-model-agnostic across spec-340's polymorphic owner.
+export const taskFacetBallots = pgTable(
+  "task_facet_ballots",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    memexId: uuid("memex_id").notNull(),
+    taskId: uuid("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    // Complete boolean map keyed on facet slug (full map, not sparse).
+    verdict: jsonb("verdict").notNull().$type<Record<string, boolean>>(),
+    // Explicit "this work governs no facet" — honest no-facet work.
+    none: boolean("none").notNull().default(false),
+    // Slugs the ballot was cast against — completeness judged at cast time (dec-7).
+    vocabularyKeys: jsonb("vocabulary_keys").notNull().$type<string[]>(),
+    actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+    actorName: text("actor_name"),
+    channel: text("channel"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // One ballot per task (upsert target).
+    unique("task_facet_ballots_task_id_unique").on(table.taskId),
+    index("task_facet_ballots_memex_id_idx").on(table.memexId),
+  ],
+);
+
+// dec-6: a decision's ballot is a WORK-SIDE routing hook only — it routes the
+// governing STANDARDS, and is NEVER surfaced as binding precedent.
+export const decisionFacetBallots = pgTable(
+  "decision_facet_ballots",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    memexId: uuid("memex_id").notNull(),
+    decisionId: uuid("decision_id")
+      .notNull()
+      .references(() => decisions.id, { onDelete: "cascade" }),
+    verdict: jsonb("verdict").notNull().$type<Record<string, boolean>>(),
+    none: boolean("none").notNull().default(false),
+    vocabularyKeys: jsonb("vocabulary_keys").notNull().$type<string[]>(),
+    actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+    actorName: text("actor_name"),
+    channel: text("channel"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique("decision_facet_ballots_decision_id_unique").on(table.decisionId),
+    index("decision_facet_ballots_memex_id_idx").on(table.memexId),
+  ],
+);
+
+// Append-only routing telemetry (dec-4). One row per routing call on create_task /
+// resolve_decision: query, the full candidate set with ALL scores + surfaced flag,
+// the top-K cut, ranker provenance, owning ref, timestamp. OFF the SSE bus
+// (telemetry-log posture, std-8 silent-allowed). The substrate to tune K and
+// rebuild a clean relevance gold set from real traffic.
+export const facetRoutingLog = pgTable(
+  "facet_routing_log",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    memexId: uuid("memex_id").notNull(),
+    ownerRef: text("owner_ref").notNull(),
+    noun: text("noun").notNull(),
+    queryText: text("query_text").notNull(),
+    facetKeys: jsonb("facet_keys").notNull().$type<string[]>(),
+    candidates: jsonb("candidates")
+      .notNull()
+      .$type<Array<{ handle: string; title: string; score: number; surfaced: boolean }>>(),
+    k: integer("k").notNull(),
+    rankerModel: text("ranker_model").notNull(),
+    rankerParams: jsonb("ranker_params").$type<Record<string, unknown>>(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("facet_routing_log_memex_id_idx").on(table.memexId),
+    index("facet_routing_log_created_at_idx").on(table.createdAt),
+  ],
+);
+
 // ── Relations (codebase intelligence) ────────────
 // Minimum set the services are likely to need. Extend as needed.
 
@@ -2966,6 +3217,10 @@ export const symbolsRelations = relations(symbols, ({ one }) => ({
 export type Doc = InferSelectModel<typeof documents>;
 export type DocSection = InferSelectModel<typeof docSections>;
 export type StandardClause = InferSelectModel<typeof standardClauses>;
+export type Facet = InferSelectModel<typeof facets>;
+export type FacetInsert = InferInsertModel<typeof facets>;
+export type StandardClauseFacet = InferSelectModel<typeof standardClauseFacets>;
+export type StandardClauseFacetInsert = InferInsertModel<typeof standardClauseFacets>;
 export type ClauseRef = InferSelectModel<typeof clauseRefs>;
 export type ClauseRefInsert = InferInsertModel<typeof clauseRefs>;
 export type DocComment = InferSelectModel<typeof docComments>;
@@ -3001,6 +3256,9 @@ export type LoginRequest = InferSelectModel<typeof loginRequests>;
 export type McpToken = InferSelectModel<typeof mcpTokens>;
 export type MemexEmissionKey = InferSelectModel<typeof memexEmissionKeys>;
 export type MemexEmissionKeyInsert = InferInsertModel<typeof memexEmissionKeys>;
+export type MemexHookKey = InferSelectModel<typeof memexHookKeys>;
+export type SpecCheckoutEdit = InferSelectModel<typeof specCheckoutEdits>;
+export type SpecCheckoutEditInsert = InferInsertModel<typeof specCheckoutEdits>;
 export type CliAuthRequest = InferSelectModel<typeof cliAuthRequests>;
 export type Redirect = InferSelectModel<typeof redirects>;
 export type UserSlackToken = InferSelectModel<typeof userSlackTokens>;

@@ -63,11 +63,16 @@ export interface JourneyDef {
 // server still emits them; the Home Canvas hides them for non-builder personas
 // (spec-336 dec-3). `agents-build` is terminal (completedBy: null): it ticks once every
 // prior step's milestone is met (stepStatuses' all-milestones-met rule).
+//
+// spec-421: the old two-stage create-spec card is split into two discrete steps.
+// create-spec completes on mcpConnected; create-first-spec completes on hasSpec.
+// Steps 3–6 are hidden from the rail (code kept for future reintroduction).
 export const onboardingJourney: JourneyDef = {
   id: "onboarding",
   steps: [
     { id: "identity", completedBy: "identityConfirmed" },
-    { id: "create-spec", completedBy: "hasSpec" },
+    { id: "create-spec", completedBy: "mcpConnected" },
+    { id: "create-first-spec", completedBy: "hasSpec" },
     { id: "resolve-decision", completedBy: "hasResolvedDecision" },
     { id: "add-ac", completedBy: "hasAc" },
     { id: "specs-match-reality", completedBy: "planGrounded" },

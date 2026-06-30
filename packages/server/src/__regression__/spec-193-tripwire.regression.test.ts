@@ -110,6 +110,16 @@ describe("ac-8 — L0 functions with no tripwire-tag store", () => {
     // no per-standard tag lookup.
     expect(specifyNudge).toMatch(/search_memex\(\{ query, kind: 'standard' \}\)/);
     // No tag-store / bridge-table machinery anywhere in the scaffold data.
+    //
+    // spec-340 RECONCILIATION (narrowing, dec-1 reversal): this prohibition is
+    // SCOPED TO THE SCAFFOLD LAYER (`scaffoldData` = shared/scaffold-data.ts). It
+    // forbids a HAND-MAINTAINED standard↔tripwire/facet MAP living in the product
+    // prompting layer — the thing spec-193 dec-1 ruled out. It deliberately does
+    // NOT touch the DB: spec-340 introduces AUTO-ASSIGNED clause→facet tags
+    // (db/schema.ts `standardClauseFacets`), which are DERIVED data written by the
+    // agent-driven classifier, not a hand-maintained product map — and are
+    // explicitly PERMITTED. The reconciliation is pinned executably by
+    // spec-340-spec-193-reconciliation.regression.test.ts (spec-340 ac-34).
     expect(scaffoldData).not.toMatch(/tripwireTag|standardTripwireMap|TRIPWIRE_TO_STANDARD|bridge[- ]?table/i);
   });
 });

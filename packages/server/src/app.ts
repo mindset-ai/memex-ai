@@ -44,6 +44,8 @@ import { search } from "./routes/search.js";
 import { handhold } from "./routes/handhold.js";
 import { onboarding } from "./routes/onboarding.js";
 import { testEventsRouter } from "./routes/test-events.js";
+import { specCheckoutRouter } from "./routes/spec-checkout.js";
+import { hookKeysRouter } from "./routes/hook-keys.js";
 import { testOnlyRouter } from "./routes/__test__.js";
 import { hostGuard, memexResolver } from "./middleware/memex-resolver.js";
 import { visitorMiddleware } from "./middleware/visitor.js";
@@ -343,6 +345,8 @@ app.route("/api/execution-plans", executionPlans);
 app.route("/api/drift", driftRouter);
 // feat-ac-spike V0.0.1 — test-event receiver for AC pass/fail emissions from the codebase.
 app.route("/api/test-events", testEventsRouter);
+// spec-371 — record-only checkout phone-home (Bearer hook-key auth, body-resolved tenant).
+app.route("/api/spec-checkout", specCheckoutRouter);
 // /api/llm/* migrated to sessionMiddleware (t-13). Legacy middleware/auth.ts deleted.
 app.use("/api/llm/*", sessionMiddleware);
 app.route("/api/llm", llmRouter);
@@ -418,6 +422,9 @@ app.route("/api/backstage", backstageRouter);
 // Device-flow installer + token settings (t-14).
 app.route("/api/cli/auth", cliAuth);
 app.route("/api/mcp/tokens", mcpTokensRouter);
+// spec-430 dec-3: hook keys are per USER, never per memex — user-level mint, no
+// :namespace/:memex in the path (modelled on /api/mcp/tokens above).
+app.route("/api/hook-keys", hookKeysRouter);
 
 // OAuth 2.1 + DCR + PKCE (b-31 W1). Gated by OAUTH_ENABLED=1 so the entire
 // surface (routes + well-known discovery) is dead until explicitly turned on.

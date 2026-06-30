@@ -12,6 +12,7 @@ import {
 import {
   getDoc,
   updateDocStatus,
+  groundSpec,
 } from "../../services/documents.js";
 import {
   ValidationError,
@@ -224,6 +225,77 @@ export const lifecycleTools: ToolSpec[] = [
       return `Spec ref: ${freshRef} published to "${fresh.status}". ${phaseLine}`.trim();
     },
   },
+  {
+    // spec-409 — mark a Spec code-grounded. The honest-presence checks (dec-3)
+    // are the heart of this tool: it can only run over the coding-agent MCP
+    // channel (channel='mcp' — the in-app agent and web cannot ground, ac-8) and
+    // the caller must assert `codebase_present: true` on the call (ac-9). On pass
+    // it sets grounded_in_code=true and stamps WHO/WHEN provenance via the
+    // service (ac-2/ac-11). Self-attestation, made accountable by the stamped
+    // actor (dec-2).
+    name: "ground_spec",
+    annotations: { title: "Ground Spec in code", readOnlyHint: false, destructiveHint: false },
+    description:
+      "Mark a Spec as **code-grounded**: you have verified its resolved decisions against the actual source in this session. " +
+      "Call this from a coding agent that has the codebase open, ideally in the latter part of `specify` so decisions and ACs are settled against real code before `build`. " +
+      "Requires `codebase_present: true` and only works over MCP (channel='mcp') — the web UI and in-app agent cannot ground. " +
+      "Sets a persisted flag + provenance (who/when) that surface as a verification badge on the Spec.",
+    schema: {
+      ref: z
+        .string()
+        .describe("Canonical ref to the Spec, e.g. `mindset/main/specs/spec-3`."),
+      codebase_present: z
+        .boolean()
+        .describe(
+          "MUST be true, asserting the codebase was available in this session when you grounded the Spec. " +
+          "The call is refused otherwise — the flag is only meaningful when the code was actually in hand (dec-3).",
+        ),
+      verbose: VERBOSE_FIELD,
+    },
+    async handler(input, ctx) {
+      const ref = input.ref as string;
+      const codebasePresent = input.codebase_present as boolean | undefined;
+
+      const resolved = await resolveRefArg(ctx, ref);
+      if (!isDocLikeKind(resolved.entity.kind)) {
+        throw new ValidationError(
+          `ground_spec expects a doc-level ref; got ${resolved.entity.kind}.`,
+        );
+      }
+      const { memexId, slugs } = resolved;
+      const doc = await loadSpec(memexId, resolved.doc.id);
+
+      // dec-3 presence check (ac-8): channel='mcp' only. The MCP surface leaves
+      // channel undefined (→ 'mcp' via reqCtx); the in-app agent sets
+      // 'in_app_agent'; the web never reaches an MCP tool. Reject anything else.
+      const channel = ctx.channel ?? "mcp";
+      if (channel !== "mcp") {
+        throw new ValidationError(
+          "ground_spec can only be called over MCP with the codebase present — " +
+          `grounding from the ${channel} surface is not allowed (dec-3). Run this from a coding agent that has the repo open.`,
+        );
+      }
+
+      // dec-3 presence check (ac-9): the call must assert codebase_present.
+      if (codebasePresent !== true) {
+        throw new ValidationError(
+          "ground_spec requires codebase_present: true — the code must be available in this session for grounding to mean anything (dec-3).",
+        );
+      }
+
+      await groundSpec(memexId, doc.id, reqCtx(ctx));
+
+      if (ctx.verbose) {
+        const state = await fullDocState(memexId, doc.id);
+        const url = await ctx.workspaceUrl(memexId);
+        return await formatState(url, state, ctx);
+      }
+      const fresh = await getDoc(memexId, doc.id);
+      const freshRef = buildDocRef(slugs, fresh);
+      const by = fresh.groundedByName ? ` by ${fresh.groundedByName}` : "";
+      return `Spec ref: ${freshRef} marked code-grounded${by} at ${fresh.groundedAt?.toISOString() ?? "now"}.`;
+    },
+  },
 
   // ── Memex-wide search (spec-34) ──────────────────────────
   // search_memex covers Specs, Standards, free-form docs, and Decisions
@@ -234,7 +306,7 @@ export const lifecycleTools: ToolSpec[] = [
     name: "search_memex",
     annotations: { title: "Search Memex", readOnlyHint: true, destructiveHint: false },
     description:
-      "Semantic + full-text search across Specs, Standards, free-form documents, and Decisions in the active Memex. Excludes archived and paused content by default. Returns markdown grouped by source doc, each hit headed by the canonical URL path so the agent can cite and follow up with get_doc. Use BEFORE creating a new Spec (spot overlap), BEFORE writing code that touches a rule (find prior decisions / standards), and whenever the user mentions prior work by topic rather than handle. When you're editing a Spec, the Spec you're in is excluded from results by default (it's already in your Document Context); pass `includeCurrentDoc: true` if you specifically want to see it back.",
+      "Semantic + full-text search across Specs, Standards, free-form documents, and Decisions in the active Memex. Excludes archived content by default. Returns markdown grouped by source doc, each hit headed by the canonical URL path so the agent can cite and follow up with get_doc. Use BEFORE creating a new Spec (spot overlap), BEFORE writing code that touches a rule (find prior decisions / standards), and whenever the user mentions prior work by topic rather than handle. When you're editing a Spec, the Spec you're in is excluded from results by default (it's already in your Document Context); pass `includeCurrentDoc: true` if you specifically want to see it back.",
     schema: {
       memex: z.string().optional().describe(MEMEX_DESC),
       query: z.string().describe("Free-text query, or a `spec-N` / `std-N` / `doc-N` handle for direct lookup."),
@@ -245,7 +317,7 @@ export const lifecycleTools: ToolSpec[] = [
       includeArchived: z
         .boolean()
         .optional()
-        .describe("Include archived and paused content. Default false."),
+        .describe("Include archived content. Default false."),
       includeCurrentDoc: z
         .boolean()
         .optional()

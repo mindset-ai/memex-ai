@@ -740,6 +740,9 @@ const REF_PROBE_SKIP = new Map<string, string>([
   // dec-1 sense. Tested separately via the verbose path and by the
   // per-mode pins.
   ["assess_spec", "returns analysis text keyed on handle, not a per-entity UUID confirmation"],
+  // spec-340: the facets list verb is a discovery/read tool — output is the facet
+  // vocabulary listing (key/name/description), not a per-entity `ref:` confirmation.
+  ["facets", "discovery tool — facet vocabulary listing, no per-entity confirmation"],
   // search_memex (b-34) is a discovery tool, not entity-acting — its output is a
   // ranked hit list with canonical URL paths as headings (no `ref:` lines per
   // hit and no per-call entity confirmation). Audited in ref-emission.regression
@@ -1023,6 +1026,15 @@ describe("audit: b-36 D-8 — every terse mutation/list response emits `ref:` an
         },
       ],
       [
+        // spec-409: ground_spec returns "Spec ref: <canonical> marked code-grounded…"
+        // — entity-acting (document/updated), emits ref + no raw UUID. codebase_present
+        // is the dec-3 presence assertion the tool requires.
+        "ground_spec",
+        {
+          input: () => ({ ref: docRef(slugs, docHandle), codebase_present: true }),
+        },
+      ],
+      [
         "add_section",
         {
           input: () => ({
@@ -1268,6 +1280,9 @@ describe("audit: b-36 D-8 — every terse mutation/list response emits `ref:` an
       ],
       ["assign_spec", { input: () => ({ ref: docRef(slugs, docHandle), user: userId }) }],
       ["unassign_spec", { input: () => ({ ref: docRef(slugs, docHandle), user: userId }) }],
+      // ── Spec checkout (spec-371) — echo the Spec ref, no UUID; presence-only. ──
+      ["claim_spec", { input: () => ({ ref: docRef(slugs, docHandle) }) }],
+      ["unclaim_spec", { input: () => ({ ref: docRef(slugs, docHandle) }) }],
       // ── Standards drift tools (spec-143 dec-1, ac-14) ──
       // Both take a canonical standard-section `ref` and emit a `ref:` to the
       // comment that lands under the standard's std-N handle.

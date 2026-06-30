@@ -25,6 +25,10 @@ import {
   updateClause,
   deleteClause,
 } from "../../services/clauses.js";
+// spec-423 dec-9 — authoring-time clause classification. Validation lives in the
+// NO-LLM facet-vocab.ts and is imported FROM there (never facet-classifier.ts — the
+// facet-classifier-no-request-path regression guard).
+import { validateClauseFacets, persistClauseFacets } from "../../services/facet-vocab.js";
 import {
   ValidationError,
 } from "../../types/errors.js";
@@ -237,6 +241,16 @@ export const sectionsTools: ToolSpec[] = [
         .positive()
         .optional()
         .describe("1-based display position to insert at; omit to append at the end."),
+      // spec-423 dec-9 — REQUIRED facet verdict (where the Memex has a vocabulary): an
+      // array of facet keys this clause governs, or [] for "governs nothing" (a
+      // definition / example / rationale clause). An absent or unknown-key verdict is
+      // rejected with the vocabulary re-handed.
+      facets: z
+        .array(z.string())
+        .optional()
+        .describe(
+          "The facet keys this clause governs (dec-9). Required: an array of keys, or [] for \"governs nothing\". Unknown keys are rejected; call the `facets` tool (verb 'list') to read the vocabulary.",
+        ),
       verbose: VERBOSE_FIELD,
     },
     async handler(input, ctx) {
@@ -256,7 +270,14 @@ export const sectionsTools: ToolSpec[] = [
           "Only standards have clauses. Use update_section to edit this document's section body.",
         );
       }
+      // Validate the facet verdict BEFORE creating the clause, so a rejected verdict
+      // (re-handing the vocabulary) leaves no orphan clause (dec-9). Returns null when
+      // the Memex has no vocabulary (no verdict required).
+      const facetIds = await validateClauseFacets(memexId, input.facets as string[] | undefined);
       const clause = await createClause(memexId, entity.row.id, body, position);
+      if (facetIds !== null) {
+        await persistClauseFacets(memexId, doc.id, clause.id, facetIds, reqCtx(ctx));
+      }
       if (ctx.verbose) {
         const state = await fullDocState(memexId, doc.id);
         const url = await ctx.workspaceUrl(memexId);
@@ -278,6 +299,14 @@ export const sectionsTools: ToolSpec[] = [
           "Canonical ref to the clause, e.g. `mindset/main/standards/std-7/clauses/cl-12`.",
         ),
       body: z.string().describe("New clause body — one self-contained aspect, markdown."),
+      // spec-423 dec-9 — OPTIONAL facet verdict on edit. Omit to leave tags unchanged;
+      // provide an array of keys (or [] for "governs nothing") to replace them.
+      facets: z
+        .array(z.string())
+        .optional()
+        .describe(
+          "Optional facet re-classification (dec-9). Omit = tags unchanged; provide an array of keys (or [] for \"governs nothing\") to replace them.",
+        ),
       verbose: VERBOSE_FIELD,
     },
     async handler(input, ctx) {
@@ -292,6 +321,13 @@ export const sectionsTools: ToolSpec[] = [
       }
       const { memexId, doc, slugs, entity } = resolved;
       const clause = await updateClause(memexId, entity.row.id, body);
+      // Re-classify only when a verdict is supplied (omit = unchanged, dec-9).
+      if (input.facets !== undefined) {
+        const facetIds = await validateClauseFacets(memexId, input.facets as string[]);
+        if (facetIds !== null) {
+          await persistClauseFacets(memexId, doc.id, entity.row.id, facetIds, reqCtx(ctx));
+        }
+      }
       if (ctx.verbose) {
         const state = await fullDocState(memexId, doc.id);
         const url = await ctx.workspaceUrl(memexId);

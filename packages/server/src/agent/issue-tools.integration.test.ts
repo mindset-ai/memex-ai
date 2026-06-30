@@ -32,7 +32,17 @@ const AC = (n: number) =>
 const createdDocIds: string[] = [];
 const createdMemexIds: string[] = [];
 
+// This file asserts vector ranking OFFLINE via a deterministic fake provider
+// (makeFakeProvider). Doc creation auto-embeds via the env-resolved provider,
+// which becomes REAL OpenAI when OPENAI_API_KEY is set in the runner's shell —
+// polluting the stored vectors with a different model and breaking the ranking
+// (green in CI, which has no key; flaky on dev machines that export the key).
+// Scrub the key for this file so the auto-embed hook also stays offline, matching
+// the test's stated intent.
+let savedOpenAiKey: string | undefined;
+
 afterAll(async () => {
+  if (savedOpenAiKey !== undefined) process.env.OPENAI_API_KEY = savedOpenAiKey;
   for (const id of createdDocIds) {
     await db.delete(issues).where(eq(issues.docId, id)).catch(() => {});
   }
@@ -72,6 +82,8 @@ function makeFakeProvider(name = "fake-issue-1536"): EmbeddingProvider {
 let memexId: string;
 let USER: string;
 beforeAll(async () => {
+  savedOpenAiKey = process.env.OPENAI_API_KEY;
+  delete process.env.OPENAI_API_KEY;
   memexId = await makeTestMemex("issuetools");
   createdMemexIds.push(memexId);
   // A real user row — promote_to_spec → createDocDraft sets created_by_user_id,

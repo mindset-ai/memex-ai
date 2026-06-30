@@ -142,6 +142,9 @@ const SKIPS = new Map<string, string>([
   // before/after), not an entity confirmation — it writes nothing and emits no
   // `ref:` line. The actual write happens on approval through the scaffold route.
   ["propose_scaffold_change", "agent-only scaffold proposal — returns a proposal, not entity-acting"],
+  // spec-340: the facets list verb returns the vocabulary listing (key/name/description),
+  // a discovery output like list_docs — not an entity confirmation, so no `ref:` line.
+  ["facets", "facet vocabulary listing — read tool, not entity-acting"],
   // search_memex is the T-8 sister deliverable. It's a discovery tool whose
   // output mirrors list_memexes / list_docs; not an entity-acting tool, so
   // ref emission isn't required. Skip until T-8 confirms the shape.
@@ -424,6 +427,15 @@ describe("regression: every entity-acting MCP tool emits `ref:` and no raw UUID 
         },
       ],
       [
+        // spec-409: ground_spec returns "Spec ref: <canonical> marked code-grounded…"
+        // — entity-acting (document/updated), emits ref + no raw UUID. codebase_present
+        // is the dec-3 presence assertion the tool requires.
+        "ground_spec",
+        {
+          input: () => ({ ref: refForDoc(slugs, docHandle), codebase_present: true }),
+        },
+      ],
+      [
         "add_section",
         {
           input: () => ({
@@ -628,6 +640,9 @@ describe("regression: every entity-acting MCP tool emits `ref:` and no raw UUID 
       ],
       ["assign_spec", { input: () => ({ ref: refForDoc(slugs, docHandle), user: userId }) }],
       ["unassign_spec", { input: () => ({ ref: refForDoc(slugs, docHandle), user: userId }) }],
+      // ── Spec checkout (spec-371) — echo the Spec ref, no UUID; presence-only. ──
+      ["claim_spec", { input: () => ({ ref: refForDoc(slugs, docHandle) }) }],
+      ["unclaim_spec", { input: () => ({ ref: refForDoc(slugs, docHandle) }) }],
       // ── Standards drift tools (spec-143 dec-1, ac-14) ──
       // Canonical standard-section `ref` in, `ref:` to the comment under the
       // standard's std-N handle out.

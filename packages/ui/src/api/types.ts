@@ -93,13 +93,6 @@ export interface DocSummary {
   statusChangedAt: string;
   sectionCount: number;
   /**
-   * Spec lifecycle flag (doc-12 t-1). NULL = active. Surfaced to power the
-   * Specs kanban "Show paused" toggle (doc-12 t-13). The server filters
-   * archived docs out of /api/docs by default, but paused docs are still
-   * returned and excluded client-side so toggling doesn't require a refetch.
-   */
-  pausedAt: string | null;
-  /**
    * Set if the doc has been archived (doc-12 t-1). NULL = active. The server
    * filters archived rows out of /api/docs by default, so in normal responses
    * this is null — included for parity with the server type and for any
@@ -112,6 +105,16 @@ export interface DocSummary {
    * card. Always returned by the server; absent/false for real specs.
    */
   isDemo?: boolean;
+  /**
+   * spec-409 (ac-1): the standalone code-grounded flag + provenance, projected on
+   * every board summary so the card can render the compact "Code-grounded" marker.
+   * `groundedStale` is derived server-side at read time (dec-4) for grounded specs
+   * only; absent/false means "not stale". Absent `groundedInCode` means not grounded.
+   */
+  groundedInCode?: boolean;
+  groundedAt?: string | null;
+  groundedByName?: string | null;
+  groundedStale?: boolean;
   /** Set when fetchDocs is called with `{ include: ['driftCount'] }` — open drift
    *  comment count for the doc. Undefined when not requested. (t-19 W2) */
   driftCount?: number;
@@ -176,8 +179,6 @@ export interface Doc {
   creator?: DocSummaryCreator | null;
   createdAt: string;
   statusChangedAt: string;
-  /** See DocSummary.pausedAt — same semantics. */
-  pausedAt?: string | null;
   /**
    * spec-178: demo flag — true on the five frozen spec-64 copies. Threaded into
    * SectionCard / DecisionPanel to suppress handle auto-linking (ac-24) and into the
@@ -200,6 +201,17 @@ export interface Doc {
    * round-trip.
    */
   narrativeLastConsolidatedAt?: string | null;
+  /**
+   * spec-409 — the code-grounded flag + provenance. `groundedInCode` is the
+   * persisted boolean; `groundedAt`/`groundedByName` are the who/when stamped at
+   * grounding (denormalised). `groundedStale` is computed server-side at read
+   * time (a decision/AC changed since groundedAt). The CodeGroundedBadge reads
+   * these to render grounded / stale / not-grounded on the Spec page.
+   */
+  groundedInCode?: boolean;
+  groundedAt?: string | null;
+  groundedByName?: string | null;
+  groundedStale?: boolean;
   sections: DocSection[];
 }
 
@@ -353,6 +365,9 @@ export interface Decision {
   options: DecisionOption[] | null;
   chosenOptionIndex: number | null;
   source?: DecisionSource;
+  /** spec-423 (dec-7): the facet keys this decision's ballot marked true, rendered
+   *  as pills. Optional — legacy / partial payloads omit it; defaults to []. */
+  facetKeys?: string[];
 }
 
 export interface AcceptanceCriterion {
@@ -379,6 +394,9 @@ export interface Task {
    *  graph view to mark such nodes visually. Optional because legacy / partial
    *  payloads may omit it. */
   executionPlanDocId?: string | null;
+  /** spec-423 (dec-7): the facet keys this task's ballot marked true, rendered as
+   *  pills. Optional — legacy / partial payloads omit it; defaults to []. */
+  facetKeys?: string[];
 }
 
 // ── Issues (spec-112) ──

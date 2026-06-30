@@ -150,18 +150,67 @@ if ! gcloud kms keys describe slack-tokens \
 fi
 echo "  ✓ KMS key 'slack-tokens' present"
 
-# ── Step 1: Run database migrations ───────────────────────────
+# ── Step 1: Local build check ────────────────────────────────
+# spec-417 dec-5 + dec-6 — the deploy order is:
+#   Step 1 local build check → Step 2 container build/push → Step 3 SCHEMA migrations
+#   (1a/1b) → Step 4 Cloud Run cutover → Step 5 DATA backfills (1c–1f, post-cutover).
+# dec-5 moved build/push ahead of migrations; dec-6 then moved the data backfills
+# past the cutover. Together they collapse the window in which the OLD revision runs
+# against the NEW schema to ~schema-DDL-apply + cutover time. On the 2026-06-26
+# incident that window was ~20 min — but the driver was the first-run data backfills
+# (~18 min), NOT the build (~89s cache-hit); see issue-1. SCHEMA migrations (1a/1b)
+# still land BEFORE the revision swap, so the b-36 invariant in Step 3 is preserved —
+# and a build failure now aborts BEFORE any migration runs, which is strictly safer.
+echo ""
+echo "Running local build check..."
+pnpm run build
+
+# ── Step 2: Build and push container ──────────────────────────
+echo ""
+echo "Building container image (${IMAGE})..."
+
+# Submit from the repo root so the build context includes packages/shared
+# (workspace dep of @memex/server). The Dockerfile at the repo root is
+# workspace-aware; .gcloudignore there keeps the upload lean.
+#
+# spec-281 Fix 2: build via cloudbuild.yaml (not bare `--tag`) so the build reuses
+# cached layers from the previously-pushed image (`--cache-from` + BuildKit inline
+# cache). `--tag` gives the clean Cloud Build worker no cache, so the pnpm-install
+# `deps` layer rebuilt every deploy even when only source changed (~2min wasted on
+# int + prod). `_IMAGE` is env-keyed, so this lands identically on both.
+( cd "${REPO_ROOT}" && gcloud builds submit \
+  --config cloudbuild.yaml \
+  --substitutions "_IMAGE=${IMAGE}" \
+  --project "${GCP_PROJECT}" \
+  --region "${REGION}" \
+  --default-buckets-behavior=regional-user-owned-bucket )
+
+# ── Step 3: Run SCHEMA migrations (pre-cutover) ───────────────
 # Two phases, matching the project convention (packages/server/TEST.md):
 #   1a. drizzle-kit migrate  → journal-tracked files (0000–0008)
 #   1b. apply-hand-migrations.sh → hand-written files (0009+), tracked in manual_migrations
 #
-# ⚠️  b-36 canonical-refs hard switch: migrations MUST land before the Cloud Run
-# revision swap (Step 4 below). The new server resolves entities by canonical
+# spec-417 dec-6 — only the SCHEMA DDL (1a/1b) runs here, before the cutover. The
+# DATA backfills/generation (formerly 1c–1f) moved to Step 5, AFTER the Cloud Run
+# revision is serving traffic. Reason (issue-1): the 2026-06-26 ~18-min downtime
+# was the first-run backfills sitting in the OLD-revision-vs-NEW-schema window, not
+# the build (which was ~89s cache-hit). The DDL itself is seconds, so keeping only
+# 1a/1b pre-cutover collapses that window to ~DDL + cutover; the backfills (idempotent,
+# non-gating, and not required for the new code to boot) run post-cutover where they
+# cost wall-clock but never downtime. The cloud-sql-proxy started below stays UP
+# across the cutover and is torn down in Step 5.
+#
+# ⚠️  b-36 canonical-refs hard switch: SCHEMA migrations MUST land before the Cloud
+# Run revision swap (Step 4 below). The new server resolves entities by canonical
 # ref + `seq` columns added in 0052 (doc_comments_seq) and rejects UUID inputs
 # at the MCP boundary. Swapping the revision first would leave the old code
 # running against a fresh schema (harmless) but the new code running against
-# the old schema (broken section / comment lookups). Keep this script's step
-# order: migrations → build → push → deploy.
+# the old schema (broken section / comment lookups). The invariant is only that
+# SCHEMA migrations (1a/1b) land BEFORE the Cloud Run revision swap (Step 4) — NOT
+# before the image build, and the data backfills (Step 5) carry no such constraint.
+# Per spec-417 dec-5 + dec-6 the order is now build → push → schema migrations →
+# deploy → data backfills, which preserves this invariant while shrinking the window
+# in which the OLD revision runs against the NEW schema to ~DDL-apply + cutover time.
 #
 # FIRST-TIME BOOTSTRAP (run once per environment before the first deploy through this
 # path, e.g. against prod that's had 0009–0017 applied manually):
@@ -209,6 +258,85 @@ DATABASE_URL="${DB_URL}" pnpm db:migrate
 
 echo "  1b. hand-written migrations..."
 DATABASE_URL="${DB_URL}" bash "${PKG_DIR}/scripts/apply-hand-migrations.sh"
+
+# NOTE (spec-417 dec-6): the data backfills/generation that used to run here (1c–1f)
+# now run in Step 5, AFTER the Cloud Run cutover. The cloud-sql-proxy started above
+# is deliberately LEFT RUNNING across the cutover (Step 4) and is torn down at the end
+# of Step 5 — DB_URL stays valid for the backfills without re-establishing the proxy.
+echo "Schema migrations complete (1a/1b) — proxy stays up for post-cutover backfills (Step 5)."
+
+# ── Step 4: Deploy to Cloud Run ───────────────────────────────
+echo ""
+echo "Deploying to Cloud Run..."
+
+# Build the secrets wiring string. OPENAI_API_KEY is required for
+# semantic code search; COHERE_API_KEY is only wired if the secret exists
+# (optional A/B provider for embedding experimentation).
+SECRETS_WIRING="ANTHROPIC_API_KEY=anthropic-api-key:latest"
+SECRETS_WIRING+=",POSTMARK_SERVER_TOKEN=postmark-server-token:latest"
+SECRETS_WIRING+=",AUTH_JWT_SECRET=auth-jwt-secret:latest"
+# spec-341: Basic-auth credential for the Postmark delivery webhook
+# (/api/postmark/webhook). OPTIONAL — only wired if the secret exists (same
+# posture as COHERE below), so this deploy never breaks if it's not yet created.
+# Until the secret is present the webhook route returns 401 (deliveries rejected);
+# email send-logging + Stripe capture work regardless. Create with:
+#   gcloud secrets create postmark-webhook-token --replication-policy=user-managed \
+#     --locations=us-east4 --data-file=- --project "<project>"
+if gcloud secrets describe postmark-webhook-token --project "${GCP_PROJECT}" >/dev/null 2>&1; then
+  SECRETS_WIRING+=",POSTMARK_WEBHOOK_TOKEN=postmark-webhook-token:latest"
+fi
+SECRETS_WIRING+=",OPENAI_API_KEY=openai-api-key:latest"
+if [ "$HAS_SLACK" = "1" ]; then
+  SECRETS_WIRING+=",SLACK_CLIENT_SECRET=slack-client-secret:latest"
+fi
+if [ "$HAS_COHERE" = "1" ]; then
+  SECRETS_WIRING+=",COHERE_API_KEY=cohere-api-key:latest"
+fi
+if [ "$HAS_ELEVENLABS" = "1" ]; then
+  SECRETS_WIRING+=",ELEVENLABS_API_KEY=elevenlabs-api-key:latest"
+fi
+if [ "$HAS_MIXPANEL" = "1" ]; then
+  SECRETS_WIRING+=",MIXPANEL_TOKEN=memex-mixpanel-token:latest"
+fi
+if [ "$HAS_STRIPE" = "1" ]; then
+  SECRETS_WIRING+=",STRIPE_SECRET_KEY=memex-stripe-secret-key:latest,STRIPE_WEBHOOK_SECRET=memex-stripe-webhook-secret:latest"
+fi
+
+# HIDDEN_FEATURES is appended to --update-env-vars ONLY when it is set (see
+# deploy-config.sh): ${HIDDEN_FEATURES+...} expands to the entry when set
+# (including an explicit empty value — a deliberate un-hide) and to nothing when
+# unset. An unset value is therefore OMITTED, so the Cloud Run --update-env-vars
+# MERGE leaves the live setting intact rather than blanking it — a deploy from a
+# checkout that never set the value can't silently un-hide features (spec-168
+# dec-4). The ${var+...} form is safe under `set -u`.
+gcloud run deploy "${SERVICE}" \
+  --image "${IMAGE}" \
+  --platform managed \
+  --region "${REGION}" \
+  --project "${GCP_PROJECT}" \
+  --allow-unauthenticated \
+  --port 8080 \
+  --memory 512Mi \
+  --min-instances 0 \
+  --max-instances 3 \
+  --add-cloudsql-instances "${CLOUD_SQL_INSTANCE_CONN}" \
+  --update-env-vars "^|^NODE_ENV=production|DATABASE_URL=postgresql://${RUNTIME_DB_USER}:${RUNTIME_DB_PASS_ENC}@localhost:${DB_PORT}/${DB_NAME}|CLOUD_SQL_SOCKET=/cloudsql/${CLOUD_SQL_INSTANCE_CONN}|GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}|EMAIL_FROM=${EMAIL_FROM}|APP_BASE_URL=${APP_BASE_URL}|OAUTH_ENABLED=1|SLACK_CLIENT_ID=${SLACK_CLIENT_ID}|SLACK_OAUTH_REDIRECT_URI=${API_BASE_URL}/api/auth/slack/callback|KMS_KEY_NAME=projects/${GCP_PROJECT}/locations/${REGION}/keyRings/memex/cryptoKeys/slack-tokens${HIDDEN_FEATURES+|HIDDEN_FEATURES=${HIDDEN_FEATURES}}${SIGNUP_DOMAIN_ALLOWLIST+|SIGNUP_DOMAIN_ALLOWLIST=${SIGNUP_DOMAIN_ALLOWLIST}}${STRIPE_PREMIUM_MONTHLY_PRICE_ID+|STRIPE_PREMIUM_MONTHLY_PRICE_ID=${STRIPE_PREMIUM_MONTHLY_PRICE_ID}}${STRIPE_PREMIUM_ANNUAL_PRICE_ID+|STRIPE_PREMIUM_ANNUAL_PRICE_ID=${STRIPE_PREMIUM_ANNUAL_PRICE_ID}}${STRIPE_ENTERPRISE_MONTHLY_PRICE_ID+|STRIPE_ENTERPRISE_MONTHLY_PRICE_ID=${STRIPE_ENTERPRISE_MONTHLY_PRICE_ID}}${STRIPE_ENTERPRISE_ANNUAL_PRICE_ID+|STRIPE_ENTERPRISE_ANNUAL_PRICE_ID=${STRIPE_ENTERPRISE_ANNUAL_PRICE_ID}}${OTEL_EXPORTER_OTLP_ENDPOINT+|OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT}}${MEMEX_OTEL_EXPORT_INTERVAL_MS+|MEMEX_OTEL_EXPORT_INTERVAL_MS=${MEMEX_OTEL_EXPORT_INTERVAL_MS}}" \
+  --update-secrets "${SECRETS_WIRING}"
+
+# ── Step 5: Post-cutover data backfills (spec-417 dec-6) ──────
+# The new revision is now serving 100% of traffic. These DATA backfills/generation
+# steps (formerly 1c–1f inside the migration step) seed/decorate EXISTING rows and
+# are NOT required for the new code to boot — so they run HERE, off the
+# old-revision-vs-new-schema window that caused the 2026-06-26 outage (issue-1).
+# Each stays bounded (`timeout 600`) + non-gating (`|| echo`) exactly as before, so a
+# failure/timeout never aborts the (already-live) deploy and the next deploy resumes
+# idempotently. The cloud-sql-proxy from Step 3 is still up; DB_URL is still valid.
+# These run before the caller's post-deploy smoke, which only costs the smoke FLAG
+# some wall-clock on a heavy first-run backfill — traffic is already live and healthy,
+# so there is no downtime. (Moving them after smoke would mean re-plumbing the proxy +
+# DB creds in the root deploy.sh; the fully-async form is dec-6 option 1, deferred.)
+echo ""
+echo "Running post-cutover data backfills (ENV=${ENV})..."
 
 # 1c. spec-178 t-5 / ac-28 — backfill the Handhold onboarding demo into EXISTING
 # personal Memexes (namespaces.kind='user') that predate the feature. New signups
@@ -271,7 +399,7 @@ DATABASE_URL="${DB_URL}" timeout 600 pnpm db:import-guide-content \
 # never fails the deploy.
 #
 # The Anthropic key is wired into the Cloud Run SERVICE at step 4 (--set-secrets),
-# but that wiring never reaches THIS migration-phase shell on the CI runner, where
+# but that wiring never reaches THIS deploy-phase shell on the CI runner, where
 # the generation script actually runs. So fetch it from Secret Manager here, the
 # same way scripts/deploy-config.sh sources DB_PASS (`versions access`). Guarded
 # with `|| true` so a fetch hiccup can't trip `set -e` and abort the deploy — an
@@ -282,93 +410,11 @@ echo "  1f. What's New generation (spec-200 t-3 / ac-8)..."
 DATABASE_URL="${DB_URL}" ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY}" timeout 600 pnpm db:generate-whats-new \
   || echo "  ⚠ What's New generation timed out or failed (non-gating, exit $?) — deploy continues; next deploy resumes (idempotent)."
 
+# Tear down the cloud-sql-proxy started in Step 3 (kept alive across the cutover).
 kill $PROXY_PID 2>/dev/null
 wait $PROXY_PID 2>/dev/null || true
 
-echo "Migrations complete."
-
-# ── Step 2: Local build check ────────────────────────────────
-echo ""
-echo "Running local build check..."
-pnpm run build
-
-# ── Step 3: Build and push container ──────────────────────────
-echo ""
-echo "Building container image (${IMAGE})..."
-
-# Submit from the repo root so the build context includes packages/shared
-# (workspace dep of @memex/server). The Dockerfile at the repo root is
-# workspace-aware; .gcloudignore there keeps the upload lean.
-#
-# spec-281 Fix 2: build via cloudbuild.yaml (not bare `--tag`) so the build reuses
-# cached layers from the previously-pushed image (`--cache-from` + BuildKit inline
-# cache). `--tag` gives the clean Cloud Build worker no cache, so the pnpm-install
-# `deps` layer rebuilt every deploy even when only source changed (~2min wasted on
-# int + prod). `_IMAGE` is env-keyed, so this lands identically on both.
-( cd "${REPO_ROOT}" && gcloud builds submit \
-  --config cloudbuild.yaml \
-  --substitutions "_IMAGE=${IMAGE}" \
-  --project "${GCP_PROJECT}" \
-  --region "${REGION}" \
-  --default-buckets-behavior=regional-user-owned-bucket )
-
-# ── Step 4: Deploy to Cloud Run ───────────────────────────────
-echo ""
-echo "Deploying to Cloud Run..."
-
-# Build the secrets wiring string. OPENAI_API_KEY is required for
-# semantic code search; COHERE_API_KEY is only wired if the secret exists
-# (optional A/B provider for embedding experimentation).
-SECRETS_WIRING="ANTHROPIC_API_KEY=anthropic-api-key:latest"
-SECRETS_WIRING+=",POSTMARK_SERVER_TOKEN=postmark-server-token:latest"
-SECRETS_WIRING+=",AUTH_JWT_SECRET=auth-jwt-secret:latest"
-# spec-341: Basic-auth credential for the Postmark delivery webhook
-# (/api/postmark/webhook). OPTIONAL — only wired if the secret exists (same
-# posture as COHERE below), so this deploy never breaks if it's not yet created.
-# Until the secret is present the webhook route returns 401 (deliveries rejected);
-# email send-logging + Stripe capture work regardless. Create with:
-#   gcloud secrets create postmark-webhook-token --replication-policy=user-managed \
-#     --locations=us-east4 --data-file=- --project "<project>"
-if gcloud secrets describe postmark-webhook-token --project "${GCP_PROJECT}" >/dev/null 2>&1; then
-  SECRETS_WIRING+=",POSTMARK_WEBHOOK_TOKEN=postmark-webhook-token:latest"
-fi
-SECRETS_WIRING+=",OPENAI_API_KEY=openai-api-key:latest"
-if [ "$HAS_SLACK" = "1" ]; then
-  SECRETS_WIRING+=",SLACK_CLIENT_SECRET=slack-client-secret:latest"
-fi
-if [ "$HAS_COHERE" = "1" ]; then
-  SECRETS_WIRING+=",COHERE_API_KEY=cohere-api-key:latest"
-fi
-if [ "$HAS_ELEVENLABS" = "1" ]; then
-  SECRETS_WIRING+=",ELEVENLABS_API_KEY=elevenlabs-api-key:latest"
-fi
-if [ "$HAS_MIXPANEL" = "1" ]; then
-  SECRETS_WIRING+=",MIXPANEL_TOKEN=memex-mixpanel-token:latest"
-fi
-if [ "$HAS_STRIPE" = "1" ]; then
-  SECRETS_WIRING+=",STRIPE_SECRET_KEY=memex-stripe-secret-key:latest,STRIPE_WEBHOOK_SECRET=memex-stripe-webhook-secret:latest"
-fi
-
-# HIDDEN_FEATURES is appended to --update-env-vars ONLY when it is set (see
-# deploy-config.sh): ${HIDDEN_FEATURES+...} expands to the entry when set
-# (including an explicit empty value — a deliberate un-hide) and to nothing when
-# unset. An unset value is therefore OMITTED, so the Cloud Run --update-env-vars
-# MERGE leaves the live setting intact rather than blanking it — a deploy from a
-# checkout that never set the value can't silently un-hide features (spec-168
-# dec-4). The ${var+...} form is safe under `set -u`.
-gcloud run deploy "${SERVICE}" \
-  --image "${IMAGE}" \
-  --platform managed \
-  --region "${REGION}" \
-  --project "${GCP_PROJECT}" \
-  --allow-unauthenticated \
-  --port 8080 \
-  --memory 512Mi \
-  --min-instances 0 \
-  --max-instances 3 \
-  --add-cloudsql-instances "${CLOUD_SQL_INSTANCE_CONN}" \
-  --update-env-vars "^|^NODE_ENV=production|DATABASE_URL=postgresql://${RUNTIME_DB_USER}:${RUNTIME_DB_PASS_ENC}@localhost:${DB_PORT}/${DB_NAME}|CLOUD_SQL_SOCKET=/cloudsql/${CLOUD_SQL_INSTANCE_CONN}|GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}|EMAIL_FROM=${EMAIL_FROM}|APP_BASE_URL=${APP_BASE_URL}|OAUTH_ENABLED=1|SLACK_CLIENT_ID=${SLACK_CLIENT_ID}|SLACK_OAUTH_REDIRECT_URI=${API_BASE_URL}/api/auth/slack/callback|KMS_KEY_NAME=projects/${GCP_PROJECT}/locations/${REGION}/keyRings/memex/cryptoKeys/slack-tokens${HIDDEN_FEATURES+|HIDDEN_FEATURES=${HIDDEN_FEATURES}}${SIGNUP_DOMAIN_ALLOWLIST+|SIGNUP_DOMAIN_ALLOWLIST=${SIGNUP_DOMAIN_ALLOWLIST}}${STRIPE_PREMIUM_MONTHLY_PRICE_ID+|STRIPE_PREMIUM_MONTHLY_PRICE_ID=${STRIPE_PREMIUM_MONTHLY_PRICE_ID}}${STRIPE_PREMIUM_ANNUAL_PRICE_ID+|STRIPE_PREMIUM_ANNUAL_PRICE_ID=${STRIPE_PREMIUM_ANNUAL_PRICE_ID}}${STRIPE_ENTERPRISE_MONTHLY_PRICE_ID+|STRIPE_ENTERPRISE_MONTHLY_PRICE_ID=${STRIPE_ENTERPRISE_MONTHLY_PRICE_ID}}${STRIPE_ENTERPRISE_ANNUAL_PRICE_ID+|STRIPE_ENTERPRISE_ANNUAL_PRICE_ID=${STRIPE_ENTERPRISE_ANNUAL_PRICE_ID}}${OTEL_EXPORTER_OTLP_ENDPOINT+|OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT}}${MEMEX_OTEL_EXPORT_INTERVAL_MS+|MEMEX_OTEL_EXPORT_INTERVAL_MS=${MEMEX_OTEL_EXPORT_INTERVAL_MS}}" \
-  --update-secrets "${SECRETS_WIRING}"
+echo "Post-cutover data backfills complete."
 
 # ── Done ──────────────────────────────────────────────────────
 URL=$(gcloud run services describe "${SERVICE}" --region "${REGION}" --project "${GCP_PROJECT}" --format='value(status.url)')

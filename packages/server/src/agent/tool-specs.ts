@@ -57,7 +57,9 @@ import {
   lifecycleTools,
   issuesTools,
   rolesTools,
+  checkoutTools,
   standardsTools,
+  facetsTools,
   integrationsTools,
 } from "./handlers/index.js";
 // spec-360: the scaffold-assistant authoring tool (propose_scaffold_change).
@@ -95,7 +97,9 @@ export const toolSpecs: ToolSpec[] = [
   ...lifecycleTools,
   ...issuesTools,
   ...rolesTools,
+  ...checkoutTools,
   ...standardsTools,
+  ...facetsTools,
 
   // ── Codebase intelligence ─────────────────────────────────
   // TEMPORARILY DISABLED — codebase tools are commented out (both MCP + React UI agent).

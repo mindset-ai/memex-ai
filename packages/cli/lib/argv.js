@@ -10,6 +10,7 @@ export function parseArgs(argv) {
     apiBase: DEFAULT_API_BASE,
     adminBase: null,
     label: null,
+    memex: null,
     yes: false,
     help: false,
     skipBrowser: false,
@@ -18,11 +19,16 @@ export function parseArgs(argv) {
     const a = args[i];
     if (a === "uninstall" || a === "--uninstall") out.command = "uninstall";
     else if (a === "install") out.command = "install";
+    // checkout-setup: mint + store the scoped hook key off the one Memex sign-in
+    // (spec-371 dec-10). The plugin handles MCP + hooks declaratively; this only
+    // provisions the credential — it never plants into settings.json.
+    else if (a === "checkout-setup") out.command = "checkout-setup";
     else if (a === "--help" || a === "-h") out.help = true;
     else if (a === "--yes" || a === "-y") out.yes = true;
     else if (a === "--api-base") out.apiBase = args[++i];
     else if (a === "--admin-base") out.adminBase = args[++i];
     else if (a === "--label") out.label = args[++i];
+    else if (a === "--memex") out.memex = args[++i];
     else if (a === "--no-browser") out.skipBrowser = true;
   }
   return out;

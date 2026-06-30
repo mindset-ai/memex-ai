@@ -1,0 +1,6 @@
+{
+  "name": "memex-checkout",
+  "version": "0.2.0",
+  "description": "Memex spec-checkout — binds your coding thread to a Spec and records in-flow edits against it (claim-gated, privacy-first). Non-blocking, opt-in, uninstallable any time. Sends only changed file paths + the claimed spec; never source code or prompts. Hooks-only: the Memex MCP is planted by `npx memex-ai install` (spec-430 dec-2) so a single sign-in serves both, with no duplicate MCP toolset.",
+  "author": { "name": "Mindset AI", "url": "https://memex.ai" }
+}

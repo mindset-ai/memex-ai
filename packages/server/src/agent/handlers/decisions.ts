@@ -35,6 +35,10 @@ import {
 import {
   resolveEmbeddingProvider,
 } from "../../services/embedding-provider.js";
+// spec-423 dec-5/dec-6 — forced facet ballot on resolve_decision. Vocab via
+// facet-ballot.ts → facet-vocab.ts (NO-LLM); classifier engine never imported here.
+import { validateBallotForMemex } from "../../services/facet-ballot.js";
+import { parseBallotArg, storeRouteAndReadout } from "../../services/facet-consume.js";
 import {
   VERBOSE_FIELD,
   formatState,
@@ -327,6 +331,18 @@ export const decisionsTools: ToolSpec[] = [
         .describe(
           "Zero-based index of the chosen option (only valid if the decision has structured options).",
         ),
+      // spec-423 dec-5 — decisions are a more reliably-created hook than tasks, so
+      // resolving one also forces a complete facet ballot (dec-6: work-side routing
+      // only — never surfaced as binding precedent). Same shape + re-hand as create_task.
+      facetBallot: z
+        .object({
+          verdict: z.record(z.string(), z.boolean()).describe("Complete map: facet slug → true/false."),
+          none: z.boolean().describe("true = this work governs no facet (every verdict false)."),
+        })
+        .optional()
+        .describe(
+          "The facets this decision's work touches: a complete verdict over the Memex's facet vocabulary, which surfaces the standards governing that work so they stay top-of-mind. First call the `facets` tool (verb:'list') to read the vocabulary, then pass a true/false verdict for EVERY facet, or none:true for honest no-facet work.",
+        ),
       verbose: VERBOSE_FIELD,
     },
     async handler(input, ctx) {
@@ -341,11 +357,36 @@ export const decisionsTools: ToolSpec[] = [
         );
       }
       const { memexId, doc, slugs, entity } = resolved;
+      // FACET BALLOT — OPTIONAL (relaxed from spec-423 dec-5's forced ballot). A client
+      // on an OLDER tool signature — e.g. an MCP client that hasn't reloaded since the
+      // facets release, so it has no `facetBallot` param to send — must NOT hit an error.
+      // So: ABSENT ballot → resolve WITHOUT facet adjudication; PROVIDED ballot → validate
+      // strictly BEFORE resolving (re-hand the vocabulary on an invalid one) and store it.
+      // Re-tightening to a forced ballot is a later, deliberate step.
+      const hasBallot = input.facetBallot !== undefined;
+      const ballot = parseBallotArg(input.facetBallot);
+      const vocab = hasBallot ? await validateBallotForMemex(memexId, ballot) : [];
       const decision = await resolveDecision(memexId, entity.row.id, resolution, chosenOptionIndex, reqCtx(ctx));
+      const decRef = buildChildRef(slugs, doc, { type: "decisions", seq: decision.seq });
+      // Store + route the ballot only when one was provided (work-side, dec-6); an absent
+      // ballot contributes no facet routing, so the readout is empty.
+      const readout = hasBallot
+        ? await storeRouteAndReadout({
+            memexId,
+            specDocId: decision.docId,
+            noun: "decision",
+            rowId: entity.row.id,
+            ownerRef: decRef,
+            queryText: `${decision.title}\n${decision.resolution ?? resolution ?? ""}`,
+            ballot,
+            vocab,
+            ctx: reqCtx(ctx),
+          })
+        : "";
       if (ctx.verbose) {
         const state = await fullDocState(memexId, decision.docId);
         const url = await ctx.workspaceUrl(memexId);
-        return await formatState(url, state, ctx);
+        return (await formatState(url, state, ctx)) + readout;
       }
       // Per dec-1 of doc-20: if this was the last open decision on a Spec
       // in 'specify', surface the unblocked phase move so the agent doesn't have
@@ -358,7 +399,6 @@ export const decisionsTools: ToolSpec[] = [
           hint = " This was the last open decision; Spec can move to build.";
         }
       }
-      const decRef = buildChildRef(slugs, doc, { type: "decisions", seq: decision.seq });
       // JIT nudge: a resolved decision is a commitment without a verification
       // path until its implementation AC(s) exist. Surface the create_ac
       // syntax at exactly the moment the decision flips so the next move is
@@ -406,7 +446,7 @@ export const decisionsTools: ToolSpec[] = [
       if (ctx.footerSlot) {
         ctx.footerSlot.signal = { kind: "decision_resolved", decRef, linkedAcs, issueHits };
       }
-      return `Decision resolved: ref: ${decRef} "${decision.title}" — ${decision.resolution}.${hint}`;
+      return `Decision resolved: ref: ${decRef} "${decision.title}" — ${decision.resolution}.${hint}${readout}`;
     },
   },
   {

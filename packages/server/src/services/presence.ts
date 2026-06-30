@@ -97,6 +97,31 @@ export async function markPresent(input: MarkPresentInput): Promise<void> {
     });
 }
 
+/**
+ * Explicit check-in (spec-371 unclaim_spec): drop this client's presence row for
+ * a spec so the holder disappears immediately rather than waiting out the TTL.
+ * Same silent / out-of-band path as markPresent (std-8) — a plain delete, never
+ * routed through mutate()/the bus. A no-op when no row matches.
+ */
+export async function clearPresent(input: {
+  docId: string;
+  actorUserId: string;
+  channel: PresenceChannel;
+  clientId?: string;
+}): Promise<void> {
+  const clientId = input.clientId ?? "";
+  await db
+    .delete(presence)
+    .where(
+      and(
+        eq(presence.docId, input.docId),
+        eq(presence.actorUserId, input.actorUserId),
+        eq(presence.channel, input.channel),
+        eq(presence.clientId, clientId),
+      ),
+    );
+}
+
 /** Read the live presence-table rows (within TTL) for a single spec. */
 async function tableRowsForDoc(memexId: string, docId: string): Promise<PresentRow[]> {
   const rows = await db

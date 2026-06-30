@@ -36,14 +36,15 @@ import {
 import { fetchDocs } from '../api/docs';
 import { resolveSpecToken, SPEC_TOKEN_PLACEHOLDER } from '../components/home/specToken';
 import { resolveStepView, activeJourney } from '../journeys/registry';
-import { BUILDER_ONLY_STEP_IDS } from '../journeys/onboarding/steps';
-import { isJourneyGraduated } from '../journeys/graduation';
+import { BUILDER_ONLY_STEP_IDS, HIDDEN_STEP_IDS } from '../journeys/onboarding/steps';
+import { getCachedJourneyState, setCachedJourneyState } from '../journeys/journeyStateCache';
 import { YourJourneys, type PearlJourney } from '../components/home/YourJourneys';
 import { HomeValue } from '../components/home/HomeValue';
 import { SHOW_GRADUATED_HOME } from './homeCanvasFlags';
 import { JourneyStepShell } from '../components/home/JourneyStepShell';
 import { IdentityStep } from '../components/home/IdentityStep';
 import { CreateSpecStep } from '../components/home/CreateSpecStep';
+import { CreateFirstSpecStep } from '../components/home/CreateFirstSpecStep';
 import { AgentPromptStep } from '../components/home/AgentPromptStep';
 import { SpecsMatchRealityStep } from '../components/home/SpecsMatchRealityStep';
 import { AgentsBuildStep } from '../components/home/AgentsBuildStep';
@@ -118,7 +119,16 @@ export function HomeCanvas() {
 
   useDocumentTitle({ kind: 'page', title: 'Home' });
 
-  const [state, setState] = useState<JourneyStateResponse | null>(null);
+  // spec-421 issue-2 — assess BEFORE draw (Barrie). Seed the first paint from the shared
+  // in-memory journey-state the app already assessed read-only at login (useShouldLandOnHome
+  // / RootRedirect), so an in-app navigation to /home paints the tracker at its real state
+  // immediately instead of re-assessing from null after draw (the flicker). Preview reads
+  // are operator-pinned and must not seed from (or write to) the shared cache. On a cold
+  // load with no prior assessment this is null → the tracker region renders nothing until
+  // the read below resolves (a momentary blank, never a wrong/stale state).
+  const [state, setState] = useState<JourneyStateResponse | null>(() =>
+    previewParam ? null : getCachedJourneyState(),
+  );
   const [cursor, setCursor] = useState<string | null>(null);
   const [pinned, setPinned] = useState(false);
   const [restored, setRestored] = useState(false);
@@ -131,7 +141,12 @@ export function HomeCanvas() {
 
   const load = useCallback(() => {
     fetchJourneyStateApi(previewParam)
-      .then(setState)
+      .then((s) => {
+        setState(s);
+        // Refresh the shared assessment so the next surface paints from the latest read.
+        // Never cache a preview-pinned read (it isn't the user's real state).
+        if (!previewParam) setCachedJourneyState(s);
+      })
       .catch(() => {
         /* keep last good state — the canvas never hard-crashes on a fetch blip */
       });
@@ -165,7 +180,9 @@ export function HomeCanvas() {
   const builder = isBuilderPersona(state?.roleCoords ?? null);
   const visibleSteps = useMemo(() => {
     const all = state?.steps ?? [];
-    return builder ? all : all.filter((s) => !(BUILDER_ONLY_STEP_IDS as readonly string[]).includes(s.id));
+    // spec-421: hidden steps are fully inert — not in the rail, no telemetry, no badges.
+    const withoutHidden = all.filter((s) => !(HIDDEN_STEP_IDS as readonly string[]).includes(s.id));
+    return builder ? withoutHidden : withoutHidden.filter((s) => !(BUILDER_ONLY_STEP_IDS as readonly string[]).includes(s.id));
   }, [state, builder]);
   const visibleIds = useMemo(() => visibleSteps.map((s) => s.id), [visibleSteps]);
 
@@ -305,12 +322,14 @@ export function HomeCanvas() {
     ];
   }, [visibleSteps, journey]);
 
-  const nonBuilderTerminal =
-    !builder && displayStepId === visibleIds[visibleIds.length - 1] && displayStepId === 'add-ac';
+  // spec-421: add-ac is hidden from the rail; the terminal visible step is create-first-spec
+  // for all persona types. nonBuilderTerminal is no longer applicable.
+  const nonBuilderTerminal = false;
 
-  // The journey layer recedes to the pearls once graduated (spec-312), unless re-opened.
-  const graduated = isJourneyGraduated(state ? { ...state, steps: visibleSteps } : null);
-  const layerVisible = !!state?.steps?.length && (!graduated || forceShow);
+  // spec-421 patch: remove the graduation gate — graduated users see the completed rail
+  // (all ticks green) rather than a blank page. forceShow re-opens the layer when
+  // SHOW_GRADUATED_HOME flips and the YourJourneys pearls are live (spec-312/315).
+  const layerVisible = !!state?.steps?.length || forceShow;
 
   // The rail reveals once the user is past the first step (prototype: full-width step 0).
   const showRail = !!displayStepId && displayStepId !== FIRST_STEP_ID && visibleSteps.length > 0;
@@ -339,7 +358,7 @@ export function HomeCanvas() {
             {/* Header — static (spec-372 issue-8 removed the collapse/expand toggle + chevron). */}
             <div className="flex flex-wrap items-center gap-3 rounded-xl border-b border-edge px-2 pb-4 pt-1">
               {/* spec-372 issue-7 — title is black (not the global accent blue) and medium weight. */}
-              <h2 data-testid="getting-started-title" className="whitespace-nowrap text-lg font-medium text-black">
+              <h2 data-testid="getting-started-title" className="whitespace-nowrap text-lg font-medium text-foreground">
                 Getting started on Memex
               </h2>
               <div className="ml-auto flex items-center gap-3">
@@ -424,6 +443,14 @@ export function HomeCanvas() {
             preview={preview}
             onComplete={handleStepComplete}
             onCtaClick={trackStepCta}
+          />
+        );
+      case 'create-first-spec':
+        return (
+          <CreateFirstSpecStep
+            preview={preview}
+            onComplete={handleStepComplete}
+            onCtaClick={trackStepCta}
             onCreateInApp={() => {
               if (specsPath) navigate(`${specsPath}?new=1`);
             }}
@@ -489,7 +516,8 @@ function JourneyRail({
           const view = views[s.id];
           const isSelected = s.id === selectedStepId;
           const isCurrent = s.id === serverStepId;
-          const showDivider = s.id === 'specs-match-reality';
+          // spec-421: specs-match-reality is hidden from the rail so the divider never fires.
+          const showDivider = false;
           // spec-372 issue-10 — a done (attained) step you've moved past collapses: its
           // subtitle is hidden and its title dims. The selected step (even a done one you
           // clicked back to) stays expanded.

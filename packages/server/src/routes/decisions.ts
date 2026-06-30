@@ -11,6 +11,7 @@ import {
   AmbiguousDecisionHandleError,
   SpecParentMismatchError,
 } from "../services/decisions.js";
+import { facetKeysByDecision } from "../services/facet-ballot.js";
 import { type SessionEnv } from "../middleware/session.js";
 import type { MemexResolverEnv } from "../middleware/memex-resolver.js";
 import { requireMemexId, resolveReadableMemexId } from "./shared.js";
@@ -96,7 +97,9 @@ decisionsRouter.get("/doc/:docId", async (c) => {
   // see exactly what they used to.
   const includeDeleted = c.req.query("include") === "deleted";
   const result = await listDecisions(memexId, docId, { includeDeleted });
-  return c.json(result);
+  // spec-423 t-8 (dec-7) — attach each decision's cast facet keys for the pills.
+  const facets = await facetKeysByDecision(memexId, result.map((d) => d.id));
+  return c.json(result.map((d) => ({ ...d, facetKeys: facets.get(d.id) ?? [] })));
 });
 
 decisionsRouter.post("/doc/:docId", async (c) => {

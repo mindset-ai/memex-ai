@@ -23,11 +23,10 @@ const CLIENTS: { id: Client; label: string }[] = [
 export function GenesisPromptSection() {
   const [client, setClient] = useState<Client>('claude-code');
 
-  const prompt =
-    client === 'claude-code' ? buildClaudeCodePrompt(mcpUrl) : buildCursorPrompt(mcpUrl);
+  const isClaudeCode = client === 'claude-code';
+  const prompt = isClaudeCode ? buildClaudeCodePrompt(mcpUrl) : buildCursorPrompt(mcpUrl);
 
-  const memoryFile =
-    client === 'claude-code' ? 'CLAUDE.md' : '.cursor/rules/memex.mdc';
+  const memoryFile = isClaudeCode ? 'CLAUDE.md' : '.cursor/rules/memex.mdc';
 
   return (
     <section id="genesis-prompt" aria-labelledby="genesis-prompt-heading">
@@ -36,10 +35,25 @@ export function GenesisPromptSection() {
       </h2>
       <p className="mb-6 text-secondary">
         Prefer to let your agent wire itself up? Paste this into a fresh{' '}
-        <strong>Claude Code</strong> or <strong>Cursor</strong> session. It registers the
-        Memex MCP server and writes a short "how to use Memex" note into your{' '}
-        <InlineCode>{memoryFile}</InlineCode> so the agent reaches for Memex every session
-        — not just this one.
+        <strong>{isClaudeCode ? 'Claude Code' : 'Cursor'}</strong> session.{' '}
+        {isClaudeCode ? (
+          <>
+            It installs the Memex MCP server{' '}
+            <strong>and the spec-checkout plugin</strong> in one browser sign-in, and
+            writes a short "how to use Memex" note into your{' '}
+            <InlineCode>{memoryFile}</InlineCode> so the agent reaches for Memex every
+            session — not just this one.
+          </>
+        ) : (
+          <>
+            It registers the Memex MCP server and writes a short "how to use Memex" note
+            into your <InlineCode>{memoryFile}</InlineCode> so the agent reaches for Memex
+            every session.{' '}
+            <span className="text-muted">
+              (The spec-checkout plugin is Claude Code only.)
+            </span>
+          </>
+        )}
       </p>
 
       <div role="tablist" aria-label="Choose your agent" className="flex gap-2 mb-4">

@@ -73,9 +73,10 @@ export function IdentityStep({
         Built around how you work
       </h2>
 
-      {/* spec-372 issue-4 — for nameless (native-auth) users the name field sits directly
-          below the heading, above the intro copy. The ✓ confirm button appears only once a
-          name has been typed (hidden while empty) and submits the step like Continue. */}
+      {/* spec-421 t-1 — for nameless (native-auth) users the name field sits directly
+          below the heading, above the intro copy. The ✓ confirm button appears once a name
+          has been typed and blurs the field (name-commit only — it does NOT advance the step).
+          Enter key is intentionally inert: Continue is the sole step-advance action. */}
       {needsName && (
         <div className="mb-6 max-w-sm">
           <label htmlFor="identity-name" className="mb-1.5 block text-sm font-semibold text-secondary">
@@ -88,9 +89,6 @@ export function IdentityStep({
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && name.trim()) submit(role);
-              }}
               placeholder="How should we address you?"
               className="w-full rounded-xl border border-edge bg-surface py-3 pl-4 pr-14 text-base text-primary outline-hidden transition focus:border-accent"
             />
@@ -99,7 +97,7 @@ export function IdentityStep({
                 type="button"
                 data-testid="identity-name-confirm"
                 aria-label="Confirm your name"
-                onClick={() => submit(role)}
+                onClick={() => document.getElementById('identity-name')?.blur()}
                 className="absolute right-2 top-1/2 inline-flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-lg bg-accent text-on-accent transition hover:bg-accent-hover"
               >
                 <span aria-hidden>✓</span>

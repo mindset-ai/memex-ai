@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 
+// ⚠ RELEASE: this is the published `memex-ai` npm package. A change here reaches users
+// ONLY after `npm publish`; merging does NOT ship it. Bump `version` in package.json
+// and publish (see README.md#releasing). No CI auto-publish.
+
 // Memex MCP installer (v2). Device-flow auth: claim a code from the server, open the
 // user's browser to authorize, long-poll for a long-lived mxt_ token, then merge it
 // into the Claude Code + Claude Desktop config files.
@@ -7,13 +11,13 @@
 // Zero dependencies — Node 18+ built-ins only. The pure logic lives in ../lib/ so the
 // behaviour is unit-testable; this file just wires stdout + browser side-effects.
 
-import { hostname, platform } from "node:os";
+import { platform } from "node:os";
 import { spawn } from "node:child_process";
 
 import { parseArgs, DEFAULT_API_BASE } from "../lib/argv.js";
 import { getConfigTargets } from "../lib/config-paths.js";
 import { writeMemexEntry, removeMemexEntry } from "../lib/config-merge.js";
-import { startCliAuth, pollForToken } from "../lib/auth-flow.js";
+import { ensureHookKey, unifiedInstall } from "../lib/checkout-bootstrap.js";
 
 const BOLD = "\x1b[1m";
 const GREEN = "\x1b[32m";
@@ -25,11 +29,14 @@ const RESET = "\x1b[0m";
 
 function printHelp() {
   console.log(`  ${BOLD}Usage:${RESET}`);
-  console.log(`    memex-ai install         Authorize this device + write Claude configs (default)`);
+  console.log(`    memex-ai install         One sign-in → MCP token + checkout key (default)`);
   console.log(`    memex-ai uninstall       Remove memex from Claude configs`);
+  console.log(`    memex-ai checkout-setup  Mint JUST the checkout key (one sign-in; no --memex)`);
+  console.log();
+  console.log(`  ${DIM}Tip: run \`install\` through Claude Code (paste the “Set up your coding agent”`);
+  console.log(`       prompt) and it also adds the plugin + reloads for you.${RESET}`);
   console.log();
   console.log(`  ${BOLD}Options:${RESET}`);
-  console.log(`    --label <name>           Device label (default: hostname)`);
   console.log(`    --api-base <url>         Memex server (default: ${DEFAULT_API_BASE})`);
   console.log(`    --admin-base <url>       Memex UI base URL for the auth confirm page (default: derived from --api-base)`);
   console.log(`    --no-browser             Skip auto-opening the browser; print URL only`);
@@ -67,62 +74,111 @@ async function uninstall() {
   console.log();
 }
 
-async function install({ apiBase, adminBase: adminBaseArg, label, skipBrowser }) {
-  const deviceLabel = label || hostname() || "Unknown device";
-
-  console.log(`  ${BOLD}Step 1/3${RESET} — claiming device code...`);
-  const { reqId, code } = await startCliAuth(apiBase);
-
-  // The device-flow confirm page lives on the same host as the API now (single-host
-  // path-routed). Explicit --admin-base wins; otherwise strip /api from apiBase.
+// Unified install (spec-430 dec-2/dec-3): ONE device-flow sign-in mints BOTH the MCP
+// token (planted into the Claude configs) AND the single user-scoped checkout key —
+// no second sign-in, no per-memex anything. This command owns CREDENTIALS only; the
+// plugin (hooks) is installed by `claude plugin …`, which Claude Code runs for you
+// when you paste the "Set up your coding agent" prompt (dec-4).
+async function install({ apiBase, adminBase: adminBaseArg, skipBrowser }) {
   const adminBase = adminBaseArg ?? apiBase.replace("/api", "");
-  const authUrl = `${adminBase}/install/mcp/auth?code=${code}`;
-
-  console.log();
-  console.log(`  ${BOLD}Step 2/3${RESET} — open this URL in your browser:`);
-  console.log();
-  console.log(`    ${CYAN}${authUrl}${RESET}`);
-  console.log();
-  console.log(`    ${DIM}Code: ${BOLD}${code}${RESET}${DIM} (valid for 5 minutes)${RESET}`);
-  console.log();
-
-  if (!skipBrowser) {
-    if (openInBrowser(authUrl)) {
-      console.log(`  ${DIM}(opened in your default browser)${RESET}`);
-    } else {
-      console.log(`  ${YELLOW}Could not auto-open browser; copy the URL above.${RESET}`);
-    }
-    console.log();
-  }
-
-  console.log(`  ${BOLD}Step 3/3${RESET} — waiting for authorization...`);
-  const token = await pollForToken(apiBase, reqId);
-
-  console.log();
-  console.log(`  ${GREEN}✓${RESET} Token issued (mxt_…). Writing Claude configs:`);
-  console.log();
-
   const mcpUrl = `${apiBase}/mcp`;
   const targets = getConfigTargets();
-  for (const target of Object.values(targets)) {
-    const result = await writeMemexEntry(target, mcpUrl, token);
-    console.log(`  ${GREEN}✓${RESET} Configured ${BOLD}${result.name}${RESET}`);
-    console.log(`    ${DIM}${result.path}${RESET}`);
-  }
+
+  console.log(`  ${BOLD}Step 1${RESET} — one sign-in mints your MCP token + checkout key...`);
+
+  const result = await unifiedInstall({
+    apiBase,
+    deps: {
+      openBrowser: (url) => {
+        console.log();
+        console.log(`  ${BOLD}Open this URL to authorize:${RESET}`);
+        console.log(`    ${CYAN}${url}${RESET}`);
+        console.log();
+        if (!skipBrowser && openInBrowser(url)) {
+          console.log(`  ${DIM}(opened in your default browser)${RESET}`);
+        } else if (!skipBrowser) {
+          console.log(`  ${YELLOW}Could not auto-open browser; copy the URL above.${RESET}`);
+        }
+        console.log(`  ${DIM}waiting for authorization...${RESET}`);
+      },
+      plantMcp: async (token) => {
+        console.log();
+        for (const target of Object.values(targets)) {
+          const r = await writeMemexEntry(target, mcpUrl, token);
+          console.log(`  ${GREEN}✓${RESET} MCP configured for ${BOLD}${r.name}${RESET} ${DIM}${r.path}${RESET}`);
+        }
+      },
+    },
+  });
 
   console.log();
-  console.log(`  ${GREEN}${BOLD}Done!${RESET} Restart Claude to pick up the new MCP server.`);
-  console.log(`  ${DIM}Device label: ${deviceLabel}. Manage tokens at ${adminBase}/settings/tokens${RESET}`);
+  console.log(
+    result.hook.provisioned
+      ? `  ${GREEN}✓${RESET} Checkout key minted + stored ${DIM}(~/.memex/checkout.json)${RESET}`
+      : `  ${GREEN}✓${RESET} Checkout key already present ${DIM}(no re-mint, no sign-in)${RESET}`,
+  );
   console.log();
-  console.log(`  ${DIM}Tip: for Claude.ai web or Claude Code, you can also use OAuth via the${RESET}`);
-  console.log(`  ${DIM}     in-product connector picker. This CLI is best for CI / scripted setups.${RESET}`);
+  console.log(`  ${BOLD}Step 2${RESET} — install the checkout plugin (the hooks):`);
+  console.log(`    ${CYAN}claude plugin marketplace add mindset-ai/memex-ai${RESET}`);
+  console.log(`    ${CYAN}claude plugin install memex-checkout@memex${RESET}`);
+  console.log();
+  console.log(`  ${BOLD}Step 3${RESET} — reload the window ${DIM}(hooks load at session start).${RESET}`);
+  console.log();
+  console.log(`  ${DIM}Easiest path: run this through Claude Code — paste the “Set up your coding`);
+  console.log(`       agent” prompt from ${adminBase} and it runs these steps for you.${RESET}`);
+  console.log();
+}
+
+// checkout-setup: provision JUST the checkout key (when you already have the MCP and
+// only need the hook credential). One sign-in mints the single USER key (spec-430
+// dec-1/dec-3) — no --memex, never pasted, no per-memex map. An existing key
+// short-circuits with no sign-in. Most users don't need this: `install` does it.
+async function checkoutSetup({ apiBase, skipBrowser }) {
+  console.log(`  ${BOLD}Step 1/2${RESET} — sign in once to mint your checkout key...`);
+  const res = await ensureHookKey({
+    apiBase,
+    deps: {
+      // Always surface the URL; auto-open unless --no-browser.
+      openBrowser: (url) => {
+        console.log();
+        console.log(`  ${BOLD}Step 2/2${RESET} — open this URL in your browser to authorize:`);
+        console.log();
+        console.log(`    ${CYAN}${url}${RESET}`);
+        console.log();
+        if (!skipBrowser && openInBrowser(url)) {
+          console.log(`  ${DIM}(opened in your default browser)${RESET}`);
+        } else if (!skipBrowser) {
+          console.log(`  ${YELLOW}Could not auto-open browser; copy the URL above.${RESET}`);
+        }
+        console.log();
+        console.log(`  ${DIM}waiting for authorization...${RESET}`);
+      },
+    },
+  });
+
+  console.log();
+  console.log(
+    res.provisioned
+      ? `  ${GREEN}✓${RESET} Checkout key minted + stored ${DIM}(~/.memex/checkout.json)${RESET}`
+      : `  ${GREEN}✓${RESET} Already set up — a checkout key is present ${DIM}(no sign-in needed)${RESET}`,
+  );
+  console.log(
+    `  ${DIM}One user key works for EVERY memex you belong to. While checked out (claim_spec),`,
+  );
+  console.log(`  ${DIM}the edit hook reports edits to the claimed spec's memex.${RESET}`);
   console.log();
 }
 
 async function main() {
   const args = parseArgs(process.argv);
+  const label =
+    args.command === "uninstall"
+      ? "Uninstaller"
+      : args.command === "checkout-setup"
+        ? "Checkout Setup"
+        : "Installer";
   console.log();
-  console.log(`  ${BOLD}Memex AI${RESET} — MCP ${args.command === "uninstall" ? "Uninstaller" : "Installer"}`);
+  console.log(`  ${BOLD}Memex AI${RESET} — MCP ${label}`);
   console.log();
 
   if (args.help) {
@@ -132,6 +188,11 @@ async function main() {
 
   if (args.command === "uninstall") {
     await uninstall();
+    return;
+  }
+
+  if (args.command === "checkout-setup") {
+    await checkoutSetup(args);
     return;
   }
 

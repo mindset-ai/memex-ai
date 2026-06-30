@@ -198,7 +198,7 @@ export const toolManifest: ToolManifestEntry[] = [
     name: 'add_clause',
     summary:
       'Append (or insert at a position) a clause to a STANDARD section — one self-contained aspect. Standards only; the new clause gets an addressable cl-N handle.',
-    args: 'add_clause(ref, body, position?)',
+    args: 'add_clause(ref, body, position?, facets?)',
     group: 'planning',
     readOnlyHint: false,
     trafficClass: null,
@@ -207,7 +207,7 @@ export const toolManifest: ToolManifestEntry[] = [
     name: 'edit_clause',
     summary:
       "Edit a STANDARD clause's body by its cl-N ref; the section content (the join of its clauses) regenerates. Standards only.",
-    args: 'edit_clause(ref, body)',
+    args: 'edit_clause(ref, body, facets?)',
     group: 'planning',
     readOnlyHint: false,
     trafficClass: null,
@@ -270,7 +270,7 @@ export const toolManifest: ToolManifestEntry[] = [
     name: 'resolve_decision',
     summary:
       'Resolve a decision; may unblock waiting tasks. chosenOptionIndex marks a structured option — resolution is then optional (defaults to its label). Re-resolving updates the choice in place.',
-    args: 'resolve_decision(ref, resolution?, chosenOptionIndex?)',
+    args: 'resolve_decision(ref, resolution?, chosenOptionIndex?, facetBallot?)',
     group: 'planning',
     readOnlyHint: false,
     trafficClass: 'specify',
@@ -311,13 +311,22 @@ export const toolManifest: ToolManifestEntry[] = [
     readOnlyHint: false,
     trafficClass: null,
   },
+  {
+    name: 'ground_spec',
+    summary:
+      'Mark a Spec code-grounded (decisions verified against current source); MCP-only, requires codebase_present. Stamps who/when as a verification badge.',
+    args: 'ground_spec(ref, codebase_present)',
+    group: 'planning',
+    readOnlyHint: false,
+    trafficClass: null,
+  },
 
   // ── Build phase (build) ───────────────────────────────────
   {
     name: 'create_task',
     summary:
       'Create a task (build-phase only); resolve open decisions first. Include acceptance criteria.',
-    args: 'create_task(ref, title, description, acceptanceCriteria?, sectionRef?)',
+    args: 'create_task(ref, title, description, acceptanceCriteria?, sectionRef?, facetBallot?)',
     group: 'build',
     readOnlyHint: false,
     // spec-327 dec-3: NON-ADVANCING. The createTask service guard (dec-1) rejects
@@ -375,6 +384,15 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'propose_standard_change(ref, proposedContent, rationale?)',
     group: 'build',
     readOnlyHint: false,
+    trafficClass: null,
+  },
+  {
+    name: 'facets',
+    summary:
+      "Read your Memex's facet vocabulary — the closed, per-owner set of cross-cutting practice areas a standard's clauses are tagged with. Verb-dispatched so the surface stays one tool as it grows; v0 supports verb:'list'.",
+    args: 'facets(verb, memex?)',
+    group: 'read',
+    readOnlyHint: true,
     trafficClass: null,
   },
 
@@ -484,6 +502,26 @@ export const toolManifest: ToolManifestEntry[] = [
     trafficClass: null,
     autoAssignExempt: true,
   },
+  {
+    name: 'claim_spec',
+    summary:
+      "Check out a Spec for the thread you're working in — the explicit nomination that binds this coding session to it. Writes a soft presence marker (a courtesy lock, never a hard block) and returns who else holds it. Idempotent.",
+    args: 'claim_spec(ref)',
+    group: 'build',
+    readOnlyHint: false,
+    trafficClass: null,
+    autoAssignExempt: true,
+  },
+  {
+    name: 'unclaim_spec',
+    summary:
+      "Release your checkout on a Spec — the explicit check-in. Clears your presence marker and returns the thread to the silent default. No-op if you weren't holding it.",
+    args: 'unclaim_spec(ref)',
+    group: 'build',
+    readOnlyHint: false,
+    trafficClass: null,
+    autoAssignExempt: true,
+  },
 
   // ── Acceptance Criteria (specify + build) ─────────────────
   {
@@ -535,7 +573,7 @@ export const toolManifest: ToolManifestEntry[] = [
   {
     name: 'discontinue_test_events',
     summary:
-      'Hard-delete an orphaned test_identifier on an AC (a test you renamed/deleted whose stale fail still pins the AC red): removes the emissions and clears their summary. Irreversible; a fresh live emission re-enters the verdict. Only for identifiers gone from the codebase.',
+      'Hard-delete an orphaned test_identifier on an AC (a renamed/deleted test whose stale fail pins the AC red): removes its emissions + summary. Irreversible; a fresh emission re-enters the verdict. Only for identifiers gone from the code.',
     args: 'discontinue_test_events(ref, test_identifier)',
     group: 'build',
     readOnlyHint: false,

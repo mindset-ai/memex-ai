@@ -60,6 +60,10 @@ const NON_DB_MUTATORS: Record<string, string> = {
     "Sends a Slack message via the user's connected account — an external side-effect, not a Memex DB row. No mutate() write, so nothing to fan out on the bus.",
   memex__send_discord_message:
     "Sends a Discord message via the org's configured webhook (spec-138) — an external side-effect, not a Memex DB row. No mutate() write, so nothing to fan out on the bus.",
+  claim_spec:
+    "spec-371 checkout. Its only write is a silent/out-of-band PRESENCE heartbeat (markPresent, spec-122 / std-8 §presence) — deliberately NOT routed through mutate(), so there is no bus ChangeEvent to catalogue. The durable edit ledger is written by the phone-home ENDPOINT, not this tool.",
+  unclaim_spec:
+    "spec-371 check-in. Its only write is a silent/out-of-band PRESENCE delete (clearPresent, spec-122 / std-8 §presence) — deliberately NOT routed through mutate(), so there is no bus ChangeEvent to catalogue.",
 };
 
 // Catalogue of mutation entry points by MCP tool name → the change-event shape its
@@ -80,6 +84,8 @@ const MUTATING_MCP_TOOLS: Record<string, ToolMutation[]> = {
   // assess_spec: mode='consolidate' stamps narrativeLastConsolidatedAt via
   // markNarrativeConsolidated → document/updated (the other modes are read-only).
   assess_spec: [{ entity: "document", action: "updated" }],
+  // spec-409: ground_spec sets grounded_in_code + provenance → document/updated.
+  ground_spec: [{ entity: "document", action: "updated" }],
   // sections.ts
   add_section: [{ entity: "section", action: "created" }],
   update_section: [{ entity: "section", action: "updated" }],

@@ -895,6 +895,8 @@ const TOOL_RATIONALES: Record<string, string> = {
     'Deterministic Spec assessment — phase rubric, narrative freshness, comments survey, or consolidate. Called before any forward phase move.',
   publish_spec:
     'Transition a Spec out of draft. Refuses already-published Specs; the user owns the phase transition in both directions.',
+  ground_spec:
+    'Mark a Spec code-grounded after verifying its resolved decisions against current source. MCP-only, requires codebase_present; stamps who/when as a verification badge.',
   create_task:
     'Create a build-phase task. Refuses tasks in draft/specify. Acceptance criteria are part of the contract for `complete`.',
   update_task:
@@ -907,6 +909,8 @@ const TOOL_RATIONALES: Record<string, string> = {
     "Flag drift on a standard section: post a typed `drift` comment (sourced 'agent') when the rule is right but the codebase has diverged from it. Surfaces in the Drift Inbox; use propose_standard_change instead when the rule itself is wrong.",
   propose_standard_change:
     "Propose a corrected version of a standard section: lands a typed `plan_revision` comment (sourced 'agent') with the full replacement markdown and a rationale, for the standard owner to accept or reject in the Drift Inbox.",
+  facets:
+    "Read (and later manage) your Memex's facet vocabulary — the closed, per-owner set of cross-cutting practice areas a standard's clauses are tagged with. Verb-dispatched so the surface stays one tool; v0 supports verb:'list'.",
   create_ac:
     'Create an Acceptance Criterion under a Spec. Scope ACs are manager-authored outcomes; implementation ACs are agent-spawned from resolved Decisions.',
   list_acs:
@@ -957,6 +961,10 @@ const TOOL_RATIONALES: Record<string, string> = {
     'Assign a user to a Spec — ticket-style responsibility (who is moving this Spec now). Independent of role: any active org member, including a reviewer, can be assigned, and assigning never changes a role. Idempotent; omit the user to self-assign.',
   unassign_spec:
     "Remove a user's assignment from a Spec. Idempotent and leaves the user's role untouched (assignment and role are independent axes).",
+  claim_spec:
+    "Check out a Spec for the coding thread you're in — the explicit nomination that binds this session to it so in-flow edits are attributed to it. Writes a SOFT presence marker (a courtesy 'working on this now' lock, never a hard block) and returns who else holds it. Distinct from assignment: a checkout is transient, present-tense presence, not the persistent who-owns-this axis. Idempotent; re-claiming refreshes presence.",
+  unclaim_spec:
+    "Release your checkout on a Spec — the explicit check-in. Clears your presence marker so teammates see it's free and returns the thread to the silent default. Idempotent; a no-op if you weren't holding it.",
 };
 
 const TOOLS: ToolNode[] = toolManifest.map(
@@ -1785,6 +1793,12 @@ export const QA_REPORT_GENERATION_INSTRUCTION = `Persist that closing summary as
   8. Open questions — knowledge gaps surfaced during build that the verifier should know about, captured as agent-sourced issues and referenced here.
 GROUNDING IS MANDATORY: base sections 1–2 on the changes you made this session — the actual files and behaviour you touched, re-read rather than recalled — and section 3 on the tests you actually ran and the test events you emitted, cross-referenced to their acceptance criteria. The report records what THIS session actually changed, never a restatement of the plan; where reality diverged from the plan, the report says so. Each build session's report is appended as a new dated version — write_qa_report never overwrites a prior session's record.`;
 
+// spec-430 dec-4 / ac-9: the agent-guided install prompt lives in the UI's env- and
+// agent-aware home (packages/ui/src/utils/genesisPrompt.ts `buildClaudeCodePrompt`),
+// NOT here — because the checkout plugin is Claude-Code-only and the prompt must be
+// gated to the Claude Code selection (Cursor stays MCP-only). The in-agent priming is
+// the bundled SessionStart self-heal hook (packages/cli/plugin/hooks).
+
 const OPENING_TURN_PROMPT_BUTTONS: PromptButtonNode[] = [
   {
     kind: 'prompt_button',
@@ -2050,6 +2064,8 @@ Hold the overview, the narrative, and the existing decisions together before pro
 
 ── STEP 2: ground — against the code AND the Standards ──
 CODE. Where the narrative or a decision names code shape (files / symbols / schema / routes / existing patterns), read the actual source to confirm it exists and means what the Spec assumes. A decision grounded in stale or imagined code is a decision built on sand — locate the real construct, and if the Spec's claim has drifted from reality, say so and let that correct the narrative. If the plan says to mirror or reuse another Spec or an existing primitive, verify that target is actually present (grep the named symbol; get_doc its phase) before depending on it.
+
+GROUND IT — then RECORD the grounding. Once you have read the actual source behind each resolved decision and confirmed (or repaired) the decisions and their acceptance criteria against it, ground this Spec in the code: call ground_spec({ ref: '{namespace}/{memex}/specs/{handle}', codebase_present: true }) to mark it code-grounded — this stamps WHO grounded it and WHEN and lights the verification badge on the Spec. \`codebase_present\` asserts the repository is actually open in this session, so only call it from a session where the code is present. Do this in the LATTER PART OF specify, before you recommend build — grounding against real source is what surfaces the true decisions and ACs, so it must happen here in specify; if it slips into build, those decisions get made late, after tasks have already formed, which is exactly the drift specify exists to prevent.
 STANDARDS. For every load-bearing concern the Spec touches (data, auth, tenancy, API, testing, prompts, licensing — whatever applies): search_memex({ query, kind: 'standard' }) and read any standard the Spec cites as [per std-N]. If the search returns nothing for an area, this Memex has no Standard there yet — that is normal; proceed. Where a Standard exists and contradicts the Spec's direction, STOP and surface it — drift is the enemy; don't quietly pick one.
 Do this as a PREDICTIVE pass: classify the work AHEAD against the coarse practice categories it touches (testing tiers, end-to-end / user-facing flows, security, DB schema & migrations, API contracts, deploy / rollout, code style, observability, accessibility, docs, dependencies, …) and pull each governing standard in so the rules SHAPE the plan — surfacing the journey / test / migration work this Spec must own now, not after the diff. A category with no standard simply means none exists yet — proceed; ensuring coverage is admin / setup governance, not your chore, and you never author a standard to fill the gap.
 

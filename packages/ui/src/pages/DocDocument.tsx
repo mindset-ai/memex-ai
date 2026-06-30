@@ -7,8 +7,6 @@ import {
   fetchIssues,
   fetchDocAssignees,
   archiveDoc,
-  pauseDoc,
-  unpauseDoc,
   updateDocStatus,
   resetHandholdDemo,
   NotFoundError,
@@ -17,6 +15,7 @@ import {
 } from '../api/client';
 import type { Comment, DocWithGraph, Issue, SpecStatus, Tag } from '../api/types';
 import { TagPicker } from '../components/TagPicker';
+import { CodeGroundedBadge } from '../components/CodeGroundedBadge';
 import { Spinner } from '../components/Spinner';
 import { StatsView } from '../components/insights/StatsView';
 import { DecisionPanel } from '../components/DecisionPanel';
@@ -442,6 +441,8 @@ export function DocDocument() {
             (spec-252 dec-2): it now sits left of the phase bar and scrolls with
             the page. spec-182/dec-6 is preserved — still the only posture
             switch, it just relocated. */}
+        {/* spec-409 (ac-1): the code-grounded verification badge lives on the
+            byline next to the tags (see below), not in the header. */}
         {/* Share — the Spec's canonical URL with a Copy button. Pill chrome
             shared with the posture dropdown so the header controls match. */}
         <button type="button" className={HEADER_PILL_CLASS} onClick={() => setShareLinkOpen(true)}>
@@ -463,19 +464,7 @@ export function DocDocument() {
             { label: 'Share', onClick: () => setShareOpen(true) },
             { label: 'Download MD', onClick: () => setShowDownloadDialog(true), separatorBefore: true },
             { label: 'Spec Coding Agent', onClick: () => setShowInitPromptDialog(true) },
-            {
-              label: doc.pausedAt ? 'Unpause' : 'Pause',
-              separatorBefore: true,
-              onClick: async () => {
-                try {
-                  await (doc.pausedAt ? unpauseDoc(doc.id) : pauseDoc(doc.id));
-                  await reloadDoc();
-                } catch (err) {
-                  window.alert(err instanceof Error ? err.message : 'Failed to update pause state');
-                }
-              },
-            },
-            { label: 'Move to another memex', onClick: () => setMoveOpen(true) },
+            { label: 'Move to another memex', onClick: () => setMoveOpen(true), separatorBefore: true },
             {
               label: 'Archive',
               danger: true,
@@ -659,19 +648,21 @@ export function DocDocument() {
       ? {
           buttonId: handoffButtonId,
           // "*Copy the Specify prompt* into your coding agent to create
-          // **Decisions** and **ACs**." — entities bold. "ACs" stays
-          // abbreviated: the Rubicon line above already spells out
-          // "Acceptance Criteria (ACs)" in full.
+          // **Decisions** and **ACs**, **grounded in the code**." — entities
+          // bold. "ACs" stays abbreviated: the Rubicon line above already spells
+          // out "Acceptance Criteria (ACs)" in full. spec-409: the grounding tail
+          // signals the specify prompt now also drives code-grounding.
           linkText: 'Copy the Specify prompt',
           sentence: (
             <>
               into your coding agent to create{' '}
               <strong className="font-semibold">Decisions</strong> and{' '}
-              <strong className="font-semibold">ACs</strong>.
+              <strong className="font-semibold">ACs</strong>,{' '}
+              <strong className="font-semibold">grounded in the code</strong>.
             </>
           ),
           sentenceLabel:
-            'Copy the Specify prompt into your coding agent to create Decisions and ACs.',
+            'Copy the Specify prompt into your coding agent to create Decisions and ACs, grounded in the code.',
         }
       : phase === 'build'
         ? {
@@ -1135,6 +1126,21 @@ export function DocDocument() {
               <BylineAssignees docId={doc.id} />
               <span className="opacity-40">&middot;</span>
               <TagPicker docId={doc.id} tags={doc.tags ?? []} onTagsChange={handleTagsChange} />
+              {/* spec-409 (ac-1): the code-grounded verification badge sits inline
+                  with the tags on the byline. Renders only for a grounded Spec
+                  (component returns null otherwise), so the separator is gated on
+                  groundedInCode to avoid an orphan dot. */}
+              {doc.groundedInCode && (
+                <>
+                  <span className="opacity-40">&middot;</span>
+                  <CodeGroundedBadge
+                    groundedInCode={doc.groundedInCode}
+                    groundedStale={doc.groundedStale ?? false}
+                    groundedBy={doc.groundedByName ?? null}
+                    groundedAt={doc.groundedAt ? new Date(doc.groundedAt).toLocaleDateString() : null}
+                  />
+                </>
+              )}
               {/* spec-122 ac-5: ambient presence — who's working this spec now. */}
               {presentRows.length > 0 && (
                 <>

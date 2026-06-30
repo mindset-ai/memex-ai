@@ -44,6 +44,7 @@ import { assign } from "./doc-assignees.js";
 import { promoteToEditor } from "./doc-members.js";
 import { markPresent } from "./presence.js";
 import { updateDocStatus } from "./documents.js";
+import { enforceCheckoutGate } from "./checkout-gate.js";
 // Type-only imports — erased at compile time, so no runtime cycle with
 // agent/tool-specs.ts (which imports this module's consumers).
 import type { ToolCtx, FooterSlot } from "../agent/tool-specs.js";
@@ -136,11 +137,11 @@ export async function observeSpecTraffic(event: SpecTrafficEvent): Promise<void>
     // which had opted in_app_agent INTO advancement. Presence + auto-assign
     // above still run for in_app_agent; only this phase move is excluded.
     if (event.channel !== "mcp") return;
-    // paused/archived are deliberate placements — auto-advance must not
-    // fight them (same principle as dec-5's rest_ui exclusion). Traffic
-    // never unflags; it also doesn't shuffle the phase underneath a flag.
+    // archived is a deliberate placement — auto-advance must not fight it
+    // (same principle as dec-5's rest_ui exclusion). Traffic never unflags;
+    // it also doesn't shuffle the phase underneath a flag.
     if (entry.trafficClass === null) return;
-    if (doc.pausedAt !== null || doc.archivedAt !== null) return;
+    if (doc.archivedAt !== null) return;
     if (!isSpecStatus(doc.status)) return;
 
     const next = nextPhaseForTraffic(doc.status, entry.trafficClass);
@@ -195,6 +196,10 @@ export async function runToolWithSpecTraffic(
       target = { memexId, docId };
     },
   };
+  // spec-371 (dec-11): enforce the checkout gate BEFORE the handler writes. A
+  // recent-colleague collision throws the agent-actionable takeover error here, so
+  // the mutation never runs; otherwise this stamps the implicit checkout/refresh.
+  await enforceCheckoutGate(spec.name, input, ctx);
   const text = await spec.handler(input, wrappedCtx);
   // Awaited (not detached) so the effects are deterministic for callers and
   // tests; observeSpecTraffic never throws.
