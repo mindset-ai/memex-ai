@@ -409,7 +409,7 @@ make deploy-admin      # SPA only (object storage + CDN)
 
 > The official `memex.ai` / `int.memex.ai` instances are operated by Mindset on GCP, and the deploy scripts assume that environment (Cloud SQL, Secret Manager, and JIT credentials). The Mindset-internal runbook — project names, PAM entitlements, prerequisite CLIs — is not part of the public repo. Self-hosters should treat the `make deploy*` targets and `deploy.sh` / `packages/server/deploy.sh` as a reference and adapt them to their own infrastructure.
 
-**Feature hiding (soft-launch control).** The server reads the per-environment `HIDDEN_FEATURES` env var (comma-separated feature slugs) at runtime to suppress UI elements — per-environment, all-or-nothing, fail-open (empty = nothing hidden). To hide/unhide a feature, edit `HIDDEN_FEATURES` in the target env's `scripts/deploy.<env>.env` and run `make deploy-server` (no admin-bundle rebuild needed). Full hide/unhide runbook: [`docs/feature-hiding.md`](docs/feature-hiding.md).
+**Feature hiding (soft-launch control).** The server reads the per-environment `HIDDEN_FEATURES` env var (comma-separated feature slugs) at runtime to suppress UI elements — per-environment, all-or-nothing, fail-open (empty = nothing hidden). The value that **survives a deploy** lives in the `DEPLOY_ENV_FILE` GitHub Actions environment secret (CI writes it to `scripts/deploy.<env>.env` at deploy time); editing the live Cloud Run env var or the GCP `memex-<env>-deploy-env` secret is reverted by the next deploy. Full hide/unhide runbook — slugs, the three stores, and the durable change procedure: [`docs/feature-hiding.md`](docs/feature-hiding.md).
 
 ### Production URLs
 

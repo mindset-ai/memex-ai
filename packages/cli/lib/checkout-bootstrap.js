@@ -1,20 +1,22 @@
-// lib/checkout-bootstrap.js — spec-371 first-run credential bootstrap (dec-10).
+// lib/checkout-bootstrap.js — the per-USER checkout credential (spec-430 dec-1/dec-3).
 //
-// ONE Memex device-flow sign-in mints the scoped mxh_ hook key and stores it where
-// the edit hook reads it — the user never copies a key off the web UI. Idempotent:
-// a valid stored key for the memex short-circuits with NO sign-in. All IO (fetch,
-// browser, clock, store) is injected so the orchestration unit-tests with no
-// network, no browser, and no real HOME. The same device-flow the MCP installer
-// uses (auth-flow.js) backs it, so it is the one proper sign-in that binds the
-// install to a signed-in Memex user; the mint route is membership-gated.
+// ONE key per user, minted at the user-level POST /api/hook-keys (no memex in the
+// path), stored as a single `hook_key` in ~/.memex/checkout.json — never a per-memex
+// map. The edit hook uses that one key for every memex. Entry points:
+//   - unifiedInstall(): ONE device-flow sign-in, then both credentials off the same
+//     mxt_ token — the caller plants the MCP entry (plantMcp), and we mint the mxh_
+//     hook key. No second sign-in (spec-430 dec-2).
+//   - provisionHookKey(): mint + store from an EXISTING signed-in token (no sign-in).
+//   - ensureHookKey(): standalone — device-flow ONCE then provision.
+// Idempotent: a stored hook_key short-circuits with no mint and no sign-in. All IO
+// (fetch, browser, clock, fs) is injected so the orchestration unit-tests offline.
 
 import { startCliAuth, pollForToken } from "./auth-flow.js";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 
-// The store the edit hook reads: ~/.memex/checkout.json. Per-memex keys live under
-// `keys["<ns>/<memex>"]`; a legacy single `hook_key` is still honoured on read.
+// The store the edit hook reads: ~/.memex/checkout.json — one user key under `hook_key`.
 export function storePath(home = homedir()) {
   return join(home, ".memex", "checkout.json");
 }
@@ -34,25 +36,29 @@ export function loadStore(path, fs = DEFAULT_FS) {
   }
 }
 
-// The hook key for a memex: the per-memex map (current format) with a legacy
-// single-key fallback (so an older ~/.memex/checkout.json still works).
-export function keyForMemex(store, memexRef) {
-  if (store?.keys && typeof store.keys[memexRef] === "string") return store.keys[memexRef];
+// The single user key. Prefer the canonical `hook_key`; fall back to ANY value in a
+// legacy per-memex `keys` map (migration back-compat — an older checkout.json keeps
+// working until the next install rewrites it to a single key).
+export function keyFromStore(store) {
   if (typeof store?.hook_key === "string") return store.hook_key;
+  if (store?.keys && typeof store.keys === "object") {
+    const legacy = Object.values(store.keys).find((v) => typeof v === "string");
+    if (legacy) return legacy;
+  }
   return null;
 }
 
-// The browser URL the user opens to sign in + confirm the device code. Mirrors the
-// MCP installer (bin/cli.mjs): the admin UI base is the api base minus `/api`.
+// The browser URL the user signs in + confirms the device code on. Mirrors the MCP
+// installer (bin/cli.mjs): the admin UI base is the api base minus `/api`.
 export function authUrlFor(apiBase, code) {
   return `${apiBase.replace("/api", "")}/install/mcp/auth?code=${code}`;
 }
 
-// Mint a scoped hook key off a signed-in user token, via the membership-gated route
-// (so the key is inherently bound to the signed-in user's memex). Raw key once.
-export async function mintHookKey(apiBase, namespace, memex, token, deps = {}) {
+// Mint a user-scoped hook key off a signed-in user token, at the USER-level route
+// (no memex in the path, spec-430 dec-3). Raw key returned once.
+export async function mintHookKey(apiBase, token, deps = {}) {
   const fetchImpl = deps.fetch ?? fetch;
-  const res = await fetchImpl(`${apiBase}/api/${namespace}/${memex}/hook-keys`, {
+  const res = await fetchImpl(`${apiBase}/api/hook-keys`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify({ name: "memex checkout hook" }),
@@ -66,37 +72,54 @@ export async function mintHookKey(apiBase, namespace, memex, token, deps = {}) {
   return json.key;
 }
 
-// Ensure a scoped hook key exists for `memexRef` ("<ns>/<memex>"), minting one off a
-// SINGLE device-flow sign-in if absent (dec-10). Returns { provisioned, signedIn,
-// memex, key }:
-//   stored key present → { provisioned:false, signedIn:false }  — NO sign-in (idempotent)
-//   absent → device-flow ONCE → mint → store → { provisioned:true, signedIn:true }
-export async function ensureHookKey({ apiBase, memexRef, fs = DEFAULT_FS, deps = {} }) {
+// Persist the single user key, dropping any legacy per-memex map (per-memex dies).
+function persist(path, store, apiBase, key, fs) {
+  const next = { ...store, api_base: apiBase, hook_key: key };
+  delete next.keys; // spec-430 dec-3: never a per-memex map
+  fs.mkdirp(join(path, "..")); // ensure ~/.memex
+  fs.write(path, JSON.stringify(next, null, 2) + "\n");
+}
+
+// Mint + store from an EXISTING signed-in token — NO sign-in. Idempotent: a stored
+// hook_key short-circuits. Returns { provisioned, key }.
+export async function provisionHookKey({ apiBase, token, fs = DEFAULT_FS, deps = {} }) {
   const path = deps.storePath ?? storePath();
   const store = loadStore(path, fs);
+  const existing = keyFromStore(store);
+  if (existing) return { provisioned: false, key: existing };
+  const key = await mintHookKey(apiBase, token, deps);
+  persist(path, store, apiBase, key, fs);
+  return { provisioned: true, key };
+}
 
-  const existing = keyForMemex(store, memexRef);
-  if (existing) {
-    return { provisioned: false, signedIn: false, memex: memexRef, key: existing };
-  }
+// Standalone: ensure a key exists, doing ONE device-flow sign-in if absent. Idempotent.
+// Returns { provisioned, signedIn, key }.
+export async function ensureHookKey({ apiBase, fs = DEFAULT_FS, deps = {} }) {
+  const path = deps.storePath ?? storePath();
+  const store = loadStore(path, fs);
+  const existing = keyFromStore(store);
+  if (existing) return { provisioned: false, signedIn: false, key: existing };
 
-  // No stored key → exactly one sign-in: claim a device code, open the browser to
-  // the Memex confirm page, long-poll for the user token.
+  const { reqId, code } = await startCliAuth(apiBase, deps);
+  if (deps.openBrowser) deps.openBrowser(authUrlFor(apiBase, code));
+  const token = await pollForToken(apiBase, reqId, deps);
+  const key = await mintHookKey(apiBase, token, deps);
+  persist(path, store, apiBase, key, fs);
+  return { provisioned: true, signedIn: true, key };
+}
+
+// The unified install (spec-430 dec-2): ONE device-flow sign-in yields BOTH
+// credentials. The caller supplies `plantMcp(token)` to write the MCP entry off the
+// SAME mxt_ token; we mint the user-scoped mxh_ hook key off it too. No second
+// sign-in. Returns { token, hook }.
+export async function unifiedInstall({ apiBase, fs = DEFAULT_FS, deps = {} }) {
   const { reqId, code } = await startCliAuth(apiBase, deps);
   if (deps.openBrowser) deps.openBrowser(authUrlFor(apiBase, code));
   const token = await pollForToken(apiBase, reqId, deps);
 
-  const slash = memexRef.indexOf("/");
-  const namespace = memexRef.slice(0, slash);
-  const memex = memexRef.slice(slash + 1);
-  const key = await mintHookKey(apiBase, namespace, memex, token, deps);
-
-  const next = {
-    ...store,
-    api_base: apiBase,
-    keys: { ...(store.keys ?? {}), [memexRef]: key },
-  };
-  fs.mkdirp(join(path, "..")); // ensure ~/.memex
-  fs.write(path, JSON.stringify(next, null, 2) + "\n");
-  return { provisioned: true, signedIn: true, memex: memexRef, key };
+  // Both credentials from the SAME token. MCP first (the caller plants it), then the
+  // hook key — neither triggers another sign-in.
+  if (deps.plantMcp) await deps.plantMcp(token);
+  const hook = await provisionHookKey({ apiBase, token, fs, deps });
+  return { token, hook };
 }

@@ -74,7 +74,10 @@ test(TEST_1, async ({ page }) => {
 
   // ac-2: copy controls are live — clicking Copy writes to the clipboard and the
   // control confirms ("Copied!"). Proves the real clipboard path, not just markup.
-  const copyBtn = cli.getByRole("button", { name: "Copy" }).first();
+  // `exact` targets the CodeBlock "Copy" buttons specifically — the Claude Code
+  // section also has a "Copy install prompt for Claude Code" CTA (spec-430 dec-4)
+  // that would otherwise be the first substring match.
+  const copyBtn = cli.getByRole("button", { name: "Copy", exact: true }).first();
   await copyBtn.click();
   await expect(cli.getByRole("button", { name: "Copied!" }).first()).toBeVisible();
 

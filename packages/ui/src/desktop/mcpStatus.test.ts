@@ -20,6 +20,10 @@ const AC_PER_TOKEN =
 // signal, independent of local config.
 const AC_CONNECTOR =
   'mindset-prod/memex-building-itself/specs/spec-304/acs/ac-56';
+// issue-31 → t-65: "MCP Ready" must STAY like the Install prompt (snoozable),
+// not auto-hide like Connected (transient).
+const AC_READY_STAYS =
+  'mindset-prod/memex-building-itself/specs/spec-304/acs/ac-62';
 
 // An active token whose matching local entry HAS handshaked (lastUsedAt set).
 const CONNECTED_TOKEN: ActiveToken = {
@@ -180,13 +184,28 @@ describe('spec-304 ac-49: app-global indicator — quiet, honest, MCP-led wordin
     });
   });
 
-  it('ready (installed, no handshake) is transient and never reads "connected"', () => {
+  it('ready (installed, no handshake) stays (snoozable) and never reads "connected"', () => {
     tagAc(AC_INDICATOR);
     const ind = deriveIndicator([s('ready'), s('not_installed')]);
     expect(ind.kind).toBe('ready');
     expect(ind.label).toBe('MCP ready');
     expect(ind.label).not.toContain('connected');
-    expect(ind.visibility).toBe('transient');
+    // Ready stays up like Install, not auto-hidden like Connected (issue-31).
+    expect(ind.visibility).toBe('snoozable');
+  });
+
+  it('ready STAYS visible like the Install prompt — snoozable, not transient (ac-62)', () => {
+    tagAc(AC_READY_STAYS);
+    // Ready = installed + authorized, no handshake yet: an actionable "go make
+    // Claude connect" state, not the quiet healthy steady state. It must stay
+    // up (dismissible) like Install, not auto-hide like Connected (issue-31).
+    const ready = deriveIndicator([s('ready'), s('not_installed')]);
+    expect(ready.kind).toBe('ready');
+    expect(ready.visibility).toBe('snoozable');
+    // It now matches the Install prompt's staying behaviour…
+    expect(deriveIndicator([s('not_installed')]).visibility).toBe('snoozable');
+    // …while Connected stays transient (quiet when genuinely healthy).
+    expect(deriveIndicator([s('connected')]).visibility).toBe('transient');
   });
 
   it('a broken install (repair / wrong-server) is a PERSISTENT "MCP needs repair" badge', () => {

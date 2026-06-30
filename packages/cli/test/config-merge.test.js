@@ -1,9 +1,15 @@
 import { describe, it, expect } from "vitest";
+import { tagAc } from "@memex-ai-ac/vitest";
 import {
   readJsonFile,
   writeMemexEntry,
   removeMemexEntry,
 } from "../lib/config-merge.js";
+
+// spec-430 ac-3 — a migrator with a hand-configured mcp__memex__ follows the IDENTICAL
+// path: install overwrites the same `mcpServers.memex` key in place, so no separate
+// "remove the old MCP" step is ever required of them.
+const AC_3_430 = "mindset-prod/memex-building-itself/specs/spec-430/acs/ac-3";
 
 // In-memory fs double. Matches the exact surface writeMemexEntry / readJsonFile touch
 // (readFile, writeFile, mkdir, existsSync) so tests need no tmpdir for unit coverage.
@@ -79,11 +85,14 @@ describe("writeMemexEntry", () => {
     });
   });
 
-  it("preserves other mcpServers entries on re-install", async () => {
+  it("preserves other mcpServers entries on re-install; OVERWRITES a hand-configured memex in place (migrator path, spec-430 ac-3)", async () => {
+    tagAc(AC_3_430);
     const existing = {
       mcpServers: {
         unrelated: { command: "other", args: ["x"] },
-        memex: { type: "http", url: "https://old", headers: {} },
+        // the migrator's hand-configured Memex MCP — same `memex` key, so install
+        // subsumes it; no separate "remove the old MCP" step is needed.
+        memex: { type: "http", url: "https://old", headers: { Authorization: "Bearer mxt_hand" } },
       },
       anotherTopLevelKey: true,
     };

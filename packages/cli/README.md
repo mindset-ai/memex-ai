@@ -6,18 +6,33 @@ Zero-dependency CLI for installing the [Memex.AI](https://memex.ai) MCP server
 into Claude Code and Claude Desktop.
 
 ```bash
-npx memex-ai
+npx -y memex-ai install
 ```
 
-That's it. The CLI walks you through a device-flow authorization, gets a
-long-lived Personal Access Token (`mxt_...`), and merges the MCP server entry
-into:
+**One sign-in, both credentials.** A single device-flow authorization mints your
+long-lived Personal Access Token (`mxt_...`) — planted as the MCP server entry —
+**and** your one per-user spec-checkout key (`mxh_...`, stored at
+`~/.memex/checkout.json`). No second sign-in, no per-memex keys, nothing pasted by
+hand. The MCP entry is merged into:
 
 - `~/.claude.json` (Claude Code / `claude` CLI)
 - `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS Desktop)
 - `%APPDATA%\Claude\claude_desktop_config.json` (Windows Desktop)
 
-Restart Claude and Memex tools are available in any conversation.
+### Easiest path: let Claude Code drive it
+
+Paste the **“Set up your coding agent”** prompt from your Memex into a fresh Claude
+Code session — it runs the whole thing and explains each step:
+
+```
+npx -y memex-ai install                           # this CLI — MCP token + checkout key
+claude plugin marketplace add mindset-ai/memex-ai
+claude plugin install memex-checkout@memex         # the hooks-only checkout plugin
+# …then reload the window (hooks load at session start)
+```
+
+The checkout plugin is **hooks-only** — it carries the spec-checkout hooks, not an
+MCP server, so it never duplicates the MCP this CLI plants.
 
 ## Prefer OAuth?
 
@@ -40,19 +55,19 @@ next call. **Use this `memex-ai` CLI when**:
 
 ```bash
 # Default: install (writes Claude configs)
-npx memex-ai
+npx -y memex-ai install
 
-# Custom device label (default: hostname)
-npx memex-ai --label "Linux laptop"
+# Mint JUST the checkout key (when you already have the MCP) — one sign-in, no --memex
+npx -y memex-ai checkout-setup
 
 # Skip auto-opening the browser; print the URL instead
-npx memex-ai --no-browser
+npx -y memex-ai install --no-browser
 
 # Point at a custom Memex server (default: https://memex.ai)
-npx memex-ai --api-base https://int.memex.ai/api
+npx -y memex-ai install --api-base https://int.memex.ai/api
 
 # Remove Memex from all Claude configs
-npx memex-ai uninstall
+npx -y memex-ai uninstall
 ```
 
 Run `npx memex-ai --help` for the full list.
