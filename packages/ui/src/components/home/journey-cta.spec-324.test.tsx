@@ -65,7 +65,11 @@ describe('custom journey steps fire onCtaClick on their primary interaction (spe
     tagAc(AC2);
     const onCtaClick = vi.fn();
     render(<ConnectAgentStep onCtaClick={onCtaClick} />);
-    await clickCopyWithin('connect-instructions');
+    // spec-430: the Claude Code path now renders two code blocks (the unified installer
+    // and the Claude-Code-only checkout plugin), so there are two Copy buttons. Either
+    // one fires copy_install — click the first (the installer command).
+    const copy = within(screen.getByTestId('connect-instructions')).getAllByText('Copy')[0];
+    fireEvent.click(copy);
     await waitFor(() => expect(onCtaClick).toHaveBeenCalledWith('copy_install'));
   });
 

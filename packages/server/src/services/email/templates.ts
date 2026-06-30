@@ -245,6 +245,13 @@ export function buildVerificationEmail(input: VerificationEmailInput): EmailMess
     subject: `Confirm your Memex.AI email`,
     text,
     html,
+    // spec-12 t-9 / dec-7: stamp a distinct, stable comms type so the signup
+    // confirmation email is identifiable in comms_log — Backstage's stuck-signup
+    // worklist joins on type='email_verification' instead of brittle subject
+    // matching. Both call sites (routes/auth/password.ts signup + resend) send this
+    // EmailMessage, so the type travels with the template; recordEmailComm stores it
+    // (else it would default to 'transactional', the password-reset/magic-link bucket).
+    commsType: "email_verification",
   };
 }
 

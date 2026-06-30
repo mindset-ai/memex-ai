@@ -333,13 +333,47 @@ export async function listAccessibleNamespaces(userId: string): Promise<Namespac
   return [...personal, ...orgList];
 }
 
+// Returns orgs the user has an active membership in but that have no Memexes yet.
+// Used by resolveSession to include them in the session payload so the switcher
+// can surface them (doc-19 dec-1: new orgs are created empty by design).
+export async function listEmptyOrgs(userId: string): Promise<
+  Array<{ orgId: string; slug: string; name: string; role: "member" | "administrator" }>
+> {
+  const rows = await db
+    .select({
+      orgId: orgs.id,
+      slug: namespaces.slug,
+      name: orgs.name,
+      role: orgMemberships.role,
+      memexId: memexes.id,
+    })
+    .from(orgMemberships)
+    .innerJoin(orgs, eq(orgMemberships.orgId, orgs.id))
+    .innerJoin(namespaces, eq(orgs.namespaceId, namespaces.id))
+    .leftJoin(memexes, eq(memexes.namespaceId, namespaces.id))
+    .where(
+      and(
+        eq(orgMemberships.userId, userId),
+        eq(orgMemberships.status, "active"),
+      ),
+    );
+
+  return rows
+    .filter((r) => r.memexId === null)
+    .map((r) => ({
+      orgId: r.orgId,
+      slug: r.slug,
+      name: r.name ?? r.slug,
+      role: r.role as "member" | "administrator",
+    }));
+}
+
 // Returns ACTIVE memberships only — disabled members can't access the org, so they
 // shouldn't see it in their session/switcher. Re-enabling is admin-driven.
 //
 // Each row is keyed on a memex the user can reach (memexes joined via
 // org → namespace → memexes). Plus the user's personal Memex (their own namespace).
-// Orgs with zero memexes produce zero rows — use listAccessibleNamespaces if
-// the caller needs to surface empty orgs.
+// Orgs with zero memexes produce zero rows — see listEmptyOrgs for those.
 export async function listMemberships(userId: string): Promise<MembershipSummary[]> {
   const orgRows = await db
     .select({

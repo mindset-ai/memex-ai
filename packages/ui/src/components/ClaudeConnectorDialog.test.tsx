@@ -8,6 +8,12 @@ import { ClaudeConnectorDialog } from './ClaudeConnectorDialog';
 const AC_DIALOG =
   'mindset-prod/memex-building-itself/specs/spec-304/acs/ac-55';
 
+// t-63 → issue-29 / ac-60: Claude Desktop moved the connector UI. The steps
+// must reflect the current flow (Customize → Connectors → "+") rather than the
+// stale "Settings → Connectors → Add custom connector".
+const AC_STEPS_CURRENT =
+  'mindset-prod/memex-building-itself/specs/spec-304/acs/ac-60';
+
 beforeEach(() => {
   vi.restoreAllMocks();
 });
@@ -49,6 +55,27 @@ describe('spec-304 ac-55 (t-56): Claude Desktop connector-instructions dialog', 
 
     await waitFor(() => expect(writeText).toHaveBeenCalledWith('https://memex.ai/mcp'));
     expect(await screen.findByRole('button', { name: 'Copied!' })).toBeInTheDocument();
+  });
+
+  it('uses the current Claude Desktop flow: Customize → Connectors → "+" (ac-60)', () => {
+    tagAc(AC_STEPS_CURRENT);
+    render(
+      <ClaudeConnectorDialog connectorUrl="https://memex.ai/mcp" onClose={() => {}} />,
+    );
+
+    // Step 1 now routes through Customize → Connectors (Claude moved it out of
+    // Settings). The stale "Settings → Connectors" wording must be gone.
+    expect(screen.getByText(/Customize/)).toBeInTheDocument();
+    expect(screen.queryByText(/Settings → Connectors/)).not.toBeInTheDocument();
+
+    // The new intermediate step: click the "+" next to Connectors before
+    // "Add custom connector".
+    const steps = screen.getByRole('list');
+    expect(steps.textContent ?? '').toMatch(/\+\s*next to Connectors/i);
+    expect(screen.getByText(/Add custom connector/i)).toBeInTheDocument();
+
+    // std-1: no user-visible "account"/"team" in the steps copy.
+    expect(steps.textContent ?? '').not.toMatch(/\baccount\b|\bteam\b/i);
   });
 
   it('Escape and the Done button both close the dialog', () => {

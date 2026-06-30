@@ -1,0 +1,25 @@
+# Pre-push gate: run the fast CI checks locally so a push that would fail CI
+# fails on your laptop instead. Each step mirrors a required check on the PR:
+#
+#   lint        → the `lint` job (biome ci)
+#   typecheck   → server + ui tsc (base config, tests INCLUDED). A superset of the
+#                 deploy's build-config type gate (tsconfig.build.json excludes
+#                 tests) — so it catches both the deploy gate that has historically
+#                 turned develop red AND test-file type drift, keeping the test
+#                 suite type-clean even though CI's build gate skips it.
+#   unit tests  → the `server` job's unit subset
+#
+# Slower gates stay manual by design: e2e (`make e2e-cold`, std-28) and the full
+# integration suite. Bypass a known-failing check with: git push --no-verify
+set -e
+
+echo "▶ pre-push 1/3: lint (biome)…"
+pnpm lint
+
+echo "▶ pre-push 2/3: typecheck (server + ui)…"
+make typecheck
+
+echo "▶ pre-push 3/3: unit tests (server)…"
+pnpm --filter @memex/server test:unit
+
+echo "✓ pre-push checks passed"

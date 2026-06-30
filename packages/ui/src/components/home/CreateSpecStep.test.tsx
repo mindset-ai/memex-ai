@@ -2,7 +2,7 @@
 // spec-421: Stage 2 (create the spec) moved to CreateFirstSpecStep. This step now
 // completes on mcpConnected (was hasSpec). The tests below cover the MCP-connect flow only.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { tagAc } from '@memex-ai-ac/vitest';
 
 const fetchJourneyStateApi = vi.hoisted(() => vi.fn());
@@ -12,6 +12,9 @@ import { CreateSpecStep } from './CreateSpecStep';
 import { setCachedJourneyState, resetCachedJourneyState } from '../../journeys/journeyStateCache';
 const AC372 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-372/acs/ac-${n}`;
 const AC421 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-421/acs/ac-${n}`;
+// spec-430 ac-9: this step reuses the shared Instructions component, so the unified
+// Claude Code install flow + Claude-Code-only checkout plugin show here too.
+const AC430 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-430/acs/ac-${n}`;
 
 beforeEach(() => {
   fetchJourneyStateApi.mockReset();
@@ -87,6 +90,29 @@ describe('CreateSpecStep — spec-421: MCP connect only, completes on mcpConnect
   });
 });
 
+describe('CreateSpecStep — spec-430 ac-9: unified Claude Code install flow', () => {
+  it('the default Claude Code instructions show npx install + the Claude-Code-only checkout plugin', () => {
+    tagAc(AC430(9));
+    render(<CreateSpecStep preview />);
+    const instr = screen.getByTestId('connect-instructions').textContent ?? '';
+    expect(instr).toContain('npx -y memex-ai install');
+    expect(instr).toContain('claude plugin marketplace add mindset-ai/memex-ai');
+    expect(instr).toContain('claude plugin install memex-checkout@memex');
+    // Old bootstrap one-liner is gone.
+    expect(instr).not.toMatch(/install\.sh|install\.ps1/);
+  });
+
+  it('switching to Cursor drops the Claude-Code-only plugin (MCP-only)', () => {
+    tagAc(AC430(9));
+    render(<CreateSpecStep preview />);
+    fireEvent.click(screen.getByTestId('tool-cursor'));
+    const instr = screen.getByTestId('connect-instructions').textContent ?? '';
+    expect(instr).toMatch(/mcpServers|\/mcp/);
+    expect(instr).not.toContain('claude plugin');
+    expect(instr).not.toContain('memex-checkout');
+  });
+});
+
 describe('CreateSpecStep — spec-372 step-1 polish (issues 5/6)', () => {
   it('issue-5: the subtitle has no glossary tooltip', () => {
     tagAc(AC372(33));
@@ -136,5 +162,29 @@ describe('CreateSpecStep — spec-372 issue-19 connected-card state', () => {
     expect(stage.className).toContain('border-edge'); // plain edge border
     expect(stage.className).not.toContain('ring-accent'); // glow ring gone
     expect(stage.className).toContain('transition-all'); // animated change
+  });
+});
+
+// spec-421 issue-4 (Frederic Zingg, via Slack) — users paste the install command and
+// expect the box to tick immediately; it only ticks once the agent first connects. The
+// not-connected card must spell out when the step completes.
+describe('CreateSpecStep — spec-421 issue-4: clarify when the step ticks', () => {
+  it('shows a hint that the card ticks when the agent first connects, not on paste', () => {
+    tagAc(AC421(27));
+    render(<CreateSpecStep preview />);
+    const hint = screen.getByTestId('connect-tick-hint');
+    const text = hint.textContent?.toLowerCase() ?? '';
+    expect(text).toContain('connects'); // tells the user the tick is gated on the agent connecting
+    expect(text).toContain('agent'); // names what they must launch
+  });
+
+  it('hides the tick hint once connected', async () => {
+    tagAc(AC421(27));
+    vi.useFakeTimers();
+    fetchJourneyStateApi.mockResolvedValue({ milestones: { mcpConnected: true } });
+    render(<CreateSpecStep />);
+    await vi.advanceTimersByTimeAsync(0); // first read — init branch sets connected
+    await vi.advanceTimersByTimeAsync(4000); // settle the re-render
+    expect(screen.queryByTestId('connect-tick-hint')).toBeNull();
   });
 });

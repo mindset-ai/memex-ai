@@ -14,7 +14,7 @@
 // per-token lastUsedAt — ac-52), and the user-scoped mcp.connected signal (used
 // for the Claude Desktop connector, dec-23). No-op outside the desktop shell.
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../components/AuthContext';
 import { useUserChangeStream } from './useUserChangeStream';
 import { listMcpTokensApi } from '../api/mcp';
@@ -37,6 +37,12 @@ import {
 import { isPillNotificationEnabled, subscribePillPrefs } from '../desktop/mcpPillPrefs';
 
 export type McpPhase = 'idle' | 'loading' | 'ready' | 'error';
+
+// issue-32 (ac-63): the Ready→Connected handshake is a SILENT, user-less server
+// write (mcp-tokens.bumpLastUsed), so no SSE event flips the pill. While the
+// pill shows "MCP Ready", re-probe on this backoff (ms) — then STOP (never poll
+// forever). A return-to-foreground restarts the schedule from the top.
+const REPROBE_BACKOFF_MS = [10_000, 15_000, 30_000, 60_000, 120_000, 240_000, 360_000];
 
 export interface DesktopMcpClient {
   key: keyof McpStatusResult;
@@ -75,6 +81,12 @@ export function useDesktopMcpStatus(): DesktopMcpStatus {
   // Bumped whenever the per-client pill preferences change, so the push effect
   // below re-runs and re-derives what the pill should show (dec-24).
   const [prefsVersion, setPrefsVersion] = useState(0);
+  // The last indicator pushed to the native pill, so a redundant re-derive (a
+  // background SSE event fires `refresh`, minting a NEW `clients` array on
+  // nearly every navigation) doesn't re-push an identical state — re-pushing
+  // makes the pill re-reveal/pop by itself (issue-27, ac-58). '__none__' marks
+  // the explicit hide so it, too, is pushed only once.
+  const lastPushRef = useRef<string | null>(null);
 
   const refresh = useCallback(async () => {
     if (!inShell) return;
@@ -134,16 +146,72 @@ export function useDesktopMcpStatus(): DesktopMcpStatus {
       (c) => c.transport === 'token' && isPillNotificationEnabled(c.key),
     );
     if (pillClients.length === 0) {
-      void clearMcpStatusBridge();
+      if (lastPushRef.current !== '__none__') {
+        lastPushRef.current = '__none__';
+        void clearMcpStatusBridge();
+      }
       return;
     }
-    void setMcpStatusBridge(deriveIndicator(pillClients.map((c) => c.status)));
+    const indicator = deriveIndicator(pillClients.map((c) => c.status));
+    // De-dupe (issue-27, ac-58): only push when the derived indicator actually
+    // changed. A re-derive that lands on the same state must NOT re-push, or the
+    // native pill re-reveals on every navigation.
+    const key = `${indicator.kind}|${indicator.label}|${indicator.visibility}`;
+    if (lastPushRef.current === key) return;
+    lastPushRef.current = key;
+    void setMcpStatusBridge(indicator);
   }, [inShell, clients, prefsVersion]);
 
   // Re-derive the pill when the per-client notification preference changes
   // (toggled in DesktopMcpSection). The store is shared across hook instances so
   // the app-global sync and the Settings section never disagree.
   useEffect(() => subscribePillPrefs(() => setPrefsVersion((v) => v + 1)), []);
+
+  // Whether the pill is currently in the "ready" (installed, awaiting first
+  // handshake) state — the only state the re-probe below needs to chase.
+  const awaitingHandshake = useMemo(() => {
+    if (!inShell || clients.length === 0) return false;
+    const pillClients = clients.filter(
+      (c) => c.transport === 'token' && isPillNotificationEnabled(c.key),
+    );
+    if (pillClients.length === 0) return false;
+    return deriveIndicator(pillClients.map((c) => c.status)).kind === 'ready';
+  }, [inShell, clients, prefsVersion]);
+
+  // Backoff re-probe while Ready (issue-32, ac-63). Each step re-runs refresh();
+  // once the handshake lands the state leaves 'ready', this effect tears down,
+  // and polling stops. After the final step we stop entirely — no infinite
+  // poll. Returning to the foreground (visibilitychange → visible) restarts the
+  // schedule from the top and probes immediately, so it self-heals after the
+  // hard stop and catches a handshake that happened while we were away.
+  // `visibilitychange` (not focus) is deliberate: focus churns on every webview
+  // navigation, but visibilityState only flips on a genuine hide/show.
+  useEffect(() => {
+    if (!awaitingHandshake || typeof document === 'undefined') return;
+    let step = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const scheduleNext = () => {
+      if (step >= REPROBE_BACKOFF_MS.length) return; // hard stop
+      timer = setTimeout(() => {
+        void refresh();
+        step += 1;
+        scheduleNext();
+      }, REPROBE_BACKOFF_MS[step]);
+    };
+    const onVisibility = () => {
+      if (document.visibilityState !== 'visible') return;
+      clearTimeout(timer);
+      step = 0;
+      void refresh();
+      scheduleNext();
+    };
+    scheduleNext();
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [awaitingHandshake, refresh]);
 
   // Real-time: a token minted/revoked anywhere re-derives status (and the mint
   // that an in-app install performs flows back through here to update the pill).

@@ -244,8 +244,6 @@ app.route("/api/:namespace/:memex/tasks", tasksRouter);
 app.route("/api/:namespace/:memex/issues", issuesRouter);
 app.route("/api/:namespace/:memex/acs", acsRouter);
 app.route("/api/:namespace/:memex/emission-keys", emissionKeysRouter);
-// spec-371: scoped hook-key minting for the plugin installer (membership-gated).
-app.route("/api/:namespace/:memex/hook-keys", hookKeysRouter);
 app.route("/api/:namespace/:memex/discord-webhook", discordWebhookRouter);
 // spec-118 — per-Spec roles (editor/reviewer) + ticket-style assignment.
 app.route("/api/:namespace/:memex/doc-members", docMembersRouter);
@@ -426,6 +424,9 @@ app.route("/api/backstage", backstageRouter);
 // Device-flow installer + token settings (t-14).
 app.route("/api/cli/auth", cliAuth);
 app.route("/api/mcp/tokens", mcpTokensRouter);
+// spec-430 dec-3: hook keys are per USER, never per memex — user-level mint, no
+// :namespace/:memex in the path (modelled on /api/mcp/tokens above).
+app.route("/api/hook-keys", hookKeysRouter);
 
 // OAuth 2.1 + DCR + PKCE (b-31 W1). Gated by OAUTH_ENABLED=1 so the entire
 // surface (routes + well-known discovery) is dead until explicitly turned on.

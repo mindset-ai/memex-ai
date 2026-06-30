@@ -5,11 +5,8 @@
 import { describe, it, expect } from "vitest";
 import { tagAc } from "@memex-ai-ac/vitest";
 // scripts/ lives outside the package; import the .mjs by relative path.
-import {
-  extractSpecRefs,
-  extractPrNumbers,
-  buildDeployMessage,
-} from "../../../../scripts/canary/deploy-notify.mjs";
+// @ts-expect-error - untyped canary build script (no .d.ts)
+import { extractSpecRefs, extractPrNumbers, buildDeployMessage } from "../../../../scripts/canary/deploy-notify.mjs";
 
 const SPEC = "mindset-prod/memex-building-itself/specs/spec-243";
 

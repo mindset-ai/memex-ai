@@ -1,8 +1,18 @@
 {
   "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/session-start-guide.mjs\""
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
-        "matcher": "mcp__memex__.*",
+        "matcher": "mcp__.*memex__.*",
         "hooks": [
           {
             "type": "command",

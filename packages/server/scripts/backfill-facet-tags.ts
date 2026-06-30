@@ -35,6 +35,10 @@ async function main(): Promise<void> {
   );
   // Progress ticks for the long run — every 25 clauses and at the end (the pool runs
   // CLASSIFY_CONCURRENCY in flight, so this reports completions, not start order).
+  // Resilience (PR retrim): a clause that still fails after all retries is skipped
+  // (left untagged) and logged here, so one bad clause never aborts a long bulk run —
+  // re-run with --gap-only to retry the skipped ones once the cause is understood.
+  const skipped: string[] = [];
   const { standards, clauses } = await backfillFacetTagsForMemex(memexId, {
     gapOnly,
     onProgress: (done, total) => {
@@ -42,8 +46,15 @@ async function main(): Promise<void> {
         console.log(`[facet-backfill]   ${done}/${total} clauses classified…`);
       }
     },
+    onClauseError: (clauseId, err) => {
+      skipped.push(clauseId);
+      console.warn(`[facet-backfill]   ⚠ skipped clause ${clauseId} (left untagged): ${(err as Error)?.message ?? err}`);
+    },
   });
-  console.log(`[facet-backfill] done — ${standards} standard(s), ${clauses} clause(s) classified + tagged.`);
+  console.log(
+    `[facet-backfill] done — ${standards} standard(s), ${clauses} clause(s) processed, ` +
+      `${skipped.length} skipped${skipped.length > 0 ? " (re-run with --gap-only to retry)" : ""}.`,
+  );
   process.exit(0);
 }
 

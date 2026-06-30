@@ -97,7 +97,7 @@ describe("prompt-injection guard — persona never comes from client input (spec
   // — must be ignored: byte-identical output with or without it.
   function blocksFor(input: Record<string, unknown>): string {
     return JSON.stringify(
-      buildGuideSystemBlocks(input as Parameters<typeof buildGuideSystemBlocks>[0]),
+      buildGuideSystemBlocks(input as unknown as Parameters<typeof buildGuideSystemBlocks>[0]),
     );
   }
 
@@ -187,7 +187,7 @@ describe("mindset-website persona is surface-keyed (spec-251 t-1 → ac-3)", () 
     tagAc(S251_AC3);
     const render = (input: Record<string, unknown>): string =>
       JSON.stringify(
-        buildGuideSystemBlocks(input as Parameters<typeof buildGuideSystemBlocks>[0]),
+        buildGuideSystemBlocks(input as unknown as Parameters<typeof buildGuideSystemBlocks>[0]),
       );
     const clean = render({ ...baseInput, surface: "mindset-website" });
     const poisoned = render({

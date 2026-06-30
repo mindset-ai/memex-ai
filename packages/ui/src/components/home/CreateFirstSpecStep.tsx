@@ -85,7 +85,7 @@ export function CreateFirstSpecStep({
       ) : (
         <>
           <p className="mb-8 text-xl font-medium leading-snug text-primary">
-            Get the full magic of Memex by connecting to the MCP and using it in your Agent
+            Draft your first spec with your coding agent, or create it here in the app.
           </p>
 
           {/* Primary CTA — opens New Spec dialog on the Specs page via ?new=1 (dec-4). */}

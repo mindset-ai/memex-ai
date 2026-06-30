@@ -19,10 +19,10 @@
 
 import { Hono } from "hono";
 import { and, eq } from "drizzle-orm";
-import { db } from "../db/connection.js";
-import { documents } from "../db/schema.js";
+import { db, runWithMemexId } from "../db/connection.js";
+import { documents, namespaces, memexes } from "../db/schema.js";
 import { verifyHookKey, bumpHookKeyLastUsed } from "../services/hook-keys.js";
-import { resolveMemexId } from "../services/emission-keys.js";
+import { isMemberOfMemex } from "../middleware/memex-resolver.js";
 import { recordCheckoutEdit } from "../services/spec-checkout.js";
 import { setCheckoutThread } from "../services/checkout.js";
 
@@ -97,9 +97,32 @@ specCheckoutRouter.post("/", async (c) => {
   // Not a spec ref → fail quiet, record nothing (std-7). Never an error.
   if (!parsed) return c.json({ recorded: false, reason: "not_a_spec_ref" }, 200);
 
-  // The key only authorises its OWN Memex — mirror the test-events cross-tenant guard.
-  const memexId = await resolveMemexId(parsed.namespace, parsed.memexSlug);
-  if (!memexId || memexId !== hookKey.memexId) {
+  // Authorize by MEMBERSHIP (spec-430 dec-1): a user-scoped key (memexId NULL) writes
+  // for ANY memex its creator can access, so a personal->org graduation needs no new
+  // key (ac-5). A legacy per-memex key (memexId set) is additionally pinned to its own
+  // memex. We reuse the SAME predicate the MCP layer gates on — `isMemberOfMemex` —
+  // which grants a user their OWN personal (kind='user') memex via
+  // `namespace.owner_user_id`, not just org membership (issue-2: an org-only check
+  // 401'd a user's own personal memex, breaking day-one checkout). These lookups read
+  // the CONTROL PLANE (namespaces/memexes/org_memberships), not RLS-tenant tables, so
+  // they run correctly before the runWithMemexId wrap below.
+  const ns = await db.query.namespaces.findFirst({
+    where: eq(namespaces.slug, parsed.namespace),
+  });
+  const mx = ns
+    ? await db.query.memexes.findFirst({
+        where: and(eq(memexes.namespaceId, ns.id), eq(memexes.slug, parsed.memexSlug)),
+      })
+    : null;
+  const actorUserId = hookKey.createdByUserId ?? null;
+  const scopeOk = !!mx && (hookKey.memexId === null || hookKey.memexId === mx.id);
+  if (
+    !ns ||
+    !mx ||
+    !actorUserId ||
+    !scopeOk ||
+    !(await isMemberOfMemex(actorUserId, mx, ns))
+  ) {
     return c.json(
       {
         error: "unauthorized",
@@ -108,46 +131,63 @@ specCheckoutRouter.post("/", async (c) => {
       401,
     );
   }
+  const memexId = mx.id;
 
-  // Resolve the spec doc. Unknown spec → fail quiet (std-7), record nothing.
-  const [doc] = await db
-    .select({ id: documents.id })
-    .from(documents)
-    .where(
-      and(
-        eq(documents.memexId, memexId),
-        eq(documents.handle, parsed.specHandle),
-        eq(documents.docType, "spec"),
-      ),
-    )
-    .limit(1);
-  if (!doc) return c.json({ recorded: false, reason: "spec_not_found" }, 200);
+  // body.thread_uid was validated as a string above, but TypeScript does not preserve
+  // that narrowing across the runWithMemexId callback boundary below — hoist it (the
+  // same reason test-events.ts captures its insert values before the mutate() callback).
+  const threadUid = body.thread_uid;
 
-  const actorUserId = hookKey.createdByUserId ?? null;
-  await recordCheckoutEdit({
-    memexId,
-    docId: doc.id,
-    threadUid: body.thread_uid,
-    changedPaths: body.changed_paths as string[],
-    commitSha: (body.commit_sha as string | undefined) ?? null,
-    branch: (body.branch as string | undefined) ?? null,
-    actorUserId,
+  // Everything below reads/writes TENANT tables (documents, then spec_checkout_edits)
+  // under row-level security (std-36): the policy filters every row unless `app.memex_id`
+  // is set, and the Cloud Run runtime role `memex_app` is a NON-OWNER, so the policy
+  // applies to it in full. The hook-key auth + the namespace/memex/membership
+  // resolution above run on RLS-EXCLUDED control-plane tables, so they need no context
+  // — but the spec lookup does. runWithMemexId stamps
+  // app.memex_id for the duration. WITHOUT this wrap the read returns zero rows on int
+  // (every phone-home silently records nothing), while local tests pass because the
+  // postgres superuser bypasses RLS — the exact 2026-06-10 emission-outage trap
+  // (see emission-key-contextless-verify.regression).
+  return runWithMemexId(memexId, async () => {
+    // Resolve the spec doc. Unknown spec → fail quiet (std-7), record nothing.
+    const [doc] = await db
+      .select({ id: documents.id })
+      .from(documents)
+      .where(
+        and(
+          eq(documents.memexId, memexId),
+          eq(documents.handle, parsed.specHandle),
+          eq(documents.docType, "spec"),
+        ),
+      )
+      .limit(1);
+    if (!doc) return c.json({ recorded: false, reason: "spec_not_found" }, 200);
+
+    await recordCheckoutEdit({
+      memexId,
+      docId: doc.id,
+      threadUid,
+      changedPaths: body.changed_paths as string[],
+      commitSha: (body.commit_sha as string | undefined) ?? null,
+      branch: (body.branch as string | undefined) ?? null,
+      actorUserId,
+    });
+
+    // Reconcile checked_out_thread to the CONVERSATION UID (dec-12, ac-23). The
+    // server never sees the conversation UID on a raw MCP call (dec-3), so the hook
+    // carries it here as thread_uid; this is the join key for "return me to the
+    // conversation that worked on this spec". Only updates when this user currently
+    // holds the spec, so a stray report can't relabel another holder. Does NOT write
+    // presence — checkout is decoupled from the presence plane (dec-5).
+    if (actorUserId) {
+      await setCheckoutThread({ docId: doc.id, userId: actorUserId, thread: threadUid });
+    }
+
+    bumpHookKeyLastUsed(hookKey.id);
+
+    // RECORD-ONLY: a minimal ack, NO steering payload (dec-8).
+    return c.json({ recorded: true }, 201);
   });
-
-  // Reconcile checked_out_thread to the CONVERSATION UID (dec-12, ac-23). The
-  // server never sees the conversation UID on a raw MCP call (dec-3), so the hook
-  // carries it here as thread_uid; this is the join key for "return me to the
-  // conversation that worked on this spec". Only updates when this user currently
-  // holds the spec, so a stray report can't relabel another holder. Does NOT write
-  // presence — checkout is decoupled from the presence plane (dec-5).
-  if (actorUserId) {
-    await setCheckoutThread({ docId: doc.id, userId: actorUserId, thread: body.thread_uid });
-  }
-
-  bumpHookKeyLastUsed(hookKey.id);
-
-  // RECORD-ONLY: a minimal ack, NO steering payload (dec-8).
-  return c.json({ recorded: true }, 201);
 });
 
 export { specCheckoutRouter };

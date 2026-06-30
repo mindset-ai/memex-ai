@@ -1,12 +1,14 @@
 #!/usr/bin/env node
-// spec-371 Hook B — the EDIT PHONE-HOME. A Claude Code PostToolUse hook matched to
-// file edits. It consults the local marker (the privacy gate, dec-2): only when
-// this thread is checked out does anything leave the machine. NOT checked out →
-// silence, no nudge (dec-8 rework). Non-blocking; never throws.
+// spec-371 Hook B: the EDIT hook. A Claude Code PostToolUse hook matched to file
+// edits. It consults the local marker (the privacy gate, dec-2): only when this
+// thread is CHECKED OUT does it (1) phone home to RECORD the edit and (2) STEER,
+// surfacing a short task-sync reminder to the model via additionalContext. NOT
+// checked out means fully silent: no network, no steer. Non-blocking; exits 0.
 //
-// What it ever sends: changed file paths + the checked-out spec ref + the git
-// commit/branch + the conversation UID. Never source code, never your prompts.
-import { decideEditAction } from "../lib/checkout-marker.js";
+// What it ever sends over the network: changed file paths + the checked-out spec
+// ref + git commit/branch + the conversation UID. Never source code, never prompts.
+// The steer is emitted LOCALLY on stdout, independent of the network call.
+import { decideEditAction, decideEditSteer } from "../lib/checkout-marker.js";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -22,20 +24,21 @@ function readStdin() {
   });
 }
 
-// Where the bootstrap stored { api_base, keys: { "<ns>/<memex>": "mxh_…" } } — keyed
-// per memex (dec-10). Env vars override (CI); a legacy single `hook_key` still works.
-// Resolves the key for the CLAIMED memex so a multi-memex user phones each home with
-// the right scoped credential.
-function loadConfig(memexRef) {
+// Where the bootstrap stored { api_base, hook_key: "mxh_…" } — ONE user key (spec-430
+// dec-1/dec-3), used for EVERY memex. Env vars override (CI). A legacy per-memex
+// `keys` map is still honoured on read (migration back-compat) — any key in it works,
+// since the key is user-scoped regardless of which memex it was once filed under.
+function loadConfig() {
   const envBase = process.env.MEMEX_CHECKOUT_API_BASE;
   const envKey = process.env.MEMEX_CHECKOUT_HOOK_KEY;
   if (envBase && envKey) return { apiBase: envBase, hookKey: envKey };
   try {
     const cfg = JSON.parse(readFileSync(join(homedir(), ".memex", "checkout.json"), "utf8"));
     const apiBase = typeof cfg.api_base === "string" ? cfg.api_base : envBase;
-    const perMemex =
-      cfg.keys && memexRef && typeof cfg.keys[memexRef] === "string" ? cfg.keys[memexRef] : null;
-    const hookKey = perMemex ?? (typeof cfg.hook_key === "string" ? cfg.hook_key : null);
+    let hookKey = typeof cfg.hook_key === "string" ? cfg.hook_key : null;
+    if (!hookKey && cfg.keys && typeof cfg.keys === "object") {
+      hookKey = Object.values(cfg.keys).find((v) => typeof v === "string") ?? null;
+    }
     if (apiBase && hookKey) return { apiBase, hookKey };
   } catch {
     /* not installed / unreadable → fail quiet */
@@ -93,20 +96,35 @@ async function main() {
   if (!sessionId) return;
 
   const decision = decideEditAction(sessionId);
-  if (decision.action !== "phone-home") return; // not checked out → silent, no nudge
-  // 'phone-home': this thread is checked out → report the edit.
-  const cfg = loadConfig(decision.claim.memex);
-  if (!cfg) return; // no key planted → fail quiet, nothing leaves
+  if (decision.action !== "phone-home") return; // not checked out → silent: no network, no steer
   const paths = changedPaths(p);
-  if (paths.length === 0) return;
-  const cwd = p.cwd || process.cwd();
-  await phoneHome(cfg, {
-    ref: decision.claim.ref,
-    thread_uid: sessionId,
-    changed_paths: paths,
-    commit_sha: gitOut(cwd, ["rev-parse", "HEAD"]),
-    branch: gitOut(cwd, ["rev-parse", "--abbrev-ref", "HEAD"]),
-  });
+  if (paths.length === 0) return; // no file actually changed → nothing to report or steer
+
+  // (1) RECORD the edit (network). Best-effort; skipped silently if no key is planted.
+  const cfg = loadConfig();
+  if (cfg) {
+    const cwd = p.cwd || process.cwd();
+    await phoneHome(cfg, {
+      ref: decision.claim.ref,
+      thread_uid: sessionId,
+      changed_paths: paths,
+      commit_sha: gitOut(cwd, ["rev-parse", "HEAD"]),
+      branch: gitOut(cwd, ["rev-parse", "--abbrev-ref", "HEAD"]),
+    });
+  }
+
+  // (2) STEER (spec-371): nudge the agent to keep task STATE in sync in Memex. Gated on
+  // the SAME checkout marker, rate-limited by NAG_MIN_INTERVAL_MS. Surfaced to the model
+  // as a PostToolUse system reminder (additionalContext) on its next turn — non-blocking,
+  // not a user-facing chat message. Last stdout write; the process then exits 0.
+  const steer = decideEditSteer(sessionId);
+  if (steer.nag) {
+    process.stdout.write(
+      JSON.stringify({
+        hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: steer.text },
+      }),
+    );
+  }
 }
 
 main().catch(() => {});

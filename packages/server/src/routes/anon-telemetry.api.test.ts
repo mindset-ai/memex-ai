@@ -37,7 +37,7 @@ function appWith(ctx: { userId?: string; visitorId?: string }): Hono {
   return app;
 }
 
-function post(app: Hono, body: unknown): Promise<Response> {
+async function post(app: Hono, body: unknown): Promise<Response> {
   return app.request("/telemetry", {
     method: "POST",
     headers: { "content-type": "application/json" },

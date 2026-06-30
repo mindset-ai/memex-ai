@@ -10,10 +10,13 @@ import { startUsageBackendSink } from "./services/usage-backend-sink.js";
 import { startUsageForwarder } from "./services/usage-forwarder.js";
 import { startActivityLogSweep } from "./services/activity-log-sweep.js";
 import { startCommsLogPrune } from "./services/comms-log.js";
+import { startExperimentSweep } from "./services/experiment-sweep.js";
+import { ensureDefaultExperiment } from "./db/seed-experiments.js";
 import { startScaffoldAdditionsCacheInvalidation } from "./services/scaffold-additions-cache.js";
 import { startBusRelay } from "./services/bus-relay.js";
 import { bus } from "./services/bus.js";
 import { sqlClient } from "./db/connection.js";
+import { startDbTelemetry } from "./observability/otel/index.js";
 
 // Re-export database layer for use by other packages
 export { db } from "./db/connection.js";
@@ -56,6 +59,11 @@ const server = serve({ fetch: app.fetch, port }, (info) => {
   startBusRelay({ bus, pooledSql: sqlClient }).catch((err) => {
     console.error("[bus-relay] failed to start (server continues; reconnect loop active):", err);
   });
+  // Database observability: register the out-of-band backends / pool observable
+  // gauges on the shared meter. No-op unless OTEL_EXPORTER_OTLP_ENDPOINT is
+  // configured, so local dev and tests are untouched. Query latency / throughput
+  // instrumentation is wired separately at the db/connection.ts seam.
+  startDbTelemetry({ sqlClient });
 });
 
 // spec-190 t-1 / dec-9: attach the WebSocket upgrade handler to the live server
@@ -88,6 +96,17 @@ startActivityLogSweep().unref();
 
 // spec-341 t-3: comms_log retention prune — daily, .unref()'d (mirrors the sweep).
 startCommsLogPrune().unref();
+
+// spec-426 dec-1: experiment verdict sweep — 3-hourly, .unref()'d (mirrors the sweep).
+startExperimentSweep().unref();
+
+// spec-426 dec-5 / s-5: ensure the canonical provisioning A/B experiment + its A/B
+// variants exist as data before the provisioning branch resolves assignments against
+// them. Idempotent on every boot; best-effort so a seed fault degrades to "experiment
+// absent → control fallback" (dec-4), never a failed boot.
+ensureDefaultExperiment().catch((err) => {
+  console.error("[seed-experiments] failed to ensure default experiment (server continues):", err);
+});
 
 // Graceful shutdown (spec-251 follow-up, found 2026-06-12).
 //

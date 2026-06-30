@@ -9,11 +9,12 @@ import { tagAc } from "@memex-ai-ac/vitest";
 import { Hono } from "hono";
 import { randomUUID } from "node:crypto";
 import { visitorMiddleware, VISITOR_COOKIE } from "./visitor.js";
+import type { SessionEnv } from "./session.js";
 
 const AC = "mindset-prod/memex-building-itself/specs/spec-254/acs";
 
 function probeApp() {
-  const app = new Hono();
+  const app = new Hono<SessionEnv>();
   app.use("*", visitorMiddleware);
   app.get("/probe", (c) => c.json({ visitorId: c.get("visitorId") ?? null }));
   return app;

@@ -241,8 +241,13 @@ describe("test_event_latest maintenance (spec-162)", () => {
   it("two null-test_identifier emissions collapse to a single '' row [ac-9]", async () => {
     tagAc(`${SPEC}/acs/ac-9`);
     const ref = uniqueRef();
+    // Both timestamps are explicit app-clock values so "newest wins" compares like
+    // with like. Letting the second emission fall back to the DB-default now() pits an
+    // app-clock value (the first row) against a DB-clock value (the second); under
+    // full-suite load that cross-clock comparison can invert and the older `pass`
+    // wrongly wins (std-37 — deterministic fixtures under parallel execution).
     await seedTestEvent({ acUid: ref, status: "pass", testIdentifier: null, createdAt: new Date(Date.now() - 1000) });
-    await seedTestEvent({ acUid: ref, status: "fail", testIdentifier: null });
+    await seedTestEvent({ acUid: ref, status: "fail", testIdentifier: null, createdAt: new Date() });
 
     const rows = await db
       .select()

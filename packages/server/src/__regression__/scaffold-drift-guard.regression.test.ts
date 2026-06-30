@@ -120,6 +120,12 @@ const ALLOWLISTED_PROSE_FILES = new Set(
     // not agent-prompt prose / a nudge channel, so it does not belong in
     // scaffold-data.ts. Exempt the fixture from the prose-location guard.
     "packages/server/src/db/handhold-demo.fixture.ts",
+    // spec-426: the Variant-B starter-spec fixture embeds the "Understanding Memex"
+    // narrative as multi-line markdown template literals (STARTER_SPEC_SECTIONS) — frozen
+    // DEMO/seed content for a real Spec provisioned into a personal Memex, NOT agent-prompt
+    // prose / a nudge channel, so (exactly like handhold-demo.fixture.ts) it does not belong
+    // in scaffold-data.ts. Exempt from the prose-location guard.
+    "packages/server/src/db/starter-spec.fixture.ts",
   ].map((p) => p.split("/").join(sep)),
 );
 

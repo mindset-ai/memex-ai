@@ -1,7 +1,15 @@
 import { describe, it, expect } from "vitest";
 import { tagAc } from "@memex-ai-ac/vitest";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, readFileSync, existsSync, readdirSync } from "node:fs";
+import {
+  mkdtempSync,
+  rmSync,
+  readFileSync,
+  existsSync,
+  readdirSync,
+  writeFileSync,
+  mkdirSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -90,11 +98,27 @@ describe("spec-371 hooks e2e (ac-7, ac-9, ac-10, ac-12, ac-15)", () => {
     });
   });
 
-  it("edit hook: no checkout → SILENT, no nudge, nothing leaves (ac-10, ac-16)", () => {
+  it("marker-write: arms the thread when the MCP tool is plugin-namespaced — the real install shape (ac-9)", () => {
+    tagAc(AC_9);
+    withHome((home) => {
+      // When the Memex server ships inside the plugin, Claude Code names the tool
+      // `mcp__plugin_memex-checkout_memex__claim_spec` — the exact name a real
+      // install fires the hook with. The marker must still be written.
+      run("marker-write.mjs", {
+        session_id: "plug",
+        tool_name: "mcp__plugin_memex-checkout_memex__claim_spec",
+        tool_input: { ref: "ns/m/specs/spec-371" },
+      }, home);
+      expect(markerOf(home, "plug")).toMatchObject({ memex: "ns/m", spec: "spec-371" });
+    });
+  });
+
+  it("edit hook: no checkout → SILENT — no steer, no network, nothing leaves (ac-10, ac-16)", () => {
     tagAc(AC_10);
     tagAc(AC_16);
     withHome((home) => {
-      // An unchecked-out thread editing files emits NOTHING — no nudge, no network.
+      // An unchecked-out thread editing files emits NOTHING — the steer is gated off
+      // by the same checkout marker, so there's no nudge and no network.
       const out = run("edit-phonehome.mjs", {
         session_id: "u",
         tool_name: "Edit",
@@ -107,7 +131,7 @@ describe("spec-371 hooks e2e (ac-7, ac-9, ac-10, ac-12, ac-15)", () => {
     });
   });
 
-  it("edit hook: a claim with no key planted fails quiet — nothing leaves (ac-10)", () => {
+  it("edit hook: a CHECKED-OUT edit emits the task-sync STEER (additionalContext), non-blocking, even with no key (the steer is local, key-independent) (ac-10)", () => {
     tagAc(AC_10);
     withHome((home) => {
       run("marker-write.mjs", {
@@ -115,14 +139,24 @@ describe("spec-371 hooks e2e (ac-7, ac-9, ac-10, ac-12, ac-15)", () => {
         tool_name: "mcp__memex__claim_spec",
         tool_input: { ref: "ns/m/specs/spec-371" },
       }, home);
-      // claimed, but no ~/.memex/checkout.json and no env key → no phone-home, no output.
+      // No ~/.memex/checkout.json + no env key → the phone-home (network) is skipped,
+      // but the STEER is emitted locally on stdout — it does not depend on the key.
       const out = run("edit-phonehome.mjs", {
         session_id: "c",
         tool_name: "Edit",
         tool_input: { file_path: "/x/y.ts" },
         cwd: home,
       }, home);
-      expect(out.trim()).toBe("");
+      const parsed = JSON.parse(out);
+      expect(parsed.hookSpecificOutput.hookEventName).toBe("PostToolUse");
+      const ctx = parsed.hookSpecificOutput.additionalContext;
+      expect(ctx).toContain("spec-371");
+      expect(ctx).toContain("update_task");
+      expect(ctx).toContain("create_task");
+      expect(ctx).toMatch(/no update is needed/i); // never forces a premature update
+      // non-blocking: it never denies/blocks the edit.
+      expect(out).not.toMatch(/"decision"\s*:\s*"block"/);
+      expect(out).not.toMatch(/"permissionDecision"\s*:\s*"deny"/);
     });
   });
 
@@ -135,5 +169,48 @@ describe("spec-371 hooks e2e (ac-7, ac-9, ac-10, ac-12, ac-15)", () => {
     // No per-vendor adapter files for other agents in v1.
     const names = readdirSync(PLUGIN).join(" ").toLowerCase();
     expect(names).not.toMatch(/cursor|windsurf|copilot/);
+  });
+});
+
+// spec-430 dec-4 — the SessionStart self-heal guide.
+const AC_9_430 = "mindset-prod/memex-building-itself/specs/spec-430/acs/ac-9";
+
+function runSessionStart(home) {
+  // Controlled env: clear the CI override so the file-state path is what's exercised.
+  const env = { ...process.env, HOME: home };
+  delete env.MEMEX_CHECKOUT_HOOK_KEY;
+  delete env.MEMEX_CHECKOUT_API_BASE;
+  return execFileSync("node", [join(HOOKS, "session-start-guide.mjs")], {
+    input: JSON.stringify({ session_id: "s", hook_event_name: "SessionStart" }),
+    env,
+    encoding: "utf8",
+  });
+}
+
+describe("spec-430 SessionStart self-heal guide (ac-9)", () => {
+  it("no checkout key → emits an additionalContext steer offering to finish setup", () => {
+    tagAc(AC_9_430);
+    withHome((home) => {
+      const out = runSessionStart(home); // empty HOME, no ~/.memex/checkout.json
+      const parsed = JSON.parse(out);
+      expect(parsed.hookSpecificOutput.hookEventName).toBe("SessionStart");
+      expect(parsed.hookSpecificOutput.additionalContext).toMatch(/memex-ai install/);
+      // non-blocking: never denies/blocks.
+      expect(out).not.toMatch(/"decision"\s*:\s*"block"/);
+      expect(out).not.toMatch(/"permissionDecision"\s*:\s*"deny"/);
+    });
+  });
+
+  it("a stored hook_key → SILENT (no steer, nothing emitted)", () => {
+    tagAc(AC_9_430);
+    withHome((home) => {
+      mkdirSync(join(home, ".memex"), { recursive: true });
+      writeFileSync(
+        join(home, ".memex", "checkout.json"),
+        JSON.stringify({ api_base: "https://memex.ai", hook_key: "mxh_present" }),
+      );
+      const out = runSessionStart(home);
+      expect(out.trim()).toBe("");
+    });
   });
 });

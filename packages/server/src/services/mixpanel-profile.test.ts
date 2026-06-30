@@ -79,7 +79,7 @@ describe("MixpanelProfileSink.send — US /engage host, token stamped (ac-24)", 
       toEngagePayload({ userId: "u1", emailDomain: "mindset.ai", orgIds: ["o1"] }),
     ]);
     expect(fetchImpl).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe("https://api.mixpanel.com/engage");
     const body = JSON.parse(init.body as string);
     expect(body[0].$token).toBe("PROD_TOKEN");

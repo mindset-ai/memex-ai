@@ -310,7 +310,9 @@ describe.skipIf(!SMOKE_MCP_TOKEN)(
       await callMcpTool("update_doc", { ref: docRef!, status: "specify" });
       await callMcpTool("update_doc", { ref: docRef!, status: "build" });
 
-      // CREATE the deletable entity — a task on the throwaway doc.
+      // CREATE the deletable entity — a task on the throwaway doc. Intentionally sends NO
+      // facetBallot: this verifies the relaxed, optional-ballot behaviour (a client that
+      // omits the ballot must still succeed, never error). Do not "fix" by adding a ballot.
       const taskRes = await callMcpTool("create_task", {
         ref: docRef!,
         title: "smoke throwaway task",

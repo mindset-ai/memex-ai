@@ -6,6 +6,8 @@ import { mcpUrl } from '../utils/mcpUrl';
 
 const AC_ENV_DERIVED = 'mindset-prod/memex-building-itself/specs/spec-201/acs/ac-18';
 const AC_STATIC = 'mindset-prod/memex-building-itself/specs/spec-201/acs/ac-21';
+// spec-430: Claude Code prompt = unified install + checkout plugin; Cursor = MCP-only.
+const AC_9_430 = 'mindset-prod/memex-building-itself/specs/spec-430/acs/ac-9';
 
 // jsdom has no clipboard by default; the CopyButton calls navigator.clipboard.
 Object.assign(navigator, {
@@ -36,12 +38,14 @@ describe('spec-201: GenesisPromptSection', () => {
     expect(screen.queryByRole('button', { name: /run|verify|install|connect/i })).toBeNull();
   });
 
-  it('defaults to the Claude Code prompt (claude mcp add + CLAUDE.md)', () => {
-    tagAc(AC_STATIC);
+  it('defaults to the Claude Code prompt — unified install + the checkout plugin (spec-430)', () => {
+    tagAc(AC_9_430);
     render(<GenesisPromptSection />);
     const text = getPromptText();
-    expect(text).toContain('claude mcp add');
+    expect(text).toContain('npx -y memex-ai install');
+    expect(text).toContain('claude plugin install memex-checkout@memex');
     expect(text).toContain('CLAUDE.md');
+    expect(text).not.toContain('claude mcp add'); // superseded (dec-2)
   });
 
   it('switches to the Cursor prompt (.cursor/rules/memex.mdc) on tab change', () => {
@@ -53,9 +57,23 @@ describe('spec-201: GenesisPromptSection', () => {
     expect(text).toContain('.cursor/mcp.json');
   });
 
-  it('ac-18: the rendered prompt embeds the environment-derived MCP URL', () => {
+  it('the checkout plugin is CLAUDE-CODE-ONLY — the Cursor prompt never mentions it (spec-430)', () => {
+    tagAc(AC_9_430);
+    render(<GenesisPromptSection />);
+    fireEvent.click(screen.getByRole('tab', { name: 'Cursor' }));
+    const text = getPromptText();
+    expect(text).not.toContain('memex-ai install');
+    expect(text).not.toContain('claude plugin');
+    expect(text).not.toContain('memex-checkout');
+  });
+
+  it('ac-18: the rendered prompt embeds the environment-derived MCP URL (Cursor)', () => {
     tagAc(AC_ENV_DERIVED);
     render(<GenesisPromptSection />);
+    // The Cursor prompt always embeds the MCP URL verbatim; the Claude Code prompt only
+    // adds --api-base for non-prod (prod omits it as the CLI default), so the always-on
+    // env-derivation check reads the Cursor tab.
+    fireEvent.click(screen.getByRole('tab', { name: 'Cursor' }));
     expect(getPromptText()).toContain(mcpUrl);
     expect(mcpUrl.endsWith('/mcp')).toBe(true);
   });

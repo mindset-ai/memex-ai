@@ -141,7 +141,12 @@ export function deriveIndicator(statuses: readonly ClientStatus[]): Indicator {
     return { kind: 'connected', label: 'MCP connected', visibility: 'transient' };
   }
   if (kinds.has('ready')) {
-    return { kind: 'ready', label: 'MCP ready', visibility: 'transient' };
+    // Ready = installed + authorized, no handshake yet. It STAYS visible like
+    // the Install prompt (snoozable), not auto-hidden like Connected — it's an
+    // actionable "go make Claude connect" state, not the quiet healthy steady
+    // state (issue-31). It flips to the transient "connected" once a handshake
+    // is observed.
+    return { kind: 'ready', label: 'MCP ready', visibility: 'snoozable' };
   }
   if (kinds.has('repair') || kinds.has('reinstall')) {
     return { kind: 'repair', label: 'MCP needs repair', visibility: 'persistent' };
