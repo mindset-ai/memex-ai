@@ -1,4 +1,11 @@
-import { test, expect, emitAcEvents, bareUrl } from "./helpers/index.js";
+import {
+  test,
+  expect,
+  emitAcEvents,
+  bareUrl,
+  gotoSpecsBoard,
+  setIdentityConfirmed,
+} from "./helpers/index.js";
 import {
   signupWithToken,
   seedWhatsNewEntry,
@@ -74,14 +81,23 @@ test(
       page.getByRole("heading", { name: /You're all set!/ }),
     ).toBeVisible({ timeout: 15_000 });
 
-    // Navigate to the app. A fresh user lands on /home (onboarding canvas),
-    // not /specs — so we wait for the /api/whats-new response directly rather
-    // than a heading that only appears post-onboarding.
+    // spec-441: fresh signups have no name in their session JWT. Navigate
+    // through /onboarding to set a display name and refresh the cached session
+    // so TenantLayout routes don't redirect back to /onboarding.
+    await setIdentityConfirmed(email, true);
+    await page.getByRole("button", { name: /Continue to your Memex/ }).click();
+    await expect(page).toHaveURL(/\/onboarding/, { timeout: 15_000 });
+    await page.getByPlaceholder("Your display name").fill("WhatsNew Test User");
+    await page.getByRole("button", { name: /^Continue$/ }).click();
+    await expect(page).toHaveURL(/\/home/, { timeout: 15_000 });
+
+    // WhatsNewProvider only mounts inside TenantLayout (/:namespace/:memex/* routes).
+    // Navigate to the Specs board to trigger /api/whats-new.
     const whatsNewDone = page.waitForResponse(
       (r) => r.url().includes("/api/whats-new") && r.status() === 200,
       { timeout: 15_000 },
     );
-    await page.goto(bareUrl("/"), { waitUntil: "commit" });
+    await gotoSpecsBoard(page, email);
     await whatsNewDone;
 
     // Give React a tick to process the response and (if the fix were broken)
