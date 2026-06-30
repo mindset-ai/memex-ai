@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react';
+import { Navigate, useNavigate } from 'react-router-dom';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Alert } from '../components/ui/Alert';
@@ -8,6 +9,7 @@ import { updateProfileApi } from '../api/client';
 
 export function Onboarding() {
   const { token, user, updateSession } = useAuth();
+  const navigate = useNavigate();
   const [name, setName] = useState(user?.name ?? '');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -22,13 +24,16 @@ export function Onboarding() {
       try {
         const session = await updateProfileApi(token, trimmed);
         updateSession(session);
+        navigate('/');
       } catch (err) {
         setSubmitting(false);
         setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.');
       }
     },
-    [name, token, updateSession]
+    [name, token, updateSession, navigate]
   );
+
+  if (user?.name) return <Navigate to="/" replace />;
 
   return (
     <div className="min-h-screen bg-page flex items-center justify-center p-6">

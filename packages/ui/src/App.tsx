@@ -235,6 +235,7 @@ function TenantLayout() {
   if (!session.user.emailVerified) {
     return <VerifyEmailGate />;
   }
+  if (!session.user.name) return <Navigate to="/onboarding" replace />; // spec-441
 
   // Membership check: redirect to the user's default tenant when they aren't
   // a member of the URL's namespace/memex. This replaces the host-based
@@ -405,7 +406,7 @@ function RootRedirect() {
   const homeHidden = !!session && isFeatureHidden(session, 'home');
   // Only consult journey-state when we genuinely face the Home-vs-Specs choice
   // (authenticated, verified, and 'home' visible). Otherwise skip the read.
-  const needDecision = !!session && emailVerified && !homeHidden;
+  const needDecision = !!session && emailVerified && !!session.user.name && !homeHidden;
   const landOnHome = useShouldLandOnHome(needDecision);
 
   // Engagement telemetry (advisory, fires once): record which way the router sent the
@@ -426,6 +427,7 @@ function RootRedirect() {
 
   if (!session) return null; // session bootstrap still pending
   if (!emailVerified) return <VerifyEmailGate />;
+  if (!session.user.name) return <Navigate to="/onboarding" replace />; // spec-441
   if (homeHidden) {
     // Loop-avoidance: 'home' hidden ⇒ land on the default tenant, no journey read.
     const fallback = computeDefaultLanding(session);
@@ -635,9 +637,7 @@ export function PostLoginRouter() {
 function FlatShell({ children }: { children: React.ReactNode }) {
   const { session } = useAuth();
   if (session && !session.user.emailVerified) return <VerifyEmailGate />;
-  // spec-312 dec-3: the needsOnboarding bounce-back that used to live here is gone —
-  // flat routes render for everyone past the email gate. Onboarding is a layer on
-  // /home, never a wall that ejects you from other surfaces.
+  if (session && !session.user.name) return <Navigate to="/onboarding" replace />; // spec-441
   return (
     <ChatProvider>
       <OrgConsentDialog />
