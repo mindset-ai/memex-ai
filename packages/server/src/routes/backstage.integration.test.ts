@@ -8,6 +8,9 @@ import {
   orgMemberships,
   documents,
   users,
+  experiments,
+  experimentVariants,
+  experimentAssignments,
 } from "../db/schema.js";
 
 // Force dev mode so the backstage gate opens. Restore whatever was set before.
@@ -31,8 +34,16 @@ import { tagAc } from "@memex-ai-ac/vitest";
 
 const createdAccountIds: string[] = [];
 const createdUserIds: string[] = [];
+const createdExperimentIds: string[] = [];
 
 afterAll(async () => {
+  if (createdExperimentIds.length) {
+    // Variants + assignments cascade from the experiment (onDelete: cascade).
+    await db
+      .delete(experiments)
+      .where(inArray(experiments.id, createdExperimentIds))
+      .catch(() => {});
+  }
   if (createdUserIds.length) {
     await db
       .delete(users)
@@ -221,6 +232,118 @@ describe("POST /api/backstage/accounts/:id/impersonate", () => {
         { method: "POST" }
       );
       expect(res.status).toBe(403);
+    } finally {
+      delete process.env.GOOGLE_CLIENT_ID;
+    }
+  });
+});
+
+describe("GET /api/backstage/experiments (spec-426 ac-4)", () => {
+  it("returns per-experiment, per-arm tallies with success rate over decided assignments", async () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-426/acs/ac-4");
+
+    const suffix = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+    const [exp] = await db
+      .insert(experiments)
+      .values({
+        key: `bs-exp-${suffix}`,
+        statement: "B (starter spec) beats A (handhold demo) on activation.",
+        status: "running",
+        windowDays: 7,
+      })
+      .returning();
+    createdExperimentIds.push(exp.id);
+
+    const [armA, armB] = await db
+      .insert(experimentVariants)
+      .values([
+        { experimentId: exp.id, key: "A", label: "Control", isControl: true, behaviour: "handhold_demo" },
+        { experimentId: exp.id, key: "B", label: "Treatment", isControl: false, behaviour: "starter_spec" },
+      ])
+      .returning();
+
+    // Three users for the A arm, two for B — exercise distinct outcomes per arm.
+    const mkUser = async (n: string) =>
+      upsertUserByEmail(`bs-exp-${n}-${suffix}@example.com`);
+    const [u1, u2, u3, u4, u5] = await Promise.all([
+      mkUser("1"),
+      mkUser("2"),
+      mkUser("3"),
+      mkUser("4"),
+      mkUser("5"),
+    ]);
+    for (const u of [u1, u2, u3, u4, u5]) createdUserIds.push(u.id);
+
+    await db.insert(experimentAssignments).values([
+      // Arm A: 1 succeeded, 1 failed, 1 pending → assigned 3, rate 50% (1 of 2 decided).
+      { experimentId: exp.id, variantId: armA.id, userId: u1.id, assignedBy: "auto", outcome: "succeeded" },
+      { experimentId: exp.id, variantId: armA.id, userId: u2.id, assignedBy: "auto", outcome: "failed" },
+      { experimentId: exp.id, variantId: armA.id, userId: u3.id, assignedBy: "auto", outcome: "pending" },
+      // Arm B: 2 succeeded → assigned 2, rate 100%.
+      { experimentId: exp.id, variantId: armB.id, userId: u4.id, assignedBy: "auto", outcome: "succeeded" },
+      { experimentId: exp.id, variantId: armB.id, userId: u5.id, assignedBy: "auto", outcome: "succeeded" },
+    ]);
+
+    // A superseded (historical) assignment must NOT be tallied — only the active row counts.
+    await db.insert(experimentAssignments).values({
+      experimentId: exp.id,
+      variantId: armB.id,
+      userId: u1.id,
+      assignedBy: "operator",
+      outcome: "failed",
+      supersededAt: new Date(),
+    });
+
+    const res = await app.request("/api/backstage/experiments");
+    expect(res.status).toBe(200);
+
+    const body = (await res.json()) as Array<{
+      experimentId: string;
+      key: string;
+      status: string;
+      windowDays: number;
+      variants: Array<{
+        key: string;
+        isControl: boolean;
+        behaviour: string;
+        assigned: number;
+        succeeded: number;
+        failed: number;
+        pending: number;
+        successRate: number | null;
+      }>;
+    }>;
+
+    const row = body.find((e) => e.experimentId === exp.id);
+    expect(row).toBeDefined();
+    expect(row!.status).toBe("running");
+    expect(row!.windowDays).toBe(7);
+
+    const a = row!.variants.find((v) => v.key === "A")!;
+    const b = row!.variants.find((v) => v.key === "B")!;
+    expect(a.isControl).toBe(true);
+    expect(a.behaviour).toBe("handhold_demo");
+    expect(a.assigned).toBe(3);
+    expect(a.succeeded).toBe(1);
+    expect(a.failed).toBe(1);
+    expect(a.pending).toBe(1);
+    expect(a.successRate).toBeCloseTo(0.5);
+
+    expect(b.behaviour).toBe("starter_spec");
+    expect(b.assigned).toBe(2); // superseded row excluded
+    expect(b.succeeded).toBe(2);
+    expect(b.failed).toBe(0);
+    expect(b.pending).toBe(0);
+    expect(b.successRate).toBeCloseTo(1);
+  });
+
+  it("returns 403 when dev mode is off", async () => {
+    process.env.GOOGLE_CLIENT_ID = "test-client-id";
+    try {
+      const res = await app.request("/api/backstage/experiments");
+      expect(res.status).toBe(403);
+      const body = await res.json();
+      expect(body.error).toBe("Backstage disabled");
     } finally {
       delete process.env.GOOGLE_CLIENT_ID;
     }

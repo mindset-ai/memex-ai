@@ -1,6 +1,6 @@
 {
   "name": "@mindset-ai/db-schema",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Standalone Drizzle schema for the Memex database — the single cross-repo artifact the Backstage operator control plane consumes (spec-279).",
   "license": "SEE LICENSE IN LICENSE.md",
   "type": "module",

@@ -3003,6 +3003,169 @@ export type CommsEventRow = InferSelectModel<typeof commsEvent>;
 export type VisitorInsert = InferInsertModel<typeof visitors>;
 
 // ══════════════════════════════════════
+// Experiments (spec-426) — a Backstage-owned A/B construct
+// ══════════════════════════════════════
+//
+// The first operational slice of spec-109's hypothesis layer: state an intended
+// outcome and A/B-test a change against it. Three platform-global tables —
+// experiments → experiment_variants → experiment_assignments — owned + written by
+// Core (memex-ai) and read CROSS-TENANT by Backstage via the memex_admin BYPASSRLS
+// role (spec-279 / spec-280). They flow into the @mindset-ai/db-schema export.
+//
+// CROSS-TENANT, NOT memex-scoped — the "God agent associates ANY user with a
+// variant" requirement is inherently cross-tenant, so these tables carry NO
+// memex_id and sit OUTSIDE the per-tenant RLS policy of std-36. They follow the
+// comms_log precedent (spec-6 dec-5; schema.ts above): user-keyed where they
+// reference a principal, RLS-excluded, isolation enforced at the service layer and,
+// in Backstage, by the requireOperator / isDevMode gate (routes/backstage.ts).
+// RLS — deliberately EXCLUDED (see migration 0116); do NOT add a memex_id column or
+// an ENABLE ROW LEVEL SECURITY clause to any table in this cluster.
+
+// experiments — the experiment itself: a plain-language statement, a lifecycle
+// status, and the outcome rule (the success predicate + a per-experiment window in
+// DAYS, default 7 — dec-2; per-experiment, NOT a global constant).
+export const experiments = pgTable(
+  "experiments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // Stable human slug for the experiment (e.g. 'provisioning_demo_vs_starter').
+    // Unique so code + Backstage can look an experiment up by a stable key.
+    key: text("key").notNull().unique(),
+    // The "we think X moves Y because Z" prose (spec-109's hypothesis form).
+    statement: text("statement").notNull(),
+    // Lifecycle: draft → running → concluded. Concluding is a HUMAN call in
+    // Backstage (spec-109: agent proposes, human validates), never an auto trip.
+    status: text("status").notNull().default("draft"),
+    // The success predicate as structured data (e.g. which milestone decides the
+    // verdict). Decorative shape lives here; the load-bearing window is its own
+    // first-class column below (std-32).
+    outcomeRule: jsonb("outcome_rule").$type<Record<string, unknown>>(),
+    // The success window N in DAYS — per-experiment, default 7 (dec-2). First-class
+    // column (not buried in outcome_rule jsonb) because the 3-hourly verdict sweep
+    // reads it on every pass to decide succeeded vs failed (std-32: load-bearing
+    // fields are columns).
+    windowDays: integer("window_days").notNull().default(7),
+    // WHO authored the experiment (std-32). Denormalised name stamped at write so a
+    // later rename can't rewrite history. set null on user delete keeps the row.
+    createdByUserId: uuid("created_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdByName: text("created_by_name"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    check("experiments_status_valid", sql`${table.status} IN ('draft', 'running', 'concluded')`),
+    check("experiments_window_days_positive", sql`${table.windowDays} > 0`),
+  ],
+);
+export type Experiment = InferSelectModel<typeof experiments>;
+export type ExperimentInsert = InferInsertModel<typeof experiments>;
+
+// experiment_variants — the arms (A = control / B = treatment). Each carries a
+// behaviour id into a CODE-SIDE registry (dec-4): 'handhold_demo' → the fixed demo,
+// 'starter_spec' → the seeded "Understanding Memex" spec. An unknown id falls back
+// to control rather than failing signup.
+export const experimentVariants = pgTable(
+  "experiment_variants",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // Cascade: a variant has no meaning without its experiment.
+    experimentId: uuid("experiment_id")
+      .notNull()
+      .references(() => experiments.id, { onDelete: "cascade" }),
+    // The arm key — 'A' (control) or 'B' (treatment).
+    key: text("key").notNull(),
+    // Short human label for Backstage display (e.g. "Handhold demo walkthrough").
+    label: text("label").notNull(),
+    // Long-form A/B narrative — what this arm actually does, in prose. Stored on the
+    // arm (not just the short label) so Backstage's Experiments tab can show an A-vs-B
+    // summary without re-deriving it from the behaviour id. Nullable: an ad-hoc
+    // experiment may carry only a label.
+    description: text("description"),
+    // Exactly one arm should be the control; the unknown-behaviour fallback resolves
+    // to it (dec-4).
+    isControl: boolean("is_control").notNull().default(false),
+    // Short behaviour id into the code-side registry (dec-4). Free-ish but
+    // CHECK-constrained to the known set so a bad seed is caught early.
+    behaviour: text("behaviour").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // One row per (experiment, arm key).
+    uniqueIndex("experiment_variants_experiment_key_unique").on(table.experimentId, table.key),
+    index("experiment_variants_experiment_id_idx").on(table.experimentId),
+    check("experiment_variants_key_valid", sql`${table.key} IN ('A', 'B')`),
+    check(
+      "experiment_variants_behaviour_valid",
+      sql`${table.behaviour} IN ('handhold_demo', 'starter_spec')`,
+    ),
+  ],
+);
+export type ExperimentVariant = InferSelectModel<typeof experimentVariants>;
+export type ExperimentVariantInsert = InferInsertModel<typeof experimentVariants>;
+
+// experiment_assignments — user ↔ variant ↔ time, plus who/what assigned it, plus
+// the decided verdict inline. The auto assignment is a deterministic hash(user_id)
+// → 50/50 split at provisioning (dec-6), recorded and agent-overridable. One ACTIVE
+// (superseded_at IS NULL) assignment per (user, experiment); a reassignment
+// supersedes the prior row, retaining history (spec-109 wants who-was-on-what-when).
+export const experimentAssignments = pgTable(
+  "experiment_assignments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    experimentId: uuid("experiment_id")
+      .notNull()
+      .references(() => experiments.id, { onDelete: "cascade" }),
+    variantId: uuid("variant_id")
+      .notNull()
+      .references(() => experimentVariants.id, { onDelete: "cascade" }),
+    // WHO is assigned. Cascade on user delete: a user's assignment history is erased
+    // with them — no orphan principal references (mirrors comms_log).
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    assignedAt: timestamp("assigned_at", { withTimezone: true }).notNull().defaultNow(),
+    // HOW the assignment was made (std-32 channel): 'auto' = the deterministic
+    // provisioning split, 'operator' = a human in Backstage, 'agent' = the God
+    // agent. A missing channel is a defect, never a silent default — NOT NULL.
+    assignedBy: text("assigned_by").notNull(),
+    // The principal behind an 'operator'/'agent' assignment, if any. NULL for 'auto'.
+    assignedByUserId: uuid("assigned_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    // Why a non-auto (re)assignment was made — free text for the audit trail.
+    reason: text("reason"),
+    // Set when this assignment is superseded by a reassignment. NULL = the single
+    // ACTIVE assignment for this (user, experiment).
+    supersededAt: timestamp("superseded_at", { withTimezone: true }),
+    // The decided verdict, stamped inline by the 3-hourly sweep (dec-1). Memex
+    // TALLIES these decided booleans; it never computes analytics over a firehose.
+    outcome: text("outcome").notNull().default("pending"),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("experiment_assignments_user_id_idx").on(table.userId),
+    index("experiment_assignments_experiment_id_idx").on(table.experimentId),
+    // Enforce ONE active assignment per (user, experiment). Partial on the
+    // not-superseded set so superseded history rows don't collide.
+    uniqueIndex("experiment_assignments_active_user_experiment_unique")
+      .on(table.userId, table.experimentId)
+      .where(sql`${table.supersededAt} IS NULL`),
+    check(
+      "experiment_assignments_assigned_by_valid",
+      sql`${table.assignedBy} IN ('auto', 'operator', 'agent')`,
+    ),
+    check(
+      "experiment_assignments_outcome_valid",
+      sql`${table.outcome} IN ('pending', 'succeeded', 'failed')`,
+    ),
+  ],
+);
+export type ExperimentAssignment = InferSelectModel<typeof experimentAssignments>;
+export type ExperimentAssignmentInsert = InferInsertModel<typeof experimentAssignments>;
+
+// ══════════════════════════════════════
 // Presence (spec-122 dec-4)
 // ══════════════════════════════════════
 //

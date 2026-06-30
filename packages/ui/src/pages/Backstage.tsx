@@ -78,9 +78,17 @@ export function Backstage() {
               Every Memex on this instance. Click a row to hop in.
             </p>
           </div>
-          <span className="text-xs text-muted">
-            {accounts ? `${accounts.length} total` : ''}
-          </span>
+          <div className="flex items-baseline gap-4">
+            <a
+              href="/backstage/experiments"
+              className="text-xs text-secondary hover:text-primary underline"
+            >
+              Experiments →
+            </a>
+            <span className="text-xs text-muted">
+              {accounts ? `${accounts.length} total` : ''}
+            </span>
+          </div>
         </div>
 
         <input
