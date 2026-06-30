@@ -41,6 +41,9 @@ export interface ClauseWithVerification {
   wholeSurface: boolean;
   countable: boolean;
   daysSinceLastRun: number | null;
+  /** spec-437 dec-4 — the clause's facet verdict keys ([] = deliberate "governs nothing"),
+   *  rendered as inline pills on the clause-coverage shelf. */
+  facetKeys: string[];
 }
 
 export interface StandardClauseCoverage {

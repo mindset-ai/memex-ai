@@ -28,6 +28,7 @@ import {
 } from "./acs.js";
 import { isCoverageCountable } from "./testability.js";
 import { confirmedTestsForRefs } from "./clause-verification.js";
+import { facetKeysByClause } from "./facet-vocab.js";
 
 export interface StandardSlugs {
   namespace: string;
@@ -93,6 +94,9 @@ export interface ClauseWithVerification {
   /** Counts toward the coverage denominator (a testable obligation, ac-16). */
   countable: boolean;
   daysSinceLastRun: number | null;
+  /** spec-437 dec-4 — the clause's facet verdict keys ([] = deliberate "governs nothing"),
+   *  rendered as inline pills on the clause-coverage shelf alongside the coverage badge. */
+  facetKeys: string[];
 }
 
 export interface StandardClauseCoverage {
@@ -185,6 +189,10 @@ export async function listClausesForStandardWithVerification(
   // has confirmed it. The confirmed set, keyed by ref → {test_identifier}.
   const confirmedByRef = await confirmedTestsForRefs(allRefs);
 
+  // spec-437 dec-4 — one batched read of each clause's facet verdict keys, attached to
+  // its coverage row so the shelf renders facet pills inline next to the coverage badge.
+  const facetByClause = await facetKeysByClause(memexId, clauseRows.map((c) => c.id));
+
   const now = Date.now();
   const clauses: ClauseWithVerification[] = [];
   for (const c of clauseRows) {
@@ -209,6 +217,7 @@ export async function listClausesForStandardWithVerification(
         wholeSurface: false,
         countable,
         daysSinceLastRun: null,
+        facetKeys: facetByClause.get(c.id) ?? [],
       });
       continue;
     }
@@ -284,6 +293,7 @@ export async function listClausesForStandardWithVerification(
       wholeSurface,
       countable,
       daysSinceLastRun,
+      facetKeys: facetByClause.get(c.id) ?? [],
     });
   }
 

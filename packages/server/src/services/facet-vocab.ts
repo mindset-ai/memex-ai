@@ -6,7 +6,7 @@
 // no-import guard (facet-classifier-no-request-path.regression.test.ts) bans the whole
 // facet-classifier module from request-path dirs, so the vocabulary reads live here.
 
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import { facets, standardClauseFacets } from "../db/schema.js";
 import { ownerForMemex } from "./shared/memex-ownership.js";
@@ -157,4 +157,33 @@ export async function persistClauseFacets(
     }
     return { id: clauseId };
   });
+}
+
+/**
+ * Batch read: the facet KEYS for a set of clauses, keyed by clause id (spec-437 dec-4 —
+ * the doc-view projection that drives the inline facet pills on the clause-coverage
+ * shelf). The innerJoin to `facets` drops the facet_id NULL "governs nothing" markers, so
+ * a deliberately-empty clause maps to [] (absent from the map → caller defaults to []).
+ * Keys are sorted for stable display.
+ */
+export async function facetKeysByClause(
+  memexId: string,
+  clauseIds: string[],
+): Promise<Map<string, string[]>> {
+  const out = new Map<string, string[]>();
+  if (clauseIds.length === 0) return out;
+  const rows = await db
+    .select({ clauseId: standardClauseFacets.clauseId, key: facets.key })
+    .from(standardClauseFacets)
+    .innerJoin(facets, eq(facets.id, standardClauseFacets.facetId))
+    .where(
+      and(eq(standardClauseFacets.memexId, memexId), inArray(standardClauseFacets.clauseId, clauseIds)),
+    );
+  for (const r of rows) {
+    const arr = out.get(r.clauseId) ?? [];
+    arr.push(r.key);
+    out.set(r.clauseId, arr);
+  }
+  for (const [k, v] of out) out.set(k, v.sort());
+  return out;
 }

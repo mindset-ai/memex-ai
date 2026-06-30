@@ -4,7 +4,7 @@
 // with fixtures (no network).
 
 import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { tagAc } from '@memex-ai-ac/vitest';
 import { ClauseCoverageView } from './ClauseCoveragePanel';
 import type {
@@ -18,7 +18,11 @@ const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-151/acs
 function clause(
   seq: number,
   state: ClauseCoverageState,
-  over: Partial<ClauseWithVerification['clause']> & { countable?: boolean; ciBacked?: boolean } = {},
+  over: Partial<ClauseWithVerification['clause']> & {
+    countable?: boolean;
+    ciBacked?: boolean;
+    facetKeys?: string[];
+  } = {},
 ): ClauseWithVerification {
   const countable = over.countable ?? true;
   return {
@@ -41,6 +45,7 @@ function clause(
     wholeSurface: state === 'verified',
     countable,
     daysSinceLastRun: state === 'untested' ? null : 0,
+    facetKeys: over.facetKeys ?? [],
   };
 }
 
@@ -99,5 +104,36 @@ describe('ClauseCoverageView (spec-151 t-7)', () => {
     // The row state attributes are distinct too.
     expect(screen.getByTestId('clause-row-cl-1').getAttribute('data-state')).toBe('verified');
     expect(screen.getByTestId('clause-row-cl-2').getAttribute('data-state')).toBe('local');
+  });
+});
+
+describe('ClauseCoverageView — facets on the shared shelf (spec-437 dec-4)', () => {
+  const AC437 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-437/acs/ac-${n}`;
+  const withFacets: StandardClauseCoverage = {
+    clauses: [
+      clause(1, 'verified', { facetKeys: ['security', 'api-design'] }),
+      clause(2, 'untested', { facetKeys: [] }), // a deliberate governs-nothing clause
+    ],
+    countableTotal: 2,
+    coveredCount: 1,
+    verifiedCount: 1,
+  };
+
+  it('renders the facets slot inline per clause, alongside the testability badge on one shelf (ac-2, ac-9, ac-10)', () => {
+    tagAc(AC437(2)); // scope: every clause displays its facets inline on the Standards view
+    tagAc(AC437(9));
+    tagAc(AC437(10));
+    render(<ClauseCoverageView coverage={withFacets} />);
+    const row1 = screen.getByTestId('clause-row-cl-1');
+    // facets slot: one pill per facet key, inline on the clause row.
+    const pills = within(row1).getAllByTestId('facet-pill').map((p) => p.getAttribute('data-facet-key'));
+    expect(pills).toEqual(['security', 'api-design']);
+    // testability slot: 151's coverage badge sits on the SAME row — one generic shelf,
+    // both metadata families (the reserved slot, now filled).
+    expect(within(row1).getByTestId('clause-badge-cl-1')).toBeTruthy();
+    // A deliberate governs-nothing clause ([]) shows no facet pills.
+    const row2 = screen.getByTestId('clause-row-cl-2');
+    expect(within(row2).queryByTestId('facet-pill')).toBeNull();
+    expect(within(row2).getByTestId('clause-badge-cl-2')).toBeTruthy();
   });
 });

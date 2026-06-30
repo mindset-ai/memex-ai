@@ -10,6 +10,7 @@ import {
   type ClauseCoverageState,
   type ClauseWithVerification,
 } from '../api/clause-coverage';
+import { FacetPills } from './FacetPills';
 
 // Distinct visual + textual treatment per state. `verified` (CI-backed) and
 // `local` (passing-but-not-CI) are deliberately different colours AND labels so a
@@ -40,6 +41,9 @@ function ClauseRow({ row }: { row: ClauseWithVerification }): JSX.Element {
       <span className="flex-1 text-sm text-zinc-700 dark:text-zinc-200 line-clamp-2">
         {row.clause.body}
       </span>
+      {/* spec-437 dec-4 — the facets slot: inline pills for this clause's verdict.
+          Renders nothing for a deliberate governs-nothing [] (FacetPills returns null). */}
+      <FacetPills facetKeys={row.facetKeys} className="shrink-0 max-w-[40%]" />
       {row.clause.testable && row.clause.archetype ? (
         <span className="font-mono text-[10px] text-zinc-400 shrink-0">{row.clause.archetype}</span>
       ) : null}
