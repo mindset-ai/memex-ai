@@ -45,7 +45,7 @@ function ClauseRow({ row }: { row: ClauseWithVerification }): JSX.Element {
       ) : null}
       <span
         data-testid={`clause-badge-cl-${row.clause.seq}`}
-        className={`shrink-0 rounded px-2 py-0.5 text-[11px] font-medium ${meta.className}`}
+        className={`shrink-0 rounded-sm px-2 py-0.5 text-[11px] font-medium ${meta.className}`}
       >
         {meta.label}
       </span>

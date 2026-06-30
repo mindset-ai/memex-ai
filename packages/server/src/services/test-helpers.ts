@@ -4,7 +4,7 @@
 
 import { eq } from "drizzle-orm";
 import { db } from "../db/connection.js";
-import { namespaces, orgs, memexes, orgMemberships, testEvents } from "../db/schema.js";
+import { namespaces, orgs, memexes, orgMemberships, testEvents, users } from "../db/schema.js";
 import { upsertUserByEmail } from "./users.js";
 import { applyEmissionToSummary } from "./test-event-latest.js";
 import { resolveMemexId } from "./emission-keys.js";
@@ -101,9 +101,16 @@ export async function makeTestMemex(prefix = "ta"): Promise<string> {
 export async function makePersonalTestMemex(prefix = "pers"): Promise<string> {
   const slug = uniqueSlug(prefix);
   const result = await db.transaction(async (tx) => {
+    // A personal namespace is owner_type='user' — it MUST carry owner_user_id or it
+    // violates the owner-XOR invariant (migration-smoke scans the whole table). Seed an
+    // owning user so the leaked fixture row is well-formed under parallel execution.
+    const [user] = await tx
+      .insert(users)
+      .values({ email: `${slug}@example.com` } as typeof users.$inferInsert)
+      .returning();
     const [ns] = await tx
       .insert(namespaces)
-      .values({ slug, kind: "user" })
+      .values({ slug, kind: "user", ownerUserId: user.id })
       .returning();
     const [memex] = await tx
       .insert(memexes)

@@ -74,10 +74,16 @@ async function seedOrgMemex(): Promise<{ memexId: string; orgId: string }> {
 
 async function seedPersonalMemex(): Promise<string> {
   // personal-kind namespace has no orgs row. Real users get one of these
-  // lazily provisioned by ensureUserNamespace on first request.
+  // lazily provisioned by ensureUserNamespace on first request. owner_type='user'
+  // namespaces MUST carry owner_user_id (owner-XOR invariant), so seed an owner.
+  const [u] = await db
+    .insert(users)
+    .values({ email: `${unique("tel-personal")}@example.com` } as typeof users.$inferInsert)
+    .returning();
+  createdUserIds.push(u.id);
   const [ns] = await db
     .insert(namespaces)
-    .values({ slug: unique("tel-personal"), kind: "user" })
+    .values({ slug: unique("tel-personal"), kind: "user", ownerUserId: u.id })
     .returning();
   createdNamespaceIds.push(ns.id);
   const [mx] = await db
