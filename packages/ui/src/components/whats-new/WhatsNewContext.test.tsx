@@ -48,7 +48,7 @@ describe('WhatsNewContext', () => {
     render(
       <WhatsNewProvider>
         <FakeMenu />
-        <WhatsNewRibbon fetcher={async () => [ENTRY]} autoDismissMs={0} />
+        <WhatsNewRibbon fetcher={async () => ({ entries: [ENTRY], suppressBefore: undefined })} autoDismissMs={0} />
       </WhatsNewProvider>,
     );
 
@@ -67,7 +67,7 @@ describe('WhatsNewContext', () => {
     render(
       <WhatsNewProvider>
         <FakeMenu />
-        <WhatsNewRibbon fetcher={async () => []} autoDismissMs={0} />
+        <WhatsNewRibbon fetcher={async () => ({ entries: [], suppressBefore: undefined })} autoDismissMs={0} />
       </WhatsNewProvider>,
     );
     await waitFor(() => {});

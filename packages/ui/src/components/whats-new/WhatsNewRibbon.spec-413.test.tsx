@@ -27,7 +27,7 @@ afterEach(() => cleanup());
 
 describe('WhatsNewRibbon body text legibility (spec-413)', () => {
   it('WHAT/WHY paragraphs carry text-primary; labels carry text-muted (ac-1, ac-2, ac-3)', async () => {
-    render(<WhatsNewRibbon fetcher={async () => [ENTRY]} onExplain={() => {}} />);
+    render(<WhatsNewRibbon fetcher={async () => ({ entries: [ENTRY], suppressBefore: undefined })} onExplain={() => {}} />);
 
     const ribbon = await screen.findByTestId('whats-new-ribbon');
     fireEvent.click(ribbon);
