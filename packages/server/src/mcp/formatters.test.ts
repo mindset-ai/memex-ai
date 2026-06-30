@@ -44,6 +44,9 @@ function makeDoc(overrides: Partial<Doc> = {}): Doc {
     groundedAt: null,
     groundedByUserId: null,
     groundedByName: null,
+    checkedOutBy: null,
+    checkedOutAt: null,
+    checkedOutThread: null,
     ...overrides,
   };
 }

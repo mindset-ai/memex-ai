@@ -5,10 +5,8 @@
 
 import { describe, it, expect } from "vitest";
 import { tagAc } from "@memex-ai-ac/vitest";
-import {
-  decideNotification,
-  statusFromSummary,
-} from "../../../../scripts/canary/notify.mjs";
+// @ts-expect-error - untyped canary build script (no .d.ts)
+import { decideNotification, statusFromSummary } from "../../../../scripts/canary/notify.mjs";
 
 const SPEC = "mindset-prod/memex-building-itself/specs/spec-243";
 const RED = { env: "prod", ok: false, results: { emission: { ok: false, detail: "POST /api/test-events → 401", body: '{"error":"unauthorized"}' }, page: { ok: true, detail: "GET / → 200", body: "" } } };
