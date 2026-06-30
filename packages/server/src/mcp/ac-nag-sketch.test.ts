@@ -85,6 +85,9 @@ function makeSpecDoc(overrides: Partial<Doc> = {}): Doc & { sections: DocSection
     groundedAt: null,
     groundedByUserId: null,
     groundedByName: null,
+    checkedOutBy: null,
+    checkedOutAt: null,
+    checkedOutThread: null,
     ...overrides,
     sections: [
       {

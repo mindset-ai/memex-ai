@@ -187,8 +187,13 @@ describe("GET /api/docs/:id", () => {
       groundedAt: null,
       groundedByUserId: null,
       groundedByName: null,
+      checkedOutBy: null,
+      checkedOutAt: null,
+      checkedOutThread: null,
       sections: [],
       creator: null,
+      checkoutHolder: null,
+      groundedStale: false,
     });
 
     const res = await app.request("/api/docs/uuid-1");
@@ -218,8 +223,13 @@ describe("GET /api/docs/:id", () => {
       groundedAt: null,
       groundedByUserId: null,
       groundedByName: null,
+      checkedOutBy: null,
+      checkedOutAt: null,
+      checkedOutThread: null,
       sections: [],
       creator: null,
+      checkoutHolder: null,
+      groundedStale: false,
     });
 
     const res = await app.request("/api/docs/doc-1");
@@ -321,8 +331,13 @@ function mockDoc(id: string, handle: string) {
     groundedAt: null,
     groundedByUserId: null,
     groundedByName: null,
+    checkedOutBy: null,
+    checkedOutAt: null,
+    checkedOutThread: null,
     sections: [],
     creator: null,
+    checkoutHolder: null,
+    groundedStale: false,
   });
 }
 

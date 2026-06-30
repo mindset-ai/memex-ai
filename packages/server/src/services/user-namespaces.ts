@@ -1,12 +1,32 @@
 import { eq, and } from "drizzle-orm";
 import { db } from "../db/connection.js";
-import { namespaces, memexes, users } from "../db/schema.js";
+import { namespaces, memexes, users, experiments, experimentVariants } from "../db/schema.js";
 import type { Memex, Namespace } from "../db/schema.js";
 import { ValidationError } from "../types/errors.js";
 import { mutate, type Mutated } from "./mutate.js";
-import { seedHandholdDemo } from "./handhold-demo.js";
 import { seedDefaultStandards } from "./default-standards.js";
 import { seedDefaultFacetsForMemexBestEffort } from "./default-facets.js";
+// spec-426: provisioning is experiment-aware. The new user is bucketed into the
+// running provisioning experiment and the assigned variant's behaviour seeds the
+// memex (control = spec-178's handhold demo, treatment = the starter Spec). The
+// experiment service is the only sanctioned path; an unavailable/non-running
+// experiment degrades to control (the safe default — kill-switch).
+import {
+  resolveOrCreateAssignment,
+  runVariantBehaviour,
+  CONTROL_BEHAVIOUR,
+} from "./experiments.js";
+import { DEFAULT_EXPERIMENT_KEY } from "../db/seed-experiments.js";
+
+// spec-426: the well-known key for the new-user provisioning A/B (handhold demo vs
+// starter Spec). The experiment row + its A/B variants are created at boot
+// (db/seed-experiments.ensureDefaultExperiment) and managed in Backstage; this is
+// the stable lookup both ends share. RE-EXPORTED from DEFAULT_EXPERIMENT_KEY so the
+// boot seed's key and this resolver's lookup are the SAME string by construction —
+// they cannot drift (Verify: they HAD drifted, silently parking every user on
+// control). Until a RUNNING experiment exists under this key, provisioning degrades
+// to control (handhold demo) by design (kill-switch, ac-13).
+export const PROVISIONING_EXPERIMENT_KEY = DEFAULT_EXPERIMENT_KEY;
 
 // Canonical display name for personal memexes. Per product decision, personal memexes
 // cannot be renamed — the switcher always shows "Personal Memex" so there's no ambiguity
@@ -242,7 +262,7 @@ export async function ensureUserNamespace(
 // (e.g. a signup race twin) is harmless.
 async function seedNewPersonalMemex(memexId: string, ownerUserId: string): Promise<void> {
   await Promise.allSettled([
-    seedHandholdDemoBestEffort(memexId, ownerUserId),
+    seedProvisioningBehaviourBestEffort(memexId, ownerUserId),
     seedDefaultStandardsBestEffort(memexId),
     // spec-340 t-3 (dec-7): seed the personal memex's own facet vocabulary
     // (owner_type='memex' — a personal memex is not modelled as its own org, so it
@@ -253,25 +273,91 @@ async function seedNewPersonalMemex(memexId: string, ownerUserId: string): Promi
   ]);
 }
 
-// Seed the handhold onboarding demo (spec-178 t-4), awaited + isolated — see
-// seedNewPersonalMemex. A rejection is caught and logged so it never propagates out of
-// ensureUserNamespace (ac-7 / ac-41: a seed failure must never block signup).
+// spec-426: seed the new personal Memex with the EXPERIMENT-ASSIGNED onboarding
+// behaviour, awaited + isolated — see seedNewPersonalMemex. A rejection is caught and
+// logged so it never propagates out of ensureUserNamespace (ac-7 / ac-14: a seed
+// failure must never block signup). This is the only seeding path; spec-178's handhold
+// demo is now the CONTROL arm, dispatched through the experiment registry.
 //
-// spec-186: MEMEX_HANDHOLD_SIGNUP_SEED=off disables the hook. The vitest config sets it
-// suite-wide — under vitest every test that creates a user would otherwise run a multi-insert
-// seed it then has to clean up (FK violations, rotating deadlocks). The hook's OWN suites
-// (handhold.api.test.ts, the seed-resilience test) stub the var back on — the env is read at
-// CALL time, never cached, precisely so they can. Prod/dev/e2e behaviour is unchanged
-// (var unset ⇒ hook fires).
-async function seedHandholdDemoBestEffort(memexId: string, ownerUserId: string): Promise<void> {
+// NET-NEW only (dec-5 / ac-13): this hook fires solely on the personal-namespace CREATE
+// path, so by construction it only ever sees users created after the experiment starts —
+// there is no backfill and none is needed.
+//
+// KILL-SWITCH / degrade-to-control (ac-13): the experiment system is best-effort, never
+// load-bearing for signup. If the experiment is unavailable, not yet 'running', concluded,
+// or anything throws, we fall back to the CONTROL behaviour (the handhold demo) — control
+// is the safe default, so a misconfigured/paused experiment degrades signup to spec-178's
+// known-good onboarding rather than failing or stranding the user with no content.
+//
+// spec-186: MEMEX_HANDHOLD_SIGNUP_SEED=off disables ALL provisioning seeding (control AND
+// treatment — the control arm IS the handhold demo). The vitest config sets it suite-wide:
+// under vitest every test that creates a user would otherwise run a multi-insert seed it
+// then has to clean up (FK violations, rotating deadlocks). The hook's OWN suites stub the
+// var back on — the env is read at CALL time, never cached, precisely so they can.
+// Prod/dev/e2e behaviour is unchanged (var unset ⇒ hook fires).
+async function seedProvisioningBehaviourBestEffort(
+  memexId: string,
+  ownerUserId: string,
+): Promise<void> {
   if (process.env.MEMEX_HANDHOLD_SIGNUP_SEED === "off") return;
+
+  // Resolve the variant behaviour first, degrading to control on ANY problem (ac-13).
+  // Declared without an initializer: both the try (success) and catch assign it, so it
+  // is definitely set before use — and a redundant initial value trips the static scan.
+  let behaviour: string;
   try {
-    // spec-406 (ac-26): attribute the seed to the new user over the server channel
-    // (std-32) so its demo Specs/ACs/tasks/decisions carry a WHO + HOW.
-    await seedHandholdDemo(memexId, { channel: "server", actorUserId: ownerUserId });
+    behaviour = await resolveProvisioningBehaviour(ownerUserId);
   } catch (err) {
-    console.error("[handhold seed]", err);
+    // Experiment lookup / assignment failed — degrade to control, never block signup.
+    console.error("[experiment assign]", err);
+    behaviour = CONTROL_BEHAVIOUR;
   }
+
+  try {
+    // Attribution diverges by arm: the CONTROL (handhold demo) is attributed to the new
+    // user over the server channel (spec-406 ac-26 / std-32) so its demo Specs/ACs/tasks
+    // carry a WHO + HOW; the TREATMENT (starter_spec, dec-3) MUST be system-attributed, so
+    // we pass NO actorUserId (seedStarterSpec strips it defensively, but we don't rely on
+    // that as the mechanism). runVariantBehaviour itself degrades an unknown behaviour id
+    // to control, so a stale/typo'd variant is also safe.
+    const ctx =
+      behaviour === CONTROL_BEHAVIOUR
+        ? ({ channel: "server", actorUserId: ownerUserId } as const)
+        : ({ channel: "server" } as const);
+    await runVariantBehaviour(behaviour, memexId, ctx);
+  } catch (err) {
+    console.error("[provisioning seed]", err);
+  }
+}
+
+// spec-426: resolve which onboarding behaviour to seed for this new user.
+//
+// ac-13 kill-switch: ONLY a RUNNING experiment drives a variant. A missing experiment, or
+// one still in 'draft' (not yet started) or 'concluded' (done), returns the control
+// behaviour WITHOUT creating an assignment — assignments are minted only while the
+// experiment is running (net-new, no pre-start buckets). When the experiment IS running we
+// deterministically bucket the user (dec-6: hash(user_id) → stable 50/50) via
+// resolveOrCreateAssignment — idempotent, so a signup race-twin / re-provision never
+// re-rolls — and look up the assigned variant's behaviour id.
+async function resolveProvisioningBehaviour(ownerUserId: string): Promise<string> {
+  const [experiment] = await db
+    .select({ id: experiments.id, status: experiments.status })
+    .from(experiments)
+    .where(eq(experiments.key, PROVISIONING_EXPERIMENT_KEY))
+    .limit(1);
+  if (!experiment || experiment.status !== "running") {
+    return CONTROL_BEHAVIOUR;
+  }
+
+  const assignment = await resolveOrCreateAssignment(ownerUserId, PROVISIONING_EXPERIMENT_KEY, {
+    channel: "server",
+  });
+  const [variant] = await db
+    .select({ behaviour: experimentVariants.behaviour })
+    .from(experimentVariants)
+    .where(eq(experimentVariants.id, assignment.variantId))
+    .limit(1);
+  return variant?.behaviour ?? CONTROL_BEHAVIOUR;
 }
 
 // Seed the six default Standards (spec-184 t-3 / dec-2), awaited + isolated — see
