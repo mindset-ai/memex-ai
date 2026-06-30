@@ -336,8 +336,11 @@ export function HomeCanvas() {
   // SHOW_GRADUATED_HOME flips and the YourJourneys pearls are live (spec-312/315).
   const layerVisible = !!state?.steps?.length || forceShow;
 
-  // The rail reveals once the user is past the first step (prototype: full-width step 0).
-  const showRail = !!displayStepId && displayStepId !== FIRST_STEP_ID && visibleSteps.length > 0;
+  // The first step renders full-width with no rail until it is attained — once the user
+  // has connected MCP (create-spec done), the rail appears even if the cursor hasn't
+  // advanced yet (spec-433 regression fix: returning users were stuck full-width at 100%).
+  const firstStepAttained = visibleSteps[0]?.attained ?? false;
+  const showRail = !!displayStepId && (displayStepId !== FIRST_STEP_ID || firstStepAttained) && visibleSteps.length > 0;
 
   return (
     <div className="font-onboarding min-h-full" data-testid="home-canvas">
