@@ -43,13 +43,27 @@ export function buildClauseRef(slugs: StandardSlugs, clauseSeq: number): string 
   return `${slugs.namespace}/${slugs.memex}/standards/${slugs.standardHandle}/clauses/cl-${clauseSeq}`;
 }
 
-// "verified" = CI-backed green; "local" = passing but NOT CI-backed (dec-4).
+// The clause coverage states, in honesty order:
+//   verified — CI-backed green from a WHOLE-SURFACE test (the honest universal green).
+//   spot     — passing but the attestation declared itself a spot/sampled check, so it
+//              must NOT read as universal coverage even if CI-backed (dec-2 / ac-8).
+//   local    — passing but the latest emission lacks CI provenance (dec-4 / ac-12).
+//   failing / stale / untested — as for ACs.
 export type ClauseCoverageState =
   | "verified"
+  | "spot"
   | "local"
   | "failing"
   | "stale"
   | "untested";
+
+// Metadata keys carrying the universal-coverage disclosure (dec-2). The emit helper
+// passes options.metadata through verbatim, so recording these needs no migration.
+export const SURFACE_META_KEY = "clause_surface";
+export const KIND_META_KEY = "clause_kind";
+// A surface value that asserts the test swept the WHOLE applicable surface. Anything
+// else (spot / sampled / a free-text scope, or absent) is treated as non-universal.
+const WHOLE_SURFACE = "whole-surface";
 
 export interface ClauseWithVerification {
   clause: {
@@ -65,6 +79,12 @@ export interface ClauseWithVerification {
   state: ClauseCoverageState;
   /** Latest emission carries CI provenance (run_id / run_url). */
   ciBacked: boolean;
+  /** The swept surface the latest attestation declared (dec-2); null if undeclared. */
+  sweptSurface: string | null;
+  /** The check-kind / archetype the latest attestation declared (dec-2); null if undeclared. */
+  checkKind: string | null;
+  /** The latest passing attestation declared itself whole-surface (earns universal green). */
+  wholeSurface: boolean;
   /** Counts toward the coverage denominator (a testable obligation, ac-16). */
   countable: boolean;
   daysSinceLastRun: number | null;
@@ -175,21 +195,43 @@ export async function listClausesForStandardWithVerification(
     const base = deriveVerificationState(tests, daysSinceLastRun, false);
 
     let ciBacked = false;
+    let sweptSurface: string | null = null;
+    let checkKind: string | null = null;
+    let wholeSurface = false;
     let state: ClauseCoverageState;
-    if (base === "failing" || base === "untested" || base === "stale") {
+
+    if (base === "failing" || base === "untested") {
       state = base;
     } else {
-      // base === "verified": demand CI provenance on the latest emission (dec-4).
+      // base === "verified" | "stale": read the latest non-hidden emission once to
+      // recover BOTH its CI provenance (dec-4) and its declared surface/kind (dec-2).
       const [latest] = await db
         .select({ runId: testEvents.runId, metadata: testEvents.metadata })
         .from(testEvents)
         .where(and(eq(testEvents.subjectRef, ref), eq(testEvents.hidden, false)))
         .orderBy(desc(testEvents.createdAt))
         .limit(1);
+      const md = latest?.metadata ?? {};
+      sweptSurface = typeof md[SURFACE_META_KEY] === "string" ? md[SURFACE_META_KEY]! : null;
+      checkKind = typeof md[KIND_META_KEY] === "string" ? md[KIND_META_KEY]! : null;
+      wholeSurface = sweptSurface === WHOLE_SURFACE;
       ciBacked = latest
         ? emissionIsCiOriginated({ runId: latest.runId, metadata: latest.metadata })
         : false;
-      state = ciBacked ? "verified" : "local";
+
+      if (base === "stale") {
+        state = "stale";
+      } else if (!ciBacked) {
+        // Passing but no CI provenance → local-only, whatever the surface (dec-4).
+        state = "local";
+      } else if (!wholeSurface) {
+        // CI-backed green but NOT a declared whole-surface sweep → spot. A spot (or
+        // undeclared-surface) attestation never wears the universal "verified" badge
+        // (dec-2 / ac-3 / ac-8): a green must not silently overstate universal coverage.
+        state = "spot";
+      } else {
+        state = "verified";
+      }
     }
 
     clauses.push({
@@ -198,6 +240,9 @@ export async function listClausesForStandardWithVerification(
       tests,
       state,
       ciBacked,
+      sweptSurface,
+      checkKind,
+      wholeSurface,
       countable: isCoverageCountable({ isObligation: c.isObligation, testable: c.testable }),
       daysSinceLastRun,
     });

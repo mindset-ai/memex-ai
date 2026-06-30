@@ -4,9 +4,11 @@
 import { fetchWithRetry } from './http';
 import { tBase } from './internal';
 
-// "verified" = CI-backed green; "local" = passing but not CI-backed (dec-4).
+// "verified" = CI-backed whole-surface green; "spot" = passing but a spot/sampled
+// (non-universal) check (dec-2); "local" = passing but not CI-backed (dec-4).
 export type ClauseCoverageState =
   | 'verified'
+  | 'spot'
   | 'local'
   | 'failing'
   | 'stale'
@@ -32,6 +34,9 @@ export interface ClauseWithVerification {
   tests: ClauseTestSnapshot[];
   state: ClauseCoverageState;
   ciBacked: boolean;
+  sweptSurface: string | null;
+  checkKind: string | null;
+  wholeSurface: boolean;
   countable: boolean;
   daysSinceLastRun: number | null;
 }

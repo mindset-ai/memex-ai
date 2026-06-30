@@ -35,7 +35,10 @@ function clause(
       { testIdentifier: `t::cl-${seq}`, latestStatus: state === 'failing' ? 'fail' : 'pass', latestRunAt: new Date().toISOString(), runCount: 1 },
     ],
     state,
-    ciBacked: over.ciBacked ?? state === 'verified',
+    ciBacked: over.ciBacked ?? (state === 'verified' || state === 'spot'),
+    sweptSurface: state === 'verified' ? 'whole-surface' : state === 'spot' ? 'spot' : null,
+    checkKind: state === 'verified' || state === 'spot' ? 'grep-denylist' : null,
+    wholeSurface: state === 'verified',
     countable,
     daysSinceLastRun: state === 'untested' ? null : 0,
   };
@@ -48,9 +51,10 @@ const coverage: StandardClauseCoverage = {
     clause(3, 'failing'),
     clause(4, 'untested'),
     clause(5, 'untested', { isObligation: false, testable: false, countable: false }),
+    clause(6, 'spot'), // CI-backed but a spot check → not universal (ac-8)
   ],
-  countableTotal: 4,
-  coveredCount: 3,
+  countableTotal: 5,
+  coveredCount: 4,
   verifiedCount: 1,
 };
 
@@ -65,8 +69,19 @@ describe('ClauseCoverageView (spec-151 t-7)', () => {
     // The summary surfaces the covered + CI-verified ratio over the testable-obligation
     // denominator.
     const summary = screen.getByTestId('clause-coverage-summary').textContent ?? '';
-    expect(summary).toContain('1/4 testable obligations CI-verified');
-    expect(summary).toContain('3/4 covered');
+    expect(summary).toContain('1/5 testable obligations CI-verified');
+    expect(summary).toContain('4/5 covered');
+  });
+
+  it('renders a spot-only (CI-backed but non-universal) clause distinctly from a verified one [ac-8]', () => {
+    tagAc(AC(8));
+    render(<ClauseCoverageView coverage={coverage} />);
+    const spotBadge = screen.getByTestId('clause-badge-cl-6');
+    const verifiedBadge = screen.getByTestId('clause-badge-cl-1');
+    expect(spotBadge.textContent).toBe('spot-only');
+    expect(spotBadge.textContent).not.toBe(verifiedBadge.textContent);
+    expect(spotBadge.className).not.toBe(verifiedBadge.className);
+    expect(screen.getByTestId('clause-row-cl-6').getAttribute('data-state')).toBe('spot');
   });
 
   it('surfaces CI-backed green DISTINCTLY from local-only passing [ac-13]', () => {

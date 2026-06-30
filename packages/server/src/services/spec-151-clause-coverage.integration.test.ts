@@ -72,7 +72,11 @@ interface ClauseSeed {
   archetype: string | null;
 }
 
-async function emit(seq: number, status: string, opts: { runId?: string } = {}): Promise<void> {
+async function emit(
+  seq: number,
+  status: string,
+  opts: { runId?: string; metadata?: Record<string, string> } = {},
+): Promise<void> {
   const ref = buildClauseRef({ namespace: ns, memex: memexSlug, standardHandle: "std-1" }, seq);
   const res = await app.request("/api/test-events", {
     method: "POST",
@@ -83,6 +87,7 @@ async function emit(seq: number, status: string, opts: { runId?: string } = {}):
       test_identifier: `clause-cov::cl-${seq}`,
       duration_ms: 1,
       ...(opts.runId ? { run_id: opts.runId } : {}),
+      ...(opts.metadata ? { metadata: opts.metadata } : {}),
     }),
   });
   if (res.status !== 201) throw new Error(`emit cl-${seq} failed: ${res.status}`);
@@ -132,8 +137,9 @@ beforeAll(async () => {
     allRefs.push(buildClauseRef({ namespace: ns, memex: memexSlug, standardHandle: "std-1" }, s.seq));
   }
 
-  // Emit: cl-1 CI-backed pass, cl-2 local-only pass, cl-3 fail. cl-4/5/6 untested.
-  await emit(1, "pass", { runId: "ci-run-42" });
+  // Emit: cl-1 CI-backed WHOLE-SURFACE pass (the honest universal green), cl-2
+  // local-only pass, cl-3 fail. cl-4/5/6 untested.
+  await emit(1, "pass", { runId: "ci-run-42", metadata: { clause_surface: "whole-surface", clause_kind: "static-scan" } });
   await emit(2, "pass"); // no run_id → local-only
   await emit(3, "fail", { runId: "ci-run-43" });
 });
