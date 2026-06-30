@@ -47,7 +47,8 @@ import { testEventsRouter } from "./routes/test-events.js";
 import { specCheckoutRouter } from "./routes/spec-checkout.js";
 import { hookKeysRouter } from "./routes/hook-keys.js";
 import { testOnlyRouter } from "./routes/__test__.js";
-import { devToolsRouter } from "./routes/__dev__.js";
+import { devToolsRouter, shouldMountDevTools } from "./routes/__dev__.js";
+import { resolveEnv } from "./services/usage-events.js";
 import { hostGuard, memexResolver } from "./middleware/memex-resolver.js";
 import { visitorMiddleware } from "./middleware/visitor.js";
 import { rewriteBriefPathToSpec } from "./services/redirects.js";
@@ -440,13 +441,15 @@ if (process.env.MEMEX_ANTHROPIC_FAKE === "1") {
   app.route("/api/__test__", testOnlyRouter);
 }
 
-// Dev-only email preview surface (spec-226 t-5) — render any transactional
-// email's HTML in the browser for visual iteration. Gated so it can never be
-// reached on a real deployment: isDevMode() is true only locally (GOOGLE_CLIENT_ID
-// unset; it throws in prod if missing, and int/prod must set it for SSO), OR the
-// e2e fake flag. Edge case: a dev who sets GOOGLE_CLIENT_ID locally to test SSO
-// loses the preview — acceptable.
-if (isDevMode() || process.env.MEMEX_ANTHROPIC_FAKE === "1") {
+// Email preview surface (spec-226 t-5 + t-6/dec-3). Renders any transactional
+// email's HTML for visual iteration. Reachable on local/e2e AND int, always gated
+// OFF prod (resolveEnv() !== "prod"), and behind sessionMiddleware (any authenticated
+// user — sample data only, no PII/secrets, so NOT org-admin). Auth is Bearer/localStorage
+// (not cookie), so a bare browser hit on int 401s; the SPA gallery (packages/ui) fetches
+// it via the token-carrying http client. Local dev (isDevMode, GOOGLE_CLIENT_ID unset)
+// keeps the token-less dev-user auto-login so direct browser preview still works.
+if (shouldMountDevTools(resolveEnv())) {
+  app.use("/api/__dev__/*", sessionMiddleware);
   app.route("/api/__dev__", devToolsRouter);
 }
 

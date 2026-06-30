@@ -225,7 +225,7 @@ export function buildVerificationEmail(input: VerificationEmailInput): EmailMess
   const text = renderEmailText({
     intro: [`Confirm this email to finish creating your Memex:`],
     url: input.verifyUrl,
-    closing: `Link expires in 24 hours. If this wasn't you, ignore this email.`,
+    closing: `The link expires in 24 hours. You're getting this because this email was used to sign up for Memex.AI — if that wasn't you, you can safely ignore it.`,
   });
 
   const html = renderEmailHtml({
@@ -237,7 +237,7 @@ export function buildVerificationEmail(input: VerificationEmailInput): EmailMess
     ],
     ctaLabel: "Confirm email",
     ctaUrl: input.verifyUrl,
-    footerNote: `If this wasn't you, ignore this email — nothing will change.`,
+    footerNote: `You're getting this because this email was used to sign up for Memex.AI. If that wasn't you, you can safely ignore this message — the link expires on its own.`,
   });
 
   return {
@@ -356,7 +356,7 @@ export function buildMagicLinkEmail(input: MagicLinkEmailInput): EmailMessage {
   const text = renderEmailText({
     intro: [`Your single-use sign-in link (expires in 15 minutes):`],
     url: input.loginUrl,
-    closing: `Didn't ask for this? Someone probably mistyped their email — no action needed.`,
+    closing: `You're getting this because someone requested a sign-in link for Memex.AI with this email. If it wasn't you, you can safely ignore this message — no one can sign in without the link above.`,
   });
 
   const html = renderEmailHtml({
@@ -368,7 +368,7 @@ export function buildMagicLinkEmail(input: MagicLinkEmailInput): EmailMessage {
     ],
     ctaLabel: "Sign in",
     ctaUrl: input.loginUrl,
-    footerNote: `Didn't ask for this? Someone probably mistyped their email — no action needed.`,
+    footerNote: `You're getting this because someone requested a sign-in link for Memex.AI with this email. If it wasn't you, you can safely ignore this message — no one can sign in without the link above.`,
   });
 
   return {

@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from 'react';
 import { Routes, Route, useLocation, useParams, useNavigate, Navigate, Outlet } from 'react-router-dom';
+import { emailPreviewEnabled } from './utils/devTools';
 // spec-351: route-level code-splitting. Every top-level routed page is loaded
 // as its own lazy chunk so the entry bundle no longer eagerly pulls all ~35
 // page surfaces (and their heavy transitive deps — nivo charts, pixi, the
@@ -32,6 +33,10 @@ const StandardList = lazy(() =>
   import('./pages/StandardList').then((m) => ({ default: m.StandardList })),
 );
 const Standard = lazy(() => import('./pages/Standard').then((m) => ({ default: m.Standard })));
+// spec-226 t-6 — internal email-preview gallery (gated off prod, see emailPreviewEnabled).
+const EmailPreview = lazy(() =>
+  import('./pages/EmailPreview').then((m) => ({ default: m.EmailPreview })),
+);
 const DriftInbox = lazy(() => import('./pages/DriftInbox').then((m) => ({ default: m.DriftInbox })));
 const DocumentList = lazy(() =>
   import('./pages/DocumentList').then((m) => ({ default: m.DocumentList })),
@@ -477,6 +482,12 @@ export function PostLoginRouter() {
       <Route path="/oauth/authorize" element={<OauthAuthorize />} />
       <Route path="/settings/tokens" element={<Navigate to="/settings/integrations" replace />} />
       <Route path="/settings/integrations" element={<FlatShell><SettingsIntegrations /></FlatShell>} />
+      {/* spec-226 t-6: internal email-preview gallery. Gated off prod — the
+          conditional Route is inert when emailPreviewEnabled() is false (falls
+          through to RootRedirect), mirroring the server's prod-unmounted API. */}
+      {emailPreviewEnabled() && (
+        <Route path="/email-preview" element={<FlatShell><EmailPreview /></FlatShell>} />
+      )}
       <Route path="/invites" element={<Navigate to="/org?tab=invites" replace />} />
       <Route path="/org" element={<FlatShell><OrgConfiguration /></FlatShell>} />
       {/* spec-171: in-app upgrade flow. Flat routes so website CTAs land here

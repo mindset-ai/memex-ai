@@ -2,6 +2,7 @@
 // additive, table/inline-CSS constructs, and back-compatible (the existing 6
 // emails render unchanged when the new fields are absent).
 import { describe, it, expect } from "vitest";
+import { tagAc } from "@memex-ai-ac/vitest";
 import {
   renderSteps,
   renderResources,
@@ -10,6 +11,8 @@ import {
   type EmailResource,
 } from "./templates.js";
 
+const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-226/acs/ac-${n}`;
+
 describe("renderSteps", () => {
   it("returns empty string for no steps", () => {
     expect(renderSteps()).toBe("");
@@ -17,6 +20,8 @@ describe("renderSteps", () => {
   });
 
   it("renders label, title and body for each step, no imagery", () => {
+    tagAc(AC(3)); // scope: a reusable step-block primitive a new template can compose
+    tagAc(AC(5)); // impl: renders as table / inline-CSS constructs
     const steps: EmailStep[] = [
       { label: "// Step 1", title: "Connect to the Memex MCP", body: "The app shows you how." },
       { label: "// Step 2", title: "Create your first Spec", body: "Bring an idea." },
@@ -43,6 +48,8 @@ describe("renderResources", () => {
   });
 
   it("renders a table of title-link + description rows, not image buttons", () => {
+    tagAc(AC(3)); // scope: a reusable resources-block primitive
+    tagAc(AC(5)); // impl: a table construct, not image buttons
     const resources: EmailResource[] = [
       { title: "Documentation", description: "The complete reference.", url: "https://memex.ai/docs" },
     ];
@@ -62,6 +69,8 @@ describe("back-compatibility (existing emails set neither field)", () => {
   }).html ?? "";
 
   it("renders no step or resources markup", () => {
+    tagAc(AC(3)); // scope: existing six emails render unchanged when primitives unused
+    tagAc(AC(5)); // impl: additive + back-compatible (byte-identical when fields absent)
     expect(html).not.toContain("// Step");
     // no resources table injected (the layout has no <table> rows of that shape)
     expect(html).not.toContain('border-top:1px solid #E5E7EB;">' + "<a");
