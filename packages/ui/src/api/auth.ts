@@ -85,6 +85,11 @@ export interface SessionPayload {
   /** Present on verify-email and magic-link/consume responses only. True when this was
    *  the first verification (a new account), false/absent for subsequent logins. */
   isNewAccount?: boolean;
+  /** The event_id used for server-side conversion API calls on new-account verification.
+   *  Client should use this (not a freshly-generated UUID) for the dataLayer push so
+   *  both legs share the same ID and ad platforms can deduplicate. Null when attribution
+   *  cookie was absent on verification. */
+  conversionEventId?: string | null;
   /**
    * Orgs the user is an active member of that have no Memexes yet (doc-19 dec-1).
    * These are invisible in `memberships` (memex-keyed) but must appear in the

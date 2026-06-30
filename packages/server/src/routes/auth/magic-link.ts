@@ -118,6 +118,7 @@ magicLink.post("/consume", async (c) => {
   // (no surrogate row) consumes exactly as before.
   await markLoginRequestVerified(row.id);
 
+  let conversionEventId: string | null = null;
   if (isNewAccount) {
     const attribution = parseAttributionCookie(c.req.header("cookie"));
     if (attribution) {
@@ -126,6 +127,7 @@ magicLink.post("/consume", async (c) => {
         return null;
       });
       if (eventId) {
+        conversionEventId = eventId;
         fireAllConversions({
           email: user.email,
           hashedEmail: hashEmail(user.email),
@@ -142,7 +144,7 @@ magicLink.post("/consume", async (c) => {
   const session = await buildMagicLinkSession(c, user.id);
   setKnownCookie(c);
   await applyVisitorMerge(c, user.id); // spec-254 — identify merge (magic link / email-only signup)
-  return c.json({ ...withToken(session), isNewAccount });
+  return c.json({ ...withToken(session), isNewAccount, conversionEventId });
 });
 
 // GET /api/auth/magic-link/login-requests/:id/status

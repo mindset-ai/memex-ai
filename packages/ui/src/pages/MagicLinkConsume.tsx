@@ -36,7 +36,7 @@ export function MagicLinkConsume() {
         if (session.isNewAccount) {
           pushDataLayer({
             event: 'sign_up_completed',
-            event_id: crypto.randomUUID(),
+            event_id: session.conversionEventId ?? crypto.randomUUID(),
             ...readAttributionCookie(),
           });
         }

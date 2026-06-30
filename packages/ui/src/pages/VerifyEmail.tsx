@@ -40,7 +40,7 @@ export function VerifyEmail() {
         if (s.isNewAccount) {
           pushDataLayer({
             event: 'sign_up_completed',
-            event_id: crypto.randomUUID(),
+            event_id: s.conversionEventId ?? crypto.randomUUID(),
             ...readAttributionCookie(),
           });
         }

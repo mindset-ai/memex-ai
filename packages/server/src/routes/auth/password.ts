@@ -203,6 +203,7 @@ password.post("/verify-email", async (c) => {
 
   await markEmailVerified(row.userId);
 
+  let conversionEventId: string | null = null;
   if (isNewAccount) {
     const attribution = parseAttributionCookie(c.req.header("cookie"));
     if (attribution) {
@@ -211,6 +212,7 @@ password.post("/verify-email", async (c) => {
         return null;
       });
       if (eventId && preVerifyUser) {
+        conversionEventId = eventId;
         fireAllConversions({
           email: preVerifyUser.email,
           hashedEmail: hashEmail(preVerifyUser.email),
@@ -225,7 +227,7 @@ password.post("/verify-email", async (c) => {
   const session = await resolveSession(row.userId, null);
   setKnownCookie(c);
   await applyVisitorMerge(c, row.userId); // spec-254 — identify merge (email verification)
-  return c.json({ ...withToken(session), isNewAccount });
+  return c.json({ ...withToken(session), isNewAccount, conversionEventId });
 });
 
 // POST /api/auth/resend-verification (authenticated)

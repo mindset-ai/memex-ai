@@ -100,6 +100,33 @@ describe('VerifyEmail — sign_up_completed gating (spec-21 t-3)', () => {
     expect(dataLayerEvents()).not.toContain('sign_up_completed');
   });
 
+  it('uses the server-provided conversionEventId as the dataLayer event_id', async () => {
+    tagAc(AC7);
+    vi.mocked(verifyEmailApi).mockResolvedValueOnce({
+      user: { id: 'u4', email: 'new2@example.com', name: null, status: 'active', emailVerified: true },
+      memberships: [],
+      currentMemexId: null,
+      currentRole: null,
+      needsOnboarding: false,
+      hiddenFeatures: [],
+      isNewAccount: true,
+      conversionEventId: 'server-event-id-123',
+    });
+
+    await act(async () => {
+      render(
+        <MemoryRouter initialEntries={['/?token=tok4']}>
+          <VerifyEmail />
+        </MemoryRouter>,
+      );
+    });
+
+    const dl = ((window as Record<string, unknown>).dataLayer as Record<string, unknown>[] | undefined ?? []);
+    const completedEvent = dl.find((e) => e.event === 'sign_up_completed');
+    expect(completedEvent).toBeDefined();
+    expect(completedEvent!.event_id).toBe('server-event-id-123');
+  });
+
   it('does NOT push sign_up_completed when isNewAccount is absent', async () => {
     tagAc(AC7);
     vi.mocked(verifyEmailApi).mockResolvedValueOnce({
