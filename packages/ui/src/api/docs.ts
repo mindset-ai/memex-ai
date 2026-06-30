@@ -2,6 +2,7 @@
 // is now a barrel re-exporting this module). Behaviour-preserving move only.
 
 import type { DocSummary, DocSection, DocWithGraph, DocStatus, Tag } from './types';
+import { decodeHtmlEntities } from '../utils/decodeHtmlEntities';
 import { NotFoundError } from './errors';
 import { fetchJson as fetchJsonRaw } from './fetchJson';
 import { BASE_URL, fetchWithRetry } from './http';
@@ -191,13 +192,34 @@ export async function unassignUser(docId: string, userId: string): Promise<void>
   if (!res.ok) throw new Error(`Failed to unassign: ${res.status}`);
 }
 
+// Decode HTML-entity-encoded plain-text TITLES on the fetched graph. Some legacy
+// section-creation paths persisted titles encoded (e.g. "Architecture &amp; Security"),
+// and titles render as plain React text — so the entity would show literally. Body
+// `content` is markdown and is deliberately NOT touched (ReactMarkdown decodes entities
+// itself; re-decoding could corrupt an intentional entity inside a code span). Idempotent
+// for already-clean titles (a bare "&" without a trailing ";" is left untouched).
+function decodeTitle<T extends { title?: string | null }>(x: T): T {
+  return x.title ? { ...x, title: decodeHtmlEntities(x.title) } : x;
+}
+
+function normalizeDocTitles(doc: DocWithGraph): DocWithGraph {
+  return {
+    ...doc,
+    title: decodeHtmlEntities(doc.title),
+    sections: doc.sections.map(decodeTitle),
+    decisions: doc.decisions.map(decodeTitle),
+    tasks: doc.tasks.map(decodeTitle),
+  };
+}
+
 export async function fetchDoc(id: string): Promise<DocWithGraph> {
-  return fetchJsonRaw<DocWithGraph>(fetchWithRetry, `${tBase()}/docs/${id}`, undefined, {
+  const doc = await fetchJsonRaw<DocWithGraph>(fetchWithRetry, `${tBase()}/docs/${id}`, undefined, {
     errorFactory: (status) => {
       if (status === 404) return new NotFoundError(`Document not found: ${id}`);
       return new Error(`Failed to fetch document: ${status}`);
     },
   });
+  return normalizeDocTitles(doc);
 }
 
 export async function updateDocStatus(docId: string, status: DocStatus): Promise<void> {

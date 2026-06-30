@@ -78,6 +78,9 @@ const SharedDocument = lazy(() =>
   import('./pages/SharedDocument').then((m) => ({ default: m.SharedDocument })),
 );
 const Backstage = lazy(() => import('./pages/Backstage').then((m) => ({ default: m.Backstage })));
+const BackstageExperiments = lazy(() =>
+  import('./pages/BackstageExperiments').then((m) => ({ default: m.BackstageExperiments })),
+);
 const VerifyEmail = lazy(() => import('./pages/VerifyEmail').then((m) => ({ default: m.VerifyEmail })));
 const MagicLinkConsume = lazy(() =>
   import('./pages/MagicLinkConsume').then((m) => ({ default: m.MagicLinkConsume })),
@@ -670,6 +673,7 @@ export function App() {
             <Route path="/verify-domain/:token" element={<VerifyDomain />} />
             <Route path="/share/:token" element={<SharedDocument />} />
             <Route path="/backstage" element={<Backstage />} />
+            <Route path="/backstage/experiments" element={<BackstageExperiments />} />
           </Routes>
         </Suspense>
       </ThemeProvider>
