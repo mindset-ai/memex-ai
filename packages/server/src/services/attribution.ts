@@ -42,7 +42,7 @@ export async function saveAttribution(
   const eventId = randomUUID();
   await mutate(
     ctx,
-    { entity: "user_attribution", action: "created", userId },
+    { memexId: "", userId, entity: "user_attribution", action: "created" },
     async () => {
       await db.insert(userAttributions).values({
         userId,
