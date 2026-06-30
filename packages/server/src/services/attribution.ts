@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { db } from "../db/connection.js";
 import { userAttributions } from "../db/schema.js";
+import { mutate, type RequestCtx } from "./mutate.js";
 
 export interface AttributionData {
   gclid?: string;
@@ -36,19 +37,27 @@ export function hashEmail(email: string): string {
 export async function saveAttribution(
   userId: string,
   data: AttributionData,
+  ctx: RequestCtx = {},
 ): Promise<string> {
   const eventId = randomUUID();
-  await db.insert(userAttributions).values({
-    userId,
-    eventId,
-    gclid: data.gclid ?? null,
-    liFatId: data.li_fat_id ?? null,
-    oppref: data.oppref ?? null,
-    utmSource: data.utm_source ?? null,
-    utmMedium: data.utm_medium ?? null,
-    utmCampaign: data.utm_campaign ?? null,
-    utmContent: data.utm_content ?? null,
-    utmTerm: data.utm_term ?? null,
-  });
+  await mutate(
+    ctx,
+    { entity: "user_attribution", action: "created", userId },
+    async () => {
+      await db.insert(userAttributions).values({
+        userId,
+        eventId,
+        gclid: data.gclid ?? null,
+        liFatId: data.li_fat_id ?? null,
+        oppref: data.oppref ?? null,
+        utmSource: data.utm_source ?? null,
+        utmMedium: data.utm_medium ?? null,
+        utmCampaign: data.utm_campaign ?? null,
+        utmContent: data.utm_content ?? null,
+        utmTerm: data.utm_term ?? null,
+      });
+    },
+    { silent: true },
+  );
   return eventId;
 }

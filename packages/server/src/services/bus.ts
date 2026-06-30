@@ -92,7 +92,9 @@ export type ChangeEntity =
   // coverage scanner hold even though no SSE consumer subscribes (spec-156 ac-18).
   | "oauth_client"
   | "oauth_code"
-  | "oauth_refresh_token";
+  | "oauth_refresh_token"
+  // spec-21: per-user attribution record (silent-allowed per std-8 §6 — no SSE subscriber).
+  | "user_attribution";
 
 export type ChangeAction =
   // Mutation actions — the original bus contract.
