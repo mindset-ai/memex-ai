@@ -257,6 +257,16 @@ export const standardClauses = pgTable(
     // Soft-delete lifecycle, mirroring doc_sections / decisions.
     status: text("status").notNull().default("active"),
     previousStatus: text("previous_status"),
+    // spec-151 dec-5 — persisted testability classification. ONE verdict per clause,
+    // so plain columns (not a join table like standard_clause_facets) per std-32's
+    // load-bearing-→-column rule. NULL = not-yet-classified (the gap the backfill
+    // fills). Named readers: the clause-coverage denominator reads is_obligation +
+    // testable (only is_obligation && testable clauses count toward coverage); the
+    // test-writing / verifying agents read archetype. `confidence` is deliberately
+    // NOT persisted — a spike-only triage signal with no production reader.
+    isObligation: boolean("is_obligation"),
+    testable: boolean("testable"),
+    archetype: text("archetype"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

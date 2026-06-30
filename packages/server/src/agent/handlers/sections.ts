@@ -30,6 +30,11 @@ import {
 // facet-classifier-no-request-path regression guard).
 import { validateClauseFacets, persistClauseFacets } from "../../services/facet-vocab.js";
 import {
+  validateTestabilityVerdict,
+  persistClauseTestability,
+  TESTABILITY_ARCHETYPES,
+} from "../../services/testability.js";
+import {
   ValidationError,
 } from "../../types/errors.js";
 import {
@@ -251,6 +256,20 @@ export const sectionsTools: ToolSpec[] = [
         .describe(
           "The facet keys this clause governs (dec-9). Required: an array of keys, or [] for \"governs nothing\". Unknown keys are rejected; call the `facets` tool (verb 'list') to read the vocabulary.",
         ),
+      // spec-151 dec-5/dec-6 — OPTIONAL agent-supplied testability verdict (dec-8 pending).
+      // The coding agent classifies the clause with the portable classifier and supplies the
+      // verdict; the server persists it deterministically (no server-side LLM, std-340 dec-8).
+      // Omit to leave the clause unclassified — the operator gap-backfill fills it later.
+      testability: z
+        .object({
+          isObligation: z.boolean(),
+          testable: z.boolean(),
+          archetype: z.enum(TESTABILITY_ARCHETYPES).nullable().optional(),
+        })
+        .optional()
+        .describe(
+          "Optional testability verdict (spec-151): { isObligation, testable, archetype }. archetype is required when testable is true. Omit the whole object to leave the clause unclassified for the backfill.",
+        ),
       verbose: VERBOSE_FIELD,
     },
     async handler(input, ctx) {
@@ -277,6 +296,15 @@ export const sectionsTools: ToolSpec[] = [
       const clause = await createClause(memexId, entity.row.id, body, position);
       if (facetIds !== null) {
         await persistClauseFacets(memexId, doc.id, clause.id, facetIds, reqCtx(ctx));
+      }
+      // spec-151 dec-6: persist an agent-supplied testability verdict at authoring time
+      // (deterministic, no server-side LLM). Validated before the write so a malformed
+      // verdict never half-classifies the clause.
+      if (input.testability !== undefined) {
+        const verdict = validateTestabilityVerdict(
+          input.testability as { isObligation: unknown; testable: unknown; archetype?: unknown },
+        );
+        await persistClauseTestability(memexId, doc.id, clause.id, verdict, reqCtx(ctx));
       }
       if (ctx.verbose) {
         const state = await fullDocState(memexId, doc.id);
@@ -307,6 +335,19 @@ export const sectionsTools: ToolSpec[] = [
         .describe(
           "Optional facet re-classification (dec-9). Omit = tags unchanged; provide an array of keys (or [] for \"governs nothing\") to replace them.",
         ),
+      // spec-151 dec-5/dec-6 — OPTIONAL testability re-classification on edit. Editing a
+      // clause's body can change its testability, so the agent re-derives and supplies the
+      // fresh verdict; omit to leave the persisted verdict unchanged.
+      testability: z
+        .object({
+          isObligation: z.boolean(),
+          testable: z.boolean(),
+          archetype: z.enum(TESTABILITY_ARCHETYPES).nullable().optional(),
+        })
+        .optional()
+        .describe(
+          "Optional testability re-classification (spec-151): { isObligation, testable, archetype }. Omit = unchanged; provide to replace the persisted verdict (e.g. after a body edit changes testability).",
+        ),
       verbose: VERBOSE_FIELD,
     },
     async handler(input, ctx) {
@@ -327,6 +368,14 @@ export const sectionsTools: ToolSpec[] = [
         if (facetIds !== null) {
           await persistClauseFacets(memexId, doc.id, entity.row.id, facetIds, reqCtx(ctx));
         }
+      }
+      // spec-151 ac-15: re-derive the persisted testability verdict on edit so a body
+      // change never leaves a stale classification (omit = unchanged).
+      if (input.testability !== undefined) {
+        const verdict = validateTestabilityVerdict(
+          input.testability as { isObligation: unknown; testable: unknown; archetype?: unknown },
+        );
+        await persistClauseTestability(memexId, doc.id, entity.row.id, verdict, reqCtx(ctx));
       }
       if (ctx.verbose) {
         const state = await fullDocState(memexId, doc.id);
