@@ -11,7 +11,7 @@
 // Runs against a REAL Postgres through the full Hono app + strict sessionMiddleware.
 
 import { describe, it, expect, afterAll, vi } from "vitest";
-import { inArray, eq } from "drizzle-orm";
+import { inArray } from "drizzle-orm";
 
 vi.hoisted(() => {
   process.env.GOOGLE_CLIENT_ID = "test-client.apps.googleusercontent.com";
