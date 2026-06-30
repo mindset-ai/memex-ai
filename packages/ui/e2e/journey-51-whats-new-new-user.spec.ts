@@ -74,21 +74,24 @@ test(
       page.getByRole("heading", { name: /You're all set!/ }),
     ).toBeVisible({ timeout: 15_000 });
 
-    // Navigate to the app.
+    // Navigate to the app. A fresh user lands on /home (onboarding canvas),
+    // not /specs — so we wait for the /api/whats-new response directly rather
+    // than a heading that only appears post-onboarding.
+    const whatsNewDone = page.waitForResponse(
+      (r) => r.url().includes("/api/whats-new") && r.status() === 200,
+      { timeout: 15_000 },
+    );
     await page.goto(bareUrl("/"), { waitUntil: "commit" });
-    // Wait for the app shell to settle.
-    await expect(page.getByRole("heading", { name: "Specs" })).toBeVisible({
-      timeout: 15_000,
-    });
+    await whatsNewDone;
 
-    // Allow time for the /api/whats-new fetch to resolve and the ribbon to
-    // mount if it were going to — 3s is well beyond the round-trip.
-    await page.waitForTimeout(3000);
+    // Give React a tick to process the response and (if the fix were broken)
+    // mount the ribbon.
+    await page.waitForTimeout(500);
 
     // ac-1: ribbon must be absent.
-    expect(page.getByTestId("whats-new-ribbon")).not.toBeVisible();
+    await expect(page.getByTestId("whats-new-ribbon")).not.toBeVisible();
 
     // ac-2: confetti must be absent.
-    expect(page.getByTestId("whats-new-confetti")).not.toBeVisible();
+    await expect(page.getByTestId("whats-new-confetti")).not.toBeVisible();
   },
 );
