@@ -15,7 +15,6 @@
 // which reads RLS-governed `documents` and so reuses journey-state's runWithUserId
 // owner-visibility seam (see computeVerdict).
 
-import { createHash } from "node:crypto";
 import { and, eq, gt, isNull, sql } from "drizzle-orm";
 import { db, runWithUserId, type Db } from "../db/connection.js";
 import {
@@ -99,15 +98,23 @@ export async function runVariantBehaviour(
  * Why a hash and NOT Math.random(): random() is non-deterministic (a re-run can
  * flip the arm, breaking reproducibility and any later audit of "who was on what"),
  * is unseedable in Node so a test/backfill can't pin it, and is explicitly off the
- * table for this kind of split. A SHA-256 over the user id gives a uniform 50/50
- * split that's a pure function of the id — same id, same arm, forever, on any host.
+ * table for this kind of split. A stable INTEGER hash (FNV-1a) of the id gives a
+ * uniform 50/50 split that's a pure function of the id — same id, same arm, forever,
+ * on any host. Bucketing is a reproducible coin-flip, NOT a security operation, so a
+ * non-cryptographic hash is the right tool: a crypto hash here is both overkill and
+ * trips static "weak password hash" scanners (the value hashed is a user id, never a
+ * secret).
  */
 function deterministicBucket(userId: string, armCount: number): number {
-  const digest = createHash("sha256").update(userId).digest();
-  // Read the low 32 bits (last 4 bytes, big-endian) as an unsigned int, then mod
-  // the arm count. For the canonical 2-arm experiment this is a clean 50/50 split.
-  const low = digest.readUInt32BE(digest.length - 4);
-  return low % armCount;
+  // FNV-1a, 32-bit. Pure, fast, deterministic; no crypto, no Math.random().
+  let h = 0x811c9dc5; // FNV offset basis
+  for (let i = 0; i < userId.length; i++) {
+    h ^= userId.charCodeAt(i);
+    // 32-bit FNV prime (16777619) multiply via shift-adds, folded back to uint32.
+    h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0;
+  }
+  // For the canonical 2-arm experiment this is a clean 50/50 split.
+  return h % armCount;
 }
 
 // ── Assignment resolution (dec-6) ──────────────────────────────────────────────
@@ -189,6 +196,73 @@ export async function resolveOrCreateAssignment(
     `auto-assigned user=${userId} experiment=${experimentKey} variant=${variant.key} (${variant.behaviour}) channel=${ctx.channel ?? "server"}`,
   );
   return row;
+}
+
+/**
+ * Operator/agent PIN: force `userId` onto the arm whose behaviour is `behaviour` for
+ * `experimentKey`, regardless of the deterministic bucket. Supersedes any active
+ * assignment (sets superseded_at; history retained — ac-14: one active row) and inserts
+ * a fresh `assigned_by` row. This is the explicit-override sibling of
+ * resolveOrCreateAssignment (the organic auto-bucket): the Backstage operator surface
+ * and the e2e arm-pin hook both go through HERE rather than writing experiment_assignments
+ * raw, so the test-only router stays service-routed (spec-172 ac-8). Returns the new
+ * assignment + its variant key. Throws if the experiment or the behaviour's variant is
+ * unknown.
+ */
+export async function pinAssignmentByBehaviour(
+  userId: string,
+  experimentKey: string,
+  behaviour: string,
+  opts: { assignedBy?: "operator" | "agent"; reason?: string } = {},
+): Promise<{ assignment: ExperimentAssignment; variantKey: string }> {
+  const [experiment] = await db
+    .select({ id: experiments.id })
+    .from(experiments)
+    .where(eq(experiments.key, experimentKey))
+    .limit(1);
+  if (!experiment) {
+    throw new Error(`experiments: no experiment with key '${experimentKey}'`);
+  }
+  const [variant] = await db
+    .select({ id: experimentVariants.id, key: experimentVariants.key })
+    .from(experimentVariants)
+    .where(
+      and(
+        eq(experimentVariants.experimentId, experiment.id),
+        eq(experimentVariants.behaviour, behaviour),
+      ),
+    )
+    .limit(1);
+  if (!variant) {
+    throw new Error(
+      `experiments: experiment '${experimentKey}' has no variant for behaviour '${behaviour}'`,
+    );
+  }
+
+  // Supersede the current active assignment (if any), then insert the pin. The partial
+  // unique index on (user, experiment) WHERE superseded_at IS NULL permits this — the old
+  // row is no longer active once superseded.
+  await db
+    .update(experimentAssignments)
+    .set({ supersededAt: new Date() })
+    .where(
+      and(
+        eq(experimentAssignments.userId, userId),
+        eq(experimentAssignments.experimentId, experiment.id),
+        isNull(experimentAssignments.supersededAt),
+      ),
+    );
+  const [assignment] = await db
+    .insert(experimentAssignments)
+    .values({
+      experimentId: experiment.id,
+      variantId: variant.id,
+      userId,
+      assignedBy: opts.assignedBy ?? "operator",
+      reason: opts.reason ?? null,
+    })
+    .returning();
+  return { assignment, variantKey: variant.key };
 }
 
 // ── Verdict (dec-1 / ac-15) ────────────────────────────────────────────────────

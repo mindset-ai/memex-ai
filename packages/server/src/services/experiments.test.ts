@@ -37,6 +37,7 @@ import {
 } from "../db/schema.js";
 import {
   resolveOrCreateAssignment,
+  pinAssignmentByBehaviour,
   runVariantBehaviour,
   computeVerdict,
   CONTROL_BEHAVIOUR,
@@ -266,6 +267,51 @@ describe("resolveOrCreateAssignment", () => {
     await expect(resolveOrCreateAssignment(await makeUser(), "no-such-experiment")).rejects.toThrow(
       /no experiment/,
     );
+  });
+});
+
+// ── pinAssignmentByBehaviour — operator/agent override (ac-14) ────────────────
+
+describe("pinAssignmentByBehaviour", () => {
+  it("pins a user to the behaviour's variant, recorded as an operator assignment", async () => {
+    tagAc(AC(14));
+    const exp = await makeExperiment();
+    const userId = await makeUser();
+
+    const { assignment, variantKey } = await pinAssignmentByBehaviour(
+      userId,
+      exp.key,
+      "starter_spec",
+      { assignedBy: "operator", reason: "test pin" },
+    );
+
+    expect(variantKey).toBe("B"); // B = the starter_spec arm (makeExperiment)
+    expect(assignment.assignedBy).toBe("operator");
+    const active = await activeRows(userId, exp.id);
+    expect(active).toHaveLength(1);
+    expect(active[0].id).toBe(assignment.id);
+  });
+
+  it("supersedes a prior active assignment — one active row, history retained", async () => {
+    tagAc(AC(14));
+    const exp = await makeExperiment();
+    const userId = await makeUser();
+
+    const auto = await resolveOrCreateAssignment(userId, exp.key); // organic auto-bucket
+    const { assignment } = await pinAssignmentByBehaviour(userId, exp.key, "starter_spec");
+
+    const active = await activeRows(userId, exp.id);
+    expect(active).toHaveLength(1); // exactly one active row after the pin
+    expect(active[0].id).toBe(assignment.id);
+    expect(active[0].id).not.toBe(auto.id); // the auto row was superseded, not deleted
+  });
+
+  it("throws on an unknown behaviour", async () => {
+    const exp = await makeExperiment();
+    const userId = await makeUser();
+    await expect(
+      pinAssignmentByBehaviour(userId, exp.key, "not_a_real_behaviour"),
+    ).rejects.toThrow(/no variant for behaviour/);
   });
 });
 

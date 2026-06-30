@@ -22,9 +22,6 @@ import {
   documents,
   decisions,
   whatsNewEntries,
-  experiments,
-  experimentVariants,
-  experimentAssignments,
 } from "../db/schema.js";
 import {
   getUserByEmail,
@@ -46,6 +43,7 @@ import {
 import { ensureDefaultExperiment } from "../db/seed-experiments.js";
 import {
   runVariantBehaviour,
+  pinAssignmentByBehaviour,
   CONTROL_BEHAVIOUR,
   type VariantBehaviour,
 } from "../services/experiments.js";
@@ -1387,56 +1385,22 @@ testOnlyRouter.post("/seed-experiment-arm", async (c) => {
   // 2. Ensure the canonical provisioning experiment + its A/B variants exist.
   await ensureDefaultExperiment();
 
-  // 3. Resolve the experiment + the variant whose behaviour matches the request.
-  const [experiment] = await db
-    .select({ id: experiments.id })
-    .from(experiments)
-    .where(eq(experiments.key, experimentKey))
-    .limit(1);
-  if (!experiment) {
-    return c.json({ error: `no experiment with key '${experimentKey}'` }, 400);
-  }
-  const [variant] = await db
-    .select({ id: experimentVariants.id, key: experimentVariants.key })
-    .from(experimentVariants)
-    .where(
-      and(
-        eq(experimentVariants.experimentId, experiment.id),
-        eq(experimentVariants.behaviour, behaviour),
-      ),
-    )
-    .limit(1);
-  if (!variant) {
-    return c.json(
-      { error: `experiment '${experimentKey}' has no variant for behaviour '${behaviour}'` },
-      400,
-    );
-  }
-
-  // 4. Supersede any active assignment for (user, experiment), then insert a fresh
-  //    operator assignment to the requested variant (ac-14: one active row, history
-  //    kept). The partial unique index permits this because the old row is no longer
-  //    active once superseded_at is set.
-  await db
-    .update(experimentAssignments)
-    .set({ supersededAt: new Date() })
-    .where(
-      and(
-        eq(experimentAssignments.userId, user.id),
-        eq(experimentAssignments.experimentId, experiment.id),
-        isNull(experimentAssignments.supersededAt),
-      ),
-    );
-  const [assignment] = await db
-    .insert(experimentAssignments)
-    .values({
-      experimentId: experiment.id,
-      variantId: variant.id,
-      userId: user.id,
+  // 3-4. Pin the user to the requested arm via the experiments SERVICE — spec-172 ac-8:
+  //      the test-only router goes through real services, never raw SQL. The service
+  //      supersedes any active assignment and records an operator pin (ac-14: one active
+  //      row, history kept). Same path the Backstage operator surface will use.
+  let assignmentId: string;
+  let variantKey: string;
+  try {
+    const pinned = await pinAssignmentByBehaviour(user.id, experimentKey, behaviour, {
       assignedBy: "operator",
       reason: "e2e seed: pin experiment arm",
-    })
-    .returning();
+    });
+    assignmentId = pinned.assignment.id;
+    variantKey = pinned.variantKey;
+  } catch (err) {
+    return c.json({ error: (err as Error).message }, 400);
+  }
 
   // 5. Reset whichever arm signup auto-seeded so the two arms' content can't coexist:
   //    drop every is_demo doc AND the system-attributed starter spec, then seed the
@@ -1499,9 +1463,9 @@ testOnlyRouter.post("/seed-experiment-arm", async (c) => {
   return c.json({
     userId: user.id,
     memexId,
-    variantKey: variant.key,
+    variantKey,
     behaviour,
-    assignmentId: assignment.id,
+    assignmentId,
     ...(starterSpecHandle ? { starterSpecHandle } : {}),
   });
 });

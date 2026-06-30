@@ -13,7 +13,7 @@
 // safe because the suite runs against a throwaway per-worker DB clone.
 
 import { describe, it, expect, beforeEach, afterAll } from "vitest";
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { tagAc } from "@memex-ai-ac/vitest";
 
 import { db } from "../db/connection.js";

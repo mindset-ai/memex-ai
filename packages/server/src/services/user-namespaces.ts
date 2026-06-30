@@ -302,7 +302,9 @@ async function seedProvisioningBehaviourBestEffort(
   if (process.env.MEMEX_HANDHOLD_SIGNUP_SEED === "off") return;
 
   // Resolve the variant behaviour first, degrading to control on ANY problem (ac-13).
-  let behaviour: string = CONTROL_BEHAVIOUR;
+  // Declared without an initializer: both the try (success) and catch assign it, so it
+  // is definitely set before use — and a redundant initial value trips the static scan.
+  let behaviour: string;
   try {
     behaviour = await resolveProvisioningBehaviour(ownerUserId);
   } catch (err) {
