@@ -107,6 +107,8 @@ const ALLOWLIST: Record<string, string> = {
     "spec-340 phase 1 — seeds the per-owner default facet vocabulary (facets, owner-config like org_scaffold_additions). No bus entity, no SSE subscriber in phase 1 (the inert foundation); mutate() wrap deferred to phase 2 when a live editing/pill surface lands.",
   "services/facet-classifier.ts":
     "spec-340 phase 1 — tagClause writes auto-assigned clause→facet tags (standard_clause_facets) from the agent-driven/local-backfill classifier only (dec-8). No bus entity, no SSE subscriber in phase 1 (nothing reads the tags until phase 2); mutate() wrap deferred to phase 2.",
+  "services/testability-classifier.ts":
+    "spec-151 dec-6 — the bulk backfill writes is_obligation/testable/archetype columns on standard_clauses from the agent-driven/local-backfill classifier only (the same category as services/facet-classifier.ts). Emitting a per-clause SSE event for a one-off backfill over the whole corpus would be noise; the INTERACTIVE authoring writes (add_clause/edit_clause → persistClauseTestability in services/testability.ts) DO go through mutate(). This file is the backfill engine only.",
   "services/facet-routing-log.ts":
     "spec-423 phase 2 (dec-4) — append-only routing telemetry (facet_routing_log): one row per create_task / resolve_decision routing call (query, candidates, scores, surfaced/cut, K, ranker). No bus entity, no SSE subscriber by design — a routing decision is not user-observable content. Same telemetry-log posture as services/mcp-telemetry.ts; routing it through mutate() would emit a meaningless UI refetch. Silent-allowed per std-8 §6.",
   "routes/backstage.ts":

@@ -198,7 +198,7 @@ export const toolManifest: ToolManifestEntry[] = [
     name: 'add_clause',
     summary:
       'Append (or insert at a position) a clause to a STANDARD section — one self-contained aspect. Standards only; the new clause gets an addressable cl-N handle.',
-    args: 'add_clause(ref, body, position?, facets?)',
+    args: 'add_clause(ref, body, position?, facets?, testability?)',
     group: 'planning',
     readOnlyHint: false,
     trafficClass: null,
@@ -207,7 +207,7 @@ export const toolManifest: ToolManifestEntry[] = [
     name: 'edit_clause',
     summary:
       "Edit a STANDARD clause's body by its cl-N ref; the section content (the join of its clauses) regenerates. Standards only.",
-    args: 'edit_clause(ref, body, facets?)',
+    args: 'edit_clause(ref, body, facets?, testability?)',
     group: 'planning',
     readOnlyHint: false,
     trafficClass: null,
