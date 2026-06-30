@@ -10,6 +10,8 @@ import { startUsageBackendSink } from "./services/usage-backend-sink.js";
 import { startUsageForwarder } from "./services/usage-forwarder.js";
 import { startActivityLogSweep } from "./services/activity-log-sweep.js";
 import { startCommsLogPrune } from "./services/comms-log.js";
+import { startExperimentSweep } from "./services/experiment-sweep.js";
+import { ensureDefaultExperiment } from "./db/seed-experiments.js";
 import { startScaffoldAdditionsCacheInvalidation } from "./services/scaffold-additions-cache.js";
 import { startBusRelay } from "./services/bus-relay.js";
 import { bus } from "./services/bus.js";
@@ -94,6 +96,17 @@ startActivityLogSweep().unref();
 
 // spec-341 t-3: comms_log retention prune — daily, .unref()'d (mirrors the sweep).
 startCommsLogPrune().unref();
+
+// spec-426 dec-1: experiment verdict sweep — 3-hourly, .unref()'d (mirrors the sweep).
+startExperimentSweep().unref();
+
+// spec-426 dec-5 / s-5: ensure the canonical provisioning A/B experiment + its A/B
+// variants exist as data before the provisioning branch resolves assignments against
+// them. Idempotent on every boot; best-effort so a seed fault degrades to "experiment
+// absent → control fallback" (dec-4), never a failed boot.
+ensureDefaultExperiment().catch((err) => {
+  console.error("[seed-experiments] failed to ensure default experiment (server continues):", err);
+});
 
 // Graceful shutdown (spec-251 follow-up, found 2026-06-12).
 //

@@ -372,6 +372,19 @@ async function clearDemoDocs(memexId: string, demoDocIds: string[]): Promise<voi
 }
 
 /**
+ * Tear down EVERY is_demo doc in `memexId` (plus the emissions + activity that
+ * reference them — see clearDemoDocs) WITHOUT re-seeding. The reset half of
+ * resetHandholdDemo, exposed for callers that need the memex demo-free rather than
+ * re-seeded — e.g. the spec-426 experiment-arm test seed, which must wipe whichever
+ * arm signup auto-seeded before seeding the requested arm (the two arms' content
+ * must never coexist). NO-OP when the memex carries no demo docs.
+ */
+export async function clearDemoDocsForMemex(memexId: string): Promise<void> {
+  const demoDocIds = await listDemoDocIds(memexId);
+  await clearDemoDocs(memexId, demoDocIds);
+}
+
+/**
  * Hard-reset the demo in `memexId`: unconditionally tear down every is_demo doc
  * (plus the emissions + activity that reference them — see clearDemoDocs), then
  * re-seed from the fixture.
