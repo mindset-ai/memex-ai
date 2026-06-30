@@ -119,6 +119,10 @@ describe("add_clause hard-fails without a valid facet verdict (spec-423 t-6, dec
 describe("edit_clause re-classifies optionally (spec-423 t-6, dec-9)", () => {
   it("replaces tags when a verdict is given, leaves them when omitted (ac-16)", async () => {
     tagAc(AC(16));
+    // spec-437 dec-2: edit_clause takes an optional FULL-REPLACE facets verdict
+    // (omit = unchanged, [] = governs-nothing); a body-only edit never moves facets.
+    tagAc("mindset-prod/memex-building-itself/specs/spec-437/acs/ac-7");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-437/acs/ac-8");
     const out = await executeServerTool(
       memexId,
       "add_clause",
