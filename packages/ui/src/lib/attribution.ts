@@ -21,9 +21,9 @@ export function readAttributionCookie(): AttributionData | null {
 
 export function pushDataLayer(event: Record<string, unknown>): void {
   try {
-    (window as Record<string, unknown>).dataLayer =
-      (window as Record<string, unknown>).dataLayer ?? [];
-    ((window as Record<string, unknown>).dataLayer as unknown[]).push(event);
+    const w = window as unknown as Record<string, unknown>;
+    w.dataLayer = w.dataLayer ?? [];
+    (w.dataLayer as unknown[]).push(event);
   } catch {
     // never throw from analytics
   }
