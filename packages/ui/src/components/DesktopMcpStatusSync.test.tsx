@@ -63,7 +63,7 @@ describe('spec-304 ac-53 (issue-24 #1): the native MCP pill is app-global, not p
 
     await waitFor(() => expect(setMcpStatus).toHaveBeenCalled());
     // Claude Code is installed + active token, no handshake → the pill reads the
-    // honest "MCP ready" (transient), proving the real derivation ran here.
+    // honest "MCP ready" (snoozable), proving the real derivation ran here.
     const pushed = setMcpStatus.mock.calls.at(-1)?.[0] as {
       kind: string;
       label: string;

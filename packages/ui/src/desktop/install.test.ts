@@ -8,6 +8,11 @@ const AC_RESTART = 'mindset-prod/memex-building-itself/specs/spec-304/acs/ac-7';
 const AC_NOTIFY = 'mindset-prod/memex-building-itself/specs/spec-304/acs/ac-51';
 const AC_UMBRELLA =
   'mindset-prod/memex-building-itself/specs/spec-304/acs/ac-45';
+// dec-25 → t-70: on install failure, runInstall raises a native FAILURE
+// notification (mirroring the success toast) and classifies the failure mode
+// (mint vs config-write vs unknown) so the surface can explain it.
+const AC_FAIL_NOTIFY =
+  'mindset-prod/memex-building-itself/specs/spec-304/acs/ac-69';
 
 function deps(over: Partial<InstallDeps> = {}): InstallDeps {
   return {
@@ -73,11 +78,11 @@ describe('spec-304 ac-4: install writes via the bridge (no-clobber + .bak surfac
 
     const out = await runInstall('claudeCode', 'Claude Code', d);
 
-    expect(out).toEqual({ ok: false, reason: 'cancelled' });
+    expect(out).toEqual({ ok: false, reason: 'cancelled', failure: 'cancelled' });
     expect(install).toHaveBeenCalledTimes(1); // never forced
   });
 
-  it('a bridge failure returns a plain reason and does NOT notify', async () => {
+  it('a bridge failure returns a plain reason and raises the FAILURE toast — never the success one (dec-25)', async () => {
     tagAc(AC_INSTALL);
     const notify = vi.fn(async () => true);
     const d = deps({
@@ -85,8 +90,12 @@ describe('spec-304 ac-4: install writes via the bridge (no-clobber + .bak surfac
       notify,
     });
     const out = await runInstall('claudeCode', 'Claude Code', d);
-    expect(out).toEqual({ ok: false, reason: 'disk full' });
-    expect(notify).not.toHaveBeenCalled();
+    expect(out).toEqual({ ok: false, reason: 'disk full', failure: 'config-write', error: 'disk full' });
+    // dec-25: a failure now notifies — but with the FAILURE shape, never the
+    // "MCP ready / Restart" success toast.
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(notify.mock.calls[0][0].title).not.toMatch(/ready/i);
+    expect(notify.mock.calls[0][0].body).not.toMatch(/Restart/i);
   });
 
   it('a mint failure aborts before touching the bridge', async () => {
@@ -94,7 +103,7 @@ describe('spec-304 ac-4: install writes via the bridge (no-clobber + .bak surfac
     const install = vi.fn();
     const d = deps({ mint: vi.fn(async () => { throw new Error('session expired'); }), install });
     const out = await runInstall('claudeCode', 'Claude Code', d);
-    expect(out).toEqual({ ok: false, reason: 'session expired' });
+    expect(out).toEqual({ ok: false, reason: 'session expired', failure: 'mint', error: 'session expired' });
     expect(install).not.toHaveBeenCalled();
   });
 });
@@ -117,5 +126,84 @@ describe('spec-304 ac-7 / ac-51: success announces a native restart prompt', () 
       notify: vi.fn(async () => { throw new Error('no notification permission'); }),
     }));
     expect(out.ok).toBe(true);
+  });
+});
+
+describe('spec-304 ac-69 (dec-25): install failure raises a native failure notification + classifies the mode', () => {
+  it('a MINT failure → failure:"mint", carries the underlying error, and notifies with a failure-shaped payload', async () => {
+    tagAc(AC_FAIL_NOTIFY);
+    const notify = vi.fn(async () => true);
+    const out = await runInstall('claudeCode', 'Claude Code', deps({
+      mint: vi.fn(async () => { throw new Error('session expired'); }),
+      notify,
+    }));
+    expect(out.ok).toBe(false);
+    if (out.ok) throw new Error('unreachable');
+    expect(out.failure).toBe('mint');
+    expect(out.error).toBe('session expired');
+    // Native failure notification mirrors the success toast (target 'mcp').
+    expect(notify).toHaveBeenCalledTimes(1);
+    const arg = notify.mock.calls[0][0];
+    expect(arg.title).toMatch(/MCP/);
+    expect(arg.title.toLowerCase()).toMatch(/fail|could ?n.t|error/);
+    expect(arg.target).toBe('mcp');
+    // The secret session token must NEVER appear in the failure notification.
+    expect(JSON.stringify(arg)).not.toContain('mxt_');
+  });
+
+  it('a CONFIG-WRITE failure (bridge returns ok:false) → failure:"config-write", carries path + error, and notifies', async () => {
+    tagAc(AC_FAIL_NOTIFY);
+    const notify = vi.fn(async () => true);
+    const out = await runInstall('claudeCode', 'Claude Code', deps({
+      install: vi.fn(async () => ({ ok: false, error: 'disk full', path: '/home/u/.claude.json' })),
+      notify,
+    }));
+    expect(out.ok).toBe(false);
+    if (out.ok) throw new Error('unreachable');
+    expect(out.failure).toBe('config-write');
+    expect(out.error).toBe('disk full');
+    expect(out.configPath).toBe('/home/u/.claude.json');
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(notify.mock.calls[0][0].target).toBe('mcp');
+  });
+
+  it('a CONFIG-WRITE failure that THROWS → failure:"config-write" and still notifies', async () => {
+    tagAc(AC_FAIL_NOTIFY);
+    const notify = vi.fn(async () => true);
+    const out = await runInstall('claudeCode', 'Claude Code', deps({
+      install: vi.fn(async () => { throw new Error('EACCES'); }),
+      notify,
+    }));
+    expect(out.ok).toBe(false);
+    if (out.ok) throw new Error('unreachable');
+    expect(out.failure).toBe('config-write');
+    expect(out.error).toBe('EACCES');
+    expect(notify).toHaveBeenCalledTimes(1);
+  });
+
+  it('the native failure notification is best-effort — a notify throw never fails the flow', async () => {
+    tagAc(AC_FAIL_NOTIFY);
+    const out = await runInstall('claudeCode', 'Claude Code', deps({
+      install: vi.fn(async () => ({ ok: false, error: 'disk full' })),
+      notify: vi.fn(async () => { throw new Error('no notification permission'); }),
+    }));
+    expect(out.ok).toBe(false);
+    if (out.ok) throw new Error('unreachable');
+    expect(out.failure).toBe('config-write');
+  });
+
+  it('a CANCELLED JSONC overwrite is NOT a failure — no notification', async () => {
+    tagAc(AC_FAIL_NOTIFY);
+    const notify = vi.fn(async () => true);
+    const install = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: false, needsConfirmation: true, name: 'Claude Code', path: '/c' });
+    const out = await runInstall('claudeCode', 'Claude Code', deps({
+      install,
+      confirmOverwrite: vi.fn(() => false),
+      notify,
+    }));
+    expect(out).toEqual({ ok: false, reason: 'cancelled', failure: 'cancelled' });
+    expect(notify).not.toHaveBeenCalled();
   });
 });

@@ -119,7 +119,9 @@ export async function showNotificationBridge(opts: {
 export interface McpIndicatorPush {
   kind: 'connected' | 'ready' | 'repair' | 'install';
   label: string;
-  visibility: 'transient' | 'persistent' | 'snoozable';
+  // dec-25: the transient auto-hide is gone — the pill is a persistent,
+  // user-dismissible status reflector. Two classes remain.
+  visibility: 'persistent' | 'snoozable';
 }
 
 /**
