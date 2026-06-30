@@ -24,7 +24,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Specky } from '@memex/guide-sdk';
 import { Confetti } from './Confetti';
 import { useWhatsNew } from './WhatsNewContext';
-import { fetchWhatsNew, type WhatsNewEntry } from '../../api/whatsNew';
+import { fetchWhatsNew, type WhatsNewEntry, type WhatsNewResponse } from '../../api/whatsNew';
 import { useTelemetry } from '../../hooks/useTelemetry';
 
 const DISMISS_KEY = 'whats-new:dismissed-at';
@@ -63,7 +63,7 @@ export interface WhatsNewRibbonProps {
   /** t-7: ask Specky to explain an entry. */
   onExplain?: (entry: WhatsNewEntry) => void;
   /** Injected for tests; defaults to the real GET /api/whats-new. */
-  fetcher?: () => Promise<WhatsNewEntry[]>;
+  fetcher?: () => Promise<WhatsNewResponse>;
   /** Auto-dismiss countdown in ms; 0 disables it (tests). Default 6000. */
   autoDismissMs?: number;
 }
@@ -96,7 +96,20 @@ export function WhatsNewRibbon({
   useEffect(() => {
     let alive = true;
     fetcher()
-      .then((e) => alive && setEntries(e))
+      .then(({ entries, suppressBefore }) => {
+        if (!alive) return;
+        // spec-439: seed the dismissed/confetti markers for brand-new users so
+        // historical entries don't appear as "new" on first sign-in. Must happen
+        // synchronously here, BEFORE setEntries, so ribbonPresent (line 119) reads
+        // the already-seeded marker on the very first render with data. A separate
+        // useEffect keyed on entries would run after that render — too late.
+        // When suppressBefore is absent (old server during rollout) we no-op.
+        if (suppressBefore) {
+          if (readMarker(DISMISS_KEY) === 0) writeMarker(DISMISS_KEY, suppressBefore);
+          if (readMarker(CONFETTI_KEY) === 0) writeMarker(CONFETTI_KEY, suppressBefore);
+        }
+        setEntries(entries);
+      })
       .catch(() => alive && setEntries([]));
     return () => {
       alive = false;

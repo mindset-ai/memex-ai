@@ -36,7 +36,7 @@ const ENTRY: WhatsNewEntry = {
 };
 vi.mock('../../api/whatsNew', async (orig) => ({
   ...(await orig<typeof import('../../api/whatsNew')>()),
-  fetchWhatsNew: async () => [ENTRY],
+  fetchWhatsNew: async () => ({ entries: [ENTRY], suppressBefore: undefined }),
 }));
 
 function setReducedMotion(reduce: boolean) {
