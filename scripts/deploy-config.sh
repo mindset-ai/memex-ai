@@ -132,6 +132,9 @@ export DB_NAME DB_USER DB_PASS
 export SERVICE IMAGE STATIC_BUCKET URL_MAP_NAME
 export PUBLIC_HOST API_PUBLIC_HOST APP_BASE_URL API_BASE_URL
 export GOOGLE_CLIENT_ID EMAIL_FROM SLACK_CLIENT_ID
+# spec-428 (welcome) / spec-427 (drip) team-identity sender — optional per env;
+# wired into Cloud Run via the ${VAR+...} optional pattern in packages/server/deploy.sh.
+export EMAIL_ACTIVATION_FROM EMAIL_ACTIVATION_REPLY_TO EMAIL_SENDER_NAME
 # HIDDEN_FEATURES — comma-separated feature slugs to hide on this environment
 # (e.g. 'scaffold,spec-pause,pulse'). Read at runtime by the server's
 # getHiddenFeatures() (packages/server/src/services/auth.ts). Hiding is
