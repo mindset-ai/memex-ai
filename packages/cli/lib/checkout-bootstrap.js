@@ -48,6 +48,18 @@ export function keyFromStore(store) {
   return null;
 }
 
+// Whether the stored key is usable for THIS env, i.e. the install/mint can short-circuit
+// (issue-3). A key is reusable when one is present AND it was not minted for a DIFFERENT
+// api_base. A stored api_base that DIFFERS from the requested one means an env switch
+// (e.g. int -> prod): the key must be re-minted, or the MCP/claims go to the new env
+// while edits still phone home to the old one with the wrong key (silent 401s). A
+// MISSING api_base (legacy store) is treated as same-env so we don't force a needless
+// re-mint (and sign-in) on existing installs.
+export function hasKeyForEnv(store, apiBase) {
+  if (keyFromStore(store) == null) return false;
+  return store?.api_base == null || store.api_base === apiBase;
+}
+
 // The browser URL the user signs in + confirms the device code on. Mirrors the MCP
 // installer (bin/cli.mjs): the admin UI base is the api base minus `/api`.
 export function authUrlFor(apiBase, code) {
@@ -80,25 +92,27 @@ function persist(path, store, apiBase, key, fs) {
   fs.write(path, JSON.stringify(next, null, 2) + "\n");
 }
 
-// Mint + store from an EXISTING signed-in token — NO sign-in. Idempotent: a stored
-// hook_key short-circuits. Returns { provisioned, key }.
+// Mint + store from an EXISTING signed-in token — NO sign-in. Short-circuits when a key
+// is already stored FOR THIS env; an env switch (stored api_base differs) re-mints and
+// overwrites (issue-3). Returns { provisioned, key }.
 export async function provisionHookKey({ apiBase, token, fs = DEFAULT_FS, deps = {} }) {
   const path = deps.storePath ?? storePath();
   const store = loadStore(path, fs);
-  const existing = keyFromStore(store);
-  if (existing) return { provisioned: false, key: existing };
+  if (hasKeyForEnv(store, apiBase)) return { provisioned: false, key: keyFromStore(store) };
   const key = await mintHookKey(apiBase, token, deps);
   persist(path, store, apiBase, key, fs);
   return { provisioned: true, key };
 }
 
-// Standalone: ensure a key exists, doing ONE device-flow sign-in if absent. Idempotent.
-// Returns { provisioned, signedIn, key }.
+// Standalone: ensure a key exists for THIS env, doing ONE device-flow sign-in if
+// absent — or if the stored key was minted for a different env (issue-3). A same-env
+// key short-circuits with no sign-in. Returns { provisioned, signedIn, key }.
 export async function ensureHookKey({ apiBase, fs = DEFAULT_FS, deps = {} }) {
   const path = deps.storePath ?? storePath();
   const store = loadStore(path, fs);
-  const existing = keyFromStore(store);
-  if (existing) return { provisioned: false, signedIn: false, key: existing };
+  if (hasKeyForEnv(store, apiBase)) {
+    return { provisioned: false, signedIn: false, key: keyFromStore(store) };
+  }
 
   const { reqId, code } = await startCliAuth(apiBase, deps);
   if (deps.openBrowser) deps.openBrowser(authUrlFor(apiBase, code));

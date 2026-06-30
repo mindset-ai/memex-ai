@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 
+// ⚠ RELEASE: this is the published `memex-ai` npm package. A change here reaches users
+// ONLY after `npm publish`; merging does NOT ship it. Bump `version` in package.json
+// and publish (see README.md#releasing). No CI auto-publish.
+
 // Memex MCP installer (v2). Device-flow auth: claim a code from the server, open the
 // user's browser to authorize, long-poll for a long-lived mxt_ token, then merge it
 // into the Claude Code + Claude Desktop config files.
