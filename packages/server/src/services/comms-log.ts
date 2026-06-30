@@ -17,10 +17,10 @@
 // METADATA ONLY (spec-6 dec-4): callers pass a one-line subject/summary — NEVER a
 // message body. Full content stays in the system-of-record, reached via sourceRef.
 
-import { and, eq, isNull, lt, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, lt, sql } from "drizzle-orm";
 import { db, type Db } from "../db/connection.js";
-import { commsLog, users, orgs } from "../db/schema.js";
-import type { CommsLogRow } from "../db/schema.js";
+import { commsLog, commsEvent, users, orgs } from "../db/schema.js";
+import type { CommsLogRow, CommsEventRow } from "../db/schema.js";
 
 /**
  * Retention window (spec-6 dec-4): comms_log keeps a bounded history; the source
@@ -131,6 +131,74 @@ export async function updateCommDeliveryStatus(
   } catch (err) {
     log("status update failed (advisory — swallowed):", err instanceof Error ? err.message : err);
     return 0;
+  }
+}
+
+// ── Postmark event enrichment (spec-12 t-2 / ac-14, ac-17) ───────────────────
+
+/** One Postmark event to enrich an already-logged email with (spec-12 dec-2). */
+export interface RecordCommEventInput {
+  /** The Postmark MessageID — matches comms_log.source_ref. Required. */
+  sourceRef: string;
+  /** Postmark RecordType: 'Delivery' | 'Open' | 'Click' | 'Bounce' | 'SpamComplaint'. */
+  eventType: string;
+  /** The Postmark EVENT timestamp (DeliveredAt / BouncedAt / ReceivedAt). Required —
+   *  it is part of the dedup key, so it must come from the payload, never now(). */
+  occurredAt: Date;
+  /** Postmark bounce Type (HardBounce / SoftBounce / SpamNotification …); null otherwise. */
+  bounceType?: string | null;
+  /** Postmark bounce Description / Details — the SMTP reason; null otherwise. */
+  bounceReason?: string | null;
+}
+
+/**
+ * Record one Postmark delivery/engagement event as a comms_event row (spec-12 t-2).
+ * Resolves the parent comms_log row by `sourceRef` (the webhook has only the
+ * MessageID, not our row id); an UNMATCHED sourceRef is a graceful no-op (returns
+ * null) — an event for an email we never logged (a non-user send, a pre-comms_log
+ * message). Idempotent (dec-6): writes ON CONFLICT DO NOTHING against the
+ * (source_ref, event_type, occurred_at) unique key, so a redelivered/duplicate
+ * Postmark event inserts nothing and returns null (success, not failure). Advisory:
+ * any failure is logged and swallowed so the webhook is never broken by it — the
+ * displayed per-message outcome is resolved by event recency/priority at read time,
+ * so a late Delivery never clobbers an earlier Bounce. Returns the inserted row, or
+ * null when skipped / deduped / failed.
+ */
+export async function recordCommEvent(
+  input: RecordCommEventInput,
+  conn: Db = db,
+): Promise<CommsEventRow | null> {
+  if (!input.sourceRef || !input.eventType || !(input.occurredAt instanceof Date) || Number.isNaN(input.occurredAt.getTime())) {
+    return null;
+  }
+  try {
+    // Match the parent comms_log row by source_ref (most recent if somehow >1).
+    const [parent] = await conn
+      .select({ id: commsLog.id })
+      .from(commsLog)
+      .where(eq(commsLog.sourceRef, input.sourceRef))
+      .orderBy(desc(commsLog.createdAt))
+      .limit(1);
+    if (!parent) return null; // event for an email we never logged → skip
+
+    const [row] = await conn
+      .insert(commsEvent)
+      .values({
+        commsLogId: parent.id,
+        sourceRef: input.sourceRef,
+        eventType: input.eventType,
+        bounceType: input.bounceType ?? null,
+        bounceReason: input.bounceReason ?? null,
+        occurredAt: input.occurredAt,
+      })
+      .onConflictDoNothing({
+        target: [commsEvent.sourceRef, commsEvent.eventType, commsEvent.occurredAt],
+      })
+      .returning();
+    return row ?? null; // null ⇒ deduped (idempotent no-op), not an error
+  } catch (err) {
+    log("recordCommEvent failed (advisory — swallowed):", err instanceof Error ? err.message : err);
+    return null;
   }
 }
 

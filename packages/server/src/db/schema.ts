@@ -2941,6 +2941,65 @@ export const commsLog = pgTable(
   ],
 );
 export type CommsLogRow = InferSelectModel<typeof commsLog>;
+
+// spec-12 (memex-backstage) t-1 — comms_event: one row per Postmark delivery /
+// engagement event (Delivery / Open / Click / Bounce / SpamComplaint) for an
+// already-logged email. The fidelity layer comms_log's thin sent|delivered|failed
+// shadow lacks — it captures repeat opens/clicks, bounce type & reason, and powers
+// the Comms page's per-message OUTCOME, drill-down fallback, and repeat/high-retry
+// detection (dec-2). Core OWNS + WRITES it from the Postmark webhook (t-2); Backstage
+// READS it cross-tenant via memex_admin and never writes it.
+//
+// LINK: commsLogId is a real FK (cascade) so the 90-day retention prune cascades
+// these away with the parent; sourceRef (the Postmark MessageID) is denormalized as
+// the webhook's join key (it only has the MessageID) AND the dedup discriminator.
+//
+// METADATA ONLY (dec-4): event type + bounce type/reason + timestamps — NEVER a body.
+//
+// IDEMPOTENT (dec-6): the (sourceRef, eventType, occurredAt) unique key lets the
+// webhook write ON CONFLICT DO NOTHING; occurredAt is the Postmark event timestamp
+// (not now()) so read-time recency/priority resolution is stable. RLS-EXCLUDED,
+// mirroring comms_log (no RLS DDL) — written from the contextless webhook, read
+// cross-tenant; see drizzle/0117 for the full justification.
+export const commsEvent = pgTable(
+  "comms_event",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // The logged email this event belongs to. Cascade: pruning the comms_log row
+    // (retention) takes its events with it — no orphans.
+    commsLogId: uuid("comms_log_id")
+      .notNull()
+      .references(() => commsLog.id, { onDelete: "cascade" }),
+    // The Postmark MessageID (= comms_log.source_ref). Denormalized: the webhook
+    // matches on it (it has no row id), and it is the dedup discriminator.
+    sourceRef: text("source_ref").notNull(),
+    // Postmark RecordType — 'Delivery' | 'Open' | 'Click' | 'Bounce' |
+    // 'SpamComplaint'. Free text (no CHECK) so a new Postmark event type needs no
+    // migration; the webhook only writes the types it recognises.
+    eventType: text("event_type").notNull(),
+    // Postmark bounce Type (e.g. 'HardBounce' | 'SoftBounce' | 'SpamNotification');
+    // null unless this is a Bounce/SpamComplaint event.
+    bounceType: text("bounce_type"),
+    // Postmark bounce Description / Details — the SMTP reason line; null otherwise.
+    // A short reason string, never the message body.
+    bounceReason: text("bounce_reason"),
+    // The Postmark EVENT timestamp (DeliveredAt / BouncedAt / ReceivedAt …), NOT our
+    // insert time — recency/priority outcome resolution and dedup both depend on it.
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+    // When we recorded the event.
+    receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // FK lookups + ON DELETE cascade. The source_ref join is served by the dedup
+    // unique index below (it leads with source_ref), so no separate index for it.
+    index("comms_event_comms_log_id_idx").on(table.commsLogId),
+    // Idempotency (dec-6): a redelivered/duplicate Postmark event is ON CONFLICT
+    // DO NOTHING. Leads with source_ref, so it doubles as the join index.
+    unique("comms_event_dedup").on(table.sourceRef, table.eventType, table.occurredAt),
+  ],
+);
+export type CommsEventRow = InferSelectModel<typeof commsEvent>;
+
 export type VisitorInsert = InferInsertModel<typeof visitors>;
 
 // ══════════════════════════════════════
