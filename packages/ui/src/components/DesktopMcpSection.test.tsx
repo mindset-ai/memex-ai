@@ -11,6 +11,14 @@ const AC_REACH = 'mindset-prod/memex-building-itself/specs/spec-304/acs/ac-50';
 const AC_CONNECTOR = 'mindset-prod/memex-building-itself/specs/spec-304/acs/ac-56';
 const AC_DIALOG = 'mindset-prod/memex-building-itself/specs/spec-304/acs/ac-55';
 const AC_TOGGLE = 'mindset-prod/memex-building-itself/specs/spec-304/acs/ac-57';
+// dec-25 → t-70: a failed in-app Claude Code install surfaces a useful error in
+// the Integrations surface — a plain-language cause (mint vs config-write vs
+// unknown), a Retry, and a "Copy details" diagnostic (path + error + app/OS).
+const AC_FAIL_SURFACE = 'mindset-prod/memex-building-itself/specs/spec-304/acs/ac-68';
+// t-71 → ac-70: copy must state Claude Code covers the terminal, IDE extensions
+// AND the Code tab inside Claude Desktop (one shared ~/.claude.json); the
+// connector covers Chat + Cowork (not the Code tab). std-1 clean.
+const AC_COPY = 'mindset-prod/memex-building-itself/specs/spec-304/acs/ac-70';
 
 vi.mock('./AuthContext', () => ({ useAuth: () => ({ token: 'test-token' }) }));
 vi.mock('../hooks/useUserChangeStream', () => ({ useUserChangeStream: () => {} }));
@@ -130,7 +138,9 @@ describe('spec-304 ac-55 / ac-56 (dec-24): Claude Desktop is a connector setup r
       expect(screen.getByTestId('mcp-status-claudeDesktop')).toHaveTextContent('Set up in Claude'),
     );
     expect(cdRow).not.toHaveTextContent(/MCP connected/i);
-    // It's labelled as the Org Connector and carries no notification toggle.
+    // It's labelled as the (Chat & Cowork) Org Connector and carries no
+    // notification toggle (t-71: the row names the tabs the connector serves).
+    expect(cdRow).toHaveTextContent('Chat & Cowork');
     expect(cdRow).toHaveTextContent('Org Connector');
     expect(within(cdRow).queryByRole('checkbox')).toBeNull();
   });
@@ -148,6 +158,185 @@ describe('spec-304 ac-55 / ac-56 (dec-24): Claude Desktop is a connector setup r
     expect(screen.getByTestId('connector-url')).toHaveTextContent('/mcp');
     expect(installMcp).not.toHaveBeenCalled();
     expect(mintMcpTokenApi).not.toHaveBeenCalled();
+  });
+});
+
+describe('spec-304 ac-70 (t-71): copy names where each transport lands — Code tab vs Chat + Cowork', () => {
+  it('the Claude Code side names the terminal, IDE extensions, AND the Code tab (one shared ~/.claude.json)', async () => {
+    tagAc(AC_COPY);
+    installShell({ mcpStatus: () => STATUS_ABSENT });
+    const { container } = render(<DesktopMcpSection />);
+    await screen.findByRole('heading', { name: 'Install Memex MCP on this device' });
+
+    const text = container.textContent ?? '';
+    // Claude Code coverage is spelled out: terminal + IDE + the Code tab.
+    expect(text).toMatch(/terminal/i);
+    expect(text).toMatch(/IDE/i);
+    expect(text).toMatch(/Code tab/i);
+    expect(text).toMatch(/\.claude\.json/);
+  });
+
+  it('the connector side names Claude Desktop\'s Chat AND Cowork (not the Code tab)', async () => {
+    tagAc(AC_COPY);
+    installShell({ mcpStatus: () => STATUS_ABSENT });
+    const { container } = render(<DesktopMcpSection />);
+    await screen.findByRole('heading', { name: 'Install Memex MCP on this device' });
+
+    const text = container.textContent ?? '';
+    expect(text).toMatch(/Chat/);
+    expect(text).toMatch(/Cowork/);
+  });
+
+  it('std-1 clean: no user-visible "account" or "team" anywhere in the section', async () => {
+    tagAc(AC_COPY);
+    installShell({ mcpStatus: () => STATUS_ABSENT });
+    const { container } = render(<DesktopMcpSection />);
+    await screen.findByRole('heading', { name: 'Install Memex MCP on this device' });
+
+    const text = container.textContent ?? '';
+    expect(text).not.toMatch(/\baccount\b/i);
+    expect(text).not.toMatch(/\bteam\b/i);
+  });
+});
+
+describe('spec-304 ac-68 (dec-25): a failed Claude Code install surfaces a useful error + Retry + Copy details', () => {
+  async function clickInstall() {
+    const row = await screen.findByTestId('mcp-client-claudeCode');
+    fireEvent.click(within(row).getByRole('button', { name: 'Install' }));
+  }
+
+  it('a TOKEN-MINT failure shows an auth-flavoured cause, a Retry, and a copyable diagnostic', async () => {
+    tagAc(AC_FAIL_SURFACE);
+    mintMcpTokenApi.mockRejectedValue(new Error('session expired'));
+    const installMcp = vi.fn(() => ({ ok: true }));
+    installShell({ mcpStatus: () => STATUS_ABSENT, installMcp });
+
+    render(<DesktopMcpSection />);
+    await clickInstall();
+
+    const surface = await screen.findByTestId('mcp-install-error');
+    // Plain-language cause that distinguishes the MINT failure mode (auth/session),
+    // not the config-write one.
+    expect(surface).toHaveTextContent(/sign|session|log|authoriz|token from your/i);
+    // The mint never reached the bridge.
+    expect(installMcp).not.toHaveBeenCalled();
+    // Retry + Copy details controls are present.
+    expect(within(surface).getByRole('button', { name: /retry/i })).toBeInTheDocument();
+    expect(within(surface).getByRole('button', { name: /copy details/i })).toBeInTheDocument();
+  });
+
+  it('a CONFIG-WRITE failure shows a config-flavoured cause distinct from the mint case', async () => {
+    tagAc(AC_FAIL_SURFACE);
+    const installMcp = vi.fn(() => ({ ok: false, error: 'EACCES: permission denied', path: '/home/u/.claude.json' }));
+    installShell({ mcpStatus: () => STATUS_ABSENT, installMcp });
+
+    render(<DesktopMcpSection />);
+    await clickInstall();
+
+    const surface = await screen.findByTestId('mcp-install-error');
+    expect(surface).toHaveTextContent(/config|write|file|\.claude\.json|permission/i);
+    // It is NOT the mint/auth message.
+    expect(surface).not.toHaveTextContent(/session expired/i);
+  });
+
+  it('an UNKNOWN failure (mint returns a falsy token) shows the default plain-language cause', async () => {
+    tagAc(AC_FAIL_SURFACE);
+    // A token comes back falsy with no thrown error — the defensive 'unknown'
+    // branch. The surface still explains itself with the default cause copy.
+    mintMcpTokenApi.mockResolvedValue({ token: '', prefix: null });
+    const installMcp = vi.fn(() => ({ ok: true }));
+    installShell({ mcpStatus: () => STATUS_ABSENT, installMcp });
+
+    render(<DesktopMcpSection />);
+    await clickInstall();
+
+    const surface = await screen.findByTestId('mcp-install-error');
+    // The default cause invites copying the details below — and is NOT the
+    // mint/auth-specific or config-write-specific wording.
+    expect(surface).toHaveTextContent(/copy the details below/i);
+    expect(surface).not.toHaveTextContent(/sign-in may have expired/i);
+    expect(surface).not.toHaveTextContent(/config file/i);
+    // No token reached the bridge.
+    expect(installMcp).not.toHaveBeenCalled();
+    expect(within(surface).getByRole('button', { name: /retry/i })).toBeInTheDocument();
+    expect(within(surface).getByRole('button', { name: /copy details/i })).toBeInTheDocument();
+  });
+
+  it('a bridge error string that itself embeds the secret token is REDACTED from the diagnostic + surface', async () => {
+    tagAc(AC_FAIL_SURFACE);
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.assign(navigator, { clipboard: { writeText } });
+    // SECURITY (defensive): a future bridge regression echoes the minted token
+    // back inside its own error string. The React layer must scrub any mxt_…
+    // substring before it reaches the surface, the diagnostic, or the clipboard.
+    const installMcp = vi.fn(() => ({
+      ok: false,
+      error: 'write failed for token mxt_minted_secret_999 at /home/u/.claude.json',
+      path: '/home/u/.claude.json',
+    }));
+    installShell({ mcpStatus: () => STATUS_ABSENT, installMcp });
+
+    render(<DesktopMcpSection />);
+    await clickInstall();
+
+    const surface = await screen.findByTestId('mcp-install-error');
+    fireEvent.click(within(surface).getByRole('button', { name: /copy details/i }));
+
+    await waitFor(() => expect(writeText).toHaveBeenCalled());
+    const diag = writeText.mock.calls[0][0] as string;
+    // The token is scrubbed from the copied diagnostic…
+    expect(diag).not.toContain('mxt_minted_secret_999');
+    expect(diag).not.toContain('mxt_');
+    // …and never reaches the rendered surface either.
+    expect(document.body.textContent ?? '').not.toContain('mxt_');
+  });
+
+  it('Retry re-runs the install — a transient failure then succeeds', async () => {
+    tagAc(AC_FAIL_SURFACE);
+    const installMcp = vi
+      .fn()
+      .mockReturnValueOnce({ ok: false, error: 'disk full', path: '/p' })
+      .mockReturnValueOnce({ ok: true, name: 'Claude Code', path: '/p', backupPath: '/p.bak' });
+    installShell({ mcpStatus: () => STATUS_ABSENT, installMcp, showNotification: () => ({ ok: true }) });
+
+    render(<DesktopMcpSection />);
+    await clickInstall();
+
+    const surface = await screen.findByTestId('mcp-install-error');
+    fireEvent.click(within(surface).getByRole('button', { name: /retry/i }));
+
+    // The success status replaces the error surface.
+    await waitFor(() =>
+      expect(screen.getByRole('status')).toHaveTextContent(/Restart Claude Code/),
+    );
+    expect(screen.queryByTestId('mcp-install-error')).toBeNull();
+    expect(installMcp).toHaveBeenCalledTimes(2);
+  });
+
+  it('Copy details copies a diagnostic (config path + underlying error + app/OS) and NEVER the secret token', async () => {
+    tagAc(AC_FAIL_SURFACE);
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.assign(navigator, { clipboard: { writeText } });
+    const installMcp = vi.fn(() => ({ ok: false, error: 'EACCES: permission denied', path: '/home/u/.claude.json' }));
+    installShell({ mcpStatus: () => STATUS_ABSENT, installMcp });
+
+    render(<DesktopMcpSection />);
+    await clickInstall();
+
+    const surface = await screen.findByTestId('mcp-install-error');
+    fireEvent.click(within(surface).getByRole('button', { name: /copy details/i }));
+
+    await waitFor(() => expect(writeText).toHaveBeenCalled());
+    const diag = writeText.mock.calls[0][0] as string;
+    // Diagnostic carries the load-bearing facts…
+    expect(diag).toContain('/home/u/.claude.json');
+    expect(diag).toContain('EACCES: permission denied');
+    expect(diag).toMatch(/Claude Code/);
+    // …and the navigator userAgent (app/OS) is included.
+    expect(diag).toContain(navigator.userAgent);
+    // SECURITY: the secret session token must NEVER reach the clipboard.
+    expect(diag).not.toContain('mxt_minted_secret_999');
+    expect(diag).not.toContain('mxt_');
   });
 });
 

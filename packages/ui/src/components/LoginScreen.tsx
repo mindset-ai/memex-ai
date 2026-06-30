@@ -7,6 +7,7 @@ import { Alert } from './ui/Alert';
 import { Logo } from './Logo';
 import { probeAuthApi, AuthApiError, type SessionPayload } from '../api/client';
 import { useMagicLinkPoll } from '../hooks/useMagicLinkPoll';
+import { readAttributionCookie, pushDataLayer } from '../lib/attribution';
 // t-23 of doc-15: Google SSO is on a single origin under the path-based
 // router. The previous cross-subdomain bounce (sign in on memex.ai then return
 // here with a JWT in the URL fragment) is no longer needed — everything is
@@ -86,8 +87,14 @@ function LoginCard(props: LoginScreenProps) {
           }}
           onContinue={async (email) => {
             const probe = await probeAuthApi(email);
-            if (!probe.exists) setView({ kind: 'create-password', email });
-            else if (probe.hasPassword) setView({ kind: 'password', email });
+            if (!probe.exists) {
+              pushDataLayer({
+                event: 'sign_up_started',
+                event_id: crypto.randomUUID(),
+                ...readAttributionCookie(),
+              });
+              setView({ kind: 'create-password', email });
+            } else if (probe.hasPassword) setView({ kind: 'password', email });
             else {
               trackAnonymous('auth.login_started', { method: 'magic_link' });
               const { loginRequestId } = await props.onMagicLink(email);

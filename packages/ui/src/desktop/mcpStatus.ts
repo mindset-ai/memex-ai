@@ -98,7 +98,7 @@ export function deriveClientStatus(
 
 /**
  * Classify a CONNECTOR-based client (Claude Desktop "Org Connector", dec-24,
- * revises dec-23/t-56). The account-level Custom Connector is NOT in
+ * revises dec-23/t-56). The org-level Custom Connector is NOT in
  * claude_desktop_config.json and is NOT an `mxt_` token in the user's token
  * list, so there is NO signal that can attribute a connection to THIS client.
  * The only thing available — the user-scoped `mcp.connected` milestone — is a
@@ -120,32 +120,39 @@ export function deriveConnectorStatus(): ClientStatus {
 export type IndicatorKind = 'connected' | 'ready' | 'repair' | 'install';
 
 export type IndicatorVisibility =
-  | 'transient' // healthy: show the true state briefly on window open, then hide
   | 'persistent' // an actionable error: stay until resolved
-  | 'snoozable'; // an opportunity (never installed): dismissible prompt
+  | 'snoozable'; // a standing state the user may dismiss (success / opportunity)
 
 /**
- * The single app-global indicator the native pill renders (dec-21). It is a
- * quiet EXCEPTION surface, not a status light: every label leads with "MCP …"
- * so it reads as the tool's status, never the server's. "connected" never
- * appears before a real handshake. The native side owns the 5–10s on-open
- * timing; this function owns the TRUTH + the visibility *class*.
+ * The single app-global indicator the native pill renders (dec-21, dec-25). The
+ * pill is a PERSISTENT, user-dismissible status reflector: every state shows and
+ * STAYS until the user dismisses it (or it's superseded) — there is no transient
+ * auto-hide any more (dec-25 removed it). Every label leads with "MCP …" so it
+ * reads as the tool's status, never the server's. "connected" never appears
+ * before a real handshake. This function owns the TRUTH + the visibility *class*.
  *
  * Aggregation across both clients (an un-chosen second client is never an
  * error): connected wins, then ready, then any broken install (repair /
  * wrong-server) as a persistent badge, else the quiet install prompt.
+ *
+ * Two visibility classes remain: `persistent` (an actionable error — repair —
+ * that must not be dismissable away) and `snoozable` (everything else: the
+ * standing success/ready/install states the user may dismiss). Because the pill
+ * is now the standing SUCCESS signal, a failed install ACTION surfaces its own
+ * error in the Integrations surface + a native failure notification (t-70) —
+ * the pill gains no new failure state.
  */
 export function deriveIndicator(statuses: readonly ClientStatus[]): Indicator {
   const kinds = new Set(statuses.map((s) => s.kind));
   if (kinds.has('connected')) {
-    return { kind: 'connected', label: 'MCP connected', visibility: 'transient' };
+    // Connected is the standing SUCCESS signal: it shows and STAYS, dismissible
+    // by the user (dec-25). No longer auto-hidden — the transient class is gone.
+    return { kind: 'connected', label: 'MCP connected', visibility: 'snoozable' };
   }
   if (kinds.has('ready')) {
     // Ready = installed + authorized, no handshake yet. It STAYS visible like
-    // the Install prompt (snoozable), not auto-hidden like Connected — it's an
-    // actionable "go make Claude connect" state, not the quiet healthy steady
-    // state (issue-31). It flips to the transient "connected" once a handshake
-    // is observed.
+    // the Install prompt (snoozable) — an actionable "go make Claude connect"
+    // state (issue-31). It flips to "connected" once a handshake is observed.
     return { kind: 'ready', label: 'MCP ready', visibility: 'snoozable' };
   }
   if (kinds.has('repair') || kinds.has('reinstall')) {
@@ -163,7 +170,9 @@ export interface Indicator {
 /**
  * The two clients, in display order, with their human names, bridge keys, and
  * transport (dec-23): Claude Code installs a local HTTP token; Claude Desktop
- * connects via an account-level Custom Connector (instructions only).
+ * connects via an org-level Custom Connector — covering its Chat and Cowork
+ * tabs (not the Code tab, which Claude Code's shared install handles) — set up
+ * inside Claude via instructions only (t-71).
  */
 export const MCP_CLIENTS: ReadonlyArray<{
   key: keyof McpStatusResult;
@@ -173,7 +182,7 @@ export const MCP_CLIENTS: ReadonlyArray<{
   { key: 'claudeCode', name: 'Claude Code', transport: 'token' },
   {
     key: 'claudeDesktop',
-    name: 'Claude Desktop – Org Connector',
+    name: 'Claude Desktop (Chat & Cowork) – Org Connector',
     transport: 'connector',
   },
 ];
