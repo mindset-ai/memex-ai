@@ -1,5 +1,5 @@
 import { eq, and } from "drizzle-orm";
-import { db } from "../db/connection.js";
+import { db, runWithMemexId } from "../db/connection.js";
 import { namespaces, memexes, users, experiments, experimentVariants } from "../db/schema.js";
 import type { Memex, Namespace } from "../db/schema.js";
 import { ValidationError } from "../types/errors.js";
@@ -260,17 +260,30 @@ export async function ensureUserNamespace(
 // time we get here). The seeds are individually idempotent (handhold: NO-OP if a demo doc
 // exists — ac-8; standards: NO-OP once the Memex holds any standard), so a duplicate fire
 // (e.g. a signup race twin) is harmless.
+//
+// spec-436: run the seeders inside runWithMemexId(memexId) so the rlsClient proxy emits
+// `set_config('app.memex_id', …)` for every INSERT they issue. The runtime connects as the
+// non-owner `memex_app` role, which is SUBJECT to RLS (std-36: ENABLE, never FORCE), and the
+// `documents` WITH CHECK policy keys on app.memex_id. Unlike a normal API request — which the
+// session middleware already wraps in runWithMemexId(currentMemexId) — provisioning runs
+// OUTSIDE any tenant context for the just-created memex (the signup request isn't scoped to
+// it), so without this wrapper every seed INSERT was rejected ("new row violates row-level
+// security policy for table \"documents\"") and the new workspace came up empty. One wrapper
+// over the shared allSettled covers all current and future seeders; the experiment lookup the
+// provisioning seed performs reads RLS-EXCLUDED tables, so the GUC is a harmless no-op there.
 async function seedNewPersonalMemex(memexId: string, ownerUserId: string): Promise<void> {
-  await Promise.allSettled([
-    seedProvisioningBehaviourBestEffort(memexId, ownerUserId),
-    seedDefaultStandardsBestEffort(memexId),
-    // spec-340 t-3 (dec-7): seed the personal memex's own facet vocabulary
-    // (owner_type='memex' — a personal memex is not modelled as its own org, so it
-    // owns its facets directly). Best-effort + idempotent, isolated by allSettled so
-    // a seed failure never blocks signup. Reached only on the personal-namespace
-    // create path, so seeding is inherently personal-only.
-    seedDefaultFacetsForMemexBestEffort(memexId),
-  ]);
+  await runWithMemexId(memexId, async () => {
+    await Promise.allSettled([
+      seedProvisioningBehaviourBestEffort(memexId, ownerUserId),
+      seedDefaultStandardsBestEffort(memexId),
+      // spec-340 t-3 (dec-7): seed the personal memex's own facet vocabulary
+      // (owner_type='memex' — a personal memex is not modelled as its own org, so it
+      // owns its facets directly). Best-effort + idempotent, isolated by allSettled so
+      // a seed failure never blocks signup. Reached only on the personal-namespace
+      // create path, so seeding is inherently personal-only.
+      seedDefaultFacetsForMemexBestEffort(memexId),
+    ]);
+  });
 }
 
 // spec-426: seed the new personal Memex with the EXPERIMENT-ASSIGNED onboarding
