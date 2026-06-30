@@ -2,6 +2,8 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 import { resolveSession } from "../../services/auth.js";
 import { getUserByEmail, markEmailVerified, upsertUserByEmail } from "../../services/users.js";
+import { parseAttributionCookie, saveAttribution, hashEmail } from "../../services/attribution.js";
+import { fireAllConversions } from "../../services/conversion-apis.js";
 import { ensureUserMemex } from "../../services/user-namespaces.js";
 import { issueAuthToken, consumeAuthToken, AuthTokenError } from "../../services/auth-tokens.js";
 import {
@@ -106,6 +108,7 @@ magicLink.post("/consume", async (c) => {
 
   // Upsert the user (magic-link is also the signup path for new email-only users).
   const user = await upsertUserByEmail(row.email);
+  const isNewAccount = !user.emailVerifiedAt;
   await markEmailVerified(user.id);
   await ensureUserMemex(user.id);
 
@@ -115,10 +118,33 @@ magicLink.post("/consume", async (c) => {
   // (no surrogate row) consumes exactly as before.
   await markLoginRequestVerified(row.id);
 
+  let conversionEventId: string | null = null;
+  if (isNewAccount) {
+    const attribution = parseAttributionCookie(c.req.header("cookie"));
+    if (attribution) {
+      const eventId = await saveAttribution(user.id, attribution).catch((err) => {
+        console.error("[spec-21] failed to save attribution:", err instanceof Error ? err.message : String(err));
+        return null;
+      });
+      if (eventId) {
+        conversionEventId = eventId;
+        fireAllConversions({
+          email: user.email,
+          hashedEmail: hashEmail(user.email),
+          eventId,
+          attribution,
+          conversionDateTime: new Date().toISOString(),
+        });
+      }
+    }
+  }
+
+  // buildMagicLinkSession handles the tenant override (surfaces the URL's team account
+  // as currentMemexId when the user is a member).
   const session = await buildMagicLinkSession(c, user.id);
   setKnownCookie(c);
   await applyVisitorMerge(c, user.id); // spec-254 — identify merge (magic link / email-only signup)
-  return c.json(withToken(session));
+  return c.json({ ...withToken(session), isNewAccount, conversionEventId });
 });
 
 // GET /api/auth/magic-link/login-requests/:id/status
