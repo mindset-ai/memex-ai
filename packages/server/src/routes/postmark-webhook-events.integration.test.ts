@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { and, eq } from "drizzle-orm";
 import { tagAc } from "@memex-ai-ac/vitest";
 import { db } from "../db/connection.js";
-import { commsEvent, commsLog, users } from "../db/schema.js";
+import { commsEvent, users } from "../db/schema.js";
 import { recordComm } from "../services/comms-log.js";
 import { postmarkWebhookRouter } from "./postmark-webhook.js";
 
