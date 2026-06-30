@@ -98,7 +98,7 @@ export function deriveClientStatus(
 
 /**
  * Classify a CONNECTOR-based client (Claude Desktop "Org Connector", dec-24,
- * revises dec-23/t-56). The account-level Custom Connector is NOT in
+ * revises dec-23/t-56). The org-level Custom Connector is NOT in
  * claude_desktop_config.json and is NOT an `mxt_` token in the user's token
  * list, so there is NO signal that can attribute a connection to THIS client.
  * The only thing available — the user-scoped `mcp.connected` milestone — is a
@@ -170,7 +170,9 @@ export interface Indicator {
 /**
  * The two clients, in display order, with their human names, bridge keys, and
  * transport (dec-23): Claude Code installs a local HTTP token; Claude Desktop
- * connects via an account-level Custom Connector (instructions only).
+ * connects via an org-level Custom Connector — covering its Chat and Cowork
+ * tabs (not the Code tab, which Claude Code's shared install handles) — set up
+ * inside Claude via instructions only (t-71).
  */
 export const MCP_CLIENTS: ReadonlyArray<{
   key: keyof McpStatusResult;
@@ -180,7 +182,7 @@ export const MCP_CLIENTS: ReadonlyArray<{
   { key: 'claudeCode', name: 'Claude Code', transport: 'token' },
   {
     key: 'claudeDesktop',
-    name: 'Claude Desktop – Org Connector',
+    name: 'Claude Desktop (Chat & Cowork) – Org Connector',
     transport: 'connector',
   },
 ];

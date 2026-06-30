@@ -138,7 +138,9 @@ describe('spec-304 ac-55 / ac-56 (dec-24): Claude Desktop is a connector setup r
       expect(screen.getByTestId('mcp-status-claudeDesktop')).toHaveTextContent('Set up in Claude'),
     );
     expect(cdRow).not.toHaveTextContent(/MCP connected/i);
-    // It's labelled as the Org Connector and carries no notification toggle.
+    // It's labelled as the (Chat & Cowork) Org Connector and carries no
+    // notification toggle (t-71: the row names the tabs the connector serves).
+    expect(cdRow).toHaveTextContent('Chat & Cowork');
     expect(cdRow).toHaveTextContent('Org Connector');
     expect(within(cdRow).queryByRole('checkbox')).toBeNull();
   });
