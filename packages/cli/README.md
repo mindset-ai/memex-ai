@@ -99,6 +99,18 @@ server-side token. To revoke:
 
 Or run `uninstall` followed by a server-side revoke.
 
+## Releasing
+
+`memex-ai` is published to the public npm registry. A change under `packages/cli`
+reaches users ONLY when the package is published; merging to `develop` or `main` does
+NOT ship it. There is no CI auto-publish, so every release is manual:
+
+1. Bump `version` in `packages/cli/package.json`.
+2. From `packages/cli`, run `npm publish`.
+
+Publishing requires npm publish rights on the `memex-ai` package; ask a maintainer if
+you don't have them.
+
 ## Source
 
 Built and maintained at

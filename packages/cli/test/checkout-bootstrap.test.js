@@ -203,3 +203,71 @@ describe("checkout credential bootstrap (spec-430 dec-1/dec-3)", () => {
     expect(parsed.command).toBe("checkout-setup");
   });
 });
+
+// spec-430 issue-3: installing/minting against a NEW env must not keep a stale-env key.
+// Stored api_base != requested apiBase (e.g. int -> prod) means MCP/claims would go to
+// the new env while edits still phone home to the old one with the wrong key (silent
+// 401). The env compare is purely local — no extra sign-in unless the env changed.
+describe("spec-430 issue-3: an env switch re-mints the checkout key", () => {
+  it("provisionHookKey: stored int + requested prod → re-mints + overwrites, no sign-in (uses the token)", async () => {
+    const fs = memFs(JSON.stringify({ api_base: "https://int.memex.ai", hook_key: "mxh_int" }));
+    const calls = [];
+    const fetch = async (url, init) => {
+      calls.push(url);
+      if (url.endsWith("/api/hook-keys")) {
+        expect(init.headers.Authorization).toBe("Bearer mxt_prod");
+        return { ok: true, json: async () => ({ key: "mxh_prod" }) };
+      }
+      throw new Error("unexpected fetch " + url);
+    };
+    const res = await provisionHookKey({
+      apiBase: "https://memex.ai",
+      token: "mxt_prod",
+      fs,
+      deps: { storePath: "/fake", fetch },
+    });
+    expect(res).toMatchObject({ provisioned: true, key: "mxh_prod" });
+    // checkout.json now points at prod with the fresh key…
+    expect(fs.current().api_base).toBe("https://memex.ai");
+    expect(fs.current().hook_key).toBe("mxh_prod");
+    // …and no device-flow sign-in happened (provision uses the install's token).
+    expect(calls.some((u) => u.includes("/api/cli/auth/"))).toBe(false);
+  });
+
+  it("provisionHookKey: stored prod + requested prod → skips (no mint)", async () => {
+    const fs = memFs(JSON.stringify({ api_base: "https://memex.ai", hook_key: "mxh_prod" }));
+    const fetch = vi.fn();
+    const res = await provisionHookKey({
+      apiBase: "https://memex.ai",
+      token: "mxt_x",
+      fs,
+      deps: { storePath: "/fake", fetch },
+    });
+    expect(res).toMatchObject({ provisioned: false, key: "mxh_prod" });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("ensureHookKey: stored int + requested prod → ONE sign-in and re-mints for prod", async () => {
+    const fs = memFs(JSON.stringify({ api_base: "https://int.memex.ai", hook_key: "mxh_int" }));
+    const calls = [];
+    const fetch = async (url) => {
+      calls.push(url);
+      if (url.endsWith("/api/cli/auth/start"))
+        return { ok: true, json: async () => ({ reqId: "r1", code: "ABCD" }) };
+      if (url.includes("/api/cli/auth/poll/"))
+        return { ok: true, json: async () => ({ status: "completed", token: "mxt_prod" }) };
+      if (url.endsWith("/api/hook-keys"))
+        return { ok: true, json: async () => ({ key: "mxh_prod" }) };
+      throw new Error("unexpected fetch " + url);
+    };
+    const res = await ensureHookKey({
+      apiBase: "https://memex.ai",
+      fs,
+      deps: { storePath: "/fake", fetch, openBrowser: () => {}, now: () => 0 },
+    });
+    expect(res).toMatchObject({ provisioned: true, signedIn: true, key: "mxh_prod" });
+    expect(calls.filter((u) => u.endsWith("/api/cli/auth/start"))).toHaveLength(1);
+    expect(fs.current().api_base).toBe("https://memex.ai");
+    expect(fs.current().hook_key).toBe("mxh_prod");
+  });
+});
