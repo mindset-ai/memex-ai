@@ -23,6 +23,7 @@ import { TaskPanel } from '../components/TaskPanel';
 import { IssuePanel } from '../components/IssuePanel';
 import { AllComments } from '../components/AllComments';
 import { AcPanel } from '../components/AcPanel';
+import { ClauseCoveragePanel } from '../components/ClauseCoveragePanel';
 import { PhaseTabBar } from '../components/PhaseTabBar';
 import { phaseColors } from '../components/phaseColors';
 import { useTelemetry } from '../hooks/useTelemetry';
@@ -1360,7 +1361,12 @@ export function DocDocument() {
           }}
         />
       ) : doc.docType !== 'spec' ? (
-        narrativeView
+        <>
+          {narrativeView}
+          {/* spec-151 t-7: the clause-coverage view (CI-backed green vs local-only)
+              hangs off a Standard's page, below its narrative. */}
+          {doc.docType === 'standard' && <ClauseCoveragePanel docId={doc.id} />}
+        </>
       ) : viewedTab === 'done' ? (
         doneTabView
       ) : (
