@@ -26,6 +26,8 @@ const AC = (n: number) => `${SPEC}/acs/ac-${n}`;
 
 let userId: string;
 let memexId: string;
+let nsId: string;
+let orgId: string;
 let nsSlug: string;
 let sectionRef: string;
 
@@ -49,15 +51,26 @@ beforeAll(async () => {
   const sub = `t56-${crypto.randomUUID().slice(0, 8)}`.toLowerCase();
   const [u] = await db.insert(users).values({ email: `${sub}@memex.ai` } as never).returning();
   userId = u.id;
-  const [ns] = await db.insert(namespaces).values({ slug: sub, kind: "org" }).returning();
-  nsSlug = ns.slug;
-  const [org] = await db.insert(orgs).values({ namespaceId: ns.id, name: `Test ${sub}` }).returning();
-  await db.update(namespaces).set({ ownerOrgId: org.id }).where(eq(namespaces.id, ns.id));
+  // Seed namespace + org + owner ATOMICALLY. The owner-XOR invariant
+  // (migration-smoke) scans the whole namespaces table in the shared per-worker
+  // DB; a namespace inserted (kind='org', owner NULL) and only later updated with
+  // its owner leaves a committed owner-XOR-violating window that a co-resident
+  // test could observe if the seed were interrupted. A transaction commits the
+  // namespace already owned, so no bad row is ever visible.
+  const seeded = await db.transaction(async (tx) => {
+    const [ns] = await tx.insert(namespaces).values({ slug: sub, kind: "org" }).returning();
+    const [org] = await tx.insert(orgs).values({ namespaceId: ns.id, name: `Test ${sub}` }).returning();
+    await tx.update(namespaces).set({ ownerOrgId: org.id }).where(eq(namespaces.id, ns.id));
+    return { ns, org };
+  });
+  nsId = seeded.ns.id;
+  orgId = seeded.org.id;
+  nsSlug = seeded.ns.slug;
   // No facet vocabulary seeded → add_clause does not require a facet verdict, so these
   // tests exercise the testability path in isolation.
-  const [mx] = await db.insert(memexes).values({ namespaceId: ns.id, slug: "main", name: "Main" }).returning();
+  const [mx] = await db.insert(memexes).values({ namespaceId: nsId, slug: "main", name: "Main" }).returning();
   memexId = mx.id;
-  await db.insert(orgMemberships).values({ userId, orgId: org.id, role: "administrator" });
+  await db.insert(orgMemberships).values({ userId, orgId, role: "administrator" });
 
   const [std] = await db
     .insert(documents)
@@ -68,8 +81,13 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  // Full ordered teardown — leave zero rows in the shared per-worker DB (std-37).
+  // FK order: documents/memexes/memberships → orgs → namespaces → users.
   await db.delete(documents).where(eq(documents.memexId, memexId)).catch(() => {});
   await db.delete(memexes).where(eq(memexes.id, memexId)).catch(() => {});
+  await db.delete(orgMemberships).where(eq(orgMemberships.orgId, orgId)).catch(() => {});
+  await db.delete(orgs).where(eq(orgs.id, orgId)).catch(() => {});
+  await db.delete(namespaces).where(eq(namespaces.id, nsId)).catch(() => {});
   await db.delete(users).where(eq(users.id, userId)).catch(() => {});
 });
 

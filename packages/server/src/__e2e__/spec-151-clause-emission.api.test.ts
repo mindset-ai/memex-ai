@@ -10,7 +10,15 @@ import { eq, inArray } from "drizzle-orm";
 import { tagAc } from "@memex-ai-ac/vitest";
 import { db } from "../db/connection.js";
 import { app } from "../app.js";
-import { users, memexEmissionKeys, testEvents } from "../db/schema.js";
+import {
+  users,
+  memexEmissionKeys,
+  testEvents,
+  memexes,
+  orgs,
+  orgMemberships,
+  namespaces,
+} from "../db/schema.js";
 import { createOrgWithMemexAndOwner } from "../services/__test__/seed-org.js";
 import {
   mintEmissionKey,
@@ -23,9 +31,12 @@ const AC_6 = `${M}/ac-6`; // route accepts non-AC subjects, no acs-table rejecti
 
 const createdUserIds: string[] = [];
 const createdMemexIds: string[] = [];
+const createdOrgIds: string[] = [];
+const createdNamespaceIds: string[] = [];
 const createdSubjectRefs: string[] = [];
 
 afterAll(async () => {
+  // Full ordered teardown — leave zero rows in the shared per-worker DB (std-37).
   if (createdSubjectRefs.length) {
     await db
       .delete(testEvents)
@@ -37,6 +48,14 @@ afterAll(async () => {
       .delete(memexEmissionKeys)
       .where(inArray(memexEmissionKeys.memexId, createdMemexIds))
       .catch(() => {});
+    await db.delete(memexes).where(inArray(memexes.id, createdMemexIds)).catch(() => {});
+  }
+  if (createdOrgIds.length) {
+    await db.delete(orgMemberships).where(inArray(orgMemberships.orgId, createdOrgIds)).catch(() => {});
+    await db.delete(orgs).where(inArray(orgs.id, createdOrgIds)).catch(() => {});
+  }
+  if (createdNamespaceIds.length) {
+    await db.delete(namespaces).where(inArray(namespaces.id, createdNamespaceIds)).catch(() => {});
   }
   for (const id of createdUserIds) {
     await db.delete(users).where(eq(users.id, id)).catch(() => {});
@@ -97,6 +116,8 @@ describe("spec-151 — a standard clause is a first-class emission subject (dec-
     memexSlug = seeded.memex.slug;
     memexId = seeded.memex.id;
     createdMemexIds.push(memexId);
+    createdOrgIds.push(seeded.org.id);
+    createdNamespaceIds.push(seeded.namespace.id);
     clauseRef = `${ns}/${memexSlug}/standards/std-1/clauses/cl-1`;
     otherClauseRef = `${ns}/${memexSlug}/standards/std-2/clauses/cl-3`;
     createdSubjectRefs.push(clauseRef, otherClauseRef);
