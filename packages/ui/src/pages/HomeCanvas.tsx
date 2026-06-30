@@ -54,8 +54,8 @@ import type { JourneyCta, JourneyStepView } from '../journeys/types';
 type NavMembership = { slug: string; memexSlug?: string | null; kind: string };
 
 // The first step is rendered full-width with no rail (spec-336 / prototype: the rail
-// reveals once the user is past "About you").
-const FIRST_STEP_ID = 'identity';
+// reveals once the user is past step 0). spec-433: identity hidden, first visible step is create-spec.
+const FIRST_STEP_ID = 'create-spec';
 
 function firstName(name: string | null | undefined): string | null {
   if (!name) return null;
@@ -189,9 +189,14 @@ export function HomeCanvas() {
   const clampToVisible = useCallback(
     (id: string | null): string | null => {
       if (id && visibleIds.includes(id)) return id;
-      return visibleIds.length ? visibleIds[visibleIds.length - 1] : id;
+      if (!visibleIds.length) return id;
+      const allIds = state?.steps?.map((s) => s.id) ?? [];
+      const hiddenIdx = id != null ? allIds.indexOf(id) : Infinity;
+      const firstVisibleIdx = allIds.indexOf(visibleIds[0]);
+      if (hiddenIdx < firstVisibleIdx) return visibleIds[0];
+      return visibleIds[visibleIds.length - 1];
     },
-    [visibleIds],
+    [visibleIds, state],
   );
 
   useEffect(() => {
@@ -331,8 +336,11 @@ export function HomeCanvas() {
   // SHOW_GRADUATED_HOME flips and the YourJourneys pearls are live (spec-312/315).
   const layerVisible = !!state?.steps?.length || forceShow;
 
-  // The rail reveals once the user is past the first step (prototype: full-width step 0).
-  const showRail = !!displayStepId && displayStepId !== FIRST_STEP_ID && visibleSteps.length > 0;
+  // The first step renders full-width with no rail until it is attained — once the user
+  // has connected MCP (create-spec done), the rail appears even if the cursor hasn't
+  // advanced yet (spec-433 regression fix: returning users were stuck full-width at 100%).
+  const firstStepAttained = visibleSteps[0]?.attained ?? false;
+  const showRail = !!displayStepId && (displayStepId !== FIRST_STEP_ID || firstStepAttained) && visibleSteps.length > 0;
 
   return (
     <div className="font-onboarding min-h-full" data-testid="home-canvas">

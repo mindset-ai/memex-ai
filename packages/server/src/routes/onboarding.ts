@@ -21,6 +21,7 @@
 import { Hono } from "hono";
 import { sessionMiddleware, type SessionEnv } from "../middleware/session.js";
 import { markOnboardingGreeted } from "../services/users.js";
+import { getUserMilestones } from "../services/journey-state.js";
 
 const onboarding = new Hono<SessionEnv>();
 
@@ -34,10 +35,16 @@ export function deriveFirstName(name: string | null | undefined): string | null 
   return first ? first : null;
 }
 
-onboarding.get("/greeting", (c) => {
+// spec-434: gate greeting on mcpConnected AND hasSpec — Specky only appears once the
+// user has connected MCP and created their first Spec (both conditions must be met).
+onboarding.get("/greeting", async (c) => {
   const user = c.get("user");
+  if (user.onboardingGreetedAt != null) {
+    return c.json({ greet: false, firstName: deriveFirstName(user.name) });
+  }
+  const milestones = await getUserMilestones(user.id);
   return c.json({
-    greet: user.onboardingGreetedAt == null,
+    greet: milestones.mcpConnected && milestones.hasSpec,
     firstName: deriveFirstName(user.name),
   });
 });

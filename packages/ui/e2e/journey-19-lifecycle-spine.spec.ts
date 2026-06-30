@@ -256,31 +256,22 @@ test(
     ).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText(email)).toBeVisible();
 
-    // Continue → spec-305 dec-2: needsOnboarding routes to the Home Canvas onboarding
-    // journey (/home), NOT the retired standalone name page. A nameless, identity-
-    // unconfirmed new user is redirected to /home by RequireAuth. The v2 arc (spec-336)
-    // opens DIRECTLY on the identity ("About you") step — the welcome beat was dropped.
+    // Continue → spec-305 dec-2: needsOnboarding routes the identity-unconfirmed new user
+    // to /home. spec-433: the identity step is removed; the user lands directly on
+    // create-spec (server returns 'identity' but clampToVisible maps it forward to
+    // 'create-spec' as FIRST_STEP_ID).
     await page.getByRole("button", { name: /Continue to your Memex/ }).click();
 
-    // Identity step: a nameless native-auth user has no SSO name to reuse, so the v2
-    // identity step shows a name field for them (spec-336). Fill it + Continue →
-    // updateProfileApi runs AS the signed-up user (Bearer JWT, not the dev bypass),
-    // persisting role_coords (which confirms identity) and clearing needsOnboarding.
-    const displayName = `Spine Newuser ${resources.uniq}`;
-    await expect(page.getByTestId("journey-step-identity")).toBeVisible({ timeout: 15_000 });
-    await page.getByTestId("identity-name").fill(displayName);
-    await page.getByTestId("identity-continue").click();
-
-    // Identity confirmed → the journey self-advances off identity. This brand-new user
-    // has no spec yet, so the next derived step is create-spec (connecting the agent is
-    // folded into that step's stage 1 in v2) — proof onboarding completed AS the new user.
-    await expect(page.getByTestId("journey-step-create-spec")).toBeVisible({ timeout: 10_000 });
+    // spec-433: no identity form — the user lands directly on create-spec.
+    await expect(page.getByTestId("journey-step-create-spec")).toBeVisible({ timeout: 15_000 });
 
     // The new user can now reach their personal-memex Specs board (the onboarding wall
     // is gone, spec-312) — as the NEW user (sidebar identity shows `email`), never
     // dev@memex.ai. `/` lands on /home now, so navigate to the Specs board explicitly.
     await gotoSpecsBoard(page, email);
-    await expect(page.getByText(email)).toBeVisible();
+    // Use .first() — the email appears in both the sidebar user button and demo-spec metadata rows.
+    // The sidebar user button is first in DOM order and is the identity proof we care about.
+    await expect(page.getByText(email).first()).toBeVisible();
     await expect(page.getByText(DEV_EMAIL)).toHaveCount(0);
   }
 );

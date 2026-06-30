@@ -25,7 +25,7 @@ vi.hoisted(() => {
 
 import { db } from "../db/connection.js";
 import { app } from "../app.js";
-import { users } from "../db/schema.js";
+import { users, documents } from "../db/schema.js";
 import { eq } from "drizzle-orm";
 import {
   upsertUserByEmail,
@@ -33,6 +33,8 @@ import {
   getUserById,
 } from "../services/users.js";
 import { signSessionToken } from "../services/auth-jwt.js";
+import { recordMcpConnected } from "../services/funnel-events.js";
+import { makeTestMemex } from "../services/test-helpers.js";
 import { tagAc } from "@memex-ai-ac/vitest";
 
 const AC = (n: number) =>
@@ -80,9 +82,25 @@ describe("first-run greeting gate (spec-206 t-1)", () => {
     expect(row!.onboardingGreetedAt).toBeNull();
   });
 
-  it("GET returns greet=true while ungreeted, greet=false once stamped", async () => {
+  it("GET returns greet=true while ungreeted (with MCP+spec), greet=false once stamped", async () => {
     tagAc(AC(13));
     const { id, bearer } = await makeUser("sp206-gate", "Ryan Soosayraj");
+
+    // spec-434: gate also requires mcpConnected AND hasSpec. Seed both so this
+    // test remains a faithful probe of the "ungreeted → greet=true" path.
+    await recordMcpConnected(id);
+    const memexId = await makeTestMemex("sp206gate");
+    createdUserIds.push(); // memex cleanup handled by user cascade
+    await db.insert(documents).values({
+      memexId,
+      title: "Gate test spec",
+      status: "draft",
+      handle: "spec-1",
+      docType: "spec",
+      isDemo: false,
+      createdByUserId: id,
+      statusChangedAt: new Date(),
+    });
 
     const before = await getGreeting(bearer);
     expect(before.status).toBe(200);
@@ -122,8 +140,9 @@ describe("first-run greeting gate (spec-206 t-1)", () => {
 
     // B was never stamped by A's calls — cross-user isolation.
     expect((await getUserById(b.id))!.onboardingGreetedAt).toBeNull();
+    // spec-434: a fresh user without MCP+spec gets greet=false (not greet=true).
     const bGate = await getGreeting(b.bearer);
-    expect((await bGate.json()).greet).toBe(true);
+    expect((await bGate.json()).greet).toBe(false);
 
     // Anonymous (no Bearer) is 401'd before the handler — cannot read or stamp.
     expect((await getGreeting()).status).toBe(401);
