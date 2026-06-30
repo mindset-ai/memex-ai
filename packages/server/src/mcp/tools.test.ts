@@ -56,6 +56,9 @@ const DOC_ROW = {
   groundedAt: null,
   groundedByUserId: null,
   groundedByName: null,
+  checkedOutBy: null,
+  checkedOutAt: null,
+  checkedOutThread: null,
 };
 const SECTION_ROW = {
   id: TEST_SECTION_ID,
@@ -483,7 +486,7 @@ describe("MCP Tool handlers via HTTP", () => {
 
   it("create_doc resolves workspace then calls service", async () => {
     vi.mocked(createDocDraft).mockResolvedValue(testMutate({ ...makeDoc(), sections: [makeSection()], decisions: [] }));
-    vi.mocked(getDoc).mockResolvedValue({ groundedStale: false, ...makeDoc(), sections: [makeSection()] });
+    vi.mocked(getDoc).mockResolvedValue({ groundedStale: false, checkoutHolder: null, ...makeDoc(), sections: [makeSection()] });
 
     const response = await mcpCall("create_doc", {
       title: "My Spec",
@@ -526,7 +529,7 @@ describe("MCP Tool handlers via HTTP", () => {
 
   it("create_doc passes through memex argument", async () => {
     vi.mocked(createDocDraft).mockResolvedValue(testMutate({ ...makeDoc(), sections: [makeSection()], decisions: [] }));
-    vi.mocked(getDoc).mockResolvedValue({ groundedStale: false, ...makeDoc(), sections: [makeSection()] });
+    vi.mocked(getDoc).mockResolvedValue({ groundedStale: false, checkoutHolder: null, ...makeDoc(), sections: [makeSection()] });
 
     await mcpCall("create_doc", { memex: "mindset", title: "X", purpose: "Y" });
 
@@ -550,7 +553,7 @@ describe("MCP Tool handlers via HTTP", () => {
   });
 
   it("get_doc accepts a canonical ref and returns the doc state", async () => {
-    vi.mocked(getDoc).mockResolvedValue({ groundedStale: false, ...makeDoc(), sections: [makeSection()] });
+    vi.mocked(getDoc).mockResolvedValue({ groundedStale: false, checkoutHolder: null, ...makeDoc(), sections: [makeSection()] });
 
     const response = await mcpCall("get_doc", { ref: TEST_DOC_REF });
     const text = response.result.content[0].text;
@@ -570,7 +573,7 @@ describe("MCP Tool handlers via HTTP", () => {
 
   it("update_doc({status}) updates and returns full state (replaces update_doc_status)", async () => {
     vi.mocked(updateDocStatus).mockResolvedValue(testMutate(makeDoc({ status: "review" })));
-    vi.mocked(getDoc).mockResolvedValue({ groundedStale: false,
+    vi.mocked(getDoc).mockResolvedValue({ groundedStale: false, checkoutHolder: null,
       ...makeDoc({ status: "review" }),
       sections: [makeSection()],
     });
@@ -588,7 +591,7 @@ describe("MCP Tool handlers via HTTP", () => {
 
   it("update_doc({title}) updates and returns full state (replaces update_doc_title)", async () => {
     vi.mocked(updateDocTitle).mockResolvedValue(testMutate(makeDoc({ title: "Renamed" })));
-    vi.mocked(getDoc).mockResolvedValue({ groundedStale: false,
+    vi.mocked(getDoc).mockResolvedValue({ groundedStale: false, checkoutHolder: null,
       ...makeDoc({ title: "Renamed" }),
       sections: [makeSection()],
     });
@@ -610,7 +613,7 @@ describe("MCP Tool handlers via HTTP", () => {
 
   it("add_section uses the doc ref", async () => {
     vi.mocked(addSection).mockResolvedValue(testMutate(makeSection()));
-    vi.mocked(getDoc).mockResolvedValue({ groundedStale: false, ...makeDoc(), sections: [makeSection()] });
+    vi.mocked(getDoc).mockResolvedValue({ groundedStale: false, checkoutHolder: null, ...makeDoc(), sections: [makeSection()] });
 
     await mcpCall("add_section", {
       ref: TEST_DOC_REF,
@@ -669,7 +672,7 @@ describe("MCP Tool handlers via HTTP", () => {
 
   it("update_section resolves the section via its ref", async () => {
     vi.mocked(updateSection).mockResolvedValue(testMutate(makeSection({ content: "Updated" })));
-    vi.mocked(getDoc).mockResolvedValue({ groundedStale: false, ...makeDoc(), sections: [makeSection({ content: "Updated" })], creator: null });
+    vi.mocked(getDoc).mockResolvedValue({ groundedStale: false, checkoutHolder: null, ...makeDoc(), sections: [makeSection({ content: "Updated" })], creator: null });
 
     const response = await mcpCall("update_section", {
       ref: TEST_SECTION_REF,
@@ -684,7 +687,7 @@ describe("MCP Tool handlers via HTTP", () => {
   });
 
   it("list_comments with a doc ref returns the doc-scoped review (replaces list_doc_comments)", async () => {
-    vi.mocked(getDoc).mockResolvedValue({ groundedStale: false, ...makeDoc(), sections: [], creator: null });
+    vi.mocked(getDoc).mockResolvedValue({ groundedStale: false, checkoutHolder: null, ...makeDoc(), sections: [], creator: null });
 
     const response = await mcpCall("list_comments", { ref: TEST_DOC_REF });
 
@@ -735,7 +738,7 @@ describe("MCP Tool handlers via HTTP", () => {
       decisions: [],
       tasks: [],
     });
-    vi.mocked(getDoc).mockResolvedValue({ groundedStale: false, ...makeDoc(), sections: [], creator: null });
+    vi.mocked(getDoc).mockResolvedValue({ groundedStale: false, checkoutHolder: null, ...makeDoc(), sections: [], creator: null });
 
     const response = await mcpCall("list_comments", { ref: TEST_DOC_REF, mode: "review" });
     const text = response.result.content[0].text;

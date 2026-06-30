@@ -75,7 +75,7 @@ describe("spec-412 emission boundary — app's view only (ac-6, ac-10)", () => {
       s.metrics.map((m) => m.descriptor.name),
     );
     expect(emitted.length).toBeGreaterThan(0);
-    const known = new Set(Object.values(DB_METRIC_NAMES));
+    const known = new Set<string>(Object.values(DB_METRIC_NAMES));
     for (const name of emitted) {
       expect(name).not.toMatch(/cpu|disk|memory|mem\b/i);
       expect(known.has(name)).toBe(true); // nothing outside the app-view registry

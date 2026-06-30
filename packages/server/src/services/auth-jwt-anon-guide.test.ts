@@ -43,8 +43,8 @@ describe("anonymous guide-session token (ac-14)", () => {
     expect(claims.exp).toBe(expiresAt);
     expect(claims.exp).toBeGreaterThan(claims.iat);
     // No user / no tenant smuggled in.
-    expect((claims as Record<string, unknown>).sub).toBeUndefined();
-    expect((claims as Record<string, unknown>).memex).toBeUndefined();
+    expect((claims as unknown as Record<string, unknown>).sub).toBeUndefined();
+    expect((claims as unknown as Record<string, unknown>).memex).toBeUndefined();
   });
 
   it("mints distinct nonces for two tokens of the same surface", () => {
