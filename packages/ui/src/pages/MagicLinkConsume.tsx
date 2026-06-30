@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth, computeDefaultLanding } from '../components/AuthContext';
 import { isFeatureHidden } from '../utils/featureFlags';
 import { magicLinkConsumeApi, AuthApiError } from '../api/client';
+import { readAttributionCookie, pushDataLayer } from '../lib/attribution';
 import { Spinner } from '../components/Spinner';
 
 type Stage = 'consuming' | 'success' | 'failed';
@@ -32,6 +33,13 @@ export function MagicLinkConsume() {
     magicLinkConsumeApi(token)
       .then((session) => {
         acceptSession(session);
+        if (session.isNewAccount) {
+          pushDataLayer({
+            event: 'sign_up_completed',
+            event_id: session.conversionEventId ?? crypto.randomUUID(),
+            ...readAttributionCookie(),
+          });
+        }
         setStage('success');
         // spec-421 dec-5: route through /login (whose element is RootRedirect) so the
         // onboarding-state landing decision applies — a returning engaged user lands on

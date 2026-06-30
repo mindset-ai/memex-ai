@@ -6,6 +6,8 @@ import {
   type SsoTokenPayload,
 } from "../../services/auth.js";
 import { markEmailVerified } from "../../services/users.js";
+import { parseAttributionCookie, saveAttribution, hashEmail } from "../../services/attribution.js";
+import { fireAllConversions } from "../../services/conversion-apis.js";
 import type { MemexResolverEnv } from "../../middleware/memex-resolver.js";
 import type { SessionEnv } from "../../middleware/session.js";
 import { readJsonBody, requireString } from "../validation.js";
@@ -70,9 +72,31 @@ sso.post("/google", async (c) => {
 
     // If Google asserts the email is verified AND we haven't already stamped it, mirror
     // that into users.email_verified_at so the user skips our verification gate.
-    if (!session.user.emailVerified) {
+    const isNewAccount = !session.user.emailVerified;
+    if (isNewAccount) {
       await markEmailVerified(session.user.id);
       session = { ...session, user: { ...session.user, emailVerified: true } };
+    }
+
+    let conversionEventId: string | null = null;
+    if (isNewAccount) {
+      const attribution = parseAttributionCookie(c.req.header("cookie"));
+      if (attribution) {
+        const eventId = await saveAttribution(session.user.id, attribution).catch((err) => {
+          console.error("[spec-21] failed to save attribution:", err instanceof Error ? err.message : String(err));
+          return null;
+        });
+        if (eventId) {
+          conversionEventId = eventId;
+          fireAllConversions({
+            email: session.user.email,
+            hashedEmail: hashEmail(session.user.email),
+            eventId,
+            attribution,
+            conversionDateTime: new Date().toISOString(),
+          });
+        }
+      }
     }
 
     // Tenant override (t-7): if the request hostname resolves to an account the user is a
@@ -89,7 +113,7 @@ sso.post("/google", async (c) => {
     }
     setKnownCookie(c);
     await applyVisitorMerge(c, session.user.id); // spec-254 — identify merge (SSO)
-    return c.json(withToken(session));
+    return c.json({ ...withToken(session), isNewAccount, conversionEventId });
   } catch (err) {
     if (err instanceof DisabledUserError) {
       return c.json({ error: "User is disabled" }, 403);
