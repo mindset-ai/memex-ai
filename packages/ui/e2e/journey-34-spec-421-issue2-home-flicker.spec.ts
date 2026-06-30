@@ -88,14 +88,14 @@ test(TITLE, async ({ page }) => {
   //    at the correct engaged state (the first-spec step ticked), never an empty/0% frame.
   await expect(page.getByTestId("journey-layer")).toBeVisible({ timeout: 5_000 });
   await expect(page.getByTestId("journey-progress")).toBeVisible();
-  await expect(page.getByTestId("journey-progress")).not.toHaveText("0% complete");
-  await expect(page.getByTestId("journey-rail-node-create-first-spec")).toHaveAttribute(
-    "data-attained",
-    "true",
-  );
+  // spec-433: create-spec is FIRST_STEP_ID → rail is hidden when the user is on it
+  // (mcpConnected=false means server returns create-spec as the current step).
+  // The anti-flicker proof pivots to the progress bar: with identityConfirmed=true and
+  // hasSpec=true, create-first-spec is attained → 1/2 visible steps = 50%, painted on
+  // the first commit from the shared assessment, never a 0% frame.
+  await expect(page.getByTestId("journey-progress")).toHaveText("50% complete");
   // NB: the content panel's step component (its own Create→Created / Connect→Connected
   // done-flip — the real flicker site) is proven seeded-before-draw at the unit level
-  // (CreateFirstSpecStep / CreateSpecStep tests). Which step shows here depends on the
-  // user's milestone profile (this fixture has a spec but no MCP, so the displayed step is
-  // the genuinely-not-connected create-spec), so the content-done assertion lives in units.
+  // (CreateFirstSpecStep / CreateSpecStep tests). This fixture has a spec but no MCP, so
+  // the displayed step is the genuinely-not-connected create-spec; content-done assertion lives in units.
 });

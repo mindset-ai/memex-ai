@@ -66,7 +66,9 @@ function stateFor(currentStepId: string, attained: readonly string[] = []) {
 }
 
 const GRADUATED = stateFor('create-first-spec', ['identity', 'create-spec', 'create-first-spec']);
-const IN_PROGRESS = stateFor('create-spec', ['identity']);
+// spec-433: identity is now hidden; 2 visible steps (create-spec, create-first-spec).
+// In-progress = create-spec attained (1/2 visible = 50%); server on create-first-spec so rail shows.
+const IN_PROGRESS = stateFor('create-first-spec', ['create-spec']);
 
 function deferred<T>() {
   let resolve!: (v: T) => void;
@@ -124,10 +126,10 @@ describe('spec-421 issue-2 — assess journey-state before draw (in-memory, shar
 
     renderCanvas();
 
-    // 1 of 3 visible steps attained → 33%, painted on the first commit.
-    expect(screen.getByTestId('journey-progress')).toHaveTextContent('33% complete');
-    expect(screen.getByTestId('journey-rail-node-identity').getAttribute('data-attained')).toBe('true');
-    expect(screen.getByTestId('journey-rail-node-create-spec').getAttribute('data-attained')).toBe('false');
+    // spec-433: 1 of 2 visible steps attained → 50%, painted on the first commit.
+    expect(screen.getByTestId('journey-progress')).toHaveTextContent('50% complete');
+    expect(screen.getByTestId('journey-rail-node-create-spec').getAttribute('data-attained')).toBe('true');
+    expect(screen.getByTestId('journey-rail-node-create-first-spec').getAttribute('data-attained')).toBe('false');
   });
 
   it('cold load with no prior assessment shows no tracker (never a wrong/0% frame) until the read resolves (ac-23)', async () => {
