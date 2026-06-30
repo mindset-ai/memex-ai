@@ -179,8 +179,8 @@ export const toolManifest: ToolManifestEntry[] = [
   {
     name: 'add_section',
     summary:
-      'Add a new section to a document; the (doc, sectionType) pair is unique. STANDARDS are authored as clauses: pass clauses[] (one aspect each), not content; other doc types pass content. Wrong field for the doc type → rejected with guidance.',
-    args: 'add_section(ref, sectionType, content?, clauses?, title?, description?)',
+      'Add a new section to a document; the (doc, sectionType) pair is unique. STANDARDS are authored as clauses: pass clauses[] (one aspect each), not content; other doc types pass content. Each clause carries a facet verdict where the Memex has a vocabulary — pass clauseFacets[] (parallel to clauses; [] for a "governs nothing" clause). Wrong field for the doc type → rejected with guidance.',
+    args: 'add_section(ref, sectionType, content?, clauses?, clauseFacets?, title?, description?)',
     group: 'planning',
     readOnlyHint: false,
     trafficClass: null,
