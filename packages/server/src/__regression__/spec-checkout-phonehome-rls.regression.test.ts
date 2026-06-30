@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq, inArray, sql } from "drizzle-orm";
 import postgres from "postgres";
 import { db } from "../db/connection.js";
-import { namespaces, memexes, documents } from "../db/schema.js";
+import { namespaces, orgs, memexes, documents } from "../db/schema.js";
 
 // Regression guard for the spec-checkout phone-home RLS trap (spec-371).
 //
@@ -29,6 +29,8 @@ const NS_SLUG = "phonehome-rls-regress-ns";
 const SPEC_HANDLE = "spec-rls-1";
 
 describe("regression: spec-checkout phone-home read needs app.memex_id under RLS", () => {
+  let nsId: string;
+  let orgId: string;
   let memexId: string;
   let docId: string;
 
@@ -38,9 +40,19 @@ describe("regression: spec-checkout phone-home read needs app.memex_id under RLS
       .insert(namespaces)
       .values({ slug: NS_SLUG, kind: "org" })
       .returning({ id: namespaces.id });
+    nsId = ns!.id;
+    // Own the namespace by an org so it satisfies the owner-XOR invariant — otherwise a
+    // kind='org' namespace with a NULL owner_org_id trips migration-smoke's global scan
+    // when these tests share a worker DB clone (std-37, parallel-fixture isolation).
+    const [org] = await db
+      .insert(orgs)
+      .values({ namespaceId: nsId, name: "Phonehome RLS Regress Org" })
+      .returning({ id: orgs.id });
+    orgId = org!.id;
+    await db.update(namespaces).set({ ownerOrgId: orgId }).where(eq(namespaces.id, nsId));
     const [mx] = await db
       .insert(memexes)
-      .values({ namespaceId: ns!.id, slug: "phonehome-rls-regress-mx", name: "Phonehome RLS Regress" })
+      .values({ namespaceId: nsId, slug: "phonehome-rls-regress-mx", name: "Phonehome RLS Regress" })
       .returning({ id: memexes.id });
     memexId = mx!.id;
     const [doc] = await db
@@ -51,11 +63,17 @@ describe("regression: spec-checkout phone-home read needs app.memex_id under RLS
   });
 
   afterAll(async () => {
-    // FK order; the test namespace is kind='org' without owner_org_id (test-only),
-    // which would otherwise trip the owner-XOR invariant in migration-smoke.
+    // FK order: documents → memexes → break the namespace↔org cycle (null the
+    // namespace's owner_org_id) → org → namespace.
     if (memexId) {
       await db.delete(documents).where(eq(documents.memexId, memexId)).catch(() => {});
       await db.delete(memexes).where(inArray(memexes.id, [memexId])).catch(() => {});
+    }
+    if (nsId) {
+      await db.update(namespaces).set({ ownerOrgId: null }).where(eq(namespaces.id, nsId)).catch(() => {});
+    }
+    if (orgId) {
+      await db.delete(orgs).where(eq(orgs.id, orgId)).catch(() => {});
     }
     await db.delete(namespaces).where(eq(namespaces.slug, NS_SLUG)).catch(() => {});
   });
@@ -113,7 +131,7 @@ describe("regression: spec-checkout phone-home read needs app.memex_id under RLS
         );
       });
       expect(rows).toHaveLength(1);
-      expect((rows[0] as { id: string }).id).toBe(docId);
+      expect((rows[0] as unknown as { id: string }).id).toBe(docId);
     } finally {
       await roleSql.end({ timeout: 5 });
     }

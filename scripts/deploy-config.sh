@@ -159,4 +159,22 @@ if [ -n "${SIGNUP_DOMAIN_ALLOWLIST+set}" ]; then
   export SIGNUP_DOMAIN_ALLOWLIST
 fi
 
+# OTEL_EXPORTER_OTLP_ENDPOINT — turns on database observability and chooses
+# where the metrics go. Unset (the default) means telemetry is off with zero
+# overhead. Set it to any OpenTelemetry OTLP/HTTP endpoint and the server
+# exports its own view of the database (query latency, throughput, errors, total
+# backends vs max_connections, pool utilisation) directly there — no separate
+# collector required. Point it at a managed backend (e.g. GCP Cloud Monitoring's
+# OTLP ingest), or, when self-hosting, at your own collector / Grafana / Datadog;
+# the metrics show up in your stack with no code change. Optional
+# MEMEX_OTEL_EXPORT_INTERVAL_MS tunes the export/probe cadence (default 20000ms).
+# Same set-vs-unset MERGE semantics as HIDDEN_FEATURES above: export ONLY when
+# this checkout actually set it, so a deploy never blanks a live endpoint.
+if [ -n "${OTEL_EXPORTER_OTLP_ENDPOINT+set}" ]; then
+  export OTEL_EXPORTER_OTLP_ENDPOINT
+fi
+if [ -n "${MEMEX_OTEL_EXPORT_INTERVAL_MS+set}" ]; then
+  export MEMEX_OTEL_EXPORT_INTERVAL_MS
+fi
+
 echo "[deploy-config] ENV=$ENV  project=$GCP_PROJECT  host=$PUBLIC_HOST  api=$API_PUBLIC_HOST"

@@ -6,6 +6,7 @@ import type { PgTransaction } from "drizzle-orm/pg-core";
 import type { ExtractTablesWithRelations } from "drizzle-orm";
 import postgres from "postgres";
 import * as schema from "./schema.js";
+import { instrumentSqlClientIfEnabled } from "../observability/otel/index.js";
 
 const connectionString = process.env.DATABASE_URL;
 
@@ -228,7 +229,14 @@ function createRlsClient(baseClient: SqlClient): SqlClient {
 
 const rlsClient = createRlsClient(client);
 
-export const db = drizzle(rlsClient, { schema });
+// Compose OpenTelemetry query instrumentation over the RLS proxy when database
+// telemetry is enabled (an OTLP endpoint is configured). When disabled — local
+// dev and the test suite — this returns rlsClient UNCHANGED, so query behaviour
+// and overhead are byte-for-byte identical to before. The instrumentation only
+// times queries; it never alters results or the RLS micro-transaction seam.
+const instrumentedClient = instrumentSqlClientIfEnabled(rlsClient);
+
+export const db = drizzle(instrumentedClient, { schema });
 
 // The raw postgres-js pooled client. Exposed so the cross-instance bus relay
 // (services/bus-relay.ts, spec-156) can issue fire-and-forget NOTIFY statements

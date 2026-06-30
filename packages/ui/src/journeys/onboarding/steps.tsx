@@ -23,7 +23,8 @@ export const BUILDER_ONLY_STEP_IDS = ['specs-match-reality', 'agents-build'] as 
 
 // spec-421 — steps hidden from the rail. Their components are never mounted while hidden
 // so no telemetry, done-state badges, or completion machinery fires.
-export const HIDDEN_STEP_IDS = ['resolve-decision', 'add-ac', 'specs-match-reality', 'agents-build'] as const;
+// spec-433 — 'identity' (About You) added: new users land directly on 'create-spec'.
+export const HIDDEN_STEP_IDS = ['identity', 'resolve-decision', 'add-ac', 'specs-match-reality', 'agents-build'] as const;
 
 export const ONBOARDING_STEP_VIEWS: Record<string, JourneyStepView> = {
   // Step 0 — About you. Rendered by IdentityStep (the role triangle) in HomeCanvas.

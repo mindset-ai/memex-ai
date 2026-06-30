@@ -15,15 +15,38 @@ export interface InstallDeps {
     target: McpTargetKey;
     force?: boolean;
   }) => Promise<BridgeWriteResult>;
-  /** Raise the native success toast prompting a Claude restart (ac-51, dec-22). */
+  /**
+   * Raise a native OS notification (ac-51, dec-22): the success toast prompting
+   * a Claude restart, AND — since dec-25 — the install-FAILURE toast so a failed
+   * action surfaces system-wide even if the webview isn't focused (ac-69).
+   */
   notify: (opts: { title: string; body: string; target?: string }) => Promise<boolean>;
   /** Ask the user to back up & overwrite a JSONC config. Returns false to cancel. */
   confirmOverwrite: (name: string, path: string) => boolean | Promise<boolean>;
 }
 
+/**
+ * Why an in-app install failed (dec-25). The Integrations surface maps each to a
+ * plain-language cause (ac-68); `cancelled` is the user backing out of a JSONC
+ * overwrite — benign, not surfaced as an error.
+ *  - `mint`         — could not mint a session token (auth/session problem).
+ *  - `config-write` — minted fine, but writing the client's config failed.
+ *  - `unknown`      — a token came back falsy with no thrown error (defensive).
+ */
+export type InstallFailureKind = 'mint' | 'config-write' | 'unknown' | 'cancelled';
+
 export type InstallOutcome =
   | { ok: true; client: string; backupPath?: string }
-  | { ok: false; reason: string };
+  | {
+      ok: false;
+      reason: string;
+      /** Which stage failed — drives the plain-language cause in the UI (ac-68). */
+      failure: InstallFailureKind;
+      /** The client's target config path, when the bridge surfaced one (ac-68). */
+      configPath?: string;
+      /** The underlying error text, for the copyable diagnostic (ac-68). */
+      error?: string;
+    };
 
 /** The label every desktop-minted token carries, so they're recognisable in the token list. */
 export const DESKTOP_TOKEN_LABEL = 'Memex Desktop';
@@ -47,30 +70,55 @@ export async function runInstall(
     const minted = await deps.mint(DESKTOP_TOKEN_LABEL);
     token = minted.token;
   } catch (err) {
-    return { ok: false, reason: reason(err, 'Could not mint a token from your session') };
+    return fail(deps, clientName, {
+      failure: 'mint',
+      reason: reason(err, 'Could not mint a token from your session'),
+      error: errText(err),
+    });
   }
-  if (!token) return { ok: false, reason: 'Could not mint a token from your session' };
+  if (!token) {
+    return fail(deps, clientName, {
+      failure: 'unknown',
+      reason: 'Could not mint a token from your session',
+    });
+  }
 
   let res: BridgeWriteResult;
   try {
     res = await deps.install({ token, target });
   } catch (err) {
-    return { ok: false, reason: reason(err, 'Install failed') };
+    return fail(deps, clientName, {
+      failure: 'config-write',
+      reason: reason(err, 'Install failed'),
+      error: errText(err),
+    });
   }
 
   // JSONC branch: the bridge did NOT overwrite. Confirm, then re-issue forced.
   if (!res.ok && res.needsConfirmation) {
     const proceed = await deps.confirmOverwrite(res.name ?? clientName, res.path ?? '');
-    if (!proceed) return { ok: false, reason: 'cancelled' };
+    // Cancelling is the user backing out — a benign non-failure, not surfaced
+    // as an error and never notified.
+    if (!proceed) return { ok: false, reason: 'cancelled', failure: 'cancelled' };
     try {
       res = await deps.install({ token, target, force: true });
     } catch (err) {
-      return { ok: false, reason: reason(err, 'Install failed') };
+      return fail(deps, clientName, {
+        failure: 'config-write',
+        reason: reason(err, 'Install failed'),
+        error: errText(err),
+        configPath: res.path,
+      });
     }
   }
 
   if (!res.ok) {
-    return { ok: false, reason: res.error ?? 'Install failed' };
+    return fail(deps, clientName, {
+      failure: 'config-write',
+      reason: res.error ?? 'Install failed',
+      error: res.error,
+      configPath: res.path,
+    });
   }
 
   // Success — announce natively so completion surfaces even after the user
@@ -87,6 +135,61 @@ export async function runInstall(
   return { ok: true, client: clientName, backupPath: res.backupPath };
 }
 
+/**
+ * Finalise a failed install (dec-25, ac-69): raise a native FAILURE notification
+ * mirroring the success toast — so a failure surfaces system-wide even when the
+ * webview isn't focused — then return the structured failure outcome the
+ * Integrations surface maps to a plain-language cause (ac-68). The notification
+ * is best-effort (never throws, never fails the flow), exactly like the success
+ * toast. The body NEVER includes the secret session token — only the client
+ * name and a short, non-secret cause.
+ */
+async function fail(
+  deps: InstallDeps,
+  clientName: string,
+  detail: { failure: InstallFailureKind; reason: string; error?: string; configPath?: string },
+): Promise<InstallOutcome> {
+  await deps
+    .notify({
+      title: 'MCP install failed',
+      body: `Couldn't connect Memex to ${clientName}. Open Memex to retry.`,
+      target: 'mcp',
+    })
+    .catch(() => false);
+  // Scrub any echoed session token from EVERY field of the failure outcome —
+  // this is the single chokepoint through which all failures flow, so redacting
+  // here guarantees no `mxt_…` reaches the surface, diagnostic, or clipboard,
+  // whether the text came from a thrown error or the bridge's structured result.
+  return {
+    ok: false,
+    reason: redactToken(detail.reason),
+    failure: detail.failure,
+    ...(detail.configPath ? { configPath: redactToken(detail.configPath) } : {}),
+    ...(detail.error ? { error: redactToken(detail.error) } : {}),
+  };
+}
+
 function reason(err: unknown, fallback: string): string {
   return err instanceof Error && err.message ? err.message : fallback;
+}
+
+/** The underlying error text for the copyable diagnostic — never a secret. */
+function errText(err: unknown): string | undefined {
+  return err instanceof Error && err.message ? err.message : undefined;
+}
+
+/**
+ * SECURITY (dec-25, defensive): scrub any `mxt_…` session-token substring from a
+ * string before it can reach the failure outcome — and from there the copyable
+ * diagnostic, the Integrations error surface, or the native notification.
+ * `runInstall` never puts the token into the outcome itself, but `error` and
+ * `configPath` are verbatim pass-throughs of the Dart bridge's `res.error` /
+ * thrown message; a future bridge regression that echoes the minted token back
+ * in its own error string must not be able to leak it through the React layer.
+ */
+function redactToken(text: string): string {
+  // Match the `mxt_` prefix plus the whole token-like run that follows
+  // (word chars cover the real base62 token and any underscore-bearing variant),
+  // and replace with a marker that itself contains no `mxt_` substring.
+  return text.replace(/mxt_\w+/g, '[redacted-token]');
 }

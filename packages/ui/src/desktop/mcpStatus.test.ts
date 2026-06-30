@@ -20,6 +20,15 @@ const AC_PER_TOKEN =
 // signal, independent of local config.
 const AC_CONNECTOR =
   'mindset-prod/memex-building-itself/specs/spec-304/acs/ac-56';
+// issue-31 → t-65: "MCP Ready" must STAY like the Install prompt (snoozable),
+// not auto-hide like Connected (transient).
+const AC_READY_STAYS =
+  'mindset-prod/memex-building-itself/specs/spec-304/acs/ac-62';
+// dec-25 → t-69: the pill is now a PERSISTENT, user-dismissible status reflector.
+// "MCP connected" shows and STAYS (snoozable) — the transient auto-hide is gone.
+// NO derived indicator is transient any more; the visibility class is removed.
+const AC_PILL_PERSISTS =
+  'mindset-prod/memex-building-itself/specs/spec-304/acs/ac-66';
 
 // An active token whose matching local entry HAS handshaked (lastUsedAt set).
 const CONNECTED_TOKEN: ActiveToken = {
@@ -171,22 +180,68 @@ describe('spec-304 ac-49: app-global indicator — quiet, honest, MCP-led wordin
     }
   });
 
-  it('connected wins and is transient (auto-hides in the healthy steady state)', () => {
+  it('connected wins and STAYS (snoozable) — dec-25 removed the auto-hide', () => {
     tagAc(AC_INDICATOR);
     expect(deriveIndicator([s('connected'), s('not_installed')])).toEqual({
       kind: 'connected',
       label: 'MCP connected',
-      visibility: 'transient',
+      visibility: 'snoozable',
     });
   });
 
-  it('ready (installed, no handshake) is transient and never reads "connected"', () => {
+  it('ready (installed, no handshake) stays (snoozable) and never reads "connected"', () => {
     tagAc(AC_INDICATOR);
     const ind = deriveIndicator([s('ready'), s('not_installed')]);
     expect(ind.kind).toBe('ready');
     expect(ind.label).toBe('MCP ready');
     expect(ind.label).not.toContain('connected');
-    expect(ind.visibility).toBe('transient');
+    // Ready stays up like Install, not auto-hidden like Connected (issue-31).
+    expect(ind.visibility).toBe('snoozable');
+  });
+
+  it('ready STAYS visible like the Install prompt — snoozable, not transient (ac-62)', () => {
+    tagAc(AC_READY_STAYS);
+    // Ready = installed + authorized, no handshake yet: an actionable "go make
+    // Claude connect" state, not the quiet healthy steady state. It must stay
+    // up (dismissible) like Install, not auto-hide like Connected (issue-31).
+    const ready = deriveIndicator([s('ready'), s('not_installed')]);
+    expect(ready.kind).toBe('ready');
+    expect(ready.visibility).toBe('snoozable');
+    // It now matches the Install prompt's staying behaviour…
+    expect(deriveIndicator([s('not_installed')]).visibility).toBe('snoozable');
+    // …and Connected ALSO stays now (dec-25): it's the standing success signal,
+    // dismissible by the user, no longer auto-hidden.
+    expect(deriveIndicator([s('connected')]).visibility).toBe('snoozable');
+  });
+
+  describe('spec-304 ac-66 (dec-25): the pill is a persistent, user-dismissible status reflector', () => {
+    it('connected shows and STAYS (snoozable) — the transient auto-hide is removed', () => {
+      tagAc(AC_PILL_PERSISTS);
+      const connected = deriveIndicator([s('connected'), s('not_installed')]);
+      expect(connected.kind).toBe('connected');
+      expect(connected.label).toBe('MCP connected');
+      expect(connected.visibility).toBe('snoozable');
+    });
+
+    it('NO derived indicator is ever transient — the auto-hide class is gone', () => {
+      tagAc(AC_PILL_PERSISTS);
+      // Every reachable client-kind combination: none of them may auto-hide.
+      const combos: ClientStatus['kind'][][] = [
+        ['connected'],
+        ['connected', 'not_installed'],
+        ['ready'],
+        ['ready', 'not_installed'],
+        ['repair'],
+        ['reinstall'],
+        ['not_installed'],
+        ['not_installed', 'not_installed'],
+      ];
+      for (const kinds of combos) {
+        const vis = deriveIndicator(kinds.map(s)).visibility;
+        expect(vis).not.toBe('transient');
+        expect(['snoozable', 'persistent']).toContain(vis);
+      }
+    });
   });
 
   it('a broken install (repair / wrong-server) is a PERSISTENT "MCP needs repair" badge', () => {

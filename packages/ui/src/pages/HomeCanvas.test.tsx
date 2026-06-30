@@ -50,10 +50,11 @@ import { HomeCanvas } from './HomeCanvas';
 const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-336/acs/ac-${n}`;
 const AC344 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-344/acs/ac-${n}`;
 const AC372 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-372/acs/ac-${n}`;
+const AC433 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-433/acs/ac-${n}`;
 
-// spec-421: create-first-spec added between create-spec and resolve-decision.
-// Steps 3-6 (resolve-decision, add-ac, specs-match-reality, agents-build) are hidden from
-// the rail by HIDDEN_STEP_IDS; the 3 visible steps are identity, create-spec, create-first-spec.
+// spec-433: identity hidden. spec-421: create-first-spec added.
+// HIDDEN_STEP_IDS = [identity, resolve-decision, add-ac, specs-match-reality, agents-build].
+// 2 visible steps: create-spec (FIRST_STEP_ID, full-width no-rail) and create-first-spec.
 const ALL_STEPS = [
   'identity',
   'create-spec',
@@ -64,8 +65,8 @@ const ALL_STEPS = [
   'agents-build',
 ] as const;
 
-const VISIBLE_STEPS = ['identity', 'create-spec', 'create-first-spec'] as const;
-const HIDDEN_STEPS = ['resolve-decision', 'add-ac', 'specs-match-reality', 'agents-build'] as const;
+const VISIBLE_STEPS = ['create-spec', 'create-first-spec'] as const;
+const HIDDEN_STEPS = ['identity', 'resolve-decision', 'add-ac', 'specs-match-reality', 'agents-build'] as const;
 
 const DEV_HEAVY = { dev: 0.9, design: 0.05, pm: 0.05 }; // → "All-in builder"
 const DESIGN_HEAVY = { dev: 0.05, design: 0.9, pm: 0.05 }; // → "Pure designer" (non-builder)
@@ -122,44 +123,68 @@ beforeEach(() => {
 });
 
 describe('HomeCanvas v2 — persistent rail + content panel (ac-1, ac-2, ac-8, ac-9)', () => {
-  it('opens a new user full-width on step 0 (the identity triangle); the rail is hidden until they advance', async () => {
-    tagAc(AC(2));
-    tagAc(AC(8));
-    tagAc(AC344(3)); // a normal (non-staff) user's journey renders unchanged by spec-344
+  it('server returning hidden identity step for brand-new user clamps forward to create-spec (ac-1, ac-7, spec-433)', async () => {
+    tagAc(AC433(1));
+    tagAc(AC433(7)); // clampToVisible maps hidden identity → first visible step (create-spec)
+    // Brand-new user: identityConfirmed=false → server returns currentStepId='identity'.
+    // clampToVisible detects identity precedes the first visible step (create-spec) and
+    // returns create-spec instead of the default last-visible fallback.
     fetchJourneyStateApi.mockResolvedValue(stateFor('identity'));
     renderCanvas();
 
+    expect(await screen.findByTestId('journey-step-create-spec')).toBeInTheDocument();
+    expect(screen.queryByTestId('journey-step-identity')).toBeNull();
+    expect(screen.queryByTestId('journey-rail')).toBeNull();
+  });
+
+  it('opens a new user full-width on step 0 (create-spec, Connect MCP); the rail is hidden until they advance', async () => {
+    tagAc(AC(2));
+    tagAc(AC(8));
+    tagAc(AC344(3)); // a normal (non-staff) user's journey renders unchanged by spec-344
+    tagAc(AC433(3)); // display name drawn from SSO identity — no prompt to confirm/edit
+    tagAc(AC433(6)); // FIRST_STEP_ID = 'create-spec' → full-width no-rail layout
+    // spec-433: identity is hidden; create-spec is FIRST_STEP_ID (full-width, no rail).
+    fetchJourneyStateApi.mockResolvedValue(stateFor('create-spec'));
+    renderCanvas();
+
     expect(await screen.findByTestId('getting-started-title')).toBeInTheDocument();
-    // Step 0 ("About you") is full-width — the rail only reveals once past it (ac-2/ac-8).
-    expect(screen.getByTestId('journey-step-identity')).toBeInTheDocument();
-    expect(screen.getByTestId('role-triangle')).toBeInTheDocument();
-    expect(screen.getByTestId('persona-label')).toBeInTheDocument();
+    // create-spec is full-width on step 0 — the rail only reveals on create-first-spec (ac-2/ac-8).
+    expect(screen.getByTestId('journey-step-create-spec')).toBeInTheDocument();
+    expect(screen.getByTestId('connect-stage')).toBeInTheDocument();
+    // No role triangle, no name input (identity step is hidden — ac-1 / ac-3).
+    expect(screen.queryByTestId('journey-step-identity')).toBeNull();
+    expect(screen.queryByTestId('role-triangle')).toBeNull();
     expect(screen.queryByTestId('journey-rail')).toBeNull();
     // A progress indicator at 0% for a brand-new user (derived, dec-6).
     expect(screen.getByTestId('journey-progress')).toHaveTextContent('0% complete');
   });
 
-  it('past step 0, shows 3 visible nodes in the rail; hidden steps have no rail nodes (spec-421)', async () => {
+  it('past step 0, shows 2 visible nodes in the rail; hidden steps have no rail nodes (spec-421, spec-433)', async () => {
     const AC421 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-421/acs/ac-${n}`;
     tagAc(AC(1));
     tagAc(AC(9));
-    tagAc(AC421(2)); // rail shows 3 nodes
+    tagAc(AC421(2)); // rail shows visible nodes (2 after spec-433)
     tagAc(AC421(3)); // hidden steps have no rail nodes
-    fetchJourneyStateApi.mockResolvedValue(stateFor('create-spec', { attained: ['identity'] }));
+    tagAc(AC433(2)); // rail shows exactly 2 steps (Connect MCP + Create First Spec)
+    tagAc(AC433(5)); // identity is in HIDDEN_STEP_IDS → absent from rail
+    // spec-433: create-spec is FIRST_STEP_ID (no rail). Rail reveals on create-first-spec.
+    // Use attained:[] so the create-spec subtitle is not collapsed (subtitle hides when
+    // attained+not-selected; with no attainment both nodes show their subtitles).
+    fetchJourneyStateApi.mockResolvedValue(stateFor('create-first-spec', { attained: [] }));
     renderCanvas();
 
     expect(await screen.findByTestId('journey-rail')).toBeInTheDocument();
-    // spec-421: 3 visible nodes in the rail.
+    // spec-433: 2 visible nodes in the rail (identity is now hidden).
     for (const id of VISIBLE_STEPS) {
       expect(screen.getByTestId(`journey-rail-node-${id}`)).toBeInTheDocument();
     }
-    // Hidden steps are absent from the rail.
+    // Hidden steps (including identity) are absent from the rail.
     for (const id of HIDDEN_STEPS) {
       expect(screen.queryByTestId(`journey-rail-node-${id}`)).toBeNull();
     }
     expect(screen.getByTestId('journey-content')).toBeInTheDocument();
-    expect(screen.getByTestId('journey-step-create-spec')).toBeInTheDocument();
-    // ac-13: step 2 rail subtitle reads "Connect to MCP to get the full magic of Memex".
+    expect(screen.getByTestId('journey-step-create-first-spec')).toBeInTheDocument();
+    // ac-13: create-spec rail node label and subtitle.
     tagAc(AC421(13));
     const createSpecNode = screen.getByTestId('journey-rail-node-create-spec');
     expect(createSpecNode.textContent).toContain('Connect to the Memex MCP');
@@ -168,28 +193,27 @@ describe('HomeCanvas v2 — persistent rail + content panel (ac-1, ac-2, ac-8, a
 });
 
 describe('HomeCanvas v2 — viewing is free and decoupled from attainment (ac-13, ac-14)', () => {
-  it('clicking a later step views it without changing any orb or the %', async () => {
+  it('clicking a step views it without changing any orb or the %', async () => {
     tagAc(AC(6));
     tagAc(AC(13));
     tagAc(AC(14));
-    // spec-421: identity attained → 1/3 visible ≈ 33% (3 visible steps total).
-    fetchJourneyStateApi.mockResolvedValue(stateFor('create-spec', { attained: ['identity'] }));
+    // spec-433: 2 visible steps. Rail shows on create-first-spec; 0/2 attained → 0%.
+    fetchJourneyStateApi.mockResolvedValue(stateFor('create-first-spec', { attained: [] }));
     renderCanvas();
 
     await screen.findByTestId('journey-rail');
     const pctBefore = screen.getByTestId('journey-progress').textContent;
-    expect(pctBefore).toBe('33% complete');
-    // create-first-spec is visible and not attained.
-    expect(screen.getByTestId('journey-rail-node-create-first-spec').getAttribute('data-attained')).toBe('false');
+    expect(pctBefore).toBe('0% complete');
+    // create-spec is visible and not attained.
+    expect(screen.getByTestId('journey-rail-node-create-spec').getAttribute('data-attained')).toBe('false');
 
-    // View a step the user is nowhere near — free navigation, no gating.
-    fireEvent.click(screen.getByTestId('journey-rail-node-create-first-spec'));
-    expect(await screen.findByTestId('journey-step-create-first-spec')).toBeInTheDocument();
+    // View create-spec via free navigation (rail node click) — no gating.
+    // create-spec is FIRST_STEP_ID, so the rail hides after selection; content still renders.
+    fireEvent.click(screen.getByTestId('journey-rail-node-create-spec'));
+    expect(await screen.findByTestId('journey-step-create-spec')).toBeInTheDocument();
 
-    // Neither the % nor that step's orb changed from merely viewing it.
+    // % did NOT change from merely clicking (no attainment event fired).
     expect(screen.getByTestId('journey-progress').textContent).toBe(pctBefore);
-    expect(screen.getByTestId('journey-rail-node-create-first-spec').getAttribute('data-attained')).toBe('false');
-    expect(screen.getByTestId('journey-rail-node-identity').getAttribute('data-attained')).toBe('true');
   });
 });
 
@@ -197,23 +221,23 @@ describe('HomeCanvas v2 — remembered cursor + no restart (ac-15)', () => {
   it('remembers the last-viewed step across a remount and exposes no restart control', async () => {
     tagAc(AC(6));
     tagAc(AC(15));
-    // Start past step 0 so the rail is shown and navigable.
-    fetchJourneyStateApi.mockResolvedValue(stateFor('create-spec', { attained: ['identity'] }));
+    // spec-433: rail shows on create-first-spec. Navigate back to create-spec (FIRST_STEP_ID).
+    fetchJourneyStateApi.mockResolvedValue(stateFor('create-first-spec', { attained: [] }));
     const { unmount } = renderCanvas();
 
     await screen.findByTestId('journey-rail');
-    // spec-421: navigate to create-first-spec (visible; add-ac is now hidden).
-    fireEvent.click(screen.getByTestId('journey-rail-node-create-first-spec'));
-    expect(await screen.findByTestId('journey-step-create-first-spec')).toBeInTheDocument();
+    // Navigate to create-spec from the rail; create-spec is FIRST_STEP_ID so rail hides.
+    fireEvent.click(screen.getByTestId('journey-rail-node-create-spec'));
+    expect(await screen.findByTestId('journey-step-create-spec')).toBeInTheDocument();
     // No restart control anywhere.
     expect(screen.queryByText(/restart/i)).toBeNull();
     expect(screen.queryByTestId('journey-restart')).toBeNull();
 
     unmount();
 
-    // Next visit lands back on the remembered step.
+    // Next visit lands back on the remembered step (create-spec, not yet attained).
     renderCanvas();
-    expect(await screen.findByTestId('journey-step-create-first-spec')).toBeInTheDocument();
+    expect(await screen.findByTestId('journey-step-create-spec')).toBeInTheDocument();
   });
 
   it('does NOT strand a returning user on a remembered step they have already completed', async () => {
@@ -229,37 +253,39 @@ describe('HomeCanvas v2 — remembered cursor + no restart (ac-15)', () => {
 });
 
 describe('HomeCanvas v2 — role branching (ac-7, ac-10, ac-11) — spec-421 updates', () => {
-  it('spec-421: both builder and non-builder see the same 3 visible nodes; no divider (hidden steps override builder-only)', async () => {
-    // spec-336 dec-3 builder branching is superseded by spec-421 HIDDEN_STEP_IDS for steps 3-6.
-    // Both personas now see [identity, create-spec, create-first-spec]; no build-from-codebase divider.
+  it('spec-421: both builder and non-builder see the same 2 visible nodes; no divider (hidden steps override builder-only)', async () => {
+    // spec-336 dec-3 builder branching superseded by HIDDEN_STEP_IDS; spec-433 also hides identity.
+    // Both personas now see [create-spec, create-first-spec]; no build-from-codebase divider.
     tagAc(AC(7));
     tagAc(AC(10));
     tagAc(AC(11));
     const AC421 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-421/acs/ac-${n}`;
     tagAc(AC421(2));
     tagAc(AC421(3));
-    fetchJourneyStateApi.mockResolvedValue(stateFor('create-spec', { roleCoords: DEV_HEAVY, attained: ['identity'] }));
+    // spec-433: rail shows on create-first-spec (create-spec is FIRST_STEP_ID).
+    fetchJourneyStateApi.mockResolvedValue(stateFor('create-first-spec', { roleCoords: DEV_HEAVY, attained: ['create-spec'] }));
     renderCanvas();
 
     await screen.findByTestId('journey-rail');
-    // All 3 visible steps present for a builder.
+    // Both 2 visible steps present for a builder.
     for (const id of VISIBLE_STEPS) {
       expect(screen.getByTestId(`journey-rail-node-${id}`)).toBeInTheDocument();
     }
-    // Builder-only steps are hidden (they're in HIDDEN_STEP_IDS).
-    expect(screen.queryByTestId('journey-rail-node-specs-match-reality')).toBeNull();
-    expect(screen.queryByTestId('journey-rail-node-agents-build')).toBeNull();
+    // All hidden steps are absent from the rail (including identity).
+    for (const id of HIDDEN_STEPS) {
+      expect(screen.queryByTestId(`journey-rail-node-${id}`)).toBeNull();
+    }
     // No divider since specs-match-reality is hidden.
     expect(screen.queryByTestId('rail-divider-build')).toBeNull();
   });
 
-  it('spec-421: a non-builder persona also sees 3 steps; hidden steps absent; % over 3', async () => {
+  it('spec-421: a non-builder persona also sees 2 steps; hidden steps absent; % over 2', async () => {
     tagAc(AC(7));
     tagAc(AC(10));
     tagAc(AC(11));
-    // identity + create-spec attained (2 of 3 visible) → 67%.
+    // spec-433: create-spec attained (1 of 2 visible) → 50%.
     fetchJourneyStateApi.mockResolvedValue(
-      stateFor('create-first-spec', { roleCoords: DESIGN_HEAVY, attained: ['identity', 'create-spec'] }),
+      stateFor('create-first-spec', { roleCoords: DESIGN_HEAVY, attained: ['create-spec'] }),
     );
     renderCanvas();
 
@@ -267,11 +293,12 @@ describe('HomeCanvas v2 — role branching (ac-7, ac-10, ac-11) — spec-421 upd
     for (const id of VISIBLE_STEPS) {
       expect(screen.getByTestId(`journey-rail-node-${id}`)).toBeInTheDocument();
     }
+    expect(screen.queryByTestId('journey-rail-node-identity')).toBeNull();
     expect(screen.queryByTestId('journey-rail-node-add-ac')).toBeNull();
     expect(screen.queryByTestId('journey-rail-node-specs-match-reality')).toBeNull();
     expect(screen.queryByTestId('journey-rail-node-agents-build')).toBeNull();
     expect(screen.queryByTestId('rail-divider-build')).toBeNull();
-    expect(screen.getByTestId('journey-progress')).toHaveTextContent('67% complete');
+    expect(screen.getByTestId('journey-progress')).toHaveTextContent('50% complete');
   });
 });
 
@@ -302,17 +329,17 @@ describe('HomeCanvas v2 — non-builder handoff (ac-12) — spec-421: always abs
 describe('HomeCanvas rail — done steps collapse + dim (spec-372 issue-10)', () => {
   it('a done step you have moved past dims its title; the selected step stays prominent', async () => {
     tagAc(AC372(38));
-    // Viewing create-spec with identity attained: identity is done + NOT selected → dimmed;
-    // create-spec is the selected step → heading colour (not dimmed).
-    fetchJourneyStateApi.mockResolvedValue(stateFor('create-spec', { attained: ['identity'] }));
+    // spec-433: Viewing create-first-spec with create-spec attained.
+    // create-spec is done + NOT selected → dimmed; create-first-spec is selected → prominent.
+    fetchJourneyStateApi.mockResolvedValue(stateFor('create-first-spec', { attained: ['create-spec'] }));
     renderCanvas();
     await screen.findByTestId('journey-rail');
 
     // The title is the first font-semibold span in the node (label text varies via views).
-    const doneTitle = screen.getByTestId('journey-rail-node-identity').querySelector('span.font-semibold');
+    const doneTitle = screen.getByTestId('journey-rail-node-create-spec').querySelector('span.font-semibold');
     expect(doneTitle?.className).toContain('text-muted');
 
-    const selectedTitle = screen.getByTestId('journey-rail-node-create-spec').querySelector('span.font-semibold');
+    const selectedTitle = screen.getByTestId('journey-rail-node-create-first-spec').querySelector('span.font-semibold');
     expect(selectedTitle?.className).toContain('text-heading');
     expect(selectedTitle?.className).not.toContain('text-muted');
   });
@@ -323,7 +350,8 @@ describe('HomeCanvas v2 — tracker is always expanded (spec-372 issue-8)', () =
     tagAc(AC(6));
     tagAc(AC(16));
     tagAc(AC372(36));
-    fetchJourneyStateApi.mockResolvedValue(stateFor('create-spec', { roleCoords: DEV_HEAVY, attained: ['identity'] }));
+    // spec-433: rail shows on create-first-spec.
+    fetchJourneyStateApi.mockResolvedValue(stateFor('create-first-spec', { roleCoords: DEV_HEAVY, attained: ['create-spec'] }));
     renderCanvas();
 
     await screen.findByTestId('journey-rail');
@@ -425,5 +453,29 @@ describe('HomeCanvas v2 — operator preview removed (spec-344) + document.title
     renderCanvas();
     await screen.findByTestId('getting-started-title');
     expect(document.title).toBe('Home');
+  });
+});
+
+describe('HomeCanvas — spec-433 dormant code (ac-4)', () => {
+  it('IdentityStep and RoleTriangle remain importable (dormant, not deleted)', async () => {
+    tagAc(AC433(4));
+    // Import the components dynamically to assert they are still present in the bundle.
+    // This is a static existence check — the components are dormant but not removed.
+    const { IdentityStep } = await import('../components/home/IdentityStep');
+    const { personaLabel } = await import('../components/home/RoleTriangle');
+    expect(IdentityStep).toBeDefined();
+    expect(personaLabel).toBeDefined();
+  });
+});
+
+describe('HomeCanvas — spec-434 intact voice infrastructure (ac-4)', () => {
+  it('Specky component and voice session pipeline remain importable — no voice code removed', async () => {
+    const AC434 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-434/acs/ac-${n}`;
+    tagAc(AC434(4));
+    const { Specky } = await import('@memex/guide-sdk');
+    const { VoiceSessionPill, VoiceIcon } = await import('@memex/guide-sdk');
+    expect(Specky).toBeDefined();
+    expect(VoiceSessionPill).toBeDefined();
+    expect(VoiceIcon).toBeDefined();
   });
 });

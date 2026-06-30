@@ -35,6 +35,20 @@ export class MembershipActionError extends ValidationError {
   }
 }
 
+// Whether a user is an ACTIVE member of an org (any role). The membership gate the
+// checkout phone-home uses to authorize a user-scoped hook key (spec-430 dec-1):
+// the key authorizes a write iff its creator is an active member of the spec's org.
+export async function isActiveOrgMember(userId: string, orgId: string): Promise<boolean> {
+  const row = await db.query.orgMemberships.findFirst({
+    where: and(
+      eq(orgMemberships.userId, userId),
+      eq(orgMemberships.orgId, orgId),
+      eq(orgMemberships.status, "active"),
+    ),
+  });
+  return Boolean(row);
+}
+
 // Counts the active administrators of an org. Used by last-admin guards.
 export async function countActiveAdmins(orgId: string): Promise<number> {
   const [row] = await db

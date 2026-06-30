@@ -7,13 +7,41 @@
 //
 // spec-201: the URL derivation moved to utils/mcpUrl.ts and the code-block
 // primitives to components/CodeBlock.tsx, both shared with GenesisPromptSection.
+//
+// spec-430 dec-2/dec-4: the canonical Claude Code install is the unified
+// `npx -y memex-ai install` — ONE browser sign-in plants the Memex MCP token AND
+// mints the single per-user checkout key (no second sign-in, no per-memex keys,
+// nothing pasted by hand). Claude Code then adds the HOOKS-ONLY spec-checkout
+// plugin via `claude plugin …`. That plugin is CLAUDE-CODE-ONLY — it does not run
+// in Cursor or any other agent, so the plugin steps appear in the Claude Code path
+// ONLY. Cursor / VS Code / web stay MCP-only over OAuth (the "Other clients" block).
 
 import { useState } from 'react';
 import { CodeBlock, InlineCode } from './CodeBlock';
 import { installBase } from '../utils/mcpUrl';
 
-const SH_COMMAND = `curl -fsSL ${installBase}/install.sh | sh`;
-const PS_COMMAND = `irm ${installBase}/install.ps1 | iex`;
+// The unified installer (spec-430). Same `--api-base` derivation as the genesis
+// prompt: prod is the bare command; any other env passes the host explicitly.
+const INSTALL_API_BASE_FLAG = installBase === 'https://memex.ai' ? '' : ` --api-base ${installBase}`;
+const INSTALL_COMMAND = `npx -y memex-ai install${INSTALL_API_BASE_FLAG}`;
+
+// Claude Code only — the hooks-only spec-checkout plugin (no MCP bundled; the
+// installer above already planted the MCP). Does NOT work in Cursor / other agents.
+const PLUGIN_COMMANDS = `claude plugin marketplace add mindset-ai/memex-ai
+claude plugin install memex-checkout@memex`;
+
+// spec-430 dec-4: the agent-guided install is the PRINCIPAL Claude Code path. The
+// user pastes THIS one prompt into a Claude Code session and the agent runs every
+// step itself — pausing only for the single browser sign-in. Step 1 reuses
+// INSTALL_COMMAND so its `--api-base` stays correct per environment. The manual
+// commands remain below as the run-it-yourself fallback.
+const INSTALL_PROMPT = `Set up Memex in this session. Run each step yourself, explain it in one line, and pause for me when a browser sign-in opens:
+
+1. \`${INSTALL_COMMAND}\`. One sign-in that writes the Memex MCP server into my Claude config and mints my checkout key.
+2. \`claude plugin marketplace add mindset-ai/memex-ai\`
+3. \`claude plugin install memex-checkout@memex\`
+
+Then tell me to reload the window so the hooks load. If a step errors, show me the error and what to do, and never ask me to paste a key by hand.`;
 
 // spec-201 dec-4: the canonical MCP endpoint, shared by the claude.ai web and
 // Cursor connect steps below. Same derivation as the manual configs.
@@ -43,22 +71,19 @@ const VSCODE_CONFIG = `{
   }
 }`;
 
-function detectOs(): 'mac' | 'linux' | 'windows' | 'unknown' {
-  if (typeof navigator === 'undefined') return 'unknown';
-  const p = navigator.platform.toLowerCase();
-  const u = navigator.userAgent.toLowerCase();
-  if (p.includes('mac') || u.includes('mac os')) return 'mac';
-  if (p.includes('win') || u.includes('windows')) return 'windows';
-  if (p.includes('linux') || u.includes('linux')) return 'linux';
-  return 'unknown';
-}
-
 export function CliInstallSection() {
-  const os = detectOs();
-  const cmd = os === 'windows' ? PS_COMMAND : SH_COMMAND;
-  const osLabel = os === 'mac' ? 'macOS' : os === 'windows' ? 'Windows' : os === 'linux' ? 'Linux' : 'your OS';
-
   const [showFallback, setShowFallback] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const copyInstallPrompt = async () => {
+    try {
+      await navigator.clipboard.writeText(INSTALL_PROMPT);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    } catch {
+      /* clipboard unavailable — no-op */
+    }
+  };
 
   return (
     <section id="install-cli" aria-labelledby="install-cli-heading">
@@ -69,16 +94,47 @@ export function CliInstallSection() {
         claude.ai (web) or a native IDE like Cursor or VS Code instead? See <a href="#other-clients" className="underline hover:text-primary">Other clients</a> below.
       </p>
 
+      {/* spec-430: the canonical Claude Code path. ONE sign-in plants the MCP token AND
+          mints the per-user checkout key; the hooks-only plugin is Claude-Code-only. */}
       <div className="mb-10">
-        <h3 className="text-base font-medium mb-3 text-heading">Install ({osLabel})</h3>
+        <h3 className="text-base font-medium mb-3 text-heading">Claude Code</h3>
+
+        {/* spec-430 dec-4: the PRINCIPAL path — let Claude Code drive the install. */}
         <p className="text-sm mb-3 text-secondary">
-          Paste this into your terminal:
+          The easiest way is to let Claude Code install everything for you. Copy this prompt,
+          paste it into a Claude Code session, and the agent runs the whole setup (the MCP
+          server, your checkout key, and the spec-checkout plugin), pausing only for the one
+          browser sign-in.
         </p>
-        <CodeBlock code={cmd} />
+        <button
+          type="button"
+          onClick={copyInstallPrompt}
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-sm text-sm font-medium bg-btn-primary text-white hover:opacity-90 transition-opacity"
+        >
+          {copied ? '✓ Copied, now paste it into Claude Code' : 'Copy install prompt for Claude Code'}
+        </button>
+
+        {/* Fallback: run the commands yourself. */}
+        <p className="text-sm mb-3 mt-8 text-secondary">
+          Prefer to run the commands yourself? One browser sign-in plants the Memex MCP token{' '}
+          <strong>and</strong> mints your single per-user checkout key. No second sign-in,
+          no per-memex keys, nothing pasted by hand:
+        </p>
+        <CodeBlock code={INSTALL_COMMAND} />
+        <p className="text-sm mb-3 mt-6 text-secondary">
+          Then add the spec-checkout plugin — the in-flow edit hooks. This plugin is{' '}
+          <strong>Claude Code only</strong> (it no longer bundles an MCP; the install above
+          already planted it):
+        </p>
+        <CodeBlock code={PLUGIN_COMMANDS} />
         <p className="text-xs mt-3 text-muted">
-          What this does: downloads a small Node-based installer, opens this admin in your
-          browser to authorize the device, then writes the MCP entry into your Claude
-          configs.
+          Reload the window afterwards — the hooks load at session start. What the installer
+          does: opens this admin in your browser to authorize the device once, then writes
+          the MCP entry into your Claude config and stores your checkout key.
+        </p>
+        <p className="text-xs mt-3 text-muted">
+          <strong>Claude Desktop</strong> uses the same <InlineCode>npx -y memex-ai install</InlineCode>{' '}
+          for the MCP, but skip the plugin steps — the spec-checkout plugin runs in Claude Code only.
         </p>
       </div>
 

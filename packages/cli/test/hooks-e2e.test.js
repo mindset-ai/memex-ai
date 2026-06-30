@@ -1,7 +1,15 @@
 import { describe, it, expect } from "vitest";
 import { tagAc } from "@memex-ai-ac/vitest";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, readFileSync, existsSync, readdirSync } from "node:fs";
+import {
+  mkdtempSync,
+  rmSync,
+  readFileSync,
+  existsSync,
+  readdirSync,
+  writeFileSync,
+  mkdirSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -161,5 +169,48 @@ describe("spec-371 hooks e2e (ac-7, ac-9, ac-10, ac-12, ac-15)", () => {
     // No per-vendor adapter files for other agents in v1.
     const names = readdirSync(PLUGIN).join(" ").toLowerCase();
     expect(names).not.toMatch(/cursor|windsurf|copilot/);
+  });
+});
+
+// spec-430 dec-4 — the SessionStart self-heal guide.
+const AC_9_430 = "mindset-prod/memex-building-itself/specs/spec-430/acs/ac-9";
+
+function runSessionStart(home) {
+  // Controlled env: clear the CI override so the file-state path is what's exercised.
+  const env = { ...process.env, HOME: home };
+  delete env.MEMEX_CHECKOUT_HOOK_KEY;
+  delete env.MEMEX_CHECKOUT_API_BASE;
+  return execFileSync("node", [join(HOOKS, "session-start-guide.mjs")], {
+    input: JSON.stringify({ session_id: "s", hook_event_name: "SessionStart" }),
+    env,
+    encoding: "utf8",
+  });
+}
+
+describe("spec-430 SessionStart self-heal guide (ac-9)", () => {
+  it("no checkout key → emits an additionalContext steer offering to finish setup", () => {
+    tagAc(AC_9_430);
+    withHome((home) => {
+      const out = runSessionStart(home); // empty HOME, no ~/.memex/checkout.json
+      const parsed = JSON.parse(out);
+      expect(parsed.hookSpecificOutput.hookEventName).toBe("SessionStart");
+      expect(parsed.hookSpecificOutput.additionalContext).toMatch(/memex-ai install/);
+      // non-blocking: never denies/blocks.
+      expect(out).not.toMatch(/"decision"\s*:\s*"block"/);
+      expect(out).not.toMatch(/"permissionDecision"\s*:\s*"deny"/);
+    });
+  });
+
+  it("a stored hook_key → SILENT (no steer, nothing emitted)", () => {
+    tagAc(AC_9_430);
+    withHome((home) => {
+      mkdirSync(join(home, ".memex"), { recursive: true });
+      writeFileSync(
+        join(home, ".memex", "checkout.json"),
+        JSON.stringify({ api_base: "https://memex.ai", hook_key: "mxh_present" }),
+      );
+      const out = runSessionStart(home);
+      expect(out.trim()).toBe("");
+    });
   });
 });

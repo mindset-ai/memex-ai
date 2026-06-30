@@ -20,9 +20,9 @@
 import { Hono } from "hono";
 import { and, eq } from "drizzle-orm";
 import { db, runWithMemexId } from "../db/connection.js";
-import { documents } from "../db/schema.js";
+import { documents, namespaces, memexes } from "../db/schema.js";
 import { verifyHookKey, bumpHookKeyLastUsed } from "../services/hook-keys.js";
-import { resolveMemexId } from "../services/emission-keys.js";
+import { isMemberOfMemex } from "../middleware/memex-resolver.js";
 import { recordCheckoutEdit } from "../services/spec-checkout.js";
 import { setCheckoutThread } from "../services/checkout.js";
 
@@ -97,9 +97,32 @@ specCheckoutRouter.post("/", async (c) => {
   // Not a spec ref → fail quiet, record nothing (std-7). Never an error.
   if (!parsed) return c.json({ recorded: false, reason: "not_a_spec_ref" }, 200);
 
-  // The key only authorises its OWN Memex — mirror the test-events cross-tenant guard.
-  const memexId = await resolveMemexId(parsed.namespace, parsed.memexSlug);
-  if (!memexId || memexId !== hookKey.memexId) {
+  // Authorize by MEMBERSHIP (spec-430 dec-1): a user-scoped key (memexId NULL) writes
+  // for ANY memex its creator can access, so a personal->org graduation needs no new
+  // key (ac-5). A legacy per-memex key (memexId set) is additionally pinned to its own
+  // memex. We reuse the SAME predicate the MCP layer gates on — `isMemberOfMemex` —
+  // which grants a user their OWN personal (kind='user') memex via
+  // `namespace.owner_user_id`, not just org membership (issue-2: an org-only check
+  // 401'd a user's own personal memex, breaking day-one checkout). These lookups read
+  // the CONTROL PLANE (namespaces/memexes/org_memberships), not RLS-tenant tables, so
+  // they run correctly before the runWithMemexId wrap below.
+  const ns = await db.query.namespaces.findFirst({
+    where: eq(namespaces.slug, parsed.namespace),
+  });
+  const mx = ns
+    ? await db.query.memexes.findFirst({
+        where: and(eq(memexes.namespaceId, ns.id), eq(memexes.slug, parsed.memexSlug)),
+      })
+    : null;
+  const actorUserId = hookKey.createdByUserId ?? null;
+  const scopeOk = !!mx && (hookKey.memexId === null || hookKey.memexId === mx.id);
+  if (
+    !ns ||
+    !mx ||
+    !actorUserId ||
+    !scopeOk ||
+    !(await isMemberOfMemex(actorUserId, mx, ns))
+  ) {
     return c.json(
       {
         error: "unauthorized",
@@ -108,6 +131,7 @@ specCheckoutRouter.post("/", async (c) => {
       401,
     );
   }
+  const memexId = mx.id;
 
   // body.thread_uid was validated as a string above, but TypeScript does not preserve
   // that narrowing across the runWithMemexId callback boundary below — hoist it (the
@@ -117,8 +141,9 @@ specCheckoutRouter.post("/", async (c) => {
   // Everything below reads/writes TENANT tables (documents, then spec_checkout_edits)
   // under row-level security (std-36): the policy filters every row unless `app.memex_id`
   // is set, and the Cloud Run runtime role `memex_app` is a NON-OWNER, so the policy
-  // applies to it in full. The hook-key auth + resolveMemexId above run on RLS-EXCLUDED
-  // tables, so they need no context — but the spec lookup does. runWithMemexId stamps
+  // applies to it in full. The hook-key auth + the namespace/memex/membership
+  // resolution above run on RLS-EXCLUDED control-plane tables, so they need no context
+  // — but the spec lookup does. runWithMemexId stamps
   // app.memex_id for the duration. WITHOUT this wrap the read returns zero rows on int
   // (every phone-home silently records nothing), while local tests pass because the
   // postgres superuser bypasses RLS — the exact 2026-06-10 emission-outage trap
@@ -138,7 +163,6 @@ specCheckoutRouter.post("/", async (c) => {
       .limit(1);
     if (!doc) return c.json({ recorded: false, reason: "spec_not_found" }, 200);
 
-    const actorUserId = hookKey.createdByUserId ?? null;
     await recordCheckoutEdit({
       memexId,
       docId: doc.id,

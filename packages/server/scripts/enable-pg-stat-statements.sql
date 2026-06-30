@@ -1,0 +1,25 @@
+-- Enable pg_stat_statements for per-query tuning telemetry (normalised
+-- statement, call count, total time, mean, p95) — the "which query should I
+-- tune?" view.
+--
+-- This is a ONE-TIME, PER-DATABASE infra step, deliberately kept OUT of the
+-- regular migration path: the extension needs its library preloaded at the
+-- server level (shared_preload_libraries), which a throwaway CI database can't
+-- provide, so running it as a migration would break that pipeline. Run it once,
+-- by hand, against each long-lived database instead.
+--
+-- Prerequisite (managed Postgres, e.g. Cloud SQL): turn the extension on at the
+-- instance level first, which restarts the instance, for example:
+--   gcloud sql instances patch <instance> \
+--     --database-flags=cloudsql.enable_pg_stat_statements=on,pg_stat_statements.track=top
+-- On self-managed Postgres, add pg_stat_statements to shared_preload_libraries
+-- in postgresql.conf and restart.
+--
+-- Then apply this file:
+--   psql "$DATABASE_URL" -f packages/server/scripts/enable-pg-stat-statements.sql
+--
+-- Idempotent — safe to re-run. When ranking queries to tune, sort by TOTAL time
+-- (calls x mean), not average: a 1ms query run millions of times costs far more
+-- than a 200ms query run twice.
+
+CREATE EXTENSION IF NOT EXISTS pg_stat_statements;

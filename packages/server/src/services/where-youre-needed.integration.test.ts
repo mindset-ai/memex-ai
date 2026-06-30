@@ -102,7 +102,7 @@ describe("listWhereYoureNeededForUser (spec-315 t-5)", () => {
     // ALICE is mentioned (not owner) — must not appear for owner.
     const o = await addComment(memexA, specA.sectionId, "Owner", "calling alice");
     cOther = o.id;
-    await addMentions(memexA, cOther, [alice], () => ({ actorUserId: owner, channel: "rest_ui" as const }));
+    await addMentions(memexA, cOther, [alice], { actorUserId: owner, channel: "rest_ui" as const });
 
     // cross-memex: owner mentioned in memex B.
     const specB = await makeSpecWithSection(B.memexId, "Where-Needed Spec B");

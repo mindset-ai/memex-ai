@@ -55,6 +55,9 @@ function makePlanSpec(): Doc & { sections: DocSection[] } {
     groundedAt: null,
     groundedByUserId: null,
     groundedByName: null,
+    checkedOutBy: null,
+    checkedOutAt: null,
+    checkedOutThread: null,
     sections: [
       {
         id: "section-uuid-1",

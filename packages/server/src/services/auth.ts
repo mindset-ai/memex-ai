@@ -60,6 +60,9 @@ export interface SessionPayload {
 // Parses the HIDDEN_FEATURES env var (comma-separated feature slugs) into a list.
 // Fail-open: an unset or empty var yields [] — never throws, never hides by default.
 // Kept here as the single reusable parse site for sibling specs (spec-147/spec-148).
+// To CHANGE what's hidden per environment, see docs/feature-hiding.md (the runbook):
+// the value that survives a deploy lives in the DEPLOY_ENV_FILE GitHub Actions secret,
+// NOT the live Cloud Run env var or the GCP memex-<env>-deploy-env secret.
 export function getHiddenFeatures(): string[] {
   return (process.env.HIDDEN_FEATURES ?? "")
     .split(",")

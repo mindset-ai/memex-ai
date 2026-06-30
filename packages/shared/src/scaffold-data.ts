@@ -1793,6 +1793,12 @@ export const QA_REPORT_GENERATION_INSTRUCTION = `Persist that closing summary as
   8. Open questions — knowledge gaps surfaced during build that the verifier should know about, captured as agent-sourced issues and referenced here.
 GROUNDING IS MANDATORY: base sections 1–2 on the changes you made this session — the actual files and behaviour you touched, re-read rather than recalled — and section 3 on the tests you actually ran and the test events you emitted, cross-referenced to their acceptance criteria. The report records what THIS session actually changed, never a restatement of the plan; where reality diverged from the plan, the report says so. Each build session's report is appended as a new dated version — write_qa_report never overwrites a prior session's record.`;
 
+// spec-430 dec-4 / ac-9: the agent-guided install prompt lives in the UI's env- and
+// agent-aware home (packages/ui/src/utils/genesisPrompt.ts `buildClaudeCodePrompt`),
+// NOT here — because the checkout plugin is Claude-Code-only and the prompt must be
+// gated to the Claude Code selection (Cursor stays MCP-only). The in-agent priming is
+// the bundled SessionStart self-heal hook (packages/cli/plugin/hooks).
+
 const OPENING_TURN_PROMPT_BUTTONS: PromptButtonNode[] = [
   {
     kind: 'prompt_button',
