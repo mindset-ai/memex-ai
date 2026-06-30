@@ -142,7 +142,6 @@ describe("handhold demo exclusion — enumeration + read/act (ac-37)", () => {
     // drops the demo spec but keeps the real one.
     const agentList = await listDocs(memexId, {
       docType: "spec",
-      includePaused: false,
       statusIn: ["specify", "build", "verify"],
       excludeDemo: true,
     });

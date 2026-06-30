@@ -178,7 +178,7 @@ describe("spec-199 t-3 — expires_at enforced on redemption (ac-12)", () => {
     await db.update(shareTokens).set({ expiresAt: past }).where(eq(shareTokens.id, share.id));
     const err = await getSharedDocumentByToken(share.token).catch((e) => e as ShareTokenError);
     expect(err).toBeInstanceOf(ShareTokenError);
-    expect(err.reason).toBe("revoked");
+    expect((err as ShareTokenError).reason).toBe("revoked");
   });
 
   it("getSharedDocumentByToken succeeds for a token with a future expiresAt (ac-12)", async () => {

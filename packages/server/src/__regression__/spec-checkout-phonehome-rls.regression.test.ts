@@ -131,7 +131,7 @@ describe("regression: spec-checkout phone-home read needs app.memex_id under RLS
         );
       });
       expect(rows).toHaveLength(1);
-      expect((rows[0] as { id: string }).id).toBe(docId);
+      expect((rows[0] as unknown as { id: string }).id).toBe(docId);
     } finally {
       await roleSql.end({ timeout: 5 });
     }

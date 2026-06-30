@@ -10,6 +10,7 @@
     "build:server": "pnpm --filter @memex/server build",
     "build:ui": "pnpm --filter @memex/ui build",
     "release:sdk": "node scripts/release-sdk.mjs",
+    "prepare": "husky",
     "lint": "biome ci",
     "lint:fix": "biome check --write",
     "format": "biome format",
@@ -38,6 +39,7 @@
     }
   },
   "devDependencies": {
-    "@biomejs/biome": "2.5.1"
+    "@biomejs/biome": "2.5.1",
+    "husky": "^9.1.7"
   }
 }

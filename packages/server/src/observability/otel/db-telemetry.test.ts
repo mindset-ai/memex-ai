@@ -204,7 +204,7 @@ describe("instrumentSqlClient — query metrics, out-of-band (ac-1, ac-5)", () =
       release = r;
     });
     const base = {
-      unsafe: () => ({
+      unsafe: (_query: string, _params?: unknown[]) => ({
         then: (f?: (v: unknown) => unknown, r?: (e: unknown) => unknown) =>
           gate.then(() => [{ ok: 1 }]).then(f, r),
         values: () => ({ then: () => gate.then(() => [[1]]) }),

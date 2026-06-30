@@ -105,7 +105,7 @@ describe("MixpanelSink.send — server-side HTTP, US host (ac-2 / ac-13)", () =>
     await sink.send([row(), row({ id: "row-2", name: "cta.clicked" })]);
 
     expect(fetchImpl).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe("https://api.mixpanel.com/track"); // US host (dec-9)
     expect(init.method).toBe("POST");
     const body = JSON.parse(init.body as string);

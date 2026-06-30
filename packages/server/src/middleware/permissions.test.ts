@@ -36,6 +36,8 @@ function buildApp(routePath: string) {
       status: "active",
       namespaceId: "ns-user-1",
       onboardingGreetedAt: null,
+      roleCoords: null,
+      identityConfirmedAt: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     });
