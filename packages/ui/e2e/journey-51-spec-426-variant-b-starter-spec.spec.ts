@@ -77,6 +77,14 @@ test(TITLE, async ({ page, resources }) => {
 
   // Confirm identity so needsOnboarding clears and the landing predicate is reached.
   await setIdentityConfirmed(email, true);
+  // spec-441: email/password signups have no name in their session JWT at this point.
+  // Navigate through /onboarding to set the display name AND refresh the cached session,
+  // otherwise TenantLayout redirects every subsequent page.goto to /onboarding.
+  await page.getByRole("button", { name: /Continue to your Memex/ }).click();
+  await expect(page).toHaveURL(/\/onboarding/, { timeout: 15_000 });
+  await page.getByPlaceholder("Your display name").fill("Variant B User");
+  await page.getByRole("button", { name: /^Continue$/ }).click();
+  await expect(page).toHaveURL(/\/home/, { timeout: 15_000 });
 
   // ── Pin the TREATMENT arm + seed the starter spec deterministically ──────────
   // The experiment-arm test hook (POST /api/__test__/seed-experiment-arm) is now
