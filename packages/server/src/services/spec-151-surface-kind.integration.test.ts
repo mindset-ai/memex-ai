@@ -24,6 +24,8 @@ import {
 import { createOrgWithMemexAndOwner } from "../services/__test__/seed-org.js";
 import { mintEmissionKey } from "../services/emission-keys.js";
 import { listClausesForStandardWithVerification, buildClauseRef } from "./clause-coverage.js";
+import { recordClauseTestVerification } from "./clause-verification.js";
+import { clauseTestVerifications } from "../db/schema.js";
 
 const M = "mindset-prod/memex-building-itself/specs/spec-151/acs";
 const AC = (n: number) => `${M}/ac-${n}`;
@@ -45,6 +47,7 @@ afterAll(async () => {
   if (allRefs.length) {
     await db.delete(testEvents).where(inArray(testEvents.subjectRef, allRefs)).catch(() => {});
     await db.delete(testEventLatest).where(inArray(testEventLatest.subjectRef, allRefs)).catch(() => {});
+    await db.delete(clauseTestVerifications).where(inArray(clauseTestVerifications.subjectRef, allRefs)).catch(() => {});
   }
   if (createdMemexIds.length) {
     await db.delete(memexEmissionKeys).where(inArray(memexEmissionKeys.memexId, createdMemexIds)).catch(() => {});
@@ -115,6 +118,17 @@ beforeAll(async () => {
   // cl-1: a CI-backed WHOLE-SURFACE sweep. cl-2: a CI-backed SPOT check.
   await emit(1, { clause_surface: "whole-surface", clause_kind: "grep-denylist" });
   await emit(2, { clause_surface: "spot", clause_kind: "grep-denylist" });
+  // dec-7: confirm both so their state resolves past "pending" (the verifier gate is
+  // orthogonal to the surface dimension under test here).
+  for (const seq of [1, 2]) {
+    await recordClauseTestVerification({
+      memexId,
+      subjectRef: buildClauseRef({ namespace: ns, memex: memexSlug, standardHandle: "std-1" }, seq),
+      testIdentifier: `surface::cl-${seq}`,
+      verdict: "confirmed",
+      verifier: "test",
+    });
+  }
 });
 
 describe("spec-151 dec-2 — swept surface + check-kind on a clause attestation", () => {

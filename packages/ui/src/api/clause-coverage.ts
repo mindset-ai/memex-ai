@@ -12,6 +12,8 @@ export type ClauseCoverageState =
   | 'local'
   | 'failing'
   | 'stale'
+  // pending — has a test, but no independent verifier has confirmed it yet (dec-7).
+  | 'pending'
   | 'untested';
 
 export interface ClauseTestSnapshot {

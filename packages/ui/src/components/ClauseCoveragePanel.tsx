@@ -22,6 +22,7 @@ const STATE_META: Record<
   spot: { label: 'spot-only', className: 'bg-orange-500/15 text-orange-700 dark:text-orange-300' },
   local: { label: 'local-only', className: 'bg-amber-500/15 text-amber-700 dark:text-amber-300' },
   failing: { label: 'failing', className: 'bg-rose-500/15 text-rose-700 dark:text-rose-300' },
+  pending: { label: 'pending verify', className: 'bg-sky-500/15 text-sky-700 dark:text-sky-300' },
   stale: { label: 'stale', className: 'bg-zinc-400/15 text-zinc-600 dark:text-zinc-300' },
   untested: { label: 'untested', className: 'bg-zinc-300/20 text-zinc-500 dark:text-zinc-400' },
 };

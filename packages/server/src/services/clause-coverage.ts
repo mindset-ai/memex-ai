@@ -27,6 +27,7 @@ import {
   type AcTestSnapshot,
 } from "./acs.js";
 import { isCoverageCountable } from "./testability.js";
+import { confirmedTestsForRefs } from "./clause-verification.js";
 
 export interface StandardSlugs {
   namespace: string;
@@ -55,6 +56,10 @@ export type ClauseCoverageState =
   | "local"
   | "failing"
   | "stale"
+  // pending — the clause has a test, but no INDEPENDENT verifier has confirmed it
+  // genuinely + universally asserts the clause, so its green/red does not count yet
+  // (dec-7 / ac-20). Neither green nor red.
+  | "pending"
   | "untested";
 
 // Metadata keys carrying the universal-coverage disclosure (dec-2). The emit helper
@@ -176,12 +181,39 @@ export async function listClausesForStandardWithVerification(
     testsByRef.set(row.subjectRef, list);
   }
 
+  // dec-7 / ac-20: a clause test's green/red counts ONLY once an independent verifier
+  // has confirmed it. The confirmed set, keyed by ref → {test_identifier}.
+  const confirmedByRef = await confirmedTestsForRefs(allRefs);
+
   const now = Date.now();
   const clauses: ClauseWithVerification[] = [];
   for (const c of clauseRows) {
     const ref = refBySeq.get(c.seq)!;
     const tests = testsByRef.get(ref) ?? [];
-    const latestRunAt = tests.reduce<Date | null>(
+    const countable = isCoverageCountable({ isObligation: c.isObligation, testable: c.testable });
+    const confirmedIds = confirmedByRef.get(ref) ?? new Set<string>();
+    // Only verifier-confirmed tests set the coverage state (dec-7).
+    const confirmedTests = tests.filter((t) => confirmedIds.has(t.testIdentifier ?? ""));
+
+    // The clause HAS a test, but none is verifier-confirmed → pending: its green/red
+    // is not trusted yet, so it is neither green nor red (ac-20).
+    if (tests.length > 0 && confirmedTests.length === 0) {
+      clauses.push({
+        clause: c,
+        canonicalRef: ref,
+        tests,
+        state: "pending",
+        ciBacked: false,
+        sweptSurface: null,
+        checkKind: null,
+        wholeSurface: false,
+        countable,
+        daysSinceLastRun: null,
+      });
+      continue;
+    }
+
+    const latestRunAt = confirmedTests.reduce<Date | null>(
       (acc, t) => (acc === null || t.latestRunAt > acc ? t.latestRunAt : acc),
       null,
     );
@@ -190,9 +222,9 @@ export async function listClausesForStandardWithVerification(
         ? null
         : Math.floor((now - latestRunAt.getTime()) / (1000 * 60 * 60 * 24));
 
-    // Clauses are never manually accepted (accepted=false), so deriveVerificationState
-    // returns only failing / untested / stale / verified.
-    const base = deriveVerificationState(tests, daysSinceLastRun, false);
+    // State derives from CONFIRMED tests only. No confirmed tests + no tests at all →
+    // untested (deriveVerificationState returns "untested" for an empty list).
+    const base = deriveVerificationState(confirmedTests, daysSinceLastRun, false);
 
     let ciBacked = false;
     let sweptSurface: string | null = null;
@@ -203,14 +235,21 @@ export async function listClausesForStandardWithVerification(
     if (base === "failing" || base === "untested") {
       state = base;
     } else {
-      // base === "verified" | "stale": read the latest non-hidden emission once to
-      // recover BOTH its CI provenance (dec-4) and its declared surface/kind (dec-2).
-      const [latest] = await db
-        .select({ runId: testEvents.runId, metadata: testEvents.metadata })
+      // base === "verified" | "stale": recover the latest non-hidden CONFIRMED
+      // emission's CI provenance (dec-4) + declared surface/kind (dec-2). Fetch the
+      // recent emissions for the ref and pick the latest whose test_identifier is
+      // verifier-confirmed (retention keeps ≤10 per pair, so a small window suffices).
+      const recent = await db
+        .select({
+          runId: testEvents.runId,
+          metadata: testEvents.metadata,
+          testIdentifier: testEvents.testIdentifier,
+        })
         .from(testEvents)
         .where(and(eq(testEvents.subjectRef, ref), eq(testEvents.hidden, false)))
         .orderBy(desc(testEvents.createdAt))
-        .limit(1);
+        .limit(50);
+      const latest = recent.find((e) => confirmedIds.has(e.testIdentifier ?? ""));
       const md = latest?.metadata ?? {};
       sweptSurface = typeof md[SURFACE_META_KEY] === "string" ? md[SURFACE_META_KEY]! : null;
       checkKind = typeof md[KIND_META_KEY] === "string" ? md[KIND_META_KEY]! : null;
@@ -243,16 +282,19 @@ export async function listClausesForStandardWithVerification(
       sweptSurface,
       checkKind,
       wholeSurface,
-      countable: isCoverageCountable({ isObligation: c.isObligation, testable: c.testable }),
+      countable,
       daysSinceLastRun,
     });
   }
 
-  const countable = clauses.filter((c) => c.countable);
+  const countableClauses = clauses.filter((c) => c.countable);
+  // Covered = a verifier-CONFIRMED test produced a state (anything but untested /
+  // pending). A pending clause (test present but unverified) is NOT covered (dec-7).
+  const isResolved = (s: ClauseCoverageState): boolean => s !== "untested" && s !== "pending";
   return {
     clauses,
-    countableTotal: countable.length,
-    coveredCount: countable.filter((c) => c.tests.length > 0).length,
-    verifiedCount: countable.filter((c) => c.state === "verified").length,
+    countableTotal: countableClauses.length,
+    coveredCount: countableClauses.filter((c) => isResolved(c.state)).length,
+    verifiedCount: countableClauses.filter((c) => c.state === "verified").length,
   };
 }

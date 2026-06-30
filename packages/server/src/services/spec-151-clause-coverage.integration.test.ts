@@ -28,6 +28,18 @@ import {
   listClausesForStandardWithVerification,
   buildClauseRef,
 } from "./clause-coverage.js";
+import { recordClauseTestVerification } from "./clause-verification.js";
+import { clauseTestVerifications } from "../db/schema.js";
+
+async function confirm(seq: number): Promise<void> {
+  await recordClauseTestVerification({
+    memexId,
+    subjectRef: buildClauseRef({ namespace: ns, memex: memexSlug, standardHandle: "std-1" }, seq),
+    testIdentifier: `clause-cov::cl-${seq}`,
+    verdict: "confirmed",
+    verifier: "test",
+  });
+}
 
 const M = "mindset-prod/memex-building-itself/specs/spec-151/acs";
 const AC = (n: number) => `${M}/ac-${n}`;
@@ -49,6 +61,7 @@ afterAll(async () => {
   if (allRefs.length) {
     await db.delete(testEvents).where(inArray(testEvents.subjectRef, allRefs)).catch(() => {});
     await db.delete(testEventLatest).where(inArray(testEventLatest.subjectRef, allRefs)).catch(() => {});
+    await db.delete(clauseTestVerifications).where(inArray(clauseTestVerifications.subjectRef, allRefs)).catch(() => {});
   }
   if (createdMemexIds.length) {
     await db.delete(memexEmissionKeys).where(inArray(memexEmissionKeys.memexId, createdMemexIds)).catch(() => {});
@@ -142,6 +155,10 @@ beforeAll(async () => {
   await emit(1, "pass", { runId: "ci-run-42", metadata: { clause_surface: "whole-surface", clause_kind: "static-scan" } });
   await emit(2, "pass"); // no run_id → local-only
   await emit(3, "fail", { runId: "ci-run-43" });
+  // dec-7: a clause test's green/red counts only once the verifier confirms it.
+  await confirm(1);
+  await confirm(2);
+  await confirm(3);
 });
 
 describe("spec-151 dec-4 — standard clause-coverage view", () => {

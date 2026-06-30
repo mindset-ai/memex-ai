@@ -26,8 +26,12 @@ const SRC = resolve(__dirname, "..");
 // The request/write surfaces — anything reachable from an inbound HTTP/MCP call.
 const REQUEST_PATH_DIRS = ["routes", "agent", "mcp", "middleware"] as const;
 
-// Module specifiers that resolve to the classifier ENGINE (not the safe persist helper).
-const BANNED = ["testability-classifier"];
+// Module specifiers that resolve to an LLM ENGINE (not a safe deterministic helper).
+// dec-6: the testability classifier; dec-7: the adversarial clause-test verifier. Both
+// use the metered Anthropic client and must be reachable only from operator/CI/agent
+// paths + tests — never an inbound request path. The request path consults their
+// deterministic siblings (services/testability.ts, services/clause-verification.ts).
+const BANNED = ["testability-classifier", "clause-test-verifier"];
 
 function walk(dir: string): string[] {
   const out: string[] = [];
