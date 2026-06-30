@@ -5,7 +5,7 @@
 
 import { Hono } from "hono";
 import { z } from "zod/v4";
-import { eq, and } from "drizzle-orm";
+import { eq, and, isNull } from "drizzle-orm";
 import {
   clearFakeQueue,
   enqueueFakeResponse,
@@ -13,7 +13,19 @@ import {
   type QueuedFakeResponse,
 } from "../agent/anthropic-fake.js";
 import { db } from "../db/connection.js";
-import { users, namespaces, memexes, orgMemberships, orgs, documents, decisions, whatsNewEntries } from "../db/schema.js";
+import {
+  users,
+  namespaces,
+  memexes,
+  orgMemberships,
+  orgs,
+  documents,
+  decisions,
+  whatsNewEntries,
+  experiments,
+  experimentVariants,
+  experimentAssignments,
+} from "../db/schema.js";
 import {
   getUserByEmail,
   upsertUserByEmail,
@@ -22,7 +34,23 @@ import {
   markOnboardingGreeted,
   createUserWithPassword,
 } from "../services/users.js";
-import { ensureUserNamespace, ensureUserMemex } from "../services/user-namespaces.js";
+import {
+  ensureUserNamespace,
+  ensureUserMemex,
+  PROVISIONING_EXPERIMENT_KEY,
+} from "../services/user-namespaces.js";
+// spec-426 experiment-arm test seed (closes the verify gap for journey-51 A/B):
+// pin a fresh user onto a chosen provisioning arm via an operator-reassign, then
+// reset + re-seed the arm's content. Mirrors the construct an operator uses in
+// Backstage — no raw SQL (std-28).
+import { ensureDefaultExperiment } from "../db/seed-experiments.js";
+import {
+  runVariantBehaviour,
+  CONTROL_BEHAVIOUR,
+  type VariantBehaviour,
+} from "../services/experiments.js";
+import { clearDemoDocsForMemex } from "../services/handhold-demo.js";
+import { STARTER_SPEC_TITLE } from "../db/starter-spec.fixture.js";
 import { createDocDraft, updateDocStatus } from "../services/documents.js";
 import { markNarrativeConsolidated } from "../services/narrative.js";
 import { publishEntry } from "../services/whats-new.js";
@@ -1322,4 +1350,158 @@ testOnlyRouter.post("/disable-member", async (c) => {
   }
   await disableMembership(targetUserId, orgId, requester.userId);
   return c.json({ ok: true });
+});
+
+// ── spec-426: experiment-arm test seed (journey-51 A/B verify hook) ───────────
+// Pin `email`'s user onto the provisioning experiment arm whose behaviour matches
+// `behaviour`, seeding that arm's content into their personal memex. The
+// deterministic hash-split (experiments.ts) isn't controllable from an opaque UUID,
+// so a journey that needs a SPECIFIC arm uses this operator-reassign — exactly the
+// construct an operator uses in Backstage (assigned_by='operator' SUPERSEDES the
+// auto row; history retained — spec-426 ac-14). All through the real services +
+// schema, no raw SQL (std-28). The full contract this implements lives in the e2e
+// helper header: packages/ui/e2e/helpers/experiments.ts.
+const seedExperimentArmSchema = z.object({
+  email: z.string().email(),
+  behaviour: z.enum(["handhold_demo", "starter_spec"]),
+  // Optional override; defaults to the canonical provisioning experiment key (the
+  // SAME const the boot seed + provisioning resolver share — never hardcoded).
+  experimentKey: z.string().optional(),
+});
+testOnlyRouter.post("/seed-experiment-arm", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = seedExperimentArmSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
+  }
+  const { email, behaviour } = parsed.data;
+  const experimentKey = parsed.data.experimentKey ?? PROVISIONING_EXPERIMENT_KEY;
+
+  // 1. Ensure the user + their personal memex exist (idempotent fast path when the
+  //    journey has already signed the user up).
+  const user = await getUserByEmail(email);
+  if (!user) return c.json({ error: `User ${email} not found` }, 404);
+  const { memex } = await ensureUserNamespace(user.id);
+  const memexId = memex.id;
+
+  // 2. Ensure the canonical provisioning experiment + its A/B variants exist.
+  await ensureDefaultExperiment();
+
+  // 3. Resolve the experiment + the variant whose behaviour matches the request.
+  const [experiment] = await db
+    .select({ id: experiments.id })
+    .from(experiments)
+    .where(eq(experiments.key, experimentKey))
+    .limit(1);
+  if (!experiment) {
+    return c.json({ error: `no experiment with key '${experimentKey}'` }, 400);
+  }
+  const [variant] = await db
+    .select({ id: experimentVariants.id, key: experimentVariants.key })
+    .from(experimentVariants)
+    .where(
+      and(
+        eq(experimentVariants.experimentId, experiment.id),
+        eq(experimentVariants.behaviour, behaviour),
+      ),
+    )
+    .limit(1);
+  if (!variant) {
+    return c.json(
+      { error: `experiment '${experimentKey}' has no variant for behaviour '${behaviour}'` },
+      400,
+    );
+  }
+
+  // 4. Supersede any active assignment for (user, experiment), then insert a fresh
+  //    operator assignment to the requested variant (ac-14: one active row, history
+  //    kept). The partial unique index permits this because the old row is no longer
+  //    active once superseded_at is set.
+  await db
+    .update(experimentAssignments)
+    .set({ supersededAt: new Date() })
+    .where(
+      and(
+        eq(experimentAssignments.userId, user.id),
+        eq(experimentAssignments.experimentId, experiment.id),
+        isNull(experimentAssignments.supersededAt),
+      ),
+    );
+  const [assignment] = await db
+    .insert(experimentAssignments)
+    .values({
+      experimentId: experiment.id,
+      variantId: variant.id,
+      userId: user.id,
+      assignedBy: "operator",
+      reason: "e2e seed: pin experiment arm",
+    })
+    .returning();
+
+  // 5. Reset whichever arm signup auto-seeded so the two arms' content can't coexist:
+  //    drop every is_demo doc AND the system-attributed starter spec, then seed the
+  //    requested arm fresh through the real registry behaviour.
+  await clearDemoDocsForMemex(memexId);
+  const existingStarter = await db
+    .select({ id: documents.id })
+    .from(documents)
+    .where(
+      and(
+        eq(documents.memexId, memexId),
+        eq(documents.docType, "spec"),
+        eq(documents.title, STARTER_SPEC_TITLE),
+        isNull(documents.createdByUserId),
+      ),
+    );
+  for (const { id } of existingStarter) {
+    await mutate(
+      {},
+      { memexId, docId: id, entity: "document", action: "deleted" },
+      async () => {
+        const [row] = await db
+          .delete(documents)
+          .where(and(eq(documents.id, id), eq(documents.memexId, memexId)))
+          .returning();
+        return row;
+      },
+    );
+  }
+
+  // 6. Seed the requested arm. Attribution mirrors provisioning (user-namespaces):
+  //    the CONTROL (handhold demo) is attributed to the new user over the server
+  //    channel; the TREATMENT (starter_spec) is system-attributed (no actorUserId)
+  //    so its rows can never light the user's onboarding milestones (dec-3 / ac-3).
+  const ctx =
+    behaviour === CONTROL_BEHAVIOUR
+      ? ({ channel: "server", actorUserId: user.id } as const)
+      : ({ channel: "server" } as const);
+  await runVariantBehaviour(behaviour as VariantBehaviour, memexId, ctx);
+
+  // 7. For the treatment arm, hand back the seeded starter spec's handle so a journey
+  //    can navigate straight to its canonical path.
+  let starterSpecHandle: string | undefined;
+  if (behaviour === "starter_spec") {
+    const [row] = await db
+      .select({ handle: documents.handle })
+      .from(documents)
+      .where(
+        and(
+          eq(documents.memexId, memexId),
+          eq(documents.docType, "spec"),
+          eq(documents.title, STARTER_SPEC_TITLE),
+          isNull(documents.createdByUserId),
+        ),
+      )
+      .limit(1);
+    starterSpecHandle = row?.handle ?? undefined;
+  }
+
+  return c.json({
+    userId: user.id,
+    memexId,
+    variantKey: variant.key,
+    behaviour,
+    assignmentId: assignment.id,
+    ...(starterSpecHandle ? { starterSpecHandle } : {}),
+  });
 });
