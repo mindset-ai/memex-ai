@@ -383,6 +383,11 @@ export function buildMagicLinkEmail(input: MagicLinkEmailInput): EmailMessage {
     subject: `Your Memex.AI sign-in link`,
     text,
     html,
+    // spec-442 ac-1/ac-8: stamp the precise auth comms type so the sign-in link is
+    // classified as 'magic_link' in comms_log — the type travels with the template
+    // (mirroring email_verification above), else recordEmailComm defaults it to
+    // 'transactional', which is reserved for genuine non-auth mail.
+    commsType: "magic_link",
   };
 }
 
@@ -510,6 +515,11 @@ export function buildPasswordResetEmail(input: PasswordResetEmailInput): EmailMe
     subject: `Reset your Memex.AI password`,
     text,
     html,
+    // spec-442 ac-1/ac-8: stamp the precise auth comms type so the reset email is
+    // classified as 'password_reset' in comms_log — the type travels with the
+    // template (mirroring email_verification above), else recordEmailComm defaults
+    // it to 'transactional', which is reserved for genuine non-auth mail.
+    commsType: "password_reset",
   };
 }
 

@@ -36,6 +36,8 @@ describe("spec-341 t-3: startCommsLogPrune (ac-8)", () => {
         channel: "email",
         type: "transactional",
         status: "sent",
+        // spec-442: a 'sent' row must carry a send time (comms_log_sent_requires_sent_at).
+        sentAt: new Date(Date.now() - 101 * DAY),
         createdAt: new Date(Date.now() - 101 * DAY),
       })
       .returning({ id: commsLog.id });

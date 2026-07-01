@@ -110,6 +110,8 @@ describe("spec-6 t-8: retention prune (ac-15)", () => {
         type: "transactional",
         status: "sent",
         subject: "Recent receipt",
+        // spec-442: a 'sent' row must carry a send time (comms_log_sent_requires_sent_at).
+        sentAt: new Date(Date.now() - 5 * DAY),
         createdAt: new Date(Date.now() - 5 * DAY),
       })
       .returning({ id: commsLog.id });
@@ -136,6 +138,8 @@ describe("spec-6 t-8: retention prune (ac-15)", () => {
         type: "work_notification",
         status: "sent",
         subject: "Ten days old",
+        // spec-442: a 'sent' row must carry a send time (comms_log_sent_requires_sent_at).
+        sentAt: new Date(Date.now() - 10 * DAY),
         createdAt: new Date(Date.now() - 10 * DAY),
       })
       .returning({ id: commsLog.id });

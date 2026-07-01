@@ -2958,6 +2958,13 @@ export const commsLog = pgTable(
       "comms_log_status_valid",
       sql`${table.status} IN ('scheduled', 'sent', 'delivered', 'failed')`,
     ),
+    // spec-442 dec-1 (ac-7): a 'sent' row must always carry a send time. Enforced at
+    // the DB as a backstop; recordComm() also stamps sent_at at the write path so this
+    // is never actually hit in practice (added via 0120 as NOT VALID → VALIDATE).
+    check(
+      "comms_log_sent_requires_sent_at",
+      sql`${table.status} <> 'sent' OR ${table.sentAt} IS NOT NULL`,
+    ),
   ],
 );
 export type CommsLogRow = InferSelectModel<typeof commsLog>;
