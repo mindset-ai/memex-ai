@@ -20,6 +20,8 @@ import {
   buildMcpCanonicalRefsSwitchEmail,
   buildMentionEmail,
   buildAssignmentEmail,
+  buildConnectedInactiveEmail,
+  buildSignedInDormantEmail,
 } from "./templates.js";
 
 const BASE = process.env.APP_BASE_URL ?? "https://memex.ai";
@@ -64,6 +66,18 @@ export const EMAIL_PREVIEW_SAMPLES: Record<string, (to: string) => EmailMessage>
       specLabel: "spec-1 — Sample Spec",
       commentUrl: sampleUrl("/mindset-prod/sample/specs/spec-1?comment=c-1"),
     }),
+  // spec-427 t-2 — the two activation/win-back emails. Preview keys are hyphenated
+  // (like `magic-link`); the comms_log keys are the dotted `activation.*` — keep
+  // the two namespaces distinct. App deep-links derive from APP_BASE_URL (dec-8).
+  "activation-connected-inactive": (to) =>
+    buildConnectedInactiveEmail({
+      to,
+      firstName: "Sample",
+      createSpecUrl: sampleUrl("/mindset-prod/sample/specs/new"),
+      memexUrl: sampleUrl("/mindset-prod/sample"),
+    }),
+  "activation-signed-in-dormant": (to) =>
+    buildSignedInDormantEmail({ to, firstName: "Sample", appUrl: BASE }),
 };
 
 export const EMAIL_TEMPLATE_NAMES: string[] = Object.keys(EMAIL_PREVIEW_SAMPLES);
