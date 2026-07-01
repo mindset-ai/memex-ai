@@ -340,8 +340,8 @@ export function StandardClauseList({
   parentDocId,
 }: {
   clauses: ClauseWithVerification[];
-  parentDocId: string;
-}): JSX.Element {
+  parentDocId: string | undefined;
+}): React.JSX.Element {
   const components: Record<string, unknown> = {
     decisionref: ({ handle }: { handle?: string }) =>
       handle ? <DecisionLink handle={handle} parentDocId={parentDocId} /> : null,

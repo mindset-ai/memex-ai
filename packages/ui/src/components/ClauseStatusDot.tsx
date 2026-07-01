@@ -35,7 +35,7 @@ export function ClauseStatusDot({
 }: {
   state: ClauseCoverageState;
   countable: boolean;
-}): JSX.Element {
+}): React.JSX.Element {
   // A non-testable / "not a real" clause carries no mark. The spacer preserves the
   // left margin so testable and non-testable clause text align in one column.
   if (!countable) {
@@ -50,7 +50,7 @@ export function ClauseStatusDot({
   }
 
   const base = 'inline-flex items-center justify-center w-4 h-4 shrink-0 rounded-full';
-  const byState: Record<ClauseCoverageState, { className: string; icon: JSX.Element | null }> = {
+  const byState: Record<ClauseCoverageState, { className: string; icon: React.JSX.Element | null }> = {
     passing: { className: 'bg-emerald-500 text-white', icon: <CheckIcon /> },
     failing: { className: 'bg-rose-500 text-white', icon: <CrossIcon /> },
     untested: { className: 'bg-zinc-300 dark:bg-zinc-600', icon: null },
