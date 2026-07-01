@@ -3,7 +3,7 @@
 // The load-bearing case (ac-8): a signed-in-dormant user with NO account.created event
 // (as an SSO / magic-link signup would be) is still correctly evaluated for Email 2.
 import { afterEach, describe, expect, it } from "vitest";
-import { eq, inArray } from "drizzle-orm";
+import { inArray } from "drizzle-orm";
 import { tagAc } from "@memex-ai-ac/vitest";
 import { db } from "../db/connection.js";
 import { users, usageEvents } from "../db/schema.js";
