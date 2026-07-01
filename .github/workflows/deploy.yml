@@ -154,6 +154,13 @@ jobs:
           SMOKE_MCP_TOKEN: ${{ secrets.SMOKE_MCP_TOKEN }}
           SMOKE_SESSION_TOKEN: ${{ secrets.SMOKE_SESSION_TOKEN }}
           MEMEX_EMIT_KEY: ${{ secrets.MEMEX_EMIT_KEY }}
+          # spec-428 dec-1/dec-3 — team-identity sender for the welcome + spec-427 drip.
+          # Non-sensitive brand copy, so kept as per-environment VARIABLES (not in the
+          # DEPLOY_ENV_FILE secret blob). deploy.sh pushes them to Cloud Run via its
+          # optional ${VAR+...} wiring, so an unset variable is simply omitted.
+          EMAIL_ACTIVATION_FROM: ${{ vars.EMAIL_ACTIVATION_FROM }}
+          EMAIL_ACTIVATION_REPLY_TO: ${{ vars.EMAIL_ACTIVATION_REPLY_TO }}
+          EMAIL_SENDER_NAME: ${{ vars.EMAIL_SENDER_NAME }}
         run: bash deploy.sh
 
       # spec-243 dec-2 / ac-6: every deploy posts a friendly note to the matching
