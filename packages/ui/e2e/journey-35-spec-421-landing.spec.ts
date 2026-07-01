@@ -38,6 +38,15 @@ const FILE = "packages/ui/e2e/journey-35-spec-421-landing.spec.ts";
 
 let seededSpecId: string | null = null;
 
+// spec-444 (ac-17): the welcome-video scope gate re-shows for users without a spec
+// (landOnHome = true). Suppress it for all tests in this file so they can isolate
+// the spec-421 landing logic independently.
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    sessionStorage.setItem('welcomeVideoDismissed', '1');
+  });
+});
+
 test.afterEach(async ({}, testInfo) => {
   // Clean up any spec this test seeded, and leave the shared dev user identity-confirmed
   // so sibling journeys land on their board.
