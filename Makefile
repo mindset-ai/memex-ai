@@ -24,7 +24,7 @@
 #   make typecheck           TypeScript type checking
 # ──────────────────────────────────────────────────────────────
 
-.PHONY: test test-unit test-integration test-api test-security test-perf test-regression \
+.PHONY: test test-unit test-integration test-api test-security test-perf test-regression test-rls \
         test-server test-ui e2e e2e-cold smoke smoke-int smoke-prod smoke-int-with-db smoke-prod-with-db \
         dev build db-migrate db-seed typecheck lint \
         check-url-shape help
@@ -61,6 +61,12 @@ test-perf:
 ## Server: regression guards (e.g. URL shape, instructions cap, mutate coverage)
 test-regression:
 	pnpm --filter @memex/server test:regression
+
+## Server: restricted-role RLS suite (spec-440) — connects the singleton AS the
+## non-owner `memex_app` role so tenancy/seed writes are SUBJECT to RLS, making a
+## missing app.memex_id fail in CI instead of only in prod. Requires local Postgres.
+test-rls:
+	pnpm --filter @memex/server test:rls
 
 ## Server: all test types
 test-server:

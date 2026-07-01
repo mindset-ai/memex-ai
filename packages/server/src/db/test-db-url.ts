@@ -65,6 +65,29 @@ export function deriveWorkerDatabaseUrl(
   return url.toString();
 }
 
+// ── Restricted-role RLS test harness (spec-440 dec-1) ────────────────────────
+//
+// The default suite connects as the DB owner (`postgres`), which BYPASSES RLS
+// (std-36: ENABLE, NO FORCE), so a missing `app.memex_id` is invisible in test.
+// The RLS project (vitest.rls.config.ts) connects the singleton AS the real
+// prod runtime role `memex_app` — a non-owner, NOBYPASSRLS role that is SUBJECT
+// to every `*_memex_isolation` policy — so a context-less write to a gated table
+// FAILS in test exactly as it does in prod. `memex_app` is NOLOGIN by default
+// (prod grants login via a deploy secret); the RLS global-setup enables LOGIN on
+// it with this fixed password, in the TEST cluster only. Its table grants are
+// already in the migrated template (migration 0081), inherited by every clone.
+export const RLS_TEST_ROLE = "memex_app";
+export const RLS_TEST_ROLE_PASSWORD = "memex_app_test_only";
+
+/** Rewrite a connection URL to authenticate as the restricted RLS runtime role
+ * (`memex_app`). Preserves host/port/database/query — only credentials change. */
+export function deriveRestrictedRoleUrl(url: string): string {
+  const u = new URL(url);
+  u.username = RLS_TEST_ROLE;
+  u.password = RLS_TEST_ROLE_PASSWORD;
+  return u.toString();
+}
+
 // Env-aware resolution used by both vitest.config.ts (worker env override)
 // and vitest.global-setup.ts (create/migrate) so they always agree on the
 // same database.
