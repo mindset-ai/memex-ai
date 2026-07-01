@@ -58,6 +58,7 @@ import {
 } from "../../services/tasks.js";
 import type { RequestCtx } from "../../services/mutate.js";
 import { listActivityView } from "../../services/activity-view.js";
+import { facetKeysByTask, facetKeysByDecision } from "../../services/facet-ballot.js";
 import { resolveTestEventActors } from "../../services/who-resolver.js";
 import { stripUuids, containsUuid } from "../../services/shared/identifiers.js";
 import { listPresent } from "../../services/presence.js";
@@ -402,8 +403,10 @@ export const COMPLETION_NUDGE =
 
 export interface FullDocState {
   doc: Awaited<ReturnType<typeof getDoc>>;
-  decs: Awaited<ReturnType<typeof listDecisions>>;
-  tasks: Awaited<ReturnType<typeof listTasks>>;
+  // spec-445 dec-2 — each decision/task carries its stored true facet keys, surfaced on
+  // the read (get_doc) as context.
+  decs: (Awaited<ReturnType<typeof listDecisions>>[number] & { facets?: string[] })[];
+  tasks: (Awaited<ReturnType<typeof listTasks>>[number] & { facets?: string[] })[];
   comments: Awaited<ReturnType<typeof listCommentsForDoc>>;
   // spec-136 t-4: the Spec's tags, rendered inline by formatFullDocState so any
   // doc-state response (get_doc, every mutation) carries them.
@@ -497,7 +500,15 @@ export async function fullDocState(memexId: string, docIdOrHandle: string): Prom
     listCommentsForDoc(memexId, doc.id),
     listDocTags(memexId, doc.id),
   ]);
-  return { doc, decs, tasks: tasksList, comments, tags: docTags };
+  // spec-445 dec-2 — attach each decision's/task's stored true facet keys so get_doc
+  // surfaces the classification as context (batched; a task/decision with no ballot gets []).
+  const [decFacets, taskFacets] = await Promise.all([
+    facetKeysByDecision(memexId, decs.map((d) => d.id)),
+    facetKeysByTask(memexId, tasksList.map((t) => t.id)),
+  ]);
+  const decsWithFacets = decs.map((d) => ({ ...d, facets: decFacets.get(d.id) ?? [] }));
+  const tasksWithFacets = tasksList.map((t) => ({ ...t, facets: taskFacets.get(t.id) ?? [] }));
+  return { doc, decs: decsWithFacets, tasks: tasksWithFacets, comments, tags: docTags };
 }
 
 /**
