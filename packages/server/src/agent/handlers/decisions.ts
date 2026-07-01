@@ -35,7 +35,8 @@ import {
 import {
   resolveEmbeddingProvider,
 } from "../../services/embedding-provider.js";
-// spec-423 dec-5/dec-6 — forced facet ballot on resolve_decision. Vocab via
+// spec-423 dec-5/dec-6 — the facet ballot is FORCED at create_decision; resolve_decision
+// reuses that stored ballot (footer only) and never forces one. Vocab via
 // facet-ballot.ts → facet-vocab.ts (NO-LLM); classifier engine never imported here.
 import { requireBallotForMemex, decisionBallotTrueFacets } from "../../services/facet-ballot.js";
 import { parseBallotArg, storeRouteAndReadout, routeAndReadout } from "../../services/facet-consume.js";
@@ -383,10 +384,10 @@ export const decisionsTools: ToolSpec[] = [
         .describe(
           "Zero-based index of the chosen option (only valid if the decision has structured options).",
         ),
-      // spec-423 dec-5 — decisions are a more reliably-created hook than tasks, so
-      // resolving one also forces a complete facet ballot (dec-6: work-side routing
-      // only — never surfaced as binding precedent). REQUIRED where the Memex has a
-      // vocabulary (resolve_decision FAILS without it). Same shape + re-hand as create_task.
+      // spec-423 dec-5/dec-6 — the facet ballot is declared ONCE, at create_decision
+      // (now a hard requirement), so resolution REUSES that stored ballot rather than
+      // forcing a fresh one. A ballot here is an OPTIONAL refinement that overrides the
+      // stored one (dec-6: work-side routing only — never surfaced as binding precedent).
       facetBallot: z
         .object({
           verdict: z.record(z.string(), z.boolean()).describe("Complete map: facet slug → true/false."),
@@ -394,7 +395,7 @@ export const decisionsTools: ToolSpec[] = [
         })
         .optional()
         .describe(
-          "REQUIRED where this Memex has a facet vocabulary: resolve_decision FAILS without a complete ballot. The facets this decision's work touches, which surface the standards governing it. First call the `facets` tool (verb:'list') to read the vocabulary, then pass a true/false verdict for EVERY facet, or none:true for honest no-facet work.",
+          "OPTIONAL refinement. The facet ballot is declared at create_decision and reused here to re-surface the governing standards — you do NOT need to re-cast it. Pass a complete ballot (a true/false verdict for EVERY facet, or none:true) ONLY to override the stored one; call the `facets` tool (verb:'list') first to read the vocabulary.",
         ),
       verbose: VERBOSE_FIELD,
     },
@@ -410,19 +411,20 @@ export const decisionsTools: ToolSpec[] = [
         );
       }
       const { memexId, doc, slugs, entity } = resolved;
-      // FACET BALLOT at resolution — facets are declared at create_decision, so REUSE that
-      // creation ballot to re-surface the governing standards, landing the resolution
-      // pointed at them. A fresh ballot here OVERRIDES (refinement). Only when NO ballot
-      // was ever cast (a candidate/legacy decision that never went through create_decision's
-      // ballot) AND the Memex has a vocabulary do we require one (re-handing remediation).
+      // FACET BALLOT at resolution — the ballot is declared ONCE at create_decision (a
+      // hard requirement), so resolution NEVER forces one: it REUSES the stored creation
+      // ballot to re-surface the governing standards, landing the resolution pointed at
+      // them (footer-only, spec-423 dec-5/dec-6). A fresh ballot here is an OPTIONAL
+      // refinement that overrides the stored one (still validated for completeness). A
+      // legacy/candidate decision with no stored ballot simply routes nothing — no fail.
       const hasBallot = input.facetBallot !== undefined;
       const ballot = parseBallotArg(input.facetBallot);
       const storedFacets = hasBallot ? [] : await decisionBallotTrueFacets(entity.row.id);
       let vocab: Awaited<ReturnType<typeof requireBallotForMemex>> = [];
       if (hasBallot) {
+        // Only a PROVIDED ballot is validated (completeness + known keys); its absence
+        // is never an error at resolution.
         vocab = await requireBallotForMemex(memexId, { provided: true, ballot }, { noun: "decision", channel: ctx.channel });
-      } else if (storedFacets.length === 0) {
-        vocab = await requireBallotForMemex(memexId, { provided: false, ballot }, { noun: "decision", channel: ctx.channel });
       }
       const decision = await resolveDecision(memexId, entity.row.id, resolution, chosenOptionIndex, reqCtx(ctx));
       const decRef = buildChildRef(slugs, doc, { type: "decisions", seq: decision.seq });

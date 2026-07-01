@@ -14,6 +14,16 @@ vi.hoisted(() => {
   return undefined;
 });
 
+// This suite hand-plants section embeddings (plantEmbedding) as its fixture. Suppress
+// the real fire-and-forget section embed fired by addSection/createClause so it cannot
+// race and clobber the planted vectors when an embedding key is present in the env
+// (keyless it no-ops; with a key it does a real async write). std-37: deterministic
+// under parallel execution regardless of environment.
+vi.mock("../services/memex-embeddings.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../services/memex-embeddings.js")>()),
+  embedAndStoreSection: async () => {},
+}));
+
 import { sql } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import { documents, memexes, namespaces } from "../db/schema.js";

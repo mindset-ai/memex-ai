@@ -124,8 +124,11 @@ function requireLead(
   vocab: VocabFacet[],
   opts: { noun: "task" | "decision"; channel?: "mcp" | "in_app_agent" },
 ): string {
-  const tool = opts.noun === "task" ? "create_task" : "resolve_decision";
-  const verb = opts.noun === "task" ? "created" : "resolved";
+  // The ballot is forced at the CREATE site for both nouns (create_task / create_decision);
+  // resolve_decision only ever VALIDATES a provided ballot, so it never reaches this
+  // absent-branch. Name the create tool so the remediation points at the right call.
+  const tool = opts.noun === "task" ? "create_task" : "create_decision";
+  const verb = "created";
   let msg = reHand(
     vocab,
     `A facet ballot is REQUIRED on every ${opts.noun} in this Memex (it has a facet vocabulary), ` +
