@@ -80,9 +80,16 @@ test(TITLE, async ({ page, resources }) => {
   ).toBeVisible({ timeout: 15_000 });
 
   // Confirm identity so needsOnboarding clears (spec-305) and the first-load
-  // landing decision is reached for real — the alternative is walking the
-  // onboarding identity step in the UI (journey-19), unnecessary detail here.
+  // landing decision is reached for real.
   await setIdentityConfirmed(email, true);
+  // spec-441: email/password signups have no name in their session JWT at this point.
+  // Navigate through /onboarding to set the display name AND refresh the cached session,
+  // otherwise TenantLayout redirects every subsequent page.goto to /onboarding.
+  await page.getByRole("button", { name: /Continue to your Memex/ }).click();
+  await expect(page).toHaveURL(/\/onboarding/, { timeout: 15_000 });
+  await page.getByPlaceholder("Your display name").fill("Variant A User");
+  await page.getByRole("button", { name: /^Continue$/ }).click();
+  await expect(page).toHaveURL(/\/home/, { timeout: 15_000 });
 
   // ── Pin the CONTROL arm + seed the handhold demo deterministically ───────────
   // The experiment-arm test hook (POST /api/__test__/seed-experiment-arm) is now

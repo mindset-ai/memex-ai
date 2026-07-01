@@ -13,6 +13,7 @@ import { MemexSwitcher } from './MemexSwitcher';
 import { InviteMembersDialog } from './InviteMembersDialog';
 import { PublicAuthButtons, ReadOnlyBadge } from './PublicAccessControls';
 import { useMemexAccess } from '../hooks/useMemexAccess';
+import { emailPreviewEnabled } from '../utils/devTools';
 import { HeaderSlotProvider, useHeaderSlotContent } from './HeaderSlot';
 import { SearchTrigger } from './SearchTrigger';
 import { useWhatsNew } from './whats-new/WhatsNewContext';
@@ -336,6 +337,17 @@ function SidebarUserCard({
           >
             Integrations
           </Link>
+          {/* spec-226 t-6: internal email-preview gallery, gated off prod. */}
+          {emailPreviewEnabled() && (
+            <Link
+              to="/email-preview"
+              data-testid="user-menu-email-preview"
+              onClick={() => setOpen(false)}
+              className="block w-full text-left px-3 py-2 text-sm transition-colors text-secondary hover:text-primary hover:bg-overlay"
+            >
+              Email preview
+            </Link>
+          )}
           <button
             onClick={() => {
               setOpen(false);

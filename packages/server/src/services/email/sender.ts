@@ -19,6 +19,12 @@ export interface EmailMessage {
   // sent without them is still recorded, resolved by recipient address.
   userId?: string;
   commsType?: string;
+  // spec-428 dec-3 / spec-427 dec-1 — per-message sender overrides for the
+  // activation/welcome emails: a named-human `from` and a monitored `replyTo`
+  // inbox, distinct from the default transactional sender. Both optional; absent
+  // → the configured default From and no Reply-To (the existing 6 emails unchanged).
+  from?: string;
+  replyTo?: string;
 }
 
 export interface EmailSender {
@@ -29,6 +35,8 @@ export class ConsoleEmailSender implements EmailSender {
   async send(message: EmailMessage): Promise<void> {
     console.log("");
     console.log(`────────── [email] to=${message.to} ──────────`);
+    if (message.from) console.log(`from: ${message.from}`);
+    if (message.replyTo) console.log(`reply-to: ${message.replyTo}`);
     console.log(`subject: ${message.subject}`);
     console.log("");
     console.log(message.text);
@@ -54,11 +62,12 @@ export class PostmarkEmailSender implements EmailSender {
         "X-Postmark-Server-Token": this.token,
       },
       body: JSON.stringify({
-        From: this.from,
+        From: message.from ?? this.from,
         To: message.to,
         Subject: message.subject,
         TextBody: message.text,
         ...(message.html ? { HtmlBody: message.html } : {}),
+        ...(message.replyTo ? { ReplyTo: message.replyTo } : {}),
         MessageStream: "outbound",
       }),
     });
@@ -76,11 +85,18 @@ export class PostmarkEmailSender implements EmailSender {
     // never affect the send, so we also guard the response parse and never await
     // into the caller's failure path.
     let messageId: string | undefined;
+    let sentAt: Date | undefined;
     try {
-      const body = (await res.json()) as { MessageID?: string };
+      const body = (await res.json()) as { MessageID?: string; SubmittedAt?: string };
       messageId = body.MessageID;
+      // spec-442 (ac-6): use Postmark's SubmittedAt as the true send time when present
+      // and parseable; otherwise leave it undefined and let recordComm fall back to now().
+      if (body.SubmittedAt) {
+        const parsed = new Date(body.SubmittedAt);
+        if (!Number.isNaN(parsed.getTime())) sentAt = parsed;
+      }
     } catch {
-      // response parse is best-effort — proceed to record without a MessageID
+      // response parse is best-effort — proceed to record without a MessageID / send time
     }
     void recordEmailComm({
       to: message.to,
@@ -88,6 +104,7 @@ export class PostmarkEmailSender implements EmailSender {
       commsType: message.commsType,
       subject: message.subject,
       messageId,
+      sentAt,
     });
   }
 }

@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from 'react';
 import { Routes, Route, useLocation, useParams, useNavigate, Navigate, Outlet } from 'react-router-dom';
+import { emailPreviewEnabled } from './utils/devTools';
 // spec-351: route-level code-splitting. Every top-level routed page is loaded
 // as its own lazy chunk so the entry bundle no longer eagerly pulls all ~35
 // page surfaces (and their heavy transitive deps — nivo charts, pixi, the
@@ -32,6 +33,10 @@ const StandardList = lazy(() =>
   import('./pages/StandardList').then((m) => ({ default: m.StandardList })),
 );
 const Standard = lazy(() => import('./pages/Standard').then((m) => ({ default: m.Standard })));
+// spec-226 t-6 — internal email-preview gallery (gated off prod, see emailPreviewEnabled).
+const EmailPreview = lazy(() =>
+  import('./pages/EmailPreview').then((m) => ({ default: m.EmailPreview })),
+);
 const DriftInbox = lazy(() => import('./pages/DriftInbox').then((m) => ({ default: m.DriftInbox })));
 const DocumentList = lazy(() =>
   import('./pages/DocumentList').then((m) => ({ default: m.DocumentList })),
@@ -235,6 +240,7 @@ function TenantLayout() {
   if (!session.user.emailVerified) {
     return <VerifyEmailGate />;
   }
+  if (!session.user.name) return <Navigate to="/onboarding" replace />; // spec-441
 
   // Membership check: redirect to the user's default tenant when they aren't
   // a member of the URL's namespace/memex. This replaces the host-based
@@ -405,7 +411,7 @@ function RootRedirect() {
   const homeHidden = !!session && isFeatureHidden(session, 'home');
   // Only consult journey-state when we genuinely face the Home-vs-Specs choice
   // (authenticated, verified, and 'home' visible). Otherwise skip the read.
-  const needDecision = !!session && emailVerified && !homeHidden;
+  const needDecision = !!session && emailVerified && !!session.user.name && !homeHidden;
   const landOnHome = useShouldLandOnHome(needDecision);
 
   // Engagement telemetry (advisory, fires once): record which way the router sent the
@@ -426,6 +432,7 @@ function RootRedirect() {
 
   if (!session) return null; // session bootstrap still pending
   if (!emailVerified) return <VerifyEmailGate />;
+  if (!session.user.name) return <Navigate to="/onboarding" replace />; // spec-441
   if (homeHidden) {
     // Loop-avoidance: 'home' hidden ⇒ land on the default tenant, no journey read.
     const fallback = computeDefaultLanding(session);
@@ -480,6 +487,12 @@ export function PostLoginRouter() {
       <Route path="/oauth/authorize" element={<OauthAuthorize />} />
       <Route path="/settings/tokens" element={<Navigate to="/settings/integrations" replace />} />
       <Route path="/settings/integrations" element={<FlatShell><SettingsIntegrations /></FlatShell>} />
+      {/* spec-226 t-6: internal email-preview gallery. Gated off prod — the
+          conditional Route is inert when emailPreviewEnabled() is false (falls
+          through to RootRedirect), mirroring the server's prod-unmounted API. */}
+      {emailPreviewEnabled() && (
+        <Route path="/email-preview" element={<FlatShell><EmailPreview /></FlatShell>} />
+      )}
       <Route path="/invites" element={<Navigate to="/org?tab=invites" replace />} />
       <Route path="/org" element={<FlatShell><OrgConfiguration /></FlatShell>} />
       {/* spec-171: in-app upgrade flow. Flat routes so website CTAs land here
@@ -635,9 +648,7 @@ export function PostLoginRouter() {
 function FlatShell({ children }: { children: React.ReactNode }) {
   const { session } = useAuth();
   if (session && !session.user.emailVerified) return <VerifyEmailGate />;
-  // spec-312 dec-3: the needsOnboarding bounce-back that used to live here is gone —
-  // flat routes render for everyone past the email gate. Onboarding is a layer on
-  // /home, never a wall that ejects you from other surfaces.
+  if (session && !session.user.name) return <Navigate to="/onboarding" replace />; // spec-441
   return (
     <ChatProvider>
       <OrgConsentDialog />
