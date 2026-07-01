@@ -285,6 +285,15 @@ SECRETS_WIRING+=",AUTH_JWT_SECRET=auth-jwt-secret:latest"
 if gcloud secrets describe postmark-webhook-token --project "${GCP_PROJECT}" >/dev/null 2>&1; then
   SECRETS_WIRING+=",POSTMARK_WEBHOOK_TOKEN=postmark-webhook-token:latest"
 fi
+# spec-427 t-3 / dec-8 (ac-15): the lifecycle/broadcast path uses the REAL Postmark
+# token ONLY in prod (the same server-token secret, on the real broadcast stream —
+# no second Postmark server). int deliberately leaves POSTMARK_BROADCAST_TOKEN unset
+# so the server defaults to Postmark's sandbox token and delivers no real broadcast
+# mail (fail-safe — see getEmailSender). The transactional POSTMARK_SERVER_TOKEN
+# wiring above is unchanged in both envs.
+if [ "$ENV" = "prod" ]; then
+  SECRETS_WIRING+=",POSTMARK_BROADCAST_TOKEN=postmark-server-token:latest"
+fi
 SECRETS_WIRING+=",OPENAI_API_KEY=openai-api-key:latest"
 if [ "$HAS_SLACK" = "1" ]; then
   SECRETS_WIRING+=",SLACK_CLIENT_SECRET=slack-client-secret:latest"
