@@ -4,7 +4,7 @@
 
 import { eq } from "drizzle-orm";
 import { db } from "../db/connection.js";
-import { namespaces, orgs, memexes, orgMemberships, testEvents } from "../db/schema.js";
+import { namespaces, orgs, memexes, orgMemberships, testEvents, users } from "../db/schema.js";
 import { upsertUserByEmail } from "./users.js";
 import { applyEmissionToSummary } from "./test-event-latest.js";
 import { resolveMemexId } from "./emission-keys.js";
@@ -16,7 +16,7 @@ function uniqueSlug(prefix: string): string {
 }
 
 export interface SeedTestEventInput {
-  acUid: string;
+  subjectRef: string;
   status: "pass" | "fail" | "error";
   /** Defaults to null (the "no test_identifier" case), keyed as '' in the summary. */
   testIdentifier?: string | null;
@@ -40,18 +40,18 @@ export async function seedTestEvent(input: SeedTestEventInput): Promise<void> {
   // spec-398 ac-8: resolve the emitting Memex from the ac_uid prefix, exactly as
   // the real route does. Tests build ac_uids from a seeded memex's ns/mx slugs, so
   // this resolves; a non-resolving ac_uid means the test forgot to seed its memex.
-  const [ns, mx] = input.acUid.split("/");
+  const [ns, mx] = input.subjectRef.split("/");
   const memexId = ns && mx ? await resolveMemexId(ns, mx) : null;
   if (!memexId) {
     throw new Error(
-      `seedTestEvent: ac_uid '${input.acUid}' does not resolve to a memex — seed the namespace/memex first`,
+      `seedTestEvent: ac_uid '${input.subjectRef}' does not resolve to a memex — seed the namespace/memex first`,
     );
   }
   await db.transaction(async (tx) => {
     const [row] = await tx
       .insert(testEvents)
       .values({
-        acUid: input.acUid,
+        subjectRef: input.subjectRef,
         memexId,
         status: input.status,
         testIdentifier,
@@ -60,7 +60,7 @@ export async function seedTestEvent(input: SeedTestEventInput): Promise<void> {
       })
       .returning({ createdAt: testEvents.createdAt });
     await applyEmissionToSummary(tx, {
-      acUid: input.acUid,
+      subjectRef: input.subjectRef,
       memexId,
       testIdentifier,
       status: input.status,
@@ -101,9 +101,16 @@ export async function makeTestMemex(prefix = "ta"): Promise<string> {
 export async function makePersonalTestMemex(prefix = "pers"): Promise<string> {
   const slug = uniqueSlug(prefix);
   const result = await db.transaction(async (tx) => {
+    // A personal namespace is owner_type='user' — it MUST carry owner_user_id or it
+    // violates the owner-XOR invariant (migration-smoke scans the whole table). Seed an
+    // owning user so the leaked fixture row is well-formed under parallel execution.
+    const [user] = await tx
+      .insert(users)
+      .values({ email: `${slug}@example.com` } as typeof users.$inferInsert)
+      .returning();
     const [ns] = await tx
       .insert(namespaces)
-      .values({ slug, kind: "user" })
+      .values({ slug, kind: "user", ownerUserId: user.id })
       .returning();
     const [memex] = await tx
       .insert(memexes)

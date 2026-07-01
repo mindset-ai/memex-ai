@@ -197,7 +197,7 @@ describe("persistEvent — real Postgres write", () => {
         entity: "test_event",
         action: "created",
         channel: "server",
-        payload: { status: "pass", acUid: "ns/mx/specs/spec-1/acs/ac-1" },
+        payload: { status: "pass", subjectRef: "ns/mx/specs/spec-1/acs/ac-1" },
       }),
     );
     expect(row).toBeNull();

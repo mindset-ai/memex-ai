@@ -179,8 +179,8 @@ export const toolManifest: ToolManifestEntry[] = [
   {
     name: 'add_section',
     summary:
-      'Add a new section to a document; the (doc, sectionType) pair is unique. STANDARDS are authored as clauses: pass clauses[] (one aspect each), not content; other doc types pass content. Wrong field for the doc type → rejected with guidance.',
-    args: 'add_section(ref, sectionType, content?, clauses?, title?, description?)',
+      'Add a new section to a document; the (doc, sectionType) pair is unique. STANDARDS are authored as clauses: pass clauses[] (one aspect each), not content; other doc types pass content. Each clause carries a facet verdict where the Memex has a vocabulary — pass clauseFacets[] (parallel to clauses; [] for a "governs nothing" clause). Wrong field for the doc type → rejected with guidance.',
+    args: 'add_section(ref, sectionType, content?, clauses?, clauseFacets?, title?, description?)',
     group: 'planning',
     readOnlyHint: false,
     trafficClass: null,
@@ -198,7 +198,7 @@ export const toolManifest: ToolManifestEntry[] = [
     name: 'add_clause',
     summary:
       'Append (or insert at a position) a clause to a STANDARD section — one self-contained aspect. Standards only; the new clause gets an addressable cl-N handle.',
-    args: 'add_clause(ref, body, position?, facets?)',
+    args: 'add_clause(ref, body, position?, facets?, testability?)',
     group: 'planning',
     readOnlyHint: false,
     trafficClass: null,
@@ -207,7 +207,7 @@ export const toolManifest: ToolManifestEntry[] = [
     name: 'edit_clause',
     summary:
       "Edit a STANDARD clause's body by its cl-N ref; the section content (the join of its clauses) regenerates. Standards only.",
-    args: 'edit_clause(ref, body, facets?)',
+    args: 'edit_clause(ref, body, facets?, testability?)',
     group: 'planning',
     readOnlyHint: false,
     trafficClass: null,
@@ -243,7 +243,7 @@ export const toolManifest: ToolManifestEntry[] = [
     name: 'create_decision',
     summary:
       "Create a decision on a document; status='candidate' records an agent-extracted candidate awaiting review.",
-    args: 'create_decision(ref, title, context?, status?, options?)',
+    args: 'create_decision(ref, title, context?, status?, options?, facetBallot?)',
     group: 'planning',
     readOnlyHint: false,
     trafficClass: 'specify',

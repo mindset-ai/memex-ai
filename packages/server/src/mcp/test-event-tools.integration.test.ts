@@ -39,8 +39,8 @@ const created = {
 
 afterAll(async () => {
   if (created.acUids.length) {
-    await db.delete(testEvents).where(inArray(testEvents.acUid, created.acUids)).catch(() => {});
-    await db.delete(testEventLatest).where(inArray(testEventLatest.acUid, created.acUids)).catch(() => {});
+    await db.delete(testEvents).where(inArray(testEvents.subjectRef, created.acUids)).catch(() => {});
+    await db.delete(testEventLatest).where(inArray(testEventLatest.subjectRef, created.acUids)).catch(() => {});
   }
   if (created.docs.length) {
     await db.delete(acs).where(inArray(acs.briefId, created.docs)).catch(() => {});
@@ -131,8 +131,8 @@ describe("ref-keyed test-event MCP tools (spec-127 dec-2)", () => {
     tagAc(`${SPEC}/acs/ac-5`);
     tagAc(`${SPEC}/acs/ac-8`);
     const { acRef, uid } = await seedAcWithRef("matrix read AC");
-    await seedTestEvent({ acUid: uid, status: "pass", testIdentifier: "tests/live.test.ts::ok" });
-    await seedTestEvent({ acUid: uid, status: "fail", testIdentifier: "tests/orphan.test.ts::renamed" });
+    await seedTestEvent({ subjectRef: uid, status: "pass", testIdentifier: "tests/live.test.ts::ok" });
+    await seedTestEvent({ subjectRef: uid, status: "fail", testIdentifier: "tests/orphan.test.ts::renamed" });
 
     const out = text(await callTool(actor.user.id, "get_test_matrix", { ref: acRef }));
     expect(out).toContain(`ref: ${acRef}`);
@@ -154,7 +154,7 @@ describe("ref-keyed test-event MCP tools (spec-127 dec-2)", () => {
     tagAc("mindset-prod/memex-building-itself/specs/spec-358/acs/ac-7");
     const { acRef, uid } = await seedAcWithRef("discontinue AC");
     const tid = "tests/gone.test.ts::renamed away";
-    await seedTestEvent({ acUid: uid, status: "fail", testIdentifier: tid });
+    await seedTestEvent({ subjectRef: uid, status: "fail", testIdentifier: tid });
 
     const out = text(await callTool(actor.user.id, "discontinue_test_events", { ref: acRef, test_identifier: tid }));
     expect(out).toContain(`ref: ${acRef}`);
@@ -182,7 +182,7 @@ describe("orphan awareness in the AC read surfaces (spec-127 ac-6)", () => {
     tagAc(`${SPEC}/acs/ac-6`);
     const { acRef, uid } = await seedAcWithRef("get_ac awareness AC");
     const tid = "tests/awareness.test.ts::renamed";
-    await seedTestEvent({ acUid: uid, status: "fail", testIdentifier: tid });
+    await seedTestEvent({ subjectRef: uid, status: "fail", testIdentifier: tid });
 
     const out = text(await callTool(actor.user.id, "get_ac", { ref: acRef }));
     expect(out).toContain("failing");
@@ -194,7 +194,7 @@ describe("orphan awareness in the AC read surfaces (spec-127 ac-6)", () => {
   it("get_ac on a verified AC stays quiet (no orphan hint) [ac-6]", async () => {
     tagAc(`${SPEC}/acs/ac-6`);
     const { acRef, uid } = await seedAcWithRef("clean AC");
-    await seedTestEvent({ acUid: uid, status: "pass", testIdentifier: "tests/clean.test.ts::ok" });
+    await seedTestEvent({ subjectRef: uid, status: "pass", testIdentifier: "tests/clean.test.ts::ok" });
     const out = text(await callTool(actor.user.id, "get_ac", { ref: acRef }));
     expect(out).not.toContain("discontinue_test_events");
   });
@@ -203,7 +203,7 @@ describe("orphan awareness in the AC read surfaces (spec-127 ac-6)", () => {
     tagAc(`${SPEC}/acs/ac-6`);
     const { specRef, uid } = await seedAcWithRef("list_acs awareness AC");
     const tid = "tests/list-aware.test.ts::renamed";
-    await seedTestEvent({ acUid: uid, status: "fail", testIdentifier: tid });
+    await seedTestEvent({ subjectRef: uid, status: "fail", testIdentifier: tid });
 
     const out = text(await callTool(actor.user.id, "list_acs", { ref: specRef }));
     expect(out).toContain("failing AC");

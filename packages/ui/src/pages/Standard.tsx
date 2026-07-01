@@ -16,6 +16,13 @@ import { useDocChangeStream } from '../hooks/useDocChangeStream';
 import { DecisionLink } from '../components/DecisionLink';
 import { rehypeRefLinkifier } from '../components/chat/refLinkifier';
 import { tenantPath } from '../utils/tenantUrl';
+import { ClauseStatusDot } from '../components/ClauseStatusDot';
+import { FacetPills } from '../components/FacetPills';
+import {
+  fetchClauseCoverage,
+  type StandardClauseCoverage,
+  type ClauseWithVerification,
+} from '../api/clause-coverage';
 
 /**
  * Single-standard view (per dec-17 / dec-18 / dec-28).
@@ -38,6 +45,7 @@ import { tenantPath } from '../utils/tenantUrl';
 export function Standard() {
   const { id } = useParams<{ id: string }>();
   const [doc, setDoc] = useState<DocWithGraph | null>(null);
+  const [coverage, setCoverage] = useState<StandardClauseCoverage | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -62,6 +70,14 @@ export function Standard() {
       .then((d) => {
         setDoc(d);
         fetchDocComments(d.id).then(applyComments).catch(console.error);
+        // The clause-coverage read drives the per-clause verification dots + facet pills.
+        // It's an enhancement: a failure falls back to the section's prose (setCoverage
+        // null → StandardSection renders section.content instead of clause lines).
+        if (d.docType === 'standard') {
+          fetchClauseCoverage(d.id)
+            .then(setCoverage)
+            .catch(() => setCoverage(null));
+        }
       })
       .catch((err) => {
         if (err instanceof NotFoundError) setNotFound(true);
@@ -137,6 +153,17 @@ export function Standard() {
 
   const sortedSections = [...doc.sections].sort((a, b) => a.seq - b.seq);
 
+  // Group the coverage rows under their owning section. Every phrase in a standard is a
+  // clause, so a section's clauses ARE its content — we render them, not a duplicated
+  // prose blob. A section with no clauses (legacy / not-yet-decomposed) falls back to its
+  // markdown content inside StandardSection.
+  const clausesBySection = new Map<string, ClauseWithVerification[]>();
+  for (const row of coverage?.clauses ?? []) {
+    const list = clausesBySection.get(row.clause.sectionId) ?? [];
+    list.push(row);
+    clausesBySection.set(row.clause.sectionId, list);
+  }
+
   return (
     // spec-130: the Standard view renders bare inside AppShell's
     // `overflow-hidden` <main> (it is not a doc-page route), so without a scroll
@@ -181,6 +208,7 @@ export function Standard() {
               section={section}
               sectionNumber={idx + 1}
               driftCount={driftCountsBySection[section.id] ?? 0}
+              clauses={clausesBySection.get(section.id)}
             />
           ))}
         </div>
@@ -193,6 +221,10 @@ interface StandardSectionProps {
   section: DocSection;
   sectionNumber: number;
   driftCount: number;
+  /** This section's clauses with verification + facets. When present they ARE the
+   *  section's content (rendered as the clause list); when absent (legacy / not-yet-
+   *  decomposed) the section falls back to its markdown prose. */
+  clauses?: ClauseWithVerification[];
 }
 
 /**
@@ -232,10 +264,12 @@ function StandardSection({
   section,
   sectionNumber,
   driftCount,
+  clauses,
 }: StandardSectionProps) {
   const title = section.title ?? capitalize(section.sectionType);
   const encoded = encodeDecisionRefs(section.content);
   const drifted = driftCount > 0;
+  const hasClauses = (clauses?.length ?? 0) > 0;
 
   // react-markdown's component map is typed strictly — using `any` here keeps the
   // `decisionref` override accepted alongside the standard HTML element keys. The
@@ -278,16 +312,70 @@ function StandardSection({
           </span>
         )}
       </div>
-      <div className="prose-dark overflow-hidden">
-        <ReactMarkdown
-          remarkPlugins={remarkPlugins}
-          rehypePlugins={rehypePlugins}
-          components={components as never}
-        >
-          {encoded}
-        </ReactMarkdown>
-      </div>
+      {hasClauses ? (
+        <StandardClauseList clauses={clauses!} parentDocId={section.docId} />
+      ) : (
+        <div className="prose-dark overflow-hidden">
+          <ReactMarkdown
+            remarkPlugins={remarkPlugins}
+            rehypePlugins={rehypePlugins}
+            components={components as never}
+          >
+            {encoded}
+          </ReactMarkdown>
+        </div>
+      )}
     </section>
+  );
+}
+
+/**
+ * A section's clauses rendered AS its content (no duplicated prose, no coverage shelf):
+ * one line per clause — a verification dot, the clause text (markdown, so `[per dec-N]`
+ * still linkifies), and the facet keys inline after it like citation markers. Exported so
+ * a component test can drive every state + the facets slot without a network round-trip.
+ */
+export function StandardClauseList({
+  clauses,
+  parentDocId,
+}: {
+  clauses: ClauseWithVerification[];
+  parentDocId: string | undefined;
+}): React.JSX.Element {
+  const components: Record<string, unknown> = {
+    decisionref: ({ handle }: { handle?: string }) =>
+      handle ? <DecisionLink handle={handle} parentDocId={parentDocId} /> : null,
+  };
+  return (
+    <ul data-testid="standard-clause-list" className="list-none m-0 p-0 space-y-2.5">
+      {clauses.map((row) => (
+        <li
+          key={row.clause.id}
+          data-testid={`clause-row-cl-${row.clause.seq}`}
+          data-state={row.state}
+          data-countable={row.countable ? 'true' : 'false'}
+          className="flex items-start gap-2.5"
+        >
+          <span className="mt-1">
+            <ClauseStatusDot state={row.state} countable={row.countable} />
+          </span>
+          <div className="flex-1 prose-dark overflow-hidden [&_p]:m-0 [&_p]:inline">
+            <ReactMarkdown
+              remarkPlugins={remarkPlugins}
+              rehypePlugins={rehypePlugins}
+              components={components as never}
+            >
+              {encodeDecisionRefs(row.clause.body)}
+            </ReactMarkdown>{' '}
+            <FacetPills
+              facetKeys={row.facetKeys}
+              className="ml-0.5"
+              pillTitle="The aspect of software this clause governs, e.g. security, testing, or architecture"
+            />
+          </div>
+        </li>
+      ))}
+    </ul>
   );
 }
 

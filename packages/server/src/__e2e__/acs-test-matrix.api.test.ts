@@ -47,7 +47,7 @@ afterAll(async () => {
   if (createdAcUids.length) {
     await db
       .delete(testEvents)
-      .where(inArray(testEvents.acUid, createdAcUids))
+      .where(inArray(testEvents.subjectRef, createdAcUids))
       .catch(() => {});
   }
   for (const id of createdDocIds) {
@@ -151,42 +151,42 @@ describe("GET /api/:namespace/:memex/acs/:acId/test-matrix [b-96 t-1]", () => {
     await db.insert(testEvents).values([
       {
         memexId,
-        acUid: acRef,
+        subjectRef: acRef,
         status: "pass",
         testIdentifier: "t_alpha",
         createdAt: at(0),
       },
       {
         memexId,
-        acUid: acRef,
+        subjectRef: acRef,
         status: "fail",
         testIdentifier: "t_beta",
         createdAt: at(1_000),
       },
       {
         memexId,
-        acUid: acRef,
+        subjectRef: acRef,
         status: "fail",
         testIdentifier: "t_alpha",
         createdAt: at(2_000),
       },
       {
         memexId,
-        acUid: acRef,
+        subjectRef: acRef,
         status: "pass",
         testIdentifier: "t_beta",
         createdAt: at(3_000),
       },
       {
         memexId,
-        acUid: acRef,
+        subjectRef: acRef,
         status: "pass",
         testIdentifier: "t_alpha",
         createdAt: at(4_000),
       },
       {
         memexId,
-        acUid: acRef,
+        subjectRef: acRef,
         status: "error",
         testIdentifier: null,
         createdAt: at(5_000),
@@ -300,15 +300,15 @@ describe("DELETE /api/:namespace/:memex/acs/:acId/test-events [b-96 t-2]", () =>
   // Re-seed test_events from scratch before each `it` so deletions in one
   // case don't leak into another. The AC + spec + user are stable.
   async function reseedEvents(): Promise<void> {
-    await db.delete(testEvents).where(eq(testEvents.acUid, acRef));
+    await db.delete(testEvents).where(eq(testEvents.subjectRef, acRef));
     const base = new Date("2026-05-27T01:00:00.000Z").getTime();
     const at = (offset: number): Date => new Date(base + offset);
     await db.insert(testEvents).values([
-      { memexId, acUid: acRef, status: "pass", testIdentifier: "t_keep", createdAt: at(0) },
-      { memexId, acUid: acRef, status: "fail", testIdentifier: "t_drop", createdAt: at(1_000) },
-      { memexId, acUid: acRef, status: "pass", testIdentifier: "t_drop", createdAt: at(2_000) },
-      { memexId, acUid: acRef, status: "fail", testIdentifier: "t_drop", createdAt: at(3_000) },
-      { memexId, acUid: acRef, status: "pass", testIdentifier: "t_keep", createdAt: at(4_000) },
+      { memexId, subjectRef: acRef, status: "pass", testIdentifier: "t_keep", createdAt: at(0) },
+      { memexId, subjectRef: acRef, status: "fail", testIdentifier: "t_drop", createdAt: at(1_000) },
+      { memexId, subjectRef: acRef, status: "pass", testIdentifier: "t_drop", createdAt: at(2_000) },
+      { memexId, subjectRef: acRef, status: "fail", testIdentifier: "t_drop", createdAt: at(3_000) },
+      { memexId, subjectRef: acRef, status: "pass", testIdentifier: "t_keep", createdAt: at(4_000) },
     ] as Array<typeof testEvents.$inferInsert>);
   }
 
@@ -359,14 +359,14 @@ describe("DELETE /api/:namespace/:memex/acs/:acId/test-events [b-96 t-2]", () =>
     expect(body.error).toMatch(/test_identifier/);
   });
 
-  it("deletes every row for (acUid, test_identifier) and returns {deleted: N}", async () => {
+  it("deletes every row for (subjectRef, test_identifier) and returns {deleted: N}", async () => {
     tagAc("mindset-prod/memex-building-itself/specs/spec-96/acs/ac-2");
     tagAc("mindset-prod/memex-building-itself/specs/spec-96/acs/ac-7");
 
     const before = await db
       .select({ count: sql<number>`count(*)::int` })
       .from(testEvents)
-      .where(and(eq(testEvents.acUid, acRef), eq(testEvents.testIdentifier, "t_drop")));
+      .where(and(eq(testEvents.subjectRef, acRef), eq(testEvents.testIdentifier, "t_drop")));
     expect(before[0].count).toBe(3);
 
     const res = await authedRequest(
@@ -381,14 +381,14 @@ describe("DELETE /api/:namespace/:memex/acs/:acId/test-events [b-96 t-2]", () =>
     const remainingDrop = await db
       .select({ count: sql<number>`count(*)::int` })
       .from(testEvents)
-      .where(and(eq(testEvents.acUid, acRef), eq(testEvents.testIdentifier, "t_drop")));
+      .where(and(eq(testEvents.subjectRef, acRef), eq(testEvents.testIdentifier, "t_drop")));
     expect(remainingDrop[0].count).toBe(0);
 
     // Sibling test_identifier must be untouched.
     const remainingKeep = await db
       .select({ count: sql<number>`count(*)::int` })
       .from(testEvents)
-      .where(and(eq(testEvents.acUid, acRef), eq(testEvents.testIdentifier, "t_keep")));
+      .where(and(eq(testEvents.subjectRef, acRef), eq(testEvents.testIdentifier, "t_keep")));
     expect(remainingKeep[0].count).toBe(2);
   });
 
@@ -426,7 +426,7 @@ describe("DELETE /api/:namespace/:memex/acs/:acId/test-events [b-96 t-2]", () =>
     // /api/test-events would do at the persistence layer.
     await db.insert(testEvents).values({
       memexId,
-      acUid: acRef,
+      subjectRef: acRef,
       status: "pass",
       testIdentifier: "t_drop",
       createdAt: new Date("2026-05-27T02:00:00.000Z"),
@@ -466,7 +466,7 @@ describe("DELETE /api/:namespace/:memex/acs/:acId/test-events [b-96 t-2]", () =>
     const remaining = await db
       .select({ count: sql<number>`count(*)::int` })
       .from(testEvents)
-      .where(and(eq(testEvents.acUid, acRef), eq(testEvents.testIdentifier, "t_drop")));
+      .where(and(eq(testEvents.subjectRef, acRef), eq(testEvents.testIdentifier, "t_drop")));
     expect(remaining[0].count).toBe(3);
   });
 

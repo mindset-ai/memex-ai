@@ -20,10 +20,11 @@ import { db } from "../db/connection.js";
 import { documents, docSections, standardClauses } from "../db/schema.js";
 import type { DocSection, StandardClause } from "../db/schema.js";
 import { NotFoundError, ValidationError } from "../types/errors.js";
-import { mutate, type Mutated } from "./mutate.js";
+import { mutate, type Mutated, type RequestCtx } from "./mutate.js";
 import { composeSectionContent, splitSectionIntoClauses } from "./clause-composition.js";
 import { embedAndStoreSection } from "./memex-embeddings.js";
 import { syncClauseRefsTx } from "./clause-refs.js";
+import { validateClauseFacetsBatch, persistClauseFacets } from "./facet-vocab.js";
 
 const CLAUSE_SEQ_CONSTRAINT = "standard_clauses_doc_seq_unique";
 
@@ -198,23 +199,46 @@ export async function createClause(
   });
 }
 
+/** One clause for the bulk authoring path: its body plus its facet verdict (spec-437
+ *  dec-1). `facets` is the deliberate verdict — facet keys, or [] for "governs nothing".
+ *  Where the Memex has a vocabulary it is REQUIRED; an absent (undefined) verdict is
+ *  rejected, exactly as add_clause enforces on the single-clause path. */
+export interface BulkClauseInput {
+  body: string;
+  facets: string[] | undefined;
+}
+
 /**
  * Append a batch of clauses to a section in one transaction, then regenerate content.
  * Used when a standard section is authored clause-first (add_section with clauses[]):
  * one section-created event has already fired; this emits one clause-created per body
  * plus the section-updated for the regenerated content. Allocate-once seqs (MAX+1 per
  * doc), positions appended after any existing clauses.
+ *
+ * spec-437 dec-1: every clause carries a facet verdict, validated BEFORE any row is
+ * created (so a rejected verdict leaves no orphan clauses) and persisted after — closing
+ * the bulk-path hole that let add_section / the seeder mint ballotless clauses.
  */
 export async function addClausesToSection(
   memexId: string,
   sectionId: string,
-  bodies: string[],
+  clauses: BulkClauseInput[],
+  ctx: RequestCtx = {},
 ): Promise<Mutated<StandardClause[]>> {
   const section = await loadOwnedSection(memexId, sectionId);
-  const clean = bodies.map((b) => b ?? "").filter((b) => b.trim().length > 0);
+  const clean = clauses.filter((c) => (c.body ?? "").trim().length > 0);
   if (clean.length === 0) {
     throw new ValidationError("At least one non-empty clause is required.");
   }
+
+  // spec-437 dec-1: validate every verdict up front, with ONE vocab load (not one query
+  // per clause). Throws on an absent-where-required or unknown-key verdict; returns
+  // null-per-clause when the Memex has no vocabulary (no verdict required, nothing to
+  // persist).
+  const facetIdsPerClause = await validateClauseFacetsBatch(
+    memexId,
+    clean.map((c) => c.facets),
+  );
 
   const keys = [
     ...clean.map(() => ({
@@ -231,12 +255,12 @@ export async function addClausesToSection(
       let seq = await maxClauseSeqTx(tx, section.docId);
       let pos = await maxPositionTx(tx, sectionId);
       const rows: StandardClause[] = [];
-      for (const body of clean) {
+      for (const c of clean) {
         seq++;
         pos++;
         const [row] = await tx
           .insert(standardClauses)
-          .values({ memexId, docId: section.docId, sectionId, seq, position: pos, body })
+          .values({ memexId, docId: section.docId, sectionId, seq, position: pos, body: c.body })
           .returning();
         await syncClauseRefsTx(tx, row); // spec-179: materialize handle mentions
         rows.push(row);
@@ -245,6 +269,16 @@ export async function addClausesToSection(
       return rows;
     }),
   );
+
+  // Persist each clause's verdict (replace semantics; [] → the governs-nothing marker).
+  // Skipped only where the Memex has no vocabulary (facetIds === null).
+  for (let i = 0; i < created.length; i++) {
+    const facetIds = facetIdsPerClause[i];
+    if (facetIds !== null) {
+      await persistClauseFacets(memexId, section.docId, created[i].id, facetIds, ctx);
+    }
+  }
+
   reembedInBackground(memexId, sectionId);
   return created;
 }

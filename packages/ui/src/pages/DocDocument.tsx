@@ -1360,7 +1360,12 @@ export function DocDocument() {
           }}
         />
       ) : doc.docType !== 'spec' ? (
-        narrativeView
+        <>
+          {narrativeView}
+          {/* spec-151: a Standard's verification view (per-clause dots + facet pills)
+              renders on the canonical /standards/:id page (pages/Standard.tsx), not on
+              this doc-type-agnostic /docs/:id fallback. */}
+        </>
       ) : viewedTab === 'done' ? (
         doneTabView
       ) : (

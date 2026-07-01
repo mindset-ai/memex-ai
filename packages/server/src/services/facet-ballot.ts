@@ -116,6 +116,53 @@ export async function validateBallotForMemex(memexId: string, input: BallotInput
   return vocab;
 }
 
+/** Re-handing message for a ballot that is REQUIRED but ABSENT: leads with why it
+ *  failed, hands the full ballot shape + vocabulary (via reHand), and, for a non-in-app
+ *  caller, adds the stale-schema reload branch (an MCP client on a cached tool list can
+ *  only start sending facetBallot after it reloads). */
+function requireLead(
+  vocab: VocabFacet[],
+  opts: { noun: "task" | "decision"; channel?: "mcp" | "in_app_agent" },
+): string {
+  // The ballot is forced at the CREATE site for both nouns (create_task / create_decision);
+  // resolve_decision only ever VALIDATES a provided ballot, so it never reaches this
+  // absent-branch. Name the create tool so the remediation points at the right call.
+  const tool = opts.noun === "task" ? "create_task" : "create_decision";
+  const verb = "created";
+  let msg = reHand(
+    vocab,
+    `A facet ballot is REQUIRED on every ${opts.noun} in this Memex (it has a facet vocabulary), ` +
+      `and none was supplied — the ${opts.noun} was NOT ${verb}.`,
+  );
+  if (opts.channel !== "in_app_agent") {
+    msg +=
+      ` If your \`${tool}\` tool exposes no \`facetBallot\` parameter, your MCP client is on a cached ` +
+      `tool list — reconnect/reload the Memex MCP server to refresh it, then retry.`;
+  }
+  return msg;
+}
+
+/**
+ * Enforce the ballot contract at a create/resolve site (re-tightened from spec-423's
+ * optional relaxation): where the Memex has a facet vocabulary the ballot is REQUIRED;
+ * an empty-vocabulary Memex (including every bare test fixture) needs none. Throws a
+ * re-handing ValidationError on an absent-but-required OR invalid ballot, BEFORE the
+ * write, so a rejected ballot never leaves an orphan row. Returns the vocab so the
+ * caller can store the routing without re-loading it.
+ */
+export async function requireBallotForMemex(
+  memexId: string,
+  input: { provided: boolean; ballot: BallotInput },
+  opts: { noun: "task" | "decision"; channel?: "mcp" | "in_app_agent" },
+): Promise<VocabFacet[]> {
+  const vocab = await vocabForMemex(memexId);
+  if (vocab.length === 0) return vocab; // no vocabulary → nothing to adjudicate
+  if (!input.provided) throw new ValidationError(requireLead(vocab, opts));
+  const check = validateBallot(input.ballot, vocab);
+  if (!check.ok) throw new ValidationError(check.message);
+  return vocab;
+}
+
 /** The TRUE facet keys of a ballot, computed without a DB read. */
 export function trueFacetsOf(input: BallotInput, vocab: VocabFacet[]): string[] {
   if (input.none) return [];

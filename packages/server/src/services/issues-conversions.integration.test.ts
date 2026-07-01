@@ -61,7 +61,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (createdAcUids.length) {
-    await db.delete(testEvents).where(inArray(testEvents.acUid, createdAcUids)).catch(() => {});
+    await db.delete(testEvents).where(inArray(testEvents.subjectRef, createdAcUids)).catch(() => {});
   }
   for (const id of createdDocIds) {
     await db.delete(issues).where(eq(issues.docId, id)).catch(() => {});
@@ -92,14 +92,14 @@ function acRefFor(specHandle: string, seq: number): string {
 // LATEST by created_at, so a red→green sequence needs distinct timestamps to
 // model "the fix landed after the reproduction failed" (it does in reality).
 async function emitEvent(
-  acUid: string,
+  subjectRef: string,
   status: "pass" | "fail" | "error",
   at: Date = new Date(),
 ): Promise<void> {
-  createdAcUids.push(acUid);
+  createdAcUids.push(subjectRef);
   await db.insert(testEvents).values({
     memexId,
-    acUid,
+    subjectRef,
     status,
     testIdentifier: "tests/example.test.ts::it",
     createdAt: at,
@@ -244,10 +244,10 @@ describe("auto-resolve converted → resolved (ac-22, ac-7)", () => {
 
     const result = await convertIssueToTask(memexId, issue.id);
     const ac = (await db.query.acs.findFirst({ where: eq(acs.id, result.acId) }))!;
-    const acUid = acRefFor(spec.handle, ac.seq);
+    const subjectRef = acRefFor(spec.handle, ac.seq);
 
     // The bug's AC begins RED (the reproduction test fails).
-    await emitEvent(acUid, "fail", new Date(Date.now() - 60_000));
+    await emitEvent(subjectRef, "fail", new Date(Date.now() - 60_000));
 
     // Complete the Task — but the AC is red, so the Issue must STAY converted.
     await updateTaskStatus(memexId, result.task.id, "complete");
@@ -256,8 +256,8 @@ describe("auto-resolve converted → resolved (ac-22, ac-7)", () => {
 
     // The fix lands; the AC goes GREEN (a later event). The test-event ingestion
     // trigger closes the loop: converted → resolved.
-    await emitEvent(acUid, "pass", new Date());
-    await maybeAutoResolveIssuesForAcUid(acUid);
+    await emitEvent(subjectRef, "pass", new Date());
+    await maybeAutoResolveIssuesForAcUid(subjectRef);
 
     now = await getIssue(memexId, issue.id);
     expect(now.status).toBe("resolved");
@@ -275,11 +275,11 @@ describe("auto-resolve converted → resolved (ac-22, ac-7)", () => {
     });
     const result = await convertIssueToTask(memexId, issue.id);
     const ac = (await db.query.acs.findFirst({ where: eq(acs.id, result.acId) }))!;
-    const acUid = acRefFor(spec.handle, ac.seq);
+    const subjectRef = acRefFor(spec.handle, ac.seq);
 
     // AC is green but the Task is NOT complete — the Issue must stay converted.
-    await emitEvent(acUid, "pass");
-    await maybeAutoResolveIssuesForAcUid(acUid);
+    await emitEvent(subjectRef, "pass");
+    await maybeAutoResolveIssuesForAcUid(subjectRef);
 
     const now = await getIssue(memexId, issue.id);
     expect(now.status).toBe("converted");
@@ -297,10 +297,10 @@ describe("auto-resolve converted → resolved (ac-22, ac-7)", () => {
     });
     const result = await convertIssueToTask(memexId, issue.id);
     const ac = (await db.query.acs.findFirst({ where: eq(acs.id, result.acId) }))!;
-    const acUid = acRefFor(spec.handle, ac.seq);
+    const subjectRef = acRefFor(spec.handle, ac.seq);
 
     // Green first, THEN complete the Task — the task-completion path is the trigger.
-    await emitEvent(acUid, "pass");
+    await emitEvent(subjectRef, "pass");
     await updateTaskStatus(memexId, result.task.id, "complete");
 
     const now = await getIssue(memexId, issue.id);
