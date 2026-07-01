@@ -81,6 +81,14 @@ export async function recordComm(
   conn: Db = db,
 ): Promise<CommsLogRow | null> {
   if (!input.userId) return null;
+  const status = input.status ?? "sent";
+  // spec-442 (ac-2/ac-6, dec-1/dec-2): enforce status='sent' ⇒ sent_at IS NOT NULL at
+  // the write path. When the row resolves to 'sent' but the caller threads no explicit
+  // send time, stamp now(); the real Postmark SubmittedAt is passed through when the
+  // response carries it. Scheduled/other statuses keep sent_at null until markCommSent()
+  // flips them. Holds for every caller (Postmark send, Stripe, tests), so no code path
+  // produces a 'sent' row with a null sent_at.
+  const sentAt = input.sentAt ?? (status === "sent" ? new Date() : null);
   try {
     const [row] = await conn
       .insert(commsLog)
@@ -88,9 +96,9 @@ export async function recordComm(
         userId: input.userId,
         channel: input.channel,
         type: input.type,
-        status: input.status ?? "sent",
+        status,
         scheduledFor: input.scheduledFor ?? null,
-        sentAt: input.sentAt ?? null,
+        sentAt,
         subject: input.subject ?? null,
         sourceRef: input.sourceRef ?? null,
       })
@@ -312,7 +320,7 @@ export function startCommsLogPrune(intervalMs: number = ONE_DAY_MS): NodeJS.Time
  * Advisory: any failure is logged and swallowed — never affects the send.
  */
 export async function recordEmailComm(
-  input: { to: string; userId?: string; commsType?: string; subject?: string; messageId?: string },
+  input: { to: string; userId?: string; commsType?: string; subject?: string; messageId?: string; sentAt?: Date | null },
   conn: Db = db,
 ): Promise<CommsLogRow | null> {
   try {
@@ -333,6 +341,9 @@ export async function recordEmailComm(
         type: input.commsType ?? "transactional",
         subject: input.subject ?? null,
         sourceRef: input.messageId ?? null,
+        // spec-442 (ac-6): thread the real Postmark send time (SubmittedAt) when the
+        // sender captured it. Omitted/null ⇒ recordComm stamps now() for the 'sent' row.
+        sentAt: input.sentAt ?? null,
       },
       conn,
     );
