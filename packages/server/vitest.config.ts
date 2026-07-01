@@ -113,6 +113,10 @@ export default defineConfig({
       "**/.{idea,git,cache,output,temp}/**",
       "**/{karma,rollup,webpack,vite,vitest,jest,ava,babel,nyc,cypress,tsup,build,eslint,prettier}.config.*",
       "src/__smoke__/**",
+      // spec-440: the restricted-role RLS project (vitest.rls.config.ts) owns
+      // these — they must run AS memex_app (RLS-subject), never under the owner
+      // connection here, where RLS is bypassed and the assertion would be vacuous.
+      "src/**/*.rls-restricted.test.ts",
     ],
     // Test files run in parallel workers; each worker owns a private clone of
     // the migrated test database (see vitest.worker-db.setup.ts), so DB-backed
