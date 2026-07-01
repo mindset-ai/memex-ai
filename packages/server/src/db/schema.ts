@@ -1359,6 +1359,11 @@ export const users = pgTable("users", {
   // the identity step.
   roleCoords: jsonb("role_coords").$type<{ dev: number; design: number; pm: number }>(),
   identityConfirmedAt: timestamp("identity_confirmed_at", { withTimezone: true }),
+  // spec-427 t-4 (dec-5): lifecycle-email suppression. Null = subscribed; a timestamp =
+  // the user unsubscribed from activation/win-back (lifecycle/broadcast) email via the
+  // one-click List-Unsubscribe link. Scope is LIFECYCLE ONLY — transactional/auth email
+  // and the spec-428 welcome ignore this flag and always send (ac-11 scope / ac-12).
+  lifecycleEmailUnsubscribedAt: timestamp("lifecycle_email_unsubscribed_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
