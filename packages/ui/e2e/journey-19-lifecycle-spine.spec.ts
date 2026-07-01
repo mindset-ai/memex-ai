@@ -47,6 +47,7 @@ import {
   seedSpecInMemex,
   seedOpenDecision,
   signupWithToken,
+  dismissWelcomeVideo,
   emitAcEvents,
 } from "./helpers/index.js";
 
@@ -264,6 +265,8 @@ test(
     await expect(page).toHaveURL(/\/onboarding/, { timeout: 15_000 });
     await page.getByPlaceholder("Your display name").fill("Spine User");
     await page.getByRole("button", { name: /^Continue$/ }).click();
+    // spec-444: dismiss welcome video gate that fires for new users after name capture.
+    await dismissWelcomeVideo(page);
 
     // After naming, the user lands on /home with the standard Home Canvas.
     await expect(page.getByTestId("getting-started-title")).toBeVisible({ timeout: 15_000 });

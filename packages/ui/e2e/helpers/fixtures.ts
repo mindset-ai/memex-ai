@@ -11,6 +11,7 @@ import {
   ensureUser,
   setUserName,
   setOnboardingGreeted,
+  setVideoWelcomed,
   setIdentityConfirmed,
   clearOrgMemberships,
   clearUserSpecs,
@@ -41,7 +42,7 @@ export const test = base.extend<{ resources: TestResources }>({
   // mounted), so the old `seedConsent` pre-seed of a 'denied' choice is gone — there
   // is nothing to suppress. Anonymous pre-signup capture is now identifier-less
   // volume with no banner and no cookie.
-  resources: async ({}, use) => {
+  resources: async ({ page }, use) => {
     // Baseline reset of the dev user BEFORE each test (the schema-current
     // equivalent of the old clearMembershipsForEmail + named seedUser):
     //   1. ensure dev@memex.ai exists with its personal namespace + memex,
@@ -66,6 +67,17 @@ export const test = base.extend<{ resources: TestResources }>({
     // (it would otherwise trigger wherever a mic is available, e.g. journey-21).
     // The onboarding journey explicitly un-greets to drive the auto-greeting.
     await setOnboardingGreeted(DEV_EMAIL, true);
+    // spec-444: pre-stamp the dev user as already welcomed so every existing journey
+    // skips the /welcome gate. Journeys that specifically test the gate clear this first.
+    await setVideoWelcomed(DEV_EMAIL, true);
+    // spec-444 extended scope (ac-17): the gate also fires for users with no spec
+    // (landOnHome = true). clearUserSpecs above sets hasSpec=false, which would trigger
+    // the scope gate for any test navigating through /. Suppress it via sessionStorage
+    // so tests that don't exercise the gate aren't disrupted. journey-53 uses { page }
+    // without resources, so it gets no suppression and the gate fires for real.
+    await page.addInitScript(() => {
+      sessionStorage.setItem('welcomeVideoDismissed', '1');
+    });
 
     const uniq = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
     const namespaceSlugs: string[] = [];
@@ -188,4 +200,16 @@ export async function switchToEditing(page: Page): Promise<void> {
   await page.getByRole("menuitemradio", { name: /Editing/i }).click();
   // The pill flips to "You are editing" once useDocRole re-resolves the promotion.
   await editingPill.waitFor({ state: "visible", timeout: 10_000 });
+}
+
+/**
+ * spec-444: dismiss the welcome video page if the current URL is /welcome.
+ * Clicks "Get started →" (permanent dismiss) and waits for navigation to /specs.
+ * Use this in fresh-signup journeys that now land on /welcome before the board.
+ * Safe to call unconditionally — it no-ops when not on the welcome page.
+ */
+export async function dismissWelcomeVideo(page: Page): Promise<void> {
+  if (!page.url().includes('/welcome')) return;
+  await page.getByTestId('welcome-video-cta').click();
+  await page.waitForURL(/\/specs/, { timeout: 15_000 });
 }

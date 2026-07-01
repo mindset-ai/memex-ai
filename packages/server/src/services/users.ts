@@ -246,6 +246,17 @@ export async function markOnboardingGreeted(userId: string): Promise<User> {
   return updated;
 }
 
+// spec-444: stamp the permanent welcome-video dismiss. Idempotent — first dismiss wins.
+export async function markVideoWelcomed(userId: string): Promise<void> {
+  const existing = await getUserById(userId);
+  if (!existing) throw new ValidationError(`User ${userId} not found`);
+  if (existing.videoWelcomedAt) return;
+  await db
+    .update(users)
+    .set({ videoWelcomedAt: new Date(), updatedAt: new Date() })
+    .where(eq(users.id, userId));
+}
+
 export async function setUserPasswordHash(userId: string, passwordHash: string): Promise<User> {
   const [updated] = await db
     .update(users)

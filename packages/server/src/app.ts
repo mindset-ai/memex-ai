@@ -45,6 +45,7 @@ import driftRouter from "./routes/drift.js";
 import { search } from "./routes/search.js";
 import { handhold } from "./routes/handhold.js";
 import { onboarding } from "./routes/onboarding.js";
+import { welcomeVideo } from "./routes/welcome-video.js";
 import { testEventsRouter } from "./routes/test-events.js";
 import { specCheckoutRouter } from "./routes/spec-checkout.js";
 import { hookKeysRouter } from "./routes/hook-keys.js";
@@ -381,6 +382,9 @@ app.route("/api/auth", auth);
 // Specky welcome (greet-eligibility read + once-per-user stamp). User-keyed, no
 // memex semantics, so it stays flat.
 app.route("/api/onboarding", onboarding);
+// /api/welcome-video — spec-444: user-level PATCH to stamp permanent video dismiss.
+// User-keyed, no memex semantics, flat mount.
+app.route("/api/welcome-video", welcomeVideo);
 // /api/orgs — t-14 + t-16 of doc-15. Single org-creation + admin surface.
 // Replaces the retired /api/accounts and /api/account mounts.
 app.route("/api/orgs", orgsRouter);

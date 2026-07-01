@@ -70,6 +70,8 @@ export interface SessionPayload {
     name: string | null;
     status: 'active' | 'disabled';
     emailVerified: boolean;
+    /** spec-444: ISO timestamp of first permanent welcome-video dismiss; null = not yet dismissed. */
+    videoWelcomedAt: string | null;
   };
   memberships: MembershipSummary[];
   /** The Memex the session is currently scoped to. */
@@ -294,6 +296,21 @@ export async function updateProfileApi(
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.message ?? body.error ?? `Profile update failed: ${res.status}`);
+  }
+  return res.json();
+}
+
+// spec-444: permanently dismiss the welcome video — stamps video_welcomed_at on
+// the users row. Returns the fresh session so the caller can call updateSession()
+// before navigating, preventing a same-session gate re-trigger.
+export async function dismissWelcomeVideoApi(token: string | null): Promise<SessionPayload> {
+  const res = await fetchWithRetry(`${BASE_URL}/welcome-video`, {
+    method: 'PATCH',
+    headers: { ...authHeaders(token) },
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.message ?? body.error ?? `Welcome video dismiss failed: ${res.status}`);
   }
   return res.json();
 }
