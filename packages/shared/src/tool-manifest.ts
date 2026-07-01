@@ -251,8 +251,8 @@ export const toolManifest: ToolManifestEntry[] = [
   {
     name: 'update_decision',
     summary:
-      "Two modes: edit-in-place (title/context/resolution/chosenOptionIndex on any status) OR reopen (status='open' on a resolved decision). One per call. resolve_decision is the named verb for new resolutions.",
-    args: 'update_decision(ref, status?, title?, context?, resolution?, chosenOptionIndex?)',
+      "Two modes: edit-in-place (title/context/resolution/chosenOptionIndex/facetBallot on any status) OR reopen (status='open' on a resolved decision). One per call. resolve_decision is the named verb for new resolutions; facetBallot re-casts the decision's facets.",
+    args: 'update_decision(ref, status?, title?, context?, resolution?, chosenOptionIndex?, facetBallot?)',
     group: 'planning',
     readOnlyHint: false,
     trafficClass: 'specify',
@@ -340,8 +340,8 @@ export const toolManifest: ToolManifestEntry[] = [
   {
     name: 'update_task',
     summary:
-      'Update a task: status, title, description, acceptanceCriteria, sectionRef, add/removeBlockerRef.',
-    args: 'update_task(ref, status?, title?, description?, acceptanceCriteria?, sectionRef?, addBlockerRef?, removeBlockerRef?)',
+      'Update a task: status, title, description, acceptanceCriteria, sectionRef, facetBallot (re-cast facets), add/removeBlockerRef.',
+    args: 'update_task(ref, status?, title?, description?, acceptanceCriteria?, sectionRef?, addBlockerRef?, removeBlockerRef?, facetBallot?)',
     group: 'build',
     readOnlyHint: false,
     trafficClass: 'build',
