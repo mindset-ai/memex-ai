@@ -50,13 +50,13 @@ function ref(seq: number): string {
 // Insert raw test_events for a pair with controlled timestamps, BYPASSING
 // trim-on-write — to set up "more than 10 already exist" scenarios.
 async function insertRaw(
-  acUid: string,
+  subjectRef: string,
   testIdentifier: string | null,
   createdAts: Date[],
 ): Promise<void> {
   await db.insert(testEvents).values(
     createdAts.map((createdAt) => ({
-      acUid,
+      subjectRef,
       memexId,
       status: "pass" as const,
       testIdentifier,
@@ -65,13 +65,13 @@ async function insertRaw(
   );
 }
 
-async function countFor(acUid: string, testIdentifier: string | null): Promise<number> {
+async function countFor(subjectRef: string, testIdentifier: string | null): Promise<number> {
   const rows = await db
     .select({ id: testEvents.id })
     .from(testEvents)
     .where(
       and(
-        eq(testEvents.acUid, acUid),
+        eq(testEvents.subjectRef, subjectRef),
         eq(sql`coalesce(${testEvents.testIdentifier}, '')`, testIdentifier ?? ""),
       ),
     );
@@ -94,21 +94,21 @@ beforeAll(async () => {
 describe("spec-398 retention + tenancy", () => {
   it("ac-5: trim-on-write caps a pair at the latest 10; the 11th drops the oldest", async () => {
     tagAc(`${AC}/ac-5`);
-    const acUid = ref(1);
+    const subjectRef = ref(1);
     const tid = "tests/a.test.ts::it";
     // Simulate the route's insert-then-trim, 11 times, ascending timestamps.
     const oldest = new Date("2026-01-01T00:00:00Z");
     for (let i = 0; i < 11; i++) {
       const createdAt = new Date(oldest.getTime() + i * 60_000);
-      await insertRaw(acUid, tid, [createdAt]);
-      await trimTestEventsForPair(db, acUid, tid);
+      await insertRaw(subjectRef, tid, [createdAt]);
+      await trimTestEventsForPair(db, subjectRef, tid);
     }
-    expect(await countFor(acUid, tid)).toBe(RETENTION_KEEP);
+    expect(await countFor(subjectRef, tid)).toBe(RETENTION_KEEP);
     // The oldest (i=0) must be gone; the newest survives.
     const survivors = await db
       .select({ createdAt: testEvents.createdAt })
       .from(testEvents)
-      .where(eq(testEvents.acUid, acUid));
+      .where(eq(testEvents.subjectRef, subjectRef));
     const times = survivors.map((s) => s.createdAt.getTime()).sort((a, b) => a - b);
     expect(times[0]).toBe(oldest.getTime() + 1 * 60_000); // i=1 is now the oldest kept
     expect(times).not.toContain(oldest.getTime());
@@ -117,7 +117,7 @@ describe("spec-398 retention + tenancy", () => {
   it("ac-4 / ac-6: keep the latest 10 by COUNT regardless of age (the rewrite-and-swap invariant)", async () => {
     tagAc(`${AC}/ac-4`);
     tagAc(`${AC}/ac-6`);
-    const acUid = ref(2);
+    const subjectRef = ref(2);
     const tid = "tests/b.test.ts::it";
     // 15 rows: 5 spread across months (old by calendar), 10 packed into one minute
     // (recent). Keep-last-10 must keep the 10 RECENT ones and drop the 5 old ones,
@@ -129,13 +129,13 @@ describe("spec-398 retention + tenancy", () => {
       { length: 10 },
       (_, i) => new Date(Date.UTC(2026, 5, 24, 12, 0, i)),
     );
-    await insertRaw(acUid, tid, [...old5, ...recent10]);
-    await trimTestEventsForPair(db, acUid, tid);
-    expect(await countFor(acUid, tid)).toBe(10);
+    await insertRaw(subjectRef, tid, [...old5, ...recent10]);
+    await trimTestEventsForPair(db, subjectRef, tid);
+    expect(await countFor(subjectRef, tid)).toBe(10);
     const survivors = await db
       .select({ createdAt: testEvents.createdAt })
       .from(testEvents)
-      .where(eq(testEvents.acUid, acUid));
+      .where(eq(testEvents.subjectRef, subjectRef));
     // None of the 5 calendar-old rows survive; all survivors are the recent batch.
     for (const s of survivors) {
       expect(s.createdAt.getUTCFullYear()).toBe(2026);
@@ -144,12 +144,12 @@ describe("spec-398 retention + tenancy", () => {
 
   it("ac-7: pruning test_events never reduces test_event_latest.run_count", async () => {
     tagAc(`${AC}/ac-7`);
-    const acUid = ref(7);
+    const subjectRef = ref(7);
     const tid = "tests/c.test.ts::it";
     // seedTestEvent upserts the summary (run_count++) without trimming, 12 times.
     for (let i = 0; i < 12; i++) {
       await seedTestEvent({
-        acUid,
+        subjectRef,
         status: "pass",
         testIdentifier: tid,
         createdAt: new Date(Date.UTC(2026, 5, 24, 12, 0, i)),
@@ -159,17 +159,17 @@ describe("spec-398 retention + tenancy", () => {
       .select({ runCount: testEventLatest.runCount })
       .from(testEventLatest)
       .where(
-        and(eq(testEventLatest.acUid, acUid), eq(testEventLatest.testIdentifier, tid)),
+        and(eq(testEventLatest.subjectRef, subjectRef), eq(testEventLatest.testIdentifier, tid)),
       );
     expect(before.runCount).toBe(12);
     // Now prune the log to 10.
-    await trimTestEventsForPair(db, acUid, tid);
-    expect(await countFor(acUid, tid)).toBe(10);
+    await trimTestEventsForPair(db, subjectRef, tid);
+    expect(await countFor(subjectRef, tid)).toBe(10);
     const [after] = await db
       .select({ runCount: testEventLatest.runCount })
       .from(testEventLatest)
       .where(
-        and(eq(testEventLatest.acUid, acUid), eq(testEventLatest.testIdentifier, tid)),
+        and(eq(testEventLatest.subjectRef, subjectRef), eq(testEventLatest.testIdentifier, tid)),
       );
     // run_count is the incremental all-time counter — pruning the log can't touch it.
     expect(after.runCount).toBe(12);
@@ -178,26 +178,26 @@ describe("spec-398 retention + tenancy", () => {
   it("ac-9 / ac-2: memex_id is stamped at write from the resolved Memex", async () => {
     tagAc(`${AC}/ac-9`);
     tagAc(`${AC}/ac-2`);
-    const acUid = ref(8);
-    await seedTestEvent({ acUid, status: "pass", testIdentifier: "t8" });
+    const subjectRef = ref(8);
+    await seedTestEvent({ subjectRef, status: "pass", testIdentifier: "t8" });
     const [te] = await db
       .select({ memexId: testEvents.memexId })
       .from(testEvents)
-      .where(eq(testEvents.acUid, acUid))
+      .where(eq(testEvents.subjectRef, subjectRef))
       .limit(1);
     expect(te.memexId).toBe(memexId);
     const [tel] = await db
       .select({ memexId: testEventLatest.memexId })
       .from(testEventLatest)
-      .where(eq(testEventLatest.acUid, acUid))
+      .where(eq(testEventLatest.subjectRef, subjectRef))
       .limit(1);
     expect(tel.memexId).toBe(memexId);
     // first-verified snapshot recorded too.
-    await recordFirstVerified(db, acUid, new Date(Date.UTC(2026, 0, 1)));
+    await recordFirstVerified(db, subjectRef, new Date(Date.UTC(2026, 0, 1)));
     const [fv] = await db
       .select({ at: acFirstVerified.firstVerifiedAt })
       .from(acFirstVerified)
-      .where(eq(acFirstVerified.acUid, acUid));
+      .where(eq(acFirstVerified.subjectRef, subjectRef));
     expect(fv).toBeDefined();
   });
 
@@ -216,17 +216,17 @@ describe("spec-398 retention + tenancy", () => {
 
   it("ac-8: verification (reads test_event_latest) is unaffected by retention", async () => {
     tagAc(`${AC}/ac-8`);
-    const acUid = ref(10);
+    const subjectRef = ref(10);
     const tid = "tests/d.test.ts::it";
     for (let i = 0; i < 12; i++) {
       await seedTestEvent({
-        acUid,
+        subjectRef,
         status: "pass",
         testIdentifier: tid,
         createdAt: new Date(Date.UTC(2026, 5, 24, 12, 0, i)),
       });
     }
-    await trimTestEventsForPair(db, acUid, tid); // prune log to 10
+    await trimTestEventsForPair(db, subjectRef, tid); // prune log to 10
     const [tel] = await db
       .select({
         testIdentifier: testEventLatest.testIdentifier,
@@ -235,7 +235,7 @@ describe("spec-398 retention + tenancy", () => {
         runCount: testEventLatest.runCount,
       })
       .from(testEventLatest)
-      .where(eq(testEventLatest.acUid, acUid));
+      .where(eq(testEventLatest.subjectRef, subjectRef));
     // The verification source row is intact, so the derived state is still 'verified'.
     const state = deriveVerificationState(
       [
@@ -284,8 +284,8 @@ describe("spec-398 retention + tenancy", () => {
   it("ac-12 / ac-3: activity_view returns the same test_event entries, tenant-scoped to its memex", async () => {
     tagAc(`${AC}/ac-12`);
     tagAc(`${AC}/ac-3`);
-    const acUid = `${nsSlug}/main/specs/${specHandle}/acs/ac-12`;
-    await seedTestEvent({ acUid, status: "pass", testIdentifier: "t12" });
+    const subjectRef = `${nsSlug}/main/specs/${specHandle}/acs/ac-12`;
+    await seedTestEvent({ subjectRef, status: "pass", testIdentifier: "t12" });
     // The event surfaces in ITS memex's feed for ITS spec…
     const rows = await listActivityView(memexId, { specRef: specId });
     const te = rows.find((r) => r.kind === "test_event");

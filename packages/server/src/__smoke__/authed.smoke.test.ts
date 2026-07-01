@@ -310,13 +310,17 @@ describe.skipIf(!SMOKE_MCP_TOKEN)(
       await callMcpTool("update_doc", { ref: docRef!, status: "specify" });
       await callMcpTool("update_doc", { ref: docRef!, status: "build" });
 
-      // CREATE the deletable entity — a task on the throwaway doc. Intentionally sends NO
-      // facetBallot: this verifies the relaxed, optional-ballot behaviour (a client that
-      // omits the ballot must still succeed, never error). Do not "fix" by adding a ballot.
+      // CREATE the deletable entity — a task on the throwaway doc. The facet ballot was
+      // RE-TIGHTENED (spec-423 ac-2/ac-13, extended by spec-445): where the Memex has a
+      // facet vocabulary — which every owner now does — create_task REQUIRES a ballot, so a
+      // ballot-less create correctly errors. This isn't a routing test, so cast the honest
+      // no-facet ballot (none:true). Do NOT drop the ballot to "test the relaxed path" — the
+      // relaxed path no longer exists.
       const taskRes = await callMcpTool("create_task", {
         ref: docRef!,
         title: "smoke throwaway task",
         description: "Created and deleted by the post-deploy smoke journey.",
+        facetBallot: { none: true, verdict: {} },
       });
       expect(taskRes.body.result?.isError).toBeFalsy();
       const taskRef = parseRef(mcpTextPayload(taskRes.body));
@@ -431,10 +435,13 @@ describe.skipIf(!SMOKE_MCP_TOKEN)(
       const specRef = parseRef(mcpTextPayload(created.body));
       expect(specRef, "create_doc should return a spec ref").toBeTruthy();
 
-      // Specify-class traffic: decision authoring.
+      // Specify-class traffic: decision authoring. Like create_task above, the ballot is
+      // required where the Memex has a facet vocabulary (spec-423 ac-2/ac-13); cast the
+      // honest no-facet ballot (none:true) since this isn't a routing test.
       const dec = await callMcpTool("create_decision", {
         ref: specRef!,
         title: "[smoke] spec-189 probe decision",
+        facetBallot: { none: true, verdict: {} },
       });
       expect(dec.status).toBe(200);
       expect(dec.body.result?.isError).toBeFalsy();

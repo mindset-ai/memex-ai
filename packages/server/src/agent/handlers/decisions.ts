@@ -11,6 +11,7 @@ import {
 } from "../../mcp/refs.js";
 import {
   createDecision,
+  getDecision,
   listDecisions,
   resolveDecision,
   reopenDecision,
@@ -35,10 +36,11 @@ import {
 import {
   resolveEmbeddingProvider,
 } from "../../services/embedding-provider.js";
-// spec-423 dec-5/dec-6 — forced facet ballot on resolve_decision. Vocab via
+// spec-423 dec-5/dec-6 — the facet ballot is FORCED at create_decision; resolve_decision
+// reuses that stored ballot (footer only) and never forces one. Vocab via
 // facet-ballot.ts → facet-vocab.ts (NO-LLM); classifier engine never imported here.
-import { validateBallotForMemex } from "../../services/facet-ballot.js";
-import { parseBallotArg, storeRouteAndReadout } from "../../services/facet-consume.js";
+import { requireBallotForMemex, decisionBallotTrueFacets } from "../../services/facet-ballot.js";
+import { parseBallotArg, storeRouteAndReadout, routeAndReadout } from "../../services/facet-consume.js";
 import {
   VERBOSE_FIELD,
   formatState,
@@ -79,6 +81,19 @@ export const decisionsTools: ToolSpec[] = [
         )
         .optional()
         .describe("Structured options. Strongly recommended for status='candidate'."),
+      // spec-423 — facets are declared at decision CREATION so the governing standards
+      // surface WHILE the decision is being formed (not only at resolve). REQUIRED where
+      // the Memex has a vocabulary (create_decision FAILS without it); same shape + re-hand
+      // as create_task. The resolution then lands already pointed at those standards.
+      facetBallot: z
+        .object({
+          verdict: z.record(z.string(), z.boolean()).describe("Complete map: facet slug → true/false."),
+          none: z.boolean().describe("true = this work governs no facet (every verdict false)."),
+        })
+        .optional()
+        .describe(
+          "REQUIRED where this Memex has a facet vocabulary: create_decision FAILS without a complete ballot. The facets this decision's subject touches, which surface the governing standards at creation so the resolution is informed by them. First call the `facets` tool (verb:'list') to read the vocabulary, then pass a true/false verdict for EVERY facet, or none:true for honest no-facet work.",
+        ),
       verbose: VERBOSE_FIELD,
     },
     async handler(input, ctx) {
@@ -95,6 +110,16 @@ export const decisionsTools: ToolSpec[] = [
         );
       }
       const { memexId, doc, slugs } = resolved;
+      // FACET BALLOT — REQUIRED at creation where the Memex has a vocabulary, so the
+      // governing standards surface now (validate BEFORE creating, so no orphan decision).
+      const hasBallot = input.facetBallot !== undefined;
+      const ballot = parseBallotArg(input.facetBallot);
+      const vocab = await requireBallotForMemex(
+        memexId,
+        { provided: hasBallot, ballot },
+        { noun: "decision", channel: ctx.channel },
+      );
+      const queryText = `${title}\n${context ?? ""}`;
 
       if (status === "candidate") {
         const decision = await proposeDecision(memexId, doc.id, {
@@ -103,23 +128,52 @@ export const decisionsTools: ToolSpec[] = [
           options,
           source: "agent",
         });
+        const decRef = buildChildRef(slugs, doc, { type: "decisions", seq: decision.seq });
+        // Store the ballot + surface the governing standards at creation (dec-6 routing).
+        const readout = hasBallot
+          ? await storeRouteAndReadout({
+              memexId,
+              specDocId: doc.id,
+              noun: "decision",
+              rowId: decision.id,
+              ownerRef: decRef,
+              queryText,
+              ballot,
+              vocab,
+              ctx: reqCtx(ctx),
+            })
+          : "";
         if (ctx.verbose) {
           const state = await fullDocState(memexId, doc.id);
           const url = await ctx.workspaceUrl(memexId);
-          return await formatState(url, state, ctx);
+          return (await formatState(url, state, ctx)) + readout;
         }
         const optCount = Array.isArray(decision.options) ? decision.options.length : 0;
-        const decRef = buildChildRef(slugs, doc, { type: "decisions", seq: decision.seq });
-        return `Candidate decision proposed: ref: ${decRef} "${decision.title}" (${optCount} options).`;
+        return `Candidate decision proposed: ref: ${decRef} "${decision.title}" (${optCount} options).` + readout;
       }
 
       const decision = await createDecision(memexId, doc.id, title, context, "human", reqCtx(ctx));
+      const decRef = buildChildRef(slugs, doc, { type: "decisions", seq: decision.seq });
+      // Store the ballot + surface the governing standards at creation (dec-6 routing),
+      // so the decision is formed with the implicated standards already in view.
+      const readout = hasBallot
+        ? await storeRouteAndReadout({
+            memexId,
+            specDocId: doc.id,
+            noun: "decision",
+            rowId: decision.id,
+            ownerRef: decRef,
+            queryText,
+            ballot,
+            vocab,
+            ctx: reqCtx(ctx),
+          })
+        : "";
       if (ctx.verbose) {
         const state = await fullDocState(memexId, doc.id);
         const url = await ctx.workspaceUrl(memexId);
-        return await formatState(url, state, ctx);
+        return (await formatState(url, state, ctx)) + readout;
       }
-      const decRef = buildChildRef(slugs, doc, { type: "decisions", seq: decision.seq });
       // spec-112 (ac-4 / ac-15): at decision creation, auto-surface related
       // Issues whose semantic overlap with the decision (title + context)
       // clears the relevance threshold. Same searchMemex(kind:'issue')
@@ -135,7 +189,7 @@ export const decisionsTools: ToolSpec[] = [
       if (ctx.footerSlot) {
         ctx.footerSlot.signal = { kind: "decision_created", issueHits };
       }
-      return `Decision created: ref: ${decRef} "${decision.title}"`;
+      return `Decision created: ref: ${decRef} "${decision.title}"` + readout;
     },
   },
   {
@@ -187,6 +241,18 @@ export const decisionsTools: ToolSpec[] = [
         .nonnegative()
         .optional()
         .describe("Zero-based index into the decision's options (edit-in-place mode)."),
+      // spec-445 dec-1 — edit a decision's facet classification through this existing tool
+      // (no bespoke facet tool). An edit-in-place field: cannot combine with a status
+      // transition; omit to leave facets unchanged.
+      facetBallot: z
+        .object({
+          verdict: z.record(z.string(), z.boolean()).describe("Complete map: facet slug → true/false."),
+          none: z.boolean().describe("true = this work governs no facet (every verdict false)."),
+        })
+        .optional()
+        .describe(
+          "OPTIONAL (edit-in-place). Re-cast this decision's facet classification: a COMPLETE verdict over the Memex's facet vocabulary (a true/false for EVERY facet, or none:true) that REPLACES the stored ballot and re-surfaces the governing standards. Cannot combine with a status transition. Call the `facets` tool (verb:'list') first.",
+        ),
       verbose: VERBOSE_FIELD,
     },
     async handler(input, ctx) {
@@ -205,15 +271,18 @@ export const decisionsTools: ToolSpec[] = [
         fields.chosenOptionIndex = input.chosenOptionIndex;
       }
       const hasEditFields = Object.keys(fields).length > 0;
+      // spec-445 dec-1 — a facet re-cast is an edit-in-place operation, orthogonal to the
+      // content fields but subject to the same "not with a status transition" rule.
+      const hasFacetEdit = input.facetBallot !== undefined;
 
-      if (target && hasEditFields) {
+      if (target && (hasEditFields || hasFacetEdit)) {
         throw new ValidationError(
-          "update_decision: cannot combine a status transition with field edits in one call; pick one mode.",
+          "update_decision: cannot combine a status transition with field/facet edits in one call; pick one mode.",
         );
       }
-      if (!target && !hasEditFields) {
+      if (!target && !hasEditFields && !hasFacetEdit) {
         throw new ValidationError(
-          "update_decision requires either status (open/resolved/candidate/rejected to transition) or one of: title, context, resolution, chosenOptionIndex.",
+          "update_decision requires either status (open/resolved/candidate/rejected to transition) or one of: title, context, resolution, chosenOptionIndex, facetBallot.",
         );
       }
 
@@ -247,15 +316,46 @@ export const decisionsTools: ToolSpec[] = [
           );
         }
       } else {
-        // Edit-in-place mode.
-        updated = await updateDecisionFields(memexId, entity.row.id, fields);
+        // Edit-in-place mode (content fields and/or a facet re-cast, spec-445). A
+        // facet-only edit changes no content field, so read the row back for the response.
+        updated = hasEditFields
+          ? await updateDecisionFields(memexId, entity.row.id, fields)
+          : await getDecision(memexId, entity.row.id, doc.id);
         mode = "updated";
+      }
+
+      // spec-445 dec-1 — edit the decision's facet classification: a COMPLETE verdict
+      // REPLACES the stored ballot (decision_facet_ballots upserts one per decision) and
+      // re-surfaces the governing standards — the same validate+store+route path
+      // create_decision / resolve_decision take. A vocab-less Memex is a no-op.
+      let facetEditReadout = "";
+      if (hasFacetEdit) {
+        const ballot = parseBallotArg(input.facetBallot);
+        const vocab = await requireBallotForMemex(
+          memexId,
+          { provided: true, ballot },
+          { noun: "decision", channel: ctx.channel },
+        );
+        if (vocab.length > 0) {
+          const routeRef = buildChildRef(slugs, doc, { type: "decisions", seq: updated.seq });
+          facetEditReadout = await storeRouteAndReadout({
+            memexId,
+            specDocId: updated.docId,
+            noun: "decision",
+            rowId: entity.row.id,
+            ownerRef: routeRef,
+            queryText: `${updated.title}\n${updated.resolution ?? ""}`,
+            ballot,
+            vocab,
+            ctx: reqCtx(ctx),
+          });
+        }
       }
 
       if (ctx.verbose) {
         const state = await fullDocState(memexId, updated.docId);
         const url = await ctx.workspaceUrl(memexId);
-        return formatState(url, state);
+        return (await formatState(url, state)) + facetEditReadout;
       }
       const decRef = buildChildRef(slugs, doc, { type: "decisions", seq: updated.seq });
       // Response shape mirrors what callers parse (`^Decision <verb>: ref: ...`).
@@ -268,7 +368,7 @@ export const decisionsTools: ToolSpec[] = [
       if (mode === "restored") {
         return `Decision restored: ref: ${decRef} "${updated.title}" [${updated.status}]`;
       }
-      return `Decision updated: ref: ${decRef} "${updated.title}" [${updated.status}]`;
+      return `Decision updated: ref: ${decRef} "${updated.title}" [${updated.status}]${facetEditReadout}`;
     },
   },
   {
@@ -331,9 +431,10 @@ export const decisionsTools: ToolSpec[] = [
         .describe(
           "Zero-based index of the chosen option (only valid if the decision has structured options).",
         ),
-      // spec-423 dec-5 — decisions are a more reliably-created hook than tasks, so
-      // resolving one also forces a complete facet ballot (dec-6: work-side routing
-      // only — never surfaced as binding precedent). Same shape + re-hand as create_task.
+      // spec-423 dec-5/dec-6 — the facet ballot is declared ONCE, at create_decision
+      // (now a hard requirement), so resolution REUSES that stored ballot rather than
+      // forcing a fresh one. A ballot here is an OPTIONAL refinement that overrides the
+      // stored one (dec-6: work-side routing only — never surfaced as binding precedent).
       facetBallot: z
         .object({
           verdict: z.record(z.string(), z.boolean()).describe("Complete map: facet slug → true/false."),
@@ -341,7 +442,7 @@ export const decisionsTools: ToolSpec[] = [
         })
         .optional()
         .describe(
-          "The facets this decision's work touches: a complete verdict over the Memex's facet vocabulary, which surfaces the standards governing that work so they stay top-of-mind. First call the `facets` tool (verb:'list') to read the vocabulary, then pass a true/false verdict for EVERY facet, or none:true for honest no-facet work.",
+          "OPTIONAL refinement. The facet ballot is declared at create_decision and reused here to re-surface the governing standards — you do NOT need to re-cast it. Pass a complete ballot (a true/false verdict for EVERY facet, or none:true) ONLY to override the stored one; call the `facets` tool (verb:'list') first to read the vocabulary.",
         ),
       verbose: VERBOSE_FIELD,
     },
@@ -357,19 +458,26 @@ export const decisionsTools: ToolSpec[] = [
         );
       }
       const { memexId, doc, slugs, entity } = resolved;
-      // FACET BALLOT — OPTIONAL (relaxed from spec-423 dec-5's forced ballot). A client
-      // on an OLDER tool signature — e.g. an MCP client that hasn't reloaded since the
-      // facets release, so it has no `facetBallot` param to send — must NOT hit an error.
-      // So: ABSENT ballot → resolve WITHOUT facet adjudication; PROVIDED ballot → validate
-      // strictly BEFORE resolving (re-hand the vocabulary on an invalid one) and store it.
-      // Re-tightening to a forced ballot is a later, deliberate step.
+      // FACET BALLOT at resolution — the ballot is declared ONCE at create_decision (a
+      // hard requirement), so resolution NEVER forces one: it REUSES the stored creation
+      // ballot to re-surface the governing standards, landing the resolution pointed at
+      // them (footer-only, spec-423 dec-5/dec-6). A fresh ballot here is an OPTIONAL
+      // refinement that overrides the stored one (still validated for completeness). A
+      // legacy/candidate decision with no stored ballot simply routes nothing — no fail.
       const hasBallot = input.facetBallot !== undefined;
       const ballot = parseBallotArg(input.facetBallot);
-      const vocab = hasBallot ? await validateBallotForMemex(memexId, ballot) : [];
+      const storedFacets = hasBallot ? [] : await decisionBallotTrueFacets(entity.row.id);
+      let vocab: Awaited<ReturnType<typeof requireBallotForMemex>> = [];
+      if (hasBallot) {
+        // Only a PROVIDED ballot is validated (completeness + known keys); its absence
+        // is never an error at resolution.
+        vocab = await requireBallotForMemex(memexId, { provided: true, ballot }, { noun: "decision", channel: ctx.channel });
+      }
       const decision = await resolveDecision(memexId, entity.row.id, resolution, chosenOptionIndex, reqCtx(ctx));
       const decRef = buildChildRef(slugs, doc, { type: "decisions", seq: decision.seq });
-      // Store + route the ballot only when one was provided (work-side, dec-6); an absent
-      // ballot contributes no facet routing, so the readout is empty.
+      const decQueryText = `${decision.title}\n${decision.resolution ?? resolution ?? ""}`;
+      // A fresh ballot is stored + routed; otherwise re-surface the standards from the
+      // stored creation ballot; an empty-vocab decision routes nothing.
       const readout = hasBallot
         ? await storeRouteAndReadout({
             memexId,
@@ -377,12 +485,21 @@ export const decisionsTools: ToolSpec[] = [
             noun: "decision",
             rowId: entity.row.id,
             ownerRef: decRef,
-            queryText: `${decision.title}\n${decision.resolution ?? resolution ?? ""}`,
+            queryText: decQueryText,
             ballot,
             vocab,
             ctx: reqCtx(ctx),
           })
-        : "";
+        : storedFacets.length > 0
+          ? await routeAndReadout({
+              memexId,
+              ownerRef: decRef,
+              noun: "decision",
+              queryText: decQueryText,
+              facetKeys: storedFacets,
+              occasion: "created",
+            })
+          : "";
       if (ctx.verbose) {
         const state = await fullDocState(memexId, decision.docId);
         const url = await ctx.workspaceUrl(memexId);

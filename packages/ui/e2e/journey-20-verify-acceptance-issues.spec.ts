@@ -83,7 +83,7 @@ test("AC acceptance: mark accepted → provenance + metrics, evidence suppresses
     kind: "scope",
     statement: "The onboarding flow feels right (no digital test can assert this).",
   });
-  expect(ac.acUid).not.toBeNull();
+  expect(ac.subjectRef).not.toBeNull();
 
   // Open the Spec and browse to the Verify tab (browsable from any phase).
   await page.goto(
@@ -110,7 +110,7 @@ test("AC acceptance: mark accepted → provenance + metrics, evidence suppresses
   await expect(header.getByText("100%")).toBeVisible();
 
   // ── Evidence wins (ac-9 / dec-2): a failing emission suppresses ───────────
-  await seedTestEvent({ acUid: ac.acUid!, status: "fail" });
+  await seedTestEvent({ subjectRef: ac.subjectRef!, status: "fail" });
   await expect(acRow).toHaveAttribute("data-ac-state", "failing", {
     timeout: 10_000, // panel polls every 3s
   });
@@ -120,7 +120,7 @@ test("AC acceptance: mark accepted → provenance + metrics, evidence suppresses
 
   // The same test passing again clears the evidence → back to accepted,
   // no re-accept needed.
-  await seedTestEvent({ acUid: ac.acUid!, status: "pass" });
+  await seedTestEvent({ subjectRef: ac.subjectRef!, status: "pass" });
   await expect(acRow).toHaveAttribute("data-ac-state", "accepted", {
     timeout: 10_000,
   });

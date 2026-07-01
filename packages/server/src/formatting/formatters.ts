@@ -157,8 +157,10 @@ export function formatFullDocState(
     sections: DocSection[];
     checkoutHolder?: { name: string | null; email: string | null } | null;
   },
-  decisions: Decision[],
-  tasks: TaskWithBlockers[],
+  // spec-445 dec-2 — each decision/task may carry its stored true facet keys, surfaced
+  // on retrieval as context (attached by fullDocState; absent for facet-less callers).
+  decisions: (Decision & { facets?: string[] })[],
+  tasks: (TaskWithBlockers & { facets?: string[] })[],
   appBaseUrl?: string,
   comments?: DocCommentsResult,
   slugs?: FormatterRefContext,
@@ -754,7 +756,7 @@ function decisionOptionsBlock(decision: Decision): string | null {
 }
 
 function formatDecision(
-  decision: Decision,
+  decision: Decision & { facets?: string[] },
   parentDoc?: Doc,
   slugs?: FormatterRefContext,
 ): string {
@@ -772,6 +774,11 @@ function formatDecision(
   if (decision.context) {
     lines.push(`  Context: ${decision.context}`);
   }
+  // spec-445 dec-2 — the decision's facet classification, surfaced on retrieval as
+  // context (it informs the ballots of the tasks that implement it; it never pre-fills them).
+  if (decision.facets && decision.facets.length > 0) {
+    lines.push(`  Facets: ${decision.facets.join(", ")}`);
+  }
   if (parentDoc) {
     const canonical = maybeChildRef(slugs, parentDoc, "decisions", decision.seq);
     lines.push(`  ref: ${canonical}`);
@@ -780,7 +787,7 @@ function formatDecision(
 }
 
 function formatDecisionList(
-  decs: Decision[],
+  decs: (Decision & { facets?: string[] })[],
   parentDoc?: Doc,
   slugs?: FormatterRefContext,
 ): string {
@@ -816,7 +823,7 @@ function formatCommentBadge(counts?: { open: number; resolved: number }): string
 }
 
 function formatTask(
-  t: TaskWithBlockers,
+  t: TaskWithBlockers & { facets?: string[] },
   commentCounts?: { open: number; resolved: number },
   slugs?: FormatterRefContext,
   parentDoc?: Pick<Doc, "docType" | "handle">,
@@ -841,6 +848,10 @@ function formatTask(
   if (t.sectionRef) {
     lines.push(`  Section: ${t.sectionRef}`);
   }
+  // spec-445 dec-2 — the task's facet classification, surfaced on retrieval.
+  if (t.facets && t.facets.length > 0) {
+    lines.push(`  Facets: ${t.facets.join(", ")}`);
+  }
   const criteria = (t.acceptanceCriteria ?? []) as AcceptanceCriterion[];
   if (criteria.length > 0) {
     lines.push(`  Acceptance criteria:`);
@@ -856,7 +867,7 @@ function formatTask(
 }
 
 function formatTaskList(
-  items: TaskWithBlockers[],
+  items: (TaskWithBlockers & { facets?: string[] })[],
   commentCounts?: Map<string, { open: number; resolved: number }>,
   slugs?: FormatterRefContext,
   parentDoc?: Pick<Doc, "docType" | "handle">,

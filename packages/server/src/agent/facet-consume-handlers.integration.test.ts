@@ -85,17 +85,16 @@ afterAll(async () => {
 
 const fullBallot = { verdict: { "xc-security": true, "xc-perf": false }, none: false };
 
-describe("create_task accepts an OPTIONAL facet ballot and hands back the governing standards (spec-423 t-5, dec-5; ballot relaxed to optional)", () => {
-  it("tolerates a MISSING ballot (relaxed) but still rejects a present-but-incomplete one, re-handing the vocabulary (ac-13, ac-2)", async () => {
+describe("create_task requires a facet ballot where the Memex has a vocabulary (spec-423 t-5, dec-5)", () => {
+  it("REJECTS a missing ballot with the remediation kit, and rejects a present-but-incomplete one, re-handing the vocabulary (ac-13, ac-2)", async () => {
     tagAc(AC(13));
-    // NOTE: the ballot was relaxed from FORCED to OPTIONAL so clients on an older tool
-    // signature (no facetBallot param) don't error. ac-2/ac-13 still describe the OLD
-    // "forced" behaviour and need their statements relaxed on spec-423 (facets-team follow-up).
     tagAc(AC(2));
-    // MISSING ballot → no longer an error: the task is created without facet adjudication.
-    const created = await executeServerTool(memexId, "create_task", { ref: specRef, title: "no ballot", description: "x" }, userId);
-    expect(created).toMatch(/ref:\s/);
-    // A PRESENT but incomplete ballot is STILL rejected, re-handing the missing facet.
+    // MISSING ballot where a vocabulary exists → hard fail with the remediation kit
+    // (re-tightened from the temporary optional relaxation; no task is created).
+    await expect(
+      executeServerTool(memexId, "create_task", { ref: specRef, title: "no ballot", description: "x" }, userId),
+    ).rejects.toThrow(/facet ballot is REQUIRED/);
+    // A PRESENT but incomplete ballot is ALSO rejected, re-handing the missing facet.
     await expect(
       executeServerTool(
         memexId,
@@ -129,29 +128,79 @@ describe("create_task accepts an OPTIONAL facet ballot and hands back the govern
   });
 });
 
-describe("resolve_decision accepts an OPTIONAL facet ballot and stores it work-side (spec-423 t-5, dec-6; ballot relaxed to optional)", () => {
-  it("tolerates a missing ballot (relaxed), then accepts a complete one and stores it in decision_facet_ballots (ac-14, ac-5)", async () => {
-    tagAc(AC(14));
-    tagAc(AC(5)); // ballot relaxed to optional (see create_task note); ac-5/ac-14 statements need relaxing on spec-423 (facets-team follow-up)
-    const decRef = `${nsSlug}/main/specs/spec-1/decisions/dec-1`;
-    // MISSING ballot → resolves WITHOUT error, recording no ballot (no facet adjudication).
-    const first = await executeServerTool(memexId, "resolve_decision", { ref: decRef, resolution: "done" }, userId);
-    expect(first).toContain("resolved");
-    expect(
-      await db.select().from(decisionFacetBallots).where(eq(decisionFacetBallots.decisionId, decisionId)),
-    ).toHaveLength(0);
+describe("resolve_decision reuses the creation ballot — it never forces one (spec-423 t-5, dec-5/dec-6)", () => {
+  const refOf = (out: string) => out.match(/ref:\s+(\S+)/)![1];
 
-    // Re-resolving WITH a complete ballot validates + stores it and appends the readout.
+  it("does NOT force a ballot: a decision with no stored ballot resolves without one, routing nothing (ac-14, ac-5)", async () => {
+    tagAc(AC(14));
+    tagAc(AC(5)); // scope: the ballot is declared at creation, so resolution never hard-fails on its absence
+    // dec-1 was inserted directly (a legacy/candidate decision that never went through
+    // create_decision's ballot) → it has NO stored ballot. Resolving it WITHOUT a ballot
+    // no longer fails; it resolves cleanly and simply routes nothing.
+    const decRef = `${nsSlug}/main/specs/spec-1/decisions/dec-1`;
     const out = await executeServerTool(
       memexId,
       "resolve_decision",
-      { ref: decRef, resolution: "go with the guard", facetBallot: fullBallot },
+      { ref: decRef, resolution: "done" },
       userId,
     );
-    expect(out).toContain("std-1"); // payoff readout on the decision hook too
-    const ballots = await db.select().from(decisionFacetBallots).where(eq(decisionFacetBallots.decisionId, decisionId));
-    expect(ballots).toHaveLength(1);
-    expect(ballots[0].verdict).toEqual({ "xc-security": true, "xc-perf": false });
+    expect(out).not.toContain("std-1"); // no stored ballot → nothing routed
+    expect(
+      await db.select().from(decisionFacetBallots).where(eq(decisionFacetBallots.decisionId, decisionId)),
+    ).toHaveLength(0);
+  });
+
+  it("reuses the creation ballot at resolution — footer only, no re-cast needed (ac-14, ac-5)", async () => {
+    tagAc(AC(14));
+    // A decision minted THROUGH create_decision carries a stored ballot. Resolving it with
+    // NO ballot re-surfaces the governing standards from that stored ballot (the footer).
+    const created = await executeServerTool(
+      memexId,
+      "create_decision",
+      { ref: specRef, title: "Guard the auth path", context: "harden authz", facetBallot: fullBallot },
+      userId,
+    );
+    const decRef = refOf(created);
+    const out = await executeServerTool(
+      memexId,
+      "resolve_decision",
+      { ref: decRef, resolution: "go with the guard" },
+      userId,
+    );
+    expect(out).toContain("std-1"); // reused the creation ballot → readout appended
+  });
+
+  it("a fresh ballot at resolution validates + overrides the stored one (ac-14, ac-5)", async () => {
+    tagAc(AC(14));
+    tagAc(AC(5));
+    // Mint with the INVERSE ballot, then override it at resolution with the full ballot.
+    const created = await executeServerTool(
+      memexId,
+      "create_decision",
+      {
+        ref: specRef,
+        title: "Cache approach",
+        context: "which layer",
+        facetBallot: { verdict: { "xc-security": false, "xc-perf": true }, none: false },
+      },
+      userId,
+    );
+    const decRef = refOf(created);
+    const out = await executeServerTool(
+      memexId,
+      "resolve_decision",
+      { ref: decRef, resolution: "layer it", facetBallot: fullBallot },
+      userId,
+    );
+    expect(out).toContain("std-1");
+    // The override landed: the stored verdict is now the fresh full ballot.
+    const decId = decRef.match(/dec-(\d+)/)![1];
+    const ballots = await db
+      .select()
+      .from(decisionFacetBallots)
+      .innerJoin(decisions, eq(decisionFacetBallots.decisionId, decisions.id))
+      .where(and(eq(decisions.memexId, memexId), eq(decisions.seq, Number(decId))));
+    expect(ballots[0].decision_facet_ballots.verdict).toEqual({ "xc-security": true, "xc-perf": false });
   });
 });
 
@@ -179,6 +228,30 @@ describe("update_task re-surfaces the routed standards at in_progress (spec-423 
       .from(facetRoutingLog)
       .where(and(eq(facetRoutingLog.memexId, memexId), eq(facetRoutingLog.ownerRef, taskRef)));
     expect(logs.some((l) => (l.rankerParams as { occasion?: string } | null)?.occasion === "in_progress")).toBe(true);
+  });
+
+  it("appends a retrospective-audit readout at completion, logged occasion completed (ac-20)", async () => {
+    tagAc(AC(20));
+    const created = await executeServerTool(
+      memexId,
+      "create_task",
+      { ref: specRef, title: "Wire the auth guard", description: "harden authz", facetBallot: fullBallot },
+      userId,
+    );
+    const taskRef = refOf(created);
+    await executeServerTool(memexId, "update_task", { ref: taskRef, status: "in_progress" }, userId);
+
+    const out = await executeServerTool(memexId, "update_task", { ref: taskRef, status: "complete" }, userId);
+    // Same governing standard, re-surfaced — but framed as the last-checkpoint audit.
+    expect(out).toContain("std-1");
+    expect(out).toContain("You've marked this task complete");
+
+    // The completion re-route was logged with occasion 'completed' (no new ballot cast).
+    const logs = await db
+      .select()
+      .from(facetRoutingLog)
+      .where(and(eq(facetRoutingLog.memexId, memexId), eq(facetRoutingLog.ownerRef, taskRef)));
+    expect(logs.some((l) => (l.rankerParams as { occasion?: string } | null)?.occasion === "completed")).toBe(true);
   });
 
   it("surfaces no footer for a task whose ballot governs no facet (ac-17)", async () => {

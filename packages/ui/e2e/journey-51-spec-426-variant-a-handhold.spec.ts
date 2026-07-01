@@ -34,6 +34,7 @@ import {
   gotoSpecsBoard,
   signupWithToken,
   setIdentityConfirmed,
+  dismissWelcomeVideo,
   emitAcEvents,
 } from "./helpers/index.js";
 import { seedExperimentArm } from "./helpers/experiments.js";
@@ -89,6 +90,8 @@ test(TITLE, async ({ page, resources }) => {
   await expect(page).toHaveURL(/\/onboarding/, { timeout: 15_000 });
   await page.getByPlaceholder("Your display name").fill("Variant A User");
   await page.getByRole("button", { name: /^Continue$/ }).click();
+  // spec-444: dismiss welcome video gate that fires for new users after name capture.
+  await dismissWelcomeVideo(page);
   await expect(page).toHaveURL(/\/home/, { timeout: 15_000 });
 
   // ── Pin the CONTROL arm + seed the handhold demo deterministically ───────────

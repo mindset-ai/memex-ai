@@ -54,6 +54,9 @@ const SettingsIntegrations = lazy(() =>
   import('./pages/SettingsIntegrations').then((m) => ({ default: m.SettingsIntegrations })),
 );
 const Onboarding = lazy(() => import('./pages/Onboarding').then((m) => ({ default: m.Onboarding })));
+const WelcomePage = lazy(() =>
+  import('./pages/WelcomePage').then((m) => ({ default: m.WelcomePage })),
+);
 const InviteAccept = lazy(() =>
   import('./pages/InviteAccept').then((m) => ({ default: m.InviteAccept })),
 );
@@ -118,6 +121,7 @@ import { createReactRouterNavigationAdapter } from './voice/reactRouterNavigatio
 import { HandholdRevealProvider, useHandholdRevealValue } from './hooks/HandholdRevealContext';
 import { useTrackRouteChange, useTelemetry, trackAnonymous } from './hooks/useTelemetry';
 import { useShouldLandOnHome } from './journeys/landing';
+import { getCachedJourneyState } from './journeys/journeyStateCache';
 import { tenantBase, BASE_URL, fetchWithRetry } from './api/http';
 import { SearchProvider } from './components/SearchContext';
 import { WhatsNewRibbonConnected } from './components/whats-new/WhatsNewRibbonConnected';
@@ -241,6 +245,23 @@ function TenantLayout() {
     return <VerifyEmailGate />;
   }
   if (!session.user.name) return <Navigate to="/onboarding" replace />; // spec-441
+  // spec-444: welcome-video gate — after name capture, before the app.
+  // Extended scope (ac-17): also re-shows for returning users who haven't created
+  // a spec yet. Uses the cached journey state (populated by RootRedirect's one-shot
+  // read) so direct-URL navigation into a tenant doesn't skip the gate — if the
+  // cache is empty (first direct load, no prior / visit), fall back to the
+  // videoWelcomedAt check only so we never block with an uncached stale read.
+  {
+    const cached = getCachedJourneyState();
+    const noSpec = !!cached && !cached.milestones?.hasSpec;
+    if (
+      (!session.user.videoWelcomedAt || noSpec) &&
+      !sessionStorage.getItem('welcomeVideoDismissed') &&
+      !location.pathname.startsWith('/welcome')
+    ) {
+      return <Navigate to="/welcome" replace />;
+    }
+  }
 
   // Membership check: redirect to the user's default tenant when they aren't
   // a member of the URL's namespace/memex. This replaces the host-based
@@ -433,12 +454,25 @@ function RootRedirect() {
   if (!session) return null; // session bootstrap still pending
   if (!emailVerified) return <VerifyEmailGate />;
   if (!session.user.name) return <Navigate to="/onboarding" replace />; // spec-441
+  // spec-444: welcome-video gate — / and /login always redirect here.
+  // Fast path: first-timers (no videoWelcomedAt) redirect immediately.
+  if (
+    !session.user.videoWelcomedAt &&
+    !sessionStorage.getItem('welcomeVideoDismissed')
+  ) {
+    return <Navigate to="/welcome" replace />;
+  }
   if (homeHidden) {
     // Loop-avoidance: 'home' hidden ⇒ land on the default tenant, no journey read.
     const fallback = computeDefaultLanding(session);
     return fallback ? <Navigate to={fallback} replace /> : null;
   }
   if (landOnHome === null) return null; // assessing onboarding state — draw nothing yet
+  // spec-444 extended scope (ac-17): returning users who have not yet created a
+  // spec re-see the video on each new session until they do. landOnHome = !hasSpec.
+  if (landOnHome && !sessionStorage.getItem('welcomeVideoDismissed')) {
+    return <Navigate to="/welcome" replace />;
+  }
   const target = landOnHome ? '/home' : computeDefaultLanding(session);
   if (target) return <Navigate to={target} replace />;
   return null;
@@ -477,6 +511,8 @@ export function PostLoginRouter() {
           doesn't get caught by `/:namespace` below and resolved as a "login" namespace. */}
       <Route path="/login" element={<RootRedirect />} />
       <Route path="/onboarding" element={<Onboarding />} />
+      {/* spec-444: full-page welcome video. Standalone (no AppShell) — no FlatShell wrapper. */}
+      <Route path="/welcome" element={<WelcomePage />} />
       <Route path="/invite/:token" element={<InviteAccept />} />
       {/* spec-141 dec-3: install instructions + MCP tokens folded into the one
           Integrations page. Old routes redirect (the /account→/org pattern).
@@ -647,8 +683,21 @@ export function PostLoginRouter() {
 // routes; flat routes that want chrome get them here.
 function FlatShell({ children }: { children: React.ReactNode }) {
   const { session } = useAuth();
+  const location = useLocation();
   if (session && !session.user.emailVerified) return <VerifyEmailGate />;
   if (session && !session.user.name) return <Navigate to="/onboarding" replace />; // spec-441
+  // spec-444: welcome-video gate — deep-link users on flat routes also see the video.
+  // Extended scope (ac-17): also fires when the cached journey state shows !hasSpec.
+  if (session && !location.pathname.startsWith('/welcome')) {
+    const cached = getCachedJourneyState();
+    const noSpec = !!cached && !cached.milestones?.hasSpec;
+    if (
+      (!session.user.videoWelcomedAt || noSpec) &&
+      !sessionStorage.getItem('welcomeVideoDismissed')
+    ) {
+      return <Navigate to="/welcome" replace />;
+    }
+  }
   return (
     <ChatProvider>
       <OrgConsentDialog />

@@ -18,7 +18,7 @@
 //                                          ever recorded with its full
 //                                          emission timeline.
 //   DELETE /:acId/test-events            — hard-delete every emission for
-//                                          `(acUid, test_identifier)` query
+//                                          `(subjectRef, test_identifier)` query
 //                                          param (b-96 discontinue flow).
 //   POST   /:acId/acceptance             — record a manual verification
 //                                          acceptance (spec-188): the audited

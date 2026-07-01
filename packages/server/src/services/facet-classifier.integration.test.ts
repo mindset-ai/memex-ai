@@ -139,8 +139,14 @@ describe("facet classifier engine (spec-340 t-4)", () => {
     expect(pills).toEqual(["api-design", "db-migrations", "security"]);
   });
 
-  it("backfill tags every standard's clauses and is idempotent (ac-39)", async () => {
+  it("backfill tags every ballotless clause, none left unclassified, idempotent (ac-39, spec-437 ac-4/ac-11)", async () => {
     tagAc(AC(39));
+    // spec-437 dec-3: the facet backfill RIDES this spec-340 harness. Every pre-existing
+    // ballotless clause (all five start untagged here) is tagged a deliberate verdict —
+    // member rows or the governs-nothing marker — leaving ZERO clauses in an absent state;
+    // the idempotent re-run respects already-tagged clauses (the gap discipline).
+    tagAc("mindset-prod/memex-building-itself/specs/spec-437/acs/ac-4");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-437/acs/ac-11");
     const classify = (body: string): string[] => (body.includes("rationale") ? [] : ["security"]);
 
     const first = await backfillFacetTagsForMemex(memexId, { classify });
@@ -148,11 +154,13 @@ describe("facet classifier engine (spec-340 t-4)", () => {
     expect(first.clauses).toBe(clauseIds.length);
 
     // Every clause now carries exactly one row (member or none-marker) — none left
-    // not-yet-classified.
+    // not-yet-classified. This is dec-3 ac-11: zero clauses remain in an absent verdict.
     const after = await db.select().from(standardClauseFacets).where(eq(standardClauseFacets.memexId, memexId));
     const byClause = new Map<string, number>();
     for (const r of after) byClause.set(r.clauseId, (byClause.get(r.clauseId) ?? 0) + 1);
     for (const id of clauseIds) expect(byClause.get(id)).toBeGreaterThanOrEqual(1);
+    // No seeded clause is absent from the tag table at all.
+    expect(clauseIds.every((id) => byClause.has(id))).toBe(true);
 
     // Idempotent: a second run replaces, doesn't duplicate — clause[0] still has 1 row.
     await backfillFacetTagsForMemex(memexId, { classify });

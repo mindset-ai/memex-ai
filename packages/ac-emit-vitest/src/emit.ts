@@ -21,13 +21,25 @@ export const capturedFetch: typeof fetch = globalThis.fetch.bind(globalThis);
 /**
  * Should the helper emit at all? Controlled by MEMEX_EMIT.
  *
- * Default: true (emit). When MEMEX_EMIT is `false`, `0`, `no`, or `off`
- * (case-insensitive), the helper skips the POST entirely. Any other value
- * (including unset and malformed) is treated as "on".
+ * Default: true (emit) — and emitting is the celebrated default (spec-404), not a
+ * thing to avoid. A keyed local or coding-agent run SHOULD emit: that is how a
+ * Spec's board comes alive — its acceptance criteria tick green and the
+ * passing-test count rises in real time as the work lands. Events landing on the
+ * canonical (prod) board are the design, not pollution.
  *
- * This is the primary scale control for adopters: customers turn it off in
- * environments where they don't want emissions (e.g. developer laptops),
- * preserving the verification dashboard as a clean, low-volume signal.
+ * When MEMEX_EMIT is `false`, `0`, `no`, or `off` (case-insensitive), the helper
+ * skips the POST entirely. Any other value (including unset and malformed) is
+ * treated as "on".
+ *
+ * `MEMEX_EMIT=false` is a NARROW escape for the few environments that genuinely
+ * cannot or must not emit — a CI job with no key (e.g. a dependabot or fork PR
+ * that receives no repo secrets), a fully offline sandbox, or a deliberate dry
+ * run — NOT routine developer hygiene. Turning it off "to keep the board clean"
+ * or "so dev runs don't spam prod" is the exact category error spec-404 exists to
+ * kill: your emissions ARE the verification signal, so silencing them only leaves
+ * real passing tests invisible while the Spec sits at 0% verified. The fix for a
+ * 401 is to provision a real key (provision_ac_emission), never to disable
+ * emission or redirect the destination.
  */
 export function isEmissionEnabled(): boolean {
   const raw = process.env.MEMEX_EMIT;

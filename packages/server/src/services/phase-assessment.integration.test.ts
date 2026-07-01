@@ -454,12 +454,12 @@ describe("verify fact sheet completeness (spec-120)", () => {
     const handle = `ac-${ac.seq}`;
     const uid = acRef(briefHandle, ac.seq);
     if (state === "verified") {
-      await seedTestEvent({ acUid: uid, status: "pass" });
+      await seedTestEvent({ subjectRef: uid, status: "pass" });
     } else if (state === "failing") {
-      await seedTestEvent({ acUid: uid, status: "fail" });
+      await seedTestEvent({ subjectRef: uid, status: "fail" });
     } else if (state === "stale") {
       const longAgo = new Date(Date.now() - (STALE_THRESHOLD_DAYS + 2) * 86_400_000);
-      await seedTestEvent({ acUid: uid, status: "pass", createdAt: longAgo });
+      await seedTestEvent({ subjectRef: uid, status: "pass", createdAt: longAgo });
     }
     // untested: no emission at all.
     return handle;

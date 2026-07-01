@@ -1,4 +1,4 @@
-import { eq, and, sql, asc } from "drizzle-orm";
+import { eq, and, sql, asc, isNull } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import { users, orgMemberships, namespaces, orgs, memexes, userMemexAccess } from "../db/schema.js";
 import type { User } from "../db/schema.js";
@@ -203,6 +203,32 @@ export async function markEmailVerified(userId: string): Promise<User> {
   return updated;
 }
 
+// spec-427 t-4 (dec-5) — lifecycle-email suppression. Stamp the user as unsubscribed
+// from activation/win-back (lifecycle/broadcast) email. Direct users update, no
+// mutate() (users is global/non-RLS; mirrors markEmailVerified). Idempotent: the
+// guarded WHERE only stamps a still-null row, so a double-unsubscribe preserves the
+// first timestamp. Scope is LIFECYCLE ONLY — transactional/auth mail ignores it.
+export async function markLifecycleEmailUnsubscribed(userId: string): Promise<void> {
+  if (!userId) return;
+  await db
+    .update(users)
+    .set({ lifecycleEmailUnsubscribedAt: new Date(), updatedAt: new Date() })
+    .where(and(eq(users.id, userId), isNull(users.lifecycleEmailUnsubscribedAt)));
+}
+
+// spec-427 t-4 — the pre-send gate read: has this user unsubscribed from lifecycle
+// email? Consumed by sendLifecycleEmail (services/email/lifecycle-send.ts) before any
+// 427 send. A missing user reads as not-unsubscribed (no row → false).
+export async function isLifecycleEmailUnsubscribed(userId: string): Promise<boolean> {
+  if (!userId) return false;
+  const [row] = await db
+    .select({ at: users.lifecycleEmailUnsubscribedAt })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+  return !!row?.at;
+}
+
 // spec-206 t-1 (dec-3 / dec-4 / ac-14): stamp the first-run greeting flag.
 // Idempotent — the FIRST greeting wins; a later call is a no-op that preserves
 // the original timestamp, so the auto-greeting never re-fires (on any device).
@@ -218,6 +244,17 @@ export async function markOnboardingGreeted(userId: string): Promise<User> {
     .where(eq(users.id, userId))
     .returning();
   return updated;
+}
+
+// spec-444: stamp the permanent welcome-video dismiss. Idempotent — first dismiss wins.
+export async function markVideoWelcomed(userId: string): Promise<void> {
+  const existing = await getUserById(userId);
+  if (!existing) throw new ValidationError(`User ${userId} not found`);
+  if (existing.videoWelcomedAt) return;
+  await db
+    .update(users)
+    .set({ videoWelcomedAt: new Date(), updatedAt: new Date() })
+    .where(eq(users.id, userId));
 }
 
 export async function setUserPasswordHash(userId: string, passwordHash: string): Promise<User> {

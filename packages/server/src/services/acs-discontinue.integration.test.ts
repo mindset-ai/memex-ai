@@ -59,11 +59,11 @@ afterAll(async () => {
   if (createdAcUids.length) {
     await db
       .delete(testEvents)
-      .where(inArray(testEvents.acUid, createdAcUids))
+      .where(inArray(testEvents.subjectRef, createdAcUids))
       .catch(() => {});
     await db
       .delete(testEventLatest)
-      .where(inArray(testEventLatest.acUid, createdAcUids))
+      .where(inArray(testEventLatest.subjectRef, createdAcUids))
       .catch(() => {});
   }
   for (const id of createdDocIds) {
@@ -85,13 +85,13 @@ async function seedAc(statement: string): Promise<{ id: string; ref: string; bri
   return { id: ac.id, ref, briefId: spec.id };
 }
 
-async function summaryRow(acUid: string, testIdentifier = "") {
+async function summaryRow(subjectRef: string, testIdentifier = "") {
   const [row] = await db
     .select()
     .from(testEventLatest)
     .where(
       and(
-        eq(testEventLatest.acUid, acUid),
+        eq(testEventLatest.subjectRef, subjectRef),
         eq(testEventLatest.testIdentifier, testIdentifier),
       ),
     );
@@ -112,7 +112,7 @@ describe("discontinue_test_events hard delete (spec-358 dec-1)", () => {
     const ac = await seedAc("orphan to hard-delete");
     const tid = "tests/orphan.test.ts::renamed away";
 
-    await seedTestEvent({ acUid: ac.ref, status: "fail", testIdentifier: tid });
+    await seedTestEvent({ subjectRef: ac.ref, status: "fail", testIdentifier: tid });
     expect(await summaryRow(ac.ref, tid)).toBeDefined();
     expect(await stateOf(ac.briefId, ac.id)).toBe("failing");
 
@@ -128,7 +128,7 @@ describe("discontinue_test_events hard delete (spec-358 dec-1)", () => {
     const logRows = await db
       .select({ id: testEvents.id })
       .from(testEvents)
-      .where(and(eq(testEvents.acUid, ac.ref), eq(testEvents.testIdentifier, tid)));
+      .where(and(eq(testEvents.subjectRef, ac.ref), eq(testEvents.testIdentifier, tid)));
     expect(logRows).toHaveLength(0);
   });
 
@@ -137,12 +137,12 @@ describe("discontinue_test_events hard delete (spec-358 dec-1)", () => {
     const ac = await seedAc("self-heal after hard-delete");
     const tid = "tests/heal.test.ts::it works";
 
-    await seedTestEvent({ acUid: ac.ref, status: "fail", testIdentifier: tid });
+    await seedTestEvent({ subjectRef: ac.ref, status: "fail", testIdentifier: tid });
     await discontinueTestEventsForAc(memexId, ac.id, tid);
     expect(await summaryRow(ac.ref, tid)).toBeUndefined();
 
     // The same identifier emits live again — re-surfaces and re-enters the verdict.
-    await seedTestEvent({ acUid: ac.ref, status: "pass", testIdentifier: tid });
+    await seedTestEvent({ subjectRef: ac.ref, status: "pass", testIdentifier: tid });
     expect(await summaryRow(ac.ref, tid)).toBeDefined();
     expect(await stateOf(ac.briefId, ac.id)).toBe("verified");
   });

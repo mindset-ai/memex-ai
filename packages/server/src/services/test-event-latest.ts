@@ -14,7 +14,7 @@ import { type Db } from "../db/connection.js";
 import { testEvents, testEventLatest } from "../db/schema.js";
 
 export interface EmissionForSummary {
-  acUid: string;
+  subjectRef: string;
   /** spec-398 ac-8: the emitting Memex; mirrors test_events.memex_id (NOT NULL). */
   memexId: string;
   /** null when the emitting test sent no test_identifier; collapses to '' on write. */
@@ -49,7 +49,7 @@ export async function applyEmissionToSummary(
   await conn
     .insert(testEventLatest)
     .values({
-      acUid: emission.acUid,
+      subjectRef: emission.subjectRef,
       memexId: emission.memexId,
       testIdentifier,
       latestStatus: emission.status,
@@ -57,7 +57,7 @@ export async function applyEmissionToSummary(
       runCount: 1,
     })
     .onConflictDoUpdate({
-      target: [testEventLatest.acUid, testEventLatest.testIdentifier],
+      target: [testEventLatest.subjectRef, testEventLatest.testIdentifier],
       set: {
         // Newest-wins for the displayed status: keep the existing status unless
         // the incoming event is at least as recent.
@@ -76,14 +76,14 @@ export async function applyEmissionToSummary(
  */
 export async function removeSummaryForPair(
   conn: Db,
-  acUid: string,
+  subjectRef: string,
   testIdentifier: string | null,
 ): Promise<void> {
   await conn
     .delete(testEventLatest)
     .where(
       and(
-        eq(testEventLatest.acUid, acUid),
+        eq(testEventLatest.subjectRef, subjectRef),
         eq(testEventLatest.testIdentifier, testIdentifier ?? ""),
       ),
     );

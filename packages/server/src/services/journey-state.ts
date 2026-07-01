@@ -146,7 +146,7 @@ async function collectUserMilestones(
 
   // acVerified (dec-8): one of the user's ACs has a latest test event of 'pass'.
   // Join the AC to its canonical ref (namespace/memex/specs/handle/acs/ac-seq —
-  // identical to acs.buildAcRef) and match test_event_latest.ac_uid, the SAME key
+  // identical to acs.buildAcRef) and match test_event_latest.subject_ref, the SAME key
   // the AC tab uses, so "green here" means exactly "green in the spec".
   const [verifiedRow] = await conn
     .select({ n: sql<number>`count(*)::int` })
@@ -157,7 +157,7 @@ async function collectUserMilestones(
     .innerJoin(
       testEventLatest,
       eq(
-        testEventLatest.acUid,
+        testEventLatest.subjectRef,
         sql`${namespaces.slug} || '/' || ${memexes.slug} || '/specs/' || ${documents.handle} || '/acs/ac-' || ${acs.seq}`,
       ),
     )
@@ -184,7 +184,7 @@ async function collectUserMilestones(
     .innerJoin(
       testEventLatest,
       eq(
-        testEventLatest.acUid,
+        testEventLatest.subjectRef,
         sql`${namespaces.slug} || '/' || ${memexes.slug} || '/specs/' || ${documents.handle} || '/acs/ac-' || ${acs.seq}`,
       ),
     )

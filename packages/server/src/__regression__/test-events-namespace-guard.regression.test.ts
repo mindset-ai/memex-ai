@@ -94,18 +94,18 @@ afterEach(() => {
   }
 });
 
-const validBody = (acUid: string) => ({
-  ac_uid: acUid,
+const validBody = (subjectRef: string) => ({
+  ac_uid: subjectRef,
   status: "pass",
   test_identifier: "tests/regression.test.ts::it works",
   duration_ms: 12,
 });
 
-const post = (acUid: string) =>
+const post = (subjectRef: string) =>
   app.request("/api/test-events", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: "Bearer mxk_test" },
-    body: JSON.stringify(validBody(acUid)),
+    body: JSON.stringify(validBody(subjectRef)),
   });
 
 describe("spec-90 ac-7: no MEMEX_OWN_NAMESPACE gate (fail-closed branch removed)", () => {

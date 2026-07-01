@@ -286,16 +286,16 @@ export async function listParentLinks(acId: string): Promise<AcParentLink[]> {
 // Verification view — joins acs ↔ test_events for the AC tab
 // ══════════════════════════════════════════════════════════════════════
 //
-// Two queries, joined in memory by ac_uid. We could fold them into one big
+// Two queries, joined in memory by subject_ref. We could fold them into one big
 // SQL with window functions but readability matters more than the round-trip
 // here: the tab is a low-traffic surface, and the two-step shape makes the
 // derivation rules (verified/failing/untested/stale) sit in TypeScript where
 // they're testable rather than buried in a CTE.
 //
-// `ac_uid` per the emission contract (docs/ac-primitive-hypothesis.md and
+// `subject_ref` per the emission contract (docs/ac-primitive-hypothesis.md and
 // guidance/ac-emission.json) is the FULL canonical ref, not the bare handle:
 //   <namespace>/<memex>/specs/<spec-handle>/acs/ac-<seq>
-// We rebuild that string per AC and use it to match test_events.ac_uid.
+// We rebuild that string per AC and use it to match test_events.subject_ref.
 
 /**
  * Days after which a verified AC's last test event makes it "stale" — the
@@ -320,10 +320,10 @@ export type VerificationState =
 export interface AcTestSnapshot {
   /** file::function or whatever the emitting test passed as test_identifier. */
   testIdentifier: string | null;
-  /** Latest emission for this (ac_uid, test_identifier). */
+  /** Latest emission for this (subject_ref, test_identifier). */
   latestStatus: "pass" | "fail" | "error";
   latestRunAt: Date;
-  /** Total emissions ever for this (ac_uid, test_identifier). */
+  /** Total emissions ever for this (subject_ref, test_identifier). */
   runCount: number;
 }
 
@@ -434,11 +434,11 @@ export async function listAcsForBriefWithVerification(
   });
   if (acRows.length === 0) return [];
 
-  // Build the universe of ac_uids we care about, in one round-trip.
+  // Build the universe of subject_refs we care about, in one round-trip.
   const refByAcId = new Map(acRows.map((a) => [a.id, buildAcRef(slugs, a.seq)]));
   const allRefs = Array.from(refByAcId.values());
 
-  // spec-162: read the latest-per-(ac_uid, test_identifier) summary directly
+  // spec-162: read the latest-per-(subject_ref, test_identifier) summary directly
   // instead of scanning the whole test_events history. One row per pair already,
   // so there's no latest-wins reduction to do in JS — the summary table did it,
   // making this O(active AC×test pairs), not O(history). Hidden events never
@@ -446,14 +446,14 @@ export async function listAcsForBriefWithVerification(
   // needed; test_identifier is stored as '' for the null case (dec-2).
   const summaryRows = await db
     .select({
-      acUid: testEventLatest.acUid,
+      subjectRef: testEventLatest.subjectRef,
       testIdentifier: testEventLatest.testIdentifier,
       latestStatus: testEventLatest.latestStatus,
       latestRunAt: testEventLatest.latestRunAt,
       runCount: testEventLatest.runCount,
     })
     .from(testEventLatest)
-    .where(inArray(testEventLatest.acUid, allRefs));
+    .where(inArray(testEventLatest.subjectRef, allRefs));
 
   // Pull every parent link for our AC set in one query. The Decisions tab
   // uses these to find "the ACs hanging off this resolved decision" without
@@ -475,19 +475,19 @@ export async function listAcsForBriefWithVerification(
     parentsByAcId.set(link.acId, list);
   }
 
-  // Bucket the summary rows per ac_uid. One row per (ac_uid, test_identifier)
+  // Bucket the summary rows per subject_ref. One row per (subject_ref, test_identifier)
   // pair already, so this is a straight push — no latest-wins reduction. '' maps
   // back to null to preserve the AcTestSnapshot shape the prior reduce produced.
   const testsByRef = new Map<string, AcTestSnapshot[]>();
   for (const row of summaryRows) {
-    const list = testsByRef.get(row.acUid) ?? [];
+    const list = testsByRef.get(row.subjectRef) ?? [];
     list.push({
       testIdentifier: row.testIdentifier === "" ? null : row.testIdentifier,
       latestStatus: row.latestStatus as "pass" | "fail" | "error",
       latestRunAt: row.latestRunAt,
       runCount: row.runCount,
     });
-    testsByRef.set(row.acUid, list);
+    testsByRef.set(row.subjectRef, list);
   }
 
   const now = Date.now();
@@ -702,7 +702,7 @@ export interface TestEventEmission {
 export interface TestMatrixRow {
   /** test_identifier as emitted by the helper, or empty string when null. */
   testIdentifier: string;
-  /** Every emission ever recorded for this (ac_uid, test_identifier), newest-first. */
+  /** Every emission ever recorded for this (subject_ref, test_identifier), newest-first. */
   emissions: TestEventEmission[];
 }
 
@@ -719,13 +719,13 @@ export async function listTestMatrixForAc(
 ): Promise<TestMatrixRow[]> {
   const ac = await getAc(memexId, acId); // tenancy check; 404 via NotFoundError
   const slugs = await resolveBriefSlugsForRef(ac.briefId);
-  const acUid = buildAcRef(slugs, ac.seq);
+  const subjectRef = buildAcRef(slugs, ac.seq);
 
   // spec-115 v0.1.0: hidden events are excluded from the matrix view too —
   // the matrix is the per-AC verification timeline that drives the badge.
   // Hidden audit history is in the DB but not surfaced in v0.1.0.
   const events = await db.query.testEvents.findMany({
-    where: and(eq(testEvents.acUid, acUid), eq(testEvents.hidden, false)),
+    where: and(eq(testEvents.subjectRef, subjectRef), eq(testEvents.hidden, false)),
     orderBy: [desc(testEvents.createdAt)],
   });
 
@@ -786,10 +786,10 @@ export async function listTestEventDigestForAc(
 ): Promise<TestEventDigestRow[]> {
   const ac = await getAc(memexId, acId); // tenancy check; 404 via NotFoundError
   const slugs = await resolveBriefSlugsForRef(ac.briefId);
-  const acUid = buildAcRef(slugs, ac.seq);
+  const subjectRef = buildAcRef(slugs, ac.seq);
 
   const events = await db.query.testEvents.findMany({
-    where: eq(testEvents.acUid, acUid),
+    where: eq(testEvents.subjectRef, subjectRef),
     orderBy: [desc(testEvents.createdAt)],
   });
 
@@ -824,7 +824,7 @@ export async function listTestEventDigestForAc(
 }
 
 /**
- * Hard-delete every `test_events` row matching `(acUid, testIdentifier)` for
+ * Hard-delete every `test_events` row matching `(subjectRef, testIdentifier)` for
  * the AC. Writes no audit record (b-96 dec-14): no admin_actions row, no
  * auto-comment, no `discontinued_at` column. The deletion leaves no trace
  * beyond the rows removed.
@@ -839,7 +839,7 @@ export async function discontinueTestEventsForAc(
 ): Promise<Mutated<{ deleted: number }>> {
   const ac = await getAc(memexId, acId); // tenancy check; 404 via NotFoundError
   const slugs = await resolveBriefSlugsForRef(ac.briefId);
-  const acUid = buildAcRef(slugs, ac.seq);
+  const subjectRef = buildAcRef(slugs, ac.seq);
 
   return mutate(
     {},
@@ -853,12 +853,12 @@ export async function discontinueTestEventsForAc(
           .delete(testEvents)
           .where(
             and(
-              eq(testEvents.acUid, acUid),
+              eq(testEvents.subjectRef, subjectRef),
               eq(testEvents.testIdentifier, testIdentifier),
             ),
           )
           .returning({ id: testEvents.id });
-        await removeSummaryForPair(tx, acUid, testIdentifier);
+        await removeSummaryForPair(tx, subjectRef, testIdentifier);
         return { deleted: rows.length };
       });
     },
@@ -965,7 +965,7 @@ export async function listResolvedDecisionImplAcCoverage(
 // Budget: two queries regardless of Spec count.
 //   Q1 — every active AC for the Spec set, joined with namespace/memex/doc
 //        slugs so each row carries enough to compute its canonical ref.
-//   Q2 — every test_events row whose ac_uid is in the universe Q1 produced.
+//   Q2 — every test_events row whose subject_ref is in the universe Q1 produced.
 // Aggregation, latest-per-test reduction, and state derivation all happen
 // in JS — same shape as `listAcsForBriefWithVerification`, scaled to N
 // Specs in a single round-trip pair.
@@ -1071,28 +1071,28 @@ export async function aggregateAcHealthForBriefs(
   // stored key for null test_identifier (dec-2).
   const summaryRows = await db
     .select({
-      acUid: testEventLatest.acUid,
+      subjectRef: testEventLatest.subjectRef,
       testIdentifier: testEventLatest.testIdentifier,
       latestStatus: testEventLatest.latestStatus,
       latestRunAt: testEventLatest.latestRunAt,
       runCount: testEventLatest.runCount,
     })
     .from(testEventLatest)
-    .where(inArray(testEventLatest.acUid, allRefs));
+    .where(inArray(testEventLatest.subjectRef, allRefs));
 
   // Bucket the summary rows into per-AC snapshots in the same shape the AC tab
   // consumes, so deriveVerificationState gets identical input — card colour and
   // tab agree by construction (ac-2 parity). '' maps back to null.
   const snapshotsByRef = new Map<string, AcTestSnapshot[]>();
   for (const row of summaryRows) {
-    const list = snapshotsByRef.get(row.acUid) ?? [];
+    const list = snapshotsByRef.get(row.subjectRef) ?? [];
     list.push({
       testIdentifier: row.testIdentifier === "" ? null : row.testIdentifier,
       latestStatus: row.latestStatus as "pass" | "fail" | "error",
       latestRunAt: row.latestRunAt,
       runCount: row.runCount,
     });
-    snapshotsByRef.set(row.acUid, list);
+    snapshotsByRef.set(row.subjectRef, list);
   }
 
   const now = Date.now();
@@ -1172,7 +1172,7 @@ export interface AlignmentDay {
  *
  * SQL is a window-function pair per day, fanned out via generate_series. The
  * heavy lifting is the LATERAL join that finds the latest test event per
- * (ac_uid, day) ≤ end-of-day. Bounded by the AC set in the Spec, which is
+ * (subject_ref, day) ≤ end-of-day. Bounded by the AC set in the Spec, which is
  * small (rarely >100), so this is cheap even at 90 days.
  */
 export async function listAcAlignmentOverTime(
@@ -1206,10 +1206,10 @@ export async function listAcAlignmentOverTime(
     sql`, `,
   );
 
-  // For each (day × ac), find the latest event ≤ end-of-day for that ac_uid;
+  // For each (day × ac), find the latest event ≤ end-of-day for that subject_ref;
   // 'verified' iff that latest is 'pass'. Total = ACs that existed by then.
   const rows = (await db.execute(sql`
-    WITH ac_set(ac_uid, kind, created_at, accepted_at) AS (
+    WITH ac_set(subject_ref, kind, created_at, accepted_at) AS (
       VALUES ${acSetValues}
     ),
     series AS (
@@ -1223,13 +1223,13 @@ export async function listAcAlignmentOverTime(
       SELECT
         s.day,
         a.kind,
-        a.ac_uid,
+        a.subject_ref,
         a.created_at,
         a.accepted_at,
         (
           SELECT te.status
           FROM test_events te
-          WHERE te.ac_uid = a.ac_uid
+          WHERE te.subject_ref = a.subject_ref
             AND te.created_at < (s.day + INTERVAL '1 day')
           ORDER BY te.created_at DESC
           LIMIT 1
@@ -1344,7 +1344,7 @@ export async function auditCiEmissionForBrief(
         createdAt: testEvents.createdAt,
       })
       .from(testEvents)
-      .where(and(eq(testEvents.acUid, r.canonicalRef), eq(testEvents.hidden, false)))
+      .where(and(eq(testEvents.subjectRef, r.canonicalRef), eq(testEvents.hidden, false)))
       .orderBy(desc(testEvents.createdAt))
       .limit(1);
     // A verified AC always has ≥1 passing emission; defensively skip if none.

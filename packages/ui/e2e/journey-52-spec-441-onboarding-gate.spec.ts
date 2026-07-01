@@ -22,6 +22,7 @@ import {
   bareUrl,
   emitAcEvents,
   signupWithToken,
+  dismissWelcomeVideo,
 } from "./helpers/index.js";
 
 const ACS = [
@@ -74,7 +75,12 @@ test(
     await page.getByPlaceholder("Your display name").fill("Gate User");
     await page.getByRole("button", { name: /^Continue$/ }).click();
 
-    // ac-2: after submitting the name, the user lands on /home.
+    // spec-444: after name capture, the welcome video gate fires for new users.
+    // Dismiss it so we can verify the downstream /home landing (ac-2).
+    await dismissWelcomeVideo(page);
+
+    // ac-2: after submitting the name (and dismissing the welcome video), the user
+    // lands on /home (new users without prior specs land on the Home Canvas).
     await expect(page).toHaveURL(/\/home/, { timeout: 15_000 });
 
     // ac-6: /home shows the Home Canvas — getting-started-title + create-spec step

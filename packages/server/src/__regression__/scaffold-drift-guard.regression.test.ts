@@ -126,6 +126,13 @@ const ALLOWLISTED_PROSE_FILES = new Set(
     // prose / a nudge channel, so (exactly like handhold-demo.fixture.ts) it does not belong
     // in scaffold-data.ts. Exempt from the prose-location guard.
     "packages/server/src/db/starter-spec.fixture.ts",
+    // spec-151: the testability classifier's LLM system prompt (services/
+    // testability-classifier.ts) — an INTERNAL classifier prompt for the local
+    // operator backfill, the same category as services/facet-classifier.ts's
+    // inline classifier prompt. It is NOT Mindset-agent system-prompt / nudge /
+    // Prompt-Button scaffold prose (scaffold-data.ts's domain), so it belongs with
+    // its engine, not in scaffold-data.ts. Exempt from the prose-location guard.
+    "packages/server/src/services/testability-classifier.ts",
   ].map((p) => p.split("/").join(sep)),
 );
 

@@ -12,6 +12,7 @@ import { tasksRouter } from "./routes/tasks.js";
 import { issuesRouter } from "./routes/issues.js";
 import { issuesList } from "./routes/issues-list.js";
 import { acsRouter } from "./routes/acs.js";
+import { standardsRouter } from "./routes/standards.js";
 import { emissionKeysRouter } from "./routes/emission-keys.js";
 import { discordWebhookRouter } from "./routes/discord-webhook.js";
 import { stripeWebhookRouter } from "./routes/stripe-webhook.js";
@@ -35,6 +36,7 @@ import { auth } from "./routes/auth.js";
 import { invitesAcceptRouter, invitesAdminRouter } from "./routes/invites.js";
 import { teamRouter } from "./routes/team.js";
 import { shareRouter } from "./routes/share.js";
+import { unsubscribeRouter } from "./routes/unsubscribe.js";
 import { backstageRouter } from "./routes/backstage.js";
 import { cliAuth, mcpTokensRouter } from "./routes/cli-auth.js";
 import { oauth, isOAuthEnabled } from "./routes/oauth/index.js";
@@ -43,6 +45,7 @@ import driftRouter from "./routes/drift.js";
 import { search } from "./routes/search.js";
 import { handhold } from "./routes/handhold.js";
 import { onboarding } from "./routes/onboarding.js";
+import { welcomeVideo } from "./routes/welcome-video.js";
 import { testEventsRouter } from "./routes/test-events.js";
 import { specCheckoutRouter } from "./routes/spec-checkout.js";
 import { hookKeysRouter } from "./routes/hook-keys.js";
@@ -243,6 +246,7 @@ app.route("/api/:namespace/:memex/decisions", decisionsRouter);
 app.route("/api/:namespace/:memex/tasks", tasksRouter);
 app.route("/api/:namespace/:memex/issues", issuesRouter);
 app.route("/api/:namespace/:memex/acs", acsRouter);
+app.route("/api/:namespace/:memex/standards", standardsRouter);
 app.route("/api/:namespace/:memex/emission-keys", emissionKeysRouter);
 app.route("/api/:namespace/:memex/discord-webhook", discordWebhookRouter);
 // spec-118 — per-Spec roles (editor/reviewer) + ticket-style assignment.
@@ -378,6 +382,9 @@ app.route("/api/auth", auth);
 // Specky welcome (greet-eligibility read + once-per-user stamp). User-keyed, no
 // memex semantics, so it stays flat.
 app.route("/api/onboarding", onboarding);
+// /api/welcome-video — spec-444: user-level PATCH to stamp permanent video dismiss.
+// User-keyed, no memex semantics, flat mount.
+app.route("/api/welcome-video", welcomeVideo);
 // /api/orgs — t-14 + t-16 of doc-15. Single org-creation + admin surface.
 // Replaces the retired /api/accounts and /api/account mounts.
 app.route("/api/orgs", orgsRouter);
@@ -408,6 +415,10 @@ app.route("/api/me", homeRouter);
 app.route("/api/whats-new", whatsNewRouter);
 // PUBLIC: share routes skip session middleware — guests access shared docs by token alone (t-10).
 app.route("/api/share", shareRouter);
+
+// spec-427 t-4 — PUBLIC lifecycle-email unsubscribe (GET one-click + POST RFC 8058).
+// No session/tenant middleware: the HMAC token in the URL is the capability.
+app.route("/api/email", unsubscribeRouter);
 
 // spec-171 t-3: Stripe webhook receiver. No session middleware — the
 // Stripe-Signature HMAC header IS the auth (verified inside the router).

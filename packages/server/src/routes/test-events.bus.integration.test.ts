@@ -27,7 +27,7 @@ app.route("/api/test-events", testEventsRouter);
 
 let memexId: string;
 let namespaceSlug: string;
-let acUid: string;
+let subjectRef: string;
 let emissionKey: string;
 let minterUserId: string;
 
@@ -37,7 +37,7 @@ beforeAll(async () => {
   namespaceSlug = made.slug;
   // The memex slug is "main" (see makeTestMemexWithDevAdmin). buildAcRef in
   // services/acs.ts is the forward direction of this same grammar.
-  acUid = `${namespaceSlug}/main/specs/spec-1/acs/ac-1`;
+  subjectRef = `${namespaceSlug}/main/specs/spec-1/acs/ac-1`;
 
   // spec-129: the route requires a per-Memex emission key on every POST. Mint a
   // real one for the test memex (same idiom as __e2e__/emission-auth.api.test.ts).
@@ -74,7 +74,7 @@ describe("POST /api/test-events — bus emit on ingestion (spec-156 ac-16)", () 
           Authorization: `Bearer ${emissionKey}`,
         },
         body: JSON.stringify({
-          ac_uid: acUid,
+          ac_uid: subjectRef,
           status: "pass",
           test_identifier: "spec156.test.ts::emits",
         }),
@@ -96,7 +96,7 @@ describe("POST /api/test-events — bus emit on ingestion (spec-156 ac-16)", () 
       const rows = await db
         .select()
         .from(testEvents)
-        .where(eq(testEvents.acUid, acUid));
+        .where(eq(testEvents.subjectRef, subjectRef));
       expect(rows.length).toBeGreaterThanOrEqual(1);
     } finally {
       unsubscribe();

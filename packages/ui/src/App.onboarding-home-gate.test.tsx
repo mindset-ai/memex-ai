@@ -27,6 +27,7 @@ function makeSession(opts: { hiddenFeatures: string[]; emailVerified?: boolean }
       name: 'Alice',
       status: 'active',
       emailVerified: opts.emailVerified ?? true,
+      videoWelcomedAt: new Date(), // spec-444: suppress welcome-video gate so tests isolate routing logic
     },
     memberships: [
       {
@@ -147,6 +148,7 @@ function renderAt(path: string) {
 describe('RootRedirect lands users by a read-only onboarding-state check (spec-421 dec-5)', () => {
   beforeEach(() => {
     vi.stubEnv('VITE_GOOGLE_CLIENT_ID', 'test-client-id');
+    sessionStorage.setItem('welcomeVideoDismissed', '1'); // spec-444: suppress gate so tests isolate routing
     fetchJourneyStateApi.mockClear();
     trackMock.mockClear();
     trackAnonymousMock.mockClear();
@@ -154,6 +156,7 @@ describe('RootRedirect lands users by a read-only onboarding-state check (spec-4
   });
   afterEach(() => {
     vi.unstubAllEnvs();
+    sessionStorage.removeItem('welcomeVideoDismissed');
   });
 
   it('home VISIBLE + NOT graduated: lands on the Home Canvas onboarding journey', async () => {
