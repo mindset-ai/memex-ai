@@ -29,6 +29,7 @@ import { mintEmissionKey } from "../services/emission-keys.js";
 import { listClausesForStandardWithVerification, buildClauseRef } from "./clause-coverage.js";
 
 const AC_4 = "mindset-prod/memex-building-itself/specs/spec-151/acs/ac-4";
+const AC_21 = "mindset-prod/memex-building-itself/specs/spec-151/acs/ac-21";
 
 const createdUserIds: string[] = [];
 const createdMemexIds: string[] = [];
@@ -99,8 +100,9 @@ beforeAll(async () => {
 });
 
 describe("spec-151 PoC — a wired universal test turns a clause green in the view (ac-4)", () => {
-  it("std-8 cl-69 appears green (passing) once the universal scanner attests it [ac-4]", async () => {
+  it("std-8 cl-69 appears green (passing) once the universal scanner attests it [ac-4][ac-21]", async () => {
     tagAc(AC_4);
+    tagAc(AC_21); // dec-7 reversed: a plain pass reads green directly — no verifier gate, no LLM in the path
     const testIdentifier = "src/__regression__/mutate-coverage.static-scan.regression.test.ts::std-8 cl-69";
 
     // The universal scanner emits a clause attestation for cl-69. Memex records the

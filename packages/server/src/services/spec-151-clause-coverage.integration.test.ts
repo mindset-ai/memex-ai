@@ -148,8 +148,9 @@ beforeAll(async () => {
 });
 
 describe("spec-151 dec-1 — standard clause-coverage view", () => {
-  it("shows per-clause coverage + latest state, mirroring the AC matrix [ac-2]", async () => {
+  it("shows per-clause coverage in exactly three states, no spot/surface [ac-2][ac-20]", async () => {
     tagAc(AC(2));
+    tagAc(AC(20)); // dec-2 reversed: only passing/failing/untested exist — no spot state
     const cov = await listClausesForStandardWithVerification(memexId, docId);
     const bySeq = new Map(cov.clauses.map((c) => [c.clause.seq, c]));
     expect(bySeq.get(1)!.tests.length).toBeGreaterThanOrEqual(1); // covered
@@ -157,14 +158,15 @@ describe("spec-151 dec-1 — standard clause-coverage view", () => {
     expect(bySeq.get(3)!.state).toBe("failing");
     expect(bySeq.get(4)!.state).toBe("untested");
     expect(bySeq.get(4)!.tests).toHaveLength(0);
+    // Every state is one of exactly three — the spot/whole-surface distinction is gone.
+    for (const c of cov.clauses) expect(["passing", "failing", "untested"]).toContain(c.state);
     // The view carries each clause's owning section so the standard can render its
     // clauses grouped under their section heading (the unified clause render).
     expect(bySeq.get(1)!.clause.sectionId).toBe(sectionId);
   });
 
-  it("a clause's green is provenance-independent: a CI run and a laptop run read identically [ac-12][ac-13]", async () => {
+  it("a clause's green is provenance-independent: a CI run and a laptop run read identically [ac-12]", async () => {
     tagAc(AC(12));
-    tagAc(AC(13));
     const cov = await listClausesForStandardWithVerification(memexId, docId);
     const bySeq = new Map(cov.clauses.map((c) => [c.clause.seq, c]));
     // cl-1 carried a CI run marker, cl-2 did not. Memex records what the test CLAIMS and
