@@ -26,6 +26,9 @@ beforeEach(() => {
   process.env.APP_BASE_URL = "https://int.memex.ai";
   process.env.EMAIL_ACTIVATION_FROM = "The Memex AI team <support@memex.ai>";
   process.env.EMAIL_ACTIVATION_REPLY_TO = "support@memex.ai";
+  // spec-427 t-6: the send chokepoint is gated by ACTIVATION_EMAILS_ENABLED (default
+  // OFF). Enable it for the send-path assertions; the off case is asserted explicitly.
+  process.env.ACTIVATION_EMAILS_ENABLED = "1";
 });
 afterEach(() => {
   setEmailSender(null);
@@ -63,6 +66,15 @@ describe("sendLifecycleEmail", () => {
   it("fails CLOSED — a suppression-read error skips the send, never emails on error", async () => {
     tagAc(AC(12));
     isSuppressed.mockRejectedValue(new Error("db down"));
+    const ok = await sendLifecycleEmail(USER, MSG);
+    expect(ok).toBe(false);
+    expect(sent).toHaveLength(0);
+  });
+
+  it("sends NOTHING when ACTIVATION_EMAILS_ENABLED is off — the kill switch (ac-16)", async () => {
+    tagAc(AC(16));
+    delete process.env.ACTIVATION_EMAILS_ENABLED; // default OFF
+    isSuppressed.mockResolvedValue(false); // subscribed user who would otherwise be sent
     const ok = await sendLifecycleEmail(USER, MSG);
     expect(ok).toBe(false);
     expect(sent).toHaveLength(0);

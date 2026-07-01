@@ -10,6 +10,7 @@ import type { User } from "../../db/schema.js";
 import { getEmailSender, type EmailMessage } from "./sender.js";
 import { isLifecycleEmailUnsubscribed } from "../users.js";
 import { unsubscribeUrl } from "./unsubscribe-token.js";
+import { activationEmailsEnabled } from "./activation-flag.js";
 
 // The Postmark broadcast stream id for lifecycle mail. Configurable per env; the
 // non-"outbound" value is what routes the send to the broadcast token (t-3).
@@ -28,6 +29,10 @@ export async function sendLifecycleEmail(
   user: Pick<User, "id" | "email">,
   message: EmailMessage,
 ): Promise<boolean> {
+  // spec-427 t-6 (dec-9 / ac-16) — the master + kill switch. Default OFF, so no
+  // lifecycle email can send until a human flips ACTIVATION_EMAILS_ENABLED in prod.
+  // Enforced here at the sole lifecycle send path (t-7/t-8 also short-circuit earlier).
+  if (!activationEmailsEnabled()) return false;
   if (!user.email) return false;
 
   const suppressed = await isLifecycleEmailUnsubscribed(user.id).catch(() => true);
