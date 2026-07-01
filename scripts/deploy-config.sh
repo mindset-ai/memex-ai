@@ -161,6 +161,14 @@ fi
 if [ -n "${SIGNUP_DOMAIN_ALLOWLIST+set}" ]; then
   export SIGNUP_DOMAIN_ALLOWLIST
 fi
+# ACTIVATION_EMAILS_ENABLED — spec-427 t-6 (dec-9): the activation-drip master + kill
+# switch. Default OFF; enabled only in prod, only by hand, at the deliberate launch
+# moment (and flipped back to stop everything). Same set-vs-unset semantics as
+# HIDDEN_FEATURES — a deploy from a checkout that never set it must not silently flip
+# the drip on OR off, so it is passed to Cloud Run only when the per-env config set it.
+if [ -n "${ACTIVATION_EMAILS_ENABLED+set}" ]; then
+  export ACTIVATION_EMAILS_ENABLED
+fi
 
 # OTEL_EXPORTER_OTLP_ENDPOINT — turns on database observability and chooses
 # where the metrics go. Unset (the default) means telemetry is off with zero
