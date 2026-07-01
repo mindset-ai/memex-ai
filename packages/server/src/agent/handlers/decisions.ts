@@ -355,7 +355,7 @@ export const decisionsTools: ToolSpec[] = [
       if (ctx.verbose) {
         const state = await fullDocState(memexId, updated.docId);
         const url = await ctx.workspaceUrl(memexId);
-        return formatState(url, state) + facetEditReadout;
+        return (await formatState(url, state)) + facetEditReadout;
       }
       const decRef = buildChildRef(slugs, doc, { type: "decisions", seq: updated.seq });
       // Response shape mirrors what callers parse (`^Decision <verb>: ref: ...`).
