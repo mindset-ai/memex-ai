@@ -31,6 +31,7 @@ function makeSession(hiddenFeatures: string[]): SessionPayload {
       name: 'Alice',
       status: 'active',
       emailVerified: true,
+      videoWelcomedAt: new Date(), // spec-444: suppress welcome-video gate so tests isolate routing logic
     },
     memberships: [
       {
@@ -133,9 +134,11 @@ function renderAt(path: string) {
 describe('spec-146 t-4: /scaffold route gate', () => {
   beforeEach(() => {
     vi.stubEnv('VITE_GOOGLE_CLIENT_ID', 'test-client-id');
+    sessionStorage.setItem('welcomeVideoDismissed', '1'); // spec-444: suppress gate so tests isolate routing
   });
   afterEach(() => {
     vi.unstubAllEnvs();
+    sessionStorage.removeItem('welcomeVideoDismissed');
   });
 
   it('ac-10: hidden → /scaffold does not render ScaffoldInspect and redirects to the universal landing', async () => {

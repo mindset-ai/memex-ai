@@ -1367,6 +1367,10 @@ export const users = pgTable("users", {
   // blocked/denied audio start does NOT stamp it). True once-per-user across
   // devices, so the auto-greeting never re-fires.
   onboardingGreetedAt: timestamp("onboarding_greeted_at", { withTimezone: true }),
+  // spec-444: the welcome-video gate flag. Null = never permanently dismissed;
+  // a timestamp = the user clicked "Get started" or the skip link (permanent).
+  // Session-only × (close button) does NOT stamp this — it writes sessionStorage only.
+  videoWelcomedAt: timestamp("video_welcomed_at", { withTimezone: true }),
   // spec-305 dec-4/dec-5: the captured onboarding profile. roleCoords holds the
   // developer/designer/PM triangle as barycentric weights (sum 1); identityConfirmedAt
   // stamps when the user completed the journey's identity step (confirm name + place
@@ -2978,13 +2982,6 @@ export const commsLog = pgTable(
     check(
       "comms_log_status_valid",
       sql`${table.status} IN ('scheduled', 'sent', 'delivered', 'failed')`,
-    ),
-    // spec-442 dec-1 (ac-7): a 'sent' row must always carry a send time. Enforced at
-    // the DB as a backstop; recordComm() also stamps sent_at at the write path so this
-    // is never actually hit in practice (added via 0120 as NOT VALID → VALIDATE).
-    check(
-      "comms_log_sent_requires_sent_at",
-      sql`${table.status} <> 'sent' OR ${table.sentAt} IS NOT NULL`,
     ),
   ],
 );

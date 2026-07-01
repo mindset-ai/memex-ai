@@ -348,6 +348,14 @@ function SidebarUserCard({
               Email preview
             </Link>
           )}
+          {/* spec-444: always-visible rewatch entry — present regardless of dismissal state. */}
+          <Link
+            to="/welcome?rewatch=1"
+            onClick={() => setOpen(false)}
+            className="block w-full text-left px-3 py-2 text-sm transition-colors text-secondary hover:text-primary hover:bg-overlay"
+          >
+            Watch intro video
+          </Link>
           <button
             onClick={() => {
               setOpen(false);
