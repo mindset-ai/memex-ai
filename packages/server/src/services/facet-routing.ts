@@ -467,9 +467,9 @@ export async function routeFacets(
 }
 
 // The lifecycle moment a readout is surfaced at (dec-10). Drives both the heading
-// wording (execution-framed at in_progress so it doesn't read as a duplicate of the
-// creation footer) and the dec-4 routing-log occasion.
-export type ReadoutOccasion = "created" | "in_progress";
+// wording (execution-framed at in_progress, retrospective-audit-framed at completed, so
+// neither reads as a duplicate of the creation footer) and the dec-4 routing-log occasion.
+export type ReadoutOccasion = "created" | "in_progress" | "completed";
 
 // The readout inlines the implicated SECTIONS (not pointers, not whole standards), each
 // stamped with its exact standard + clause refs so the agent can follow AND cite them
@@ -490,18 +490,25 @@ function indentBlock(text: string): string {
 
 /**
  * Render the surfaced standards as the payoff readout appended to the create_decision /
- * create_task / resolve_decision response (occasion 'created') or the update_task →
- * in_progress response (occasion 'in_progress', dec-10). Inlines the implicated section
- * text with full genealogy (exact standard + clause refs + a get_doc ref for depth), so
- * the standard actually gets read instead of just named. Empty when nothing is governed.
+ * create_task / resolve_decision response (occasion 'created'), the update_task →
+ * in_progress response (occasion 'in_progress', dec-10), or the update_task → complete
+ * response (occasion 'completed' — the retrospective-audit nag). Inlines the implicated
+ * section text with full genealogy (exact standard + clause refs + a get_doc ref for
+ * depth), so the standard actually gets read instead of just named. Empty when nothing is
+ * governed. NOTE: this is prompt-not-compel — it surfaces the governing standards and asks
+ * the agent to self-audit; Memex does not verify adherence here (the clause-test rail,
+ * spec-151, is the only real check, and only where a clause carries a test).
  */
 export function formatRoutedStandards(result: RoutingResult, occasion: ReadoutOccasion = "created"): string {
   if (result.surfaced.length === 0) return "";
   const n = result.surfaced.length;
+  const govern = `${n} standard${n === 1 ? "" : "s"}`;
   const heading =
-    occasion === "in_progress"
-      ? `You're starting this task now — ${n} standard${n === 1 ? "" : "s"} govern it. The implicated sections are inlined below, each marked with its exact standard + clause refs. Follow them, and cite them by ref:`
-      : `${n} standard${n === 1 ? "" : "s"} govern this work. The implicated sections are inlined below, each marked with its exact standard + clause refs so you can follow and cite them precisely:`;
+    occasion === "completed"
+      ? `You've marked this task complete — the last checkpoint before it ships. ${govern} govern this work; the implicated sections are inlined below, each marked with its exact standard + clause refs. Re-read the code you changed against each one and fix any drift now, clause by clause. Cite the clause refs when you confirm adherence:`
+      : occasion === "in_progress"
+        ? `You're starting this task now — ${govern} govern it. The implicated sections are inlined below, each marked with its exact standard + clause refs. Follow them, and cite them by ref:`
+        : `${govern} govern this work. The implicated sections are inlined below, each marked with its exact standard + clause refs so you can follow and cite them precisely:`;
   const lines = ["", heading];
   let used = heading.length;
   result.surfaced.forEach((s, i) => {

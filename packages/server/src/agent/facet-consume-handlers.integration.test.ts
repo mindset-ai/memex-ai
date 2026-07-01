@@ -181,6 +181,30 @@ describe("update_task re-surfaces the routed standards at in_progress (spec-423 
     expect(logs.some((l) => (l.rankerParams as { occasion?: string } | null)?.occasion === "in_progress")).toBe(true);
   });
 
+  it("appends a retrospective-audit readout at completion, logged occasion completed (ac-17)", async () => {
+    tagAc(AC(17));
+    const created = await executeServerTool(
+      memexId,
+      "create_task",
+      { ref: specRef, title: "Wire the auth guard", description: "harden authz", facetBallot: fullBallot },
+      userId,
+    );
+    const taskRef = refOf(created);
+    await executeServerTool(memexId, "update_task", { ref: taskRef, status: "in_progress" }, userId);
+
+    const out = await executeServerTool(memexId, "update_task", { ref: taskRef, status: "complete" }, userId);
+    // Same governing standard, re-surfaced — but framed as the last-checkpoint audit.
+    expect(out).toContain("std-1");
+    expect(out).toContain("You've marked this task complete");
+
+    // The completion re-route was logged with occasion 'completed' (no new ballot cast).
+    const logs = await db
+      .select()
+      .from(facetRoutingLog)
+      .where(and(eq(facetRoutingLog.memexId, memexId), eq(facetRoutingLog.ownerRef, taskRef)));
+    expect(logs.some((l) => (l.rankerParams as { occasion?: string } | null)?.occasion === "completed")).toBe(true);
+  });
+
   it("surfaces no footer for a task whose ballot governs no facet (ac-17)", async () => {
     tagAc(AC(17));
     const created = await executeServerTool(
