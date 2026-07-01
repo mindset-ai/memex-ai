@@ -230,8 +230,8 @@ describe("update_task re-surfaces the routed standards at in_progress (spec-423 
     expect(logs.some((l) => (l.rankerParams as { occasion?: string } | null)?.occasion === "in_progress")).toBe(true);
   });
 
-  it("appends a retrospective-audit readout at completion, logged occasion completed (ac-17)", async () => {
-    tagAc(AC(17));
+  it("appends a retrospective-audit readout at completion, logged occasion completed (ac-20)", async () => {
+    tagAc(AC(20));
     const created = await executeServerTool(
       memexId,
       "create_task",

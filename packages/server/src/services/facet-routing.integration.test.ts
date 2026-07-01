@@ -184,3 +184,21 @@ describe("ranking backend — keyless baseline + re-ranker degrade (spec-423 t-3
     expect(r.all.length).toBe(3); // still recall-first
   });
 });
+
+describe("implicated-sections readout — inlined sections with full genealogy (spec-423, ac-19)", () => {
+  it("inlines the matched SECTION (not a pointer) stamped with standard title, governing clause refs, and a get_doc (ac-19)", async () => {
+    tagAc(AC(19));
+    const r = await routeFacets(memexId, ["zb-security"], "auth", null);
+    const readout = formatRoutedStandards(r);
+
+    // The surfaced standard is named with its exact handle + title...
+    expect(readout).toContain("std-zb-focused");
+    expect(readout).toContain("Focused security"); // the title, from the header
+    // ...and its section is INLINED (the clause body travels, not just a pointer).
+    expect(readout).toContain("clause 0");
+    // ...stamped with genealogy: the governing clause refs + a get_doc for depth.
+    expect(readout).toMatch(/governing clause/);
+    expect(readout).toMatch(/clauses\/cl-\d+/); // full canonical clause ref, not a bare handle
+    expect(readout).toContain("get_doc"); // the full-standard pointer for depth
+  });
+});
