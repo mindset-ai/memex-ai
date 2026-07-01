@@ -354,6 +354,193 @@ export function buildWelcomeEmail(input: WelcomeEmailInput): EmailMessage {
   };
 }
 
+// ──────────────────────────────────────────────────────────────────────────
+// spec-427 — activation & win-back emails (Slice A: pure render)
+// ──────────────────────────────────────────────────────────────────────────
+// Two lifecycle emails that recover stalled signups (dec-6: the code is the
+// canonical authoring source; s-2 mirrors this copy). Both render through the
+// SAME shared renderEmailHtml() using the spec-226 step/resources primitives —
+// no parallel/raw-HTML path, CTA + resources are table / inline-CSS constructs,
+// no imagery (ac-10). App deep-link CTAs come in as inputs derived from
+// APP_BASE_URL at the send site (dec-8), never a hardcoded host.
+//
+// These builders are PURE RENDER: no cohort/timing/send logic, no env reads. The
+// team-identity From + monitored Reply-To (dec-1) are applied at the send site
+// from EMAIL_ACTIVATION_FROM / EMAIL_ACTIVATION_REPLY_TO — identical to the
+// welcome (welcome-send.ts), NOT set in the builder (see spec-427 t-1 drift note).
+// commsType IS stamped here (static, send-independent): Slice B's dedup/cap counts
+// these stable keys in comms_log (ac-14 / dec-7) and never reaches back for copy.
+
+// Shared "Resources to get started" block — identical across both activation
+// emails (s-2). Rendered as a table, not image buttons (Postmark constraints).
+const ACTIVATION_RESOURCES: EmailResource[] = [
+  {
+    title: "Understanding Memex AI",
+    description: "The 10-minute read on why it exists and how it works.",
+    url: "https://www.memex.ai/understanding-memex.pdf",
+  },
+  {
+    title: "Documentation",
+    description: "The complete reference, from getting started to the deep technical detail.",
+    url: "https://www.memex.ai/docs",
+  },
+  {
+    title: "Community",
+    description: "Say hello on Discord, whether you're weighing Memex up or already building.",
+    url: "https://www.memex.ai/discord",
+  },
+];
+
+function activationGreeting(firstName?: string): string {
+  const name = firstName?.trim();
+  return name ? `Hi ${name},` : "Hi there,";
+}
+
+const ACTIVATION_SIGNOFF = "Best, The Memex AI team";
+const ACTIVATION_FOOTER =
+  "You're getting this because you signed up for Memex AI, built by Mindset AI.";
+
+export interface ConnectedInactiveEmailInput {
+  to: string;
+  /** Recipient's first name; absent/empty → a graceful "Hi there,". */
+  firstName?: string;
+  /** CTA "Create a spec" deep-link — derived from APP_BASE_URL at the send site (dec-8). */
+  createSpecUrl: string;
+  /** Link to the user's own Memex ("your Memex") — derived from APP_BASE_URL (dec-8). */
+  memexUrl: string;
+}
+
+// Email 1 — connected-but-inactive (MCP connected, no tool call, no Spec).
+// Subject "Memex is connected. Here's what to do next." · CTA "Create a spec".
+export function buildConnectedInactiveEmail(
+  input: ConnectedInactiveEmailInput,
+): EmailMessage {
+  const greeting = activationGreeting(input.firstName);
+  const afterCta1 =
+    "Memex will work with your agent to structure the work, and comes back with a Spec and the decisions it needs you to resolve. That's the moment it clicks.";
+  const afterCta2 = "Memex does not touch your code.";
+  const stuck = "If you get stuck, just reply here or find us in #help on Discord.";
+
+  const text = renderEmailText({
+    intro: [
+      greeting,
+      "Your Memex MCP is connected. The hard part is done.",
+      "The next step is to create your first Spec. Bring an idea and we'll help you shape it, start to finish. Not sure where to start? Click the button below and we'll guide you through step by step.",
+      afterCta1,
+      afterCta2,
+      `Watch your Spec come to life in your Memex: ${input.memexUrl}`,
+      stuck,
+    ],
+    url: input.createSpecUrl,
+    closing: ACTIVATION_SIGNOFF,
+  });
+
+  const html = renderEmailHtml({
+    preheader: "Your Memex MCP is connected — create your first Spec.",
+    eyebrow: "",
+    heading: "Your Memex MCP is connected. The hard part is done.",
+    bodyParagraphs: [
+      escapeHtml(greeting),
+      "The next step is to create your first Spec. Bring an idea and we'll help you shape it, start to finish. Not sure where to start? Click the button below and we'll guide you through step by step.",
+    ],
+    ctaLabel: "Create a spec",
+    ctaUrl: input.createSpecUrl,
+    showPasteLink: false,
+    afterCtaParagraphs: [
+      escapeHtml(afterCta1),
+      escapeHtml(afterCta2),
+      `Watch your Spec come to life in <a href="${escapeHtml(input.memexUrl)}" style="color:${BRAND_SKY};">your Memex</a>.`,
+      escapeHtml(stuck),
+      escapeHtml(ACTIVATION_SIGNOFF),
+    ],
+    resources: ACTIVATION_RESOURCES,
+    footerNote: ACTIVATION_FOOTER,
+  });
+
+  return {
+    to: input.to,
+    subject: "Memex is connected. Here's what to do next.",
+    text,
+    html,
+    // spec-427 ac-14 / dec-7: stable comms key — Slice B's dedup + two-per-cohort
+    // cap count this key in comms_log, never the subject line.
+    commsType: "activation.connected_inactive",
+  };
+}
+
+export interface SignedInDormantEmailInput {
+  to: string;
+  /** Recipient's first name; absent/empty → a graceful "Hi there,". */
+  firstName?: string;
+  /** CTA "Open Memex AI" target — derived from APP_BASE_URL at the send site (dec-8). */
+  appUrl: string;
+}
+
+// Email 2 — signed-in-but-dormant (signed in, identity complete, MCP never
+// connected). Subject "You're two steps from your first Spec" · CTA "Open Memex AI".
+export function buildSignedInDormantEmail(
+  input: SignedInDormantEmailInput,
+): EmailMessage {
+  const greeting = activationGreeting(input.firstName);
+  const value =
+    "Once you're in, your agents build from what you actually decided, not what they guessed. Every decision is captured as you go, so nothing important gets buried in a chat thread or quietly chosen for you mid-build. And done means verified, not just claimed. No more vibe coding.";
+  const afterCtaText =
+    "We'll send you a few short emails over the next few weeks, and there are some resources below to get you started. If you get stuck, just reply here or find us in #help on Discord.";
+
+  const steps: EmailStep[] = [
+    {
+      label: "// Step 1",
+      title: "Connect to the Memex MCP",
+      body: "The app shows you exactly how to connect, whatever coding agent you're using.",
+    },
+    {
+      label: "// Step 2",
+      title: "Create your first Spec",
+      body: "Bring an idea and we'll help you shape it, start to finish.",
+    },
+  ];
+
+  const text = renderEmailText({
+    intro: [
+      greeting,
+      "Getting Memex set up takes two simple steps.",
+      value,
+      "// Step 1 — Connect to the Memex MCP: The app shows you exactly how to connect, whatever coding agent you're using.",
+      "// Step 2 — Create your first Spec: Bring an idea and we'll help you shape it, start to finish.",
+      afterCtaText,
+    ],
+    url: input.appUrl,
+    closing: ACTIVATION_SIGNOFF,
+  });
+
+  const html = renderEmailHtml({
+    preheader: "You're two steps from your first Spec.",
+    eyebrow: "",
+    heading: "You're two steps from your first Spec",
+    bodyParagraphs: [
+      escapeHtml(greeting),
+      "Getting Memex set up takes two simple steps.",
+      escapeHtml(value),
+    ],
+    steps,
+    ctaLabel: "Open Memex AI",
+    ctaUrl: input.appUrl,
+    showPasteLink: false,
+    afterCtaParagraphs: [escapeHtml(afterCtaText), escapeHtml(ACTIVATION_SIGNOFF)],
+    resources: ACTIVATION_RESOURCES,
+    footerNote: ACTIVATION_FOOTER,
+  });
+
+  return {
+    to: input.to,
+    subject: "You're two steps from your first Spec",
+    text,
+    html,
+    // spec-427 ac-14 / dec-7: stable comms key (see Email 1).
+    commsType: "activation.signed_in_dormant",
+  };
+}
+
 export interface MagicLinkEmailInput {
   to: string;
   loginUrl: string;
