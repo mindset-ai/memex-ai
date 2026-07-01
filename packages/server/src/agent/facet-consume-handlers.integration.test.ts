@@ -85,17 +85,16 @@ afterAll(async () => {
 
 const fullBallot = { verdict: { "xc-security": true, "xc-perf": false }, none: false };
 
-describe("create_task accepts an OPTIONAL facet ballot and hands back the governing standards (spec-423 t-5, dec-5; ballot relaxed to optional)", () => {
-  it("tolerates a MISSING ballot (relaxed) but still rejects a present-but-incomplete one, re-handing the vocabulary (ac-13, ac-2)", async () => {
+describe("create_task requires a facet ballot where the Memex has a vocabulary (spec-423 t-5, dec-5)", () => {
+  it("REJECTS a missing ballot with the remediation kit, and rejects a present-but-incomplete one, re-handing the vocabulary (ac-13, ac-2)", async () => {
     tagAc(AC(13));
-    // NOTE: the ballot was relaxed from FORCED to OPTIONAL so clients on an older tool
-    // signature (no facetBallot param) don't error. ac-2/ac-13 still describe the OLD
-    // "forced" behaviour and need their statements relaxed on spec-423 (facets-team follow-up).
     tagAc(AC(2));
-    // MISSING ballot → no longer an error: the task is created without facet adjudication.
-    const created = await executeServerTool(memexId, "create_task", { ref: specRef, title: "no ballot", description: "x" }, userId);
-    expect(created).toMatch(/ref:\s/);
-    // A PRESENT but incomplete ballot is STILL rejected, re-handing the missing facet.
+    // MISSING ballot where a vocabulary exists → hard fail with the remediation kit
+    // (re-tightened from the temporary optional relaxation; no task is created).
+    await expect(
+      executeServerTool(memexId, "create_task", { ref: specRef, title: "no ballot", description: "x" }, userId),
+    ).rejects.toThrow(/facet ballot is REQUIRED/);
+    // A PRESENT but incomplete ballot is ALSO rejected, re-handing the missing facet.
     await expect(
       executeServerTool(
         memexId,
@@ -129,19 +128,20 @@ describe("create_task accepts an OPTIONAL facet ballot and hands back the govern
   });
 });
 
-describe("resolve_decision accepts an OPTIONAL facet ballot and stores it work-side (spec-423 t-5, dec-6; ballot relaxed to optional)", () => {
-  it("tolerates a missing ballot (relaxed), then accepts a complete one and stores it in decision_facet_ballots (ac-14, ac-5)", async () => {
+describe("resolve_decision requires a facet ballot where the Memex has a vocabulary (spec-423 t-5, dec-6)", () => {
+  it("REJECTS a missing ballot, then accepts a complete one and stores it in decision_facet_ballots (ac-14, ac-5)", async () => {
     tagAc(AC(14));
-    tagAc(AC(5)); // ballot relaxed to optional (see create_task note); ac-5/ac-14 statements need relaxing on spec-423 (facets-team follow-up)
+    tagAc(AC(5));
     const decRef = `${nsSlug}/main/specs/spec-1/decisions/dec-1`;
-    // MISSING ballot → resolves WITHOUT error, recording no ballot (no facet adjudication).
-    const first = await executeServerTool(memexId, "resolve_decision", { ref: decRef, resolution: "done" }, userId);
-    expect(first).toContain("resolved");
+    // MISSING ballot where a vocabulary exists → hard fail; the decision is NOT resolved.
+    await expect(
+      executeServerTool(memexId, "resolve_decision", { ref: decRef, resolution: "done" }, userId),
+    ).rejects.toThrow(/facet ballot is REQUIRED/);
     expect(
       await db.select().from(decisionFacetBallots).where(eq(decisionFacetBallots.decisionId, decisionId)),
     ).toHaveLength(0);
 
-    // Re-resolving WITH a complete ballot validates + stores it and appends the readout.
+    // Resolving WITH a complete ballot validates + stores it and appends the readout.
     const out = await executeServerTool(
       memexId,
       "resolve_decision",

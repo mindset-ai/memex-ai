@@ -243,7 +243,7 @@ export const toolManifest: ToolManifestEntry[] = [
     name: 'create_decision',
     summary:
       "Create a decision on a document; status='candidate' records an agent-extracted candidate awaiting review.",
-    args: 'create_decision(ref, title, context?, status?, options?)',
+    args: 'create_decision(ref, title, context?, status?, options?, facetBallot?)',
     group: 'planning',
     readOnlyHint: false,
     trafficClass: 'specify',

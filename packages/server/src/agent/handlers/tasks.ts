@@ -25,7 +25,7 @@ import {
 // spec-423 dec-5 — the forced facet ballot + payoff readout. Vocab is read via
 // facet-ballot.ts → facet-vocab.ts (NO-LLM); the classifier engine is never imported
 // on this request path (the facet-classifier-no-request-path regression guard).
-import { validateBallotForMemex, taskBallotTrueFacets } from "../../services/facet-ballot.js";
+import { requireBallotForMemex, taskBallotTrueFacets } from "../../services/facet-ballot.js";
 import { parseBallotArg, storeRouteAndReadout, routeAndReadout } from "../../services/facet-consume.js";
 import {
   ValidationError,
@@ -143,9 +143,9 @@ export const tasksTools: ToolSpec[] = [
       sectionRef: z.string().optional().describe("Section type this task delivers against."),
       // spec-423 dec-5 — the forced facet ballot. A COMPLETE verdict over the Memex's
       // facet vocabulary: an explicit true/false for each facet, or none:true for
-      // honest no-facet work. Required where the Memex has a vocabulary; an empty,
-      // contradictory, incomplete, or unknown-key ballot is rejected with the
-      // vocabulary re-handed (call the `facets` tool, verb 'list', to read it).
+      // honest no-facet work. REQUIRED where the Memex has a vocabulary (create_task
+      // FAILS without it); an empty, contradictory, incomplete, or unknown-key ballot is
+      // rejected with the vocabulary re-handed (call the `facets` tool, verb 'list').
       facetBallot: z
         .object({
           verdict: z.record(z.string(), z.boolean()).describe("Complete map: facet slug → true/false."),
@@ -153,7 +153,7 @@ export const tasksTools: ToolSpec[] = [
         })
         .optional()
         .describe(
-          "The facets this work touches: a complete verdict over the Memex's facet vocabulary, which surfaces the standards governing that work so they stay top-of-mind. First call the `facets` tool (verb:'list') to read the vocabulary, then pass a true/false verdict for EVERY facet, or none:true for honest no-facet work.",
+          "REQUIRED where this Memex has a facet vocabulary: create_task FAILS without a complete ballot. The facets this work touches, which surface the standards governing it. First call the `facets` tool (verb:'list') to read the vocabulary, then pass a true/false verdict for EVERY facet, or none:true for honest no-facet work.",
         ),
       verbose: VERBOSE_FIELD,
     },
@@ -173,15 +173,19 @@ export const tasksTools: ToolSpec[] = [
         );
       }
       const { memexId, doc, slugs } = resolved;
-      // FACET BALLOT — OPTIONAL (relaxed from spec-423 dec-5's forced ballot). A client
-      // on an OLDER tool signature — no facetBallot param (e.g. an MCP client that hasn't
-      // reloaded since the facets release) — must NOT hit an error. So: ABSENT ballot →
-      // create the task WITHOUT facet adjudication; PROVIDED ballot → validate strictly
-      // BEFORE creating (re-hand the vocabulary on an invalid one, so no orphan task is
-      // left behind) and store it. Re-tightening to a forced ballot is a later step.
+      // FACET BALLOT — REQUIRED where the Memex has a facet vocabulary (re-tightened from
+      // the spec-423 dec-5 optional relaxation). ABSENT ballot + non-empty vocab → hard
+      // fail with a re-handing remediation error (BEFORE creating, so no orphan task);
+      // PROVIDED ballot → validate strictly (re-hand on an invalid one). An empty-vocab
+      // Memex (bare test fixtures) needs no ballot. The channel tailors the error: only a
+      // non-in-app caller gets the "reload your MCP server" branch.
       const hasBallot = input.facetBallot !== undefined;
       const ballot = parseBallotArg(input.facetBallot);
-      const vocab = hasBallot ? await validateBallotForMemex(memexId, ballot) : [];
+      const vocab = await requireBallotForMemex(
+        memexId,
+        { provided: hasBallot, ballot },
+        { noun: "task", channel: ctx.channel },
+      );
       const task = await createTask(
         memexId,
         doc.id,
