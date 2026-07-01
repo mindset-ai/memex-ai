@@ -109,8 +109,6 @@ const ALLOWLIST: Record<string, string> = {
     "spec-340 phase 1 — tagClause writes auto-assigned clause→facet tags (standard_clause_facets) from the agent-driven/local-backfill classifier only (dec-8). No bus entity, no SSE subscriber in phase 1 (nothing reads the tags until phase 2); mutate() wrap deferred to phase 2.",
   "services/testability-classifier.ts":
     "spec-151 dec-6 — the bulk backfill writes is_obligation/testable/archetype columns on standard_clauses from the agent-driven/local-backfill classifier only (the same category as services/facet-classifier.ts). Emitting a per-clause SSE event for a one-off backfill over the whole corpus would be noise; the INTERACTIVE authoring writes (add_clause/edit_clause → persistClauseTestability in services/testability.ts) DO go through mutate(). This file is the backfill engine only.",
-  "services/clause-verification.ts":
-    "spec-151 dec-7 — records the adversarial verifier's verdict (clause_test_verifications) from the agent/CI verification pass. Same category as services/facet-classifier.ts's tag writes: no SSE subscriber (the clause-coverage view fetches on demand, not over the live bus), so routing through mutate() would emit a meaningless refetch. Append-only verdict log keyed by (subject_ref, test_identifier).",
   "services/facet-routing-log.ts":
     "spec-423 phase 2 (dec-4) — append-only routing telemetry (facet_routing_log): one row per create_task / resolve_decision routing call (query, candidates, scores, surfaced/cut, K, ranker). No bus entity, no SSE subscriber by design — a routing decision is not user-observable content. Same telemetry-log posture as services/mcp-telemetry.ts; routing it through mutate() would emit a meaningless UI refetch. Silent-allowed per std-8 §6.",
   "routes/backstage.ts":
@@ -461,14 +459,11 @@ describe("doc-21 t-4 / spec-156 W3: static scan — every mutation goes through 
 
   // spec-151 t-9 (ac-4): the PoC thread — this existing UNIVERSAL static scan attests
   // std-8 cl-69 ("every mutation goes through mutate()") across the WHOLE §s-3 surface.
-  // tagClause emits a clause attestation on every suite run; in CI (run_id present) it
-  // lands CI-backed + whole-surface, and once the adversarial verifier confirms it the
-  // clause reads green in std-8's clause-coverage view. This is a REAL universal test
-  // wired to the clause rail, not a synthetic one.
+  // tagClause emits a clause attestation on every suite run; a pass reads the clause
+  // green in std-8's clause-coverage view. This is a REAL universal test wired to the
+  // clause rail, not a synthetic one.
   it("std-8 cl-69 holds across the whole §s-3 surface (clause attestation)", () => {
-    tagClause("mindset-prod/memex-building-itself/standards/std-8/clauses/cl-69", {
-      metadata: { clause_surface: "whole-surface", clause_kind: "static-scan" },
-    });
+    tagClause("mindset-prod/memex-building-itself/standards/std-8/clauses/cl-69");
     const offenders = files
       .filter((f) => !ALLOWLIST[relKey(f)])
       .flatMap((f) =>

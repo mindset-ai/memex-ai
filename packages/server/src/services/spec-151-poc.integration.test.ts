@@ -1,10 +1,10 @@
 // spec-151 (t-9 / ac-4) — the PoC thread end to end: a universal test (std-8's
-// mutate() coverage scanner attests cl-69) emits a clause attestation; with CI
-// provenance + whole-surface disclosure + an independent verifier confirmation, the
-// clause appears GREEN ("verified") in the standard's clause-coverage view. The real
-// wiring lives in __regression__/mutate-coverage.static-scan.regression.test.ts
-// (tagClause cl-69); this test drives the same thread against a seeded std-8 and
-// asserts the view goes green.
+// mutate() coverage scanner attests cl-69) emits a clause attestation, and the clause
+// appears GREEN ("passing") in the standard's clause-coverage view. The real wiring
+// lives in __regression__/mutate-coverage.static-scan.regression.test.ts (tagClause
+// cl-69); this test drives the same thread against a seeded std-8 and asserts the view
+// goes green. A green means exactly "a tagged test reported pass" — no CI-provenance or
+// verifier gate (the dec-2/dec-4/dec-7 reversal).
 
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { eq, inArray } from "drizzle-orm";
@@ -23,12 +23,10 @@ import {
   documents,
   docSections,
   standardClauses,
-  clauseTestVerifications,
 } from "../db/schema.js";
 import { createOrgWithMemexAndOwner } from "../services/__test__/seed-org.js";
 import { mintEmissionKey } from "../services/emission-keys.js";
 import { listClausesForStandardWithVerification, buildClauseRef } from "./clause-coverage.js";
-import { recordClauseTestVerification } from "./clause-verification.js";
 
 const AC_4 = "mindset-prod/memex-building-itself/specs/spec-151/acs/ac-4";
 
@@ -49,7 +47,6 @@ afterAll(async () => {
   if (cl69Ref) {
     await db.delete(testEvents).where(eq(testEvents.subjectRef, cl69Ref)).catch(() => {});
     await db.delete(testEventLatest).where(eq(testEventLatest.subjectRef, cl69Ref)).catch(() => {});
-    await db.delete(clauseTestVerifications).where(eq(clauseTestVerifications.subjectRef, cl69Ref)).catch(() => {});
   }
   if (createdMemexIds.length) {
     await db.delete(memexEmissionKeys).where(inArray(memexEmissionKeys.memexId, createdMemexIds)).catch(() => {});
@@ -102,12 +99,12 @@ beforeAll(async () => {
 });
 
 describe("spec-151 PoC — a wired universal test turns a clause green in the view (ac-4)", () => {
-  it("std-8 cl-69 appears verified (green) after a CI-backed whole-surface attestation is confirmed [ac-4]", async () => {
+  it("std-8 cl-69 appears green (passing) once the universal scanner attests it [ac-4]", async () => {
     tagAc(AC_4);
     const testIdentifier = "src/__regression__/mutate-coverage.static-scan.regression.test.ts::std-8 cl-69";
 
-    // 1. The universal scanner emits a clause attestation for cl-69 on a CI run:
-    //    CI provenance (run_id) + whole-surface disclosure (what tagClause sends).
+    // The universal scanner emits a clause attestation for cl-69. Memex records the
+    // claim; no CI-provenance or verifier gate stands between the pass and the green.
     const res = await app.request("/api/test-events", {
       method: "POST",
       headers: { "Content-Type": "application/json", Host: "memex.ai", Authorization: `Bearer ${ciKey}` },
@@ -116,34 +113,16 @@ describe("spec-151 PoC — a wired universal test turns a clause green in the vi
         status: "pass",
         test_identifier: testIdentifier,
         duration_ms: 7,
-        run_id: "ci-run-poc",
-        metadata: { clause_surface: "whole-surface", clause_kind: "static-scan" },
       }),
     });
     expect(res.status).toBe(201);
 
-    // Before verification the green does NOT count — the clause is pending (dec-7).
-    let cl69 = (await listClausesForStandardWithVerification(memexId, docId)).clauses.find((c) => c.clause.seq === 69)!;
-    expect(cl69.state).toBe("pending");
-
-    // 2. An independent adversarial verifier confirms the scan genuinely + universally
-    //    asserts cl-69.
-    await recordClauseTestVerification({
-      memexId,
-      subjectRef: cl69Ref,
-      testIdentifier,
-      verdict: "confirmed",
-      verifier: "poc",
-    });
-
-    // 3. The clause now appears GREEN in the standard's clause-coverage view, and it
-    //    counts toward the standard's verified tally.
+    // The clause appears GREEN in the standard's clause-coverage view and counts toward
+    // the standard's passing tally.
     const coverage = await listClausesForStandardWithVerification(memexId, docId);
-    cl69 = coverage.clauses.find((c) => c.clause.seq === 69)!;
-    expect(cl69.state).toBe("verified");
-    expect(cl69.ciBacked).toBe(true);
-    expect(cl69.wholeSurface).toBe(true);
-    expect(coverage.verifiedCount).toBe(1);
+    const cl69 = coverage.clauses.find((c) => c.clause.seq === 69)!;
+    expect(cl69.state).toBe("passing");
+    expect(coverage.passingCount).toBe(1);
     expect(coverage.countableTotal).toBe(1);
   });
 });

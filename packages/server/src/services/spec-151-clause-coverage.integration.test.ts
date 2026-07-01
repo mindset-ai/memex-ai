@@ -1,8 +1,10 @@
-// spec-151 dec-4 (t-7 / ac-2, ac-12, ac-13, ac-16) — a standard's clause-coverage
-// view: which clauses are covered + latest green (ac-2), CI-backed green only with
-// local-only surfaced distinctly (ac-12/ac-13), and a denominator of testable
-// obligations only (ac-16). Exercises the full pipeline: seed clauses, emit through
-// POST /api/test-events, then read listClausesForStandardWithVerification.
+// spec-151 dec-1 (t-7 / ac-2, ac-12, ac-13, ac-16) — a standard's clause-coverage read:
+// which clauses are covered + their latest state (ac-2), a denominator of testable
+// obligations only (ac-16), and the HONEST CEILING that replaced the dec-2/dec-4/dec-7
+// superstructure: a clause's green means a tagged test reported pass, full stop —
+// independent of CI provenance, swept surface, or any server-side verifier (ac-12/ac-13,
+// reworded). Exercises the full pipeline: seed clauses, emit through POST /api/test-events,
+// then read listClausesForStandardWithVerification.
 
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { eq, inArray } from "drizzle-orm";
@@ -28,18 +30,6 @@ import {
   listClausesForStandardWithVerification,
   buildClauseRef,
 } from "./clause-coverage.js";
-import { recordClauseTestVerification } from "./clause-verification.js";
-import { clauseTestVerifications } from "../db/schema.js";
-
-async function confirm(seq: number): Promise<void> {
-  await recordClauseTestVerification({
-    memexId,
-    subjectRef: buildClauseRef({ namespace: ns, memex: memexSlug, standardHandle: "std-1" }, seq),
-    testIdentifier: `clause-cov::cl-${seq}`,
-    verdict: "confirmed",
-    verifier: "test",
-  });
-}
 
 const M = "mindset-prod/memex-building-itself/specs/spec-151/acs";
 const AC = (n: number) => `${M}/ac-${n}`;
@@ -55,13 +45,13 @@ let memexSlug: string;
 let memexId: string;
 let ownerUserId: string;
 let docId: string;
+let sectionId: string;
 let ciKey: string;
 
 afterAll(async () => {
   if (allRefs.length) {
     await db.delete(testEvents).where(inArray(testEvents.subjectRef, allRefs)).catch(() => {});
     await db.delete(testEventLatest).where(inArray(testEventLatest.subjectRef, allRefs)).catch(() => {});
-    await db.delete(clauseTestVerifications).where(inArray(clauseTestVerifications.subjectRef, allRefs)).catch(() => {});
   }
   if (createdMemexIds.length) {
     await db.delete(memexEmissionKeys).where(inArray(memexEmissionKeys.memexId, createdMemexIds)).catch(() => {});
@@ -88,7 +78,7 @@ interface ClauseSeed {
 async function emit(
   seq: number,
   status: string,
-  opts: { runId?: string; metadata?: Record<string, string> } = {},
+  opts: { runId?: string } = {},
 ): Promise<void> {
   const ref = buildClauseRef({ namespace: ns, memex: memexSlug, standardHandle: "std-1" }, seq);
   const res = await app.request("/api/test-events", {
@@ -100,7 +90,6 @@ async function emit(
       test_identifier: `clause-cov::cl-${seq}`,
       duration_ms: 1,
       ...(opts.runId ? { run_id: opts.runId } : {}),
-      ...(opts.metadata ? { metadata: opts.metadata } : {}),
     }),
   });
   if (res.status !== 201) throw new Error(`emit cl-${seq} failed: ${res.status}`);
@@ -132,13 +121,14 @@ beforeAll(async () => {
     .returning();
   docId = std.id;
   const [sec] = await db.insert(docSections).values({ docId, sectionType: "rule", content: "x", seq: 1, position: 1 }).returning();
+  sectionId = sec.id;
 
   // Six clauses spanning the matrix of (obligation, testable) + verification states.
   const seeds: ClauseSeed[] = [
-    { seq: 1, isObligation: true, testable: true, archetype: "static-scan" }, // → CI green → verified
-    { seq: 2, isObligation: true, testable: true, archetype: "grep-denylist" }, // → local pass → local
-    { seq: 3, isObligation: true, testable: true, archetype: "runtime-property" }, // → fail → failing
-    { seq: 4, isObligation: true, testable: true, archetype: "static-scan" }, // → no test → untested
+    { seq: 1, isObligation: true, testable: true, archetype: "static-scan" }, // CI-provenance pass → passing
+    { seq: 2, isObligation: true, testable: true, archetype: "grep-denylist" }, // local pass → STILL passing
+    { seq: 3, isObligation: true, testable: true, archetype: "runtime-property" }, // fail → failing
+    { seq: 4, isObligation: true, testable: true, archetype: "static-scan" }, // no test → untested
     { seq: 5, isObligation: false, testable: false, archetype: null }, // non-obligation → not countable
     { seq: 6, isObligation: true, testable: false, archetype: null }, // untestable obligation → not countable
   ];
@@ -150,46 +140,37 @@ beforeAll(async () => {
     allRefs.push(buildClauseRef({ namespace: ns, memex: memexSlug, standardHandle: "std-1" }, s.seq));
   }
 
-  // Emit: cl-1 CI-backed WHOLE-SURFACE pass (the honest universal green), cl-2
-  // local-only pass, cl-3 fail. cl-4/5/6 untested.
-  await emit(1, "pass", { runId: "ci-run-42", metadata: { clause_surface: "whole-surface", clause_kind: "static-scan" } });
-  await emit(2, "pass"); // no run_id → local-only
-  await emit(3, "fail", { runId: "ci-run-43" });
-  // dec-7: a clause test's green/red counts only once the verifier confirms it.
-  await confirm(1);
-  await confirm(2);
-  await confirm(3);
+  // cl-1 passes WITH a CI run marker, cl-2 passes WITHOUT one (a laptop run), cl-3 fails.
+  // cl-4/5/6 carry no test. The reversal: cl-1 and cl-2 must read identically (both green).
+  await emit(1, "pass", { runId: "ci-run-42" });
+  await emit(2, "pass");
+  await emit(3, "fail");
 });
 
-describe("spec-151 dec-4 — standard clause-coverage view", () => {
-  it("shows per-clause coverage + latest-green state, mirroring the AC matrix [ac-2]", async () => {
+describe("spec-151 dec-1 — standard clause-coverage view", () => {
+  it("shows per-clause coverage + latest state, mirroring the AC matrix [ac-2]", async () => {
     tagAc(AC(2));
     const cov = await listClausesForStandardWithVerification(memexId, docId);
     const bySeq = new Map(cov.clauses.map((c) => [c.clause.seq, c]));
     expect(bySeq.get(1)!.tests.length).toBeGreaterThanOrEqual(1); // covered
+    expect(bySeq.get(1)!.state).toBe("passing");
     expect(bySeq.get(3)!.state).toBe("failing");
     expect(bySeq.get(4)!.state).toBe("untested");
     expect(bySeq.get(4)!.tests).toHaveLength(0);
+    // The view carries each clause's owning section so the standard can render its
+    // clauses grouped under their section heading (the unified clause render).
+    expect(bySeq.get(1)!.clause.sectionId).toBe(sectionId);
   });
 
-  it("counts a clause verified-green ONLY when its latest emission is CI-backed [ac-12]", async () => {
+  it("a clause's green is provenance-independent: a CI run and a laptop run read identically [ac-12][ac-13]", async () => {
     tagAc(AC(12));
-    const cov = await listClausesForStandardWithVerification(memexId, docId);
-    const bySeq = new Map(cov.clauses.map((c) => [c.clause.seq, c]));
-    // cl-1 passed WITH a run_id → verified + ciBacked.
-    expect(bySeq.get(1)!.state).toBe("verified");
-    expect(bySeq.get(1)!.ciBacked).toBe(true);
-    // cl-2 passed WITHOUT CI provenance → must NOT read verified.
-    expect(bySeq.get(2)!.state).not.toBe("verified");
-    expect(bySeq.get(2)!.ciBacked).toBe(false);
-  });
-
-  it("surfaces CI-backed green distinctly from local-only passing [ac-13]", async () => {
     tagAc(AC(13));
     const cov = await listClausesForStandardWithVerification(memexId, docId);
     const bySeq = new Map(cov.clauses.map((c) => [c.clause.seq, c]));
-    expect(bySeq.get(1)!.state).toBe("verified"); // enforced at merge
-    expect(bySeq.get(2)!.state).toBe("local"); // ran on a laptop
+    // cl-1 carried a CI run marker, cl-2 did not. Memex records what the test CLAIMS and
+    // cannot verify where it ran on a forked repo, so both are simply "passing".
+    expect(bySeq.get(1)!.state).toBe("passing");
+    expect(bySeq.get(2)!.state).toBe("passing");
   });
 
   it("counts only testable obligations in the coverage denominator [ac-16]", async () => {
@@ -201,8 +182,8 @@ describe("spec-151 dec-4 — standard clause-coverage view", () => {
     const bySeq = new Map(cov.clauses.map((c) => [c.clause.seq, c]));
     expect(bySeq.get(5)!.countable).toBe(false);
     expect(bySeq.get(6)!.countable).toBe(false);
-    // covered = countable with ≥1 test (cl-1,2,3); verified = CI-backed green (cl-1).
+    // covered = countable with ≥1 test (cl-1,2,3); passing = green (cl-1,2).
     expect(cov.coveredCount).toBe(3);
-    expect(cov.verifiedCount).toBe(1);
+    expect(cov.passingCount).toBe(2);
   });
 });

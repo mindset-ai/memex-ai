@@ -23,7 +23,6 @@ import { TaskPanel } from '../components/TaskPanel';
 import { IssuePanel } from '../components/IssuePanel';
 import { AllComments } from '../components/AllComments';
 import { AcPanel } from '../components/AcPanel';
-import { ClauseCoveragePanel } from '../components/ClauseCoveragePanel';
 import { PhaseTabBar } from '../components/PhaseTabBar';
 import { phaseColors } from '../components/phaseColors';
 import { useTelemetry } from '../hooks/useTelemetry';
@@ -1363,9 +1362,9 @@ export function DocDocument() {
       ) : doc.docType !== 'spec' ? (
         <>
           {narrativeView}
-          {/* spec-151 t-7: the clause-coverage view (CI-backed green vs local-only)
-              hangs off a Standard's page, below its narrative. */}
-          {doc.docType === 'standard' && <ClauseCoveragePanel docId={doc.id} />}
+          {/* spec-151: a Standard's verification view (per-clause dots + facet pills)
+              renders on the canonical /standards/:id page (pages/Standard.tsx), not on
+              this doc-type-agnostic /docs/:id fallback. */}
         </>
       ) : viewedTab === 'done' ? (
         doneTabView

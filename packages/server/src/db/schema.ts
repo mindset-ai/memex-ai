@@ -971,42 +971,6 @@ export const acFirstVerified = pgTable("ac_first_verified", {
 });
 
 // ══════════════════════════════════════
-// Clause-test adversarial verification (spec-151 dec-7)
-// ══════════════════════════════════════
-//
-// The spike's load-bearing finding: first-draft universal clause tests had a ~25%
-// defect rate, so a clause test's green/red may NOT be trusted until an INDEPENDENT
-// adversarial verifier confirms the test genuinely + universally asserts its clause.
-// This table records that verdict per (clause ref, test_identifier). The
-// clause-coverage read GATES on it: a clause whose tests have no `confirmed` verdict
-// here reads "pending" — neither green nor red (ac-20). A `rejected` verdict (a
-// tautological / over-broad test the verifier refused) likewise never confirms (ac-21).
-// Latest verdict per pair wins (upsert on the PK).
-export const clauseTestVerifications = pgTable(
-  "clause_test_verifications",
-  {
-    subjectRef: text("subject_ref").notNull(),
-    testIdentifier: text("test_identifier").notNull().default(""),
-    // 'confirmed' = the verifier attests the test genuinely + universally asserts the
-    // clause; 'rejected' = it does not (wrong-reason / tautological / over-broad).
-    verdict: text("verdict").notNull(),
-    // WHO/WHAT verified (model id or agent label) + the verifier's one-line reason.
-    verifier: text("verifier"),
-    reason: text("reason"),
-    memexId: uuid("memex_id").notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [
-    primaryKey({ columns: [table.subjectRef, table.testIdentifier] }),
-    index("clause_test_verifications_memex_id_idx").on(table.memexId),
-    check(
-      "clause_test_verifications_verdict_valid",
-      sql`${table.verdict} IN ('confirmed', 'rejected')`,
-    ),
-  ],
-);
-
-// ══════════════════════════════════════
 // Conversations
 // ══════════════════════════════════════
 

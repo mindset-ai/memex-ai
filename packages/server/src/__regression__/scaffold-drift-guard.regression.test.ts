@@ -133,10 +133,6 @@ const ALLOWLISTED_PROSE_FILES = new Set(
     // Prompt-Button scaffold prose (scaffold-data.ts's domain), so it belongs with
     // its engine, not in scaffold-data.ts. Exempt from the prose-location guard.
     "packages/server/src/services/testability-classifier.ts",
-    // spec-151 dec-7: the adversarial clause-test verifier's LLM system prompt — same
-    // category as the classifier prompts above (an internal judge prompt, not Mindset-
-    // agent scaffold prose), so it lives with its engine, not in scaffold-data.ts.
-    "packages/server/src/services/clause-test-verifier.ts",
   ].map((p) => p.split("/").join(sep)),
 );
 

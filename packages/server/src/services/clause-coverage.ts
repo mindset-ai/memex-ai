@@ -1,16 +1,21 @@
-// spec-151 dec-4 (t-7) — the clause-COVERAGE read side. Mirrors
-// listAcsForBriefWithVerification (services/acs.ts) but keyed by a standard-clause
-// ref, with two spec-151 twists:
-//   • CI-backed-green honesty (dec-4 / ac-12, ac-13): a passing clause whose
-//     LATEST emission lacks CI provenance reads "local", not "verified" — only a
-//     CI-backed green counts as enforced-at-merge.
-//   • a denominator of only TESTABLE OBLIGATIONS (ac-16): non-obligations and
-//     untestable clauses are excluded from the coverage %.
+// spec-151 dec-1 (t-7) — the clause-COVERAGE read side. Mirrors
+// listAcsForBriefWithVerification (services/acs.ts) but keyed by a standard-clause ref.
 //
-// Reuses deriveVerificationState + emissionIsCiOriginated (acs.ts) and
-// isCoverageCountable (testability.ts) so clause and AC coverage can never drift.
+// HONEST CEILING (the dec-2/dec-4/dec-7 reversal): a clause's green means exactly one
+// thing — a test tagged to it reported pass. Memex records what a test CLAIMS; it does
+// not adjudicate the claim. It cannot detect a CI run on an arbitrary forked repo, it has
+// no server-side LLM to judge whether a test is sound, and it cannot compel the developer's
+// agent to verify anything. So the earlier "CI-backed green", "spot vs whole-surface", and
+// "adversarial-verifier pending" distinctions are gone. Three states only:
+//   passing  — the latest emission for the clause passes (deriveVerificationState verified/stale).
+//   failing  — the latest emission fails.
+//   untested — no test tagged to the clause yet.
+// A non-testable clause carries no dot at all (the UI reads `countable`).
+//
+// The denominator is TESTABLE OBLIGATIONS only (dec-5): non-obligations / untestable
+// clauses are shown but excluded from the coverage counts.
 
-import { and, asc, desc, eq, inArray, ne } from "drizzle-orm";
+import { and, asc, eq, inArray, ne } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import {
   documents,
@@ -18,16 +23,10 @@ import {
   namespaces,
   standardClauses,
   testEventLatest,
-  testEvents,
 } from "../db/schema.js";
 import { NotFoundError } from "../types/errors.js";
-import {
-  deriveVerificationState,
-  emissionIsCiOriginated,
-  type AcTestSnapshot,
-} from "./acs.js";
+import { deriveVerificationState, type AcTestSnapshot } from "./acs.js";
 import { isCoverageCountable } from "./testability.js";
-import { confirmedTestsForRefs } from "./clause-verification.js";
 import { facetKeysByClause } from "./facet-vocab.js";
 
 export interface StandardSlugs {
@@ -45,36 +44,15 @@ export function buildClauseRef(slugs: StandardSlugs, clauseSeq: number): string 
   return `${slugs.namespace}/${slugs.memex}/standards/${slugs.standardHandle}/clauses/cl-${clauseSeq}`;
 }
 
-// The clause coverage states, in honesty order:
-//   verified — CI-backed green from a WHOLE-SURFACE test (the honest universal green).
-//   spot     — passing but the attestation declared itself a spot/sampled check, so it
-//              must NOT read as universal coverage even if CI-backed (dec-2 / ac-8).
-//   local    — passing but the latest emission lacks CI provenance (dec-4 / ac-12).
-//   failing / stale / untested — as for ACs.
-export type ClauseCoverageState =
-  | "verified"
-  | "spot"
-  | "local"
-  | "failing"
-  | "stale"
-  // pending — the clause has a test, but no INDEPENDENT verifier has confirmed it
-  // genuinely + universally asserts the clause, so its green/red does not count yet
-  // (dec-7 / ac-20). Neither green nor red.
-  | "pending"
-  | "untested";
-
-// Metadata keys carrying the universal-coverage disclosure (dec-2). The emit helper
-// passes options.metadata through verbatim, so recording these needs no migration.
-export const SURFACE_META_KEY = "clause_surface";
-export const KIND_META_KEY = "clause_kind";
-// A surface value that asserts the test swept the WHOLE applicable surface. Anything
-// else (spot / sampled / a free-text scope, or absent) is treated as non-universal.
-const WHOLE_SURFACE = "whole-surface";
+// The clause coverage states. `passing` folds the old verified/stale (a green is a green —
+// staleness is a tooltip detail, not a separate dot). No CI/spot/local/pending states.
+export type ClauseCoverageState = "passing" | "failing" | "untested";
 
 export interface ClauseWithVerification {
   clause: {
     id: string;
     seq: number;
+    sectionId: string;
     body: string;
     isObligation: boolean | null;
     testable: boolean | null;
@@ -83,30 +61,22 @@ export interface ClauseWithVerification {
   canonicalRef: string;
   tests: AcTestSnapshot[];
   state: ClauseCoverageState;
-  /** Latest emission carries CI provenance (run_id / run_url). */
-  ciBacked: boolean;
-  /** The swept surface the latest attestation declared (dec-2); null if undeclared. */
-  sweptSurface: string | null;
-  /** The check-kind / archetype the latest attestation declared (dec-2); null if undeclared. */
-  checkKind: string | null;
-  /** The latest passing attestation declared itself whole-surface (earns universal green). */
-  wholeSurface: boolean;
-  /** Counts toward the coverage denominator (a testable obligation, ac-16). */
+  /** Counts toward the coverage denominator (a testable obligation, dec-5). */
   countable: boolean;
   daysSinceLastRun: number | null;
   /** spec-437 dec-4 — the clause's facet verdict keys ([] = deliberate "governs nothing"),
-   *  rendered as inline pills on the clause-coverage shelf alongside the coverage badge. */
+   *  rendered as inline citation-style pills next to the clause on the standards view. */
   facetKeys: string[];
 }
 
 export interface StandardClauseCoverage {
   clauses: ClauseWithVerification[];
-  /** Denominator: testable obligations only (ac-16). */
+  /** Denominator: testable obligations only (dec-5). */
   countableTotal: number;
   /** Countable clauses with ≥1 tagged test. */
   coveredCount: number;
-  /** Countable clauses that are CI-backed green (the honest "enforced at merge"). */
-  verifiedCount: number;
+  /** Countable clauses whose latest emission passes. */
+  passingCount: number;
 }
 
 async function resolveStandardSlugs(docId: string): Promise<StandardSlugs> {
@@ -132,8 +102,8 @@ async function resolveStandardSlugs(docId: string): Promise<StandardSlugs> {
 }
 
 /**
- * Per-clause coverage + verification for a standard, plus the aggregate counts
- * the coverage badge reads. Mirrors the AC matrix read path.
+ * Per-clause coverage + verification for a standard, plus the aggregate counts the
+ * coverage rollup reads. Mirrors the AC matrix read path.
  */
 export async function listClausesForStandardWithVerification(
   memexId: string,
@@ -145,6 +115,7 @@ export async function listClausesForStandardWithVerification(
     .select({
       id: standardClauses.id,
       seq: standardClauses.seq,
+      sectionId: standardClauses.sectionId,
       body: standardClauses.body,
       isObligation: standardClauses.isObligation,
       testable: standardClauses.testable,
@@ -154,7 +125,7 @@ export async function listClausesForStandardWithVerification(
     .where(and(eq(standardClauses.docId, docId), ne(standardClauses.status, "deleted")))
     .orderBy(asc(standardClauses.position));
   if (clauseRows.length === 0) {
-    return { clauses: [], countableTotal: 0, coveredCount: 0, verifiedCount: 0 };
+    return { clauses: [], countableTotal: 0, coveredCount: 0, passingCount: 0 };
   }
 
   const refBySeq = new Map(clauseRows.map((c) => [c.seq, buildClauseRef(slugs, c.seq)]));
@@ -185,44 +156,17 @@ export async function listClausesForStandardWithVerification(
     testsByRef.set(row.subjectRef, list);
   }
 
-  // dec-7 / ac-20: a clause test's green/red counts ONLY once an independent verifier
-  // has confirmed it. The confirmed set, keyed by ref → {test_identifier}.
-  const confirmedByRef = await confirmedTestsForRefs(allRefs);
-
   // spec-437 dec-4 — one batched read of each clause's facet verdict keys, attached to
-  // its coverage row so the shelf renders facet pills inline next to the coverage badge.
+  // its coverage row so the standards view renders facet pills inline next to the clause.
   const facetByClause = await facetKeysByClause(memexId, clauseRows.map((c) => c.id));
 
   const now = Date.now();
-  const clauses: ClauseWithVerification[] = [];
-  for (const c of clauseRows) {
+  const clauses: ClauseWithVerification[] = clauseRows.map((c) => {
     const ref = refBySeq.get(c.seq)!;
     const tests = testsByRef.get(ref) ?? [];
     const countable = isCoverageCountable({ isObligation: c.isObligation, testable: c.testable });
-    const confirmedIds = confirmedByRef.get(ref) ?? new Set<string>();
-    // Only verifier-confirmed tests set the coverage state (dec-7).
-    const confirmedTests = tests.filter((t) => confirmedIds.has(t.testIdentifier ?? ""));
 
-    // The clause HAS a test, but none is verifier-confirmed → pending: its green/red
-    // is not trusted yet, so it is neither green nor red (ac-20).
-    if (tests.length > 0 && confirmedTests.length === 0) {
-      clauses.push({
-        clause: c,
-        canonicalRef: ref,
-        tests,
-        state: "pending",
-        ciBacked: false,
-        sweptSurface: null,
-        checkKind: null,
-        wholeSurface: false,
-        countable,
-        daysSinceLastRun: null,
-        facetKeys: facetByClause.get(c.id) ?? [],
-      });
-      continue;
-    }
-
-    const latestRunAt = confirmedTests.reduce<Date | null>(
+    const latestRunAt = tests.reduce<Date | null>(
       (acc, t) => (acc === null || t.latestRunAt > acc ? t.latestRunAt : acc),
       null,
     );
@@ -231,80 +175,27 @@ export async function listClausesForStandardWithVerification(
         ? null
         : Math.floor((now - latestRunAt.getTime()) / (1000 * 60 * 60 * 24));
 
-    // State derives from CONFIRMED tests only. No confirmed tests + no tests at all →
-    // untested (deriveVerificationState returns "untested" for an empty list).
-    const base = deriveVerificationState(confirmedTests, daysSinceLastRun, false);
+    // verified | stale → passing; failing → failing; untested → untested.
+    const base = deriveVerificationState(tests, daysSinceLastRun, false);
+    const state: ClauseCoverageState =
+      base === "failing" ? "failing" : base === "untested" ? "untested" : "passing";
 
-    let ciBacked = false;
-    let sweptSurface: string | null = null;
-    let checkKind: string | null = null;
-    let wholeSurface = false;
-    let state: ClauseCoverageState;
-
-    if (base === "failing" || base === "untested") {
-      state = base;
-    } else {
-      // base === "verified" | "stale": recover the latest non-hidden CONFIRMED
-      // emission's CI provenance (dec-4) + declared surface/kind (dec-2). Fetch the
-      // recent emissions for the ref and pick the latest whose test_identifier is
-      // verifier-confirmed (retention keeps ≤10 per pair, so a small window suffices).
-      const recent = await db
-        .select({
-          runId: testEvents.runId,
-          metadata: testEvents.metadata,
-          testIdentifier: testEvents.testIdentifier,
-        })
-        .from(testEvents)
-        .where(and(eq(testEvents.subjectRef, ref), eq(testEvents.hidden, false)))
-        .orderBy(desc(testEvents.createdAt))
-        .limit(50);
-      const latest = recent.find((e) => confirmedIds.has(e.testIdentifier ?? ""));
-      const md = latest?.metadata ?? {};
-      sweptSurface = typeof md[SURFACE_META_KEY] === "string" ? md[SURFACE_META_KEY]! : null;
-      checkKind = typeof md[KIND_META_KEY] === "string" ? md[KIND_META_KEY]! : null;
-      wholeSurface = sweptSurface === WHOLE_SURFACE;
-      ciBacked = latest
-        ? emissionIsCiOriginated({ runId: latest.runId, metadata: latest.metadata })
-        : false;
-
-      if (base === "stale") {
-        state = "stale";
-      } else if (!ciBacked) {
-        // Passing but no CI provenance → local-only, whatever the surface (dec-4).
-        state = "local";
-      } else if (!wholeSurface) {
-        // CI-backed green but NOT a declared whole-surface sweep → spot. A spot (or
-        // undeclared-surface) attestation never wears the universal "verified" badge
-        // (dec-2 / ac-3 / ac-8): a green must not silently overstate universal coverage.
-        state = "spot";
-      } else {
-        state = "verified";
-      }
-    }
-
-    clauses.push({
+    return {
       clause: c,
       canonicalRef: ref,
       tests,
       state,
-      ciBacked,
-      sweptSurface,
-      checkKind,
-      wholeSurface,
       countable,
       daysSinceLastRun,
       facetKeys: facetByClause.get(c.id) ?? [],
-    });
-  }
+    };
+  });
 
   const countableClauses = clauses.filter((c) => c.countable);
-  // Covered = a verifier-CONFIRMED test produced a state (anything but untested /
-  // pending). A pending clause (test present but unverified) is NOT covered (dec-7).
-  const isResolved = (s: ClauseCoverageState): boolean => s !== "untested" && s !== "pending";
   return {
     clauses,
     countableTotal: countableClauses.length,
-    coveredCount: countableClauses.filter((c) => isResolved(c.state)).length,
-    verifiedCount: countableClauses.filter((c) => c.state === "verified").length,
+    coveredCount: countableClauses.filter((c) => c.tests.length > 0).length,
+    passingCount: countableClauses.filter((c) => c.state === "passing").length,
   };
 }
