@@ -179,7 +179,7 @@ export const toolManifest: ToolManifestEntry[] = [
   {
     name: 'add_section',
     summary:
-      'Add a new section to a document; the (doc, sectionType) pair is unique. STANDARDS are authored as clauses: pass clauses[] (one aspect each), not content; other doc types pass content. Each clause carries a facet verdict where the Memex has a vocabulary — pass clauseFacets[] (parallel to clauses; [] for a "governs nothing" clause). Wrong field for the doc type → rejected with guidance.',
+      'Add a section to a document; (doc, sectionType) is unique. STANDARDS pass clauses[] (one aspect each) plus a parallel clauseFacets[] verdict (where a vocabulary exists); other doc types pass content. Wrong field is rejected.',
     args: 'add_section(ref, sectionType, content?, clauses?, clauseFacets?, title?, description?)',
     group: 'planning',
     readOnlyHint: false,
@@ -251,7 +251,7 @@ export const toolManifest: ToolManifestEntry[] = [
   {
     name: 'update_decision',
     summary:
-      "Two modes: edit-in-place (title/context/resolution/chosenOptionIndex/facetBallot on any status) OR reopen (status='open' on a resolved decision). One per call. resolve_decision is the named verb for new resolutions; facetBallot re-casts the decision's facets.",
+      "Two modes: edit-in-place (title/context/resolution/chosenOptionIndex/facetBallot on any status) OR reopen (status='open' on a resolved decision). One per call; resolve_decision is the named verb for new resolutions.",
     args: 'update_decision(ref, status?, title?, context?, resolution?, chosenOptionIndex?, facetBallot?)',
     group: 'planning',
     readOnlyHint: false,
