@@ -35,6 +35,7 @@ import { auth } from "./routes/auth.js";
 import { invitesAcceptRouter, invitesAdminRouter } from "./routes/invites.js";
 import { teamRouter } from "./routes/team.js";
 import { shareRouter } from "./routes/share.js";
+import { unsubscribeRouter } from "./routes/unsubscribe.js";
 import { backstageRouter } from "./routes/backstage.js";
 import { cliAuth, mcpTokensRouter } from "./routes/cli-auth.js";
 import { oauth, isOAuthEnabled } from "./routes/oauth/index.js";
@@ -408,6 +409,10 @@ app.route("/api/me", homeRouter);
 app.route("/api/whats-new", whatsNewRouter);
 // PUBLIC: share routes skip session middleware — guests access shared docs by token alone (t-10).
 app.route("/api/share", shareRouter);
+
+// spec-427 t-4 — PUBLIC lifecycle-email unsubscribe (GET one-click + POST RFC 8058).
+// No session/tenant middleware: the HMAC token in the URL is the capability.
+app.route("/api/email", unsubscribeRouter);
 
 // spec-171 t-3: Stripe webhook receiver. No session middleware — the
 // Stripe-Signature HMAC header IS the auth (verified inside the router).
