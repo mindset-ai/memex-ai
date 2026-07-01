@@ -132,6 +132,9 @@ export DB_NAME DB_USER DB_PASS
 export SERVICE IMAGE STATIC_BUCKET URL_MAP_NAME
 export PUBLIC_HOST API_PUBLIC_HOST APP_BASE_URL API_BASE_URL
 export GOOGLE_CLIENT_ID EMAIL_FROM SLACK_CLIENT_ID
+# spec-428 (welcome) / spec-427 (drip) team-identity sender — optional per env;
+# wired into Cloud Run via the ${VAR+...} optional pattern in packages/server/deploy.sh.
+export EMAIL_ACTIVATION_FROM EMAIL_ACTIVATION_REPLY_TO EMAIL_SENDER_NAME
 # HIDDEN_FEATURES — comma-separated feature slugs to hide on this environment
 # (e.g. 'scaffold,spec-pause,pulse'). Read at runtime by the server's
 # getHiddenFeatures() (packages/server/src/services/auth.ts). Hiding is
@@ -157,6 +160,14 @@ fi
 # set this value must not silently clear a live int restriction.
 if [ -n "${SIGNUP_DOMAIN_ALLOWLIST+set}" ]; then
   export SIGNUP_DOMAIN_ALLOWLIST
+fi
+# ACTIVATION_EMAILS_ENABLED — spec-427 t-6 (dec-9): the activation-drip master + kill
+# switch. Default OFF; enabled only in prod, only by hand, at the deliberate launch
+# moment (and flipped back to stop everything). Same set-vs-unset semantics as
+# HIDDEN_FEATURES — a deploy from a checkout that never set it must not silently flip
+# the drip on OR off, so it is passed to Cloud Run only when the per-env config set it.
+if [ -n "${ACTIVATION_EMAILS_ENABLED+set}" ]; then
+  export ACTIVATION_EMAILS_ENABLED
 fi
 
 # OTEL_EXPORTER_OTLP_ENDPOINT — turns on database observability and chooses

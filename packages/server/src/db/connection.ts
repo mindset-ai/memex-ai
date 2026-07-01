@@ -7,6 +7,7 @@ import type { ExtractTablesWithRelations } from "drizzle-orm";
 import postgres from "postgres";
 import * as schema from "./schema.js";
 import { instrumentSqlClientIfEnabled } from "../observability/otel/index.js";
+import { guardContextlessWrite, setRlsSubjectRuntime } from "./rls-context-guard.js";
 
 const connectionString = process.env.DATABASE_URL;
 
@@ -41,6 +42,26 @@ const poolOptions = {
 const client = socketPath
   ? postgres(connectionString, { host: socketPath, ...poolOptions })
   : postgres(connectionString, poolOptions);
+
+// Resolve ONCE whether this runtime's connection is subject to RLS — a non-owner
+// role with neither SUPERUSER nor BYPASSRLS (prod's `memex_app`). The
+// tenant-context guard (rls-context-guard.ts, spec-440) fires only when RLS is
+// actually enforced, so owner-connection paths (dev, the default test suite,
+// migrations, admin scripts) that bypass RLS (std-36: ENABLE, NO FORCE) stay
+// silent — no false positives. Fire-and-forget: the guard defaults inactive
+// until this resolves, and a probe failure simply leaves it inactive.
+void (async () => {
+  try {
+    const rows = (await client`
+      SELECT NOT (rolsuper OR rolbypassrls) AS subject
+      FROM pg_roles
+      WHERE rolname = current_user
+    `) as unknown as Array<{ subject: boolean }>;
+    setRlsSubjectRuntime(rows[0]?.subject === true);
+  } catch {
+    // Leave the guard inactive if the runtime role can't be determined.
+  }
+})();
 
 // ── Per-query RLS tenant injection (spec-199 ac-13–ac-17) ────────────────────
 //
@@ -209,6 +230,10 @@ function createRlsClient(baseClient: SqlClient): SqlClient {
       if (prop === "unsafe") {
         return (query: string, params: QueryParams = []) => {
           const ctx = memexContext.getStore();
+          // spec-440: make a context-less write to an RLS-gated table LOUD
+          // (warn + metric) before it silently fails RLS under memex_app. No-op
+          // unless the runtime is RLS-subject; cheap for reads / context-present.
+          guardContextlessWrite(query, ctx);
           if (!ctx?.memexId && !ctx?.userId) return target.unsafe(query, params);
           return makeRlsQuery(target, ctx, query, params);
         };

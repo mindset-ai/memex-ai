@@ -18,7 +18,7 @@
 // and the per-phase value banner (attached by getDoc).
 
 import { and, eq, inArray } from "drizzle-orm";
-import { db } from "../db/connection.js";
+import { db, runWithMemexId } from "../db/connection.js";
 import {
   documents,
   namespaces,
@@ -422,13 +422,20 @@ export async function backfillHandholdDemo(): Promise<{ memexesSeeded: number }>
 
   let memexesSeeded = 0;
   for (const { memexId } of personalMemexes) {
-    const before = await listDemoDocIds(memexId);
-    // Call seedHandholdDemo UNCONDITIONALLY (issue-2): it no-ops on a canonical full
-    // set and self-heals a partial/doubled set, so the per-deploy backfill doubles as
-    // the periodic self-heal trigger. Count only memexes that had ZERO demo docs and
-    // got a fresh seed — a heal of a partial set is not a new seed.
-    await seedHandholdDemo(memexId);
-    if (before.length === 0) memexesSeeded += 1;
+    // spec-440: establish the per-memex tenant context so the gated-table reads
+    // (listDemoDocIds) and writes (seedHandholdDemo → documents/decisions/tasks/acs)
+    // carry app.memex_id and satisfy RLS under the runtime memex_app role. This
+    // backfill is deploy-wired (deploy.sh) and today runs as the owner (bypassing
+    // RLS), but the wrapper makes it correct regardless of the connecting role.
+    await runWithMemexId(memexId, async () => {
+      const before = await listDemoDocIds(memexId);
+      // Call seedHandholdDemo UNCONDITIONALLY (issue-2): it no-ops on a canonical full
+      // set and self-heals a partial/doubled set, so the per-deploy backfill doubles as
+      // the periodic self-heal trigger. Count only memexes that had ZERO demo docs and
+      // got a fresh seed — a heal of a partial set is not a new seed.
+      await seedHandholdDemo(memexId);
+      if (before.length === 0) memexesSeeded += 1;
+    });
   }
   return { memexesSeeded };
 }

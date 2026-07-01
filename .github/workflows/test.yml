@@ -154,6 +154,48 @@ jobs:
           include-hidden-files: true
           retention-days: 14
 
+  # spec-440: the RESTRICTED-ROLE RLS suite. Runs the tenancy/seed integration
+  # tests with the Drizzle singleton connected AS the non-owner `memex_app` role
+  # (RLS-subject), so a context-less write to an RLS-gated table FAILS here —
+  # making the spec-436 empty-workspace class visible in CI instead of only in
+  # prod. A SEPARATE vitest project (vitest.rls.config.ts); the sharded suite
+  # above runs as the owner and never exercises this path. Its global-setup
+  # enables LOGIN on memex_app in the ephemeral CI cluster only.
+  server-rls:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: memex
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/memex
+      MEMEX_EMIT_KEY: ${{ secrets.MEMEX_EMIT_KEY }}
+      MEMEX_EMIT: ${{ github.actor == 'dependabot[bot]' && 'false' || '' }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Seed test DB (cached template clone)
+        uses: ./.github/actions/migrate-db
+      - name: Restricted-role RLS suite (connects as memex_app)
+        run: pnpm --filter @memex/server test:rls
+
   # Merge the 3 shard coverage blobs and enforce the t-17 thresholds on the MERGED
   # full-suite coverage (spec-276 dec-2). This job's name is the STABLE required
   # check for branch protection — the matrix leg names ("server (1)" …) shift with

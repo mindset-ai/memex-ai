@@ -1375,6 +1375,11 @@ export const users = pgTable("users", {
   // the identity step.
   roleCoords: jsonb("role_coords").$type<{ dev: number; design: number; pm: number }>(),
   identityConfirmedAt: timestamp("identity_confirmed_at", { withTimezone: true }),
+  // spec-427 t-4 (dec-5): lifecycle-email suppression. Null = subscribed; a timestamp =
+  // the user unsubscribed from activation/win-back (lifecycle/broadcast) email via the
+  // one-click List-Unsubscribe link. Scope is LIFECYCLE ONLY — transactional/auth email
+  // and the spec-428 welcome ignore this flag and always send (ac-11 scope / ac-12).
+  lifecycleEmailUnsubscribedAt: timestamp("lifecycle_email_unsubscribed_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
@@ -1456,6 +1461,26 @@ export const loginRequests = pgTable("login_requests", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   index("login_requests_token_id_idx").on(table.tokenId),
+]);
+
+// spec-21 t-4: marketing attribution captured at account creation (first email verification).
+// One row per new-account event; userId FK cascades so rows are deleted with the user.
+export const userAttributions = pgTable("user_attributions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  // Server-generated UUID used to deduplicate server-to-server conversion API calls.
+  eventId: text("event_id").notNull(),
+  gclid: text("gclid"),
+  liFatId: text("li_fat_id"),
+  oppref: text("oppref"),
+  utmSource: text("utm_source"),
+  utmMedium: text("utm_medium"),
+  utmCampaign: text("utm_campaign"),
+  utmContent: text("utm_content"),
+  utmTerm: text("utm_term"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("user_attributions_user_id_idx").on(table.userId),
 ]);
 
 export const orgMemberships = pgTable(
@@ -2953,6 +2978,13 @@ export const commsLog = pgTable(
     check(
       "comms_log_status_valid",
       sql`${table.status} IN ('scheduled', 'sent', 'delivered', 'failed')`,
+    ),
+    // spec-442 dec-1 (ac-7): a 'sent' row must always carry a send time. Enforced at
+    // the DB as a backstop; recordComm() also stamps sent_at at the write path so this
+    // is never actually hit in practice (added via 0120 as NOT VALID → VALIDATE).
+    check(
+      "comms_log_sent_requires_sent_at",
+      sql`${table.status} <> 'sent' OR ${table.sentAt} IS NOT NULL`,
     ),
   ],
 );

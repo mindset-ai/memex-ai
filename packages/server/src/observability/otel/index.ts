@@ -13,6 +13,7 @@
  *
  * The singleton ties both to one MeterProvider / exporter built from config.
  */
+import type { Counter } from "@opentelemetry/api";
 import type { MeterProvider } from "@opentelemetry/sdk-metrics";
 import { type OtelConfig, readOtelConfig } from "./config.js";
 import {
@@ -73,7 +74,38 @@ export function startDbTelemetry(
   return provider;
 }
 
+// ── RLS tenant-context guard metric (spec-440 dec-2) ─────────────────────────
+// A correctness counter, not a DB-health signal, so it rides the shared
+// MeterProvider on its OWN meter ("memex.rls") rather than db-telemetry's
+// instruments. Lazily created on first violation; a no-op when telemetry is
+// disabled (local dev + tests), so the guard's console.warn is the only signal
+// there — which is exactly what makes the class visible without an OTLP backend.
+let rlsViolationCounter: Counter | null = null;
+
+/**
+ * Record one RLS tenant-context violation (a write to an RLS-gated table with no
+ * `app.memex_id` in context). No-op unless OTLP telemetry is configured. The
+ * `table` label is drawn from the fixed RLS_TENANT_TABLES set, so it is bounded /
+ * low-cardinality and safe as a metric label (never a tenant or user id).
+ */
+export function recordRlsContextViolation(
+  table: string,
+  config: OtelConfig = readOtelConfig(),
+): void {
+  if (!config.enabled) return;
+  if (!rlsViolationCounter) {
+    rlsViolationCounter = getDbTelemetry(config).provider
+      .getMeter("memex.rls")
+      .createCounter("memex.db.rls.context_violations", {
+        description:
+          "Writes to an RLS-gated table attempted with no app.memex_id in context.",
+      });
+  }
+  rlsViolationCounter.add(1, { table });
+}
+
 /** Test-only: drop the singleton so a fresh config can be applied. */
 export function __resetDbTelemetryForTests(): void {
   singleton = null;
+  rlsViolationCounter = null;
 }

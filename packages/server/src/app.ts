@@ -36,6 +36,7 @@ import { auth } from "./routes/auth.js";
 import { invitesAcceptRouter, invitesAdminRouter } from "./routes/invites.js";
 import { teamRouter } from "./routes/team.js";
 import { shareRouter } from "./routes/share.js";
+import { unsubscribeRouter } from "./routes/unsubscribe.js";
 import { backstageRouter } from "./routes/backstage.js";
 import { cliAuth, mcpTokensRouter } from "./routes/cli-auth.js";
 import { oauth, isOAuthEnabled } from "./routes/oauth/index.js";
@@ -48,6 +49,8 @@ import { testEventsRouter } from "./routes/test-events.js";
 import { specCheckoutRouter } from "./routes/spec-checkout.js";
 import { hookKeysRouter } from "./routes/hook-keys.js";
 import { testOnlyRouter } from "./routes/__test__.js";
+import { devToolsRouter, shouldMountDevTools } from "./routes/__dev__.js";
+import { resolveEnv } from "./services/usage-events.js";
 import { hostGuard, memexResolver } from "./middleware/memex-resolver.js";
 import { visitorMiddleware } from "./middleware/visitor.js";
 import { rewriteBriefPathToSpec } from "./services/redirects.js";
@@ -409,6 +412,10 @@ app.route("/api/whats-new", whatsNewRouter);
 // PUBLIC: share routes skip session middleware — guests access shared docs by token alone (t-10).
 app.route("/api/share", shareRouter);
 
+// spec-427 t-4 — PUBLIC lifecycle-email unsubscribe (GET one-click + POST RFC 8058).
+// No session/tenant middleware: the HMAC token in the URL is the capability.
+app.route("/api/email", unsubscribeRouter);
+
 // spec-171 t-3: Stripe webhook receiver. No session middleware — the
 // Stripe-Signature HMAC header IS the auth (verified inside the router).
 app.route("/api/stripe/webhook", stripeWebhookRouter);
@@ -440,6 +447,18 @@ if (isOAuthEnabled()) {
 // when MEMEX_ANTHROPIC_FAKE=1 is set. See routes/__test__.ts and agent/anthropic-fake.ts.
 if (process.env.MEMEX_ANTHROPIC_FAKE === "1") {
   app.route("/api/__test__", testOnlyRouter);
+}
+
+// Email preview surface (spec-226 t-5 + t-6/dec-3). Renders any transactional
+// email's HTML for visual iteration. Reachable on local/e2e AND int, always gated
+// OFF prod (resolveEnv() !== "prod"), and behind sessionMiddleware (any authenticated
+// user — sample data only, no PII/secrets, so NOT org-admin). Auth is Bearer/localStorage
+// (not cookie), so a bare browser hit on int 401s; the SPA gallery (packages/ui) fetches
+// it via the token-carrying http client. Local dev (isDevMode, GOOGLE_CLIENT_ID unset)
+// keeps the token-less dev-user auto-login so direct browser preview still works.
+if (shouldMountDevTools(resolveEnv())) {
+  app.use("/api/__dev__/*", sessionMiddleware);
+  app.route("/api/__dev__", devToolsRouter);
 }
 
 // MCP endpoint — fresh server instance per request (stateless, no concurrency issues).

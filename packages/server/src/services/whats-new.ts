@@ -28,10 +28,13 @@ export interface NewWhatsNewEntry {
  * (entries are stable/citable once published). Returns the inserted row, or
  * `null` when the Spec already had an entry.
  */
-export async function publishEntry(entry: NewWhatsNewEntry): Promise<WhatsNewEntry | null> {
+export async function publishEntry(
+  entry: NewWhatsNewEntry,
+  opts?: { publishedAt?: Date },
+): Promise<WhatsNewEntry | null> {
   const rows = await db
     .insert(whatsNewEntries)
-    .values(entry)
+    .values({ ...entry, ...(opts?.publishedAt ? { publishedAt: opts.publishedAt } : {}) })
     .onConflictDoNothing({ target: whatsNewEntries.sourceSpecRef })
     .returning();
   return rows[0] ?? null;

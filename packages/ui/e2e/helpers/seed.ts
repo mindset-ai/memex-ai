@@ -134,6 +134,8 @@ export async function seedWhatsNewEntry(opts: {
   title: string;
   whatText: string;
   whyText: string;
+  /** spec-439 t-3: optional ISO timestamp to backdate the entry's publishedAt. */
+  publishedAt?: string;
 }): Promise<{ id: string | null }> {
   return call<{ id: string | null }>("POST", "/seed-whats-new", opts);
 }

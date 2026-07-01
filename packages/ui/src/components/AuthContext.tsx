@@ -16,6 +16,7 @@ import {
   AuthApiError,
   type SessionPayload,
 } from '../api/client';
+import { readAttributionCookie, pushDataLayer } from '../lib/attribution';
 import { LoginScreen } from './LoginScreen';
 import { isFeatureHidden } from '../utils/featureFlags';
 import { buildBareDomainUrl } from '../utils/tenantUrl';
@@ -381,6 +382,13 @@ export function RequireAuth({ children }: { children: ReactNode }) {
       wrap(async () => {
         const s = await ssoLoginApi(credential);
         acceptSession(s);
+        if (s.isNewAccount) {
+          pushDataLayer({
+            event: 'sign_up_completed',
+            event_id: s.conversionEventId ?? crypto.randomUUID(),
+            ...readAttributionCookie(),
+          });
+        }
       }).then(() => undefined),
     [wrap, acceptSession],
   );

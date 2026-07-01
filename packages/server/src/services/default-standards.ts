@@ -19,7 +19,7 @@
 // self-heal machinery that an is_demo flag would afford — see dec-3.
 
 import { and, eq } from "drizzle-orm";
-import { db } from "../db/connection.js";
+import { db, runWithMemexId } from "../db/connection.js";
 import { documents, namespaces, memexes } from "../db/schema.js";
 import { createDocDraft } from "./documents.js";
 import { addSection } from "./sections.js";
@@ -120,10 +120,16 @@ export async function backfillDefaultStandards(): Promise<{ memexesSeeded: numbe
 
   let memexesSeeded = 0;
   for (const { memexId } of personalMemexes) {
-    const before = await countStandards(memexId);
-    await seedDefaultStandards(memexId);
-    // Count only Memexes that had ZERO Standards and therefore got the fresh seed.
-    if (before === 0) memexesSeeded += 1;
+    // spec-440: run the per-memex read (countStandards) + seed (seedDefaultStandards →
+    // documents/standard_clauses/clause_refs) inside the tenant context so they carry
+    // app.memex_id and satisfy RLS under the runtime memex_app role. Deploy-wired
+    // (deploy.sh); correct regardless of the connecting role with this wrapper.
+    await runWithMemexId(memexId, async () => {
+      const before = await countStandards(memexId);
+      await seedDefaultStandards(memexId);
+      // Count only Memexes that had ZERO Standards and therefore got the fresh seed.
+      if (before === 0) memexesSeeded += 1;
+    });
   }
   return { memexesSeeded };
 }

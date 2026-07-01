@@ -48,8 +48,10 @@
     "test:security": "vitest run src/__security__",
     "test:perf": "vitest run src/__perf__",
     "test:regression": "vitest run src/__regression__",
+    "test:rls": "vitest run --config vitest.rls.config.ts",
     "test:coverage": "vitest run --coverage",
     "notify:mcp-refs": "tsx scripts/notify-mcp-canonical-refs.ts",
+    "email:send-test": "tsx scripts/send-test-email.ts",
     "smoke:canonical-refs": "tsx scripts/smoke-canonical-refs.ts",
     "smoke": "vitest run --config vitest.smoke.config.ts"
   },

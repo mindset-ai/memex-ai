@@ -38,6 +38,7 @@ function buildApp(routePath: string) {
       onboardingGreetedAt: null,
       roleCoords: null,
       identityConfirmedAt: null,
+      lifecycleEmailUnsubscribedAt: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     });

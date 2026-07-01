@@ -314,6 +314,9 @@ const seedWhatsNewSchema = z.object({
   title: z.string(),
   whatText: z.string(),
   whyText: z.string(),
+  // spec-439 t-3: optional override so e2e tests can backdate entries to
+  // before a fresh user's createdAt, which defaults to now() in the schema.
+  publishedAt: z.string().datetime().optional(),
 });
 testOnlyRouter.post("/seed-whats-new", async (c) => {
   const body = await c.req.json().catch(() => null);
@@ -321,7 +324,11 @@ testOnlyRouter.post("/seed-whats-new", async (c) => {
   if (!parsed.success) {
     return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
   }
-  const entry = await publishEntry(parsed.data);
+  const { publishedAt, ...entryFields } = parsed.data;
+  const entry = await publishEntry(
+    entryFields,
+    publishedAt ? { publishedAt: new Date(publishedAt) } : undefined,
+  );
   return c.json({ id: entry?.id ?? null });
 });
 
