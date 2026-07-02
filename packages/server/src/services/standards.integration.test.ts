@@ -59,7 +59,9 @@ describe("createStandard", () => {
     createdDocIds.push(bp.id);
 
     expect(bp.docType).toBe("standard");
-    expect(bp.status).toBe("draft");
+    // spec-449 dec-1: Standards are born 'approved' (in force the moment they
+    // exist) — the draft/approved lifecycle was removed for Standards.
+    expect(bp.status).toBe("approved");
     expect(bp.title).toBe("Caching");
     // description gets prepended as a leading 'description' section.
     expect(bp.sections.map((s) => s.sectionType)).toEqual(["description", "do", "dont"]);

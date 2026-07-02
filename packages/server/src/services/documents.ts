@@ -200,7 +200,13 @@ export async function createDocDraft(
                   : await nextDocHandle(memexId);
           const [row] = await db
             .insert(documents)
-            .values({ memexId, handle, title, docType, status: extras?.initialStatus ?? "draft", createdByUserId: createdByUserId ?? null, isDemo: extras?.isDemo ?? false })
+            // spec-449 dec-1: Standards have no status lifecycle — a Standard is
+            // in force the moment it exists, so it is born 'approved' (the single
+            // canonical in-force value) on EVERY createDocDraft path (agent
+            // create_standard, MCP create_doc({docType:'standard'}), the default-
+            // standards seed). Specs/documents keep 'draft'. An explicit
+            // initialStatus still wins (e.g. the in_app_agent 'specify' Spec).
+            .values({ memexId, handle, title, docType, status: extras?.initialStatus ?? (docType === "standard" ? "approved" : "draft"), createdByUserId: createdByUserId ?? null, isDemo: extras?.isDemo ?? false })
             .returning();
           return row;
         },
@@ -1004,6 +1010,20 @@ export async function updateDocStatus(
   });
   if (!doc) {
     throw new NotFoundError(`Document ${id} not found`);
+  }
+
+  // spec-449 dec-3: Standards have no status lifecycle — a Standard is in force
+  // the moment it exists (born 'approved'; see createDocDraft / createStandard).
+  // Hard-reject any status flip on a standard so the removed draft/approved
+  // concept can't be silently reintroduced through the generic update_doc tool
+  // or REST POST /:id/status. Unlike Specs, standards are NOT kanban cards, so
+  // erroring here can't strand a board drag — the spec-258/spec-391 "moving a
+  // card must never error" concern is spec-only. A no-op set (same status) is
+  // allowed so idempotent callers don't trip.
+  if (doc.docType === "standard" && doc.status !== status) {
+    throw new ValidationError(
+      `Standards have no status lifecycle; the status of ${doc.handle} cannot be changed.`,
+    );
   }
 
   // Advancement stays advisory (spec-12 soft-guidance, doc-12 dec-6): the
