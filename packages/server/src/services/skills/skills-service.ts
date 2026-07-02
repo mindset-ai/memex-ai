@@ -39,7 +39,6 @@ import {
   skillBlobKey,
   checksumOf,
   putSkillBlob,
-  deleteSkillBlob,
 } from "./skill-storage.js";
 
 const SKILL_DOC_TYPE = "skill";
