@@ -76,6 +76,11 @@ export interface CreateSkillInput {
   readonly capabilities?: unknown;
   /** Auxiliary files bundled with the Skill. Optional. */
   readonly files?: readonly SkillFileInput[];
+  /** The original filename of the uploaded PRIMARY definition, when the create
+   *  arrives from a file upload (drag-and-drop). When supplied it MUST be a
+   *  `SKILL.md` — a non-SKILL.md primary is rejected BEFORE parsing (ac-9). MCP /
+   *  in-app authors that hand raw SKILL.md text omit it. */
+  readonly filename?: string;
 }
 
 export interface EditSkillInput {
@@ -139,6 +144,7 @@ interface SkillDocRow extends Doc {
 async function loadActiveSkillDoc(
   memexId: string,
   ref: string,
+  opts: { includeArchived?: boolean } = {},
 ): Promise<SkillDocRow> {
   const idMatch = isUuid(ref)
     ? eq(documents.id, ref)
@@ -157,7 +163,9 @@ async function loadActiveSkillDoc(
         idMatch,
         eq(documents.memexId, memexId),
         eq(documents.docType, SKILL_DOC_TYPE),
-        isNull(documents.archivedAt),
+        // Restore is the one path that must see an ARCHIVED skill; every other
+        // caller stays active-only so archived skills are invisible (std-7).
+        ...(opts.includeArchived ? [] : [isNull(documents.archivedAt)]),
       ),
     )
     .limit(1);
@@ -202,6 +210,23 @@ async function firstSectionId(docId: string): Promise<string | null> {
     .orderBy(asc(docSections.seq))
     .limit(1);
   return section?.id ?? null;
+}
+
+/** Guard the PRIMARY skill definition's filename (ac-9). A file offered as the
+ *  skill definition must be a `SKILL.md`; a `.txt`/`.json`/anything-else primary is
+ *  rejected with a user-visible error BEFORE any parsing. Auxiliary files are
+ *  unaffected — they may be any type. A create that carries no filename (MCP /
+ *  in-app authors handing raw SKILL.md text) skips the check. Basename-only and
+ *  case-insensitive so `path/to/SKILL.md` and `Skill.md` are accepted. */
+function assertSkillMdPrimary(filename: string | undefined): void {
+  if (filename === undefined) return;
+  const base = filename.split(/[\\/]/).pop() ?? filename;
+  if (base.toLowerCase() !== "skill.md") {
+    throw new ValidationError(
+      `The primary skill definition must be a SKILL.md file (got "${base}"). ` +
+        `Bundle other file types as auxiliary files instead.`,
+    );
+  }
 }
 
 /** Parse + validate a SKILL.md and return the authoritative fields. `name` and
@@ -293,6 +318,8 @@ export async function createSkill(
   input: CreateSkillInput,
   ctx: RequestCtx = {},
 ): Promise<Mutated<SkillView>> {
+  // ac-9 — reject a non-SKILL.md PRIMARY file before we parse anything.
+  assertSkillMdPrimary(input.filename);
   const { name, description, body } = parseAndValidate(input.skillMd);
   const capabilities = normalizeCapabilities(input.capabilities);
 
@@ -483,6 +510,36 @@ export async function archiveSkill(
 
 /** Alias — DELETE and archive are the same soft-delete for Skills. */
 export const deleteSkill = archiveSkill;
+
+/**
+ * Restore (un-archive) a soft-deleted Skill by clearing `archived_at` (ac-10).
+ * Archiving is non-destructive: the doc, its section body, capability flags, and
+ * `skill_files` manifest were preserved, so a restore simply re-surfaces the Skill
+ * in `listSkills`, `getSkill`, and the agent skill catalogue. Loads with
+ * `includeArchived` (the one caller allowed to see an archived skill); a
+ * cross-Memex / non-skill / unknown ref still 404s (std-7). Idempotent: restoring
+ * an already-active Skill succeeds without a second write. Emits document/updated
+ * (std-8).
+ */
+export async function restoreSkill(
+  memexId: string,
+  ref: string,
+  ctx: RequestCtx = {},
+): Promise<Mutated<Doc>> {
+  const doc = await loadActiveSkillDoc(memexId, ref, { includeArchived: true });
+  return mutate(
+    ctx,
+    { memexId, docId: doc.id, entity: "document", action: "updated" },
+    async () => {
+      const [row] = await db
+        .update(documents)
+        .set({ archivedAt: null })
+        .where(and(eq(documents.id, doc.id), eq(documents.memexId, memexId)))
+        .returning();
+      return row;
+    },
+  );
+}
 
 /** Load the TOC (path/purpose/type/size) for a Skill's manifest, sorted by path. */
 async function listTocFor(skillDocId: string): Promise<SkillFileTocEntry[]> {

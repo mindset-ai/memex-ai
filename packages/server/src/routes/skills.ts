@@ -21,6 +21,7 @@ import {
   createSkill,
   editSkill,
   archiveSkill,
+  restoreSkill,
   getSkill,
   getSkillFile,
   listSkills,
@@ -147,13 +148,21 @@ skillsRouter.post("/", async (c) => {
     skillMd?: string;
     capabilities?: unknown;
     files?: unknown;
+    filename?: string;
   }>();
   if (typeof body.skillMd !== "string" || body.skillMd.length === 0) {
     throw new ValidationError("`skillMd` is required");
   }
   const skill = await createSkill(
     memexId,
-    { skillMd: body.skillMd, capabilities: body.capabilities, files: parseFiles(body.files) },
+    {
+      skillMd: body.skillMd,
+      capabilities: body.capabilities,
+      files: parseFiles(body.files),
+      // Passed through by the upload flow so a non-SKILL.md primary is rejected
+      // before parsing (ac-9). Omitted by JSON authors handing raw SKILL.md text.
+      ...(typeof body.filename === "string" ? { filename: body.filename } : {}),
+    },
     restCtx(c),
   );
   return c.json(skill, 201);
@@ -176,6 +185,16 @@ skillsRouter.delete("/:handle", async (c) => {
   const memexId = requireWriteMemexId(c);
   await archiveSkill(memexId, c.req.param("handle"), restCtx(c));
   return c.body(null, 204);
+});
+
+// Restore (un-archive) a soft-deleted skill — archiving is non-destructive, so
+// the content is preserved and the skill re-surfaces in list/get + the agent
+// catalogue (ac-10). Write access required (dec-15); an unknown/cross-Memex
+// handle 404s (std-7).
+skillsRouter.post("/:handle/restore", async (c) => {
+  const memexId = requireWriteMemexId(c);
+  const restored = await restoreSkill(memexId, c.req.param("handle"), restCtx(c));
+  return c.json({ handle: restored.handle, name: restored.title });
 });
 
 export { skillsRouter };

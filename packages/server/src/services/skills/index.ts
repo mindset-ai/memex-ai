@@ -18,6 +18,7 @@ export {
   editSkill,
   archiveSkill,
   deleteSkill,
+  restoreSkill,
   getSkill,
   getSkillFile,
   listSkills,

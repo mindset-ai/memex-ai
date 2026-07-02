@@ -629,7 +629,7 @@ export const toolManifest: ToolManifestEntry[] = [
   {
     name: 'update_skill',
     summary:
-      'Create, edit, or delete a Skill (verb create|edit|delete) — the path to import a corpus of SKILL.md files into a Memex. create takes memex + skill_md (+ capabilities, files); edit/delete take ref.',
+      'Create, edit, delete, or restore a Skill (verb create|edit|delete|restore) — the path to import a corpus of SKILL.md files into a Memex. create takes memex + skill_md (+ capabilities, files); edit/delete/restore take ref.',
     args: 'update_skill(verb, memex?, ref?, skill_md?, capabilities?, files?)',
     group: 'build',
     readOnlyHint: false,

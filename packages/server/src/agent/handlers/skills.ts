@@ -22,6 +22,7 @@ import {
   createSkill,
   editSkill,
   archiveSkill,
+  restoreSkill,
   getSkill,
   getSkillFile,
   listSkills,
@@ -243,11 +244,11 @@ export const skillsTools: ToolSpec[] = [
     name: "update_skill",
     annotations: { title: "Update Skill", readOnlyHint: false, destructiveHint: false },
     description:
-      "Create, edit, or delete a Skill (verb one of create, edit, delete) — the path a coding agent uses to import a corpus of SKILL.md files into a Memex. create: supply memex + skill_md (+ optional capabilities, files); edit: supply ref + skill_md and/or capabilities; delete: supply ref (soft-archive). Every path runs the same server-side SKILL.md validation.",
+      "Create, edit, delete, or restore a Skill (verb one of create, edit, delete, restore) — the path a coding agent uses to import a corpus of SKILL.md files into a Memex. create: supply memex + skill_md (+ optional capabilities, files); edit: supply ref + skill_md and/or capabilities; delete: supply ref (soft-archive, non-destructive); restore: supply ref (un-archive a soft-deleted skill). Every path runs the same server-side SKILL.md validation.",
     schema: {
       verb: z
-        .enum(["create", "edit", "delete"])
-        .describe("create | edit | delete — the skill write operation."),
+        .enum(["create", "edit", "delete", "restore"])
+        .describe("create | edit | delete | restore — the skill write operation."),
       memex: z.string().optional().describe(MEMEX_DESC),
       ref: z
         .string()
@@ -262,7 +263,7 @@ export const skillsTools: ToolSpec[] = [
       verbose: VERBOSE_FIELD,
     },
     async handler(input, ctx) {
-      const verb = input.verb as "create" | "edit" | "delete";
+      const verb = input.verb as "create" | "edit" | "delete" | "restore";
 
       if (verb === "create") {
         const skillMd = input.skill_md as string | undefined;
@@ -312,6 +313,13 @@ export const skillsTools: ToolSpec[] = [
           reqCtx(ctx),
         );
         return `ref: ${updated.ref}\nUpdated skill "${updated.name}" (${updated.handle}).`;
+      }
+
+      if (verb === "restore") {
+        const { namespace, memex, handle } = parseSkillRef(input.ref);
+        const memexId = await ctx.resolveMemex(`${namespace}/${memex}`);
+        await restoreSkill(memexId, handle, reqCtx(ctx));
+        return `ref: ${namespace}/${memex}/skills/${handle}\nRestored skill ${handle}.`;
       }
 
       // verb === "delete"
