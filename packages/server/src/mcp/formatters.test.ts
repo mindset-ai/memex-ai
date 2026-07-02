@@ -33,6 +33,7 @@ function makeDoc(overrides: Partial<Doc> = {}): Doc {
     // default is `"document"` (the catch-all).
     docType: "document",
     description: null,
+    skillCapabilities: null,
     status: "draft",
     parentDocId: null,
     createdByUserId: null,
@@ -199,6 +200,7 @@ describe("formatFullDocState", () => {
       seq: 1,
       title: "Ship database schema",
       description: "",
+      skillCapabilities: null,
       status: "not_started",
       sectionRef: null,
       acceptanceCriteria: [],
@@ -242,6 +244,7 @@ describe("formatFullDocState", () => {
       seq: 2,
       title: "Untouched task",
       description: "",
+      skillCapabilities: null,
       status: "not_started",
       sectionRef: null,
       acceptanceCriteria: [],

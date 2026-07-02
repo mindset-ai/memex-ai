@@ -84,6 +84,16 @@ export const documents = pgTable("documents", {
   // other docType leaves it null. `get_skill` reconstructs the verbatim SKILL.md
   // frontmatter from `title` (the SKILL.md `name`) + this column.
   description: text("description"),
+  // spec-300 t-10 (dec-20): Memex-native capability flags authored ON a Skill —
+  // `{ codebaseAccess, codeEditing, externalTools }`. These INFORM downstream
+  // routing (which agent surface a Skill is offered to); they are NOT a security
+  // boundary. Nullable: skills populate it at author time, every other docType
+  // leaves it null. jsonb so the flag set can grow without a migration.
+  skillCapabilities: jsonb("skill_capabilities").$type<{
+    codebaseAccess: boolean;
+    codeEditing: boolean;
+    externalTools: boolean;
+  }>(),
   status: text("status").notNull().default("draft"),
   // Spec lineage (dec-11 of doc-12): when a Spec is promoted into multiple child
   // Specs, each child carries its parent's id here. Self-FK, ON DELETE SET NULL — keep
@@ -3526,6 +3536,8 @@ export const symbolsRelations = relations(symbols, ({ one }) => ({
 
 export type Doc = InferSelectModel<typeof documents>;
 export type DocSection = InferSelectModel<typeof docSections>;
+export type SkillFile = InferSelectModel<typeof skillFiles>;
+export type SkillFileInsert = InferInsertModel<typeof skillFiles>;
 export type StandardClause = InferSelectModel<typeof standardClauses>;
 export type Facet = InferSelectModel<typeof facets>;
 export type FacetInsert = InferInsertModel<typeof facets>;

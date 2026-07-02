@@ -688,6 +688,7 @@ export async function findStandardsAffectedByDecision(
           title: row.docTitle,
           docType: row.docDocType,
           description: null,
+          skillCapabilities: null,
           status: row.docStatus,
           parentDocId: row.docParentDocId,
           createdByUserId: null,

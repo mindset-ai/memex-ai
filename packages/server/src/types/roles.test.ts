@@ -142,6 +142,7 @@ describe("readonly arrays mirror the union", () => {
       "document",
       "execution_plan",
       "runbook",
+      "skill",
       "spec",
       "standard",
     ]);

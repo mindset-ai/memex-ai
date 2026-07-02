@@ -44,6 +44,7 @@ function makePlanSpec(): Doc & { sections: DocSection[] } {
     title: "Some Spec",
     docType: "spec",
     description: null,
+    skillCapabilities: null,
     status: "specify",
     parentDocId: null,
     createdByUserId: null,

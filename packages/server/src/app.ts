@@ -13,6 +13,7 @@ import { issuesRouter } from "./routes/issues.js";
 import { issuesList } from "./routes/issues-list.js";
 import { acsRouter } from "./routes/acs.js";
 import { standardsRouter } from "./routes/standards.js";
+import { skillsRouter } from "./routes/skills.js";
 import { emissionKeysRouter } from "./routes/emission-keys.js";
 import { discordWebhookRouter } from "./routes/discord-webhook.js";
 import { stripeWebhookRouter } from "./routes/stripe-webhook.js";
@@ -247,6 +248,7 @@ app.route("/api/:namespace/:memex/tasks", tasksRouter);
 app.route("/api/:namespace/:memex/issues", issuesRouter);
 app.route("/api/:namespace/:memex/acs", acsRouter);
 app.route("/api/:namespace/:memex/standards", standardsRouter);
+app.route("/api/:namespace/:memex/skills", skillsRouter);
 app.route("/api/:namespace/:memex/emission-keys", emissionKeysRouter);
 app.route("/api/:namespace/:memex/discord-webhook", discordWebhookRouter);
 // spec-118 — per-Spec roles (editor/reviewer) + ticket-style assignment.
