@@ -25,6 +25,11 @@ export type ChangeEntity =
   // spec-136: the tag catalogue (a per-Memex resource; no docId). Changes to a
   // tag *on a Spec* emit `document` updated instead, so the Spec's card refreshes.
   | "tag"
+  // spec-300: a Skill's auxiliary-file manifest write (skill_files insert/delete),
+  // scoped to the Skill document via docId. The Skill DOCUMENT itself (create /
+  // edit / archive) emits `document` like every other docType; this entity covers
+  // the manifest child rows so a file add/remove wakes live consumers (std-8).
+  | "skill_file"
   // feat-ac-spike V0.0.1 — Acceptance Criteria primitive
   | "ac"
   | "ac_parent_link"

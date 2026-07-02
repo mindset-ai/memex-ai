@@ -62,6 +62,20 @@ export async function nextStandardHandle(memexId: string, dbx: any = db): Promis
   return `std-${(result.maxNum ?? 0) + 1}`;
 }
 
+// spec-300 (dec-13): Skills adopt a typed `skill-N` handle prefix, parallel to
+// spec-N / std-N — link-stable, human-readable, and its own numeric sequence
+// within the Memex (skill-1 and doc-1 can coexist under the shared unique
+// constraint). Skills are docType:'skill' rows in `documents` (dec-16), not a
+// bespoke table.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function nextSkillHandle(memexId: string, dbx: any = db): Promise<string> {
+  const [result] = await dbx
+    .select({ maxNum: sql<number>`coalesce(max(cast(substring(handle from 'skill-([0-9]+)') as integer)), 0)` })
+    .from(documents)
+    .where(eq(documents.memexId, memexId));
+  return `skill-${(result.maxNum ?? 0) + 1}`;
+}
+
 export interface DecisionInput {
   title: string;
   context?: string;
@@ -181,7 +195,9 @@ export async function createDocDraft(
               ? await nextSpecHandle(memexId)
               : docType === "standard"
                 ? await nextStandardHandle(memexId)
-                : await nextDocHandle(memexId);
+                : docType === "skill"
+                  ? await nextSkillHandle(memexId)
+                  : await nextDocHandle(memexId);
           const [row] = await db
             .insert(documents)
             .values({ memexId, handle, title, docType, status: extras?.initialStatus ?? "draft", createdByUserId: createdByUserId ?? null, isDemo: extras?.isDemo ?? false })

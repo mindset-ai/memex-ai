@@ -108,6 +108,17 @@ const PRINCIPLES_NAV_LINKS: ReadonlyArray<NavLinkDef> = [
       </svg>
     ),
   },
+  // spec-300 t-6: Skills — reusable SKILL.md docs the agent can pick up. Sits
+  // beside Standards as a Principles surface (both are living reference docs).
+  {
+    to: '/skills',
+    label: 'Skills',
+    icon: (
+      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+      </svg>
+    ),
+  },
   // spec-179 (ac-14): Insights — per-memex spec analytics charts. Hidden via
   // the same server-driven hiddenFeatures mechanism as Pulse.
   {

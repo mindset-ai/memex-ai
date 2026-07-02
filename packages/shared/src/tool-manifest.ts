@@ -607,6 +607,35 @@ export const toolManifest: ToolManifestEntry[] = [
     trafficClass: 'specify',
   },
 
+  // ── Skills (spec-300) ─────────────────────────────────────
+  {
+    name: 'list_skills',
+    summary:
+      "List a Memex's active Skills alphabetically — each carries name, description, capability flags, and ref; never the SKILL.md body or allowed-tools.",
+    args: 'list_skills(memex?)',
+    group: 'read',
+    readOnlyHint: true,
+    trafficClass: null,
+  },
+  {
+    name: 'get_skill',
+    summary:
+      "Read one Skill: the verbatim SKILL.md body + a table-of-contents of its auxiliary files (no inline contents). Pass path to fetch one file (binary → signed URL, text → inline); working_spec_ref meters usage.",
+    args: 'get_skill(ref, working_spec_ref?, path?)',
+    group: 'read',
+    readOnlyHint: true,
+    trafficClass: null,
+  },
+  {
+    name: 'update_skill',
+    summary:
+      'Create, edit, delete, or restore a Skill (verb create|edit|delete|restore) — the path to import a corpus of SKILL.md files into a Memex. create takes memex + skill_md (+ capabilities, files); edit/delete/restore take ref.',
+    args: 'update_skill(verb, memex?, ref?, skill_md?, capabilities?, files?)',
+    group: 'build',
+    readOnlyHint: false,
+    trafficClass: null,
+  },
+
   // ── Comments (any phase) ──────────────────────────────────
   {
     name: 'add_comment',

@@ -299,6 +299,13 @@ export const USAGE_EVENT_REGISTRY = [
     source: "backend",
     delivery: "direct",
   },
+  {
+    name: "skill.used",
+    description:
+      "A Skill's SKILL.md BODY was fetched via getSkill (spec-300 dec-21) — the intent-to-use signal (a list_skills appearance is NOT a use). Direct emission from the Skills service, not the bus (a read is not a mutate() outcome). memex_id is the resolved Memex. props.skill_id (doc UUID), props.skill_handle (skill-N), props.skill_ref (canonical ref), props.working_spec_ref (the Spec pulled against, when supplied — the inverse-view key), props.channel (mcp | rest_ui | in_app_agent). Powers the hot/cold-skill report and the per-Spec inverse view.",
+    source: "backend",
+    delivery: "direct",
+  },
 ] as const satisfies readonly UsageEventDef[];
 
 export type RegisteredEventName = (typeof USAGE_EVENT_REGISTRY)[number]["name"];

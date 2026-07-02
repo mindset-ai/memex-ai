@@ -44,6 +44,8 @@ const DOC_ROW = {
   handle: TEST_DOC_HANDLE,
   title: "Test Doc",
   docType: "spec", // DB enum value (specs/docs/standards/execution-plans → spec/document/standard/execution_plan)
+  description: null,
+  skillCapabilities: null,
   status: "draft",
   parentDocId: null,
   createdByUserId: null,
@@ -94,6 +96,7 @@ const TASK_ROW = {
   seq: 1,
   title: "A task",
   description: "x",
+  skillCapabilities: null,
   status: "not_started",
 };
 const COMMENT_ROW = {
