@@ -7,7 +7,7 @@
 // The send path is t-7's runActivationDrip over an EXPLICIT candidate set (isolation:
 // the whole-table selection is asserted separately, never used to actually send here).
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { inArray, sql } from "drizzle-orm";
+import { inArray } from "drizzle-orm";
 import { tagAc } from "@memex-ai-ac/vitest";
 import { db } from "../../db/connection.js";
 import { users, usageEvents, commsLog } from "../../db/schema.js";
