@@ -204,6 +204,14 @@ const SKIPS = new Map<string, string>([
   // flag_drift / propose_standard_change are PROBED below (b-36 D-8): since the
   // ref-emission fix they return the canonical `ref:` of the drift/plan_revision
   // comment instead of raw section/comment UUIDs.
+  // spec-300 t-4 skill tools — each leads its response with the canonical Skill
+  // `ref:` (`<ns>/<mx>/skills/skill-N`) and emits no raw UUID; list_skills is a
+  // listing like list_docs. That ref-emission is asserted directly in
+  // mcp/skills-tools.integration (create/get/delete lead with `ref:`, ac-32/ac-34),
+  // so a dedicated probe here would only duplicate a fixture-heavy setup.
+  ["list_skills", "skill listing output (like list_docs); per-row canonical skill refs asserted in mcp/skills-tools.integration"],
+  ["get_skill", "leads with the canonical skill ref:; asserted in mcp/skills-tools.integration (ac-32/ac-34)"],
+  ["update_skill", "leads with the canonical skill ref:; asserted in mcp/skills-tools.integration (ac-31/ac-36/ac-20)"],
 ]);
 
 interface ProbeCase {

@@ -10,6 +10,7 @@ import {
   STANDARDS_AGENT_GUIDANCE,
   ISSUES_AGENT_GUIDANCE,
   SHARED_HANDOFF_GUIDANCE,
+  SKILLS_AGENT_GUIDANCE,
   toPromptBlocks,
   toPhaseGuidance,
   type SpecPhase,
@@ -119,6 +120,20 @@ if (!STANDARDS_BLOCK || !ISSUES_BLOCK || !HANDOFF_BLOCK) {
   );
 }
 
+// spec-300 t-7 (dec-7 / dec-20 / dec-2) — the skills-awareness block. Prose lives
+// in the scaffold model (SKILLS_AGENT_GUIDANCE in @memex/shared — std-15/std-16),
+// never inline here. Appended by buildSystemBlocks to EVERY in-app agent prompt so
+// the agent knows how to discover skills (catalogue on the early list_docs
+// response, ac-29), follow the ones it can satisfy, and hand off (render_handoff)
+// the ones whose capability flags exceed it — never executing code (dec-2). The
+// block is phrased conditionally, so it's inert when the Memex has no skills.
+const SKILLS_BLOCK = SKILLS_AGENT_GUIDANCE.text;
+if (!SKILLS_BLOCK) {
+  throw new Error(
+    "SKILLS_AGENT_GUIDANCE.text is empty — the skills-awareness block cannot be assembled",
+  );
+}
+
 /**
  * Returns system prompt as structured blocks for the Anthropic API.
  *
@@ -224,6 +239,15 @@ export function buildSystemBlocks(
       : scopedMode === "issues"
       ? `${withDrift}\n\n${ISSUES_BLOCK}\n\n${HANDOFF_BLOCK}`
       : withDrift;
+  // spec-300 t-7 (dec-7 / dec-20 / dec-2): the PRIMARY in-app agent — the doc/spec
+  // agent, no scoped mode — is the one that dispatches skills; append the
+  // skills-awareness block for it. The scoped agents (drift / standards / issues)
+  // and the scaffold assistant have narrow, non-skills jobs and already hand off
+  // code, so they don't carry it. The block is inert when the Memex has no skills.
+  const isPrimaryAgent = !scaffoldMode && !driftMode && !scopedMode;
+  const withSkills = isPrimaryAgent
+    ? `${withScoped}\n\n${SKILLS_BLOCK}`
+    : withScoped;
   // spec-360 t-1 (dec-1/dec-6): the scaffold identity now LEADS the instruction
   // block (prepended into baseContent above) instead of trailing it — appending
   // it after the doc-bound "document assistant" role let that role dominate a
@@ -232,7 +256,7 @@ export function buildSystemBlocks(
   // factual grounding rides the cached context block (buildScaffoldContext).
   const instructions: SystemBlock = {
     type: "text",
-    text: readOnly ? `${withScoped}\n\n${READ_ONLY_BLOCK}` : withScoped,
+    text: readOnly ? `${withSkills}\n\n${READ_ONLY_BLOCK}` : withSkills,
   };
 
   const context: SystemBlock = {

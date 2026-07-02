@@ -56,6 +56,9 @@ import {
   getStandard,
 } from "../../services/standards.js";
 import {
+  formatSkillCatalogueAppendix,
+} from "../../services/skills/skill-catalogue.js";
+import {
   buildDocExportForm,
 } from "../../services/doc-export.js";
 import {
@@ -162,12 +165,24 @@ export const docsTools: ToolSpec[] = [
         ...(parsedTags ? { tags: parsedTags } : {}),
       });
 
+      // spec-300 t-7 (dec-7, ac-29): on the primary Memex orient (the default
+      // spec listing), append the active Skill catalogue to this early tool
+      // response — the way list_memexes appends the topic index — so the agent
+      // learns skills exist without being told to look. Gated on docType 'spec'
+      // (the orient call, not a filtered listing) AND on skills existing (the
+      // appendix is "" otherwise). This is a shared tool spec, so the SAME
+      // catalogue reaches the in-app agent and a connected coding agent (ac-29).
+      const catalogue =
+        docTypeArg === "spec"
+          ? await formatSkillCatalogueAppendix(memexId)
+          : "";
+
       if (ctx.verbose) {
         const url = await ctx.workspaceUrl(memexId);
-        return formatSpecList(docs, url);
+        return formatSpecList(docs, url) + catalogue;
       }
 
-      if (docs.length === 0) return "No active specs in this Memex.";
+      if (docs.length === 0) return "No active specs in this Memex." + catalogue;
       const slugs = await memexSlugsById(memexId);
       const enriched = await Promise.all(
         docs.map(async (d) => {
@@ -178,12 +193,14 @@ export const docsTools: ToolSpec[] = [
           return { d, decisionCount: decs.length, taskCount: ts.length };
         }),
       );
-      return enriched
-        .map(({ d, decisionCount, taskCount }) => {
-          const ref = slugs ? buildDocRef(slugs, d) : d.handle;
-          return `- ref: ${ref} [${d.docType}, ${d.status}] "${d.title}" (${decisionCount} decisions, ${taskCount} tasks)`;
-        })
-        .join("\n");
+      return (
+        enriched
+          .map(({ d, decisionCount, taskCount }) => {
+            const ref = slugs ? buildDocRef(slugs, d) : d.handle;
+            return `- ref: ${ref} [${d.docType}, ${d.status}] "${d.title}" (${decisionCount} decisions, ${taskCount} tasks)`;
+          })
+          .join("\n") + catalogue
+      );
     },
   },
   {

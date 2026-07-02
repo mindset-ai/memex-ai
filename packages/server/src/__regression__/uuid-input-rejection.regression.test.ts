@@ -65,6 +65,15 @@ const NO_REF_FIELD = new Set<string>([
   "create_doc",      // takes `memex` + `title` + `purpose`, not `ref`
   "list_memexes",    // no args; MCP-only
   "search_memex",    // T-8 owns this; takes `memex` + query, no `ref`
+  // spec-300 t-4: get_skill / update_skill take a `ref`, but it is the CANONICAL
+  // SKILL-ref grammar (`<ns>/<mx>/skills/skill-N`), not the doc-ref grammar this
+  // b-36 guard governs. They reject raw UUIDs at the boundary through their own
+  // `parseSkillRef` (a UUID has no `/skills/skill-N` shape → ValidationError), not
+  // the shared `assertRefNotUuid` doc-ref guard, so the canonical doc-ref message
+  // doesn't apply. Boundary rejection + cross-Memex not-found are asserted in
+  // mcp/skills-tools.integration (ac-11).
+  "get_skill",
+  "update_skill",
 ]);
 
 // All shared tool specs that take a `ref` arg — derived dynamically from the

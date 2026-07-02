@@ -107,6 +107,10 @@ export { SCAFFOLD_AGENT_GUIDANCE, SCAFFOLD_OPENING_TURN_SEED, scaffoldReviewEdit
 // spec-389 t-4 (dec-3): the shared cross-agent handoff contract (canonical map),
 // injected into every scoped in-app agent so it hands off rather than overreach.
 export { SHARED_HANDOFF_GUIDANCE } from './scaffold-data.js';
+// spec-300 t-7 (dec-7 / dec-20 / dec-2): the in-app agent skills-awareness block
+// (injected by buildSystemBlocks) + the agent-assisted SKILL.md authoring system
+// prompt (dec-9). Prose has one home here (std-15).
+export { SKILLS_AGENT_GUIDANCE, SKILL_AUTHOR_INSTRUCTION } from './scaffold-data.js';
 // spec-389 t-5 (dec-2): the standards + issues agent mode blocks, injected by
 // buildSystemBlocks when the per-request mode is standards / issues. (Per dec-1
 // the scoped agents open with a static intro, not an LLM turn — no opening seed.)
