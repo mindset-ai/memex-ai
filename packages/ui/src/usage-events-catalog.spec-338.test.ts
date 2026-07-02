@@ -38,8 +38,11 @@ describe('spec-338 registry contract (UI-side, emits ACs)', () => {
 
   it('adds no onboarding.* events and leaves home_canvas.* intact (Home untouched — spec-336 owns it)', () => {
     tagAc(`${AC}/ac-3`);
+    // Scoped to THIS batch's own events (not the whole registry), so a later spec
+    // that legitimately adds onboarding.* events (spec-444's welcome video) doesn't
+    // retroactively break this batch's "added none" claim.
+    expect(NEW_FRONTEND_EVENTS.filter((n) => n.startsWith('onboarding.'))).toHaveLength(0);
     const names = USAGE_EVENT_REGISTRY.map((e) => e.name);
-    expect(names.filter((n) => n.startsWith('onboarding.'))).toHaveLength(0);
     expect(names).toContain('home_canvas.step_shown');
     expect(names).toContain('home_canvas.cta_clicked');
   });

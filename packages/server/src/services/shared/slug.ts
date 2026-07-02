@@ -8,10 +8,19 @@ import { eq, lt } from "drizzle-orm";
 import { db } from "../../db/connection.js";
 import { namespaces, namespaceSlugReservations } from "../../db/schema.js";
 
-// std-3 / dec-11 — small, stable list of app-utility paths only. Marketing
-// terms (pricing, about, blog, …) deliberately NOT reserved because marketing
-// lives on www.memex.ai.
+// std-3 — reserved slugs fall in two groups:
+//   1. App-utility paths (login, api, mcp, …) that collide with the app's own
+//      routes on the apex.
+//   2. Marketing section slugs. These REVERSE dec-11's original "marketing terms
+//      are not reserved" stance: the marketing site (www.memex.ai) owns these
+//      top-level paths, and the apex load balancer 301-redirects memex.ai/<seg>
+//      (and every sub-path) to www for SEO — see memex-website infra/url-map.yaml.
+//      A tenant could therefore never actually reach a namespace home at one of
+//      these slugs on the apex, so we reserve them to prevent the conflict up
+//      front. Keep this group in sync with the top-level routes in
+//      memex-website/src/lib/routes.ts.
 export const RESERVED_SLUGS = new Set([
+  // group 1 — app-utility paths
   "login",
   "signup",
   "install",
@@ -27,10 +36,20 @@ export const RESERVED_SLUGS = new Set([
   "admin",
   "account",
   "app",
-  "docs",
   "support",
   "help",
   "memex",
+  // group 2 — marketing section slugs (redirected apex → www; mirror routes.ts)
+  "docs",
+  "pricing",
+  "story",
+  "community",
+  "writing",
+  "legal",
+  "research",
+  "coding-agents",
+  "get-started",
+  "branding",
 ]);
 
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,38}$/;

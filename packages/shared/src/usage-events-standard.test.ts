@@ -68,8 +68,12 @@ describe('registry ↔ EVENT-STANDARD.md parity (ac-16 / ac-10)', () => {
     expect(byName.get('identity.merged')?.source).toBe('backend');
     expect(standard.has('identity.merged')).toBe(true);
     // dec-2: the custom-step clicks reuse home_canvas.cta_clicked — NO per-step
-    // event names like onboarding.connect_agent_clicked were introduced.
-    const perStep = [...byName.keys()].filter((n) => /^onboarding\./.test(n));
+    // event names like onboarding.connect_agent_clicked were introduced. (The
+    // spec-444 welcome-video lifecycle events, onboarding.video_*, are a separate
+    // surface — not per-step Home-journey click names — so they're excluded here.)
+    const perStep = [...byName.keys()].filter(
+      (n) => /^onboarding\./.test(n) && !/^onboarding\.video_/.test(n),
+    );
     expect(perStep).toEqual([]);
   });
 });

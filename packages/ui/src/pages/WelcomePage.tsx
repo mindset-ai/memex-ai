@@ -8,23 +8,79 @@
 // tab so clicking "Get started" still navigates away cleanly within the session.
 // The × button writes sessionStorage only — the video re-appears on next login.
 
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../components/AuthContext';
 import { dismissWelcomeVideoApi } from '../api/auth';
+import { useTelemetry } from '../hooks/useTelemetry';
 
 const VIDEO_URL =
   'https://storage.googleapis.com/memex-ai-prod-app-static/media/welcome-to-memex-v2.mp4';
 
+// Stable, low-cardinality identifier for this video — the filename stem of
+// VIDEO_URL. Kept as its own const so a src bump is a one-line, deliberate change
+// (props carry ids/counts only — std-35 cl-5).
+const VIDEO_ID = 'welcome-to-memex-v2';
+
+// Build the numeric playback props shared by every onboarding.video_* event.
+// duration is NaN until metadata loads, so percent_watched is guarded against
+// NaN / divide-by-zero and every value is rounded (ids + counts only — no content).
+function videoProps(video: HTMLVideoElement | null): {
+  video_id: string;
+  position_seconds: number;
+  duration_seconds: number;
+  percent_watched: number;
+} {
+  const position = video && Number.isFinite(video.currentTime) ? video.currentTime : 0;
+  const duration = video && Number.isFinite(video.duration) ? video.duration : 0;
+  const percent = duration > 0 ? Math.min(100, Math.max(0, (position / duration) * 100)) : 0;
+  return {
+    video_id: VIDEO_ID,
+    position_seconds: Math.round(position),
+    duration_seconds: Math.round(duration),
+    percent_watched: Math.round(percent),
+  };
+}
+
 export function WelcomePage() {
   const { token, updateSession } = useAuth();
   const navigate = useNavigate();
+  const { track } = useTelemetry(true);
   const [searchParams] = useSearchParams();
   const isRewatch = searchParams.get('rewatch') === '1';
   const [dismissing, setDismissing] = useState(false);
 
+  // spec-444 instrumentation. Refs (not state) so the once-per-view guards can be
+  // read/written inside stable useCallbacks without re-creating them, and so
+  // replay / seek / pause-resume / multiple play events never re-fire an event.
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const startedRef = useRef(false);
+  const completedRef = useRef(false);
+  const skippedRef = useRef(false);
+
+  const onVideoPlay = useCallback(() => {
+    if (startedRef.current) return; // fire once per view
+    startedRef.current = true;
+    track('onboarding.video_started', videoProps(videoRef.current));
+  }, [track]);
+
+  const onVideoEnded = useCallback(() => {
+    if (completedRef.current) return; // fire once per view
+    completedRef.current = true;
+    track('onboarding.video_completed', videoProps(videoRef.current));
+  }, [track]);
+
+  // Skip = a dismiss BEFORE completion. At most once, and never if the video
+  // already completed (a completed watch that then dismisses is not a skip).
+  const trackSkip = useCallback(() => {
+    if (completedRef.current || skippedRef.current) return;
+    skippedRef.current = true;
+    track('onboarding.video_skipped', videoProps(videoRef.current));
+  }, [track]);
+
   const permanentDismiss = useCallback(async () => {
     if (dismissing) return;
+    trackSkip();
     setDismissing(true);
     try {
       const session = await dismissWelcomeVideoApi(token);
@@ -37,12 +93,13 @@ export function WelcomePage() {
     // back to /welcome after they click "Get started" or "Skip".
     sessionStorage.setItem('welcomeVideoDismissed', '1');
     navigate('/specs', { replace: true });
-  }, [dismissing, token, updateSession, navigate]);
+  }, [dismissing, trackSkip, token, updateSession, navigate]);
 
   const sessionDismiss = useCallback(() => {
+    trackSkip();
     sessionStorage.setItem('welcomeVideoDismissed', '1');
     navigate('/specs', { replace: true });
-  }, [navigate]);
+  }, [trackSkip, navigate]);
 
   const rewatchExit = useCallback(() => {
     navigate(-1);
@@ -72,10 +129,14 @@ export function WelcomePage() {
         </div>
 
         <video
+          ref={videoRef}
           data-testid="welcome-video-player"
           src={VIDEO_URL}
           controls
           preload="metadata"
+          onPlay={onVideoPlay}
+          onPlaying={onVideoPlay}
+          onEnded={onVideoEnded}
           className="w-full rounded-lg"
           style={{ aspectRatio: '16/9' }}
         />
