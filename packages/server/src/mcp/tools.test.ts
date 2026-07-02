@@ -44,6 +44,7 @@ const DOC_ROW = {
   handle: TEST_DOC_HANDLE,
   title: "Test Doc",
   docType: "spec", // DB enum value (specs/docs/standards/execution-plans → spec/document/standard/execution_plan)
+  description: null,
   status: "draft",
   parentDocId: null,
   createdByUserId: null,

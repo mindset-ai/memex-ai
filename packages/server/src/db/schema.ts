@@ -79,6 +79,11 @@ export const documents = pgTable("documents", {
   // Cluster C in favour of `"document"`); it returned in b-105 as the docType
   // for what used to be called Briefs (Brief → Spec rename, see 0063).
   docType: text("doc_type").notNull().default("document"),
+  // spec-300 (dec-12): the dispatch key for Skills — extracted from SKILL.md
+  // frontmatter `description:` at write time. Nullable: skills populate it, every
+  // other docType leaves it null. `get_skill` reconstructs the verbatim SKILL.md
+  // frontmatter from `title` (the SKILL.md `name`) + this column.
+  description: text("description"),
   status: text("status").notNull().default("draft"),
   // Spec lineage (dec-11 of doc-12): when a Spec is promoted into multiple child
   // Specs, each child carries its parent's id here. Self-FK, ON DELETE SET NULL — keep
@@ -139,6 +144,44 @@ export const documents = pgTable("documents", {
   // done/approved) stay because execution-plan rows still carry them.
   check("documents_status_valid", sql`${table.status} IN ('draft', 'review', 'implementation', 'done', 'approved', 'specify', 'build', 'verify')`),
 ]);
+
+// spec-300 (dec-18/dec-19): auxiliary files bundled with a Skill document — the
+// MANIFEST only. Auxiliary-file BYTES never live in Postgres (dec-19):
+// `storage_kind='inline'` keeps small text in `text_content`; `storage_kind='bucket'`
+// keeps `blob_uri` pointing at the StorageProvider (gcs/local/s3). `checksum` makes
+// files content-addressed/immutable so a future document version (spec-448) can pin
+// the exact bytes it had with no rework. `get_skill` returns these as a
+// table-of-contents (path + purpose + content_type + size), never inline contents.
+export const skillFiles = pgTable(
+  "skill_files",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    skillDocId: uuid("skill_doc_id")
+      .notNull()
+      .references(() => documents.id, { onDelete: "cascade" }),
+    // Relative path within the skill package (e.g. `templates/index.html`).
+    path: text("path").notNull(),
+    // Agent-facing one-line "use this when…" note; becomes the TOC entry so the
+    // consuming agent knows when to fetch the file. Nullable, no backfill.
+    purpose: text("purpose"),
+    contentType: text("content_type").notNull(),
+    size: integer("size").notNull(),
+    // Content hash — the immutability/versioning anchor (spec-448 forward-compat).
+    checksum: text("checksum").notNull(),
+    // 'inline' (text in text_content) | 'bucket' (bytes in blob store, path in blob_uri).
+    storageKind: text("storage_kind").notNull(),
+    textContent: text("text_content"),
+    blobUri: text("blob_uri"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // One row per (skill, path) — a skill can't carry the same path twice.
+    unique("skill_files_doc_path_unique").on(table.skillDocId, table.path),
+    index("skill_files_skill_doc_id_idx").on(table.skillDocId),
+    // storage_kind is a closed set; keep it honest at the DB boundary.
+    check("skill_files_storage_kind_valid", sql`${table.storageKind} IN ('inline', 'bucket')`),
+  ],
+);
 
 export const docSections = pgTable(
   "doc_sections",

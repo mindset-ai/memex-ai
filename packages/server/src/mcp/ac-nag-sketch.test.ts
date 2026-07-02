@@ -73,6 +73,7 @@ function makeSpecDoc(overrides: Partial<Doc> = {}): Doc & { sections: DocSection
     handle: "spec-121",
     title: "AC nag spec",
     docType: "spec",
+    description: null,
     status: "build",
     parentDocId: null,
     createdByUserId: null,

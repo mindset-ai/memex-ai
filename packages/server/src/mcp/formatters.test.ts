@@ -32,6 +32,7 @@ function makeDoc(overrides: Partial<Doc> = {}): Doc {
     // free-form docType to keep exercising the legacy code path, so the
     // default is `"document"` (the catch-all).
     docType: "document",
+    description: null,
     status: "draft",
     parentDocId: null,
     createdByUserId: null,

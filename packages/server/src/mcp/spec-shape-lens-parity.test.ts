@@ -43,6 +43,7 @@ function makePlanSpec(): Doc & { sections: DocSection[] } {
     handle: "spec-106",
     title: "Some Spec",
     docType: "spec",
+    description: null,
     status: "specify",
     parentDocId: null,
     createdByUserId: null,

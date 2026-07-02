@@ -687,6 +687,7 @@ export async function findStandardsAffectedByDecision(
           handle: row.docHandle,
           title: row.docTitle,
           docType: row.docDocType,
+          description: null,
           status: row.docStatus,
           parentDocId: row.docParentDocId,
           createdByUserId: null,
