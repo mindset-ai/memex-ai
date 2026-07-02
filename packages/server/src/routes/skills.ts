@@ -26,6 +26,10 @@ import {
   listSkills,
   type SkillFileInput,
 } from "../services/skills/skills-service.js";
+import {
+  getSkillUsageReport,
+  getSkillsUsedForSpec,
+} from "../services/skills/skill-metering.js";
 import { type SessionEnv } from "../middleware/session.js";
 import type { MemexResolverEnv } from "../middleware/memex-resolver.js";
 import { ForbiddenError, ValidationError } from "../types/errors.js";
@@ -90,9 +94,37 @@ skillsRouter.get("/", async (c) => {
   return c.json(skills);
 });
 
+// Usage reporting (spec-300 t-5 / dec-21). Registered BEFORE `/:handle` so the
+// static `usage` segments never resolve as a skill handle.
+//   GET /skills/usage           — hot/cold report: every active skill ranked by use
+//   GET /skills/usage/by-spec   — inverse view: which skills a given Spec pulled
+skillsRouter.get("/usage", async (c) => {
+  const memexId = await resolveReadableMemexId(c);
+  const report = await getSkillUsageReport(memexId);
+  return c.json(report);
+});
+
+skillsRouter.get("/usage/by-spec", async (c) => {
+  const memexId = await resolveReadableMemexId(c);
+  const specRef = c.req.query("spec");
+  if (!specRef) {
+    throw new ValidationError("A `spec` query parameter (the working-Spec ref) is required");
+  }
+  const skills = await getSkillsUsedForSpec(memexId, specRef);
+  return c.json(skills);
+});
+
 skillsRouter.get("/:handle", async (c) => {
   const memexId = await resolveReadableMemexId(c);
-  const skill = await getSkill(memexId, c.req.param("handle"));
+  // A body fetch meters as a use (dec-21). Thread the actor/channel (rest_ui) and
+  // an optional working-Spec ref so the usage event is attributed.
+  const workingSpecRef = c.req.query("working_spec_ref");
+  const skill = await getSkill(
+    memexId,
+    c.req.param("handle"),
+    restCtx(c),
+    workingSpecRef ? { workingSpecRef } : {},
+  );
   return c.json(skill);
 });
 

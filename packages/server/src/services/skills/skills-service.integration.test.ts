@@ -189,7 +189,7 @@ describe("tenancy isolation (std-7 / std-4)", () => {
     // Metadata only — no body / skillMd / allowed-tools leaks into the list shape.
     for (const item of list) {
       expect(Object.keys(item).sort()).toEqual(
-        ["capabilities", "description", "handle", "name", "ref"].sort(),
+        ["capabilities", "description", "handle", "lastUpdatedAt", "name", "ref"].sort(),
       );
     }
   });

@@ -16,13 +16,14 @@
 // caller-enforced: services receive an already-resolved memexId, and cross-Memex
 // lookups 404 via NotFoundError (std-7).
 
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { db } from "../../db/connection.js";
 import { documents, docSections, skillFiles, memexes, namespaces } from "../../db/schema.js";
 import type { Doc, SkillFile } from "../../db/schema.js";
 import { NotFoundError, ValidationError } from "../../types/errors.js";
 import { mutate, forwardBrand, type Mutated, type RequestCtx } from "../mutate.js";
 import { resolveActorColumns } from "../actor.js";
+import { recordSkillUse } from "./skill-metering.js";
 import { isUuid } from "../shared/identifiers.js";
 import { createDocDraft } from "../documents.js";
 import { getStorageProvider } from "../storage/index.js";
@@ -102,6 +103,9 @@ export interface SkillView {
   /** Verbatim SKILL.md, reconstructed from stored fields (t-3). */
   readonly skillMd: string;
   readonly files: readonly SkillFileTocEntry[];
+  /** The Skill's meaningful last-edit time — max section updatedAt, so the UI can
+   *  show a "last-updated" stamp on the detail view (spec-300 t-5). */
+  readonly lastUpdatedAt: Date;
 }
 
 /** The list shape: metadata only — no body, no allowed-tools. */
@@ -111,6 +115,9 @@ export interface SkillListItem {
   readonly name: string;
   readonly description: string;
   readonly capabilities: SkillCapabilities;
+  /** The Skill's meaningful last-edit time — max section updatedAt, so list-page
+   *  cards can show "last-updated" (spec-300 t-5). */
+  readonly lastUpdatedAt: Date;
 }
 
 /** One file's byte-access result. Bucket files hand back a short-TTL signed URL
@@ -174,6 +181,17 @@ async function firstSectionBody(docId: string): Promise<string> {
     .orderBy(asc(docSections.seq))
     .limit(1);
   return section?.content ?? "";
+}
+
+/** The Skill's meaningful last-edit time: the max `updatedAt` across its sections
+ *  (bumped on every SKILL.md body edit). Falls back to `fallback` (the doc's own
+ *  create/status timestamp) when the doc somehow has no sections. */
+async function lastEditAt(docId: string, fallback: Date): Promise<Date> {
+  const [row] = await db
+    .select({ max: sql<Date | null>`max(${docSections.updatedAt})` })
+    .from(docSections)
+    .where(eq(docSections.docId, docId));
+  return row?.max ?? fallback;
 }
 
 async function firstSectionId(docId: string): Promise<string | null> {
@@ -278,6 +296,19 @@ export async function createSkill(
   const { name, description, body } = parseAndValidate(input.skillMd);
   const capabilities = normalizeCapabilities(input.capabilities);
 
+  // dec-14 / ac-36 — Skill names are unique within a Memex. Enforced HERE in the
+  // service so REST, the React UI, and MCP all get the same guard (the check no
+  // longer lives only in the MCP create branch). Case-insensitive against active
+  // skills; a collision is a user-visible validation error, not a silent second row.
+  const existing = await listSkills(memexId);
+  const clash = existing.find((s) => s.name.toLowerCase() === name.toLowerCase());
+  if (clash) {
+    throw new ValidationError(
+      `A skill named "${name}" already exists in this Memex (${clash.ref}). ` +
+        `Pick a different name, or edit the existing skill.`,
+    );
+  }
+
   // 1. Mint the doc + first section (content = SKILL.md body). createDocDraft
   //    emits document/created through mutate().
   const doc = await createDocDraft(
@@ -333,6 +364,7 @@ export async function createSkill(
     capabilities,
     skillMd: reconstructSkillMd({ name: updated.title, description, body }),
     files: fileRows.map(toTocEntry),
+    lastUpdatedAt: await lastEditAt(doc.id, updated.statusChangedAt),
   };
   // The doc-column update is a genuine mutate() witness; forward its brand to the
   // composite view (the ONE sanctioned brand transfer, mutate.ts forwardBrand).
@@ -419,6 +451,7 @@ export async function editSkill(
     capabilities: caps,
     skillMd: reconstructSkillMd({ name: updated.title, description, body }),
     files: await listTocFor(doc.id),
+    lastUpdatedAt: await lastEditAt(doc.id, updated.statusChangedAt),
   };
   return forwardBrand(updated, view);
 }
@@ -461,17 +494,35 @@ async function listTocFor(skillDocId: string): Promise<SkillFileTocEntry[]> {
   return rows.map(toTocEntry);
 }
 
+/** Options for a Skill body read — carries the metering context (dec-21). */
+export interface GetSkillOptions {
+  /** The Spec ref this read serves, threaded onto the usage event (the inverse
+   *  view's key). Omitted when the caller has no working Spec. */
+  readonly workingSpecRef?: string;
+}
+
 /**
  * Read one Skill: the verbatim SKILL.md (reconstructed from stored fields, t-3)
  * plus a file TABLE-OF-CONTENTS (path + purpose + content_type + size) — NEVER
  * inline file contents (ac-15). Cross-Memex / archived / non-skill → 404 (std-7).
+ *
+ * A BODY fetch is the intent-to-use signal (dec-21): on success it emits exactly
+ * ONE `skill.used` usage event carrying the skill, the working-Spec ref, the actor,
+ * the channel, and the time. `list_skills` emits nothing — an appearance is not a
+ * use. The emit is advisory (recordSkillUse swallows its own failures) so metering
+ * never breaks a read.
  */
-export async function getSkill(memexId: string, ref: string): Promise<SkillView> {
+export async function getSkill(
+  memexId: string,
+  ref: string,
+  ctx: RequestCtx = {},
+  opts: GetSkillOptions = {},
+): Promise<SkillView> {
   const doc = await loadActiveSkillDoc(memexId, ref);
   const body = await firstSectionBody(doc.id);
   const description = doc.description ?? "";
   const capabilities = doc.skillCapabilities ?? DEFAULT_SKILL_CAPABILITIES;
-  return {
+  const view: SkillView = {
     ref: buildSkillRef(doc),
     handle: doc.handle,
     name: doc.title,
@@ -479,7 +530,21 @@ export async function getSkill(memexId: string, ref: string): Promise<SkillView>
     capabilities,
     skillMd: reconstructSkillMd({ name: doc.title, description, body }),
     files: await listTocFor(doc.id),
+    lastUpdatedAt: await lastEditAt(doc.id, doc.statusChangedAt),
   };
+
+  // dec-21 — one usage event per body fetch (skill, working-Spec ref, actor,
+  // channel, time). Advisory; awaited so callers/tests observe the recorded row.
+  await recordSkillUse({
+    memexId,
+    skillDocId: doc.id,
+    skillHandle: doc.handle,
+    skillRef: view.ref,
+    ...(opts.workingSpecRef !== undefined ? { workingSpecRef: opts.workingSpecRef } : {}),
+    ctx,
+  });
+
+  return view;
 }
 
 /**
@@ -516,6 +581,17 @@ export async function getSkillFile(
  * (`name`, `description`, `capabilities`, `ref`) — no body, no allowed-tools.
  */
 export async function listSkills(memexId: string): Promise<SkillListItem[]> {
+  // Per-doc meaningful last-edit = max section updatedAt, joined in so a card can
+  // show "last-updated" without an N+1 (spec-300 t-5).
+  const lastEdit = db
+    .select({
+      docId: docSections.docId,
+      lastUpdatedAt: sql<Date>`max(${docSections.updatedAt})`.as("last_updated_at"),
+    })
+    .from(docSections)
+    .groupBy(docSections.docId)
+    .as("last_edit");
+
   const rows = await db
     .select({
       handle: documents.handle,
@@ -524,10 +600,13 @@ export async function listSkills(memexId: string): Promise<SkillListItem[]> {
       skillCapabilities: documents.skillCapabilities,
       namespaceSlug: namespaces.slug,
       memexSlug: memexes.slug,
+      statusChangedAt: documents.statusChangedAt,
+      lastUpdatedAt: lastEdit.lastUpdatedAt,
     })
     .from(documents)
     .innerJoin(memexes, eq(documents.memexId, memexes.id))
     .innerJoin(namespaces, eq(memexes.namespaceId, namespaces.id))
+    .leftJoin(lastEdit, eq(lastEdit.docId, documents.id))
     .where(
       and(
         eq(documents.memexId, memexId),
@@ -542,5 +621,6 @@ export async function listSkills(memexId: string): Promise<SkillListItem[]> {
     name: r.title,
     description: r.description ?? "",
     capabilities: r.skillCapabilities ?? DEFAULT_SKILL_CAPABILITIES,
+    lastUpdatedAt: r.lastUpdatedAt ?? r.statusChangedAt,
   }));
 }

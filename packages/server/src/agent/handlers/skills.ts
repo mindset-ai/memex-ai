@@ -28,7 +28,6 @@ import {
   type SkillFileInput,
 } from "../../services/skills/skills-service.js";
 import type { SkillCapabilities } from "../../services/skills/skill-capabilities.js";
-import { parseSkillMd } from "../../services/skills/parse-skill-md.js";
 import { MEMEX_DESC, VERBOSE_FIELD, reqCtx, type ToolSpec } from "./shared.js";
 
 // ── Local helpers ─────────────────────────────────────────────────────────────
@@ -215,13 +214,12 @@ export const skillsTools: ToolSpec[] = [
     async handler(input, ctx) {
       const { namespace, memex, handle } = parseSkillRef(input.ref);
       const memexId = await ctx.resolveMemex(`${namespace}/${memex}`);
-      // working_spec_ref threads through to the service's metering hook (consumed
-      // by a later task); accepted here so the tool contract is stable.
       const workingSpecRef = input.working_spec_ref as string | undefined;
-      void workingSpecRef;
 
       const path = input.path as string | undefined;
       if (path !== undefined) {
+        // A single-file fetch is not a Skill BODY fetch — it emits no usage event
+        // (dec-21: the body read is the intent-to-use signal, not a file peek).
         const access = await getSkillFile(memexId, handle, path);
         if (access.kind === "inline") {
           return `Inline auxiliary file ${path} (${access.contentType}):\n\n${access.text}`;
@@ -229,7 +227,14 @@ export const skillsTools: ToolSpec[] = [
         return `ref: ${namespace}/${memex}/skills/${handle}\nSigned read URL for ${path} (${access.contentType}, short-lived):\n${access.url}`;
       }
 
-      const view = await getSkill(memexId, handle);
+      // Body fetch → the service records one `skill.used` event carrying the
+      // working-Spec ref + the actor + channel:'mcp' (from reqCtx) (dec-21).
+      const view = await getSkill(
+        memexId,
+        handle,
+        reqCtx(ctx),
+        workingSpecRef !== undefined ? { workingSpecRef } : {},
+      );
       const header = `ref: ${view.ref}\ncapabilities: ${renderCapabilities(view.capabilities)}`;
       return header + "\n\n" + view.skillMd + renderFileToc(view.files);
     },
@@ -266,29 +271,9 @@ export const skillsTools: ToolSpec[] = [
         }
         const memexId = await ctx.resolveMemex(input.memex as string | undefined);
 
-        // ac-36: reject a create whose SKILL.md name collides with an existing
-        // ACTIVE skill in the same Memex, with a user-visible error. (Name is
-        // extracted via the shared t-3 parser; malformed SKILL.md falls through
-        // to createSkill's own validation, which raises the field-specific error.)
-        let parsedName: string | undefined;
-        try {
-          parsedName = parseSkillMd(skillMd).name;
-        } catch {
-          parsedName = undefined;
-        }
-        if (parsedName) {
-          const existing = await listSkills(memexId);
-          const clash = existing.find(
-            (s) => s.name.toLowerCase() === parsedName!.toLowerCase(),
-          );
-          if (clash) {
-            throw new ValidationError(
-              `A skill named "${parsedName}" already exists in this Memex (${clash.ref}). ` +
-                `Pick a different name, or edit the existing skill.`,
-            );
-          }
-        }
-
+        // ac-36 / dec-14: duplicate-name rejection is enforced in the SERVICE's
+        // createSkill (the single source for REST, UI, and MCP) — no MCP-local
+        // guard. A clash surfaces as the service's user-visible ValidationError.
         const files = (input.files as
           | Parameters<typeof toSkillFileInput>[0][]
           | undefined)?.map(toSkillFileInput);

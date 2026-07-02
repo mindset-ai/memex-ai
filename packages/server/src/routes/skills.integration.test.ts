@@ -91,3 +91,54 @@ describe("POST /api/<ns>/<mx>/skills — write access (dec-15, std-7)", () => {
     expect(res.status).toBe(404);
   });
 });
+
+describe("GET /skills/usage + /skills/usage/by-spec — hot/cold + inverse (dec-21)", () => {
+  it("meters a body fetch and surfaces it in the report + the per-Spec inverse view", async () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-300/acs/ac-18");
+
+    const specRef = `mindset-prod/memex-building-itself/specs/spec-300#rest-${Date.now()}`;
+    const create = await app.request(
+      `${memberPath}/skills`,
+      withApexHost({
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          skillMd: reconstructSkillMd({
+            name: "usage-route-skill",
+            description: "Metered over REST. Use when: exercising /usage.",
+            body: "# Body\n\nText.",
+          }),
+        }),
+      }),
+    );
+    expect(create.status).toBe(201);
+    const { handle } = (await create.json()) as { handle: string };
+
+    // A body fetch (with the working-Spec ref) records a use over the rest_ui channel.
+    const get = await app.request(
+      `${memberPath}/skills/${handle}?working_spec_ref=${encodeURIComponent(specRef)}`,
+      withApexHost(),
+    );
+    expect(get.status).toBe(200);
+
+    // The static `/usage` route resolves to the report, NOT the `/:handle` handler.
+    const report = await app.request(`${memberPath}/skills/usage`, withApexHost());
+    expect(report.status).toBe(200);
+    const rows = (await report.json()) as { handle: string; useCount: number }[];
+    const mine = rows.find((r) => r.handle === handle);
+    expect(mine?.useCount).toBeGreaterThanOrEqual(1);
+
+    // The inverse view lists the skill pulled against this Spec.
+    const inverse = await app.request(
+      `${memberPath}/skills/usage/by-spec?spec=${encodeURIComponent(specRef)}`,
+      withApexHost(),
+    );
+    expect(inverse.status).toBe(200);
+    const pulled = (await inverse.json()) as { handle: string }[];
+    expect(pulled.some((s) => s.handle === handle)).toBe(true);
+
+    // Missing `spec` is a 400.
+    const bad = await app.request(`${memberPath}/skills/usage/by-spec`, withApexHost());
+    expect(bad.status).toBe(400);
+  });
+});
