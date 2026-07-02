@@ -33,15 +33,21 @@ const AC_AUTHOR = `${SPEC300}/acs/ac-2`;
 const AC_AGENT_SURFACE = `${SPEC300}/acs/ac-46`; // a chat agent in the shared shell
 const AC_AGENT_AUTHORITY = `${SPEC300}/acs/ac-47`; // create/edit/archive via the validated write path
 const AC_AGENT_JOURNEY = `${SPEC300}/acs/ac-53`; // the PR-gate e2e journey (std-28)
+// spec-300 t-16 — auxiliary-file management on the skill detail page.
+const AC_FILES_ADD = `${SPEC300}/acs/ac-54`; // add files by drag/drop or pick
+const AC_FILES_REMOVE = `${SPEC300}/acs/ac-55`; // remove a file behind a confirmation
 
 const TITLE =
   "a user uploads a SKILL.md with an auxiliary file, sees it in the Skills list, and opens its detail view";
 const AGENT_TITLE =
   "a user asks the Skills-page agent to create a skill from a description, then to archive it — both go through the validated write path";
+const FILES_TITLE =
+  "a user adds an auxiliary file to a skill from its detail page, then removes it via the X with a confirmation";
 
 installAcEmission(test, import.meta.url, {
   [TITLE]: [AC_UPLOAD, AC_AUTHOR],
   [AGENT_TITLE]: [AC_AGENT_SURFACE, AC_AGENT_AUTHORITY, AC_AGENT_JOURNEY],
+  [FILES_TITLE]: [AC_FILES_ADD, AC_FILES_REMOVE],
 });
 
 // A spec-valid SKILL.md: required frontmatter (name lowercase-alnum-hyphens,
@@ -309,5 +315,85 @@ description: Reviews a commit message for format and suggests fixes when it drif
         { timeout: 10_000 },
       )
       .not.toContain("commit-message-linter");
+  });
+
+  // spec-300 t-16 (ac-54/ac-55) — auxiliary-file management on the skill detail
+  // page: a write member ADDS a file by picking it (drag-drop AuxiliaryFilesPanel →
+  // editSkill), then REMOVES it via the row's X, which is guarded by a confirmation.
+  // Runs against the real Skills service on a cold DB (no fake, no SQL).
+  test(FILES_TITLE, async ({ page, resources }) => {
+    const tenant = await seedOrgTenant({
+      slug: resources.slug("spec300-skill-files"),
+      ownerEmail: "dev@memex.ai",
+      memexSlug: "skills",
+    });
+    const apiBase =
+      process.env.E2E_API_URL ??
+      `http://localhost:${process.env.E2E_SERVER_PORT ?? 8090}`;
+    const tBase = `${apiBase}/api/${tenant.namespaceSlug}/${tenant.memexSlug}`;
+
+    // Seed a bare skill (no aux files) directly through the real create route.
+    const SKILL_MD = `---
+name: file-mgmt-skill
+description: Exercises detail-page auxiliary-file management (add and remove of aux files).
+---
+
+# File management skill
+
+A skill with no auxiliary files to start.
+`;
+    const created = await page.request.post(`${tBase}/skills`, {
+      headers: { "content-type": "application/json" },
+      data: { skillMd: SKILL_MD },
+    });
+    expect(created.status()).toBe(201);
+    const { handle } = (await created.json()) as { handle: string };
+
+    // Open the skill's detail page as the writing admin.
+    await page.goto(bareUrl("/"), { waitUntil: "commit" });
+    await page.goto(tenantPath(tenant.namespaceSlug, tenant.memexSlug, `/skills/${handle}`));
+    await expect(page.getByTestId("skill-files")).toBeVisible({ timeout: 15_000 });
+    // No files yet, and no remove control.
+    await expect(page.getByTestId("skill-file-row")).toHaveCount(0);
+
+    // ── ADD (ac-54) ─────────────────────────────────────────────────────────────
+    await page.getByTestId("aux-file-input").setInputFiles({
+      name: "added-note.md",
+      mimeType: "text/markdown",
+      buffer: Buffer.from("# Added note\n\nA template.\n", "utf-8"),
+    });
+    await page.getByTestId("skill-add-files-save").click();
+    // The new file appears in the TOC after the edit + reload.
+    await expect(
+      page.getByTestId("skill-file-row").filter({ hasText: "added-note.md" }),
+    ).toHaveCount(1, { timeout: 15_000 });
+
+    // ── REMOVE (ac-55) — the X asks for confirmation before it deletes ──────────
+    await page.getByTestId("skill-file-remove").click();
+    await expect(page.getByTestId("remove-skill-file-dialog")).toBeVisible();
+    // Cancel first — a fat-finger must not destroy content.
+    await page.getByTestId("remove-skill-file-cancel").click();
+    await expect(page.getByTestId("remove-skill-file-dialog")).toBeHidden();
+    await expect(
+      page.getByTestId("skill-file-row").filter({ hasText: "added-note.md" }),
+    ).toHaveCount(1);
+
+    // Now confirm — the file is removed and drops out of the list.
+    await page.getByTestId("skill-file-remove").click();
+    await page.getByTestId("remove-skill-file-confirm").click();
+    await expect(page.getByTestId("skill-file-row")).toHaveCount(0, { timeout: 15_000 });
+
+    // The real service agrees: the skill has no auxiliary files.
+    await expect
+      .poll(
+        async () => {
+          const res = await page.request.get(`${tBase}/skills/${handle}`);
+          if (!res.ok()) return -1;
+          const body = (await res.json()) as { files: unknown[] };
+          return body.files.length;
+        },
+        { timeout: 10_000 },
+      )
+      .toBe(0);
   });
 });

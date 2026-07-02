@@ -85,6 +85,14 @@ export interface CreateSkillInput {
 export interface EditSkillInput {
   readonly skillMd?: string;
   readonly capabilities?: Partial<SkillCapabilities>;
+  /**
+   * spec-300 t-16 (dec-24): auxiliary files to ADD or REPLACE (a file at an
+   * existing path is replaced). Binary rides as base64 `contentBase64`, text as
+   * `text` — exactly like create. The PATCH route (issue-7) persists them.
+   */
+  readonly files?: readonly SkillFileUpload[];
+  /** spec-300 t-16 (dec-24): auxiliary-file paths to REMOVE from the skill. */
+  readonly removeFiles?: readonly string[];
 }
 
 /** A validated, spec-compliant SKILL.md drafted from a plain-language description
