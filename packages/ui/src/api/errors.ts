@@ -28,6 +28,10 @@ export class AuthApiError extends ApiError {
     status: number,
     public readonly reason: string | undefined,
     message: string,
+    // Seconds the caller should wait before retrying — surfaced on 429s (e.g. the
+    // verification-resend cooldown) so the UI can show/enforce a countdown instead of
+    // a bare error. Absent for non-throttled failures.
+    public readonly retryAfterSec?: number,
   ) {
     super(status, message, reason);
   }

@@ -4,7 +4,7 @@
 import type { NamespaceHomeResponse, MemexDto } from './types';
 import { AuthApiError, OrgApiError } from './errors';
 import { fetchJson as fetchJsonRaw } from './fetchJson';
-import { BASE_URL, fetchWithRetry, authHeaders } from './http';
+import { BASE_URL, fetchWithRetry, fetchOnce, authHeaders } from './http';
 
 export interface MembershipSummary {
   /** The Memex id this membership grants access to. */
@@ -165,6 +165,10 @@ export async function probeAuthApi(email: string): Promise<ProbeResult> {
 }
 
 export async function signupApi(email: string, password: string): Promise<SessionPayload> {
+  // Retry stays ON here: signup is guarded by the unique-email constraint (a retried
+  // POST hits createUserWithPassword's 409 and sends no second email), so retrying is
+  // duplicate-safe AND recovers a Cloud Run cold-start 502. Only resend — which has no
+  // such guard — must be single-shot (see resendVerificationApi).
   return authEndpoint('/auth/signup', { email, password });
 }
 
@@ -177,7 +181,10 @@ export async function verifyEmailApi(token: string): Promise<SessionPayload> {
 }
 
 export async function resendVerificationApi(token: string | null): Promise<void> {
-  const res = await fetchWithRetry(`${BASE_URL}/auth/resend-verification`, {
+  // fetchOnce (no retry): this send is non-idempotent — a retried POST on a timeout
+  // would deliver a second verification email. The button's own cooldown covers
+  // deliberate re-sends.
+  const res = await fetchOnce(`${BASE_URL}/auth/resend-verification`, {
     method: 'POST',
     headers: { ...authHeaders(token) },
   });
@@ -187,6 +194,7 @@ export async function resendVerificationApi(token: string | null): Promise<void>
       res.status,
       body.reason ?? body.error,
       body.message ?? body.error ?? `Resend failed: ${res.status}`,
+      typeof body.retryAfterSec === 'number' ? body.retryAfterSec : undefined,
     );
   }
 }
