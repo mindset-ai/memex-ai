@@ -91,7 +91,12 @@ password.post("/signup", async (c) => {
       userId: user.id,
     });
     const verifyUrl = `${APP_BASE_URL}/verify-email?token=${encodeURIComponent(issued.raw)}`;
-    await getEmailSender()
+    // Fire-and-forget: the verification-email send is a slow provider round-trip, and the
+    // user is admitted immediately (emailVerified=false, gated by a banner — see the
+    // handler docstring). Awaiting it here blocked the 201, so the client sat on
+    // "Signing up…" until the mail provider replied — a sluggish, double-Enter feel.
+    // Detach it so signup returns as soon as the session is ready (matches waitlist.ts).
+    void getEmailSender()
       .send(buildVerificationEmail({ to: user.email, verifyUrl }))
       .catch((err) => console.error("Failed to send verification email:", err));
   }
