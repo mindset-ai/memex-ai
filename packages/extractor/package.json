@@ -18,12 +18,12 @@
     "postgres": "^3.4.5",
     "tree-sitter-python": "^0.25.0",
     "tree-sitter-typescript": "^0.23.2",
-    "web-tree-sitter": "^0.26.9"
+    "web-tree-sitter": "^0.26.10"
   },
   "devDependencies": {
-    "@types/node": "^26.0.0",
-    "tsx": "^4.19.0",
+    "@types/node": "^26.1.0",
+    "tsx": "^4.22.5",
     "typescript": "6.0.3",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.9"
   }
 }
