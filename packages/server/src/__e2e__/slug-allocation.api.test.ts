@@ -82,7 +82,9 @@ describe("slug-allocation [std-3] [t-1]", () => {
     it("rejects reserved slugs (login, api, mcp, install, settings, ...)", async () => {
       const { userId, bearer } = await seedUser({ verified: true });
       try {
-        for (const reserved of ["login", "api", "mcp", "install", "settings", "memex"]) {
+        // Includes marketing section slugs (writing, pricing, …) — reserved
+        // because the apex 301-redirects them to www.memex.ai (see slug.ts).
+        for (const reserved of ["login", "api", "mcp", "install", "settings", "memex", "writing", "pricing", "coding-agents"]) {
           const res = await authedRequest(
             "/api/orgs",
             { method: "POST", body: JSON.stringify({ slug: reserved }) },
