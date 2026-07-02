@@ -87,6 +87,16 @@ export interface EditSkillInput {
   readonly capabilities?: Partial<SkillCapabilities>;
 }
 
+/** A validated, spec-compliant SKILL.md drafted from a plain-language description
+ *  (spec-300 t-15 Increment 1, ac-49/ac-21). The server has already run the same
+ *  validateSkill the create path runs; the UI persists `skillMd` on confirm. */
+export interface DraftedSkill {
+  readonly skillMd: string;
+  readonly name: string;
+  readonly description: string;
+  readonly body: string;
+}
+
 // ── Endpoints ─────────────────────────────────────────────────────────────────
 
 /** List the current Memex's active skills, alphabetical by name (server-sorted). */
@@ -134,6 +144,19 @@ export async function editSkill(
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
+  });
+}
+
+/**
+ * Draft a spec-compliant SKILL.md from a plain-language description (ac-49/ac-21).
+ * The server drafts + validates and returns the SKILL.md for review; the create
+ * flow persists it via createSkill on confirm. A 4xx surfaces its message verbatim.
+ */
+export async function draftSkill(description: string): Promise<DraftedSkill> {
+  return fetchJson<DraftedSkill>(fetchWithRetry, `${tBase()}/skills/draft`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ description }),
   });
 }
 

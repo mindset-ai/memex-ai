@@ -510,10 +510,35 @@ const ISSUES_SERVER_TOOLS = new Set<string>([
   "search_issues",
 ]);
 
+// spec-300 t-15 (dec-23): the SKILLS agent's focused server surface. Its world is
+// this Memex's Skills — it drafts new ones from a description AND curates existing
+// ones (create / edit / archive / restore, all through the ONE verbed update_skill
+// write path the manual UI + MCP share). list_skills / get_skill ground it in the
+// catalogue; search_memex / get_doc give it the broad Memex-wide awareness every
+// in-app agent has (std-38). It never reaches the doc / decision / task / standard
+// mutation surface — for anything outside skill authoring it hands off
+// (render_handoff, a UI tool always included). No new tool is introduced: all five
+// already exist on the in-app surface.
+const SKILLS_SERVER_TOOLS = new Set<string>([
+  "list_skills",
+  "get_skill",
+  "update_skill",
+  "search_memex",
+  "get_doc",
+]);
+
 // spec-389 t-3 (dec-2): the in-app agent modes. `spec` is the doc/Spec agent —
 // the UNRESTRICTED surface, governed by phase + reviewer gates rather than a mode
 // subset. Every other mode is scoped to a narrow server-tool subset below.
-export type AgentMode = "spec" | "drift" | "scaffold" | "standards" | "issues";
+// spec-300 t-15 (dec-23): `skills` is the fifth scoped mode — the dedicated skills
+// authoring / curation agent that lives on the Skills page.
+export type AgentMode =
+  | "spec"
+  | "drift"
+  | "scaffold"
+  | "standards"
+  | "issues"
+  | "skills";
 
 // spec-389 t-3 (dec-2): ONE server-owned mode → allow-list map, generalising the
 // per-mode booleans (DRIFT_/SCAFFOLD_SERVER_TOOLS) into a single auditable place.
@@ -526,6 +551,7 @@ const MODE_TOOLS: Record<Exclude<AgentMode, "spec">, ReadonlySet<string>> = {
   scaffold: SCAFFOLD_SERVER_TOOLS,
   standards: STANDARDS_SERVER_TOOLS,
   issues: ISSUES_SERVER_TOOLS,
+  skills: SKILLS_SERVER_TOOLS,
 };
 
 /** All tool definitions for the Anthropic API. Last tool has cache_control.

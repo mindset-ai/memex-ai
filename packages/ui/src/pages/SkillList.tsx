@@ -13,6 +13,9 @@ import { Button } from '../components/ui';
 import { tenantPath } from '../utils/tenantUrl';
 import { CapabilityChips } from '../components/skills/CapabilityChips';
 import { CreateSkillModal } from '../components/skills/CreateSkillModal';
+import { ChatPanel } from '../components/ChatPanel';
+import { ResizableChatRail } from '../components/chat/ResizableChatRail';
+import { OpeningSkillsController } from '../components/chat/OpeningSkillsController';
 
 function matchesQuery(query: string, skill: SkillListItem): boolean {
   const q = query.trim().toLowerCase();
@@ -55,7 +58,20 @@ export function SkillList() {
   );
 
   return (
-    <div className="px-6 py-6">
+    // spec-300 t-15 (dec-23): the Skills surface docks the skills authoring /
+    // curation agent in the shared resizable rail on the left, mirroring the
+    // Standards surface — one shared ChatPanel shell (std-38), no bespoke agent UI.
+    <div className="flex h-full min-h-0">
+      <OpeningSkillsController />
+      <ResizableChatRail
+        storageKey="skills-chat-width"
+        testId="skills-assistant-panel"
+        handleTestId="skills-chat-resize"
+        label="Skills"
+      >
+        <ChatPanel />
+      </ResizableChatRail>
+      <div className="flex-1 min-w-0 h-full flex flex-col px-6 py-6">
       <PageHeader
         title="Skills"
         actions={
@@ -85,7 +101,7 @@ export function SkillList() {
         </div>
       )}
 
-      <div>
+      <div className="flex-1 min-h-0 overflow-y-auto">
         {loading ? (
           <div className="flex justify-center items-center min-h-[40vh]">
             <Spinner />
@@ -154,6 +170,7 @@ export function SkillList() {
           }}
         />
       )}
+      </div>
     </div>
   );
 }

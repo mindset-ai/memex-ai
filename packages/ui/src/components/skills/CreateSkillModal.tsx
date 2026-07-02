@@ -4,10 +4,11 @@
 //                 errors from the server surface inline on submit.
 //   • Write     — the in-app Markdown editor (the shared design-system TextArea,
 //                 the same primitive Spec authoring uses) for the SKILL.md text.
-//   • Describe  — agent-assisted authoring (ac-21): describe the skill in plain
-//                 language and the agent drafts the SKILL.md. Thin stub for now
-//                 (the drafting round-trip is a follow-up); the entry point is
-//                 real so the flow is discoverable.
+//   • Describe  — agent-assisted authoring (ac-21 / ac-49): describe the skill in
+//                 plain language and the agent drafts a spec-compliant SKILL.md
+//                 (POST /skills/draft → describe→draft→validate, t-15 Increment 1).
+//                 The validated draft loads into the editor for review, then the
+//                 ordinary create path persists it on confirm.
 //
 // Capability flags (dec-20) are three checkboxes; auxiliary files (text + binary)
 // are staged by <AuxiliaryFilesPanel>. On submit everything POSTs via createSkill.
@@ -15,7 +16,7 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { createSkill, EMPTY_CAPABILITIES, type SkillCapabilities } from '../../api/skills';
+import { createSkill, draftSkill, EMPTY_CAPABILITIES, type SkillCapabilities } from '../../api/skills';
 import { tenantPath } from '../../utils/tenantUrl';
 import { Alert } from '../ui/Alert';
 import { Button, TextArea } from '../ui';
@@ -50,6 +51,10 @@ export function CreateSkillModal({ onClose }: { onClose: () => void }) {
   const [files, setFiles] = useState<ReadonlyArray<StagedFile>>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Describe-it (ac-49): the plain-language description and whether the draft turn
+  // is in flight. The returned SKILL.md lands in `skillMd`, reviewed in the editor.
+  const [description, setDescription] = useState('');
+  const [drafting, setDrafting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const toggleCapability = useCallback((key: keyof SkillCapabilities) => {
@@ -63,6 +68,24 @@ export function CreateSkillModal({ onClose }: { onClose: () => void }) {
     setMode(next);
     setError(null);
   }, []);
+
+  // Describe → draft (ac-49, closes ac-21): send the plain-language description to
+  // the server describe→draft→validate turn; the validated SKILL.md lands in the
+  // editor for review, then the ordinary create path persists it on confirm.
+  const handleDraft = useCallback(async () => {
+    const trimmed = description.trim();
+    if (trimmed.length === 0 || drafting) return;
+    setDrafting(true);
+    setError(null);
+    try {
+      const draft = await draftSkill(trimmed);
+      setSkillMd(draft.skillMd);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to draft skill.');
+    } finally {
+      setDrafting(false);
+    }
+  }, [description, drafting]);
 
   const handleUpload = useCallback((file: File | undefined) => {
     if (!file) return;
@@ -197,25 +220,41 @@ export function CreateSkillModal({ onClose }: { onClose: () => void }) {
           {mode === 'write' && <div className="space-y-2">{editor}</div>}
 
           {mode === 'describe' && (
-            <div
-              className="rounded-lg border border-dashed border-edge bg-panel p-4 space-y-2"
-              data-testid="skill-describe-stub"
-            >
-              <p className="text-sm text-heading font-medium">Draft it with the agent</p>
-              <p className="text-xs text-muted">
-                Describe the skill in plain language and the agent will draft a
-                SKILL.md you can refine. This hand-off is coming soon; for now, switch
-                to <span className="font-medium">Write it</span> to author directly.
-              </p>
-              <TextArea
-                placeholder="e.g. A skill that reviews a PR for missing tests and suggests the cases to add."
-                aria-label="Describe the skill"
-                data-testid="skill-describe-input"
-                className="min-h-[6rem] text-sm"
-              />
-              <Button type="button" variant="agent" size="sm" disabled title="Coming soon">
-                Draft with agent
-              </Button>
+            <div className="space-y-3" data-testid="skill-describe-panel">
+              <div className="rounded-lg border border-dashed border-edge bg-panel p-4 space-y-2">
+                <p className="text-sm text-heading font-medium">Draft it with the agent</p>
+                <p className="text-xs text-muted">
+                  Describe the skill in plain language and the agent drafts a
+                  spec-compliant SKILL.md you can refine before creating.
+                </p>
+                <TextArea
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="e.g. A skill that reviews a PR for missing tests and suggests the cases to add."
+                  aria-label="Describe the skill"
+                  data-testid="skill-describe-input"
+                  className="min-h-[6rem] text-sm"
+                  disabled={drafting}
+                />
+                <Button
+                  type="button"
+                  variant="agent"
+                  size="sm"
+                  onClick={handleDraft}
+                  disabled={description.trim().length === 0 || drafting}
+                  data-testid="skill-draft-submit"
+                >
+                  {drafting ? 'Drafting…' : 'Draft with agent'}
+                </Button>
+              </div>
+              {skillMd.trim().length > 0 && (
+                <div className="space-y-2" data-testid="skill-draft-review">
+                  <p className="text-xs text-muted">
+                    Review the draft and edit as needed, then create the skill.
+                  </p>
+                  {editor}
+                </div>
+              )}
             </div>
           )}
 

@@ -19,6 +19,16 @@ vi.mock('../api/skills', async () => {
   return { ...actual, fetchSkills: (...a: unknown[]) => fetchSkillsMock(...a) };
 });
 
+// spec-300 t-15: the Skills page now docks the skills agent rail. These tests
+// don't exercise the chat, so stub the rail's ChatProvider-dependent pieces (they'd
+// otherwise throw "useChat must be used within ChatProvider") — mirrors the
+// Standards list test. The rail wiring is covered by OpeningSkillsController /
+// ChatContext.scoped / AgentIntro tests.
+vi.mock('../components/ChatPanel', () => ({ ChatPanel: () => null }));
+vi.mock('../components/chat/OpeningSkillsController', () => ({
+  OpeningSkillsController: () => null,
+}));
+
 // PageHeader pulls AuthContext for the breadcrumb — stub like the Standards test.
 vi.mock('../components/PageHeader', () => ({
   PageHeader: ({ title, actions }: { title: string; actions?: React.ReactNode }) => (

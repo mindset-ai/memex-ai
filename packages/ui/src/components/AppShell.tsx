@@ -545,12 +545,15 @@ export function AppShell({ children }: { children: ReactNode }) {
   // two-column surface whose chat panel scrolls independently. Unlike content-flow
   // pages (which scroll at the <main> level), they need a BOUNDED-height wrapper so
   // the rail's `h-full` resolves; without it the streaming chat expands the wrapper
-  // and scrolls the whole page. The scaffold, standards-list, and issues surfaces
-  // all dock the rail (standards/:id is a doc page, handled above — not here).
+  // and scrolls the whole page. The scaffold, standards-list, issues, and skills-list
+  // surfaces all dock the rail (standards/:id and skills/:id are doc pages, handled
+  // above — not here).
   const onScaffoldPage = !!useMatch('/:namespace/:memex/scaffold');
   const onStandardsListPage = !!useMatch('/:namespace/:memex/standards');
   const onIssuesPage = !!useMatch('/:namespace/:memex/issues');
-  const onAgentRailPage = onScaffoldPage || onStandardsListPage || onIssuesPage;
+  // spec-300 t-15 (dec-23): the Skills list docks the skills authoring agent rail.
+  const onSkillsListPage = !!useMatch('/:namespace/:memex/skills');
+  const onAgentRailPage = onScaffoldPage || onStandardsListPage || onIssuesPage || onSkillsListPage;
   // spec-410: the Drift Inbox is the odd one out — it's not a doc page (it keeps
   // the sidebar + drift badge), but it docks the agent via DocumentShell's
   // two-pane shell rather than a ResizableChatRail. Either way the bounding need

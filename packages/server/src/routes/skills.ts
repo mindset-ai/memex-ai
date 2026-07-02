@@ -27,6 +27,7 @@ import {
   listSkills,
   type SkillFileInput,
 } from "../services/skills/skills-service.js";
+import { draftSkillFromDescription } from "../services/skills/draft-skill.js";
 import {
   getSkillUsageReport,
   getSkillsUsedForSpec,
@@ -208,6 +209,23 @@ skillsRouter.get("/:handle/files/*", async (c) => {
   if (!filePath) throw new ValidationError("A file path is required");
   const access = await getSkillFile(memexId, handle, filePath);
   return c.json(access);
+});
+
+// spec-300 t-15 Increment 1 (ac-49, closes ac-21) — agent-assisted authoring.
+// Draft a spec-compliant SKILL.md from a plain-language description: the same
+// describe→draft→validate turn the "Describe it" tab wires up. Persists NOTHING —
+// draftSkillFromDescription runs the SAME validateSkill the create path runs, then
+// hands the validated SKILL.md back; the UI persists it via POST /skills on confirm.
+// Registered before `/:handle` verbs; `/draft` is a static segment (no handle
+// collision). Write access required (dec-15) — it is an authoring precursor.
+skillsRouter.post("/draft", async (c) => {
+  requireWriteMemexId(c);
+  const body = await c.req.json<{ description?: string }>();
+  if (typeof body.description !== "string" || body.description.trim().length === 0) {
+    throw new ValidationError("A plain-language `description` is required");
+  }
+  const draft = await draftSkillFromDescription(body.description);
+  return c.json(draft);
 });
 
 // Create accepts TWO body shapes (spec-300 issue-6a):
