@@ -18,6 +18,13 @@ import type { ChangeEntity } from "./bus.js";
 const KEY_PREFIX = "mxh_";
 const KEY_RANDOM_BYTES = 32; // 256 bits of entropy
 
+// Cheap shape test so a caller can decide whether a Bearer token is a hook key
+// BEFORE the DB round-trip in verifyHookKey — used by hook-key-or-session middleware
+// to distinguish "engage the hook-key path" from "fall through to the session JWT".
+export function looksLikeHookKey(raw: string): boolean {
+  return raw.startsWith(KEY_PREFIX);
+}
+
 // bus.ts owns the canonical ChangeEntity union; rather than edit it this wave we
 // define the literal here and narrow at the single emit site — the same pattern
 // the /api/test-events route uses for its TEST_EVENT_ENTITY.

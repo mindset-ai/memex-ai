@@ -88,6 +88,13 @@ export interface EditSkillInput {
   readonly skillMd?: string;
   /** Replacement capability flags. */
   readonly capabilities?: unknown;
+  /** Auxiliary files to ADD or REPLACE on the existing skill (spec-300 issue-7). A
+   *  file whose path already exists REPLACES it (old blob dropped, new row inserted);
+   *  a new path is added. Same union as create-time files. */
+  readonly files?: readonly SkillFileInput[];
+  /** Auxiliary-file paths to REMOVE from the manifest (+ delete their blobs).
+   *  Removing an absent path is a no-op (idempotent). */
+  readonly removeFiles?: readonly string[];
 }
 
 /** One table-of-contents entry — path + purpose + type + size, NEVER contents (ac-15). */
@@ -304,6 +311,118 @@ async function buildFileRow(
   };
 }
 
+/**
+ * Apply auxiliary-file ADD / REPLACE / REMOVE operations against an existing skill's
+ * manifest (spec-300 issue-7). Every write flows through mutate() (std-8) as a
+ * `skill_file` created/updated/deleted event. Returns the LAST file mutation as a
+ * brand witness (or null when there were no ops), so a files-only edit still yields a
+ * `Mutated` result for forwardBrand.
+ *
+ * Semantics:
+ *   - REMOVE: delete the manifest row + its blob (if it was a bucket file). Absent
+ *     path → no-op (idempotent).
+ *   - ADD/REPLACE: an existing path REPLACES (the unique(skillDocId,path) constraint
+ *     forbids a bare insert, so it is delete-then-insert). A binary REPLACE at the
+ *     same path re-puts the SAME blob key (skillBlobKey is docId+path-derived), so the
+ *     bytes are overwritten in place; only a bucket→inline replace orphans an old blob,
+ *     which is then deleted.
+ *
+ * Atomicity: add-file paths are validated by the CALLER before any write, so the common
+ * bad-input failure never half-applies. A failure mid-write compensates by deleting any
+ * blob THIS call newly wrote (best-effort) before rethrowing, so a failed edit leaves no
+ * orphaned bytes — mirroring createSkill's write-then-surface posture.
+ */
+async function applySkillFileOps(
+  memexId: string,
+  skillDocId: string,
+  addFiles: readonly SkillFileInput[],
+  removeFiles: readonly string[],
+  ctx: RequestCtx,
+): Promise<Mutated<SkillFile> | null> {
+  if (addFiles.length === 0 && removeFiles.length === 0) return null;
+
+  const provider = getStorageProvider();
+  const existing = await db
+    .select()
+    .from(skillFiles)
+    .where(eq(skillFiles.skillDocId, skillDocId));
+  const byPath = new Map(existing.map((r) => [r.path, r]));
+
+  // Blobs this edit newly wrote — compensating cleanup if a later step throws.
+  const writtenBlobKeys: string[] = [];
+  let witness: Mutated<SkillFile> | null = null;
+
+  try {
+    // 1. Removals first, so a same-path remove+add in one edit behaves as a replace.
+    for (const rawPath of removeFiles) {
+      const path = rawPath.trim();
+      const row = byPath.get(path);
+      if (!row) continue; // idempotent
+      witness = await mutate(
+        ctx,
+        { memexId, docId: skillDocId, entity: "skill_file", action: "deleted" },
+        async () => {
+          const [deleted] = await db
+            .delete(skillFiles)
+            .where(and(eq(skillFiles.skillDocId, skillDocId), eq(skillFiles.path, path)))
+            .returning();
+          return deleted;
+        },
+      );
+      if (row.storageKind === "bucket" && row.blobUri) {
+        await deleteSkillBlob(provider, row.blobUri);
+      }
+      byPath.delete(path);
+    }
+
+    // 2. Adds / replaces.
+    for (const input of addFiles) {
+      const value = await buildFileRow(skillDocId, input); // writes the blob for binary
+      if (value.storageKind === "bucket" && value.blobUri) {
+        writtenBlobKeys.push(value.blobUri);
+      }
+      const prior = byPath.get(value.path);
+      witness = await mutate(
+        ctx,
+        {
+          memexId,
+          docId: skillDocId,
+          entity: "skill_file",
+          action: prior ? "updated" : "created",
+        },
+        async () => {
+          if (prior) {
+            await db
+              .delete(skillFiles)
+              .where(
+                and(eq(skillFiles.skillDocId, skillDocId), eq(skillFiles.path, value.path)),
+              );
+          }
+          const [row] = await db.insert(skillFiles).values(value).returning();
+          return row;
+        },
+      );
+      // A bucket→inline (or bucket→different-key) replace orphans the prior blob.
+      if (
+        prior &&
+        prior.storageKind === "bucket" &&
+        prior.blobUri &&
+        prior.blobUri !== value.blobUri
+      ) {
+        await deleteSkillBlob(provider, prior.blobUri);
+      }
+      byPath.set(value.path, { ...prior, ...value } as SkillFile);
+    }
+  } catch (err) {
+    for (const key of writtenBlobKeys) {
+      await deleteSkillBlob(provider, key).catch(() => {});
+    }
+    throw err;
+  }
+
+  return witness;
+}
+
 // ── Public service surface ────────────────────────────────────────────────────
 
 /**
@@ -473,10 +592,12 @@ async function resolveSkillRef(memexId: string, handle: string): Promise<string>
 }
 
 /**
- * Edit a Skill's SKILL.md (name/description/body) and/or capability flags. Title,
- * `description`, the first section body, and `skill_capabilities` are updated in
- * one document/updated mutation. Auxiliary-file manifest edits are out of scope
- * for this surface (they arrive with the file-upload flow).
+ * Edit a Skill's SKILL.md (name/description/body), capability flags, and/or its
+ * auxiliary-file manifest (add / replace / remove, spec-300 issue-7). Title,
+ * `description`, the first section body, and `skill_capabilities` are updated in one
+ * document/updated mutation (only when a doc-column actually changes — a files-only
+ * edit issues no empty UPDATE); file operations each flow through mutate() as
+ * `skill_file` events (std-8).
  */
 export async function editSkill(
   memexId: string,
@@ -489,61 +610,90 @@ export async function editSkill(
   const parsed = input.skillMd !== undefined ? parseAndValidate(input.skillMd) : null;
   const capabilities =
     input.capabilities !== undefined ? normalizeCapabilities(input.capabilities) : null;
+  const addFiles = input.files ?? [];
+  const removeFiles = input.removeFiles ?? [];
 
-  const updated = await mutate(
-    ctx,
-    { memexId, docId: doc.id, entity: "document", action: "updated" },
-    async () => {
-      const [row] = await db
-        .update(documents)
-        .set({
-          ...(parsed ? { title: parsed.name, description: parsed.description } : {}),
-          ...(capabilities ? { skillCapabilities: capabilities } : {}),
-        })
-        .where(and(eq(documents.id, doc.id), eq(documents.memexId, memexId)))
-        .returning();
-      return row;
-    },
-  );
+  if (!parsed && !capabilities && addFiles.length === 0 && removeFiles.length === 0) {
+    throw new ValidationError(
+      "editSkill requires at least one of: skillMd, capabilities, files, removeFiles.",
+    );
+  }
 
-  // When the SKILL.md changed, rewrite the first section body in the same logical
-  // edit (section/updated) so the reconstructed SKILL.md stays verbatim.
-  if (parsed) {
-    const sectionId = await firstSectionId(doc.id);
-    if (sectionId) {
-      await mutate(
-        ctx,
-        { memexId, docId: doc.id, entity: "section", action: "updated" },
-        async () => {
-          const [row] = await db
-            .update(docSections)
-            .set({
-              content: parsed.body,
-              updatedAt: new Date(),
-              ...(await resolveActorColumns(ctx)),
-            })
-            .where(eq(docSections.id, sectionId))
-            .returning();
-          return row;
-        },
-      );
+  // Validate add-file paths BEFORE any write, so a bad file op never half-applies the
+  // edit (the manifest and blobs stay untouched on a validation failure).
+  for (const f of addFiles) {
+    if (!f.path?.trim()) {
+      throw new ValidationError("Each skill file requires a non-empty path");
     }
   }
 
+  // Doc-column change — only issued when there IS one (avoids an empty UPDATE on a
+  // files-only edit).
+  let docWitness: Mutated<Doc> | null = null;
+  if (parsed || capabilities) {
+    docWitness = await mutate(
+      ctx,
+      { memexId, docId: doc.id, entity: "document", action: "updated" },
+      async () => {
+        const [row] = await db
+          .update(documents)
+          .set({
+            ...(parsed ? { title: parsed.name, description: parsed.description } : {}),
+            ...(capabilities ? { skillCapabilities: capabilities } : {}),
+          })
+          .where(and(eq(documents.id, doc.id), eq(documents.memexId, memexId)))
+          .returning();
+        return row;
+      },
+    );
+
+    // When the SKILL.md changed, rewrite the first section body in the same logical
+    // edit (section/updated) so the reconstructed SKILL.md stays verbatim.
+    if (parsed) {
+      const sectionId = await firstSectionId(doc.id);
+      if (sectionId) {
+        await mutate(
+          ctx,
+          { memexId, docId: doc.id, entity: "section", action: "updated" },
+          async () => {
+            const [row] = await db
+              .update(docSections)
+              .set({
+                content: parsed.body,
+                updatedAt: new Date(),
+                ...(await resolveActorColumns(ctx)),
+              })
+              .where(eq(docSections.id, sectionId))
+              .returning();
+            return row;
+          },
+        );
+      }
+    }
+  }
+
+  // Auxiliary-file add/replace/remove (spec-300 issue-7).
+  const fileWitness = await applySkillFileOps(memexId, doc.id, addFiles, removeFiles, ctx);
+
+  // The read fields come from the updated doc row when a doc-column changed, else from
+  // the already-loaded doc (which carries handle/title/description/caps + ns/mx slugs).
+  const src = docWitness ?? doc;
   const body = parsed ? parsed.body : await firstSectionBody(doc.id);
-  const description = updated.description ?? "";
-  const caps = updated.skillCapabilities ?? DEFAULT_SKILL_CAPABILITIES;
+  const description = src.description ?? "";
+  const caps = src.skillCapabilities ?? DEFAULT_SKILL_CAPABILITIES;
   const view: SkillView = {
-    ref: buildSkillRef({ ...doc, handle: updated.handle }),
-    handle: updated.handle,
-    name: updated.title,
+    ref: buildSkillRef({ ...doc, handle: src.handle }),
+    handle: src.handle,
+    name: src.title,
     description,
     capabilities: caps,
-    skillMd: reconstructSkillMd({ name: updated.title, description, body }),
+    skillMd: reconstructSkillMd({ name: src.title, description, body }),
     files: await listTocFor(doc.id),
-    lastUpdatedAt: await lastEditAt(doc.id, updated.statusChangedAt),
+    lastUpdatedAt: await lastEditAt(doc.id, src.statusChangedAt),
   };
-  return forwardBrand(updated, view);
+  // Forward whichever mutation witnessed the edit (doc-column change wins; else the
+  // last file op). One is guaranteed non-null by the guard above.
+  return forwardBrand((docWitness ?? fileWitness)!, view);
 }
 
 /**
