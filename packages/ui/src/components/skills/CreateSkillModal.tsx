@@ -56,6 +56,14 @@ export function CreateSkillModal({ onClose }: { onClose: () => void }) {
     setCapabilities((prev) => ({ ...prev, [key]: !prev[key] }));
   }, []);
 
+  // Switching tabs clears any create-error banner (spec-300 issue-4b): an error
+  // from a prior Upload/Write attempt must not read as a fresh failure on another
+  // tab (including Describe, whose action is disabled).
+  const handleModeChange = useCallback((next: Mode) => {
+    setMode(next);
+    setError(null);
+  }, []);
+
   const handleUpload = useCallback((file: File | undefined) => {
     if (!file) return;
     setError(null);
@@ -146,7 +154,7 @@ export function CreateSkillModal({ onClose }: { onClose: () => void }) {
               <button
                 key={m.id}
                 type="button"
-                onClick={() => setMode(m.id)}
+                onClick={() => handleModeChange(m.id)}
                 aria-pressed={mode === m.id}
                 data-testid={`skill-mode-${m.id}`}
                 className={`text-xs px-3 py-1.5 transition-colors ${

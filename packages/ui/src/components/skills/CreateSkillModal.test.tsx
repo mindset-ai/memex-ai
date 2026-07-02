@@ -7,6 +7,9 @@ import { CreateSkillModal } from './CreateSkillModal';
 // spec-300 t-6:
 //   ac-21 — an agent-assisted authoring entry point (describe-in-plain-language).
 const AC21 = 'mindset-prod/memex-building-itself/specs/spec-300/acs/ac-21';
+// spec-300 t-14 (issue-4b):
+//   ac-45 — switching tabs clears any stale create-error banner.
+const AC45 = 'mindset-prod/memex-building-itself/specs/spec-300/acs/ac-45';
 
 const createSkillMock = vi.fn();
 vi.mock('../../api/skills', async () => {
@@ -88,5 +91,28 @@ describe('CreateSkillModal', () => {
     expect(await screen.findByTestId('create-skill-error')).toHaveTextContent(
       /frontmatter is missing/i,
     );
+  });
+
+  it('clears a stale create-error banner when switching tabs (ac-45)', async () => {
+    tagAc(AC45);
+    createSkillMock.mockRejectedValueOnce(new Error('SKILL.md frontmatter is missing `name`'));
+    renderModal();
+
+    // Produce an error on the Write tab.
+    fireEvent.click(screen.getByTestId('skill-mode-write'));
+    fireEvent.change(screen.getByTestId('skill-md-editor'), {
+      target: { value: 'no frontmatter' },
+    });
+    fireEvent.click(screen.getByTestId('create-skill-submit'));
+    expect(await screen.findByTestId('create-skill-error')).toBeInTheDocument();
+
+    // Switching to another tab (including Describe, whose action is disabled)
+    // must clear the banner so it never reads as a fresh failure (issue-4b).
+    fireEvent.click(screen.getByTestId('skill-mode-describe'));
+    expect(screen.queryByTestId('create-skill-error')).not.toBeInTheDocument();
+
+    // And back to Upload stays clean.
+    fireEvent.click(screen.getByTestId('skill-mode-upload'));
+    expect(screen.queryByTestId('create-skill-error')).not.toBeInTheDocument();
   });
 });
