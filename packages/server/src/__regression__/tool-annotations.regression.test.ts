@@ -65,6 +65,12 @@ const READ_ONLY = new Set<string>([
   // spec-340: the facets tool's v0 `list` verb only READS the vocabulary — no
   // mutation, so readOnlyHint: true.
   "facets",
+  // spec-300: the two Skill read tools. list_skills enumerates a Memex's Skills
+  // (metadata only); get_skill reads one Skill's body + file TOC (or mints a
+  // signed read URL for one file) — neither mutates, so readOnlyHint: true. The
+  // verb-dispatched update_skill is the sole Skill write tool (readOnlyHint:false).
+  "list_skills",
+  "get_skill",
 ]);
 
 // spec-358: discontinue_test_events now hard-deletes the orphan's emissions

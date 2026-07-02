@@ -61,6 +61,7 @@ import {
   standardsTools,
   facetsTools,
   integrationsTools,
+  skillsTools,
 } from "./handlers/index.js";
 // spec-360: the scaffold-assistant authoring tool (propose_scaffold_change).
 // Lives in its own handler module like the other domains, but is AGENT-ONLY
@@ -527,6 +528,12 @@ export const toolSpecs: ToolSpec[] = [
 
 
   ...integrationsTools,
+
+  // ── Skills (spec-300) ─────────────────────────────────────
+  // list_skills / get_skill / verb-dispatched update_skill — a thin adapter over
+  // the Skills service (services/skills). std-16: mirrored in the @memex/shared
+  // manifest, held in lockstep by the b-67 parity test.
+  ...skillsTools,
 
   // ── Scaffold assistant (spec-360) ─────────────────────────
   // propose_scaffold_change — AGENT-ONLY (see AGENT_ONLY_SERVER_TOOLS): in the

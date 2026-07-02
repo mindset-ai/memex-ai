@@ -965,6 +965,12 @@ const TOOL_RATIONALES: Record<string, string> = {
     "Check out a Spec for the coding thread you're in — the explicit nomination that binds this session to it so in-flow edits are attributed to it. Writes a SOFT presence marker (a courtesy 'working on this now' lock, never a hard block) and returns who else holds it. Distinct from assignment: a checkout is transient, present-tense presence, not the persistent who-owns-this axis. Idempotent; re-claiming refreshes presence.",
   unclaim_spec:
     "Release your checkout on a Spec — the explicit check-in. Clears your presence marker so teammates see it's free and returns the thread to the silent default. Idempotent; a no-op if you weren't holding it.",
+  list_skills:
+    "List a Memex's active Skills alphabetically — name, description, capability flags, and ref for each. Metadata only: never the SKILL.md body, auxiliary-file contents, or allowed-tools. The discovery call before get_skill.",
+  get_skill:
+    "Read one Skill: the verbatim SKILL.md body plus a table-of-contents of its auxiliary files (path/type/size/purpose, never inline contents). Pass a path to fetch a single file — binary files return a short-lived signed read URL, text files return their bytes inline.",
+  update_skill:
+    "Create, edit, or delete a Skill over MCP — the path for importing a corpus of SKILL.md files into a Memex. Verb-dispatched (create|edit|delete): create takes a SKILL.md string plus optional capability flags and auxiliary files; edit re-validates a new SKILL.md and/or capabilities; delete soft-archives. Every path runs the same server-side SKILL.md validation.",
 };
 
 const TOOLS: ToolNode[] = toolManifest.map(
