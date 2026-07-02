@@ -559,6 +559,13 @@ export function PostLoginRouter() {
       />
 
 
+      {/* Bare /specs is a flat, single-segment path with no tenant prefix, so it
+          would otherwise be claimed by /:namespace below and resolved as a bogus
+          "specs" namespace. The specs board is tenant-scoped (/<ns>/<mx>/specs);
+          send the user to their default landing (personal memex, or /home if they
+          have no spec yet). Same RootRedirect pattern as /login and hidden /home. */}
+      <Route path="/specs" element={<RootRedirect />} />
+
       {/* doc-19 t-10: namespace home — /<namespace>/ renders the kind-aware
           OrgHome / Personal Home. More specific /:namespace/:memex routes below
           take precedence (React Router 7 specificity). */}

@@ -204,6 +204,31 @@ export const USAGE_EVENT_REGISTRY = [
       "The app router (RootRedirect) decided a user's first-load landing from a read-only onboarding-state check (spec-421 dec-5). props.destination is where they were sent (home | specs); props.graduated (bool) is whether the onboarding journey was graduated. Lets us measure whether routing graduated users straight to their Specs board lifts engagement. Advisory (never throws into routing).",
     source: "frontend",
   },
+  // ── Onboarding welcome video (spec-444) ─────────────────────────────────────
+  // The first-run welcome video (WelcomePage). Front-end lifecycle signals fired
+  // via useTelemetry().track() from the tenant-scoped /telemetry ingress, so they
+  // carry the real actor_user_id and join the activation funnel. Each fires AT
+  // MOST ONCE per view (ref-guarded — replay/seek/pause never re-fire). Props are
+  // IDs + counts only (std-35 cl-5): a stable video_id plus playback position /
+  // duration / percent (all NaN-guarded numbers, never content).
+  {
+    name: "onboarding.video_started",
+    description:
+      "The first-run welcome video began playing (WelcomePage, spec-444). Fires at most once per view on the first play/playing event. props.video_id (stable video slug), props.position_seconds, props.duration_seconds, props.percent_watched (0–100, NaN-guarded) — counts only.",
+    source: "frontend",
+  },
+  {
+    name: "onboarding.video_completed",
+    description:
+      "The first-run welcome video reached its end (WelcomePage 'ended', spec-444). Fires at most once per view. props.video_id, props.position_seconds, props.duration_seconds, props.percent_watched (0–100, NaN-guarded) — counts only. The activation-funnel success signal for the video step.",
+    source: "frontend",
+  },
+  {
+    name: "onboarding.video_skipped",
+    description:
+      "The user dismissed/skipped the first-run welcome video BEFORE completion (WelcomePage Get-started / Skip / × close, spec-444). Fires at most once per view and only when the video has not already completed. props.video_id, props.position_seconds, props.duration_seconds, props.percent_watched (0–100, NaN-guarded) — counts only.",
+    source: "frontend",
+  },
   // ── Back-end outcomes (whitelisted mutate() events, dec-8) ───────────────────
   // Name is EXACTLY `${entity}.${action}` so the t-3 whitelist maps 1:1.
   {
