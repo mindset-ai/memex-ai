@@ -11,6 +11,7 @@ import {
 } from "../../mcp/refs.js";
 import {
   createDecision,
+  getDecision,
   listDecisions,
   resolveDecision,
   reopenDecision,
@@ -240,6 +241,18 @@ export const decisionsTools: ToolSpec[] = [
         .nonnegative()
         .optional()
         .describe("Zero-based index into the decision's options (edit-in-place mode)."),
+      // spec-445 dec-1 — edit a decision's facet classification through this existing tool
+      // (no bespoke facet tool). An edit-in-place field: cannot combine with a status
+      // transition; omit to leave facets unchanged.
+      facetBallot: z
+        .object({
+          verdict: z.record(z.string(), z.boolean()).describe("Complete map: facet slug → true/false."),
+          none: z.boolean().describe("true = this work governs no facet (every verdict false)."),
+        })
+        .optional()
+        .describe(
+          "OPTIONAL (edit-in-place). Re-cast this decision's facet classification: a COMPLETE verdict over the Memex's facet vocabulary (a true/false for EVERY facet, or none:true) that REPLACES the stored ballot and re-surfaces the governing standards. Cannot combine with a status transition. Call the `facets` tool (verb:'list') first.",
+        ),
       verbose: VERBOSE_FIELD,
     },
     async handler(input, ctx) {
@@ -258,15 +271,18 @@ export const decisionsTools: ToolSpec[] = [
         fields.chosenOptionIndex = input.chosenOptionIndex;
       }
       const hasEditFields = Object.keys(fields).length > 0;
+      // spec-445 dec-1 — a facet re-cast is an edit-in-place operation, orthogonal to the
+      // content fields but subject to the same "not with a status transition" rule.
+      const hasFacetEdit = input.facetBallot !== undefined;
 
-      if (target && hasEditFields) {
+      if (target && (hasEditFields || hasFacetEdit)) {
         throw new ValidationError(
-          "update_decision: cannot combine a status transition with field edits in one call; pick one mode.",
+          "update_decision: cannot combine a status transition with field/facet edits in one call; pick one mode.",
         );
       }
-      if (!target && !hasEditFields) {
+      if (!target && !hasEditFields && !hasFacetEdit) {
         throw new ValidationError(
-          "update_decision requires either status (open/resolved/candidate/rejected to transition) or one of: title, context, resolution, chosenOptionIndex.",
+          "update_decision requires either status (open/resolved/candidate/rejected to transition) or one of: title, context, resolution, chosenOptionIndex, facetBallot.",
         );
       }
 
@@ -300,15 +316,46 @@ export const decisionsTools: ToolSpec[] = [
           );
         }
       } else {
-        // Edit-in-place mode.
-        updated = await updateDecisionFields(memexId, entity.row.id, fields);
+        // Edit-in-place mode (content fields and/or a facet re-cast, spec-445). A
+        // facet-only edit changes no content field, so read the row back for the response.
+        updated = hasEditFields
+          ? await updateDecisionFields(memexId, entity.row.id, fields)
+          : await getDecision(memexId, entity.row.id, doc.id);
         mode = "updated";
+      }
+
+      // spec-445 dec-1 — edit the decision's facet classification: a COMPLETE verdict
+      // REPLACES the stored ballot (decision_facet_ballots upserts one per decision) and
+      // re-surfaces the governing standards — the same validate+store+route path
+      // create_decision / resolve_decision take. A vocab-less Memex is a no-op.
+      let facetEditReadout = "";
+      if (hasFacetEdit) {
+        const ballot = parseBallotArg(input.facetBallot);
+        const vocab = await requireBallotForMemex(
+          memexId,
+          { provided: true, ballot },
+          { noun: "decision", channel: ctx.channel },
+        );
+        if (vocab.length > 0) {
+          const routeRef = buildChildRef(slugs, doc, { type: "decisions", seq: updated.seq });
+          facetEditReadout = await storeRouteAndReadout({
+            memexId,
+            specDocId: updated.docId,
+            noun: "decision",
+            rowId: entity.row.id,
+            ownerRef: routeRef,
+            queryText: `${updated.title}\n${updated.resolution ?? ""}`,
+            ballot,
+            vocab,
+            ctx: reqCtx(ctx),
+          });
+        }
       }
 
       if (ctx.verbose) {
         const state = await fullDocState(memexId, updated.docId);
         const url = await ctx.workspaceUrl(memexId);
-        return formatState(url, state);
+        return (await formatState(url, state)) + facetEditReadout;
       }
       const decRef = buildChildRef(slugs, doc, { type: "decisions", seq: updated.seq });
       // Response shape mirrors what callers parse (`^Decision <verb>: ref: ...`).
@@ -321,7 +368,7 @@ export const decisionsTools: ToolSpec[] = [
       if (mode === "restored") {
         return `Decision restored: ref: ${decRef} "${updated.title}" [${updated.status}]`;
       }
-      return `Decision updated: ref: ${decRef} "${updated.title}" [${updated.status}]`;
+      return `Decision updated: ref: ${decRef} "${updated.title}" [${updated.status}]${facetEditReadout}`;
     },
   },
   {

@@ -12,6 +12,7 @@ import { matchesQuery } from '../components/standards-map/model';
 import { ChatPanel } from '../components/ChatPanel';
 import { ResizableChatRail } from '../components/chat/ResizableChatRail';
 import { OpeningStandardsController } from '../components/chat/OpeningStandardsController';
+import { PromptButton } from '../components/PromptButton';
 
 /**
  * Standard list (per dec-25). Renders only `docType='standard'` documents.
@@ -197,6 +198,20 @@ export function StandardList() {
               decisions justifying them. The agent flags drift when those
               decisions resolve, so the rules stay honest over time.
             </p>
+            {/* spec-438 dec-1 (ac-4/ac-7): the cold-start bootstrap doorbell.
+                Copy-to-clipboard handoff to the developer's coding agent — the
+                kickoff prose lives in the Scaffold node `bootstrap-standards`,
+                never inlined here (std-23/std-15). */}
+            <div className="mt-4 flex justify-center" data-testid="standards-bootstrap-cta">
+              <PromptButton
+                buttonId="bootstrap-standards"
+                context={{}}
+                variant="agent"
+                linkText="Bootstrap standards from your codebase"
+                sentence=" — copy this prompt into your coding agent to read the code and capture the rules your team already follows."
+                sentenceLabel="Bootstrap standards from your codebase — copy this prompt into your coding agent to capture the rules your team already follows"
+              />
+            </div>
           </div>
         ) : visibleDocs.length === 0 ? (
           <div

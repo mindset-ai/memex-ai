@@ -25,7 +25,7 @@ import {
 // spec-423 dec-5 — the forced facet ballot + payoff readout. Vocab is read via
 // facet-ballot.ts → facet-vocab.ts (NO-LLM); the classifier engine is never imported
 // on this request path (the facet-classifier-no-request-path regression guard).
-import { requireBallotForMemex, taskBallotTrueFacets } from "../../services/facet-ballot.js";
+import { requireBallotForMemex, taskBallotTrueFacets, facetKeysByTask } from "../../services/facet-ballot.js";
 import { parseBallotArg, storeRouteAndReadout, routeAndReadout } from "../../services/facet-consume.js";
 import {
   ValidationError,
@@ -88,7 +88,12 @@ export const tasksTools: ToolSpec[] = [
         if (all.length === 0) {
           return `${formatDocStatusHeader(doc)}\n\nNo tasks on this doc.`;
         }
-        const lines = all.map((t) => `- t-${t.seq} [${t.status}] "${t.title}"`);
+        // spec-445 dec-2 — surface each task's stored facets as context.
+        const vFacets = await facetKeysByTask(memexId, all.map((t) => t.id));
+        const lines = all.map((t) => {
+          const f = vFacets.get(t.id) ?? [];
+          return `- t-${t.seq} [${t.status}] "${t.title}"${f.length > 0 ? ` {facets: ${f.join(", ")}}` : ""}`;
+        });
         return `${formatDocStatusHeader(doc)}\n\n${lines.join("\n")}`;
       }
 
@@ -107,6 +112,8 @@ export const tasksTools: ToolSpec[] = [
       }
       const all = await listTasks(memexId, doc.id);
       if (all.length === 0) return "No tasks on this doc.";
+      // spec-445 dec-2 — surface each task's stored facets as context.
+      const listFacets = await facetKeysByTask(memexId, all.map((t) => t.id));
       return all
         .map((t) => {
           const blockerHandles = [
@@ -118,7 +125,8 @@ export const tasksTools: ToolSpec[] = [
               ? `BLOCKED-by-${blockerHandles.join(",")}`
               : "READY";
           const taskRef = buildChildRef(slugs, doc, { type: "tasks", seq: t.seq });
-          return `- ref: ${taskRef} [${t.status}, ${marker}] "${t.title}"`;
+          const f = listFacets.get(t.id) ?? [];
+          return `- ref: ${taskRef} [${t.status}, ${marker}] "${t.title}"${f.length > 0 ? ` {facets: ${f.join(", ")}}` : ""}`;
         })
         .join("\n");
     },
@@ -256,6 +264,18 @@ export const tasksTools: ToolSpec[] = [
         .describe(
           "Canonical ref to a decision or task in the same parent doc, e.g. `mindset/main/specs/spec-3/decisions/dec-2`.",
         ),
+      // spec-445 dec-1 — edit a task's facet classification through this existing tool
+      // (no bespoke facet tool). A COMPLETE verdict REPLACES the stored ballot and
+      // re-surfaces the governing standards; omit to leave facets unchanged.
+      facetBallot: z
+        .object({
+          verdict: z.record(z.string(), z.boolean()).describe("Complete map: facet slug → true/false."),
+          none: z.boolean().describe("true = this work governs no facet (every verdict false)."),
+        })
+        .optional()
+        .describe(
+          "OPTIONAL. Re-cast this task's facet classification: a COMPLETE verdict over the Memex's facet vocabulary (a true/false for EVERY facet, or none:true) that REPLACES the stored ballot and re-surfaces the governing standards. Omit to leave facets unchanged. Call the `facets` tool (verb:'list') first to read the vocabulary.",
+        ),
       verbose: VERBOSE_FIELD,
     },
     async handler(input, ctx) {
@@ -310,6 +330,8 @@ export const tasksTools: ToolSpec[] = [
       // `status` is a single value — so at most one is non-empty per call.
       let inProgressReadout = "";
       let completedReadout = "";
+      // spec-445 dec-1 — the facet-edit readout, re-surfaced when the ballot is re-cast.
+      let facetEditReadout = "";
       if (
         title !== undefined ||
         description !== undefined ||
@@ -324,6 +346,34 @@ export const tasksTools: ToolSpec[] = [
         }, reqCtx(ctx));
         const taskRef = buildChildRef(slugs, doc, { type: "tasks", seq: updated.seq });
         messages.push(`Task ref: ${taskRef} fields updated.`);
+      }
+      // spec-445 dec-1 — edit the task's facet classification through this existing tool:
+      // a COMPLETE verdict REPLACES the stored ballot (task_facet_ballots upserts one per
+      // task) and re-surfaces the governing standards — the same validate+store+route path
+      // create_task takes. Omitted → facets unchanged; a vocab-less Memex is a no-op.
+      if (input.facetBallot !== undefined) {
+        const ballot = parseBallotArg(input.facetBallot);
+        const vocab = await requireBallotForMemex(
+          memexId,
+          { provided: true, ballot },
+          { noun: "task", channel: ctx.channel },
+        );
+        if (vocab.length > 0) {
+          const fresh = await getTask(memexId, taskUuid);
+          const taskRef = buildChildRef(slugs, doc, { type: "tasks", seq: fresh.seq });
+          facetEditReadout = await storeRouteAndReadout({
+            memexId,
+            specDocId: doc.id,
+            noun: "task",
+            rowId: taskUuid,
+            ownerRef: taskRef,
+            queryText: `${fresh.title}\n${fresh.description}`,
+            ballot,
+            vocab,
+            ctx: reqCtx(ctx),
+          });
+          messages.push(`Task ref: ${taskRef} facets updated.`);
+        }
       }
       if (status !== undefined) {
         const updated = await updateTaskStatus(memexId, taskUuid, status, reqCtx(ctx));
@@ -435,13 +485,13 @@ export const tasksTools: ToolSpec[] = [
         // spec-219 Phase 2 (sole-author): the completion steer is already
         // signalled above (kind:'task_completed'); composeGuidanceEnvelope owns
         // the prose for terse AND verbose. Nothing to park here.
-        return (await formatState(url, state, ctx)) + inProgressReadout + completedReadout;
+        return (await formatState(url, state, ctx)) + inProgressReadout + completedReadout + facetEditReadout;
       }
 
       if (messages.length === 0) {
-        return "No-op: pass at least one of status, title, description, acceptanceCriteria, sectionRef, addBlockerRef, removeBlockerRef.";
+        return "No-op: pass at least one of status, title, description, acceptanceCriteria, sectionRef, facetBallot, addBlockerRef, removeBlockerRef.";
       }
-      return messages.join(" ") + inProgressReadout + completedReadout;
+      return messages.join(" ") + inProgressReadout + completedReadout + facetEditReadout;
     },
   },
   {
