@@ -1,12 +1,17 @@
 // spec-201 dec-6: the "Genesis prompt" — a copy-pasteable first prompt a user
-// drops into a fresh Claude Code or Cursor session so the AGENT bootstraps
-// itself: it registers the Memex MCP server in its own config AND writes a
-// durable "how to use Memex" clause into the project's agent memory, so the
-// agent reaches for Memex on every future session.
+// drops into a fresh coding-agent session so the AGENT bootstraps itself: it
+// registers the Memex MCP server in its own config AND writes a durable "how to
+// use Memex" clause into the project's agent memory, so the agent reaches for
+// Memex on every future session. spec-452 adds Copilot (VS Code agent mode) as a
+// third coder; all three builders share the same two jobs and the same clause.
 //
 // Pure string builders parameterised by the environment-derived MCP URL
 // (utils/mcpUrl.ts) so the prompt is correct per environment and the content is
-// unit-testable without rendering (ac-18/ac-19/ac-20).
+// unit-testable without rendering (ac-18/ac-19/ac-20; spec-452 ac-11..17).
+//
+// This file is on the scaffold-drift-guard allowlist (std-15): it is human-pasted
+// clipboard text for the USER's own agent, not Mindset-agent prompt prose, so the
+// prose lives here rather than in scaffold-data.ts.
 
 // The durable usage clause. This is the part nothing else does — the installer
 // and the Connectors Directory cover MCP registration, but only this teaches the
@@ -67,4 +72,30 @@ export function buildCursorPrompt(mcpUrl: string): string {
 ${MEMEX_USAGE_GUIDANCE}
 
 Then confirm both steps are done and that the Memex tools are available.`;
+}
+
+// spec-452 dec-3: Copilot targets VS Code AGENT MODE only. The prompt registers the
+// server in `.vscode/mcp.json` (the `servers` / `type:"http"` / `url` shape, OAuth on
+// connect) and writes the durable clause into `.github/copilot-instructions.md` (dec-2) —
+// the repo-wide instructions file Copilot reads every session, the CLAUDE.md analogue.
+// MCP-only over OAuth: NO checkout plugin (Claude-Code-only), and the Copilot cloud
+// coding agent is deliberately out of scope (it can't do OAuth remote MCP), so this
+// prompt never mentions a personal access token or a repo-Settings MCP surface.
+export function buildCopilotPrompt(mcpUrl: string): string {
+  return `Set up Memex in this project for GitHub Copilot (VS Code agent mode):
+
+1. Add the Memex MCP server to VS Code's MCP config — \`.vscode/mcp.json\` in this
+   project (create it if it doesn't exist):
+   {
+     "servers": {
+       "memex": { "type": "http", "url": "${mcpUrl}" }
+     }
+   }
+   Reload VS Code, then run "MCP: List Servers" → Start and complete the browser
+   sign-in when Copilot prompts you to authorize.
+
+2. Create \`.github/copilot-instructions.md\` (append if it already exists) with this content:
+${MEMEX_USAGE_GUIDANCE}
+
+Then confirm both steps are done and that the Memex tools are available in Copilot's agent mode.`;
 }

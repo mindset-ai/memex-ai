@@ -80,7 +80,7 @@ export function McpTokensSection() {
         Long-lived tokens that authorize the Memex installer / MCP clients on a device.
         Each token grants access to all your Memexes. Revoke any token to immediately
         cut off the device using it.{' '}
-        <a href="#install-cli" className="underline hover:text-primary">
+        <a href="#install-memex" className="underline hover:text-primary">
           Install on a new device →
         </a>
       </p>
@@ -91,7 +91,7 @@ export function McpTokensSection() {
       {!loading && active.length === 0 && (
         <div className="border rounded-lg p-6 text-sm bg-surface border-edge text-secondary">
           You haven't authorized any devices yet.{' '}
-          <a href="#install-cli" className="underline hover:text-primary">
+          <a href="#install-memex" className="underline hover:text-primary">
             Install the MCP installer
           </a>{' '}
           to get started.
