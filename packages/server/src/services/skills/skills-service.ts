@@ -26,7 +26,7 @@ import { resolveActorColumns } from "../actor.js";
 import { recordSkillUse } from "./skill-metering.js";
 import { isUuid } from "../shared/identifiers.js";
 import { createDocDraft } from "../documents.js";
-import { getStorageProvider } from "../storage/index.js";
+import { getStorageProvider, type StorageProvider } from "../storage/index.js";
 import { parseSkillMd } from "./parse-skill-md.js";
 import { validateSkill } from "./validate-skill.js";
 import { reconstructSkillMd } from "./reconstruct-skill-md.js";
@@ -39,6 +39,7 @@ import {
   skillBlobKey,
   checksumOf,
   putSkillBlob,
+  deleteSkillBlob,
 } from "./skill-storage.js";
 
 const SKILL_DOC_TYPE = "skill";
@@ -348,53 +349,116 @@ export async function createSkill(
     ctx,
   );
 
-  // 2. Stamp the Skill-specific columns on the doc row (document/updated).
-  const updated = await mutate(
-    ctx,
-    { memexId, docId: doc.id, entity: "document", action: "updated" },
-    async () => {
-      const [row] = await db
-        .update(documents)
-        .set({ description, skillCapabilities: capabilities })
-        .where(and(eq(documents.id, doc.id), eq(documents.memexId, memexId)))
-        .returning();
-      return row;
-    },
-  );
-
-  // 3. Persist the auxiliary-file manifest (one skill_file/created event per row).
-  let fileRows: SkillFile[] = [];
-  const files = input.files ?? [];
-  if (files.length > 0) {
-    const values = await Promise.all(files.map((f) => buildFileRow(doc.id, f)));
-    fileRows = await mutate(
+  // Steps 2-3 run AFTER the doc is committed (step 1), and each mutate() is its
+  // own transaction — so a failure here (e.g. a binary blob upload to an
+  // unprovisioned store) would orphan a half-created skill: the doc persists
+  // while the caller sees a 500 (spec-300 issue-3, observed as skill-2). Wrap
+  // them so a failure rolls the create back atomically before rethrowing the
+  // real cause.
+  try {
+    // 2. Stamp the Skill-specific columns on the doc row (document/updated).
+    const updated = await mutate(
       ctx,
-      values.map((v) => ({
-        memexId,
-        docId: doc.id,
-        entity: "skill_file" as const,
-        action: "created" as const,
-      })),
-      async () => db.insert(skillFiles).values(values).returning(),
+      { memexId, docId: doc.id, entity: "document", action: "updated" },
+      async () => {
+        const [row] = await db
+          .update(documents)
+          .set({ description, skillCapabilities: capabilities })
+          .where(and(eq(documents.id, doc.id), eq(documents.memexId, memexId)))
+          .returning();
+        return row;
+      },
     );
-  }
 
-  // createDocDraft doesn't return ns/mx slugs; resolve them so the returned view
-  // carries the canonical ref exactly like getSkill does.
-  const ref = await resolveSkillRef(memexId, updated.handle);
-  const view: SkillView = {
-    ref,
-    handle: updated.handle,
-    name: updated.title,
-    description,
-    capabilities,
-    skillMd: reconstructSkillMd({ name: updated.title, description, body }),
-    files: fileRows.map(toTocEntry),
-    lastUpdatedAt: await lastEditAt(doc.id, updated.statusChangedAt),
-  };
-  // The doc-column update is a genuine mutate() witness; forward its brand to the
-  // composite view (the ONE sanctioned brand transfer, mutate.ts forwardBrand).
-  return forwardBrand(updated, view);
+    // 3. Persist the auxiliary-file manifest (one skill_file/created event per row).
+    let fileRows: SkillFile[] = [];
+    const files = input.files ?? [];
+    if (files.length > 0) {
+      const values = await Promise.all(files.map((f) => buildFileRow(doc.id, f)));
+      fileRows = await mutate(
+        ctx,
+        values.map(() => ({
+          memexId,
+          docId: doc.id,
+          entity: "skill_file" as const,
+          action: "created" as const,
+        })),
+        async () => db.insert(skillFiles).values(values).returning(),
+      );
+    }
+
+    // createDocDraft doesn't return ns/mx slugs; resolve them so the returned view
+    // carries the canonical ref exactly like getSkill does.
+    const ref = await resolveSkillRef(memexId, updated.handle);
+    const view: SkillView = {
+      ref,
+      handle: updated.handle,
+      name: updated.title,
+      description,
+      capabilities,
+      skillMd: reconstructSkillMd({ name: updated.title, description, body }),
+      files: fileRows.map(toTocEntry),
+      lastUpdatedAt: await lastEditAt(doc.id, updated.statusChangedAt),
+    };
+    // The doc-column update is a genuine mutate() witness; forward its brand to the
+    // composite view (the ONE sanctioned brand transfer, mutate.ts forwardBrand).
+    return forwardBrand(updated, view);
+  } catch (err) {
+    await rollbackPartialSkillCreate(memexId, doc.id, input.files ?? [], ctx);
+    throw err;
+  }
+}
+
+/** Compensating rollback for a createSkill that failed AFTER its doc was
+ *  committed (spec-300 issue-3, ac-44). Removes any auxiliary blobs written for
+ *  this doc, then hard-deletes the doc through mutate() so the unified bus stays
+ *  consistent — step 1's document/created is balanced by a document/deleted, and
+ *  FK ON DELETE CASCADE clears the skill_files manifest. Best-effort throughout:
+ *  a cleanup failure must never mask the original error the caller is about to
+ *  see rethrown. */
+async function rollbackPartialSkillCreate(
+  memexId: string,
+  docId: string,
+  files: readonly SkillFileInput[],
+  ctx: RequestCtx,
+): Promise<void> {
+  // Blobs first. getStorageProvider() itself throws when storage is unconfigured
+  // — a common cause of the very failure we're rolling back — in which case
+  // nothing was uploaded, so skip silently.
+  let provider: StorageProvider | null = null;
+  try {
+    provider = getStorageProvider();
+  } catch {
+    provider = null;
+  }
+  if (provider) {
+    for (const f of files) {
+      const path = f.path?.trim();
+      if (isBinaryFile(f) && path) {
+        try {
+          await deleteSkillBlob(provider, skillBlobKey(docId, path));
+        } catch {
+          // best-effort — a stranded blob is far less bad than masking the cause
+        }
+      }
+    }
+  }
+  try {
+    await mutate(
+      ctx,
+      { memexId, docId, entity: "document", action: "deleted" },
+      async () => {
+        const [row] = await db
+          .delete(documents)
+          .where(and(eq(documents.id, docId), eq(documents.memexId, memexId)))
+          .returning();
+        return row;
+      },
+    );
+  } catch {
+    // best-effort — if even the compensating delete fails, still rethrow the
+    // original cause; an orphan is a lesser evil than swallowing the real error.
+  }
 }
 
 /** Resolve `<namespace>/<memex>/skills/<handle>` from a memexId + handle. */
