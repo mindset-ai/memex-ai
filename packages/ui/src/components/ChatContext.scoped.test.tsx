@@ -50,6 +50,10 @@ function renderProvider() {
 
 const AC_NEW_AGENTS =
   'mindset-prod/memex-building-itself/specs/spec-389/acs/ac-4';
+// spec-300 t-15 (dec-23): ac-52 — ChatContext gains enter/exitSkillsMode; entering
+// flips isSkillsMode and unbinds any doc, exitScopedMode resets to 'spec'.
+const AC_SKILLS_MODE =
+  'mindset-prod/memex-building-itself/specs/spec-300/acs/ac-52';
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -76,11 +80,26 @@ describe('ChatContext — standards / issues mode entry (ac-4)', () => {
     expect(ctx.isStandardsMode).toBe(false);
   });
 
+  it('enterSkillsMode flips into skills mode; exitScopedMode resets to spec (spec-300 ac-52)', async () => {
+    tagAc(AC_SKILLS_MODE);
+    renderProvider();
+    expect(ctx.isSkillsMode).toBe(false);
+    await act(async () => { ctx.enterSkillsMode(); });
+    expect(ctx.isSkillsMode).toBe(true);
+    // Skills is exclusive of the sibling scoped modes.
+    expect(ctx.isStandardsMode).toBe(false);
+    expect(ctx.isIssuesMode).toBe(false);
+    await act(async () => { ctx.exitScopedMode(); });
+    expect(ctx.isSkillsMode).toBe(false);
+  });
+
   it('the scoped agents do NOT fire an opening LLM turn on entry (dec-1: static intro)', async () => {
     tagAc(AC_NEW_AGENTS);
+    tagAc(AC_SKILLS_MODE);
     renderProvider();
     await act(async () => { ctx.enterStandardsMode(); });
     await act(async () => { ctx.enterIssuesMode(); });
+    await act(async () => { ctx.enterSkillsMode(); });
     expect(mockInvoke).not.toHaveBeenCalled();
   });
 });

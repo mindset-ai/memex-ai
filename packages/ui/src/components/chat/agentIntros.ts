@@ -6,7 +6,7 @@
 // the UI rather than the scaffold model.
 
 /** The in-app agent modes that render in the shared ChatPanel shell. */
-export type AgentChatMode = 'spec' | 'drift' | 'scaffold' | 'standards' | 'issues';
+export type AgentChatMode = 'spec' | 'drift' | 'scaffold' | 'standards' | 'issues' | 'skills';
 
 export interface AgentIntroContent {
   /** One-line statement of what this agent is for. */
@@ -65,6 +65,16 @@ export const AGENT_INTROS: Record<AgentChatMode, AgentIntroContent> = {
       'Ask me to summarise open Issues, or filter them by Spec or type.',
       'I can update, resolve, or promote a todo Issue straight to a Task.',
       'I manage Issues only; when something needs a Spec I’ll hand you a prompt for the New Spec flow.',
+    ],
+    footer: START,
+  },
+  // spec-300 t-15 (dec-23): the dedicated skills authoring / curation agent card.
+  skills: {
+    lead: 'I help you author and curate this Memex’s Skills — the reusable procedures your agents follow.',
+    bullets: [
+      'Describe a skill in plain language and I’ll draft a spec-compliant SKILL.md for your review.',
+      'Ask me to edit, archive, or restore an existing skill — I propose every change before it’s written.',
+      'I author Skills only; I never run one or touch code — for that I’ll hand you a prompt for the coding agent.',
     ],
     footer: START,
   },

@@ -88,6 +88,13 @@ interface ChatState {
   isIssuesMode: boolean;
   enterStandardsMode: () => void;
   enterIssuesMode: () => void;
+  /**
+   * spec-300 t-15 (dec-23): the dedicated skills authoring / curation agent mode.
+   * The Skills page enters it on mount (enterSkillsMode) and leaves on unmount
+   * (exitScopedMode resets to 'spec'). Mirrors the standards / issues controls.
+   */
+  isSkillsMode: boolean;
+  enterSkillsMode: () => void;
   exitScopedMode: () => void;
   /**
    * spec-360 t-4 (dec-4): the pending propose-then-confirm change the assistant
@@ -154,8 +161,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   // input-enable check via isDriftMode); the ref mirrors it so the async
   // sendMessage / opening-turn closures read the current mode without
   // re-subscribing to it (same pattern as docIdRef). Default 'spec'.
-  const [agentMode, setAgentModeState] = useState<'spec' | 'drift' | 'scaffold' | 'standards' | 'issues'>('spec');
-  const agentModeRef = useRef<'spec' | 'drift' | 'scaffold' | 'standards' | 'issues'>('spec');
+  const [agentMode, setAgentModeState] = useState<'spec' | 'drift' | 'scaffold' | 'standards' | 'issues' | 'skills'>('spec');
+  const agentModeRef = useRef<'spec' | 'drift' | 'scaffold' | 'standards' | 'issues' | 'skills'>('spec');
   // spec-360 t-4 (dec-4): the pending propose-then-confirm change, parsed from a
   // `propose_scaffold_change` tool result. Drives the live preview on the
   // Scaffold Inspect surface.
@@ -275,7 +282,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   // agent. Both update the ref synchronously so the async send / opening-turn
   // closures read the current mode immediately. Idempotent on re-entry.
   const enterScopedMode = useCallback(
-    (mode: 'standards' | 'issues') => {
+    (mode: 'standards' | 'issues' | 'skills') => {
       if (agentModeRef.current === mode) return;
       agentModeRef.current = mode;
       setAgentModeState(mode);
@@ -309,6 +316,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   );
   const enterIssuesMode = useCallback(
     () => enterScopedMode('issues'),
+    [enterScopedMode],
+  );
+  // spec-300 t-15 (dec-23): enter the dedicated skills authoring / curation agent.
+  const enterSkillsMode = useCallback(
+    () => enterScopedMode('skills'),
     [enterScopedMode],
   );
 
@@ -720,6 +732,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         isIssuesMode: agentMode === 'issues',
         enterStandardsMode,
         enterIssuesMode,
+        isSkillsMode: agentMode === 'skills',
+        enterSkillsMode,
         exitScopedMode,
         scaffoldProposal,
         clearScaffoldProposal,
