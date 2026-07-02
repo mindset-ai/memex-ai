@@ -104,7 +104,11 @@ export const AUTH_LIMITS = {
   signup: { max: 5, windowMs: 60 * 60 * 1000 }, // 5 per hour per IP
   login: { max: 5, windowMs: 15 * 60 * 1000 }, // 5 per 15min per IP+email
   magicLink: { max: 3, windowMs: 60 * 60 * 1000 }, // 3 per hour per email
-  resendVerification: { max: 5, windowMs: 60 * 60 * 1000 }, // 5 per hour per user
+  resendVerification: { max: 5, windowMs: 60 * 60 * 1000 }, // 5 per hour per user (outer cap)
+  // Minimum gap between verification resends. Paired with resendVerification: the
+  // cooldown stops bursts (one every 60s), the hourly cap stops grinding. Both keyed
+  // per user. Prevents the duplicate-verification-email bug where 3 sends fired in ~14s.
+  resendVerificationCooldown: { max: 1, windowMs: 60 * 1000 }, // 1 per 60s per user
   passwordReset: { max: 3, windowMs: 60 * 60 * 1000 }, // 3 per hour per email
   probe: { max: 30, windowMs: 60 * 1000 }, // 30 per minute per IP — generous; controls enumeration speed
   oauthRegister: { max: 10, windowMs: 60 * 60 * 1000 }, // 10 per hour per IP — anonymous DCR endpoint

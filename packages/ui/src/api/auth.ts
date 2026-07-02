@@ -4,7 +4,7 @@
 import type { NamespaceHomeResponse, MemexDto } from './types';
 import { AuthApiError, OrgApiError } from './errors';
 import { fetchJson as fetchJsonRaw } from './fetchJson';
-import { BASE_URL, fetchWithRetry, authHeaders } from './http';
+import { BASE_URL, fetchWithRetry, fetchOnce, authHeaders } from './http';
 
 export interface MembershipSummary {
   /** The Memex id this membership grants access to. */
@@ -110,8 +110,16 @@ async function authEndpoint(
   path: string,
   body: Record<string, unknown>,
   token: string | null = null,
+  // Endpoints that SEND EMAIL as a side effect (signup, resend) opt out of retry:
+  // fetchWithRetry re-issues the whole POST on a 502/503/timeout, and because these
+  // requests hold the connection open for seconds (signup blocks on memex seeding),
+  // a proxy timeout would silently fire a second — non-idempotent — Postmark send.
+  // That was a third source of the duplicate-verification-email bug. Single-shot here;
+  // the user can retry deliberately.
+  opts: { retry?: boolean } = {},
 ): Promise<SessionPayload> {
-  const res = await fetchWithRetry(`${BASE_URL}${path}`, {
+  const doFetch = opts.retry === false ? fetchOnce : fetchWithRetry;
+  const res = await doFetch(`${BASE_URL}${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders(token) },
     body: JSON.stringify(body),
@@ -165,7 +173,8 @@ export async function probeAuthApi(email: string): Promise<ProbeResult> {
 }
 
 export async function signupApi(email: string, password: string): Promise<SessionPayload> {
-  return authEndpoint('/auth/signup', { email, password });
+  // No retry: signup sends the verification email (see authEndpoint's `retry` note).
+  return authEndpoint('/auth/signup', { email, password }, null, { retry: false });
 }
 
 export async function loginApi(email: string, password: string): Promise<SessionPayload> {
@@ -177,7 +186,10 @@ export async function verifyEmailApi(token: string): Promise<SessionPayload> {
 }
 
 export async function resendVerificationApi(token: string | null): Promise<void> {
-  const res = await fetchWithRetry(`${BASE_URL}/auth/resend-verification`, {
+  // fetchOnce (no retry): this send is non-idempotent — a retried POST on a timeout
+  // would deliver a second verification email. The button's own cooldown covers
+  // deliberate re-sends.
+  const res = await fetchOnce(`${BASE_URL}/auth/resend-verification`, {
     method: 'POST',
     headers: { ...authHeaders(token) },
   });
@@ -187,6 +199,7 @@ export async function resendVerificationApi(token: string | null): Promise<void>
       res.status,
       body.reason ?? body.error,
       body.message ?? body.error ?? `Resend failed: ${res.status}`,
+      typeof body.retryAfterSec === 'number' ? body.retryAfterSec : undefined,
     );
   }
 }

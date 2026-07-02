@@ -142,6 +142,36 @@ describe("POST /api/auth/signup", () => {
   });
 });
 
+describe("POST /api/auth/resend-verification", () => {
+  it("sends one email then 429s a rapid second resend (60s cooldown)", async () => {
+    const email = uniqueEmail("resend-cooldown");
+    const signup = await app.request("/api/auth/signup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password: "correctbattery" }),
+    });
+    const { token } = await signup.json();
+    sender.sent.length = 0; // drop the signup verification email — isolate the resends
+
+    const first = await app.request("/api/auth/resend-verification", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(first.status).toBe(200);
+    expect(sender.sent).toHaveLength(1);
+
+    // Immediate second attempt is inside the 60s cooldown → blocked, no extra send.
+    const second = await app.request("/api/auth/resend-verification", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(second.status).toBe(429);
+    const body = await second.json();
+    expect(body.retryAfterSec).toBeGreaterThan(0);
+    expect(sender.sent).toHaveLength(1);
+  });
+});
+
 describe("POST /api/auth/login", () => {
   it("succeeds with correct credentials", async () => {
     const email = uniqueEmail("login-ok");
