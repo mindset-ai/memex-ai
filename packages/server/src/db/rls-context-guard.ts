@@ -46,6 +46,45 @@ export function setRlsSubjectRuntime(isSubject: boolean): void {
   rlsSubjectRuntime = isSubject;
 }
 
+// Phase 2 (dec-2, ac-10): escalate the guard from warn to THROW. OFF by default
+// so nothing changes for the owner suites or the phase-1 (ac-9) / RLS-rejection
+// (ac-1/ac-2) tests — they keep asserting warn + the raw Postgres rejection. The
+// runtime environments (int + prod) turn it ON via MEMEX_RLS_GUARD_THROW, so a
+// context-less gated write fails LOUD at the sanctioned write chokepoint (the
+// error propagates out through mutate()'s catch/rethrow) instead of relying on a
+// swallowed Postgres rejection. Reversible by flipping the env — no code change.
+function readThrowEnv(): boolean {
+  const v = (process.env.MEMEX_RLS_GUARD_THROW ?? "").trim().toLowerCase();
+  return v === "1" || v === "true" || v === "yes" || v === "on";
+}
+// Test-only override: null → defer to the env (the prod/int default); true/false →
+// forced. The decision is read LIVE from process.env (a single global, immune to the
+// test-harness importing this module under two specifiers) rather than cached at load,
+// and only on the rare violation path — so there is no per-write cost and no
+// module-instance skew between connection.ts's guard and a test's own import.
+let throwOverride: boolean | null = null;
+function shouldThrowOnViolation(): boolean {
+  return throwOverride !== null ? throwOverride : readThrowEnv();
+}
+
+/** The clear, typed error raised at the write chokepoint in phase 2. Thrown
+ * BEFORE the statement reaches Postgres, so the symptom is a named application
+ * error naming the table + remedy — not a swallowed `row-level security` DB
+ * rejection surfacing as missing data later. */
+export class RlsContextViolationError extends Error {
+  readonly table: string;
+  constructor(table: string) {
+    super(
+      `context-less write to RLS-gated table "${table}" — no app.memex_id in context. ` +
+        `Wrap the call in runWithMemexId(memexId, …). This write would be rejected by RLS ` +
+        `under the memex_app runtime role; failing loud at the write chokepoint rather than ` +
+        `swallowing the rejection (spec-440 dec-2 phase 2). [spec-440]`,
+    );
+    this.name = "RlsContextViolationError";
+    this.table = table;
+  }
+}
+
 // Warn once per table per process so a hot write loop can't flood the logs; the
 // metric still counts every occurrence. Reset between tests via the test hook.
 const warnedTables = new Set<string>();
@@ -103,13 +142,19 @@ export function guardContextlessWrite(
 ): void {
   if (!rlsSubjectRuntime) return;
   if (!isContextlessGatedWrite(sql, ctx)) return;
-  reportRlsContextViolation(writeTargetTable(sql)!);
+  const table = writeTargetTable(sql)!;
+  // Always record the metric + WARN (phase 1) — observability holds whether or
+  // not we throw.
+  reportRlsContextViolation(table);
+  // Phase 2: fail loud at the chokepoint when enabled (int + prod).
+  if (shouldThrowOnViolation()) throw new RlsContextViolationError(table);
 }
 
-/** Test-only: reset the module's activation + dedup state. */
+/** Test-only: reset the module's activation + dedup + throw state. */
 export function __resetRlsGuardForTests(): void {
   rlsSubjectRuntime = false;
   explicitlySet = false;
+  throwOverride = null;
   warnedTables.clear();
 }
 
@@ -117,6 +162,13 @@ export function __resetRlsGuardForTests(): void {
 export function __setRlsSubjectRuntimeForTests(isSubject: boolean): void {
   rlsSubjectRuntime = isSubject;
   explicitlySet = true;
+}
+
+/** Test-only: force the phase-2 throw flag, independent of the env, so a test can
+ * assert both the warn-only (phase 1) and throw (phase 2) behaviours
+ * deterministically. `__resetRlsGuardForTests` restores the env-derived default. */
+export function __setRlsGuardThrowForTests(enabled: boolean): void {
+  throwOverride = enabled;
 }
 
 /** Test-only: clear only the warn-dedup set, leaving activation untouched — so an

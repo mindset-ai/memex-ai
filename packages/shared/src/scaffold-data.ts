@@ -1986,6 +1986,23 @@ const PROMPT_BUTTONS: PromptButtonNode[] = [
   ...OPENING_TURN_PROMPT_BUTTONS,
   {
     kind: 'prompt_button',
+    // spec-438 dec-1 (ac-7/ac-8/ac-9): the cold-start standards-bootstrap
+    // doorbell. SHORT kickoff only — the full protocol lives in the
+    // `standards-bootstrap` get_information topic (t-1), never inlined here or
+    // in the React client (std-15/std-23). Portable per std-22: it assumes
+    // nothing about the team's language, framework, layout, or tooling. This
+    // kickoff is the SAME single artifact the spec-422 empty-state nudge will
+    // surface (ac-9) — both point the agent at that one topic, so the 422 front
+    // door slots in without re-instrumentation and there is no duplicated copy.
+    id: 'bootstrap-standards',
+    label: 'Bootstrap standards from your codebase',
+    text: "Bootstrap this team's first Memex standards from their codebase. You can see the code and can talk to the developer in this session. First fetch the full protocol — call get_information(topic='standards-bootstrap') — then follow it: read the code, interview the developer about the rules their team already follows, and save the ones they confirm. Everything you save is a draft they can edit or delete.",
+    surfaces: ['standards-empty'],
+    rationale:
+      'spec-438 dec-1: the manual initiation doorbell for cold-start standards detection. Short kickoff prose in the Scaffold (std-23) that points the developer\'s coding agent at the `standards-bootstrap` get_information topic (t-1) rather than embedding the protocol body (ac-7/ac-8). Rendered on the Standards page empty-state; the SAME single artifact the spec-422 empty-state nudge surfaces later (ac-9), so the 422 front door slots in without re-instrumentation. Portable per std-22.',
+  },
+  {
+    kind: 'prompt_button',
     id: 'verify-spec',
     label: 'Verify handoff',
     // The verify-phase handoff prompt. `{token}` placeholders are interpolated
