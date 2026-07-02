@@ -21,6 +21,7 @@
 // `mindset-int/memex-app/specs/spec-36`.
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { tagAc } from "@memex-ai-ac/vitest";
 import {
   SMOKE_BASE_URL,
   SMOKE_MCP_TOKEN,
@@ -81,6 +82,19 @@ async function deleteTaskQuiet(ref: string): Promise<void> {
   }
 }
 
+// Skill refs created by the spec-300 skills lifecycle probe, swept in afterAll.
+// Skills soft-archive rather than hard-delete, but the sweep still hides them
+// from list_skills so a re-run starts clean.
+const createdSkillRefs: string[] = [];
+
+async function deleteSkillQuiet(ref: string): Promise<void> {
+  try {
+    await callMcpTool("update_skill", { verb: "delete", ref });
+  } catch {
+    // Idempotent teardown: an already-archived (or never-created) skill is fine.
+  }
+}
+
 describe.skipIf(!SMOKE_MCP_TOKEN)(
   `authed smoke @ ${SMOKE_BASE_URL} (ns=${SMOKE_NAMESPACE})`,
   () => {
@@ -100,6 +114,9 @@ describe.skipIf(!SMOKE_MCP_TOKEN)(
       // Idempotent sweep of anything the journey created but didn't already clean.
       for (const ref of createdTaskRefs.splice(0)) {
         await deleteTaskQuiet(ref);
+      }
+      for (const ref of createdSkillRefs.splice(0)) {
+        await deleteSkillQuiet(ref);
       }
     });
 
@@ -488,6 +505,72 @@ describe.skipIf(!SMOKE_MCP_TOKEN)(
         (await callMcpTool("get_doc", { ref: specRef! })).body,
       );
       expect(docText).toMatch(/\[spec,\s*build\]|status:\s*build|phase:\s*build/i);
+    });
+
+    // ── spec-300 t-9 (std-17, ac-4): the Skills MCP surface on the LIVE /mcp
+    //    endpoint. A coding agent creates a Skill from a SKILL.md, lists the
+    //    Memex's Skills (seeing the new one by name + ref), fetches its verbatim
+    //    body, and archives it — all inside the throwaway namespace, self-cleaning.
+    //    This is the deployed-contract probe for list_skills / get_skill /
+    //    update_skill: it catches the class of bug local suites miss (route/tool
+    //    not registered on the deployed image, storage backend misconfigured).
+    it("skills lifecycle: update_skill(create) → list_skills → get_skill → update_skill(delete) over /mcp (spec-300)", async () => {
+      tagAc("mindset-prod/memex-building-itself/specs/spec-300/acs/ac-4");
+      const stamp = new Date().toISOString();
+      // A unique lowercase-alnum-hyphen name (SKILL.md frontmatter is validated).
+      const name = `smoke-skill-${stamp.replace(/[^0-9a-z]/gi, "-").toLowerCase()}`.slice(0, 60);
+      const marker = `smoke-skill-body-${stamp}`;
+      const skillMd = [
+        "---",
+        `name: ${name}`,
+        "description: Throwaway skill seeded by the post-deploy smoke journey — safe to delete.",
+        "---",
+        "",
+        "# Smoke skill",
+        "",
+        `Body ${marker}.`,
+        "",
+        "1. This is a throwaway skill.",
+        "2. It is archived at the end of the smoke run.",
+      ].join("\n");
+
+      // CREATE — a Skill in the throwaway memex.
+      const created = await callMcpTool("update_skill", {
+        verb: "create",
+        memex: SMOKE_NAMESPACE,
+        skill_md: skillMd,
+      });
+      expect(created.status).toBe(200);
+      expect(created.body.result?.isError).toBeFalsy();
+      const skillRef = parseRef(mcpTextPayload(created.body));
+      expect(skillRef, "update_skill(create) should return a canonical ref").toBeTruthy();
+      createdSkillRefs.push(skillRef!);
+
+      // LIST — list_skills must surface the new Skill by name + ref (metadata only).
+      const listed = await callMcpTool("list_skills", { memex: SMOKE_NAMESPACE });
+      expect(listed.status).toBe(200);
+      expect(listed.body.result?.isError).toBeFalsy();
+      const listText = mcpTextPayload(listed.body);
+      expect(listText).toContain(name);
+      expect(listText).toContain(skillRef!);
+
+      // GET — get_skill returns the verbatim SKILL.md body (the marker proves the
+      // body round-tripped, not just the metadata).
+      const got = await callMcpTool("get_skill", { ref: skillRef! });
+      expect(got.status).toBe(200);
+      expect(got.body.result?.isError).toBeFalsy();
+      const getText = mcpTextPayload(got.body);
+      expect(getText).toContain(marker);
+
+      // DELETE (archive) — the Skill drops out of list_skills entirely.
+      const deleted = await callMcpTool("update_skill", { verb: "delete", ref: skillRef! });
+      expect(deleted.body.result?.isError).toBeFalsy();
+      createdSkillRefs.splice(createdSkillRefs.indexOf(skillRef!), 1);
+
+      const afterDelete = mcpTextPayload(
+        (await callMcpTool("list_skills", { memex: SMOKE_NAMESPACE })).body,
+      );
+      expect(afterDelete).not.toContain(name);
     });
   },
 );

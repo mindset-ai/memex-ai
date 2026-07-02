@@ -101,4 +101,28 @@ describe(`public smoke @ ${SMOKE_BASE_URL}`, () => {
     expect(res.status).toBeLessThan(500);
     expect([204, 404]).toContain(res.status);
   });
+
+  // spec-300 t-9 (std-17) — the Skills list REST surface is deployed and tenant-
+  // gated. The GET runs behind the permissive public session and resolves the
+  // memex via resolveReadableMemexId (public read / private 404, std-7), so an
+  // UNAUTHENTICATED GET against the obvious throwaway namespace responds WITHOUT a
+  // 5xx and WITHOUT an auth wall: 200 (a JSON array) if that throwaway memex is
+  // public, else 404 (unresolvable / private). Either way it proves the route
+  // shipped and its tenancy gate is live — a 404 here for a MISSING route would be
+  // indistinguishable, but a 5xx (route mounted but crashing) is caught. Never
+  // touches a real namespace (SMOKE_NAMESPACE is the reserved throwaway).
+  it("GET /api/<ns>/skills (anonymous, throwaway ns) → controlled response, never 5xx", async () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-300/acs/ac-4");
+    const res = await fetch(`${SMOKE_BASE_URL}/api/${SMOKE_NAMESPACE}/skills`);
+    expect(res.status).toBeLessThan(500);
+    expect(res.status).not.toBe(401);
+    expect(res.status).not.toBe(403);
+    expect([200, 404]).toContain(res.status);
+    // A public list returns a JSON array of skill metadata; a private/missing
+    // memex returns the std-7 not-found envelope. Both are valid JSON, non-5xx.
+    if (res.status === 200) {
+      const body = (await res.json()) as unknown;
+      expect(Array.isArray(body)).toBe(true);
+    }
+  });
 });
