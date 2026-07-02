@@ -185,6 +185,10 @@ describe("AUTH_LIMITS", () => {
       max: 5,
       windowMs: 60 * 60 * 1000,
     });
+    expect(AUTH_LIMITS.resendVerificationCooldown).toEqual({
+      max: 1,
+      windowMs: 60 * 1000,
+    });
     expect(AUTH_LIMITS.passwordReset).toEqual({
       max: 3,
       windowMs: 60 * 60 * 1000,

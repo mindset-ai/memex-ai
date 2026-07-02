@@ -161,6 +161,12 @@ jobs:
           EMAIL_ACTIVATION_FROM: ${{ vars.EMAIL_ACTIVATION_FROM }}
           EMAIL_ACTIVATION_REPLY_TO: ${{ vars.EMAIL_ACTIVATION_REPLY_TO }}
           EMAIL_SENDER_NAME: ${{ vars.EMAIL_SENDER_NAME }}
+          # spec-427 dec-9 — the activation-drip master/kill switch. Non-sensitive
+          # (0/1), so a per-environment VARIABLE like the sender vars above (not in the
+          # DEPLOY_ENV_FILE blob), enabling a by-hand prod flip + kill from the GitHub
+          # environment UI. deploy.sh wires it to Cloud Run only when set (${VAR+...}),
+          # so an unset/absent variable is omitted and the drip stays OFF by default.
+          ACTIVATION_EMAILS_ENABLED: ${{ vars.ACTIVATION_EMAILS_ENABLED }}
         run: bash deploy.sh
 
       # spec-243 dec-2 / ac-6: every deploy posts a friendly note to the matching
