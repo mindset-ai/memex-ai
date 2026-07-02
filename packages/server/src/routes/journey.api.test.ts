@@ -135,10 +135,10 @@ async function seedGreen(docId: string) {
     .innerJoin(memexes, eq(documents.memexId, memexes.id))
     .innerJoin(namespaces, eq(memexes.namespaceId, namespaces.id))
     .where(eq(documents.id, docId));
-  const acUid = `${slugs.ns}/${slugs.mx}/specs/${slugs.handle}/acs/ac-1`;
+  const subjectRef = `${slugs.ns}/${slugs.mx}/specs/${slugs.handle}/acs/ac-1`;
   await db.insert(testEventLatest).values({
     memexId,
-    acUid,
+    subjectRef,
     testIdentifier: "t1",
     latestStatus: "pass",
     latestRunAt: new Date(),

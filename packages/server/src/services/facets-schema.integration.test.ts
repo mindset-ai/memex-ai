@@ -16,6 +16,7 @@ import {
   documents,
   docSections,
   standardClauses,
+  users,
 } from "../db/schema.js";
 import { makeTestMemex } from "./test-helpers.js";
 import { ownerForMemex } from "./shared/memex-ownership.js";
@@ -39,9 +40,14 @@ async function orgIdFor(memexId: string): Promise<string> {
 async function makePersonalMemex(prefix: string): Promise<string> {
   const slug = `${prefix}-${Math.abs(hashCode(prefix + Date.now().toString()))}`;
   return db.transaction(async (tx) => {
+    // owner_type='user' namespaces MUST carry owner_user_id (owner-XOR invariant).
+    const [user] = await tx
+      .insert(users)
+      .values({ email: `${slug}@example.com` } as typeof users.$inferInsert)
+      .returning();
     const [ns] = await tx
       .insert(namespaces)
-      .values({ slug, kind: "user" })
+      .values({ slug, kind: "user", ownerUserId: user.id })
       .returning();
     const [memex] = await tx
       .insert(memexes)

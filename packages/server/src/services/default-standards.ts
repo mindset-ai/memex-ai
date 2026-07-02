@@ -90,7 +90,15 @@ export async function seedDefaultStandards(memexId: string): Promise<void> {
         section.clauses.join("\n\n"),
         section.title,
       );
-      await addClausesToSection(memexId, sec.id, section.clauses);
+      // spec-437 dec-1: each default clause carries a deliberate facet verdict — the
+      // section's parallel `facets` array, or [] ("governs nothing") where it sets none
+      // (methodology / description / rationale / scope clauses). Persisted against the
+      // facet vocabulary seeded first (see seedNewPersonalMemex).
+      await addClausesToSection(
+        memexId,
+        sec.id,
+        section.clauses.map((body, i) => ({ body, facets: section.facets?.[i] ?? [] })),
+      );
     }
   }
 }

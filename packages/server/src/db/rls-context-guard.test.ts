@@ -8,13 +8,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { tagAc } from "@memex-ai-ac/vitest";
 import {
   __resetRlsGuardForTests,
+  __setRlsGuardThrowForTests,
   __setRlsSubjectRuntimeForTests,
   guardContextlessWrite,
   isContextlessGatedWrite,
+  RlsContextViolationError,
   writeTargetTable,
 } from "./rls-context-guard.js";
 
 const AC_9 = "mindset-prod/memex-building-itself/specs/spec-440/acs/ac-9";
+const AC_10 = "mindset-prod/memex-building-itself/specs/spec-440/acs/ac-10";
 
 let warnSpy: ReturnType<typeof vi.spyOn>;
 
@@ -130,5 +133,114 @@ describe("spec-440 ac-9: guardContextlessWrite emits LOUD, only when RLS-subject
     // role (RLS bypassed), so the guard must not cry wolf in dev/test/migrations.
     guardContextlessWrite('insert into "documents" (a) values (1)', undefined);
     expect(warnSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("spec-440 ac-10: guardContextlessWrite THROWS at the chokepoint when phase-2 is enabled", () => {
+  it("throws a clear, table-named RlsContextViolationError on a context-less gated write", () => {
+    tagAc(AC_10);
+    __setRlsSubjectRuntimeForTests(true);
+    __setRlsGuardThrowForTests(true);
+
+    expect(() =>
+      guardContextlessWrite('insert into "documents" (a) values (1)', undefined),
+    ).toThrow(RlsContextViolationError);
+
+    // The error names the offending table + the remedy — the point of throwing
+    // early is a legible signal, not a swallowed `row-level security` DB rejection.
+    try {
+      guardContextlessWrite('update "tasks" set x = 1', undefined);
+      expect.unreachable("guard should have thrown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(RlsContextViolationError);
+      expect((err as RlsContextViolationError).table).toBe("tasks");
+      expect((err as Error).message).toContain("tasks");
+      expect((err as Error).message).toContain("runWithMemexId");
+    }
+  });
+
+  it("still WARNS (metric + log) BEFORE it throws — phase-1 observability holds in phase 2", () => {
+    tagAc(AC_10);
+    __setRlsSubjectRuntimeForTests(true);
+    __setRlsGuardThrowForTests(true);
+
+    expect(() =>
+      guardContextlessWrite('insert into "documents" (a) values (1)', undefined),
+    ).toThrow();
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(String(warnSpy.mock.calls[0]?.[0])).toContain("[rls]");
+  });
+
+  it("does NOT throw when phase-2 is off (the warn-only default)", () => {
+    tagAc(AC_10);
+    __setRlsSubjectRuntimeForTests(true);
+    __setRlsGuardThrowForTests(false);
+
+    expect(() =>
+      guardContextlessWrite('insert into "documents" (a) values (1)', undefined),
+    ).not.toThrow();
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("does NOT throw for a context-present write, a read, or a non-gated table — even with phase-2 on", () => {
+    tagAc(AC_10);
+    __setRlsSubjectRuntimeForTests(true);
+    __setRlsGuardThrowForTests(true);
+
+    expect(() =>
+      guardContextlessWrite('insert into "documents" (a) values (1)', { memexId: "m-1" }),
+    ).not.toThrow();
+    expect(() => guardContextlessWrite('select * from "documents"', undefined)).not.toThrow();
+    expect(() =>
+      guardContextlessWrite('insert into "activity_log" (a) values (1)', undefined),
+    ).not.toThrow();
+  });
+
+  it("stays SILENT (no throw, no warn) under the owner role even with phase-2 on", () => {
+    tagAc(AC_10);
+    __setRlsSubjectRuntimeForTests(false);
+    __setRlsGuardThrowForTests(true);
+
+    // The whole guard — warn AND throw — is gated on the runtime being RLS-subject,
+    // so dev / owner suites / migrations are never affected.
+    expect(() =>
+      guardContextlessWrite('insert into "documents" (a) values (1)', undefined),
+    ).not.toThrow();
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("spec-440 ac-10: phase-2 is enabled by MEMEX_RLS_GUARD_THROW (the prod/int enablement path)", () => {
+  // With NO test-hook override the guard defers to the env, read LIVE on the rare
+  // violation path — this is exactly how int + prod enable it (deploy.sh sets the var).
+  const prev = process.env.MEMEX_RLS_GUARD_THROW;
+  afterEach(() => {
+    if (prev === undefined) delete process.env.MEMEX_RLS_GUARD_THROW;
+    else process.env.MEMEX_RLS_GUARD_THROW = prev;
+  });
+
+  it("throws when MEMEX_RLS_GUARD_THROW=1 and no hook override is set", () => {
+    tagAc(AC_10);
+    __setRlsSubjectRuntimeForTests(true);
+    process.env.MEMEX_RLS_GUARD_THROW = "1";
+
+    expect(() =>
+      guardContextlessWrite('insert into "documents" (a) values (1)', undefined),
+    ).toThrow(RlsContextViolationError);
+  });
+
+  it("stays warn-only for unset / off-values (0, false, off, no)", () => {
+    tagAc(AC_10);
+    for (const val of ["", "0", "false", "off", "no"]) {
+      __resetRlsGuardForTests(); // clears the hook override + warn dedup
+      __setRlsSubjectRuntimeForTests(true);
+      if (val === "") delete process.env.MEMEX_RLS_GUARD_THROW;
+      else process.env.MEMEX_RLS_GUARD_THROW = val;
+
+      expect(
+        () => guardContextlessWrite('insert into "documents" (a) values (1)', undefined),
+        `value "${val}" must not enable the throw`,
+      ).not.toThrow();
+    }
   });
 });

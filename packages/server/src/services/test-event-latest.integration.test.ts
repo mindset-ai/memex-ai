@@ -60,11 +60,11 @@ afterAll(async () => {
   if (createdAcUids.length) {
     await db
       .delete(testEvents)
-      .where(inArray(testEvents.acUid, createdAcUids))
+      .where(inArray(testEvents.subjectRef, createdAcUids))
       .catch(() => {});
     await db
       .delete(testEventLatest)
-      .where(inArray(testEventLatest.acUid, createdAcUids))
+      .where(inArray(testEventLatest.subjectRef, createdAcUids))
       .catch(() => {});
   }
   for (const id of createdDocIds) {
@@ -73,7 +73,7 @@ afterAll(async () => {
   }
 });
 
-/** A unique synthetic ac_uid under the test memex — for summary-table
+/** A unique synthetic subject_ref under the test memex — for summary-table
  *  assertions that don't need a real AC row. */
 function uniqueRef(): string {
   refCounter += 1;
@@ -92,13 +92,13 @@ function refOf(briefHandle: string, seq: number): string {
   return `${namespaceSlug}/${memexSlug}/specs/${briefHandle}/acs/ac-${seq}`;
 }
 
-async function summaryRow(acUid: string, testIdentifier = "") {
+async function summaryRow(subjectRef: string, testIdentifier = "") {
   const [row] = await db
     .select()
     .from(testEventLatest)
     .where(
       and(
-        eq(testEventLatest.acUid, acUid),
+        eq(testEventLatest.subjectRef, subjectRef),
         eq(testEventLatest.testIdentifier, testIdentifier),
       ),
     );
@@ -112,7 +112,7 @@ describe("test_event_latest maintenance (spec-162)", () => {
     const tid = "tests/a.test.ts::it works";
 
     await seedTestEvent({
-      acUid: ref,
+      subjectRef: ref,
       status: "pass",
       testIdentifier: tid,
       createdAt: new Date(Date.now() - 2000),
@@ -123,7 +123,7 @@ describe("test_event_latest maintenance (spec-162)", () => {
 
     // A newer fail for the same pair flips latest and increments run_count.
     await seedTestEvent({
-      acUid: ref,
+      subjectRef: ref,
       status: "fail",
       testIdentifier: tid,
       createdAt: new Date(Date.now() - 1000),
@@ -138,11 +138,11 @@ describe("test_event_latest maintenance (spec-162)", () => {
     const ref = uniqueRef();
     const tid = "tests/order.test.ts::it works";
 
-    await seedTestEvent({ acUid: ref, status: "fail", testIdentifier: tid, createdAt: new Date() });
+    await seedTestEvent({ subjectRef: ref, status: "fail", testIdentifier: tid, createdAt: new Date() });
     // An OLDER pass arrives after the newer fail (out-of-order seed): run_count
     // still counts it, but latest must NOT regress to pass.
     await seedTestEvent({
-      acUid: ref,
+      subjectRef: ref,
       status: "pass",
       testIdentifier: tid,
       createdAt: new Date(Date.now() - 60_000),
@@ -159,20 +159,20 @@ describe("test_event_latest maintenance (spec-162)", () => {
 
     // (a) hidden-only pair → no summary row at all.
     const hiddenOnly = uniqueRef();
-    await seedTestEvent({ acUid: hiddenOnly, status: "pass", testIdentifier: "t", hidden: true });
+    await seedTestEvent({ subjectRef: hiddenOnly, status: "pass", testIdentifier: "t", hidden: true });
     expect(await summaryRow(hiddenOnly, "t")).toBeUndefined();
 
     // (b) a visible row, then a newer hidden fail — summary must NOT change.
     const ref = uniqueRef();
     const tid = "tests/h.test.ts::it works";
     await seedTestEvent({
-      acUid: ref,
+      subjectRef: ref,
       status: "pass",
       testIdentifier: tid,
       createdAt: new Date(Date.now() - 1000),
     });
     const before = await summaryRow(ref, tid);
-    await seedTestEvent({ acUid: ref, status: "fail", testIdentifier: tid, hidden: true });
+    await seedTestEvent({ subjectRef: ref, status: "fail", testIdentifier: tid, hidden: true });
     const after = await summaryRow(ref, tid);
     expect(after?.latestStatus).toBe("pass");
     expect(after?.runCount).toBe(1);
@@ -194,7 +194,7 @@ describe("test_event_latest maintenance (spec-162)", () => {
     const ref = refOf(spec.handle, ac.seq);
     createdAcUids.push(ref);
     const tid = "tests/gone.test.ts::it works";
-    await seedTestEvent({ acUid: ref, status: "fail", testIdentifier: tid });
+    await seedTestEvent({ subjectRef: ref, status: "fail", testIdentifier: tid });
     expect(await summaryRow(ref, tid)).toBeDefined();
 
     await discontinueTestEventsForAc(memexId, ac.id, tid);
@@ -225,7 +225,7 @@ describe("test_event_latest maintenance (spec-162)", () => {
     // the badge — proving the read derives from test_event_latest, not the log.
     await db.insert(testEvents).values({
       memexId,
-      acUid: ref,
+      subjectRef: ref,
       status: "pass",
       testIdentifier: "tests/raw.test.ts::it works",
     });
@@ -233,7 +233,7 @@ describe("test_event_latest maintenance (spec-162)", () => {
     expect(health.get(spec.id)).toMatchObject({ totalActive: 1, covered: 0, untested: 1 });
 
     // Once the same event is recorded through the maintained path, it shows.
-    await seedTestEvent({ acUid: ref, status: "pass", testIdentifier: "tests/raw.test.ts::it works" });
+    await seedTestEvent({ subjectRef: ref, status: "pass", testIdentifier: "tests/raw.test.ts::it works" });
     health = await aggregateAcHealthForBriefs(memexId, [spec.id]);
     expect(health.get(spec.id)).toMatchObject({ totalActive: 1, covered: 1, verified: 1 });
   });
@@ -246,13 +246,13 @@ describe("test_event_latest maintenance (spec-162)", () => {
     // app-clock value (the first row) against a DB-clock value (the second); under
     // full-suite load that cross-clock comparison can invert and the older `pass`
     // wrongly wins (std-37 — deterministic fixtures under parallel execution).
-    await seedTestEvent({ acUid: ref, status: "pass", testIdentifier: null, createdAt: new Date(Date.now() - 1000) });
-    await seedTestEvent({ acUid: ref, status: "fail", testIdentifier: null, createdAt: new Date() });
+    await seedTestEvent({ subjectRef: ref, status: "pass", testIdentifier: null, createdAt: new Date(Date.now() - 1000) });
+    await seedTestEvent({ subjectRef: ref, status: "fail", testIdentifier: null, createdAt: new Date() });
 
     const rows = await db
       .select()
       .from(testEventLatest)
-      .where(eq(testEventLatest.acUid, ref));
+      .where(eq(testEventLatest.subjectRef, ref));
     expect(rows.length).toBe(1);
     expect(rows[0]?.testIdentifier).toBe("");
     expect(rows[0]?.latestStatus).toBe("fail");
@@ -261,7 +261,7 @@ describe("test_event_latest maintenance (spec-162)", () => {
 });
 
 describe("test_event_latest schema + backfill (spec-162)", () => {
-  it("test_identifier is NOT NULL DEFAULT '' and the PK is (ac_uid, test_identifier) [ac-10]", async () => {
+  it("test_identifier is NOT NULL DEFAULT '' and the PK is (subject_ref, test_identifier) [ac-10]", async () => {
     tagAc(`${SPEC}/acs/ac-10`);
 
     const cols = (await db.execute(sql`
@@ -279,7 +279,7 @@ describe("test_event_latest schema + backfill (spec-162)", () => {
       WHERE i.indrelid = 'test_event_latest'::regclass AND i.indisprimary
       ORDER BY array_position(i.indkey, a.attnum)
     `)) as unknown as Array<{ column_name: string }>;
-    expect(pk.map((r) => r.column_name)).toEqual(["ac_uid", "test_identifier"]);
+    expect(pk.map((r) => r.column_name)).toEqual(["subject_ref", "test_identifier"]);
   });
 
   it("the backfill migration is correct (newest non-hidden, count of non-hidden, hidden-only excluded) and idempotent [ac-11]", async () => {
@@ -294,12 +294,12 @@ describe("test_event_latest schema + backfill (spec-162)", () => {
     // Seed RAW test_events (bypassing summary maintenance) so the backfill has
     // something to reconstruct from a cold summary.
     await db.insert(testEvents).values([
-      { memexId, acUid: ref, status: "pass", testIdentifier: "tA", createdAt: at(50) },
-      { memexId, acUid: ref, status: "pass", testIdentifier: "tA", createdAt: at(40) },
-      { memexId, acUid: ref, status: "fail", testIdentifier: "tA", createdAt: at(30) }, // newest visible
-      { memexId, acUid: ref, status: "error", testIdentifier: "tA", hidden: true, createdAt: at(10) }, // newest overall but hidden
-      { memexId, acUid: ref, status: "pass", testIdentifier: "tHidden", hidden: true, createdAt: at(20) }, // hidden-only pair
-      { memexId, acUid: ref, status: "pass", testIdentifier: null, createdAt: at(15) }, // null → ''
+      { memexId, subjectRef: ref, status: "pass", testIdentifier: "tA", createdAt: at(50) },
+      { memexId, subjectRef: ref, status: "pass", testIdentifier: "tA", createdAt: at(40) },
+      { memexId, subjectRef: ref, status: "fail", testIdentifier: "tA", createdAt: at(30) }, // newest visible
+      { memexId, subjectRef: ref, status: "error", testIdentifier: "tA", hidden: true, createdAt: at(10) }, // newest overall but hidden
+      { memexId, subjectRef: ref, status: "pass", testIdentifier: "tHidden", hidden: true, createdAt: at(20) }, // hidden-only pair
+      { memexId, subjectRef: ref, status: "pass", testIdentifier: null, createdAt: at(15) }, // null → ''
     ]);
 
     // spec-398: test_event_latest gained a NOT NULL memex_id, so the historical
@@ -307,25 +307,25 @@ describe("test_event_latest schema + backfill (spec-162)", () => {
     // runnable. Re-derive with the SAME logic + memex_id from test_events — the
     // backfill correctness + idempotency contract this test guards is unchanged.
     const backfillSql = `
-      INSERT INTO test_event_latest (memex_id, ac_uid, test_identifier, latest_status, latest_run_at, run_count)
-      SELECT DISTINCT ON (te.ac_uid, COALESCE(te.test_identifier, ''))
+      INSERT INTO test_event_latest (memex_id, subject_ref, test_identifier, latest_status, latest_run_at, run_count)
+      SELECT DISTINCT ON (te.subject_ref, COALESCE(te.test_identifier, ''))
         te.memex_id,
-        te.ac_uid,
+        te.subject_ref,
         COALESCE(te.test_identifier, '')                                         AS test_identifier,
         te.status                                                               AS latest_status,
         te.created_at                                                           AS latest_run_at,
-        COUNT(*) OVER (PARTITION BY te.ac_uid, COALESCE(te.test_identifier, '')) AS run_count
+        COUNT(*) OVER (PARTITION BY te.subject_ref, COALESCE(te.test_identifier, '')) AS run_count
       FROM test_events te
       WHERE te.hidden = false
-      ORDER BY te.ac_uid, COALESCE(te.test_identifier, ''), te.created_at DESC, te.id DESC
-      ON CONFLICT (ac_uid, test_identifier) DO NOTHING;
+      ORDER BY te.subject_ref, COALESCE(te.test_identifier, ''), te.created_at DESC, te.id DESC
+      ON CONFLICT (subject_ref, test_identifier) DO NOTHING;
     `;
     await sqlClient.unsafe(backfillSql);
 
     const rowsAfterFirst = await db
       .select()
       .from(testEventLatest)
-      .where(eq(testEventLatest.acUid, ref));
+      .where(eq(testEventLatest.subjectRef, ref));
 
     const byTid = new Map(rowsAfterFirst.map((r) => [r.testIdentifier, r]));
     // (ref, 'tA'): newest non-hidden is the fail; the hidden error is excluded;
@@ -343,7 +343,7 @@ describe("test_event_latest schema + backfill (spec-162)", () => {
     const rowsAfterSecond = await db
       .select()
       .from(testEventLatest)
-      .where(eq(testEventLatest.acUid, ref));
+      .where(eq(testEventLatest.subjectRef, ref));
     expect(rowsAfterSecond.length).toBe(rowsAfterFirst.length);
     const byTid2 = new Map(rowsAfterSecond.map((r) => [r.testIdentifier, r]));
     expect(byTid2.get("tA")?.runCount).toBe(3);
@@ -356,7 +356,7 @@ describe("test_event_latest schema + backfill (spec-162)", () => {
     await db.transaction(async (tx) => {
       await applyEmissionToSummary(tx, {
         memexId,
-        acUid: ref,
+        subjectRef: ref,
         testIdentifier: "t",
         status: "fail",
         latestRunAt: new Date(),

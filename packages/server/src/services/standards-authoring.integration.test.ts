@@ -65,7 +65,11 @@ describe("spec-161: clause-first section persists clauses with content=join (ac-
       "Smoke is green before prod.",
       "A check is a one-file diff.",
     ];
-    const clauseMut = await addClausesToSection(memexId, sectionMut.id, bodies);
+    const clauseMut = await addClausesToSection(
+      memexId,
+      sectionMut.id,
+      bodies.map((body) => ({ body, facets: [] })),
+    );
 
     expect(clauseMut).toHaveLength(3);
     // one row per body, in order

@@ -5,22 +5,27 @@
 interface FacetPillsProps {
   facetKeys: string[] | undefined | null;
   className?: string;
+  /** Optional hover tooltip on each pill — a generic explanation of what these chips
+   *  are (deliberately not the word "facet"). Omitted where the surrounding context
+   *  already makes it obvious. */
+  pillTitle?: string;
 }
 
-export function FacetPills({ facetKeys, className = '' }: FacetPillsProps) {
+export function FacetPills({ facetKeys, className = '', pillTitle }: FacetPillsProps) {
   if (!facetKeys || facetKeys.length === 0) return null;
   return (
-    <div data-testid="facet-pills" className={`flex flex-wrap gap-1 ${className}`}>
+    <span data-testid="facet-pills" className={`inline-flex flex-wrap gap-1 align-middle ${className}`}>
       {facetKeys.map((key) => (
         <span
           key={key}
           data-testid="facet-pill"
           data-facet-key={key}
+          title={pillTitle}
           className="inline-flex items-center rounded-full bg-overlay px-1.5 py-0.5 text-[10px] font-medium leading-none text-muted"
         >
           {key}
         </span>
       ))}
-    </div>
+    </span>
   );
 }

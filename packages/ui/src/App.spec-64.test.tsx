@@ -32,6 +32,7 @@ function makeSession(): SessionPayload {
       name: 'Alice',
       status: 'active',
       emailVerified: true,
+      videoWelcomedAt: new Date(), // spec-444: suppress welcome-video gate so tests isolate routing
     },
     memberships: [
       {
@@ -123,10 +124,12 @@ function renderAt(path: string) {
 describe('spec-64 i-3: Decision/Issue deep-link routes (ac-23)', () => {
   beforeEach(() => {
     vi.stubEnv('VITE_GOOGLE_CLIENT_ID', 'test-client-id');
+    sessionStorage.setItem('welcomeVideoDismissed', '1'); // spec-444: suppress gate so tests isolate routing
     mockSession = makeSession();
   });
   afterEach(() => {
     vi.unstubAllEnvs();
+    sessionStorage.removeItem('welcomeVideoDismissed');
   });
 
   it('a Decision deep-link renders the Spec page, not a redirect to the personal Memex', async () => {

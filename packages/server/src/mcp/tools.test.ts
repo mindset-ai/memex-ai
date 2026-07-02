@@ -129,6 +129,10 @@ const CLAUSE_ROW = {
   body: "A clause.",
   status: "active",
   previousStatus: null,
+  // spec-151 dec-5 — persisted testability verdict columns (null = unclassified).
+  isObligation: null,
+  testable: null,
+  archetype: null,
   createdAt: baseDate,
   updatedAt: baseDate,
 };

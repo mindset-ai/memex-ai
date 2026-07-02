@@ -76,10 +76,10 @@ test("close via the Done tab: a human editor closes a clean verify spec, no agen
     kind: "scope",
     statement: "The close flow is reachable by a human.",
   });
-  expect(ac.acUid, "seeded AC should carry a canonical acUid").not.toBeNull();
+  expect(ac.subjectRef, "seeded AC should carry a canonical subjectRef").not.toBeNull();
   // A passing emission flips the AC to `verified` → unverifiedAcCount 0 → the
   // verify→done rubric is clean, so the Done tab offers the ready confirm.
-  await seedTestEvent({ acUid: ac.acUid!, status: "pass", testIdentifier: "j29-seed" });
+  await seedTestEvent({ subjectRef: ac.subjectRef!, status: "pass", testIdentifier: "j29-seed" });
 
   await page.goto(
     tenantPath(tenant.namespaceSlug, tenant.memexSlug, `/specs/${spec.handle}`),

@@ -113,8 +113,8 @@ afterAll(async () => {
   for (const memexId of memexIds) {
     const acUids = await demoAcUids(memexId).catch(() => []);
     if (acUids.length) {
-      await db.delete(testEvents).where(inArray(testEvents.acUid, acUids)).catch(() => {});
-      await db.delete(testEventLatest).where(inArray(testEventLatest.acUid, acUids)).catch(() => {});
+      await db.delete(testEvents).where(inArray(testEvents.subjectRef, acUids)).catch(() => {});
+      await db.delete(testEventLatest).where(inArray(testEventLatest.subjectRef, acUids)).catch(() => {});
     }
     await db.delete(activityLog).where(eq(activityLog.memexId, memexId)).catch(() => {});
     await db.delete(documents).where(eq(documents.memexId, memexId)).catch(() => {});
@@ -289,7 +289,7 @@ describe("resetHandholdDemo", () => {
     const logBefore = await db
       .select()
       .from(testEvents)
-      .where(inArray(testEvents.acUid, acUids));
+      .where(inArray(testEvents.subjectRef, acUids));
     expect(logBefore).toHaveLength(expectedEmissions);
 
     const result = await resetHandholdDemo(memexId);
@@ -307,12 +307,12 @@ describe("resetHandholdDemo", () => {
     const orphanLog = await db
       .select()
       .from(testEvents)
-      .where(inArray(testEvents.acUid, acUidsAfter));
+      .where(inArray(testEvents.subjectRef, acUidsAfter));
     expect(orphanLog).toHaveLength(expectedEmissions);
     const orphanSummary = await db
       .select()
       .from(testEventLatest)
-      .where(inArray(testEventLatest.acUid, acUidsAfter));
+      .where(inArray(testEventLatest.subjectRef, acUidsAfter));
     expect(orphanSummary).toHaveLength(expectedEmissions);
 
     // The freshly re-seeded verify/done ACs are GREEN again.

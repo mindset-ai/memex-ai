@@ -52,6 +52,9 @@ versa.
 - `voice.mic_permission_result` — The mic permission prompt resolved during a voice attempt. props.result (granted | denied | dismissed).
 - `voice.icon_shown` — The voice entry point was presented (adoption denominator). Fired once per mount. props.surface (icon | pill).
 - `home.landing_routed` — The app router decided a user's first-load landing from a read-only onboarding-state check (spec-421 dec-5). props.destination (home | specs), props.graduated (bool). Measures whether routing graduated users straight to Specs lifts engagement. Advisory.
+- `onboarding.video_started` — The first-run welcome video began playing (WelcomePage, spec-444). Fires at most once per view on the first play/playing event. props.video_id, props.position_seconds, props.duration_seconds, props.percent_watched (0–100, NaN-guarded) — counts only.
+- `onboarding.video_completed` — The first-run welcome video reached its end (WelcomePage, spec-444). Fires at most once per view. props.video_id, props.position_seconds, props.duration_seconds, props.percent_watched — counts only. The activation-funnel success signal for the video step.
+- `onboarding.video_skipped` — The user dismissed/skipped the first-run welcome video BEFORE completion (WelcomePage Get-started / Skip / × close, spec-444). Fires at most once per view and only when the video has not already completed. props.video_id, props.position_seconds, props.duration_seconds, props.percent_watched — counts only.
 
 ## Back-end outcomes (whitelisted `mutate()` events, dec-8)
 

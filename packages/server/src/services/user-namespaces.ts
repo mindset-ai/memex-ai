@@ -273,15 +273,16 @@ export async function ensureUserNamespace(
 // provisioning seed performs reads RLS-EXCLUDED tables, so the GUC is a harmless no-op there.
 async function seedNewPersonalMemex(memexId: string, ownerUserId: string): Promise<void> {
   await runWithMemexId(memexId, async () => {
+    // spec-437 dec-1: the facet vocabulary must exist BEFORE the default Standards are
+    // seeded, so each default clause's facet verdict persists against a live vocabulary
+    // (a vocab-less seed silently drops the verdicts). spec-340 t-3 (dec-7): a personal
+    // memex owns its facets directly (owner_type='memex'). Best-effort + idempotent; a
+    // facet-seed failure degrades gracefully to ballotless default Standards rather than
+    // blocking signup.
+    await seedDefaultFacetsForMemexBestEffort(memexId);
     await Promise.allSettled([
       seedProvisioningBehaviourBestEffort(memexId, ownerUserId),
       seedDefaultStandardsBestEffort(memexId),
-      // spec-340 t-3 (dec-7): seed the personal memex's own facet vocabulary
-      // (owner_type='memex' — a personal memex is not modelled as its own org, so it
-      // owns its facets directly). Best-effort + idempotent, isolated by allSettled so
-      // a seed failure never blocks signup. Reached only on the personal-namespace
-      // create path, so seeding is inherently personal-only.
-      seedDefaultFacetsForMemexBestEffort(memexId),
     ]);
   });
 }

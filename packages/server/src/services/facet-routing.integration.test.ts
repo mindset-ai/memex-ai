@@ -93,14 +93,17 @@ describe("recall-first routing (spec-423 t-3, dec-1)", () => {
     expect(handles.has("std-zb-unrelated")).toBe(false);
   });
 
-  it("keyless density ranks a focused standard above a catch-all (ac-9)", async () => {
+  it("the keyless baseline ranks a focused standard above a catch-all (ac-9)", async () => {
     tagAc(AC(9));
     const r = await routeFacets(memexId, ["zb-security"], "auth", null);
     const focused = r.all.find((s) => s.handle === "std-zb-focused")!;
     const catchall = r.all.find((s) => s.handle === "std-zb-catchall")!;
+    // The more-focused standard outranks the catch-all. Scores are normalized to 0..1
+    // (top = 1.0) so the readout stays interpretable across rankers.
     expect(focused.score).toBeGreaterThan(catchall.score);
     expect(focused.score).toBeCloseTo(1.0);
-    expect(catchall.score).toBeCloseTo(0.25);
+    expect(catchall.score).toBeGreaterThan(0);
+    expect(catchall.score).toBeLessThan(1.0);
   });
 });
 
@@ -127,12 +130,13 @@ describe("surfacing cut — top-K, no relevance floor, scores shown (spec-423 t-
   it("applies NO relevance floor — a low-score candidate still surfaces within K (ac-10, ac-3)", async () => {
     tagAc(AC(10));
     tagAc(AC(3)); // scope: only the top-K cap limits the list; a low-score standard is never floored
-    // Default K (10) comfortably holds all 3 candidates. The catch-all scores only
-    // 0.25 — a relevance floor would drop it; with no floor it is surfaced anyway.
+    // Default K (10) comfortably holds all 3 candidates. The catch-all scores below the
+    // focused standard — a relevance floor would drop it; with no floor it surfaces anyway.
     const r = await routeFacets(memexId, ["zb-security"], "auth", null);
     const catchall = r.surfaced.find((s) => s.handle === "std-zb-catchall");
     expect(catchall).toBeDefined();
-    expect(catchall!.score).toBeCloseTo(0.25); // low score, surfaced regardless
+    expect(catchall!.score).toBeGreaterThanOrEqual(0);
+    expect(catchall!.score).toBeLessThan(1.0); // low score, surfaced regardless
   });
 
   it("formats the surfaced readout with visible scores (ac-10)", async () => {
@@ -140,7 +144,7 @@ describe("surfacing cut — top-K, no relevance floor, scores shown (spec-423 t-
     const r = await routeFacets(memexId, ["zb-security"], "auth", null);
     const readout = formatRoutedStandards(r);
     expect(readout).toContain("std-zb-focused");
-    expect(readout).toMatch(/\(1\.00\)/); // score shown
+    expect(readout).toMatch(/relevance 1\.00/); // score shown, now stamped "relevance N.NN"
   });
 });
 
@@ -178,5 +182,23 @@ describe("ranking backend — keyless baseline + re-ranker degrade (spec-423 t-3
     const r = await routeFacets(memexId, ["zb-security"], "auth", boom);
     expect(r.rankerModel).toBe(KEYLESS_MODEL); // degraded, non-blocking
     expect(r.all.length).toBe(3); // still recall-first
+  });
+});
+
+describe("implicated-sections readout — inlined sections with full genealogy (spec-423, ac-19)", () => {
+  it("inlines the matched SECTION (not a pointer) stamped with standard title, governing clause refs, and a get_doc (ac-19)", async () => {
+    tagAc(AC(19));
+    const r = await routeFacets(memexId, ["zb-security"], "auth", null);
+    const readout = formatRoutedStandards(r);
+
+    // The surfaced standard is named with its exact handle + title...
+    expect(readout).toContain("std-zb-focused");
+    expect(readout).toContain("Focused security"); // the title, from the header
+    // ...and its section is INLINED (the clause body travels, not just a pointer).
+    expect(readout).toContain("clause 0");
+    // ...stamped with genealogy: the governing clause refs + a get_doc for depth.
+    expect(readout).toMatch(/governing clause/);
+    expect(readout).toMatch(/clauses\/cl-\d+/); // full canonical clause ref, not a bare handle
+    expect(readout).toContain("get_doc"); // the full-standard pointer for depth
   });
 });

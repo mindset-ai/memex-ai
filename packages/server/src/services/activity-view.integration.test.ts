@@ -104,11 +104,11 @@ describe("activity view: one uniform read across every arm [spec-122 t-6]", () =
     await createTask(actor.memexId, docId, "view task", "desc", undefined, undefined, ctx);
 
     // A test_events verification flip with a real ac_uid pointing at this spec.
-    const acUid = `${actor.nsSlug}/main/specs/${specHandle}/acs/ac-1`;
+    const subjectRef = `${actor.nsSlug}/main/specs/${specHandle}/acs/ac-1`;
     const [te] = await db
       .insert(testEvents)
       .values({
-        acUid,
+        subjectRef,
         memexId: actor.memexId,
         status: "pass",
         actor: "ci-bot",
@@ -164,11 +164,11 @@ describe("activity view: one uniform read across every arm [spec-122 t-6]", () =
   // ── ac-22 ─────────────────────────────────────────────────────────────────
   it("ac-22: the test_events arm reads the TOP-LEVEL actor, ignoring metadata.actor", async () => {
     tagAc(`${AC}/ac-22`);
-    const acUid = `${actor.nsSlug}/main/specs/${specHandle}/acs/ac-22`;
+    const subjectRef = `${actor.nsSlug}/main/specs/${specHandle}/acs/ac-22`;
     const [te] = await db
       .insert(testEvents)
       .values({
-        acUid,
+        subjectRef,
         memexId: actor.memexId,
         status: "pass",
         actor: "ci-bot",

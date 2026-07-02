@@ -16,7 +16,7 @@ const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-372/acs
 let mockSession: SessionPayload;
 function makeSession(needsOnboarding: boolean): SessionPayload {
   return {
-    user: { id: 'u-1', email: 'alice@example.com', name: 'Alice', status: 'active', emailVerified: true },
+    user: { id: 'u-1', email: 'alice@example.com', name: 'Alice', status: 'active', emailVerified: true, videoWelcomedAt: new Date() }, // spec-444: suppress welcome-video gate
     memberships: [
       {
         memexId: 'mx-alice',
@@ -104,9 +104,11 @@ function renderAt(path: string) {
 
 beforeEach(() => {
   vi.stubEnv('VITE_GOOGLE_CLIENT_ID', 'test-client-id');
+  sessionStorage.setItem('welcomeVideoDismissed', '1'); // spec-444: suppress gate so tests isolate routing
 });
 afterEach(() => {
   vi.unstubAllEnvs();
+  sessionStorage.removeItem('welcomeVideoDismissed');
 });
 
 describe('spec-372 t-11: post-login landing is /home, never the board (dec-7)', () => {

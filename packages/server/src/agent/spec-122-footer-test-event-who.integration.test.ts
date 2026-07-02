@@ -60,10 +60,10 @@ async function makeSpec(title: string): Promise<{ id: string; handle: string }> 
 }
 
 async function flip(handle: string, actor: string): Promise<void> {
-  const acUid = `${nsSlug}/main/specs/${handle}/acs/ac-1`;
+  const subjectRef = `${nsSlug}/main/specs/${handle}/acs/ac-1`;
   const [te] = await db
     .insert(testEvents)
-    .values({ memexId, acUid, status: "pass", actor } as typeof testEvents.$inferInsert)
+    .values({ memexId, subjectRef, status: "pass", actor } as typeof testEvents.$inferInsert)
     .returning();
   created.testEvents.push(te.id);
 }

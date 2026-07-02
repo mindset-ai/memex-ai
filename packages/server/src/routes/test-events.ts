@@ -14,7 +14,11 @@
 // are removed.
 //
 // Payload (JSON body):
-//   ac_uid           required, text (the AC's full canonical ref)
+//   subject_ref      the verifiable-subject canonical ref — an AC ref OR a
+//                    standard-clause ref (spec-151 dec-3). The neutral name.
+//   ac_uid           LEGACY alias for subject_ref, still accepted (deprecated over
+//                    a @memex-ai-ac/vitest version window). Exactly one of
+//                    subject_ref / ac_uid is required; subject_ref wins if both sent.
 //   status           required, one of 'pass' | 'fail' | 'error'
 //   test_identifier  optional, text (typically file path + function name)
 //   duration_ms      optional, integer
@@ -78,6 +82,9 @@ const TEST_EVENT_ENTITY = "test_event" as ChangeEntity;
 
 interface TestEventBody {
   ac_uid?: unknown;
+  // spec-151 dec-3: the neutral name for the verifiable-subject ref (AC ref OR
+  // standard-clause ref). Dual-accepted alongside the legacy `ac_uid` field.
+  subject_ref?: unknown;
   status?: unknown;
   test_identifier?: unknown;
   duration_ms?: unknown;
@@ -145,15 +152,15 @@ export function validateMetadata(
   return { metadata: Object.fromEntries(entries), dropped };
 }
 
-function namespaceFromAcUid(acUid: string): string {
-  const slashIdx = acUid.indexOf("/");
-  return slashIdx > 0 ? acUid.slice(0, slashIdx) : "";
+function namespaceFromAcUid(subjectRef: string): string {
+  const slashIdx = subjectRef.indexOf("/");
+  return slashIdx > 0 ? subjectRef.slice(0, slashIdx) : "";
 }
 
 // Second path segment of an ac_uid (`<namespace>/<memex>/specs/...`). Used to confirm
 // the authenticated key authorises the Memex named in the ref (spec-129 ac-10).
-function memexSlugFromAcUid(acUid: string): string {
-  const parts = acUid.split("/");
+function memexSlugFromAcUid(subjectRef: string): string {
+  const parts = subjectRef.split("/");
   return parts.length >= 2 ? parts[1]! : "";
 }
 
@@ -161,8 +168,8 @@ function memexSlugFromAcUid(acUid: string): string {
 // Used to enforce a spec-scoped (ephemeral / agent) key's scope. Returns "" when the ref
 // isn't a `/specs/…` AC ref — a scoped key then matches nothing and is rejected, which is
 // the safe default.
-function specHandleFromAcUid(acUid: string): string {
-  const parts = acUid.split("/");
+function specHandleFromAcUid(subjectRef: string): string {
+  const parts = subjectRef.split("/");
   return parts.length >= 4 && parts[2] === "specs" ? parts[3]! : "";
 }
 
@@ -203,8 +210,20 @@ testEventsRouter.post("/", async (c) => {
     return c.json({ error: "Body must be valid JSON" }, 400);
   }
 
-  if (typeof body.ac_uid !== "string" || body.ac_uid.length === 0) {
-    return c.json({ error: "ac_uid is required (string)" }, 400);
+  // spec-151 dec-3: dual-accept the neutral `subject_ref` field and the legacy
+  // `ac_uid` wire field, mapping BOTH to the subject_ref column. `subject_ref`
+  // wins when both are present; an old emitter sending only `ac_uid` still lands
+  // (ac-10), and the same ref sent under either field produces an identical row
+  // (ac-11). Deprecation of `ac_uid` rides a @memex-ai-ac/vitest version window.
+  const subjectRefValue =
+    typeof body.subject_ref === "string" && body.subject_ref.length > 0
+      ? body.subject_ref
+      : body.ac_uid;
+  if (typeof subjectRefValue !== "string" || subjectRefValue.length === 0) {
+    return c.json(
+      { error: "subject_ref (or legacy ac_uid) is required (string)" },
+      400,
+    );
   }
   if (typeof body.status !== "string" || !VALID_STATUSES.has(body.status)) {
     return c.json({ error: "status is required and must be one of pass|fail|error" }, 400);
@@ -247,22 +266,22 @@ testEventsRouter.post("/", async (c) => {
   // parsed only to resolve the target memex for the emission-key match below —
   // it is NOT compared against any server identity. memex.ai is multi-tenant, so
   // a cross-namespace ref from a legitimately-keyed tenant is expected and valid.
-  const refNamespace = namespaceFromAcUid(body.ac_uid);
+  const refNamespace = namespaceFromAcUid(subjectRefValue);
 
   // Authorization (spec-129 ac-10): a key only authorises emissions for its OWN Memex.
-  // Resolve the memex named by ac_uid (<namespace>/<memex>/…) and confirm it matches the
+  // Resolve the memex named by the ref (<namespace>/<memex>/…) and confirm it matches the
   // authenticated key's memexId. This blocks cross-tenant tampering even with a valid key
   // for a different Memex.
   const targetMemexId = await resolveMemexId(
     refNamespace,
-    memexSlugFromAcUid(body.ac_uid),
+    memexSlugFromAcUid(subjectRefValue),
   );
   if (!targetMemexId || targetMemexId !== emissionKey.memexId) {
     return c.json(
       {
         error: "unauthorized",
         message:
-          "This emission key does not authorise the Memex named in ac_uid. A key only " +
+          "This emission key does not authorise the Memex named in the subject ref. A key only " +
           "works for the Memex it was generated in.",
       },
       401,
@@ -276,13 +295,13 @@ testEventsRouter.post("/", async (c) => {
   // so spec-129 keys are unaffected.
   if (
     emissionKey.scopedSpecHandle &&
-    emissionKey.scopedSpecHandle !== specHandleFromAcUid(body.ac_uid)
+    emissionKey.scopedSpecHandle !== specHandleFromAcUid(subjectRefValue)
   ) {
     // spec-333 ac-7: name BOTH the key's scoped Spec and the target Spec, and hand a coding
     // agent the exact provision_ac_emission call to get a key for the Spec it's actually
     // emitting for. The route already holds both handles, so the breadcrumb is precise.
-    const targetSpecHandle = specHandleFromAcUid(body.ac_uid);
-    const targetSpecRef = `${refNamespace}/${memexSlugFromAcUid(body.ac_uid)}/specs/${targetSpecHandle}`;
+    const targetSpecHandle = specHandleFromAcUid(subjectRefValue);
+    const targetSpecRef = `${refNamespace}/${memexSlugFromAcUid(subjectRefValue)}/specs/${targetSpecHandle}`;
     return c.json(
       {
         error: "unauthorized",
@@ -314,7 +333,7 @@ testEventsRouter.post("/", async (c) => {
   // lives inside the mutate() callback, and TypeScript does not preserve the
   // `typeof body.ac_uid === "string"` narrowing across that function boundary.
   const insertValues = {
-    acUid: body.ac_uid,
+    subjectRef: subjectRefValue,
     // spec-398 dec-4 (ac-8): stamp tenancy at write from the Memex the emission
     // key already resolved + authorised above — no read-time ac_uid parsing.
     memexId: targetMemexId,
@@ -354,7 +373,7 @@ testEventsRouter.post("/", async (c) => {
       // so this payload only ever rides the live SSE frame.
       payload: {
         status: insertValues.status,
-        acUid: insertValues.acUid,
+        subjectRef: insertValues.subjectRef,
         hidden: insertValues.hidden,
       },
     },
@@ -370,7 +389,7 @@ testEventsRouter.post("/", async (c) => {
           .values(insertValues)
           .returning({ id: testEvents.id, createdAt: testEvents.createdAt });
         await applyEmissionToSummary(tx, {
-          acUid: insertValues.acUid,
+          subjectRef: insertValues.subjectRef,
           memexId: targetMemexId,
           testIdentifier: insertValues.testIdentifier,
           status: insertValues.status as "pass" | "fail" | "error",
@@ -382,13 +401,13 @@ testEventsRouter.post("/", async (c) => {
         // insert so the log never transiently exceeds the cap.
         await trimTestEventsForPair(
           tx,
-          insertValues.acUid,
+          insertValues.subjectRef,
           insertValues.testIdentifier,
         );
         // spec-398 t-6: durably snapshot the earliest pass BEFORE retention can
         // trim it away, so analytics keeps a true "first went green" date.
         if (insertValues.status === "pass" && !insertValues.hidden) {
-          await recordFirstVerified(tx, insertValues.acUid, inserted.createdAt);
+          await recordFirstVerified(tx, insertValues.subjectRef, inserted.createdAt);
         }
         return inserted;
       });
@@ -407,7 +426,7 @@ testEventsRouter.post("/", async (c) => {
   // Stdout log so observers can tail the dev server output during deploys
   // and behavioural probes. Cheap and useful.
   console.log(
-    `[test-events] ${body.ac_uid} ${body.status}` +
+    `[test-events] ${subjectRefValue} ${body.status}` +
       (body.test_identifier ? ` (${body.test_identifier})` : "") +
       (body.run_id ? ` run=${body.run_id}` : ""),
   );
@@ -424,7 +443,7 @@ testEventsRouter.post("/", async (c) => {
   // event for an AC that verifies a converted Issue's Task closes the
   // bug→failing-AC→green-AC→resolved loop. Best-effort: never fail the 201.
   if (body.status === "pass") {
-    await maybeAutoResolveIssuesForAcUid(body.ac_uid).catch(() => {});
+    await maybeAutoResolveIssuesForAcUid(subjectRefValue).catch(() => {});
   }
 
   return c.json({ id: row.id, created_at: row.createdAt }, 201);

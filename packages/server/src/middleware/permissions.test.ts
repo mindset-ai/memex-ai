@@ -39,6 +39,7 @@ function buildApp(routePath: string) {
       roleCoords: null,
       identityConfirmedAt: null,
       lifecycleEmailUnsubscribedAt: null,
+      videoWelcomedAt: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     });

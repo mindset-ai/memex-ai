@@ -53,10 +53,13 @@ describe("front-end engagement events (spec-336 follow-on)", () => {
 
   it("adds no onboarding.* events and leaves the home_canvas.* events intact (Home untouched — spec-336 owns it)", () => {
     tagAc(`${AC}/ac-3`);
-    const names = USAGE_EVENT_REGISTRY.map((e) => e.name);
-    // No new onboarding surface was introduced by this batch.
-    expect(names.filter((n) => n.startsWith("onboarding."))).toHaveLength(0);
+    // No new onboarding surface was introduced by THIS (spec-336 follow-on) batch —
+    // asserted against the batch's own event list, not the whole registry, so a
+    // later spec that legitimately adds onboarding.* events (spec-444's welcome
+    // video) doesn't retroactively falsify this batch's claim.
+    expect(NEW_FRONTEND_EVENTS.filter((n) => n.startsWith("onboarding."))).toHaveLength(0);
     // The existing Home Canvas events are still present, unchanged.
+    const names = USAGE_EVENT_REGISTRY.map((e) => e.name);
     expect(names).toContain("home_canvas.step_shown");
     expect(names).toContain("home_canvas.cta_clicked");
   });

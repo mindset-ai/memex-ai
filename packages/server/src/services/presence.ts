@@ -119,22 +119,30 @@ export async function markPresent(input: MarkPresentInput): Promise<void> {
  * routed through mutate()/the bus. A no-op when no row matches.
  */
 export async function clearPresent(input: {
+  memexId: string;
   docId: string;
   actorUserId: string;
   channel: PresenceChannel;
   clientId?: string;
 }): Promise<void> {
   const clientId = input.clientId ?? "";
-  await db
-    .delete(presence)
-    .where(
-      and(
-        eq(presence.docId, input.docId),
-        eq(presence.actorUserId, input.actorUserId),
-        eq(presence.channel, input.channel),
-        eq(presence.clientId, clientId),
-      ),
-    );
+  // spec-440 t-4: like markPresent, establish tenant context for this gated write
+  // rather than trusting the caller's ambient app.memex_id. Under the memex_app
+  // runtime role a context-less delete would be a no-op (USING hides the rows) and,
+  // with the phase-2 guard enabled, would THROW. The row's memex_id is input.memexId,
+  // so run under that context. Still silent/out-of-band (std-8) — GUC only, no bus.
+  await runWithMemexId(input.memexId, async () => {
+    await db
+      .delete(presence)
+      .where(
+        and(
+          eq(presence.docId, input.docId),
+          eq(presence.actorUserId, input.actorUserId),
+          eq(presence.channel, input.channel),
+          eq(presence.clientId, clientId),
+        ),
+      );
+  });
 }
 
 /** Read the live presence-table rows (within TTL) for a single spec. */

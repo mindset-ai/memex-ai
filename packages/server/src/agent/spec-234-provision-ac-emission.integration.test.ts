@@ -47,7 +47,7 @@ const created = {
 
 afterAll(async () => {
   if (created.acUids.length)
-    await db.delete(testEvents).where(inArray(testEvents.acUid, created.acUids)).catch(() => {});
+    await db.delete(testEvents).where(inArray(testEvents.subjectRef, created.acUids)).catch(() => {});
   if (created.memexes.length)
     await db.delete(memexEmissionKeys).where(inArray(memexEmissionKeys.memexId, created.memexes)).catch(() => {});
   if (created.docs.length) {
@@ -97,11 +97,11 @@ function extractKey(out: string): string {
   return m[1]!;
 }
 
-async function postEvent(acUid: string, bearer: string): Promise<Response> {
+async function postEvent(subjectRef: string, bearer: string): Promise<Response> {
   return app.request("/api/test-events", {
     method: "POST",
     headers: { "Content-Type": "application/json", Host: "memex.ai", Authorization: `Bearer ${bearer}` },
-    body: JSON.stringify({ ac_uid: acUid, status: "pass", test_identifier: "t::x", duration_ms: 1 }),
+    body: JSON.stringify({ ac_uid: subjectRef, status: "pass", test_identifier: "t::x", duration_ms: 1 }),
   });
 }
 
@@ -184,17 +184,17 @@ describe("spec-234 — provision_ac_emission MCP tool", () => {
   it("the provisioned key actually emits for this Spec, and a fresh call yields another working key [ac-1][ac-4]", async () => {
     tagAc(AC_1);
     tagAc(AC_4);
-    const acUid = `${actor.nsSlug}/main/specs/${handle}/acs/ac-1`;
-    created.acUids.push(acUid);
+    const subjectRef = `${actor.nsSlug}/main/specs/${handle}/acs/ac-1`;
+    created.acUids.push(subjectRef);
 
     const key1 = extractKey(out);
-    expect((await postEvent(acUid, key1)).status).toBe(201);
+    expect((await postEvent(subjectRef, key1)).status).toBe(201);
 
     // Fresh session: a new provision call returns a different, also-working key — no human
     // re-finding, no persisted secret needed.
     const out2 = await callTool(actor.user.id, "provision_ac_emission", { ref });
     const key2 = extractKey(out2);
     expect(key2).not.toBe(key1);
-    expect((await postEvent(acUid, key2)).status).toBe(201);
+    expect((await postEvent(subjectRef, key2)).status).toBe(201);
   });
 });

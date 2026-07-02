@@ -24,11 +24,11 @@ afterAll(async () => {
   if (createdAcUids.length) {
     await db
       .delete(testEvents)
-      .where(inArray(testEvents.acUid, createdAcUids))
+      .where(inArray(testEvents.subjectRef, createdAcUids))
       .catch(() => {});
     await db
       .delete(testEventLatest)
-      .where(inArray(testEventLatest.acUid, createdAcUids))
+      .where(inArray(testEventLatest.subjectRef, createdAcUids))
       .catch(() => {});
   }
   for (const id of createdDocIds) {
@@ -116,7 +116,7 @@ describe("GET /api/:namespace/:memex/acs/doc/:docId [acs route]", () => {
     // spec-162: seed via the insert+summary-upsert path so the verification GET
     // (now backed by test_event_latest) reports this AC as verified.
     await seedTestEvent({
-      acUid: scopeRef,
+      subjectRef: scopeRef,
       status: "pass",
       testIdentifier: "smoke/test.ts::it works",
     });

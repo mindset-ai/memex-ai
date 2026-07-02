@@ -293,7 +293,7 @@ export interface AcVerificationSummary {
 
 /**
  * "Is the work proven?" — rolls test_event_latest (latest status per (ac,
- * test)) up to per-AC verdicts, then to one memex-wide summary. ac_uid is the
+ * test)) up to per-AC verdicts, then to one memex-wide summary. subject_ref is the
  * canonical ref string, so the memex's rows are prefix-matched on its
  * `<namespace>/<memex>/` slug pair.
  */
@@ -318,12 +318,12 @@ export async function acVerification(memexId: string): Promise<AcVerificationSum
       count(*) FILTER (WHERE NOT has_fail AND has_pass)::int AS verified
     FROM (
       SELECT
-        ac_uid,
+        subject_ref,
         bool_or(latest_status IN ('fail', 'error')) AS has_fail,
         bool_or(latest_status = 'pass') AS has_pass
       FROM test_event_latest
-      WHERE ac_uid LIKE ${prefix + "%"}
-      GROUP BY ac_uid
+      WHERE subject_ref LIKE ${prefix + "%"}
+      GROUP BY subject_ref
     ) per_ac
   `)) as unknown as Array<{ failing: number; verified: number }>;
 
@@ -350,7 +350,7 @@ export interface AcsOverTimePoint {
  * "Is verification keeping up with intent?" — two cumulative lines: ACs
  * created (the commitments) vs ACs first-verified by a passing test emission
  * (the proof). The vertical gap is the verification debt. Verified counts come
- * from test_events (first non-hidden pass per ac_uid, prefix-scoped to this
+ * from test_events (first non-hidden pass per subject_ref, prefix-scoped to this
  * memex); they can lag created by design and can never exceed reality —
  * emissions for since-deleted ACs are a tolerable over-count noted here.
  */
@@ -373,11 +373,11 @@ export async function acsOverTime(memexId: string): Promise<AcsOverTimePoint[]> 
     -- spec-398 t-6: read the FIRST pass from the durable ac_first_verified
     -- snapshot, not min(created_at) over test_events — keep-last-10 retention
     -- deletes the oldest passing row, so the operational log can no longer answer
-    -- "when did this AC first go green". One row per ac_uid already, so no min().
+    -- "when did this AC first go green". One row per subject_ref already, so no min().
     first_pass AS (
-      SELECT ac_uid, first_verified_at::date AS day
+      SELECT subject_ref, first_verified_at::date AS day
       FROM ac_first_verified
-      WHERE ac_uid LIKE ${prefix + "%"}
+      WHERE subject_ref LIKE ${prefix + "%"}
     ),
     verified_per_day AS (
       SELECT day, count(*)::int AS n FROM first_pass GROUP BY 1
@@ -416,7 +416,7 @@ export interface TestRunVolumePoint {
 
 /**
  * "How hard is the verification loop running?" — raw test emissions per day
- * split by status, prefix-scoped to this memex's ac_uids. Hidden emissions
+ * split by status, prefix-scoped to this memex's subject_refs. Hidden emissions
  * count: they're real runs (volume), they're only excluded from the
  * verification badge. Gapless from the first emission to today.
  */
@@ -433,7 +433,7 @@ export async function testRunVolume(memexId: string): Promise<TestRunVolumePoint
     WITH per_day AS (
       SELECT created_at::date AS day, status, count(*)::int AS n
       FROM test_events
-      WHERE ac_uid LIKE ${prefix + "%"}
+      WHERE subject_ref LIKE ${prefix + "%"}
       GROUP BY 1, 2
     ),
     days AS (
@@ -482,7 +482,7 @@ const PULSE_MAX_WINDOW_MIN = 240;
 /**
  * "Are test signals flowing right now?" — minute-bucketed emission volume over a
  * short rolling window, split pass/fail/error, prefix-scoped to this memex's
- * ac_uids (the memex is encoded in every ac_uid; no test_events.memex_id column
+ * subject_refs (the memex is encoded in every subject_ref; no test_events.memex_id column
  * needed). Powers the Pulse test-signal monitor's historical baseline; the live
  * SSE `test_event.created` stream increments the current bucket on top of this.
  *
@@ -513,7 +513,7 @@ export async function testSignalPulse(
     WITH per_bucket AS (
       SELECT date_trunc('minute', created_at) AS bucket, status, count(*)::int AS n
       FROM test_events
-      WHERE ac_uid LIKE ${prefix + "%"}
+      WHERE subject_ref LIKE ${prefix + "%"}
         AND created_at >= now() - make_interval(mins => ${windowMinutes})
       GROUP BY 1, 2
     ),
@@ -566,7 +566,7 @@ function normalizePhase(status: string): SpecPhase {
   return (PHASE_NORMALIZE[status] ?? status) as SpecPhase;
 }
 
-/** Look up `<namespace>/<memex>/specs/<handle>/acs/` — the ac_uid prefix for ONE spec. */
+/** Look up `<namespace>/<memex>/specs/<handle>/acs/` — the subject_ref prefix for ONE spec. */
 async function specAcUidPrefix(memexId: string, docId: string): Promise<string | null> {
   const [row] = (await db.execute(sql`
     SELECT n.slug AS ns, m.slug AS mx, d.handle AS handle
@@ -789,12 +789,12 @@ export async function specAcVerification(memexId: string, docId: string): Promis
       count(*) FILTER (WHERE NOT has_fail AND has_pass)::int AS verified
     FROM (
       SELECT
-        ac_uid,
+        subject_ref,
         bool_or(latest_status IN ('fail', 'error')) AS has_fail,
         bool_or(latest_status = 'pass') AS has_pass
       FROM test_event_latest
-      WHERE ac_uid LIKE ${prefix + "%"}
-      GROUP BY ac_uid
+      WHERE subject_ref LIKE ${prefix + "%"}
+      GROUP BY subject_ref
     ) per_ac
   `)) as unknown as Array<{ failing: number; verified: number }>;
 
