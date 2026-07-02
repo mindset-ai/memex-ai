@@ -110,16 +110,8 @@ async function authEndpoint(
   path: string,
   body: Record<string, unknown>,
   token: string | null = null,
-  // Endpoints that SEND EMAIL as a side effect (signup, resend) opt out of retry:
-  // fetchWithRetry re-issues the whole POST on a 502/503/timeout, and because these
-  // requests hold the connection open for seconds (signup blocks on memex seeding),
-  // a proxy timeout would silently fire a second — non-idempotent — Postmark send.
-  // That was a third source of the duplicate-verification-email bug. Single-shot here;
-  // the user can retry deliberately.
-  opts: { retry?: boolean } = {},
 ): Promise<SessionPayload> {
-  const doFetch = opts.retry === false ? fetchOnce : fetchWithRetry;
-  const res = await doFetch(`${BASE_URL}${path}`, {
+  const res = await fetchWithRetry(`${BASE_URL}${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders(token) },
     body: JSON.stringify(body),
@@ -173,8 +165,11 @@ export async function probeAuthApi(email: string): Promise<ProbeResult> {
 }
 
 export async function signupApi(email: string, password: string): Promise<SessionPayload> {
-  // No retry: signup sends the verification email (see authEndpoint's `retry` note).
-  return authEndpoint('/auth/signup', { email, password }, null, { retry: false });
+  // Retry stays ON here: signup is guarded by the unique-email constraint (a retried
+  // POST hits createUserWithPassword's 409 and sends no second email), so retrying is
+  // duplicate-safe AND recovers a Cloud Run cold-start 502. Only resend — which has no
+  // such guard — must be single-shot (see resendVerificationApi).
+  return authEndpoint('/auth/signup', { email, password });
 }
 
 export async function loginApi(email: string, password: string): Promise<SessionPayload> {

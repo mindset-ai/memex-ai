@@ -22,11 +22,15 @@ export function VerifyEmailGate() {
 
   const email = session?.user.email ?? '';
 
+  // Tick once per second while cooling down. Keyed on the boolean (not the count) so a
+  // single interval spans the whole window instead of being torn down and recreated on
+  // every tick — the functional updater below needs nothing from the closure.
+  const coolingDown = cooldown > 0;
   useEffect(() => {
-    if (cooldown <= 0) return;
+    if (!coolingDown) return;
     const id = setInterval(() => setCooldown((s) => Math.max(0, s - 1)), 1000);
     return () => clearInterval(id);
-  }, [cooldown]);
+  }, [coolingDown]);
 
   const resend = async () => {
     if (sending || cooldown > 0) return;
@@ -37,12 +41,17 @@ export function VerifyEmailGate() {
       setSentAt(Date.now());
       setCooldown(RESEND_COOLDOWN_SEC);
     } catch (err) {
+      // Drop any prior success so the green "Sent a new link" and a red error can't
+      // render together.
+      setSentAt(null);
       if (err instanceof AuthApiError) {
         setError(err.message);
-        // Honor a server 429 (e.g. the page was reloaded mid-cooldown): start the
-        // countdown from the server's retryAfterSec so the button stays disabled.
-        if (err.status === 429 && err.retryAfterSec) {
-          setCooldown(err.retryAfterSec);
+        // A 429 can be either the 60s gap or the hourly cap (retryAfterSec up to
+        // ~3600). Clamp the visible countdown to the normal window so we never show
+        // an hour-long "Resend in 3599s"; the server still enforces the hourly cap,
+        // so a later click just re-surfaces its "too many attempts" message.
+        if (err.status === 429) {
+          setCooldown(Math.min(err.retryAfterSec ?? RESEND_COOLDOWN_SEC, RESEND_COOLDOWN_SEC));
         }
       } else {
         setError('Could not resend');
