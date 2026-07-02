@@ -306,8 +306,7 @@ export function buildWelcomeEmail(input: WelcomeEmailInput): EmailMessage {
     {
       title: "Community",
       description: "Say hello on Discord, whether you're weighing Memex up or already building.",
-      // TODO(spec-428): confirm the real Discord invite URL with the team.
-      url: "https://www.memex.ai/discord",
+      url: "https://discord.com/invite/WJfBYG9eV",
     },
   ];
 
@@ -387,7 +386,7 @@ const ACTIVATION_RESOURCES: EmailResource[] = [
   {
     title: "Community",
     description: "Say hello on Discord, whether you're weighing Memex up or already building.",
-    url: "https://www.memex.ai/discord",
+    url: "https://discord.com/invite/WJfBYG9eV",
   },
 ];
 
