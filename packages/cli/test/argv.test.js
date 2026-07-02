@@ -15,6 +15,7 @@ describe("parseArgs", () => {
       adminBase: null,
       label: null,
       memex: null,
+      dir: null,
       yes: false,
       help: false,
       skipBrowser: false,
