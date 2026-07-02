@@ -11,7 +11,7 @@ const RESEND_COOLDOWN_SEC = 60;
 // Shown for authenticated users whose emailVerified=false. They can't proceed into their
 // Memex until they click the link in their inbox. Provides a resend button + sign out.
 export function VerifyEmailGate() {
-  const { session, token, logout } = useAuth();
+  const { session, token, logout, refreshSession } = useAuth();
   const [sending, setSending] = useState(false);
   const [sentAt, setSentAt] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -31,6 +31,36 @@ export function VerifyEmailGate() {
     const id = setInterval(() => setCooldown((s) => Math.max(0, s - 1)), 1000);
     return () => clearInterval(id);
   }, [coolingDown]);
+
+  // Clear the gate promptly once the email is verified. Verification happens OUTSIDE
+  // this webview/tab — the confirmation link opens in the system browser — and the
+  // server emits nothing on the unified bus when it stamps email_verified_at
+  // (user-identity writes carry no bus entity), so nothing here learns about it on
+  // its own; the gate historically only cleared on an incidental SSE reconnect,
+  // minutes later (spec-304 issue-16). Re-check the session whenever the user returns
+  // to the app (window focus / the tab becoming visible), and poll gently while this
+  // gate is mounted, so it clears with no manual reload. refreshSession() re-fetches
+  // /api/auth/me; once it comes back verified, AuthContext swaps the session and this
+  // gate unmounts (tearing the listeners + poll down via the cleanup below).
+  useEffect(() => {
+    const recheck = () => {
+      void refreshSession().catch(() => {
+        // Best-effort: a transient refresh failure just retries on the next
+        // focus/visibility/poll tick; never surface it on the gate.
+      });
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') recheck();
+    };
+    window.addEventListener('focus', recheck);
+    document.addEventListener('visibilitychange', onVisibility);
+    const poll = window.setInterval(recheck, 8000);
+    return () => {
+      window.removeEventListener('focus', recheck);
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.clearInterval(poll);
+    };
+  }, [refreshSession]);
 
   const resend = async () => {
     if (sending || cooldown > 0) return;

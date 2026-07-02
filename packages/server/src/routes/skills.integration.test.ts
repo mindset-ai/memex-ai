@@ -16,6 +16,9 @@ import { makeTestMemex, makeTestMemexWithDevAdmin } from "../services/test-helpe
 import { reconstructSkillMd } from "../services/skills/reconstruct-skill-md.js";
 
 const AC_37 = "mindset-prod/memex-building-itself/specs/spec-300/acs/ac-37";
+// spec-300 t-12 (issue-1): an invalid SKILL.md must return an actionable 400,
+// never the opaque 500 the unmapped SkillParse/SkillValidationError produced.
+const AC_43 = "mindset-prod/memex-building-itself/specs/spec-300/acs/ac-43";
 
 const SKILL_MD = reconstructSkillMd({
   name: "route-skill",
@@ -73,6 +76,28 @@ describe("POST /api/<ns>/<mx>/skills — write access (dec-15, std-7)", () => {
     expect(list.status).toBe(200);
     const skills = (await list.json()) as { handle: string }[];
     expect(skills.some((s) => s.handle === body.handle)).toBe(true);
+  });
+
+  it("rejects an invalid SKILL.md with an actionable 400, not a 500 (ac-43)", async () => {
+    tagAc(AC_43);
+
+    // Ordinary Markdown with no `---name/description---` frontmatter — exactly what
+    // a user pasted when this produced `{"error":"Internal server error"}` at 500.
+    const res = await app.request(
+      `${memberPath}/skills`,
+      withApexHost({
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ skillMd: "# Just a heading\n\nNo frontmatter here." }),
+      }),
+    );
+
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    // The message is actionable (surfaces the validation detail), not the generic
+    // "Internal server error" the unmapped error used to yield.
+    expect(body.error).toBeTruthy();
+    expect(body.error).not.toMatch(/internal server error/i);
   });
 
   it("a non-member is refused (404, not 403 — std-7)", async () => {
