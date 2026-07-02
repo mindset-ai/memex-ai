@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useLocation } from 'react-router-dom';
 import { fetchDocs, archiveDoc, resetHandholdDemo } from '../api/client';
 import { type DocSummary } from '../api/types';
 import { statusTextClass } from '../utils/statusStyles';
@@ -12,7 +12,7 @@ import { TagFilter } from '../components/TagFilter';
 import { ShareModal } from '../components/ShareModal';
 import { RenameSpecDialog } from '../components/RenameSpecDialog';
 import { MoveSpecDialog } from '../components/MoveSpecDialog';
-import { getCurrentTenant } from '../utils/tenantUrl';
+import { getCurrentTenant, parseTenantFromPathname } from '../utils/tenantUrl';
 import { useAuth } from '../components/AuthContext';
 import { nextRevealPhase } from '../hooks/useHandholdReveal';
 import { useHandholdRevealValue } from '../hooks/HandholdRevealContext';
@@ -50,8 +50,31 @@ export function SpecList() {
   // so a filtered board is shareable, matching the board's existing URL conventions.
   const [searchParams, setSearchParams] = useSearchParams();
   const assigneeFilter = searchParams.get('assignee') ?? 'all';
+  // spec-447: remember the assignee filter per-tenant so it survives the
+  // round-trip into a spec and back. The filter lives in the URL (spec-118
+  // ac-19), but the "← All specs" header link (AppShell) navigates to a BARE
+  // /specs — resolveNavTo drops the query string — so returning that way lost
+  // the filter. We mirror the active value into a per-tenant sessionStorage key
+  // and restore it on mount when the URL carries no ?assignee. Router-aware
+  // tenant (useLocation, not window.location) so the key resolves in tests too.
+  const location = useLocation();
+  const filterTenant = parseTenantFromPathname(location.pathname);
+  const assigneeStorageKey = filterTenant
+    ? `specboard:assignee:${filterTenant.namespace}/${filterTenant.memex}`
+    : null;
   const setAssigneeFilter = useCallback(
     (value: string) => {
+      // Persist the selection (including a deliberate "all", which clears the
+      // remembered value so a clear is honoured, never re-applied — ac-3).
+      if (assigneeStorageKey) {
+        try {
+          if (value === 'all') sessionStorage.removeItem(assigneeStorageKey);
+          else sessionStorage.setItem(assigneeStorageKey, value);
+        } catch {
+          // sessionStorage unavailable (private mode / disabled) — persistence
+          // is best-effort; the URL still reflects the filter this session.
+        }
+      }
       setSearchParams(
         (prev) => {
           const next = new URLSearchParams(prev);
@@ -62,8 +85,42 @@ export function SpecList() {
         { replace: true },
       );
     },
-    [setSearchParams],
+    [setSearchParams, assigneeStorageKey],
   );
+  // spec-447: restore the remembered assignee filter when the board is opened
+  // with no ?assignee in the URL (the "← All specs" round-trip, the logo link,
+  // a fresh visit). The URL is the source of truth: if it already carries
+  // ?assignee (a shared link or the browser-back path) we keep it and sync
+  // storage to match; otherwise we write the remembered value back into the URL
+  // so the restored filter stays shareable (spec-118 ac-19). Keyed per-tenant,
+  // so a filter set on one Memex's board never leaks onto another (ac-4).
+  useEffect(() => {
+    if (!assigneeStorageKey) return;
+    let remembered: string | null = null;
+    try {
+      const inUrl = searchParams.get('assignee');
+      if (inUrl) {
+        sessionStorage.setItem(assigneeStorageKey, inUrl);
+        return;
+      }
+      remembered = sessionStorage.getItem(assigneeStorageKey);
+    } catch {
+      return;
+    }
+    if (remembered && remembered !== 'all') {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.set('assignee', remembered as string);
+          return next;
+        },
+        { replace: true },
+      );
+    }
+    // Runs on mount and when the tenant key changes; intentionally not on every
+    // searchParams change so a user's clear is not immediately re-applied.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assigneeStorageKey]);
   // spec-136 t-7 (ac-3): the board tag filter lives in the URL (?tags=scope::value
   // &tags=bug) so a filtered board is shareable, matching the assignee filter's
   // URL convention. Multi-valued: each selected tag is its own repeated param,

@@ -342,6 +342,151 @@ describe('SpecList assignees + filter (spec-118)', () => {
   });
 });
 
+// spec-447 — the assignee filter must survive the round-trip into a spec and
+// back. The filter lives in the URL (spec-118 ac-19), but the "← All specs"
+// header link navigates to a BARE /specs (resolveNavTo drops the query string),
+// so returning that way lost the filter. The fix mirrors the active value into
+// a per-tenant sessionStorage key and restores it on mount when the URL carries
+// no ?assignee. These tests render at a real tenant path so the router-aware
+// tenant key resolves (parseTenantFromPathname needs /<ns>/<mx>/…).
+describe('SpecList assignee filter persistence (spec-447)', () => {
+  const AC447 = (n: number) =>
+    `mindset-prod/memex-building-itself/specs/spec-447/acs/ac-${n}`;
+  const alice = { userId: 'u1', name: 'Alice', email: 'alice@x.com' };
+  const bob = { userId: 'u2', name: 'Bob', email: 'bob@x.com' };
+  const TENANT = '/myorg/mymemex/specs';
+  const KEY = 'specboard:assignee:myorg/mymemex';
+
+  const twoSpecs = () => [
+    spec({ id: 's-1', title: 'Alice work', handle: 'doc-1', assignees: [alice] }),
+    spec({ id: 's-2', title: 'Bob work', handle: 'doc-2', assignees: [bob] }),
+  ];
+
+  beforeEach(() => {
+    sessionStorage.clear();
+  });
+
+  it('mirrors the selected assignee into per-tenant sessionStorage, and clears it on "All" (ac-5)', async () => {
+    tagAc(AC447(5));
+    const user = userEvent.setup();
+    fetchDocsMock.mockResolvedValue(twoSpecs());
+
+    render(
+      <MemoryRouter initialEntries={[TENANT]}>
+        <SpecList />
+      </MemoryRouter>,
+    );
+
+    await screen.findByText('Alice work');
+    const select = screen.getByLabelText('Filter by assignee') as HTMLSelectElement;
+
+    // Selecting a person persists that value under the per-tenant key.
+    await user.selectOptions(select, 'u2');
+    expect(sessionStorage.getItem(KEY)).toBe('u2');
+
+    // A deliberate "All" clears the remembered value (so it is not re-applied).
+    await user.selectOptions(select, 'all');
+    expect(sessionStorage.getItem(KEY)).toBeNull();
+  });
+
+  it('restores a remembered filter on mount when the URL has no ?assignee, writing it back into the URL (ac-6, ac-2)', async () => {
+    tagAc(AC447(6));
+    tagAc(AC447(2));
+    // Simulate "I filtered earlier this session" — the round-trip that the
+    // "← All specs" bare-/specs link produces.
+    sessionStorage.setItem(KEY, 'u2');
+    fetchDocsMock.mockResolvedValue(twoSpecs());
+
+    render(
+      <MemoryRouter initialEntries={[TENANT]}>
+        <SpecList />
+        <LocationDisplay />
+      </MemoryRouter>,
+    );
+
+    // The remembered filter is restored: board narrows to Bob and the filter is
+    // reflected back into the URL (spec-118 ac-19 preserved — still shareable).
+    await waitFor(() => {
+      expect(screen.getByTestId('location-search').textContent).toContain('assignee=u2');
+    });
+    expect(screen.getByText('Bob work')).toBeInTheDocument();
+    expect(screen.queryByText('Alice work')).not.toBeInTheDocument();
+  });
+
+  it('respects a deliberate clear — after selecting "All" the filter is not re-applied (ac-3)', async () => {
+    tagAc(AC447(3));
+    const user = userEvent.setup();
+    sessionStorage.setItem(KEY, 'u2');
+    fetchDocsMock.mockResolvedValue(twoSpecs());
+
+    render(
+      <MemoryRouter initialEntries={[TENANT]}>
+        <SpecList />
+        <LocationDisplay />
+      </MemoryRouter>,
+    );
+
+    // Mount restores the remembered u2 filter.
+    await waitFor(() => {
+      expect(screen.getByTestId('location-search').textContent).toContain('assignee=u2');
+    });
+
+    // The user deliberately clears it.
+    const select = screen.getByLabelText('Filter by assignee') as HTMLSelectElement;
+    await user.selectOptions(select, 'all');
+
+    // Storage is cleared and the board shows everything again — the cleared
+    // state is honoured, not overridden by the previously-remembered value.
+    expect(sessionStorage.getItem(KEY)).toBeNull();
+    await waitFor(() => {
+      expect(screen.getByText('Alice work')).toBeInTheDocument();
+    });
+    expect(screen.getByText('Bob work')).toBeInTheDocument();
+    expect(screen.getByTestId('location-search').textContent).not.toContain('assignee=');
+  });
+
+  it('does not leak a remembered filter across Memexes — a value stored under one tenant never applies to another (ac-4)', async () => {
+    tagAc(AC447(4));
+    // A filter remembered on a DIFFERENT Memex's board.
+    sessionStorage.setItem('specboard:assignee:otherorg/othermemex', 'u2');
+    fetchDocsMock.mockResolvedValue(twoSpecs());
+
+    render(
+      <MemoryRouter initialEntries={[TENANT]}>
+        <SpecList />
+        <LocationDisplay />
+      </MemoryRouter>,
+    );
+
+    // This Memex's board opens unfiltered — the other tenant's key is never read.
+    await screen.findByText('Alice work');
+    expect(screen.getByText('Bob work')).toBeInTheDocument();
+    expect(screen.getByTestId('location-search').textContent).not.toContain('assignee=');
+  });
+
+  it('the URL is the source of truth — an explicit ?assignee wins over a stale remembered value and syncs storage (ac-6)', async () => {
+    tagAc(AC447(6));
+    // Storage remembers u1, but the URL explicitly asks for u2 (a shared link
+    // or the browser-back path). The URL must win.
+    sessionStorage.setItem(KEY, 'u1');
+    fetchDocsMock.mockResolvedValue(twoSpecs());
+
+    render(
+      <MemoryRouter initialEntries={[`${TENANT}?assignee=u2`]}>
+        <SpecList />
+        <LocationDisplay />
+      </MemoryRouter>,
+    );
+
+    await screen.findByText('Bob work');
+    expect(screen.queryByText('Alice work')).not.toBeInTheDocument();
+    // Storage is synced to the URL value, not the other way round.
+    await waitFor(() => {
+      expect(sessionStorage.getItem(KEY)).toBe('u2');
+    });
+  });
+});
+
 // Placate the unused-import linter if `act` ends up unused in some refactors.
 void act;
 
