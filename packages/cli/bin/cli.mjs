@@ -18,6 +18,7 @@ import { parseArgs, DEFAULT_API_BASE } from "../lib/argv.js";
 import { getConfigTargets } from "../lib/config-paths.js";
 import { writeMemexEntry, removeMemexEntry } from "../lib/config-merge.js";
 import { ensureHookKey, unifiedInstall } from "../lib/checkout-bootstrap.js";
+import { skillPush } from "../lib/skill-push.js";
 
 const BOLD = "\x1b[1m";
 const GREEN = "\x1b[32m";
@@ -32,6 +33,7 @@ function printHelp() {
   console.log(`    memex-ai install         One sign-in → MCP token + checkout key (default)`);
   console.log(`    memex-ai uninstall       Remove memex from Claude configs`);
   console.log(`    memex-ai checkout-setup  Mint JUST the checkout key (one sign-in; no --memex)`);
+  console.log(`    memex-ai skill push <dir> --memex <ns>/<mx>   Upload a SKILL.md package as a Skill`);
   console.log();
   console.log(`  ${DIM}Tip: run \`install\` through Claude Code (paste the “Set up your coding agent”`);
   console.log(`       prompt) and it also adds the plugin + reloads for you.${RESET}`);
@@ -169,6 +171,19 @@ async function checkoutSetup({ apiBase, skipBrowser }) {
   console.log();
 }
 
+// skill push: upload a local SKILL.md package (SKILL.md + auxiliary files) to a Memex
+// as a new Skill, authenticated with the stored checkout key (spec-300 issue-6b).
+async function skillPushCmd({ dir, memex, apiBase }) {
+  console.log(`  ${BOLD}Pushing skill${RESET} from ${DIM}${dir ?? "(missing dir)"}${RESET} → ${BOLD}${memex ?? "(missing --memex)"}${RESET}`);
+  console.log();
+  const result = await skillPush({ dir, memex, apiBase });
+  const fileNote = result.fileCount > 0 ? ` with ${result.fileCount} auxiliary file(s)` : "";
+  console.log(
+    `  ${GREEN}✓${RESET} Created skill${fileNote}${result.ref ? ` — ${BOLD}${result.ref}${RESET}` : "."}`,
+  );
+  console.log();
+}
+
 async function main() {
   const args = parseArgs(process.argv);
   const label =
@@ -176,7 +191,9 @@ async function main() {
       ? "Uninstaller"
       : args.command === "checkout-setup"
         ? "Checkout Setup"
-        : "Installer";
+        : args.command === "skill-push"
+          ? "Skill Push"
+          : "Installer";
   console.log();
   console.log(`  ${BOLD}Memex AI${RESET} — MCP ${label}`);
   console.log();
@@ -193,6 +210,14 @@ async function main() {
 
   if (args.command === "checkout-setup") {
     await checkoutSetup(args);
+    return;
+  }
+
+  if (args.command === "skill" || args.command === "skill-push") {
+    if (args.command === "skill") {
+      throw new Error("Unknown skill subcommand. Did you mean `memex-ai skill push <dir> --memex <ns>/<mx>`?");
+    }
+    await skillPushCmd(args);
     return;
   }
 
