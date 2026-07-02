@@ -33,13 +33,15 @@ beforeAll(async () => {
 describe("spec-438 t-5 — discovered standard surfaces in the Drift Inbox with provenance", () => {
   it("a discovered draft standard, flagged into the inbox, becomes an open drift record carrying evidence + actor (ac-11)", async () => {
     tagAc(AC(11));
-    // the bootstrap authors the discovered rule as a draft standard...
+    // the bootstrap authors the discovered rule as a standard (born 'approved'
+    // since spec-449 removed the draft/approved lifecycle; the "unratified"
+    // signal now lives in the Drift Inbox below, not in a status)...
     const std = await createStandard(memexId, {
       title: "Inputs are validated at the boundary",
       sections: [{ sectionType: "rule", content: "Validate all external input at the API boundary." }],
     });
     createdDocIds.push(std.id);
-    expect(std.status).toBe("draft");
+    expect(std.status).toBe("approved");
     const ruleSection = std.sections.find((s) => s.sectionType === "rule")!;
 
     // ...then surfaces it for review via the EXISTING drift path (STEP 4b),

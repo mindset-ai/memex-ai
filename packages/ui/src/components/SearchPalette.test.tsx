@@ -160,6 +160,34 @@ describe('SearchPalette', () => {
     expect(screen.queryByText(/semantic.*unavailable|degraded/i)).toBeNull();
   });
 
+  it('renders the kind badge but NO lifecycle status badge for a standard hit [spec-449 ac-1]', async () => {
+    tagAc('mindset-prod/memex-building-itself/specs/spec-449/acs/ac-1');
+    const user = userEvent.setup();
+    renderOpen(
+      envelope({
+        content: [
+          hit({
+            kind: 'standard',
+            path: 'mindset-prod/memex-building-itself/standards/std-24',
+            title: 'Born-approved standard',
+            status: 'approved',
+            matchingSections: [
+              { id: 's1', sectionType: 'rule', title: 'Rule', content: 'A rule.', matchedVia: 'fts' },
+            ],
+          }),
+        ],
+      }),
+    );
+
+    await user.type(screen.getByRole('combobox'), 'std');
+    const row = (await screen.findByText('Born-approved standard')).closest('[cmdk-item]')!;
+    // The neutral kind badge still identifies the hit as a Standard…
+    expect(within(row as HTMLElement).getByText('Standard')).toBeInTheDocument();
+    // …but spec-449 removed the draft/approved lifecycle pill for standards, so
+    // no status text ('approved') renders on the row.
+    expect(within(row as HTMLElement).queryByText('approved')).toBeNull();
+  });
+
   it('renders tier/kind group headings as prominent separators — divider rule + bold, no faint label [ac-22]', async () => {
     tagAc(`${SPEC_64}/acs/ac-22`);
     const user = userEvent.setup();

@@ -1112,7 +1112,11 @@ export function DocDocument() {
           {doc.title}
         </h1>
         <div className="flex flex-wrap items-center gap-3 mt-2 text-sm text-muted">
-          {doc.docType !== 'spec' && <Badge status={doc.status} />}
+          {/* spec-449 dec-1: Standards have no draft/approved lifecycle, so no
+              status badge — even when a standard is opened via the generic
+              /docs/:id doc page (it isn't redirected to /standards). Execution
+              plans and free-form documents keep their status pill. */}
+          {doc.docType !== 'spec' && doc.docType !== 'standard' && <Badge status={doc.status} />}
           <span>{doc.creator?.name?.trim() || doc.creator?.email?.trim() || 'Unknown'}</span>
           <span className="opacity-40">&middot;</span>
           <span>{formatDate(doc.createdAt)}</span>
