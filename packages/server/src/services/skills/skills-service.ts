@@ -341,7 +341,14 @@ async function applySkillFileOps(
 ): Promise<Mutated<SkillFile> | null> {
   if (addFiles.length === 0 && removeFiles.length === 0) return null;
 
-  const provider = getStorageProvider();
+  // spec-300 issue-8: resolve the storage provider LAZILY. A text-only edit (inline
+  // files only) touches no blob storage, so it must not require STORAGE_GCS_BUCKET to
+  // be configured — getStorageProvider() throws in production when the bucket is
+  // unset. Only pay that cost when there is an actual bucket blob to delete; binary
+  // WRITES resolve their own provider inside buildFileRow. Eager resolution here is
+  // what 500'd every edit (even text-only) on a Memex without GCS configured.
+  let cachedProvider: StorageProvider | undefined;
+  const provider = (): StorageProvider => (cachedProvider ??= getStorageProvider());
   const existing = await db
     .select()
     .from(skillFiles)
@@ -370,7 +377,7 @@ async function applySkillFileOps(
         },
       );
       if (row.storageKind === "bucket" && row.blobUri) {
-        await deleteSkillBlob(provider, row.blobUri);
+        await deleteSkillBlob(provider(), row.blobUri);
       }
       byPath.delete(path);
     }
@@ -409,13 +416,13 @@ async function applySkillFileOps(
         prior.blobUri &&
         prior.blobUri !== value.blobUri
       ) {
-        await deleteSkillBlob(provider, prior.blobUri);
+        await deleteSkillBlob(provider(), prior.blobUri);
       }
       byPath.set(value.path, { ...prior, ...value } as SkillFile);
     }
   } catch (err) {
     for (const key of writtenBlobKeys) {
-      await deleteSkillBlob(provider, key).catch(() => {});
+      await deleteSkillBlob(provider(), key).catch(() => {});
     }
     throw err;
   }
