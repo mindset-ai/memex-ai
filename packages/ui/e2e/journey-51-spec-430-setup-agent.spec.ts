@@ -10,40 +10,35 @@ import {
   DEV_NAME,
 } from "./helpers/index.js";
 
-// Journey 51 — spec-430: the NEW coding-agent install flow (std-28 gate).
+// Journey 51 — spec-430 + spec-452: the coding-agent install flow (std-28 gate).
 //
-// SCOPE: the consolidated /settings/integrations "Install Memex MCP" surface now
-// describes the unified Claude Code install — ONE browser sign-in via
-// `npx -y memex-ai install` plants the Memex MCP token AND mints the single
-// per-user checkout key (no second sign-in, no per-memex keys, nothing pasted by
-// hand) — followed by the HOOKS-ONLY spec-checkout plugin added with
-// `claude plugin …`. That plugin is CLAUDE-CODE-ONLY: it must NOT appear in the
-// OAuth-on-connect "Other clients" (Cursor / VS Code / web) guidance.
+// SCOPE: on the consolidated /settings/integrations "Set up Memex" surface (spec-452's
+// one tabbed, per-client section), the Claude Code tab describes the unified install —
+// ONE browser sign-in via `npx -y memex-ai install` plants the MCP token AND mints the
+// checkout key — followed by the HOOKS-ONLY, CLAUDE-CODE-ONLY spec-checkout plugin. That
+// plugin must NOT appear on the Cursor or Copilot tabs (they're MCP-only over OAuth), and
+// Copilot targets VS Code agent mode (`.vscode/mcp.json` + copilot-instructions), never a
+// cloud-agent / PAT flow.
 //
-// This proves the manager-authored outcome end-to-end in a real browser
-// (route → React → rendered page → live copy) which the jsdom component suites
-// (CliInstallSection.test.tsx / ConnectAgentStep.test.tsx) can't: real path-based
-// navigation and the install copy/commands as they actually reach the browser.
-//
-// Static copy only — nothing here runs the bootstrap (the pasted agent does that),
-// so there is no live MCP/OAuth dance to drive (same posture as journey-24).
-//
-// Emits spec-430 ac-9 via the emitAcEvents afterEach hook (pass+fail alike).
+// Emits spec-430 ac-9 and spec-452 ac-3 (prompts register + write clause; plugin CC-only)
+// and ac-4 (Copilot = VS Code agent mode).
 
 const FILE = "packages/ui/e2e/journey-51-spec-430-setup-agent.spec.ts";
 const AC9 = "mindset-prod/memex-building-itself/specs/spec-430/acs/ac-9";
+const AC452 = (n: number) =>
+  `mindset-prod/memex-building-itself/specs/spec-452/acs/ac-${n}`;
 
 test.afterEach(async ({}, testInfo) => {
   if (testInfo.status === "skipped") return;
   await emitAcEvents(
-    [AC9],
+    [AC9, AC452(3), AC452(4)],
     testInfo.status === "passed" ? "pass" : "fail",
     `${FILE}::${testInfo.title}`,
     testInfo.duration,
   );
 });
 
-test("Claude Code install describes the unified npx install + the Claude-Code-only checkout plugin, gated out of the other-clients block (spec-430 ac-9)", async ({
+test("Claude Code tab = unified npx install + the Claude-Code-only checkout plugin, gated out of the Cursor/Copilot tabs; Copilot targets VS Code agent mode (spec-430 ac-9; spec-452 ac-3/ac-4)", async ({
   page,
 }) => {
   // Shared dev user, identity-confirmed so the app routes straight to the surface.
@@ -57,36 +52,34 @@ test("Claude Code install describes the unified npx install + the Claude-Code-on
     page.getByRole("heading", { name: "Integrations", level: 1 }),
   ).toBeVisible({ timeout: 15_000 });
 
-  const cli = page.locator("#install-cli");
-  await expect(cli.getByRole("heading", { name: "Install Memex MCP" })).toBeVisible();
+  const setup = page.locator("#install-memex");
+  await expect(setup.getByRole("heading", { name: "Set up Memex" })).toBeVisible();
 
-  // The Claude Code path is its own block — select/scope to it.
-  await expect(cli.getByRole("heading", { name: "Claude Code", exact: true })).toBeVisible();
+  // spec-430 ac-9 / spec-452 ac-3: the Claude Code tab (default) drives the unified
+  // installer AND the hooks-only, Claude-Code-only spec-checkout plugin — all in one
+  // pasteable prompt that also writes the CLAUDE.md clause.
+  const ccPrompt = setup.locator("pre code").first();
+  await expect(ccPrompt).toContainText("npx -y memex-ai install");
+  await expect(ccPrompt).toContainText("claude plugin marketplace add mindset-ai/memex-ai");
+  await expect(ccPrompt).toContainText("claude plugin install memex-checkout@memex");
+  await expect(ccPrompt).toContainText("CLAUDE.md");
+  // The old curl/irm install.sh bootstrap one-liner is gone (superseded).
+  await expect(setup.getByText(/install\.sh|install\.ps1/)).toHaveCount(0);
 
-  // ac-9: the unified installer — ONE browser sign-in → MCP token + checkout key.
-  await expect(cli.getByText(/npx -y memex-ai install/).first()).toBeVisible();
-  // …and the HOOKS-ONLY, Claude-Code-only spec-checkout plugin steps.
-  await expect(
-    cli.getByText("claude plugin marketplace add mindset-ai/memex-ai"),
-  ).toBeVisible();
-  await expect(
-    cli.getByText("claude plugin install memex-checkout@memex"),
-  ).toBeVisible();
+  // spec-452 ac-3 (the gate): the checkout plugin is CLAUDE-CODE-ONLY — the Cursor tab is
+  // MCP-only, no plugin.
+  await setup.getByRole("tab", { name: "Cursor" }).click();
+  const cursorPrompt = setup.locator("pre code").first();
+  await expect(cursorPrompt).toContainText(".cursor/mcp.json");
+  await expect(cursorPrompt).not.toContainText("claude plugin");
+  await expect(cursorPrompt).not.toContainText("memex-checkout");
 
-  // ac-9: the old curl/irm install.sh bootstrap one-liner is gone (superseded).
-  await expect(cli.getByText(/install\.sh|install\.ps1/)).toHaveCount(0);
-
-  // ac-9 (the gate): the checkout plugin is CLAUDE-CODE-ONLY — it must NOT appear in
-  // the OAuth-on-connect "Other clients" (Cursor / VS Code / web) guidance, which
-  // stays MCP-only over the env-derived URL.
-  const others = page.locator("#other-clients");
-  await expect(others).toBeVisible();
-  await expect(others.getByText(/memex-checkout/)).toHaveCount(0);
-  await expect(others.getByText(/claude plugin/)).toHaveCount(0);
-  // The other-clients block still carries the env-derived MCP URL (a real http(s)
-  // URL ending in /mcp), not the plugin commands.
-  const mcpUrlText = (
-    await others.locator("pre code").first().textContent()
-  )?.trim();
-  expect(mcpUrlText).toMatch(/^https?:\/\/.+\/mcp$/);
+  // spec-452 ac-4: Copilot targets VS Code AGENT MODE — `.vscode/mcp.json` +
+  // `.github/copilot-instructions.md`, OAuth on connect. No plugin, no cloud-agent / PAT.
+  await setup.getByRole("tab", { name: "Copilot (VS Code)" }).click();
+  const copilotPrompt = setup.locator("pre code").first();
+  await expect(copilotPrompt).toContainText(".vscode/mcp.json");
+  await expect(copilotPrompt).toContainText(".github/copilot-instructions.md");
+  await expect(copilotPrompt).not.toContainText("claude plugin");
+  await expect(copilotPrompt).not.toContainText("personal access token");
 });

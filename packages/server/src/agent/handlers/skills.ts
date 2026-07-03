@@ -244,7 +244,7 @@ export const skillsTools: ToolSpec[] = [
     name: "update_skill",
     annotations: { title: "Update Skill", readOnlyHint: false, destructiveHint: false },
     description:
-      "Create, edit, delete, or restore a Skill (verb one of create, edit, delete, restore) — the path a coding agent uses to import a corpus of SKILL.md files into a Memex. create: supply memex + skill_md (+ optional capabilities, files); edit: supply ref + skill_md and/or capabilities; delete: supply ref (soft-archive, non-destructive); restore: supply ref (un-archive a soft-deleted skill). Every path runs the same server-side SKILL.md validation.",
+      "Create, edit, delete, or restore a Skill (verb one of create, edit, delete, restore) — the path a coding agent uses to import a corpus of SKILL.md files into a Memex. create: supply memex + skill_md (+ optional capabilities, files); edit: supply ref + any of skill_md, capabilities, files (add or REPLACE an auxiliary file at the same path), remove_files (paths to drop); delete: supply ref (soft-archive, non-destructive); restore: supply ref (un-archive a soft-deleted skill). Every path runs the same server-side SKILL.md validation.",
     schema: {
       verb: z
         .enum(["create", "edit", "delete", "restore"])
@@ -260,6 +260,12 @@ export const skillsTools: ToolSpec[] = [
         .describe("Full SKILL.md text — required for create, optional for edit. Parsed + validated server-side."),
       capabilities: CAPABILITIES_FIELD,
       files: FILE_FIELD,
+      remove_files: z
+        .array(z.string())
+        .optional()
+        .describe(
+          "On edit: auxiliary-file paths to REMOVE from the skill (blob + manifest row). Removing an absent path is a no-op.",
+        ),
       verbose: VERBOSE_FIELD,
     },
     async handler(input, ctx) {
@@ -296,9 +302,18 @@ export const skillsTools: ToolSpec[] = [
         const { namespace, memex, handle } = parseSkillRef(input.ref);
         const memexId = await ctx.resolveMemex(`${namespace}/${memex}`);
         const skillMd = input.skill_md as string | undefined;
-        if (skillMd === undefined && input.capabilities === undefined) {
+        const files = (input.files as
+          | Parameters<typeof toSkillFileInput>[0][]
+          | undefined)?.map(toSkillFileInput);
+        const removeFiles = input.remove_files as string[] | undefined;
+        if (
+          skillMd === undefined &&
+          input.capabilities === undefined &&
+          !files &&
+          !removeFiles
+        ) {
           throw new ValidationError(
-            "update_skill(edit) requires `skill_md` and/or `capabilities`.",
+            "update_skill(edit) requires at least one of `skill_md`, `capabilities`, `files`, `remove_files`.",
           );
         }
         const updated = await editSkill(
@@ -309,6 +324,8 @@ export const skillsTools: ToolSpec[] = [
             ...(input.capabilities !== undefined
               ? { capabilities: input.capabilities }
               : {}),
+            ...(files ? { files } : {}),
+            ...(removeFiles ? { removeFiles } : {}),
           },
           reqCtx(ctx),
         );

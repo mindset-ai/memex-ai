@@ -39,6 +39,16 @@ const AC_CREATE_STANDARD =
 // tasks. The mode-map inclusion/exclusion assertion IS that outcome.
 const AC_SCOPE_BOUNDARY =
   "mindset-prod/memex-building-itself/specs/spec-416/acs/ac-3";
+// spec-300 t-15 (dec-23): ac-50 — the skills agent is registered with a scoped
+// allowlist of EXACTLY {list_skills, get_skill, update_skill, search_memex,
+// get_doc}; a skills-mode call cannot reach any tool outside that set (std-38).
+const AC_SKILLS_MODE =
+  "mindset-prod/memex-building-itself/specs/spec-300/acs/ac-50";
+// spec-300 t-15 (dec-23): ac-47 — the skills agent performs create/edit/archive/
+// restore through the ONE validated write path (update_skill) and its authority is
+// limited to skills, nothing else. The mode-map inclusion/exclusion IS that boundary.
+const AC_SKILLS_AUTHORITY =
+  "mindset-prod/memex-building-itself/specs/spec-300/acs/ac-47";
 
 // The read/grounding base every scoped mode shares.
 const READ_BASE = ["search_memex", "get_doc"];
@@ -87,6 +97,11 @@ const EXPECTED: Record<Exclude<AgentMode, "spec">, string[]> = {
     "convert_issue_to_task",
     "search_issues",
   ],
+  // spec-300 t-15 (dec-23, ac-50): the SKILLS agent's subset — the read/grounding
+  // base plus the three skill verbs (the ONE verbed update_skill covers create /
+  // edit / delete / restore). This map is EXHAUSTIVE over AgentMode, so a missing
+  // 'skills' entry fails the typecheck — the registration is forced, not optional.
+  skills: ["list_skills", "get_skill", "update_skill", "search_memex", "get_doc"],
 };
 
 const SCOPED_MODES = Object.keys(EXPECTED) as Exclude<AgentMode, "spec">[];
@@ -146,6 +161,28 @@ describe("getToolDefinitions — each scoped mode exposes exactly its subset (ac
     // The /tools/execute gate agrees: create_standard permitted, create_doc not.
     expect(isToolAllowedInMode("standards", "create_standard")).toBe(true);
     expect(isToolAllowedInMode("standards", "create_doc")).toBe(false);
+  });
+
+  it("spec-300 ac-50: skills mode → exactly {list_skills,get_skill,update_skill,search_memex,get_doc}, nothing else", () => {
+    tagAc(AC_SKILLS_MODE);
+    // The same inclusion/exclusion IS the ac-47 authority boundary: the agent's
+    // one write verb is the validated update_skill; it can reach nothing else.
+    tagAc(AC_SKILLS_AUTHORITY);
+    const names = getToolDefinitions({ mode: "skills" }).map((t) => t.name);
+    // Exactly the five-tool skills subset — no broader mutation surface leaks in.
+    const serverNames = names.filter((n) => !isUiTool(n)).sort();
+    expect(serverNames).toEqual(
+      ["get_doc", "get_skill", "list_skills", "search_memex", "update_skill"].sort(),
+    );
+    // The one verbed write path is permitted; the broad doc / task / standard /
+    // issue verbs are refused at the gate (std-38 narrow authority).
+    expect(isToolAllowedInMode("skills", "update_skill")).toBe(true);
+    expect(isToolAllowedInMode("skills", "create_doc")).toBe(false);
+    expect(isToolAllowedInMode("skills", "create_task")).toBe(false);
+    expect(isToolAllowedInMode("skills", "propose_standard_change")).toBe(false);
+    expect(isToolAllowedInMode("skills", "register_issue")).toBe(false);
+    // And a sibling scoped mode cannot reach the skill write path.
+    expect(isToolAllowedInMode("standards", "update_skill")).toBe(false);
   });
 
   it("the issues agent can manage Issues but cannot author Standards or Spec body", () => {

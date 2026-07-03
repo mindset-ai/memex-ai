@@ -5,7 +5,7 @@ import "dotenv/config";
 import type Anthropic from "@anthropic-ai/sdk";
 import type { MessageParam, ContentBlockParam } from "@anthropic-ai/sdk/resources/messages.js";
 import { getAnthropicClient, LlmNotConfiguredError } from "../agent/anthropic-client.js";
-import { buildDocumentContext, buildDriftContext, buildScaffoldContext, buildStandardsContext, buildIssuesContext } from "../agent/context-builder.js";
+import { buildDocumentContext, buildDriftContext, buildScaffoldContext, buildStandardsContext, buildIssuesContext, buildSkillsContext } from "../agent/context-builder.js";
 import { buildSystemBlocks, buildCreationSystemBlocks } from "../agent/system-prompt.js";
 import { getToolDefinitions, getCreationToolDefinitions, executeServerTool, isToolAllowedForReviewer, isReadOnlyTool, isToolAllowedInMode } from "../agent/tools.js";
 import { logRequest, logResponse, logError, logToolExecution, logExtractionOutcome } from "../agent/logger.js";
@@ -53,8 +53,11 @@ const chatSchema = z.object({
    *  focused scaffold subset. The React UI's Scaffold Inspect surface sends this.
    *  spec-389 t-5 (dec-2): `'standards'` / `'issues'` are the new scoped agents —
    *  memex-scoped (no bound doc), each with its grounding context, mode block, and
-   *  MODE_TOOLS subset. The Standards / Issues surfaces send these. */
-  mode: z.enum(["drift", "scaffold", "standards", "issues"]).optional(),
+   *  MODE_TOOLS subset. The Standards / Issues surfaces send these.
+   *  spec-300 t-15 (dec-23): `'skills'` is the dedicated skills authoring / curation
+   *  agent that lives on the Skills page — memex-scoped, grounded in the skill
+   *  catalogue, tool set pinned to SKILLS_SERVER_TOOLS. The Skills surface sends it. */
+  mode: z.enum(["drift", "scaffold", "standards", "issues", "skills"]).optional(),
 });
 
 llmRouter.post("/chat", async (c) => {
@@ -70,6 +73,7 @@ llmRouter.post("/chat", async (c) => {
   const scaffoldMode = mode === "scaffold";
   const standardsMode = mode === "standards";
   const issuesMode = mode === "issues";
+  const skillsMode = mode === "skills";
   console.log(
     `[LLM PROXY] docId=${docId ?? "none"}, messages=${messages.length}, mode=${mode ?? "spec"}`,
   );
@@ -97,10 +101,14 @@ llmRouter.post("/chat", async (c) => {
   // is no bound doc. The context is the composed scaffold grounding (cached).
   // spec-389 t-5 (dec-2): standards / issues modes are memex-scoped like drift /
   // scaffold — their grounding is the Standards corpus / open-Issues parking lot.
+  // spec-300 t-15 (dec-23): skills mode is memex-scoped like the other scoped
+  // agents — its grounding is the Memex's skill catalogue (buildSkillsContext).
   const documentContext = standardsMode
     ? await buildStandardsContext(memexId)
     : issuesMode
     ? await buildIssuesContext(memexId)
+    : skillsMode
+    ? await buildSkillsContext(memexId)
     : scaffoldMode
     ? await buildScaffoldContext(memexId)
     : driftMode
@@ -157,7 +165,13 @@ llmRouter.post("/chat", async (c) => {
     driftMode,
     integrationState,
     scaffoldMode,
-    standardsMode ? "standards" : issuesMode ? "issues" : undefined,
+    standardsMode
+      ? "standards"
+      : issuesMode
+      ? "issues"
+      : skillsMode
+      ? "skills"
+      : undefined,
   );
   // dec-3 definition filter: a reviewer's model never sees the blocked mutations.
   // spec-143 t-4 (dec-6): in drift mode the model sees only the focused drift
@@ -337,8 +351,10 @@ const toolExecSchema = z.object({
    *  spec-360 t-1 (dec-1): when `'scaffold'`, the call is from the scaffold
    *  assistant — memex-scoped, no bound doc, restricted to the scaffold subset.
    *  spec-389 t-3 (dec-2): `'standards'` / `'issues'` are the new scoped agents,
-   *  each memex-scoped and pinned to its own MODE_TOOLS subset by the gate. */
-  mode: z.enum(["drift", "scaffold", "standards", "issues"]).optional(),
+   *  each memex-scoped and pinned to its own MODE_TOOLS subset by the gate.
+   *  spec-300 t-15 (dec-23): `'skills'` is pinned to SKILLS_SERVER_TOOLS the same
+   *  way — this enum MUST accept it too, else /tools/execute 400s while /chat works. */
+  mode: z.enum(["drift", "scaffold", "standards", "issues", "skills"]).optional(),
 });
 
 llmRouter.post("/tools/execute", async (c) => {
