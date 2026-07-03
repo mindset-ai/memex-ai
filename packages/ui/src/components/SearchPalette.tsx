@@ -109,7 +109,9 @@ function HitBadges({ hit }: { hit: SearchHit }) {
   return (
     <span className="flex shrink-0 items-center gap-1">
       <Badge status="neutral" label={KIND_LABEL[hit.kind]} />
-      <Badge status={hit.status} />
+      {/* spec-449 dec-1: Standards have no draft/approved lifecycle — show the
+          kind badge but no status pill for a standard hit. Other kinds keep it. */}
+      {hit.kind !== 'standard' && <Badge status={hit.status} />}
     </span>
   );
 }

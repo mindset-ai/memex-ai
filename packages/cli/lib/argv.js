@@ -11,6 +11,8 @@ export function parseArgs(argv) {
     adminBase: null,
     label: null,
     memex: null,
+    // spec-300 issue-6b — `memex-ai skill push <dir>`: the local directory to push.
+    dir: null,
     yes: false,
     help: false,
     skipBrowser: false,
@@ -23,6 +25,9 @@ export function parseArgs(argv) {
     // (spec-371 dec-10). The plugin handles MCP + hooks declaratively; this only
     // provisions the credential — it never plants into settings.json.
     else if (a === "checkout-setup") out.command = "checkout-setup";
+    // `skill push <dir>` (spec-300 issue-6b) — upload a local SKILL.md package.
+    else if (a === "skill") out.command = "skill";
+    else if (a === "push" && out.command === "skill") out.command = "skill-push";
     else if (a === "--help" || a === "-h") out.help = true;
     else if (a === "--yes" || a === "-y") out.yes = true;
     else if (a === "--api-base") out.apiBase = args[++i];
@@ -30,6 +35,10 @@ export function parseArgs(argv) {
     else if (a === "--label") out.label = args[++i];
     else if (a === "--memex") out.memex = args[++i];
     else if (a === "--no-browser") out.skipBrowser = true;
+    // The first bare (non-flag) token after `skill push` is the directory.
+    else if (out.command === "skill-push" && out.dir === null && !a.startsWith("-")) {
+      out.dir = a;
+    }
   }
   return out;
 }

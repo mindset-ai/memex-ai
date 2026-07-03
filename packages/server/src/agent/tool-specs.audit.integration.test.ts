@@ -788,6 +788,14 @@ const REF_PROBE_SKIP = new Map<string, string>([
   // flag_drift / propose_standard_change are PROBED below (b-36 D-8): since the
   // ref-emission fix they return the canonical `ref:` of the drift/plan_revision
   // comment instead of raw section/comment UUIDs.
+  // spec-300 Skills tools. list_skills is a discovery/list tool (its output is a
+  // Skill listing keyed on canonical refs, not a per-entity confirmation), and
+  // get_skill returns the SKILL.md body payload (like get_file), not an entity
+  // confirmation. update_skill DOES lead with the Skill `ref:` and emits no UUID
+  // — that ref-emission is asserted directly in mcp/skills-tools.integration.
+  ["list_skills", "discovery tool — Skill listing (refs as fields), no per-entity confirmation"],
+  ["get_skill", "returns the SKILL.md body payload + file TOC, not an entity confirmation"],
+  ["update_skill", "emits the Skill ref:; ref-emission + no-UUID asserted in mcp/skills-tools.integration"],
 ]);
 
 describe("audit: b-36 D-8 — every terse mutation/list response emits `ref:` and no raw UUID", () => {

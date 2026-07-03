@@ -26,6 +26,9 @@ export function docTypePath(docType: string): string {
       return 'standards';
     case 'execution_plan':
       return 'execution-plans';
+    case 'skill':
+      // spec-300 (dec-13): Skills live under `skills/skill-N`.
+      return 'skills';
     default:
       return 'docs';
   }

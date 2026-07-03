@@ -11,7 +11,6 @@ import {
 } from '../api/client';
 import type { Comment, DocSection, DocWithGraph } from '../api/types';
 import { Spinner } from '../components/Spinner';
-import { Badge } from '../components/ui';
 import { useDocChangeStream } from '../hooks/useDocChangeStream';
 import { DecisionLink } from '../components/DecisionLink';
 import { rehypeRefLinkifier } from '../components/chat/refLinkifier';
@@ -183,8 +182,11 @@ export function Standard() {
             </Link>
             <h1 className="text-2xl font-bold text-heading">{doc.title}</h1>
             <div className="flex items-center gap-3 mt-2 text-sm text-muted">
+              {/* spec-449 dec-1: Standards have no draft/approved lifecycle —
+                  a Standard is a rule in force, not a doc moving through a
+                  pipeline — so no status badge renders here (or on the list /
+                  map). Ratification lives in the Drift Inbox, not on a badge. */}
               <span className="font-mono">{doc.handle}</span>
-              <Badge status={doc.status} />
               <span>{doc.docType}</span>
               {totalDriftCount > 0 && (
                 <Link

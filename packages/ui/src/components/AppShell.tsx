@@ -108,6 +108,17 @@ const PRINCIPLES_NAV_LINKS: ReadonlyArray<NavLinkDef> = [
       </svg>
     ),
   },
+  // spec-300 t-6: Skills — reusable SKILL.md docs the agent can pick up. Sits
+  // beside Standards as a Principles surface (both are living reference docs).
+  {
+    to: '/skills',
+    label: 'Skills',
+    icon: (
+      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+      </svg>
+    ),
+  },
   // spec-179 (ac-14): Insights — per-memex spec analytics charts. Hidden via
   // the same server-driven hiddenFeatures mechanism as Pulse.
   {
@@ -534,12 +545,15 @@ export function AppShell({ children }: { children: ReactNode }) {
   // two-column surface whose chat panel scrolls independently. Unlike content-flow
   // pages (which scroll at the <main> level), they need a BOUNDED-height wrapper so
   // the rail's `h-full` resolves; without it the streaming chat expands the wrapper
-  // and scrolls the whole page. The scaffold, standards-list, and issues surfaces
-  // all dock the rail (standards/:id is a doc page, handled above — not here).
+  // and scrolls the whole page. The scaffold, standards-list, issues, and skills-list
+  // surfaces all dock the rail (standards/:id and skills/:id are doc pages, handled
+  // above — not here).
   const onScaffoldPage = !!useMatch('/:namespace/:memex/scaffold');
   const onStandardsListPage = !!useMatch('/:namespace/:memex/standards');
   const onIssuesPage = !!useMatch('/:namespace/:memex/issues');
-  const onAgentRailPage = onScaffoldPage || onStandardsListPage || onIssuesPage;
+  // spec-300 t-15 (dec-23): the Skills list docks the skills authoring agent rail.
+  const onSkillsListPage = !!useMatch('/:namespace/:memex/skills');
+  const onAgentRailPage = onScaffoldPage || onStandardsListPage || onIssuesPage || onSkillsListPage;
   // spec-410: the Drift Inbox is the odd one out — it's not a doc page (it keeps
   // the sidebar + drift badge), but it docks the agent via DocumentShell's
   // two-pane shell rather than a ResizableChatRail. Either way the bounding need

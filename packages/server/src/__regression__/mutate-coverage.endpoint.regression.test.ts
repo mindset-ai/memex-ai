@@ -153,6 +153,16 @@ const MUTATING_MCP_TOOLS: Record<string, ToolMutation[]> = {
   ],
   assign_spec: [{ entity: "doc_assignee", action: "created" }],
   unassign_spec: [{ entity: "doc_assignee", action: "deleted" }],
+  // skills-service.ts (spec-300) — the verb-dispatched update_skill fans out per
+  // verb: create mints a docType='skill' document (+ stamps its columns, + a
+  // skill_file row per auxiliary file); edit updates the doc (+ its body section
+  // when the SKILL.md changed); delete soft-archives the doc (document/updated).
+  update_skill: [
+    { entity: "document", action: "created" },
+    { entity: "document", action: "updated" },
+    { entity: "section", action: "updated" },
+    { entity: "skill_file", action: "created" },
+  ],
   // comments.ts
   add_comment: [{ entity: "comment", action: "created" }],
   update_comment: [{ entity: "comment", action: "updated" }],

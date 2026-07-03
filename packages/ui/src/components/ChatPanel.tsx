@@ -137,7 +137,7 @@ export function makesCodeShapedClaims(content: string): boolean {
 }
 
 export function ChatPanel({ isAuthenticated = true, readOnly = false }: ChatPanelProps = {}) {
-  const { messages, isStreaming, error, sendMessage, stopStreaming, clearChat, respondedToolIds, respondToUiTool, docId, doc, contextChips, isDriftMode, isScaffoldMode, isStandardsMode, isIssuesMode } = useChat();
+  const { messages, isStreaming, error, sendMessage, stopStreaming, clearChat, respondedToolIds, respondToUiTool, docId, doc, contextChips, isDriftMode, isScaffoldMode, isStandardsMode, isIssuesMode, isSkillsMode } = useChat();
   // spec-389: the docking shell (ResizableChatRail / DocumentShell) injects a
   // collapse handler when the panel can close to its strip; absent → no control.
   const { onCollapse } = useChatCollapse();
@@ -152,12 +152,15 @@ export function ChatPanel({ isAuthenticated = true, readOnly = false }: ChatPane
     ? 'standards'
     : isIssuesMode
     ? 'issues'
+    : isSkillsMode
+    ? 'skills'
     : null;
   const SCOPED_HEADINGS: Record<string, string> = {
     drift: 'Drift agent',
     scaffold: 'Scaffold assistant',
     standards: 'Standards agent',
     issues: 'Issues agent',
+    skills: 'Skills agent',
   };
   // spec-283 dec-1: the review buttons are POSTURE-INDEPENDENT — gated solely on
   // the Spec's phase (`doc.status==='specify'`, already exposed by useChat) and
@@ -181,7 +184,7 @@ export function ChatPanel({ isAuthenticated = true, readOnly = false }: ChatPane
   };
   // spec-143 t-4 (dec-6) / spec-360 t-1: in drift / scaffold mode the agent is
   // LIVE on arrival (no bound doc), so the input is enabled before any context chip.
-  const canChat = !!docId || contextChips.length > 0 || isDriftMode || isScaffoldMode || isStandardsMode || isIssuesMode;
+  const canChat = !!docId || contextChips.length > 0 || isDriftMode || isScaffoldMode || isStandardsMode || isIssuesMode || isSkillsMode;
   const [input, setInput] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);

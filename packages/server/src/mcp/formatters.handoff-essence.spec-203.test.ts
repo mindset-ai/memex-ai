@@ -32,6 +32,8 @@ function makeSpec(status: string): Doc & { sections: DocSection[] } {
     handle: "spec-1",
     title: "Test Spec",
     docType: "spec",
+    description: null,
+    skillCapabilities: null,
     status,
     parentDocId: null,
     createdByUserId: null,

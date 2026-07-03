@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { tagAc } from '@memex-ai-ac/vitest';
 import { acEmitterManifest } from '@memex/shared';
@@ -43,21 +43,24 @@ describe('spec-141 ac-3: consolidated Integrations page', () => {
     ).toBeInTheDocument();
   });
 
-  it('composes the Slack, MCP-tokens, and CLI-install sections', async () => {
+  it('composes the Slack, MCP-tokens, and setup sections', async () => {
     tagAc(AC_CONSOLIDATED);
     renderPage();
     // All three section headings render regardless of async load state.
     expect(await screen.findByRole('heading', { name: 'Slack' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'MCP Tokens' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Install Memex MCP' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Set up Memex' })).toBeInTheDocument();
   });
 
-  it('composes the spec-201 Genesis-prompt section', async () => {
-    tagAc('mindset-prod/memex-building-itself/specs/spec-201/acs/ac-21');
+  it('spec-452 ac-10: the setup surface and MCP Tokens are separate sections; the desktop installer stays browser-hidden', async () => {
+    tagAc('mindset-prod/memex-building-itself/specs/spec-452/acs/ac-10');
     renderPage();
+    expect(await screen.findByRole('heading', { name: 'Set up Memex' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'MCP Tokens' })).toBeInTheDocument();
+    // DesktopMcpSection renders only inside the desktop shell — it is browser-hidden here.
     expect(
-      await screen.findByRole('heading', { name: 'Set up with one prompt' })
-    ).toBeInTheDocument();
+      screen.queryByRole('heading', { name: 'Install Memex MCP on this device' })
+    ).toBeNull();
   });
 
   it('ac-6: composes the spec-201 "Install the AC emitter" section', async () => {
@@ -83,23 +86,30 @@ describe('spec-201 scope ACs: the Integrations page as one discoverable setup su
     expect(
       await screen.findByRole('heading', { name: 'Integrations', level: 1 })
     ).toBeInTheDocument();
-    // Connect-an-agent content…
-    expect(screen.getByRole('heading', { name: 'Install Memex MCP' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Set up with one prompt' })).toBeInTheDocument();
+    // Connect-an-agent content (the one tabbed setup surface)…
+    expect(screen.getByRole('heading', { name: 'Set up Memex' })).toBeInTheDocument();
     // …and install-the-emitter content, on the same surface.
     expect(screen.getByRole('heading', { name: 'Install the AC emitter' })).toBeInTheDocument();
   });
 
-  it('ac-2: per-client connect steps for all four clients, with the env-derived MCP URL + copy', async () => {
+  it('ac-2: per-client tabs name all five clients, with the env-derived MCP URL + copy', async () => {
     tagAc(SCOPE(2));
     renderPage();
-    await screen.findByRole('heading', { name: 'Install Memex MCP' });
-    // All four clients are named on the surface.
-    expect(screen.getAllByText(/Claude Code/).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/Claude Desktop/).length).toBeGreaterThan(0);
-    expect(screen.getByRole('heading', { name: 'claude.ai (web)' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Cursor' })).toBeInTheDocument();
-    // The MCP URL shown is the env-derived one (not a hardcoded host), with copy controls.
+    await screen.findByRole('heading', { name: 'Set up Memex' });
+    // All five clients are named as tabs on the surface.
+    const tabNames = screen.getAllByRole('tab').map((t) => t.textContent);
+    expect(tabNames).toEqual(
+      expect.arrayContaining([
+        'Claude Code',
+        'Cursor',
+        'Copilot (VS Code)',
+        'Claude Desktop',
+        'Claude.ai (web)',
+      ]),
+    );
+    // On the web tab, the MCP URL shown is the env-derived one (not a hardcoded host),
+    // with a live copy control.
+    fireEvent.click(screen.getByRole('tab', { name: 'Claude.ai (web)' }));
     expect(screen.getAllByText(mcpUrl).length).toBeGreaterThan(0);
     expect(screen.getAllByRole('button', { name: 'Copy' }).length).toBeGreaterThan(0);
   });

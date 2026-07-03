@@ -15,3 +15,4 @@ export { checkoutTools } from "./checkout.js";
 export { standardsTools } from "./standards.js";
 export { facetsTools } from "./facets.js";
 export { integrationsTools } from "./integrations.js";
+export { skillsTools } from "./skills.js";

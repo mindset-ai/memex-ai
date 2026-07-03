@@ -188,4 +188,32 @@ if [ -n "${MEMEX_OTEL_EXPORT_INTERVAL_MS+set}" ]; then
   export MEMEX_OTEL_EXPORT_INTERVAL_MS
 fi
 
+# STORAGE_PROVIDER / STORAGE_GCS_BUCKET — spec-300: the blob backend for Skills'
+# BINARY auxiliary files (getStorageProvider(), services/storage/index.ts). Unset in an
+# env means the code default applies (local in dev, gcs in prod) — but gcs REQUIRES a
+# bucket, so a prod env that stores binary aux files MUST set both here:
+#   STORAGE_PROVIDER="gcs"
+#   STORAGE_GCS_BUCKET="<bucket-name>"   # no gs:// prefix — the raw bucket name
+# The bucket + its IAM are provisioned separately; the NAME is per-env instance config,
+# so it lives in the memex-<env>-deploy-env secret, never hardcoded here. Same
+# set-vs-unset MERGE semantics as HIDDEN_FEATURES above: exported (and passed to Cloud
+# Run) ONLY when this checkout actually set it, so a deploy never blanks a live value.
+if [ -n "${STORAGE_PROVIDER+set}" ]; then
+  export STORAGE_PROVIDER
+fi
+if [ -n "${STORAGE_GCS_BUCKET+set}" ]; then
+  export STORAGE_GCS_BUCKET
+fi
+
+# SERVICE_ACCOUNT — spec-300: the dedicated Cloud Run runtime service account. Pinned
+# EXPLICITLY on deploy (rather than relying on Cloud Run's preserve-on-update) so a
+# service recreate or first deploy lands the right identity — the one granted the
+# skill-blob bucket's objectAdmin + serviceAccountTokenCreator-on-self for V4 signed
+# URLs. Per-env value in the memex-<env>-deploy-env secret; passed via the optional
+# ${SERVICE_ACCOUNT:+--service-account=...} flag in packages/server/deploy.sh, so an
+# env that never sets it deploys unchanged (Cloud Run keeps the existing SA).
+if [ -n "${SERVICE_ACCOUNT+set}" ]; then
+  export SERVICE_ACCOUNT
+fi
+
 echo "[deploy-config] ENV=$ENV  project=$GCP_PROJECT  host=$PUBLIC_HOST  api=$API_PUBLIC_HOST"

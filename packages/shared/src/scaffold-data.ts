@@ -216,6 +216,49 @@ export const SHARED_HANDOFF_GUIDANCE: PromptBlockNode = {
     'spec-389 t-4 (dec-3): the shared cross-agent handoff contract — the canonical (fromMode, requestedDomain) → target map, injected into every scoped in-app agent so authority stays narrow (broad awareness, narrow authoring). Honest-CTA per std-34; prompt prose has one home here per std-15/std-23, never inline; Org-extensible append-only per std-23. The real enforcement is the server-side MODE_TOOLS gate (spec-389 t-3) — this prose makes the refusal graceful.',
 };
 
+// spec-300 t-7 (dec-7 / dec-20 / dec-2, ac-3 / ac-41 / ac-24) — the SKILLS
+// awareness block for the in-app agent. Skills are reusable, self-contained
+// procedures (SKILL.md) scoped to a Memex. The active Memex's catalogue reaches
+// the agent by being appended to an early tool response (list_docs, mirroring how
+// list_memexes appends the topic index) — this block is the BEHAVIOUR that append
+// implies: discover by description, read any skill, FOLLOW the ones you can
+// satisfy, and HAND OFF (render_handoff) the ones whose capability flags exceed
+// you. The in-app agent never executes code (dec-2), so a skill needing
+// codebase-access / code-editing / external-tools is surfaced and handed to the
+// coding agent, never faked. Injected into every in-app agent prompt by
+// buildSystemBlocks (harmless when the Memex has no skills — phrased
+// conditionally). Portable per std-22 — names no language/framework/repo/path.
+export const SKILLS_AGENT_GUIDANCE: PromptBlockNode = {
+  kind: 'prompt_block',
+  id: 'skills-awareness',
+  surface: 'react_only',
+  text:
+    '## Skills — reusable procedures you can follow\n' +
+    "This Memex may hold **Skills**: reusable, self-contained procedures (each a SKILL.md). When Skills exist, their catalogue — name, description, and capability flags — is appended to an early tool response (the spec listing), so you can see what is available. Use `list_skills` to enumerate them and `get_skill({ ref })` to load one Skill's full SKILL.md.\n\n" +
+    '### Dispatch and follow\n' +
+    'Select a Skill by matching its **description** to the task at hand (you may also invoke one by name when the user asks for it). Once selected, load it with `get_skill` and FOLLOW it as a step-by-step procedure. You never run code — you read the Skill and carry out the instructional steps you can perform in this chat.\n\n' +
+    '### Capability flags inform what you follow vs hand off\n' +
+    "A Skill declares coarse capability flags — `codebase-access`, `code-editing`, `external-tools`. They INFORM, they do not filter: you can READ any Skill. FOLLOW the Skills whose steps fall within what you can actually do here. When a Skill's flags exceed your capability — anything needing the codebase, code edits, or external tools — do NOT pretend to run it and do NOT execute code. Surface the Skill and HAND OFF with `render_handoff` (target: the **coding agent** over MCP), passing a ready-to-paste prompt that names the Skill's ref so the coding agent can fetch and run it on its side. Honest handoff over faked execution (std-34).",
+  rationale:
+    'spec-300 t-7 (dec-7 / dec-20 / dec-2): the in-app agent skills-awareness block. The catalogue-append (list_docs, ac-29) teaches the agent skills EXIST; this prose is the BEHAVIOUR — description-dispatch + explicit invoke, follow what you can satisfy, hand off (render_handoff, std-34) what your capability flags cannot, never execute code (dec-2). Injected by buildSystemBlocks into every in-app agent prompt; phrased conditionally so it is inert when the Memex has no skills. The real no-execution guarantee is the tool surface (the in-app agent has no skill-execution tool, ac-24); this prose makes the routing graceful. Portable per std-22.',
+};
+
+// spec-300 t-7 (dec-9, ac-21) — agent-assisted SKILL.md authoring. A non-technical
+// author describes a Skill in plain language; the agent drafts a spec-compliant
+// SKILL.md (name + description + body) which is then validated server-side
+// (validateSkill) before the create flow persists it. This is the SYSTEM prompt
+// for that drafting turn — prose has one home here (std-15), never inline in the
+// service. The model returns its draft through a forced structured tool call
+// (name/description/body), so the server reconstructs and validates a canonical
+// SKILL.md rather than parsing free text. Portable per std-22.
+export const SKILL_AUTHOR_INSTRUCTION =
+  "You are helping a non-technical author create an Agent Skill for their Memex. A Skill is a reusable, self-contained procedure captured as a SKILL.md: YAML frontmatter with a `name` and a `description`, followed by a Markdown body of instructions. " +
+  "From the author's plain-language description, produce a single, spec-compliant Skill by calling the `emit_skill` tool exactly once. Rules for the fields: " +
+  "`name` — a short, lowercase, hyphen-separated identifier (letters, digits, hyphens only; no spaces; ≤ 64 chars), e.g. `pdf-extractor`. " +
+  "`description` — one or two sentences (≤ 1024 chars) stating what the Skill does AND when to use it, so an agent can dispatch on it; start the trigger with \"Use when:\". " +
+  "`body` — clear, numbered Markdown instructions the follower can carry out step by step. " +
+  "Do not invent capabilities the author did not mention. Do not include an `allowed-tools` field. Return only the tool call.";
+
 // spec-389 t-5 (dec-2) — the STANDARDS-agent mode block. Like DRIFT/SCAFFOLD
 // guidance the prose lives in the scaffold model (std-15/std-16), injected by
 // buildSystemBlocks only when the per-request mode is 'standards' (the React UI's
@@ -257,6 +300,36 @@ export const ISSUES_AGENT_GUIDANCE: PromptBlockNode = {
     'You manage Issues ONLY. When a request actually needs a Spec, do NOT create one and do NOT author Standards or Spec bodies — hand off with `render_handoff` (a new Spec → the New Spec flow; a Standard → the standards agent; code → the coding agent). The server enforces this; the graceful path is the handoff.',
   rationale:
     'spec-389 t-5 (dec-2): the issues-agent mode block, injected by buildSystemBlocks when the per-request mode is "issues". Behaviour only — the factual Issues grounding is composed per-request by buildIssuesContext. The real enforcement is the render_confirmation gate + the /tools/execute MODE_TOOLS gate (spec-389 t-3). Portable per std-22.',
+};
+
+// spec-300 t-15 (dec-23, std-38) — the SKILLS-agent MODE block. Distinct from the
+// SKILLS_AGENT_GUIDANCE awareness block above (which teaches EVERY in-app agent to
+// dispatch / follow / hand off a skill): this is the DEDICATED skills authoring +
+// curation agent that lives on the Skills page. It drafts a new Skill from a plain-
+// language description AND curates existing ones (edit / archive / restore), all
+// through the ONE verbed update_skill write path. Prose lives here (std-15/std-16),
+// injected by buildSystemBlocks only when the per-request mode is 'skills' (the
+// React UI's Skills surface sets it); SHARED_HANDOFF_GUIDANCE is appended after it
+// (std-38). The factual GROUNDING (this Memex's skill catalogue) is composed
+// per-request by buildSkillsContext. Portable per std-22 — no language/framework/
+// repo/path assumptions.
+export const SKILLS_AGENT_MODE_GUIDANCE: PromptBlockNode = {
+  kind: 'prompt_block',
+  id: 'skills-agent',
+  surface: 'react_only',
+  text:
+    '## Skills agent\n' +
+    "You are this Memex's skills agent. Your world is its **Skills** — reusable, self-contained procedures, each a SKILL.md (YAML frontmatter with `name` + `description`, then a Markdown body of steps). You have two jobs: help the user AUTHOR a new Skill, and CURATE the existing ones — edit, archive, or restore — behind a confirmation gate. You can SEE the catalogue in your context (name, description, capability flags, ref); use `list_skills` to enumerate, `get_skill({ ref })` to read one in full, and `search_memex` / `get_doc` to ground answers in the wider Memex before you claim a fact.\n\n" +
+    '### Authoring a new Skill (from a description)\n' +
+    'When the user describes a Skill in plain language, draft a single, spec-compliant SKILL.md for them: `name` — a short lowercase hyphen-separated identifier (letters, digits, hyphens; no spaces; ≤ 64 chars); `description` — one or two sentences (≤ 1024 chars) saying what it does AND when to use it, opening the trigger with "Use when:"; `body` — clear, numbered Markdown steps a follower can carry out. Do not invent capabilities the author did not mention, and never add an `allowed-tools` field. Show the drafted SKILL.md for review, then create it with `update_skill` (create) only after the user confirms.\n\n' +
+    '### Curating existing Skills (behind confirmation)\n' +
+    'On an existing Skill you can edit its SKILL.md or capability flags, archive it (non-destructive — its content is preserved), or restore an archived one — all through the ONE verbed `update_skill` tool (create / edit / delete / restore) that the manual UI and MCP share, so every write runs the same validation. Propose EVERY mutation through `render_confirmation` first, showing exactly what you will write; never create, edit, archive, or restore until the user confirms. Navigate the reader to a Skill with `render_navigate`, and quote exact SKILL.md text with `render_quote`, never inline quotation marks.\n\n' +
+    '### Auxiliary files — you cannot attach them\n' +
+    "You do NOT add or remove a Skill's auxiliary files (templates, fonts, images) — you cannot produce file bytes in this chat. When the user wants to attach or remove files, say so plainly and hand them the two ways that actually work: (1) open the Skill in the app and use its **Auxiliary files** panel to drag files in or remove them, or (2) use a coding agent (e.g. Claude Code) connected over MCP, which can `update_skill` with files straight from disk. Offer a `render_handoff` prompt for the coding-agent path. Never pretend to have attached or removed a file (std-34).\n\n" +
+    '### Stay in your lane\n' +
+    'You author and curate Skills ONLY — nothing else. You never EXECUTE a Skill or run code; a Skill that needs the codebase, code edits, or external tools is authored here but RUN by the coding agent. When asked for anything outside skill authoring — edit a Standard, resolve drift, touch code, create a Spec — do not reach for a tool you should not have (the server refuses it anyway); hand off with `render_handoff` per the handoff map. Honest handoff over faked action (std-34).',
+  rationale:
+    'spec-300 t-15 (dec-23, std-38): the dedicated skills-agent mode block — the fifth scoped agentMode. Distinct from SKILLS_AGENT_GUIDANCE (the cross-agent awareness/dispatch block); this is the authoring/curation posture for the agent on the Skills page. Injected by buildSystemBlocks when mode === "skills"; the SHARED_HANDOFF_GUIDANCE map is appended after it. spec-300 t-16 (dec-24): the agent no longer attaches auxiliary files — file bytes are a direct-manipulation action, so the block disclaims file add/remove and hands off to the skill page (its Auxiliary files panel) or a coding agent over MCP (std-34). Behaviour only — the factual skill-catalogue grounding is composed per-request by buildSkillsContext. The real authoring enforcement is the render_confirmation gate + the /tools/execute MODE_TOOLS gate (SKILLS_SERVER_TOOLS), not this prose. Portable per std-22.',
 };
 
 // spec-360: when an admin makes a MANUAL org-guidance edit/addition inline (not
@@ -965,6 +1038,12 @@ const TOOL_RATIONALES: Record<string, string> = {
     "Check out a Spec for the coding thread you're in — the explicit nomination that binds this session to it so in-flow edits are attributed to it. Writes a SOFT presence marker (a courtesy 'working on this now' lock, never a hard block) and returns who else holds it. Distinct from assignment: a checkout is transient, present-tense presence, not the persistent who-owns-this axis. Idempotent; re-claiming refreshes presence.",
   unclaim_spec:
     "Release your checkout on a Spec — the explicit check-in. Clears your presence marker so teammates see it's free and returns the thread to the silent default. Idempotent; a no-op if you weren't holding it.",
+  list_skills:
+    "List a Memex's active Skills alphabetically — name, description, capability flags, and ref for each. Metadata only: never the SKILL.md body, auxiliary-file contents, or allowed-tools. The discovery call before get_skill.",
+  get_skill:
+    "Read one Skill: the verbatim SKILL.md body plus a table-of-contents of its auxiliary files (path/type/size/purpose, never inline contents). Pass a path to fetch a single file — binary files return a short-lived signed read URL, text files return their bytes inline.",
+  update_skill:
+    "Create, edit, or delete a Skill over MCP — the path for importing a corpus of SKILL.md files into a Memex. Verb-dispatched (create|edit|delete): create takes a SKILL.md string plus optional capability flags and auxiliary files; edit re-validates a new SKILL.md and/or capabilities; delete soft-archives. Every path runs the same server-side SKILL.md validation.",
 };
 
 const TOOLS: ToolNode[] = toolManifest.map(

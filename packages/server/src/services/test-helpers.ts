@@ -6,6 +6,7 @@ import { eq } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import { namespaces, orgs, memexes, orgMemberships, testEvents, users } from "../db/schema.js";
 import { upsertUserByEmail } from "./users.js";
+import { ensureUserNamespace } from "./user-namespaces.js";
 import { applyEmissionToSummary } from "./test-event-latest.js";
 import { resolveMemexId } from "./emission-keys.js";
 
@@ -150,6 +151,16 @@ export async function makeTestMemexWithDevAdmin(prefix = "ta"): Promise<{
   });
 
   const dev = await upsertUserByEmail("dev@memex.ai");
+  // upsertUserByEmail leaves users.namespace_id NULL until a session lazily
+  // provisions it (ensureUserNamespace). If a beforeAll seeds the dev user but no
+  // request has run yet, the migration-smoke whole-table scan (dev@memex.ai isn't
+  // in its fixture-exclusion list) can catch the dev row in that null window and
+  // fail under parallel scheduling (std-37). Provision it here so the fixture is
+  // always well-formed. Idempotent — repairs a null/dangling pointer, no-ops when
+  // the namespace already exists.
+  if (!dev.namespaceId) {
+    await ensureUserNamespace(dev.id);
+  }
   await db
     .insert(orgMemberships)
     .values({ userId: dev.id, orgId: result.org.id, role: "administrator" })

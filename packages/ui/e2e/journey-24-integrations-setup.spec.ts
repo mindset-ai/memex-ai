@@ -1,27 +1,22 @@
 import { test, expect, bareUrl, emitAcEvents } from "./helpers/index.js";
 
-// Journey 24 — Integrations setup surface (spec-201, std-28 gate).
+// Journey 24 — Integrations setup surface (spec-201 + spec-452, std-28 gate).
 //
 // SCOPE: the consolidated /settings/integrations page is the single discoverable
-// surface for BOTH connecting an agent and installing the AC emitter. This is the
-// std-28 e2e gate for spec-201; it proves the manager-authored scope outcomes
-// end-to-end in a real browser — route → React → rendered page → live
-// interaction — which the jsdom component suites (SettingsIntegrations.test.tsx)
-// can't: real path-based navigation, the environment-derived MCP URL as it
-// actually resolves in the running app, a real clipboard write, and the live
-// tab/row interactions.
+// surface for BOTH connecting an agent and installing the AC emitter. spec-452
+// collapsed the two overlapping "paste a prompt" surfaces (spec-201's genesis toggle
+// + spec-430's CLI install-prompt button) into ONE tabbed, per-client surface. This
+// journey proves that end-to-end in a real browser — route → React → rendered page →
+// live tab interaction + clipboard — which the jsdom suites can't.
 //
-// Emits the spec-201 SCOPE ACs only (ac-1..ac-4) — the page-level outcomes.
-// The implementation ACs (ac-6..ac-21) stay covered by the component suites.
-//
-// Static copy only (ac-21): nothing here runs the bootstrap — the pasted agent
-// does that. So there is no live MCP/OAuth dance to drive (same posture as the
-// claude.ai/Cursor connect steps, which complete sign-in off-platform).
+// Emits spec-201 scope ACs (ac-1/ac-2) and spec-452 scope ACs (ac-1/ac-2/ac-5/ac-6);
+// the AC-emitter section still emits spec-201 ac-3/ac-4 (TEST_2).
 
-const AC = (n: number) =>
+const AC201 = (n: number) =>
   `mindset-prod/memex-building-itself/specs/spec-201/acs/ac-${n}`;
+const AC452 = (n: number) =>
+  `mindset-prod/memex-building-itself/specs/spec-452/acs/ac-${n}`;
 
-// Per-test scope-AC mapping (each test proves a distinct slice of the surface).
 const ACS_BY_TEST: Record<string, string[]> = {};
 
 test.afterEach(async ({}, testInfo) => {
@@ -37,12 +32,10 @@ test.afterEach(async ({}, testInfo) => {
 });
 
 const TEST_1 =
-  "one discoverable surface: connect-an-agent + install-emitter, with the env-derived MCP URL, live copy, and per-client steps (ac-1 / ac-2)";
-ACS_BY_TEST[TEST_1] = [AC(1), AC(2)];
+  "one tabbed per-client setup surface: five tabs from one source, switching swaps the prompt, no duplicate CTA, manual fallback reachable (spec-201 ac-1/ac-2; spec-452 ac-1/ac-2/ac-5/ac-6)";
+ACS_BY_TEST[TEST_1] = [AC201(1), AC201(2), AC452(1), AC452(2), AC452(5), AC452(6)];
 
 test(TEST_1, async ({ page }) => {
-  // Real clipboard write needs the permission granted in headless chromium;
-  // without it navigator.clipboard.writeText rejects and the button never flips.
   await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
 
   // std-28: path-based nav. The route is top-level + member-visible.
@@ -51,47 +44,61 @@ test(TEST_1, async ({ page }) => {
     page.getByRole("heading", { name: "Integrations", level: 1 }),
   ).toBeVisible({ timeout: 15_000 });
 
-  // ac-1: BOTH connect-an-agent content…
-  await expect(page.getByRole("heading", { name: "Install Memex MCP" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Set up with one prompt" })).toBeVisible();
-  // …and install-the-emitter content live on the same surface.
+  const setup = page.locator("#install-memex");
+
+  // spec-452 ac-1: exactly ONE setup surface. The merged section is present…
+  await expect(setup.getByRole("heading", { name: "Set up Memex" })).toBeVisible();
+  // …and install-the-emitter content lives on the same page (spec-201 ac-1).
   await expect(page.getByRole("heading", { name: "Install the AC emitter" })).toBeVisible();
+  // …and the old duplicate surfaces / CTA are GONE (the dissonance spec-452 removed).
+  await expect(page.getByRole("heading", { name: "Set up with one prompt" })).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: /copy install prompt for claude code/i }),
+  ).toHaveCount(0);
 
-  // ac-2: all four connect clients are named on the surface.
-  const cli = page.locator("#install-cli");
-  await expect(cli.getByRole("heading", { name: "claude.ai (web)" })).toBeVisible();
-  await expect(cli.getByRole("heading", { name: "Cursor", exact: true })).toBeVisible();
-  await expect(cli.getByText(/Claude Code/).first()).toBeVisible();
-  await expect(cli.getByText(/Claude Desktop/).first()).toBeVisible();
+  // spec-452 ac-2 / spec-201 ac-2: all five clients are named as tabs, and the default
+  // Claude Code tab shows the unified-install prompt.
+  for (const label of [
+    "Claude Code",
+    "Cursor",
+    "Copilot (VS Code)",
+    "Claude Desktop",
+    "Claude.ai (web)",
+  ]) {
+    await expect(setup.getByRole("tab", { name: label })).toBeVisible();
+  }
+  const promptCode = setup.locator("pre code").first();
+  await expect(promptCode).toContainText("npx -y memex-ai install");
+  await expect(promptCode).toContainText("CLAUDE.md");
 
-  // ac-2: the MCP URL shown is the ENV-DERIVED one (a real http(s) URL ending
-  // in /mcp), not a hardcoded host. The exact per-env derivation is pinned by
-  // mcpUrl.test.ts; here we prove a derived URL actually reaches the browser.
-  const mcpUrlText = (
-    await page.locator("#other-clients pre code").first().textContent()
-  )?.trim();
+  // spec-452 ac-2: switching the tab swaps the prompt to that client's memory-file target.
+  await setup.getByRole("tab", { name: "Cursor" }).click();
+  await expect(setup.locator("pre code").first()).toContainText(".cursor/rules/memex.mdc");
+  await setup.getByRole("tab", { name: "Copilot (VS Code)" }).click();
+  await expect(setup.locator("pre code").first()).toContainText(".github/copilot-instructions.md");
+
+  // spec-201 ac-2: the env-derived MCP URL (a real http(s) URL ending in /mcp) reaches the
+  // browser — read it off the web tab, which shows the bare URL.
+  await setup.getByRole("tab", { name: "Claude.ai (web)" }).click();
+  const mcpUrlText = (await setup.locator("pre code").first().textContent())?.trim();
   expect(mcpUrlText).toMatch(/^https?:\/\/.+\/mcp$/);
 
-  // ac-2: copy controls are live — clicking Copy writes to the clipboard and the
+  // spec-201 ac-2: copy controls are live — clicking Copy writes to the clipboard and the
   // control confirms ("Copied!"). Proves the real clipboard path, not just markup.
-  // `exact` targets the CodeBlock "Copy" buttons specifically — the Claude Code
-  // section also has a "Copy install prompt for Claude Code" CTA (spec-430 dec-4)
-  // that would otherwise be the first substring match.
-  const copyBtn = cli.getByRole("button", { name: "Copy", exact: true }).first();
+  const copyBtn = setup.getByRole("button", { name: "Copy", exact: true }).first();
   await copyBtn.click();
-  await expect(cli.getByRole("button", { name: "Copied!" }).first()).toBeVisible();
+  await expect(setup.getByRole("button", { name: "Copied!" }).first()).toBeVisible();
 
-  // ac-2: the genesis "Set up with one prompt" step is per-client and interactive
-  // — switching the agent tab swaps the memory-file target the prompt writes to.
-  const genesis = page.locator("#genesis-prompt");
-  await expect(genesis).toContainText("CLAUDE.md");
-  await genesis.getByRole("tab", { name: "Cursor" }).click();
-  await expect(genesis).toContainText(".cursor/rules/memex.mdc");
+  // spec-452 ac-5: the manual "run it yourself" fallback is reachable (secondary, collapsed
+  // by default) on a coding-agent tab.
+  await setup.getByRole("tab", { name: "Cursor" }).click();
+  await setup.getByRole("button", { name: /show manual setup/i }).click();
+  await expect(setup.getByText(/Prefer to edit config directly/)).toBeVisible();
 });
 
 const TEST_2 =
   "the AC-emitter section installs from the shared adapter matrix — command, key, Emission Keys deep link, tagAc example (ac-3 / ac-4)";
-ACS_BY_TEST[TEST_2] = [AC(3), AC(4)];
+ACS_BY_TEST[TEST_2] = [AC201(3), AC201(4)];
 
 test(TEST_2, async ({ page }) => {
   await page.goto(bareUrl("/settings/integrations"));

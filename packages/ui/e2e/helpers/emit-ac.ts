@@ -100,7 +100,11 @@ export function installAcEmission(
   // Derive a stable identifier from the file URL (basename groups emissions per
   // journey; the full path varies by checkout).
   const fileLabel = testFileUrl.split("/").slice(-1)[0] ?? testFileUrl;
-  test.afterEach(async (_args, testInfo) => {
+  // Playwright requires a hook callback that receives testInfo to destructure its
+  // first (fixtures) argument — `async ({}, testInfo)`, never a named `_args` —
+  // or it throws "First argument must use the object destructuring pattern" at
+  // collection time. We take no fixtures, so destructure to an empty pattern.
+  test.afterEach(async ({}, testInfo) => {
     if (testInfo.status === "skipped") return;
     const acRefs = acsByTitle[testInfo.title] ?? [];
     if (acRefs.length === 0) return;
