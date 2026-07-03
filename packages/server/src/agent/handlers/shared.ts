@@ -57,6 +57,7 @@ import {
   getTask,
 } from "../../services/tasks.js";
 import type { RequestCtx } from "../../services/mutate.js";
+import type { AccessibleMemex } from "../../services/skills/skills-service.js";
 import { listActivityView } from "../../services/activity-view.js";
 import { facetKeysByTask, facetKeysByDecision } from "../../services/facet-ballot.js";
 import { resolveTestEventActors } from "../../services/who-resolver.js";
@@ -201,6 +202,18 @@ export interface ToolCtx {
    * Agent: returns the pre-bound memexId, ignoring the `memex` arg.
    */
   resolveMemex: (memex?: string) => Promise<string>;
+  /**
+   * spec-300 dec-25: enumerate the Memexes this caller may read, for the
+   * cross-Memex skills union (`list_skills({ all_memexes: true })`). This is the
+   * authorization seam — the handler never decides which Memexes are visible.
+   * MCP binds it to the org-scoped membership list (std-4 + the OAuth Org-scope
+   * filter); the in-app agent binds it to the single Memex its chat is scoped to.
+   *
+   * Optional for the same reason as `getOrgBlocksForNudge` below: the many
+   * hand-rolled test ctxes never set it. BOTH real surfaces do, so it is always
+   * present in production; the `all_memexes` handler guards on its absence.
+   */
+  listAccessibleMemexes?: () => Promise<readonly AccessibleMemex[]>;
   /**
    * b-36 T-6: resolve a canonical ref (`<ns>/<mx>/<doc-type>/<handle>[/...]`)
    * to its entity row, parent doc, and namespace/memex slugs — and assert
