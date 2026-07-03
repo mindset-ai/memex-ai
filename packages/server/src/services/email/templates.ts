@@ -535,6 +535,131 @@ export function buildSignedInDormantEmail(
   };
 }
 
+// ──────────────────────────────────────────────────────────────────────────
+// spec-453 — "See it verified" + "Connect with people" (Slice A: pure render)
+// ──────────────────────────────────────────────────────────────────────────
+// Two more lifecycle touches in the same activation sequence as spec-427's two
+// emails and spec-428's welcome. PURE RENDER, like the spec-427 builders: no
+// trigger/timing/send/env logic here. Team-identity From/Reply-To + the broadcast
+// stream + suppression are applied at the send site by sendLifecycleEmail (dec-5),
+// NOT in the builder. commsType IS stamped here (static): the trigger (t-2) and the
+// Day-12 pass (t-5) dedup on these stable keys in comms_log (dec-6), never the subject.
+
+// The confirmed, permanent Discord invite (dec-8) — replaces the retired
+// www.memex.ai/discord placeholder. Same link the welcome/resources already use.
+const DISCORD_INVITE_URL = "https://discord.com/invite/WJfBYG9eV";
+
+export interface VerifiedMilestoneEmailInput {
+  to: string;
+  /** Recipient's first name; absent/empty → a graceful "Hi there,". */
+  firstName?: string;
+  /** CTA "Go to Memex AI" target — the user's Specs board, derived from APP_BASE_URL
+   *  at the send site. dec-2: GENERIC board, no deep-link to the triggering spec/AC. */
+  appUrl: string;
+}
+
+// spec-453 "See it verified" (dec-1/dec-2). The aha email: the first time a user's
+// own acceptance criterion goes green via a tagged test event (the trigger lives in
+// routes/test-events.ts — t-2; this is pure render). Generic/evergreen copy, no
+// per-send personalization beyond the greeting (dec-2). Copy mirrors s-2.
+export function buildVerifiedMilestoneEmail(
+  input: VerifiedMilestoneEmailInput,
+): EmailMessage {
+  const greeting = activationGreeting(input.firstName);
+  const prove = "Your agent says it's done. Now you can prove it.";
+  const para1 =
+    'Every decision you resolved turned into tasks with acceptance criteria attached, the specific, testable conditions that define "done" for that piece of work. Your agent doesn\'t just write the code, it runs the checks against those criteria and reports back.';
+  const para2 =
+    'When they go green in CI, you\'re not taking its word for it. You\'re watching the proof. No re-reading a diff hoping it\'s right, no "looks fine to me." Green means what you decided actually got built, and it\'s been verified, not assumed.';
+  const loop =
+    "That's the loop, closed: spec, decision, build, proof. However far you've got, that's the moment it starts paying for itself.";
+
+  const text = renderEmailText({
+    intro: [greeting, prove, para1, para2, loop],
+    url: input.appUrl,
+    closing: ACTIVATION_SIGNOFF_TEXT,
+  });
+
+  const html = renderEmailHtml({
+    preheader: "Every acceptance criterion, checked in CI, before anyone calls it finished.",
+    heading: "Green means it's actually done",
+    bodyParagraphs: [
+      escapeHtml(greeting),
+      `<strong>${escapeHtml(prove)}</strong>`,
+      escapeHtml(para1),
+      escapeHtml(para2),
+    ],
+    ctaLabel: "Go to Memex AI",
+    ctaUrl: input.appUrl,
+    showPasteLink: false,
+    afterCtaParagraphs: [escapeHtml(loop), ACTIVATION_SIGNOFF_HTML],
+    footerNote: ACTIVATION_FOOTER,
+  });
+
+  return {
+    to: input.to,
+    subject: "Green means it's actually done",
+    text,
+    html,
+    // spec-453 dec-6: stable comms key — the trigger (t-2) dedups on THIS, never the subject.
+    commsType: "activation.verified_milestone",
+  };
+}
+
+export interface ConnectPeopleEmailInput {
+  to: string;
+  /** Recipient's first name; absent/empty → a graceful "Hi there,". */
+  firstName?: string;
+}
+
+// spec-453 "Connect with people" (dec-7/dec-8). The closing Day-12 touch: no
+// pressure, point to the community. Pure render; the Day-12 select/dedup/send is
+// t-5, invoked by the shared scheduled endpoint (t-6). The only CTA is the confirmed
+// permanent Discord invite (dec-8). Copy mirrors s-3.
+export function buildConnectPeopleEmail(
+  input: ConnectPeopleEmailInput,
+): EmailMessage {
+  const greeting = activationGreeting(input.firstName);
+  const opener = "However far you've got.";
+  const para1 =
+    "It's been a little while since you joined Memex AI. Wherever you've got to, agent connected, first spec shipped, or not started yet, that's completely fine. No pressure here.";
+  const para2 =
+    "When you want a hand, the Discord is the easiest way in. Ask in #help, see how other teams run it, real people answer.";
+  const last =
+    "This is the last of your onboarding emails, so I'll leave you to it. The door's always open whenever you want to pick things up.";
+
+  const text = renderEmailText({
+    intro: [greeting, opener, para1, para2, last],
+    url: DISCORD_INVITE_URL,
+    closing: ACTIVATION_SIGNOFF_TEXT,
+  });
+
+  const html = renderEmailHtml({
+    preheader: "Real people, whenever you're stuck.",
+    heading: "You've run the loop. Don't run it alone.",
+    bodyParagraphs: [
+      escapeHtml(greeting),
+      `<strong>${escapeHtml(opener)}</strong>`,
+      escapeHtml(para1),
+      escapeHtml(para2),
+    ],
+    ctaLabel: "Join the Discord",
+    ctaUrl: DISCORD_INVITE_URL,
+    showPasteLink: false,
+    afterCtaParagraphs: [escapeHtml(last), ACTIVATION_SIGNOFF_HTML],
+    footerNote: ACTIVATION_FOOTER,
+  });
+
+  return {
+    to: input.to,
+    subject: "You've run the loop. Don't run it alone.",
+    text,
+    html,
+    // spec-453 dec-6: stable comms key — the Day-12 pass (t-5) dedups on THIS.
+    commsType: "activation.connect_people",
+  };
+}
+
 export interface MagicLinkEmailInput {
   to: string;
   loginUrl: string;
