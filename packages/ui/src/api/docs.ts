@@ -73,6 +73,22 @@ export async function fetchMemexTags(): Promise<Tag[]> {
   return fetchJsonRaw<Tag[]>(fetchWithRetry, `${tBase()}/docs/tags`);
 }
 
+/** A catalogue tag plus how many Specs currently carry it (spec-418 t-5). Mirrors
+ *  the server's TagWithCount — the extra field the Manage-tags surface needs. */
+export interface TagWithCount extends Tag {
+  assignedCount: number;
+}
+
+/**
+ * Fetch the whole Memex tag catalogue WITH each tag's assigned-Spec count, in one
+ * aggregate round-trip. Feeds the Manage-tags admin surface (spec-418 t-5). GET
+ * /api/docs/tags/with-counts — registered as a literal before /:id on the server
+ * (like GET /tags) so the segment isn't swallowed by the param matcher.
+ */
+export async function fetchMemexTagsWithCounts(): Promise<TagWithCount[]> {
+  return fetchJsonRaw<TagWithCount[]>(fetchWithRetry, `${tBase()}/docs/tags/with-counts`);
+}
+
 /**
  * Apply one or more tags to a doc. Each entry is a `scope::value` or flat
  * string; the server resolves create-or-pick and enforces per-scope mutual
@@ -116,6 +132,98 @@ export async function removeDocTag(
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     throw new Error(text || `Failed to remove tag: ${res.status}`);
+  }
+  return res.json();
+}
+
+// ── Tag catalogue curation (spec-418 t-6 CLIENT) ─────────────────────────────
+// The write-side siblings of fetchMemexTagsWithCounts, driving the Manage-tags
+// dialogs. Each hits a curation route on the docs router (t-3): create (POST
+// /tags), rename (PATCH /tags/:tagId), delete (DELETE /tags/:tagId). All three
+// resolve the same tags service as REST + MCP, so a block surfaces the SAME
+// plain reason (dec-3). On a non-2xx the server returns `{ error: <reason> }`
+// (error-handler.ts) — we extract that reason and throw it verbatim so the
+// dialog can show the block inline and disable its confirm.
+
+/** A tag as `scope::value`/flat string, or the already-split structured form.
+ *  Both are accepted by the curation routes (parseCurationTagBody). */
+export type TagInput = string | { scope: string | null; value: string };
+
+function tagBody(input: TagInput): string {
+  return JSON.stringify(
+    typeof input === 'string' ? { tag: input } : { scope: input.scope, value: input.value },
+  );
+}
+
+/** Pull the server's plain-reason message off a non-2xx curation response. The
+ *  curation routes answer `{ error: <human message> }`; fall back to the raw
+ *  body, then to a status-coded default, so the UI always has something to show. */
+async function tagErrorMessage(res: Response, fallback: string): Promise<string> {
+  const text = await res.text().catch(() => '');
+  if (!text) return fallback;
+  try {
+    const parsed = JSON.parse(text) as { error?: string; message?: string };
+    return parsed.error || parsed.message || text;
+  } catch {
+    return text;
+  }
+}
+
+/**
+ * Mint a NEW catalogue tag (spec-418 dec-7). POST /api/docs/tags. Returns the
+ * created `Tag`. Blocked ONLY by the duplicate-name guard (case-insensitive,
+ * dec-8/ac-29) — a brand-new tag is on no Spec, so the per-scope exclusivity
+ * block can never apply. On a duplicate (or any non-2xx) throws an Error whose
+ * message is the server's plain reason (`A tag named "…" already exists`).
+ */
+export async function createCatalogueTag(input: TagInput): Promise<Tag> {
+  const res = await fetchWithRetry(`${tBase()}/docs/tags`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: tagBody(input),
+  });
+  if (!res.ok) {
+    throw new Error(await tagErrorMessage(res, `Failed to create tag: ${res.status}`));
+  }
+  return res.json();
+}
+
+/**
+ * Rename a catalogue tag's scope/value (spec-418). PATCH /api/docs/tags/:tagId.
+ * The new name is reflected on EVERY Spec carrying it. Returns the updated `Tag`.
+ * A blocked rename — duplicate (case-insensitive) OR scope-exclusivity — throws
+ * an Error carrying the server's plain reason, with NO change made (dec-3).
+ */
+export async function renameCatalogueTag(tagId: string, input: TagInput): Promise<Tag> {
+  const res = await fetchWithRetry(`${tBase()}/docs/tags/${tagId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: tagBody(input),
+  });
+  if (!res.ok) {
+    throw new Error(await tagErrorMessage(res, `Failed to rename tag: ${res.status}`));
+  }
+  return res.json();
+}
+
+/** The blast radius a delete removed — the tag was unlinked from `affectedDocIds`. */
+export interface DeletedTagResult {
+  removed: number;
+  affectedDocIds: string[];
+}
+
+/**
+ * Delete a catalogue tag (spec-418). DELETE /api/docs/tags/:tagId. The FK cascade
+ * unlinks it from every Spec; the Specs themselves are untouched. Never blocks.
+ * Returns the blast radius `{ removed, affectedDocIds }` so the caller can name
+ * the post-delete confirmation ("Deleted '…' from N Specs", ac-36).
+ */
+export async function deleteCatalogueTag(tagId: string): Promise<DeletedTagResult> {
+  const res = await fetchWithRetry(`${tBase()}/docs/tags/${tagId}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) {
+    throw new Error(await tagErrorMessage(res, `Failed to delete tag: ${res.status}`));
   }
   return res.json();
 }

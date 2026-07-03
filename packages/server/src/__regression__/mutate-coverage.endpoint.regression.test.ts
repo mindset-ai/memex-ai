@@ -86,6 +86,18 @@ const MUTATING_MCP_TOOLS: Record<string, ToolMutation[]> = {
   assess_spec: [{ entity: "document", action: "updated" }],
   // spec-409: ground_spec sets grounded_in_code + provenance → document/updated.
   ground_spec: [{ entity: "document", action: "updated" }],
+  // tags (spec-418) — agent/handlers/tags.ts curation tools call the tags service.
+  // createTag emits one tag event; rename/delete additionally fan out one
+  // document.updated per carrying Spec (dec-4), all inside a single mutate().
+  create_tag: [{ entity: "tag", action: "created" }],
+  rename_tag: [
+    { entity: "tag", action: "updated" },
+    { entity: "document", action: "updated" },
+  ],
+  delete_tag: [
+    { entity: "tag", action: "deleted" },
+    { entity: "document", action: "updated" },
+  ],
   // sections.ts
   add_section: [{ entity: "section", action: "created" }],
   update_section: [{ entity: "section", action: "updated" }],

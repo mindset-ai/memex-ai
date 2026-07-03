@@ -73,6 +73,10 @@ const MemexSettings = lazy(() =>
   import('./pages/MemexSettings').then((m) => ({ default: m.MemexSettings })),
 );
 const MemexKeys = lazy(() => import('./pages/MemexKeys').then((m) => ({ default: m.MemexKeys })));
+// spec-418 t-5 — the Manage-tags surface (tag catalogue admin). Renders in the
+// normal AppShell sidebar layout (NOT the doc-page chrome) — see the AppShell
+// guard that excludes the literal `tags` segment from the specs/:id doc match.
+const ManageTags = lazy(() => import('./pages/ManageTags').then((m) => ({ default: m.ManageTags })));
 const UpgradePlanSelect = lazy(() =>
   import('./pages/upgrade/UpgradePlanSelect').then((m) => ({ default: m.UpgradePlanSelect })),
 );
@@ -598,6 +602,11 @@ export function PostLoginRouter() {
         )}
         <Route path="decisions" element={<Decisions />} />
         <Route path="specs" element={<SpecList />} />
+        {/* spec-418 t-5: the Manage-tags surface. A literal `specs/tags` segment —
+            registered before `specs/:id` so it's never resolved as a Spec handle.
+            It renders inside TenantLayout → AppShell's sidebar layout (the AppShell
+            doc-page match excludes the literal `tags` segment). */}
+        <Route path="specs/tags" element={<ManageTags />} />
         {/* spec-158 t-4: the Memex-level Issues page — the cross-Spec roll-up of
             every open issue, grouped under its parent Spec. A plain member
             surface (no feature gate), mounted in the standard AppShell. */}

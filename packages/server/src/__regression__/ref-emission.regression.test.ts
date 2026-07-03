@@ -177,6 +177,13 @@ const SKIPS = new Map<string, string>([
   // guidance markdown — deliberately NOT a terse `ref:` confirmation. Exercised in
   // agent/spec-234-provision-ac-emission.integration.
   ["provision_ac_emission", "returns an emission key + guidance markdown, not an entity ref; covered by spec-234-provision-ac-emission.integration"],
+  // spec-418 t-4 tag-curation tools act on the Memex's tag CATALOGUE, not a
+  // doc-tree entity — a catalogue tag carries no canonical `ref:` handle. Output
+  // names the tag by its scope::value label (formatTag), never a UUID. Behaviour
+  // covered by agent/tags-curation-tools.spec-418.integration.
+  ["create_tag", "catalogue tag has no doc-tree ref; names the scope::value label, not entity-acting in the ref: sense"],
+  ["rename_tag", "catalogue tag has no doc-tree ref; names the scope::value label, not entity-acting in the ref: sense"],
+  ["delete_tag", "catalogue tag has no doc-tree ref; names the scope::value label, not entity-acting in the ref: sense"],
   // export_doc (spec-100) returns a lossless full-document markdown export (every
   // comment thread expanded inline), not a terse per-entity confirmation — the
   // b-36 D-8 ref:/no-UUID terseness invariant doesn't apply. Exercised in
