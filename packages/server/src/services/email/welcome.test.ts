@@ -42,7 +42,8 @@ describe("buildWelcomeEmail", () => {
   it("includes the post-CTA prose + sign-off, and suppresses the paste-link", () => {
     // apostrophe is HTML-escaped in the body, so match an apostrophe-free substring
     expect(html).toContain("send you a few short emails");
-    expect(html).toContain("Best, The Memex AI team");
+    // spec-451 ac-5 — sign-off now renders on two lines.
+    expect(html).toContain("Best,<br>The Memex AI team");
     expect(html).not.toContain("Or paste this link");
   });
 

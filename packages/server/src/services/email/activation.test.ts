@@ -41,8 +41,9 @@ describe("buildConnectedInactiveEmail (Email 1 — connected-but-inactive)", () 
   it("renders solely through the shared renderer with a solid CTA and no imagery (ac-10)", () => {
     tagAc(AC(10));
     expect(html).toContain("<!doctype html>");
-    // shared-renderer brand mark + solid BRAND_INK CTA button (never a gradient)
-    expect(html).toContain('<span style="font-weight:500;color:#FC4F64;">.AI</span>');
+    // shared-renderer brand mark + solid BRAND_INK CTA button (never a gradient).
+    // spec-451 ac-2 — the .AI wordmark is now single-colour dark ink (was coral).
+    expect(html).toContain('<span style="font-weight:500;color:#0E1128;">.AI</span>');
     expect(html).toContain("background:#0E1128;color:#FFFFFF");
     expect(html).not.toContain("linear-gradient");
     expect(html).not.toContain("<img");
