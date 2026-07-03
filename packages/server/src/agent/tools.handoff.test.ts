@@ -13,6 +13,13 @@ import type { AgentMode } from "./tools.js";
 // target agent.
 const AC_HANDOFF =
   "mindset-prod/memex-building-itself/specs/spec-389/acs/ac-11";
+// spec-300 t-15 (dec-23): ac-48 — for a request outside skill authoring the skills
+// agent declines honestly and hands off with a copyable render_handoff, rather than
+// reaching for a tool it should not have. render_handoff riding into skills mode
+// (and update_skill being its ONLY write verb, asserted in tools.mode-map) IS that
+// mechanism.
+const AC_SKILLS_HANDOFF =
+  "mindset-prod/memex-building-itself/specs/spec-300/acs/ac-48";
 
 const ALL_MODES: AgentMode[] = [
   "spec",
@@ -20,6 +27,7 @@ const ALL_MODES: AgentMode[] = [
   "scaffold",
   "standards",
   "issues",
+  "skills",
 ];
 
 describe("render_handoff — the shared cross-agent handoff (ac-11)", () => {
@@ -32,6 +40,9 @@ describe("render_handoff — the shared cross-agent handoff (ac-11)", () => {
 
   it("rides into EVERY mode so any agent can hand off out-of-scope work", () => {
     tagAc(AC_HANDOFF);
+    // spec-300 ac-48: the skills agent inherits the same honest-refusal handoff —
+    // render_handoff is present in skills mode too.
+    tagAc(AC_SKILLS_HANDOFF);
     for (const mode of ALL_MODES) {
       const names = getToolDefinitions({ mode }).map((t) => t.name);
       expect(names).toContain("render_handoff");

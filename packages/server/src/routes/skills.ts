@@ -27,19 +27,28 @@ import {
   listSkills,
   type SkillFileInput,
 } from "../services/skills/skills-service.js";
+import { draftSkillFromDescription } from "../services/skills/draft-skill.js";
 import {
   getSkillUsageReport,
   getSkillsUsedForSpec,
 } from "../services/skills/skill-metering.js";
-import { type SessionEnv } from "../middleware/session.js";
+import { publicSessionMiddleware, type SessionEnv } from "../middleware/session.js";
 import type { MemexResolverEnv } from "../middleware/memex-resolver.js";
+import { hookKeyOrSession } from "../middleware/hook-key-or-session.js";
 import { ForbiddenError, ValidationError } from "../types/errors.js";
 import { requireMemexId, resolveReadableMemexId } from "./shared.js";
-import { mountStandardSessionPolicy } from "./session-policy.js";
 
 type Env = MemexResolverEnv & SessionEnv;
 const skillsRouter = new Hono<Env>();
-mountStandardSessionPolicy(skillsRouter);
+// Session policy (std-7). GET reads run behind the permissive public session (public
+// read / private 404 via resolveReadableMemexId). Write verbs go through
+// hookKeyOrSession (spec-300 issue-5): a checkout HOOK KEY is accepted as an
+// ALTERNATIVE to the web-session JWT, and when no hook key is present it delegates to
+// the strict session middleware unchanged — so a non-member still 404s at the
+// membership check. This is the standard mountStandardSessionPolicy wiring with the
+// write half swapped for the hook-key-aware variant.
+skillsRouter.on("GET", "/*", publicSessionMiddleware);
+skillsRouter.on(["POST", "PUT", "PATCH", "DELETE"], "/*", hookKeyOrSession);
 
 // dec-15 — a write needs write access. Membership is already proven by the strict
 // session middleware (non-members 404); this refuses a read-level member (403).
@@ -87,6 +96,66 @@ function parseFiles(raw: unknown): SkillFileInput[] | undefined {
     }
     throw new ValidationError(`files[${i}] must carry either 'text' or 'contentBase64'`);
   });
+}
+
+// Decode a `removeFiles` JSON body value into a string[] of paths (spec-300 issue-7).
+function parseRemoveFiles(raw: unknown): string[] | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (!Array.isArray(raw) || !raw.every((p) => typeof p === "string")) {
+    throw new ValidationError("`removeFiles` must be an array of file-path strings");
+  }
+  return raw as string[];
+}
+
+// spec-300 issue-6a — read a multipart/form-data create into the same CreateSkillInput
+// the JSON path builds. Binary bytes ride as raw file parts (no base64-in-JSON):
+//   - `skillMd`      : the SKILL.md text (required)
+//   - `filename`     : optional original primary filename (drives the ac-9 guard)
+//   - `capabilities` : optional JSON string of capability flags
+//   - `files`        : zero or more file parts. A part whose content-type starts
+//                      `text/` lands inline; every other part lands as binary bytes.
+async function parseMultipartCreate(
+  c: Parameters<typeof restCtx>[0],
+): Promise<{ skillMd: string; capabilities?: unknown; files: SkillFileInput[]; filename?: string }> {
+  const form = await c.req.parseBody({ all: true });
+
+  const skillMd = form.skillMd;
+  if (typeof skillMd !== "string" || skillMd.length === 0) {
+    throw new ValidationError("`skillMd` part is required");
+  }
+
+  const filenameRaw = form.filename;
+  const filename = typeof filenameRaw === "string" && filenameRaw.length > 0 ? filenameRaw : undefined;
+
+  let capabilities: unknown;
+  const capRaw = form.capabilities;
+  if (typeof capRaw === "string" && capRaw.length > 0) {
+    try {
+      capabilities = JSON.parse(capRaw);
+    } catch {
+      throw new ValidationError("`capabilities` part must be valid JSON");
+    }
+  }
+
+  const rawParts = form.files;
+  const parts = rawParts === undefined ? [] : Array.isArray(rawParts) ? rawParts : [rawParts];
+  const files: SkillFileInput[] = [];
+  for (const part of parts) {
+    if (typeof part === "string") {
+      throw new ValidationError("Each `files` part must be an uploaded file, not a text field");
+    }
+    const path = part.name;
+    if (!path) throw new ValidationError("A `files` part is missing its filename (path)");
+    const contentType = part.type || "application/octet-stream";
+    const bytes = new Uint8Array(await part.arrayBuffer());
+    if (contentType.startsWith("text/")) {
+      files.push({ path, contentType, text: Buffer.from(bytes).toString("utf8") });
+    } else {
+      files.push({ path, contentType, bytes });
+    }
+  }
+
+  return { skillMd, ...(capabilities !== undefined ? { capabilities } : {}), files, ...(filename ? { filename } : {}) };
 }
 
 skillsRouter.get("/", async (c) => {
@@ -142,8 +211,37 @@ skillsRouter.get("/:handle/files/*", async (c) => {
   return c.json(access);
 });
 
+// spec-300 t-15 Increment 1 (ac-49, closes ac-21) — agent-assisted authoring.
+// Draft a spec-compliant SKILL.md from a plain-language description: the same
+// describe→draft→validate turn the "Describe it" tab wires up. Persists NOTHING —
+// draftSkillFromDescription runs the SAME validateSkill the create path runs, then
+// hands the validated SKILL.md back; the UI persists it via POST /skills on confirm.
+// Registered before `/:handle` verbs; `/draft` is a static segment (no handle
+// collision). Write access required (dec-15) — it is an authoring precursor.
+skillsRouter.post("/draft", async (c) => {
+  requireWriteMemexId(c);
+  const body = await c.req.json<{ description?: string }>();
+  if (typeof body.description !== "string" || body.description.trim().length === 0) {
+    throw new ValidationError("A plain-language `description` is required");
+  }
+  const draft = await draftSkillFromDescription(body.description);
+  return c.json(draft);
+});
+
+// Create accepts TWO body shapes (spec-300 issue-6a):
+//   - application/json  : the original path — text inline, binary as base64 in `files`.
+//   - multipart/form-data: binary bytes upload as raw file parts (no base64), used by
+//     `memex-ai skill push`. Both map to the SAME createSkill input.
 skillsRouter.post("/", async (c) => {
   const memexId = requireWriteMemexId(c);
+  const contentType = c.req.header("content-type") ?? "";
+
+  if (contentType.includes("multipart/form-data")) {
+    const input = await parseMultipartCreate(c);
+    const skill = await createSkill(memexId, input, restCtx(c));
+    return c.json(skill, 201);
+  }
+
   const body = await c.req.json<{
     skillMd?: string;
     capabilities?: unknown;
@@ -168,14 +266,28 @@ skillsRouter.post("/", async (c) => {
   return c.json(skill, 201);
 });
 
+// Edit accepts SKILL.md / capabilities, plus auxiliary-file add/replace (`files`) and
+// removal (`removeFiles: string[]` of paths) — spec-300 issue-7.
 skillsRouter.patch("/:handle", async (c) => {
   const memexId = requireWriteMemexId(c);
   const handle = c.req.param("handle");
-  const body = await c.req.json<{ skillMd?: string; capabilities?: unknown }>();
+  const body = await c.req.json<{
+    skillMd?: string;
+    capabilities?: unknown;
+    files?: unknown;
+    removeFiles?: unknown;
+  }>();
+  const files = parseFiles(body.files);
+  const removeFiles = parseRemoveFiles(body.removeFiles);
   const skill = await editSkill(
     memexId,
     handle,
-    { skillMd: body.skillMd, capabilities: body.capabilities },
+    {
+      skillMd: body.skillMd,
+      capabilities: body.capabilities,
+      ...(files ? { files } : {}),
+      ...(removeFiles ? { removeFiles } : {}),
+    },
     restCtx(c),
   );
   return c.json(skill);

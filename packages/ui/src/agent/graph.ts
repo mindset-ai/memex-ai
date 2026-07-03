@@ -40,7 +40,7 @@ export const AgentState = Annotation.Root({
    * drift mode the entry router goes straight to an agent node (not createDoc)
    * even with no docId, and the mode is forwarded to the server (chat + tools).
    */
-  agentMode: Annotation<'spec' | 'drift' | 'scaffold' | 'standards' | 'issues'>({
+  agentMode: Annotation<'spec' | 'drift' | 'scaffold' | 'standards' | 'issues' | 'skills'>({
     reducer: (_, update) => update,
     default: () => 'spec',
   }),
@@ -51,8 +51,8 @@ export const AgentState = Annotation.Root({
  *  agent node (not createDoc). `'spec'` becomes `undefined` on the wire (the
  *  default surface); every scoped mode forwards as-is. */
 function wireMode(
-  agentMode: 'spec' | 'drift' | 'scaffold' | 'standards' | 'issues',
-): 'drift' | 'scaffold' | 'standards' | 'issues' | undefined {
+  agentMode: 'spec' | 'drift' | 'scaffold' | 'standards' | 'issues' | 'skills',
+): 'drift' | 'scaffold' | 'standards' | 'issues' | 'skills' | undefined {
   return agentMode === 'spec' ? undefined : agentMode;
 }
 

@@ -111,6 +111,10 @@ export { SHARED_HANDOFF_GUIDANCE } from './scaffold-data.js';
 // (injected by buildSystemBlocks) + the agent-assisted SKILL.md authoring system
 // prompt (dec-9). Prose has one home here (std-15).
 export { SKILLS_AGENT_GUIDANCE, SKILL_AUTHOR_INSTRUCTION } from './scaffold-data.js';
+// spec-300 t-15 (dec-23, std-38): the dedicated skills-agent MODE block, injected
+// by buildSystemBlocks when the per-request mode is 'skills' (the Skills surface
+// sets it). Distinct from SKILLS_AGENT_GUIDANCE (the cross-agent awareness block).
+export { SKILLS_AGENT_MODE_GUIDANCE } from './scaffold-data.js';
 // spec-389 t-5 (dec-2): the standards + issues agent mode blocks, injected by
 // buildSystemBlocks when the per-request mode is standards / issues. (Per dec-1
 // the scoped agents open with a static intro, not an LLM turn — no opening seed.)

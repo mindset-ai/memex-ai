@@ -15,6 +15,10 @@ const AC_VISUAL = 'mindset-prod/memex-building-itself/specs/spec-389/acs/ac-1';
 // duplicated per mode.
 const AC_SINGLE_SOURCED =
   'mindset-prod/memex-building-itself/specs/spec-389/acs/ac-5';
+// spec-300 t-15 (dec-23): ac-52 — the Skills page mounts the shared ChatPanel with
+// an AGENT_INTROS.skills intro card (one registry, no per-mode copy).
+const AC_SKILLS_INTRO =
+  'mindset-prod/memex-building-itself/specs/spec-300/acs/ac-52';
 
 const MODES = Object.keys(AGENT_INTROS) as AgentChatMode[];
 
@@ -26,9 +30,10 @@ describe('AgentIntro — shared static intro card (ac-1, ac-5)', () => {
       expect(AGENT_INTROS[mode].lead.length).toBeGreaterThan(0);
       expect(AGENT_INTROS[mode].bullets.length).toBeGreaterThan(0);
     }
-    // The five surfaces the Spec unifies are all covered.
+    // All the unified surfaces are covered — spec-300 t-15 adds 'skills' as the
+    // sixth scoped agent card.
     expect(MODES.sort()).toEqual(
-      ['drift', 'issues', 'scaffold', 'spec', 'standards'].sort(),
+      ['drift', 'issues', 'scaffold', 'skills', 'spec', 'standards'].sort(),
     );
   });
 
@@ -44,4 +49,14 @@ describe('AgentIntro — shared static intro card (ac-1, ac-5)', () => {
       }
     });
   }
+
+  it('renders the skills intro from the registry (no LLM call) (spec-300 ac-52)', () => {
+    tagAc(AC_SKILLS_INTRO);
+    render(<AgentIntro mode="skills" />);
+    expect(screen.getByTestId('agent-intro-skills')).toBeInTheDocument();
+    expect(screen.getByText(AGENT_INTROS.skills.lead)).toBeInTheDocument();
+    for (const bullet of AGENT_INTROS.skills.bullets) {
+      expect(screen.getByText(bullet)).toBeInTheDocument();
+    }
+  });
 });

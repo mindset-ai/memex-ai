@@ -11,6 +11,7 @@ import {
   ISSUES_AGENT_GUIDANCE,
   SHARED_HANDOFF_GUIDANCE,
   SKILLS_AGENT_GUIDANCE,
+  SKILLS_AGENT_MODE_GUIDANCE,
   toPromptBlocks,
   toPhaseGuidance,
   type SpecPhase,
@@ -114,9 +115,14 @@ if (!SCAFFOLD_BLOCK) {
 const STANDARDS_BLOCK = STANDARDS_AGENT_GUIDANCE.text;
 const ISSUES_BLOCK = ISSUES_AGENT_GUIDANCE.text;
 const HANDOFF_BLOCK = SHARED_HANDOFF_GUIDANCE.text;
-if (!STANDARDS_BLOCK || !ISSUES_BLOCK || !HANDOFF_BLOCK) {
+// spec-300 t-15 (dec-23) — the dedicated SKILLS-agent mode block (distinct from the
+// SKILLS_BLOCK awareness overlay below). Injected by buildSystemBlocks when the
+// per-request mode is 'skills', like the standards / issues overlays, followed by
+// the shared handoff map so the agent hands off anything outside skill authoring.
+const SKILLS_MODE_BLOCK = SKILLS_AGENT_MODE_GUIDANCE.text;
+if (!STANDARDS_BLOCK || !ISSUES_BLOCK || !HANDOFF_BLOCK || !SKILLS_MODE_BLOCK) {
   throw new Error(
-    "STANDARDS_/ISSUES_AGENT_GUIDANCE or SHARED_HANDOFF_GUIDANCE text is empty — the scoped agent blocks cannot be assembled",
+    "STANDARDS_/ISSUES_/SKILLS_AGENT mode guidance or SHARED_HANDOFF_GUIDANCE text is empty — the scoped agent blocks cannot be assembled",
   );
 }
 
@@ -186,7 +192,9 @@ export function buildSystemBlocks(
   // spec-389 t-5 (dec-2): the new scoped agent modes. Each appends its behaviour
   // block + the shared handoff map over the same phase-composed base, like the
   // drift overlay; their factual grounding rides the cached context block.
-  scopedMode?: "standards" | "issues",
+  // spec-300 t-15 (dec-23): 'skills' is the fifth scoped mode — the dedicated
+  // skills authoring / curation agent on the Skills page.
+  scopedMode?: "standards" | "issues" | "skills",
 ): SystemBlock[] {
   const projectedPhase: SpecPhase = phase === "draft" ? "specify" : phase;
   // spec-360: scaffold mode leads with its OWN identity — the doc-bound base
@@ -233,11 +241,16 @@ export function buildSystemBlocks(
   // spec-389 t-5 (dec-2): the standards / issues posture overlays — each appends
   // its behaviour block plus the shared cross-agent handoff map (spec-389 t-4) so
   // the agent stays in its lane and hands off (render_handoff) for anything else.
+  // spec-300 t-15 (dec-23): the skills posture overlays like standards / issues —
+  // its authoring/curation behaviour block + the shared handoff map, so the skills
+  // agent stays in its lane and hands off anything outside skill authoring.
   const withScoped =
     scopedMode === "standards"
       ? `${withDrift}\n\n${STANDARDS_BLOCK}\n\n${HANDOFF_BLOCK}`
       : scopedMode === "issues"
       ? `${withDrift}\n\n${ISSUES_BLOCK}\n\n${HANDOFF_BLOCK}`
+      : scopedMode === "skills"
+      ? `${withDrift}\n\n${SKILLS_MODE_BLOCK}\n\n${HANDOFF_BLOCK}`
       : withDrift;
   // spec-300 t-7 (dec-7 / dec-20 / dec-2): the PRIMARY in-app agent — the doc/spec
   // agent, no scoped mode — is the one that dispatches skills; append the

@@ -6,6 +6,7 @@ import { listTasks } from "../services/tasks.js";
 import { reviewDocComments } from "../services/comments.js";
 import { listDriftInbox, type DriftInboxRow } from "../services/drift-inbox.js";
 import { listStandards } from "../services/standards.js";
+import { listSkills } from "../services/skills/skills-service.js";
 import { listMemexIssues } from "../services/issues-list.js";
 import { buildChildRef, buildDocRef, memexSlugsById } from "../mcp/refs.js";
 import { phaseFromStatus } from "../formatting/formatters.js";
@@ -483,6 +484,54 @@ export async function buildIssuesContext(
   }
   lines.push(
     "To act: triage with `update_issue`, close with `resolve_issue`, or promote a todo straight to a Task with `convert_issue_to_task` — use `get_issue` / `search_issues` for an issue's exact ref first, and gate every change with `render_confirmation`. When a request actually needs a Spec, do NOT create one — hand off to the New Spec flow with `render_handoff`.",
+  );
+
+  return { context: lines.join("\n"), phase: "specify" };
+}
+
+/**
+ * spec-300 t-15 (dec-23, ac-51): build the SKILLS agent's grounding context.
+ *
+ * The skills agent's world is this Memex's Skills catalogue. The context lists
+ * every active Skill — handle, name, capability flags, a canonical ref the agent
+ * can pass straight to `get_skill`, and the one-line description it dispatches on —
+ * so it grounds answers in what actually exists before curating or drafting. It
+ * authors / curates Skills only; the surface restriction is the server-side
+ * MODE_TOOLS gate (SKILLS_SERVER_TOOLS), the behaviour is SKILLS_AGENT_MODE_GUIDANCE.
+ * Returns `phase: 'specify'` — like drift / standards / issues, the skills mode is
+ * not a Spec phase but buildSystemBlocks needs a base phase to project the general
+ * orientation. Mirrors buildStandardsContext.
+ */
+export async function buildSkillsContext(
+  memexId: string,
+): Promise<DocumentContext> {
+  const skills = await listSkills(memexId);
+
+  if (skills.length === 0) {
+    return {
+      context:
+        "Skills: none yet. This Memex has no Skills. You author Skills, so offer to help the user create their first one — ask them to describe it in plain language, then draft a spec-compliant SKILL.md for their review and create it with `update_skill` once they confirm.",
+      phase: "specify",
+    };
+  }
+
+  const lines: string[] = [];
+  lines.push(
+    `Skills in this Memex: ${skills.length}. Each is listed with its handle, name, capability flags, ref, and the description it dispatches on. Call \`get_skill\` on a Skill's ref to read its full SKILL.md + auxiliary-file table, and \`list_skills\` to re-enumerate.`,
+  );
+  lines.push("");
+  for (const s of skills) {
+    const flags: string[] = [];
+    if (s.capabilities.codebaseAccess) flags.push("codebase-access");
+    if (s.capabilities.codeEditing) flags.push("code-editing");
+    if (s.capabilities.externalTools) flags.push("external-tools");
+    const caps = flags.length > 0 ? ` [${flags.join(", ")}]` : "";
+    // Keep this a SINGLE-line template literal (std-15 prose-location drift-guard).
+    lines.push(`- ${s.handle} "${s.name}"${caps} · ref: ${s.ref} — ${s.description}`);
+  }
+  lines.push("");
+  lines.push(
+    "To author: draft a new Skill from the user's plain-language description and create it with `update_skill` (create); curate an existing one with `update_skill` (edit / delete / restore) — the one verbed write path the manual UI and MCP share. Gate every mutation with `render_confirmation` first. Navigate the reader to a Skill with `render_navigate`; quote exact SKILL.md text with `render_quote`, never inline quotation marks. You never execute a Skill or touch code — hand off with `render_handoff` for anything outside skill authoring.",
   );
 
   return { context: lines.join("\n"), phase: "specify" };

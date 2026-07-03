@@ -118,8 +118,10 @@ export async function* callLlmProxy(
      *  spec-360 t-1 (dec-1): when 'scaffold', the server runs the scaffold
      *  assistant — scaffold grounding, propose-then-confirm tool subset.
      *  spec-389 t-5 (dec-2): 'standards' / 'issues' run the memex-scoped
-     *  standards / issues agents (their context + MODE_TOOLS subset). */
-    mode?: 'drift' | 'scaffold' | 'standards' | 'issues';
+     *  standards / issues agents (their context + MODE_TOOLS subset).
+     *  spec-300 t-15 (dec-23): 'skills' runs the dedicated skills authoring /
+     *  curation agent (skill-catalogue context + SKILLS_SERVER_TOOLS subset). */
+    mode?: 'drift' | 'scaffold' | 'standards' | 'issues' | 'skills';
   },
   signal?: AbortSignal
 ): AsyncGenerator<LlmProxyEvent> {
