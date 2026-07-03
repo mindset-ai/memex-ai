@@ -5,6 +5,13 @@
 //   • the auxiliary-file list (path/type/size), each openable via the server's
 //     file endpoint (inline text or a signed URL, ac-16);
 //   • a short "Usage" note — how an agent picks the skill up (its canonical ref).
+//
+// spec-300 t-16 (dec-24) — auxiliary-file MANAGEMENT lives here (write access only):
+//   • add files by dragging/dropping or picking them (AuxiliaryFilesPanel → editSkill),
+//   • remove a file via its X, behind a confirmation guard (RemoveSkillFileDialog).
+// The in-app agent no longer attaches files — this page (and a coding agent over MCP)
+// is where files are managed. Backend already supports it (issue-7 editSkill files/
+// removeFiles); this is the UI surface. Write-gated via useMemexAccess (std-4).
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
@@ -15,14 +22,20 @@ import rehypeHighlight from 'rehype-highlight';
 import {
   fetchSkill,
   fetchSkillFile,
+  editSkill,
   type SkillView,
   type SkillFileTocEntry,
 } from '../api/skills';
 import { ApiError } from '../api/errors';
 import { Spinner } from '../components/Spinner';
 import { PageHeader } from '../components/PageHeader';
+import { Button } from '../components/ui';
+import { Alert } from '../components/ui/Alert';
 import { CapabilityChips } from '../components/skills/CapabilityChips';
+import { AuxiliaryFilesPanel, type StagedFile } from '../components/skills/AuxiliaryFilesPanel';
+import { RemoveSkillFileDialog } from '../components/skills/RemoveSkillFileDialog';
 import { encodeStandardRefs, StandardRefLink } from '../components/skills/StandardRefLink';
+import { useMemexAccess } from '../hooks/useMemexAccess';
 
 const remarkPlugins = [remarkGfm];
 const rehypePlugins = [rehypeRaw, rehypeHighlight];
@@ -39,7 +52,17 @@ function formatBytes(n: number): string {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function AuxFileRow({ handle, file }: { handle: string; file: SkillFileTocEntry }) {
+function AuxFileRow({
+  handle,
+  file,
+  canWrite,
+  onRemove,
+}: {
+  handle: string;
+  file: SkillFileTocEntry;
+  canWrite: boolean;
+  onRemove: (file: SkillFileTocEntry) => void;
+}) {
   const [opening, setOpening] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -84,6 +107,18 @@ function AuxFileRow({ handle, file }: { handle: string; file: SkillFileTocEntry 
       >
         {opening ? 'Opening…' : 'Open'}
       </button>
+      {canWrite && (
+        <button
+          type="button"
+          onClick={() => onRemove(file)}
+          aria-label={`Remove ${file.path}`}
+          title="Remove file"
+          data-testid="skill-file-remove"
+          className="flex-none text-sm leading-none text-muted hover:text-status-danger-text transition-colors"
+        >
+          ✕
+        </button>
+      )}
       {error && <span className="text-[11px] text-status-danger-text flex-none">{error}</span>}
     </li>
   );
@@ -91,10 +126,19 @@ function AuxFileRow({ handle, file }: { handle: string; file: SkillFileTocEntry 
 
 export function Skill() {
   const { id } = useParams<{ id: string }>();
+  const { canWrite } = useMemexAccess();
   const [skill, setSkill] = useState<SkillView | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // spec-300 t-16 (dec-24): file-management state. `staged` holds files picked for
+  // addition; `removing` is the file pending a remove-confirmation; `fileError`
+  // surfaces an add/remove failure.
+  const [staged, setStaged] = useState<ReadonlyArray<StagedFile>>([]);
+  const [saving, setSaving] = useState(false);
+  const [removing, setRemoving] = useState<SkillFileTocEntry | null>(null);
+  const [fileError, setFileError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -119,6 +163,53 @@ export function Skill() {
       cancelled = true;
     };
   }, [id]);
+
+  // Re-fetch the skill after an edit so the file TOC reflects the change.
+  const reload = useCallback(async () => {
+    if (!id) return;
+    const data = await fetchSkill(id);
+    setSkill(data);
+  }, [id]);
+
+  // Add the staged files (text inline / binary base64) through the shared edit
+  // path, then reload and clear the stage (ac-54 / ac-57).
+  const handleAddFiles = useCallback(async () => {
+    if (!id || staged.length === 0 || saving) return;
+    setSaving(true);
+    setFileError(null);
+    try {
+      await editSkill(id, {
+        files: staged.map(({ path, purpose, contentType, text, contentBase64 }) => ({
+          path,
+          purpose,
+          contentType,
+          text,
+          contentBase64,
+        })),
+      });
+      setStaged([]);
+      await reload();
+    } catch (err) {
+      setFileError(err instanceof Error ? err.message : 'Failed to add files.');
+    } finally {
+      setSaving(false);
+    }
+  }, [id, staged, saving, reload]);
+
+  // Confirmed removal (the dialog's onConfirm). Removes exactly the file pending
+  // confirmation, then reloads (ac-55 / ac-58). Closes the dialog either way.
+  const confirmRemove = useCallback(async () => {
+    if (!id || !removing) return;
+    setFileError(null);
+    try {
+      await editSkill(id, { removeFiles: [removing.path] });
+      await reload();
+    } catch (err) {
+      setFileError(err instanceof Error ? err.message : 'Failed to remove file.');
+    } finally {
+      setRemoving(null);
+    }
+  }, [id, removing, reload]);
 
   const encodedBody = useMemo(
     () => (skill ? encodeStandardRefs(skill.skillMd) : ''),
@@ -178,15 +269,49 @@ export function Skill() {
         </ReactMarkdown>
       </section>
 
-      {/* Auxiliary files */}
-      {skill.files.length > 0 && (
+      {/* Auxiliary files — the list, plus (write access) add + remove management. */}
+      {(skill.files.length > 0 || canWrite) && (
         <section className="mb-6" data-testid="skill-files">
           <h2 className="text-sm font-semibold text-heading mb-2">Auxiliary files</h2>
-          <ul className="space-y-1.5">
-            {skill.files.map((f) => (
-              <AuxFileRow key={f.path} handle={skill.handle} file={f} />
-            ))}
-          </ul>
+          {skill.files.length > 0 ? (
+            <ul className="space-y-1.5">
+              {skill.files.map((f) => (
+                <AuxFileRow
+                  key={f.path}
+                  handle={skill.handle}
+                  file={f}
+                  canWrite={canWrite}
+                  onRemove={setRemoving}
+                />
+              ))}
+            </ul>
+          ) : (
+            <p className="text-xs text-muted">No auxiliary files yet.</p>
+          )}
+
+          {/* spec-300 t-16 (dec-24): add files by drag/drop or picking (write only). */}
+          {canWrite && (
+            <div className="mt-3 space-y-2" data-testid="skill-add-files">
+              <AuxiliaryFilesPanel files={staged} onChange={setStaged} disabled={saving} />
+              {staged.length > 0 && (
+                <Button
+                  type="button"
+                  variant="primary"
+                  size="sm"
+                  onClick={handleAddFiles}
+                  disabled={saving}
+                  data-testid="skill-add-files-save"
+                >
+                  {saving ? 'Adding…' : `Add ${staged.length} file${staged.length === 1 ? '' : 's'}`}
+                </Button>
+              )}
+              {fileError && (
+                <div data-testid="skill-file-error">
+                  <Alert variant="danger">{fileError}</Alert>
+                </div>
+              )}
+            </div>
+          )}
         </section>
       )}
 
@@ -201,6 +326,15 @@ export function Skill() {
           {skill.ref}
         </code>
       </section>
+
+      {/* Remove-file confirmation (fat-finger guard, ac-55). */}
+      {removing && (
+        <RemoveSkillFileDialog
+          path={removing.path}
+          onConfirm={confirmRemove}
+          onClose={() => setRemoving(null)}
+        />
+      )}
     </div>
   );
 }
