@@ -26,6 +26,8 @@ const SPEC = "mindset-prod/memex-building-itself/specs/spec-447";
 const ACS_BY_TEST: Record<string, string[]> = {
   'assignee filter survives opening a spec and returning via "← All specs" (ac-1)':
     [`${SPEC}/acs/ac-1`],
+  'an active filter is visible on the board and "Clear filters" resets it (ac-7, ac-8)':
+    [`${SPEC}/acs/ac-7`, `${SPEC}/acs/ac-8`],
 };
 test.afterEach(async ({}, testInfo) => {
   const acRefs = ACS_BY_TEST[testInfo.title] ?? [];
@@ -81,4 +83,51 @@ test('assignee filter survives opening a spec and returning via "← All specs" 
   await expect(page.getByText("Alpha assigned to me")).toBeVisible({ timeout: 15_000 });
   await expect(page.getByText("Beta not mine")).not.toBeVisible();
   await expect(page).toHaveURL(/assignee=me/);
+});
+
+// spec-447 dec-2: a persisted filter must never make a filtered board read as
+// unfiltered — the active state has to be visible in the UI (not just the URL),
+// and a single "Clear filters" control returns the board to its full view.
+test('an active filter is visible on the board and "Clear filters" resets it (ac-7, ac-8)', async ({
+  page,
+  resources,
+}) => {
+  const slug = resources.slug("j54c");
+  const tenant = await seedOrgTenant({ slug });
+  const devUserId = await ensureUser("dev@memex.ai");
+
+  const mine = await seedSpec({
+    memexId: tenant.memexId,
+    title: "Alpha assigned to me",
+    purpose: "This one is mine.",
+  });
+  await seedAssignee({ memexId: tenant.memexId, docId: mine.docId, userId: devUserId });
+  await seedSpec({
+    memexId: tenant.memexId,
+    title: "Beta not mine",
+    purpose: "This one is not mine.",
+  });
+
+  await page.goto(tenantPath(tenant.namespaceSlug, tenant.memexSlug, "/specs"));
+  await expect(page.getByText("Alpha assigned to me")).toBeVisible({ timeout: 15_000 });
+
+  // Unfiltered: no "Clear filters" affordance and the control is not active.
+  const assignee = page.getByLabel("Filter by assignee");
+  await expect(assignee).toHaveAttribute("data-active", "false");
+  await expect(page.getByTestId("clear-all-filters")).toHaveCount(0);
+
+  // Apply a filter — the board narrows, the control flips to its active state,
+  // and the "Clear filters" control appears (the board now reads as filtered).
+  await assignee.selectOption("me");
+  await expect(page.getByText("Beta not mine")).not.toBeVisible();
+  await expect(assignee).toHaveAttribute("data-active", "true");
+  await expect(page.getByTestId("clear-all-filters")).toBeVisible();
+
+  // One click clears the filter: the full board is restored, the URL drops
+  // ?assignee, and the clear control disappears again.
+  await page.getByTestId("clear-all-filters").click();
+  await expect(page.getByText("Beta not mine")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText("Alpha assigned to me")).toBeVisible();
+  await expect(page).not.toHaveURL(/assignee=/);
+  await expect(page.getByTestId("clear-all-filters")).toHaveCount(0);
 });

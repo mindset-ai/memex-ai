@@ -165,6 +165,37 @@ export function SpecList() {
     },
     [setSearchParams],
   );
+  // spec-447: with the assignee filter now persisting across the round-trip, a
+  // filtered board must never look unfiltered — the active state has to be
+  // visible in the UI, not just in the URL, and clearable in one action. This
+  // covers all three URL-reflected board filters (assignee / tags / grounded) so
+  // "Clear filters" always returns the board to its full, unfiltered view.
+  const hasActiveFilters = assigneeFilter !== 'all' || tagFilter.length > 0 || groundedOnly;
+  const clearAllFilters = useCallback(() => {
+    // Clearing the assignee also drops its remembered value, so a deliberate
+    // clear is honoured and never re-applied on the next mount (ac-3 semantics).
+    if (assigneeStorageKey) {
+      try {
+        sessionStorage.removeItem(assigneeStorageKey);
+      } catch {
+        // best-effort — see setAssigneeFilter.
+      }
+    }
+    // ONE setSearchParams that drops all three params. Three separate setters
+    // would NOT compose: react-router's functional updater reads the same params
+    // snapshot within a batch and the last navigate wins, so only one filter
+    // would actually clear. Delete them together in a single navigate.
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete('assignee');
+        next.delete('tags');
+        next.delete('grounded');
+        return next;
+      },
+      { replace: true },
+    );
+  }, [setSearchParams, assigneeStorageKey]);
   // doc-19 dec-8: surface the Create-an-Org banner only when the user is
   // looking at their personal Memex's Specs page. The CreateOrgBanner
   // component handles the dismissal + has-org-membership suppression itself.
@@ -449,11 +480,20 @@ export function SpecList() {
                 each person currently assigned across the board. URL-reflected. */}
             <label className="flex items-center gap-1.5 text-xs text-secondary select-none">
               <span className="text-muted">Assignee</span>
+              {/* spec-447: when a non-"all" assignee is active the control is
+                  accented (and flagged aria-invalid=false→data attr) so a
+                  filtered board reads as filtered at a glance, not just in the
+                  URL — the persisted filter must never masquerade as unfiltered. */}
               <select
                 value={assigneeFilter}
                 onChange={(e) => setAssigneeFilter(e.target.value)}
                 aria-label="Filter by assignee"
-                className="bg-surface border border-edge-subtle rounded-sm px-1.5 py-1 text-xs text-primary cursor-pointer"
+                data-active={assigneeFilter !== 'all'}
+                className={`rounded-sm px-1.5 py-1 text-xs cursor-pointer ${
+                  assigneeFilter !== 'all'
+                    ? 'bg-accent/10 border border-accent text-accent'
+                    : 'bg-surface border border-edge-subtle text-primary'
+                }`}
               >
                 <option value="all">All</option>
                 <option value="me">Assigned to me</option>
@@ -509,9 +549,33 @@ export function SpecList() {
 
       {/* spec-136 t-7 (ac-3): board-level tag filter. Narrows the kanban to
           Specs carrying the selected tags; clearable. The selection lives in the
-          URL (?tags=) so a filtered board is shareable. */}
-      <div className="flex-none mb-4">
+          URL (?tags=) so a filtered board is shareable.
+          spec-447: a single "Clear filters" resets ALL three board filters
+          (assignee / tags / grounded) in one action. It appears only when at
+          least one filter is active — so its mere presence is itself a signal
+          the board is filtered, not just the accented controls. */}
+      <div className="flex-none mb-4 flex items-start gap-3">
         <TagFilter selected={tagFilter} onChange={setTagFilter} />
+        {hasActiveFilters && (
+          <button
+            type="button"
+            onClick={clearAllFilters}
+            data-testid="clear-all-filters"
+            className="inline-flex items-center gap-1 rounded-md border border-accent/40 px-2 py-1 text-xs text-accent hover:bg-accent/10 hover:border-accent transition-colors"
+          >
+            <svg
+              className="w-3.5 h-3.5"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+              aria-hidden="true"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+            <span>Clear filters</span>
+          </button>
+        )}
       </div>
 
       {/* Board row. overflow-x-auto + a per-column min width: flex children

@@ -490,6 +490,67 @@ describe('SpecList assignee filter persistence (spec-447)', () => {
     });
     expect(sessionStorage.getItem(KEY)).toBe('u1');
   });
+
+  it('surfaces an active assignee filter in the UI and shows the "Clear filters" control only when a filter is set (ac-8)', async () => {
+    tagAc(AC447(8));
+    const user = userEvent.setup();
+    fetchDocsMock.mockResolvedValue(twoSpecs());
+
+    render(
+      <MemoryRouter initialEntries={[TENANT]}>
+        <SpecList />
+      </MemoryRouter>,
+    );
+
+    await screen.findByText('Alice work');
+    const select = screen.getByLabelText('Filter by assignee') as HTMLSelectElement;
+
+    // Unfiltered: the control reads as inactive and there is no clear affordance
+    // (its absence is itself the "nothing is filtered" signal).
+    expect(select.getAttribute('data-active')).toBe('false');
+    expect(screen.queryByTestId('clear-all-filters')).not.toBeInTheDocument();
+
+    // Applying a filter flips the control to its active (accented) state and
+    // reveals the "Clear filters" button — the board can no longer look
+    // unfiltered while a persisted filter is in force.
+    await user.selectOptions(select, 'u2');
+    expect(select.getAttribute('data-active')).toBe('true');
+    expect(screen.getByTestId('clear-all-filters')).toBeInTheDocument();
+  });
+
+  it('"Clear filters" resets every board filter (assignee + tags + grounded) in one action (ac-7)', async () => {
+    tagAc(AC447(7));
+    const user = userEvent.setup();
+    // Neither spec is code-grounded, so ?grounded=1 hides both — the board
+    // starts fully narrowed by three simultaneously-active filters.
+    fetchDocsMock.mockResolvedValue(twoSpecs());
+
+    render(
+      <MemoryRouter initialEntries={[`${TENANT}?assignee=u2&grounded=1&tags=priority::high`]}>
+        <SpecList />
+        <LocationDisplay />
+      </MemoryRouter>,
+    );
+
+    // Wait for the load to settle: with grounded=1 hiding both specs, assert the
+    // clear control is present (proves filters are recognised as active).
+    await waitFor(() => {
+      expect(screen.getByTestId('clear-all-filters')).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByTestId('clear-all-filters'));
+
+    // All three URL-reflected filters are gone and the full board is restored.
+    await waitFor(() => {
+      expect(screen.getByText('Alice work')).toBeInTheDocument();
+    });
+    expect(screen.getByText('Bob work')).toBeInTheDocument();
+    const search = screen.getByTestId('location-search').textContent ?? '';
+    expect(search).not.toContain('assignee=');
+    expect(search).not.toContain('grounded=');
+    expect(search).not.toContain('tags=');
+    expect(screen.queryByTestId('clear-all-filters')).not.toBeInTheDocument();
+  });
 });
 
 // Placate the unused-import linter if `act` ends up unused in some refactors.
