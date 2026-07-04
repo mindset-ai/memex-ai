@@ -73,7 +73,7 @@ export function WhatsNewRibbon({
   fetcher = fetchWhatsNew,
   autoDismissMs = AUTO_DISMISS_MS,
 }: WhatsNewRibbonProps) {
-  const { setAvailable, registerOpener, getMenuAnchor } = useWhatsNew();
+  const { setAvailable, setHasUnseen, registerOpener, getMenuAnchor } = useWhatsNew();
   const { track } = useTelemetry(true);
 
   const [entries, setEntries] = useState<WhatsNewEntry[]>([]);
@@ -135,6 +135,15 @@ export function WhatsNewRibbon({
   useEffect(() => {
     setAvailable(entries.length > 0);
   }, [entries.length, setAvailable]);
+
+  // spec-456: report unread state so the menu item only confetti's for a
+  // genuinely-new entry. Same "unread" basis as fireOpened's unreadCount — the
+  // newest entry newer than the dismiss marker. Re-runs on dismiss (which
+  // advances the marker), flipping this back to false. Reduced-motion is handled
+  // downstream in the burst fn, not here.
+  useEffect(() => {
+    setHasUnseen(!!newest && Date.parse(newest.publishedAt) > readMarker(DISMISS_KEY));
+  }, [newest, dismissed, setHasUnseen]);
 
   // Engagement with release notes (spec-200). Count only — entries still newer
   // than the user's dismiss marker at the moment the popup opens.

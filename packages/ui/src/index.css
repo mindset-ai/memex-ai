@@ -669,6 +669,51 @@
   }
 }
 
+/* spec-456 — the "What's New" account-menu row is the menu's one deliberately
+   playful moment. On hover/focus the gift lid tilts open ("unwrap") and a small
+   sparkle peeks out; the click-time confetti burst is drawn in a <canvas> by
+   burstWhatsNewConfetti() in AppShell.tsx. transform-box:fill-box makes each
+   SVG part rotate/scale about its own box rather than the whole SVG viewport.
+   Reduced-motion users get an instant, motionless state: no lid tilt, no scale. */
+.wn-lid {
+  transform-box: fill-box;
+  transform-origin: 28% 92%;
+  transition: transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.wn-sparkle {
+  transform-box: fill-box;
+  transform-origin: center;
+  opacity: 0;
+  transform: scale(0.4);
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s ease;
+}
+.group:hover .wn-lid,
+.group:focus-visible .wn-lid {
+  transform: rotate(-20deg) translateY(-0.5px);
+}
+.group:hover .wn-sparkle,
+.group:focus-visible .wn-sparkle {
+  opacity: 1;
+  transform: scale(1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .wn-lid,
+  .wn-sparkle {
+    transition: none;
+  }
+  .group:hover .wn-lid,
+  .group:focus-visible .wn-lid {
+    transform: none;
+  }
+  .group:hover .wn-sparkle,
+  .group:focus-visible .wn-sparkle {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+}
+
 /* spec-372 — Home Onboarding v3 fonts + accent, SELF-HOSTED and SCOPED to the onboarding
    surface. The v3 design re-cut the onboarding type to Inter (spec-336 used Hanken Grotesk)
    and the accent to #0482DC. Inter is SELF-HOSTED because the app base stack is system-first
