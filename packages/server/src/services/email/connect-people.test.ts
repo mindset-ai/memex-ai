@@ -86,8 +86,9 @@ describe("connectPeopleEligible — the go-live back-catalog floor (ac-19)", () 
 });
 
 describe("runConnectPeoplePass", () => {
-  it("sends the Connect email once to an eligible verified user (ac-6)", async () => {
+  it("sends the Connect email once to an eligible verified user, exclusively via sendLifecycleEmail (ac-6, ac-10)", async () => {
     tagAc(AC(6));
+    tagAc(AC(10)); // Connect's half of "both emails send exclusively through sendLifecycleEmail"
     selectActivationCandidates.mockResolvedValue([candidate({ id: "u1", name: "Ada Lovelace" })]);
 
     const summary = await runConnectPeoplePass(GO_LIVE, NOW, conn);
@@ -113,8 +114,9 @@ describe("runConnectPeoplePass", () => {
     expect(sendLifecycleEmail.mock.calls[0][0].id).toBe("ready");
   });
 
-  it("dedups on the stable comms key — an already-sent user is skipped (ac-7)", async () => {
+  it("dedups on the stable comms key — an already-sent user is skipped (ac-7, ac-11)", async () => {
     tagAc(AC(7));
+    tagAc(AC(11)); // Connect's half: dedup on its own stable comms_log.type key via hasComm
     hasComm.mockResolvedValue(true);
     selectActivationCandidates.mockResolvedValue([candidate({ id: "u1" })]);
 
