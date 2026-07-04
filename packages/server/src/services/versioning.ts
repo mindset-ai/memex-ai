@@ -30,7 +30,7 @@
 // RequestCtx threaded onto the activity contract (std-32).
 
 import { createHash } from "node:crypto";
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, ne, sql } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import {
   documents,
@@ -137,6 +137,81 @@ async function buildSnapshot(tx: Tx, docId: string): Promise<ArtifactSnapshot> {
       tx.select().from(issues).where(eq(issues.docId, docId)).orderBy(asc(issues.seq)),
       tx.select().from(docComments).where(eq(docComments.docId, docId)).orderBy(asc(docComments.seq)),
       tx
+        .select({ versionNumber: documentVersions.versionNumber, createdAt: documentVersions.createdAt })
+        .from(documentVersions)
+        .where(eq(documentVersions.docId, docId))
+        .orderBy(asc(documentVersions.versionNumber)),
+    ]);
+
+  const comments = commentRows.map((c) => ({
+    ...c,
+    versionAtWrite: versionActiveAt(priorCuts, c.createdAt),
+  }));
+
+  return {
+    sections: sectionRows,
+    decisions: decisionRows,
+    acs: acRows,
+    tasks: taskRows,
+    issues: issueRows,
+    comments,
+  };
+}
+
+// Live (filtered) graph read: the CURRENT working set only — the same
+// exclusions the primary get_doc/listDecisions/listTasks/listAcsForBrief/
+// listIssuesForSpec reads apply (soft-deleted status + retired_at_version,
+// gap closure t-6/ac-18). Used by the diff endpoint to let a caller compare a
+// frozen version against the doc's current live state ("primary") without
+// requiring a version to have been cut for it yet (ac-26: the primary is
+// selectable alongside any prior version).
+async function buildLiveSnapshot(memexId: string, docId: string): Promise<ArtifactSnapshot> {
+  const [sectionRows, decisionRows, acRows, taskRows, issueRows, commentRows, priorCuts] =
+    await Promise.all([
+      db
+        .select()
+        .from(docSections)
+        .where(
+          and(
+            eq(docSections.docId, docId),
+            sql`(${docSections.status} <> 'deleted' OR ${docSections.status} IS NULL)`,
+            isNull(docSections.retiredAtVersion),
+          ),
+        )
+        .orderBy(asc(docSections.seq)),
+      db
+        .select()
+        .from(decisions)
+        .where(
+          and(
+            eq(decisions.docId, docId),
+            eq(decisions.memexId, memexId),
+            ne(decisions.status, "deleted"),
+            isNull(decisions.retiredAtVersion),
+          ),
+        )
+        .orderBy(asc(decisions.seq)),
+      db
+        .select()
+        .from(acs)
+        .where(and(eq(acs.briefId, docId), eq(acs.memexId, memexId), isNull(acs.retiredAtVersion)))
+        .orderBy(asc(acs.seq)),
+      db
+        .select()
+        .from(tasks)
+        .where(and(eq(tasks.docId, docId), eq(tasks.memexId, memexId), isNull(tasks.retiredAtVersion)))
+        .orderBy(asc(tasks.seq)),
+      db
+        .select()
+        .from(issues)
+        .where(and(eq(issues.docId, docId), eq(issues.memexId, memexId), isNull(issues.retiredAtVersion)))
+        .orderBy(asc(issues.seq)),
+      db
+        .select()
+        .from(docComments)
+        .where(and(eq(docComments.docId, docId), isNull(docComments.retiredAtVersion)))
+        .orderBy(asc(docComments.seq)),
+      db
         .select({ versionNumber: documentVersions.versionNumber, createdAt: documentVersions.createdAt })
         .from(documentVersions)
         .where(eq(documentVersions.docId, docId))
@@ -305,6 +380,93 @@ export async function getVersionSnapshot(
     throw new NotFoundError(`Version ${versionNumber} of document ${docId} not found`);
   }
   return row;
+}
+
+// ── listVersions (t-6) ───────────────────────────────────────────────────
+
+/** Lightweight projection for the version-history list — no snapshot payload. */
+export interface VersionSummary {
+  versionNumber: number;
+  name: string;
+  createdAt: Date;
+  actorName: string | null;
+  restoredFromVersion: number | null;
+}
+
+/**
+ * List every cut version of a doc, newest first — the version-switcher /
+ * history surface. Deliberately omits `snapshot` (fetched separately via
+ * `getVersionSnapshot` when a specific version is opened) so listing stays
+ * cheap regardless of how large a doc's artifact graph has grown.
+ *
+ * Tenancy-checked like every other read here: an unknown doc 404s (std-7).
+ */
+export async function listVersions(memexId: string, docId: string): Promise<VersionSummary[]> {
+  await loadDocForTenant(memexId, docId);
+
+  return db
+    .select({
+      versionNumber: documentVersions.versionNumber,
+      name: documentVersions.name,
+      createdAt: documentVersions.createdAt,
+      actorName: documentVersions.actorName,
+      restoredFromVersion: documentVersions.restoredFromVersion,
+    })
+    .from(documentVersions)
+    .where(and(eq(documentVersions.docId, docId), eq(documentVersions.memexId, memexId)))
+    .orderBy(desc(documentVersions.versionNumber));
+}
+
+// ── diff-data (t-6) ──────────────────────────────────────────────────────
+
+/** A diff side is either a concrete cut version number, or the live primary. */
+export type SnapshotToken = number | "primary";
+
+export interface VersionOrPrimarySnapshot {
+  version: SnapshotToken;
+  name: string | null;
+  createdAt: Date | null;
+  restoredFromVersion: number | null;
+  checksum: string;
+  snapshot: ArtifactSnapshot;
+}
+
+/**
+ * Resolve one side of a diff request (ac-26: the version switcher can compare
+ * ANY two versions, including the primary, not just adjacent ones):
+ *   - a concrete version number reads the frozen `document_versions` row via
+ *     `getVersionSnapshot` (same tenancy/404 posture, std-7).
+ *   - the `"primary"` token composes the doc's CURRENT live graph on the fly
+ *     (`buildLiveSnapshot`) — the working state has no `document_versions` row
+ *     of its own until it's next cut, so this is the only way to diff against it.
+ */
+export async function getVersionOrPrimarySnapshot(
+  memexId: string,
+  docId: string,
+  token: SnapshotToken,
+): Promise<VersionOrPrimarySnapshot> {
+  if (token === "primary") {
+    await loadDocForTenant(memexId, docId); // tenancy check (std-7)
+    const snapshot = await buildLiveSnapshot(memexId, docId);
+    return {
+      version: "primary",
+      name: null,
+      createdAt: null,
+      restoredFromVersion: null,
+      checksum: computeSnapshotChecksum(snapshot),
+      snapshot,
+    };
+  }
+
+  const row = await getVersionSnapshot(memexId, docId, token);
+  return {
+    version: row.versionNumber,
+    name: row.name,
+    createdAt: row.createdAt,
+    restoredFromVersion: row.restoredFromVersion,
+    checksum: row.checksum,
+    snapshot: row.snapshot as ArtifactSnapshot,
+  };
 }
 
 // ── restoreVersion (t-4) ─────────────────────────────────────────────────
