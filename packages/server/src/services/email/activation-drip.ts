@@ -65,6 +65,10 @@ export interface CandidateUser {
   id: string;
   email: string | null;
   name: string | null;
+  // spec-453 t-5: signup time, needed by the "Connect with people" Day-12 pass
+  // (connect-people.ts). Optional so the drip/backlog and their tests, which don't
+  // read it, are unaffected — selectActivationCandidates always populates it.
+  createdAt?: Date;
 }
 
 export type DripReason =
@@ -163,7 +167,7 @@ export async function sendActivationEmailForUser(
 // (~100 users, ~6 sends/day) a full scan is fine — see the scaling follow-up issue.
 export async function selectActivationCandidates(conn: Db = db): Promise<CandidateUser[]> {
   return conn
-    .select({ id: users.id, email: users.email, name: users.name })
+    .select({ id: users.id, email: users.email, name: users.name, createdAt: users.createdAt })
     .from(users)
     .where(and(isNotNull(users.email), isNotNull(users.emailVerifiedAt)));
 }
