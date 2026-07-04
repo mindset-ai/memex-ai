@@ -502,7 +502,13 @@ export function DocDocument() {
             currentVersion={doc.version ?? 1}
             onRestored={reloadDoc}
             canRestore={canWrite}
-            onCompare={(from, to) => setDiffPair({ from, to })}
+            onCompare={(from, to) => {
+              // The diff renders in place of the narrative reading area, so jump
+              // to the Narrative sub-tab — otherwise comparing from another tab
+              // (e.g. Agent Tasks & Issues) sets the pair but shows nothing.
+              setDiffPair({ from, to });
+              setSubTab('narrative');
+            }}
             triggerClassName={HEADER_PILL_CLASS}
           />
         )}
