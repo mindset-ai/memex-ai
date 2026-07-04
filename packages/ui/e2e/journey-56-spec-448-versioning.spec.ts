@@ -134,10 +134,14 @@ test.describe("spec-448 — document versioning", () => {
     // CreateVersionDialog.tsx: a required "Version name" input (label `for`
     // wired to #create-version-name) plus five carry-forward checkboxes in
     // CARRY_FORWARD_CLASSES order (decisions, acs, tasks, issues, comments —
-    // services/versioning.ts), all checked by default. Uncheck Tasks (index 2).
+    // services/versioning.ts), all checked by default. Select Tasks by text —
+    // NOT by index: the "Version name" <label> is itself the form's first
+    // <label>, which makes any nth() index off-by-one.
     await page.getByLabel("Version name").fill("Reviewed cut");
     const createDialog = page.locator("#create-version-name").locator("xpath=ancestor::form");
-    const tasksLabel = createDialog.locator("label").nth(2);
+    const tasksLabel = createDialog
+      .locator('label:has(input[type="checkbox"])')
+      .filter({ hasText: "Tasks" });
     await expect(tasksLabel).toContainText("Tasks");
     await tasksLabel.locator('input[type="checkbox"]').uncheck();
     await createDialog.getByRole("button", { name: "Create version" }).click();
