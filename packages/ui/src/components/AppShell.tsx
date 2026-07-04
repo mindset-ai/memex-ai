@@ -425,7 +425,12 @@ function SidebarUserCard({
   const wrapperRef = useRef<HTMLDivElement>(null);
   // spec-200: this card is the fly-home target for the What's New ribbon, and
   // hosts the "What's New" menu item that re-opens the popup.
-  const { available: whatsNewAvailable, openPopup: openWhatsNew, registerMenuAnchor } = useWhatsNew();
+  const {
+    available: whatsNewAvailable,
+    hasUnseen: whatsNewHasUnseen,
+    openPopup: openWhatsNew,
+    registerMenuAnchor,
+  } = useWhatsNew();
 
   useEffect(() => {
     registerMenuAnchor(wrapperRef.current);
@@ -499,9 +504,13 @@ function SidebarUserCard({
               <button
                 data-testid="user-menu-whats-new"
                 onClick={(e) => {
-                  // The gift's confetti fires from its own icon canvas, then the
-                  // What's New popup opens (behaviour unchanged from the flat menu).
-                  burstWhatsNewConfetti(e.currentTarget.querySelector('canvas'));
+                  // The gift's confetti fires from its own icon canvas — but only
+                  // when there's an unread entry (spec-456), so re-opening the popup
+                  // for already-seen notes stays quiet. Then the What's New popup
+                  // opens (behaviour unchanged from the flat menu).
+                  if (whatsNewHasUnseen) {
+                    burstWhatsNewConfetti(e.currentTarget.querySelector('canvas'));
+                  }
                   setOpen(false);
                   openWhatsNew();
                 }}

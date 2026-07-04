@@ -14,9 +14,11 @@ const AC_HOOKS = 'mindset-prod/memex-building-itself/specs/spec-456/acs/ac-5';
 const AC_MICRO = 'mindset-prod/memex-building-itself/specs/spec-456/acs/ac-6';
 
 // Hoisted spies so the test can assert the callbacks the menu items are wired to.
-const { logoutSpy, openWhatsNewSpy } = vi.hoisted(() => ({
+const { logoutSpy, openWhatsNewSpy, whatsNewState } = vi.hoisted(() => ({
   logoutSpy: vi.fn(),
   openWhatsNewSpy: vi.fn(),
+  // Mutable so a test can flip What's New availability / unread state.
+  whatsNewState: { available: true, hasUnseen: true },
 }));
 
 const TEAM_ADMIN = {
@@ -47,7 +49,8 @@ vi.mock('./AuthContext', () => ({
 // surface it so the notification row + its micro-interaction are exercised.
 vi.mock('./whats-new/WhatsNewContext', () => ({
   useWhatsNew: () => ({
-    available: true,
+    available: whatsNewState.available,
+    hasUnseen: whatsNewState.hasUnseen,
     openPopup: openWhatsNewSpy,
     registerMenuAnchor: vi.fn(),
   }),
@@ -101,6 +104,9 @@ function menuRoot(): HTMLElement {
 
 afterEach(() => {
   vi.clearAllMocks();
+  vi.restoreAllMocks();
+  whatsNewState.available = true;
+  whatsNewState.hasUnseen = true;
 });
 
 describe('spec-456: account menu grouping + icons + micro-interaction', () => {
@@ -219,6 +225,7 @@ describe('spec-456: account menu grouping + icons + micro-interaction', () => {
 
   it('ac-6: What’s New carries the unwrap+confetti structure and stays safe under reduced motion', () => {
     tagAc(AC_MICRO);
+    const getCtx = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
     openMenu();
 
     const whatsNew = screen.getByTestId('user-menu-whats-new');
@@ -235,15 +242,39 @@ describe('spec-456: account menu grouping + icons + micro-interaction', () => {
     fireEvent.click(whatsNew);
     expect(openWhatsNewSpy).toHaveBeenCalledTimes(1);
 
-    // Under prefers-reduced-motion the click path is still safe and functional.
+    // Under prefers-reduced-motion the click path is still safe + functional, and
+    // no confetti is attempted (the burst bails before touching the canvas).
+    getCtx.mockClear();
     const originalMatchMedia = window.matchMedia;
     window.matchMedia = vi.fn().mockReturnValue({ matches: true }) as unknown as typeof window.matchMedia;
     try {
       openUserMenu();
       fireEvent.click(screen.getByTestId('user-menu-whats-new'));
       expect(openWhatsNewSpy).toHaveBeenCalledTimes(2);
+      expect(getCtx).not.toHaveBeenCalled();
     } finally {
       window.matchMedia = originalMatchMedia;
     }
+  });
+
+  it('ac-6: confetti fires only for unread entries, never when re-opening seen notes', () => {
+    tagAc(AC_MICRO);
+    // getContext being called is our proxy for "the confetti burst was attempted".
+    const getCtx = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+
+    // Unread entry → clicking attempts the burst and opens the popup.
+    whatsNewState.hasUnseen = true;
+    openMenu();
+    fireEvent.click(screen.getByTestId('user-menu-whats-new'));
+    expect(openWhatsNewSpy).toHaveBeenCalledTimes(1);
+    expect(getCtx).toHaveBeenCalled();
+
+    // Already-seen → clicking still re-opens the popup but fires no confetti.
+    getCtx.mockClear();
+    whatsNewState.hasUnseen = false;
+    openUserMenu();
+    fireEvent.click(screen.getByTestId('user-menu-whats-new'));
+    expect(openWhatsNewSpy).toHaveBeenCalledTimes(2);
+    expect(getCtx).not.toHaveBeenCalled();
   });
 });
