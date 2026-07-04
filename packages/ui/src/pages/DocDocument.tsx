@@ -33,8 +33,9 @@ import { DownloadMdDialog } from '../components/DownloadMdDialog';
 import { InitPromptDialog } from '../components/InitPromptDialog';
 import { CreateVersionDialog } from '../components/CreateVersionDialog';
 import { VersionSwitcher } from '../components/VersionSwitcher';
+import { DiffOverlay } from '../components/DiffOverlay';
 import { CatchUpDialog } from '../components/CatchUpDialog';
-import { listVersions, type VersionSummary } from '../api/docs';
+import { listVersions, type VersionSummary, type SnapshotToken } from '../api/docs';
 import { useChat } from '../components/ChatContext';
 import { useSwitchPosture } from '../hooks/useSwitchPosture';
 import { PostureDropdown, HEADER_PILL_CLASS } from '../components/PostureDropdown';
@@ -154,6 +155,10 @@ export function DocDocument() {
   // sub-tab inventory facts (qaReports) are in hand — before any early return so
   // hook order stays stable.
   const [shareOpen, setShareOpen] = useState(false);
+  // spec-448 t-9/t-10: version-compare renders INLINE in the narrative view (not
+  // a modal). The switcher lifts the chosen pair up here; the narrative view
+  // shows the diff above its sections until dismissed.
+  const [diffPair, setDiffPair] = useState<{ from: SnapshotToken; to: SnapshotToken } | null>(null);
   const [shareLinkOpen, setShareLinkOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
   const [moveOpen, setMoveOpen] = useState(false);
@@ -488,6 +493,19 @@ export function DocDocument() {
         <button type="button" className={HEADER_PILL_CLASS} onClick={() => setShareLinkOpen(true)}>
           Share
         </button>
+        {/* spec-448 t-9: version-history switcher sits in the header cluster next
+            to Share (spec-only, ac-33). view-as-of + compare are read-only;
+            restore is write-gated. */}
+        {doc.docType === 'spec' && (
+          <VersionSwitcher
+            docId={doc.id}
+            currentVersion={doc.version ?? 1}
+            onRestored={reloadDoc}
+            canRestore={canWrite}
+            onCompare={(from, to) => setDiffPair({ from, to })}
+            triggerClassName={HEADER_PILL_CLASS}
+          />
+        )}
         <button
           type="button"
           aria-label="Download Spec"
@@ -919,7 +937,14 @@ export function DocDocument() {
   // NarrativeView (sections render eagerly, identical to before). perf-6
   // (virtualization) is deferred — see NarrativeView's header for why the
   // content-visibility approach was backed out.
-  const narrativeView = (
+  const narrativeView = diffPair ? (
+    <DiffOverlay
+      docId={doc.id}
+      from={diffPair.from}
+      to={diffPair.to}
+      onClose={() => setDiffPair(null)}
+    />
+  ) : (
     <NarrativeView
       doc={doc}
       narrativeSections={narrativeSections}
@@ -1219,18 +1244,6 @@ export function DocDocument() {
                   <SpecPresenceIndicator present={presentRows} variant="spec" />
                 </>
               )}
-              {/* spec-448 t-9 (ac-4, ac-5, ac-6, ac-26, ac-33): the version
-                  history switcher — additive, spec-only. Restore stays gated
-                  on canWrite (the same write-gate every other mutating
-                  control on this page uses); view-as-of and compare stay
-                  open to read-only viewers. */}
-              <span className="opacity-40">&middot;</span>
-              <VersionSwitcher
-                docId={doc.id}
-                currentVersion={doc.version ?? 1}
-                onRestored={reloadDoc}
-                canRestore={canWrite}
-              />
             </>
           )}
         </div>

@@ -74,14 +74,14 @@ describe('DiffOverlay', () => {
     expect(screen.getByTestId('diff-overlay')).toBeInTheDocument();
 
     await waitFor(() => expect(screen.getByTestId('diff-section')).toBeInTheDocument());
-    expect(screen.getByText('Changed')).toBeInTheDocument();
+    expect(screen.getByText('edited')).toBeInTheDocument();
     // Reuses SectionCard's markdown renderer — both versions' text render as
     // normal prose within the overlay, not a bespoke diff-viewer widget.
     expect(screen.getByText('Old overview text.')).toBeInTheDocument();
     expect(screen.getByText('New overview text.')).toBeInTheDocument();
   });
 
-  it('shows added/removed badges for sections unique to one side', async () => {
+  it('marks sections unique to one side as new / removed', async () => {
     tagAc(AC_INLINE_OVERLAY);
     const data = diffData(
       [section({ seq: 1, content: 'stays' }), section({ seq: 2, content: 'gone' })],
@@ -91,13 +91,13 @@ describe('DiffOverlay', () => {
 
     render(<DiffOverlay docId="doc-1" from={1} to={2} onClose={() => {}} />);
 
-    await waitFor(() => expect(screen.getByText('Added')).toBeInTheDocument());
-    expect(screen.getByText('Removed')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText('new section')).toBeInTheDocument());
+    expect(screen.getByText('removed')).toBeInTheDocument();
     expect(screen.getByText('fresh')).toBeInTheDocument();
     expect(screen.getByText('gone')).toBeInTheDocument();
   });
 
-  it('collapses unchanged sections to a thin divider instead of re-rendering them in full', async () => {
+  it('renders unchanged sections in full so the comparison reads as the document', async () => {
     const data = diffData(
       [section({ seq: 1, content: 'same text' })],
       [section({ seq: 1, content: 'same text' })],
@@ -107,6 +107,9 @@ describe('DiffOverlay', () => {
     render(<DiffOverlay docId="doc-1" from={1} to={2} onClose={() => {}} />);
 
     await waitFor(() => expect(screen.getByTestId('diff-section-unchanged')).toBeInTheDocument());
+    // Unchanged sections render in full (not collapsed to a label), so the
+    // comparison reads as the whole document with changes woven in.
+    expect(screen.getByText('same text')).toBeInTheDocument();
     expect(screen.queryByTestId('diff-section')).not.toBeInTheDocument();
   });
 

@@ -79,25 +79,28 @@ describe('VersionSwitcher', () => {
 
   it('lets the user pick ANY two versions to compare, including the primary (ac-26)', async () => {
     tagAc(AC_26);
+    const onCompare = vi.fn();
     const user = userEvent.setup();
-    render(<VersionSwitcher docId="doc-1" currentVersion={3} onRestored={() => {}} />);
+    render(<VersionSwitcher docId="doc-1" currentVersion={3} onRestored={() => {}} onCompare={onCompare} />);
 
     await user.click(screen.getByTestId('version-switcher-trigger'));
     await waitFor(() => expect(screen.getAllByTestId('version-row')).toHaveLength(2));
 
     // Non-adjacent pair: V1 vs the live primary — not restricted to adjacent versions.
+    // The switcher lifts the chosen pair to the parent, which renders the diff
+    // inline in the narrative view (ac-27); it no longer pops its own overlay.
     await user.selectOptions(screen.getByTestId('compare-from-select'), '1');
     await user.selectOptions(screen.getByTestId('compare-to-select'), 'primary');
     await user.click(screen.getByRole('button', { name: /^compare$/i }));
 
-    await waitFor(() => expect(getVersionDiffData).toHaveBeenCalledWith('doc-1', 1, 'primary'));
-    expect(screen.getByTestId('diff-overlay')).toBeInTheDocument();
+    expect(onCompare).toHaveBeenCalledWith(1, 'primary');
   });
 
   it('also allows comparing two concrete cut versions (not just vs primary) (ac-26)', async () => {
     tagAc(AC_26);
+    const onCompare = vi.fn();
     const user = userEvent.setup();
-    render(<VersionSwitcher docId="doc-1" currentVersion={3} onRestored={() => {}} />);
+    render(<VersionSwitcher docId="doc-1" currentVersion={3} onRestored={() => {}} onCompare={onCompare} />);
 
     await user.click(screen.getByTestId('version-switcher-trigger'));
     await waitFor(() => expect(screen.getAllByTestId('version-row')).toHaveLength(2));
@@ -106,7 +109,7 @@ describe('VersionSwitcher', () => {
     await user.selectOptions(screen.getByTestId('compare-to-select'), '2');
     await user.click(screen.getByRole('button', { name: /^compare$/i }));
 
-    await waitFor(() => expect(getVersionDiffData).toHaveBeenCalledWith('doc-1', 1, 2));
+    expect(onCompare).toHaveBeenCalledWith(1, 2);
   });
 
   it('opens a read-only view-as-of a chosen version (ac-4)', async () => {

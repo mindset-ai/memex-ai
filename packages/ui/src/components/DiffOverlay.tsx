@@ -1,5 +1,4 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
 import { getVersionDiffData, type SnapshotToken, type VersionDiffData, type VersionOrPrimarySnapshot } from '../api/docs';
 import { alignSections, summarizeSectionDiff, type SectionDiffEntry } from '../utils/diffSections';
 import { computeDiffRanges, registerDiffHighlights, clearDiffHighlights, type DiffRanges } from '../utils/diffHighlight';
@@ -25,20 +24,23 @@ function sideLabel(side: VersionOrPrimarySnapshot | undefined): string {
   return side.name ? `v${side.version} — ${side.name}` : `v${side.version}`;
 }
 
-const STATUS_BADGE: Record<SectionDiffEntry['status'], string> = {
-  added: 'bg-status-success-bg text-status-success-text border-status-success-border',
-  removed: 'bg-status-danger-bg text-status-danger-text border-status-danger-border',
-  changed: 'bg-status-info-bg text-status-info-text border-status-info-border',
-  moved: 'bg-status-neutral-bg text-status-neutral-text border-status-neutral-border',
-  unchanged: 'bg-status-neutral-bg text-status-neutral-text border-status-neutral-border',
+// A restrained left-accent per status — the diff reads as the document with
+// quiet margin marks, not a boxed report. Unchanged sections carry a
+// transparent rail so every section stays optically aligned.
+const STATUS_ACCENT: Record<SectionDiffEntry['status'], string> = {
+  added: 'border-emerald-400/50',
+  removed: 'border-rose-400/50',
+  changed: 'border-amber-400/50',
+  moved: 'border-edge',
+  unchanged: 'border-transparent',
 };
 
-const STATUS_LABEL: Record<SectionDiffEntry['status'], string> = {
-  added: 'Added',
-  removed: 'Removed',
-  changed: 'Changed',
-  moved: 'Moved',
-  unchanged: 'Unchanged',
+const STATUS_MARKER: Record<SectionDiffEntry['status'], string | null> = {
+  added: 'new section',
+  removed: 'removed',
+  changed: 'edited',
+  moved: 'moved',
+  unchanged: null,
 };
 
 export function DiffOverlay({ docId, from, to, onClose }: DiffOverlayProps) {
@@ -101,58 +103,51 @@ export function DiffOverlay({ docId, from, to, onClose }: DiffOverlayProps) {
     return () => clearDiffHighlights();
   }, [entries]);
 
-  return createPortal(
-    <div
-      data-testid="diff-overlay"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <div className="w-[820px] max-w-[95vw] h-[85vh] flex flex-col rounded-xl border border-edge bg-panel shadow-2xl">
-        <div className="flex items-center justify-between px-5 py-3 border-b border-edge flex-none">
-          <div className="min-w-0">
-            <h2 className="text-sm font-semibold text-heading truncate">
-              Comparing {sideLabel(data?.from)} → {sideLabel(data?.to)}
-            </h2>
-            {data && (
-              <p className="text-xs text-muted mt-0.5">
-                {summary.changed} changed · {summary.added} added · {summary.removed} removed · {summary.moved} moved
-              </p>
-            )}
-          </div>
-          <button
-            onClick={onClose}
-            className="p-1 rounded-md text-muted hover:text-primary hover:bg-overlay transition-colors flex-none"
-            type="button"
-            aria-label="Close diff"
-          >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+  return (
+    <div data-testid="diff-overlay">
+      {/* A quiet, sticky compare bar — the only chrome; everything below reads
+          as the document itself, changes marked in the margin. */}
+      <div className="sticky top-0 z-10 mb-8 flex items-center justify-between gap-3 border-b border-edge/60 bg-surface/85 py-3 backdrop-blur-sm">
+        <div className="flex min-w-0 items-baseline gap-2.5">
+          <span className="truncate text-sm font-medium text-heading">
+            {sideLabel(data?.from)} <span className="text-muted">→</span> {sideLabel(data?.to)}
+          </span>
+          {data && (
+            <span className="whitespace-nowrap text-xs text-muted">
+              {summary.changed} edited · {summary.added} added · {summary.removed} removed
+              {summary.moved ? ` · ${summary.moved} moved` : ''}
+            </span>
+          )}
         </div>
-
-        <div className="flex-1 overflow-y-auto px-5 py-4 min-h-0 space-y-4">
-          {error && <p className="text-sm text-status-danger-text">{error}</p>}
-          {!data && !error && <p className="text-sm text-secondary">Loading diff…</p>}
-          {data &&
-            entries.map((entry) => (
-              <DiffSectionRow
-                key={entry.seq}
-                entry={entry}
-                setOldRef={setBodyRef(entry.seq, 'oldEl')}
-                setNewRef={setBodyRef(entry.seq, 'newEl')}
-              />
-            ))}
-        </div>
+        <button
+          onClick={onClose}
+          type="button"
+          aria-label="Close diff"
+          className="flex-none text-xs font-medium text-secondary transition-colors hover:text-primary"
+        >
+          Exit comparison
+        </button>
       </div>
-    </div>,
-    document.body,
+
+      {error && <p className="text-sm text-status-danger-text">{error}</p>}
+      {!data && !error && <p className="text-sm text-muted">Loading comparison…</p>}
+
+      <div className="space-y-10">
+        {data &&
+          entries.map((entry) => (
+            <DiffSection
+              key={entry.seq}
+              entry={entry}
+              setOldRef={setBodyRef(entry.seq, 'oldEl')}
+              setNewRef={setBodyRef(entry.seq, 'newEl')}
+            />
+          ))}
+      </div>
+    </div>
   );
 }
 
-function DiffSectionRow({
+function DiffSection({
   entry,
   setOldRef,
   setNewRef,
@@ -163,69 +158,64 @@ function DiffSectionRow({
 }) {
   const title =
     entry.newSection?.title ?? entry.oldSection?.title ?? entry.newSection?.sectionType ?? entry.oldSection?.sectionType ?? 'Section';
-
-  // Unchanged sections add no signal to a diff view — collapse to a thin
-  // divider so the overlay reads as "what changed", not the whole doc again.
-  if (entry.status === 'unchanged') {
-    return (
-      <div data-testid="diff-section-unchanged" className="text-xs text-muted py-1 border-b border-edge-subtle">
-        {title} — unchanged
-      </div>
-    );
-  }
+  const { status } = entry;
+  const marker = STATUS_MARKER[status];
+  const movedTag = entry.moved && status !== 'moved';
 
   return (
-    <div data-testid="diff-section" data-status={entry.status} className="rounded-lg border border-edge px-4 py-3">
-      <div className="flex items-center gap-2 mb-2">
-        <span className={`text-[10px] font-medium uppercase tracking-wide px-1.5 py-0.5 rounded-sm border ${STATUS_BADGE[entry.status]}`}>
-          {STATUS_LABEL[entry.status]}
-        </span>
-        {entry.moved && entry.status !== 'moved' && (
-          <span className="text-[10px] font-medium uppercase tracking-wide px-1.5 py-0.5 rounded-sm border bg-status-neutral-bg text-status-neutral-text border-status-neutral-border">
-            Moved
+    <section
+      data-testid={status === 'unchanged' ? 'diff-section-unchanged' : 'diff-section'}
+      data-status={status}
+      className={`border-l-2 pl-5 ${STATUS_ACCENT[status]} ${status === 'removed' ? 'opacity-70' : ''}`}
+    >
+      <div className="mb-3 flex items-baseline gap-2.5">
+        <h2 className="text-xl font-semibold text-heading">{title}</h2>
+        {(marker || movedTag) && (
+          <span className="text-[11px] font-medium uppercase tracking-wide text-muted">
+            {[marker, movedTag ? 'moved' : null].filter(Boolean).join(' · ')}
           </span>
         )}
-        <h3 className="text-sm font-medium text-heading truncate">{title}</h3>
       </div>
 
-      {entry.status === 'moved' && entry.newSection && (
-        <div className="min-w-0">
+      {/* Unchanged & moved sections render exactly as the document does — no
+          painting — so the comparison reads as the whole doc, not a report. */}
+      {(status === 'unchanged' || status === 'moved') && (entry.newSection ?? entry.oldSection) && (
+        <MemoizedMarkdown content={(entry.newSection ?? entry.oldSection)!.content} />
+      )}
+
+      {/* Added: the new section, insertions painted in place. */}
+      {status === 'added' && entry.newSection && (
+        <div ref={setNewRef} data-testid="diff-body-new">
           <MemoizedMarkdown content={entry.newSection.content} />
         </div>
       )}
 
-      {entry.status === 'removed' && entry.oldSection && (
-        <div ref={setOldRef} data-testid="diff-body-old" className="min-w-0">
+      {/* Removed: the section as it was, deletions painted, dimmed. */}
+      {status === 'removed' && entry.oldSection && (
+        <div ref={setOldRef} data-testid="diff-body-old">
           <MemoizedMarkdown content={entry.oldSection.content} />
         </div>
       )}
 
-      {entry.status === 'added' && entry.newSection && (
-        <div ref={setNewRef} data-testid="diff-body-new" className="min-w-0">
-          <MemoizedMarkdown content={entry.newSection.content} />
-        </div>
-      )}
-
-      {entry.status === 'changed' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      {/* Changed: the current text in place with insertions painted; the prior
+          text follows as a quiet, dimmed reference with deletions painted. */}
+      {status === 'changed' && (
+        <>
+          {entry.newSection && (
+            <div ref={setNewRef} data-testid="diff-body-new">
+              <MemoizedMarkdown content={entry.newSection.content} />
+            </div>
+          )}
           {entry.oldSection && (
-            <div>
-              <p className="text-[10px] uppercase tracking-wide text-muted mb-1">Before</p>
-              <div ref={setOldRef} data-testid="diff-body-old" className="min-w-0">
+            <div className="mt-4 border-t border-edge-subtle pt-3">
+              <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-muted">Previously</p>
+              <div ref={setOldRef} data-testid="diff-body-old" className="opacity-60">
                 <MemoizedMarkdown content={entry.oldSection.content} />
               </div>
             </div>
           )}
-          {entry.newSection && (
-            <div>
-              <p className="text-[10px] uppercase tracking-wide text-muted mb-1">After</p>
-              <div ref={setNewRef} data-testid="diff-body-new" className="min-w-0">
-                <MemoizedMarkdown content={entry.newSection.content} />
-              </div>
-            </div>
-          )}
-        </div>
+        </>
       )}
-    </div>
+    </section>
   );
 }

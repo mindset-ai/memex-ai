@@ -8,7 +8,6 @@ import {
   type DocumentVersionRow,
   type SnapshotToken,
 } from '../api/docs';
-import { DiffOverlay } from './DiffOverlay';
 import { MemoizedMarkdown } from './SectionCard';
 import { Button } from './ui';
 import { formatDate } from '../utils/format';
@@ -26,6 +25,13 @@ interface VersionSwitcherProps {
    *  same write-gate as the rest of the page's mutating controls. Defaults
    *  to true so callers that don't pass it keep the prior (ungated) shape. */
   canRestore?: boolean;
+  /** Called when the user picks a compare pair. The parent renders the diff
+   *  inline in the narrative view (spec-448 ac-27) rather than the switcher
+   *  popping its own overlay. */
+  onCompare?: (from: SnapshotToken, to: SnapshotToken) => void;
+  /** Optional override for the trigger button's className so the switcher can
+   *  match the surrounding header pills (defaults to a standalone pill). */
+  triggerClassName?: string;
 }
 
 function parseToken(raw: string): SnapshotToken | null {
@@ -43,7 +49,7 @@ function parseToken(raw: string): SnapshotToken | null {
 // just adjacent versions (ac-26), which opens DiffOverlay for that pair
 // (ac-27). Purely additive: nothing here changes the default page view until
 // the user opens it (ac-3).
-export function VersionSwitcher({ docId, currentVersion, onRestored, canRestore = true }: VersionSwitcherProps) {
+export function VersionSwitcher({ docId, currentVersion, onRestored, canRestore = true, onCompare, triggerClassName }: VersionSwitcherProps) {
   const [open, setOpen] = useState(false);
   const [versions, setVersions] = useState<VersionSummary[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -57,7 +63,6 @@ export function VersionSwitcher({ docId, currentVersion, onRestored, canRestore 
 
   const [compareFrom, setCompareFrom] = useState('');
   const [compareTo, setCompareTo] = useState('primary');
-  const [diffPair, setDiffPair] = useState<{ from: SnapshotToken; to: SnapshotToken } | null>(null);
 
   const [restoreTarget, setRestoreTarget] = useState<number | null>(null);
   const [restoring, setRestoring] = useState(false);
@@ -74,7 +79,18 @@ export function VersionSwitcher({ docId, currentVersion, onRestored, canRestore 
   useLayoutEffect(() => {
     if (!open || !buttonRef.current) return;
     const rect = buttonRef.current.getBoundingClientRect();
-    setPanelPos({ top: rect.bottom + 4, left: rect.left });
+    // Keep the 440px panel on-screen. The trigger now lives in the right-hand
+    // header cluster, so opening the panel left-aligned to the trigger would
+    // run off the right edge — right-align it to the trigger in that case, and
+    // clamp to a small margin so it never clips either edge.
+    const PANEL_W = 440;
+    const MARGIN = 8;
+    let left = rect.left;
+    if (left + PANEL_W + MARGIN > window.innerWidth) {
+      left = rect.right - PANEL_W;
+    }
+    left = Math.max(MARGIN, Math.min(left, window.innerWidth - PANEL_W - MARGIN));
+    setPanelPos({ top: rect.bottom + 4, left });
   }, [open]);
 
   useEffect(() => {
@@ -108,7 +124,8 @@ export function VersionSwitcher({ docId, currentVersion, onRestored, canRestore 
     const from = parseToken(compareFrom);
     const to = parseToken(compareTo);
     if (from === null || to === null) return;
-    setDiffPair({ from, to });
+    onCompare?.(from, to);
+    setOpen(false);
   };
 
   const handleRestore = async (versionNumber: number) => {
@@ -145,7 +162,10 @@ export function VersionSwitcher({ docId, currentVersion, onRestored, canRestore 
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
-        className="inline-flex items-center gap-1 text-xs font-medium text-secondary hover:text-primary px-2 py-1 rounded-md border border-edge hover:bg-overlay transition-colors"
+        className={
+          triggerClassName ??
+          'inline-flex items-center gap-1 text-xs font-medium text-secondary hover:text-primary px-2 py-1 rounded-md border border-edge hover:bg-overlay transition-colors'
+        }
       >
         History
       </button>
@@ -292,9 +312,6 @@ export function VersionSwitcher({ docId, currentVersion, onRestored, canRestore 
           document.body,
         )}
 
-      {diffPair && (
-        <DiffOverlay docId={docId} from={diffPair.from} to={diffPair.to} onClose={() => setDiffPair(null)} />
-      )}
 
       {restoreTarget !== null &&
         createPortal(

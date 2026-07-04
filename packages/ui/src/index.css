@@ -585,17 +585,17 @@
    changed block reads even where a whole line was replaced, wrapped around
    the word-level add/del highlights above it. */
 .dark ::highlight(diff-add) {
-  background-color: rgba(52, 211, 153, 0.28); /* emerald-400/28 */
+  background-color: rgba(52, 211, 153, 0.16); /* emerald-400/16 — softened */
 }
 .light ::highlight(diff-add) {
-  background-color: rgba(16, 185, 129, 0.22); /* emerald-500/22 */
+  background-color: rgba(16, 185, 129, 0.14); /* emerald-500/14 — softened */
 }
 .dark ::highlight(diff-del) {
-  background-color: rgba(251, 113, 133, 0.3); /* rose-400/30 */
+  background-color: rgba(251, 113, 133, 0.16); /* rose-400/16 — softened */
   text-decoration: line-through;
 }
 .light ::highlight(diff-del) {
-  background-color: rgba(244, 63, 94, 0.22); /* rose-500/22 */
+  background-color: rgba(244, 63, 94, 0.14); /* rose-500/14 — softened */
   text-decoration: line-through;
 }
 .dark ::highlight(diff-block) {
