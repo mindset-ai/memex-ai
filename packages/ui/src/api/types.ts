@@ -212,6 +212,15 @@ export interface Doc {
   groundedAt?: string | null;
   groundedByName?: string | null;
   groundedStale?: boolean;
+  /**
+   * spec-448 t-1 (document versioning): the doc's current (uncut) working
+   * version — starts at 1 and is bumped by the versioning service whenever a
+   * version is cut (createVersion) or restored (rollbackVersion). Optional
+   * here so pre-spec-448 test fixtures that build a bare `Doc`/`DocWithGraph`
+   * without this field keep type-checking; a missing value is treated as `1`
+   * (never-versioned) by any UI that reads it — e.g. the version badge (ac-16).
+   */
+  version?: number;
   sections: DocSection[];
 }
 

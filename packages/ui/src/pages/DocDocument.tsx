@@ -31,6 +31,9 @@ import { DoneSummary } from '../components/DoneSummary';
 import { Badge, Tabs } from '../components/ui';
 import { DownloadMdDialog } from '../components/DownloadMdDialog';
 import { InitPromptDialog } from '../components/InitPromptDialog';
+import { CreateVersionDialog } from '../components/CreateVersionDialog';
+import { VersionSwitcher } from '../components/VersionSwitcher';
+import { listVersions, type VersionSummary } from '../api/docs';
 import { useChat } from '../components/ChatContext';
 import { useSwitchPosture } from '../hooks/useSwitchPosture';
 import { PostureDropdown, HEADER_PILL_CLASS } from '../components/PostureDropdown';
@@ -155,8 +158,14 @@ export function DocDocument() {
   const [moveOpen, setMoveOpen] = useState(false);
   const [showDownloadDialog, setShowDownloadDialog] = useState(false);
   const [showInitPromptDialog, setShowInitPromptDialog] = useState(false);
+  // spec-448 t-8: the create-version dialog, opened from the ⋯ menu.
+  const [createVersionOpen, setCreateVersionOpen] = useState(false);
   // spec-100: collapse the comment gutters doc-wide (leaving only inline bubbles).
   const [commentsCollapsed, setCommentsCollapsed] = useState(false);
+  // spec-448 t-9 (ac-16): the cut-version history, fetched alongside the doc —
+  // used to resolve the current version's name for the header badge and fed
+  // into the VersionSwitcher. Spec-only (ac-33); empty/no-op for other docTypes.
+  const [versions, setVersions] = useState<VersionSummary[]>([]);
 
   // spec-118 t-6: resolve the viewer's posture on this Spec. The hook is
   // null-safe before the doc loads and refetches live on 'doc_member' events.
@@ -249,6 +258,19 @@ export function DocDocument() {
   useEffect(() => {
     if (doc?.id) reloadAux(doc.id);
   }, [doc?.id, reloadAux]);
+
+  // spec-448 t-9 (ac-16, ac-33): the version-history list, spec-only. Re-fetched
+  // whenever the doc's `version` changes (a cut or a restore bumps it), so the
+  // header badge's resolved name and the VersionSwitcher's list stay current.
+  useEffect(() => {
+    if (!doc?.id || doc.docType !== 'spec') {
+      setVersions([]);
+      return;
+    }
+    listVersions(doc.id)
+      .then(setVersions)
+      .catch(() => setVersions([]));
+  }, [doc?.id, doc?.docType, doc?.version]);
 
   // Connect doc ID to chat (only on mount/unmount, not on doc reload)
   useEffect(() => {
@@ -464,6 +486,12 @@ export function DocDocument() {
             { label: 'Share', onClick: () => setShareOpen(true) },
             { label: 'Download MD', onClick: () => setShowDownloadDialog(true), separatorBefore: true },
             { label: 'Spec Coding Agent', onClick: () => setShowInitPromptDialog(true) },
+            /* spec-448 t-8 (ac-33): versioning UI is spec-only in v1 — gated on
+               docType here in addition to the write-gating this whole SpecMenu
+               already sits behind (the block above returns early for !canWrite). */
+            ...(doc.docType === 'spec'
+              ? [{ label: 'Create new version', onClick: () => setCreateVersionOpen(true), separatorBefore: true }]
+              : []),
             { label: 'Move to another memex', onClick: () => setMoveOpen(true), separatorBefore: true },
             {
               label: 'Archive',
@@ -1110,6 +1138,27 @@ export function DocDocument() {
             <span className="text-muted font-normal mr-2">{docSeq(doc.handle)}.</span>
           )}
           {doc.title}
+          {/* spec-448 t-9 (ac-16, ac-33): a version badge next to the title —
+              ONLY once the Spec has actually been cut at least once (current
+              version >= 2). A never-versioned spec (v1) shows no badge at all.
+              The name shown is the most recent cut's name (the highest
+              versionNumber in the fetched list, i.e. currentVersion - 1) —
+              the live working version itself is unnamed until its own cut. */}
+          {doc.docType === 'spec' &&
+            (doc.version ?? 1) >= 2 &&
+            (() => {
+              const currentVersion = doc.version ?? 1;
+              const lastCutName = versions.find((v) => v.versionNumber === currentVersion - 1)?.name;
+              return (
+                <span
+                  data-testid="version-badge"
+                  className="ml-2 align-middle text-xs font-medium px-1.5 py-0.5 rounded-md border border-edge bg-overlay text-secondary"
+                >
+                  V{currentVersion}
+                  {lastCutName ? ` · ${lastCutName}` : ''}
+                </span>
+              );
+            })()}
         </h1>
         <div className="flex flex-wrap items-center gap-3 mt-2 text-sm text-muted">
           {/* spec-449 dec-1: Standards have no draft/approved lifecycle, so no
@@ -1152,6 +1201,18 @@ export function DocDocument() {
                   <SpecPresenceIndicator present={presentRows} variant="spec" />
                 </>
               )}
+              {/* spec-448 t-9 (ac-4, ac-5, ac-6, ac-26, ac-33): the version
+                  history switcher — additive, spec-only. Restore stays gated
+                  on canWrite (the same write-gate every other mutating
+                  control on this page uses); view-as-of and compare stay
+                  open to read-only viewers. */}
+              <span className="opacity-40">&middot;</span>
+              <VersionSwitcher
+                docId={doc.id}
+                currentVersion={doc.version ?? 1}
+                onRestored={reloadDoc}
+                canRestore={canWrite}
+              />
             </>
           )}
         </div>
@@ -1387,6 +1448,14 @@ export function DocDocument() {
         <InitPromptDialog
           onCopy={handleInitPromptCopy}
           onClose={() => setShowInitPromptDialog(false)}
+        />
+      )}
+
+      {createVersionOpen && (
+        <CreateVersionDialog
+          docId={doc.id}
+          onClose={() => setCreateVersionOpen(false)}
+          onCreated={() => reloadDoc()}
         />
       )}
     </div>
