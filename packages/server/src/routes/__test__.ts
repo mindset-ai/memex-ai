@@ -94,6 +94,10 @@ import { listAssignees, assign } from "../services/doc-assignees.js";
 import { updateMemexVisibility } from "../services/memexes.js";
 import { disableMembership } from "../services/org-memberships.js";
 import { persistEvent } from "../services/activity-log.js";
+// spec-448 t-12: seed a version cut attributed to an actor OTHER than the
+// caller's own browser session — backs the catch-up-on-reopen journey (see
+// below).
+import { cutVersion, CARRY_FORWARD_CLASSES } from "../services/versioning.js";
 
 const contentBlockSchema = z.union([
   z.object({ type: z.literal("text"), text: z.string() }),
@@ -1504,4 +1508,44 @@ testOnlyRouter.post("/seed-experiment-arm", async (c) => {
     assignmentId,
     ...(starterSpecHandle ? { starterSpecHandle } : {}),
   });
+});
+
+// ── spec-448 t-12: versioning + catch-up journey seed ───────────────────────
+
+// Cut a version through the real cutVersion service, optionally attributed to
+// an actor OTHER than the caller's own browser session (actorUserId). Every
+// OTHER versioning action a journey needs (create, view-as-of, compare,
+// restore) is driven through the real UI over routes/versions.ts — this seed
+// exists ONLY for the one thing the UI can't produce: a cut that does NOT
+// belong to (and therefore doesn't advance) the browser session's own
+// doc_views marker. cutVersion never touches doc_views (only GET /docs/:id
+// does, t-5/routes/documents.ts) — so a cut driven through the real UI as the
+// dev browser session would immediately have its own reloadDoc() re-advance
+// dev's marker back to current, erasing the "someone else moved the spec on
+// while I wasn't looking" precondition the catch-up-dialog journey needs.
+// Seeding the cut here, out of band, is what makes that precondition
+// reproducible. Mirrors seed-activity's actorUserId-attribution pattern.
+const seedVersionCutSchema = z.object({
+  memexId: z.string().uuid(),
+  docId: z.string().uuid(),
+  name: z.string().min(1),
+  carryForward: z.array(z.enum(["decisions", "acs", "tasks", "issues", "comments"])).optional(),
+  actorUserId: z.string().uuid().optional(),
+});
+testOnlyRouter.post("/seed-version-cut", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = seedVersionCutSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
+  }
+  const { memexId, docId, name, carryForward, actorUserId } = parsed.data;
+  const ctx = actorUserId ? { actorUserId, channel: "rest_ui" as const } : {};
+  const result = await cutVersion(
+    memexId,
+    docId,
+    name,
+    carryForward ?? CARRY_FORWARD_CLASSES,
+    ctx,
+  );
+  return c.json({ versionId: result.id, versionNumber: result.versionNumber });
 });
