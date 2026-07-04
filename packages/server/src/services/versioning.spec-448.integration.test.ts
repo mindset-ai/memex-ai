@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { tagAc } from "@memex-ai-ac/vitest";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import { documents, docSections, decisions, tasks } from "../db/schema.js";
 import { createDocDraft } from "./documents.js";

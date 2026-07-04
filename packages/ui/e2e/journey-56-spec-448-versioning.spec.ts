@@ -166,7 +166,7 @@ test.describe("spec-448 — document versioning", () => {
     );
 
     // ac-4/ac-5/ac-26: open the version-history switcher.
-    const panel = await openHistoryPanel(page);
+    await openHistoryPanel(page);
     const v1Row = page.locator('[data-testid="version-row"][data-version="1"]');
     await expect(v1Row).toContainText("Reviewed cut");
     await expect(page.getByTestId("version-row-primary")).toContainText("V2");
