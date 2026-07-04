@@ -139,9 +139,11 @@ test.describe("spec-448 — document versioning", () => {
     // <label>, which makes any nth() index off-by-one.
     await page.getByLabel("Version name").fill("Reviewed cut");
     const createDialog = page.locator("#create-version-name").locator("xpath=ancestor::form");
+    // Exact-text match on the option title — a loose `hasText: "Tasks"` also
+    // matches the Comments option, whose description ends "…and tasks".
     const tasksLabel = createDialog
       .locator('label:has(input[type="checkbox"])')
-      .filter({ hasText: "Tasks" });
+      .filter({ has: page.getByText("Tasks", { exact: true }) });
     await expect(tasksLabel).toContainText("Tasks");
     await tasksLabel.locator('input[type="checkbox"]').uncheck();
     await createDialog.getByRole("button", { name: "Create version" }).click();
