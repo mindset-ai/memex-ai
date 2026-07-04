@@ -104,7 +104,12 @@ export type ChangeEntity =
   // cutVersion (an ordinary cut) or restoreVersion (a restore's produced
   // version, carrying restored_from_version). Scoped via docId like every
   // other doc-tree entity.
-  | "document_version";
+  | "document_version"
+  // spec-448 t-5: per-user "last-seen version" marker (doc_views upsert) — the
+  // catch-up sibling of qa_report_view. Silent-allowed per std-8 §6 (a read
+  // marker is not collaborative content); scoped via docId like every other
+  // doc-tree entity, with userId set for the per-user fan-out.
+  | "doc_view";
 
 export type ChangeAction =
   // Mutation actions — the original bus contract.

@@ -38,6 +38,8 @@ import type { User } from "../db/schema.js";
 import { requireMemexId, resolveReadableMemexId } from "./shared.js";
 import { bus } from "../services/bus.js";
 import { sessionIdFromAuthHeader } from "../services/auth-jwt.js";
+// spec-448 t-5: per-user "last-seen version" marker + catch-up payload.
+import { upsertDocView, computeCatchUp } from "../services/docViews.js";
 
 type Env = MemexResolverEnv & SessionEnv;
 const docs = new Hono<Env>();
@@ -223,6 +225,24 @@ docs.get("/:id", async (c) => {
   // anonymous reads — there's no actor to attribute the `viewed` event to, and
   // the throttle map is keyed by userId.
   const user = c.get("user") as User | undefined;
+
+  // spec-448 t-5 (ac-39): compute the viewer's catch-up state BEFORE stamping
+  // below advances their marker — stamping sets last_viewed_version to the
+  // doc's CURRENT version, which would erase the very "you're behind" signal
+  // this response needs to carry. Anonymous readers (no `user`) always resolve
+  // to no-catch-up without touching doc_views (ac-36). Advisory, like
+  // emitViewed below: a lookup failure must never break the read response.
+  let catchUp: Awaited<ReturnType<typeof computeCatchUp>> = {
+    hasCatchUp: false,
+    fromVersion: null,
+    lastViewedVersion: null,
+  };
+  try {
+    catchUp = await computeCatchUp({ id: result.id, version: result.version }, user?.id);
+  } catch {
+    // best-effort only.
+  }
+
   if (user) {
     emitViewed({
       userId: user.id,
@@ -233,11 +253,30 @@ docs.get("/:id", async (c) => {
       section: c.req.query("section"),
       query: c.req.query("query"),
     });
+    // spec-448 t-5 (ac-8, ac-36): piggyback the per-user last-seen marker onto
+    // this same authenticated-read call site — advances doc_views to the doc's
+    // current version. Anonymous reads write nothing (no `user`, ac-36).
+    // Advisory: swallow failures so a marker write can never break the read
+    // response, mirroring emitViewed's posture above.
+    try {
+      await upsertDocView(
+        { userId: user.id, docId: result.id, memexId, version: result.version, channel: "rest_ui" },
+        restCtx(c),
+      );
+    } catch {
+      // best-effort only.
+    }
   }
 
   // spec-136 t-4: include the doc's tags so the React doc view renders them inline.
   const docTags = await listDocTags(memexId, result.id);
-  return c.json({ ...result, decisions: decsWithFacets, tasks: tasksWithFacets, tags: docTags });
+  return c.json({
+    ...result,
+    decisions: decsWithFacets,
+    tasks: tasksWithFacets,
+    tags: docTags,
+    catchUp,
+  });
 });
 
 docs.post("/:id/status", async (c) => {
