@@ -45,6 +45,7 @@ import { wellKnown, publicBaseUrl } from "./routes/well-known.js";
 import driftRouter from "./routes/drift.js";
 import { search } from "./routes/search.js";
 import { handhold } from "./routes/handhold.js";
+import { internalLifecycleRouter } from "./routes/internal-lifecycle.js";
 import { onboarding } from "./routes/onboarding.js";
 import { welcomeVideo } from "./routes/welcome-video.js";
 import { testEventsRouter } from "./routes/test-events.js";
@@ -380,6 +381,10 @@ app.route("/api/waitlist", waitlist);
 app.use("/api/telemetry/*", publicSessionMiddleware);
 app.route("/api/telemetry", anonTelemetryRouter);
 app.route("/api/auth", auth);
+// /api/internal — spec-453 t-6 (dec-11): machine-only lifecycle scheduler tick. Flat,
+// non-tenant (global drip + Day-12 pass); self-authenticates a shared bearer secret
+// (LIFECYCLE_TICK_SECRET), NOT the user session. The sole trigger is Cloud Scheduler.
+app.route("/api/internal", internalLifecycleRouter);
 // /api/onboarding — spec-206: the user-level first-run greeting gate for the
 // Specky welcome (greet-eligibility read + once-per-user stamp). User-keyed, no
 // memex semantics, so it stays flat.

@@ -212,25 +212,8 @@ export async function runActivationDrip(
   return summary;
 }
 
-/**
- * Start the daily activation drip. Mirrors startCommsLogPrune / startActivityLogSweep:
- * an in-process daily interval, `.unref()`'d by the caller in index.ts so it never holds
- * the process open. A failed pass just retries next day; low volume needs no finer
- * cadence. The whole pass is a no-op while ACTIVATION_EMAILS_ENABLED is off.
- */
-export function startActivationDrip(intervalMs: number = ONE_DAY_MS): NodeJS.Timeout {
-  return setInterval(async () => {
-    try {
-      const s = await runActivationDrip();
-      if (s.sent > 0) {
-        // eslint-disable-next-line no-console
-        console.log(
-          `[activation-drip] sent ${s.sent} (E1=${s.byCohort.connected_inactive} E2=${s.byCohort.signed_in_dormant}) of ${s.evaluated} evaluated`,
-        );
-      }
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.error("[activation-drip] run failed (will retry next tick):", err instanceof Error ? err.message : err);
-    }
-  }, intervalMs);
-}
+// spec-453 t-6 (dec-11): the in-process `startActivationDrip` setInterval was REMOVED —
+// it was unreliable on scale-to-zero Cloud Run (counter reset on cold start/deploy,
+// multi-instance duplicate race; spec-427 issue-4). runActivationDrip is now invoked once
+// per day by the deterministic Cloud Scheduler → POST /api/internal/lifecycle-tick
+// endpoint (routes/internal-lifecycle.ts), alongside spec-453's "Connect with people" pass.
