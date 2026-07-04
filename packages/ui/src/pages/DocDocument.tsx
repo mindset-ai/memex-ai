@@ -31,6 +31,11 @@ import { DoneSummary } from '../components/DoneSummary';
 import { Badge, Tabs } from '../components/ui';
 import { DownloadMdDialog } from '../components/DownloadMdDialog';
 import { InitPromptDialog } from '../components/InitPromptDialog';
+import { CreateVersionDialog } from '../components/CreateVersionDialog';
+import { VersionSwitcher } from '../components/VersionSwitcher';
+import { DiffOverlay } from '../components/DiffOverlay';
+import { CatchUpDialog } from '../components/CatchUpDialog';
+import { listVersions, type VersionSummary, type SnapshotToken } from '../api/docs';
 import { useChat } from '../components/ChatContext';
 import { useSwitchPosture } from '../hooks/useSwitchPosture';
 import { PostureDropdown, HEADER_PILL_CLASS } from '../components/PostureDropdown';
@@ -150,13 +155,32 @@ export function DocDocument() {
   // sub-tab inventory facts (qaReports) are in hand — before any early return so
   // hook order stays stable.
   const [shareOpen, setShareOpen] = useState(false);
+  // spec-448 t-9/t-10: version-compare renders INLINE in the narrative view (not
+  // a modal). The switcher lifts the chosen pair up here; the narrative view
+  // shows the diff above its sections until dismissed.
+  const [diffPair, setDiffPair] = useState<{ from: SnapshotToken; to: SnapshotToken } | null>(null);
   const [shareLinkOpen, setShareLinkOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
   const [moveOpen, setMoveOpen] = useState(false);
   const [showDownloadDialog, setShowDownloadDialog] = useState(false);
   const [showInitPromptDialog, setShowInitPromptDialog] = useState(false);
+  // spec-448 t-8: the create-version dialog, opened from the ⋯ menu.
+  const [createVersionOpen, setCreateVersionOpen] = useState(false);
   // spec-100: collapse the comment gutters doc-wide (leaving only inline bubbles).
   const [commentsCollapsed, setCommentsCollapsed] = useState(false);
+  // spec-448 t-9 (ac-16): the cut-version history, fetched alongside the doc —
+  // used to resolve the current version's name for the header badge and fed
+  // into the VersionSwitcher. Spec-only (ac-33); empty/no-op for other docTypes.
+  const [versions, setVersions] = useState<VersionSummary[]>([]);
+  // spec-448 t-11 (ac-9, ac-40, ac-41): the catch-up dialog's fromVersion, set
+  // ONLY from the very first fetchDoc response for this doc id (the mount
+  // effect below) — never from reloadDoc's re-fetches. The first authenticated
+  // GET is also the call that advances the viewer's last-seen marker
+  // server-side (t-5), so every SUBSEQUENT fetch of this doc would already
+  // read back hasCatchUp: false even if we re-checked it live; gating on a
+  // captured value (rather than reading doc.catchUp fresh on every render)
+  // also means a live doc_change_stream refresh mid-dialog can't yank it away.
+  const [catchUpFromVersion, setCatchUpFromVersion] = useState<number | null>(null);
 
   // spec-118 t-6: resolve the viewer's posture on this Spec. The hook is
   // null-safe before the doc loads and refetches live on 'doc_member' events.
@@ -220,6 +244,14 @@ export function DocDocument() {
           return;
         }
         setDoc(d);
+        // spec-448 t-11 (ac-40, ac-41): this first fetchDoc response is the
+        // ONLY place we read catchUp — spec-only (ac-33 gates the whole
+        // versioning UI to docType 'spec'); a first-time viewer (no
+        // doc_views row) or an already-current viewer carries
+        // hasCatchUp: false and shows no dialog.
+        if (d.docType === 'spec' && d.catchUp?.hasCatchUp && d.catchUp.fromVersion != null) {
+          setCatchUpFromVersion(d.catchUp.fromVersion);
+        }
         fetchDocComments(d.id).then(applyComments).catch(console.error);
       })
       .catch((err) => {
@@ -249,6 +281,19 @@ export function DocDocument() {
   useEffect(() => {
     if (doc?.id) reloadAux(doc.id);
   }, [doc?.id, reloadAux]);
+
+  // spec-448 t-9 (ac-16, ac-33): the version-history list, spec-only. Re-fetched
+  // whenever the doc's `version` changes (a cut or a restore bumps it), so the
+  // header badge's resolved name and the VersionSwitcher's list stay current.
+  useEffect(() => {
+    if (!doc?.id || doc.docType !== 'spec') {
+      setVersions([]);
+      return;
+    }
+    listVersions(doc.id)
+      .then(setVersions)
+      .catch(() => setVersions([]));
+  }, [doc?.id, doc?.docType, doc?.version]);
 
   // Connect doc ID to chat (only on mount/unmount, not on doc reload)
   useEffect(() => {
@@ -448,6 +493,25 @@ export function DocDocument() {
         <button type="button" className={HEADER_PILL_CLASS} onClick={() => setShareLinkOpen(true)}>
           Share
         </button>
+        {/* spec-448 t-9: version-history switcher sits in the header cluster next
+            to Share (spec-only, ac-33). view-as-of + compare are read-only;
+            restore is write-gated. */}
+        {doc.docType === 'spec' && (
+          <VersionSwitcher
+            docId={doc.id}
+            currentVersion={doc.version ?? 1}
+            onRestored={reloadDoc}
+            canRestore={canWrite}
+            onCompare={(from, to) => {
+              // The diff renders in place of the narrative reading area, so jump
+              // to the Narrative sub-tab — otherwise comparing from another tab
+              // (e.g. Agent Tasks & Issues) sets the pair but shows nothing.
+              setDiffPair({ from, to });
+              setSubTab('narrative');
+            }}
+            triggerClassName={HEADER_PILL_CLASS}
+          />
+        )}
         <button
           type="button"
           aria-label="Download Spec"
@@ -464,6 +528,12 @@ export function DocDocument() {
             { label: 'Share', onClick: () => setShareOpen(true) },
             { label: 'Download MD', onClick: () => setShowDownloadDialog(true), separatorBefore: true },
             { label: 'Spec Coding Agent', onClick: () => setShowInitPromptDialog(true) },
+            /* spec-448 t-8 (ac-33): versioning UI is spec-only in v1 — gated on
+               docType here in addition to the write-gating this whole SpecMenu
+               already sits behind (the block above returns early for !canWrite). */
+            ...(doc.docType === 'spec'
+              ? [{ label: 'Create new version', onClick: () => setCreateVersionOpen(true), separatorBefore: true }]
+              : []),
             { label: 'Move to another memex', onClick: () => setMoveOpen(true), separatorBefore: true },
             {
               label: 'Archive',
@@ -873,7 +943,14 @@ export function DocDocument() {
   // NarrativeView (sections render eagerly, identical to before). perf-6
   // (virtualization) is deferred — see NarrativeView's header for why the
   // content-visibility approach was backed out.
-  const narrativeView = (
+  const narrativeView = diffPair ? (
+    <DiffOverlay
+      docId={doc.id}
+      from={diffPair.from}
+      to={diffPair.to}
+      onClose={() => setDiffPair(null)}
+    />
+  ) : (
     <NarrativeView
       doc={doc}
       narrativeSections={narrativeSections}
@@ -1110,6 +1187,27 @@ export function DocDocument() {
             <span className="text-muted font-normal mr-2">{docSeq(doc.handle)}.</span>
           )}
           {doc.title}
+          {/* spec-448 t-9 (ac-16, ac-33): a version badge next to the title —
+              ONLY once the Spec has actually been cut at least once (current
+              version >= 2). A never-versioned spec (v1) shows no badge at all.
+              The name shown is the most recent cut's name (the highest
+              versionNumber in the fetched list, i.e. currentVersion - 1) —
+              the live working version itself is unnamed until its own cut. */}
+          {doc.docType === 'spec' &&
+            (doc.version ?? 1) >= 2 &&
+            (() => {
+              const currentVersion = doc.version ?? 1;
+              const lastCutName = versions.find((v) => v.versionNumber === currentVersion - 1)?.name;
+              return (
+                <span
+                  data-testid="version-badge"
+                  className="ml-2 align-middle text-xs font-medium px-1.5 py-0.5 rounded-md border border-edge bg-overlay text-secondary"
+                >
+                  V{currentVersion}
+                  {lastCutName ? ` · ${lastCutName}` : ''}
+                </span>
+              );
+            })()}
         </h1>
         <div className="flex flex-wrap items-center gap-3 mt-2 text-sm text-muted">
           {/* spec-449 dec-1: Standards have no draft/approved lifecycle, so no
@@ -1387,6 +1485,27 @@ export function DocDocument() {
         <InitPromptDialog
           onCopy={handleInitPromptCopy}
           onClose={() => setShowInitPromptDialog(false)}
+        />
+      )}
+
+      {createVersionOpen && (
+        <CreateVersionDialog
+          docId={doc.id}
+          onClose={() => setCreateVersionOpen(false)}
+          onCreated={() => reloadDoc()}
+        />
+      )}
+
+      {/* spec-448 t-11 (ac-9, ac-40, ac-41, ac-42): the catch-up-on-reopen
+          dialog — shown once, from the fromVersion captured on the initial
+          load only (see catchUpFromVersion above). */}
+      {catchUpFromVersion !== null && (
+        <CatchUpDialog
+          docId={doc.id}
+          fromVersion={catchUpFromVersion}
+          currentVersion={doc.version ?? 1}
+          versions={versions}
+          onDismiss={() => setCatchUpFromVersion(null)}
         />
       )}
     </div>

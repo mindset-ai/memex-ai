@@ -27,6 +27,12 @@ interface WhatsNewContextValue {
   available: boolean;
   /** The ribbon reports feed availability here. */
   setAvailable: (v: boolean) => void;
+  /** True when the newest entry is newer than the user's dismiss marker — i.e.
+   *  there's unread content. spec-456: gates the menu item's confetti so the
+   *  flourish only fires for genuinely-new entries, not on every popup re-open. */
+  hasUnseen: boolean;
+  /** The ribbon reports unread state here. */
+  setHasUnseen: (v: boolean) => void;
   /** Open the What's New popup (used by the sidebar menu item). */
   openPopup: () => void;
   /** The ribbon registers the handler that openPopup() invokes. */
@@ -42,6 +48,8 @@ const noop = () => {};
 const WhatsNewContext = createContext<WhatsNewContextValue>({
   available: false,
   setAvailable: noop,
+  hasUnseen: false,
+  setHasUnseen: noop,
   openPopup: noop,
   registerOpener: noop,
   registerMenuAnchor: noop,
@@ -50,6 +58,7 @@ const WhatsNewContext = createContext<WhatsNewContextValue>({
 
 export function WhatsNewProvider({ children }: { children: ReactNode }) {
   const [available, setAvailable] = useState(false);
+  const [hasUnseen, setHasUnseen] = useState(false);
   const openerRef = useRef<(() => void) | null>(null);
   const anchorRef = useRef<HTMLElement | null>(null);
 
@@ -63,8 +72,17 @@ export function WhatsNewProvider({ children }: { children: ReactNode }) {
   const getMenuAnchor = useCallback(() => anchorRef.current, []);
 
   const value = useMemo<WhatsNewContextValue>(
-    () => ({ available, setAvailable, openPopup, registerOpener, registerMenuAnchor, getMenuAnchor }),
-    [available, openPopup, registerOpener, registerMenuAnchor, getMenuAnchor],
+    () => ({
+      available,
+      setAvailable,
+      hasUnseen,
+      setHasUnseen,
+      openPopup,
+      registerOpener,
+      registerMenuAnchor,
+      getMenuAnchor,
+    }),
+    [available, hasUnseen, openPopup, registerOpener, registerMenuAnchor, getMenuAnchor],
   );
 
   return <WhatsNewContext.Provider value={value}>{children}</WhatsNewContext.Provider>;

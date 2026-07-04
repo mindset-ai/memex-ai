@@ -68,6 +68,16 @@ const ALLOWLIST: Record<string, string> = {
   // the clause + section events the callers already emit ARE its change signal.
   "services/clause-refs.ts":
     "tx-helper indirection (spec-179) — syncClauseRefsTx writes clause_refs only inside the clause writers' mutate() callbacks (clauses.ts); clause_refs is a derived projection whose change signal is the callers' clause/section events.",
+  // spec-448 document versioning — buildSnapshot/materialiseGraph (+ its
+  // nested `reconcile` helper) are tx-helpers invoked ONLY from inside
+  // cutVersion's and restoreVersion's mutate() callbacks (same indirection
+  // as clauses.ts/clause-refs.ts above): both public writers return
+  // Mutated<DocumentVersion> and emit the "document_version" bus entity
+  // (verified by mutate-coverage.service). The callback-scoped heuristic
+  // (ac-24) can't follow the helper-function indirection into these two
+  // functions' many per-artifact-class db writes.
+  "services/versioning.ts":
+    "tx-helper indirection (spec-448) — buildSnapshot/materialiseGraph write sections/decisions/acs/tasks/issues/comments only inside cutVersion's/restoreVersion's mutate() callbacks; both public writers return Mutated<DocumentVersion> with a document_version emission.",
   // spec-162 test_event_latest summary maintenance — applyEmissionToSummary /
   // removeSummaryForPair take a `conn: Db` and write the derived summary ONLY
   // inside the mutate() callbacks of their two callers (routes/test-events.ts

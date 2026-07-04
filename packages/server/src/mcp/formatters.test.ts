@@ -49,6 +49,7 @@ function makeDoc(overrides: Partial<Doc> = {}): Doc {
     checkedOutBy: null,
     checkedOutAt: null,
     checkedOutThread: null,
+    version: 1,
     ...overrides,
   };
 }
@@ -66,6 +67,7 @@ function makeSection(overrides: Partial<DocSection> = {}): DocSection {
     position: 1,
     status: "active",
     previousStatus: null,
+    retiredAtVersion: null,
     createdAt: baseDate,
     updatedAt: baseDate,
     actorUserId: null,
@@ -102,6 +104,7 @@ function makeComment(overrides: Partial<DocComment> = {}): DocComment {
     assigneeUserId: null,
     assignedBy: null,
     assignedAt: null,
+    retiredAtVersion: null,
     channel: null,
     createdAt: baseDate,
     ...overrides,
@@ -173,7 +176,7 @@ describe("formatFullDocState", () => {
       title: "Which database?", context: "Postgres vs MySQL",
       status: "open", options: null, chosenOptionIndex: null,
       source: "human" as const,
-      resolution: null, resolvedAt: null, previousStatus: null, createdAt: baseDate,
+      resolution: null, resolvedAt: null, previousStatus: null, retiredAtVersion: null, createdAt: baseDate,
       actorUserId: null, actorName: null, channel: null,
     }];
     const result = formatSpecGuidance(doc, decs, []);
@@ -205,6 +208,7 @@ describe("formatFullDocState", () => {
       sectionRef: null,
       acceptanceCriteria: [],
       executionPlanDocId: null,
+      retiredAtVersion: null,
       createdAt: baseDate,
       updatedAt: baseDate,
       startedAt: null,
@@ -249,6 +253,7 @@ describe("formatFullDocState", () => {
       sectionRef: null,
       acceptanceCriteria: [],
       executionPlanDocId: null,
+      retiredAtVersion: null,
       createdAt: baseDate,
       updatedAt: baseDate,
       startedAt: null,
@@ -599,6 +604,7 @@ describe("formatDecision (b-97)", () => {
       resolution: null,
       resolvedAt: null,
       previousStatus: null,
+      retiredAtVersion: null,
       createdAt: baseDate,
       actorUserId: null,
       actorName: null,

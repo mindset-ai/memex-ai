@@ -169,6 +169,12 @@ export async function listDecisions(
   if (!opts.includeDeleted) {
     baseConditions.push(ne(decisions.status, "deleted"));
   }
+  // spec-448 (gap closure, ac-18): a version cut that didn't carry decisions
+  // forward stamps `retired_at_version` on the live rows it left behind — the
+  // live/primary read must exclude them here, same as documents.ts already
+  // does for sections. A retired decision still renders when viewing the
+  // version it was retired at (getVersionSnapshot), never in this list.
+  baseConditions.push(isNull(decisions.retiredAtVersion));
   return db
     .select()
     .from(decisions)

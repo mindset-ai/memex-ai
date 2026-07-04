@@ -61,6 +61,7 @@ const DOC_ROW = {
   checkedOutBy: null,
   checkedOutAt: null,
   checkedOutThread: null,
+  version: 1,
 };
 const SECTION_ROW = {
   id: TEST_SECTION_ID,
@@ -75,6 +76,7 @@ const SECTION_ROW = {
   position: 1,
   status: "active",
   previousStatus: null,
+  retiredAtVersion: null,
   createdAt: baseDate,
   updatedAt: baseDate,
   actorUserId: null,
@@ -736,6 +738,7 @@ describe("MCP Tool handlers via HTTP", () => {
               assigneeUserId: null,
               assignedBy: null,
               assignedAt: null,
+              retiredAtVersion: null,
               channel: null,
               createdAt: baseDate,
             },
