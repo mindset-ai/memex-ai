@@ -1,12 +1,18 @@
 // spec-300 issue-7 — auxiliary-file mutation on skill EDIT (add / replace / remove).
 // Before this, aux files were create-only; editSkill took only skillMd + capabilities.
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { inArray } from "drizzle-orm";
+import { tagAc } from "@memex-ai-ac/vitest";
 import { db } from "../../db/connection.js";
 import { memexes } from "../../db/schema.js";
 import { makeTestMemex } from "../test-helpers.js";
 import { createSkill, editSkill } from "./skills-service.js";
 import { reconstructSkillMd } from "./reconstruct-skill-md.js";
+import * as storageProvider from "../storage/index.js";
+
+// spec-300 issue-8: a text-only aux-file edit must not require storage to be
+// configured — applySkillFileOps resolves the provider lazily, only for real blob ops.
+const AC_ISSUE8 = "mindset-prod/memex-building-itself/specs/spec-300/acs/ac-60";
 
 const MD = reconstructSkillMd({
   name: "edit-files-skill",
@@ -84,5 +90,40 @@ describe("editSkill adds, replaces, and removes auxiliary files (issue-7)", () =
       }),
     });
     await expect(editSkill(memexId, created.handle, {})).rejects.toThrow();
+  });
+});
+
+describe("editSkill text-only file ops do not require storage config (issue-8)", () => {
+  it("a text-only add succeeds even when getStorageProvider() would throw (prod 500 repro)", async () => {
+    tagAc(AC_ISSUE8);
+    const created = await createSkill(memexId, {
+      skillMd: reconstructSkillMd({
+        name: "issue8-text-only-edit",
+        description: "Use when: reproducing the issue-8 text-only edit 500.",
+        body: "# Body",
+      }),
+    });
+
+    // Simulate production without STORAGE_GCS_BUCKET: getStorageProvider() throws.
+    // Before the fix, applySkillFileOps resolved the provider EAGERLY at the top of
+    // the function — even for a text-only edit that touches no blob storage — so this
+    // exact edit 500'd on prod. The fix resolves the provider lazily, only when a
+    // bucket blob is actually written or deleted.
+    const spy = vi
+      .spyOn(storageProvider, "getStorageProvider")
+      .mockImplementation(() => {
+        throw new Error("STORAGE_GCS_BUCKET is not configured (simulated prod)");
+      });
+
+    try {
+      const edited = await editSkill(memexId, created.handle, {
+        files: [{ path: "notes/only-text.md", text: "hello", contentType: "text/markdown" }],
+      });
+      // The text file lands (inline, no storage), and the provider is never resolved.
+      expect(edited.files.some((f) => f.path === "notes/only-text.md")).toBe(true);
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

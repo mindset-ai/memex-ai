@@ -13,6 +13,7 @@ import { Button } from '../components/ui';
 import { tenantPath } from '../utils/tenantUrl';
 import { CapabilityChips } from '../components/skills/CapabilityChips';
 import { CreateSkillModal } from '../components/skills/CreateSkillModal';
+import { useDocChangeStream } from '../hooks/useDocChangeStream';
 import { ChatPanel } from '../components/ChatPanel';
 import { ResizableChatRail } from '../components/chat/ResizableChatRail';
 import { OpeningSkillsController } from '../components/chat/OpeningSkillsController';
@@ -34,8 +35,10 @@ export function SkillList() {
   const [query, setQuery] = useState('');
   const [creating, setCreating] = useState(false);
 
+  // No setLoading(true) here: the initial spinner is the `loading` initial state; a
+  // live SSE-driven refresh updates the list in place without flashing the spinner
+  // (mirrors StandardList's loadStandards).
   const load = useCallback(() => {
-    setLoading(true);
     fetchSkills()
       .then((data) => {
         const sorted = [...data].sort((a, b) =>
@@ -51,6 +54,11 @@ export function SkillList() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // spec-300 issue-9: keep the list live — a skill created via the in-app agent, MCP,
+  // or another session appears as a card immediately (same account-wide doc-change SSE
+  // stream StandardList uses; skills flow through mutate()/the unified bus, std-8).
+  useDocChangeStream(null, load);
 
   const visible = useMemo(
     () => skills.filter((s) => matchesQuery(query, s)),

@@ -771,6 +771,10 @@ export async function getDoc(
 
   // Exclude soft-deleted sections (spec-107 dec-2). NULL is treated as active
   // for rows that predate the status column / migration window.
+  // spec-448 (t-3, ac-18): also exclude sections a version-cut left behind
+  // (retired_at_version IS NOT NULL) — the live read of the primary shows
+  // only the current working set; a retired section still renders when
+  // viewing that version's frozen snapshot (getVersionSnapshot), never here.
   const sections = await db
     .select()
     .from(docSections)
@@ -778,6 +782,7 @@ export async function getDoc(
       and(
         eq(docSections.docId, doc.id),
         sql`(${docSections.status} <> 'deleted' OR ${docSections.status} IS NULL)`,
+        isNull(docSections.retiredAtVersion),
       ),
     )
     .orderBy(docSections.seq);
