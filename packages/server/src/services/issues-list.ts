@@ -108,6 +108,10 @@ export async function listMemexIssues(
     // Don't surface issues whose parent Spec is archived — an archived Spec is
     // off the board, so its open issues are off the open list too.
     isNull(documents.archivedAt),
+    // spec-448 (gap closure, ac-18): a version cut can leave an issue behind
+    // (retired_at_version stamped) even while its status stays 'open' — exclude
+    // it from this live cross-Memex feed too.
+    isNull(issues.retiredAtVersion),
   ];
 
   // scope='mine' (ac-12): restrict to Specs the requester is assigned to. With

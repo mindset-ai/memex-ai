@@ -60,6 +60,7 @@ function makePlanSpec(): Doc & { sections: DocSection[] } {
     checkedOutBy: null,
     checkedOutAt: null,
     checkedOutThread: null,
+    version: 1,
     sections: [
       {
         id: "section-uuid-1",

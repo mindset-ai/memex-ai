@@ -25,6 +25,7 @@ export {
   setIdentityConfirmed,
   clearUserSpecs,
   seedSpecInMemex,
+  seedVersionCut,
   deleteDoc,
   clearOrgMemberships,
   cleanup,
