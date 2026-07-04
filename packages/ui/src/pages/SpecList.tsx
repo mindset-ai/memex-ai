@@ -90,19 +90,22 @@ export function SpecList() {
   // spec-447: restore the remembered assignee filter when the board is opened
   // with no ?assignee in the URL (the "← All specs" round-trip, the logo link,
   // a fresh visit). The URL is the source of truth: if it already carries
-  // ?assignee (a shared link or the browser-back path) we keep it and sync
-  // storage to match; otherwise we write the remembered value back into the URL
-  // so the restored filter stays shareable (spec-118 ac-19). Keyed per-tenant,
-  // so a filter set on one Memex's board never leaks onto another (ac-4).
+  // ?assignee (a shared link or the browser-back path) we honour it as-is and
+  // do NOT touch storage — only a filter the user actively selects
+  // (setAssigneeFilter) becomes the remembered default. Mirroring a URL-supplied
+  // value here would let someone else's shared ?assignee=<uuid> link silently
+  // become your sticky default for the rest of the session (and, if that user
+  // has no assignments, strand you on a blank-dropdown empty board). Otherwise
+  // we write the remembered value back into the URL so the restored filter stays
+  // shareable (spec-118 ac-19). Keyed per-tenant, so a filter set on one Memex's
+  // board never leaks onto another (ac-4).
   useEffect(() => {
     if (!assigneeStorageKey) return;
+    // URL wins: an explicit ?assignee (shared link / browser-back) is honoured
+    // for this view without being promoted to the remembered default.
+    if (searchParams.get('assignee')) return;
     let remembered: string | null = null;
     try {
-      const inUrl = searchParams.get('assignee');
-      if (inUrl) {
-        sessionStorage.setItem(assigneeStorageKey, inUrl);
-        return;
-      }
       remembered = sessionStorage.getItem(assigneeStorageKey);
     } catch {
       return;

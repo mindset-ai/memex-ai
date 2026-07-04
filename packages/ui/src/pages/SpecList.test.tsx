@@ -464,10 +464,10 @@ describe('SpecList assignee filter persistence (spec-447)', () => {
     expect(screen.getByTestId('location-search').textContent).not.toContain('assignee=');
   });
 
-  it('the URL is the source of truth — an explicit ?assignee wins over a stale remembered value and syncs storage (ac-6)', async () => {
+  it('the URL is the source of truth — an explicit ?assignee wins for the view without poisoning the remembered default (ac-6)', async () => {
     tagAc(AC447(6));
     // Storage remembers u1, but the URL explicitly asks for u2 (a shared link
-    // or the browser-back path). The URL must win.
+    // or the browser-back path). The URL must win for THIS view...
     sessionStorage.setItem(KEY, 'u1');
     fetchDocsMock.mockResolvedValue(twoSpecs());
 
@@ -480,10 +480,15 @@ describe('SpecList assignee filter persistence (spec-447)', () => {
 
     await screen.findByText('Bob work');
     expect(screen.queryByText('Alice work')).not.toBeInTheDocument();
-    // Storage is synced to the URL value, not the other way round.
+    // ...but a URL-supplied value is NOT promoted to the remembered default:
+    // opening someone else's shared ?assignee=u2 link must not overwrite the
+    // user's own remembered u1, or that stranger's filter would silently become
+    // the sticky default on every later bare /specs visit. Only a filter the
+    // user actively selects (setAssigneeFilter) updates storage.
     await waitFor(() => {
-      expect(sessionStorage.getItem(KEY)).toBe('u2');
+      expect(screen.getByTestId('location-search').textContent).toContain('assignee=u2');
     });
+    expect(sessionStorage.getItem(KEY)).toBe('u1');
   });
 });
 
