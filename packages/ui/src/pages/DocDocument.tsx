@@ -33,6 +33,7 @@ import { DownloadMdDialog } from '../components/DownloadMdDialog';
 import { InitPromptDialog } from '../components/InitPromptDialog';
 import { CreateVersionDialog } from '../components/CreateVersionDialog';
 import { VersionSwitcher } from '../components/VersionSwitcher';
+import { CatchUpDialog } from '../components/CatchUpDialog';
 import { listVersions, type VersionSummary } from '../api/docs';
 import { useChat } from '../components/ChatContext';
 import { useSwitchPosture } from '../hooks/useSwitchPosture';
@@ -166,6 +167,15 @@ export function DocDocument() {
   // used to resolve the current version's name for the header badge and fed
   // into the VersionSwitcher. Spec-only (ac-33); empty/no-op for other docTypes.
   const [versions, setVersions] = useState<VersionSummary[]>([]);
+  // spec-448 t-11 (ac-9, ac-40, ac-41): the catch-up dialog's fromVersion, set
+  // ONLY from the very first fetchDoc response for this doc id (the mount
+  // effect below) — never from reloadDoc's re-fetches. The first authenticated
+  // GET is also the call that advances the viewer's last-seen marker
+  // server-side (t-5), so every SUBSEQUENT fetch of this doc would already
+  // read back hasCatchUp: false even if we re-checked it live; gating on a
+  // captured value (rather than reading doc.catchUp fresh on every render)
+  // also means a live doc_change_stream refresh mid-dialog can't yank it away.
+  const [catchUpFromVersion, setCatchUpFromVersion] = useState<number | null>(null);
 
   // spec-118 t-6: resolve the viewer's posture on this Spec. The hook is
   // null-safe before the doc loads and refetches live on 'doc_member' events.
@@ -229,6 +239,14 @@ export function DocDocument() {
           return;
         }
         setDoc(d);
+        // spec-448 t-11 (ac-40, ac-41): this first fetchDoc response is the
+        // ONLY place we read catchUp — spec-only (ac-33 gates the whole
+        // versioning UI to docType 'spec'); a first-time viewer (no
+        // doc_views row) or an already-current viewer carries
+        // hasCatchUp: false and shows no dialog.
+        if (d.docType === 'spec' && d.catchUp?.hasCatchUp && d.catchUp.fromVersion != null) {
+          setCatchUpFromVersion(d.catchUp.fromVersion);
+        }
         fetchDocComments(d.id).then(applyComments).catch(console.error);
       })
       .catch((err) => {
@@ -1456,6 +1474,19 @@ export function DocDocument() {
           docId={doc.id}
           onClose={() => setCreateVersionOpen(false)}
           onCreated={() => reloadDoc()}
+        />
+      )}
+
+      {/* spec-448 t-11 (ac-9, ac-40, ac-41, ac-42): the catch-up-on-reopen
+          dialog — shown once, from the fromVersion captured on the initial
+          load only (see catchUpFromVersion above). */}
+      {catchUpFromVersion !== null && (
+        <CatchUpDialog
+          docId={doc.id}
+          fromVersion={catchUpFromVersion}
+          currentVersion={doc.version ?? 1}
+          versions={versions}
+          onDismiss={() => setCatchUpFromVersion(null)}
         />
       )}
     </div>

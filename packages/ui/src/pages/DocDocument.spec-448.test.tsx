@@ -66,6 +66,11 @@ vi.mock('../api/docs', async () => {
   return {
     ...actual,
     listVersions: () => Promise.resolve(mockVersions),
+    getVersionDiffData: () =>
+      Promise.resolve({
+        from: { version: 2, name: 'Reviewed', createdAt: '2026-06-05T00:00:00.000Z', restoredFromVersion: null, checksum: 'a', snapshot: { sections: [], decisions: [], acs: [], tasks: [], issues: [], comments: [] } },
+        to: { version: 'primary', name: null, createdAt: null, restoredFromVersion: null, checksum: 'b', snapshot: { sections: [], decisions: [], acs: [], tasks: [], issues: [], comments: [] } },
+      }),
   };
 });
 
@@ -180,5 +185,73 @@ describe('spec-448 — versioning UI is spec-only (ac-33)', () => {
 
     await screen.findByText('Document versioning');
     expect(screen.queryByTestId('version-switcher-trigger')).not.toBeInTheDocument();
+  });
+});
+
+describe('spec-448 t-11 — catch-up-on-reopen dialog', () => {
+  it('shows the dialog when the GET payload says the viewer is behind (ac-40)', async () => {
+    tagAc(AC(40));
+    mockDoc = makeDoc({
+      version: 4,
+      catchUp: { hasCatchUp: true, fromVersion: 2, lastViewedVersion: 2 },
+    });
+    mockVersions = [
+      { versionNumber: 1, name: 'First cut', createdAt: '2026-06-01T00:00:00.000Z', actorName: 'Barrie', restoredFromVersion: null },
+      { versionNumber: 2, name: 'Reviewed', createdAt: '2026-06-05T00:00:00.000Z', actorName: 'Ada', restoredFromVersion: null },
+      { versionNumber: 3, name: 'Latest cut', createdAt: '2026-06-10T00:00:00.000Z', actorName: 'Ada', restoredFromVersion: null },
+    ];
+    renderAt('/n/m/specs/spec-448');
+
+    await screen.findByText('Document versioning');
+    expect(await screen.findByTestId('catch-up-dialog')).toBeInTheDocument();
+  });
+
+  it('shows NO dialog for a first-time viewer (no doc_views row, catchUp absent) (ac-41)', async () => {
+    tagAc(AC(41));
+    mockDoc = makeDoc({ version: 4 }); // no `catchUp` field at all
+    renderAt('/n/m/specs/spec-448');
+
+    await screen.findByText('Document versioning');
+    expect(screen.queryByTestId('catch-up-dialog')).not.toBeInTheDocument();
+  });
+
+  it('shows NO dialog for a viewer already at the current version (ac-41)', async () => {
+    tagAc(AC(41));
+    mockDoc = makeDoc({
+      version: 4,
+      catchUp: { hasCatchUp: false, fromVersion: null, lastViewedVersion: 4 },
+    });
+    renderAt('/n/m/specs/spec-448');
+
+    await screen.findByText('Document versioning');
+    expect(screen.queryByTestId('catch-up-dialog')).not.toBeInTheDocument();
+  });
+
+  it('"Just open it" dismisses the dialog to the current view (ac-9, ac-42)', async () => {
+    tagAc(AC(9));
+    tagAc(AC(42));
+    mockDoc = makeDoc({
+      version: 4,
+      catchUp: { hasCatchUp: true, fromVersion: 2, lastViewedVersion: 2 },
+    });
+    const user = userEvent.setup();
+    renderAt('/n/m/specs/spec-448');
+
+    await user.click(await screen.findByTestId('catch-up-just-open'));
+    expect(screen.queryByTestId('catch-up-dialog')).not.toBeInTheDocument();
+  });
+
+  it('"Show me what changed" opens the diff overlay anchored fromVersion ⇄ current (ac-9, ac-42)', async () => {
+    tagAc(AC(9));
+    tagAc(AC(42));
+    mockDoc = makeDoc({
+      version: 4,
+      catchUp: { hasCatchUp: true, fromVersion: 2, lastViewedVersion: 2 },
+    });
+    const user = userEvent.setup();
+    renderAt('/n/m/specs/spec-448');
+
+    await user.click(await screen.findByTestId('catch-up-show-changes'));
+    expect(await screen.findByTestId('diff-overlay')).toBeInTheDocument();
   });
 });

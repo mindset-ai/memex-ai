@@ -453,6 +453,23 @@ export interface MemexIssue {
   };
 }
 
+/**
+ * spec-448 t-5 (ac-39): the viewer's catch-up state for THIS doc, attached to
+ * the GET /docs/:id payload. `hasCatchUp` is true only when a `doc_views` row
+ * exists AND its `lastViewedVersion` is behind the doc's current `version` —
+ * computed server-side BEFORE that same call advances the marker (see
+ * routes/documents.ts), so it reflects what the viewer was behind on, not the
+ * just-stamped state. A first-time viewer (no row) and an already-current
+ * viewer both resolve to `hasCatchUp: false` (ac-41).
+ */
+export interface CatchUpInfo {
+  hasCatchUp: boolean;
+  /** The version the viewer last saw, set only when hasCatchUp is true. */
+  fromVersion: number | null;
+  /** The raw marker value regardless of hasCatchUp, or null if never viewed. */
+  lastViewedVersion: number | null;
+}
+
 export interface DocWithGraph extends Doc {
   decisions: Decision[];
   tasks: Task[];
@@ -462,6 +479,13 @@ export interface DocWithGraph extends Doc {
    * decisions/tasks. Optional only for forward/backward payload tolerance.
    */
   tags?: Tag[];
+  /**
+   * spec-448 t-5 (ac-39): the viewer's catch-up state. Optional so
+   * pre-spec-448 test fixtures that build a bare `DocWithGraph` keep
+   * type-checking; the CatchUpDialog gate treats a missing/absent value the
+   * same as `hasCatchUp: false`.
+   */
+  catchUp?: CatchUpInfo;
 }
 
 // Mirrors PlanReadinessEntry from the server (services/execution_plans.ts).
