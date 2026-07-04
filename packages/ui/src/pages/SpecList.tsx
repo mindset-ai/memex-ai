@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useLocation } from 'react-router-dom';
 import { fetchDocs, archiveDoc, resetHandholdDemo } from '../api/client';
 import { type DocSummary } from '../api/types';
 import { statusTextClass } from '../utils/statusStyles';
@@ -12,7 +12,7 @@ import { TagFilter } from '../components/TagFilter';
 import { ShareModal } from '../components/ShareModal';
 import { RenameSpecDialog } from '../components/RenameSpecDialog';
 import { MoveSpecDialog } from '../components/MoveSpecDialog';
-import { getCurrentTenant } from '../utils/tenantUrl';
+import { getCurrentTenant, parseTenantFromPathname } from '../utils/tenantUrl';
 import { useAuth } from '../components/AuthContext';
 import { nextRevealPhase } from '../hooks/useHandholdReveal';
 import { useHandholdRevealValue } from '../hooks/HandholdRevealContext';
@@ -50,8 +50,31 @@ export function SpecList() {
   // so a filtered board is shareable, matching the board's existing URL conventions.
   const [searchParams, setSearchParams] = useSearchParams();
   const assigneeFilter = searchParams.get('assignee') ?? 'all';
+  // spec-447: remember the assignee filter per-tenant so it survives the
+  // round-trip into a spec and back. The filter lives in the URL (spec-118
+  // ac-19), but the "← All specs" header link (AppShell) navigates to a BARE
+  // /specs — resolveNavTo drops the query string — so returning that way lost
+  // the filter. We mirror the active value into a per-tenant sessionStorage key
+  // and restore it on mount when the URL carries no ?assignee. Router-aware
+  // tenant (useLocation, not window.location) so the key resolves in tests too.
+  const location = useLocation();
+  const filterTenant = parseTenantFromPathname(location.pathname);
+  const assigneeStorageKey = filterTenant
+    ? `specboard:assignee:${filterTenant.namespace}/${filterTenant.memex}`
+    : null;
   const setAssigneeFilter = useCallback(
     (value: string) => {
+      // Persist the selection (including a deliberate "all", which clears the
+      // remembered value so a clear is honoured, never re-applied — ac-3).
+      if (assigneeStorageKey) {
+        try {
+          if (value === 'all') sessionStorage.removeItem(assigneeStorageKey);
+          else sessionStorage.setItem(assigneeStorageKey, value);
+        } catch {
+          // sessionStorage unavailable (private mode / disabled) — persistence
+          // is best-effort; the URL still reflects the filter this session.
+        }
+      }
       setSearchParams(
         (prev) => {
           const next = new URLSearchParams(prev);
@@ -62,8 +85,45 @@ export function SpecList() {
         { replace: true },
       );
     },
-    [setSearchParams],
+    [setSearchParams, assigneeStorageKey],
   );
+  // spec-447: restore the remembered assignee filter when the board is opened
+  // with no ?assignee in the URL (the "← All specs" round-trip, the logo link,
+  // a fresh visit). The URL is the source of truth: if it already carries
+  // ?assignee (a shared link or the browser-back path) we honour it as-is and
+  // do NOT touch storage — only a filter the user actively selects
+  // (setAssigneeFilter) becomes the remembered default. Mirroring a URL-supplied
+  // value here would let someone else's shared ?assignee=<uuid> link silently
+  // become your sticky default for the rest of the session (and, if that user
+  // has no assignments, strand you on a blank-dropdown empty board). Otherwise
+  // we write the remembered value back into the URL so the restored filter stays
+  // shareable (spec-118 ac-19). Keyed per-tenant, so a filter set on one Memex's
+  // board never leaks onto another (ac-4).
+  useEffect(() => {
+    if (!assigneeStorageKey) return;
+    // URL wins: an explicit ?assignee (shared link / browser-back) is honoured
+    // for this view without being promoted to the remembered default.
+    if (searchParams.get('assignee')) return;
+    let remembered: string | null = null;
+    try {
+      remembered = sessionStorage.getItem(assigneeStorageKey);
+    } catch {
+      return;
+    }
+    if (remembered && remembered !== 'all') {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.set('assignee', remembered as string);
+          return next;
+        },
+        { replace: true },
+      );
+    }
+    // Runs on mount and when the tenant key changes; intentionally not on every
+    // searchParams change so a user's clear is not immediately re-applied.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assigneeStorageKey]);
   // spec-136 t-7 (ac-3): the board tag filter lives in the URL (?tags=scope::value
   // &tags=bug) so a filtered board is shareable, matching the assignee filter's
   // URL convention. Multi-valued: each selected tag is its own repeated param,
@@ -105,6 +165,37 @@ export function SpecList() {
     },
     [setSearchParams],
   );
+  // spec-447: with the assignee filter now persisting across the round-trip, a
+  // filtered board must never look unfiltered — the active state has to be
+  // visible in the UI, not just in the URL, and clearable in one action. This
+  // covers all three URL-reflected board filters (assignee / tags / grounded) so
+  // "Clear filters" always returns the board to its full, unfiltered view.
+  const hasActiveFilters = assigneeFilter !== 'all' || tagFilter.length > 0 || groundedOnly;
+  const clearAllFilters = useCallback(() => {
+    // Clearing the assignee also drops its remembered value, so a deliberate
+    // clear is honoured and never re-applied on the next mount (ac-3 semantics).
+    if (assigneeStorageKey) {
+      try {
+        sessionStorage.removeItem(assigneeStorageKey);
+      } catch {
+        // best-effort — see setAssigneeFilter.
+      }
+    }
+    // ONE setSearchParams that drops all three params. Three separate setters
+    // would NOT compose: react-router's functional updater reads the same params
+    // snapshot within a batch and the last navigate wins, so only one filter
+    // would actually clear. Delete them together in a single navigate.
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete('assignee');
+        next.delete('tags');
+        next.delete('grounded');
+        return next;
+      },
+      { replace: true },
+    );
+  }, [setSearchParams, assigneeStorageKey]);
   // doc-19 dec-8: surface the Create-an-Org banner only when the user is
   // looking at their personal Memex's Specs page. The CreateOrgBanner
   // component handles the dismissal + has-org-membership suppression itself.
@@ -389,11 +480,20 @@ export function SpecList() {
                 each person currently assigned across the board. URL-reflected. */}
             <label className="flex items-center gap-1.5 text-xs text-secondary select-none">
               <span className="text-muted">Assignee</span>
+              {/* spec-447: when a non-"all" assignee is active the control is
+                  accented (and flagged aria-invalid=false→data attr) so a
+                  filtered board reads as filtered at a glance, not just in the
+                  URL — the persisted filter must never masquerade as unfiltered. */}
               <select
                 value={assigneeFilter}
                 onChange={(e) => setAssigneeFilter(e.target.value)}
                 aria-label="Filter by assignee"
-                className="bg-surface border border-edge-subtle rounded-sm px-1.5 py-1 text-xs text-primary cursor-pointer"
+                data-active={assigneeFilter !== 'all'}
+                className={`rounded-sm px-1.5 py-1 text-xs cursor-pointer ${
+                  assigneeFilter !== 'all'
+                    ? 'bg-accent/10 border border-accent text-accent'
+                    : 'bg-surface border border-edge-subtle text-primary'
+                }`}
               >
                 <option value="all">All</option>
                 <option value="me">Assigned to me</option>
@@ -449,9 +549,33 @@ export function SpecList() {
 
       {/* spec-136 t-7 (ac-3): board-level tag filter. Narrows the kanban to
           Specs carrying the selected tags; clearable. The selection lives in the
-          URL (?tags=) so a filtered board is shareable. */}
-      <div className="flex-none mb-4">
+          URL (?tags=) so a filtered board is shareable.
+          spec-447: a single "Clear filters" resets ALL three board filters
+          (assignee / tags / grounded) in one action. It appears only when at
+          least one filter is active — so its mere presence is itself a signal
+          the board is filtered, not just the accented controls. */}
+      <div className="flex-none mb-4 flex items-start gap-3">
         <TagFilter selected={tagFilter} onChange={setTagFilter} />
+        {hasActiveFilters && (
+          <button
+            type="button"
+            onClick={clearAllFilters}
+            data-testid="clear-all-filters"
+            className="inline-flex items-center gap-1 rounded-md border border-accent/40 px-2 py-1 text-xs text-accent hover:bg-accent/10 hover:border-accent transition-colors"
+          >
+            <svg
+              className="w-3.5 h-3.5"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+              aria-hidden="true"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+            <span>Clear filters</span>
+          </button>
+        )}
       </div>
 
       {/* Board row. overflow-x-auto + a per-column min width: flex children

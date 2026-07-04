@@ -61,6 +61,11 @@ import {
 import {
   buildDocExportForm,
 } from "../../services/doc-export.js";
+// spec-448 t-5: per-user "last-seen version" marker, stamped by mutating doc
+// handlers only (ac-8, ac-37) — get_doc (a read) never calls into this.
+import {
+  upsertDocView,
+} from "../../services/docViews.js";
 import {
   BASE_SCAFFOLD,
   HANDOFF_BUTTON_BY_PHASE,
@@ -77,8 +82,31 @@ import {
   isDocLikeKind,
   reqCtx,
   resolveRefArg,
+  type ToolCtx,
   type ToolSpec,
 } from "./shared.js";
+
+// spec-448 t-5 (ac-8, ac-37): mutating a doc counts as "seeing" it — advance the
+// caller's doc_views marker to the doc's current version so a self-authored
+// change is never reported back to them as a stale catch-up banner. Advisory,
+// mirroring routes/documents.ts' posture: swallow failures, a marker write must
+// never break the tool's real response. get_doc (a read) deliberately never
+// calls this.
+async function stampDocViewFromMcp(
+  memexId: string,
+  docId: string,
+  version: number,
+  ctx: ToolCtx,
+): Promise<void> {
+  try {
+    await upsertDocView(
+      { userId: ctx.userId, docId, memexId, version, channel: ctx.channel ?? "mcp" },
+      reqCtx(ctx),
+    );
+  } catch {
+    // best-effort only.
+  }
+}
 
 export const docsTools: ToolSpec[] = [
   {
@@ -434,6 +462,7 @@ export const docsTools: ToolSpec[] = [
         // Issue → converted, record promoted_doc_id so the child-done hook resolves
         // it later (ac-24). NOT resolved now — only when the child Spec reaches done.
         await markIssuePromoted(resolved.memexId, resolved.entity.row.id, child.id);
+        await stampDocViewFromMcp(resolved.memexId, child.id, child.version, ctx);
         const childRef = buildDocRef(resolved.slugs, child);
         if (ctx.verbose) {
           return `Promoted Issue issue-${resolved.entity.row.seq} to child Spec ref: ${childRef} "${child.title}" (parent: ${sourceDoc.handle}). Issue → converted; auto-resolves when the child Spec reaches done.`;
@@ -458,6 +487,7 @@ export const docsTools: ToolSpec[] = [
           ctx.userId,
           reqCtx(ctx),
         );
+        await stampDocViewFromMcp(resolved.memexId, child.id, child.version, ctx);
         if (ctx.verbose) {
           const url = await ctx.workspaceUrl(resolved.memexId);
           return formatPromotedSpec(child, sourceDoc, item, url);
@@ -491,6 +521,7 @@ export const docsTools: ToolSpec[] = [
         ctx.userId,
         reqCtx(ctx),
       );
+      await stampDocViewFromMcp(memexId, doc.id, doc.version, ctx);
       if (ctx.verbose) {
         const state = await fullDocState(memexId, doc.id);
         const url = await ctx.workspaceUrl(memexId);
@@ -609,6 +640,12 @@ export const docsTools: ToolSpec[] = [
           if (tag) removedTags.push(formatTag(tag));
         }
       }
+
+      // spec-448 t-5 (ac-8, ac-37): this handler mutated the doc (status/title/
+      // tags), so stamp the caller's doc_views marker. `before.version` is the
+      // doc's current version — none of status/title/tag writes touch
+      // `documents.version` (only cutVersion does), so no re-fetch is needed.
+      await stampDocViewFromMcp(memexId, before.id, before.version, ctx);
 
       // One-line summary of any tag mutation, shared by both response shapes so
       // the agent learns what landed without a follow-up get_doc.

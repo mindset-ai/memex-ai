@@ -1,7 +1,18 @@
 // spec-354 sol-2: carved out of the former all-domains api/client.ts (which
 // is now a barrel re-exporting this module). Behaviour-preserving move only.
 
-import type { DocSummary, DocSection, DocWithGraph, DocStatus, Tag } from './types';
+import type {
+  DocSummary,
+  DocSection,
+  DocWithGraph,
+  DocStatus,
+  Tag,
+  Decision,
+  Task,
+  Issue,
+  Comment,
+} from './types';
+import type { AcWithVerification } from './acs';
 import { decodeHtmlEntities } from '../utils/decodeHtmlEntities';
 import { NotFoundError } from './errors';
 import { fetchJson as fetchJsonRaw } from './fetchJson';
@@ -339,4 +350,168 @@ export async function splitSection(sectionId: string): Promise<DocSection[]> {
     throw new Error(`Failed to split section: ${res.status}`);
   }
   return res.json();
+}
+
+// ── Document versioning (spec-448 t-6 REST surface) ─────────────────────────
+// Thin client for services/versioning.ts (t-2/t-3/t-4) via routes/versions.ts.
+// GET /docs/:id (fetchDoc above) is UNCHANGED by this surface — it keeps
+// resolving to the live primary with no version specified (ac-3); these calls
+// are strictly additive, reached only from the create-version dialog / version
+// switcher (t-8/t-9).
+
+/** The five artifact classes a version cut can choose to carry forward
+ *  (narrative sections always carry and are never a member of this set). */
+export const CARRY_FORWARD_CLASSES = ['decisions', 'acs', 'tasks', 'issues', 'comments'] as const;
+export type CarryForwardClass = (typeof CARRY_FORWARD_CLASSES)[number];
+
+export interface CreateVersionInput {
+  name: string;
+  carryForward: CarryForwardClass[];
+}
+
+/** A snapshot's task entry is the raw stored row — it carries none of
+ *  `Task`'s live-computed blocking fields (those come from the doc's
+ *  blocking graph at read time, not from the frozen snapshot). */
+export type VersionSnapshotTask = Omit<Task, 'blocked' | 'blockedByDecisions' | 'blockedByTasks'>;
+
+/** The full artifact graph one version snapshot captures — mirrors the
+ *  server's `ArtifactSnapshot` (services/versioning.ts). */
+export interface ArtifactVersionSnapshot {
+  sections: DocSection[];
+  decisions: Decision[];
+  acs: AcWithVerification['ac'][];
+  tasks: VersionSnapshotTask[];
+  issues: Issue[];
+  /** Each comment carries the doc's `version` that was active when it was
+   *  originally written (ac-24) — lets "view as-of vK" render vK's comments
+   *  correctly even though comments have no dedicated version column. */
+  comments: Array<Comment & { versionAtWrite: number }>;
+}
+
+/** One row from `document_versions` — an immutable cut (ac-1, ac-2) or a
+ *  rollback's restore cut (`restoredFromVersion` set, ac-22). */
+export interface DocumentVersionRow {
+  id: string;
+  memexId: string;
+  docId: string;
+  versionNumber: number;
+  name: string;
+  checksum: string;
+  snapshot: ArtifactVersionSnapshot;
+  restoredFromVersion: number | null;
+  actorUserId: string | null;
+  actorName: string | null;
+  channel: string | null;
+  createdAt: string;
+}
+
+/** Lightweight projection for the version-history list/switcher — omits the
+ *  (potentially large) snapshot payload. */
+export interface VersionSummary {
+  versionNumber: number;
+  name: string;
+  createdAt: string;
+  actorName: string | null;
+  restoredFromVersion: number | null;
+}
+
+/** One side of a diff request: a concrete cut version, or the live primary
+ *  (ac-26 — the version switcher can compare ANY two versions, including the
+ *  doc's current working state). */
+export type SnapshotToken = number | 'primary';
+
+export interface VersionOrPrimarySnapshot {
+  version: SnapshotToken;
+  /** null for the live "primary" side — it has no `document_versions` row of
+   *  its own until it's next cut. */
+  name: string | null;
+  createdAt: string | null;
+  restoredFromVersion: number | null;
+  checksum: string;
+  snapshot: ArtifactVersionSnapshot;
+}
+
+export interface VersionDiffData {
+  from: VersionOrPrimarySnapshot;
+  to: VersionOrPrimarySnapshot;
+}
+
+/** Cut a new version of a Spec (or any doc type, ac-34). Returns the newly
+ *  created `document_versions` row. POST /api/.../versions/doc/:docId. */
+export async function createVersion(
+  docId: string,
+  input: CreateVersionInput,
+): Promise<DocumentVersionRow> {
+  const res = await fetchWithRetry(`${tBase()}/versions/doc/${docId}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(text || `Failed to create version: ${res.status}`);
+  }
+  return res.json();
+}
+
+/** List every cut version of a doc, newest first — the version-switcher /
+ *  history surface. GET /api/.../versions/doc/:docId. */
+export async function listVersions(docId: string): Promise<VersionSummary[]> {
+  return fetchJsonRaw<VersionSummary[]>(fetchWithRetry, `${tBase()}/versions/doc/${docId}`);
+}
+
+/** View a specific frozen version as-of that cut (ac-4, ac-18, ac-25).
+ *  GET /api/.../versions/doc/:docId/:versionNumber. */
+export async function getVersionAsOf(
+  docId: string,
+  versionNumber: number,
+): Promise<DocumentVersionRow> {
+  return fetchJsonRaw<DocumentVersionRow>(
+    fetchWithRetry,
+    `${tBase()}/versions/doc/${docId}/${versionNumber}`,
+    undefined,
+    {
+      errorFactory: (status) => {
+        if (status === 404) {
+          return new NotFoundError(`Version ${versionNumber} not found for document ${docId}`);
+        }
+        return new Error(`Failed to fetch version: ${status}`);
+      },
+    },
+  );
+}
+
+/** Roll back the doc's live content to a prior version's snapshot. Auto-
+ *  freezes the pre-rollback state first (ac-20) and returns the newly
+ *  materialised `document_versions` row (`restoredFromVersion` set, ac-22).
+ *  POST /api/.../versions/doc/:docId/rollback. */
+export async function rollbackVersion(
+  docId: string,
+  sourceVersion: number,
+): Promise<DocumentVersionRow> {
+  const res = await fetchWithRetry(`${tBase()}/versions/doc/${docId}/rollback`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sourceVersion }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(text || `Failed to roll back: ${res.status}`);
+  }
+  return res.json();
+}
+
+/** The two snapshots to diff (ac-6, ac-26) — either side may be a concrete
+ *  version number or `'primary'` (the live current state).
+ *  GET /api/.../versions/doc/:docId/diff?from=&to=. */
+export async function getVersionDiffData(
+  docId: string,
+  from: SnapshotToken,
+  to: SnapshotToken,
+): Promise<VersionDiffData> {
+  const params = new URLSearchParams({ from: String(from), to: String(to) });
+  return fetchJsonRaw<VersionDiffData>(
+    fetchWithRetry,
+    `${tBase()}/versions/doc/${docId}/diff?${params.toString()}`,
+  );
 }

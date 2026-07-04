@@ -20,6 +20,7 @@ import { stripeWebhookRouter } from "./routes/stripe-webhook.js";
 import { postmarkWebhookRouter } from "./routes/postmark-webhook.js";
 import { docMembersRouter } from "./routes/doc-members.js";
 import { docAssigneesRouter } from "./routes/doc-assignees.js";
+import { versionsRouter } from "./routes/versions.js";
 import { executionPlans } from "./routes/execution-plans.js";
 import { llmRouter } from "./routes/llm.js";
 import { createNodeWebSocket } from "@hono/node-ws";
@@ -255,6 +256,8 @@ app.route("/api/:namespace/:memex/discord-webhook", discordWebhookRouter);
 // spec-118 — per-Spec roles (editor/reviewer) + ticket-style assignment.
 app.route("/api/:namespace/:memex/doc-members", docMembersRouter);
 app.route("/api/:namespace/:memex/doc-assignees", docAssigneesRouter);
+// spec-448 t-6 — version history / view-as-of / rollback / diff-data.
+app.route("/api/:namespace/:memex/versions", versionsRouter);
 app.route("/api/:namespace/:memex/execution-plans", executionPlans);
 app.route("/api/:namespace/:memex/drift", driftRouter);
 // spec-64 t-1 — REST search over searchMemex. Path-prefixed only: a search is

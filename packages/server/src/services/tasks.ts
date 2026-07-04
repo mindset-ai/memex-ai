@@ -1,4 +1,4 @@
-import { and, eq, asc, ne, sql } from "drizzle-orm";
+import { and, eq, asc, ne, sql, isNull } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import { tasks, documents } from "../db/schema.js";
 import type { Task, Decision } from "../db/schema.js";
@@ -186,10 +186,13 @@ export async function listTasks(
   memexId: string,
   docId: string
 ): Promise<TaskWithBlockers[]> {
+  // spec-448 (gap closure, ac-18): exclude tasks a version cut left behind
+  // (retired_at_version stamped) from the live read — they still render when
+  // viewing the version they were retired at (getVersionSnapshot).
   const items = await db
     .select()
     .from(tasks)
-    .where(and(eq(tasks.docId, docId), eq(tasks.memexId, memexId)))
+    .where(and(eq(tasks.docId, docId), eq(tasks.memexId, memexId), isNull(tasks.retiredAtVersion)))
     .orderBy(asc(tasks.seq));
 
   const graph = await getBlockingGraphForDoc(memexId, docId);

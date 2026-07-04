@@ -676,8 +676,15 @@ async function listCommentsForTarget(
   targetId: string,
   opts: ListCommentsOptions = {},
 ): Promise<DocComment[]> {
+  // spec-448 (gap closure, ac-18): exclude comments a version cut left behind
+  // (retired_at_version stamped) from the live read — they still render when
+  // viewing the version they were retired at (getVersionSnapshot).
   const rows = await db.query.docComments.findMany({
-    where: and(eq(desc.listColumn, targetId), eq(docComments.memexId, memexId)),
+    where: and(
+      eq(desc.listColumn, targetId),
+      eq(docComments.memexId, memexId),
+      isNull(docComments.retiredAtVersion),
+    ),
     orderBy: (comments, { asc }) => [asc(comments.createdAt)],
   });
   return rows.filter((c) => matchesTypeFilter(c, opts.typeFilter));
@@ -979,10 +986,12 @@ async function getDocCommentsGrouped(
     fkOf: (c: DocComment) => string | null,
   ): Promise<{ parent: P; comments: DocComment[] }[]> {
     const ids = parents.map((p) => p.id);
+    // spec-448 (gap closure, ac-18): exclude comments a version cut left
+    // behind (retired_at_version stamped) from this grouped live read too.
     const comments =
       ids.length > 0
         ? await db.query.docComments.findMany({
-            where: inArray(listColumn, ids),
+            where: and(inArray(listColumn, ids), isNull(docComments.retiredAtVersion)),
             orderBy: (c, { asc }) => [asc(c.createdAt)],
           })
         : [];
@@ -994,16 +1003,20 @@ async function getDocCommentsGrouped(
       .filter((e) => e.comments.length > 0);
   }
 
+  // spec-448 (gap closure, ac-18): exclude parents a version cut left behind
+  // (retired_at_version stamped) from this grouped live read — a retired
+  // decision/task/section's comments still surface via getVersionSnapshot,
+  // never here.
   const sections = await db.query.docSections.findMany({
-    where: eq(docSections.docId, docId),
+    where: and(eq(docSections.docId, docId), isNull(docSections.retiredAtVersion)),
     orderBy: (s, { asc }) => [asc(s.seq)],
   });
   const docDecisions = await db.query.decisions.findMany({
-    where: eq(decisions.docId, docId),
+    where: and(eq(decisions.docId, docId), isNull(decisions.retiredAtVersion)),
     orderBy: (d, { asc }) => [asc(d.seq)],
   });
   const docTasks = await db.query.tasks.findMany({
-    where: eq(tasks.docId, docId),
+    where: and(eq(tasks.docId, docId), isNull(tasks.retiredAtVersion)),
     orderBy: (w, { asc }) => [asc(w.seq)],
   });
 
