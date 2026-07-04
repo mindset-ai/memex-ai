@@ -199,6 +199,195 @@ interface UserMenuUser {
   picture?: string | null;
 }
 
+// spec-456 — icons for the account menu rows, in the heroicons-outline
+// convention already used in this file (the theme toggle, InvitePersonIcon):
+// w-4 h-4, fill:none, stroke:currentColor so each icon follows its row's
+// text-secondary→text-primary hover colour. Module-level so they're defined
+// once, not re-created per render.
+const MENU_ICON_CLASS = 'w-4 h-4 flex-none';
+
+// The "What's New" gift, split into an unwrappable lid + a hidden sparkle
+// (both animated by the .wn-* rules in index.css on group hover/focus).
+function WhatsNewGiftIcon() {
+  return (
+    <svg
+      className={MENU_ICON_CLASS}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.75}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="4" y="11" width="16" height="9" rx="1.6" />
+      <line x1="12" y1="11" x2="12" y2="20" />
+      <path
+        className="wn-sparkle"
+        d="M12 12.4l0.7 1.6 1.6 0.7-1.6 0.7-0.7 1.6-0.7-1.6-1.6-0.7 1.6-0.7z"
+        stroke="#ffb020"
+        fill="#ffb020"
+      />
+      <g className="wn-lid">
+        <rect x="3" y="7.2" width="18" height="4.6" rx="1.4" />
+        <line x1="12" y1="7.2" x2="12" y2="11.8" />
+        <path d="M9.3 7.2c-1.6 0-2.6-1-2.6-2.2S7.6 2.8 9 2.8c1.7 0 2.6 2.2 3 4.4" />
+        <path d="M14.7 7.2c1.6 0 2.6-1 2.6-2.2S16.4 2.8 15 2.8c-1.7 0-2.6 2.2-3 4.4" />
+      </g>
+    </svg>
+  );
+}
+
+function SettingsGearIcon() {
+  return (
+    <svg className={MENU_ICON_CLASS} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75} aria-hidden="true">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.752.43.992l1.005.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.752-.43-.992l-1.004-.827a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.28z" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+    </svg>
+  );
+}
+
+function KeyIcon() {
+  return (
+    <svg className={MENU_ICON_CLASS} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75} aria-hidden="true">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" />
+    </svg>
+  );
+}
+
+function OrgBuildingIcon() {
+  return (
+    <svg className={MENU_ICON_CLASS} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75} aria-hidden="true">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21" />
+    </svg>
+  );
+}
+
+function IntegrationsLinkIcon() {
+  return (
+    <svg className={MENU_ICON_CLASS} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75} aria-hidden="true">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />
+    </svg>
+  );
+}
+
+function PlayCircleIcon() {
+  return (
+    <svg className={MENU_ICON_CLASS} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75} aria-hidden="true">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M15.91 11.672a.375.375 0 010 .656l-5.603 3.113a.375.375 0 01-.557-.328V8.887c0-.286.307-.466.557-.327l5.603 3.112z" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+    </svg>
+  );
+}
+
+function LogoutIcon() {
+  return (
+    <svg className={MENU_ICON_CLASS} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75} aria-hidden="true">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75" />
+    </svg>
+  );
+}
+
+// One shared row style so every account-menu item matches (was duplicated on
+// each Link/button). Danger variant reddens Sign out on hover so a destructive
+// action reads differently from the settings links above it.
+const USER_MENU_ITEM_CLASS =
+  'flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm rounded-md transition-colors text-secondary hover:text-primary hover:bg-overlay';
+const USER_MENU_DANGER_CLASS =
+  'flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm rounded-md transition-colors text-secondary hover:text-status-danger-text hover:bg-overlay';
+
+function UserMenuDivider() {
+  return <div role="separator" className="my-1 border-t border-edge" />;
+}
+
+function UserMenuLink({
+  to,
+  icon,
+  onClick,
+  testId,
+  children,
+}: {
+  to: string;
+  icon: ReactNode;
+  onClick: () => void;
+  testId?: string;
+  children: ReactNode;
+}) {
+  return (
+    <Link to={to} onClick={onClick} data-testid={testId} className={USER_MENU_ITEM_CLASS}>
+      {icon}
+      {children}
+    </Link>
+  );
+}
+
+// spec-456 — the What's New row's click flourish: a short confetti burst drawn
+// from the gift icon before the What's New popup opens. Purely decorative, so
+// it fails safe: a no-op under prefers-reduced-motion, and wherever the canvas
+// 2D context is unavailable (e.g. jsdom in unit tests, canvas.getContext → null).
+function burstWhatsNewConfetti(canvas: HTMLCanvasElement | null): void {
+  if (!canvas) return;
+  const prefersReduced =
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (prefersReduced) return;
+  let ctx: CanvasRenderingContext2D | null = null;
+  try {
+    ctx = canvas.getContext('2d');
+  } catch {
+    // jsdom (no canvas pkg) throws "Not implemented" here; treat as no-op.
+    return;
+  }
+  if (!ctx) return;
+
+  const colors = ['#ff6b3d', '#ffc94d', '#2fbfa8', '#5b7cfa'];
+  const cx = canvas.width / 2;
+  const cy = canvas.height / 2;
+  const count = 16;
+  const particles = Array.from({ length: count }, (_, i) => {
+    const angle = (Math.PI * 2 * i) / count + Math.random() * 0.4;
+    const speed = 1.6 + Math.random() * 1.8;
+    return {
+      x: cx,
+      y: cy,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed - 1.2,
+      size: 2.5 + Math.random() * 2,
+      color: colors[i % colors.length],
+      rot: Math.random() * Math.PI,
+      vr: (Math.random() - 0.5) * 0.4,
+    };
+  });
+
+  const DURATION = 650;
+  const start = performance.now();
+  function frame(now: number) {
+    const elapsed = now - start;
+    const life = Math.max(0, 1 - elapsed / DURATION);
+    ctx!.clearRect(0, 0, canvas!.width, canvas!.height);
+    for (const p of particles) {
+      p.vy += 0.09;
+      p.x += p.vx;
+      p.y += p.vy;
+      p.rot += p.vr;
+      ctx!.save();
+      ctx!.globalAlpha = life;
+      ctx!.translate(p.x, p.y);
+      ctx!.rotate(p.rot);
+      ctx!.fillStyle = p.color;
+      ctx!.fillRect(-p.size / 2, -p.size / 2, p.size, p.size * 0.6);
+      ctx!.restore();
+    }
+    if (elapsed < DURATION) {
+      requestAnimationFrame(frame);
+    } else {
+      ctx!.clearRect(0, 0, canvas!.width, canvas!.height);
+    }
+  }
+  requestAnimationFrame(frame);
+}
+
 // Bottom-of-sidebar identity card. Click avatar/name to open the menu (account
 // configuration + sign out). Theme toggle is a sibling button — visually next
 // to the avatar but a separate action.
@@ -300,80 +489,82 @@ function SidebarUserCard({
         )}
       </button>
       {open && (
-        <div className="absolute left-0 right-0 bottom-full mb-2 z-40 rounded-lg shadow-xl py-1 border bg-card-hover border-edge">
+        // spec-456 — grouped into four sections divided by rules: notification,
+        // then the settings/config cluster, then help, then the account exit.
+        // Every row carries a leading icon; Sign out is set apart with a danger
+        // hover. No item is added, removed, or re-routed vs. the flat list.
+        <div className="absolute left-0 right-0 bottom-full mb-2 z-40 rounded-lg shadow-xl py-1 px-1 border bg-card-hover border-edge">
           {whatsNewAvailable && (
-            <button
-              data-testid="user-menu-whats-new"
-              onClick={() => {
-                setOpen(false);
-                openWhatsNew();
-              }}
-              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors text-secondary hover:text-primary hover:bg-overlay"
-            >
-              <span aria-hidden="true">🎁</span>
-              What's New
-            </button>
+            <>
+              <button
+                data-testid="user-menu-whats-new"
+                onClick={(e) => {
+                  // The gift's confetti fires from its own icon canvas, then the
+                  // What's New popup opens (behaviour unchanged from the flat menu).
+                  burstWhatsNewConfetti(e.currentTarget.querySelector('canvas'));
+                  setOpen(false);
+                  openWhatsNew();
+                }}
+                className={`group ${USER_MENU_ITEM_CLASS}`}
+              >
+                <span className="relative flex-none">
+                  <WhatsNewGiftIcon />
+                  <canvas
+                    data-testid="user-menu-whats-new-confetti"
+                    aria-hidden="true"
+                    width={72}
+                    height={72}
+                    className="pointer-events-none absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2"
+                  />
+                </span>
+                What's New
+              </button>
+              <UserMenuDivider />
+            </>
           )}
           {showMemexSettings && (
-            <Link
-              to={memexSettingsHref}
-              onClick={() => setOpen(false)}
-              className="block w-full text-left px-3 py-2 text-sm transition-colors text-secondary hover:text-primary hover:bg-overlay"
-            >
+            <UserMenuLink to={memexSettingsHref} icon={<SettingsGearIcon />} onClick={() => setOpen(false)}>
               Memex settings
-            </Link>
+            </UserMenuLink>
           )}
           {showMemexKeys && (
-            <Link
-              to={memexKeysHref}
-              onClick={() => setOpen(false)}
-              className="block w-full text-left px-3 py-2 text-sm transition-colors text-secondary hover:text-primary hover:bg-overlay"
-            >
+            <UserMenuLink to={memexKeysHref} icon={<KeyIcon />} onClick={() => setOpen(false)}>
               Memex keys
-            </Link>
+            </UserMenuLink>
           )}
           {showOrgConfig && (
-            <Link
-              to={orgConfigHref}
-              onClick={() => setOpen(false)}
-              className="block w-full text-left px-3 py-2 text-sm transition-colors text-secondary hover:text-primary hover:bg-overlay"
-            >
+            <UserMenuLink to={orgConfigHref} icon={<OrgBuildingIcon />} onClick={() => setOpen(false)}>
               Org configuration
-            </Link>
+            </UserMenuLink>
           )}
-          <Link
-            to="/settings/integrations"
-            onClick={() => setOpen(false)}
-            className="block w-full text-left px-3 py-2 text-sm transition-colors text-secondary hover:text-primary hover:bg-overlay"
-          >
+          <UserMenuLink to="/settings/integrations" icon={<IntegrationsLinkIcon />} onClick={() => setOpen(false)}>
             Integrations
-          </Link>
+          </UserMenuLink>
+          <UserMenuDivider />
           {/* spec-226 t-6: internal email-preview gallery, gated off prod. */}
           {emailPreviewEnabled() && (
-            <Link
+            <UserMenuLink
               to="/email-preview"
-              data-testid="user-menu-email-preview"
+              icon={<PlayCircleIcon />}
+              testId="user-menu-email-preview"
               onClick={() => setOpen(false)}
-              className="block w-full text-left px-3 py-2 text-sm transition-colors text-secondary hover:text-primary hover:bg-overlay"
             >
               Email preview
-            </Link>
+            </UserMenuLink>
           )}
           {/* spec-444: always-visible rewatch entry — present regardless of dismissal state. */}
-          <Link
-            to="/welcome?rewatch=1"
-            onClick={() => setOpen(false)}
-            className="block w-full text-left px-3 py-2 text-sm transition-colors text-secondary hover:text-primary hover:bg-overlay"
-          >
+          <UserMenuLink to="/welcome?rewatch=1" icon={<PlayCircleIcon />} onClick={() => setOpen(false)}>
             Watch intro video
-          </Link>
+          </UserMenuLink>
+          <UserMenuDivider />
           <button
             onClick={() => {
               setOpen(false);
               onLogout();
             }}
-            className="w-full text-left px-3 py-2 text-sm transition-colors text-secondary hover:text-primary hover:bg-overlay"
+            className={USER_MENU_DANGER_CLASS}
           >
+            <LogoutIcon />
             Sign out
           </button>
         </div>
