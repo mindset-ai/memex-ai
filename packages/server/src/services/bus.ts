@@ -99,7 +99,12 @@ export type ChangeEntity =
   | "oauth_code"
   | "oauth_refresh_token"
   // spec-21: per-user attribution record (silent-allowed per std-8 §6 — no SSE subscriber).
-  | "user_attribution";
+  | "user_attribution"
+  // spec-448 (document versioning): a `document_versions` row created by
+  // cutVersion (an ordinary cut) or restoreVersion (a restore's produced
+  // version, carrying restored_from_version). Scoped via docId like every
+  // other doc-tree entity.
+  | "document_version";
 
 export type ChangeAction =
   // Mutation actions — the original bus contract.
