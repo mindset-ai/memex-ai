@@ -1570,6 +1570,16 @@ export const users = pgTable("users", {
   // one-click List-Unsubscribe link. Scope is LIFECYCLE ONLY — transactional/auth email
   // and the spec-428 welcome ignore this flag and always send (ac-11 scope / ac-12).
   lifecycleEmailUnsubscribedAt: timestamp("lifecycle_email_unsubscribed_at", { withTimezone: true }),
+  // spec-453 (dec-9/dec-10): the "See it verified" activation-email GATE SENTINEL,
+  // NOT a true first-verify timestamp. Null = this user has never had an acceptance
+  // criterion verified (and so is still eligible for the one-time milestone email);
+  // a timestamp = the milestone has been consumed (email sent, or the user was a
+  // pre-existing account backfilled to deploy-time at go-live so the back-catalog is
+  // excluded — dec-10). Stamped once, atomically, on the first attributed `verified`
+  // emission (never on a manual `accepted`). NO DEFAULT on purpose: a default would
+  // auto-stamp every signup and make nobody eligible. Do NOT read this as analytics —
+  // for backfilled rows it is deploy-time, not when they actually first verified.
+  firstAcVerifiedAt: timestamp("first_ac_verified_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
