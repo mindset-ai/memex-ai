@@ -192,6 +192,8 @@ describe("GET /api/docs/:id", () => {
       checkedOutBy: null,
       checkedOutAt: null,
       checkedOutThread: null,
+      // spec-448 t-1: current version, no snapshots cut in these fixtures.
+      version: 1,
       sections: [],
       creator: null,
       checkoutHolder: null,
@@ -230,6 +232,8 @@ describe("GET /api/docs/:id", () => {
       checkedOutBy: null,
       checkedOutAt: null,
       checkedOutThread: null,
+      // spec-448 t-1: current version, no snapshots cut in these fixtures.
+      version: 1,
       sections: [],
       creator: null,
       checkoutHolder: null,
@@ -270,6 +274,7 @@ describe("POST /api/docs/sections/:sectionId/split", () => {
         preamble: null,
         position: 1,
         previousStatus: null,
+        retiredAtVersion: null,
         createdAt: baseDate,
         updatedAt: baseDate,
         actorUserId: null,
@@ -289,6 +294,7 @@ describe("POST /api/docs/sections/:sectionId/split", () => {
         preamble: null,
         position: 1,
         previousStatus: null,
+        retiredAtVersion: null,
         createdAt: baseDate,
         updatedAt: baseDate,
         actorUserId: null,
@@ -340,6 +346,8 @@ function mockDoc(id: string, handle: string) {
     checkedOutBy: null,
     checkedOutAt: null,
     checkedOutThread: null,
+    // spec-448 t-1: current version, no snapshots cut in these fixtures.
+    version: 1,
     sections: [],
     creator: null,
     checkoutHolder: null,
