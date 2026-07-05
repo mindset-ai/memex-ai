@@ -71,7 +71,12 @@ test(
     await expect(link).toHaveAttribute("href", "https://www.memex.ai/book-a-call?src=welcome-video");
     await expect(link).toHaveAttribute("target", "_blank");
 
-    // The primary path to /specs is unchanged (no interstitial).
+    // The primary path to /specs is unchanged (no interstitial). spec-462: end the
+    // video so the primary button becomes "Get started →", then dismiss.
+    await page.getByTestId("welcome-video-player").evaluate((el) => {
+      (el as HTMLVideoElement).dispatchEvent(new Event("ended"));
+    });
+    await expect(page.getByTestId("welcome-video-cta")).toHaveText(/Get started/);
     await page.getByTestId("welcome-video-cta").click();
     await expect(page).toHaveURL(/\/specs/, { timeout: 15_000 });
   },
