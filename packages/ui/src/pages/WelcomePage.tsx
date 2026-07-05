@@ -60,6 +60,18 @@ export function WelcomePage() {
   const isRewatch = searchParams.get('rewatch') === '1';
   const [dismissing, setDismissing] = useState(false);
 
+  // spec-462: the primary button is a three-state machine so it can never be
+  // mistaken for a skip. Before spec-462 the loud blue button and the quiet
+  // "Skip" link both called permanentDismiss — the loudest element on the page
+  // was a disguised skip, and users read it as "play". Now:
+  //   idle    → "▶ Play now"      (loud blue)  → starts playback
+  //   playing → "Playing…"        (quiet)      → inert status, not a skip target
+  //   ended   → "Get started →"   (loud blue)  → permanentDismiss (the real exit)
+  // The "leave without watching" job is already fully covered by the ever-present
+  // "Skip" link, which frees the blue button to become the play affordance. Only
+  // the first-run (non-rewatch) path uses this; rewatch keeps its "Back to Memex".
+  const [buttonPhase, setButtonPhase] = useState<'idle' | 'playing' | 'ended'>('idle');
+
   // spec-444 instrumentation. Refs (not state) so the once-per-view guards can be
   // read/written inside stable useCallbacks without re-creating them, and so
   // replay / seek / pause-resume / multiple play events never re-fire an event.
@@ -82,7 +94,24 @@ export function WelcomePage() {
     track('onboarding.video_call_cta_shown', videoProps(videoRef.current));
   }, [track]);
 
+  // spec-462: clicking "▶ Play now" starts playback. Guarded for jsdom/autoplay —
+  // play() is unimplemented in jsdom (throws) and can reject under autoplay policy;
+  // either way onPlay simply won't fire and the button stays in idle, which is fine.
+  const playVideo = useCallback(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    try {
+      const p = v.play();
+      if (p && typeof p.catch === 'function') p.catch(() => {});
+    } catch {
+      /* jsdom / blocked autoplay — no-op */
+    }
+  }, []);
+
   const onVideoPlay = useCallback(() => {
+    // spec-462: idle → playing on first play; once ended, a replay keeps the
+    // "Get started →" state (the forward move stays available).
+    setButtonPhase((p) => (p === 'ended' ? 'ended' : 'playing'));
     if (startedRef.current) return; // fire once per view
     startedRef.current = true;
     track('onboarding.video_started', videoProps(videoRef.current));
@@ -97,6 +126,7 @@ export function WelcomePage() {
   }, [revealCallCta]);
 
   const onVideoEnded = useCallback(() => {
+    setButtonPhase('ended'); // spec-462: reveal the real "Get started →" forward move
     revealCallCta(); // a short video the viewer finishes should always show the CTA
     if (completedRef.current) return; // fire once per view
     completedRef.current = true;
@@ -185,14 +215,38 @@ export function WelcomePage() {
 
         {!isRewatch ? (
           <>
-            <button
-              data-testid="welcome-video-cta"
-              onClick={permanentDismiss}
-              disabled={dismissing}
-              className="w-full py-3 px-4 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-base transition-colors disabled:opacity-60"
-            >
-              {dismissing ? 'One moment…' : 'Get started →'}
-            </button>
+            {/* spec-462: one primary button, three states. Same testid + reserved
+                height across states so the layout never jumps. idle/ended are the
+                loud blue CTA; playing is a quiet, inert status so it can't be
+                mistaken for a skip target. */}
+            {buttonPhase === 'idle' && (
+              <button
+                data-testid="welcome-video-cta"
+                onClick={playVideo}
+                className="w-full py-3 px-4 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-base transition-colors"
+              >
+                ▶ Play now
+              </button>
+            )}
+            {buttonPhase === 'playing' && (
+              <div
+                data-testid="welcome-video-cta"
+                aria-live="polite"
+                className="w-full py-3 px-4 rounded-lg bg-gray-100 text-gray-400 font-semibold text-base text-center select-none"
+              >
+                Playing…
+              </div>
+            )}
+            {buttonPhase === 'ended' && (
+              <button
+                data-testid="welcome-video-cta"
+                onClick={permanentDismiss}
+                disabled={dismissing}
+                className="w-full py-3 px-4 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-base transition-colors disabled:opacity-60"
+              >
+                {dismissing ? 'One moment…' : 'Get started →'}
+              </button>
+            )}
             <button
               data-testid="welcome-video-skip"
               onClick={permanentDismiss}

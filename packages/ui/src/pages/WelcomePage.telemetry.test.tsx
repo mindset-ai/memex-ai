@@ -83,13 +83,17 @@ describe('WelcomePage — onboarding.video_* telemetry', () => {
     expect(completed[0][1]).toMatchObject({ video_id: 'welcome-to-memex-v4', percent_watched: 100 });
   });
 
-  it('fires onboarding.video_skipped ONCE when the CTA dismisses before completion', async () => {
+  // spec-462: before completion the primary button is "▶ Play now" / "Playing…",
+  // never a dismiss — so the skip-before-completion path is the "Skip" link (and the
+  // × close, covered by the next test). The primary button only dismisses once it
+  // has become "Get started →" (post-ended), and that path is NOT a skip.
+  it('fires onboarding.video_skipped ONCE when the Skip link dismisses before completion', async () => {
     renderPage();
     const video = screen.getByTestId('welcome-video-player') as HTMLVideoElement;
     stubPlayback(video, 10, 120);
     fireEvent.play(video);
 
-    await userEvent.click(screen.getByTestId('welcome-video-cta'));
+    await userEvent.click(screen.getByTestId('welcome-video-skip'));
 
     const skipped = track.mock.calls.filter((c) => c[0] === 'onboarding.video_skipped');
     expect(skipped).toHaveLength(1);
