@@ -142,8 +142,10 @@ describe('WelcomePage — spec-460 book-a-call reveal', () => {
     sessionStorage.clear();
   });
 
-  it('hides the call CTA before the reveal threshold and shows it after, linking to the alias in a new tab (ac-8)', () => {
+  it('hides the call CTA before the reveal threshold and shows it after, linking to the alias in a new tab (ac-8, ac-20, ac-7)', () => {
     tagAc(AC(8));
+    tagAc(AC(20)); // welcome-video surface: alias + src=welcome-video + noopener
+    tagAc(AC(7)); // reveal is instrumented + links to the neutral alias
     renderPage();
     const cta = screen.getByTestId('welcome-video-call-cta');
     const link = cta.querySelector('a')!;
@@ -202,17 +204,27 @@ describe('WelcomePage — spec-460 book-a-call reveal', () => {
     expect(cta).toHaveAttribute('aria-hidden', 'false');
   });
 
-  it('fires onboarding.video_call_cta_clicked when the revealed link is clicked', async () => {
-    tagAc(AC(8));
+  it('fires onboarding.video_call_cta_shown on reveal and _clicked on click (ac-21, ac-7)', async () => {
+    tagAc(AC(21)); // welcome_video.call_cta_shown / _clicked events fire
+    tagAc(AC(7));
     renderPage();
     const video = screen.getByTestId('welcome-video-player') as HTMLVideoElement;
     stubPlayback(video, 90, 100);
     fireEvent.timeUpdate(video);
+    expect(track.mock.calls.filter((c) => c[0] === 'onboarding.video_call_cta_shown')).toHaveLength(1);
 
     const link = screen.getByTestId('welcome-video-call-cta').querySelector('a')!;
     await userEvent.click(link);
-
     expect(track.mock.calls.filter((c) => c[0] === 'onboarding.video_call_cta_clicked')).toHaveLength(1);
+  });
+
+  it('points the video at the v4 CDN asset (ac-19)', () => {
+    tagAc(AC(19));
+    renderPage();
+    const src = screen.getByTestId('welcome-video-player').getAttribute('src');
+    expect(src).toBe(
+      'https://storage.googleapis.com/memex-ai-prod-app-static/media/welcome-to-memex-v4.mp4',
+    );
   });
 
   it('keeps the spec-444 headline and subtitle copy unchanged (ac-22)', () => {

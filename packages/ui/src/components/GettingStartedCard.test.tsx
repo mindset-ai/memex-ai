@@ -60,11 +60,17 @@ describe('spec-460: GettingStartedCard', () => {
     expect(screen.getByTestId('getting-started-card')).toBeInTheDocument();
     expect(screen.getByTestId('getting-started-app-row')).toBeInTheDocument();
     expect(screen.getByTestId('getting-started-call-row')).toBeInTheDocument();
-    // Links point at the marketing pages with the sidebar-card source.
+    // Links point at the marketing pages with the sidebar-card source (ac-20:
+    // the booking row uses the neutral alias + src=sidebar-card, new tab, noopener).
+    tagAc(AC(20));
     expect(screen.getByTestId('getting-started-app-row')).toHaveAttribute(
       'href',
       'https://www.memex.ai/download?src=sidebar-card',
     );
+    const callLink = screen.getByTestId('getting-started-call-row').querySelector('a')!;
+    expect(callLink).toHaveAttribute('href', 'https://www.memex.ai/book-a-call?src=sidebar-card');
+    expect(callLink).toHaveAttribute('target', '_blank');
+    expect(callLink).toHaveAttribute('rel', 'noopener noreferrer');
   });
 
   it('hides the desktop-app row when MCP is connected, regardless of dismissal (ac-11)', () => {
@@ -75,7 +81,9 @@ describe('spec-460: GettingStartedCard', () => {
     expect(screen.queryByTestId('getting-started-app-row')).not.toBeInTheDocument();
     // Call row still there (not dismissed) → card still visible.
     expect(screen.getByTestId('getting-started-call-row')).toBeInTheDocument();
-    // The retirement signal fired.
+    // The retirement signal fired (ac-21: getting_started.app_row_retired).
+    tagAc(AC(21));
+    tagAc(AC(7));
     expect(track.mock.calls.filter((c) => c[0] === 'getting_started.app_row_retired')).toHaveLength(1);
   });
 

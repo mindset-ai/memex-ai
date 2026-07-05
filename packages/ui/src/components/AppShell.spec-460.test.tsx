@@ -85,6 +85,7 @@ afterEach(() => {
 describe('spec-460: account-menu fallback rows (ac-18)', () => {
   it('shows Download desktop app + Book a call, pointing at the marketing pages with ?src=account-menu', () => {
     tagAc(AC_MENU_FALLBACKS);
+    tagAc('mindset-prod/memex-building-itself/specs/spec-460/acs/ac-20'); // account-menu booking alias + src
     openMenu();
 
     const download = screen.getByTestId('user-menu-download-app');
