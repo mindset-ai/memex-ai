@@ -1,25 +1,23 @@
 // Journey 51 (spec-426) — Variant A: a fresh signup pinned to the CONTROL arm
-// (handhold_demo) gets spec-178's working handhold-demo walkthrough AND the standard
-// onboarding landing.
+// (handhold_demo) gets spec-178's working handhold-demo walkthrough on the Specs board.
 //
 // This is the std-28 / ac-16 surface for the experiment's control arm (spec-426 s-5,
 // ac-2). The control arm IS spec-178's existing demo: five is_demo Specs seeded into
 // the new personal memex, surfaced as a progressive-reveal walkthrough on the Specs
-// board. Crucially, a demo-only user's first-load landing is /home — `hasSpec`
-// deliberately EXCLUDES is_demo rows (journey-state.ts), so shouldLandOnHome() is true.
-// That is the ESTABLISHED, deliberate behavior locked by spec-421 ac-15 / spec-211: the
-// demo lives on the board to be discovered, it does NOT hijack the guidance-first Home
-// landing. (An earlier spec-426 attempt to reroute demo-only users onto the board was a
-// misdiagnosis that regressed spec-421 ac-15 and was reverted; if the demo is "broken"
-// in some other way, that needs a concrete repro before a fix.)
+// board. The demo deliberately does NOT light `hasSpec` (journey-state excludes is_demo
+// rows). spec-461 retired the automatic /home landing that spec-421 ac-15 previously
+// locked for such demo-only users — everyone now lands on their Specs board, which is
+// exactly where the demo already lives. (This is the routing an earlier spec-426 attempt
+// tried and reverted only because it then collided with spec-421 ac-15 — the behaviour
+// spec-461 has now deliberately retired.)
 //
 // What this journey pins:
 //   1. The demo walkthrough RENDERS and is NAVIGABLE on the Specs board: exactly one
 //      demo card shows at a time (progressive reveal), with the DEMO badge and the
 //      advance control; advancing walks the walkthrough to the next phase.
-//   2. From the bare origin `/`, a control (demo-only) user LANDS on /home — spec-421
-//      ac-15, unchanged. The control arm gives a fresh user spec-178's known-good
-//      onboarding, exactly as before the experiment existed.
+//   2. From the bare origin `/`, a control (demo-only) user LANDS on the Specs board
+//      (spec-461). The control arm gives a fresh user spec-178's known-good demo,
+//      unchanged by the experiment; only the landing target moved from /home to /specs.
 //
 // ── EXPERIMENT-ARM TEST HOOK ──────────────────────────────────────────────────
 // The default experiment ships INACTIVE (draft), so provisioning degrades every signup
@@ -46,7 +44,7 @@ const FILE =
   "packages/ui/e2e/journey-51-spec-426-variant-a-handhold.spec.ts";
 
 const TITLE =
-  "Variant A (control): a fresh signup gets spec-178's working, navigable handhold-demo walkthrough on the board AND the standard /home landing (spec-421 ac-15)";
+  "Variant A (control): a fresh signup gets spec-178's working, navigable handhold-demo walkthrough on the board AND lands on the Specs board (spec-461)";
 
 test.afterEach(async ({}, testInfo) => {
   // A skipped test (hook not yet mounted) emits nothing — spec-426's ACs stay
@@ -92,7 +90,8 @@ test(TITLE, async ({ page, resources }) => {
   await page.getByRole("button", { name: /^Continue$/ }).click();
   // spec-444: dismiss welcome video gate that fires for new users after name capture.
   await dismissWelcomeVideo(page);
-  await expect(page).toHaveURL(/\/home/, { timeout: 15_000 });
+  // spec-461: a fresh user now lands on their Specs board (the auto-/home landing was retired).
+  await expect(page).toHaveURL(/\/specs/, { timeout: 15_000 });
 
   // ── Pin the CONTROL arm + seed the handhold demo deterministically ───────────
   // The experiment-arm test hook (POST /api/__test__/seed-experiment-arm) is now
@@ -132,14 +131,14 @@ test(TITLE, async ({ page, resources }) => {
   // Still exactly one demo card after advancing (reveal pointer moved, not added).
   await expect(page.getByTestId("spec-demo-pill")).toHaveCount(1);
 
-  // ── 2. The control user's first-load landing is /home (spec-421 ac-15) ────────
-  // A demo-only user has hasSpec=false (journey-state excludes is_demo), so from the
-  // bare origin they land on the guidance-first Home — NOT the Specs board. This is the
-  // established, deliberate behavior (spec-421 ac-15 / spec-211); the demo walkthrough is
-  // reachable from the board (asserted above), never forced as the landing. The control
-  // arm gives a fresh user spec-178's known-good onboarding, unchanged by the experiment.
+  // ── 2. The control user's first-load landing is the Specs board (spec-461) ────
+  // spec-461 retired the automatic /home landing (which spec-421 ac-15 previously locked
+  // for demo-only users): every authenticated user now lands on their Specs board — exactly
+  // where the demo walkthrough already lives (asserted above). The control arm still gives a
+  // fresh user spec-178's known-good demo; only the landing target changed. (The demo does
+  // not light hasSpec — journey-state excludes is_demo — proven at the unit/journey-state
+  // level; post-461 the landing no longer signals hasSpec.)
   await page.goto(bareUrl("/"));
-  await expect(page).toHaveURL(/\/home(\?|#|$)/, { timeout: 15_000 });
-  await expect(page.getByTestId("home-canvas")).toBeVisible({ timeout: 15_000 });
-  await expect(page).not.toHaveURL(/\/specs(\?|#|$)/);
+  await expect(page).toHaveURL(/\/specs(\?|#|$)/, { timeout: 15_000 });
+  await expect(page).not.toHaveURL(/\/home(\?|#|$)/);
 });

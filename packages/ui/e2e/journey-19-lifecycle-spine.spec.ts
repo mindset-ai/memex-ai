@@ -258,8 +258,7 @@ test(
     await expect(page.getByText(email)).toBeVisible();
 
     // Continue — spec-441: the user has no name, so the name-capture gate fires before
-    // /home. The user is intercepted at /onboarding, fills in a name, then lands on
-    // /home where spec-433's create-spec step (FIRST_STEP_ID) renders.
+    // they reach the app. The user is intercepted at /onboarding and fills in a name.
     await page.getByRole("button", { name: /Continue to your Memex/ }).click();
 
     await expect(page).toHaveURL(/\/onboarding/, { timeout: 15_000 });
@@ -268,8 +267,9 @@ test(
     // spec-444: dismiss welcome video gate that fires for new users after name capture.
     await dismissWelcomeVideo(page);
 
-    // After naming, the user lands on /home with the standard Home Canvas.
-    await expect(page.getByTestId("getting-started-title")).toBeVisible({ timeout: 15_000 });
+    // spec-461: after naming, the user lands directly on their personal-memex Specs board
+    // (the automatic /home landing was retired; Home is reachable only by explicit nav).
+    await expect(page).toHaveURL(/\/specs(\?|#|$)/, { timeout: 15_000 });
 
     // Navigate to the personal-memex Specs board as the NEW user (not dev@memex.ai).
     await gotoSpecsBoard(page, email);
