@@ -12,6 +12,7 @@ import { useHiddenFeatures } from '../hooks/useIsFeatureHidden';
 import { MemexSwitcher } from './MemexSwitcher';
 import { InviteMembersDialog } from './InviteMembersDialog';
 import { PublicAuthButtons, ReadOnlyBadge } from './PublicAccessControls';
+import { GettingStartedCard } from './GettingStartedCard';
 import { useMemexAccess } from '../hooks/useMemexAccess';
 import { emailPreviewEnabled } from '../utils/devTools';
 import { HeaderSlotProvider, useHeaderSlotContent } from './HeaderSlot';
@@ -284,6 +285,25 @@ function LogoutIcon() {
   return (
     <svg className={MENU_ICON_CLASS} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75} aria-hidden="true">
       <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75" />
+    </svg>
+  );
+}
+
+// spec-460: desktop-download + book-a-call icons for the account-menu fallback rows.
+function DesktopDownloadIcon() {
+  return (
+    <svg className={MENU_ICON_CLASS} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75} aria-hidden="true">
+      <rect x="2.75" y="4" width="18.5" height="12.5" rx="2" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M8 20.5h8M12 16.5v4" />
+    </svg>
+  );
+}
+
+function BookCallIcon() {
+  return (
+    <svg className={MENU_ICON_CLASS} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75} aria-hidden="true">
+      <rect x="3" y="4.5" width="18" height="16" rx="2" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M3 9.5h18M8 2.5v4M16 2.5v4" />
     </svg>
   );
 }
@@ -565,6 +585,31 @@ function SidebarUserCard({
           <UserMenuLink to="/welcome?rewatch=1" icon={<PlayCircleIcon />} onClick={() => setOpen(false)}>
             Watch intro video
           </UserMenuLink>
+          {/* spec-460: long-tail fallbacks for the two CTAs — always present so
+              dismissing the Getting Started card never loses either action. External
+              marketing-site links (download page + booking alias), new tab. */}
+          <a
+            href="https://www.memex.ai/download?src=account-menu"
+            target="_blank"
+            rel="noopener noreferrer"
+            data-testid="user-menu-download-app"
+            onClick={() => setOpen(false)}
+            className={USER_MENU_ITEM_CLASS}
+          >
+            <DesktopDownloadIcon />
+            Download desktop app
+          </a>
+          <a
+            href="https://www.memex.ai/book-a-call?src=account-menu"
+            target="_blank"
+            rel="noopener noreferrer"
+            data-testid="user-menu-book-a-call"
+            onClick={() => setOpen(false)}
+            className={USER_MENU_ITEM_CLASS}
+          >
+            <BookCallIcon />
+            Book a call
+          </a>
           <UserMenuDivider />
           <button
             onClick={() => {
@@ -936,6 +981,9 @@ export function AppShell({ children }: { children: ReactNode }) {
           <div className="border-t border-edge p-3 space-y-2">
             {/* Read-only badge for a signed-in non-member on a public Memex. */}
             {access.isAuthenticated && access.isVisitedReadOnly && <ReadOnlyBadge />}
+            {/* spec-460: Getting Started card — desktop-app + book-a-call, above the
+                user card. Self-retiring; renders null once its rows are done/dismissed. */}
+            {user && <GettingStartedCard userId={user.id} />}
             {user && (
               <SidebarUserCard
                 user={user}
