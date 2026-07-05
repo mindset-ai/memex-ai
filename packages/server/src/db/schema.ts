@@ -3043,6 +3043,13 @@ export const usageEvents = pgTable(
     props: jsonb("props"),
     // Server-derived environment stamp (spec-244 dec-9). Unspoofable by the client.
     env: text("env").notNull(),
+    // spec-458 dec-9 — coarse location from the GCLB geo header at telemetry
+    // ingress, rounded to 1 decimal degree BEFORE persistence (services/geo.ts).
+    // Chosen over presence for the human-side geo home because usage_events is
+    // RLS-EXCLUDED (the /live global aggregate can read it) while presence is
+    // RLS-scoped. Nullable: no header → no location.
+    geoLat: doublePrecision("geo_lat"),
+    geoLng: doublePrecision("geo_lng"),
     // When the event occurred. Defaults to insert time; the route may supply the
     // client-observed occurrence time for front-end events.
     occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
@@ -3788,6 +3795,11 @@ export const mcpSessions = pgTable(
     userAgent: text("user_agent"),
     clientInfo: jsonb("client_info"),
     ipAddress: inet("ip_address"),
+    // spec-458 dec-9 — coarse location from the GCLB geo header, rounded to
+    // 1 decimal degree BEFORE persistence (services/geo.ts). Nullable: traffic
+    // that bypasses the LB (local dev, direct Cloud Run) carries no header.
+    geoLat: doublePrecision("geo_lat"),
+    geoLng: doublePrecision("geo_lng"),
     startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
   },

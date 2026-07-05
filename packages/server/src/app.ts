@@ -34,6 +34,7 @@ import { analytics } from "./routes/analytics.js";
 import { telemetryRouter } from "./routes/telemetry.js";
 import { anonTelemetryRouter } from "./routes/anon-telemetry.js";
 import { waitlist } from "./routes/waitlist.js";
+import { live } from "./routes/live.js";
 import { auth } from "./routes/auth.js";
 import { invitesAcceptRouter, invitesAdminRouter } from "./routes/invites.js";
 import { teamRouter } from "./routes/team.js";
@@ -80,6 +81,7 @@ import { verifyAccessToken } from "./services/oauth/access-tokens.js";
 import { isDevMode, ensureDevMemberships } from "./middleware/session.js";
 import { upsertUserByEmail } from "./services/users.js";
 import { upsertSession, parseClientIp } from "./services/mcp-telemetry.js";
+import { parseGeoHeader, GEO_LATLONG_HEADER } from "./services/geo.js";
 import { recordMcpConnected } from "./services/funnel-events.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { readFile } from "node:fs/promises";
@@ -375,6 +377,10 @@ app.route("/guide/v1", createGuidePublicRouter(upgradeWebSocket));
 // Caller-scoped + public surfaces — stay flat (no path prefix). These have no
 // per-memex semantics, so prefixing them would be noise.
 app.route("/api/waitlist", waitlist);
+// spec-458 (PROTOTYPE) — PUBLIC global live-stats aggregate behind memex.ai/live.
+// Flat + tenant-less + NO session middleware (the /api/health pattern): the
+// payload is aggregates + a templated ticker only. Kill switch inside the router.
+app.route("/api/live", live);
 // spec-324 — the ANONYMOUS-capable engagement ingress (the spec-244 retrofit).
 // Flat + tenant-less + PERMISSIVE publicSessionMiddleware so a PRE-AUTH visitor
 // (no user, no memex) is captured keyed on the consent-gated visitor_id — the
@@ -708,12 +714,18 @@ app.all("/mcp", async (c) => {
   // (~1ms local, ~10ms cross-region) which is noise compared to the tool
   // work itself. upsertSession swallows errors internally so a DB hiccup
   // can't break the MCP request path even though we await it here.
+  // spec-458 dec-9: the LB stamps X-Client-Geo-Latlong on requests through
+  // memex-app-lb; parseGeoHeader rounds to 1 decimal degree before anything
+  // is persisted. Null when the header is absent (local dev, direct Cloud Run).
+  const geo = parseGeoHeader(c.req.header(GEO_LATLONG_HEADER));
   await upsertSession({
     sessionId,
     userId,
     userAgent,
     clientInfo,
     ipAddress,
+    geoLat: geo?.lat ?? null,
+    geoLng: geo?.lng ?? null,
   });
 
   // spec-297 (funnel stage 3, agent connected): the MCP `initialize` handshake is
