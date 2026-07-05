@@ -157,7 +157,7 @@ export function GettingStartedCard({ userId }: { userId: string }) {
   return (
     <div
       data-testid="getting-started-card"
-      className="rounded-lg border border-edge bg-overlay/40 p-2"
+      className="rounded-lg border border-edge bg-overlay p-2"
     >
       <div className="flex items-center justify-between px-1 pb-1.5">
         <span className="text-[10px] font-semibold uppercase tracking-wider text-muted">

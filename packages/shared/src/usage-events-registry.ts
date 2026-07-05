@@ -229,6 +229,54 @@ export const USAGE_EVENT_REGISTRY = [
       "The user dismissed/skipped the first-run welcome video BEFORE completion (WelcomePage Get-started / Skip / × close, spec-444). Fires at most once per view and only when the video has not already completed. props.video_id, props.position_seconds, props.duration_seconds, props.percent_watched (0–100, NaN-guarded) — counts only.",
     source: "frontend",
   },
+  {
+    name: "onboarding.video_call_cta_shown",
+    description:
+      "The 'book a call' line on the welcome video revealed once the viewer crossed ~85% of the v4 video, or it ended (WelcomePage, spec-460). Fires at most once per view. props.video_id, props.position_seconds, props.duration_seconds, props.percent_watched — counts only.",
+    source: "frontend",
+  },
+  {
+    name: "onboarding.video_call_cta_clicked",
+    description:
+      "The viewer clicked the revealed 'book a 30-minute call' link on the welcome video (WelcomePage, spec-460), opening the /book-a-call alias in a new tab. props.video_id + playback counts only.",
+    source: "frontend",
+  },
+  {
+    name: "getting_started.card_shown",
+    description:
+      "The Getting Started sidebar card became visible for the first time this session (AppShell, spec-460). Fires at most once per session. No content props — counts only.",
+    source: "frontend",
+  },
+  {
+    name: "getting_started.app_row_clicked",
+    description:
+      "The user clicked the 'Get the desktop app' row in the Getting Started card (spec-460), opening the /download page. Counts only.",
+    source: "frontend",
+  },
+  {
+    name: "getting_started.call_row_clicked",
+    description:
+      "The user clicked the 'Book a 30-min call' row in the Getting Started card (spec-460), opening the /book-a-call alias. Counts only.",
+    source: "frontend",
+  },
+  {
+    name: "getting_started.call_row_dismissed",
+    description:
+      "The user dismissed the 'Book a 30-min call' row (× ) in the Getting Started card (spec-460). Counts only.",
+    source: "frontend",
+  },
+  {
+    name: "getting_started.card_dismissed",
+    description:
+      "The user dismissed the whole Getting Started card (card-level ×) (spec-460). Counts only.",
+    source: "frontend",
+  },
+  {
+    name: "getting_started.app_row_retired",
+    description:
+      "The desktop-app row retired itself because the user's MCP is connected (spec-434 milestone observed, spec-460). Fires at most once per session. Counts only.",
+    source: "frontend",
+  },
   // ── Back-end outcomes (whitelisted mutate() events, dec-8) ───────────────────
   // Name is EXACTLY `${entity}.${action}` so the t-3 whitelist maps 1:1.
   {
