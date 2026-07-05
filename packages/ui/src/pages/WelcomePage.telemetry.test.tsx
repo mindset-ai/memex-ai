@@ -2,6 +2,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
+import { tagAc } from '@memex-ai-ac/vitest';
+
+// spec-460 acceptance criteria (mindset-prod/memex-building-itself).
+const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-460/acs/ac-${n}`;
 
 // spec-444 welcome-video instrumentation. The onboarding.video_* events ride the
 // SAME analytics client as every other front-end signal — useTelemetry().track()
@@ -59,7 +63,7 @@ describe('WelcomePage — onboarding.video_* telemetry', () => {
     const started = track.mock.calls.filter((c) => c[0] === 'onboarding.video_started');
     expect(started).toHaveLength(1);
     expect(started[0][1]).toEqual({
-      video_id: 'welcome-to-memex-v2',
+      video_id: 'welcome-to-memex-v4',
       position_seconds: 3,
       duration_seconds: 120,
       percent_watched: 3, // 3/120 = 2.5 → rounded
@@ -76,7 +80,7 @@ describe('WelcomePage — onboarding.video_* telemetry', () => {
 
     const completed = track.mock.calls.filter((c) => c[0] === 'onboarding.video_completed');
     expect(completed).toHaveLength(1);
-    expect(completed[0][1]).toMatchObject({ video_id: 'welcome-to-memex-v2', percent_watched: 100 });
+    expect(completed[0][1]).toMatchObject({ video_id: 'welcome-to-memex-v4', percent_watched: 100 });
   });
 
   it('fires onboarding.video_skipped ONCE when the CTA dismisses before completion', async () => {
@@ -89,7 +93,7 @@ describe('WelcomePage — onboarding.video_* telemetry', () => {
 
     const skipped = track.mock.calls.filter((c) => c[0] === 'onboarding.video_skipped');
     expect(skipped).toHaveLength(1);
-    expect(skipped[0][1]).toMatchObject({ video_id: 'welcome-to-memex-v2', position_seconds: 10 });
+    expect(skipped[0][1]).toMatchObject({ video_id: 'welcome-to-memex-v4', position_seconds: 10 });
     await waitFor(() => expect(dismissWelcomeVideoApi).toHaveBeenCalled());
   });
 
@@ -124,5 +128,100 @@ describe('WelcomePage — onboarding.video_* telemetry', () => {
 
     const started = track.mock.calls.find((c) => c[0] === 'onboarding.video_started');
     expect(started?.[1]).toMatchObject({ percent_watched: 0, duration_seconds: 0 });
+  });
+});
+
+// spec-460 dec-1/dec-7: the "book a call" line is hidden during playback, revealed
+// once the viewer is ≥85% through (or the video ends), links to the neutral booking
+// alias in a new tab, and never gates the path to /specs.
+describe('WelcomePage — spec-460 book-a-call reveal', () => {
+  beforeEach(() => {
+    track.mockClear();
+    updateSession.mockClear();
+    dismissWelcomeVideoApi.mockClear();
+    sessionStorage.clear();
+  });
+
+  it('hides the call CTA before the reveal threshold and shows it after, linking to the alias in a new tab (ac-8)', () => {
+    tagAc(AC(8));
+    renderPage();
+    const cta = screen.getByTestId('welcome-video-call-cta');
+    const link = cta.querySelector('a')!;
+
+    // Hidden pre-reveal: aria-hidden, not focusable, no shown event.
+    expect(cta).toHaveAttribute('aria-hidden', 'true');
+    expect(link).toHaveAttribute('tabindex', '-1');
+    expect(track.mock.calls.filter((c) => c[0] === 'onboarding.video_call_cta_shown')).toHaveLength(0);
+
+    const video = screen.getByTestId('welcome-video-player') as HTMLVideoElement;
+    stubPlayback(video, 90, 100); // 90% > 85% threshold
+    fireEvent.timeUpdate(video);
+
+    expect(cta).toHaveAttribute('aria-hidden', 'false');
+    expect(link).toHaveAttribute('tabindex', '0');
+    expect(link).toHaveAttribute('href', 'https://www.memex.ai/book-a-call?src=welcome-video');
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+    // Primary CTA (dec-1: no interstitial, path to /specs unchanged) still present.
+    expect(screen.getByTestId('welcome-video-cta')).toBeInTheDocument();
+  });
+
+  it('reveals at ≥85% via playback/seek, and via ended, and stays shown once revealed (fires once) (ac-9)', () => {
+    tagAc(AC(9));
+    renderPage();
+    const cta = screen.getByTestId('welcome-video-call-cta');
+    const video = screen.getByTestId('welcome-video-player') as HTMLVideoElement;
+
+    // Below threshold: still hidden.
+    stubPlayback(video, 50, 100);
+    fireEvent.timeUpdate(video);
+    expect(cta).toHaveAttribute('aria-hidden', 'true');
+
+    // Cross threshold: revealed.
+    stubPlayback(video, 86, 100);
+    fireEvent.timeUpdate(video);
+    expect(cta).toHaveAttribute('aria-hidden', 'false');
+
+    // Seek back below threshold: stays revealed (no re-hide).
+    stubPlayback(video, 10, 100);
+    fireEvent.timeUpdate(video);
+    expect(cta).toHaveAttribute('aria-hidden', 'false');
+
+    // The shown event fired exactly once across all those updates.
+    expect(track.mock.calls.filter((c) => c[0] === 'onboarding.video_call_cta_shown')).toHaveLength(1);
+  });
+
+  it('reveals on ended even if timeupdate never crossed the threshold (ac-9)', () => {
+    tagAc(AC(9));
+    renderPage();
+    const cta = screen.getByTestId('welcome-video-call-cta');
+    const video = screen.getByTestId('welcome-video-player') as HTMLVideoElement;
+
+    stubPlayback(video, 100, 100);
+    fireEvent.ended(video);
+    expect(cta).toHaveAttribute('aria-hidden', 'false');
+  });
+
+  it('fires onboarding.video_call_cta_clicked when the revealed link is clicked', async () => {
+    tagAc(AC(8));
+    renderPage();
+    const video = screen.getByTestId('welcome-video-player') as HTMLVideoElement;
+    stubPlayback(video, 90, 100);
+    fireEvent.timeUpdate(video);
+
+    const link = screen.getByTestId('welcome-video-call-cta').querySelector('a')!;
+    await userEvent.click(link);
+
+    expect(track.mock.calls.filter((c) => c[0] === 'onboarding.video_call_cta_clicked')).toHaveLength(1);
+  });
+
+  it('keeps the spec-444 headline and subtitle copy unchanged (ac-22)', () => {
+    tagAc(AC(22));
+    renderPage();
+    expect(screen.getByText("Let's dive in.")).toBeInTheDocument();
+    expect(
+      screen.getByText(/Here's a quick look to get you started with Memex\./),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Hit play to start.')).toBeInTheDocument();
   });
 });
