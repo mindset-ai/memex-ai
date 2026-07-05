@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { tagAc } from '@memex-ai-ac/vitest';
 
 // spec-460 acceptance criteria (mindset-prod/memex-building-itself).
@@ -235,5 +235,32 @@ describe('WelcomePage — spec-460 book-a-call reveal', () => {
       screen.getByText(/Here's a quick look to get you started with Memex\./),
     ).toBeInTheDocument();
     expect(screen.getByText('Hit play to start.')).toBeInTheDocument();
+  });
+});
+
+// Rewatch-mode exit ("Back to Memex" / ×) lands on the specs board, not wherever
+// the user opened rewatch from (INT feedback: it dropped users on Home).
+describe('WelcomePage — rewatch exit destination', () => {
+  function renderRewatch() {
+    return render(
+      <MemoryRouter initialEntries={['/welcome?rewatch=1']}>
+        <Routes>
+          <Route path="/welcome" element={<WelcomePage />} />
+          <Route path="/specs" element={<div data-testid="specs-board">specs</div>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+  }
+
+  it('"Back to Memex" navigates to /specs', async () => {
+    renderRewatch();
+    await userEvent.click(screen.getByTestId('welcome-video-back'));
+    expect(screen.getByTestId('specs-board')).toBeInTheDocument();
+  });
+
+  it('× close in rewatch mode also navigates to /specs', async () => {
+    renderRewatch();
+    await userEvent.click(screen.getByTestId('welcome-video-close'));
+    expect(screen.getByTestId('specs-board')).toBeInTheDocument();
   });
 });

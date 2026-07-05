@@ -138,8 +138,12 @@ export function WelcomePage() {
     navigate('/specs', { replace: true });
   }, [trackSkip, navigate]);
 
+  // Rewatch exit (Back to Memex / × in rewatch mode) lands on the specs board,
+  // consistent with the two first-run exits above. navigate(-1) used to send the
+  // user back to wherever they opened rewatch from (e.g. Home), which is not where
+  // they expect to land after the video.
   const rewatchExit = useCallback(() => {
-    navigate(-1);
+    navigate('/specs', { replace: true });
   }, [navigate]);
 
   return (
