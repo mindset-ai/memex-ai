@@ -20,6 +20,10 @@ import { emailPreviewEnabled } from './utils/devTools';
 // stay eagerly imported below — splitting them would only add Suspense
 // boundaries on the critical path with no payload win.
 const Pulse = lazy(() => import('./pages/Pulse').then((m) => ({ default: m.Pulse })));
+// spec-458 (PROTOTYPE) — the public live proof-of-life page. Fully public
+// (rendered outside AuthProvider below, the /share pattern) and lazy so its
+// world-map asset never rides the authenticated bundles.
+const LivePage = lazy(() => import('./pages/live/LivePage').then((m) => ({ default: m.LivePage })));
 const Insights = lazy(() => import('./pages/Insights').then((m) => ({ default: m.Insights })));
 const QaReports = lazy(() => import('./pages/QaReports').then((m) => ({ default: m.QaReports })));
 const Decisions = lazy(() => import('./pages/Decisions').then((m) => ({ default: m.Decisions })));
@@ -736,6 +740,7 @@ export function App() {
   if (
     location.pathname.startsWith('/verify-domain/') ||
     location.pathname.startsWith('/share/') ||
+    location.pathname === '/live' ||
     location.pathname === '/backstage' ||
     location.pathname.startsWith('/backstage/')
   ) {
@@ -745,6 +750,8 @@ export function App() {
           <Routes>
             <Route path="/verify-domain/:token" element={<VerifyDomain />} />
             <Route path="/share/:token" element={<SharedDocument />} />
+            {/* spec-458 (PROTOTYPE): public proof-of-life page — no auth, no tenant. */}
+            <Route path="/live" element={<LivePage />} />
             <Route path="/backstage" element={<Backstage />} />
             <Route path="/backstage/experiments" element={<BackstageExperiments />} />
           </Routes>

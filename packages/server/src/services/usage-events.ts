@@ -61,6 +61,9 @@ export interface RecordUsageEventInput {
   env?: UsageEnv;
   /** When the event occurred (defaults to insert time). */
   occurredAt?: Date;
+  /** spec-458 dec-9 — city-rounded coords from the LB geo header; null off-LB. */
+  geoLat?: number | null;
+  geoLng?: number | null;
 }
 
 /**
@@ -91,6 +94,8 @@ export async function recordUsageEvent(
         source: input.source,
         props: input.props ?? null,
         env: input.env ?? resolveEnv(),
+        geoLat: input.geoLat ?? null,
+        geoLng: input.geoLng ?? null,
         ...(input.occurredAt ? { occurredAt: input.occurredAt } : {}),
       })
       .returning();
