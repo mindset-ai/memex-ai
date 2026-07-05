@@ -13,17 +13,18 @@
 // What this journey pins:
 //   1. The "Understanding Memex" starter spec IS present on the user's board, and it
 //      is NOT a demo (no DEMO badge anywhere — Variant B replaced the frozen demo).
-//   2. Despite that spec, hasSpec is still FALSE: from `/` the user lands on /home (the
-//      landing predicate is `!hasSpec`), and the create-first-spec onboarding step is
-//      NOT marked done.
-//   3. When the user authors their OWN (non-demo, user-attributed) spec, hasSpec flips
-//      true and `/` now lands them on the Specs board — onboarding advances only on
-//      THEIR spec, never on the seeded one.
+//   2. Despite that spec, hasSpec is still FALSE. spec-461 retired the auto-/home landing,
+//      so hasSpec no longer shows in the landing target; we observe it via the onboarding
+//      canvas (reached by explicit /home nav): the user is still parked on the Connect-MCP
+//      step and create-first-spec is not done — the seed did not advance onboarding.
+//   3. When the user authors their OWN (non-demo, user-attributed) spec, it appears on the
+//      board DISTINCT from the seeded starter spec — the required authorship that lights the
+//      hasSpec milestone (computed in journey-state.ts, unit-covered).
 //
-// Unlike the Variant-A journey, steps 1–3 do NOT depend on the Integrate landing fix —
-// they exercise the CURRENT landing predicate (shouldLandOnHome = !hasSpec). The only
-// prerequisite is the experiment-arm test hook (see helpers/experiments.ts); that hook
-// (`POST /api/__test__/seed-experiment-arm`) is now mounted, so this journey runs for real.
+// The invariant under test (system-attributed seed never lights hasSpec) is unchanged by
+// spec-461; only the OBSERVABLE moved from the /home landing to the onboarding canvas +
+// board. The prerequisite is the experiment-arm test hook (see helpers/experiments.ts); that
+// hook (`POST /api/__test__/seed-experiment-arm`) is now mounted, so this journey runs for real.
 
 import {
   test,
@@ -86,8 +87,10 @@ test(TITLE, async ({ page, resources }) => {
   await page.getByPlaceholder("Your display name").fill("Variant B User");
   await page.getByRole("button", { name: /^Continue$/ }).click();
   // spec-444: dismiss welcome video gate that fires for new users after name capture.
+  // (Clicking the CTA sets welcomeVideoDismissed for this session.)
   await dismissWelcomeVideo(page);
-  await expect(page).toHaveURL(/\/home/, { timeout: 15_000 });
+  // spec-461: a fresh user now lands on their Specs board (the auto-/home landing was retired).
+  await expect(page).toHaveURL(/\/specs/, { timeout: 15_000 });
 
   // ── Pin the TREATMENT arm + seed the starter spec deterministically ──────────
   // The experiment-arm test hook (POST /api/__test__/seed-experiment-arm) is now
@@ -109,29 +112,25 @@ test(TITLE, async ({ page, resources }) => {
   await expect(page.getByTestId("spec-demo-pill")).toHaveCount(0);
 
   // ── 2. The starter spec does NOT satisfy hasSpec (it is system-attributed) ────
-  // From the bare origin, the landing predicate is `!hasSpec`. A user whose only spec
-  // is the system-attributed starter spec still has hasSpec=false, so they land on
-  // /home — NOT the Specs board. This is the ac-3 invariant, observed end-to-end.
-  await page.goto(bareUrl("/"));
-  await expect(page).toHaveURL(/\/home(\?|#|$)/, { timeout: 15_000 });
-  await expect(page).not.toHaveURL(/\/specs(\?|#|$)/);
-  await expect(page.getByTestId("home-canvas")).toBeVisible({ timeout: 15_000 });
-
-  // The hasSpec=false proof is the /home landing above (the landing predicate is exactly
-  // `!hasSpec`) and step 3 below (authoring the user's OWN spec flips the landing to
-  // /specs). The onboarding canvas can't add to that proof: it is hard-gated + linear and
-  // renders only the CURRENT step. A user who hasn't connected MCP is parked on the connect
-  // step ("Connect to the Memex MCP", gated by mcpConnected) — strictly BEFORE the
-  // create-first-spec gate (gated by hasSpec) — so create-first-spec is never rendered and
-  // its "Created" done badge is necessarily absent. We assert that reality directly.
+  // Post-461 the landing is /specs regardless of hasSpec, so it no longer signals whether the
+  // user is engaged. We inspect onboarding progress directly by navigating to /home (still
+  // reachable by explicit nav): the onboarding canvas is hard-gated + linear and renders only
+  // the CURRENT step. With the starter spec system-attributed (hasSpec=false) and MCP not yet
+  // connected, the user is parked on the Connect-MCP step — strictly BEFORE the create-first-
+  // spec gate (gated by hasSpec) — so create-first-spec is never rendered and its "Created"
+  // done badge is necessarily absent. That is the ac-3 invariant: the seeded starter spec did
+  // NOT advance the user's onboarding.
+  await page.goto(bareUrl("/home"));
   await expect(
     page.getByRole("heading", { level: 2, name: /Connect to the Memex MCP/ }),
   ).toBeVisible({ timeout: 15_000 });
   await expect(page.getByTestId("create-first-spec-done")).toHaveCount(0);
 
-  // ── 3. The user authors THEIR OWN spec → hasSpec lights → onboarding advances ─
-  // Seed a real, user-attributed (non-demo) spec the way the user creating their
-  // first spec would — createdByUserId = the new user, is_demo=false.
+  // ── 3. The user authors THEIR OWN spec — the action ac-3 says is required ─────
+  // Seed a real, user-attributed (non-demo) spec the way the user creating their first spec
+  // would — createdByUserId = the new user, is_demo=false. It now sits on the board DISTINCT
+  // from the system-attributed starter spec: proof the user's own authorship (the event that
+  // lights the hasSpec milestone in journey-state.ts, unit-covered) is separate from the seed.
   const memex = await getPersonalMemexByEmail(email);
   if (!memex) throw new Error("variant-B user has no personal memex");
   await seedSpecInMemex({
@@ -140,9 +139,10 @@ test(TITLE, async ({ page, resources }) => {
     createdByUserId: userId,
   });
 
-  // hasSpec is now true → `/` lands on the Specs board, not /home. Proof the journey
-  // advances ONLY on the user's own spec, never on the seeded starter spec.
-  await page.goto(bareUrl("/"));
-  await expect(page).toHaveURL(/\/specs(\?|#|$)/, { timeout: 15_000 });
-  await expect(page).not.toHaveURL(/\/home(\?|#|$)/);
+  await gotoSpecsBoard(page, email);
+  await expect(
+    page.getByRole("heading", { name: "My own first spec (variant B journey)" }),
+  ).toBeVisible({ timeout: 15_000 });
+  // The seeded starter spec is still present too — the two are distinct.
+  await expect(page.getByRole("heading", { name: STARTER_SPEC_TITLE })).toBeVisible();
 });
