@@ -56,6 +56,8 @@ const NON_TENANT_API_PREFIXES = [
   "/api/oauth",
   "/api/onboarding/",
   "/api/onboarding", // exact — spec-206 first-run greeting gate (user-level)
+  "/api/internal/",
+  "/api/internal", // exact — spec-453 t-6 machine lifecycle tick (non-tenant, scheduler-only)
   "/api/install",
   "/install.sh",
   "/install.ps1",
@@ -124,6 +126,12 @@ const RESERVED_API_ROOTS = new Set([
   // before the webhook router runs, so Postmark deliveries never update comms_log.
   // (Same class of bug as spec-171's "stripe" entry.)
   "postmark",
+  // spec-453 t-6: the machine lifecycle-tick mounts at /api/internal/lifecycle-tick
+  // (non-tenant; a shared bearer secret is the auth). Without this, parseMemexPath reads
+  // "/api/internal/lifecycle-tick" as namespace=internal / memex=lifecycle-tick and 404s
+  // before the router runs, so Cloud Scheduler could never trigger the drip / Day-12 pass.
+  // (Same class of bug as the stripe / postmark webhook entries above.)
+  "internal",
 ]);
 
 // Parses `/<namespace>/<memex>/...` or `/api/<namespace>/<memex>/...` from a

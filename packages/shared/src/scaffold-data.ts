@@ -938,6 +938,12 @@ const TOOL_RATIONALES: Record<string, string> = {
     'Create a new Spec (or other docType). The promoteFromTaskRef flag preserves lineage when a task scopes out into its own Spec.',
   update_doc:
     'Status + title mutations. Drives Specs through the draft→specify→build→verify→done lifecycle.',
+  create_tag:
+    'Coin a new tag in the Memex\'s shared vocabulary — a `scope::value` or flat label. Blocks (case-insensitively, naming the clash) on a duplicate rather than minting a near-copy. Catalogue-only; attaching a tag to a Spec is update_doc.',
+  rename_tag:
+    'Rename an existing catalogue tag; the new name flows to every Spec that carried it in one operation. Refuses (no change) if it would duplicate another tag or leave a Spec with two values of one scope.',
+  delete_tag:
+    'Remove a tag from the vocabulary; it drops off every Spec that carried it, leaving those Specs otherwise intact. Irreversible, never blocked, one tag per call.',
   add_section:
     'Append a new typed section to a document. The (doc, sectionType) pair is unique within a doc.',
   update_section:

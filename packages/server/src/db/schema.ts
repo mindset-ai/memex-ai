@@ -1570,6 +1570,16 @@ export const users = pgTable("users", {
   // one-click List-Unsubscribe link. Scope is LIFECYCLE ONLY — transactional/auth email
   // and the spec-428 welcome ignore this flag and always send (ac-11 scope / ac-12).
   lifecycleEmailUnsubscribedAt: timestamp("lifecycle_email_unsubscribed_at", { withTimezone: true }),
+  // spec-453 (dec-9/dec-10): the "See it verified" activation-email GATE SENTINEL,
+  // NOT a true first-verify timestamp. Null = this user has never had an acceptance
+  // criterion verified (and so is still eligible for the one-time milestone email);
+  // a timestamp = the milestone has been consumed (email sent, or the user was a
+  // pre-existing account backfilled to deploy-time at go-live so the back-catalog is
+  // excluded — dec-10). Stamped once, atomically, on the first attributed `verified`
+  // emission (never on a manual `accepted`). NO DEFAULT on purpose: a default would
+  // auto-stamp every signup and make nobody eligible. Do NOT read this as analytics —
+  // for backfilled rows it is deploy-time, not when they actually first verified.
+  firstAcVerifiedAt: timestamp("first_ac_verified_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
@@ -1787,12 +1797,22 @@ export const tags = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    // Canonicalises a tag to one row per Memex (dec-1). nullsNotDistinct is
-    // essential: without it two flat `bug` tags (scope = NULL) would both be
-    // allowed (NULL <> NULL in a default unique), defeating canonicalisation.
-    unique("tags_memex_scope_value_unique")
-      .on(table.memexId, table.scope, table.value)
-      .nullsNotDistinct(),
+    // spec-418 dec-8: uniqueness is CASE-INSENSITIVE — a lower(scope), lower(value)
+    // expression unique index (replacing spec-136's case-sensitive constraint), so a
+    // case-variant (`API` vs `api`) can't fork a tag; display keeps the first writer's
+    // casing. nullsNotDistinct is still essential: without it two flat `bug` tags
+    // (scope = NULL → lower(scope) = NULL) would both be allowed (NULL <> NULL in a
+    // default unique), defeating canonicalisation. NOTE: drizzle 0.45.2's index
+    // builder can't express NULLS NOT DISTINCT (only the unique-CONSTRAINT builder
+    // can), so the AUTHORITATIVE DDL — including `NULLS NOT DISTINCT` — lives in the
+    // hand-written migration drizzle/0125_spec418_tag_case_fold.sql; this entry keeps
+    // schema.ts honest about the index's name and expression columns (the
+    // db-schema-drift gate diffs columns only).
+    uniqueIndex("tags_memex_scope_value_ci_unique").on(
+      table.memexId,
+      sql`lower(${table.scope})`,
+      sql`lower(${table.value})`,
+    ),
     index("tags_memex_id_idx").on(table.memexId),
   ]
 );
@@ -3033,6 +3053,13 @@ export const usageEvents = pgTable(
     props: jsonb("props"),
     // Server-derived environment stamp (spec-244 dec-9). Unspoofable by the client.
     env: text("env").notNull(),
+    // spec-458 dec-9 — coarse location from the GCLB geo header at telemetry
+    // ingress, rounded to 1 decimal degree BEFORE persistence (services/geo.ts).
+    // Chosen over presence for the human-side geo home because usage_events is
+    // RLS-EXCLUDED (the /live global aggregate can read it) while presence is
+    // RLS-scoped. Nullable: no header → no location.
+    geoLat: doublePrecision("geo_lat"),
+    geoLng: doublePrecision("geo_lng"),
     // When the event occurred. Defaults to insert time; the route may supply the
     // client-observed occurrence time for front-end events.
     occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
@@ -3778,6 +3805,11 @@ export const mcpSessions = pgTable(
     userAgent: text("user_agent"),
     clientInfo: jsonb("client_info"),
     ipAddress: inet("ip_address"),
+    // spec-458 dec-9 — coarse location from the GCLB geo header, rounded to
+    // 1 decimal degree BEFORE persistence (services/geo.ts). Nullable: traffic
+    // that bypasses the LB (local dev, direct Cloud Run) carries no header.
+    geoLat: doublePrecision("geo_lat"),
+    geoLng: doublePrecision("geo_lng"),
     startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
   },

@@ -49,6 +49,7 @@ export type {
 // ToolSpec arrays into the single `toolSpecs` catalogue (std-12).
 import {
   docsTools,
+  tagsTools,
   sectionsTools,
   decisionsTools,
   acsTools,
@@ -90,6 +91,9 @@ export const AGENT_ONLY_SERVER_TOOLS: ReadonlySet<string> = new Set([
 
 export const toolSpecs: ToolSpec[] = [
   ...docsTools,
+  // spec-418 t-4: tag-catalogue curation (create_tag / rename_tag / delete_tag) —
+  // thin wrappers over the same services/tags.ts curation functions REST calls.
+  ...tagsTools,
   ...sectionsTools,
   ...decisionsTools,
   ...acsTools,

@@ -42,19 +42,28 @@ vi.mock("../services/tags.js", () => ({
   },
   listDocTags: vi.fn(),
   listMemexTags: vi.fn(),
+  listMemexTagsWithCounts: vi.fn(),
   listDocTagsForDocs: vi.fn(),
   applyTagStrings: vi.fn(),
   removeTagFromDoc: vi.fn(),
+  createTag: vi.fn(),
+  renameTag: vi.fn(),
+  deleteTag: vi.fn(),
 }));
 
 import { docs } from "./documents.js";
 import { listDocs, getDoc } from "../services/documents.js";
+import { ValidationError, NotFoundError } from "../types/errors.js";
 import {
   listDocTags,
   listMemexTags,
+  listMemexTagsWithCounts,
   listDocTagsForDocs,
   applyTagStrings,
   removeTagFromDoc,
+  createTag,
+  renameTag,
+  deleteTag,
 } from "../services/tags.js";
 
 const TEST_MEMEX_ID = "00000000-0000-0000-0000-000000000001";
@@ -195,6 +204,27 @@ describe("GET /api/docs/tags", () => {
   });
 });
 
+describe("GET /api/docs/tags/with-counts", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("returns the catalogue with each tag's assignedCount via the single aggregate", async () => {
+    vi.mocked(listMemexTagsWithCounts).mockResolvedValue([
+      { ...tag("priority", "high"), assignedCount: 3 },
+      { ...tag(null, "bug"), assignedCount: 0 },
+    ] as never);
+
+    const res = await app.request("/api/docs/tags/with-counts");
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toHaveLength(2);
+    expect(body[0].assignedCount).toBe(3);
+    expect(body[1].assignedCount).toBe(0);
+    expect(listMemexTagsWithCounts).toHaveBeenCalledWith(TEST_MEMEX_ID);
+    // The literal `/tags/with-counts` must NOT be swallowed by the `/:id` param route.
+    expect(getDoc).not.toHaveBeenCalled();
+  });
+});
+
 describe("GET /api/docs/:id (tags inline)", () => {
   beforeEach(() => vi.clearAllMocks());
 
@@ -292,5 +322,169 @@ describe("POST /api/docs/:id/tags/remove", () => {
     });
     expect(res.status).toBe(400);
     expect(removeTagFromDoc).not.toHaveBeenCalled();
+  });
+});
+
+// ── Tag catalogue curation routes (spec-418 t-3) ──────────────────────────────
+// WIRING tests: assert the create/rename/delete routes call the tags-service
+// curation functions with the right args (incl. the rest_ui-channelled RequestCtx),
+// that the literal /tags routes aren't swallowed by /:id, and that a service
+// ValidationError→400 / NotFoundError→404 surfaces the plain reason. UNtagged.
+describe("POST /api/docs/tags (create catalogue tag)", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("mints a tag from a `scope::value` string and returns 201 with the created row", async () => {
+    vi.mocked(createTag).mockResolvedValue(tag("priority", "high") as never);
+
+    const res = await app.request("/api/docs/tags", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ tag: "priority::high" }),
+    });
+    expect(res.status).toBe(201);
+    const body = await res.json();
+    expect(body.value).toBe("high");
+    expect(createTag).toHaveBeenCalledWith(
+      expect.objectContaining({ channel: "rest_ui", actorUserId: TEST_USER_ID }),
+      TEST_MEMEX_ID,
+      "priority",
+      "high",
+    );
+    // /tags must NOT be swallowed by the /:id param route (no getDoc side effect).
+    expect(getDoc).not.toHaveBeenCalled();
+  });
+
+  it("accepts a structured { scope, value } body", async () => {
+    vi.mocked(createTag).mockResolvedValue(tag("area", "mcp") as never);
+
+    const res = await app.request("/api/docs/tags", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ scope: "area", value: "mcp" }),
+    });
+    expect(res.status).toBe(201);
+    expect(createTag).toHaveBeenCalledWith(
+      expect.objectContaining({ channel: "rest_ui" }),
+      TEST_MEMEX_ID,
+      "area",
+      "mcp",
+    );
+  });
+
+  it("mints a FLAT tag (no scope) from a bare string", async () => {
+    vi.mocked(createTag).mockResolvedValue(tag(null, "bug") as never);
+
+    const res = await app.request("/api/docs/tags", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ tag: "bug" }),
+    });
+    expect(res.status).toBe(201);
+    expect(createTag).toHaveBeenCalledWith(
+      expect.objectContaining({ channel: "rest_ui" }),
+      TEST_MEMEX_ID,
+      null,
+      "bug",
+    );
+  });
+
+  it("surfaces a service duplicate block as 400 with the plain reason", async () => {
+    vi.mocked(createTag).mockRejectedValue(
+      new ValidationError('A tag named "priority::high" already exists'),
+    );
+
+    const res = await app.request("/api/docs/tags", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ tag: "priority::high" }),
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe('A tag named "priority::high" already exists');
+  });
+
+  it("400s when the body carries neither a `tag` string nor a `value`", async () => {
+    const res = await app.request("/api/docs/tags", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ scope: "priority" }),
+    });
+    expect(res.status).toBe(400);
+    expect(createTag).not.toHaveBeenCalled();
+  });
+});
+
+describe("PATCH /api/docs/tags/:tagId (rename catalogue tag)", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("renames via renameTag(ctx, memexId, tagId, scope, value) and returns the updated row", async () => {
+    vi.mocked(renameTag).mockResolvedValue(tag("priority", "urgent") as never);
+
+    const res = await app.request("/api/docs/tags/tag-123", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ tag: "priority::urgent" }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.value).toBe("urgent");
+    expect(renameTag).toHaveBeenCalledWith(
+      expect.objectContaining({ channel: "rest_ui", actorUserId: TEST_USER_ID }),
+      TEST_MEMEX_ID,
+      "tag-123",
+      "priority",
+      "urgent",
+    );
+  });
+
+  it("surfaces a blocked rename (service ValidationError) as 400 with the plain reason", async () => {
+    vi.mocked(renameTag).mockRejectedValue(
+      new ValidationError('A tag named "priority::low" already exists'),
+    );
+
+    const res = await app.request("/api/docs/tags/tag-123", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ tag: "priority::low" }),
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe('A tag named "priority::low" already exists');
+  });
+
+  it("404s when the tag isn't in this Memex (service NotFoundError)", async () => {
+    vi.mocked(renameTag).mockRejectedValue(new NotFoundError("Tag tag-x not found in this Memex"));
+
+    const res = await app.request("/api/docs/tags/tag-x", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ tag: "priority::high" }),
+    });
+    expect(res.status).toBe(404);
+  });
+});
+
+describe("DELETE /api/docs/tags/:tagId (delete catalogue tag)", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("deletes via deleteTag(ctx, memexId, tagId) and returns the blast radius", async () => {
+    vi.mocked(deleteTag).mockResolvedValue({ removed: 1, affectedDocIds: ["uuid-1"] } as never);
+
+    const res = await app.request("/api/docs/tags/tag-123", { method: "DELETE" });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.removed).toBe(1);
+    expect(body.affectedDocIds).toEqual(["uuid-1"]);
+    expect(deleteTag).toHaveBeenCalledWith(
+      expect.objectContaining({ channel: "rest_ui", actorUserId: TEST_USER_ID }),
+      TEST_MEMEX_ID,
+      "tag-123",
+    );
+  });
+
+  it("404s when the tag isn't in this Memex (service NotFoundError)", async () => {
+    vi.mocked(deleteTag).mockRejectedValue(new NotFoundError("Tag tag-x not found in this Memex"));
+
+    const res = await app.request("/api/docs/tags/tag-x", { method: "DELETE" });
+    expect(res.status).toBe(404);
   });
 });

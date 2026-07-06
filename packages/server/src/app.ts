@@ -34,6 +34,7 @@ import { analytics } from "./routes/analytics.js";
 import { telemetryRouter } from "./routes/telemetry.js";
 import { anonTelemetryRouter } from "./routes/anon-telemetry.js";
 import { waitlist } from "./routes/waitlist.js";
+import { live } from "./routes/live.js";
 import { auth } from "./routes/auth.js";
 import { invitesAcceptRouter, invitesAdminRouter } from "./routes/invites.js";
 import { teamRouter } from "./routes/team.js";
@@ -46,6 +47,7 @@ import { wellKnown, publicBaseUrl } from "./routes/well-known.js";
 import driftRouter from "./routes/drift.js";
 import { search } from "./routes/search.js";
 import { handhold } from "./routes/handhold.js";
+import { internalLifecycleRouter } from "./routes/internal-lifecycle.js";
 import { onboarding } from "./routes/onboarding.js";
 import { welcomeVideo } from "./routes/welcome-video.js";
 import { testEventsRouter } from "./routes/test-events.js";
@@ -79,6 +81,7 @@ import { verifyAccessToken } from "./services/oauth/access-tokens.js";
 import { isDevMode, ensureDevMemberships } from "./middleware/session.js";
 import { upsertUserByEmail } from "./services/users.js";
 import { upsertSession, parseClientIp } from "./services/mcp-telemetry.js";
+import { parseGeoHeader, GEO_LATLONG_HEADER } from "./services/geo.js";
 import { recordMcpConnected } from "./services/funnel-events.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { readFile } from "node:fs/promises";
@@ -374,6 +377,10 @@ app.route("/guide/v1", createGuidePublicRouter(upgradeWebSocket));
 // Caller-scoped + public surfaces — stay flat (no path prefix). These have no
 // per-memex semantics, so prefixing them would be noise.
 app.route("/api/waitlist", waitlist);
+// spec-458 (PROTOTYPE) — PUBLIC global live-stats aggregate behind memex.ai/live.
+// Flat + tenant-less + NO session middleware (the /api/health pattern): the
+// payload is aggregates + a templated ticker only. Kill switch inside the router.
+app.route("/api/live", live);
 // spec-324 — the ANONYMOUS-capable engagement ingress (the spec-244 retrofit).
 // Flat + tenant-less + PERMISSIVE publicSessionMiddleware so a PRE-AUTH visitor
 // (no user, no memex) is captured keyed on the consent-gated visitor_id — the
@@ -383,6 +390,10 @@ app.route("/api/waitlist", waitlist);
 app.use("/api/telemetry/*", publicSessionMiddleware);
 app.route("/api/telemetry", anonTelemetryRouter);
 app.route("/api/auth", auth);
+// /api/internal — spec-453 t-6 (dec-11): machine-only lifecycle scheduler tick. Flat,
+// non-tenant (global drip + Day-12 pass); self-authenticates a shared bearer secret
+// (LIFECYCLE_TICK_SECRET), NOT the user session. The sole trigger is Cloud Scheduler.
+app.route("/api/internal", internalLifecycleRouter);
 // /api/onboarding — spec-206: the user-level first-run greeting gate for the
 // Specky welcome (greet-eligibility read + once-per-user stamp). User-keyed, no
 // memex semantics, so it stays flat.
@@ -703,12 +714,18 @@ app.all("/mcp", async (c) => {
   // (~1ms local, ~10ms cross-region) which is noise compared to the tool
   // work itself. upsertSession swallows errors internally so a DB hiccup
   // can't break the MCP request path even though we await it here.
+  // spec-458 dec-9: the LB stamps X-Client-Geo-Latlong on requests through
+  // memex-app-lb; parseGeoHeader rounds to 1 decimal degree before anything
+  // is persisted. Null when the header is absent (local dev, direct Cloud Run).
+  const geo = parseGeoHeader(c.req.header(GEO_LATLONG_HEADER));
   await upsertSession({
     sessionId,
     userId,
     userAgent,
     clientInfo,
     ipAddress,
+    geoLat: geo?.lat ?? null,
+    geoLng: geo?.lng ?? null,
   });
 
   // spec-297 (funnel stage 3, agent connected): the MCP `initialize` handshake is

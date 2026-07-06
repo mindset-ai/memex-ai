@@ -92,7 +92,9 @@ test(
     await page.getByRole("button", { name: /^Continue$/ }).click();
     // spec-444: dismiss welcome video gate that fires for new users after name capture.
     await dismissWelcomeVideo(page);
-    await expect(page).toHaveURL(/\/home/, { timeout: 15_000 });
+    // spec-461: a fresh user now lands on their Specs board (not /home). This is just a
+    // checkpoint before the What's New assertions below; the arm content is landing-agnostic.
+    await expect(page).toHaveURL(/\/specs/, { timeout: 15_000 });
 
     // WhatsNewProvider only mounts inside TenantLayout (/:namespace/:memex/* routes).
     // Navigate to the Specs board to trigger /api/whats-new.

@@ -169,6 +169,16 @@ fi
 if [ -n "${ACTIVATION_EMAILS_ENABLED+set}" ]; then
   export ACTIVATION_EMAILS_ENABLED
 fi
+# ACTIVATION_CONNECT_GO_LIVE — spec-453 t-6 (dec-10/dec-11): the FIXED go-live instant the
+# "Connect with people" Day-12 pass gates its back-catalog floor on. MUST be the same
+# moment t-1's migration backfilled users.first_ac_verified_at to (deploy time), so the two
+# emails agree on go-live. ISO-8601. Unset → the lifecycle-tick endpoint SKIPS the Connect
+# pass (safe, never blasts). Same set-vs-unset passthrough as ACTIVATION_EMAILS_ENABLED so a
+# checkout that never set it can't silently change go-live. (LIFECYCLE_TICK_SECRET is a
+# SECRET — wired via Secret Manager by scripts/deploy-lifecycle-scheduler.sh, not here.)
+if [ -n "${ACTIVATION_CONNECT_GO_LIVE+set}" ]; then
+  export ACTIVATION_CONNECT_GO_LIVE
+fi
 
 # OTEL_EXPORTER_OTLP_ENDPOINT — turns on database observability and chooses
 # where the metrics go. Unset (the default) means telemetry is off with zero
