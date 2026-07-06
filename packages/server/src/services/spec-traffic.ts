@@ -32,19 +32,17 @@
 
 import { and, eq } from "drizzle-orm";
 import {
-  nextPhaseForTraffic,
   toolManifest,
   type ToolManifestEntry,
 } from "@memex/shared";
 import { db } from "../db/connection.js";
 import { documents } from "../db/schema.js";
 import { FOOTER_DELIMITER } from "../mcp/footer-delimiter.js";
-import { isSpecStatus } from "../types/roles.js";
 import { assign } from "./doc-assignees.js";
 import { promoteToEditor } from "./doc-members.js";
 import { markPresent } from "./presence.js";
-import { updateDocStatus } from "./documents.js";
 import { enforceCheckoutGate } from "./checkout-gate.js";
+import { enforcePhaseGate } from "./phase-gate.js";
 // Type-only imports — erased at compile time, so no runtime cycle with
 // agent/tool-specs.ts (which imports this module's consumers).
 import type { ToolCtx, FooterSlot } from "../agent/tool-specs.js";
@@ -128,29 +126,17 @@ export async function observeSpecTraffic(event: SpecTrafficEvent): Promise<void>
       }
     }
 
-    // ── Phase advancement ─────────────────────────────────────────────
-    // spec-295 dec-3: the web AGENT must not silently move a Spec's phase.
-    // Only the `mcp` channel (an external coding agent driving the build)
-    // auto-advances; the `in_app_agent` channel (the creation modal + the
-    // in-app spec agent) is human-present and phase is the human's call —
-    // the same posture rest_ui already has. This revisits spec-189 dec-5,
-    // which had opted in_app_agent INTO advancement. Presence + auto-assign
-    // above still run for in_app_agent; only this phase move is excluded.
-    if (event.channel !== "mcp") return;
-    // archived is a deliberate placement — auto-advance must not fight it
-    // (same principle as dec-5's rest_ui exclusion). Traffic never unflags;
-    // it also doesn't shuffle the phase underneath a flag.
-    if (entry.trafficClass === null) return;
-    if (doc.archivedAt !== null) return;
-    if (!isSpecStatus(doc.status)) return;
-
-    const next = nextPhaseForTraffic(doc.status, entry.trafficClass);
-    if (next === doc.status) return;
-
-    await updateDocStatus(event.memexId, event.docId, next, {
-      ctx: { channel: event.channel },
-      narrative: `auto-advanced ${doc.handle} ${doc.status} → ${next} (agent activity via ${event.toolName})`,
-    });
+    // ── Phase advancement: REMOVED (spec-464 dec-1) ───────────────────
+    // Traffic-driven auto-advancement (spec-189) is gone. A Spec's phase now
+    // changes ONLY via an explicit publish_spec/update_doc call or a human
+    // web-UI move — no tool call moves a Spec as a side effect. This was the
+    // "nobody moved it" complaint (Petya spec-4, Jonathan spec-172, ViperPro
+    // spec-13) and it completes the arc spec-327/342/295 began. Presence +
+    // auto-assign above STAY (separate behaviours, not the complaint).
+    //
+    // Ahead-of-phase agent calls are now REFUSED at the tool seam
+    // (runToolWithSpecTraffic → enforcePhaseGate, spec-464 dec-2) rather than
+    // silently advancing the phase; `homePhase` on the manifest drives that.
   } catch (err) {
     // Observation is advisory — never break or fail the tool call.
     console.warn("[spec-traffic] observation failed:", err);
@@ -200,7 +186,14 @@ export async function runToolWithSpecTraffic(
   // recent-colleague collision throws the agent-actionable takeover error here, so
   // the mutation never runs; otherwise this stamps the implicit checkout/refresh.
   await enforceCheckoutGate(spec.name, input, ctx);
-  const text = await spec.handler(input, wrappedCtx);
+  // spec-464 dec-2: refuse an ahead-of-phase agent call BEFORE the handler
+  // writes (enforcePhaseGate throws the teaching refusal), or capture an
+  // advisory/nudge note to fold into the response for allowed-but-off-home
+  // calls (draft planning nudge dec-3/5; behind-phase advisory dec-21). The
+  // human web UI (rest_ui) is exempt inside the gate.
+  const phaseNote = await enforcePhaseGate(spec.name, input, ctx);
+  const handlerText = await spec.handler(input, wrappedCtx);
+  const text = phaseNote ? `${phaseNote}\n\n${handlerText}` : handlerText;
   // Awaited (not detached) so the effects are deterministic for callers and
   // tests; observeSpecTraffic never throws.
   await observeSpecTraffic({

@@ -24,7 +24,7 @@
 // MEMEX_MCP_TOOLS_REFERENCE: Read (any phase) → 'read', Planning phase →
 // 'planning', Build phase → 'build', Comments → 'comments'.
 
-import type { TrafficClass } from './spec-readiness.js';
+import type { HomePhase } from './spec-readiness.js';
 
 export interface ToolManifestEntry {
   name: string;
@@ -37,22 +37,29 @@ export interface ToolManifestEntry {
   // this in the b-67 cross-check; the mutate-coverage endpoint gate derives the
   // mutating tool set from `!readOnlyHint`.
   readOnlyHint: boolean;
-  // spec-189 dec-4: how this tool's traffic reads against the Spec lifecycle,
-  // feeding nextPhaseForTraffic (spec-readiness.ts). REQUIRED so adding a tool
-  // forces a classification here — no standalone map that can drift.
-  //   'specify' — decision authoring/resolution + AC authoring (dec-1)
-  //   'build'   — task create/update/delete + issue registration/lifecycle
-  //   'verify'  — AC verification (none on MCP today: verify-class traffic
-  //               arrives via POST /api/test-events, wired server-side)
-  //   null      — traffic that never drives a phase transition: all read-only
-  //               tools, plus mutating tools that either (a) explicitly manage
-  //               the lifecycle (update_doc / publish_spec / assess_spec —
-  //               auto-advance must not fight deliberate placement, same
-  //               principle as dec-5's rest_ui exclusion), (b) shape narrative
-  //               (sections are legitimate draft-phase work and must not bump
-  //               draft → specify; dec-1 scopes specify-class to decisions +
-  //               ACs), or (c) target non-Spec entities (standards clauses).
-  trafficClass: TrafficClass;
+  // spec-464 dec-24: the phase in which this tool is IN-PHASE — its "home".
+  // Single source of the tool→phase mapping (std-16); the phase gate at the
+  // tool seam (runToolWithSpecTraffic) refuses an ahead-of-phase agent call
+  // (homePhase strictly later than the Spec's current phase). REQUIRED so
+  // adding a tool forces a classification here — no standalone map can drift.
+  // Values per the Spec's Design Table 2:
+  //   'specify' — decision authoring/resolution + scope-AC authoring. Allowed
+  //               (with a publish nudge) one step early in draft; never a hard
+  //               refuse — draft and specify share the planning toolset.
+  //   'build'   — task/bridge tools, implementation-AC creation, write_qa_report
+  //               (in-phase from build onward). Refused ahead (draft/specify).
+  //   'verify'  — reserved; no tool homes here today (verify-class arrives via
+  //               POST /api/test-events, wired server-side).
+  //   null      — NEVER gated: all read-only tools, plus mutators that manage
+  //               the lifecycle (update_doc / publish_spec / assess_spec /
+  //               ground_spec), shape narrative (sections), park issues
+  //               (register/update/resolve_issue — dec-19 gate-neutral), the
+  //               emission tools (provision_ac_emission / discontinue_test_events
+  //               — dec-10/11 ungated), or target non-Spec entities (clauses).
+  // create_ac is kind-conditional: 'specify' here (scope AC home), but the gate
+  // elevates it to 'build' for kind:'implementation' (dec-10/11 — impl ACs
+  // represent resolved decisions). See the gate for that one branch.
+  homePhase: HomePhase;
   // spec-189 dec-6/dec-5 corollary: mutating tools whose JOB is managing the
   // assignment/role axis (or that only notify humans) are exempt from
   // auto-assignment — otherwise unassign_spec(self) would instantly undo
@@ -69,7 +76,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'get_information(topic?)',
     group: 'read',
     readOnlyHint: true,
-    trafficClass: null,
+    homePhase: null,
   },
   // ── Read (any phase) ──────────────────────────────────────
   {
@@ -79,7 +86,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'list_memexes()',
     group: 'read',
     readOnlyHint: true,
-    trafficClass: null,
+    homePhase: null,
   },
   {
     name: 'list_docs',
@@ -88,7 +95,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'list_docs(memex?, docType?, tags?)',
     group: 'read',
     readOnlyHint: true,
-    trafficClass: null,
+    homePhase: null,
   },
   {
     name: 'get_doc',
@@ -97,7 +104,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'get_doc(ref)',
     group: 'read',
     readOnlyHint: true,
-    trafficClass: null,
+    homePhase: null,
   },
   {
     // spec-263 dec-3/dec-4: the when-to-call lives in the summary, not just the
@@ -109,7 +116,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'get_prompt(ref)',
     group: 'read',
     readOnlyHint: true,
-    trafficClass: null,
+    homePhase: null,
   },
   {
     name: 'export_doc',
@@ -118,7 +125,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'export_doc(ref)',
     group: 'read',
     readOnlyHint: true,
-    trafficClass: null,
+    homePhase: null,
   },
   {
     name: 'list_tasks',
@@ -127,7 +134,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'list_tasks(ref, readyOnly?)',
     group: 'read',
     readOnlyHint: true,
-    trafficClass: null,
+    homePhase: null,
   },
   {
     name: 'list_comments',
@@ -136,7 +143,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'list_comments(ref, types?, mode?)',
     group: 'read',
     readOnlyHint: true,
-    trafficClass: null,
+    homePhase: null,
   },
   {
     name: 'search_memex',
@@ -145,7 +152,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'search_memex(memex?, query, kind?, includeArchived?, includeCurrentDoc?, limit?)',
     group: 'read',
     readOnlyHint: true,
-    trafficClass: null,
+    homePhase: null,
   },
   {
     name: 'search_issues',
@@ -154,7 +161,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'search_issues(memex?, query, includeArchived?, limit?)',
     group: 'read',
     readOnlyHint: true,
-    trafficClass: null,
+    homePhase: null,
   },
 
   // ── Planning phase (draft / specify) ──────────────────────
@@ -165,7 +172,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'create_doc(memex?, title, purpose?, docType?, decisions?, promoteFromTaskRef?, promoteFromIssueRef?)',
     group: 'planning',
     readOnlyHint: false,
-    trafficClass: null,
+    homePhase: null,
   },
   {
     name: 'update_doc',
@@ -174,7 +181,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'update_doc(ref, status?, title?, tags?, removeTags?)',
     group: 'planning',
     readOnlyHint: false,
-    trafficClass: null,
+    homePhase: null,
   },
   {
     name: 'add_section',
@@ -183,7 +190,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'add_section(ref, sectionType, content?, clauses?, clauseFacets?, title?, description?)',
     group: 'planning',
     readOnlyHint: false,
-    trafficClass: null,
+    homePhase: null,
   },
   {
     name: 'update_section',
@@ -192,7 +199,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'update_section(ref, content, sectionType?, description?)',
     group: 'planning',
     readOnlyHint: false,
-    trafficClass: null,
+    homePhase: null,
   },
   {
     name: 'add_clause',
@@ -201,7 +208,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'add_clause(ref, body, position?, facets?, testability?)',
     group: 'planning',
     readOnlyHint: false,
-    trafficClass: null,
+    homePhase: null,
   },
   {
     name: 'edit_clause',
@@ -210,7 +217,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'edit_clause(ref, body, facets?, testability?)',
     group: 'planning',
     readOnlyHint: false,
-    trafficClass: null,
+    homePhase: null,
   },
   {
     name: 'delete_clause',
@@ -219,7 +226,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'delete_clause(ref)',
     group: 'planning',
     readOnlyHint: false,
-    trafficClass: null,
+    homePhase: null,
   },
   {
     name: 'retitle_section',
@@ -228,7 +235,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'retitle_section(ref, title, sectionType?)',
     group: 'planning',
     readOnlyHint: false,
-    trafficClass: null,
+    homePhase: null,
   },
   {
     name: 'delete_section',
@@ -237,7 +244,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'delete_section(ref)',
     group: 'planning',
     readOnlyHint: false,
-    trafficClass: null,
+    homePhase: null,
   },
   {
     name: 'create_decision',
@@ -246,7 +253,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'create_decision(ref, title, context?, status?, options?, facetBallot?)',
     group: 'planning',
     readOnlyHint: false,
-    trafficClass: 'specify',
+    homePhase: 'specify',
   },
   {
     name: 'update_decision',
@@ -255,7 +262,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'update_decision(ref, status?, title?, context?, resolution?, chosenOptionIndex?, facetBallot?)',
     group: 'planning',
     readOnlyHint: false,
-    trafficClass: 'specify',
+    homePhase: 'specify',
   },
   {
     name: 'delete_decision',
@@ -264,7 +271,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'delete_decision(ref)',
     group: 'planning',
     readOnlyHint: false,
-    trafficClass: 'specify',
+    homePhase: 'specify',
   },
   {
     name: 'resolve_decision',
@@ -273,7 +280,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'resolve_decision(ref, resolution?, chosenOptionIndex?, facetBallot?)',
     group: 'planning',
     readOnlyHint: false,
-    trafficClass: 'specify',
+    homePhase: 'specify',
   },
   {
     name: 'approve_candidate',
@@ -282,7 +289,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'approve_candidate(ref)',
     group: 'planning',
     readOnlyHint: false,
-    trafficClass: 'specify',
+    homePhase: 'specify',
   },
   {
     name: 'reject_candidate',
@@ -291,7 +298,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'reject_candidate(ref, reason)',
     group: 'planning',
     readOnlyHint: false,
-    trafficClass: 'specify',
+    homePhase: 'specify',
   },
   {
     name: 'assess_spec',
@@ -300,7 +307,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'assess_spec(ref, mode, target?, codeGrounding?)',
     group: 'planning',
     readOnlyHint: false,
-    trafficClass: null,
+    homePhase: null,
   },
   {
     name: 'publish_spec',
@@ -309,7 +316,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'publish_spec(ref, status?)',
     group: 'planning',
     readOnlyHint: false,
-    trafficClass: null,
+    homePhase: null,
   },
   {
     name: 'ground_spec',
@@ -318,7 +325,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'ground_spec(ref, codebase_present)',
     group: 'planning',
     readOnlyHint: false,
-    trafficClass: null,
+    homePhase: null,
   },
 
   // ── Build phase (build) ───────────────────────────────────
@@ -329,13 +336,10 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'create_task(ref, title, description, acceptanceCriteria?, sectionRef?, facetBallot?)',
     group: 'build',
     readOnlyHint: false,
-    // spec-327 dec-3: NON-ADVANCING. The createTask service guard (dec-1) rejects
-    // create_task from an agent channel unless the Spec is already in build, so
-    // this tool can never drive a phase transition — outside build it errors,
-    // inside build advancing-to-build is a no-op. Previously 'build', which
-    // silently shoved a draft/specify Spec into build on task creation (the
-    // spec-189 behaviour that misled a user). null is the honest class.
-    trafficClass: null,
+    // spec-464 dec-7/dec-8/dec-9: tasks are home to BUILD. Refused ahead of
+    // build (draft/specify) by the phase gate — which subsumes the spec-327
+    // createTask service guard (that guard is removed; the seam covers it now).
+    homePhase: 'build',
   },
   {
     name: 'update_task',
@@ -344,7 +348,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'update_task(ref, status?, title?, description?, acceptanceCriteria?, sectionRef?, addBlockerRef?, removeBlockerRef?, facetBallot?)',
     group: 'build',
     readOnlyHint: false,
-    trafficClass: 'build',
+    homePhase: 'build',
   },
   {
     name: 'delete_task',
@@ -352,7 +356,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'delete_task(ref)',
     group: 'build',
     readOnlyHint: false,
-    trafficClass: 'build',
+    homePhase: 'build',
   },
   {
     name: 'write_qa_report',
@@ -361,7 +365,10 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'write_qa_report(ref, content, title?)',
     group: 'build',
     readOnlyHint: false,
-    trafficClass: null,
+    // spec-464 dec-14/15/16/17: the QA report is the build→verify hand-off and is
+    // in-phase from BUILD onward (home 'build'; verify is behind-home, allowed).
+    // Refused only ahead of build (draft/specify) — nothing has been built yet.
+    homePhase: 'build',
   },
 
   // ── Standards protocol (build) ────────────────────────────
@@ -375,7 +382,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'flag_drift(ref, observation)',
     group: 'build',
     readOnlyHint: false,
-    trafficClass: null,
+    homePhase: null,
   },
   {
     name: 'propose_standard_change',
@@ -384,7 +391,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'propose_standard_change(ref, proposedContent, rationale?)',
     group: 'build',
     readOnlyHint: false,
-    trafficClass: null,
+    homePhase: null,
   },
   {
     name: 'facets',
@@ -393,7 +400,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'facets(verb, memex?)',
     group: 'read',
     readOnlyHint: true,
-    trafficClass: null,
+    homePhase: null,
   },
 
   // ── Issues (any phase) ────────────────────────────────────
@@ -409,7 +416,7 @@ export const toolManifest: ToolManifestEntry[] = [
     // phase, on any surface. Previously 'build', which shoved a specify Spec to
     // build on capture, contradicting the "gate-neutral" framing. Issues are
     // raiseable in any phase and move nothing.
-    trafficClass: null,
+    homePhase: null,
   },
   {
     name: 'list_issues',
@@ -417,7 +424,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'list_issues(ref, type?, status?)',
     group: 'build',
     readOnlyHint: true,
-    trafficClass: null,
+    homePhase: null,
   },
   {
     name: 'get_issue',
@@ -425,7 +432,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'get_issue(ref)',
     group: 'build',
     readOnlyHint: true,
-    trafficClass: null,
+    homePhase: null,
   },
   {
     name: 'update_issue',
@@ -433,7 +440,12 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'update_issue(ref, title?, body?, severity?)',
     group: 'build',
     readOnlyHint: false,
-    trafficClass: 'build',
+    // spec-464 dec-19: GATE-NEUTRAL. An Issue is the parking lot (spec-295) —
+    // its whole lifecycle (register/update/resolve) runs in any phase and moves
+    // nothing. Corrects the surviving inconsistency where update/resolve_issue
+    // were still 'build'-class. (convert_issue_to_task / kick_task_to_issue mint
+    // or destroy a TASK, so they follow the task rules and stay 'build'.)
+    homePhase: null,
   },
   {
     name: 'resolve_issue',
@@ -441,7 +453,8 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'resolve_issue(ref, resolution)',
     group: 'build',
     readOnlyHint: false,
-    trafficClass: 'build',
+    // spec-464 dec-19: GATE-NEUTRAL (see update_issue).
+    homePhase: null,
   },
   {
     name: 'convert_issue_to_task',
@@ -450,7 +463,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'convert_issue_to_task(ref)',
     group: 'build',
     readOnlyHint: false,
-    trafficClass: 'build',
+    homePhase: 'build',
   },
   {
     name: 'kick_task_to_issue',
@@ -459,7 +472,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'kick_task_to_issue(ref, reason)',
     group: 'build',
     readOnlyHint: false,
-    trafficClass: 'build',
+    homePhase: 'build',
   },
 
   // ── Roles + assignment (any phase) ────────────────────────
@@ -470,7 +483,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'set_spec_role(ref, user, role?)',
     group: 'build',
     readOnlyHint: false,
-    trafficClass: null,
+    homePhase: null,
     autoAssignExempt: true,
   },
   {
@@ -480,7 +493,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'get_spec_roles(ref)',
     group: 'read',
     readOnlyHint: true,
-    trafficClass: null,
+    homePhase: null,
   },
   {
     name: 'assign_spec',
@@ -489,7 +502,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'assign_spec(ref, user?)',
     group: 'build',
     readOnlyHint: false,
-    trafficClass: null,
+    homePhase: null,
     autoAssignExempt: true,
   },
   {
@@ -499,7 +512,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'unassign_spec(ref, user)',
     group: 'build',
     readOnlyHint: false,
-    trafficClass: null,
+    homePhase: null,
     autoAssignExempt: true,
   },
   {
@@ -509,7 +522,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'claim_spec(ref)',
     group: 'build',
     readOnlyHint: false,
-    trafficClass: null,
+    homePhase: null,
     autoAssignExempt: true,
   },
   {
@@ -519,7 +532,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'unclaim_spec(ref)',
     group: 'build',
     readOnlyHint: false,
-    trafficClass: null,
+    homePhase: null,
     autoAssignExempt: true,
   },
 
@@ -531,7 +544,14 @@ export const toolManifest: ToolManifestEntry[] = [
     args: "create_ac(ref, kind, statement, status?, parent_decision_ref?)",
     group: 'build',
     readOnlyHint: false,
-    trafficClass: 'specify',
+    // spec-464 dec-5/dec-6 + dec-10/11 (revised): BOTH AC kinds are authored in
+    // specify. Scope ACs pin what "done" means; implementation ACs pin what
+    // proves each resolved decision — and the specify→build readiness gate
+    // (assess_spec + spec-391 + the create_ac coverage footer) REQUIRES an
+    // implementation AC per resolved decision BEFORE the build move, so gating
+    // impl-AC creation ahead of build would make that gate unsatisfiable. Home is
+    // 'specify' for both kinds; no per-kind elevation.
+    homePhase: 'specify',
   },
   {
     name: 'list_acs',
@@ -539,11 +559,11 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'list_acs(ref, kind?, status?)',
     group: 'build',
     readOnlyHint: true,
-    trafficClass: null,
+    homePhase: null,
   },
   {
     // spec-234: agent-facing AC-emission onboarding. Mints an ephemeral, spec-scoped
-    // key AND returns the wire-it-up guidance in one call. trafficClass null — it sets
+    // key AND returns the wire-it-up guidance in one call. homePhase null — it sets
     // up emission, it does not itself drive a Spec phase transition.
     name: 'provision_ac_emission',
     summary:
@@ -551,7 +571,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'provision_ac_emission(ref)',
     group: 'build',
     readOnlyHint: false,
-    trafficClass: null,
+    homePhase: null,
   },
   {
     name: 'get_ac',
@@ -559,7 +579,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'get_ac(ref)',
     group: 'build',
     readOnlyHint: true,
-    trafficClass: null,
+    homePhase: null,
   },
   {
     name: 'get_test_matrix',
@@ -568,7 +588,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'get_test_matrix(ref)',
     group: 'build',
     readOnlyHint: true,
-    trafficClass: null,
+    homePhase: null,
   },
   {
     name: 'discontinue_test_events',
@@ -577,7 +597,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'discontinue_test_events(ref, test_identifier)',
     group: 'build',
     readOnlyHint: false,
-    trafficClass: null,
+    homePhase: null,
   },
   {
     name: 'update_ac',
@@ -586,7 +606,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'update_ac(ref, statement)',
     group: 'build',
     readOnlyHint: false,
-    trafficClass: 'specify',
+    homePhase: 'specify',
   },
   {
     name: 'delete_ac',
@@ -595,7 +615,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'delete_ac(ref)',
     group: 'build',
     readOnlyHint: false,
-    trafficClass: 'specify',
+    homePhase: 'specify',
   },
   {
     name: 'link_ac_to_decision',
@@ -604,7 +624,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'link_ac_to_decision(ac_ref, decision_ref)',
     group: 'build',
     readOnlyHint: false,
-    trafficClass: 'specify',
+    homePhase: 'specify',
   },
 
   // ── Skills (spec-300) ─────────────────────────────────────
@@ -615,7 +635,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'list_skills(memex?)',
     group: 'read',
     readOnlyHint: true,
-    trafficClass: null,
+    homePhase: null,
   },
   {
     name: 'get_skill',
@@ -624,7 +644,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'get_skill(ref, working_spec_ref?, path?)',
     group: 'read',
     readOnlyHint: true,
-    trafficClass: null,
+    homePhase: null,
   },
   {
     name: 'update_skill',
@@ -633,7 +653,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'update_skill(verb, memex?, ref?, skill_md?, capabilities?, files?, remove_files?)',
     group: 'build',
     readOnlyHint: false,
-    trafficClass: null,
+    homePhase: null,
   },
 
   // ── Comments (any phase) ──────────────────────────────────
@@ -644,7 +664,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'add_comment(ref, authorName, content, type?, referenceRef?, anchorOffset?)',
     group: 'comments',
     readOnlyHint: false,
-    trafficClass: null,
+    homePhase: null,
   },
   {
     name: 'update_comment',
@@ -653,7 +673,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'update_comment(ref, status, resolution?)',
     group: 'comments',
     readOnlyHint: false,
-    trafficClass: null,
+    homePhase: null,
   },
   {
     name: 'memex__send_slack_message',
@@ -662,7 +682,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'memex__send_slack_message(memex?, channelOrUser, text, specRef?)',
     group: 'comments',
     readOnlyHint: false,
-    trafficClass: null,
+    homePhase: null,
     autoAssignExempt: true,
   },
   {
@@ -672,7 +692,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'memex__send_discord_message(memex?, channelOrUser?, text, specRef?)',
     group: 'comments',
     readOnlyHint: false,
-    trafficClass: null,
+    homePhase: null,
     autoAssignExempt: true,
   },
 ];

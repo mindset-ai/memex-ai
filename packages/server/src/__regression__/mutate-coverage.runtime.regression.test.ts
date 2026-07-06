@@ -29,7 +29,7 @@ import { eq } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import { orgMemberships, memexes, namespaces, orgs } from "../db/schema.js";
 import { upsertUserByEmail } from "../services/users.js";
-import { createDocDraft } from "../services/documents.js";
+import { createDocDraft, updateDocStatus } from "../services/documents.js";
 import { addSection } from "../services/sections.js";
 import { createDecision } from "../services/decisions.js";
 import { createTask } from "../services/tasks.js";
@@ -77,6 +77,12 @@ async function makeRuntimeFixtures(): Promise<RuntimeFixtures> {
   const decision = await createDecision(built.memex.id, doc.id, "Open question");
   const task = await createTask(built.memex.id, doc.id, "Do work", "Acc criteria");
   const comment = await addComment(built.memex.id, section.id, "RT Tester", "Initial comment");
+  // spec-464: build-home tools (update_task) are refused ahead of build by the
+  // phase gate. This coverage probe drives update_task over MCP, so the fixture
+  // Spec must sit in build; specify-home tools (resolve_decision) run behind-home
+  // there without issue. (Seeding above uses the ctx-less service layer, which is
+  // never gated, so it works while the doc is still a draft.)
+  await updateDocStatus(built.memex.id, doc.id, "build");
 
   const std = await createStandard(built.memex.id, {
     title: "RT Standard",
