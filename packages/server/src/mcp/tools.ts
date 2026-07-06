@@ -52,7 +52,7 @@ Memex hosts **Specs** (living docs of purpose, decisions, tasks), scoped to a **
 
 ## Where the depth lives
 
-This orientation is intentionally tiny. Operating depth (phase mechanics, AC emission, decisions-vs-tasks, stuck/escalation, rule-overrides) lives in **\`get_information\`** — call with no args for the topic index, or with \`topic='<slug>'\` for one topic's body. Fetch the relevant topic before acting on a concept this orientation doesn't spell out.
+This orientation is intentionally tiny. Operating depth — the five phases, phase mechanics, AC emission, decisions-vs-tasks, stuck/escalation, rule-overrides — lives in **\`get_information\`**: no args for the topic index, or \`topic='<slug>'\` for one body (\`topic='phases'\` for the pipeline). Fetch the topic before acting on a concept this orientation doesn't spell out.
 
 ## First moves
 
@@ -66,9 +66,9 @@ This orientation is intentionally tiny. Operating depth (phase mechanics, AC emi
 1. **Tasks only in \`build\`.** A task in draft/specify is a guess pretending to be a commitment. Resolve decisions first.
 2. **\`complete\` only when verification actually runs** — tests + type checks + exercising the path, not vibes. Closing a Spec (\`done\`) is the user's call, never the agent's.
 
-## Pipeline
+## Skills
 
-Five phases: \`draft → specify → build → verify → done\`, plus orthogonal \`paused\`/\`archived\` flags. Tool responses are terse by default; pass \`verbose: true\` for full markdown. Call \`get_information(topic='phases')\` for the full phase mechanics including \`assess_spec\` modes.`;
+Memex also hosts reusable **Skills**. If the user names a skill you don't have locally, \`list_skills({all_memexes:true})\` to find it across your Memexes, then \`get_skill(ref)\` and follow it — ask only if the name collides.`;
 
 function errorResult(message: string) {
   return {
@@ -402,6 +402,21 @@ export function createMcpServer(
             enforceWriteGate(readOnly);
             rlsStore.memexId = memexId;
             return memexId;
+          },
+          // spec-300 dec-25: the cross-Memex skills union enumerates exactly the
+          // Memexes this caller may read — the org-scoped membership list (std-4
+          // + the OAuth Org filter), the same set list_memexes surfaces. No single
+          // tenant is resolved here (the union spans several), so it never touches
+          // resolvedMemexId / rlsStore — the service scopes each Memex's read under
+          // its own runWithMemexId (std-36).
+          listAccessibleMemexes: async () => {
+            const memberships = await listMemberships(userId);
+            const filtered = filterMembershipsForOrgScope(memberships, orgFilter);
+            return filtered.map((m) => ({
+              memexId: m.memexId,
+              ref: `${m.slug}/${m.memexSlug}`,
+              memexName: m.memexName,
+            }));
           },
           resolveMemexFromEntity: async (kind, id) => {
             const { memexId, readOnly } = await resolveMemexFromEntityForRead(

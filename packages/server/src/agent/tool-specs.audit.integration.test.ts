@@ -769,6 +769,13 @@ const REF_PROBE_SKIP = new Map<string, string>([
   // markdown, not a terse `ref:` entity confirmation. Exercised end-to-end in
   // agent/spec-234-provision-ac-emission.integration.
   ["provision_ac_emission", "returns an emission key + guidance markdown, not a memex entity ref; covered by spec-234-provision-ac-emission.integration"],
+  // spec-418 t-4 tag-curation tools operate on the Memex's tag CATALOGUE, not a
+  // doc-tree entity. Their terse output names the tag by its `scope::value` label
+  // (formatTag), never a canonical `ref:`/UUID — tags carry no doc-tree ref handle.
+  // Behaviour is exercised in agent/tags-curation-tools.spec-418.integration.
+  ["create_tag", "catalogue tag has no doc-tree ref; output names the scope::value label, no UUID; covered by tags-curation-tools.spec-418.integration"],
+  ["rename_tag", "catalogue tag has no doc-tree ref; output names the scope::value label, no UUID; covered by tags-curation-tools.spec-418.integration"],
+  ["delete_tag", "catalogue tag has no doc-tree ref; output names the scope::value label, no UUID; covered by tags-curation-tools.spec-418.integration"],
   // spec-127 test-event tools all lead with the AC `ref:` and emit no UUID; that
   // ref-emission is asserted directly in mcp/test-event-tools.integration. A
   // dedicated probe here would need a throwaway AC + seeded test_events fixture.

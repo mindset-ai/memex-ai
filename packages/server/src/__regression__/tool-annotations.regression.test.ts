@@ -81,6 +81,9 @@ const DESTRUCTIVE = new Set<string>([
   "delete_ac",
   "kick_task_to_issue",
   "discontinue_test_events",
+  // spec-418 t-4: delete_tag hard-deletes the catalogue tag and (via FK cascade)
+  // every link to it — irreversible row removal, so destructiveHint: true.
+  "delete_tag",
 ]);
 
 describe("regression: MCP tool annotations (b-31 W2)", () => {

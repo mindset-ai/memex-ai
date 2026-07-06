@@ -39,6 +39,8 @@ let nsA: string;
 let userId: string;
 let memexB: string;
 let nsB: string;
+let memexC: string;
+let nsC: string;
 
 const specByName = (name: string): ToolSpec => {
   const s = skillsTools.find((t) => t.name === name);
@@ -97,10 +99,18 @@ beforeAll(async () => {
 
   memexB = await makeTestMemex("skl-b");
   nsB = await nsSlugFor(memexB);
+
+  // A SECOND Memex the caller (dev) administers — for the cross-Memex union.
+  const seededC = await makeTestMemexWithDevAdmin("skl-c");
+  memexC = seededC.memexId;
+  nsC = seededC.slug;
 });
 
 afterAll(async () => {
-  await db.delete(memexes).where(inArray(memexes.id, [memexA, memexB])).catch(() => {});
+  await db
+    .delete(memexes)
+    .where(inArray(memexes.id, [memexA, memexB, memexC]))
+    .catch(() => {});
 });
 
 describe("skills MCP tools — registration + std-16 parity (ac-28)", () => {
@@ -274,5 +284,119 @@ describe("cross-Memex tenancy — not-found (ac-11)", () => {
     await expect(
       call("update_skill", { verb: "delete", ref: foreignRef }),
     ).rejects.toBeInstanceOf(McpAuthError);
+  });
+});
+
+describe("cross-Memex skills union — all_memexes (ac-62, ac-63, ac-64, ac-66)", () => {
+  // A list_skills ctx whose accessible-Memex set is EXACTLY the given list — the
+  // authorization seam the MCP surface binds to listMemberships. Deterministic
+  // here so the grouped output is assertable; the single-Memex resolver is still
+  // the real read-gated one (inherited from realCtx).
+  function crossCtx(
+    memexList: readonly { memexId: string; ref: string; memexName: string }[],
+  ): ToolCtx {
+    return {
+      ...realCtx(specByName("list_skills")),
+      listAccessibleMemexes: async () => memexList,
+    } as unknown as ToolCtx;
+  }
+  const callAll = (
+    memexList: readonly { memexId: string; ref: string; memexName: string }[],
+  ): Promise<string> =>
+    specByName("list_skills").handler({ all_memexes: true }, crossCtx(memexList));
+
+  it("lists skills across every accessible Memex, grouped + fully-ref'd, and flags name collisions (ac-62, ac-63, ac-64)", async () => {
+    tagAc(AC(62));
+    tagAc(AC(63));
+    tagAc(AC(64));
+
+    // Seed: a solo skill in each Memex, plus one SAME-named skill in both.
+    await call("update_skill", {
+      verb: "create",
+      memex: `${nsA}/main`,
+      skill_md: reconstructSkillMd({
+        name: "solo-in-a",
+        description: "Only in A. Use when: proving per-Memex grouping.",
+        body: "A body.",
+      }),
+    });
+    await call("update_skill", {
+      verb: "create",
+      memex: `${nsC}/main`,
+      skill_md: reconstructSkillMd({
+        name: "solo-in-c",
+        description: "Only in C. Use when: proving per-Memex grouping.",
+        body: "C body.",
+      }),
+    });
+    for (const ns of [nsA, nsC]) {
+      await call("update_skill", {
+        verb: "create",
+        memex: `${ns}/main`,
+        skill_md: reconstructSkillMd({
+          name: "shared-name",
+          description: "Lives in both. Use when: proving collision detection.",
+          body: "Shared body.",
+        }),
+      });
+    }
+
+    const memexList = [
+      { memexId: memexA, ref: `${nsA}/main`, memexName: "Main" },
+      { memexId: memexC, ref: `${nsC}/main`, memexName: "Main" },
+    ];
+    const out = await callAll(memexList);
+
+    // Grouped one section per Memex, each carrying that Memex's ref.
+    expect(out).toContain(`(${nsA}/main)`);
+    expect(out).toContain(`(${nsC}/main)`);
+    // Each solo skill appears under its own Memex, with a full canonical ref.
+    expect(out).toMatch(new RegExp(`solo-in-a[^\\n]*ref: ${nsA}/main/skills/skill-\\d+`));
+    expect(out).toMatch(new RegExp(`solo-in-c[^\\n]*ref: ${nsC}/main/skills/skill-\\d+`));
+    // The shared name surfaces in BOTH groups (two full refs) ...
+    expect(out).toMatch(new RegExp(`shared-name[^\\n]*ref: ${nsA}/main/skills/skill-\\d+`));
+    expect(out).toMatch(new RegExp(`shared-name[^\\n]*ref: ${nsC}/main/skills/skill-\\d+`));
+    // ... and is flagged as a collision so the agent asks rather than guesses (ac-63).
+    expect(out.toLowerCase()).toContain("collision");
+    expect(out).toContain("shared-name");
+    expect(out.toLowerCase()).toMatch(/ask the user|which memex/);
+    // solo names never collide → not named in the banner region (before first "##").
+    const banner = out.split("##")[0];
+    expect(banner).not.toContain("solo-in-a");
+  });
+
+  it("skills-only: search_memex and list_docs carry no all_memexes, and all_memexes has no silent default (ac-66)", () => {
+    tagAc(AC(66));
+    // The cross-Memex union is a list_skills-only opt-in.
+    const listSkillsSchema = specByName("list_skills").schema as Record<string, unknown>;
+    expect(Object.keys(listSkillsSchema)).toContain("all_memexes");
+
+    const byName = (n: string) => toolSpecs.find((t) => t.name === n);
+    for (const other of ["search_memex", "list_docs"]) {
+      const spec = byName(other);
+      expect(spec, `${other} must be registered`).toBeTruthy();
+      expect(Object.keys(spec!.schema)).not.toContain("all_memexes");
+    }
+
+    // No silent cross-Memex default: omitting all_memexes takes the single-Memex
+    // path (std-5), never a quiet union. Proven by the field being optional +
+    // the handler branching only on `=== true`.
+    const zodField = listSkillsSchema.all_memexes as {
+      safeParse: (v: unknown) => { success: boolean };
+    };
+    expect(zodField.safeParse(undefined).success).toBe(true); // optional ⇒ defaults off
+  });
+
+  it("the @memex/shared manifest documents all_memexes for the coding agent (ac-65)", async () => {
+    tagAc(AC(65));
+    const { toolManifest } = await import("@memex/shared");
+    const entry = toolManifest.find((e) => e.name === "list_skills");
+    expect(entry).toBeTruthy();
+    // args signature carries the new optional field (the b-67 parity test pins the
+    // exact string against the live Zod shape; here we assert intent).
+    expect(entry!.args).toContain("all_memexes");
+    // summary instructs the cross-Memex discovery + the always-ask-on-collision rule.
+    expect(entry!.summary).toContain("all_memexes");
+    expect(entry!.summary.toLowerCase()).toMatch(/collide|collision|more than one memex/);
   });
 });

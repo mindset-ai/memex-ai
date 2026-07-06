@@ -939,6 +939,12 @@ const TOOL_RATIONALES: Record<string, string> = {
     'Create a new Spec (or other docType). The promoteFromTaskRef flag preserves lineage when a task scopes out into its own Spec.',
   update_doc:
     'Status + title mutations. Drives Specs through the draft→specify→build→verify→done lifecycle.',
+  create_tag:
+    'Coin a new tag in the Memex\'s shared vocabulary — a `scope::value` or flat label. Blocks (case-insensitively, naming the clash) on a duplicate rather than minting a near-copy. Catalogue-only; attaching a tag to a Spec is update_doc.',
+  rename_tag:
+    'Rename an existing catalogue tag; the new name flows to every Spec that carried it in one operation. Refuses (no change) if it would duplicate another tag or leave a Spec with two values of one scope.',
+  delete_tag:
+    'Remove a tag from the vocabulary; it drops off every Spec that carried it, leaving those Specs otherwise intact. Irreversible, never blocked, one tag per call.',
   add_section:
     'Append a new typed section to a document. The (doc, sectionType) pair is unique within a doc.',
   update_section:
@@ -1040,7 +1046,7 @@ const TOOL_RATIONALES: Record<string, string> = {
   unclaim_spec:
     "Release your checkout on a Spec — the explicit check-in. Clears your presence marker so teammates see it's free and returns the thread to the silent default. Idempotent; a no-op if you weren't holding it.",
   list_skills:
-    "List a Memex's active Skills alphabetically — name, description, capability flags, and ref for each. Metadata only: never the SKILL.md body, auxiliary-file contents, or allowed-tools. The discovery call before get_skill.",
+    "List active Skills alphabetically — name, description, capability flags, and ref for each. Metadata only: never the SKILL.md body, auxiliary-file contents, or allowed-tools. The discovery call before get_skill. When the user names a skill without saying which Memex holds it, pass all_memexes:true to list your skills across every Memex you can access (grouped by Memex) and locate it by ref; if the same name lives in more than one Memex, ask the user which to use rather than guessing.",
   get_skill:
     "Read one Skill: the verbatim SKILL.md body plus a table-of-contents of its auxiliary files (path/type/size/purpose, never inline contents). Pass a path to fetch a single file — binary files return a short-lived signed read URL, text files return their bytes inline.",
   update_skill:

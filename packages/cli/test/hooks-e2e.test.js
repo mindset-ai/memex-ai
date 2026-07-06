@@ -174,6 +174,8 @@ describe("spec-371 hooks e2e (ac-7, ac-9, ac-10, ac-12, ac-15)", () => {
 
 // spec-430 dec-4 — the SessionStart self-heal guide.
 const AC_9_430 = "mindset-prod/memex-building-itself/specs/spec-430/acs/ac-9";
+// spec-300 dec-26 — the SessionStart skills attunement.
+const AC_69 = "mindset-prod/memex-building-itself/specs/spec-300/acs/ac-69";
 
 function runSessionStart(home) {
   // Controlled env: clear the CI override so the file-state path is what's exercised.
@@ -201,7 +203,7 @@ describe("spec-430 SessionStart self-heal guide (ac-9)", () => {
     });
   });
 
-  it("a stored hook_key → SILENT (no steer, nothing emitted)", () => {
+  it("a stored hook_key → the self-heal setup steer is silent (no `memex-ai install` offer)", () => {
     tagAc(AC_9_430);
     withHome((home) => {
       mkdirSync(join(home, ".memex"), { recursive: true });
@@ -210,7 +212,37 @@ describe("spec-430 SessionStart self-heal guide (ac-9)", () => {
         JSON.stringify({ api_base: "https://memex.ai", hook_key: "mxh_present" }),
       );
       const out = runSessionStart(home);
-      expect(out.trim()).toBe("");
+      // spec-300 dec-26 changed this from fully-silent to "self-heal silent": the
+      // install offer is gone once set up, but the skills attunement still rides.
+      expect(out).not.toMatch(/memex-ai install/);
+    });
+  });
+});
+
+describe("spec-300 SessionStart skills attunement (ac-69)", () => {
+  it("emits the cross-Memex skills guidance every session — set up OR not", () => {
+    tagAc(AC_69);
+    // Not set up: skills guidance rides alongside the setup steer.
+    withHome((home) => {
+      const parsed = JSON.parse(runSessionStart(home));
+      const ctx = parsed.hookSpecificOutput.additionalContext;
+      expect(ctx).toMatch(/all_memexes:true/);
+      expect(ctx).toMatch(/list_skills/);
+      expect(ctx).toMatch(/get_skill/);
+      expect(ctx).toMatch(/memex-ai install/); // both concerns present when not set up
+    });
+    // Set up: skills guidance still present, self-heal steer gone.
+    withHome((home) => {
+      mkdirSync(join(home, ".memex"), { recursive: true });
+      writeFileSync(
+        join(home, ".memex", "checkout.json"),
+        JSON.stringify({ hook_key: "mxh_present" }),
+      );
+      const parsed = JSON.parse(runSessionStart(home));
+      const ctx = parsed.hookSpecificOutput.additionalContext;
+      expect(ctx).toMatch(/all_memexes:true/);
+      expect(ctx).toMatch(/list_skills/);
+      expect(ctx).not.toMatch(/memex-ai install/);
     });
   });
 });

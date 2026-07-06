@@ -183,6 +183,38 @@ export const toolManifest: ToolManifestEntry[] = [
     readOnlyHint: false,
     homePhase: null,
   },
+  // spec-418 t-4: tag-catalogue curation. These manage the Memex's tag VOCABULARY
+  // itself (create / rename / delete a `scope::value`/flat tag), distinct from
+  // update_doc's tags/removeTags which attach an existing tag to one Spec. Thin
+  // wrappers over the same tags-service functions REST calls. trafficClass null —
+  // curating the shared vocabulary never drives a Spec's phase.
+  {
+    name: 'create_tag',
+    summary:
+      'Create a new tag in the Memex\'s shared vocabulary — a `scope::value` (e.g. `priority::high`) or flat (e.g. `bug`) label. Refuses (case-insensitively, naming the existing tag) rather than minting a near-duplicate.',
+    args: 'create_tag(memex?, tag)',
+    group: 'planning',
+    readOnlyHint: false,
+    trafficClass: null,
+  },
+  {
+    name: 'rename_tag',
+    summary:
+      'Rename an existing tag; the new name is reflected on every Spec that carried it, in one operation. Refuses with a plain reason (no change) if the new name duplicates another tag or would put two values of one scope on a Spec.',
+    args: 'rename_tag(memex?, tag, newTag)',
+    group: 'planning',
+    readOnlyHint: false,
+    trafficClass: null,
+  },
+  {
+    name: 'delete_tag',
+    summary:
+      'Delete a tag from the vocabulary; it is removed from every Spec that carried it, leaving those Specs otherwise untouched. Irreversible, never blocked, one tag per call (no bulk form).',
+    args: 'delete_tag(memex?, tag)',
+    group: 'planning',
+    readOnlyHint: false,
+    trafficClass: null,
+  },
   {
     name: 'add_section',
     summary:
@@ -631,8 +663,8 @@ export const toolManifest: ToolManifestEntry[] = [
   {
     name: 'list_skills',
     summary:
-      "List a Memex's active Skills alphabetically — each carries name, description, capability flags, and ref; never the SKILL.md body or allowed-tools.",
-    args: 'list_skills(memex?)',
+      "List active Skills alphabetically — each carries name, description, capability flags, and ref; never the SKILL.md body or allowed-tools. When a skill is named without a Memex, pass all_memexes:true to find it across every Memex you can access (grouped by Memex), then get_skill by the returned ref; on a name that appears in more than one Memex, ALWAYS ask the user which to use.",
+    args: 'list_skills(memex?, all_memexes?)',
     group: 'read',
     readOnlyHint: true,
     homePhase: null,
