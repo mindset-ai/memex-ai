@@ -643,8 +643,8 @@ export const toolManifest: ToolManifestEntry[] = [
   {
     name: 'list_skills',
     summary:
-      "List a Memex's active Skills alphabetically — each carries name, description, capability flags, and ref; never the SKILL.md body or allowed-tools.",
-    args: 'list_skills(memex?)',
+      "List active Skills alphabetically — each carries name, description, capability flags, and ref; never the SKILL.md body or allowed-tools. When a skill is named without a Memex, pass all_memexes:true to find it across every Memex you can access (grouped by Memex), then get_skill by the returned ref; on a name that appears in more than one Memex, ALWAYS ask the user which to use.",
+    args: 'list_skills(memex?, all_memexes?)',
     group: 'read',
     readOnlyHint: true,
     trafficClass: null,

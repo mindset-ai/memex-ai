@@ -1045,7 +1045,7 @@ const TOOL_RATIONALES: Record<string, string> = {
   unclaim_spec:
     "Release your checkout on a Spec — the explicit check-in. Clears your presence marker so teammates see it's free and returns the thread to the silent default. Idempotent; a no-op if you weren't holding it.",
   list_skills:
-    "List a Memex's active Skills alphabetically — name, description, capability flags, and ref for each. Metadata only: never the SKILL.md body, auxiliary-file contents, or allowed-tools. The discovery call before get_skill.",
+    "List active Skills alphabetically — name, description, capability flags, and ref for each. Metadata only: never the SKILL.md body, auxiliary-file contents, or allowed-tools. The discovery call before get_skill. When the user names a skill without saying which Memex holds it, pass all_memexes:true to list your skills across every Memex you can access (grouped by Memex) and locate it by ref; if the same name lives in more than one Memex, ask the user which to use rather than guessing.",
   get_skill:
     "Read one Skill: the verbatim SKILL.md body plus a table-of-contents of its auxiliary files (path/type/size/purpose, never inline contents). Pass a path to fetch a single file — binary files return a short-lived signed read URL, text files return their bytes inline.",
   update_skill:
