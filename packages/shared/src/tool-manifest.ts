@@ -195,7 +195,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'create_tag(memex?, tag)',
     group: 'planning',
     readOnlyHint: false,
-    trafficClass: null,
+    homePhase: null,
   },
   {
     name: 'rename_tag',
@@ -204,7 +204,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'rename_tag(memex?, tag, newTag)',
     group: 'planning',
     readOnlyHint: false,
-    trafficClass: null,
+    homePhase: null,
   },
   {
     name: 'delete_tag',
@@ -213,7 +213,7 @@ export const toolManifest: ToolManifestEntry[] = [
     args: 'delete_tag(memex?, tag)',
     group: 'planning',
     readOnlyHint: false,
-    trafficClass: null,
+    homePhase: null,
   },
   {
     name: 'add_section',
