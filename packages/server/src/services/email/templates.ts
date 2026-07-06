@@ -66,7 +66,7 @@ function renderEmailText(input: {
 }): string {
   const parts = [...input.intro];
   if (input.url) parts.push(input.url);
-  parts.push(input.closing, "Memex.AI");
+  parts.push(input.closing, "Memex AI");
   return parts.join("\n\n");
 }
 
@@ -95,7 +95,7 @@ export function renderResources(resources?: EmailResource[]): string {
     .map(
       (r) =>
         `<tr><td style="padding:12px 0;border-top:1px solid ${BRAND_BORDER};">` +
-        `<a href="${escapeHtml(r.url)}" style="color:${BRAND_INK};font-size:15px;font-weight:600;text-decoration:none;">${escapeHtml(r.title)}</a>` +
+        `<a href="${escapeHtml(r.url)}" style="color:${BRAND_CORAL};font-size:15px;font-weight:600;text-decoration:none;">${escapeHtml(r.title)}</a>` +
         `<div style="margin-top:2px;color:${BRAND_MUTED};font-size:13px;line-height:1.5;">${escapeHtml(r.description)}</div>` +
         `</td></tr>`,
     )
@@ -140,12 +140,12 @@ function renderEmailHtml(input: RenderInput): string {
           <table role="presentation" width="560" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;width:100%;background-color:#FFFFFF;border:1px solid ${BRAND_BORDER};border-radius:12px;overflow:hidden;">
             <tr>
               <td style="padding:32px 40px;">
-                <div style="margin:0 0 20px;font-size:20px;font-weight:700;letter-spacing:-0.01em;color:${BRAND_INK};">Memex<span style="font-weight:500;color:${BRAND_INK};">.AI</span></div>
+                <div style="margin:0 0 20px;font-size:20px;font-weight:700;letter-spacing:-0.01em;color:${BRAND_INK};">Memex AI</div>
                 <h1 style="margin:0 0 16px;color:${BRAND_INK};font-size:22px;line-height:1.3;font-weight:600;letter-spacing:-0.01em;">${escapeHtml(input.heading)}</h1>
                 ${paragraphs}
                 ${stepsHtml}
                 <div style="margin:24px 0 8px;">
-                  <a href="${safeUrl}" style="display:inline-block;padding:12px 24px;background:${BRAND_INK};color:#FFFFFF;font-size:15px;font-weight:600;text-decoration:none;border-radius:8px;">${escapeHtml(input.ctaLabel)}</a>
+                  <a href="${safeUrl}" style="display:inline-block;padding:12px 24px;background:${BRAND_CORAL};color:#FFFFFF;font-size:15px;font-weight:600;text-decoration:none;border-radius:8px;">${escapeHtml(input.ctaLabel)}</a>
                 </div>
                 ${pasteLink}
                 ${afterCta}
@@ -444,7 +444,7 @@ export function buildConnectedInactiveEmail(
     afterCtaParagraphs: [
       escapeHtml(afterCta1),
       escapeHtml(afterCta2),
-      `Watch your Spec come to life in <a href="${escapeHtml(input.memexUrl)}" style="color:${BRAND_SKY};">your Memex</a>.`,
+      `Watch your Spec come to life in <a href="${escapeHtml(input.memexUrl)}" style="color:${BRAND_CORAL};">your Memex</a>.`,
       escapeHtml(stuck),
       ACTIVATION_SIGNOFF_HTML,
     ],
@@ -481,6 +481,13 @@ export function buildSignedInDormantEmail(
     "Once you're in, your agents build from what you actually decided, not what they guessed. Every decision is captured as you go, so nothing important gets buried in a chat thread or quietly chosen for you mid-build. And done means verified, not just claimed. No more vibe coding.";
   const afterCtaText =
     "We'll send you a few short emails over the next few weeks, and there are some resources below to get you started. If you get stuck, just reply here or find us in #help on Discord.";
+  // spec-465: link "#help" to the Discord invite in the HTML body only (coral).
+  // escapeHtml leaves the literal "#help" untouched, so replacing it on the
+  // escaped string is safe; the plain-text body keeps "#help" as prose.
+  const afterCtaHtml = escapeHtml(afterCtaText).replace(
+    "#help",
+    `<a href="${DISCORD_INVITE_URL}" style="color:${BRAND_CORAL};text-decoration:none;">#help</a>`,
+  );
 
   const steps: EmailStep[] = [
     {
@@ -520,7 +527,7 @@ export function buildSignedInDormantEmail(
     ctaLabel: "Open Memex AI",
     ctaUrl: input.appUrl,
     showPasteLink: false,
-    afterCtaParagraphs: [escapeHtml(afterCtaText), ACTIVATION_SIGNOFF_HTML],
+    afterCtaParagraphs: [afterCtaHtml, ACTIVATION_SIGNOFF_HTML],
     resources: ACTIVATION_RESOURCES,
     footerNote: ACTIVATION_FOOTER,
   });

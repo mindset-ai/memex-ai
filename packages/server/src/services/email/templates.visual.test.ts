@@ -32,10 +32,10 @@ const samples = [
 describe.each(samples.map((m) => [m.subject, m.html ?? ""] as const))(
   "shared email renderer visual treatment — %s",
   (_subject, html) => {
-    it("uses a solid BRAND_INK CTA button, never a gradient", () => {
-      tagAc(AC(1)); // scope: all six emails carry the corrected treatment
-      tagAc(AC(4)); // impl: renderEmailHtml renders a solid BRAND_INK button
-      expect(html).toContain("background:#0E1128;color:#FFFFFF");
+    it("uses a solid coral CTA button, never a gradient", () => {
+      tagAc(AC(1)); // scope: all six emails carry the corrected treatment (cascades)
+      // Button colour is now coral — owned by spec-465 (reverses spec-226 dec-1/ac-4).
+      expect(html).toContain("background:#FC4F64;color:#FFFFFF");
       expect(html).not.toContain("linear-gradient");
     });
 
