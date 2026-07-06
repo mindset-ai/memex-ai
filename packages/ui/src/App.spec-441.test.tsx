@@ -160,19 +160,21 @@ describe('spec-441: RootRedirect name gate', () => {
     expect(fetchJourneyStateSpy).not.toHaveBeenCalled();
   });
 
+  // spec-461 dec-1: a named user now lands on their Specs board (not /home). These name-gate
+  // ACs only assert the user is NOT bounced to /onboarding; the landing sentinel is specs-page.
   it('ac-3: named user (e.g. Google SSO) at / is NOT redirected to /onboarding', async () => {
     tagAc(AC(3));
     mockSession = makeSession({ name: 'Alice' });
     renderAt('/');
-    expect(await screen.findByTestId('home-canvas-page')).toBeInTheDocument();
+    expect(await screen.findByTestId('specs-page')).toBeInTheDocument();
     expect(screen.queryByTestId('onboarding-page')).not.toBeInTheDocument();
   });
 
-  it('ac-4: returning named user landing (/ → /home) is unchanged', async () => {
+  it('ac-4: returning named user landing (/ → the Specs board) is unchanged by the name gate', async () => {
     tagAc(AC(4));
     mockSession = makeSession({ name: 'Alice' });
     renderAt('/');
-    expect(await screen.findByTestId('home-canvas-page')).toBeInTheDocument();
+    expect(await screen.findByTestId('specs-page')).toBeInTheDocument();
     expect(screen.queryByTestId('onboarding-page')).not.toBeInTheDocument();
   });
 
@@ -180,7 +182,7 @@ describe('spec-441: RootRedirect name gate', () => {
     tagAc(AC(5));
     mockSession = makeSession({ name: 'Alice' });
     renderAt('/');
-    expect(await screen.findByTestId('home-canvas-page')).toBeInTheDocument();
+    expect(await screen.findByTestId('specs-page')).toBeInTheDocument();
     expect(screen.queryByTestId('onboarding-page')).not.toBeInTheDocument();
   });
 

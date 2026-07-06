@@ -14,7 +14,6 @@ const BRAND_MUTED = "#6B7280";
 const BRAND_BORDER = "#E5E7EB";
 const FONT_STACK =
   "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
-const MONO_STACK = "'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace";
 
 function escapeHtml(value: string): string {
   return value
@@ -39,7 +38,6 @@ export interface EmailResource {
 
 interface RenderInput {
   preheader: string;
-  eyebrow: string;
   heading: string;
   // Interpreted as HTML — caller must escape any dynamic values it interpolates.
   bodyParagraphs: string[];
@@ -68,7 +66,7 @@ function renderEmailText(input: {
 }): string {
   const parts = [...input.intro];
   if (input.url) parts.push(input.url);
-  parts.push(input.closing, "Memex.AI");
+  parts.push(input.closing, "Memex AI");
   return parts.join("\n\n");
 }
 
@@ -80,8 +78,8 @@ export function renderSteps(steps?: EmailStep[]): string {
     .map(
       (s) =>
         `<div style="margin:20px 0;">` +
-        `<div style="font-family:${MONO_STACK};font-size:11px;font-weight:600;letter-spacing:0.08em;color:${BRAND_SKY};">${escapeHtml(s.label)}</div>` +
-        `<div style="margin:4px 0 2px;font-size:16px;font-weight:600;color:${BRAND_INK};">${escapeHtml(s.title)}</div>` +
+        `<div style="font-family:${FONT_STACK};font-size:15px;font-weight:700;color:${BRAND_CORAL};">${escapeHtml(s.label)}</div>` +
+        `<div style="margin:6px 0 2px;font-size:16px;font-weight:600;color:${BRAND_INK};">${escapeHtml(s.title)}</div>` +
         `<div style="color:${BRAND_INK};font-size:15px;line-height:1.6;">${escapeHtml(s.body)}</div>` +
         `</div>`,
     )
@@ -97,7 +95,7 @@ export function renderResources(resources?: EmailResource[]): string {
     .map(
       (r) =>
         `<tr><td style="padding:12px 0;border-top:1px solid ${BRAND_BORDER};">` +
-        `<a href="${escapeHtml(r.url)}" style="color:${BRAND_INK};font-size:15px;font-weight:600;text-decoration:none;">${escapeHtml(r.title)}</a>` +
+        `<a href="${escapeHtml(r.url)}" style="color:${BRAND_CORAL};font-size:15px;font-weight:600;text-decoration:none;">${escapeHtml(r.title)}</a>` +
         `<div style="margin-top:2px;color:${BRAND_MUTED};font-size:13px;line-height:1.5;">${escapeHtml(r.description)}</div>` +
         `</td></tr>`,
     )
@@ -124,10 +122,6 @@ function renderEmailHtml(input: RenderInput): string {
       (p) => `<p style="margin:16px 0 0;color:${BRAND_INK};font-size:15px;line-height:1.6;">${p}</p>`,
     )
     .join("");
-  // The eyebrow is optional — welcome/activation emails lead with the H1 and pass none.
-  const eyebrowHtml = input.eyebrow
-    ? `<div style="margin:28px 0 10px;font-family:${MONO_STACK};font-size:11px;font-weight:600;letter-spacing:0.14em;color:${BRAND_SKY};">${escapeHtml(input.eyebrow)}</div>`
-    : "";
 
   return `<!doctype html>
 <html lang="en">
@@ -146,13 +140,12 @@ function renderEmailHtml(input: RenderInput): string {
           <table role="presentation" width="560" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;width:100%;background-color:#FFFFFF;border:1px solid ${BRAND_BORDER};border-radius:12px;overflow:hidden;">
             <tr>
               <td style="padding:32px 40px;">
-                <div style="font-size:20px;font-weight:700;letter-spacing:-0.01em;color:${BRAND_INK};">Memex<span style="font-weight:500;color:${BRAND_CORAL};">.AI</span></div>
-                ${eyebrowHtml}
+                <div style="margin:0 0 20px;font-size:20px;font-weight:700;letter-spacing:-0.01em;color:${BRAND_INK};">Memex AI</div>
                 <h1 style="margin:0 0 16px;color:${BRAND_INK};font-size:22px;line-height:1.3;font-weight:600;letter-spacing:-0.01em;">${escapeHtml(input.heading)}</h1>
                 ${paragraphs}
                 ${stepsHtml}
                 <div style="margin:24px 0 8px;">
-                  <a href="${safeUrl}" style="display:inline-block;padding:12px 24px;background:${BRAND_INK};color:#FFFFFF;font-size:15px;font-weight:600;text-decoration:none;border-radius:8px;">${escapeHtml(input.ctaLabel)}</a>
+                  <a href="${safeUrl}" style="display:inline-block;padding:12px 24px;background:${BRAND_CORAL};color:#FFFFFF;font-size:15px;font-weight:600;text-decoration:none;border-radius:8px;">${escapeHtml(input.ctaLabel)}</a>
                 </div>
                 ${pasteLink}
                 ${afterCta}
@@ -197,7 +190,6 @@ export function buildDomainVerificationEmail(
 
   const html = renderEmailHtml({
     preheader: `${input.orgName} wants to claim ${input.domain} on Memex.AI.`,
-    eyebrow: "Domain verification",
     heading: `Verify ${input.domain} for Memex.AI`,
     bodyParagraphs: [
       `<strong>${escapeHtml(input.orgName)}</strong> wants to claim <strong>${escapeHtml(input.domain)}</strong> on Memex.AI.`,
@@ -230,7 +222,6 @@ export function buildVerificationEmail(input: VerificationEmailInput): EmailMess
 
   const html = renderEmailHtml({
     preheader: "Confirm this email to finish creating your Memex.",
-    eyebrow: "Email verification",
     heading: "Confirm your email",
     bodyParagraphs: [
       `Confirm this email to finish creating your Memex. The link expires in 24 hours.`,
@@ -272,7 +263,11 @@ export interface WelcomeEmailInput {
 export function buildWelcomeEmail(input: WelcomeEmailInput): EmailMessage {
   const firstName = input.firstName?.trim();
   const greeting = firstName ? `Hi ${firstName},` : "Hi there,";
-  const signOff = `Best, ${input.senderName?.trim() || "The Memex AI team"}`;
+  // spec-451 ac-5 — sign-off on two lines ("Best," / name). Two forms: \n for the
+  // plain-text body, <br> for the HTML (afterCtaParagraphs is inserted un-escaped).
+  const senderName = input.senderName?.trim() || "The Memex AI team";
+  const signOffText = `Best,\n${senderName}`;
+  const signOffHtml = `Best,<br>${escapeHtml(senderName)}`;
 
   const value =
     "Your agents are about to start building from what you actually decided, not what they guessed. Every decision is captured as you go, so nothing important gets buried in a chat thread or quietly chosen for you mid-build. And done means verified, not just claimed. No more vibe coding.";
@@ -322,12 +317,11 @@ export function buildWelcomeEmail(input: WelcomeEmailInput): EmailMessage {
       "Resources: Understanding Memex AI (https://www.memex.ai/understanding-memex.pdf), Documentation (https://www.memex.ai/docs), Community (Discord).",
     ],
     url: input.appUrl,
-    closing: signOff,
+    closing: signOffText,
   });
 
   const html = renderEmailHtml({
     preheader: "Welcome to Memex AI — two steps to your first Spec.",
-    eyebrow: "",
     heading: "Build what you decided. Not what your agent guessed.",
     bodyParagraphs: [
       escapeHtml(greeting),
@@ -339,7 +333,7 @@ export function buildWelcomeEmail(input: WelcomeEmailInput): EmailMessage {
     ctaLabel: "Open Memex AI",
     ctaUrl: input.appUrl,
     showPasteLink: false,
-    afterCtaParagraphs: [escapeHtml(afterCtaText), escapeHtml(signOff)],
+    afterCtaParagraphs: [escapeHtml(afterCtaText), signOffHtml],
     resources,
     footerNote: "You're getting this because you signed up for Memex AI, built by Mindset AI.",
   });
@@ -395,7 +389,10 @@ function activationGreeting(firstName?: string): string {
   return name ? `Hi ${name},` : "Hi there,";
 }
 
-const ACTIVATION_SIGNOFF = "Best, The Memex AI team";
+// spec-451 ac-5 — sign-off on two lines (see buildWelcomeEmail). \n for the plain-text
+// body, <br> for the HTML (afterCtaParagraphs is inserted un-escaped).
+const ACTIVATION_SIGNOFF_TEXT = "Best,\nThe Memex AI team";
+const ACTIVATION_SIGNOFF_HTML = "Best,<br>The Memex AI team";
 const ACTIVATION_FOOTER =
   "You're getting this because you signed up for Memex AI, built by Mindset AI.";
 
@@ -431,12 +428,11 @@ export function buildConnectedInactiveEmail(
       stuck,
     ],
     url: input.createSpecUrl,
-    closing: ACTIVATION_SIGNOFF,
+    closing: ACTIVATION_SIGNOFF_TEXT,
   });
 
   const html = renderEmailHtml({
     preheader: "Your Memex MCP is connected — create your first Spec.",
-    eyebrow: "",
     heading: "Your Memex MCP is connected. The hard part is done.",
     bodyParagraphs: [
       escapeHtml(greeting),
@@ -448,9 +444,9 @@ export function buildConnectedInactiveEmail(
     afterCtaParagraphs: [
       escapeHtml(afterCta1),
       escapeHtml(afterCta2),
-      `Watch your Spec come to life in <a href="${escapeHtml(input.memexUrl)}" style="color:${BRAND_SKY};">your Memex</a>.`,
+      `Watch your Spec come to life in <a href="${escapeHtml(input.memexUrl)}" style="color:${BRAND_CORAL};">your Memex</a>.`,
       escapeHtml(stuck),
-      escapeHtml(ACTIVATION_SIGNOFF),
+      ACTIVATION_SIGNOFF_HTML,
     ],
     resources: ACTIVATION_RESOURCES,
     footerNote: ACTIVATION_FOOTER,
@@ -485,6 +481,13 @@ export function buildSignedInDormantEmail(
     "Once you're in, your agents build from what you actually decided, not what they guessed. Every decision is captured as you go, so nothing important gets buried in a chat thread or quietly chosen for you mid-build. And done means verified, not just claimed. No more vibe coding.";
   const afterCtaText =
     "We'll send you a few short emails over the next few weeks, and there are some resources below to get you started. If you get stuck, just reply here or find us in #help on Discord.";
+  // spec-465: link "#help" to the Discord invite in the HTML body only (coral).
+  // escapeHtml leaves the literal "#help" untouched, so replacing it on the
+  // escaped string is safe; the plain-text body keeps "#help" as prose.
+  const afterCtaHtml = escapeHtml(afterCtaText).replace(
+    "#help",
+    `<a href="${DISCORD_INVITE_URL}" style="color:${BRAND_CORAL};text-decoration:none;">#help</a>`,
+  );
 
   const steps: EmailStep[] = [
     {
@@ -509,12 +512,11 @@ export function buildSignedInDormantEmail(
       afterCtaText,
     ],
     url: input.appUrl,
-    closing: ACTIVATION_SIGNOFF,
+    closing: ACTIVATION_SIGNOFF_TEXT,
   });
 
   const html = renderEmailHtml({
     preheader: "You're two steps from your first Spec.",
-    eyebrow: "",
     heading: "You're two steps from your first Spec",
     bodyParagraphs: [
       escapeHtml(greeting),
@@ -525,7 +527,7 @@ export function buildSignedInDormantEmail(
     ctaLabel: "Open Memex AI",
     ctaUrl: input.appUrl,
     showPasteLink: false,
-    afterCtaParagraphs: [escapeHtml(afterCtaText), escapeHtml(ACTIVATION_SIGNOFF)],
+    afterCtaParagraphs: [afterCtaHtml, ACTIVATION_SIGNOFF_HTML],
     resources: ACTIVATION_RESOURCES,
     footerNote: ACTIVATION_FOOTER,
   });
@@ -537,6 +539,131 @@ export function buildSignedInDormantEmail(
     html,
     // spec-427 ac-14 / dec-7: stable comms key (see Email 1).
     commsType: "activation.signed_in_dormant",
+  };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// spec-453 — "See it verified" + "Connect with people" (Slice A: pure render)
+// ──────────────────────────────────────────────────────────────────────────
+// Two more lifecycle touches in the same activation sequence as spec-427's two
+// emails and spec-428's welcome. PURE RENDER, like the spec-427 builders: no
+// trigger/timing/send/env logic here. Team-identity From/Reply-To + the broadcast
+// stream + suppression are applied at the send site by sendLifecycleEmail (dec-5),
+// NOT in the builder. commsType IS stamped here (static): the trigger (t-2) and the
+// Day-12 pass (t-5) dedup on these stable keys in comms_log (dec-6), never the subject.
+
+// The confirmed, permanent Discord invite (dec-8) — replaces the retired
+// www.memex.ai/discord placeholder. Same link the welcome/resources already use.
+const DISCORD_INVITE_URL = "https://discord.com/invite/WJfBYG9eV";
+
+export interface VerifiedMilestoneEmailInput {
+  to: string;
+  /** Recipient's first name; absent/empty → a graceful "Hi there,". */
+  firstName?: string;
+  /** CTA "Go to Memex AI" target — the user's Specs board, derived from APP_BASE_URL
+   *  at the send site. dec-2: GENERIC board, no deep-link to the triggering spec/AC. */
+  appUrl: string;
+}
+
+// spec-453 "See it verified" (dec-1/dec-2). The aha email: the first time a user's
+// own acceptance criterion goes green via a tagged test event (the trigger lives in
+// routes/test-events.ts — t-2; this is pure render). Generic/evergreen copy, no
+// per-send personalization beyond the greeting (dec-2). Copy mirrors s-2.
+export function buildVerifiedMilestoneEmail(
+  input: VerifiedMilestoneEmailInput,
+): EmailMessage {
+  const greeting = activationGreeting(input.firstName);
+  const prove = "Your agent says it's done. Now you can prove it.";
+  const para1 =
+    'Every decision you resolved turned into tasks with acceptance criteria attached, the specific, testable conditions that define "done" for that piece of work. Your agent doesn\'t just write the code, it runs the checks against those criteria and reports back.';
+  const para2 =
+    'When they go green in CI, you\'re not taking its word for it. You\'re watching the proof. No re-reading a diff hoping it\'s right, no "looks fine to me." Green means what you decided actually got built, and it\'s been verified, not assumed.';
+  const loop =
+    "That's the loop, closed: spec, decision, build, proof. However far you've got, that's the moment it starts paying for itself.";
+
+  const text = renderEmailText({
+    intro: [greeting, prove, para1, para2, loop],
+    url: input.appUrl,
+    closing: ACTIVATION_SIGNOFF_TEXT,
+  });
+
+  const html = renderEmailHtml({
+    preheader: "Every acceptance criterion, checked in CI, before anyone calls it finished.",
+    heading: "Green means it's actually done",
+    bodyParagraphs: [
+      escapeHtml(greeting),
+      `<strong>${escapeHtml(prove)}</strong>`,
+      escapeHtml(para1),
+      escapeHtml(para2),
+    ],
+    ctaLabel: "Go to Memex AI",
+    ctaUrl: input.appUrl,
+    showPasteLink: false,
+    afterCtaParagraphs: [escapeHtml(loop), ACTIVATION_SIGNOFF_HTML],
+    footerNote: ACTIVATION_FOOTER,
+  });
+
+  return {
+    to: input.to,
+    subject: "Green means it's actually done",
+    text,
+    html,
+    // spec-453 dec-6: stable comms key — the trigger (t-2) dedups on THIS, never the subject.
+    commsType: "activation.verified_milestone",
+  };
+}
+
+export interface ConnectPeopleEmailInput {
+  to: string;
+  /** Recipient's first name; absent/empty → a graceful "Hi there,". */
+  firstName?: string;
+}
+
+// spec-453 "Connect with people" (dec-7/dec-8). The closing Day-12 touch: no
+// pressure, point to the community. Pure render; the Day-12 select/dedup/send is
+// t-5, invoked by the shared scheduled endpoint (t-6). The only CTA is the confirmed
+// permanent Discord invite (dec-8). Copy mirrors s-3.
+export function buildConnectPeopleEmail(
+  input: ConnectPeopleEmailInput,
+): EmailMessage {
+  const greeting = activationGreeting(input.firstName);
+  const opener = "However far you've got.";
+  const para1 =
+    "It's been a little while since you joined Memex AI. Wherever you've got to, agent connected, first spec shipped, or not started yet, that's completely fine. No pressure here.";
+  const para2 =
+    "When you want a hand, the Discord is the easiest way in. Ask in #help, see how other teams run it, real people answer.";
+  const last =
+    "This is the last of your onboarding emails, so I'll leave you to it. The door's always open whenever you want to pick things up.";
+
+  const text = renderEmailText({
+    intro: [greeting, opener, para1, para2, last],
+    url: DISCORD_INVITE_URL,
+    closing: ACTIVATION_SIGNOFF_TEXT,
+  });
+
+  const html = renderEmailHtml({
+    preheader: "Real people, whenever you're stuck.",
+    heading: "You've run the loop. Don't run it alone.",
+    bodyParagraphs: [
+      escapeHtml(greeting),
+      `<strong>${escapeHtml(opener)}</strong>`,
+      escapeHtml(para1),
+      escapeHtml(para2),
+    ],
+    ctaLabel: "Join the Discord",
+    ctaUrl: DISCORD_INVITE_URL,
+    showPasteLink: false,
+    afterCtaParagraphs: [escapeHtml(last), ACTIVATION_SIGNOFF_HTML],
+    footerNote: ACTIVATION_FOOTER,
+  });
+
+  return {
+    to: input.to,
+    subject: "You've run the loop. Don't run it alone.",
+    text,
+    html,
+    // spec-453 dec-6: stable comms key — the Day-12 pass (t-5) dedups on THIS.
+    commsType: "activation.connect_people",
   };
 }
 
@@ -554,7 +681,6 @@ export function buildMagicLinkEmail(input: MagicLinkEmailInput): EmailMessage {
 
   const html = renderEmailHtml({
     preheader: "Single-use sign-in link, expires in 15 minutes.",
-    eyebrow: "Sign-in link",
     heading: "Sign in to Memex.AI",
     bodyParagraphs: [
       `Your single-use sign-in link. It expires in 15 minutes.`,
@@ -605,7 +731,6 @@ export function buildWaitlistConfirmationEmail(
 
   const html = renderEmailHtml({
     preheader: `You're on the waitlist — Org sign-ups jump the queue.`,
-    eyebrow: "Waitlist",
     heading: `You're on the list, ${input.name}`,
     bodyParagraphs: [
       `Thanks for signing up. We'll reach out as soon as your spot opens up.`,
@@ -650,7 +775,6 @@ export function buildMcpCanonicalRefsSwitchEmail(
 
   const html = renderEmailHtml({
     preheader: "MCP tool surface switched to canonical refs — reload your client.",
-    eyebrow: "Heads up",
     heading: "Memex MCP tool surface updated",
     bodyParagraphs: [
       `The Memex.AI MCP tool surface has switched to <strong>canonical refs</strong>. Tool arguments now take a single <code>ref</code> string (e.g. <code>mindset/website-rewrite/briefs/b-1</code>) instead of UUIDs. Responses include <code>ref:</code> lines you can copy back into a follow-up call.`,
@@ -686,7 +810,6 @@ export function buildPasswordResetEmail(input: PasswordResetEmailInput): EmailMe
 
   const html = renderEmailHtml({
     preheader: "Reset your Memex.AI password.",
-    eyebrow: "Password reset",
     heading: "Reset your password",
     bodyParagraphs: [
       `Someone asked to reset your password. If that was you, pick a new one below. The link expires in 1 hour.`,
@@ -740,7 +863,6 @@ export function buildMentionEmail(input: MentionEmailInput): EmailMessage {
 
   const html = renderEmailHtml({
     preheader: `${input.mentionerName} mentioned you in a comment on ${input.specLabel}.`,
-    eyebrow: "Comment mention",
     heading: `${escapeHtml(input.mentionerName)} mentioned you`,
     bodyParagraphs: [
       `<strong>${escapeHtml(input.mentionerName)}</strong> mentioned you in a comment on <strong>${escapeHtml(input.specLabel)}</strong>.`,
@@ -781,7 +903,6 @@ export function buildAssignmentEmail(input: AssignmentEmailInput): EmailMessage 
 
   const html = renderEmailHtml({
     preheader: `${input.assignerName} assigned you a comment to resolve on ${input.specLabel}.`,
-    eyebrow: "Comment assignment",
     heading: `${escapeHtml(input.assignerName)} assigned you a comment`,
     bodyParagraphs: [
       `<strong>${escapeHtml(input.assignerName)}</strong> assigned you a comment to resolve on <strong>${escapeHtml(input.specLabel)}</strong>.`,

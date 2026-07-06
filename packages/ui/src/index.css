@@ -576,6 +576,35 @@
   border-radius: 2px;
 }
 
+/* spec-448 (t-10): version-diff overlay — changed words/paragraphs painted
+   the same way (CSS Custom Highlight API, no DOM mutation of the react-
+   markdown tree, ac-31). Unlike geo-anchor's single amber, additions and
+   removals need distinct, theme-aware colours (ac-32): emerald for added,
+   rose for removed, matching std-27's verified/failing hue reservations.
+   `diff-block` washes the whole changed paragraph a neutral slate so a
+   changed block reads even where a whole line was replaced, wrapped around
+   the word-level add/del highlights above it. */
+.dark ::highlight(diff-add) {
+  background-color: rgba(52, 211, 153, 0.16); /* emerald-400/16 — softened */
+}
+.light ::highlight(diff-add) {
+  background-color: rgba(16, 185, 129, 0.14); /* emerald-500/14 — softened */
+}
+.dark ::highlight(diff-del) {
+  background-color: rgba(251, 113, 133, 0.16); /* rose-400/16 — softened */
+  text-decoration: line-through;
+}
+.light ::highlight(diff-del) {
+  background-color: rgba(244, 63, 94, 0.14); /* rose-500/14 — softened */
+  text-decoration: line-through;
+}
+.dark ::highlight(diff-block) {
+  background-color: rgba(100, 116, 139, 0.14); /* slate-500/14 */
+}
+.light ::highlight(diff-block) {
+  background-color: rgba(148, 163, 184, 0.16); /* slate-400/16 */
+}
+
 /* spec-190 (dec-4 / t-5): the voice guide's highlight tool adds `.guide-highlight`
    to a registry element (data-guide-id) to draw the eye while the guide talks
    about it. Without a visible style the highlight tool was a silent no-op. A
@@ -637,6 +666,51 @@
   [class*='animate-[panelIn'],
   [class*='animate-[fadeIn'] {
     animation: none !important;
+  }
+}
+
+/* spec-456 — the "What's New" account-menu row is the menu's one deliberately
+   playful moment. On hover/focus the gift lid tilts open ("unwrap") and a small
+   sparkle peeks out; the click-time confetti burst is drawn in a <canvas> by
+   burstWhatsNewConfetti() in AppShell.tsx. transform-box:fill-box makes each
+   SVG part rotate/scale about its own box rather than the whole SVG viewport.
+   Reduced-motion users get an instant, motionless state: no lid tilt, no scale. */
+.wn-lid {
+  transform-box: fill-box;
+  transform-origin: 28% 92%;
+  transition: transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.wn-sparkle {
+  transform-box: fill-box;
+  transform-origin: center;
+  opacity: 0;
+  transform: scale(0.4);
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s ease;
+}
+.group:hover .wn-lid,
+.group:focus-visible .wn-lid {
+  transform: rotate(-20deg) translateY(-0.5px);
+}
+.group:hover .wn-sparkle,
+.group:focus-visible .wn-sparkle {
+  opacity: 1;
+  transform: scale(1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .wn-lid,
+  .wn-sparkle {
+    transition: none;
+  }
+  .group:hover .wn-lid,
+  .group:focus-visible .wn-lid {
+    transform: none;
+  }
+  .group:hover .wn-sparkle,
+  .group:focus-visible .wn-sparkle {
+    opacity: 0;
+    transform: scale(0.4);
   }
 }
 

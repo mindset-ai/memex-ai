@@ -678,7 +678,10 @@ const markdownComponents = {
   },
 };
 
-const MemoizedMarkdown = memo(function MemoizedMarkdown({
+// spec-448 t-10 (ac-27): exported so DiffOverlay can reuse the identical
+// react-markdown render for both sides of a version diff, instead of
+// duplicating remark/rehype plugin wiring.
+export const MemoizedMarkdown = memo(function MemoizedMarkdown({
   content,
   isDemo = false,
 }: {

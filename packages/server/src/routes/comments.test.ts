@@ -65,6 +65,7 @@ describe("GET /api/comments/doc/:docId", () => {
             preamble: null,
             position: 1,
             previousStatus: null,
+            retiredAtVersion: null,
             createdAt: baseDate,
             updatedAt: baseDate,
             actorUserId: null,
@@ -98,6 +99,7 @@ describe("GET /api/comments/doc/:docId", () => {
               assigneeUserId: null,
               assignedBy: null,
               assignedAt: null,
+              retiredAtVersion: null,
               channel: null,
               createdAt: baseDate,
             },
@@ -160,6 +162,7 @@ describe("GET /api/comments/section/:sectionId", () => {
         assigneeUserId: null,
         assignedBy: null,
         assignedAt: null,
+        retiredAtVersion: null,
         channel: null,
         createdAt: baseDate,
       },
@@ -204,6 +207,7 @@ describe("POST /api/comments/section/:sectionId", () => {
       assigneeUserId: null,
       assignedBy: null,
       assignedAt: null,
+      retiredAtVersion: null,
       channel: null,
       createdAt: baseDate,
     }));
@@ -249,6 +253,7 @@ describe("POST /api/comments/section/:sectionId", () => {
       assigneeUserId: null,
       assignedBy: null,
       assignedAt: null,
+      retiredAtVersion: null,
       channel: null,
       createdAt: baseDate,
     }));
@@ -302,6 +307,7 @@ describe("POST /api/comments/section/:sectionId", () => {
       assigneeUserId: null,
       assignedBy: null,
       assignedAt: null,
+      retiredAtVersion: null,
       channel: null,
       createdAt: baseDate,
     }));
@@ -356,6 +362,7 @@ describe("POST /api/comments/:commentId/resolve", () => {
       assigneeUserId: null,
       assignedBy: null,
       assignedAt: null,
+      retiredAtVersion: null,
       channel: null,
       createdAt: baseDate,
     }));
@@ -406,6 +413,7 @@ describe("POST /api/comments/:commentId/resolve", () => {
       assigneeUserId: null,
       assignedBy: null,
       assignedAt: null,
+      retiredAtVersion: null,
       channel: null,
       createdAt: baseDate,
     }));
@@ -458,6 +466,7 @@ describe("POST /api/comments/:commentId/unresolve", () => {
       assigneeUserId: null,
       assignedBy: null,
       assignedAt: null,
+      retiredAtVersion: null,
       channel: null,
       createdAt: baseDate,
     }));

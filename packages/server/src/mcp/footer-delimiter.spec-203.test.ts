@@ -36,6 +36,7 @@ function makeSpec(status: string): Doc & { sections: DocSection[] } {
     checkedOutBy: null,
     checkedOutAt: null,
     checkedOutThread: null,
+    version: 1,
     sections: [
       {
         id: "section-uuid-1",
@@ -49,6 +50,7 @@ function makeSpec(status: string): Doc & { sections: DocSection[] } {
         position: 1,
         status: "active",
         previousStatus: null,
+        retiredAtVersion: null,
         createdAt: baseDate,
         updatedAt: baseDate,
         actorUserId: null,

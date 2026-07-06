@@ -68,6 +68,16 @@ const ALLOWLIST: Record<string, string> = {
   // the clause + section events the callers already emit ARE its change signal.
   "services/clause-refs.ts":
     "tx-helper indirection (spec-179) — syncClauseRefsTx writes clause_refs only inside the clause writers' mutate() callbacks (clauses.ts); clause_refs is a derived projection whose change signal is the callers' clause/section events.",
+  // spec-448 document versioning — buildSnapshot/materialiseGraph (+ its
+  // nested `reconcile` helper) are tx-helpers invoked ONLY from inside
+  // cutVersion's and restoreVersion's mutate() callbacks (same indirection
+  // as clauses.ts/clause-refs.ts above): both public writers return
+  // Mutated<DocumentVersion> and emit the "document_version" bus entity
+  // (verified by mutate-coverage.service). The callback-scoped heuristic
+  // (ac-24) can't follow the helper-function indirection into these two
+  // functions' many per-artifact-class db writes.
+  "services/versioning.ts":
+    "tx-helper indirection (spec-448) — buildSnapshot/materialiseGraph write sections/decisions/acs/tasks/issues/comments only inside cutVersion's/restoreVersion's mutate() callbacks; both public writers return Mutated<DocumentVersion> with a document_version emission.",
   // spec-162 test_event_latest summary maintenance — applyEmissionToSummary /
   // removeSummaryForPair take a `conn: Db` and write the derived summary ONLY
   // inside the mutate() callbacks of their two callers (routes/test-events.ts
@@ -173,6 +183,9 @@ const ALLOWLIST: Record<string, string> = {
   // ── Comms-log store (spec-6, memex-backstage) ─────────────────────────────
   "services/comms-log.ts":
     "Unified comms-log store (spec-6). recordComm() advisorily appends one comms_log row per outbound communication (email/in-app/badge/OS), written FROM send paths that often run with no request ALS / tenant GUC (a background Activation send, a delivery webhook). comms_log is user-keyed + RLS-excluded with NO bus entity — same category as services/usage-events.ts / services/visitors.ts: nothing subscribes over the memexId-keyed SSE bus, and the write must be fire-and-forget so a logging fault never blocks a real send (ac-6/ac-9). Backstage READS it; core writes it (dec-5). Telemetry/comms — must not emit.",
+  // ── spec-453 "See it verified" milestone gate (global users sentinel) ─────
+  "services/email/verified-milestone-send.ts":
+    "spec-453 (dec-9/dec-10). fireVerifiedMilestoneForUser stamps users.first_ac_verified_at (NULL→now()) as the ATOMIC once-ever activation-email gate — the sole writer of that transition — then sends via the lifecycle chokepoint. The write is on the GLOBAL users table (no memex_id, no bus entity), a per-user gate SENTINEL, not Memex-scoped tenant content; it runs ADVISORILY (every failure swallowed) from the test-event ingest hook, off the request path with no ALS / tenant GUC. Same category as services/users.ts — a raw users identity/gate write that must not emit; nothing subscribes over the memexId-keyed SSE bus. Silent-allowed per std-8 §6.",
   // ── spec-426 A/B experiment plane (platform-global, RLS-excluded) ─────────
   "services/experiments.ts":
     "spec-426 A/B experiment construct (experiments / experiment_variants / experiment_assignments). resolveOrCreateAssignment INSERTs assignment rows and SUPERSEDEs prior ones; these are PLATFORM-GLOBAL, user-keyed, RLS-EXCLUDED rows with NO memex_id and NO bus entity — the same cross-tenant category as services/comms-log.ts / services/usage-events.ts. The bus is keyed on memexId for tenant SSE fan-out; an experiment assignment has no tenancy and no SSE subscriber (Backstage READS it cross-tenant via memex_admin; the verdict sweep WRITES it). mutate() needs a memexId this row doesn't have, and an emit would wake no one. Silent-allowed per std-8 §6.",

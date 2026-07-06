@@ -125,4 +125,34 @@ describe(`public smoke @ ${SMOKE_BASE_URL}`, () => {
       expect(Array.isArray(body)).toBe(true);
     }
   });
+
+  // spec-458 t-6 (std-17, ac-17) — the public /live surface is deployed. Two
+  // legs: the aggregate API responds with the expected envelope + the unlisted
+  // noindex header, and the /live path serves the SPA shell (not a redirect to
+  // www and not a bucket error page). NOTE on status: the apex serves deep links
+  // as index.html WITH A 404 STATUS (pre-existing platform behaviour, observed
+  // on /login and tenant paths alike — the spec-225 latent finding), so the
+  // page leg asserts the BODY is the SPA shell rather than pinning 200.
+  it("GET /api/live → 200 aggregate envelope + noindex (unlisted, kill switch off)", async () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-458/acs/ac-17");
+    const res = await fetch(`${SMOKE_BASE_URL}/api/live`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("x-robots-tag")).toBe("noindex");
+    const body = (await res.json()) as Record<string, unknown>;
+    for (const key of ["now", "lastHour", "totals", "ticker", "points", "config"]) {
+      expect(body).toHaveProperty(key);
+    }
+  });
+
+  it("GET /live → serves the SPA shell on this host (no redirect to www, no bucket error)", async () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-458/acs/ac-17");
+    const res = await fetch(`${SMOKE_BASE_URL}/live`, { redirect: "manual" });
+    // Must NOT be the apex→www 301 (only bare / and marketing paths redirect).
+    expect([301, 302, 307, 308]).not.toContain(res.status);
+    expect(res.headers.get("content-type") ?? "").toMatch(/text\/html/);
+    const text = await res.text();
+    // The SPA index, not a GCS error page (status may be 404 per the
+    // pre-existing deep-link behaviour; browsers render the app regardless).
+    expect(text).toMatch(/<div id="root">|Memex\.AI/);
+  });
 });

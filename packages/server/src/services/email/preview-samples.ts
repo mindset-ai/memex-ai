@@ -22,6 +22,8 @@ import {
   buildAssignmentEmail,
   buildConnectedInactiveEmail,
   buildSignedInDormantEmail,
+  buildVerifiedMilestoneEmail,
+  buildConnectPeopleEmail,
 } from "./templates.js";
 
 const BASE = process.env.APP_BASE_URL ?? "https://memex.ai";
@@ -78,6 +80,15 @@ export const EMAIL_PREVIEW_SAMPLES: Record<string, (to: string) => EmailMessage>
     }),
   "activation-signed-in-dormant": (to) =>
     buildSignedInDormantEmail({ to, firstName: "Sample", appUrl: BASE }),
+  // spec-453 — "See it verified" (verified-milestone) + "Connect with people".
+  // Same hyphenated preview-key convention as the spec-427 pair above; the
+  // comms_log keys stay the dotted `activation.verified_milestone` /
+  // `activation.connect_people`. Registered here so both are previewable and
+  // send-testable on int (spec-453/issue-1).
+  "activation-verified-milestone": (to) =>
+    buildVerifiedMilestoneEmail({ to, firstName: "Sample", appUrl: BASE }),
+  "activation-connect-people": (to) =>
+    buildConnectPeopleEmail({ to, firstName: "Sample" }),
 };
 
 export const EMAIL_TEMPLATE_NAMES: string[] = Object.keys(EMAIL_PREVIEW_SAMPLES);

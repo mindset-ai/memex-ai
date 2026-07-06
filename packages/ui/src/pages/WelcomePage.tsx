@@ -15,12 +15,22 @@ import { dismissWelcomeVideoApi } from '../api/auth';
 import { useTelemetry } from '../hooks/useTelemetry';
 
 const VIDEO_URL =
-  'https://storage.googleapis.com/memex-ai-prod-app-static/media/welcome-to-memex-v2.mp4';
+  'https://storage.googleapis.com/memex-ai-prod-app-static/media/welcome-to-memex-v4.mp4';
 
 // Stable, low-cardinality identifier for this video — the filename stem of
 // VIDEO_URL. Kept as its own const so a src bump is a one-line, deliberate change
 // (props carry ids/counts only — std-35 cl-5).
-const VIDEO_ID = 'welcome-to-memex-v2';
+const VIDEO_ID = 'welcome-to-memex-v4';
+
+// spec-460: the "book a call" CTA revealed near the end of the video points at the
+// neutral booking alias on the marketing site (never the raw HubSpot URL — std-31,
+// dec-6). ?src attributes the booking to this surface.
+const BOOK_A_CALL_URL = 'https://www.memex.ai/book-a-call?src=welcome-video';
+
+// spec-460 dec-7: reveal the call CTA once the viewer is ≥85% through the video.
+// The v4 cut is ~3 min, so a strict "on ended" reveal would reach far fewer
+// viewers; 85% catches near-finishers while staying roughly synced to the outro.
+const CALL_CTA_REVEAL_FRACTION = 0.85;
 
 // Build the numeric playback props shared by every onboarding.video_* event.
 // duration is NaN until metadata loads, so percent_watched is guarded against
@@ -50,6 +60,18 @@ export function WelcomePage() {
   const isRewatch = searchParams.get('rewatch') === '1';
   const [dismissing, setDismissing] = useState(false);
 
+  // spec-462: the primary button is a three-state machine so it can never be
+  // mistaken for a skip. Before spec-462 the loud blue button and the quiet
+  // "Skip" link both called permanentDismiss — the loudest element on the page
+  // was a disguised skip, and users read it as "play". Now:
+  //   idle    → "▶ Play now"      (loud blue)  → starts playback
+  //   playing → "Playing…"        (quiet)      → inert status, not a skip target
+  //   ended   → "Get started →"   (loud blue)  → permanentDismiss (the real exit)
+  // The "leave without watching" job is already fully covered by the ever-present
+  // "Skip" link, which frees the blue button to become the play affordance. Only
+  // the first-run (non-rewatch) path uses this; rewatch keeps its "Back to Memex".
+  const [buttonPhase, setButtonPhase] = useState<'idle' | 'playing' | 'ended'>('idle');
+
   // spec-444 instrumentation. Refs (not state) so the once-per-view guards can be
   // read/written inside stable useCallbacks without re-creating them, and so
   // replay / seek / pause-resume / multiple play events never re-fire an event.
@@ -58,16 +80,61 @@ export function WelcomePage() {
   const completedRef = useRef(false);
   const skippedRef = useRef(false);
 
+  // spec-460 dec-7: the "book a call" CTA is hidden during playback and revealed
+  // once the viewer crosses CALL_CTA_REVEAL_FRACTION (via natural playback, a seek
+  // past the threshold, or the ended event). Once shown it stays shown — a
+  // seek-back must not re-hide it. The ref guards the reveal event to once-per-view.
+  const [callCtaShown, setCallCtaShown] = useState(false);
+  const callCtaShownRef = useRef(false);
+
+  const revealCallCta = useCallback(() => {
+    if (callCtaShownRef.current) return; // reveal + fire once per view
+    callCtaShownRef.current = true;
+    setCallCtaShown(true);
+    track('onboarding.video_call_cta_shown', videoProps(videoRef.current));
+  }, [track]);
+
+  // spec-462: clicking "▶ Play now" starts playback. Guarded for jsdom/autoplay —
+  // play() is unimplemented in jsdom (throws) and can reject under autoplay policy;
+  // either way onPlay simply won't fire and the button stays in idle, which is fine.
+  const playVideo = useCallback(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    try {
+      const p = v.play();
+      if (p && typeof p.catch === 'function') p.catch(() => {});
+    } catch {
+      /* jsdom / blocked autoplay — no-op */
+    }
+  }, []);
+
   const onVideoPlay = useCallback(() => {
+    // spec-462: idle → playing on first play; once ended, a replay keeps the
+    // "Get started →" state (the forward move stays available).
+    setButtonPhase((p) => (p === 'ended' ? 'ended' : 'playing'));
     if (startedRef.current) return; // fire once per view
     startedRef.current = true;
     track('onboarding.video_started', videoProps(videoRef.current));
   }, [track]);
 
+  // Reveal decisions never run before metadata loads (duration is NaN until then,
+  // so the fraction guard below is false and nothing reveals prematurely).
+  const onVideoTimeUpdate = useCallback(() => {
+    const v = videoRef.current;
+    if (!v || !Number.isFinite(v.duration) || v.duration <= 0) return;
+    if (v.currentTime / v.duration >= CALL_CTA_REVEAL_FRACTION) revealCallCta();
+  }, [revealCallCta]);
+
   const onVideoEnded = useCallback(() => {
+    setButtonPhase('ended'); // spec-462: reveal the real "Get started →" forward move
+    revealCallCta(); // a short video the viewer finishes should always show the CTA
     if (completedRef.current) return; // fire once per view
     completedRef.current = true;
     track('onboarding.video_completed', videoProps(videoRef.current));
+  }, [track, revealCallCta]);
+
+  const onCallCtaClick = useCallback(() => {
+    track('onboarding.video_call_cta_clicked', videoProps(videoRef.current));
   }, [track]);
 
   // Skip = a dismiss BEFORE completion. At most once, and never if the video
@@ -101,8 +168,12 @@ export function WelcomePage() {
     navigate('/specs', { replace: true });
   }, [trackSkip, navigate]);
 
+  // Rewatch exit (Back to Memex / × in rewatch mode) lands on the specs board,
+  // consistent with the two first-run exits above. navigate(-1) used to send the
+  // user back to wherever they opened rewatch from (e.g. Home), which is not where
+  // they expect to land after the video.
   const rewatchExit = useCallback(() => {
-    navigate(-1);
+    navigate('/specs', { replace: true });
   }, [navigate]);
 
   return (
@@ -136,6 +207,7 @@ export function WelcomePage() {
           preload="metadata"
           onPlay={onVideoPlay}
           onPlaying={onVideoPlay}
+          onTimeUpdate={onVideoTimeUpdate}
           onEnded={onVideoEnded}
           className="w-full rounded-lg"
           style={{ aspectRatio: '16/9' }}
@@ -143,14 +215,38 @@ export function WelcomePage() {
 
         {!isRewatch ? (
           <>
-            <button
-              data-testid="welcome-video-cta"
-              onClick={permanentDismiss}
-              disabled={dismissing}
-              className="w-full py-3 px-4 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-base transition-colors disabled:opacity-60"
-            >
-              {dismissing ? 'One moment…' : 'Get started →'}
-            </button>
+            {/* spec-462: one primary button, three states. Same testid + reserved
+                height across states so the layout never jumps. idle/ended are the
+                loud blue CTA; playing is a quiet, inert status so it can't be
+                mistaken for a skip target. */}
+            {buttonPhase === 'idle' && (
+              <button
+                data-testid="welcome-video-cta"
+                onClick={playVideo}
+                className="w-full py-3 px-4 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-base transition-colors"
+              >
+                ▶ Play now
+              </button>
+            )}
+            {buttonPhase === 'playing' && (
+              <div
+                data-testid="welcome-video-cta"
+                aria-live="polite"
+                className="w-full py-3 px-4 rounded-lg bg-gray-100 text-gray-400 font-semibold text-base text-center select-none"
+              >
+                Playing…
+              </div>
+            )}
+            {buttonPhase === 'ended' && (
+              <button
+                data-testid="welcome-video-cta"
+                onClick={permanentDismiss}
+                disabled={dismissing}
+                className="w-full py-3 px-4 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-base transition-colors disabled:opacity-60"
+              >
+                {dismissing ? 'One moment…' : 'Get started →'}
+              </button>
+            )}
             <button
               data-testid="welcome-video-skip"
               onClick={permanentDismiss}
@@ -169,6 +265,30 @@ export function WelcomePage() {
             Back to Memex
           </button>
         )}
+
+        {/* spec-460 dec-1/dec-7: quiet "book a call" line, hidden until the viewer
+            reaches ~85% of the video (or finishes it), then faded in. It never gates
+            the path to /specs — the primary CTA above stays dominant. Kept in the DOM
+            so the fade can run, but non-focusable and hidden from AT until revealed. */}
+        <p
+          data-testid="welcome-video-call-cta"
+          className={`text-center text-sm text-gray-500 transition-opacity duration-500 motion-reduce:transition-none ${
+            callCtaShown ? 'opacity-100' : 'opacity-0 pointer-events-none'
+          }`}
+          aria-hidden={!callCtaShown}
+        >
+          Prefer a guided tour?{' '}
+          <a
+            href={BOOK_A_CALL_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={onCallCtaClick}
+            tabIndex={callCtaShown ? 0 : -1}
+            className="text-blue-600 hover:text-blue-700 underline underline-offset-2 font-medium"
+          >
+            Book a 30-minute call with us
+          </a>
+        </p>
       </div>
     </div>
   );

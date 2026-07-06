@@ -87,7 +87,16 @@ test(
     const videoSrc = await page.getByTestId('welcome-video-player').getAttribute('src');
     expect(videoSrc).toContain('storage.googleapis.com/memex-ai-prod-app-static');
 
+    // spec-462: before the video ends the primary button is "▶ Play now" — the
+    // permanent-dismiss "Get started →" only appears once the video ends. Drive the
+    // <video> to ended (headless Chromium can't decode the CDN asset) to surface it.
+    await expect(page.getByTestId('welcome-video-cta')).toHaveText(/Play now/);
+    await page.getByTestId('welcome-video-player').evaluate((el) => {
+      (el as HTMLVideoElement).dispatchEvent(new Event('ended'));
+    });
+
     // ac-4, ac-6, ac-8, ac-9: "Get started" permanently dismisses → /specs.
+    await expect(page.getByTestId('welcome-video-cta')).toHaveText(/Get started/);
     await page.getByTestId('welcome-video-cta').click();
     await expect(page).toHaveURL(/\/specs/, { timeout: 15_000 });
 

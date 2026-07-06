@@ -3,14 +3,15 @@
 // A fresh email/password user arrives with no display name. spec-441 restores the
 // routing wall that sends them to /onboarding (name capture) before they can reach
 // any authenticated surface. This journey walks the full arc: signup → email
-// verification → intercepted at /onboarding → fills name → /home with the standard
-// Home Canvas.
+// verification → intercepted at /onboarding → fills name → into the app (Specs board),
+// with the Home Canvas reachable by explicit navigation.
 //
 // Covers:
-//   ac-1 — nameless authenticated user is redirected to /onboarding, not /home.
-//   ac-2 — after submitting a name on /onboarding, the user lands on /home.
-//   ac-6 — /home shows the Home Canvas (two visible onboarding steps; identity step
-//           absent per spec-433).
+//   ac-1 — nameless authenticated user is redirected to /onboarding, not into the app.
+//   ac-2 — after submitting a name on /onboarding, the gate clears and the user reaches
+//           the app. spec-461 retired the auto-/home landing, so they land on /specs.
+//   ac-6 — the Home Canvas (reached by explicit nav post-461) shows two visible onboarding
+//           steps; the identity step is absent per spec-433.
 //
 // Runs as a fresh per-test email — NOT dev@memex.ai — so the new session JWT proves
 // the browser is authenticated as the signup user (spec-172 issue-1 fix applies here
@@ -76,15 +77,19 @@ test(
     await page.getByRole("button", { name: /^Continue$/ }).click();
 
     // spec-444: after name capture, the welcome video gate fires for new users.
-    // Dismiss it so we can verify the downstream /home landing (ac-2).
+    // Dismiss it so we can verify the downstream landing (ac-2).
     await dismissWelcomeVideo(page);
 
-    // ac-2: after submitting the name (and dismissing the welcome video), the user
-    // lands on /home (new users without prior specs land on the Home Canvas).
-    await expect(page).toHaveURL(/\/home/, { timeout: 15_000 });
+    // ac-2: after submitting the name (and dismissing the welcome video), the name gate
+    // is satisfied and the user reaches the real app. spec-461 retired the automatic
+    // /home landing, so a fresh user now lands on their Specs board (not Home).
+    await expect(page).toHaveURL(/\/specs/, { timeout: 15_000 });
 
-    // ac-6: /home shows the Home Canvas — getting-started-title + create-spec step
-    // visible; identity step absent (spec-433: hidden step removed from the UI).
+    // ac-6: the Home Canvas still renders its onboarding steps — reachable now by explicit
+    // navigation (spec-461: Home is a destination you click to, not an auto-landing).
+    // getting-started-title + create-spec step visible; identity step absent (spec-433).
+    await page.goto(bareUrl("/home"));
+    await expect(page).toHaveURL(/\/home(\?|#|$)/, { timeout: 15_000 });
     await expect(page.getByTestId("getting-started-title")).toBeVisible({
       timeout: 15_000,
     });

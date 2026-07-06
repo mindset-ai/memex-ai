@@ -23,6 +23,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { isFrontendEvent, isRegisteredEvent, sanitizeUsageProps } from "@memex/shared";
 import { recordUsageEvent } from "../services/usage-events.js";
+import { parseGeoHeader, GEO_LATLONG_HEADER } from "../services/geo.js";
 import type { SessionEnv } from "../middleware/session.js";
 
 const bodySchema = z.object({
@@ -59,10 +60,14 @@ anonTelemetry.post("/", async (c) => {
 
   // recordUsageEvent is advisory (swallows its own failures); props are sanitised
   // server-side regardless of what the client sent. memex_id is NULL by nature.
+  // spec-458 dec-9: coarse LB-derived location, rounded before persistence.
+  const geo = parseGeoHeader(c.req.header(GEO_LATLONG_HEADER));
   await recordUsageEvent({
     memexId: null,
     actorUserId: user?.id ?? null,
     visitorId,
+    geoLat: geo?.lat ?? null,
+    geoLng: geo?.lng ?? null,
     name: body.name,
     source: "frontend",
     props: sanitizeUsageProps(body.props),
