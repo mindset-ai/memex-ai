@@ -142,6 +142,12 @@ export const documents = pgTable("documents", {
   checkedOutBy: uuid("checked_out_by"),
   checkedOutAt: timestamp("checked_out_at", { withTimezone: true }),
   checkedOutThread: text("checked_out_thread"),
+  // spec-448 t-1 (document versioning): the doc's current version number. Starts
+  // at 1 (no prior snapshot); bumped by the versioning service whenever it cuts a
+  // new `document_versions` row. Lives on the doc row (not derived from
+  // MAX(document_versions.version_number)) so callers can read "what version am I
+  // on" with no join, and so a doc with zero snapshots still reports a real number.
+  version: integer("version").notNull().default(1),
 }, (table) => [
   unique("documents_memex_id_handle_unique").on(table.memexId, table.handle),
   index("documents_memex_id_idx").on(table.memexId),
@@ -231,6 +237,12 @@ export const docSections = pgTable(
     // `status != 'deleted'` (NULL treated as active for the migration window).
     status: text("status").notNull().default("active"),
     previousStatus: text("previous_status"),
+    // spec-448 t-1 (document versioning): set to the doc's `version` at the
+    // moment this section was soft-deleted/retired by a version cut, so a
+    // restored-from-version rollback can tell "retired by this cut" apart from
+    // "always active". NULL = never retired at a version boundary (the common
+    // case — most soft-deletes happen outside any version-cut flow).
+    retiredAtVersion: integer("retired_at_version"),
     // NOTE: `content_tsv` (tsvector, generated always as
     // `to_tsvector('english', COALESCE(content, ''))`) lives in the DB but is
     // intentionally NOT modelled here — adding it as a Drizzle column makes
@@ -452,6 +464,9 @@ export const docComments = pgTable(
     assigneeUserId: uuid("assignee_user_id").references(() => users.id, { onDelete: "set null" }),
     assignedBy: uuid("assigned_by").references(() => users.id, { onDelete: "set null" }),
     assignedAt: timestamp("assigned_at", { withTimezone: true }),
+    // spec-448 t-1 (document versioning): see doc_sections.retiredAtVersion —
+    // same convention, applied to doc_comments.
+    retiredAtVersion: integer("retired_at_version"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -547,6 +562,9 @@ export const decisions = pgTable(
     // update_decision. Lets the restore path return the decision to its prior
     // state without the caller having to remember it.
     previousStatus: text("previous_status"),
+    // spec-448 t-1 (document versioning): see doc_sections.retiredAtVersion —
+    // same convention, applied to decisions.
+    retiredAtVersion: integer("retired_at_version"),
     // spec-122 dec-2/dec-5 — the activity contract (WHO + HOW). See acs above.
     actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
     actorName: text("actor_name"),
@@ -602,6 +620,9 @@ export const tasks = pgTable(
     executionPlanDocId: uuid("execution_plan_doc_id").references(() => documents.id, {
       onDelete: "set null",
     }),
+    // spec-448 t-1 (document versioning): see doc_sections.retiredAtVersion —
+    // same convention, applied to tasks.
+    retiredAtVersion: integer("retired_at_version"),
     // spec-122 dec-2/dec-5 — the activity contract (WHO + HOW). See acs above.
     actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
     actorName: text("actor_name"),
@@ -711,6 +732,9 @@ export const acs = pgTable(
     // NULL on a bare manual acceptance. The `accepted` verification state is
     // still driven by accepted_at; reviewed_reason is the human-facing "why".
     reviewedReason: text("reviewed_reason"),
+    // spec-448 t-1 (document versioning): see doc_sections.retiredAtVersion —
+    // same convention, applied to acs.
+    retiredAtVersion: integer("retired_at_version"),
     // spec-122 dec-2/dec-5 — the activity contract (WHO + HOW), stamped at write
     // time so the activity view (dec-1) projects one uniform shape across every
     // arm. actor_name is denormalised so a later user rename/delete can't rewrite
@@ -835,6 +859,9 @@ export const issues = pgTable(
       onDelete: "set null",
     }),
     createdByUserId: uuid("created_by_user_id"),
+    // spec-448 t-1 (document versioning): see doc_sections.retiredAtVersion —
+    // same convention, applied to issues.
+    retiredAtVersion: integer("retired_at_version"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -1022,6 +1049,112 @@ export const acFirstVerified = pgTable("ac_first_verified", {
   subjectRef: text("subject_ref").primaryKey(),
   firstVerifiedAt: timestamp("first_verified_at", { withTimezone: true }).notNull(),
 });
+
+// ══════════════════════════════════════
+// Document versioning (spec-448 t-1)
+// ══════════════════════════════════════
+//
+// Two tables:
+//   1. document_versions — an immutable, content-addressed snapshot of a Spec's
+//      full artifact graph (sections + decisions + acs + tasks + issues +
+//      comments) cut at a point in time. IMMUTABLE BY CONVENTION: no UPDATE
+//      trigger is added here — the service layer simply never exposes an update
+//      path (only INSERT + SELECT), mirroring facet_routing_log's append-only
+//      posture.
+//   2. doc_views — a per-user read-state marker recording the last version of a
+//      doc a given user has viewed, so the UI can flag "N versions behind".
+//
+// Tenancy (std-36): document_versions carries a direct memex_id (denormalised,
+// NOT an FK — same posture as every other tenant table) and gets the standard
+// `document_versions_memex_isolation` policy (ENABLE, NOT FORCE — spec-257
+// dec-1 / migration 0093). It is registered in RLS_TENANT_TABLES (rls-tables.ts)
+// so the spec-440 context guard and the pg-policy-parity test both cover it.
+//
+// doc_views has NO memex_id (the spec's deliverable list omits it — a view
+// marker is keyed purely on (user, doc)), so it does NOT join the memex_isolation
+// family. Instead it gets its own exclusive `doc_views_owner_isolation` policy
+// scoped on `app.user_id` (the same GUC spec-303's runWithUserId already sets,
+// migration 0098) — a user can only ever read/write their OWN marker row. This
+// is a genuinely new RLS shape (existing per-user tables like qa_report_views
+// scope by memex_id and leave per-user scoping to the service layer); no
+// existing precedent scopes a FOR ALL policy on app.user_id alone, so this is
+// the first of its kind.
+export const documentVersions = pgTable(
+  "document_versions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    memexId: uuid("memex_id").notNull(),
+    docId: uuid("doc_id")
+      .notNull()
+      .references(() => documents.id, { onDelete: "cascade" }),
+    // Allocated per-doc: 1, 2, 3, ... matching documents.version at the moment
+    // of the cut. UNIQUE(doc_id, version_number) below.
+    versionNumber: integer("version_number").notNull(),
+    // Human-facing label for the cut (e.g. "Pre-verify snapshot", or a
+    // caller-supplied name). Required — the service layer defaults it when the
+    // caller doesn't supply one.
+    name: text("name").notNull(),
+    // Content-addressed hash over the serialized `snapshot` — lets a caller
+    // verify a restored snapshot's bytes are exactly what was cut, and lets two
+    // versions be compared for identity without a deep-diff.
+    checksum: text("checksum").notNull(),
+    // The full artifact-graph snapshot: sections + decisions + acs + tasks +
+    // issues + comments, as they stood at cut time. Shape is owned by the
+    // service layer (versioned informally via the checksum), not enforced here.
+    snapshot: jsonb("snapshot").notNull(),
+    // Provenance for rollback: set when this version was itself produced by
+    // restoring an earlier version, so the version history can show "restored
+    // from v3" instead of looking like an ordinary forward cut. NULL for an
+    // ordinary (non-restore) cut.
+    restoredFromVersion: integer("restored_from_version"),
+    // spec-122 dec-2/dec-5 — the activity contract (WHO + HOW). See acs above.
+    actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+    actorName: text("actor_name"),
+    channel: text("channel"),
+    // std-32 WHEN — the row's own timestamp (this IS "at": a version cut is a
+    // one-shot immutable event, so createdAt fully serves that role; no separate
+    // updatedAt exists because the row is never updated).
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique("document_versions_doc_id_version_number_unique").on(table.docId, table.versionNumber),
+    index("document_versions_memex_id_idx").on(table.memexId),
+    index("document_versions_doc_id_idx").on(table.docId),
+    check(
+      "document_versions_channel_valid",
+      activityChannelCheck(table.channel),
+    ),
+  ]
+);
+
+export const docViews = pgTable(
+  "doc_views",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    docId: uuid("doc_id")
+      .notNull()
+      .references(() => documents.id, { onDelete: "cascade" }),
+    // The highest documents.version the user has viewed. Compared against the
+    // doc's current `version` (or the latest document_versions row) to derive
+    // "N versions behind" in the UI — computed at read time, not stored.
+    lastViewedVersion: integer("last_viewed_version").notNull(),
+    lastViewedAt: timestamp("last_viewed_at", { withTimezone: true }).notNull(),
+    // The surface the view was recorded through (std-32 HOW vocabulary). NOT
+    // NULL here (unlike the activity-bearing tables' nullable channel) — every
+    // doc_views write is a fresh, single, well-known call site with no legacy
+    // rows to tolerate.
+    channel: text("channel").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.userId, table.docId] }),
+    check(
+      "doc_views_channel_valid",
+      activityChannelCheck(table.channel),
+    ),
+  ]
+);
 
 // ══════════════════════════════════════
 // Conversations
@@ -1437,6 +1570,16 @@ export const users = pgTable("users", {
   // one-click List-Unsubscribe link. Scope is LIFECYCLE ONLY — transactional/auth email
   // and the spec-428 welcome ignore this flag and always send (ac-11 scope / ac-12).
   lifecycleEmailUnsubscribedAt: timestamp("lifecycle_email_unsubscribed_at", { withTimezone: true }),
+  // spec-453 (dec-9/dec-10): the "See it verified" activation-email GATE SENTINEL,
+  // NOT a true first-verify timestamp. Null = this user has never had an acceptance
+  // criterion verified (and so is still eligible for the one-time milestone email);
+  // a timestamp = the milestone has been consumed (email sent, or the user was a
+  // pre-existing account backfilled to deploy-time at go-live so the back-catalog is
+  // excluded — dec-10). Stamped once, atomically, on the first attributed `verified`
+  // emission (never on a manual `accepted`). NO DEFAULT on purpose: a default would
+  // auto-stamp every signup and make nobody eligible. Do NOT read this as analytics —
+  // for backfilled rows it is deploy-time, not when they actually first verified.
+  firstAcVerifiedAt: timestamp("first_ac_verified_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
@@ -2910,6 +3053,13 @@ export const usageEvents = pgTable(
     props: jsonb("props"),
     // Server-derived environment stamp (spec-244 dec-9). Unspoofable by the client.
     env: text("env").notNull(),
+    // spec-458 dec-9 — coarse location from the GCLB geo header at telemetry
+    // ingress, rounded to 1 decimal degree BEFORE persistence (services/geo.ts).
+    // Chosen over presence for the human-side geo home because usage_events is
+    // RLS-EXCLUDED (the /live global aggregate can read it) while presence is
+    // RLS-scoped. Nullable: no header → no location.
+    geoLat: doublePrecision("geo_lat"),
+    geoLng: doublePrecision("geo_lng"),
     // When the event occurred. Defaults to insert time; the route may supply the
     // client-observed occurrence time for front-end events.
     occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
@@ -3561,6 +3711,10 @@ export type CommentMentionInsert = InferInsertModel<typeof commentMentions>;
 export type Decision = InferSelectModel<typeof decisions>;
 export type Task = InferSelectModel<typeof tasks>;
 export type Issue = InferSelectModel<typeof issues>;
+export type DocumentVersion = InferSelectModel<typeof documentVersions>;
+export type DocumentVersionInsert = InferInsertModel<typeof documentVersions>;
+export type DocView = InferSelectModel<typeof docViews>;
+export type DocViewInsert = InferInsertModel<typeof docViews>;
 export type Conversation = InferSelectModel<typeof conversations>;
 export type Message = InferSelectModel<typeof messages>;
 export type WaitlistEntry = InferSelectModel<typeof waitlistEntries>;
@@ -3651,6 +3805,11 @@ export const mcpSessions = pgTable(
     userAgent: text("user_agent"),
     clientInfo: jsonb("client_info"),
     ipAddress: inet("ip_address"),
+    // spec-458 dec-9 — coarse location from the GCLB geo header, rounded to
+    // 1 decimal degree BEFORE persistence (services/geo.ts). Nullable: traffic
+    // that bypasses the LB (local dev, direct Cloud Run) carries no header.
+    geoLat: doublePrecision("geo_lat"),
+    geoLng: doublePrecision("geo_lng"),
     startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
   },

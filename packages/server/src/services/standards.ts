@@ -707,6 +707,9 @@ export async function findStandardsAffectedByDecision(
           checkedOutBy: null,
           checkedOutAt: null,
           checkedOutThread: null,
+          // spec-448 t-1: not selected above (this reconstructs a partial Doc,
+          // like the other stub fields in this literal) — placeholder default.
+          version: 1,
         },
         matchingSections: [],
       };
@@ -731,6 +734,8 @@ export async function findStandardsAffectedByDecision(
       actorUserId: null,
       actorName: null,
       channel: null,
+      // spec-448 t-1 — likewise not selected above.
+      retiredAtVersion: null,
     });
   }
   return Array.from(byDoc.values());

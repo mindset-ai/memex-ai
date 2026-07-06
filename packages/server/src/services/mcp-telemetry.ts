@@ -75,6 +75,9 @@ export interface UpsertSessionInput {
   userAgent: string | null;
   clientInfo: unknown | null;
   ipAddress: string | null;
+  /** spec-458 dec-9 — city-rounded coords from the LB geo header; null off-LB. */
+  geoLat?: number | null;
+  geoLng?: number | null;
 }
 
 /**
@@ -99,6 +102,8 @@ export async function upsertSession(input: UpsertSessionInput): Promise<void> {
         // jsonb column accepts the structured object directly.
         clientInfo: input.clientInfo ?? null,
         ipAddress: input.ipAddress,
+        geoLat: input.geoLat ?? null,
+        geoLng: input.geoLng ?? null,
       })
       .onConflictDoUpdate({
         target: mcpSessions.sessionId,
@@ -112,6 +117,10 @@ export async function upsertSession(input: UpsertSessionInput): Promise<void> {
           userAgent: sql`COALESCE(${mcpSessions.userAgent}, EXCLUDED.user_agent)`,
           clientInfo: sql`COALESCE(${mcpSessions.clientInfo}, EXCLUDED.client_info)`,
           ipAddress: sql`COALESCE(${mcpSessions.ipAddress}, EXCLUDED.ip_address)`,
+          // Geo: NEWEST wins (a session can move), but a null never erases a
+          // known location — EXCLUDED first, then the stored value.
+          geoLat: sql`COALESCE(EXCLUDED.geo_lat, ${mcpSessions.geoLat})`,
+          geoLng: sql`COALESCE(EXCLUDED.geo_lng, ${mcpSessions.geoLng})`,
         },
       });
   } catch (err) {

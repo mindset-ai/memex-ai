@@ -18,6 +18,7 @@ vi.mock("../db/connection.js", () => ({
 }));
 
 import { Hono } from "hono";
+import { tagAc } from "@memex-ai-ac/vitest";
 import { memexResolver, parseMemexPath } from "./memex-resolver.js";
 
 const app = new Hono();
@@ -54,6 +55,14 @@ describe("parseMemexPath", () => {
   it("returns null for reserved API roots", () => {
     expect(parseMemexPath("/api/orgs/check")).toBeNull();
     expect(parseMemexPath("/api/health")).toBeNull();
+  });
+
+  it("treats /api/internal/* as non-tenant, not namespace=internal (spec-453 t-6)", () => {
+    // Regression: /api/internal/lifecycle-tick has two segments, so without the
+    // reserved-root entry it resolves as namespace=internal / memex=lifecycle-tick and
+    // 404s before the scheduler endpoint runs. Must parse to null (non-tenant).
+    tagAc("mindset-prod/memex-building-itself/specs/spec-453/acs/ac-20");
+    expect(parseMemexPath("/api/internal/lifecycle-tick")).toBeNull();
   });
 });
 

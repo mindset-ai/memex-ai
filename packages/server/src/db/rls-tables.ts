@@ -3,7 +3,7 @@
 //
 // Each table here carries a `<table>_memex_isolation` policy (FOR ALL, USING +
 // WITH CHECK on `app.memex_id = memex_id`) created by the migrations (0081,
-// 0087, 0092, 0100, 0114, 0115). A write to any of these tables only satisfies
+// 0087, 0092, 0100, 0114, 0115, 0125). A write to any of these tables only satisfies
 // RLS when `app.memex_id` is set in the session — supplied by the rlsClient
 // proxy from the `memexContext` ALS store (connection.ts). Under the non-owner
 // runtime role `memex_app` (prod), a context-less write is REJECTED; under the
@@ -29,6 +29,7 @@ export const RLS_TENANT_TABLES: ReadonlySet<string> = new Set([
   "doc_comments",
   "doc_members",
   "document_tags",
+  "document_versions",
   "documents",
   "facet_routing_log",
   "issues",

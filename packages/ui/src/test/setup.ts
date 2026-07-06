@@ -52,3 +52,24 @@ if (typeof globalThis.ResizeObserver === 'undefined') {
     disconnect() {}
   } as unknown as typeof ResizeObserver;
 }
+
+// jsdom doesn't implement the CSS Custom Highlight API (spec-100's geo-anchor
+// highlight and spec-448's version-diff highlight both build DOM Ranges and
+// register them via `new Highlight(...)` + `CSS.highlights.set(...)`). A
+// minimal polyfill — just enough surface for those call sites to run to
+// completion instead of silently hitting their `typeof Highlight ===
+// 'undefined'` no-op guard — lets tests assert the highlight registry itself,
+// not just the Range-building logic that feeds it.
+if (typeof globalThis.Highlight === 'undefined') {
+  class HighlightPolyfill {
+    readonly ranges: Range[];
+    constructor(...ranges: Range[]) {
+      this.ranges = ranges;
+    }
+  }
+  globalThis.Highlight = HighlightPolyfill as unknown as typeof Highlight;
+}
+const cssHighlights = CSS as unknown as { highlights?: Map<string, unknown> };
+if (!cssHighlights.highlights) {
+  cssHighlights.highlights = new Map();
+}

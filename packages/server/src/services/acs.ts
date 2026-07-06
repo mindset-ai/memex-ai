@@ -22,7 +22,7 @@
 //   linkAcToParent     — add a parent link (parent_kind + parent_id)
 //   unlinkAcFromParent — remove a parent link
 
-import { and, eq, asc, desc, inArray, sql } from "drizzle-orm";
+import { and, eq, asc, desc, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import {
   acs,
@@ -132,6 +132,10 @@ export async function listAcsForBrief(
   const conditions = [eq(acs.memexId, memexId), eq(acs.briefId, briefId)];
   if (filter.kind) conditions.push(eq(acs.kind, filter.kind));
   if (filter.status) conditions.push(eq(acs.status, filter.status));
+  // spec-448 (gap closure, ac-18): exclude ACs a version cut left behind
+  // (retired_at_version stamped) from the live read — they still render when
+  // viewing the version they were retired at (getVersionSnapshot).
+  conditions.push(isNull(acs.retiredAtVersion));
   return db.query.acs.findMany({
     where: and(...conditions),
     orderBy: [asc(acs.seq)],
@@ -428,8 +432,11 @@ export async function listAcsForBriefWithVerification(
   await assertBriefInMemex(memexId, briefId);
   const slugs = await resolveBriefSlugsForRef(briefId);
 
+  // spec-448 (gap closure, ac-18): exclude ACs a version cut left behind
+  // (retired_at_version stamped) from the live AC-tab read — they still
+  // render when viewing the version they were retired at (getVersionSnapshot).
   const acRows = await db.query.acs.findMany({
-    where: and(eq(acs.memexId, memexId), eq(acs.briefId, briefId)),
+    where: and(eq(acs.memexId, memexId), eq(acs.briefId, briefId), isNull(acs.retiredAtVersion)),
     orderBy: [asc(acs.kind), asc(acs.seq)],
   });
   if (acRows.length === 0) return [];

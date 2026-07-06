@@ -63,6 +63,8 @@ function makeTask(overrides = {}) {
     sectionRef: null,
     status: "not_started",
     executionPlanDocId: null,
+    // spec-448 t-1: null for a task never retired by a version cut.
+    retiredAtVersion: null,
     blocked: false,
     blockedByDecisions: [],
     blockedByTasks: [],

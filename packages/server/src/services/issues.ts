@@ -25,7 +25,7 @@
 //   updateIssueStatus  — transition status (validated against ISSUE_STATUSES, ac-16)
 //   deleteIssue        — hard delete
 
-import { and, eq, asc, desc } from "drizzle-orm";
+import { and, eq, asc, desc, isNull } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import {
   issues,
@@ -186,6 +186,10 @@ export async function listIssuesForSpec(
   const conditions = [eq(issues.memexId, memexId), eq(issues.docId, docId)];
   if (filter.type) conditions.push(eq(issues.type, filter.type));
   if (filter.status) conditions.push(eq(issues.status, filter.status));
+  // spec-448 (gap closure, ac-18): exclude issues a version cut left behind
+  // (retired_at_version stamped) from the live read — they still render when
+  // viewing the version they were retired at (getVersionSnapshot).
+  conditions.push(isNull(issues.retiredAtVersion));
   return db.query.issues.findMany({
     where: and(...conditions),
     orderBy: [asc(issues.seq)],

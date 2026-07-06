@@ -20,6 +20,10 @@ import { emailPreviewEnabled } from './utils/devTools';
 // stay eagerly imported below — splitting them would only add Suspense
 // boundaries on the critical path with no payload win.
 const Pulse = lazy(() => import('./pages/Pulse').then((m) => ({ default: m.Pulse })));
+// spec-458 (PROTOTYPE) — the public live proof-of-life page. Fully public
+// (rendered outside AuthProvider below, the /share pattern) and lazy so its
+// world-map asset never rides the authenticated bundles.
+const LivePage = lazy(() => import('./pages/live/LivePage').then((m) => ({ default: m.LivePage })));
 const Insights = lazy(() => import('./pages/Insights').then((m) => ({ default: m.Insights })));
 const QaReports = lazy(() => import('./pages/QaReports').then((m) => ({ default: m.QaReports })));
 const Decisions = lazy(() => import('./pages/Decisions').then((m) => ({ default: m.Decisions })));
@@ -449,7 +453,9 @@ function RootRedirect() {
   useEffect(() => {
     if (!needDecision || landOnHome === null || firedRef.current) return;
     firedRef.current = true;
-    const props = { destination: landOnHome ? 'home' : 'specs', graduated: !landOnHome };
+    // spec-461: the landing destination is now always the Specs board (Home is never
+    // an automatic target). `graduated` (= hasSpec) is kept as the engagement signal.
+    const props = { destination: 'specs', graduated: !landOnHome };
     // RootRedirect renders at the flat `/` (or `/login`), where `track()` resolves the
     // tenant from the cached session. In the rare case there's no resolvable tenant (e.g.
     // a session with no current Memex yet), fall back to the anonymous ingress so the
@@ -480,7 +486,10 @@ function RootRedirect() {
   if (landOnHome && !sessionStorage.getItem('welcomeVideoDismissed')) {
     return <Navigate to="/welcome" replace />;
   }
-  const target = landOnHome ? '/home' : computeDefaultLanding(session);
+  // spec-461: never auto-land on /home. Every authenticated user past the gates
+  // lands on their Specs board; Home is reachable only by explicit navigation.
+  // `landOnHome` (= !hasSpec) still drives the spec-444 welcome re-show gate above.
+  const target = computeDefaultLanding(session);
   if (target) return <Navigate to={target} replace />;
   return null;
 }
@@ -569,8 +578,8 @@ export function PostLoginRouter() {
       {/* Bare /specs is a flat, single-segment path with no tenant prefix, so it
           would otherwise be claimed by /:namespace below and resolved as a bogus
           "specs" namespace. The specs board is tenant-scoped (/<ns>/<mx>/specs);
-          send the user to their default landing (personal memex, or /home if they
-          have no spec yet). Same RootRedirect pattern as /login and hidden /home. */}
+          send the user to their default landing (their personal memex's Specs board;
+          spec-461: never /home). Same RootRedirect pattern as /login and hidden /home. */}
       <Route path="/specs" element={<RootRedirect />} />
 
       {/* doc-19 t-10: namespace home — /<namespace>/ renders the kind-aware
@@ -745,6 +754,7 @@ export function App() {
   if (
     location.pathname.startsWith('/verify-domain/') ||
     location.pathname.startsWith('/share/') ||
+    location.pathname === '/live' ||
     location.pathname === '/backstage' ||
     location.pathname.startsWith('/backstage/')
   ) {
@@ -754,6 +764,8 @@ export function App() {
           <Routes>
             <Route path="/verify-domain/:token" element={<VerifyDomain />} />
             <Route path="/share/:token" element={<SharedDocument />} />
+            {/* spec-458 (PROTOTYPE): public proof-of-life page — no auth, no tenant. */}
+            <Route path="/live" element={<LivePage />} />
             <Route path="/backstage" element={<Backstage />} />
             <Route path="/backstage/experiments" element={<BackstageExperiments />} />
           </Routes>

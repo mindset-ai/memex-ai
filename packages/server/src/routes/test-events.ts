@@ -60,6 +60,7 @@ import {
   recordFirstVerified,
 } from "../services/test-event-retention.js";
 import { maybeAutoResolveIssuesForAcUid } from "../services/issues.js";
+import { fireVerifiedMilestoneForUser } from "../services/email/verified-milestone-send.js";
 import {
   verifyEmissionKey,
   bumpLastUsed,
@@ -444,6 +445,11 @@ testEventsRouter.post("/", async (c) => {
   // bug→failing-AC→green-AC→resolved loop. Best-effort: never fail the 201.
   if (body.status === "pass") {
     await maybeAutoResolveIssuesForAcUid(subjectRefValue).catch(() => {});
+    // spec-453 t-2 (dec-1/dec-4/dec-9): fire the "See it verified" milestone email.
+    // FIRE-AND-FORGET — never awaited on this CI hot path, so it cannot add latency to
+    // or break the 201. Attributed to the emission key's OWNER (not test_events.actor),
+    // gated first-ever + flag inside; fully advisory (its own try/catch swallows all).
+    void fireVerifiedMilestoneForUser(emissionKey.createdByUserId);
   }
 
   return c.json({ id: row.id, created_at: row.createdAt }, 201);
