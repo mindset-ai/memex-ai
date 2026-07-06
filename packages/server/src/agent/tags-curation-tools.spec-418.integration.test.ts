@@ -22,7 +22,6 @@ import { toolManifest } from "@memex/shared";
 import { db } from "../db/connection.js";
 import {
   memexes,
-  namespaces,
   documents,
   tags as tagsTable,
   documentTags,

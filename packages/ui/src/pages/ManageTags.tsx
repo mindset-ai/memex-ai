@@ -283,7 +283,7 @@ export function ManageTags() {
           Failed to load tags: {error}
         </div>
       ) : tags.length === 0 ? (
-        // Empty state (ac-34): a brief line + a path-based link back to the board
+        // Empty state (ac-34): a short line + a path-based link back to the board
         // where a Spec is created (tags are born on Specs). No MCP-only step (std-34).
         <div
           data-testid="manage-tags-empty"
