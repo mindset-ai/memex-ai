@@ -176,6 +176,38 @@ export const toolManifest: ToolManifestEntry[] = [
     readOnlyHint: false,
     trafficClass: null,
   },
+  // spec-418 t-4: tag-catalogue curation. These manage the Memex's tag VOCABULARY
+  // itself (create / rename / delete a `scope::value`/flat tag), distinct from
+  // update_doc's tags/removeTags which attach an existing tag to one Spec. Thin
+  // wrappers over the same tags-service functions REST calls. trafficClass null —
+  // curating the shared vocabulary never drives a Spec's phase.
+  {
+    name: 'create_tag',
+    summary:
+      'Create a new tag in the Memex\'s shared vocabulary — a `scope::value` (e.g. `priority::high`) or flat (e.g. `bug`) label. Refuses (case-insensitively, naming the existing tag) rather than minting a near-duplicate.',
+    args: 'create_tag(memex?, tag)',
+    group: 'planning',
+    readOnlyHint: false,
+    trafficClass: null,
+  },
+  {
+    name: 'rename_tag',
+    summary:
+      'Rename an existing tag; the new name is reflected on every Spec that carried it, in one operation. Refuses with a plain reason (no change) if the new name duplicates another tag or would put two values of one scope on a Spec.',
+    args: 'rename_tag(memex?, tag, newTag)',
+    group: 'planning',
+    readOnlyHint: false,
+    trafficClass: null,
+  },
+  {
+    name: 'delete_tag',
+    summary:
+      'Delete a tag from the vocabulary; it is removed from every Spec that carried it, leaving those Specs otherwise untouched. Irreversible, never blocked, one tag per call (no bulk form).',
+    args: 'delete_tag(memex?, tag)',
+    group: 'planning',
+    readOnlyHint: false,
+    trafficClass: null,
+  },
   {
     name: 'add_section',
     summary:
