@@ -41,10 +41,10 @@ describe("buildConnectedInactiveEmail (Email 1 — connected-but-inactive)", () 
   it("renders solely through the shared renderer with a solid CTA and no imagery (ac-10)", () => {
     tagAc(AC(10));
     expect(html).toContain("<!doctype html>");
-    // shared-renderer brand mark + solid BRAND_INK CTA button (never a gradient).
-    // spec-451 ac-2 — the .AI wordmark is now single-colour dark ink (was coral).
-    expect(html).toContain('<span style="font-weight:500;color:#0E1128;">.AI</span>');
-    expect(html).toContain("background:#0E1128;color:#FFFFFF");
+    // shared-renderer brand mark + solid coral CTA button (never a gradient).
+    // Wordmark is single-colour dark-ink "Memex AI" live text (spec-465: no dot, uniform weight).
+    expect(html).toContain('color:#0E1128;">Memex AI</div>');
+    expect(html).toContain("background:#FC4F64;color:#FFFFFF");
     expect(html).not.toContain("linear-gradient");
     expect(html).not.toContain("<img");
     // resources render as a presentation table (a table construct, not image buttons)
@@ -104,7 +104,7 @@ describe("buildSignedInDormantEmail (Email 2 — signed-in-but-dormant)", () => 
   it("renders solely through the shared renderer with the step + resources primitives, no imagery (ac-10)", () => {
     tagAc(AC(10));
     expect(html).toContain("<!doctype html>");
-    expect(html).toContain("background:#0E1128;color:#FFFFFF");
+    expect(html).toContain("background:#FC4F64;color:#FFFFFF");
     expect(html).not.toContain("linear-gradient");
     expect(html).not.toContain("<img");
     // spec-226 step primitive
