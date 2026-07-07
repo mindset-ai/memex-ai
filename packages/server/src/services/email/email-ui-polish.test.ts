@@ -22,7 +22,7 @@ import {
 const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-451/acs/ac-${n}`;
 
 // Brand colours (mirror templates.ts).
-const CORAL = "#FC4F64";
+const CORAL = "#0482DC";
 const INK = "#0E1128";
 const SKY = "#0C9FE3";
 const MONO_MARKER = "'SF Mono'"; // MONO_STACK signature
@@ -96,12 +96,12 @@ describe("spec-451 — spacing between wordmark and headline (ac-3, ac-8)", () =
 
 describe("spec-451 — step labels restyled, '// Step N' kept (ac-4, ac-7, ac-8)", () => {
   const stepsHtml = renderSteps([{ label: "// Step 1", title: "Connect", body: "Body." }]);
-  it("label is body-font, bold, coral — not blue mono — and keeps the '// ' prefix", () => {
+  it("label is body-font, bold, accent #0482DC — not the old blue mono — and keeps the '// ' prefix", () => {
     tagAc(AC(4));
     tagAc(AC(7));
     // The "// Step 1" text is retained.
     expect(stepsHtml).toContain("// Step 1");
-    // Restyled: coral + bold, no longer blue mono / eyebrow letter-spacing.
+    // Restyled: accent #0482DC + bold, no longer blue mono / eyebrow letter-spacing.
     expect(stepsHtml).toContain(`color:${CORAL}`);
     expect(stepsHtml).toContain("font-weight:700");
     expect(stepsHtml).not.toContain(SKY);

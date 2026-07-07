@@ -8,7 +8,7 @@ import type { EmailMessage } from "./sender.js";
 // renders consistently across Gmail, Apple Mail, Outlook, etc.
 
 const BRAND_INK = "#0E1128";
-const BRAND_CORAL = "#FC4F64";
+const BRAND_ACCENT = "#0482DC";
 const BRAND_SKY = "#0C9FE3";
 const BRAND_MUTED = "#6B7280";
 const BRAND_BORDER = "#E5E7EB";
@@ -78,7 +78,7 @@ export function renderSteps(steps?: EmailStep[]): string {
     .map(
       (s) =>
         `<div style="margin:20px 0;">` +
-        `<div style="font-family:${FONT_STACK};font-size:15px;font-weight:700;color:${BRAND_CORAL};">${escapeHtml(s.label)}</div>` +
+        `<div style="font-family:${FONT_STACK};font-size:15px;font-weight:700;color:${BRAND_ACCENT};">${escapeHtml(s.label)}</div>` +
         `<div style="margin:6px 0 2px;font-size:16px;font-weight:600;color:${BRAND_INK};">${escapeHtml(s.title)}</div>` +
         `<div style="color:${BRAND_INK};font-size:15px;line-height:1.6;">${escapeHtml(s.body)}</div>` +
         `</div>`,
@@ -95,7 +95,7 @@ export function renderResources(resources?: EmailResource[]): string {
     .map(
       (r) =>
         `<tr><td style="padding:12px 0;border-top:1px solid ${BRAND_BORDER};">` +
-        `<a href="${escapeHtml(r.url)}" style="color:${BRAND_CORAL};font-size:15px;font-weight:600;text-decoration:none;">${escapeHtml(r.title)}</a>` +
+        `<a href="${escapeHtml(r.url)}" style="color:${BRAND_ACCENT};font-size:15px;font-weight:600;text-decoration:none;">${escapeHtml(r.title)}</a>` +
         `<div style="margin-top:2px;color:${BRAND_MUTED};font-size:13px;line-height:1.5;">${escapeHtml(r.description)}</div>` +
         `</td></tr>`,
     )
@@ -145,7 +145,7 @@ function renderEmailHtml(input: RenderInput): string {
                 ${paragraphs}
                 ${stepsHtml}
                 <div style="margin:24px 0 8px;">
-                  <a href="${safeUrl}" style="display:inline-block;padding:12px 24px;background:${BRAND_CORAL};color:#FFFFFF;font-size:15px;font-weight:600;text-decoration:none;border-radius:8px;">${escapeHtml(input.ctaLabel)}</a>
+                  <a href="${safeUrl}" style="display:inline-block;padding:12px 24px;background:${BRAND_ACCENT};color:#FFFFFF;font-size:15px;font-weight:600;text-decoration:none;border-radius:8px;">${escapeHtml(input.ctaLabel)}</a>
                 </div>
                 ${pasteLink}
                 ${afterCta}
@@ -444,7 +444,7 @@ export function buildConnectedInactiveEmail(
     afterCtaParagraphs: [
       escapeHtml(afterCta1),
       escapeHtml(afterCta2),
-      `Watch your Spec come to life in <a href="${escapeHtml(input.memexUrl)}" style="color:${BRAND_CORAL};">your Memex</a>.`,
+      `Watch your Spec come to life in <a href="${escapeHtml(input.memexUrl)}" style="color:${BRAND_ACCENT};">your Memex</a>.`,
       escapeHtml(stuck),
       ACTIVATION_SIGNOFF_HTML,
     ],
@@ -486,7 +486,7 @@ export function buildSignedInDormantEmail(
   // escaped string is safe; the plain-text body keeps "#help" as prose.
   const afterCtaHtml = escapeHtml(afterCtaText).replace(
     "#help",
-    `<a href="${DISCORD_INVITE_URL}" style="color:${BRAND_CORAL};text-decoration:none;">#help</a>`,
+    `<a href="${DISCORD_INVITE_URL}" style="color:${BRAND_ACCENT};text-decoration:none;">#help</a>`,
   );
 
   const steps: EmailStep[] = [
