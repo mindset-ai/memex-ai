@@ -58,14 +58,14 @@ describe("spec-451 — eyebrow removed everywhere (ac-1, ac-6)", () => {
       // No eyebrow div (its unique letter-spacing signature is gone).
       expect(html).not.toContain(EYEBROW_MARKER);
       // The wordmark is immediately followed by the <h1> — nothing between them.
-      expect(html).toMatch(/\.AI<\/span><\/div>\s*<h1/);
+      expect(html).toMatch(/>Memex AI<\/div>\s*<h1/);
     });
   }
   it("the activation/welcome emails also carry no eyebrow", () => {
     tagAc(AC(6));
     for (const [, msg] of activation) {
       expect(msg.html!).not.toContain(EYEBROW_MARKER);
-      expect(msg.html!).toMatch(/\.AI<\/span><\/div>\s*<h1/);
+      expect(msg.html!).toMatch(/>Memex AI<\/div>\s*<h1/);
     }
   });
 });
@@ -75,8 +75,8 @@ describe("spec-451 — single-colour dark wordmark (ac-2)", () => {
     tagAc(AC(2));
     for (const [, msg] of [...eyebrowed, ...activation]) {
       const html = msg.html!;
-      expect(html).toContain(`color:${INK};">.AI</span>`);
-      expect(html).not.toContain(`color:${CORAL};">.AI</span>`);
+      expect(html).toContain(`color:${INK};">Memex AI</div>`);
+      expect(html).not.toContain(`color:${CORAL};">Memex AI</div>`);
       expect(html).not.toContain("<img");
       expect(html).not.toContain("<svg");
     }

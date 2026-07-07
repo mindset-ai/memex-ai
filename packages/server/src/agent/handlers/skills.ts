@@ -26,7 +26,10 @@ import {
   getSkill,
   getSkillFile,
   listSkills,
+  listSkillsForMemexes,
   type SkillFileInput,
+  type SkillListItem,
+  type MemexSkillGroup,
 } from "../../services/skills/skills-service.js";
 import type { SkillCapabilities } from "../../services/skills/skill-capabilities.js";
 import { MEMEX_DESC, VERBOSE_FIELD, reqCtx, type ToolSpec } from "./shared.js";
@@ -76,6 +79,57 @@ function renderCapabilities(caps: SkillCapabilities): string {
     .filter(([, v]) => v === true)
     .map(([k]) => k);
   return on.length > 0 ? on.join(", ") : "none";
+}
+
+/** One skill's list line: name — description | capabilities | ref. Shared by the
+ *  single-Memex and cross-Memex (`all_memexes`) renderers so both read identically. */
+function renderSkillLine(s: SkillListItem): string {
+  return `- ${s.name} — ${s.description} | capabilities: ${renderCapabilities(s.capabilities)} | ref: ${s.ref}`;
+}
+
+/** Render the cross-Memex union (`all_memexes:true`, spec-300 dec-25 / ac-64):
+ *  one section per Memex that HAS skills, each skill carrying its full ref, plus a
+ *  collision banner naming any skill whose name appears in more than one Memex so
+ *  the agent knows to ASK the user rather than guess (ac-63). Empty Memexes are
+ *  omitted from the body but still counted in the "searched N Memexes" summary. */
+function renderAllMemexesSkills(groups: readonly MemexSkillGroup[]): string {
+  if (groups.length === 0) {
+    return "You are not a member of any Memex, so there are no Skills to list.";
+  }
+  const withSkills = groups.filter((g) => g.skills.length > 0);
+  const total = withSkills.reduce((n, g) => n + g.skills.length, 0);
+  if (total === 0) {
+    return `No Skills found across your ${groups.length} Memex(es).`;
+  }
+
+  // Collisions: a lower-cased skill name present in more than one Memex.
+  const memexesByName = new Map<string, Set<string>>();
+  for (const g of withSkills) {
+    for (const s of g.skills) {
+      const key = s.name.toLowerCase();
+      const set = memexesByName.get(key) ?? new Set<string>();
+      set.add(g.memexRef);
+      memexesByName.set(key, set);
+    }
+  }
+  const collisions = withSkills
+    .flatMap((g) => g.skills.map((s) => s.name))
+    .filter((name, i, all) => all.indexOf(name) === i) // de-dupe display names
+    .filter((name) => (memexesByName.get(name.toLowerCase())?.size ?? 0) > 1);
+
+  const sections = withSkills.map(
+    (g) =>
+      `## ${g.memexName} (${g.memexRef}) — ${g.skills.length} skill(s)\n` +
+      g.skills.map(renderSkillLine).join("\n"),
+  );
+
+  const header = `Skills across ${withSkills.length} of your ${groups.length} Memex(es), ${total} total:`;
+  const collisionBanner =
+    collisions.length > 0
+      ? `\n\n⚠ Name collision across Memexes: ${collisions.join(", ")}. ` +
+        `Ask the user which Memex's skill to use — do not guess.`
+      : "";
+  return header + collisionBanner + "\n\n" + sections.join("\n\n");
 }
 
 /** Render the auxiliary-file table-of-contents: path + type + size + purpose per
@@ -175,22 +229,37 @@ export const skillsTools: ToolSpec[] = [
     name: "list_skills",
     annotations: { title: "List Skills", readOnlyHint: true, destructiveHint: false },
     description:
-      "List a Memex's ACTIVE Skills, alphabetical by name. Each entry carries name, description, capability flags, and its canonical ref — NOT the SKILL.md body, NOT auxiliary-file contents, NOT allowed-tools. Call get_skill to load a chosen Skill's body and file table-of-contents.",
+      "List ACTIVE Skills, alphabetical by name. Each entry carries name, description, capability flags, and its canonical ref — NOT the SKILL.md body, NOT auxiliary-file contents, NOT allowed-tools. Call get_skill to load a chosen Skill's body and file table-of-contents. When the user names a skill WITHOUT saying which Memex it lives in, pass all_memexes:true to find it across every Memex you can access, then get_skill by the returned ref; if the same name turns up in more than one Memex, ASK the user which one — never guess.",
     schema: {
       memex: z.string().optional().describe(MEMEX_DESC),
+      all_memexes: z
+        .boolean()
+        .optional()
+        .describe(
+          "Set true to list your Skills across EVERY Memex you can access, grouped by Memex, each entry carrying its full ref — the way to locate a skill named without a Memex. Ignores `memex`. On a name that appears in more than one Memex, ASK the user which to use; never guess. Default false: single-Memex behaviour (the one-Memex default, or a disambiguation error when you belong to several).",
+        ),
       verbose: VERBOSE_FIELD,
     },
     async handler(input, ctx) {
+      // spec-300 dec-25 / ac-64: cross-Memex union. Explicit opt-in (std-5 — no
+      // silent cross-Memex default); enumerate exactly the Memexes the caller may
+      // read (std-4, resolved by the ctx layer) and group skills one bucket per Memex.
+      if (input.all_memexes === true) {
+        // Both real surfaces bind the enumerator; only hand-rolled ctxes omit it.
+        if (!ctx.listAccessibleMemexes) {
+          throw new ValidationError("all_memexes is not supported in this context.");
+        }
+        return renderAllMemexesSkills(
+          await listSkillsForMemexes(await ctx.listAccessibleMemexes()),
+        );
+      }
+
       const memexId = await ctx.resolveMemex(input.memex as string | undefined);
       const skills = await listSkills(memexId);
       if (skills.length === 0) {
         return "No skills in this Memex yet.";
       }
-      const lines = skills.map((s) => {
-        const caps = renderCapabilities(s.capabilities);
-        return `- ${s.name} — ${s.description} | capabilities: ${caps} | ref: ${s.ref}`;
-      });
-      return `Skills (${skills.length}):\n` + lines.join("\n");
+      return `Skills (${skills.length}):\n` + skills.map(renderSkillLine).join("\n");
     },
   },
   {

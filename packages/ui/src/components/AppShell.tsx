@@ -777,7 +777,12 @@ export function AppShell({ children }: { children: ReactNode }) {
   // Per doc-30 dec-4 (post-b-105 rename): specs route at `/specs/:id` (same shell).
   const onDocPageFlat = !!useMatch('/docs/:id');
   const onDocPageTenant = !!useMatch('/:namespace/:memex/docs/:id');
-  const onSpecPageTenant = !!useMatch('/:namespace/:memex/specs/:id');
+  // spec-418 t-5: `/:ns/:mx/specs/:id` ALSO matches the literal `specs/tags`
+  // Manage-tags surface (`:id` = "tags"). That surface is a normal sidebar page,
+  // not a doc page — exclude the literal `tags` segment so it keeps the sidebar
+  // chrome instead of being drawn with the doc-page header.
+  const specPageMatch = useMatch('/:namespace/:memex/specs/:id');
+  const onSpecPageTenant = !!specPageMatch && specPageMatch.params.id !== 'tags';
   // spec-158: decision/issue deep-links (`specs/:id/decisions/:decId`,
   // `specs/:id/issues/:issueId`) render the SAME Spec page and need the same
   // doc-page chrome — without this match they fell into the sidebar layout

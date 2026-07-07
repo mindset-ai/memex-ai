@@ -1797,12 +1797,22 @@ export const tags = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    // Canonicalises a tag to one row per Memex (dec-1). nullsNotDistinct is
-    // essential: without it two flat `bug` tags (scope = NULL) would both be
-    // allowed (NULL <> NULL in a default unique), defeating canonicalisation.
-    unique("tags_memex_scope_value_unique")
-      .on(table.memexId, table.scope, table.value)
-      .nullsNotDistinct(),
+    // spec-418 dec-8: uniqueness is CASE-INSENSITIVE — a lower(scope), lower(value)
+    // expression unique index (replacing spec-136's case-sensitive constraint), so a
+    // case-variant (`API` vs `api`) can't fork a tag; display keeps the first writer's
+    // casing. nullsNotDistinct is still essential: without it two flat `bug` tags
+    // (scope = NULL → lower(scope) = NULL) would both be allowed (NULL <> NULL in a
+    // default unique), defeating canonicalisation. NOTE: drizzle 0.45.2's index
+    // builder can't express NULLS NOT DISTINCT (only the unique-CONSTRAINT builder
+    // can), so the AUTHORITATIVE DDL — including `NULLS NOT DISTINCT` — lives in the
+    // hand-written migration drizzle/0125_spec418_tag_case_fold.sql; this entry keeps
+    // schema.ts honest about the index's name and expression columns (the
+    // db-schema-drift gate diffs columns only).
+    uniqueIndex("tags_memex_scope_value_ci_unique").on(
+      table.memexId,
+      sql`lower(${table.scope})`,
+      sql`lower(${table.value})`,
+    ),
     index("tags_memex_id_idx").on(table.memexId),
   ]
 );
