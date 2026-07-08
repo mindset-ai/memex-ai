@@ -358,18 +358,53 @@ export function NewSpecModal({ open, onClose, prefill, onCreated, seedMessage, a
           ];
         });
       },
+      // spec-473: the live "Building your Spec…" checklist. Fires as the model
+      // finishes WRITING each tool block during the batched authoring turn (before
+      // execution), so rows tick in during the wait instead of dumping at the end.
+      // UI tools render via onAssistantTurnComplete — skip them here. Upsert by
+      // toolId so the later onToolStart/onToolResult update this same row.
+      onToolProgress: (toolName, toolId, label) => {
+        if (UI_TOOL_NAMES.has(toolName)) return;
+        setMessages((prev) => {
+          if (prev.some((m) => m.role === 'tool_status' && m.toolId === toolId)) {
+            return prev.map((m) =>
+              m.role === 'tool_status' && m.toolId === toolId
+                ? { ...m, content: `✓ ${label}` }
+                : m
+            );
+          }
+          return [
+            ...prev,
+            {
+              id: nextId(),
+              role: 'tool_status',
+              content: `✓ ${label}`,
+              toolName,
+              toolId,
+              timestamp: new Date(),
+            },
+          ];
+        });
+      },
       onToolStart: (toolName, toolId) => {
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: nextId(),
-            role: 'tool_status',
-            content: `Running ${toolName}...`,
-            toolName,
-            toolId,
-            timestamp: new Date(),
-          },
-        ]);
+        setMessages((prev) => {
+          // spec-473: onToolProgress may have already created this row as the block
+          // was written — don't duplicate it at execution time.
+          if (prev.some((m) => m.role === 'tool_status' && m.toolId === toolId)) {
+            return prev;
+          }
+          return [
+            ...prev,
+            {
+              id: nextId(),
+              role: 'tool_status',
+              content: `Running ${toolName}...`,
+              toolName,
+              toolId,
+              timestamp: new Date(),
+            },
+          ];
+        });
       },
       onToolResult: (toolId, result) => {
         setMessages((prev) =>
@@ -377,11 +412,12 @@ export function NewSpecModal({ open, onClose, prefill, onCreated, seedMessage, a
             m.role === 'tool_status' && m.toolId === toolId
               ? {
                   ...m,
-                  // Raw tool results are agent-facing prose (e.g. create_doc's
-                  // Scope-AC nudge) — collapse success to a compact marker so
-                  // internal tool text never reaches the human; keep errors
-                  // verbatim so failures stay visible. (spec-155 i-1)
-                  content: result.startsWith('Error:') ? result : `Ran ${m.toolName}`,
+                  // spec-473: on success keep the checklist label onToolProgress
+                  // wrote (e.g. "✓ Design section") — execution is near-instant
+                  // after the batched turn, so replacing it with "Ran …" would
+                  // just churn the labels. Errors must stay visible verbatim
+                  // (raw results are agent-facing prose, spec-155 i-1).
+                  content: result.startsWith('Error:') ? result : m.content,
                 }
               : m
           )

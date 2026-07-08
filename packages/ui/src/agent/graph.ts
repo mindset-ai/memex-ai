@@ -61,6 +61,15 @@ export type AgentStateType = typeof AgentState.State;
 /** Callbacks for streaming UI updates from within graph nodes */
 export interface AgentCallbacks {
   onTextDelta?: (text: string) => void;
+  /**
+   * spec-473: fires as the model finishes WRITING each tool block during a turn,
+   * before execution, with a short human label. Lets the creation modal tick rows
+   * into a live "Building your Spec…" checklist during the single batched
+   * authoring turn instead of a long silent wait. UI-tool blocks are included; the
+   * consumer filters them (they render via onAssistantTurnComplete). Only the
+   * creation endpoint emits these (see routes/llm.ts /chat/create).
+   */
+  onToolProgress?: (toolName: string, toolId: string, label: string) => void;
   onToolStart?: (toolName: string, toolId: string) => void;
   onToolResult?: (toolId: string, result: string) => void;
   onUiTool?: (toolName: string, toolId: string, input: Record<string, unknown>) => void;
@@ -272,6 +281,11 @@ async function createDocNode(
     switch (event.type) {
       case 'text_delta':
         callbacks?.onTextDelta?.(event.text);
+        break;
+      case 'tool_progress':
+        // spec-473: a tool block finished streaming — surface it live so the
+        // modal's checklist ticks in during the batched authoring turn.
+        callbacks?.onToolProgress?.(event.name, event.toolId, event.label);
         break;
       case 'message_complete':
         completedContent = event.content;

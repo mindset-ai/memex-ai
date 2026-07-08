@@ -32,6 +32,9 @@ export interface MessageParam {
 /** Events from the LLM proxy SSE stream */
 export type LlmProxyEvent =
   | { type: 'text_delta'; text: string }
+  // spec-473: a tool block finished streaming (was WRITTEN by the model), before
+  // execution — drives the creation modal's live "Building your Spec…" checklist.
+  | { type: 'tool_progress'; name: string; toolId: string; label: string }
   | { type: 'message_complete'; content: ContentBlock[]; stopReason: string | null }
   | { type: 'error'; message: string };
 

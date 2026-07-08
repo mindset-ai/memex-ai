@@ -261,6 +261,30 @@ llmRouter.post("/chat", async (c) => {
 // POST /chat/create — LLM proxy for doc creation phase
 // ──────────────────────────────────────────────
 
+// spec-473: a short, human-facing label for the live "Building your Spec…"
+// checklist in the creation modal. Emitted per tool block as the model finishes
+// WRITING it (before execution), so the user sees rows tick in during the single
+// batched authoring turn (creation/system.md step 4) instead of a long silent
+// wait. Terse label only — never the full section body.
+function toolProgressLabel(name: string, input: Record<string, unknown>): string {
+  const s = (v: unknown): string => (typeof v === "string" ? v.trim() : "");
+  const clip = (v: string, n = 64): string => (v.length > n ? `${v.slice(0, n - 1)}…` : v);
+  switch (name) {
+    case "search_memex":
+      return "Searching related work";
+    case "create_doc":
+      return clip(s(input.title) || "the Spec");
+    case "add_section":
+      return `${clip(s(input.title) || s(input.sectionType) || "section")} section`;
+    case "create_decision":
+      return `Decision — ${clip(s(input.title) || "decision")}`;
+    case "create_ac":
+      return `Criterion — ${clip(s(input.statement) || "acceptance criterion")}`;
+    default:
+      return name;
+  }
+}
+
 const createChatSchema = z.object({
   messages: z.array(z.object({
     role: z.enum(["user", "assistant"]),
@@ -326,6 +350,26 @@ llmRouter.post("/chat/create", async (c) => {
         stream.writeSSE({
           event: "text_delta",
           data: JSON.stringify({ text }),
+        });
+      });
+
+      // spec-473: forward each tool block the moment the model finishes WRITING
+      // it, so the creation modal ticks rows into a live checklist DURING the
+      // single batched authoring turn (creation/system.md step 4) — restoring the
+      // incremental feedback batching would otherwise collapse into one long
+      // silent "Working…". Fire-and-forget, same as the text handler.
+      anthropicStream.on("contentBlock", (block) => {
+        if (block.type !== "tool_use") return;
+        stream.writeSSE({
+          event: "tool_progress",
+          data: JSON.stringify({
+            name: block.name,
+            id: block.id,
+            label: toolProgressLabel(
+              block.name,
+              (block.input ?? {}) as Record<string, unknown>,
+            ),
+          }),
         });
       });
 
