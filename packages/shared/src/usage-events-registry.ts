@@ -221,6 +221,25 @@ export const USAGE_EVENT_REGISTRY = [
       "The user submitted a sentence from the new-home build-prompt hero (spec-470), handing off to the create-spec dialog. Fires on submit. No content props — never the typed text; counts only.",
     source: "frontend",
   },
+  // ── New-home import hero funnel (spec-473 dec-2) ────────────────────────────
+  // spec-473 pivots the /home hero from the free-text idea prompt to an IMPORT
+  // challenge ("give us your markdown, we'll make it a real Spec"): the user
+  // pastes or uploads an existing document, and the agent restructures it into a
+  // structured Spec. These two intent events replace build_prompt_* for this
+  // surface; the confirmed OUTCOME stays document.created, and
+  // spec.create_clicked{surface:'home_hero'} still fires at the handoff.
+  {
+    name: "home.import_shown",
+    description:
+      "The new-home import hero (spec-473) was rendered for a spec-less user. Fires at most once per mount (the activation-funnel denominator). No content props — counts only.",
+    source: "frontend",
+  },
+  {
+    name: "home.import_submitted",
+    description:
+      "The user handed a document to the new-home import hero (spec-473), handing off to the create-spec dialog. Fires on submit. props.method ('paste' | 'file') — how the document was provided; a low-cardinality enum, never the document text.",
+    source: "frontend",
+  },
   // ── Onboarding welcome video (spec-444) ─────────────────────────────────────
   // The first-run welcome video (WelcomePage). Front-end lifecycle signals fired
   // via useTelemetry().track() from the tenant-scoped /telemetry ingress, so they

@@ -62,6 +62,20 @@ interface NewSpecModalProps {
   seedMessage?: string;
   autoSend?: boolean;
   /**
+   * spec-473 dec-3: how to FRAME the auto-sent seed to the create-spec agent.
+   * - `'idea'` (default) — the spec-470 path: `seedMessage` is a one-sentence idea,
+   *   wrapped by composeSeedInstruction as "here's my idea… draft it with me".
+   * - `'document'` — the new-home IMPORT hero (spec-473): `seedMessage` is an
+   *   EXISTING document (pasted or read from an uploaded markdown file). It is
+   *   wrapped by composeDocumentInstruction as "convert this existing document into
+   *   a structured Spec — sections, decisions, ACs as rows", carrying the document
+   *   inline (the shape the server creation prompt is tuned for, spec-230) and
+   *   riding as the collapsible attachment. The raw document is NOT shown verbatim
+   *   as the user bubble (a short label is), matching the paste UX. The server
+   *   creation path is UNCHANGED — this is a pure client framing seam.
+   */
+  seedKind?: 'idea' | 'document';
+  /**
    * spec-470: the tenant-prefixed Specs-board path (e.g. `/alice/personal/specs`) of
    * the memex the agent creates in. When the modal opens from a FLAT route (the /home
    * hero) the URL carries no tenant, so the internal `tenantPath()` can't prefix the
@@ -88,6 +102,16 @@ interface NewSpecModalProps {
 // agent drafts a spec from it rather than treating it as a bare title.
 function composeSeedInstruction(sentence: string): string {
   return `I want to build something new. Here's my idea in one sentence:\n\n"${sentence}"\n\nHelp me turn this into a spec — draft it with me, asking anything you need to.`;
+}
+
+// spec-473 dec-3: the new-home IMPORT hero hands over an EXISTING document (pasted
+// or read from an uploaded markdown file). Frame it as "convert this document into a
+// STRUCTURED Spec" — sections, decisions, and ACs as first-class rows — carrying the
+// document inline under the same "--- ... ---" delimiter shape the paste path
+// (handleSend) uses, which the server creation prompt is already tuned for (spec-230).
+// The server path is unchanged; this is a pure client framing seam.
+function composeDocumentInstruction(document: string): string {
+  return `I have an existing document — a spec, brief, or PRD written in markdown. Convert it into a well-structured Spec: capture its sections, decisions, and acceptance criteria as first-class rows (and tasks where the source implies them), not a thin overview.\n\n--- Document to convert ---\n${document}`;
 }
 
 let messageIdCounter = 0;
@@ -177,7 +201,7 @@ type DisplayMessage =
       timestamp: Date;
     };
 
-export function NewSpecModal({ open, onClose, prefill, onCreated, seedMessage, autoSend, specsBasePath, openOnCreate }: NewSpecModalProps) {
+export function NewSpecModal({ open, onClose, prefill, onCreated, seedMessage, autoSend, seedKind = 'idea', specsBasePath, openOnCreate }: NewSpecModalProps) {
   const { invoke, resume } = useAgentGraph();
 
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
@@ -285,9 +309,20 @@ export function NewSpecModal({ open, onClose, prefill, onCreated, seedMessage, a
     if (!openOnCreate || navigatedOnCreateRef.current) return;
     const created = messages.filter((m) => m.role === 'doc_created');
     if (created.length !== 1) return;
+    // spec-473: a DOCUMENT import keeps authoring AFTER create_doc — the agent runs
+    // add_section / create_decision / create_ac to restructure the source into a rich
+    // Spec. Navigating on the first create_doc (spec-470's idea-path behaviour) would
+    // unmount this modal and ABORT that authoring stream, leaving a thin Overview-only
+    // Spec (the very failure the import pivot exists to fix). So for seedKind='document'
+    // wait until the whole stream has finished before landing on the now-populated Spec.
+    // The hero-vs-tracker FREEZE (HomeCanvas) keeps the hero — and this modal — mounted
+    // across the create's hasSpec flip, so there is no graduation-unmount race to beat by
+    // navigating early. The idea path still lands the instant it's created (its stream
+    // ends at create_doc anyway).
+    if (seedKind === 'document' && isStreaming) return;
     navigatedOnCreateRef.current = true;
     openSpec(created[0].handle);
-  }, [openOnCreate, messages, openSpec]);
+  }, [openOnCreate, messages, isStreaming, seedKind, openSpec]);
 
   useEffect(() => {
     if (!open) return;
@@ -470,15 +505,26 @@ export function NewSpecModal({ open, onClose, prefill, onCreated, seedMessage, a
   // seeding paths never both fire. Placed below dispatchMessage so it's in scope.
   useEffect(() => {
     if (!open || prefill || !autoSend) return;
-    const sentence = seedMessage?.trim();
-    if (!sentence) return; // empty/whitespace neither opens nor dispatches
+    const seed = seedMessage?.trim();
+    if (!seed) return; // empty/whitespace neither opens nor dispatches
     if (autoSentRef.current) return;
     autoSentRef.current = true;
-    void dispatchMessage({
-      composed: composeSeedInstruction(sentence),
-      displayText: sentence,
-    });
-  }, [open, prefill, autoSend, seedMessage, dispatchMessage]);
+    if (seedKind === 'document') {
+      // spec-473: an imported document — frame it as "convert this into a Spec"
+      // and show a short label (not the whole document) as the user bubble, with
+      // the document riding as the collapsible attachment (mirrors the paste UX).
+      void dispatchMessage({
+        composed: composeDocumentInstruction(seed),
+        displayText: 'Turn this document into a Spec.',
+        attachment: seed,
+      });
+    } else {
+      void dispatchMessage({
+        composed: composeSeedInstruction(seed),
+        displayText: seed,
+      });
+    }
+  }, [open, prefill, autoSend, seedKind, seedMessage, dispatchMessage]);
 
   const handleSend = useCallback(async () => {
     if (isStreaming) return;
