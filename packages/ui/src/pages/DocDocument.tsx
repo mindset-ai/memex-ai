@@ -914,14 +914,15 @@ export function DocDocument() {
   // Tasks & Issues · QA Report. (Supersedes the disjoint spec-260 per-phase sets:
   // the old `planSubTabs` Narrative/Decisions/Comments AND the Build
   // Tasks&Issues/QA-Report tabs collapse into this single bar.)
-  // spec-473 UI: an inline content count in a sub-tab label — number-first per
-  // the owner's format ("3 Decisions", "1 AC"). Falls back to the bare noun when
-  // the count is zero so empty tabs read cleanly ("Decisions & ACs", or a mixed
-  // "Decisions & 5 ACs"). This replaces the old comment-count badges on these
-  // tabs, which were misleading — a number on "Decisions & ACs" meant *comments*,
-  // so a tab full of decisions with no comments looked empty.
+  // spec-473 UI: an inline content count in a sub-tab label — noun + "(n)"
+  // ("Decisions (4)", "AC (1)"), which reads more clearly than a bare leading
+  // number. Falls back to the bare noun when the count is zero so empty tabs read
+  // cleanly ("Decisions & ACs", or a mixed "Decisions & ACs (6)"). This replaces
+  // the old comment-count badges on these tabs, which were misleading — a number
+  // on "Decisions & ACs" meant *comments*, so a tab full of decisions with no
+  // comments looked empty.
   const countLabel = (n: number, singular: string, plural: string): string =>
-    n > 0 ? `${n} ${n === 1 ? singular : plural}` : plural;
+    n > 0 ? `${n === 1 ? singular : plural} (${n})` : plural;
 
   const subTabs = [
     /* spec-233 dec-1 (supersedes spec-196 dec-1): the label reads "Narrative".
