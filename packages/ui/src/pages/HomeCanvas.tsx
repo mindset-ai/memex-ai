@@ -374,18 +374,11 @@ export function HomeCanvas() {
   // fall back to the current (possibly cached) state so a returning spec-less user sees
   // the hero without a blank flash. Graduation happens on the NEXT fresh visit, when
   // hasSpec is re-read true and this resolves to the tracker (ac-3).
-  // ⚠️ TEMP (spec-473 issue-5) — force the import hero at /home for ALL users, even
-  // has-spec ones, so the pivoted hero can be manually tested without a spec-less
-  // account. REMOVE this and restore the plain spec-less gate before merge. Operator
-  // preview still sees the real tracker.
-  const FORCE_IMPORT_HERO = true;
-
   const showHero =
     !preview &&
-    (FORCE_IMPORT_HERO ||
-      (heroDecisionRef.current !== null
-        ? heroDecisionRef.current === true
-        : !!state && !state.milestones.hasSpec));
+    (heroDecisionRef.current !== null
+      ? heroDecisionRef.current === true
+      : !!state && !state.milestones.hasSpec);
   if (showHero) {
     return <BuildPromptHero firstName={firstName(user?.name)} specsPath={specsPath} />;
   }

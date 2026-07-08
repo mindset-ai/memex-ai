@@ -76,6 +76,7 @@ import { SpecPresenceIndicator } from '../components/pulse/SpecPresenceIndicator
 // preserved verbatim).
 import { useDocTabs, type SubTab } from '../hooks/useDocTabs';
 import { NarrativeView } from './doc-document/NarrativeView';
+import { countLabel } from './docTabCount';
 
 export function DocDocument() {
   // spec-64 i-3: the Spec page is also mounted at the canonical Decision / Issue
@@ -920,9 +921,8 @@ export function DocDocument() {
   // cleanly ("Decisions & ACs", or a mixed "Decisions & ACs (6)"). This replaces
   // the old comment-count badges on these tabs, which were misleading — a number
   // on "Decisions & ACs" meant *comments*, so a tab full of decisions with no
-  // comments looked empty.
-  const countLabel = (n: number, singular: string, plural: string): string =>
-    n > 0 ? `${n === 1 ? singular : plural} (${n})` : plural;
+  // comments looked empty. The helper itself lives in './docTabCount' (spec-473)
+  // so it can be unit-tested in isolation.
 
   const subTabs = [
     /* spec-233 dec-1 (supersedes spec-196 dec-1): the label reads "Narrative".

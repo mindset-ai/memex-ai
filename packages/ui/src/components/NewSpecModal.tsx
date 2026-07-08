@@ -412,12 +412,18 @@ export function NewSpecModal({ open, onClose, prefill, onCreated, seedMessage, a
             m.role === 'tool_status' && m.toolId === toolId
               ? {
                   ...m,
-                  // spec-473: on success keep the checklist label onToolProgress
-                  // wrote (e.g. "✓ Design section") — execution is near-instant
-                  // after the batched turn, so replacing it with "Ran …" would
-                  // just churn the labels. Errors must stay visible verbatim
-                  // (raw results are agent-facing prose, spec-155 i-1).
-                  content: result.startsWith('Error:') ? result : m.content,
+                  // Errors stay visible verbatim (raw results are agent-facing
+                  // prose, spec-155 i-1). On success: if onToolProgress already
+                  // wrote a "✓ …" checklist label (the spec-473 batched-authoring
+                  // path), keep it — execution is near-instant so re-labelling
+                  // would just churn. Otherwise the row is still the onToolStart
+                  // "Running …" placeholder, so collapse it to a "Ran …" done
+                  // marker (spec-155 i-1 — never leave it reading as in-flight).
+                  content: result.startsWith('Error:')
+                    ? result
+                    : m.content.startsWith('Running ')
+                      ? `Ran ${m.toolName}`
+                      : m.content,
                 }
               : m
           )

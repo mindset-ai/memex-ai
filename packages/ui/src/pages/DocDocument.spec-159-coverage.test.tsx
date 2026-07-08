@@ -137,7 +137,7 @@ describe('spec-159 — zero-state holes block at the page level (ac-3, ac-13)', 
 
     // The in-situ directive sits above the work view (Agent Tasks & Issues tab).
     await screen.findByTestId('decision-panel'); // build lands on Decisions & ACs
-    await user.click(screen.getByText('Agent Tasks & Issues'));
+    await user.click(screen.getByText(/^Agent Tasks?( \(\d+\))? & Issues?( \(\d+\))?$/));
     await screen.findByTestId('task-panel');
     await waitFor(() =>
       expect(directiveText()).toContain(

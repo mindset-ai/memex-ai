@@ -218,19 +218,19 @@ describe('spec-159 t-6 — DocDocument phase layouts', () => {
 
     // Specify view is current → its sub-tab bar shows Spec / Decisions & ACs / Comments.
     await screen.findByText('Narrative');
-    expect(screen.getByText('Decisions & ACs')).toBeInTheDocument();
-    expect(screen.getByText('Comments')).toBeInTheDocument();
+    expect(screen.getByText(/^Decisions?( \(\d+\))? & ACs?( \(\d+\))?$/)).toBeInTheDocument();
+    expect(screen.getByText(/^Comments?( \(\d+\))?$/)).toBeInTheDocument();
 
     // Default sub-tab is Spec (the narrative) (section cards render).
     expect(screen.getByTestId('section-card')).toBeInTheDocument();
 
     // Switch to Decisions & ACs → both panels render side by side.
-    await user.click(screen.getByText('Decisions & ACs'));
+    await user.click(screen.getByText(/^Decisions?( \(\d+\))? & ACs?( \(\d+\))?$/));
     expect(screen.getByTestId('decision-panel')).toBeInTheDocument();
     expect(screen.getByTestId('ac-panel')).toBeInTheDocument();
 
     // Comments sub-tab → AllComments.
-    await user.click(screen.getByText('Comments'));
+    await user.click(screen.getByText(/^Comments?( \(\d+\))?$/));
     expect(screen.getByTestId('all-comments')).toBeInTheDocument();
   });
 
@@ -246,9 +246,9 @@ describe('spec-159 t-6 — DocDocument phase layouts', () => {
 
     // The unified control carries the full inventory.
     await screen.findByText('Narrative');
-    expect(screen.getByText('Comments')).toBeInTheDocument();
-    expect(screen.getByText('Decisions & ACs')).toBeInTheDocument();
-    expect(screen.getByText('Agent Tasks & Issues')).toBeInTheDocument();
+    expect(screen.getByText(/^Comments?( \(\d+\))?$/)).toBeInTheDocument();
+    expect(screen.getByText(/^Decisions?( \(\d+\))? & ACs?( \(\d+\))?$/)).toBeInTheDocument();
+    expect(screen.getByText(/^Agent Tasks?( \(\d+\))? & Issues?( \(\d+\))?$/)).toBeInTheDocument();
     expect(screen.getByText('QA Report')).toBeInTheDocument();
 
     // Build's default landing is Decisions & ACs (decision + AC panels).
@@ -256,7 +256,7 @@ describe('spec-159 t-6 — DocDocument phase layouts', () => {
     expect(screen.getByTestId('ac-panel')).toBeInTheDocument();
 
     // The work view is one click away.
-    await user.click(screen.getByText('Agent Tasks & Issues'));
+    await user.click(screen.getByText(/^Agent Tasks?( \(\d+\))? & Issues?( \(\d+\))?$/));
     expect(screen.getByTestId('task-panel')).toBeInTheDocument();
     expect(screen.getByTestId('issue-panel')).toBeInTheDocument();
 
@@ -275,7 +275,7 @@ describe('spec-159 t-6 — DocDocument phase layouts', () => {
     expect(screen.getAllByRole('tab')).toHaveLength(4);
 
     // Agent Tasks & Issues remains reachable in verify (accretion never removes it).
-    await user.click(screen.getByText('Agent Tasks & Issues'));
+    await user.click(screen.getByText(/^Agent Tasks?( \(\d+\))? & Issues?( \(\d+\))?$/));
     expect(screen.getByTestId('task-panel')).toBeInTheDocument();
     expect(screen.getByTestId('issue-panel')).toBeInTheDocument();
   });
@@ -374,7 +374,7 @@ describe('spec-159 — Rubicon line + in-situ directives', () => {
     expect(within(sentence).queryByRole('button')).not.toBeInTheDocument();
 
     // The directive renders in-situ on the Decisions & ACs sub-tab.
-    await user.click(screen.getByText('Decisions & ACs'));
+    await user.click(screen.getByText(/^Decisions?( \(\d+\))? & ACs?( \(\d+\))?$/));
     const directives = screen.getAllByTestId('phase-directive');
     expect(directives.map((d) => d.textContent).join(' ')).toContain(
       '2 Decisions must be resolved before this spec can move to Build.',
@@ -409,8 +409,8 @@ describe('spec-159 — Rubicon line + in-situ directives', () => {
     tagAc(AC(14));
     const user = userEvent.setup();
     renderAt('specify');
-    await screen.findByText('Decisions & ACs');
-    await user.click(screen.getByText('Decisions & ACs'));
+    await screen.findByText(/^Decisions?( \(\d+\))? & ACs?( \(\d+\))?$/);
+    await user.click(screen.getByText(/^Decisions?( \(\d+\))? & ACs?( \(\d+\))?$/));
 
     // The directive spans the two-column grid as a single line above it;
     // same-verb fragments merge their entities ("Decisions and ACs must be
@@ -429,8 +429,8 @@ describe('spec-159 — Rubicon line + in-situ directives', () => {
     docDecisions = [decision('d-1', 'open'), decision('d-2', 'open'), decision('d-3', 'resolved')];
     docAcs = [{ ac: { status: 'active' }, verificationState: 'verified' }];
     renderAt('specify');
-    await screen.findByText('Decisions & ACs');
-    await user.click(screen.getByText('Decisions & ACs'));
+    await screen.findByText(/^Decisions?( \(\d+\))? & ACs?( \(\d+\))?$/);
+    await user.click(screen.getByText(/^Decisions?( \(\d+\))? & ACs?( \(\d+\))?$/));
 
     const text = screen
       .getAllByTestId('phase-directive')
@@ -447,7 +447,7 @@ describe('spec-159 — Rubicon line + in-situ directives', () => {
 
     // The build directive renders on the Agent Tasks & Issues tab.
     await screen.findByTestId('decision-panel'); // build landing
-    await user.click(screen.getByText('Agent Tasks & Issues'));
+    await user.click(screen.getByText(/^Agent Tasks?( \(\d+\))? & Issues?( \(\d+\))?$/));
     await screen.findByTestId('task-panel');
     const text = screen
       .getAllByTestId('phase-directive')
@@ -500,7 +500,7 @@ describe('spec-159 — Rubicon line + in-situ directives', () => {
     renderAt('specify');
     await screen.findByText('Narrative');
 
-    await user.click(screen.getByText('Agent Tasks & Issues'));
+    await user.click(screen.getByText(/^Agent Tasks?( \(\d+\))? & Issues?( \(\d+\))?$/));
     await screen.findByTestId('task-panel');
     expect(screen.queryAllByTestId('phase-directive')).toHaveLength(0);
   });
@@ -530,7 +530,7 @@ describe('spec-159 — Rubicon line + in-situ directives', () => {
     expect(phaseTab('specify')).toHaveAttribute('data-selected', 'true');
     expect(phaseTab('build')).not.toHaveAttribute('data-current');
     // Specify's layout renders (sub-tabs visible).
-    expect(screen.getByText('Decisions & ACs')).toBeInTheDocument();
+    expect(screen.getByText(/^Decisions?( \(\d+\))? & ACs?( \(\d+\))?$/)).toBeInTheDocument();
   });
 
   it('editor keeps the phase block — tabs + the Rubicon transition sentence (ac-19)', async () => {
@@ -713,7 +713,7 @@ describe('spec-182 — unified reviewer phase block', () => {
     renderAt('build');
 
     await screen.findByTestId('decision-panel'); // build lands on Decisions & ACs
-    await user.click(screen.getByText('Agent Tasks & Issues'));
+    await user.click(screen.getByText(/^Agent Tasks?( \(\d+\))? & Issues?( \(\d+\))?$/));
     expect(screen.getByTestId('task-panel')).toBeInTheDocument();
     expect(screen.getByTestId('issue-panel')).toBeInTheDocument();
     // dec-1: the tab bar renders for reviewers; dec-3: no review row off-Specify.
@@ -975,7 +975,7 @@ describe('spec-252 — coloured phase container', () => {
 
     // OUTSIDE: the doc title (no heading inside) and the content Tabs row.
     expect(within(container).queryByRole('heading')).not.toBeInTheDocument();
-    expect(within(container).queryByText('Decisions & ACs')).not.toBeInTheDocument();
+    expect(within(container).queryByText(/^Decisions?( \(\d+\))? & ACs?( \(\d+\))?$/)).not.toBeInTheDocument();
   });
 
   it('places the posture pill LEFT of the phase bar, as the only posture switch (ac-3, ac-9, ac-11)', async () => {

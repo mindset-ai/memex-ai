@@ -76,21 +76,30 @@ const SUBSTANTIAL_DOC =
   '# Realtime Presence PRD\n## Problem\nUsers cannot tell who is viewing a doc.\n## Goals\n- Live avatars.';
 
 describe('BuildPromptHero — import pivot (spec-473)', () => {
-  it('ac-7: leads solely with the import challenge — the idea-sentence prompt is gone', () => {
+  it('ac-1/ac-4/ac-7: leads with the import challenge — the idea-sentence prompt is gone', () => {
+    tagAc(`${AC}/ac-1`);
+    tagAc(`${AC}/ac-4`);
     tagAc(`${AC}/ac-7`);
     renderHero();
 
     expect(screen.getByTestId('hero-eyebrow')).toHaveTextContent('Memex');
     expect(screen.getByTestId('hero-greeting')).toHaveTextContent('Hi Alice.');
-    // Pivoted copy: the challenge frames a Spec as a structured thing, not a document.
-    expect(screen.getByTestId('hero-headline')).toHaveTextContent(/real Spec/i);
-    expect(screen.getByTestId('hero-sub')).toHaveTextContent(/paste|markdown|file/i);
+    // Pivoted copy: the import-first challenge, headline naming the Spec outcome.
+    expect(screen.getByTestId('hero-headline')).toHaveTextContent(
+      /turn your md doc into a living memex spec/i,
+    );
+    // Sub-copy invites a pasted/uploaded doc OR a described feature (ac-4 broadening) —
+    // both feed the same import path; there is no separate idea input.
+    expect(screen.getByTestId('hero-sub')).toHaveTextContent(/paste an md doc/i);
+    expect(screen.getByTestId('hero-sub')).toHaveTextContent(/describe a feature/i);
     // The retired spec-470 idea headline must NOT appear.
     expect(screen.queryByText('What do you want to build?')).not.toBeInTheDocument();
     // Import affordances are present: a paste field + an upload control + file input.
     expect(screen.getByTestId('hero-input')).toBeInTheDocument();
     expect(screen.getByTestId('hero-upload')).toBeInTheDocument();
     expect(screen.getByTestId('hero-file-input')).toBeInTheDocument();
+    // Prominent worded primary CTA (agreed copy) rather than a bare corner arrow.
+    expect(screen.getByTestId('hero-submit')).toHaveTextContent(/turn my doc into a spec/i);
     // The paste field is labelled and has a visible focus ring (a11y, std-27).
     const input = screen.getByLabelText('Paste your spec or markdown to import');
     expect(input).toBe(screen.getByTestId('hero-input'));

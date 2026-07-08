@@ -28,10 +28,10 @@ import { NewSpecModal } from '../NewSpecModal';
 // these constants are intentionally trivial to swap. Do NOT treat the wording as
 // final. The framing (Spec = structured database, not a document — the std-20
 // dramatization) is the load-bearing part; the exact sentences are not.
-const HERO_HEADLINE = "Your specs are just markdown — give us one, we'll make it a real Spec.";
+const HERO_HEADLINE = "Turn your MD doc into a living Memex Spec — it takes 2 minutes.";
 const HERO_SUB =
-  "Paste a spec, brief, or PRD — or drop in a markdown file — and we'll restructure it into a real Spec: sections, decisions, and acceptance criteria as queryable rows, not a document.";
-const PASTE_PLACEHOLDER = 'Paste your spec, brief, or markdown here…';
+  "Memex is where you spec a feature for your agent to build and verify against. Paste an MD doc or describe a feature, and Memex transforms it.";
+const PASTE_PLACEHOLDER = 'Paste an MD doc, or describe a feature…';
 
 // File handling (dec-1). Extension-checked — the browser's MIME for markdown is
 // empty/unreliable, so the filename extension is the primary gate.
@@ -210,28 +210,32 @@ export function BuildPromptHero({
             placeholder={PASTE_PLACEHOLDER}
             rows={7}
             autoFocus
-            className="w-full resize-none rounded-2xl border border-edge bg-surface/60 px-5 py-4 pr-14 text-base text-primary shadow-sm outline-hidden transition focus:border-accent focus:ring-2 focus:ring-accent/40"
+            className="w-full resize-none rounded-2xl border border-edge bg-surface/60 px-5 py-4 text-base text-primary shadow-sm outline-hidden transition focus:border-accent focus:ring-2 focus:ring-accent/40"
           />
-          <button
-            type="button"
-            data-testid="hero-submit"
-            aria-label="Import and build my Spec"
-            onClick={handleSubmit}
-            disabled={doc.trim().length === 0}
-            className="absolute bottom-3 right-3 flex h-10 w-10 items-center justify-center rounded-xl bg-accent text-white transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            <svg
-              className="h-5 w-5"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
-              aria-hidden
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" d="M5 12h14M13 6l6 6-6 6" />
-            </svg>
-          </button>
         </div>
+
+        {/* spec-473: primary CTA — a prominent, worded button (agreed copy "Turn my
+            doc into a Spec") rather than a bare corner arrow, so a first-time visitor
+            gets a verbal push to act. Same handleSubmit; data-testid unchanged. */}
+        <button
+          type="button"
+          data-testid="hero-submit"
+          onClick={handleSubmit}
+          disabled={doc.trim().length === 0}
+          className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-accent px-6 py-4 text-base font-semibold text-white transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Turn my doc into a Spec
+          <svg
+            className="h-5 w-5"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2}
+            aria-hidden
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M5 12h14M13 6l6 6-6 6" />
+          </svg>
+        </button>
 
         {/* Upload affordance + accepted-types hint. The file input is visually
             hidden but keyboard-reachable via the labelled button (dec-1, [per std-27]). */}
