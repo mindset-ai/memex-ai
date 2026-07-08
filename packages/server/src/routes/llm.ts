@@ -24,11 +24,15 @@ import { resolveIntegrationState } from "../agent/integration-state.js";
 // quality. Routed through getAnthropicClient() (the metering wrapper, std-30) —
 // this const is the only model knob; never construct `new Anthropic()`.
 //
-// ⚠️ Thinking is set to { type: 'disabled' } at every call site below. Sonnet 5
-// turns adaptive thinking ON when the `thinking` field is omitted (4.5 ran it
-// off) — leaving it default would add latency and eat into max_tokens, the exact
-// slowness we're removing. Disabled preserves 4.5's no-thinking latency profile.
-// (Sonnet 5 also rejects non-default temperature/top_p/top_k — we set none.)
+// ⚠️ Thinking is set to { type: 'adaptive' } at every call site below. We first
+// tried { type: 'disabled' } to preserve 4.5's no-thinking latency, but Sonnet 5's
+// own guidance is that WITH THINKING OFF it reaches for tools less readily — and
+// this entire surface is tool-driven (search_memex → create_doc → add_section /
+// create_decision / create_ac; resolve_decision; create_task; …). Reliable
+// tool-calling matters more than the latency saving, so adaptive thinking is on;
+// effort is left at Sonnet 5's default. Dial depth down via output_config.effort
+// if latency needs tuning. (Sonnet 5 rejects non-default temperature/top_p/top_k —
+// we set none.)
 const MODEL = "claude-sonnet-5";
 
 type Env = MemexResolverEnv & SessionEnv;
@@ -214,9 +218,12 @@ llmRouter.post("/chat", async (c) => {
     try {
       const anthropicStream = anthropic.messages.stream({
         model: MODEL,
-        max_tokens: 4096,
-        // Keep Sonnet 5's latency predictable — see the MODEL note.
-        thinking: { type: "disabled" },
+        // spec-473: 8192 (was 4096) for symmetry with /chat/create — Sonnet 5's
+        // heavier tokenizer + a thinking budget leave less room, and a long
+        // in-Spec turn shouldn't truncate at max_tokens.
+        max_tokens: 8192,
+        // Adaptive thinking on — keeps Sonnet 5 reaching for tools. See MODEL note.
+        thinking: { type: "adaptive" },
         system: systemBlocks,
         tools: tools as Anthropic.Tool[],
         messages: sanitisedMessages,
@@ -337,8 +344,8 @@ llmRouter.post("/chat/create", async (c) => {
         // add_section / create_decision / create_ac blocks emitted at once —
         // see creation/system.md step 4) has room to fan out without truncating.
         max_tokens: 8192,
-        // Keep Sonnet 5's latency predictable — see the MODEL note.
-        thinking: { type: "disabled" },
+        // Adaptive thinking on — keeps Sonnet 5 reaching for tools. See MODEL note.
+        thinking: { type: "adaptive" },
         system: systemBlocks,
         tools: tools as Anthropic.Tool[],
         messages: sanitisedMessages,
