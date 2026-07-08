@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { tagAc } from "@memex-ai-ac/vitest";
 import { inArray, eq } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import {
@@ -12,9 +13,12 @@ import {
   docSections,
   docComments,
   users,
+  mcpSessions,
+  mcpToolCalls,
 } from "../db/schema.js";
 import {
   resolveWorkspace,
+  resolveWorkspaceForRead,
   resolveMemexFromEntity,
   resolveMemexFromDocRef,
   assertMembership,
@@ -22,12 +26,19 @@ import {
   McpAuthError,
 } from "./auth.js";
 
+const AC = "mindset-prod/memex-building-itself/specs/spec-471/acs";
+
 const created = {
   users: [] as string[],
   memexes: [] as string[],
+  sessions: [] as string[],
 };
 
 afterAll(async () => {
+  if (created.sessions.length) {
+    // tool_calls cascade on session delete (FK onDelete cascade).
+    await db.delete(mcpSessions).where(inArray(mcpSessions.sessionId, created.sessions)).catch(() => {});
+  }
   if (created.users.length) {
     await db.delete(users).where(inArray(users.id, created.users)).catch(() => {});
   }
@@ -35,6 +46,17 @@ afterAll(async () => {
     await db.delete(memexes).where(inArray(memexes.id, created.memexes)).catch(() => {});
   }
 });
+
+// Records an MCP tool call for `userId` against `memexId` at `at`, so the read-path
+// fallback (spec-471 dec-1 #3) has a "most-recently-active memex" to derive.
+async function recordToolCall(userId: string, memexId: string | null, at: Date) {
+  const sessionId = `sess-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  await db.insert(mcpSessions).values({ sessionId, userId } as any);
+  created.sessions.push(sessionId);
+  await db
+    .insert(mcpToolCalls)
+    .values({ sessionId, userId, memexId, toolName: "search_memex", argsJson: {}, durationMs: 0, createdAt: at } as any);
+}
 
 async function makeUser(suffix: string) {
   const [u] = await db
@@ -216,6 +238,84 @@ describe("resolveWorkspace", () => {
     await expect(resolveWorkspace(u.id, undefined)).rejects.toThrow(
       /<namespace>\/<memex>/,
     );
+  });
+});
+
+// spec-471 t-1: no-arg READ path defaults to the caller's most-recently-active
+// memex (dec-1 #3), while the no-arg WRITE path keeps the hard error (dec-2 A).
+describe("resolveWorkspaceForRead — no-arg default (spec-471)", () => {
+  it("multi-workspace no-arg read resolves to the most-recently-used memex", async () => {
+    tagAc(`${AC}/ac-2`);
+    tagAc(`${AC}/ac-6`); // scope outcome: kills the #1 auth error on the read path
+
+    const u = await makeUser("s471-read-recent");
+    const a = await makeAccount("s471-a");
+    const b = await makeAccount("s471-b");
+    await addMember(u.id, a.id);
+    await addMember(u.id, b.id);
+    // a used first, b used most recently → b is the expected default.
+    await recordToolCall(u.id, a.id, new Date(Date.now() - 60_000));
+    await recordToolCall(u.id, b.id, new Date(Date.now() - 1_000));
+
+    const { memexId } = await resolveWorkspaceForRead(u.id, undefined);
+    expect(memexId).toBe(b.id);
+  });
+
+  it("multi-workspace no-arg read with NO history still hard-errors", async () => {
+    tagAc(`${AC}/ac-3`);
+    const u = await makeUser("s471-read-nohist");
+    const a = await makeAccount("s471-nh-a");
+    const b = await makeAccount("s471-nh-b");
+    await addMember(u.id, a.id);
+    await addMember(u.id, b.id);
+    // No recordToolCall → nothing to default to.
+    await expect(resolveWorkspaceForRead(u.id, undefined)).rejects.toThrow(
+      /Multiple Memexes/,
+    );
+  });
+
+  it("ignores history for a memex the user is no longer a member of", async () => {
+    tagAc(`${AC}/ac-2`);
+    const u = await makeUser("s471-read-stale");
+    const a = await makeAccount("s471-stale-a");
+    const b = await makeAccount("s471-stale-b");
+    const gone = await makeAccount("s471-stale-gone");
+    await addMember(u.id, a.id);
+    await addMember(u.id, b.id);
+    // Most-recent call is against a memex the user does NOT belong to — must be
+    // skipped in favour of the most recent one they can still access (a).
+    await recordToolCall(u.id, a.id, new Date(Date.now() - 60_000));
+    await recordToolCall(u.id, gone.id, new Date(Date.now() - 1_000));
+
+    const { memexId } = await resolveWorkspaceForRead(u.id, undefined);
+    expect(memexId).toBe(a.id);
+  });
+
+  it("WRITE path still hard-errors even when read history exists (std-5 guard)", async () => {
+    tagAc(`${AC}/ac-1`);
+    tagAc(`${AC}/ac-7`); // scope outcome: no write ever silently defaulted
+
+    const u = await makeUser("s471-write-guard");
+    const a = await makeAccount("s471-w-a");
+    const b = await makeAccount("s471-w-b");
+    await addMember(u.id, a.id);
+    await addMember(u.id, b.id);
+    await recordToolCall(u.id, b.id, new Date());
+    // The write entrypoint must NOT auto-pick — no silent wrong-workspace write.
+    await expect(resolveWorkspace(u.id, undefined)).rejects.toThrow(/Multiple Memexes/);
+  });
+
+  it("no regression: single-workspace read auto-resolves; explicit memex= resolves", async () => {
+    tagAc(`${AC}/ac-4`);
+    const u = await makeUser("s471-noregress");
+    const a = await makeAccount("s471-nr-a");
+    await addMember(u.id, a.id);
+    // Single workspace → resolves with no arg, no error, no history needed.
+    const solo = await resolveWorkspaceForRead(u.id, undefined);
+    expect(solo.memexId).toBe(a.id);
+    // Explicit slash form still resolves exactly as before.
+    const explicit = await resolveWorkspaceForRead(u.id, `${a.slug}/main`);
+    expect(explicit.memexId).toBe(a.id);
   });
 });
 
