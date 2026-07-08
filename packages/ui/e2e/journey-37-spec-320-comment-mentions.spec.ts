@@ -74,7 +74,7 @@ async function openDecisionComments(page, tenant, specHandle: string) {
   await page.goto(tenantPath(tenant.namespaceSlug, tenant.memexSlug, `/specs/${specHandle}`));
   await expect(page.getByText("Spec assistant")).toBeVisible({ timeout: 15_000 });
   await switchToEditing(page);
-  await page.getByRole("button", { name: /Decisions & ACs/ }).click();
+  await page.getByRole("button", { name: /Decisions?( \(\d+\))? & ACs?/ }).click();
   const panel = page.getByTestId("decision-panel");
   await expect(panel).toContainText(/Which storage shape/, { timeout: 15_000 });
   await panel.getByTestId("decision-discussion-toggle").first().click();

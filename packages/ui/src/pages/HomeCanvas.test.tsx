@@ -85,7 +85,7 @@ function stateFor(
   } = {},
 ) {
   return {
-    milestones: {},
+    milestones: { hasSpec: true },
     roleCoords: over.roleCoords ?? null,
     currentStepId,
     steps: stepsOf(over.attained ?? []),

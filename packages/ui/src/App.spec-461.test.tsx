@@ -1,10 +1,19 @@
-// spec-461 t-1 (dec-1) — retire the automatic Home landing. RootRedirect must never
-// navigate to /home on its own: every authenticated, verified, named user past the
-// welcome gate lands on their default-tenant Specs board, whether or not they have a
-// spec yet and even if the journey-state read fails. Home stays reachable ONLY by
-// explicit navigation (visiting /home / the sidebar link). The spec-444 welcome-video
-// re-show (spec-less + not-dismissed → /welcome) is deliberately preserved, since it
-// keys on !hasSpec independently of the Home landing. Reverses spec-421 dec-5.
+// spec-461 t-1 (dec-1) — retire the automatic Home landing.
+//
+// NARROWED BY spec-470 dec-9 (2026-07-08, approved by spec-461's owner): spec-461's
+// "never auto-land on /home" now holds ONLY for the HAS-SPEC cohort. A CONFIRMED
+// spec-less user (a successful journey read with hasSpec=false) now AUTO-LANDS on
+// /home — the build-prompt hero — so they reach it (covered by App.spec-470.test.tsx).
+// The failed/unknown-read fallback is NOT treated as confirmed spec-less, so it still
+// lands on the Specs board (that safety is preserved — see the failed-read test below).
+// The tests here assert spec-461's surviving guarantee: a HAS-SPEC user is never
+// auto-landed on Home (they get their Specs board), the welcome re-show still fires,
+// and /home stays reachable by explicit navigation.
+//
+// Original intent: RootRedirect must never navigate to /home on its own; every
+// authenticated, verified, named user past the welcome gate lands on their
+// default-tenant Specs board. The spec-444 welcome-video re-show (spec-less +
+// not-dismissed → /welcome) is preserved, keyed on !hasSpec. Reverses spec-421 dec-5.
 //
 //   ac-1 (scope) — no authenticated user is ever auto-redirected to /home; a spec-less
 //                  user, and one whose journey read fails/loads, lands on Specs.
@@ -22,6 +31,7 @@ import type { ReactNode } from 'react';
 import { tagAc } from '@memex-ai-ac/vitest';
 import type { SessionPayload } from './api/client';
 import type { JourneyStateResponse } from './api/journey';
+import { resetCachedJourneyState } from './journeys/journeyStateCache';
 
 const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-461/acs/ac-${n}`;
 
@@ -162,6 +172,7 @@ describe('spec-461 t-1: RootRedirect never auto-lands on /home (dec-1)', () => {
   beforeEach(() => {
     vi.stubEnv('VITE_GOOGLE_CLIENT_ID', 'test-client-id');
     sessionStorage.setItem('welcomeVideoDismissed', '1'); // spec-444: suppress the re-show gate by default
+    resetCachedJourneyState(); // isolate the spec-470 confirmedSpecLess cache read between tests
     fetchJourneyStateApi.mockClear();
     trackMock.mockClear();
     trackAnonymousMock.mockClear();
@@ -172,11 +183,14 @@ describe('spec-461 t-1: RootRedirect never auto-lands on /home (dec-1)', () => {
     sessionStorage.removeItem('welcomeVideoDismissed');
   });
 
-  it('ac-1 / ac-4: a spec-less user (dismissed) lands on the Specs board, NOT /home', async () => {
+  // spec-470 dec-9: spec-less users now auto-land on /home (App.spec-470.test.tsx).
+  // spec-461's surviving guarantee is for the HAS-SPEC cohort — they still land on
+  // their Specs board, never on Home.
+  it('ac-1 / ac-4: a has-spec user (dismissed) lands on the Specs board, NOT /home', async () => {
     tagAc(AC(1));
     tagAc(AC(4));
     mockSession = makeSession({ hiddenFeatures: [] });
-    journeyFetch = () => Promise.resolve(journeyState(false));
+    journeyFetch = () => Promise.resolve(journeyState(true));
     renderAt('/');
     await waitFor(() => {
       expect(screen.getByTestId('probe').getAttribute('data-path')).toBe('/alice/personal/specs');
@@ -195,6 +209,10 @@ describe('spec-461 t-1: RootRedirect never auto-lands on /home (dec-1)', () => {
     expect(screen.queryByTestId('home-canvas-page')).not.toBeInTheDocument();
   });
 
+  // spec-470 dec-9 preserves this spec-461 safety: routing to /home requires a
+  // CONFIRMED spec-less read (cached hasSpec=false). A FAILED read has no such cache,
+  // so it still falls back to the Specs board — a transient blip never drops a
+  // possibly-engaged user onto the build-prompt hero.
   it('ac-1 / ac-4: a FAILED journey read no longer strands the user on /home — lands on Specs', async () => {
     tagAc(AC(1));
     tagAc(AC(4));
@@ -237,19 +255,19 @@ describe('spec-461 t-1: RootRedirect never auto-lands on /home (dec-1)', () => {
     });
   });
 
-  it('ac-1: the home.landing_routed telemetry reports destination:specs for a spec-less user', async () => {
+  it('ac-1: the home.landing_routed telemetry reports destination:specs for a has-spec user', async () => {
     tagAc(AC(1));
     mockSession = makeSession({ hiddenFeatures: [] });
-    journeyFetch = () => Promise.resolve(journeyState(false));
+    journeyFetch = () => Promise.resolve(journeyState(true));
     renderAt('/');
     await waitFor(() => {
       const viaTrack = trackMock.mock.calls.find((c) => c[0] === 'home.landing_routed');
       const viaAnon = trackAnonymousMock.mock.calls.find((c) => c[0] === 'home.landing_routed');
       const call = viaTrack ?? viaAnon;
       expect(call, 'home.landing_routed should fire').toBeTruthy();
-      // No one is auto-routed to Home any more → destination is always 'specs'.
-      // `graduated` still reflects hasSpec (false here) as the engagement signal.
-      expect(call?.[1]).toEqual({ destination: 'specs', graduated: false });
+      // spec-470 dec-9: a has-spec user still lands on Specs → destination 'specs',
+      // graduated true. (Spec-less → destination 'home', see App.spec-470.test.tsx.)
+      expect(call?.[1]).toEqual({ destination: 'specs', graduated: true });
     });
   });
 

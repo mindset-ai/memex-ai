@@ -38,11 +38,12 @@ test("globalSetup leaves dev@memex.ai named so a cold-DB journey lands on the Sp
   const memex = await getPersonalMemexByEmail(DEV_EMAIL);
   expect(memex, "globalSetup should have provisioned dev@memex.ai's personal memex").not.toBeNull();
 
-  // spec-461: the first-load landing is always the Specs board. This spec verifies the
-  // NAMING/onboarding gate (a named dev reaches the real app, not Onboarding), so isolate
-  // that by clearing any spec an earlier journey leaked onto the shared dev user — a
-  // brand-new named dev (no spec) still lands on /specs. (This test uses the raw `test`, not
-  // the fixture, to avoid masking globalSetup's naming; clearing specs doesn't touch the name.)
+  // This spec verifies the NAMING/onboarding gate (a named dev reaches the real app, not
+  // Onboarding), so isolate that by clearing any spec an earlier journey leaked onto the
+  // shared dev user. spec-470/473 dec-9: a brand-new named dev (no spec) now lands on their
+  // /home import hero (the automatic board landing was superseded for the spec-less cohort).
+  // (This test uses the raw `test`, not the fixture, to avoid masking globalSetup's naming;
+  // clearing specs doesn't touch the name.)
   await clearUserSpecs(DEV_EMAIL);
 
   // spec-444: suppress the welcome-video scope gate (ac-17 re-shows for users with no spec)
@@ -52,13 +53,13 @@ test("globalSetup leaves dev@memex.ai named so a cold-DB journey lands on the Sp
     sessionStorage.setItem('welcomeVideoDismissed', '1');
   });
 
-  // Bare origin → spec-461: every authenticated user lands on their Specs board (the
-  // automatic /home landing was retired). The point of ac-10 holds unchanged: a cold-DB
-  // journey for the named dev user is NOT dropped into a blocking onboarding screen —
-  // it reaches the real app surface (the Specs board) directly.
+  // Bare origin → spec-470/473 dec-9: a named CONFIRMED spec-less user lands on their /home
+  // import hero. The point of ac-10 holds unchanged: a cold-DB journey for the named dev user
+  // is NOT dropped into a blocking onboarding screen — it reaches the real app surface (the
+  // import hero) directly.
   // waitUntil: "commit" — RootRedirect may client-redirect mid-load.
   await page.goto("/", { waitUntil: "commit" });
-  await expect(page).toHaveURL(/\/specs(\?|#|$)/, { timeout: 15_000 });
+  await expect(page).toHaveURL(/\/home(\?|#|$)/, { timeout: 15_000 });
   await expect(page).not.toHaveURL(/\/onboarding/);
-  await expect(page.getByRole("heading", { name: "Specs" })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId("build-prompt-hero")).toBeVisible({ timeout: 15_000 });
 });

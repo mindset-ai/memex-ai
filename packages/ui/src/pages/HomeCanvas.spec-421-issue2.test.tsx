@@ -56,7 +56,7 @@ const ALL_STEPS = [
 
 function stateFor(currentStepId: string, attained: readonly string[] = []) {
   return {
-    milestones: { hasSpec: attained.includes('create-first-spec') },
+    milestones: { hasSpec: true /* spec-470: tracker only shows for hasSpec users; keep this state on the tracker */ },
     roleCoords: null,
     currentStepId,
     steps: ALL_STEPS.map((id) => ({ id, attained: attained.includes(id) })),

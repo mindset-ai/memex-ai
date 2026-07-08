@@ -45,7 +45,10 @@ test.afterEach(async ({}, testInfo) => {
 test(
   "email/password signup → intercepted at /onboarding (ac-1) → fills name → lands on /home with Home Canvas (ac-2, ac-6)",
   async ({ page, resources }) => {
-    const email = resources.email("gate-newuser");
+    // memex.ai domain so this user can drive the operator journey-preview below (ac-6):
+    // hero-first (spec-470/473) makes the live spec-less /home the import hero, so the
+    // onboarding-tracker assertion renders its step via ?preview instead.
+    const email = resources.email("gate-newuser", "memex.ai");
     const { verificationToken } = await signupWithToken({
       email,
       password: "correct-horse-battery-staple-9",
@@ -81,14 +84,16 @@ test(
     await dismissWelcomeVideo(page);
 
     // ac-2: after submitting the name (and dismissing the welcome video), the name gate
-    // is satisfied and the user reaches the real app. spec-461 retired the automatic
-    // /home landing, so a fresh user now lands on their Specs board (not Home).
-    await expect(page).toHaveURL(/\/specs/, { timeout: 15_000 });
+    // is satisfied and the user reaches the real app. spec-470/473 dec-9 auto-lands a
+    // CONFIRMED spec-less user on their /home import hero (superseding spec-461's board
+    // landing for this cohort), so a fresh spec-less user now lands on /home.
+    await expect(page).toHaveURL(/\/home(\?|#|$)/, { timeout: 15_000 });
 
-    // ac-6: the Home Canvas still renders its onboarding steps — reachable now by explicit
-    // navigation (spec-461: Home is a destination you click to, not an auto-landing).
-    // getting-started-title + create-spec step visible; identity step absent (spec-433).
-    await page.goto(bareUrl("/home"));
+    // ac-6: the Home Canvas onboarding tracker still renders its steps — but hero-first
+    // makes the live spec-less /home the import hero, so we render the tracker's create-spec
+    // step via the operator preview. getting-started-title + create-spec step visible;
+    // identity step absent (spec-433).
+    await page.goto(bareUrl("/home?preview=create-spec"));
     await expect(page).toHaveURL(/\/home(\?|#|$)/, { timeout: 15_000 });
     await expect(page.getByTestId("getting-started-title")).toBeVisible({
       timeout: 15_000,

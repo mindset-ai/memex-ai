@@ -17,6 +17,9 @@ import {
   ensureUser,
   setUserName,
   setIdentityConfirmed,
+  getPersonalMemexByEmail,
+  seedSpecInMemex,
+  clearUserSpecs,
   DEV_EMAIL,
   DEV_NAME,
 } from "./helpers/index.js";
@@ -24,8 +27,10 @@ import {
 const AC = ["mindset-prod/memex-building-itself/specs/spec-324/acs/ac-6"];
 
 test.afterEach(async ({}, testInfo) => {
-  // Re-confirm identity so the shared dev user lands on its board for other journeys.
+  // Re-confirm identity + drop the seeded spec so the shared dev user is spec-less again
+  // (other journeys assume it) and lands on its board.
   await setIdentityConfirmed(DEV_EMAIL, true);
+  await clearUserSpecs(DEV_EMAIL);
   if (testInfo.status === "skipped") return;
   await emitAcEvents(
     AC,
@@ -36,13 +41,28 @@ test.afterEach(async ({}, testInfo) => {
 });
 
 test("clicking a journey step's CTA records home_canvas.cta_clicked", async ({ page }) => {
-  await ensureUser(DEV_EMAIL);
+  const userId = await ensureUser(DEV_EMAIL);
   await setUserName(DEV_EMAIL, DEV_NAME);
-  await setIdentityConfirmed(DEV_EMAIL, false); // un-confirm → roleCoords=null → server returns 'identity' → clamped to create-spec
+  await setIdentityConfirmed(DEV_EMAIL, true);
+
+  // hero-first (spec-470/473): a spec-less user's /home is now the import hero, and the
+  // operator preview suppresses journey telemetry by design — so neither reaches a real
+  // journey-step CTA event. We give the dev user a real (non-demo) spec so /home shows the
+  // onboarding TRACKER (has-spec ⇒ not the hero). create-spec ("Connect to the Memex MCP")
+  // is milestoned on MCP connection — NOT spec authorship — so a has-spec-but-MCP-unconnected
+  // user is still parked full-width on it, and its primary CTA fires a real
+  // home_canvas.cta_clicked. spec-324 ac-6 is preserved end-to-end, on the same create-spec step.
+  await clearUserSpecs(DEV_EMAIL);
+  const memex = await getPersonalMemexByEmail(DEV_EMAIL);
+  if (!memex) throw new Error("journey-41: dev user has no personal memex");
+  await seedSpecInMemex({
+    memexId: memex.memexId,
+    title: "Spec that lights hasSpec (journey-41)",
+    createdByUserId: userId,
+  });
 
   // Arm the assertion before the click: capture the journey-event POST for a 'cta'.
-  // spec-433: the identity step is hidden; the first visible step is create-spec.
-  // Its primary CTA ("copy-explore-prompt") records home_canvas.cta_clicked
+  // create-spec's primary CTA ("copy-explore-prompt") records home_canvas.cta_clicked
   // (step 'create-spec', cta 'copy_explore_prompt').
   const ctaEvent = page.waitForRequest(
     (req) => {
@@ -59,8 +79,9 @@ test("clicking a journey step's CTA records home_canvas.cta_clicked", async ({ p
 
   await page.goto(bareUrl("/home"));
 
-  // spec-433: a brand-new user lands on create-spec (not identity).
-  await expect(page.getByTestId("journey-step-create-spec")).toBeVisible({ timeout: 15_000 });
+  // has-spec ⇒ the tracker shows (not the hero); the user is parked full-width on create-spec.
+  await expect(page.getByTestId("getting-started-title")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId("journey-step-create-spec")).toBeVisible({ timeout: 10_000 });
 
   // Click the primary CTA — it records home_canvas.cta_clicked.
   await page.getByTestId("copy-explore-prompt").click();

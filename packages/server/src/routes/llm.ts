@@ -18,7 +18,22 @@ import { canWriteMemex, READ_ONLY_PUBLIC_MESSAGE } from "../mcp/auth.js";
 import { resolveRole } from "../services/doc-members.js";
 import { resolveIntegrationState } from "../agent/integration-state.js";
 
-const MODEL = "claude-sonnet-4-5-20250929";
+// spec-473: the creation + in-Spec agent runs on Sonnet 5 (was Sonnet 4.5). For
+// agentic/tool-calling work it's both faster and more capable than 4.5, so the
+// document→structured-Spec conversion gets quicker without trading structuring
+// quality. Routed through getAnthropicClient() (the metering wrapper, std-30) —
+// this const is the only model knob; never construct `new Anthropic()`.
+//
+// ⚠️ Thinking is set to { type: 'adaptive' } at every call site below. We first
+// tried { type: 'disabled' } to preserve 4.5's no-thinking latency, but Sonnet 5's
+// own guidance is that WITH THINKING OFF it reaches for tools less readily — and
+// this entire surface is tool-driven (search_memex → create_doc → add_section /
+// create_decision / create_ac; resolve_decision; create_task; …). Reliable
+// tool-calling matters more than the latency saving, so adaptive thinking is on;
+// effort is left at Sonnet 5's default. Dial depth down via output_config.effort
+// if latency needs tuning. (Sonnet 5 rejects non-default temperature/top_p/top_k —
+// we set none.)
+const MODEL = "claude-sonnet-5";
 
 type Env = MemexResolverEnv & SessionEnv;
 
@@ -203,7 +218,12 @@ llmRouter.post("/chat", async (c) => {
     try {
       const anthropicStream = anthropic.messages.stream({
         model: MODEL,
-        max_tokens: 4096,
+        // spec-473: 8192 (was 4096) for symmetry with /chat/create — Sonnet 5's
+        // heavier tokenizer + a thinking budget leave less room, and a long
+        // in-Spec turn shouldn't truncate at max_tokens.
+        max_tokens: 8192,
+        // Adaptive thinking on — keeps Sonnet 5 reaching for tools. See MODEL note.
+        thinking: { type: "adaptive" },
         system: systemBlocks,
         tools: tools as Anthropic.Tool[],
         messages: sanitisedMessages,
@@ -247,6 +267,30 @@ llmRouter.post("/chat", async (c) => {
 // ──────────────────────────────────────────────
 // POST /chat/create — LLM proxy for doc creation phase
 // ──────────────────────────────────────────────
+
+// spec-473: a short, human-facing label for the live "Building your Spec…"
+// checklist in the creation modal. Emitted per tool block as the model finishes
+// WRITING it (before execution), so the user sees rows tick in during the single
+// batched authoring turn (creation/system.md step 4) instead of a long silent
+// wait. Terse label only — never the full section body.
+function toolProgressLabel(name: string, input: Record<string, unknown>): string {
+  const s = (v: unknown): string => (typeof v === "string" ? v.trim() : "");
+  const clip = (v: string, n = 64): string => (v.length > n ? `${v.slice(0, n - 1)}…` : v);
+  switch (name) {
+    case "search_memex":
+      return "Searching related work";
+    case "create_doc":
+      return clip(s(input.title) || "the Spec");
+    case "add_section":
+      return `${clip(s(input.title) || s(input.sectionType) || "section")} section`;
+    case "create_decision":
+      return `Decision — ${clip(s(input.title) || "decision")}`;
+    case "create_ac":
+      return `Criterion — ${clip(s(input.statement) || "acceptance criterion")}`;
+    default:
+      return name;
+  }
+}
 
 const createChatSchema = z.object({
   messages: z.array(z.object({
@@ -296,7 +340,12 @@ llmRouter.post("/chat/create", async (c) => {
     try {
       const anthropicStream = anthropic.messages.stream({
         model: MODEL,
-        max_tokens: 4096,
+        // spec-473: raised from 4096 so the batched authoring turn (many
+        // add_section / create_decision / create_ac blocks emitted at once —
+        // see creation/system.md step 4) has room to fan out without truncating.
+        max_tokens: 8192,
+        // Adaptive thinking on — keeps Sonnet 5 reaching for tools. See MODEL note.
+        thinking: { type: "adaptive" },
         system: systemBlocks,
         tools: tools as Anthropic.Tool[],
         messages: sanitisedMessages,
@@ -308,6 +357,26 @@ llmRouter.post("/chat/create", async (c) => {
         stream.writeSSE({
           event: "text_delta",
           data: JSON.stringify({ text }),
+        });
+      });
+
+      // spec-473: forward each tool block the moment the model finishes WRITING
+      // it, so the creation modal ticks rows into a live checklist DURING the
+      // single batched authoring turn (creation/system.md step 4) — restoring the
+      // incremental feedback batching would otherwise collapse into one long
+      // silent "Working…". Fire-and-forget, same as the text handler.
+      anthropicStream.on("contentBlock", (block) => {
+        if (block.type !== "tool_use") return;
+        stream.writeSSE({
+          event: "tool_progress",
+          data: JSON.stringify({
+            name: block.name,
+            id: block.id,
+            label: toolProgressLabel(
+              block.name,
+              (block.input ?? {}) as Record<string, unknown>,
+            ),
+          }),
         });
       });
 

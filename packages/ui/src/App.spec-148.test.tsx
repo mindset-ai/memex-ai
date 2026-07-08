@@ -110,7 +110,7 @@ vi.mock('./api/journey', async () => {
     ...real,
     fetchJourneyStateApi: () =>
       Promise.resolve({
-        milestones: { identityConfirmed: true, mcpConnected: false, mcpToolCalled: false, hasSpec: false, hasResolvedDecision: false, hasAc: false, acVerified: false, planGrounded: false },
+        milestones: { identityConfirmed: true, mcpConnected: false, mcpToolCalled: false, hasSpec: true, /* spec-470 dec-9: a has-spec user lands deterministically on the Specs board; spec-less now auto-lands on /home */ hasResolvedDecision: false, hasAc: false, acVerified: false, planGrounded: false },
         roleCoords: null,
         currentStepId: 'create-spec',
         steps: [{ id: 'identity', attained: true }, { id: 'create-spec', attained: false }],

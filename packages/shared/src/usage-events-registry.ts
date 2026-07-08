@@ -204,6 +204,42 @@ export const USAGE_EVENT_REGISTRY = [
       "The app router (RootRedirect) decided a user's first-load landing from a read-only onboarding-state check (spec-421 dec-5). props.destination is where they were sent (home | specs); props.graduated (bool) is whether the onboarding journey was graduated. Lets us measure whether routing graduated users straight to their Specs board lifts engagement. Advisory (never throws into routing).",
     source: "frontend",
   },
+  // ── New-home build-prompt hero funnel (spec-470 dec-8) ──────────────────────
+  // The Lovable-style "What do you want to build?" hero shown at /home to
+  // spec-less users. Two intent events bracket the hero→dialog handoff; the
+  // confirmed OUTCOME stays the existing back-end document.created (spec_index),
+  // and spec.create_clicked{surface:'home_hero'} fires at the handoff itself.
+  {
+    name: "home.build_prompt_shown",
+    description:
+      "The new-home build-prompt hero was rendered for a spec-less user (spec-470). Fires at most once per mount (the activation-funnel denominator). No content props — counts only.",
+    source: "frontend",
+  },
+  {
+    name: "home.build_prompt_submitted",
+    description:
+      "The user submitted a sentence from the new-home build-prompt hero (spec-470), handing off to the create-spec dialog. Fires on submit. No content props — never the typed text; counts only.",
+    source: "frontend",
+  },
+  // ── New-home import hero funnel (spec-473 dec-2) ────────────────────────────
+  // spec-473 pivots the /home hero from the free-text idea prompt to an IMPORT
+  // challenge ("give us your markdown, we'll make it a real Spec"): the user
+  // pastes or uploads an existing document, and the agent restructures it into a
+  // structured Spec. These two intent events replace build_prompt_* for this
+  // surface; the confirmed OUTCOME stays document.created, and
+  // spec.create_clicked{surface:'home_hero'} still fires at the handoff.
+  {
+    name: "home.import_shown",
+    description:
+      "The new-home import hero (spec-473) was rendered for a spec-less user. Fires at most once per mount (the activation-funnel denominator). No content props — counts only.",
+    source: "frontend",
+  },
+  {
+    name: "home.import_submitted",
+    description:
+      "The user handed a document to the new-home import hero (spec-473), handing off to the create-spec dialog. Fires on submit. props.method ('paste' | 'file') — how the document was provided; a low-cardinality enum, never the document text.",
+    source: "frontend",
+  },
   // ── Onboarding welcome video (spec-444) ─────────────────────────────────────
   // The first-run welcome video (WelcomePage). Front-end lifecycle signals fired
   // via useTelemetry().track() from the tenant-scoped /telemetry ingress, so they

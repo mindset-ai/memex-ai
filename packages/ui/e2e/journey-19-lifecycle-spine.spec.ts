@@ -185,7 +185,7 @@ test("lifecycle spine: org → memex → Spec → resolve decision → phase mov
   });
 
   // Open the Decisions & ACs sub-tab (sub-tabs render as <button> with the label).
-  await page.getByRole("button", { name: /Decisions & ACs/ }).click();
+  await page.getByRole("button", { name: /Decisions?( \(\d+\))? & ACs?/ }).click();
   // DecisionPanel defaults to the Open tab when no candidates exist; the seeded
   // decision arrives over SSE. spec-247 dec-1/dec-5: picking an option IS the
   // answer — the click persists immediately (no Resolve button, no rationale).
@@ -267,9 +267,10 @@ test(
     // spec-444: dismiss welcome video gate that fires for new users after name capture.
     await dismissWelcomeVideo(page);
 
-    // spec-461: after naming, the user lands directly on their personal-memex Specs board
-    // (the automatic /home landing was retired; Home is reachable only by explicit nav).
-    await expect(page).toHaveURL(/\/specs(\?|#|$)/, { timeout: 15_000 });
+    // spec-470/473 dec-9: a fresh CONFIRMED spec-less user auto-lands on their /home import
+    // hero (superseding spec-461's board landing for this cohort); the board stays reachable
+    // by explicit nav (gotoSpecsBoard below).
+    await expect(page).toHaveURL(/\/home(\?|#|$)/, { timeout: 15_000 });
 
     // Navigate to the personal-memex Specs board as the NEW user (not dev@memex.ai).
     await gotoSpecsBoard(page, email);

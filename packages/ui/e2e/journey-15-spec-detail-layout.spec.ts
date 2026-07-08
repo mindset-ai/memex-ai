@@ -73,19 +73,19 @@ test.describe("Spec detail layout", () => {
     // then Decisions & ACs, then Comments. Tasks moved under the Build PHASE tab
     // (not a sub-tab pill here), so it's no longer in this row.
     await expect(page.getByRole("button", { name: /^Narrative\b/ })).toBeVisible();
-    await expect(page.getByRole("button", { name: /^Decisions & ACs/ })).toBeVisible();
-    await expect(page.getByRole("button", { name: /^Comments/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^Decisions?( \(\d+\))? & ACs?/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^Comments?( \(\d+\))?$/ })).toBeVisible();
 
     // Comments filter rows: the comment-type chip row is gone (spec-185); the
     // author-kind row is present and renamed People→Humans (spec-194), sharing
     // one combined row with the Open/Resolved/All status row.
-    await page.getByRole("button", { name: /^Comments/ }).click();
+    await page.getByRole("button", { name: /^Comments?( \(\d+\))?$/ }).click();
     await expect(page.getByTestId("comment-filter-chips")).toHaveCount(0);
     await expect(page.getByTestId("author-filter")).toBeVisible();
     await expect(page.getByTestId("author-filter-human")).toHaveText("Humans");
     await expect(page.getByTestId("status-filter")).toBeVisible();
 
-    await page.getByRole("button", { name: /^Decisions & ACs/ }).click();
+    await page.getByRole("button", { name: /^Decisions?( \(\d+\))? & ACs?/ }).click();
     // A spec opened via /docs/:id canonicalises to /specs/:id (DocDocument route).
     // Switching sub-tabs is in-page — assert we're still on the spec, not that the
     // path is /docs/.

@@ -89,8 +89,8 @@ test(TITLE, async ({ page, resources }) => {
   // spec-444: dismiss welcome video gate that fires for new users after name capture.
   // (Clicking the CTA sets welcomeVideoDismissed for this session.)
   await dismissWelcomeVideo(page);
-  // spec-461: a fresh user now lands on their Specs board (the auto-/home landing was retired).
-  await expect(page).toHaveURL(/\/specs/, { timeout: 15_000 });
+  // spec-470/473 dec-9: a fresh CONFIRMED spec-less user auto-lands on their /home import hero.
+  await expect(page).toHaveURL(/\/home(\?|#|$)/, { timeout: 15_000 });
 
   // ── Pin the TREATMENT arm + seed the starter spec deterministically ──────────
   // The experiment-arm test hook (POST /api/__test__/seed-experiment-arm) is now
@@ -112,19 +112,14 @@ test(TITLE, async ({ page, resources }) => {
   await expect(page.getByTestId("spec-demo-pill")).toHaveCount(0);
 
   // ── 2. The starter spec does NOT satisfy hasSpec (it is system-attributed) ────
-  // Post-461 the landing is /specs regardless of hasSpec, so it no longer signals whether the
-  // user is engaged. We inspect onboarding progress directly by navigating to /home (still
-  // reachable by explicit nav): the onboarding canvas is hard-gated + linear and renders only
-  // the CURRENT step. With the starter spec system-attributed (hasSpec=false) and MCP not yet
-  // connected, the user is parked on the Connect-MCP step — strictly BEFORE the create-first-
-  // spec gate (gated by hasSpec) — so create-first-spec is never rendered and its "Created"
-  // done badge is necessarily absent. That is the ac-3 invariant: the seeded starter spec did
-  // NOT advance the user's onboarding.
-  await page.goto(bareUrl("/home"));
-  await expect(
-    page.getByRole("heading", { level: 2, name: /Connect to the Memex MCP/ }),
-  ).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByTestId("create-first-spec-done")).toHaveCount(0);
+  // Under hero-first (spec-470/473 dec-9) the "/" landing IS the hasSpec signal: a confirmed
+  // spec-less user resolves to their /home import hero, a has-spec user to their Specs board.
+  // The system-attributed starter spec does NOT light hasSpec (journey-state excludes it), so
+  // the user is still spec-less and "/" lands on the import hero — the ac-3 invariant that the
+  // seeded starter spec did NOT advance the user's onboarding.
+  await page.goto(bareUrl("/"));
+  await expect(page).toHaveURL(/\/home(\?|#|$)/, { timeout: 15_000 });
+  await expect(page.getByTestId("build-prompt-hero")).toBeVisible({ timeout: 15_000 });
 
   // ── 3. The user authors THEIR OWN spec — the action ac-3 says is required ─────
   // Seed a real, user-attributed (non-demo) spec the way the user creating their first spec
