@@ -56,9 +56,11 @@ export interface ToolManifestEntry {
   //               (register/update/resolve_issue — dec-19 gate-neutral), the
   //               emission tools (provision_ac_emission / discontinue_test_events
   //               — dec-10/11 ungated), or target non-Spec entities (clauses).
-  // create_ac is kind-conditional: 'specify' here (scope AC home), but the gate
-  // elevates it to 'build' for kind:'implementation' (dec-10/11 — impl ACs
-  // represent resolved decisions). See the gate for that one branch.
+  // Both create_ac kinds are 'specify'-home (dec-10/11, resolved Option A):
+  // scope AND implementation ACs are authored in specify — the specify→build
+  // readiness gate requires an implementation AC per resolved decision BEFORE
+  // build, so refusing them ahead of build would make that gate unsatisfiable.
+  // They are never ahead-refused; only tasks + write_qa_report are build-home.
   homePhase: HomePhase;
   // spec-189 dec-6/dec-5 corollary: mutating tools whose JOB is managing the
   // assignment/role axis (or that only notify humans) are exempt from

@@ -262,6 +262,33 @@ describe("spec-464 phase gate — done-Spec reopen-first (ac-22)", () => {
   });
 });
 
+describe("spec-464 phase gate — link_ac_to_decision is gated via its ac_ref/decision_ref args (ac-6, ac-22)", () => {
+  // Regression for the gap Barrie caught in review: link_ac_to_decision takes
+  // `ac_ref`/`decision_ref`, NOT `ref`, so the gate's ref lookup must resolve one
+  // of those or the tool slips the gate entirely (no done-reopen, no draft nudge).
+  // These call enforcePhaseGate directly WITHOUT a `ref` arg to exercise that path.
+  it("resolves via ac_ref/decision_ref and is gated like the other specify-home primitives", async () => {
+    tagAc(AC(6));
+    tagAc(AC(22));
+    // in-phase in specify — resolved via ac_ref alone, and via decision_ref alone.
+    expect(await enforcePhaseGate("link_ac_to_decision", { ac_ref: REF }, ctxAt("specify"))).toBeNull();
+    expect(await enforcePhaseGate("link_ac_to_decision", { decision_ref: REF }, ctxAt("specify"))).toBeNull();
+    // draft → publish nudge (it's a planning tool), not a silent no-op.
+    expect(await enforcePhaseGate("link_ac_to_decision", { ac_ref: REF }, ctxAt("draft"))).toBe(
+      PHASE_GATING_CATALOG.draftPlanningNudge,
+    );
+    // done → reopen-first: it IS a spec primitive (home 'specify'), so it must be
+    // refused just like create_decision/create_ac/update_ac (the gap in ac-22).
+    let msg: string | null = null;
+    try {
+      await enforcePhaseGate("link_ac_to_decision", { ac_ref: REF }, ctxAt("done"));
+    } catch (err) {
+      msg = err instanceof Error ? err.message : String(err);
+    }
+    expect(msg).toBe(PHASE_GATING_CATALOG.doneReopen);
+  });
+});
+
 describe("spec-464 phase gate — both agent channels refused identically (ac-23)", () => {
   it("an ahead-of-phase in_app_agent call is refused identically to mcp; behind/cross-cutting in_app_agent calls succeed (ac-23)", async () => {
     tagAc(AC(23));

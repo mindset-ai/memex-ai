@@ -97,8 +97,14 @@ export async function enforcePhaseGate(
   // structurally exempt — the always-open escape valve (ctx.channel is typed
   // 'mcp' | 'in_app_agent' | undefined here, never 'rest_ui').
 
-  const ref = input.ref;
-  if (typeof ref !== "string" || ref.length === 0) return null;
+  // Most gated tools take `ref`; link_ac_to_decision takes `ac_ref`/`decision_ref`
+  // (no `ref`). Resolve whichever ref-shaped arg is present so that tool isn't
+  // silently skipped — both of its refs point into the same Spec, so either
+  // yields the right doc + phase.
+  const ref = [input.ref, input.ac_ref, input.decision_ref].find(
+    (v): v is string => typeof v === "string" && v.length > 0,
+  );
+  if (ref === undefined) return null;
   let resolved;
   try {
     resolved = await ctx.resolveRef(ref);
