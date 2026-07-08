@@ -242,6 +242,10 @@ export function createMcpServer(
     // "one site per channel" amendment. Omitted for MCP-only tools with no spec
     // (list_memexes), which carry no catalogue activity mapping.
     activitySpec?: ToolSpec,
+    // spec-471 dec-3: getter for the auto-pick disclosure line the ctx resolver
+    // set (loop-scoped, same pattern as getMemexId). Undefined for MCP-only tools
+    // that never resolve a memex, so they never emit a notice.
+    getAutoPickNotice?: () => string | undefined,
   ): WrappedFn<I> => {
     return async (input: I) => {
       const started = Date.now();
@@ -260,7 +264,11 @@ export function createMcpServer(
             input as Record<string, unknown>,
           );
         }
-        return textResult(text);
+        // spec-471 dec-3: if the read path auto-picked a workspace, prepend the
+        // disclosure line so the default is transparent. Set by ctx.resolveMemex;
+        // absent for explicit-`memex=` calls and non-resolving tools.
+        const notice = getAutoPickNotice?.();
+        return textResult(notice ? `${notice}\n\n${text}` : text);
       } catch (err) {
         // Capture the FULL error for telemetry BEFORE handleError redacts.
         errorMessage = formatErrorForTelemetry(err);
@@ -351,6 +359,11 @@ export function createMcpServer(
     // concurrency because createMcpServer is constructed per-request — the
     // closure scope belongs to one tool invocation.
     let resolvedMemexId: string | undefined;
+    // spec-471 dec-3: when the read path auto-picks a memex (no `memex=` arg on a
+    // multi-workspace caller), the resolver sets this to a one-line disclosure the
+    // telemetry wrap prepends to the tool result — a TRANSPARENT default, never
+    // silent. Same per-request closure safety as resolvedMemexId above.
+    let autoPickNotice: string | undefined;
     // spec-111 t-4: every read entrypoint reports whether the caller has write
     // access to the resolved memex. Once any resolver fires we know the gate;
     // `enforceWriteGate` rejects a write tool (readOnlyHint === false) the
@@ -393,12 +406,13 @@ export function createMcpServer(
           // Pulse attributes MCP-driven activity to the `mcp` channel.
           channel: "mcp",
           resolveMemex: async (memex) => {
-            const { memexId, readOnly } = await resolveWorkspaceForRead(
-              userId,
-              memex,
-              orgFilter,
-            );
+            const { memexId, readOnly, autoPicked, autoPickedRef } =
+              await resolveWorkspaceForRead(userId, memex, orgFilter);
             resolvedMemexId = memexId;
+            // spec-471 dec-3: disclose an auto-picked workspace on the result.
+            if (autoPicked && autoPickedRef) {
+              autoPickNotice = `Defaulted to memex ${autoPickedRef} (your most recently used). Pass memex=<namespace>/<memex> to choose another.`;
+            }
             enforceWriteGate(readOnly);
             rlsStore.memexId = memexId;
             return memexId;
@@ -489,6 +503,8 @@ export function createMcpServer(
       // spec-156 ac-15: pass the spec so the wrap emits a 'mcp'-channel
       // read/advisory bus event for non-mutating tools on success.
       spec,
+      // spec-471 dec-3: the auto-pick disclosure line, if the read path set one.
+      () => autoPickNotice,
     );
     server.tool(spec.name, spec.description, spec.schema, spec.annotations, handler);
   }
