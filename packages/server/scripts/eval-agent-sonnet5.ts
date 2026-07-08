@@ -132,7 +132,24 @@ async function runScenario(cfg: {
     }
     if (toolBlocks.length === 0) break; // end_turn with no tools → done
 
-    messages.push({ role: "assistant", content: final.content }); // verbatim → keeps thinking blocks
+    // Mirror the production SSE boundary: the server emits `final.content` as JSON
+    // in the `message_complete` event, and the client parses it back before
+    // replaying it. Round-trip through JSON here so this eval proves thinking
+    // blocks (and their `signature`) survive serialization intact — the exact
+    // path a thinking-on regression would break. (Verbatim push wouldn't test it.)
+    const replayed = JSON.parse(JSON.stringify(final.content));
+    if (turn === 1) {
+      const th = (final.content as Any[]).find(
+        (b) => b.type === "thinking" || b.type === "redacted_thinking",
+      );
+      if (th)
+        console.log(
+          `           [thinking block: type=${th.type}, textLen=${(th.thinking ?? "").length}, hasSignature=${Boolean(
+            th.signature,
+          )}, survivesJSON=${Boolean(replayed.find((b: Any) => b.type === th.type)?.signature) === Boolean(th.signature)}]`,
+        );
+    }
+    messages.push({ role: "assistant", content: replayed });
     messages.push({
       role: "user",
       content: toolBlocks.map((b: Any) => ({
