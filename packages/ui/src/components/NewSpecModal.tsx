@@ -48,6 +48,46 @@ interface NewSpecModalProps {
    * handle/title so the caller can confirm the outcome to the user.
    */
   onCreated?: (info: { docId: string; handle: string; title: string }) => void;
+  /**
+   * spec-470 dec-4: the new-home hero hands its typed sentence off to the
+   * create-spec agent with ZERO extra click. When `autoSend` is set and
+   * `seedMessage` is non-empty, the open effect composes an agent instruction
+   * from the sentence (mirroring handleExplainSpec's composed-instruction
+   * pattern — NOT the raw title/body concat used by `prefill`) and calls
+   * `dispatchMessage` directly, so the agent starts drafting immediately. The
+   * raw sentence shows as the user's first bubble; the composed wrapper stays
+   * agent-facing. Empty/whitespace neither opens nor dispatches. `prefill` takes
+   * precedence — the two paths never both fire.
+   */
+  seedMessage?: string;
+  autoSend?: boolean;
+  /**
+   * spec-470: the tenant-prefixed Specs-board path (e.g. `/alice/personal/specs`) of
+   * the memex the agent creates in. When the modal opens from a FLAT route (the /home
+   * hero) the URL carries no tenant, so the internal `tenantPath()` can't prefix the
+   * created Spec's URL — it would yield an unroutable `/specs/{handle}`. The caller
+   * passes this so post-create navigation lands on `${specsBasePath}/${handle}`.
+   * Omitted → falls back to `tenantPath()`, so the tenant-route callers (e.g. Issue
+   * conversion from the Issues page) are unchanged.
+   */
+  specsBasePath?: string;
+  /**
+   * spec-470: navigate straight to the Spec the instant it's created — no "Open Spec"
+   * click. This delivers the hero's Lovable-style "describe it → land on your Spec"
+   * flow (ac-2), AND it is load-bearing: the hero renders on /home only while
+   * `hasSpec` is false, so creating the Spec flips that milestone and HomeCanvas
+   * unmounts the hero (which owns this modal) the moment the create commits. Leaving
+   * /home on create wins that race — the manual "Open Spec" button would never be
+   * clickable. The board/Issues callers omit this and keep the manual button.
+   */
+  openOnCreate?: boolean;
+}
+
+// spec-470 dec-4: wrap the hero's raw sentence in a short agent-facing
+// instruction (the handleExplainSpec composed-instruction pattern), so the
+// agent drafts a spec from it rather than treating it as a bare title.
+function composeSeedInstruction(sentence: string): string {
+  return `I want to build something new. Here's my idea in one sentence:\n\n"${sentence}"\n\nHelp me turn this into a spec — draft it with me, asking anything you need to.`;
 }
 
 let messageIdCounter = 0;
@@ -137,7 +177,7 @@ type DisplayMessage =
       timestamp: Date;
     };
 
-export function NewSpecModal({ open, onClose, prefill, onCreated }: NewSpecModalProps) {
+export function NewSpecModal({ open, onClose, prefill, onCreated, seedMessage, autoSend, specsBasePath, openOnCreate }: NewSpecModalProps) {
   const { invoke, resume } = useAgentGraph();
 
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
@@ -161,6 +201,9 @@ export function NewSpecModal({ open, onClose, prefill, onCreated }: NewSpecModal
   // turn. null when no turn is in-flight. Reset on every onAssistantTurnComplete
   // so each turn in a multi-turn graph run gets its own placeholder.
   const streamingAssistantIdRef = useRef<string | null>(null);
+  // spec-470 dec-4: guards the auto-send so a seeded open dispatches exactly once
+  // (dispatchMessage's identity changing must not re-fire it). Reset when closed.
+  const autoSentRef = useRef(false);
 
   const resetState = useCallback(() => {
     abortRef.current?.abort();
@@ -193,6 +236,8 @@ export function NewSpecModal({ open, onClose, prefill, onCreated }: NewSpecModal
     } else {
       abortRef.current?.abort();
       abortRef.current = null;
+      // spec-470 dec-4: re-arm the auto-send guard so the next seeded open fires.
+      autoSentRef.current = false;
     }
   }, [open, resetState, prefill]);
 
@@ -221,10 +266,28 @@ export function NewSpecModal({ open, onClose, prefill, onCreated }: NewSpecModal
   const openSpec = useCallback(
     (handle: string) => {
       handleClose();
-      navigate(tenantPath(`/specs/${handle}`));
+      // spec-470: from the flat /home hero the URL carries no tenant, so
+      // tenantPath() would yield an unroutable /specs/{handle}. When the caller
+      // supplies the created memex's Specs-board base, navigate under it; else fall
+      // back to tenantPath() (tenant-route callers, e.g. Issue conversion).
+      navigate(specsBasePath ? `${specsBasePath}/${handle}` : tenantPath(`/specs/${handle}`));
     },
-    [handleClose, navigate]
+    [handleClose, navigate, specsBasePath]
   );
+
+  // spec-470: openOnCreate callers (the /home hero) land on the Spec the instant it's
+  // created — no "Open Spec" click. Fires once, on the single-created handle, as soon as
+  // the create commits (not gated on stream end), so it delivers the "land on your Spec"
+  // flow (ac-2). MUST live above the modal's early returns — a conditional hook here
+  // crashes the component the moment it opens (spec-470 e2e caught exactly that).
+  const navigatedOnCreateRef = useRef(false);
+  useEffect(() => {
+    if (!openOnCreate || navigatedOnCreateRef.current) return;
+    const created = messages.filter((m) => m.role === 'doc_created');
+    if (created.length !== 1) return;
+    navigatedOnCreateRef.current = true;
+    openSpec(created[0].handle);
+  }, [openOnCreate, messages, openSpec]);
 
   useEffect(() => {
     if (!open) return;
@@ -400,6 +463,22 @@ export function NewSpecModal({ open, onClose, prefill, onCreated }: NewSpecModal
     },
     [invoke, makeCallbacks]
   );
+
+  // spec-470 dec-4: auto-send the hero's seeded sentence on open. Runs AFTER the
+  // reset effect above (later effect = later in the commit), so state is already
+  // cleared; guarded to fire exactly once per open. `prefill` wins — the two
+  // seeding paths never both fire. Placed below dispatchMessage so it's in scope.
+  useEffect(() => {
+    if (!open || prefill || !autoSend) return;
+    const sentence = seedMessage?.trim();
+    if (!sentence) return; // empty/whitespace neither opens nor dispatches
+    if (autoSentRef.current) return;
+    autoSentRef.current = true;
+    void dispatchMessage({
+      composed: composeSeedInstruction(sentence),
+      displayText: sentence,
+    });
+  }, [open, prefill, autoSend, seedMessage, dispatchMessage]);
 
   const handleSend = useCallback(async () => {
     if (isStreaming) return;

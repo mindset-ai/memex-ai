@@ -204,6 +204,23 @@ export const USAGE_EVENT_REGISTRY = [
       "The app router (RootRedirect) decided a user's first-load landing from a read-only onboarding-state check (spec-421 dec-5). props.destination is where they were sent (home | specs); props.graduated (bool) is whether the onboarding journey was graduated. Lets us measure whether routing graduated users straight to their Specs board lifts engagement. Advisory (never throws into routing).",
     source: "frontend",
   },
+  // ── New-home build-prompt hero funnel (spec-470 dec-8) ──────────────────────
+  // The Lovable-style "What do you want to build?" hero shown at /home to
+  // spec-less users. Two intent events bracket the hero→dialog handoff; the
+  // confirmed OUTCOME stays the existing back-end document.created (spec_index),
+  // and spec.create_clicked{surface:'home_hero'} fires at the handoff itself.
+  {
+    name: "home.build_prompt_shown",
+    description:
+      "The new-home build-prompt hero was rendered for a spec-less user (spec-470). Fires at most once per mount (the activation-funnel denominator). No content props — counts only.",
+    source: "frontend",
+  },
+  {
+    name: "home.build_prompt_submitted",
+    description:
+      "The user submitted a sentence from the new-home build-prompt hero (spec-470), handing off to the create-spec dialog. Fires on submit. No content props — never the typed text; counts only.",
+    source: "frontend",
+  },
   // ── Onboarding welcome video (spec-444) ─────────────────────────────────────
   // The first-run welcome video (WelcomePage). Front-end lifecycle signals fired
   // via useTelemetry().track() from the tenant-scoped /telemetry ingress, so they

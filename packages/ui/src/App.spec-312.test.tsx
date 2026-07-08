@@ -117,7 +117,7 @@ vi.mock('./api/journey', async () => {
           identityConfirmed: true,
           mcpConnected: false,
           mcpToolCalled: false,
-          hasSpec: false,
+          hasSpec: true, /* spec-470 dec-9: a has-spec user lands deterministically on the Specs board; spec-less now auto-lands on /home */
           hasResolvedDecision: false,
           hasAc: false,
           acVerified: false,

@@ -48,7 +48,7 @@ describe('HomeCanvas — graduated layout (spec-315)', () => {
       { id: 'create-spec', attained: true },
     ];
     fetchJourneyStateApi.mockResolvedValue({
-      milestones: {},
+      milestones: { hasSpec: true },
       currentStepId: 'all-set',
       preview: false,
       canPreview: false,
