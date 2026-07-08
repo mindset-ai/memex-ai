@@ -59,6 +59,8 @@ function makeDecision(overrides = {}) {
     resolvedAt: null,
     // Captured at delete_decision time (b-97); null for non-deleted rows.
     previousStatus: null,
+    // spec-448 t-1: null for a decision never retired by a version cut.
+    retiredAtVersion: null,
     createdAt: baseDate,
     actorUserId: null,
     actorName: null,

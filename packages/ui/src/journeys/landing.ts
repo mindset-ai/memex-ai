@@ -18,32 +18,37 @@ import { fetchJourneyStateApi, type JourneyStateResponse } from '../api/journey'
 import { setCachedJourneyState } from './journeyStateCache';
 
 /**
- * Pure predicate: should this user land on /home, or go straight to the Specs board?
+ * Pure predicate: has this user NOT yet created their first spec?
  *
- * "Finished getting started" is keyed on the `hasSpec` milestone — the user has created
- * their first (non-demo) spec. That is the terminal step of the VISIBLE 3-step onboarding
- * (spec-421: About you → Connect MCP → Create your first spec) and Ryan's literal "once
- * someone has engaged" signal. We deliberately do NOT use `isJourneyGraduated`, which
- * requires every milestone of the whole SDD loop (resolve-decision, add-ac, plan-grounded,
- * …) and so would keep nearly everyone — and every non-developer — on Home forever.
+ * NOTE (spec-461 dec-1): this predicate NO LONGER decides a /home landing — the automatic
+ * Home landing was retired, so RootRedirect always lands users on their Specs board. The
+ * predicate survives because it still keys two behaviours: the spec-444 welcome-video
+ * re-show gate (spec-less + not-dismissed → /welcome) and the `graduated` engagement
+ * signal on the home.landing_routed telemetry. The name is kept for continuity with
+ * spec-421; read it as "spec-less?", not "should land on Home".
  *
- * Returns `true` (→ /home) while the user has no spec yet, `false` (→ Specs) once they do.
- * A `null` state (still loading, or the read failed) returns `true` so we default to the
- * guidance-first Home and never flash Specs at a brand-new user. Pure — no side effects,
- * no persistence — so it is the natural extension seam: a future landing rule (e.g. a
- * new-feature indicator) composes here, returning `true` to keep the user on Home.
+ * "Not engaged yet" is keyed on the `hasSpec` milestone — the user has created their first
+ * (non-demo) spec, the terminal step of the VISIBLE 3-step onboarding (spec-421: About you →
+ * Connect MCP → Create your first spec). We deliberately do NOT use `isJourneyGraduated`,
+ * which requires every milestone of the whole SDD loop and so would treat nearly everyone —
+ * and every non-developer — as un-engaged forever.
+ *
+ * Returns `true` while the user has no spec yet, `false` once they do. A `null` state
+ * (still loading, or the read failed) returns `true` so the welcome re-show still fires for
+ * a brand-new user rather than being skipped on a transient read failure.
  */
 export function shouldLandOnHome(state: JourneyStateResponse | null): boolean {
   return !state?.milestones?.hasSpec;
 }
 
 /**
- * Router hook: resolve the landing decision from a one-shot, read-only journey-state
- * read. Returns `boolean | null` — `null` while the read is in flight so the router
- * can render nothing (no stale-state flash / redraw). On a failed read it resolves to
- * `shouldLandOnHome(null)` (→ Home) rather than stranding the user on a blank screen.
- * `enabled = false` (e.g. when 'home' is hidden, so no Home-vs-Specs choice is needed)
- * skips the fetch entirely.
+ * Router hook: resolve the spec-less signal from a one-shot, read-only journey-state
+ * read. Returns `boolean | null` — `null` while the read is in flight so the router can
+ * render nothing (no stale-state flash / redraw). On a failed read it resolves to
+ * `shouldLandOnHome(null)` (= true) so the welcome re-show still fires rather than being
+ * skipped on a transient blip. Post spec-461 this drives the welcome gate + engagement
+ * telemetry, not a Home landing. `enabled = false` (e.g. when 'home' is hidden) skips the
+ * fetch entirely.
  */
 export function useShouldLandOnHome(enabled = true): boolean | null {
   const [landOnHome, setLandOnHome] = useState<boolean | null>(null);

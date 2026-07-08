@@ -93,6 +93,16 @@ export async function setOnboardingGreeted(email: string, greeted: boolean): Pro
 }
 
 /**
+ * spec-444: set/clear video_welcomed_at for a user. `welcomed: true` stamps now;
+ * `welcomed: false` clears so the gate re-fires — used by spec-444's own journey.
+ * The per-test fixture pre-stamps the dev user so existing journeys don't redirect
+ * to /welcome unexpectedly.
+ */
+export async function setVideoWelcomed(email: string, welcomed: boolean): Promise<void> {
+  await call("POST", "/video-welcomed", { email, welcomed });
+}
+
+/**
  * Set/clear a user's identity_confirmed_at (spec-305). `confirmed: false` un-confirms
  * so the user lands on the Home Canvas welcome step (needsOnboarding now keys off this);
  * the per-test fixture re-confirms afterwards so a cleared flag can't leak into other
@@ -134,6 +144,8 @@ export async function seedWhatsNewEntry(opts: {
   title: string;
   whatText: string;
   whyText: string;
+  /** spec-439 t-3: optional ISO timestamp to backdate the entry's publishedAt. */
+  publishedAt?: string;
 }): Promise<{ id: string | null }> {
   return call<{ id: string | null }>("POST", "/seed-whats-new", opts);
 }
@@ -365,13 +377,13 @@ export async function signupWithToken(opts: {
 
 // ── spec-188: verify-phase journey seeds ────────────────────────────────────
 
-/** Seed an AC on a Spec; returns the canonical acUid for test-event seeding. */
+/** Seed an AC on a Spec; returns the canonical subjectRef for test-event seeding. */
 export async function seedAc(opts: {
   memexId: string;
   docId: string;
   kind?: "scope" | "implementation";
   statement: string;
-}): Promise<{ acId: string; seq: number; acUid: string | null }> {
+}): Promise<{ acId: string; seq: number; subjectRef: string | null }> {
   return call("POST", "/seed-ac", opts);
 }
 
@@ -387,11 +399,11 @@ export async function seedIssue(opts: {
   return call("POST", "/seed-issue", opts);
 }
 
-/** Seed a test-event emission for an acUid (insert + latest-summary upsert),
+/** Seed a test-event emission for an subjectRef (insert + latest-summary upsert),
  *  bypassing the emission-key gate — drives the spec-188 acceptance-precedence
  *  path (a failing event suppresses a manual acceptance). */
 export async function seedTestEvent(opts: {
-  acUid: string;
+  subjectRef: string;
   status: "pass" | "fail" | "error";
   testIdentifier?: string;
 }): Promise<void> {
@@ -464,6 +476,27 @@ export async function seedTask(opts: {
   status?: "not_started" | "in_progress" | "complete";
 }): Promise<{ taskId: string; seq: number }> {
   return call("POST", "/seed-task", opts);
+}
+
+/**
+ * spec-448 t-12: cut a version through the real cutVersion service, optionally
+ * attributed to an actor OTHER than the browser's dev session (`actorUserId`).
+ * Every other versioning action is driven through the real UI — this seed
+ * exists only for the "someone else moved the spec on while I wasn't looking"
+ * precondition the catch-up-dialog journey needs: cutVersion never touches
+ * doc_views (only the authenticated GET /docs/:id does, t-5), so a cut made
+ * out of band here can advance the doc's current version WITHOUT advancing
+ * the browser session's own last-seen marker the way driving the cut through
+ * the UI (and its post-cut reloadDoc()) would.
+ */
+export async function seedVersionCut(opts: {
+  memexId: string;
+  docId: string;
+  name: string;
+  carryForward?: Array<"decisions" | "acs" | "tasks" | "issues" | "comments">;
+  actorUserId?: string;
+}): Promise<{ versionId: string; versionNumber: number }> {
+  return call("POST", "/seed-version-cut", opts);
 }
 
 /**

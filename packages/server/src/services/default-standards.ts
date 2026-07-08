@@ -19,7 +19,7 @@
 // self-heal machinery that an is_demo flag would afford — see dec-3.
 
 import { and, eq } from "drizzle-orm";
-import { db } from "../db/connection.js";
+import { db, runWithMemexId } from "../db/connection.js";
 import { documents, namespaces, memexes } from "../db/schema.js";
 import { createDocDraft } from "./documents.js";
 import { addSection } from "./sections.js";
@@ -90,7 +90,15 @@ export async function seedDefaultStandards(memexId: string): Promise<void> {
         section.clauses.join("\n\n"),
         section.title,
       );
-      await addClausesToSection(memexId, sec.id, section.clauses);
+      // spec-437 dec-1: each default clause carries a deliberate facet verdict — the
+      // section's parallel `facets` array, or [] ("governs nothing") where it sets none
+      // (methodology / description / rationale / scope clauses). Persisted against the
+      // facet vocabulary seeded first (see seedNewPersonalMemex).
+      await addClausesToSection(
+        memexId,
+        sec.id,
+        section.clauses.map((body, i) => ({ body, facets: section.facets?.[i] ?? [] })),
+      );
     }
   }
 }
@@ -112,10 +120,16 @@ export async function backfillDefaultStandards(): Promise<{ memexesSeeded: numbe
 
   let memexesSeeded = 0;
   for (const { memexId } of personalMemexes) {
-    const before = await countStandards(memexId);
-    await seedDefaultStandards(memexId);
-    // Count only Memexes that had ZERO Standards and therefore got the fresh seed.
-    if (before === 0) memexesSeeded += 1;
+    // spec-440: run the per-memex read (countStandards) + seed (seedDefaultStandards →
+    // documents/standard_clauses/clause_refs) inside the tenant context so they carry
+    // app.memex_id and satisfy RLS under the runtime memex_app role. Deploy-wired
+    // (deploy.sh); correct regardless of the connecting role with this wrapper.
+    await runWithMemexId(memexId, async () => {
+      const before = await countStandards(memexId);
+      await seedDefaultStandards(memexId);
+      // Count only Memexes that had ZERO Standards and therefore got the fresh seed.
+      if (before === 0) memexesSeeded += 1;
+    });
   }
   return { memexesSeeded };
 }

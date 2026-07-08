@@ -196,19 +196,42 @@ describe("tags service [spec-136 t-2]", () => {
     expect(reused.scope).toBe("DEPLOY"); // original casing preserved
   });
 
-  it("ac-3 (spec-420): pre-existing tags with different scope casing are both returned by listMemexTags", async () => {
-    tagAc("mindset-prod/memex-building-itself/specs/spec-420/acs/ac-3");
-    // Simulate legacy data: insert two rows with different scope casing directly,
-    // bypassing getOrCreateTag to represent data that existed before the fix.
-    const [tag1] = await db.insert(tags).values({ memexId, scope: "LEGACY", value: "ci-test" }).returning();
-    const [tag2] = await db.insert(tags).values({ memexId, scope: "legacy", value: "ci-test" }).returning();
+  // spec-418 dec-8 SUPERSEDES spec-420 ac-3. spec-420 ac-3 asserted that pre-existing
+  // case-variant pairs "continue to display as two distinct entries — the fix does not
+  // silently merge existing ones". spec-418 dec-8 intentionally REVERSES that: the
+  // one-time fold migration (drizzle/0125_spec418_tag_case_fold.sql) folds legacy
+  // case-variant pairs onto one survivor, and the lower(scope),lower(value) unique
+  // index prevents new ones. So case-variant scopes can no longer coexist. This test
+  // now proves the NEW invariant and is retagged to spec-418 ac-26 (the old spec-420
+  // ac-3 emission is retired because the behaviour it claimed no longer holds).
+  it("ac-26 (spec-418, supersedes spec-420 ac-3): a case-variant scope cannot be a second catalogue row", async () => {
+    tagAc("mindset-prod/memex-building-itself/specs/spec-418/acs/ac-26");
+    const [first] = await db
+      .insert(tags)
+      .values({ memexId, scope: "LEGACY", value: "ci-test" })
+      .returning();
+
+    // The CI unique index rejects the case-variant scope insert (23505) — no second row.
+    let caught: unknown;
+    try {
+      await db.insert(tags).values({ memexId, scope: "legacy", value: "ci-test" });
+    } catch (err) {
+      caught = err;
+    }
+    const pgCode =
+      (caught as { code?: string })?.code ??
+      (caught as { cause?: { code?: string } })?.cause?.code;
+    expect(pgCode, "case-variant scope insert should conflict on the CI index").toBe("23505");
+
+    // getOrCreateTag folds the case-variant forward onto the existing row, first casing kept.
+    const reused = await getOrCreateTag(ctx, memexId, "legacy", "ci-test");
+    expect(reused.id).toBe(first.id);
+    expect(reused.scope).toBe("LEGACY");
 
     const all = await listMemexTags(memexId);
-    const legacyTags = all.filter((t) => t.value === "ci-test");
-    expect(legacyTags.length).toBe(2);
+    expect(all.filter((t) => t.value === "ci-test").length).toBe(1);
 
-    await db.delete(tags).where(eq(tags.id, tag1.id));
-    await db.delete(tags).where(eq(tags.id, tag2.id));
+    await db.delete(tags).where(eq(tags.id, first.id));
   });
 
   it("applyTagString rejects a Spec that isn't in this Memex (same-tenant invariant)", async () => {

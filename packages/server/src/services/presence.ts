@@ -15,7 +15,7 @@
 // the correct write path here.
 
 import { and, eq, gte, sql, desc, inArray } from "drizzle-orm";
-import { db } from "../db/connection.js";
+import { db, runWithMemexId } from "../db/connection.js";
 import {
   presence,
   mcpSessions,
@@ -70,31 +70,46 @@ function ttlFloor(): Date {
  */
 export async function markPresent(input: MarkPresentInput): Promise<void> {
   const clientId = input.clientId ?? "";
-  await db
-    .insert(presence)
-    .values({
-      memexId: input.memexId,
-      docId: input.docId,
-      actorUserId: input.actorUserId,
-      actorName: input.actorName ?? null,
-      actorKind: input.actorKind,
-      channel: input.channel,
-      clientId,
-      // last_seen_at defaults to now() on insert; the conflict path bumps it.
-    })
-    .onConflictDoUpdate({
-      target: [
-        presence.docId,
-        presence.actorUserId,
-        presence.channel,
-        presence.clientId,
-      ],
-      set: {
-        lastSeenAt: sql`now()`,
-        actorName: sql`excluded.actor_name`,
-        actorKind: sql`excluded.actor_kind`,
-      },
-    });
+  // spec-440 t-6 (ac-4): establish the tenant context for THIS write rather than
+  // trusting the caller's ambient app.memex_id. The row's memex_id is exactly
+  // input.memexId (a presence row belongs to the doc's memex), so this write must
+  // run under runWithMemexId(input.memexId). The browser heartbeat already runs
+  // under a matching request context (this nests harmlessly to the same value),
+  // but observeSpecTraffic (spec-traffic.ts) calls markPresent with the TARGET
+  // doc's memex while the ambient context is the request's CURRENT memex — a
+  // cross-memex mismatch that made the ON CONFLICT DO UPDATE fail the presence
+  // USING policy under the prod memex_app role ("new row violates row-level
+  // security policy (USING expression) for table presence"), swallowed by the
+  // caller's try/catch. Wrapping here fixes the class for every caller. Still
+  // silent / out-of-band (std-8) — runWithMemexId only sets the tenant GUC; it
+  // does not route through mutate() or the bus.
+  await runWithMemexId(input.memexId, async () => {
+    await db
+      .insert(presence)
+      .values({
+        memexId: input.memexId,
+        docId: input.docId,
+        actorUserId: input.actorUserId,
+        actorName: input.actorName ?? null,
+        actorKind: input.actorKind,
+        channel: input.channel,
+        clientId,
+        // last_seen_at defaults to now() on insert; the conflict path bumps it.
+      })
+      .onConflictDoUpdate({
+        target: [
+          presence.docId,
+          presence.actorUserId,
+          presence.channel,
+          presence.clientId,
+        ],
+        set: {
+          lastSeenAt: sql`now()`,
+          actorName: sql`excluded.actor_name`,
+          actorKind: sql`excluded.actor_kind`,
+        },
+      });
+  });
 }
 
 /**
@@ -104,22 +119,30 @@ export async function markPresent(input: MarkPresentInput): Promise<void> {
  * routed through mutate()/the bus. A no-op when no row matches.
  */
 export async function clearPresent(input: {
+  memexId: string;
   docId: string;
   actorUserId: string;
   channel: PresenceChannel;
   clientId?: string;
 }): Promise<void> {
   const clientId = input.clientId ?? "";
-  await db
-    .delete(presence)
-    .where(
-      and(
-        eq(presence.docId, input.docId),
-        eq(presence.actorUserId, input.actorUserId),
-        eq(presence.channel, input.channel),
-        eq(presence.clientId, clientId),
-      ),
-    );
+  // spec-440 t-4: like markPresent, establish tenant context for this gated write
+  // rather than trusting the caller's ambient app.memex_id. Under the memex_app
+  // runtime role a context-less delete would be a no-op (USING hides the rows) and,
+  // with the phase-2 guard enabled, would THROW. The row's memex_id is input.memexId,
+  // so run under that context. Still silent/out-of-band (std-8) — GUC only, no bus.
+  await runWithMemexId(input.memexId, async () => {
+    await db
+      .delete(presence)
+      .where(
+        and(
+          eq(presence.docId, input.docId),
+          eq(presence.actorUserId, input.actorUserId),
+          eq(presence.channel, input.channel),
+          eq(presence.clientId, clientId),
+        ),
+      );
+  });
 }
 
 /** Read the live presence-table rows (within TTL) for a single spec. */

@@ -5,18 +5,17 @@
 //   - <SlackIntegrationSection/>   — Enterprise (lives under components/.ee/)
 //   - <DiscordIntegrationSection/> — Enterprise (lives under components/.ee/, spec-138)
 //   - <DesktopMcpSection/>         — open core (spec-304 t-55: in-app MCP install; desktop-shell only).
+//   - <AgentSetupSection/>         — open core (spec-452: the ONE tabbed, per-client setup surface;
+//                                     supersedes + merges the old CliInstallSection + GenesisPromptSection).
 //   - <McpTokensSection/>          — open core (MCP token management).
-//   - <CliInstallSection/>         — open core (install instructions).
-//   - <GenesisPromptSection/>      — open core (spec-201: one-paste agent setup).
 //   - <AcEmitterSection/>          — open core (spec-201: install the AC emitter).
 // The retired routes redirect here (see App.tsx).
 
 import { SlackIntegrationSection } from '../components/.ee/SlackIntegrationSection';
 import { DiscordIntegrationSection } from '../components/.ee/DiscordIntegrationSection';
 import { DesktopMcpSection } from '../components/DesktopMcpSection';
+import { AgentSetupSection } from '../components/AgentSetupSection';
 import { McpTokensSection } from '../components/McpTokensSection';
-import { CliInstallSection } from '../components/CliInstallSection';
-import { GenesisPromptSection } from '../components/GenesisPromptSection';
 import { AcEmitterSection } from '../components/AcEmitterSection';
 import { useScrollToHash } from '../hooks/useScrollToHash';
 
@@ -41,9 +40,9 @@ export function SettingsIntegrations() {
         <DiscordIntegrationSection />
         {/* Desktop-shell only (spec-304 t-55): self-hides in a plain browser. */}
         <DesktopMcpSection />
+        {/* spec-452: the one tabbed, per-client setup surface (primary). */}
+        <AgentSetupSection />
         <McpTokensSection />
-        <CliInstallSection />
-        <GenesisPromptSection />
         <AcEmitterSection />
       </div>
     </div>

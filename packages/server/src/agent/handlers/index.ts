@@ -3,6 +3,7 @@
 // ToolSpec arrays from here and composes them into the single `toolSpecs`
 // catalogue. Infra (ToolCtx, helpers, guidance envelope) lives in ./shared.ts.
 export { docsTools } from "./docs.js";
+export { tagsTools } from "./tags.js";
 export { sectionsTools } from "./sections.js";
 export { decisionsTools } from "./decisions.js";
 export { acsTools } from "./acs.js";
@@ -15,3 +16,4 @@ export { checkoutTools } from "./checkout.js";
 export { standardsTools } from "./standards.js";
 export { facetsTools } from "./facets.js";
 export { integrationsTools } from "./integrations.js";
+export { skillsTools } from "./skills.js";

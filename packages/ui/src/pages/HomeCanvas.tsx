@@ -354,7 +354,7 @@ export function HomeCanvas() {
           Home
         </h1>
         <p className="mt-2 text-lg text-secondary">
-          Keep updated with the things that need your attention across all your Personal and Organisational Memex&apos;s
+          Keep updated with the things that need your attention across all your Personal and Organisational Memexes
         </p>
       </div>
 

@@ -10,6 +10,8 @@ import {
   STANDARDS_AGENT_GUIDANCE,
   ISSUES_AGENT_GUIDANCE,
   SHARED_HANDOFF_GUIDANCE,
+  SKILLS_AGENT_GUIDANCE,
+  SKILLS_AGENT_MODE_GUIDANCE,
   toPromptBlocks,
   toPhaseGuidance,
   type SpecPhase,
@@ -113,9 +115,28 @@ if (!SCAFFOLD_BLOCK) {
 const STANDARDS_BLOCK = STANDARDS_AGENT_GUIDANCE.text;
 const ISSUES_BLOCK = ISSUES_AGENT_GUIDANCE.text;
 const HANDOFF_BLOCK = SHARED_HANDOFF_GUIDANCE.text;
-if (!STANDARDS_BLOCK || !ISSUES_BLOCK || !HANDOFF_BLOCK) {
+// spec-300 t-15 (dec-23) — the dedicated SKILLS-agent mode block (distinct from the
+// SKILLS_BLOCK awareness overlay below). Injected by buildSystemBlocks when the
+// per-request mode is 'skills', like the standards / issues overlays, followed by
+// the shared handoff map so the agent hands off anything outside skill authoring.
+const SKILLS_MODE_BLOCK = SKILLS_AGENT_MODE_GUIDANCE.text;
+if (!STANDARDS_BLOCK || !ISSUES_BLOCK || !HANDOFF_BLOCK || !SKILLS_MODE_BLOCK) {
   throw new Error(
-    "STANDARDS_/ISSUES_AGENT_GUIDANCE or SHARED_HANDOFF_GUIDANCE text is empty — the scoped agent blocks cannot be assembled",
+    "STANDARDS_/ISSUES_/SKILLS_AGENT mode guidance or SHARED_HANDOFF_GUIDANCE text is empty — the scoped agent blocks cannot be assembled",
+  );
+}
+
+// spec-300 t-7 (dec-7 / dec-20 / dec-2) — the skills-awareness block. Prose lives
+// in the scaffold model (SKILLS_AGENT_GUIDANCE in @memex/shared — std-15/std-16),
+// never inline here. Appended by buildSystemBlocks to EVERY in-app agent prompt so
+// the agent knows how to discover skills (catalogue on the early list_docs
+// response, ac-29), follow the ones it can satisfy, and hand off (render_handoff)
+// the ones whose capability flags exceed it — never executing code (dec-2). The
+// block is phrased conditionally, so it's inert when the Memex has no skills.
+const SKILLS_BLOCK = SKILLS_AGENT_GUIDANCE.text;
+if (!SKILLS_BLOCK) {
+  throw new Error(
+    "SKILLS_AGENT_GUIDANCE.text is empty — the skills-awareness block cannot be assembled",
   );
 }
 
@@ -171,7 +192,9 @@ export function buildSystemBlocks(
   // spec-389 t-5 (dec-2): the new scoped agent modes. Each appends its behaviour
   // block + the shared handoff map over the same phase-composed base, like the
   // drift overlay; their factual grounding rides the cached context block.
-  scopedMode?: "standards" | "issues",
+  // spec-300 t-15 (dec-23): 'skills' is the fifth scoped mode — the dedicated
+  // skills authoring / curation agent on the Skills page.
+  scopedMode?: "standards" | "issues" | "skills",
 ): SystemBlock[] {
   const projectedPhase: SpecPhase = phase === "draft" ? "specify" : phase;
   // spec-360: scaffold mode leads with its OWN identity — the doc-bound base
@@ -218,12 +241,26 @@ export function buildSystemBlocks(
   // spec-389 t-5 (dec-2): the standards / issues posture overlays — each appends
   // its behaviour block plus the shared cross-agent handoff map (spec-389 t-4) so
   // the agent stays in its lane and hands off (render_handoff) for anything else.
+  // spec-300 t-15 (dec-23): the skills posture overlays like standards / issues —
+  // its authoring/curation behaviour block + the shared handoff map, so the skills
+  // agent stays in its lane and hands off anything outside skill authoring.
   const withScoped =
     scopedMode === "standards"
       ? `${withDrift}\n\n${STANDARDS_BLOCK}\n\n${HANDOFF_BLOCK}`
       : scopedMode === "issues"
       ? `${withDrift}\n\n${ISSUES_BLOCK}\n\n${HANDOFF_BLOCK}`
+      : scopedMode === "skills"
+      ? `${withDrift}\n\n${SKILLS_MODE_BLOCK}\n\n${HANDOFF_BLOCK}`
       : withDrift;
+  // spec-300 t-7 (dec-7 / dec-20 / dec-2): the PRIMARY in-app agent — the doc/spec
+  // agent, no scoped mode — is the one that dispatches skills; append the
+  // skills-awareness block for it. The scoped agents (drift / standards / issues)
+  // and the scaffold assistant have narrow, non-skills jobs and already hand off
+  // code, so they don't carry it. The block is inert when the Memex has no skills.
+  const isPrimaryAgent = !scaffoldMode && !driftMode && !scopedMode;
+  const withSkills = isPrimaryAgent
+    ? `${withScoped}\n\n${SKILLS_BLOCK}`
+    : withScoped;
   // spec-360 t-1 (dec-1/dec-6): the scaffold identity now LEADS the instruction
   // block (prepended into baseContent above) instead of trailing it — appending
   // it after the doc-bound "document assistant" role let that role dominate a
@@ -232,7 +269,7 @@ export function buildSystemBlocks(
   // factual grounding rides the cached context block (buildScaffoldContext).
   const instructions: SystemBlock = {
     type: "text",
-    text: readOnly ? `${withScoped}\n\n${READ_ONLY_BLOCK}` : withScoped,
+    text: readOnly ? `${withSkills}\n\n${READ_ONLY_BLOCK}` : withSkills,
   };
 
   const context: SystemBlock = {

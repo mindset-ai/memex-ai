@@ -11,10 +11,14 @@ import { facetKeysByTask, facetKeysByDecision } from "../services/facet-ballot.j
 import {
   listDocTags,
   listMemexTags,
+  listMemexTagsWithCounts,
   listDocTagsForDocs,
   applyTagStrings,
   removeTagFromDoc,
   parseTagInput,
+  createTag,
+  renameTag,
+  deleteTag,
   type ParsedTag,
 } from "../services/tags.js";
 import {
@@ -38,6 +42,8 @@ import type { User } from "../db/schema.js";
 import { requireMemexId, resolveReadableMemexId } from "./shared.js";
 import { bus } from "../services/bus.js";
 import { sessionIdFromAuthHeader } from "../services/auth-jwt.js";
+// spec-448 t-5: per-user "last-seen version" marker + catch-up payload.
+import { upsertDocView, computeCatchUp } from "../services/docViews.js";
 
 type Env = MemexResolverEnv & SessionEnv;
 const docs = new Hono<Env>();
@@ -143,6 +149,28 @@ function parseTagFilter(raw: string[] | undefined): ParsedTag[] | undefined {
   return strings.map(parseTagInput);
 }
 
+// spec-418 t-3: the curation write routes (create / rename) accept EITHER a
+// `scope::value`/flat tag STRING (the `tag` field, parsed with the shared
+// parseTagInput so the boundary matches the picker's conventions) OR an already
+// structured { scope, value } body — whichever the admin surface finds convenient.
+// Returns the {scope, value} pair; the tags service (createTag / renameTag) runs
+// validateTagInput on it, so trimming / empty-value / control-char rejection and
+// the ValidationError→400 mapping stay in ONE place, not duplicated here.
+function parseCurationTagBody(
+  body: { tag?: unknown; scope?: unknown; value?: unknown } | null,
+): { scope: string | null; value: string } {
+  // Structured form wins when a `value` is present (a bare `scope` with no value
+  // is meaningless — a tag must name something).
+  if (typeof body?.value === "string") {
+    const scope = typeof body.scope === "string" ? body.scope : null;
+    return { scope, value: body.value };
+  }
+  const tag = requireString(body?.tag, "tag", {
+    message: "Body must include a 'tag' string or a { scope, value } pair",
+  });
+  return parseTagInput(tag);
+}
+
 docs.get("/", async (c) => {
   const memexId = await resolveReadableMemexId(c);
   const docType = c.req.query("type");
@@ -195,6 +223,80 @@ docs.get("/tags", async (c) => {
   return c.json(all);
 });
 
+// spec-418 t-5: the tag catalogue WITH each tag's assigned-Spec count, for the
+// Manage-tags admin surface. Registered as a LITERAL before `/:id` (like GET /tags)
+// so the segment isn't swallowed by the param matcher. Returns Array<Tag &
+// {assignedCount}> from ONE aggregate query [per std-39 / ac-18] — never N per-tag
+// counts. Reads use the permissive path (resolveReadableMemexId); org membership
+// alone grants access [per std-4], with no administrator gate on the surface.
+docs.get("/tags/with-counts", async (c) => {
+  const memexId = await resolveReadableMemexId(c);
+  const all = await listMemexTagsWithCounts(memexId);
+  return c.json(all);
+});
+
+// ── Tag catalogue curation (spec-418 t-3): create / rename / delete a tag ──────
+// These three WRITES manage the Memex's tag CATALOGUE itself (the `tags` rows),
+// distinct from POST /:id/tags below which attaches an existing/new tag to one
+// Spec. Each calls the tags-service curation function (createTag / renameTag /
+// deleteTag) — NEVER a raw insert/update/delete — so the duplicate + per-scope
+// exclusivity guards, the fan-out of one `document` updated event per carrying
+// Spec, and the change-bus emission (std-8) all live in one place.
+//
+// Registered BEFORE the `/:id` param routes so the literal `/tags` segment is not
+// swallowed by the param matcher (the same reason GET /tags sits above GET /:id).
+//
+// AUTH — there is intentionally NO per-route auth check here. Every mutating verb
+// on this router already runs behind the STRICT sessionMiddleware via the
+// verb-bucket registration above (docs.on(["POST","PUT","PATCH","DELETE"], "/*",
+// sessionMiddleware)); a non-member is rejected inside establishUserSession before
+// the handler is reached. [per std-4] org membership alone grants access to every
+// Memex in the org — the curation surface has NO administrator-role gate.
+// [per std-7] an unauthorized caller receives 404 (indistinguishable from
+// not-found), never 403. Service-raised errors map through the global handler:
+// ValidationError→400 (a blocked create/rename surfaces the plain reason),
+// NotFoundError→404 (a tag not in this Memex).
+//
+// Attribution: restCtx(c) carries the authenticated user + `rest_ui` channel onto
+// every emitted event (std-32), so the tag/document activity is attributed to WHO
+// curated it — not left unattributed.
+
+// POST /api/docs/tags — mint a NEW catalogue tag. Body: { tag: "scope::value" }
+// (or flat) OR { scope, value }. 201 with the created tag; 400 (plain reason) when
+// a tag with that (scope, value) already exists — createTag blocks duplicates.
+docs.post("/tags", async (c) => {
+  const memexId = requireMemexId(c);
+  const body = await parseJsonBodyOrNull<{ tag?: unknown; scope?: unknown; value?: unknown }>(c);
+  const { scope, value } = parseCurationTagBody(body);
+  const created = await createTag(restCtx(c), memexId, scope, value);
+  return c.json(created, 201);
+});
+
+// PATCH /api/docs/tags/:tagId — rename a catalogue tag's (scope, value). Body: the
+// new tag string / { scope, value }. The new name is reflected on EVERY Spec that
+// carried the tag (a single set-based UPDATE). 400 (plain reason, NO change) when
+// the rename would duplicate an existing tag OR leave a Spec holding two values in
+// one scope; 404 when the tag isn't in this Memex.
+docs.patch("/tags/:tagId", async (c) => {
+  const memexId = requireMemexId(c);
+  const tagId = c.req.param("tagId");
+  const body = await parseJsonBodyOrNull<{ tag?: unknown; scope?: unknown; value?: unknown }>(c);
+  const { scope, value } = parseCurationTagBody(body);
+  const updated = await renameTag(restCtx(c), memexId, tagId, scope, value);
+  return c.json(updated);
+});
+
+// DELETE /api/docs/tags/:tagId — delete a catalogue tag; the FK cascade removes it
+// from every Spec that carried it, leaving those Specs otherwise untouched. Never
+// blocks; 404 when the tag isn't in this Memex. Returns the blast radius
+// ({ removed, affectedDocIds }) for the t-6 confirmation copy.
+docs.delete("/tags/:tagId", async (c) => {
+  const memexId = requireMemexId(c);
+  const tagId = c.req.param("tagId");
+  const result = await deleteTag(restCtx(c), memexId, tagId);
+  return c.json(result);
+});
+
 // std-5 exemption: when this route is hit at the flat `/api/docs/:id` (UUID),
 // the memex is determined by the entity FK, not the caller's membership set.
 // `requireMemexId` returns the currentMemexId resolved by sessionMiddleware —
@@ -223,6 +325,24 @@ docs.get("/:id", async (c) => {
   // anonymous reads — there's no actor to attribute the `viewed` event to, and
   // the throttle map is keyed by userId.
   const user = c.get("user") as User | undefined;
+
+  // spec-448 t-5 (ac-39): compute the viewer's catch-up state BEFORE stamping
+  // below advances their marker — stamping sets last_viewed_version to the
+  // doc's CURRENT version, which would erase the very "you're behind" signal
+  // this response needs to carry. Anonymous readers (no `user`) always resolve
+  // to no-catch-up without touching doc_views (ac-36). Advisory, like
+  // emitViewed below: a lookup failure must never break the read response.
+  let catchUp: Awaited<ReturnType<typeof computeCatchUp>> = {
+    hasCatchUp: false,
+    fromVersion: null,
+    lastViewedVersion: null,
+  };
+  try {
+    catchUp = await computeCatchUp({ id: result.id, version: result.version }, user?.id);
+  } catch {
+    // best-effort only.
+  }
+
   if (user) {
     emitViewed({
       userId: user.id,
@@ -233,11 +353,30 @@ docs.get("/:id", async (c) => {
       section: c.req.query("section"),
       query: c.req.query("query"),
     });
+    // spec-448 t-5 (ac-8, ac-36): piggyback the per-user last-seen marker onto
+    // this same authenticated-read call site — advances doc_views to the doc's
+    // current version. Anonymous reads write nothing (no `user`, ac-36).
+    // Advisory: swallow failures so a marker write can never break the read
+    // response, mirroring emitViewed's posture above.
+    try {
+      await upsertDocView(
+        { userId: user.id, docId: result.id, memexId, version: result.version, channel: "rest_ui" },
+        restCtx(c),
+      );
+    } catch {
+      // best-effort only.
+    }
   }
 
   // spec-136 t-4: include the doc's tags so the React doc view renders them inline.
   const docTags = await listDocTags(memexId, result.id);
-  return c.json({ ...result, decisions: decsWithFacets, tasks: tasksWithFacets, tags: docTags });
+  return c.json({
+    ...result,
+    decisions: decsWithFacets,
+    tasks: tasksWithFacets,
+    tags: docTags,
+    catchUp,
+  });
 });
 
 docs.post("/:id/status", async (c) => {

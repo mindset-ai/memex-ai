@@ -16,8 +16,12 @@ export const whatsNewRouter = new Hono<SessionEnv>();
 whatsNewRouter.use("/*", sessionMiddleware);
 
 whatsNewRouter.get("/", async (c) => {
+  const user = c.get("user");
   const entries = await listEntries();
   return c.json({
+    // spec-439: clients use this to seed their dismissed-at marker on first
+    // visit so historical entries don't appear as "new" to a brand-new user.
+    suppressBefore: user.createdAt.toISOString(),
     entries: entries.map((e) => ({
       id: e.id,
       sourceSpecRef: e.sourceSpecRef,

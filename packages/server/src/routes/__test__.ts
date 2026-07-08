@@ -29,6 +29,7 @@ import {
   updateUserProfile,
   markEmailVerified,
   markOnboardingGreeted,
+  markVideoWelcomed,
   createUserWithPassword,
 } from "../services/users.js";
 import {
@@ -93,6 +94,10 @@ import { listAssignees, assign } from "../services/doc-assignees.js";
 import { updateMemexVisibility } from "../services/memexes.js";
 import { disableMembership } from "../services/org-memberships.js";
 import { persistEvent } from "../services/activity-log.js";
+// spec-448 t-12: seed a version cut attributed to an actor OTHER than the
+// caller's own browser session — backs the catch-up-on-reopen journey (see
+// below).
+import { cutVersion, CARRY_FORWARD_CLASSES } from "../services/versioning.js";
 
 const contentBlockSchema = z.union([
   z.object({ type: z.literal("text"), text: z.string() }),
@@ -241,6 +246,34 @@ testOnlyRouter.post("/onboarding-greeted", async (c) => {
   return c.json({ ok: true });
 });
 
+// spec-444 — set/clear a user's video_welcomed_at. Used by the e2e fixture to
+// pre-stamp the dev user as already welcomed (so existing journeys don't hit the
+// new video gate), and by spec-444's own journey to clear and re-set the flag.
+const videoWelcomedSchema = z.object({
+  email: z.string().email(),
+  welcomed: z.boolean(),
+});
+testOnlyRouter.post("/video-welcomed", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = videoWelcomedSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
+  }
+  const { email, welcomed } = parsed.data;
+  const user = await getUserByEmail(email);
+  if (!user) return c.json({ error: `User ${email} not found` }, 404);
+
+  if (welcomed) {
+    await markVideoWelcomed(user.id);
+  } else {
+    await db
+      .update(users)
+      .set({ videoWelcomedAt: null, updatedAt: new Date() })
+      .where(eq(users.id, user.id));
+  }
+  return c.json({ ok: true });
+});
+
 // spec-305/307 — set/clear a user's identity state. needsOnboarding keys off
 // identity_confirmed_at; the journey identity MILESTONE keys off role_coords (spec-307:
 // did the user place themselves on the triangle). Confirm/un-confirm sets/clears BOTH so
@@ -314,6 +347,9 @@ const seedWhatsNewSchema = z.object({
   title: z.string(),
   whatText: z.string(),
   whyText: z.string(),
+  // spec-439 t-3: optional override so e2e tests can backdate entries to
+  // before a fresh user's createdAt, which defaults to now() in the schema.
+  publishedAt: z.string().datetime().optional(),
 });
 testOnlyRouter.post("/seed-whats-new", async (c) => {
   const body = await c.req.json().catch(() => null);
@@ -321,7 +357,11 @@ testOnlyRouter.post("/seed-whats-new", async (c) => {
   if (!parsed.success) {
     return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
   }
-  const entry = await publishEntry(parsed.data);
+  const { publishedAt, ...entryFields } = parsed.data;
+  const entry = await publishEntry(
+    entryFields,
+    publishedAt ? { publishedAt: new Date(publishedAt) } : undefined,
+  );
   return c.json({ id: entry?.id ?? null });
 });
 
@@ -1120,9 +1160,9 @@ testOnlyRouter.post("/seed-ac", async (c) => {
     .innerJoin(namespaces, eq(memexes.namespaceId, namespaces.id))
     .where(eq(documents.id, docId))
     .limit(1);
-  const acUid =
+  const subjectRef =
     slugRow?.briefHandle != null ? buildAcRef(slugRow, ac.seq) : null;
-  return c.json({ acId: ac.id, seq: ac.seq, acUid });
+  return c.json({ acId: ac.id, seq: ac.seq, subjectRef });
 });
 
 // Seed an Issue on a Spec through the real service (emits on the bus).
@@ -1156,13 +1196,13 @@ testOnlyRouter.post("/seed-issue", async (c) => {
   return c.json({ issueId: issue.id, seq: issue.seq });
 });
 
-// Seed a test-event emission for an acUid — the journey-side equivalent of
+// Seed a test-event emission for an subjectRef — the journey-side equivalent of
 // the unit suites' seedTestEvent helper (insert + latest-summary upsert in one
 // transaction), bypassing the emission-key gate the real POST /api/test-events
 // enforces. Drives the spec-188 acceptance-precedence path (a failing event
 // suppresses a manual acceptance).
 const seedTestEventSchema = z.object({
-  acUid: z.string().min(1),
+  subjectRef: z.string().min(1),
   status: z.enum(["pass", "fail", "error"]),
   testIdentifier: z.string().default("e2e/seeded.spec.ts::seeded emission"),
 });
@@ -1172,20 +1212,20 @@ testOnlyRouter.post("/seed-test-event", async (c) => {
   if (!parsed.success) {
     return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
   }
-  const { acUid, status, testIdentifier } = parsed.data;
+  const { subjectRef, status, testIdentifier } = parsed.data;
   // spec-398 ac-8: resolve tenancy from the ac_uid prefix (mirrors the real route).
-  const [ns, mx] = acUid.split("/");
+  const [ns, mx] = subjectRef.split("/");
   const memexId = ns && mx ? await resolveMemexId(ns, mx) : null;
   if (!memexId) {
-    return c.json({ error: `ac_uid '${acUid}' does not resolve to a memex` }, 400);
+    return c.json({ error: `ac_uid '${subjectRef}' does not resolve to a memex` }, 400);
   }
   await db.transaction(async (tx) => {
     const [row] = await tx
       .insert(testEvents)
-      .values({ acUid, memexId, status, testIdentifier, hidden: false })
+      .values({ subjectRef, memexId, status, testIdentifier, hidden: false })
       .returning({ createdAt: testEvents.createdAt });
     await applyEmissionToSummary(tx, {
-      acUid,
+      subjectRef,
       memexId,
       testIdentifier,
       status,
@@ -1468,4 +1508,44 @@ testOnlyRouter.post("/seed-experiment-arm", async (c) => {
     assignmentId,
     ...(starterSpecHandle ? { starterSpecHandle } : {}),
   });
+});
+
+// ── spec-448 t-12: versioning + catch-up journey seed ───────────────────────
+
+// Cut a version through the real cutVersion service, optionally attributed to
+// an actor OTHER than the caller's own browser session (actorUserId). Every
+// OTHER versioning action a journey needs (create, view-as-of, compare,
+// restore) is driven through the real UI over routes/versions.ts — this seed
+// exists ONLY for the one thing the UI can't produce: a cut that does NOT
+// belong to (and therefore doesn't advance) the browser session's own
+// doc_views marker. cutVersion never touches doc_views (only GET /docs/:id
+// does, t-5/routes/documents.ts) — so a cut driven through the real UI as the
+// dev browser session would immediately have its own reloadDoc() re-advance
+// dev's marker back to current, erasing the "someone else moved the spec on
+// while I wasn't looking" precondition the catch-up-dialog journey needs.
+// Seeding the cut here, out of band, is what makes that precondition
+// reproducible. Mirrors seed-activity's actorUserId-attribution pattern.
+const seedVersionCutSchema = z.object({
+  memexId: z.string().uuid(),
+  docId: z.string().uuid(),
+  name: z.string().min(1),
+  carryForward: z.array(z.enum(["decisions", "acs", "tasks", "issues", "comments"])).optional(),
+  actorUserId: z.string().uuid().optional(),
+});
+testOnlyRouter.post("/seed-version-cut", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = seedVersionCutSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
+  }
+  const { memexId, docId, name, carryForward, actorUserId } = parsed.data;
+  const ctx = actorUserId ? { actorUserId, channel: "rest_ui" as const } : {};
+  const result = await cutVersion(
+    memexId,
+    docId,
+    name,
+    carryForward ?? CARRY_FORWARD_CLASSES,
+    ctx,
+  );
+  return c.json({ versionId: result.id, versionNumber: result.versionNumber });
 });

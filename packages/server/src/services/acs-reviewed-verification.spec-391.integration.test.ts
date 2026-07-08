@@ -44,8 +44,8 @@ const createdAcUids: string[] = [];
 
 afterAll(async () => {
   if (createdAcUids.length) {
-    await db.delete(testEvents).where(inArray(testEvents.acUid, createdAcUids)).catch(() => {});
-    await db.delete(testEventLatest).where(inArray(testEventLatest.acUid, createdAcUids)).catch(() => {});
+    await db.delete(testEvents).where(inArray(testEvents.subjectRef, createdAcUids)).catch(() => {});
+    await db.delete(testEventLatest).where(inArray(testEventLatest.subjectRef, createdAcUids)).catch(() => {});
   }
   for (const id of createdDocIds) {
     await db.delete(acs).where(eq(acs.briefId, id)).catch(() => {});
@@ -184,13 +184,13 @@ describe("reviewed-verification sign-off service (spec-391 ac-8)", () => {
     await setAcReviewedVerification(memexId, ac.id, "Barrie", "policy AC");
     expect((await stateOf(spec.id, ac.id)).verificationState).toBe("accepted");
 
-    await seedTestEvent({ acUid: ref, status: "fail", createdAt: new Date(), testIdentifier: "t::x" });
+    await seedTestEvent({ subjectRef: ref, status: "fail", createdAt: new Date(), testIdentifier: "t::x" });
     const failing = await stateOf(spec.id, ac.id);
     expect(failing.verificationState).toBe("failing");
     expect(failing.ac.acceptedBy).toBe("Barrie");
     expect(failing.ac.reviewedReason).toBe("policy AC");
 
-    await seedTestEvent({ acUid: ref, status: "pass", createdAt: new Date(), testIdentifier: "t::x" });
+    await seedTestEvent({ subjectRef: ref, status: "pass", createdAt: new Date(), testIdentifier: "t::x" });
     expect((await stateOf(spec.id, ac.id)).verificationState).toBe("accepted");
   });
 

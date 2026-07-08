@@ -657,6 +657,19 @@ describe('LangGraph agent graph', () => {
       ).toBe('planAgent');
     });
 
+    // spec-300 t-15 (dec-23, ac-52): skills mode behaves like the other scoped
+    // modes — memex-scoped, doc-less, routed to the generic agentNode (planAgent).
+    // No new graph node is added; the posture comes from the server-side prompt +
+    // SKILLS_SERVER_TOOLS subset selected by mode 'skills'.
+    it('routes to the generic agent node in skills mode even with no docId (no new node)', () => {
+      const AC_SKILLS_ROUTE =
+        'mindset-prod/memex-building-itself/specs/spec-300/acs/ac-52';
+      tagAc(AC_SKILLS_ROUTE);
+      expect(
+        routeByPhase({ ...baseState, docId: null, specPhase: null, agentMode: 'skills' })
+      ).toBe('planAgent');
+    });
+
     it('routes to the matching per-phase agent for each SpecPhase', () => {
       // `draft` is a Spec attribute / Kanban column, not a graph node —
       // it routes to planAgent (collapsed in b-33). The dedicated test

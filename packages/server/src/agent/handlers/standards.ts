@@ -70,6 +70,9 @@ export const standardsTools: ToolSpec[] = [
       // (services/documents.ts: createDocDraft mints a std-N handle for standards).
       // No docType is accepted from the caller — it is pinned to 'standard' here,
       // which is what makes the scope boundary structural.
+      // spec-449 dec-1: a Standard is born 'approved' (in force the moment it
+      // exists) — the rule lives centrally in createDocDraft's docType branch, so
+      // this path passes no explicit initialStatus.
       const doc = await createDocDraft(
         memexId,
         args.title,

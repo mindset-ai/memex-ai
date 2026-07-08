@@ -89,7 +89,11 @@ export type DocType =
   | "document"
   | "execution_plan"
   | "adr"
-  | "runbook";
+  | "runbook"
+  // spec-300 (dec-16): Skills are a first-class doc type living in `documents`
+  // (the procedural twin of a Standard), not a bespoke table. Appended last to
+  // preserve the index-0/1 pins on "spec"/"standard" below.
+  | "skill";
 
 export const ROLES: readonly Role[] = ["member", "administrator"] as const;
 export const MEMBERSHIP_STATUSES: readonly MembershipStatus[] = ["active", "disabled"] as const;
@@ -144,6 +148,8 @@ export const DOC_TYPES: readonly DocType[] = [
   "execution_plan",
   "adr",
   "runbook",
+  // spec-300 (dec-16) — keep last; index 0/1 are pinned to spec/standard.
+  "skill",
 ] as const;
 
 export function isRole(value: unknown): value is Role {

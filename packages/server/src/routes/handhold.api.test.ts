@@ -207,9 +207,11 @@ describe("spec-178 t-6 — reset route owner gate (ac-17)", () => {
     expect(body.seeded).toBe(HANDHOLD_PHASES.length);
     // resetHandholdDemo is awaited in the handler, so the count is final on return.
     expect(await countDemoDocs(owner.memexId)).toBe(HANDHOLD_PHASES.length);
-    // DB-heavy demo seed+reset; the default 5s flakes under full-suite parallel
-    // load. Matches the explicit 20s on the sibling reset test below.
-  }, 20_000);
+    // DB-heavy demo seed+reset (seeds HANDHOLD_PHASES.length full Specs). In
+    // isolation each reset runs ~25-30s; under full-suite 8-worker parallel
+    // contention the old 20s budget flaked, so it is raised to 45s. Matches the
+    // sibling reset test below. (Timeout only — no assertion is relaxed.)
+  }, 45_000);
 
   it("a non-owner with a valid token gets 404 (not 403) and no mutation runs", async () => {
     tagAc(AC(17));
@@ -226,7 +228,8 @@ describe("spec-178 t-6 — reset route owner gate (ac-17)", () => {
     expect(res.status).not.toBe(403);
     // No mutation: the demo doc set is untouched.
     expect(await countDemoDocs(owner.memexId)).toBe(before);
-  }, 20_000);
+    // Heavy seed path (see sibling above); 45s headroom for full-suite contention.
+  }, 45_000);
 
   it("a non-personal (org) Memex returns 404 even for an org member", async () => {
     tagAc(AC(17));

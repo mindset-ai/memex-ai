@@ -30,6 +30,8 @@ export interface SessionPayload {
     name: string | null;
     status: "active" | "disabled";
     emailVerified: boolean;
+    /** spec-444: ISO timestamp of the first permanent welcome-video dismiss; null = not yet dismissed. */
+    videoWelcomedAt: string | null;
   };
   memberships: MembershipSummary[];
   // The Memex this session is currently scoped to (null when ambiguous — see std-5).
@@ -165,6 +167,7 @@ export async function handleSsoLogin(
       name: user.name ?? null,
       status: user.status as "active" | "disabled",
       emailVerified: !!user.emailVerifiedAt,
+      videoWelcomedAt: user.videoWelcomedAt?.toISOString() ?? null,
     },
     memberships,
     currentMemexId: current?.memexId ?? null,
@@ -259,6 +262,7 @@ export async function resolveSession(
       name: user.name ?? null,
       status: user.status as "active" | "disabled",
       emailVerified: !!user.emailVerifiedAt,
+      videoWelcomedAt: user.videoWelcomedAt?.toISOString() ?? null,
     },
     memberships,
     emptyOrgs,

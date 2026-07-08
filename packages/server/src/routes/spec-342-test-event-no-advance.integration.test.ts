@@ -65,8 +65,8 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (createdAcUids.length) {
-    await db.delete(testEvents).where(inArray(testEvents.acUid, createdAcUids)).catch(() => {});
-    await db.delete(testEventLatest).where(inArray(testEventLatest.acUid, createdAcUids)).catch(() => {});
+    await db.delete(testEvents).where(inArray(testEvents.subjectRef, createdAcUids)).catch(() => {});
+    await db.delete(testEventLatest).where(inArray(testEventLatest.subjectRef, createdAcUids)).catch(() => {});
   }
   if (createdDocIds.length) {
     await db.delete(documents).where(inArray(documents.id, createdDocIds)).catch(() => {});
@@ -77,15 +77,15 @@ afterAll(async () => {
 });
 
 /** Create a real spec under the test memex, in the given phase. */
-async function makeSpec(title: string, status: string): Promise<{ id: string; acUid: string }> {
+async function makeSpec(title: string, status: string): Promise<{ id: string; subjectRef: string }> {
   const doc = await createDocDraft(h.memexId, title, "purpose", "spec", undefined, undefined, ownerId);
   createdDocIds.push(doc.id);
   if (status !== "draft") {
     await updateDocStatus(h.memexId, doc.id, status);
   }
-  const acUid = `${slug}/main/specs/${doc.handle}/acs/ac-1`;
-  createdAcUids.push(acUid);
-  return { id: doc.id, acUid };
+  const subjectRef = `${slug}/main/specs/${doc.handle}/acs/ac-1`;
+  createdAcUids.push(subjectRef);
+  return { id: doc.id, subjectRef };
 }
 
 async function specStatus(id: string): Promise<string> {
@@ -93,12 +93,12 @@ async function specStatus(id: string): Promise<string> {
   return row!.status;
 }
 
-async function emit(acUid: string, opts: { hidden?: boolean } = {}) {
+async function emit(subjectRef: string, opts: { hidden?: boolean } = {}) {
   return app.request("/api/test-events", {
     method: "POST",
     headers: { Authorization: "Bearer test-key", "Content-Type": "application/json" },
     body: JSON.stringify({
-      ac_uid: acUid,
+      ac_uid: subjectRef,
       status: "pass",
       test_identifier: "spec-342.test.ts::no-advance",
       hidden: opts.hidden ?? false,
@@ -114,7 +114,7 @@ describe("spec-342: a test event never advances a Spec's phase", () => {
     for (const phase of ["draft", "specify", "build", "done"]) {
       const spec = await makeSpec(`No-advance from ${phase}`, phase);
       expect(await specStatus(spec.id)).toBe(phase); // sanity: seeded as expected
-      const res = await emit(spec.acUid);
+      const res = await emit(spec.subjectRef);
       expect(res.status).toBe(201);
       // The whole point: the emission did not move the lifecycle.
       expect(await specStatus(spec.id)).toBe(phase);
@@ -125,7 +125,7 @@ describe("spec-342: a test event never advances a Spec's phase", () => {
     tagAc(AC(2));
     tagAc(AC(6));
     const spec = await makeSpec("Verdict still lands", "build");
-    const res = await emit(spec.acUid);
+    const res = await emit(spec.subjectRef);
     expect(res.status).toBe(201);
     // Phase unchanged…
     expect(await specStatus(spec.id)).toBe("build");
@@ -133,7 +133,7 @@ describe("spec-342: a test event never advances a Spec's phase", () => {
     const [summary] = await db
       .select({ latestStatus: testEventLatest.latestStatus })
       .from(testEventLatest)
-      .where(eq(testEventLatest.acUid, spec.acUid));
+      .where(eq(testEventLatest.subjectRef, spec.subjectRef));
     expect(summary?.latestStatus).toBe("pass");
   });
 
@@ -145,7 +145,7 @@ describe("spec-342: a test event never advances a Spec's phase", () => {
     tagAc("mindset-prod/memex-building-itself/specs/spec-358/acs/ac-2");
     tagAc("mindset-prod/memex-building-itself/specs/spec-358/acs/ac-11");
     const spec = await makeSpec("Inbound hidden is ignored", "build");
-    const res = await emit(spec.acUid, { hidden: true });
+    const res = await emit(spec.subjectRef, { hidden: true });
     expect(res.status).toBe(201);
     // No phase effect — the spec-342 invariant still holds.
     expect(await specStatus(spec.id)).toBe("build");
@@ -154,14 +154,14 @@ describe("spec-342: a test event never advances a Spec's phase", () => {
     const events = await db
       .select({ hidden: testEvents.hidden })
       .from(testEvents)
-      .where(eq(testEvents.acUid, spec.acUid));
+      .where(eq(testEvents.subjectRef, spec.subjectRef));
     expect(events.length).toBeGreaterThan(0);
     expect(events.every((e) => e.hidden === false)).toBe(true);
     // And because it counts, the verdict summary IS materialised (a pass).
     const summaryRows = await db
       .select({ latestStatus: testEventLatest.latestStatus })
       .from(testEventLatest)
-      .where(eq(testEventLatest.acUid, spec.acUid));
+      .where(eq(testEventLatest.subjectRef, spec.subjectRef));
     expect(summaryRows.length).toBe(1);
     expect(summaryRows[0]?.latestStatus).toBe("pass");
   });
@@ -172,7 +172,7 @@ describe("spec-342: a test event never advances a Spec's phase", () => {
     // stays in build no matter how many land.
     const spec = await makeSpec("Repeated CI passes, no churn", "build");
     for (let i = 0; i < 3; i++) {
-      const res = await emit(spec.acUid);
+      const res = await emit(spec.subjectRef);
       expect(res.status).toBe(201);
     }
     expect(await specStatus(spec.id)).toBe("build");

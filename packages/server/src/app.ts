@@ -12,12 +12,15 @@ import { tasksRouter } from "./routes/tasks.js";
 import { issuesRouter } from "./routes/issues.js";
 import { issuesList } from "./routes/issues-list.js";
 import { acsRouter } from "./routes/acs.js";
+import { standardsRouter } from "./routes/standards.js";
+import { skillsRouter } from "./routes/skills.js";
 import { emissionKeysRouter } from "./routes/emission-keys.js";
 import { discordWebhookRouter } from "./routes/discord-webhook.js";
 import { stripeWebhookRouter } from "./routes/stripe-webhook.js";
 import { postmarkWebhookRouter } from "./routes/postmark-webhook.js";
 import { docMembersRouter } from "./routes/doc-members.js";
 import { docAssigneesRouter } from "./routes/doc-assignees.js";
+import { versionsRouter } from "./routes/versions.js";
 import { executionPlans } from "./routes/execution-plans.js";
 import { llmRouter } from "./routes/llm.js";
 import { createNodeWebSocket } from "@hono/node-ws";
@@ -31,10 +34,12 @@ import { analytics } from "./routes/analytics.js";
 import { telemetryRouter } from "./routes/telemetry.js";
 import { anonTelemetryRouter } from "./routes/anon-telemetry.js";
 import { waitlist } from "./routes/waitlist.js";
+import { live } from "./routes/live.js";
 import { auth } from "./routes/auth.js";
 import { invitesAcceptRouter, invitesAdminRouter } from "./routes/invites.js";
 import { teamRouter } from "./routes/team.js";
 import { shareRouter } from "./routes/share.js";
+import { unsubscribeRouter } from "./routes/unsubscribe.js";
 import { backstageRouter } from "./routes/backstage.js";
 import { cliAuth, mcpTokensRouter } from "./routes/cli-auth.js";
 import { oauth, isOAuthEnabled } from "./routes/oauth/index.js";
@@ -42,11 +47,15 @@ import { wellKnown, publicBaseUrl } from "./routes/well-known.js";
 import driftRouter from "./routes/drift.js";
 import { search } from "./routes/search.js";
 import { handhold } from "./routes/handhold.js";
+import { internalLifecycleRouter } from "./routes/internal-lifecycle.js";
 import { onboarding } from "./routes/onboarding.js";
+import { welcomeVideo } from "./routes/welcome-video.js";
 import { testEventsRouter } from "./routes/test-events.js";
 import { specCheckoutRouter } from "./routes/spec-checkout.js";
 import { hookKeysRouter } from "./routes/hook-keys.js";
 import { testOnlyRouter } from "./routes/__test__.js";
+import { devToolsRouter, shouldMountDevTools } from "./routes/__dev__.js";
+import { resolveEnv } from "./services/usage-events.js";
 import { hostGuard, memexResolver } from "./middleware/memex-resolver.js";
 import { visitorMiddleware } from "./middleware/visitor.js";
 import { rewriteBriefPathToSpec } from "./services/redirects.js";
@@ -72,6 +81,7 @@ import { verifyAccessToken } from "./services/oauth/access-tokens.js";
 import { isDevMode, ensureDevMemberships } from "./middleware/session.js";
 import { upsertUserByEmail } from "./services/users.js";
 import { upsertSession, parseClientIp } from "./services/mcp-telemetry.js";
+import { parseGeoHeader, GEO_LATLONG_HEADER } from "./services/geo.js";
 import { recordMcpConnected } from "./services/funnel-events.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { readFile } from "node:fs/promises";
@@ -241,11 +251,15 @@ app.route("/api/:namespace/:memex/decisions", decisionsRouter);
 app.route("/api/:namespace/:memex/tasks", tasksRouter);
 app.route("/api/:namespace/:memex/issues", issuesRouter);
 app.route("/api/:namespace/:memex/acs", acsRouter);
+app.route("/api/:namespace/:memex/standards", standardsRouter);
+app.route("/api/:namespace/:memex/skills", skillsRouter);
 app.route("/api/:namespace/:memex/emission-keys", emissionKeysRouter);
 app.route("/api/:namespace/:memex/discord-webhook", discordWebhookRouter);
 // spec-118 — per-Spec roles (editor/reviewer) + ticket-style assignment.
 app.route("/api/:namespace/:memex/doc-members", docMembersRouter);
 app.route("/api/:namespace/:memex/doc-assignees", docAssigneesRouter);
+// spec-448 t-6 — version history / view-as-of / rollback / diff-data.
+app.route("/api/:namespace/:memex/versions", versionsRouter);
 app.route("/api/:namespace/:memex/execution-plans", executionPlans);
 app.route("/api/:namespace/:memex/drift", driftRouter);
 // spec-64 t-1 — REST search over searchMemex. Path-prefixed only: a search is
@@ -363,6 +377,10 @@ app.route("/guide/v1", createGuidePublicRouter(upgradeWebSocket));
 // Caller-scoped + public surfaces — stay flat (no path prefix). These have no
 // per-memex semantics, so prefixing them would be noise.
 app.route("/api/waitlist", waitlist);
+// spec-458 (PROTOTYPE) — PUBLIC global live-stats aggregate behind memex.ai/live.
+// Flat + tenant-less + NO session middleware (the /api/health pattern): the
+// payload is aggregates + a templated ticker only. Kill switch inside the router.
+app.route("/api/live", live);
 // spec-324 — the ANONYMOUS-capable engagement ingress (the spec-244 retrofit).
 // Flat + tenant-less + PERMISSIVE publicSessionMiddleware so a PRE-AUTH visitor
 // (no user, no memex) is captured keyed on the consent-gated visitor_id — the
@@ -372,10 +390,17 @@ app.route("/api/waitlist", waitlist);
 app.use("/api/telemetry/*", publicSessionMiddleware);
 app.route("/api/telemetry", anonTelemetryRouter);
 app.route("/api/auth", auth);
+// /api/internal — spec-453 t-6 (dec-11): machine-only lifecycle scheduler tick. Flat,
+// non-tenant (global drip + Day-12 pass); self-authenticates a shared bearer secret
+// (LIFECYCLE_TICK_SECRET), NOT the user session. The sole trigger is Cloud Scheduler.
+app.route("/api/internal", internalLifecycleRouter);
 // /api/onboarding — spec-206: the user-level first-run greeting gate for the
 // Specky welcome (greet-eligibility read + once-per-user stamp). User-keyed, no
 // memex semantics, so it stays flat.
 app.route("/api/onboarding", onboarding);
+// /api/welcome-video — spec-444: user-level PATCH to stamp permanent video dismiss.
+// User-keyed, no memex semantics, flat mount.
+app.route("/api/welcome-video", welcomeVideo);
 // /api/orgs — t-14 + t-16 of doc-15. Single org-creation + admin surface.
 // Replaces the retired /api/accounts and /api/account mounts.
 app.route("/api/orgs", orgsRouter);
@@ -406,6 +431,10 @@ app.route("/api/me", homeRouter);
 app.route("/api/whats-new", whatsNewRouter);
 // PUBLIC: share routes skip session middleware — guests access shared docs by token alone (t-10).
 app.route("/api/share", shareRouter);
+
+// spec-427 t-4 — PUBLIC lifecycle-email unsubscribe (GET one-click + POST RFC 8058).
+// No session/tenant middleware: the HMAC token in the URL is the capability.
+app.route("/api/email", unsubscribeRouter);
 
 // spec-171 t-3: Stripe webhook receiver. No session middleware — the
 // Stripe-Signature HMAC header IS the auth (verified inside the router).
@@ -438,6 +467,18 @@ if (isOAuthEnabled()) {
 // when MEMEX_ANTHROPIC_FAKE=1 is set. See routes/__test__.ts and agent/anthropic-fake.ts.
 if (process.env.MEMEX_ANTHROPIC_FAKE === "1") {
   app.route("/api/__test__", testOnlyRouter);
+}
+
+// Email preview surface (spec-226 t-5 + t-6/dec-3). Renders any transactional
+// email's HTML for visual iteration. Reachable on local/e2e AND int, always gated
+// OFF prod (resolveEnv() !== "prod"), and behind sessionMiddleware (any authenticated
+// user — sample data only, no PII/secrets, so NOT org-admin). Auth is Bearer/localStorage
+// (not cookie), so a bare browser hit on int 401s; the SPA gallery (packages/ui) fetches
+// it via the token-carrying http client. Local dev (isDevMode, GOOGLE_CLIENT_ID unset)
+// keeps the token-less dev-user auto-login so direct browser preview still works.
+if (shouldMountDevTools(resolveEnv())) {
+  app.use("/api/__dev__/*", sessionMiddleware);
+  app.route("/api/__dev__", devToolsRouter);
 }
 
 // MCP endpoint — fresh server instance per request (stateless, no concurrency issues).
@@ -673,12 +714,18 @@ app.all("/mcp", async (c) => {
   // (~1ms local, ~10ms cross-region) which is noise compared to the tool
   // work itself. upsertSession swallows errors internally so a DB hiccup
   // can't break the MCP request path even though we await it here.
+  // spec-458 dec-9: the LB stamps X-Client-Geo-Latlong on requests through
+  // memex-app-lb; parseGeoHeader rounds to 1 decimal degree before anything
+  // is persisted. Null when the header is absent (local dev, direct Cloud Run).
+  const geo = parseGeoHeader(c.req.header(GEO_LATLONG_HEADER));
   await upsertSession({
     sessionId,
     userId,
     userAgent,
     clientInfo,
     ipAddress,
+    geoLat: geo?.lat ?? null,
+    geoLng: geo?.lng ?? null,
   });
 
   // spec-297 (funnel stage 3, agent connected): the MCP `initialize` handshake is

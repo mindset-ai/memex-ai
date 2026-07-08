@@ -29,11 +29,11 @@ afterAll(async () => {
   if (createdAcUids.length) {
     await db
       .delete(testEvents)
-      .where(inArray(testEvents.acUid, createdAcUids))
+      .where(inArray(testEvents.subjectRef, createdAcUids))
       .catch(() => {});
     await db
       .delete(testEventLatest)
-      .where(inArray(testEventLatest.acUid, createdAcUids))
+      .where(inArray(testEventLatest.subjectRef, createdAcUids))
       .catch(() => {});
   }
   for (const id of createdDocIds) {
@@ -70,15 +70,15 @@ function refOf(briefHandle: string, seq: number): string {
 }
 
 async function emitEvent(
-  acUid: string,
+  subjectRef: string,
   status: "pass" | "fail" | "error",
   createdAt: Date = new Date(),
   testIdentifier = "tests/example.test.ts::it works",
 ): Promise<void> {
-  createdAcUids.push(acUid);
+  createdAcUids.push(subjectRef);
   // spec-162: seed through the same insert+summary-upsert path the route uses,
   // so the read-under-test (which now reads test_event_latest) sees the event.
-  await seedTestEvent({ acUid, status, createdAt, testIdentifier });
+  await seedTestEvent({ subjectRef, status, createdAt, testIdentifier });
 }
 
 describe("aggregateAcHealthForBriefs", () => {

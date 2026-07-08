@@ -1,7 +1,18 @@
 // spec-354 sol-2: carved out of the former all-domains api/client.ts (which
 // is now a barrel re-exporting this module). Behaviour-preserving move only.
 
-import type { DocSummary, DocSection, DocWithGraph, DocStatus, Tag } from './types';
+import type {
+  DocSummary,
+  DocSection,
+  DocWithGraph,
+  DocStatus,
+  Tag,
+  Decision,
+  Task,
+  Issue,
+  Comment,
+} from './types';
+import type { AcWithVerification } from './acs';
 import { decodeHtmlEntities } from '../utils/decodeHtmlEntities';
 import { NotFoundError } from './errors';
 import { fetchJson as fetchJsonRaw } from './fetchJson';
@@ -73,6 +84,22 @@ export async function fetchMemexTags(): Promise<Tag[]> {
   return fetchJsonRaw<Tag[]>(fetchWithRetry, `${tBase()}/docs/tags`);
 }
 
+/** A catalogue tag plus how many Specs currently carry it (spec-418 t-5). Mirrors
+ *  the server's TagWithCount — the extra field the Manage-tags surface needs. */
+export interface TagWithCount extends Tag {
+  assignedCount: number;
+}
+
+/**
+ * Fetch the whole Memex tag catalogue WITH each tag's assigned-Spec count, in one
+ * aggregate round-trip. Feeds the Manage-tags admin surface (spec-418 t-5). GET
+ * /api/docs/tags/with-counts — registered as a literal before /:id on the server
+ * (like GET /tags) so the segment isn't swallowed by the param matcher.
+ */
+export async function fetchMemexTagsWithCounts(): Promise<TagWithCount[]> {
+  return fetchJsonRaw<TagWithCount[]>(fetchWithRetry, `${tBase()}/docs/tags/with-counts`);
+}
+
 /**
  * Apply one or more tags to a doc. Each entry is a `scope::value` or flat
  * string; the server resolves create-or-pick and enforces per-scope mutual
@@ -116,6 +143,98 @@ export async function removeDocTag(
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     throw new Error(text || `Failed to remove tag: ${res.status}`);
+  }
+  return res.json();
+}
+
+// ── Tag catalogue curation (spec-418 t-6 CLIENT) ─────────────────────────────
+// The write-side siblings of fetchMemexTagsWithCounts, driving the Manage-tags
+// dialogs. Each hits a curation route on the docs router (t-3): create (POST
+// /tags), rename (PATCH /tags/:tagId), delete (DELETE /tags/:tagId). All three
+// resolve the same tags service as REST + MCP, so a block surfaces the SAME
+// plain reason (dec-3). On a non-2xx the server returns `{ error: <reason> }`
+// (error-handler.ts) — we extract that reason and throw it verbatim so the
+// dialog can show the block inline and disable its confirm.
+
+/** A tag as `scope::value`/flat string, or the already-split structured form.
+ *  Both are accepted by the curation routes (parseCurationTagBody). */
+export type TagInput = string | { scope: string | null; value: string };
+
+function tagBody(input: TagInput): string {
+  return JSON.stringify(
+    typeof input === 'string' ? { tag: input } : { scope: input.scope, value: input.value },
+  );
+}
+
+/** Pull the server's plain-reason message off a non-2xx curation response. The
+ *  curation routes answer `{ error: <human message> }`; fall back to the raw
+ *  body, then to a status-coded default, so the UI always has something to show. */
+async function tagErrorMessage(res: Response, fallback: string): Promise<string> {
+  const text = await res.text().catch(() => '');
+  if (!text) return fallback;
+  try {
+    const parsed = JSON.parse(text) as { error?: string; message?: string };
+    return parsed.error || parsed.message || text;
+  } catch {
+    return text;
+  }
+}
+
+/**
+ * Mint a NEW catalogue tag (spec-418 dec-7). POST /api/docs/tags. Returns the
+ * created `Tag`. Blocked ONLY by the duplicate-name guard (case-insensitive,
+ * dec-8/ac-29) — a brand-new tag is on no Spec, so the per-scope exclusivity
+ * block can never apply. On a duplicate (or any non-2xx) throws an Error whose
+ * message is the server's plain reason (`A tag named "…" already exists`).
+ */
+export async function createCatalogueTag(input: TagInput): Promise<Tag> {
+  const res = await fetchWithRetry(`${tBase()}/docs/tags`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: tagBody(input),
+  });
+  if (!res.ok) {
+    throw new Error(await tagErrorMessage(res, `Failed to create tag: ${res.status}`));
+  }
+  return res.json();
+}
+
+/**
+ * Rename a catalogue tag's scope/value (spec-418). PATCH /api/docs/tags/:tagId.
+ * The new name is reflected on EVERY Spec carrying it. Returns the updated `Tag`.
+ * A blocked rename — duplicate (case-insensitive) OR scope-exclusivity — throws
+ * an Error carrying the server's plain reason, with NO change made (dec-3).
+ */
+export async function renameCatalogueTag(tagId: string, input: TagInput): Promise<Tag> {
+  const res = await fetchWithRetry(`${tBase()}/docs/tags/${tagId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: tagBody(input),
+  });
+  if (!res.ok) {
+    throw new Error(await tagErrorMessage(res, `Failed to rename tag: ${res.status}`));
+  }
+  return res.json();
+}
+
+/** The blast radius a delete removed — the tag was unlinked from `affectedDocIds`. */
+export interface DeletedTagResult {
+  removed: number;
+  affectedDocIds: string[];
+}
+
+/**
+ * Delete a catalogue tag (spec-418). DELETE /api/docs/tags/:tagId. The FK cascade
+ * unlinks it from every Spec; the Specs themselves are untouched. Never blocks.
+ * Returns the blast radius `{ removed, affectedDocIds }` so the caller can name
+ * the post-delete confirmation ("Deleted '…' from N Specs", ac-36).
+ */
+export async function deleteCatalogueTag(tagId: string): Promise<DeletedTagResult> {
+  const res = await fetchWithRetry(`${tBase()}/docs/tags/${tagId}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) {
+    throw new Error(await tagErrorMessage(res, `Failed to delete tag: ${res.status}`));
   }
   return res.json();
 }
@@ -339,4 +458,168 @@ export async function splitSection(sectionId: string): Promise<DocSection[]> {
     throw new Error(`Failed to split section: ${res.status}`);
   }
   return res.json();
+}
+
+// ── Document versioning (spec-448 t-6 REST surface) ─────────────────────────
+// Thin client for services/versioning.ts (t-2/t-3/t-4) via routes/versions.ts.
+// GET /docs/:id (fetchDoc above) is UNCHANGED by this surface — it keeps
+// resolving to the live primary with no version specified (ac-3); these calls
+// are strictly additive, reached only from the create-version dialog / version
+// switcher (t-8/t-9).
+
+/** The five artifact classes a version cut can choose to carry forward
+ *  (narrative sections always carry and are never a member of this set). */
+export const CARRY_FORWARD_CLASSES = ['decisions', 'acs', 'tasks', 'issues', 'comments'] as const;
+export type CarryForwardClass = (typeof CARRY_FORWARD_CLASSES)[number];
+
+export interface CreateVersionInput {
+  name: string;
+  carryForward: CarryForwardClass[];
+}
+
+/** A snapshot's task entry is the raw stored row — it carries none of
+ *  `Task`'s live-computed blocking fields (those come from the doc's
+ *  blocking graph at read time, not from the frozen snapshot). */
+export type VersionSnapshotTask = Omit<Task, 'blocked' | 'blockedByDecisions' | 'blockedByTasks'>;
+
+/** The full artifact graph one version snapshot captures — mirrors the
+ *  server's `ArtifactSnapshot` (services/versioning.ts). */
+export interface ArtifactVersionSnapshot {
+  sections: DocSection[];
+  decisions: Decision[];
+  acs: AcWithVerification['ac'][];
+  tasks: VersionSnapshotTask[];
+  issues: Issue[];
+  /** Each comment carries the doc's `version` that was active when it was
+   *  originally written (ac-24) — lets "view as-of vK" render vK's comments
+   *  correctly even though comments have no dedicated version column. */
+  comments: Array<Comment & { versionAtWrite: number }>;
+}
+
+/** One row from `document_versions` — an immutable cut (ac-1, ac-2) or a
+ *  rollback's restore cut (`restoredFromVersion` set, ac-22). */
+export interface DocumentVersionRow {
+  id: string;
+  memexId: string;
+  docId: string;
+  versionNumber: number;
+  name: string;
+  checksum: string;
+  snapshot: ArtifactVersionSnapshot;
+  restoredFromVersion: number | null;
+  actorUserId: string | null;
+  actorName: string | null;
+  channel: string | null;
+  createdAt: string;
+}
+
+/** Lightweight projection for the version-history list/switcher — omits the
+ *  (potentially large) snapshot payload. */
+export interface VersionSummary {
+  versionNumber: number;
+  name: string;
+  createdAt: string;
+  actorName: string | null;
+  restoredFromVersion: number | null;
+}
+
+/** One side of a diff request: a concrete cut version, or the live primary
+ *  (ac-26 — the version switcher can compare ANY two versions, including the
+ *  doc's current working state). */
+export type SnapshotToken = number | 'primary';
+
+export interface VersionOrPrimarySnapshot {
+  version: SnapshotToken;
+  /** null for the live "primary" side — it has no `document_versions` row of
+   *  its own until it's next cut. */
+  name: string | null;
+  createdAt: string | null;
+  restoredFromVersion: number | null;
+  checksum: string;
+  snapshot: ArtifactVersionSnapshot;
+}
+
+export interface VersionDiffData {
+  from: VersionOrPrimarySnapshot;
+  to: VersionOrPrimarySnapshot;
+}
+
+/** Cut a new version of a Spec (or any doc type, ac-34). Returns the newly
+ *  created `document_versions` row. POST /api/.../versions/doc/:docId. */
+export async function createVersion(
+  docId: string,
+  input: CreateVersionInput,
+): Promise<DocumentVersionRow> {
+  const res = await fetchWithRetry(`${tBase()}/versions/doc/${docId}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(text || `Failed to create version: ${res.status}`);
+  }
+  return res.json();
+}
+
+/** List every cut version of a doc, newest first — the version-switcher /
+ *  history surface. GET /api/.../versions/doc/:docId. */
+export async function listVersions(docId: string): Promise<VersionSummary[]> {
+  return fetchJsonRaw<VersionSummary[]>(fetchWithRetry, `${tBase()}/versions/doc/${docId}`);
+}
+
+/** View a specific frozen version as-of that cut (ac-4, ac-18, ac-25).
+ *  GET /api/.../versions/doc/:docId/:versionNumber. */
+export async function getVersionAsOf(
+  docId: string,
+  versionNumber: number,
+): Promise<DocumentVersionRow> {
+  return fetchJsonRaw<DocumentVersionRow>(
+    fetchWithRetry,
+    `${tBase()}/versions/doc/${docId}/${versionNumber}`,
+    undefined,
+    {
+      errorFactory: (status) => {
+        if (status === 404) {
+          return new NotFoundError(`Version ${versionNumber} not found for document ${docId}`);
+        }
+        return new Error(`Failed to fetch version: ${status}`);
+      },
+    },
+  );
+}
+
+/** Roll back the doc's live content to a prior version's snapshot. Auto-
+ *  freezes the pre-rollback state first (ac-20) and returns the newly
+ *  materialised `document_versions` row (`restoredFromVersion` set, ac-22).
+ *  POST /api/.../versions/doc/:docId/rollback. */
+export async function rollbackVersion(
+  docId: string,
+  sourceVersion: number,
+): Promise<DocumentVersionRow> {
+  const res = await fetchWithRetry(`${tBase()}/versions/doc/${docId}/rollback`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sourceVersion }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(text || `Failed to roll back: ${res.status}`);
+  }
+  return res.json();
+}
+
+/** The two snapshots to diff (ac-6, ac-26) — either side may be a concrete
+ *  version number or `'primary'` (the live current state).
+ *  GET /api/.../versions/doc/:docId/diff?from=&to=. */
+export async function getVersionDiffData(
+  docId: string,
+  from: SnapshotToken,
+  to: SnapshotToken,
+): Promise<VersionDiffData> {
+  const params = new URLSearchParams({ from: String(from), to: String(to) });
+  return fetchJsonRaw<VersionDiffData>(
+    fetchWithRetry,
+    `${tBase()}/versions/doc/${docId}/diff?${params.toString()}`,
+  );
 }

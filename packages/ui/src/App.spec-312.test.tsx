@@ -11,13 +11,13 @@ import type { SessionPayload } from './api/client';
 // chrome and data-fetching pages are stubbed to sentinels so the test isolates the
 // routing decision, not the screens.
 //
-//   ac-1  (scope) — / routes an authenticated, email-verified user to /home regardless
-//                   of onboarding/identity state.
+//   ac-1  (scope) — RETIRED by spec-461: / no longer routes to /home; every user lands
+//                   on the Specs board. (was: / routes to /home regardless of state.)
 //   ac-3  (scope) — an incomplete-onboarding user is never force-redirected back to
 //                   onboarding when navigating to Specs or elsewhere.
 //   ac-6  (scope) — an unverified user is still blocked by the email gate.
-//   ac-7  (impl)  — RootRedirect, needsOnboarding=true → /home.
-//   ac-8  (impl)  — RootRedirect, needsOnboarding=false → /home.
+//   ac-7  (impl)  — RETIRED by spec-461 (was: needsOnboarding=true → /home).
+//   ac-8  (impl)  — RETIRED by spec-461 (was: needsOnboarding=false → /home).
 //   ac-9  (impl)  — a needsOnboarding user reaches a tenant route (gate at 172 gone).
 //   ac-10 (impl)  — a needsOnboarding user reaches a FlatShell flat route (bounce gone).
 //   ac-14 (impl)  — needsOnboarding does not change routing (true and false land same).
@@ -38,6 +38,7 @@ function makeSession(opts: {
       name: 'Alice',
       status: 'active',
       emailVerified: opts.emailVerified ?? true,
+      videoWelcomedAt: new Date(), // spec-444: suppress welcome-video gate so tests isolate routing logic
     },
     memberships: [
       {
@@ -102,10 +103,10 @@ vi.mock('./pages/Onboarding', () => ({
   Onboarding: () => <div data-testid="onboarding-page">legacy onboarding</div>,
 }));
 
-// spec-421 dec-5 NARROWED spec-312 dec-1: RootRedirect now reads journey-state and sends
-// GRADUATED users to the Specs board. spec-312's surviving truth — an authenticated, NOT-yet-
-// graduated user lands on /home regardless of the legacy needsOnboarding bit — holds with a
-// not-graduated read. The graduated→Specs behaviour is covered in App.onboarding-home-gate.test.tsx.
+// spec-461 dec-1 RETIRED spec-312 dec-1's universal /home landing: RootRedirect now sends
+// every authenticated user to the Specs board (never /home). spec-312's surviving truth —
+// routing never reads the legacy needsOnboarding bit (ac-14) — still holds: both onboarding
+// states land in the same place. The landing target is owned by App.spec-461.test.tsx.
 vi.mock('./api/journey', async () => {
   const real = await vi.importActual<typeof import('./api/journey')>('./api/journey');
   return {
@@ -148,37 +149,27 @@ function renderAt(path: string) {
 
 beforeEach(() => {
   vi.stubEnv('VITE_GOOGLE_CLIENT_ID', 'test-client-id');
+  sessionStorage.setItem('welcomeVideoDismissed', '1'); // spec-444: suppress gate so tests isolate routing
 });
 afterEach(() => {
   vi.unstubAllEnvs();
+  sessionStorage.removeItem('welcomeVideoDismissed');
 });
 
-describe('spec-312 t-1: universal /home landing (dec-1)', () => {
-  it('ac-1 / ac-8: an email-verified, already-onboarded user visiting / lands on /home', async () => {
-    tagAc(AC(1));
-    tagAc(AC(8));
-    mockSession = makeSession({ needsOnboarding: false });
-    renderAt('/');
-    expect(await screen.findByTestId('home-canvas-page')).toBeInTheDocument();
-    expect(screen.queryByTestId('specs-page')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('onboarding-page')).not.toBeInTheDocument();
-  });
-
-  it('ac-1 / ac-7: an email-verified, NOT-yet-onboarded user visiting / lands on /home', async () => {
-    tagAc(AC(1));
-    tagAc(AC(7));
-    mockSession = makeSession({ needsOnboarding: true });
-    renderAt('/');
-    expect(await screen.findByTestId('home-canvas-page')).toBeInTheDocument();
-    expect(screen.queryByTestId('onboarding-page')).not.toBeInTheDocument();
-  });
-
-  it('ac-14: needsOnboarding does not change where / lands (true and false both → /home)', async () => {
+// spec-461 dec-1 RETIRED spec-312's universal /home landing (ac-1, ac-7, ac-8): no
+// authenticated user is auto-routed to /home any more — everyone lands on their Specs
+// board (Home is reachable only by explicit nav). Those tests are gone; the landing
+// target is owned by App.spec-461.test.tsx. spec-312 ac-14's surviving truth — routing
+// never reads needsOnboarding — still holds: both onboarding states land in the SAME
+// place, now the Specs board.
+describe('spec-312 t-1: needsOnboarding never changes the landing (dec-1 / ac-14)', () => {
+  it('ac-14: needsOnboarding does not change where / lands (true and false both → the Specs board)', async () => {
     tagAc(AC(14));
     for (const needsOnboarding of [true, false]) {
       mockSession = makeSession({ needsOnboarding });
       const { unmount } = renderAt('/');
-      expect(await screen.findByTestId('home-canvas-page')).toBeInTheDocument();
+      expect(await screen.findByTestId('specs-page')).toBeInTheDocument();
+      expect(screen.queryByTestId('home-canvas-page')).not.toBeInTheDocument();
       unmount();
     }
   });

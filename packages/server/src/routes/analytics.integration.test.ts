@@ -261,7 +261,7 @@ describe("GET /analytics/ac-verification", () => {
     await mkAc(4);
     await mkAc(5, "superseded");
 
-    // Latest emissions, keyed by canonical ac_uid under THIS memex's slugs:
+    // Latest emissions, keyed by canonical subject_ref under THIS memex's slugs:
     // ac-1 all green (verified), ac-2 green+red (failing), ac-3/ac-4 silent.
     const a = await db.select().from(memexes).where(inArray(memexes.id, [memexA]));
     const ns = await db.select().from(namespaces).where(inArray(namespaces.id, [a[0].namespaceId]));
@@ -269,7 +269,7 @@ describe("GET /analytics/ac-verification", () => {
     const emit = (acN: number, test: string, status: string) =>
       db.insert(testEventLatest).values({
         memexId: memexA,
-        acUid: `${prefix}/ac-${acN}`,
+        subjectRef: `${prefix}/ac-${acN}`,
         testIdentifier: test,
         latestStatus: status,
         latestRunAt: new Date(),
@@ -318,7 +318,7 @@ describe("GET /analytics/acs-over-time and /analytics/test-run-volume", () => {
     const emit = (acN: number, status: string, at: string, hidden = false) =>
       db.insert(testEvents).values({
         memexId: m.memexId,
-        acUid: `${prefix}/ac-${acN}`,
+        subjectRef: `${prefix}/ac-${acN}`,
         status,
         testIdentifier: `t-${acN}`,
         hidden,
@@ -336,13 +336,13 @@ describe("GET /analytics/acs-over-time and /analytics/test-run-volume", () => {
     // spec-398: the first-verified curve now reads the durable ac_first_verified
     // snapshot (retention deletes the oldest pass from test_events), not
     // min(created_at) over the log. Seed it the way migration 0110 backfills:
-    // earliest NON-hidden pass per ac_uid.
+    // earliest NON-hidden pass per subject_ref.
     await db.execute(sql`
-      INSERT INTO ac_first_verified (ac_uid, first_verified_at)
-      SELECT ac_uid, min(created_at) FROM test_events
-      WHERE ac_uid LIKE ${prefix + "/%"} AND status = 'pass' AND hidden = false
-      GROUP BY ac_uid
-      ON CONFLICT (ac_uid) DO UPDATE
+      INSERT INTO ac_first_verified (subject_ref, first_verified_at)
+      SELECT subject_ref, min(created_at) FROM test_events
+      WHERE subject_ref LIKE ${prefix + "/%"} AND status = 'pass' AND hidden = false
+      GROUP BY subject_ref
+      ON CONFLICT (subject_ref) DO UPDATE
         SET first_verified_at = LEAST(ac_first_verified.first_verified_at, EXCLUDED.first_verified_at)
     `);
 
@@ -379,7 +379,7 @@ describe("GET /analytics/test-signal-pulse", () => {
     const emitNow = (acN: number, status: string, hidden = false) =>
       db.insert(testEvents).values({
         memexId: m.memexId,
-        acUid: `${prefix}/ac-${acN}`,
+        subjectRef: `${prefix}/ac-${acN}`,
         status,
         testIdentifier: `t-${acN}`,
         hidden,

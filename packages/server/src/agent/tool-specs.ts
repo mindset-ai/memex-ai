@@ -49,6 +49,7 @@ export type {
 // ToolSpec arrays into the single `toolSpecs` catalogue (std-12).
 import {
   docsTools,
+  tagsTools,
   sectionsTools,
   decisionsTools,
   acsTools,
@@ -61,6 +62,7 @@ import {
   standardsTools,
   facetsTools,
   integrationsTools,
+  skillsTools,
 } from "./handlers/index.js";
 // spec-360: the scaffold-assistant authoring tool (propose_scaffold_change).
 // Lives in its own handler module like the other domains, but is AGENT-ONLY
@@ -89,6 +91,9 @@ export const AGENT_ONLY_SERVER_TOOLS: ReadonlySet<string> = new Set([
 
 export const toolSpecs: ToolSpec[] = [
   ...docsTools,
+  // spec-418 t-4: tag-catalogue curation (create_tag / rename_tag / delete_tag) —
+  // thin wrappers over the same services/tags.ts curation functions REST calls.
+  ...tagsTools,
   ...sectionsTools,
   ...decisionsTools,
   ...acsTools,
@@ -527,6 +532,12 @@ export const toolSpecs: ToolSpec[] = [
 
 
   ...integrationsTools,
+
+  // ── Skills (spec-300) ─────────────────────────────────────
+  // list_skills / get_skill / verb-dispatched update_skill — a thin adapter over
+  // the Skills service (services/skills). std-16: mirrored in the @memex/shared
+  // manifest, held in lockstep by the b-67 parity test.
+  ...skillsTools,
 
   // ── Scaffold assistant (spec-360) ─────────────────────────
   // propose_scaffold_change — AGENT-ONLY (see AGENT_ONLY_SERVER_TOOLS): in the

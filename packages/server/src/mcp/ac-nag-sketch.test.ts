@@ -73,6 +73,8 @@ function makeSpecDoc(overrides: Partial<Doc> = {}): Doc & { sections: DocSection
     handle: "spec-121",
     title: "AC nag spec",
     docType: "spec",
+    description: null,
+    skillCapabilities: null,
     status: "build",
     parentDocId: null,
     createdByUserId: null,
@@ -88,6 +90,7 @@ function makeSpecDoc(overrides: Partial<Doc> = {}): Doc & { sections: DocSection
     checkedOutBy: null,
     checkedOutAt: null,
     checkedOutThread: null,
+    version: 1,
     ...overrides,
     sections: [
       {
@@ -102,6 +105,7 @@ function makeSpecDoc(overrides: Partial<Doc> = {}): Doc & { sections: DocSection
         position: 1,
         status: "active",
         previousStatus: null,
+        retiredAtVersion: null,
         createdAt: baseDate,
         updatedAt: baseDate,
         actorUserId: null,

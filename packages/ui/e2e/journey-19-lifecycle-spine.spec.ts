@@ -47,6 +47,7 @@ import {
   seedSpecInMemex,
   seedOpenDecision,
   signupWithToken,
+  dismissWelcomeVideo,
   emitAcEvents,
 } from "./helpers/index.js";
 
@@ -256,18 +257,21 @@ test(
     ).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText(email)).toBeVisible();
 
-    // Continue → spec-305 dec-2: needsOnboarding routes the identity-unconfirmed new user
-    // to /home. spec-433: the identity step is removed; the user lands directly on
-    // create-spec (server returns 'identity' but clampToVisible maps it forward to
-    // 'create-spec' as FIRST_STEP_ID).
+    // Continue — spec-441: the user has no name, so the name-capture gate fires before
+    // they reach the app. The user is intercepted at /onboarding and fills in a name.
     await page.getByRole("button", { name: /Continue to your Memex/ }).click();
 
-    // spec-433: no identity form — the user lands directly on create-spec.
-    await expect(page.getByTestId("journey-step-create-spec")).toBeVisible({ timeout: 15_000 });
+    await expect(page).toHaveURL(/\/onboarding/, { timeout: 15_000 });
+    await page.getByPlaceholder("Your display name").fill("Spine User");
+    await page.getByRole("button", { name: /^Continue$/ }).click();
+    // spec-444: dismiss welcome video gate that fires for new users after name capture.
+    await dismissWelcomeVideo(page);
 
-    // The new user can now reach their personal-memex Specs board (the onboarding wall
-    // is gone, spec-312) — as the NEW user (sidebar identity shows `email`), never
-    // dev@memex.ai. `/` lands on /home now, so navigate to the Specs board explicitly.
+    // spec-461: after naming, the user lands directly on their personal-memex Specs board
+    // (the automatic /home landing was retired; Home is reachable only by explicit nav).
+    await expect(page).toHaveURL(/\/specs(\?|#|$)/, { timeout: 15_000 });
+
+    // Navigate to the personal-memex Specs board as the NEW user (not dev@memex.ai).
     await gotoSpecsBoard(page, email);
     // Use .first() — the email appears in both the sidebar user button and demo-spec metadata rows.
     // The sidebar user button is first in DOM order and is the identity proof we care about.

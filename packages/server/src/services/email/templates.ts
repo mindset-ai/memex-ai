@@ -12,11 +12,8 @@ const BRAND_CORAL = "#FC4F64";
 const BRAND_SKY = "#0C9FE3";
 const BRAND_MUTED = "#6B7280";
 const BRAND_BORDER = "#E5E7EB";
-const BRAND_LINK = "#CA1A73";
-const CTA_GRADIENT = "linear-gradient(135deg, #CA1A73 0%, #FC4F64 100%)";
 const FONT_STACK =
   "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
-const MONO_STACK = "'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace";
 
 function escapeHtml(value: string): string {
   return value
@@ -27,15 +24,37 @@ function escapeHtml(value: string): string {
     .replace(/'/g, "&#39;");
 }
 
+// spec-226 dec-2 — reusable layout primitives the activation/welcome emails need.
+export interface EmailStep {
+  label: string; // e.g. "// Step 1"
+  title: string;
+  body: string;
+}
+export interface EmailResource {
+  title: string;
+  description: string;
+  url: string;
+}
+
 interface RenderInput {
   preheader: string;
-  eyebrow: string;
   heading: string;
   // Interpreted as HTML — caller must escape any dynamic values it interpolates.
   bodyParagraphs: string[];
   ctaLabel: string;
   ctaUrl: string;
   footerNote: string;
+  // Optional layout blocks (spec-226 dec-2). Absent → not rendered (the existing
+  // 6 emails set neither and render exactly as before).
+  steps?: EmailStep[];
+  resources?: EmailResource[];
+  // Body paragraphs rendered AFTER the CTA, before the resources block — the
+  // "we'll send you a few emails…" prose + sign-off the activation/welcome emails
+  // carry. Absent → nothing rendered.
+  afterCtaParagraphs?: string[];
+  // The auth emails show a "paste this link" line; activation/welcome emails don't.
+  // Defaults to true so the existing 6 emails are unchanged.
+  showPasteLink?: boolean;
 }
 
 // Shared plain-text body: intro paragraph(s), optional URL, closing, signoff.
@@ -47,8 +66,41 @@ function renderEmailText(input: {
 }): string {
   const parts = [...input.intro];
   if (input.url) parts.push(input.url);
-  parts.push(input.closing, "Memex.AI");
+  parts.push(input.closing, "Memex AI");
   return parts.join("\n\n");
+}
+
+// spec-226 dec-2 — the step block ("// Step 1" label / title / body), stacked
+// vertically. Inline styles, no imagery. Returns "" when there are no steps.
+export function renderSteps(steps?: EmailStep[]): string {
+  if (!steps?.length) return "";
+  return steps
+    .map(
+      (s) =>
+        `<div style="margin:20px 0;">` +
+        `<div style="font-family:${FONT_STACK};font-size:15px;font-weight:700;color:${BRAND_CORAL};">${escapeHtml(s.label)}</div>` +
+        `<div style="margin:6px 0 2px;font-size:16px;font-weight:600;color:${BRAND_INK};">${escapeHtml(s.title)}</div>` +
+        `<div style="color:${BRAND_INK};font-size:15px;line-height:1.6;">${escapeHtml(s.body)}</div>` +
+        `</div>`,
+    )
+    .join("");
+}
+
+// spec-226 dec-2 — the "resources" block: a TABLE of title-link + description
+// rows (a table construct, NOT image buttons, per the Postmark constraints).
+// Returns "" when there are no resources.
+export function renderResources(resources?: EmailResource[]): string {
+  if (!resources?.length) return "";
+  const rows = resources
+    .map(
+      (r) =>
+        `<tr><td style="padding:12px 0;border-top:1px solid ${BRAND_BORDER};">` +
+        `<a href="${escapeHtml(r.url)}" style="color:${BRAND_CORAL};font-size:15px;font-weight:600;text-decoration:none;">${escapeHtml(r.title)}</a>` +
+        `<div style="margin-top:2px;color:${BRAND_MUTED};font-size:13px;line-height:1.5;">${escapeHtml(r.description)}</div>` +
+        `</td></tr>`,
+    )
+    .join("");
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:24px 0 0;">${rows}</table>`;
 }
 
 function renderEmailHtml(input: RenderInput): string {
@@ -60,6 +112,16 @@ function renderEmailHtml(input: RenderInput): string {
     .join("");
 
   const safeUrl = escapeHtml(input.ctaUrl);
+  const stepsHtml = renderSteps(input.steps);
+  const resourcesHtml = renderResources(input.resources);
+  const pasteLink = (input.showPasteLink ?? true)
+    ? `<p style="margin:16px 0 0;color:${BRAND_MUTED};font-size:13px;line-height:1.5;">Or paste this link into your browser:<br><a href="${safeUrl}" style="color:${BRAND_SKY};word-break:break-all;">${safeUrl}</a></p>`
+    : "";
+  const afterCta = (input.afterCtaParagraphs ?? [])
+    .map(
+      (p) => `<p style="margin:16px 0 0;color:${BRAND_INK};font-size:15px;line-height:1.6;">${p}</p>`,
+    )
+    .join("");
 
   return `<!doctype html>
 <html lang="en">
@@ -77,19 +139,20 @@ function renderEmailHtml(input: RenderInput): string {
         <td align="center" style="padding:40px 16px;">
           <table role="presentation" width="560" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;width:100%;background-color:#FFFFFF;border:1px solid ${BRAND_BORDER};border-radius:12px;overflow:hidden;">
             <tr>
-              <td width="4" style="width:4px;background:${CTA_GRADIENT};font-size:0;line-height:0;">&nbsp;</td>
               <td style="padding:32px 40px;">
-                <div style="font-size:20px;font-weight:700;letter-spacing:-0.01em;color:${BRAND_INK};">Memex<span style="font-weight:500;color:${BRAND_CORAL};">.AI</span></div>
-                <div style="margin:28px 0 10px;font-family:${MONO_STACK};font-size:11px;font-weight:600;letter-spacing:0.14em;text-transform:uppercase;color:${BRAND_SKY};">${escapeHtml(input.eyebrow)}</div>
+                <div style="margin:0 0 20px;font-size:20px;font-weight:700;letter-spacing:-0.01em;color:${BRAND_INK};">Memex AI</div>
                 <h1 style="margin:0 0 16px;color:${BRAND_INK};font-size:22px;line-height:1.3;font-weight:600;letter-spacing:-0.01em;">${escapeHtml(input.heading)}</h1>
                 ${paragraphs}
+                ${stepsHtml}
                 <div style="margin:24px 0 8px;">
-                  <a href="${safeUrl}" style="display:inline-block;padding:12px 24px;background:${CTA_GRADIENT};color:#FFFFFF;font-size:15px;font-weight:600;text-decoration:none;border-radius:8px;">${escapeHtml(input.ctaLabel)}</a>
+                  <a href="${safeUrl}" style="display:inline-block;padding:12px 24px;background:${BRAND_CORAL};color:#FFFFFF;font-size:15px;font-weight:600;text-decoration:none;border-radius:8px;">${escapeHtml(input.ctaLabel)}</a>
                 </div>
-                <p style="margin:16px 0 0;color:${BRAND_MUTED};font-size:13px;line-height:1.5;">Or paste this link into your browser:<br><a href="${safeUrl}" style="color:${BRAND_LINK};word-break:break-all;">${safeUrl}</a></p>
+                ${pasteLink}
+                ${afterCta}
+                ${resourcesHtml}
                 <div style="margin:28px 0 0;padding-top:20px;border-top:1px solid ${BRAND_BORDER};">
                   <p style="margin:0;color:${BRAND_MUTED};font-size:12px;line-height:1.5;">${escapeHtml(input.footerNote)}</p>
-                  <p style="margin:8px 0 0;color:${BRAND_MUTED};font-size:12px;line-height:1.5;">— Memex<span style="color:${BRAND_CORAL};">.AI</span> · <a href="https://memex.ai" style="color:${BRAND_MUTED};">memex.ai</a></p>
+                  <p style="margin:8px 0 0;color:${BRAND_MUTED};font-size:12px;line-height:1.5;"><a href="https://memex.ai" style="color:${BRAND_MUTED};">memex.ai</a></p>
                 </div>
               </td>
             </tr>
@@ -127,7 +190,6 @@ export function buildDomainVerificationEmail(
 
   const html = renderEmailHtml({
     preheader: `${input.orgName} wants to claim ${input.domain} on Memex.AI.`,
-    eyebrow: "Domain verification",
     heading: `Verify ${input.domain} for Memex.AI`,
     bodyParagraphs: [
       `<strong>${escapeHtml(input.orgName)}</strong> wants to claim <strong>${escapeHtml(input.domain)}</strong> on Memex.AI.`,
@@ -155,19 +217,18 @@ export function buildVerificationEmail(input: VerificationEmailInput): EmailMess
   const text = renderEmailText({
     intro: [`Confirm this email to finish creating your Memex:`],
     url: input.verifyUrl,
-    closing: `Link expires in 24 hours. If this wasn't you, ignore this email.`,
+    closing: `The link expires in 24 hours. You're getting this because this email was used to sign up for Memex.AI — if that wasn't you, you can safely ignore it.`,
   });
 
   const html = renderEmailHtml({
     preheader: "Confirm this email to finish creating your Memex.",
-    eyebrow: "Email verification",
     heading: "Confirm your email",
     bodyParagraphs: [
       `Confirm this email to finish creating your Memex. The link expires in 24 hours.`,
     ],
     ctaLabel: "Confirm email",
     ctaUrl: input.verifyUrl,
-    footerNote: `If this wasn't you, ignore this email — nothing will change.`,
+    footerNote: `You're getting this because this email was used to sign up for Memex.AI. If that wasn't you, you can safely ignore this message — the link expires on its own.`,
   });
 
   return {
@@ -185,6 +246,427 @@ export function buildVerificationEmail(input: VerificationEmailInput): EmailMess
   };
 }
 
+export interface WelcomeEmailInput {
+  to: string;
+  /** The app URL the CTA opens — derive from APP_BASE_URL so int/prod links differ. */
+  appUrl: string;
+  /** Recipient's first name; absent/empty → a graceful "Hi there," (spec-428 dec-1). */
+  firstName?: string;
+  /** Sign-off name; the concrete person comes from config (std-31), not hardcoded. */
+  senderName?: string;
+}
+
+// spec-428 — the day-one welcome (Option 3). Renders through the shared renderer
+// using the step + resources primitives (spec-226 dec-2). Transactional stream,
+// always sends; logged under the stable `welcome` key (dec-7). The CTA + resource
+// blocks are table/inline-CSS constructs (no imagery) per the Postmark constraints.
+export function buildWelcomeEmail(input: WelcomeEmailInput): EmailMessage {
+  const firstName = input.firstName?.trim();
+  const greeting = firstName ? `Hi ${firstName},` : "Hi there,";
+  // spec-451 ac-5 — sign-off on two lines ("Best," / name). Two forms: \n for the
+  // plain-text body, <br> for the HTML (afterCtaParagraphs is inserted un-escaped).
+  const senderName = input.senderName?.trim() || "The Memex AI team";
+  const signOffText = `Best,\n${senderName}`;
+  const signOffHtml = `Best,<br>${escapeHtml(senderName)}`;
+
+  const value =
+    "Your agents are about to start building from what you actually decided, not what they guessed. Every decision is captured as you go, so nothing important gets buried in a chat thread or quietly chosen for you mid-build. And done means verified, not just claimed. No more vibe coding.";
+  const afterCtaText =
+    "We'll send you a few short emails over the next couple of weeks, and there are some resources below to get you started. If you get stuck, just reply here or find us in #help on Discord.";
+
+  const steps: EmailStep[] = [
+    {
+      label: "// Step 1",
+      title: "Connect to the Memex MCP",
+      body: "The app shows you exactly how to connect, whatever coding agent you're using.",
+    },
+    {
+      label: "// Step 2",
+      title: "Create your first Spec",
+      body: "Bring an idea and we'll help you shape it, start to finish.",
+    },
+  ];
+
+  const resources: EmailResource[] = [
+    {
+      title: "Understanding Memex AI",
+      description: "The 10-minute read on why it exists and how it works.",
+      url: "https://www.memex.ai/understanding-memex.pdf",
+    },
+    {
+      title: "Documentation",
+      description: "The complete reference, from getting started to the deep technical detail.",
+      url: "https://www.memex.ai/docs",
+    },
+    {
+      title: "Community",
+      description: "Say hello on Discord, whether you're weighing Memex up or already building.",
+      url: "https://discord.com/invite/WJfBYG9eV",
+    },
+  ];
+
+  const text = renderEmailText({
+    intro: [
+      greeting,
+      "Welcome to Memex AI.",
+      value,
+      "Two steps to get there.",
+      "// Step 1 — Connect to the Memex MCP: The app shows you exactly how to connect, whatever coding agent you're using.",
+      "// Step 2 — Create your first Spec: Bring an idea and we'll help you shape it, start to finish.",
+      afterCtaText,
+      "Resources: Understanding Memex AI (https://www.memex.ai/understanding-memex.pdf), Documentation (https://www.memex.ai/docs), Community (Discord).",
+    ],
+    url: input.appUrl,
+    closing: signOffText,
+  });
+
+  const html = renderEmailHtml({
+    preheader: "Welcome to Memex AI — two steps to your first Spec.",
+    heading: "Build what you decided. Not what your agent guessed.",
+    bodyParagraphs: [
+      escapeHtml(greeting),
+      "Welcome to Memex AI.",
+      escapeHtml(value),
+      "<strong>Two steps to get there.</strong>",
+    ],
+    steps,
+    ctaLabel: "Open Memex AI",
+    ctaUrl: input.appUrl,
+    showPasteLink: false,
+    afterCtaParagraphs: [escapeHtml(afterCtaText), signOffHtml],
+    resources,
+    footerNote: "You're getting this because you signed up for Memex AI, built by Mindset AI.",
+  });
+
+  return {
+    to: input.to,
+    subject: "Build what you decided. Not what your agent guessed.",
+    text,
+    html,
+    commsType: "welcome",
+  };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// spec-427 — activation & win-back emails (Slice A: pure render)
+// ──────────────────────────────────────────────────────────────────────────
+// Two lifecycle emails that recover stalled signups (dec-6: the code is the
+// canonical authoring source; s-2 mirrors this copy). Both render through the
+// SAME shared renderEmailHtml() using the spec-226 step/resources primitives —
+// no parallel/raw-HTML path, CTA + resources are table / inline-CSS constructs,
+// no imagery (ac-10). App deep-link CTAs come in as inputs derived from
+// APP_BASE_URL at the send site (dec-8), never a hardcoded host.
+//
+// These builders are PURE RENDER: no cohort/timing/send logic, no env reads. The
+// team-identity From + monitored Reply-To (dec-1) are applied at the send site
+// from EMAIL_ACTIVATION_FROM / EMAIL_ACTIVATION_REPLY_TO — identical to the
+// welcome (welcome-send.ts), NOT set in the builder (see spec-427 t-1 drift note).
+// commsType IS stamped here (static, send-independent): Slice B's dedup/cap counts
+// these stable keys in comms_log (ac-14 / dec-7) and never reaches back for copy.
+
+// Shared "Resources to get started" block — identical across both activation
+// emails (s-2). Rendered as a table, not image buttons (Postmark constraints).
+const ACTIVATION_RESOURCES: EmailResource[] = [
+  {
+    title: "Understanding Memex AI",
+    description: "The 10-minute read on why it exists and how it works.",
+    url: "https://www.memex.ai/understanding-memex.pdf",
+  },
+  {
+    title: "Documentation",
+    description: "The complete reference, from getting started to the deep technical detail.",
+    url: "https://www.memex.ai/docs",
+  },
+  {
+    title: "Community",
+    description: "Say hello on Discord, whether you're weighing Memex up or already building.",
+    url: "https://discord.com/invite/WJfBYG9eV",
+  },
+];
+
+function activationGreeting(firstName?: string): string {
+  const name = firstName?.trim();
+  return name ? `Hi ${name},` : "Hi there,";
+}
+
+// spec-451 ac-5 — sign-off on two lines (see buildWelcomeEmail). \n for the plain-text
+// body, <br> for the HTML (afterCtaParagraphs is inserted un-escaped).
+const ACTIVATION_SIGNOFF_TEXT = "Best,\nThe Memex AI team";
+const ACTIVATION_SIGNOFF_HTML = "Best,<br>The Memex AI team";
+const ACTIVATION_FOOTER =
+  "You're getting this because you signed up for Memex AI, built by Mindset AI.";
+
+export interface ConnectedInactiveEmailInput {
+  to: string;
+  /** Recipient's first name; absent/empty → a graceful "Hi there,". */
+  firstName?: string;
+  /** CTA "Create a spec" deep-link — derived from APP_BASE_URL at the send site (dec-8). */
+  createSpecUrl: string;
+  /** Link to the user's own Memex ("your Memex") — derived from APP_BASE_URL (dec-8). */
+  memexUrl: string;
+}
+
+// Email 1 — connected-but-inactive (MCP connected, no tool call, no Spec).
+// Subject "Memex is connected. Here's what to do next." · CTA "Create a spec".
+export function buildConnectedInactiveEmail(
+  input: ConnectedInactiveEmailInput,
+): EmailMessage {
+  const greeting = activationGreeting(input.firstName);
+  const afterCta1 =
+    "Memex will work with your agent to structure the work, and comes back with a Spec and the decisions it needs you to resolve. That's the moment it clicks.";
+  const afterCta2 = "Memex does not touch your code.";
+  const stuck = "If you get stuck, just reply here or find us in #help on Discord.";
+
+  const text = renderEmailText({
+    intro: [
+      greeting,
+      "Your Memex MCP is connected. The hard part is done.",
+      "The next step is to create your first Spec. Bring an idea and we'll help you shape it, start to finish. Not sure where to start? Click the button below and we'll guide you through step by step.",
+      afterCta1,
+      afterCta2,
+      `Watch your Spec come to life in your Memex: ${input.memexUrl}`,
+      stuck,
+    ],
+    url: input.createSpecUrl,
+    closing: ACTIVATION_SIGNOFF_TEXT,
+  });
+
+  const html = renderEmailHtml({
+    preheader: "Your Memex MCP is connected — create your first Spec.",
+    heading: "Your Memex MCP is connected. The hard part is done.",
+    bodyParagraphs: [
+      escapeHtml(greeting),
+      "The next step is to create your first Spec. Bring an idea and we'll help you shape it, start to finish. Not sure where to start? Click the button below and we'll guide you through step by step.",
+    ],
+    ctaLabel: "Create a spec",
+    ctaUrl: input.createSpecUrl,
+    showPasteLink: false,
+    afterCtaParagraphs: [
+      escapeHtml(afterCta1),
+      escapeHtml(afterCta2),
+      `Watch your Spec come to life in <a href="${escapeHtml(input.memexUrl)}" style="color:${BRAND_CORAL};">your Memex</a>.`,
+      escapeHtml(stuck),
+      ACTIVATION_SIGNOFF_HTML,
+    ],
+    resources: ACTIVATION_RESOURCES,
+    footerNote: ACTIVATION_FOOTER,
+  });
+
+  return {
+    to: input.to,
+    subject: "Memex is connected. Here's what to do next.",
+    text,
+    html,
+    // spec-427 ac-14 / dec-7: stable comms key — Slice B's dedup + two-per-cohort
+    // cap count this key in comms_log, never the subject line.
+    commsType: "activation.connected_inactive",
+  };
+}
+
+export interface SignedInDormantEmailInput {
+  to: string;
+  /** Recipient's first name; absent/empty → a graceful "Hi there,". */
+  firstName?: string;
+  /** CTA "Open Memex AI" target — derived from APP_BASE_URL at the send site (dec-8). */
+  appUrl: string;
+}
+
+// Email 2 — signed-in-but-dormant (signed in, identity complete, MCP never
+// connected). Subject "You're two steps from your first Spec" · CTA "Open Memex AI".
+export function buildSignedInDormantEmail(
+  input: SignedInDormantEmailInput,
+): EmailMessage {
+  const greeting = activationGreeting(input.firstName);
+  const value =
+    "Once you're in, your agents build from what you actually decided, not what they guessed. Every decision is captured as you go, so nothing important gets buried in a chat thread or quietly chosen for you mid-build. And done means verified, not just claimed. No more vibe coding.";
+  const afterCtaText =
+    "We'll send you a few short emails over the next few weeks, and there are some resources below to get you started. If you get stuck, just reply here or find us in #help on Discord.";
+  // spec-465: link "#help" to the Discord invite in the HTML body only (coral).
+  // escapeHtml leaves the literal "#help" untouched, so replacing it on the
+  // escaped string is safe; the plain-text body keeps "#help" as prose.
+  const afterCtaHtml = escapeHtml(afterCtaText).replace(
+    "#help",
+    `<a href="${DISCORD_INVITE_URL}" style="color:${BRAND_CORAL};text-decoration:none;">#help</a>`,
+  );
+
+  const steps: EmailStep[] = [
+    {
+      label: "// Step 1",
+      title: "Connect to the Memex MCP",
+      body: "The app shows you exactly how to connect, whatever coding agent you're using.",
+    },
+    {
+      label: "// Step 2",
+      title: "Create your first Spec",
+      body: "Bring an idea and we'll help you shape it, start to finish.",
+    },
+  ];
+
+  const text = renderEmailText({
+    intro: [
+      greeting,
+      "Getting Memex set up takes two simple steps.",
+      value,
+      "// Step 1 — Connect to the Memex MCP: The app shows you exactly how to connect, whatever coding agent you're using.",
+      "// Step 2 — Create your first Spec: Bring an idea and we'll help you shape it, start to finish.",
+      afterCtaText,
+    ],
+    url: input.appUrl,
+    closing: ACTIVATION_SIGNOFF_TEXT,
+  });
+
+  const html = renderEmailHtml({
+    preheader: "You're two steps from your first Spec.",
+    heading: "You're two steps from your first Spec",
+    bodyParagraphs: [
+      escapeHtml(greeting),
+      "Getting Memex set up takes two simple steps.",
+      escapeHtml(value),
+    ],
+    steps,
+    ctaLabel: "Open Memex AI",
+    ctaUrl: input.appUrl,
+    showPasteLink: false,
+    afterCtaParagraphs: [afterCtaHtml, ACTIVATION_SIGNOFF_HTML],
+    resources: ACTIVATION_RESOURCES,
+    footerNote: ACTIVATION_FOOTER,
+  });
+
+  return {
+    to: input.to,
+    subject: "You're two steps from your first Spec",
+    text,
+    html,
+    // spec-427 ac-14 / dec-7: stable comms key (see Email 1).
+    commsType: "activation.signed_in_dormant",
+  };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// spec-453 — "See it verified" + "Connect with people" (Slice A: pure render)
+// ──────────────────────────────────────────────────────────────────────────
+// Two more lifecycle touches in the same activation sequence as spec-427's two
+// emails and spec-428's welcome. PURE RENDER, like the spec-427 builders: no
+// trigger/timing/send/env logic here. Team-identity From/Reply-To + the broadcast
+// stream + suppression are applied at the send site by sendLifecycleEmail (dec-5),
+// NOT in the builder. commsType IS stamped here (static): the trigger (t-2) and the
+// Day-12 pass (t-5) dedup on these stable keys in comms_log (dec-6), never the subject.
+
+// The confirmed, permanent Discord invite (dec-8) — replaces the retired
+// www.memex.ai/discord placeholder. Same link the welcome/resources already use.
+const DISCORD_INVITE_URL = "https://discord.com/invite/WJfBYG9eV";
+
+export interface VerifiedMilestoneEmailInput {
+  to: string;
+  /** Recipient's first name; absent/empty → a graceful "Hi there,". */
+  firstName?: string;
+  /** CTA "Go to Memex AI" target — the user's Specs board, derived from APP_BASE_URL
+   *  at the send site. dec-2: GENERIC board, no deep-link to the triggering spec/AC. */
+  appUrl: string;
+}
+
+// spec-453 "See it verified" (dec-1/dec-2). The aha email: the first time a user's
+// own acceptance criterion goes green via a tagged test event (the trigger lives in
+// routes/test-events.ts — t-2; this is pure render). Generic/evergreen copy, no
+// per-send personalization beyond the greeting (dec-2). Copy mirrors s-2.
+export function buildVerifiedMilestoneEmail(
+  input: VerifiedMilestoneEmailInput,
+): EmailMessage {
+  const greeting = activationGreeting(input.firstName);
+  const prove = "Your agent says it's done. Now you can prove it.";
+  const para1 =
+    'Every decision you resolved turned into tasks with acceptance criteria attached, the specific, testable conditions that define "done" for that piece of work. Your agent doesn\'t just write the code, it runs the checks against those criteria and reports back.';
+  const para2 =
+    'When they go green in CI, you\'re not taking its word for it. You\'re watching the proof. No re-reading a diff hoping it\'s right, no "looks fine to me." Green means what you decided actually got built, and it\'s been verified, not assumed.';
+  const loop =
+    "That's the loop, closed: spec, decision, build, proof. However far you've got, that's the moment it starts paying for itself.";
+
+  const text = renderEmailText({
+    intro: [greeting, prove, para1, para2, loop],
+    url: input.appUrl,
+    closing: ACTIVATION_SIGNOFF_TEXT,
+  });
+
+  const html = renderEmailHtml({
+    preheader: "Every acceptance criterion, checked in CI, before anyone calls it finished.",
+    heading: "Green means it's actually done",
+    bodyParagraphs: [
+      escapeHtml(greeting),
+      `<strong>${escapeHtml(prove)}</strong>`,
+      escapeHtml(para1),
+      escapeHtml(para2),
+    ],
+    ctaLabel: "Go to Memex AI",
+    ctaUrl: input.appUrl,
+    showPasteLink: false,
+    afterCtaParagraphs: [escapeHtml(loop), ACTIVATION_SIGNOFF_HTML],
+    footerNote: ACTIVATION_FOOTER,
+  });
+
+  return {
+    to: input.to,
+    subject: "Green means it's actually done",
+    text,
+    html,
+    // spec-453 dec-6: stable comms key — the trigger (t-2) dedups on THIS, never the subject.
+    commsType: "activation.verified_milestone",
+  };
+}
+
+export interface ConnectPeopleEmailInput {
+  to: string;
+  /** Recipient's first name; absent/empty → a graceful "Hi there,". */
+  firstName?: string;
+}
+
+// spec-453 "Connect with people" (dec-7/dec-8). The closing Day-12 touch: no
+// pressure, point to the community. Pure render; the Day-12 select/dedup/send is
+// t-5, invoked by the shared scheduled endpoint (t-6). The only CTA is the confirmed
+// permanent Discord invite (dec-8). Copy mirrors s-3.
+export function buildConnectPeopleEmail(
+  input: ConnectPeopleEmailInput,
+): EmailMessage {
+  const greeting = activationGreeting(input.firstName);
+  const opener = "However far you've got.";
+  const para1 =
+    "It's been a little while since you joined Memex AI. Wherever you've got to, agent connected, first spec shipped, or not started yet, that's completely fine. No pressure here.";
+  const para2 =
+    "When you want a hand, the Discord is the easiest way in. Ask in #help, see how other teams run it, real people answer.";
+  const last =
+    "This is the last of your onboarding emails, so I'll leave you to it. The door's always open whenever you want to pick things up.";
+
+  const text = renderEmailText({
+    intro: [greeting, opener, para1, para2, last],
+    url: DISCORD_INVITE_URL,
+    closing: ACTIVATION_SIGNOFF_TEXT,
+  });
+
+  const html = renderEmailHtml({
+    preheader: "Real people, whenever you're stuck.",
+    heading: "You've run the loop. Don't run it alone.",
+    bodyParagraphs: [
+      escapeHtml(greeting),
+      `<strong>${escapeHtml(opener)}</strong>`,
+      escapeHtml(para1),
+      escapeHtml(para2),
+    ],
+    ctaLabel: "Join the Discord",
+    ctaUrl: DISCORD_INVITE_URL,
+    showPasteLink: false,
+    afterCtaParagraphs: [escapeHtml(last), ACTIVATION_SIGNOFF_HTML],
+    footerNote: ACTIVATION_FOOTER,
+  });
+
+  return {
+    to: input.to,
+    subject: "You've run the loop. Don't run it alone.",
+    text,
+    html,
+    // spec-453 dec-6: stable comms key — the Day-12 pass (t-5) dedups on THIS.
+    commsType: "activation.connect_people",
+  };
+}
+
 export interface MagicLinkEmailInput {
   to: string;
   loginUrl: string;
@@ -194,19 +676,18 @@ export function buildMagicLinkEmail(input: MagicLinkEmailInput): EmailMessage {
   const text = renderEmailText({
     intro: [`Your single-use sign-in link (expires in 15 minutes):`],
     url: input.loginUrl,
-    closing: `Didn't ask for this? Someone probably mistyped their email — no action needed.`,
+    closing: `You're getting this because someone requested a sign-in link for Memex.AI with this email. If it wasn't you, you can safely ignore this message — no one can sign in without the link above.`,
   });
 
   const html = renderEmailHtml({
     preheader: "Single-use sign-in link, expires in 15 minutes.",
-    eyebrow: "Sign-in link",
     heading: "Sign in to Memex.AI",
     bodyParagraphs: [
       `Your single-use sign-in link. It expires in 15 minutes.`,
     ],
     ctaLabel: "Sign in",
     ctaUrl: input.loginUrl,
-    footerNote: `Didn't ask for this? Someone probably mistyped their email — no action needed.`,
+    footerNote: `You're getting this because someone requested a sign-in link for Memex.AI with this email. If it wasn't you, you can safely ignore this message — no one can sign in without the link above.`,
   });
 
   return {
@@ -214,6 +695,11 @@ export function buildMagicLinkEmail(input: MagicLinkEmailInput): EmailMessage {
     subject: `Your Memex.AI sign-in link`,
     text,
     html,
+    // spec-442 ac-1/ac-8: stamp the precise auth comms type so the sign-in link is
+    // classified as 'magic_link' in comms_log — the type travels with the template
+    // (mirroring email_verification above), else recordEmailComm defaults it to
+    // 'transactional', which is reserved for genuine non-auth mail.
+    commsType: "magic_link",
   };
 }
 
@@ -245,7 +731,6 @@ export function buildWaitlistConfirmationEmail(
 
   const html = renderEmailHtml({
     preheader: `You're on the waitlist — Org sign-ups jump the queue.`,
-    eyebrow: "Waitlist",
     heading: `You're on the list, ${input.name}`,
     bodyParagraphs: [
       `Thanks for signing up. We'll reach out as soon as your spot opens up.`,
@@ -290,7 +775,6 @@ export function buildMcpCanonicalRefsSwitchEmail(
 
   const html = renderEmailHtml({
     preheader: "MCP tool surface switched to canonical refs — reload your client.",
-    eyebrow: "Heads up",
     heading: "Memex MCP tool surface updated",
     bodyParagraphs: [
       `The Memex.AI MCP tool surface has switched to <strong>canonical refs</strong>. Tool arguments now take a single <code>ref</code> string (e.g. <code>mindset/website-rewrite/briefs/b-1</code>) instead of UUIDs. Responses include <code>ref:</code> lines you can copy back into a follow-up call.`,
@@ -326,7 +810,6 @@ export function buildPasswordResetEmail(input: PasswordResetEmailInput): EmailMe
 
   const html = renderEmailHtml({
     preheader: "Reset your Memex.AI password.",
-    eyebrow: "Password reset",
     heading: "Reset your password",
     bodyParagraphs: [
       `Someone asked to reset your password. If that was you, pick a new one below. The link expires in 1 hour.`,
@@ -341,6 +824,11 @@ export function buildPasswordResetEmail(input: PasswordResetEmailInput): EmailMe
     subject: `Reset your Memex.AI password`,
     text,
     html,
+    // spec-442 ac-1/ac-8: stamp the precise auth comms type so the reset email is
+    // classified as 'password_reset' in comms_log — the type travels with the
+    // template (mirroring email_verification above), else recordEmailComm defaults
+    // it to 'transactional', which is reserved for genuine non-auth mail.
+    commsType: "password_reset",
   };
 }
 
@@ -375,7 +863,6 @@ export function buildMentionEmail(input: MentionEmailInput): EmailMessage {
 
   const html = renderEmailHtml({
     preheader: `${input.mentionerName} mentioned you in a comment on ${input.specLabel}.`,
-    eyebrow: "Comment mention",
     heading: `${escapeHtml(input.mentionerName)} mentioned you`,
     bodyParagraphs: [
       `<strong>${escapeHtml(input.mentionerName)}</strong> mentioned you in a comment on <strong>${escapeHtml(input.specLabel)}</strong>.`,
@@ -416,7 +903,6 @@ export function buildAssignmentEmail(input: AssignmentEmailInput): EmailMessage 
 
   const html = renderEmailHtml({
     preheader: `${input.assignerName} assigned you a comment to resolve on ${input.specLabel}.`,
-    eyebrow: "Comment assignment",
     heading: `${escapeHtml(input.assignerName)} assigned you a comment`,
     bodyParagraphs: [
       `<strong>${escapeHtml(input.assignerName)}</strong> assigned you a comment to resolve on <strong>${escapeHtml(input.specLabel)}</strong>.`,

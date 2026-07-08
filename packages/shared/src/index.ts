@@ -7,9 +7,6 @@ export {
   isForwardTransition,
   isBackwardTransition,
   shouldBlockForwardTransition,
-  // spec-189: the traffic-driven phase-advancement matrix (the single place
-  // the gated transition rules live — ac-3).
-  nextPhaseForTraffic,
   // spec-355 dry-1/dry-2: the canonical ordered phase array — single source of
   // `['draft','specify','build','verify','done']` for server + UI.
   PHASE_ORDER,
@@ -22,7 +19,7 @@ export type {
   ReadinessInput,
   OutstandingItem,
   SpecReadiness,
-  TrafficClass,
+  HomePhase,
 } from './spec-readiness.js';
 export { toolManifest } from './tool-manifest.js';
 export type { ToolManifestEntry } from './tool-manifest.js';
@@ -81,7 +78,10 @@ export {
   SPEC_SHAPE_MISSING_LENS_WARNING,
   BUILD_AC_NAG_PROSE,
   GET_PROMPT_PROSE,
+  // spec-464 dec-24: the phase-gating teaching catalog (prose home, std-15).
+  PHASE_GATING_CATALOG,
 } from './scaffold-data.js';
+export type { PhaseGatingCatalog, PhaseGateGroup } from './scaffold-data.js';
 // spec-111 t-9 — read-only agent block, injected by buildSystemBlocks when the
 // per-request readOnly flag is set. Lives in the scaffold model (b-68 dec-6),
 // not as a phases/*.md file.
@@ -107,6 +107,14 @@ export { SCAFFOLD_AGENT_GUIDANCE, SCAFFOLD_OPENING_TURN_SEED, scaffoldReviewEdit
 // spec-389 t-4 (dec-3): the shared cross-agent handoff contract (canonical map),
 // injected into every scoped in-app agent so it hands off rather than overreach.
 export { SHARED_HANDOFF_GUIDANCE } from './scaffold-data.js';
+// spec-300 t-7 (dec-7 / dec-20 / dec-2): the in-app agent skills-awareness block
+// (injected by buildSystemBlocks) + the agent-assisted SKILL.md authoring system
+// prompt (dec-9). Prose has one home here (std-15).
+export { SKILLS_AGENT_GUIDANCE, SKILL_AUTHOR_INSTRUCTION } from './scaffold-data.js';
+// spec-300 t-15 (dec-23, std-38): the dedicated skills-agent MODE block, injected
+// by buildSystemBlocks when the per-request mode is 'skills' (the Skills surface
+// sets it). Distinct from SKILLS_AGENT_GUIDANCE (the cross-agent awareness block).
+export { SKILLS_AGENT_MODE_GUIDANCE } from './scaffold-data.js';
 // spec-389 t-5 (dec-2): the standards + issues agent mode blocks, injected by
 // buildSystemBlocks when the per-request mode is standards / issues. (Per dec-1
 // the scoped agents open with a static intro, not an LLM turn — no opening seed.)

@@ -177,6 +177,13 @@ const SKIPS = new Map<string, string>([
   // guidance markdown — deliberately NOT a terse `ref:` confirmation. Exercised in
   // agent/spec-234-provision-ac-emission.integration.
   ["provision_ac_emission", "returns an emission key + guidance markdown, not an entity ref; covered by spec-234-provision-ac-emission.integration"],
+  // spec-418 t-4 tag-curation tools act on the Memex's tag CATALOGUE, not a
+  // doc-tree entity — a catalogue tag carries no canonical `ref:` handle. Output
+  // names the tag by its scope::value label (formatTag), never a UUID. Behaviour
+  // covered by agent/tags-curation-tools.spec-418.integration.
+  ["create_tag", "catalogue tag has no doc-tree ref; names the scope::value label, not entity-acting in the ref: sense"],
+  ["rename_tag", "catalogue tag has no doc-tree ref; names the scope::value label, not entity-acting in the ref: sense"],
+  ["delete_tag", "catalogue tag has no doc-tree ref; names the scope::value label, not entity-acting in the ref: sense"],
   // export_doc (spec-100) returns a lossless full-document markdown export (every
   // comment thread expanded inline), not a terse per-entity confirmation — the
   // b-36 D-8 ref:/no-UUID terseness invariant doesn't apply. Exercised in
@@ -204,6 +211,14 @@ const SKIPS = new Map<string, string>([
   // flag_drift / propose_standard_change are PROBED below (b-36 D-8): since the
   // ref-emission fix they return the canonical `ref:` of the drift/plan_revision
   // comment instead of raw section/comment UUIDs.
+  // spec-300 t-4 skill tools — each leads its response with the canonical Skill
+  // `ref:` (`<ns>/<mx>/skills/skill-N`) and emits no raw UUID; list_skills is a
+  // listing like list_docs. That ref-emission is asserted directly in
+  // mcp/skills-tools.integration (create/get/delete lead with `ref:`, ac-32/ac-34),
+  // so a dedicated probe here would only duplicate a fixture-heavy setup.
+  ["list_skills", "skill listing output (like list_docs); per-row canonical skill refs asserted in mcp/skills-tools.integration"],
+  ["get_skill", "leads with the canonical skill ref:; asserted in mcp/skills-tools.integration (ac-32/ac-34)"],
+  ["update_skill", "leads with the canonical skill ref:; asserted in mcp/skills-tools.integration (ac-31/ac-36/ac-20)"],
 ]);
 
 interface ProbeCase {

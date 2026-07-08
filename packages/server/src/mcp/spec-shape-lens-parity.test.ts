@@ -43,6 +43,8 @@ function makePlanSpec(): Doc & { sections: DocSection[] } {
     handle: "spec-106",
     title: "Some Spec",
     docType: "spec",
+    description: null,
+    skillCapabilities: null,
     status: "specify",
     parentDocId: null,
     createdByUserId: null,
@@ -58,6 +60,7 @@ function makePlanSpec(): Doc & { sections: DocSection[] } {
     checkedOutBy: null,
     checkedOutAt: null,
     checkedOutThread: null,
+    version: 1,
     sections: [
       {
         id: "section-uuid-1",

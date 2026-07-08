@@ -1,6 +1,6 @@
 {
   "name": "memex-ai",
-  "version": "3.1.1",
+  "version": "3.3.0",
   "//publish": "Published to public npm as `memex-ai`. A change to packages/cli reaches users ONLY via `npm publish`; merging does NOT ship it. Bump this `version` and publish (see README.md#releasing). No CI auto-publish.",
   "description": "Install the Memex AI MCP server for Claude Code and Claude Desktop",
   "type": "module",

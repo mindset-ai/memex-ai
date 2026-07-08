@@ -72,6 +72,30 @@ password.post("/signup", async (c) => {
     throw err;
   }
 
+  // Dispatch the verification email FIRST — before the awaited provisioning below.
+  // `ensureUserMemex` synchronously seeds the personal memex (demo spec + standards +
+  // facets, ~seconds of work deliberately kept on the request path for Cloud Run CPU
+  // reasons). Issuing the token + sending the mail after that seed left the send queued
+  // ~12s behind provisioning, so the confirmation arrived late and impatient users hit
+  // "Resend" — the duplicate-verification-email bug. The send is still fire-and-forget
+  // (the user is admitted immediately, emailVerified=false, gated by a banner), but now
+  // it leaves for Postmark before we block on seeding; the awaited seed below keeps the
+  // request (and its CPU) alive so the detached send completes.
+  //
+  // Skipped when the email is already verified (e.g. the user was previously created via
+  // Google SSO and is now adding a password).
+  if (!user.emailVerifiedAt) {
+    const issued = await issueAuthToken({
+      purpose: "email_verification",
+      email: user.email,
+      userId: user.id,
+    });
+    const verifyUrl = `${APP_BASE_URL}/verify-email?token=${encodeURIComponent(issued.raw)}`;
+    void getEmailSender()
+      .send(buildVerificationEmail({ to: user.email, verifyUrl }))
+      .catch((err) => console.error("Failed to send verification email:", err));
+  }
+
   // Provision the personal memex. Idempotent — safe even if createUserWithPassword was
   // called for a pre-existing SSO user (returning the same row).
   await ensureUserMemex(user.id);
@@ -81,20 +105,6 @@ password.post("/signup", async (c) => {
   // Advisory + idempotent ($engage $set is an upsert); a no-op on self-hosted
   // instances with no MIXPANEL_TOKEN.
   void syncUserProfile(user.id);
-
-  // Issue a verification token unless the email is already verified (e.g. the user was
-  // previously created via Google SSO and is now adding a password).
-  if (!user.emailVerifiedAt) {
-    const issued = await issueAuthToken({
-      purpose: "email_verification",
-      email: user.email,
-      userId: user.id,
-    });
-    const verifyUrl = `${APP_BASE_URL}/verify-email?token=${encodeURIComponent(issued.raw)}`;
-    await getEmailSender()
-      .send(buildVerificationEmail({ to: user.email, verifyUrl }))
-      .catch((err) => console.error("Failed to send verification email:", err));
-  }
 
   const session = await resolveSession(user.id, null);
   setKnownCookie(c);
@@ -236,6 +246,23 @@ password.post("/resend-verification", sessionMiddleware, async (c) => {
   const user = c.get("user");
   if (user.emailVerifiedAt) {
     return c.json({ ok: true, alreadyVerified: true });
+  }
+
+  // Short cooldown (1 per 60s) — the primary guard against bursty resends. The button
+  // has no visible cooldown client-side either (fixed in VerifyEmailGate), so an
+  // impatient user could otherwise fire several sends in seconds. Checked BEFORE the
+  // hourly cap so a blocked burst doesn't burn the hourly budget and the caller gets a
+  // precise "wait N seconds" (retryAfterSec ≈ time left in the 60s window).
+  const cooldown = await rateLimit(
+    "resendVerificationCooldown",
+    user.id,
+    AUTH_LIMITS.resendVerificationCooldown
+  );
+  if (!cooldown.ok) {
+    return c.json(
+      { error: "Please wait before requesting another email", retryAfterSec: cooldown.retryAfterSec },
+      429
+    );
   }
 
   const rl = await rateLimit("resendVerification", user.id, AUTH_LIMITS.resendVerification);

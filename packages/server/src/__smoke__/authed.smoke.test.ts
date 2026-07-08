@@ -21,6 +21,7 @@
 // `mindset-int/memex-app/specs/spec-36`.
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { tagAc } from "@memex-ai-ac/vitest";
 import {
   SMOKE_BASE_URL,
   SMOKE_MCP_TOKEN,
@@ -81,6 +82,19 @@ async function deleteTaskQuiet(ref: string): Promise<void> {
   }
 }
 
+// Skill refs created by the spec-300 skills lifecycle probe, swept in afterAll.
+// Skills soft-archive rather than hard-delete, but the sweep still hides them
+// from list_skills so a re-run starts clean.
+const createdSkillRefs: string[] = [];
+
+async function deleteSkillQuiet(ref: string): Promise<void> {
+  try {
+    await callMcpTool("update_skill", { verb: "delete", ref });
+  } catch {
+    // Idempotent teardown: an already-archived (or never-created) skill is fine.
+  }
+}
+
 describe.skipIf(!SMOKE_MCP_TOKEN)(
   `authed smoke @ ${SMOKE_BASE_URL} (ns=${SMOKE_NAMESPACE})`,
   () => {
@@ -100,6 +114,9 @@ describe.skipIf(!SMOKE_MCP_TOKEN)(
       // Idempotent sweep of anything the journey created but didn't already clean.
       for (const ref of createdTaskRefs.splice(0)) {
         await deleteTaskQuiet(ref);
+      }
+      for (const ref of createdSkillRefs.splice(0)) {
+        await deleteSkillQuiet(ref);
       }
     });
 
@@ -310,13 +327,17 @@ describe.skipIf(!SMOKE_MCP_TOKEN)(
       await callMcpTool("update_doc", { ref: docRef!, status: "specify" });
       await callMcpTool("update_doc", { ref: docRef!, status: "build" });
 
-      // CREATE the deletable entity — a task on the throwaway doc. Intentionally sends NO
-      // facetBallot: this verifies the relaxed, optional-ballot behaviour (a client that
-      // omits the ballot must still succeed, never error). Do not "fix" by adding a ballot.
+      // CREATE the deletable entity — a task on the throwaway doc. The facet ballot was
+      // RE-TIGHTENED (spec-423 ac-2/ac-13, extended by spec-445): where the Memex has a
+      // facet vocabulary — which every owner now does — create_task REQUIRES a ballot, so a
+      // ballot-less create correctly errors. This isn't a routing test, so cast the honest
+      // no-facet ballot (none:true). Do NOT drop the ballot to "test the relaxed path" — the
+      // relaxed path no longer exists.
       const taskRes = await callMcpTool("create_task", {
         ref: docRef!,
         title: "smoke throwaway task",
         description: "Created and deleted by the post-deploy smoke journey.",
+        facetBallot: { none: true, verdict: {} },
       });
       expect(taskRes.body.result?.isError).toBeFalsy();
       const taskRef = parseRef(mcpTextPayload(taskRes.body));
@@ -409,78 +430,136 @@ describe.skipIf(!SMOKE_MCP_TOKEN)(
       expect(docText).not.toContain(marker);
     });
 
-    // ── spec-189: traffic-driven phase advancement on the LIVE /mcp surface.
+    // ── spec-464: the phase GATE on the LIVE /mcp surface (supersedes spec-189).
     //
-    //    Specify-class traffic (create_decision) at a freshly-created draft
-    //    Spec must auto-advance it draft → specify; build-class traffic
-    //    (update_issue, post spec-327 — create_task no longer advances) must
-    //    then advance it specify → build. This is the
-    //    deployed-contract probe for the runToolWithSpecTraffic seam — the
-    //    exact class of /mcp wiring that std-17's first live run proved local
-    //    suites can miss. The full matrix is locked by unit + integration
-    //    tests; the smoke probe asserts the seam is ALIVE on the deployed
-    //    image, not the matrix itself.
-    it("spec-189: agent traffic auto-advances a draft Spec (draft → specify → build)", async () => {
+    //    spec-464 dec-1 REMOVED traffic-driven auto-advance: an agent tool call
+    //    no longer moves a Spec's phase as a side effect. Instead the
+    //    runToolWithSpecTraffic seam REFUSES an ahead-of-phase agent call (the
+    //    tool's homePhase later than the Spec's phase). This is the
+    //    deployed-contract probe for that seam — the exact class of /mcp wiring
+    //    std-17's first live run proved local suites can miss. The full matrix is
+    //    locked by unit + integration tests; the smoke probe asserts the seam is
+    //    ALIVE on the deployed image (no phantom advance; ahead-of-phase
+    //    refused), not the matrix itself.
+    it("spec-464: agent traffic never advances a Spec, and an ahead-of-phase call is refused (the live gate)", async () => {
       const created = await callMcpTool("create_doc", {
         memex: SMOKE_NAMESPACE,
-        title: `[smoke] spec-189 traffic probe ${new Date().toISOString()}`,
-        purpose: "Throwaway probe — traffic-driven phase advancement.",
+        title: `[smoke] spec-464 phase-gate probe ${new Date().toISOString()}`,
+        purpose: "Throwaway probe — the phase gate (no traffic-driven advance).",
       });
       expect(created.status).toBe(200);
       expect(created.body.result?.isError).toBeFalsy();
       const specRef = parseRef(mcpTextPayload(created.body));
       expect(specRef, "create_doc should return a spec ref").toBeTruthy();
 
-      // Specify-class traffic: decision authoring.
+      // Decision authoring (a specify-home tool) on a fresh DRAFT Spec: the
+      // decision is recorded, but the phase does NOT move — spec-464 dec-1
+      // removed the old draft → specify auto-advance. The ballot is required
+      // where the Memex has a facet vocabulary (spec-423 ac-2/ac-13); cast the
+      // honest no-facet ballot (none:true) since this isn't a routing test.
       const dec = await callMcpTool("create_decision", {
         ref: specRef!,
-        title: "[smoke] spec-189 probe decision",
+        title: "[smoke] spec-464 probe decision",
+        facetBallot: { none: true, verdict: {} },
       });
       expect(dec.status).toBe(200);
       expect(dec.body.result?.isError).toBeFalsy();
 
-      // Terse get_doc renders `ref: <ref> "<title>" [spec, <phase>].` —
-      // verified against the live int surface (first probe run guessed
-      // `[SPECIFY]` and failed while the feature itself worked).
+      // Terse get_doc renders `ref: <ref> "<title>" [spec, <phase>].` — the Spec
+      // must still be DRAFT: no phantom advance off the tool call (dec-1).
       let docText = mcpTextPayload(
         (await callMcpTool("get_doc", { ref: specRef! })).body,
       );
-      expect(docText).toMatch(/\[spec,\s*specify\]|status:\s*specify|phase:\s*specify/i);
+      expect(docText).toMatch(/\[spec,\s*draft\]|status:\s*draft|phase:\s*draft/i);
 
-      // Build-class traffic: an Issue edit. spec-327 gated create_task to
-      // build/verify (it no longer advances), so the build-class advance
-      // exemplar is register_issue (the non-advancing parking lot, spec-295
-      // dec-2) followed by update_issue (still build-class) — the seam advances
-      // specify → build.
-      const issue = await callMcpTool("register_issue", {
-        spec_ref: specRef!,
-        title: "[smoke] spec-189 probe issue",
-        body: "Throwaway — seeded to drive specify → build via update_issue.",
-        type: "todo",
+      // The GATE is alive on the deployed image: a build-home tool (create_task)
+      // ahead of build is REFUSED on the live /mcp seam — no task, no phase move.
+      // A VALID ballot is supplied so the ONLY thing that can fail is the gate,
+      // not input validation; the refusal names `build` as the task's home.
+      const task = await callMcpTool("create_task", {
+        ref: specRef!,
+        title: "[smoke] spec-464 ahead-of-phase task",
+        description: "Should be refused on a draft Spec by the phase gate.",
+        facetBallot: { none: true, verdict: {} },
       });
-      expect(issue.status).toBe(200);
-      expect(issue.body.result?.isError).toBeFalsy();
-      const issueRef = parseRef(mcpTextPayload(issue.body));
-      expect(issueRef, "register_issue should return a canonical ref").toBeTruthy();
+      expect(task.status).toBe(200);
+      expect(
+        task.body.result?.isError,
+        "create_task ahead of build must be refused by the live phase gate",
+      ).toBe(true);
+      expect(mcpTextPayload(task.body).toLowerCase()).toContain("build");
 
-      // register_issue is non-advancing — still specify.
+      // Phase is unchanged by the refused call — still DRAFT.
       docText = mcpTextPayload(
         (await callMcpTool("get_doc", { ref: specRef! })).body,
       );
-      expect(docText).toMatch(/\[spec,\s*specify\]|status:\s*specify|phase:\s*specify/i);
+      expect(docText).toMatch(/\[spec,\s*draft\]|status:\s*draft|phase:\s*draft/i);
+    });
 
-      // update_issue is build-class — advances specify → build.
-      const upd = await callMcpTool("update_issue", {
-        ref: issueRef!,
-        body: "Edited — build-class traffic drives specify → build.",
+    // ── spec-300 t-9 (std-17, ac-4): the Skills MCP surface on the LIVE /mcp
+    //    endpoint. A coding agent creates a Skill from a SKILL.md, lists the
+    //    Memex's Skills (seeing the new one by name + ref), fetches its verbatim
+    //    body, and archives it — all inside the throwaway namespace, self-cleaning.
+    //    This is the deployed-contract probe for list_skills / get_skill /
+    //    update_skill: it catches the class of bug local suites miss (route/tool
+    //    not registered on the deployed image, storage backend misconfigured).
+    it("skills lifecycle: update_skill(create) → list_skills → get_skill → update_skill(delete) over /mcp (spec-300)", async () => {
+      tagAc("mindset-prod/memex-building-itself/specs/spec-300/acs/ac-4");
+      const stamp = new Date().toISOString();
+      // A unique lowercase-alnum-hyphen name (SKILL.md frontmatter is validated).
+      const name = `smoke-skill-${stamp.replace(/[^0-9a-z]/gi, "-").toLowerCase()}`.slice(0, 60);
+      const marker = `smoke-skill-body-${stamp}`;
+      const skillMd = [
+        "---",
+        `name: ${name}`,
+        "description: Throwaway skill seeded by the post-deploy smoke journey — safe to delete.",
+        "---",
+        "",
+        "# Smoke skill",
+        "",
+        `Body ${marker}.`,
+        "",
+        "1. This is a throwaway skill.",
+        "2. It is archived at the end of the smoke run.",
+      ].join("\n");
+
+      // CREATE — a Skill in the throwaway memex.
+      const created = await callMcpTool("update_skill", {
+        verb: "create",
+        memex: SMOKE_NAMESPACE,
+        skill_md: skillMd,
       });
-      expect(upd.status).toBe(200);
-      expect(upd.body.result?.isError).toBeFalsy();
+      expect(created.status).toBe(200);
+      expect(created.body.result?.isError).toBeFalsy();
+      const skillRef = parseRef(mcpTextPayload(created.body));
+      expect(skillRef, "update_skill(create) should return a canonical ref").toBeTruthy();
+      createdSkillRefs.push(skillRef!);
 
-      docText = mcpTextPayload(
-        (await callMcpTool("get_doc", { ref: specRef! })).body,
+      // LIST — list_skills must surface the new Skill by name + ref (metadata only).
+      const listed = await callMcpTool("list_skills", { memex: SMOKE_NAMESPACE });
+      expect(listed.status).toBe(200);
+      expect(listed.body.result?.isError).toBeFalsy();
+      const listText = mcpTextPayload(listed.body);
+      expect(listText).toContain(name);
+      expect(listText).toContain(skillRef!);
+
+      // GET — get_skill returns the verbatim SKILL.md body (the marker proves the
+      // body round-tripped, not just the metadata).
+      const got = await callMcpTool("get_skill", { ref: skillRef! });
+      expect(got.status).toBe(200);
+      expect(got.body.result?.isError).toBeFalsy();
+      const getText = mcpTextPayload(got.body);
+      expect(getText).toContain(marker);
+
+      // DELETE (archive) — the Skill drops out of list_skills entirely.
+      const deleted = await callMcpTool("update_skill", { verb: "delete", ref: skillRef! });
+      expect(deleted.body.result?.isError).toBeFalsy();
+      createdSkillRefs.splice(createdSkillRefs.indexOf(skillRef!), 1);
+
+      const afterDelete = mcpTextPayload(
+        (await callMcpTool("list_skills", { memex: SMOKE_NAMESPACE })).body,
       );
-      expect(docText).toMatch(/\[spec,\s*build\]|status:\s*build|phase:\s*build/i);
+      expect(afterDelete).not.toContain(name);
     });
   },
 );

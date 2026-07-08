@@ -22,6 +22,7 @@ function makeSession(hiddenFeatures: string[]): SessionPayload {
       name: 'Alice',
       status: 'active',
       emailVerified: true,
+      videoWelcomedAt: new Date(), // spec-444: suppress welcome-video gate so tests isolate routing logic
     },
     memberships: [
       {
@@ -75,9 +76,10 @@ vi.mock('./pages/QaReports', () => ({
   QaReports: () => <div data-testid="qa-reports-page">qa reports</div>,
 }));
 
-// spec-421 dec-5: RootRedirect now reads journey-state to choose the landing. This gate
-// test only cares that a hidden feature falls through to the universal landing; pin a
-// not-graduated read so that landing resolves deterministically to /home.
+// spec-461 dec-1: RootRedirect never auto-lands on /home — every authenticated user
+// falls through to their default-tenant Specs board. This gate test only cares that a
+// hidden feature route falls through to that universal landing; the journey read no
+// longer changes the target (kept here as a realistic fixture).
 vi.mock('./api/journey', async () => {
   const real = await vi.importActual<typeof import('./api/journey')>('./api/journey');
   return {
@@ -101,14 +103,14 @@ function LocationProbe() {
   return <div data-testid="probe" data-path={loc.pathname} />;
 }
 
-// spec-312: RootRedirect now sends every authenticated user to /home (the universal
-// landing), so the catch-all fallthrough lands on /home, not the Specs board.
+// spec-461: RootRedirect sends every authenticated user to their default-tenant Specs
+// board (never /home), so the catch-all fallthrough lands on /alice/personal/specs.
 function renderAt(path: string) {
   return render(
     <MemoryRouter initialEntries={[path]}>
       <Routes>
         <Route path="/*" element={<PostLoginRouter />} />
-        <Route path="/home" element={<LocationProbe />} />
+        <Route path="/alice/personal/specs" element={<LocationProbe />} />
       </Routes>
     </MemoryRouter>,
   );
@@ -117,9 +119,11 @@ function renderAt(path: string) {
 describe('spec-260 t-7: /qa-reports route gate (ac-18)', () => {
   beforeEach(() => {
     vi.stubEnv('VITE_GOOGLE_CLIENT_ID', 'test-client-id');
+    sessionStorage.setItem('welcomeVideoDismissed', '1'); // spec-444: suppress gate so tests isolate routing
   });
   afterEach(() => {
     vi.unstubAllEnvs();
+    sessionStorage.removeItem('welcomeVideoDismissed');
   });
 
   it("hidden → /qa-reports does not render the page and redirects to the universal landing", async () => {
@@ -128,7 +132,7 @@ describe('spec-260 t-7: /qa-reports route gate (ac-18)', () => {
     renderAt('/alice/personal/qa-reports');
 
     await waitFor(() => {
-      expect(screen.getByTestId('probe').getAttribute('data-path')).toBe('/home');
+      expect(screen.getByTestId('probe').getAttribute('data-path')).toBe('/alice/personal/specs');
     });
     expect(screen.queryByTestId('qa-reports-page')).not.toBeInTheDocument();
   });

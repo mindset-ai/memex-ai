@@ -41,6 +41,15 @@ export interface DefaultStandardSection {
   title: string;
   /** One self-contained clause body per element, in display order. */
   clauses: string[];
+  /**
+   * spec-437 dec-1 — the per-clause facet verdict, parallel to `clauses` (one entry each):
+   * facet keys from the default vocabulary, or [] for "governs nothing". OPTIONAL: an
+   * absent `facets` means every clause in the section governs nothing ([]) — the correct
+   * verdict for methodology / description / rationale / scope clauses, which carry no
+   * practice-area obligation. Only the code-example Rule sections set this. The seeder
+   * zips clauses[i] with facets?.[i] ?? [].
+   */
+  facets?: string[][];
 }
 
 /** A default Standard: a docType='standard' document built from these sections. */
@@ -225,6 +234,13 @@ export const DEFAULT_STANDARDS: readonly DefaultStandard[] = [
           `Where a running or deployed environment exists, verify against it, not only on the author's machine.`,
           `Reopen the work when a criterion fails or later breaks; a criterion that was green and goes red is drift, and drift reopens the Spec.`,
         ],
+        facets: [
+          ["test-coverage"],
+          ["test-coverage"],
+          ["test-coverage"],
+          ["test-coverage", "post-deploy-smoke"],
+          ["test-coverage"],
+        ],
       },
       {
         sectionType: "rationale",
@@ -269,6 +285,13 @@ export const DEFAULT_STANDARDS: readonly DefaultStandard[] = [
           `When you fix a bug, add a regression test that reproduces the bug and then proves the fix.`,
           `A change with no test — or a test that cannot fail — does not count as done.`,
         ],
+        facets: [
+          ["test-coverage"],
+          ["test-coverage"],
+          ["test-coverage"],
+          ["test-coverage"],
+          ["test-coverage"],
+        ],
       },
       {
         sectionType: "rationale",
@@ -311,6 +334,7 @@ export const DEFAULT_STANDARDS: readonly DefaultStandard[] = [
           `Make a genuinely-missing resource and an access-denied resource return the identical response, so the two are indistinguishable from the outside.`,
           `Apply this to every resource scoped to a tenant, account, or owner — the very existence of such a resource is privileged information.`,
         ],
+        facets: [["security"], ["security"], ["security"]],
       },
       {
         sectionType: "rationale",

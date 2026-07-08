@@ -30,7 +30,7 @@ function manifestCreationServerNames(): string[] {
     .filter(
       (e) =>
         e.group === "planning" ||
-        e.trafficClass === "specify" ||
+        e.homePhase === "specify" ||
         CREATION_READ_TOOLS.includes(e.name),
     )
     .map((e) => e.name)

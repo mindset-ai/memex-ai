@@ -31,6 +31,7 @@ function makeSession(hiddenFeatures: string[]): SessionPayload {
       name: 'Alice',
       status: 'active',
       emailVerified: true,
+      videoWelcomedAt: new Date(), // spec-444: suppress welcome-video gate so tests isolate routing logic
     },
     memberships: [
       {
@@ -89,9 +90,10 @@ vi.mock('./pages/ScaffoldInspect', () => ({
   ScaffoldInspect: () => <div data-testid="scaffold-inspect-page">scaffold</div>,
 }));
 
-// spec-421 dec-5: RootRedirect now reads journey-state to choose the landing. This gate
-// test only cares that a hidden feature falls through to the universal landing; pin a
-// not-graduated read so that landing resolves deterministically to /home.
+// spec-461 dec-1: RootRedirect never auto-lands on /home — every authenticated user
+// falls through to their default-tenant Specs board. This gate test only cares that a
+// hidden feature route falls through to that universal landing; the journey read no
+// longer changes the target (kept here as a realistic fixture).
 vi.mock('./api/journey', async () => {
   const real = await vi.importActual<typeof import('./api/journey')>('./api/journey');
   return {
@@ -116,15 +118,15 @@ function LocationProbe() {
 }
 
 // Render the real route tree at `path`, plus a probe at the universal landing so we
-// can assert where the catch-all redirect lands. spec-312: RootRedirect now sends
-// every authenticated user to /home (the universal landing), so the fallthrough
-// target is /home, not the default-tenant Specs board.
+// can assert where the catch-all redirect lands. spec-461: RootRedirect sends every
+// authenticated user to their default-tenant Specs board (never /home), so the
+// fallthrough target is /alice/personal/specs.
 function renderAt(path: string) {
   return render(
     <MemoryRouter initialEntries={[path]}>
       <Routes>
         <Route path="/*" element={<PostLoginRouter />} />
-        <Route path="/home" element={<LocationProbe />} />
+        <Route path="/alice/personal/specs" element={<LocationProbe />} />
       </Routes>
     </MemoryRouter>,
   );
@@ -133,9 +135,11 @@ function renderAt(path: string) {
 describe('spec-146 t-4: /scaffold route gate', () => {
   beforeEach(() => {
     vi.stubEnv('VITE_GOOGLE_CLIENT_ID', 'test-client-id');
+    sessionStorage.setItem('welcomeVideoDismissed', '1'); // spec-444: suppress gate so tests isolate routing
   });
   afterEach(() => {
     vi.unstubAllEnvs();
+    sessionStorage.removeItem('welcomeVideoDismissed');
   });
 
   it('ac-10: hidden → /scaffold does not render ScaffoldInspect and redirects to the universal landing', async () => {
@@ -147,9 +151,9 @@ describe('spec-146 t-4: /scaffold route gate', () => {
     renderAt('/alice/personal/scaffold');
 
     // The route was never registered, so the path falls through to the catch-all
-    // RootRedirect → universal landing (/home, spec-312 dec-1).
+    // RootRedirect → universal landing (the Specs board, spec-461 dec-1).
     await waitFor(() => {
-      expect(screen.getByTestId('probe').getAttribute('data-path')).toBe('/home');
+      expect(screen.getByTestId('probe').getAttribute('data-path')).toBe('/alice/personal/specs');
     });
     expect(screen.queryByTestId('scaffold-inspect-page')).not.toBeInTheDocument();
   });

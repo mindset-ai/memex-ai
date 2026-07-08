@@ -25,7 +25,7 @@
 //   updateIssueStatus  — transition status (validated against ISSUE_STATUSES, ac-16)
 //   deleteIssue        — hard delete
 
-import { and, eq, asc, desc } from "drizzle-orm";
+import { and, eq, asc, desc, isNull } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import {
   issues,
@@ -186,6 +186,10 @@ export async function listIssuesForSpec(
   const conditions = [eq(issues.memexId, memexId), eq(issues.docId, docId)];
   if (filter.type) conditions.push(eq(issues.type, filter.type));
   if (filter.status) conditions.push(eq(issues.status, filter.status));
+  // spec-448 (gap closure, ac-18): exclude issues a version cut left behind
+  // (retired_at_version stamped) from the live read — they still render when
+  // viewing the version they were retired at (getVersionSnapshot).
+  conditions.push(isNull(issues.retiredAtVersion));
   return db.query.issues.findMany({
     where: and(...conditions),
     orderBy: [asc(issues.seq)],
@@ -310,7 +314,7 @@ export async function deleteIssue(memexId: string, issueId: string): Promise<Mut
 // tasks/acs/ac_parent_links/task_satisfies_ac tables via mutate()+bus (std-8).
 
 // Resolve the namespace/memex/spec-handle slug components for a Spec doc so we can
-// rebuild an AC's canonical ref (buildAcRef) to match against test_events.ac_uid.
+// rebuild an AC's canonical ref (buildAcRef) to match against test_events.subject_ref.
 // Mirrors resolveBriefSlugsForRef in acs.ts (kept local — that one isn't exported).
 async function resolveSpecSlugs(
   docId: string,
@@ -466,11 +470,11 @@ async function verifyingAcIsGreen(satisfyingTaskId: string, docId: string): Prom
   // blocks resolution). For the conversion path there's exactly one, but we treat
   // the general case so multi-AC tasks don't resolve prematurely.
   for (const link of links) {
-    const acUid = buildAcRef(slugs, link.seq);
+    const subjectRef = buildAcRef(slugs, link.seq);
     const [latest] = await db
       .select({ status: testEvents.status })
       .from(testEvents)
-      .where(eq(testEvents.acUid, acUid))
+      .where(eq(testEvents.subjectRef, subjectRef))
       .orderBy(desc(testEvents.createdAt))
       .limit(1);
     if (!latest || latest.status !== "pass") return false;
@@ -531,16 +535,16 @@ export async function maybeAutoResolveIssuesForTask(
 // Try to auto-resolve any Issue whose verifying AC just received a passing
 // test_event. Fires from the test-event ingestion path: an AC may go green AFTER
 // its satisfying Task is already complete, so this is the second trigger that
-// closes the bug→failing-AC→green-AC→resolved loop (ac-7, ac-22). `acUid` is the
+// closes the bug→failing-AC→green-AC→resolved loop (ac-7, ac-22). `subjectRef` is the
 // canonical ref the test_events row carried; we map it back to the Task(s) that
 // satisfy it and re-run the per-Task gate.
-export async function maybeAutoResolveIssuesForAcUid(acUid: string): Promise<string[]> {
+export async function maybeAutoResolveIssuesForAcUid(subjectRef: string): Promise<string[]> {
   // ac_uid grammar: <ns>/<mx>/specs/<spec-handle>/acs/ac-<seq>. Reverse it to the AC
   // row, then to the Task(s) that satisfy it, then run the same gate as the task path.
   // Scope the doc lookup by namespace+memex slug — `documents.handle` (e.g. spec-1)
   // is per-memex, NOT globally unique, so a bare handle match would collide across
   // tenants (std-7: a cross-tenant collision must never resolve to the wrong doc).
-  const m = acUid.match(/^([^/]+)\/([^/]+)\/specs\/([^/]+)\/acs\/ac-(\d+)$/);
+  const m = subjectRef.match(/^([^/]+)\/([^/]+)\/specs\/([^/]+)\/acs\/ac-(\d+)$/);
   if (!m) return [];
   const namespaceSlug = m[1];
   const memexSlug = m[2];

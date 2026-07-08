@@ -62,7 +62,7 @@ afterEach(() => cleanup());
 describe('WhatsNewRibbon (spec-200 t-5)', () => {
   it('renders the ribbon for an unseen entry, fires confetti, and opens the popup newest-first (ac-11)', async () => {
     // autoDismissMs=0 keeps the ribbon up for the assertions (no countdown timer).
-    render(<WhatsNewRibbon fetcher={async () => ENTRIES} onExplain={() => {}} autoDismissMs={0} />);
+    render(<WhatsNewRibbon fetcher={async () => ({ entries: ENTRIES, suppressBefore: undefined })} onExplain={() => {}} autoDismissMs={0} />);
 
     const ribbon = await screen.findByTestId('whats-new-ribbon');
     expect(ribbon).toBeTruthy();
@@ -83,18 +83,18 @@ describe('WhatsNewRibbon (spec-200 t-5)', () => {
 
   it('skips confetti under prefers-reduced-motion but still shows the ribbon', async () => {
     setReducedMotion(true);
-    render(<WhatsNewRibbon fetcher={async () => ENTRIES} autoDismissMs={0} />);
+    render(<WhatsNewRibbon fetcher={async () => ({ entries: ENTRIES, suppressBefore: undefined })} autoDismissMs={0} />);
     expect(await screen.findByTestId('whats-new-ribbon')).toBeTruthy();
     expect(screen.queryByTestId('whats-new-confetti')).toBeNull();
   });
 
   it('fires confetti only on the first sighting of an entry, not on a repeat visit', async () => {
-    const { unmount } = render(<WhatsNewRibbon fetcher={async () => ENTRIES} autoDismissMs={0} />);
+    const { unmount } = render(<WhatsNewRibbon fetcher={async () => ({ entries: ENTRIES, suppressBefore: undefined })} autoDismissMs={0} />);
     expect(await screen.findByTestId('whats-new-confetti')).toBeTruthy();
     unmount();
 
     // Same entries, fresh mount (a "next visit") — ribbon shows, confetti does not.
-    render(<WhatsNewRibbon fetcher={async () => ENTRIES} autoDismissMs={0} />);
+    render(<WhatsNewRibbon fetcher={async () => ({ entries: ENTRIES, suppressBefore: undefined })} autoDismissMs={0} />);
     expect(await screen.findByTestId('whats-new-ribbon')).toBeTruthy();
     expect(screen.queryByTestId('whats-new-confetti')).toBeNull();
   });
@@ -104,7 +104,7 @@ describe('WhatsNewRibbon dismiss + countdown (spec-200 t-6)', () => {
   beforeEach(() => setReducedMotion(true)); // immediate fly-home + no confetti timers
 
   it('the ribbon × dismisses immediately and persists the marker (ac-12)', async () => {
-    render(<WhatsNewRibbon fetcher={async () => ENTRIES} autoDismissMs={0} />);
+    render(<WhatsNewRibbon fetcher={async () => ({ entries: ENTRIES, suppressBefore: undefined })} autoDismissMs={0} />);
     await screen.findByTestId('whats-new-ribbon');
 
     fireEvent.click(screen.getByTestId('whats-new-ribbon-dismiss'));
@@ -115,7 +115,7 @@ describe('WhatsNewRibbon dismiss + countdown (spec-200 t-6)', () => {
   });
 
   it('manually closing the popup dismisses the ribbon (popup close → fly home)', async () => {
-    render(<WhatsNewRibbon fetcher={async () => ENTRIES} autoDismissMs={0} />);
+    render(<WhatsNewRibbon fetcher={async () => ({ entries: ENTRIES, suppressBefore: undefined })} autoDismissMs={0} />);
     const ribbon = await screen.findByTestId('whats-new-ribbon');
 
     // Tap the ribbon → popup opens (and the countdown, if any, stops).
@@ -133,14 +133,14 @@ describe('WhatsNewRibbon dismiss + countdown (spec-200 t-6)', () => {
     // Long timer so the countdown is reliably still running when asserted —
     // no race against auto-dismiss (cleanup unmounts before it fires).
     // findBy (not getBy): the countdown mounts one effect-tick after the ribbon.
-    render(<WhatsNewRibbon fetcher={async () => ENTRIES} autoDismissMs={10_000} />);
+    render(<WhatsNewRibbon fetcher={async () => ({ entries: ENTRIES, suppressBefore: undefined })} autoDismissMs={10_000} />);
     expect(await screen.findByTestId('whats-new-countdown')).toBeTruthy();
   });
 
   it('auto-dismisses after the countdown elapses', async () => {
     // Short timer; assert ONLY via waitFor (tolerant of slow runners) that the
     // ribbon eventually flies home — never a synchronous query racing the timer.
-    render(<WhatsNewRibbon fetcher={async () => ENTRIES} autoDismissMs={150} />);
+    render(<WhatsNewRibbon fetcher={async () => ({ entries: ENTRIES, suppressBefore: undefined })} autoDismissMs={150} />);
     await screen.findByTestId('whats-new-ribbon');
     await waitFor(() => expect(screen.queryByTestId('whats-new-ribbon')).toBeNull(), { timeout: 4000 });
     expect(window.localStorage.getItem('whats-new:dismissed-at')).toBe('2026-06-08T10:00:00Z');
@@ -148,7 +148,7 @@ describe('WhatsNewRibbon dismiss + countdown (spec-200 t-6)', () => {
 
   it('tapping the ribbon stops the countdown — it does not auto-dismiss', async () => {
     // Long timer so the only timing dependency (mount → click) has wide headroom.
-    render(<WhatsNewRibbon fetcher={async () => ENTRIES} autoDismissMs={10_000} />);
+    render(<WhatsNewRibbon fetcher={async () => ({ entries: ENTRIES, suppressBefore: undefined })} autoDismissMs={10_000} />);
     const ribbon = await screen.findByTestId('whats-new-ribbon');
     await screen.findByTestId('whats-new-countdown'); // counting before the tap
     fireEvent.click(ribbon); // open popup → stops countdown
@@ -161,14 +161,14 @@ describe('WhatsNewRibbon dismiss + countdown (spec-200 t-6)', () => {
   it('stays dismissed across reloads until a NEWER entry publishes (ac-12)', async () => {
     // Marker already at the newest entry's time → ribbon should not show.
     window.localStorage.setItem('whats-new:dismissed-at', '2026-06-08T10:00:00Z');
-    const { unmount } = render(<WhatsNewRibbon fetcher={async () => ENTRIES} autoDismissMs={0} />);
+    const { unmount } = render(<WhatsNewRibbon fetcher={async () => ({ entries: ENTRIES, suppressBefore: undefined })} autoDismissMs={0} />);
     await waitFor(() => {}); // let fetch resolve
     expect(screen.queryByTestId('whats-new-ribbon')).toBeNull();
     unmount();
 
     // A newer entry publishes → ribbon reappears.
     const newer = [entry('spec-201', '2026-06-09T10:00:00Z'), ...ENTRIES];
-    render(<WhatsNewRibbon fetcher={async () => newer} autoDismissMs={0} />);
+    render(<WhatsNewRibbon fetcher={async () => ({ entries: newer, suppressBefore: undefined })} autoDismissMs={0} />);
     expect(await screen.findByTestId('whats-new-ribbon')).toBeTruthy();
 
     tagAc(AC(12));

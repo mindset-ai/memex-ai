@@ -629,7 +629,7 @@ describe("audit: field names referenced in descriptions exist in the schema", ()
 // sections, decisions, AND acceptance criteria — so a substantial input fleshes
 // out into a rich, multi-section Spec instead of a thin Overview. The set is
 // single-sourced from the @memex/shared manifest (std-16): manifest
-// `group: 'planning'` OR `trafficClass: 'specify'`, plus the read tools
+// `group: 'planning'` OR `homePhase: 'specify'`, plus the read tools
 // (search_memex, get_doc) and the render_* UI tools.
 //
 // The one hard exclusion that must NOT drift back in: build-phase task verbs
@@ -769,6 +769,13 @@ const REF_PROBE_SKIP = new Map<string, string>([
   // markdown, not a terse `ref:` entity confirmation. Exercised end-to-end in
   // agent/spec-234-provision-ac-emission.integration.
   ["provision_ac_emission", "returns an emission key + guidance markdown, not a memex entity ref; covered by spec-234-provision-ac-emission.integration"],
+  // spec-418 t-4 tag-curation tools operate on the Memex's tag CATALOGUE, not a
+  // doc-tree entity. Their terse output names the tag by its `scope::value` label
+  // (formatTag), never a canonical `ref:`/UUID — tags carry no doc-tree ref handle.
+  // Behaviour is exercised in agent/tags-curation-tools.spec-418.integration.
+  ["create_tag", "catalogue tag has no doc-tree ref; output names the scope::value label, no UUID; covered by tags-curation-tools.spec-418.integration"],
+  ["rename_tag", "catalogue tag has no doc-tree ref; output names the scope::value label, no UUID; covered by tags-curation-tools.spec-418.integration"],
+  ["delete_tag", "catalogue tag has no doc-tree ref; output names the scope::value label, no UUID; covered by tags-curation-tools.spec-418.integration"],
   // spec-127 test-event tools all lead with the AC `ref:` and emit no UUID; that
   // ref-emission is asserted directly in mcp/test-event-tools.integration. A
   // dedicated probe here would need a throwaway AC + seeded test_events fixture.
@@ -788,6 +795,14 @@ const REF_PROBE_SKIP = new Map<string, string>([
   // flag_drift / propose_standard_change are PROBED below (b-36 D-8): since the
   // ref-emission fix they return the canonical `ref:` of the drift/plan_revision
   // comment instead of raw section/comment UUIDs.
+  // spec-300 Skills tools. list_skills is a discovery/list tool (its output is a
+  // Skill listing keyed on canonical refs, not a per-entity confirmation), and
+  // get_skill returns the SKILL.md body payload (like get_file), not an entity
+  // confirmation. update_skill DOES lead with the Skill `ref:` and emits no UUID
+  // — that ref-emission is asserted directly in mcp/skills-tools.integration.
+  ["list_skills", "discovery tool — Skill listing (refs as fields), no per-entity confirmation"],
+  ["get_skill", "returns the SKILL.md body payload + file TOC, not an entity confirmation"],
+  ["update_skill", "emits the Skill ref:; ref-emission + no-UUID asserted in mcp/skills-tools.integration"],
 ]);
 
 describe("audit: b-36 D-8 — every terse mutation/list response emits `ref:` and no raw UUID", () => {

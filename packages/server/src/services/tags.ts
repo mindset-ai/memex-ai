@@ -24,12 +24,67 @@ import { documents, tags, documentTags } from "../db/schema.js";
 import type { Tag, DocumentTag } from "../db/schema.js";
 import { NotFoundError, ValidationError } from "../types/errors.js";
 import { mutate, forwardBrand, type Mutated, type RequestCtx } from "./mutate.js";
+import type { ChangeKey } from "./mutate.js";
 
 const SCOPE_SEPARATOR = "::";
+
+// spec-418 t-2 (ac-37): the boundary bound on a tag scope/value. An impl detail, not
+// a fork surface — chosen to comfortably hold any real `scope::value` while rejecting
+// the pathological (a pasted paragraph, a mangled control-char blob). Both parts share
+// the bound because they're the same kind of short human label.
+const MAX_TAG_PART_LENGTH = 128;
+
+// C0 controls (U+0000–U+001F) + DEL (U+007F). A tag is a short human label; a control
+// char in it is always corruption (accidental paste, mangled encoding), never intent.
+const CONTROL_CHARS = /[\u0000-\u001F\u007F]/;
 
 export interface ParsedTag {
   scope: string | null;
   value: string;
+}
+
+/**
+ * Validate + normalise a structured {scope, value} at the curation write boundary
+ * (createTag / renameTag), BEFORE any DB access (spec-418 ac-37). The sibling of
+ * parseTagInput (which parses the `scope::value` STRING form); this one operates on
+ * the already-split parts the admin surfaces send. Rules:
+ *   - trim both parts; an empty-after-trim SCOPE collapses to null (a flat tag),
+ *     mirroring parseTagInput's "empty scope ⇒ flat" rule;
+ *   - an empty-after-trim VALUE is invalid (a tag must name something);
+ *   - either part longer than MAX_TAG_PART_LENGTH is invalid;
+ *   - a control char in either part is invalid.
+ * Throws ValidationError (a plain human message) on any breach; returns the cleaned
+ * {scope, value} otherwise. Callers use the returned values — never the raw inputs.
+ */
+export function validateTagInput(
+  scope: string | null,
+  value: string,
+): { scope: string | null; value: string } {
+  const trimmedValue = value.trim();
+  if (!trimmedValue) throw new ValidationError("Tag value cannot be empty");
+  if (trimmedValue.length > MAX_TAG_PART_LENGTH) {
+    throw new ValidationError(
+      `Tag value must be at most ${MAX_TAG_PART_LENGTH} characters`,
+    );
+  }
+  if (CONTROL_CHARS.test(trimmedValue)) {
+    throw new ValidationError("Tag value must not contain control characters");
+  }
+
+  const trimmedScope = scope === null ? null : scope.trim();
+  const normScope = trimmedScope ? trimmedScope : null;
+  if (normScope !== null) {
+    if (normScope.length > MAX_TAG_PART_LENGTH) {
+      throw new ValidationError(
+        `Tag scope must be at most ${MAX_TAG_PART_LENGTH} characters`,
+      );
+    }
+    if (CONTROL_CHARS.test(normScope)) {
+      throw new ValidationError("Tag scope must not contain control characters");
+    }
+  }
+
+  return { scope: normScope, value: trimmedValue };
 }
 
 /**
@@ -60,9 +115,10 @@ export function formatTag(tag: Pick<Tag, "scope" | "value">): string {
 
 /**
  * Find an existing tag by its canonical (memexId, scope, value), or create it.
- * Idempotent: unique(memex_id, scope, value) with NULLS NOT DISTINCT guarantees one
- * row per canonical tag, so the same `priority::high` always resolves to one row and
- * `bug` (scope = null) never duplicates.
+ * Idempotent: the lower(scope), lower(value) expression unique index (spec-418 dec-8,
+ * migration 0125) with NULLS NOT DISTINCT guarantees one row per canonical tag
+ * CASE-INSENSITIVELY, so `priority::high` / `Priority::HIGH` resolve to one row and
+ * `bug` / `BUG` (scope = null) never duplicate. Display keeps the first writer's casing.
  */
 export async function getOrCreateTag(
   ctx: RequestCtx,
@@ -76,30 +132,30 @@ export async function getOrCreateTag(
   const [existing] = await db.select().from(tags).where(matchTag).limit(1);
   if (existing) return existing;
 
-  // Case-insensitive scope fallback: if a tag with the same value and a
-  // case-insensitively matching scope already exists, reuse it rather than
-  // minting a near-duplicate (e.g. "Deploy::foo" when "DEPLOY::foo" is present).
-  if (scope !== null) {
-    const [ciMatch] = await db
-      .select()
-      .from(tags)
-      .where(
-        and(
-          eq(tags.memexId, memexId),
-          sql`lower(${tags.scope}) = lower(${scope})`,
-          eq(tags.value, value),
-        ),
-      )
-      .limit(1);
-    if (ciMatch) return ciMatch;
-  }
+  // Case-insensitive fallback (dec-8): match on lower(scope) AND lower(value), for
+  // BOTH scoped and flat (scope IS NULL) tags, so a later case-variant resolves to the
+  // existing row rather than minting a near-duplicate (e.g. "api" → "API",
+  // "Deploy::Foo" → "DEPLOY::foo"). Flat tags can't use lower(scope)=lower(NULL) (that
+  // is NULL, never true), so they match on `scope IS NULL` + lower(value). This is the
+  // read side of the CI unique index (0125); the first-written casing is preserved
+  // because we return the stored row and never rewrite it.
+  const ciScopePred =
+    scope === null ? isNull(tags.scope) : sql`lower(${tags.scope}) = lower(${scope})`;
+  const ciMatch = and(
+    eq(tags.memexId, memexId),
+    ciScopePred,
+    sql`lower(${tags.value}) = lower(${value})`,
+  );
+  const [ciExisting] = await db.select().from(tags).where(ciMatch).limit(1);
+  if (ciExisting) return ciExisting;
 
   const created = await mutate(
     ctx,
     { memexId, entity: "tag", action: "created" },
     async () => {
       // onConflictDoNothing covers the race where a concurrent caller inserted the
-      // same canonical tag between our SELECT and INSERT.
+      // same canonical tag (case-insensitively, per the 0125 index) between our
+      // SELECT and INSERT.
       const [row] = await db
         .insert(tags)
         .values({ memexId, scope, value })
@@ -110,8 +166,11 @@ export async function getOrCreateTag(
   );
   if (created) return created;
 
-  // Lost the create race — the row exists now; read it back.
-  const [row] = await db.select().from(tags).where(matchTag).limit(1);
+  // Lost the create race. The winning row may be a CASE-VARIANT of what we tried to
+  // insert (the CI index 0125 treats "api" and "API" as the same tag, so our INSERT
+  // conflicted and returned null). Read back CASE-INSENSITIVELY — an exact (scope,
+  // value) read would MISS a case-variant survivor and throw spuriously.
+  const [row] = await db.select().from(tags).where(ciMatch).limit(1);
   if (!row) throw new Error("getOrCreateTag: tag missing after conflict");
   return row;
 }
@@ -235,6 +294,265 @@ export async function listMemexTags(memexId: string): Promise<Tag[]> {
     .select()
     .from(tags)
     .where(eq(tags.memexId, memexId))
+    .orderBy(tags.scope, tags.value);
+}
+
+// ─── Tag curation (spec-418 t-2): create / rename / delete ───────────────────
+// The catalogue-admin mutation set is EXACTLY {create, rename, delete} — no merge,
+// ever (dec-2, ac-11/ac-12). These differ from the create-or-pick attach path above:
+// createTag BLOCKS on a duplicate (getOrCreateTag silently returns the existing);
+// renameTag/deleteTag operate on the catalogue row and fan an event out per affected
+// Spec. Every write goes through mutate() with the caller's RequestCtx so channel
+// attribution is correct (std-8/std-32, ac-19).
+
+/** A catalogue tag plus how many Specs currently carry it. Feeds the admin list (t-5). */
+export interface TagWithCount extends Tag {
+  assignedCount: number;
+}
+
+/** The plain-reason DUPLICATE block, shared by createTag, renameTag's pre-check, and
+ *  the renameTag race-mapping (ac-13/ac-38) so every path surfaces one message shape
+ *  that NAMES the colliding tag. */
+function duplicateBlock(existingLabel: string): ValidationError {
+  return new ValidationError(`A tag named "${existingLabel}" already exists`);
+}
+
+/** True when a driver error is a Postgres unique-violation (SQLSTATE 23505). drizzle
+ *  wraps the driver error, so the code can ride either on the error itself or `.cause`
+ *  (see the t-1 CI-index test). */
+function isUniqueViolation(err: unknown): boolean {
+  const code =
+    (err as { code?: string } | null)?.code ??
+    (err as { cause?: { code?: string } } | null)?.cause?.code;
+  return code === "23505";
+}
+
+/** Find a tag in this Memex whose (scope, value) matches CASE-INSENSITIVELY, or null.
+ *  The read side of the 0125 CI unique index — used by the duplicate guards so a
+ *  case-variant collision is caught before the write, not only at the index. Also the
+ *  resolver the MCP rename_tag/delete_tag string path uses to honour dec-8 (an agent
+ *  names a tag from memory in arbitrary casing; the case-sensitive findTag would 404 a
+ *  tag that demonstrably exists as a single canonical row). */
+export async function findTagCI(
+  memexId: string,
+  scope: string | null,
+  value: string,
+): Promise<Tag | null> {
+  const ciScopePred =
+    scope === null ? isNull(tags.scope) : sql`lower(${tags.scope}) = lower(${scope})`;
+  const [row] = await db
+    .select()
+    .from(tags)
+    .where(
+      and(eq(tags.memexId, memexId), ciScopePred, sql`lower(${tags.value}) = lower(${value})`),
+    )
+    .limit(1);
+  return row ?? null;
+}
+
+/** The Spec ids currently carrying a tag (tenant-scoped). Computed BEFORE a rename or
+ *  delete so the mutate() key list can fan one `document` updated event per affected
+ *  Spec while the underlying data change stays a single set-based statement (ac-16). */
+async function docIdsCarryingTag(memexId: string, tagId: string): Promise<string[]> {
+  const rows = await db
+    .select({ docId: documentTags.docId })
+    .from(documentTags)
+    .where(and(eq(documentTags.memexId, memexId), eq(documentTags.tagId, tagId)));
+  return rows.map((r) => r.docId);
+}
+
+/** Build the mutate() key list for a curation mutation that touches the tag row AND
+ *  N Specs: one `tag` event (created/updated/deleted) + one `document` updated per
+ *  affected Spec (ac-16/ac-39 — a single mutate() emits the whole fan-out atomically). */
+function curationKeys(
+  memexId: string,
+  tagAction: "updated" | "deleted",
+  affectedDocIds: string[],
+): ChangeKey[] {
+  return [
+    { memexId, entity: "tag", action: tagAction },
+    ...affectedDocIds.map(
+      (docId): ChangeKey => ({ memexId, docId, entity: "document", action: "updated" }),
+    ),
+  ];
+}
+
+/**
+ * Mint a NEW catalogue tag. Unlike getOrCreateTag (which silently returns an existing
+ * row), createTag BLOCKS on a duplicate: it is the admin "add a tag" action, so a
+ * collision is a user error to surface, not a silent no-op (ac-27). Validation runs at
+ * the boundary before any write (ac-37). The ONLY block is the duplicate-name guard —
+ * a brand-new catalogue tag is on no Spec, so the per-scope exclusivity rule can never
+ * apply here (ac-29). Emits a single {entity:'tag', action:'created'} via mutate().
+ */
+export async function createTag(
+  ctx: RequestCtx,
+  memexId: string,
+  scope: string | null,
+  value: string,
+): Promise<Mutated<Tag>> {
+  const clean = validateTagInput(scope, value);
+
+  const existing = await findTagCI(memexId, clean.scope, clean.value);
+  if (existing) throw duplicateBlock(formatTag(existing));
+
+  return mutate(ctx, { memexId, entity: "tag", action: "created" }, async () => {
+    const [row] = await db
+      .insert(tags)
+      .values({ memexId, scope: clean.scope, value: clean.value })
+      .returning();
+    return row;
+  });
+}
+
+/**
+ * Rename a catalogue tag's (scope, value). Validates at the boundary (ac-37), then runs
+ * two guards BEFORE any write, each a plain-reason block that changes NO row:
+ *   (a) DUPLICATE (ac-13): a DIFFERENT tag already holds the target (scope, value)
+ *       case-insensitively → block, naming the existing tag.
+ *   (b) SCOPE-EXCLUSIVITY (ac-14): only when the new scope is non-null. If any Spec
+ *       carries THIS tag AND some OTHER tag already in the new scope (a different
+ *       value), the rename would leave that Spec with two values in one scope. Block
+ *       with a reason that names the scope and SUMMARISES the count of affected Specs
+ *       (never an enumeration). A single COUNT query.
+ * The rename itself is a SINGLE set-based UPDATE inside ONE mutate() whose keys fan one
+ * `document` updated event per affected Spec plus one `tag` updated event (ac-16/ac-39).
+ * The UPDATE is wrapped so a lost check-then-write race (unique index, SQLSTATE 23505)
+ * is re-thrown as the SAME duplicate block — never a raw DB error (ac-38).
+ */
+export async function renameTag(
+  ctx: RequestCtx,
+  memexId: string,
+  tagId: string,
+  newScope: string | null,
+  newValue: string,
+): Promise<Mutated<Tag>> {
+  const clean = validateTagInput(newScope, newValue);
+
+  const [tag] = await db
+    .select()
+    .from(tags)
+    .where(and(eq(tags.id, tagId), eq(tags.memexId, memexId)))
+    .limit(1);
+  if (!tag) throw new NotFoundError(`Tag ${tagId} not found in this Memex`);
+
+  // (a) DUPLICATE — a DIFFERENT tag already holds the target (scope, value) CI.
+  const dupScopePred =
+    clean.scope === null
+      ? isNull(tags.scope)
+      : sql`lower(${tags.scope}) = lower(${clean.scope})`;
+  const [dup] = await db
+    .select()
+    .from(tags)
+    .where(
+      and(
+        eq(tags.memexId, memexId),
+        dupScopePred,
+        sql`lower(${tags.value}) = lower(${clean.value})`,
+        ne(tags.id, tagId),
+      ),
+    )
+    .limit(1);
+  if (dup) throw duplicateBlock(formatTag(dup));
+
+  // (b) SCOPE-EXCLUSIVITY — only meaningful when moving INTO a scope. Count DISTINCT
+  // Specs that carry THIS tag and ALSO carry some other tag already in the new scope
+  // (a different value): those would end up with two values in one scope. One query.
+  if (clean.scope !== null) {
+    const [{ n }] = (await db.execute(sql`
+      SELECT count(DISTINCT dt1.document_id)::int AS n
+      FROM document_tags dt1
+      JOIN document_tags dt2
+        ON dt2.document_id = dt1.document_id AND dt2.memex_id = dt1.memex_id
+      JOIN tags t2 ON t2.id = dt2.tag_id
+      WHERE dt1.memex_id = ${memexId}
+        AND dt1.tag_id = ${tagId}
+        AND t2.id <> ${tagId}
+        AND lower(t2.scope) = lower(${clean.scope})
+        AND lower(t2.value) <> lower(${clean.value})
+    `)) as unknown as Array<{ n: number }>;
+    if (n > 0) {
+      throw new ValidationError(
+        `Renaming into the "${clean.scope}" scope would put two "${clean.scope}" ` +
+          `values on ${n} Spec${n === 1 ? "" : "s"} that already use it. ` +
+          `Resolve those first.`,
+      );
+    }
+  }
+
+  // Fan-out targets computed BEFORE the write; the data change is one set-based UPDATE.
+  const affectedDocIds = await docIdsCarryingTag(memexId, tagId);
+
+  return mutate(ctx, curationKeys(memexId, "updated", affectedDocIds), async () => {
+    try {
+      const [row] = await db
+        .update(tags)
+        .set({ scope: clean.scope, value: clean.value })
+        .where(and(eq(tags.id, tagId), eq(tags.memexId, memexId)))
+        .returning();
+      return row;
+    } catch (err) {
+      // Lost the check-then-write race: a concurrent writer took (scope, value) between
+      // our duplicate pre-check and this UPDATE. Map the CI-index violation to the SAME
+      // duplicate block so the caller never sees a raw 23505 (ac-38).
+      if (isUniqueViolation(err)) throw duplicateBlock(formatTag(clean));
+      throw err;
+    }
+  });
+}
+
+/**
+ * Delete a catalogue tag. NEVER blocks (ac-15): there is no invalid-state guard — an
+ * admin deleting a tag always removes it. The single DELETE drops the tags row and the
+ * FK cascade (document_tags.tag_id ON DELETE CASCADE) removes every link, leaving zero
+ * orphans. Fan-out targets are captured BEFORE the delete so the ONE mutate() emits a
+ * `tag` deleted event plus one `document` updated per affected Spec (ac-16/ac-39). The
+ * blast radius (affected Spec ids / count) is returned so the caller can drive the t-6
+ * confirmation copy.
+ */
+export async function deleteTag(
+  ctx: RequestCtx,
+  memexId: string,
+  tagId: string,
+): Promise<Mutated<{ removed: number; affectedDocIds: string[] }>> {
+  const [tag] = await db
+    .select({ id: tags.id })
+    .from(tags)
+    .where(and(eq(tags.id, tagId), eq(tags.memexId, memexId)))
+    .limit(1);
+  if (!tag) throw new NotFoundError(`Tag ${tagId} not found in this Memex`);
+
+  const affectedDocIds = await docIdsCarryingTag(memexId, tagId);
+
+  return mutate(ctx, curationKeys(memexId, "deleted", affectedDocIds), async () => {
+    const deleted = await db
+      .delete(tags)
+      .where(and(eq(tags.id, tagId), eq(tags.memexId, memexId)))
+      .returning({ id: tags.id });
+    return { removed: deleted.length, affectedDocIds };
+  });
+}
+
+/**
+ * The tag catalogue for a Memex with each tag's assigned-Spec count, computed in a
+ * SINGLE aggregate query (LEFT JOIN document_tags GROUP BY tag) — never N per-tag
+ * counts (ac-18/std-39). Orphan tags (on no Spec) report assignedCount 0. Ordered
+ * scope-then-value for stable rendering. Feeds the admin catalogue view (t-5).
+ */
+export async function listMemexTagsWithCounts(memexId: string): Promise<TagWithCount[]> {
+  return db
+    .select({
+      id: tags.id,
+      memexId: tags.memexId,
+      scope: tags.scope,
+      value: tags.value,
+      createdAt: tags.createdAt,
+      assignedCount: sql<number>`count(${documentTags.docId})::int`,
+    })
+    .from(tags)
+    .leftJoin(documentTags, eq(documentTags.tagId, tags.id))
+    .where(eq(tags.memexId, memexId))
+    .groupBy(tags.id)
     .orderBy(tags.scope, tags.value);
 }
 

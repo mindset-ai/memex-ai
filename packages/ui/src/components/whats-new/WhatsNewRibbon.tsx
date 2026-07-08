@@ -24,7 +24,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Specky } from '@memex/guide-sdk';
 import { Confetti } from './Confetti';
 import { useWhatsNew } from './WhatsNewContext';
-import { fetchWhatsNew, type WhatsNewEntry } from '../../api/whatsNew';
+import { fetchWhatsNew, type WhatsNewEntry, type WhatsNewResponse } from '../../api/whatsNew';
 import { useTelemetry } from '../../hooks/useTelemetry';
 
 const DISMISS_KEY = 'whats-new:dismissed-at';
@@ -63,7 +63,7 @@ export interface WhatsNewRibbonProps {
   /** t-7: ask Specky to explain an entry. */
   onExplain?: (entry: WhatsNewEntry) => void;
   /** Injected for tests; defaults to the real GET /api/whats-new. */
-  fetcher?: () => Promise<WhatsNewEntry[]>;
+  fetcher?: () => Promise<WhatsNewResponse>;
   /** Auto-dismiss countdown in ms; 0 disables it (tests). Default 6000. */
   autoDismissMs?: number;
 }
@@ -73,7 +73,7 @@ export function WhatsNewRibbon({
   fetcher = fetchWhatsNew,
   autoDismissMs = AUTO_DISMISS_MS,
 }: WhatsNewRibbonProps) {
-  const { setAvailable, registerOpener, getMenuAnchor } = useWhatsNew();
+  const { setAvailable, setHasUnseen, registerOpener, getMenuAnchor } = useWhatsNew();
   const { track } = useTelemetry(true);
 
   const [entries, setEntries] = useState<WhatsNewEntry[]>([]);
@@ -96,7 +96,20 @@ export function WhatsNewRibbon({
   useEffect(() => {
     let alive = true;
     fetcher()
-      .then((e) => alive && setEntries(e))
+      .then(({ entries, suppressBefore }) => {
+        if (!alive) return;
+        // spec-439: seed the dismissed/confetti markers for brand-new users so
+        // historical entries don't appear as "new" on first sign-in. Must happen
+        // synchronously here, BEFORE setEntries, so ribbonPresent (line 119) reads
+        // the already-seeded marker on the very first render with data. A separate
+        // useEffect keyed on entries would run after that render — too late.
+        // When suppressBefore is absent (old server during rollout) we no-op.
+        if (suppressBefore) {
+          if (readMarker(DISMISS_KEY) === 0) writeMarker(DISMISS_KEY, suppressBefore);
+          if (readMarker(CONFETTI_KEY) === 0) writeMarker(CONFETTI_KEY, suppressBefore);
+        }
+        setEntries(entries);
+      })
       .catch(() => alive && setEntries([]));
     return () => {
       alive = false;
@@ -122,6 +135,15 @@ export function WhatsNewRibbon({
   useEffect(() => {
     setAvailable(entries.length > 0);
   }, [entries.length, setAvailable]);
+
+  // spec-456: report unread state so the menu item only confetti's for a
+  // genuinely-new entry. Same "unread" basis as fireOpened's unreadCount — the
+  // newest entry newer than the dismiss marker. Re-runs on dismiss (which
+  // advances the marker), flipping this back to false. Reduced-motion is handled
+  // downstream in the burst fn, not here.
+  useEffect(() => {
+    setHasUnseen(!!newest && Date.parse(newest.publishedAt) > readMarker(DISMISS_KEY));
+  }, [newest, dismissed, setHasUnseen]);
 
   // Engagement with release notes (spec-200). Count only — entries still newer
   // than the user's dismiss marker at the moment the popup opens.

@@ -7,14 +7,16 @@ import type { SessionPayload } from './api/client';
 import type { JourneyStateResponse } from './api/journey';
 
 // spec-421 dec-5 / issue-1 — RootRedirect decides the first-load landing from a
-// READ-ONLY onboarding-state check (supersedes spec-312 dec-1's universal /home):
-//   - not-yet-graduated, 'home' visible  → /home (the onboarding journey)
+// READ-ONLY onboarding-state check. spec-461 dec-1 then RETIRED the auto-Home landing,
+// so the current truth is:
+//   - not-yet-graduated, 'home' visible  → the default-tenant Specs board (spec-461)
 //   - graduated, 'home' visible          → the default-tenant Specs board
 //   - 'home' hidden per-env              → default-tenant Specs (loop-avoidance, NO journey read)
-// The decision is made in the app router before drawing (the journey-state read resolves
-// first), so there is no stale-state flash. We mount the real PostLoginRouter so the gate +
-// RootRedirect resolve through genuine react-router; the journey page / tenant chrome are
-// stubbed to sentinels so the test isolates the routing decision, not the screens.
+// (Home is now reachable only by explicit nav; the welcome-video re-show gate for spec-less
+// users survives — see App.spec-461.test.tsx.) The decision is made in the app router before
+// drawing (the journey-state read resolves first), so there is no stale-state flash. We mount
+// the real PostLoginRouter so the gate + RootRedirect resolve through genuine react-router; the
+// journey page / tenant chrome are stubbed to sentinels so the test isolates the routing decision.
 
 const ACS = 'mindset-prod/memex-building-itself/specs/spec-421/acs';
 
@@ -27,6 +29,7 @@ function makeSession(opts: { hiddenFeatures: string[]; emailVerified?: boolean }
       name: 'Alice',
       status: 'active',
       emailVerified: opts.emailVerified ?? true,
+      videoWelcomedAt: new Date(), // spec-444: suppress welcome-video gate so tests isolate routing logic
     },
     memberships: [
       {
@@ -147,6 +150,7 @@ function renderAt(path: string) {
 describe('RootRedirect lands users by a read-only onboarding-state check (spec-421 dec-5)', () => {
   beforeEach(() => {
     vi.stubEnv('VITE_GOOGLE_CLIENT_ID', 'test-client-id');
+    sessionStorage.setItem('welcomeVideoDismissed', '1'); // spec-444: suppress gate so tests isolate routing
     fetchJourneyStateApi.mockClear();
     trackMock.mockClear();
     trackAnonymousMock.mockClear();
@@ -154,14 +158,22 @@ describe('RootRedirect lands users by a read-only onboarding-state check (spec-4
   });
   afterEach(() => {
     vi.unstubAllEnvs();
+    sessionStorage.removeItem('welcomeVideoDismissed');
   });
 
-  it('home VISIBLE + NOT graduated: lands on the Home Canvas onboarding journey', async () => {
-    tagAc(`${ACS}/ac-16`);
+  // spec-461 dec-1 RETIRED spec-421 ac-16's "no spec yet → /home" clause: a not-graduated
+  // user is no longer auto-landed on Home — they land on the Specs board like everyone else
+  // (Home stays reachable only by explicit nav). Retagged to spec-461, which owns this truth.
+  it('home VISIBLE + NOT graduated: lands on the Specs board, NOT the Home journey (spec-461)', async () => {
+    tagAc('mindset-prod/memex-building-itself/specs/spec-461/acs/ac-1');
+    tagAc('mindset-prod/memex-building-itself/specs/spec-461/acs/ac-4');
     mockSession = makeSession({ hiddenFeatures: [] });
     journeyFetch = () => Promise.resolve(journeyState(false));
     renderAt('/');
-    expect(await screen.findByTestId('home-canvas-page')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByTestId('probe').getAttribute('data-path')).toBe('/alice/personal/specs');
+    });
+    expect(screen.queryByTestId('home-canvas-page')).not.toBeInTheDocument();
   });
 
   it('home VISIBLE + graduated: goes straight to the default-tenant Specs board, not Home', async () => {

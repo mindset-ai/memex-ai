@@ -28,7 +28,7 @@ const createdAcUids: string[] = [];
 
 afterAll(async () => {
   if (createdAcUids.length) {
-    await db.delete(testEvents).where(inArray(testEvents.acUid, createdAcUids)).catch(() => {});
+    await db.delete(testEvents).where(inArray(testEvents.subjectRef, createdAcUids)).catch(() => {});
   }
   if (createdMemexIds.length) {
     await db
@@ -58,7 +58,7 @@ let memexSlug: string;
 let memexId: string;
 let otherMemexId: string;
 let ownerUserId: string;
-let acUid: string;
+let subjectRef: string;
 let otherAcUid: string;
 
 async function postEvent(
@@ -85,7 +85,7 @@ async function postEvent(
 
 async function countEvents(acUidArg: string): Promise<number> {
   const rows = await db.query.testEvents.findMany({
-    where: eq(testEvents.acUid, acUidArg),
+    where: eq(testEvents.subjectRef, acUidArg),
   });
   return rows.length;
 }
@@ -119,9 +119,9 @@ describe("POST /api/test-events — emission-key auth (spec-129)", () => {
     otherMemexId = other.id;
     createdMemexIds.push(otherMemexId);
 
-    acUid = `${ns}/${memexSlug}/specs/spec-1/acs/ac-1`;
+    subjectRef = `${ns}/${memexSlug}/specs/spec-1/acs/ac-1`;
     otherAcUid = `${ns}/other/specs/spec-1/acs/ac-1`;
-    createdAcUids.push(acUid, otherAcUid);
+    createdAcUids.push(subjectRef, otherAcUid);
 
     // spec-90 dec-7 (A1): the route has no server-owned-namespace guard; the
     // per-memex emission-key match is the sole identity gate, so this e2e needs
@@ -133,28 +133,28 @@ describe("POST /api/test-events — emission-key auth (spec-129)", () => {
   it("rejects a request with NO key (401, no row written) [ac-9]", async () => {
     tagAc(AC_9);
     tagAc(AC_1); // scope outcome: keyless emission cannot land a row / move a badge
-    const before = await countEvents(acUid);
-    const res = await postEvent(acUid);
+    const before = await countEvents(subjectRef);
+    const res = await postEvent(subjectRef);
     expect(res.status).toBe(401);
-    expect(await countEvents(acUid)).toBe(before);
+    expect(await countEvents(subjectRef)).toBe(before);
   });
 
   it("rejects a request with an INVALID key (401) [ac-9]", async () => {
     tagAc(AC_9);
-    const res = await postEvent(acUid, { bearer: "mxk_not_a_real_key" });
+    const res = await postEvent(subjectRef, { bearer: "mxk_not_a_real_key" });
     expect(res.status).toBe(401);
   });
 
   it("accepts a request with a valid Bearer key (201) [ac-9]", async () => {
     tagAc(AC_9);
-    const res = await postEvent(acUid, { bearer: key });
+    const res = await postEvent(subjectRef, { bearer: key });
     expect(res.status).toBe(201);
   });
 
   it("extracts the key ONLY from the Authorization header — a key in the body does not authenticate [ac-8]", async () => {
     tagAc(AC_8);
     // Same valid key value, but supplied in the body / query rather than the header.
-    const res = await postEvent(acUid, { body: { key, emission_key: key } });
+    const res = await postEvent(subjectRef, { body: { key, emission_key: key } });
     expect(res.status).toBe(401);
     const viaQuery = await app.request(
       `/api/test-events?key=${encodeURIComponent(key)}`,
@@ -162,7 +162,7 @@ describe("POST /api/test-events — emission-key auth (spec-129)", () => {
         method: "POST",
         headers: { "Content-Type": "application/json", Host: "memex.ai" },
         body: JSON.stringify({
-          ac_uid: acUid,
+          ac_uid: subjectRef,
           status: "pass",
           test_identifier: "t.ts::x",
           duration_ms: 1,
@@ -185,8 +185,8 @@ describe("POST /api/test-events — emission-key auth (spec-129)", () => {
   it("authenticates every non-revoked key on the Memex [ac-12]", async () => {
     tagAc(AC_12);
     const second = await mintEmissionKey(memexId, "secondary", ownerUserId);
-    const r1 = await postEvent(acUid, { bearer: key });
-    const r2 = await postEvent(acUid, { bearer: second.raw });
+    const r1 = await postEvent(subjectRef, { bearer: key });
+    const r2 = await postEvent(subjectRef, { bearer: second.raw });
     expect(r1.status).toBe(201);
     expect(r2.status).toBe(201);
   });
@@ -194,14 +194,14 @@ describe("POST /api/test-events — emission-key auth (spec-129)", () => {
   it("rejects a revoked key while siblings keep working (401) [ac-13]", async () => {
     tagAc(AC_13);
     const victim = await mintEmissionKey(memexId, "to-revoke", ownerUserId);
-    expect((await postEvent(acUid, { bearer: victim.raw })).status).toBe(201);
+    expect((await postEvent(subjectRef, { bearer: victim.raw })).status).toBe(201);
 
     await revokeEmissionKey(victim.row.id, memexId);
 
-    const afterRevoke = await postEvent(acUid, { bearer: victim.raw });
+    const afterRevoke = await postEvent(subjectRef, { bearer: victim.raw });
     expect(afterRevoke.status).toBe(401);
     // The original key is unaffected.
-    expect((await postEvent(acUid, { bearer: key })).status).toBe(201);
+    expect((await postEvent(subjectRef, { bearer: key })).status).toBe(201);
   });
 
   it("bumps the key's last_used_at on a successful emission [ac-17]", async () => {
@@ -209,7 +209,7 @@ describe("POST /api/test-events — emission-key auth (spec-129)", () => {
     const fresh = await mintEmissionKey(memexId, "heartbeat", ownerUserId);
     expect(fresh.row.lastUsedAt).toBeNull();
 
-    expect((await postEvent(acUid, { bearer: fresh.raw })).status).toBe(201);
+    expect((await postEvent(subjectRef, { bearer: fresh.raw })).status).toBe(201);
 
     // bumpLastUsed is fire-and-forget — poll briefly for the async write.
     let lastUsedAt: Date | null = null;

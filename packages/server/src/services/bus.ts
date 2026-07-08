@@ -25,6 +25,11 @@ export type ChangeEntity =
   // spec-136: the tag catalogue (a per-Memex resource; no docId). Changes to a
   // tag *on a Spec* emit `document` updated instead, so the Spec's card refreshes.
   | "tag"
+  // spec-300: a Skill's auxiliary-file manifest write (skill_files insert/delete),
+  // scoped to the Skill document via docId. The Skill DOCUMENT itself (create /
+  // edit / archive) emits `document` like every other docType; this entity covers
+  // the manifest child rows so a file add/remove wakes live consumers (std-8).
+  | "skill_file"
   // feat-ac-spike V0.0.1 — Acceptance Criteria primitive
   | "ac"
   | "ac_parent_link"
@@ -94,7 +99,17 @@ export type ChangeEntity =
   | "oauth_code"
   | "oauth_refresh_token"
   // spec-21: per-user attribution record (silent-allowed per std-8 §6 — no SSE subscriber).
-  | "user_attribution";
+  | "user_attribution"
+  // spec-448 (document versioning): a `document_versions` row created by
+  // cutVersion (an ordinary cut) or restoreVersion (a restore's produced
+  // version, carrying restored_from_version). Scoped via docId like every
+  // other doc-tree entity.
+  | "document_version"
+  // spec-448 t-5: per-user "last-seen version" marker (doc_views upsert) — the
+  // catch-up sibling of qa_report_view. Silent-allowed per std-8 §6 (a read
+  // marker is not collaborative content); scoped via docId like every other
+  // doc-tree entity, with userId set for the per-user fan-out.
+  | "doc_view";
 
 export type ChangeAction =
   // Mutation actions — the original bus contract.

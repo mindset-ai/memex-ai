@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router-dom';
 import { tagAc } from '@memex-ai-ac/vitest';
 import type { Tag } from '../api/types';
 
@@ -30,7 +31,11 @@ describe('TagFilter — board.tag_filter_applied telemetry', () => {
     tagAc(`${AC}/ac-2`); // props are counts only — never the tag values (no PII/content)
     tagAc(`${AC}/ac-1`); // an in-scope FE interaction emits a registered track() event
     const onChange = vi.fn();
-    render(<TagFilter selected={[]} onChange={onChange} />);
+    render(
+      <MemoryRouter>
+        <TagFilter selected={[]} onChange={onChange} />
+      </MemoryRouter>,
+    );
 
     await userEvent.click(screen.getByTestId('tag-filter-toggle'));
     const options = await screen.findAllByTestId('tag-filter-option');
@@ -46,7 +51,11 @@ describe('TagFilter — board.tag_filter_applied telemetry', () => {
   it('fires filterCount: 0 when the selection is cleared', async () => {
     tagAc(`${AC}/ac-1`);
     const onChange = vi.fn();
-    render(<TagFilter selected={['priority::high']} onChange={onChange} />);
+    render(
+      <MemoryRouter>
+        <TagFilter selected={['priority::high']} onChange={onChange} />
+      </MemoryRouter>,
+    );
 
     await userEvent.click(screen.getByTestId('tag-filter-clear'));
 

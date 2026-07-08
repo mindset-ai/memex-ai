@@ -19,7 +19,31 @@ export interface EmailMessage {
   // sent without them is still recorded, resolved by recipient address.
   userId?: string;
   commsType?: string;
+  // spec-428 dec-3 / spec-427 dec-1 — per-message sender overrides for the
+  // activation/welcome emails: a named-human `from` and a monitored `replyTo`
+  // inbox, distinct from the default transactional sender. Both optional; absent
+  // → the configured default From and no Reply-To (the existing 6 emails unchanged).
+  from?: string;
+  replyTo?: string;
+  // spec-427 t-3 (dec-5/dec-8) — the lifecycle/broadcast transport. `stream` is the
+  // Postmark MessageStream id; absent → "outbound" (the transactional stream all
+  // existing emails use, unchanged). Any non-"outbound" stream is a broadcast/
+  // lifecycle send: it selects the broadcast token (int-safe sandbox by default,
+  // real in prod) rather than the transactional token. `listUnsubscribeUrl`, when
+  // present, emits the RFC 8058 one-click List-Unsubscribe header pair (the token
+  // in the URL is issued by t-4).
+  stream?: string;
+  listUnsubscribeUrl?: string;
 }
+
+// The transactional stream every existing email rides. A message with no `stream`
+// (or this exact value) takes the transactional token; anything else is broadcast.
+const TRANSACTIONAL_STREAM = "outbound";
+// Postmark's well-known sandbox token literal — accepts, returns 200, delivers
+// nothing, no reputation impact. The fail-safe default for the broadcast path so a
+// deploy that forgets POSTMARK_BROADCAST_TOKEN (e.g. int) can never send real
+// broadcast mail (spec-427 dec-8 / ac-15).
+const POSTMARK_TEST_TOKEN = "POSTMARK_API_TEST";
 
 export interface EmailSender {
   send(message: EmailMessage): Promise<void>;
@@ -29,6 +53,8 @@ export class ConsoleEmailSender implements EmailSender {
   async send(message: EmailMessage): Promise<void> {
     console.log("");
     console.log(`────────── [email] to=${message.to} ──────────`);
+    if (message.from) console.log(`from: ${message.from}`);
+    if (message.replyTo) console.log(`reply-to: ${message.replyTo}`);
     console.log(`subject: ${message.subject}`);
     console.log("");
     console.log(message.text);
@@ -43,23 +69,44 @@ export class PostmarkEmailSender implements EmailSender {
   constructor(
     private readonly token: string,
     private readonly from: string,
+    // spec-427 t-3 — the token used for broadcast/lifecycle sends. Distinct from the
+    // transactional `token` so int can deliver nothing (sandbox) while prod uses the
+    // real token; the transactional path always uses `token`. Absent → the broadcast
+    // path falls back to the shared `token`.
+    private readonly broadcastToken?: string,
   ) {}
 
   async send(message: EmailMessage): Promise<void> {
+    const stream = message.stream ?? TRANSACTIONAL_STREAM;
+    // Non-transactional streams are lifecycle/broadcast: select the broadcast token
+    // (int-safe sandbox / prod real). Transactional sends always use the shared token.
+    const token =
+      stream === TRANSACTIONAL_STREAM ? this.token : this.broadcastToken ?? this.token;
+    // spec-427 t-3 (ac-11) — RFC 8058 one-click unsubscribe. The URL MUST be
+    // angle-bracket wrapped (RFC 2369) or clients won't honour one-click.
+    const headers = message.listUnsubscribeUrl
+      ? [
+          { Name: "List-Unsubscribe", Value: `<${message.listUnsubscribeUrl}>` },
+          { Name: "List-Unsubscribe-Post", Value: "List-Unsubscribe=One-Click" },
+        ]
+      : undefined;
+
     const res = await fetch("https://api.postmarkapp.com/email", {
       method: "POST",
       headers: {
         "Accept": "application/json",
         "Content-Type": "application/json",
-        "X-Postmark-Server-Token": this.token,
+        "X-Postmark-Server-Token": token,
       },
       body: JSON.stringify({
-        From: this.from,
+        From: message.from ?? this.from,
         To: message.to,
         Subject: message.subject,
         TextBody: message.text,
         ...(message.html ? { HtmlBody: message.html } : {}),
-        MessageStream: "outbound",
+        ...(message.replyTo ? { ReplyTo: message.replyTo } : {}),
+        ...(headers ? { Headers: headers } : {}),
+        MessageStream: stream,
       }),
     });
 
@@ -76,11 +123,18 @@ export class PostmarkEmailSender implements EmailSender {
     // never affect the send, so we also guard the response parse and never await
     // into the caller's failure path.
     let messageId: string | undefined;
+    let sentAt: Date | undefined;
     try {
-      const body = (await res.json()) as { MessageID?: string };
+      const body = (await res.json()) as { MessageID?: string; SubmittedAt?: string };
       messageId = body.MessageID;
+      // spec-442 (ac-6): use Postmark's SubmittedAt as the true send time when present
+      // and parseable; otherwise leave it undefined and let recordComm fall back to now().
+      if (body.SubmittedAt) {
+        const parsed = new Date(body.SubmittedAt);
+        if (!Number.isNaN(parsed.getTime())) sentAt = parsed;
+      }
     } catch {
-      // response parse is best-effort — proceed to record without a MessageID
+      // response parse is best-effort — proceed to record without a MessageID / send time
     }
     void recordEmailComm({
       to: message.to,
@@ -88,6 +142,7 @@ export class PostmarkEmailSender implements EmailSender {
       commsType: message.commsType,
       subject: message.subject,
       messageId,
+      sentAt,
     });
   }
 }
@@ -113,7 +168,11 @@ export function getEmailSender(): EmailSender {
   const postmarkToken = process.env.POSTMARK_SERVER_TOKEN;
   const from = process.env.EMAIL_FROM;
   if (postmarkToken && from) {
-    cached = new PostmarkEmailSender(postmarkToken, from);
+    // spec-427 dec-8 / ac-15 — fail-safe: the broadcast token defaults to Postmark's
+    // sandbox literal, so an env that never sets POSTMARK_BROADCAST_TOKEN (int)
+    // delivers no real broadcast mail. Prod sets it to the real token to opt in.
+    const broadcastToken = process.env.POSTMARK_BROADCAST_TOKEN || POSTMARK_TEST_TOKEN;
+    cached = new PostmarkEmailSender(postmarkToken, from, broadcastToken);
     return cached;
   }
 

@@ -44,6 +44,8 @@ const DOC_ROW = {
   handle: TEST_DOC_HANDLE,
   title: "Test Doc",
   docType: "spec", // DB enum value (specs/docs/standards/execution-plans → spec/document/standard/execution_plan)
+  description: null,
+  skillCapabilities: null,
   status: "draft",
   parentDocId: null,
   createdByUserId: null,
@@ -59,6 +61,7 @@ const DOC_ROW = {
   checkedOutBy: null,
   checkedOutAt: null,
   checkedOutThread: null,
+  version: 1,
 };
 const SECTION_ROW = {
   id: TEST_SECTION_ID,
@@ -73,6 +76,7 @@ const SECTION_ROW = {
   position: 1,
   status: "active",
   previousStatus: null,
+  retiredAtVersion: null,
   createdAt: baseDate,
   updatedAt: baseDate,
   actorUserId: null,
@@ -94,6 +98,7 @@ const TASK_ROW = {
   seq: 1,
   title: "A task",
   description: "x",
+  skillCapabilities: null,
   status: "not_started",
 };
 const COMMENT_ROW = {
@@ -129,6 +134,10 @@ const CLAUSE_ROW = {
   body: "A clause.",
   status: "active",
   previousStatus: null,
+  // spec-151 dec-5 — persisted testability verdict columns (null = unclassified).
+  isObligation: null,
+  testable: null,
+  archetype: null,
   createdAt: baseDate,
   updatedAt: baseDate,
 };
@@ -729,6 +738,7 @@ describe("MCP Tool handlers via HTTP", () => {
               assigneeUserId: null,
               assignedBy: null,
               assignedAt: null,
+              retiredAtVersion: null,
               channel: null,
               createdAt: baseDate,
             },

@@ -132,6 +132,9 @@ export DB_NAME DB_USER DB_PASS
 export SERVICE IMAGE STATIC_BUCKET URL_MAP_NAME
 export PUBLIC_HOST API_PUBLIC_HOST APP_BASE_URL API_BASE_URL
 export GOOGLE_CLIENT_ID EMAIL_FROM SLACK_CLIENT_ID
+# spec-428 (welcome) / spec-427 (drip) team-identity sender — optional per env;
+# wired into Cloud Run via the ${VAR+...} optional pattern in packages/server/deploy.sh.
+export EMAIL_ACTIVATION_FROM EMAIL_ACTIVATION_REPLY_TO EMAIL_SENDER_NAME
 # HIDDEN_FEATURES — comma-separated feature slugs to hide on this environment
 # (e.g. 'scaffold,spec-pause,pulse'). Read at runtime by the server's
 # getHiddenFeatures() (packages/server/src/services/auth.ts). Hiding is
@@ -158,6 +161,24 @@ fi
 if [ -n "${SIGNUP_DOMAIN_ALLOWLIST+set}" ]; then
   export SIGNUP_DOMAIN_ALLOWLIST
 fi
+# ACTIVATION_EMAILS_ENABLED — spec-427 t-6 (dec-9): the activation-drip master + kill
+# switch. Default OFF; enabled only in prod, only by hand, at the deliberate launch
+# moment (and flipped back to stop everything). Same set-vs-unset semantics as
+# HIDDEN_FEATURES — a deploy from a checkout that never set it must not silently flip
+# the drip on OR off, so it is passed to Cloud Run only when the per-env config set it.
+if [ -n "${ACTIVATION_EMAILS_ENABLED+set}" ]; then
+  export ACTIVATION_EMAILS_ENABLED
+fi
+# ACTIVATION_CONNECT_GO_LIVE — spec-453 t-6 (dec-10/dec-11): the FIXED go-live instant the
+# "Connect with people" Day-12 pass gates its back-catalog floor on. MUST be the same
+# moment t-1's migration backfilled users.first_ac_verified_at to (deploy time), so the two
+# emails agree on go-live. ISO-8601. Unset → the lifecycle-tick endpoint SKIPS the Connect
+# pass (safe, never blasts). Same set-vs-unset passthrough as ACTIVATION_EMAILS_ENABLED so a
+# checkout that never set it can't silently change go-live. (LIFECYCLE_TICK_SECRET is a
+# SECRET — wired via Secret Manager by scripts/deploy-lifecycle-scheduler.sh, not here.)
+if [ -n "${ACTIVATION_CONNECT_GO_LIVE+set}" ]; then
+  export ACTIVATION_CONNECT_GO_LIVE
+fi
 
 # OTEL_EXPORTER_OTLP_ENDPOINT — turns on database observability and chooses
 # where the metrics go. Unset (the default) means telemetry is off with zero
@@ -175,6 +196,34 @@ if [ -n "${OTEL_EXPORTER_OTLP_ENDPOINT+set}" ]; then
 fi
 if [ -n "${MEMEX_OTEL_EXPORT_INTERVAL_MS+set}" ]; then
   export MEMEX_OTEL_EXPORT_INTERVAL_MS
+fi
+
+# STORAGE_PROVIDER / STORAGE_GCS_BUCKET — spec-300: the blob backend for Skills'
+# BINARY auxiliary files (getStorageProvider(), services/storage/index.ts). Unset in an
+# env means the code default applies (local in dev, gcs in prod) — but gcs REQUIRES a
+# bucket, so a prod env that stores binary aux files MUST set both here:
+#   STORAGE_PROVIDER="gcs"
+#   STORAGE_GCS_BUCKET="<bucket-name>"   # no gs:// prefix — the raw bucket name
+# The bucket + its IAM are provisioned separately; the NAME is per-env instance config,
+# so it lives in the memex-<env>-deploy-env secret, never hardcoded here. Same
+# set-vs-unset MERGE semantics as HIDDEN_FEATURES above: exported (and passed to Cloud
+# Run) ONLY when this checkout actually set it, so a deploy never blanks a live value.
+if [ -n "${STORAGE_PROVIDER+set}" ]; then
+  export STORAGE_PROVIDER
+fi
+if [ -n "${STORAGE_GCS_BUCKET+set}" ]; then
+  export STORAGE_GCS_BUCKET
+fi
+
+# SERVICE_ACCOUNT — spec-300: the dedicated Cloud Run runtime service account. Pinned
+# EXPLICITLY on deploy (rather than relying on Cloud Run's preserve-on-update) so a
+# service recreate or first deploy lands the right identity — the one granted the
+# skill-blob bucket's objectAdmin + serviceAccountTokenCreator-on-self for V4 signed
+# URLs. Per-env value in the memex-<env>-deploy-env secret; passed via the optional
+# ${SERVICE_ACCOUNT:+--service-account=...} flag in packages/server/deploy.sh, so an
+# env that never sets it deploys unchanged (Cloud Run keeps the existing SA).
+if [ -n "${SERVICE_ACCOUNT+set}" ]; then
+  export SERVICE_ACCOUNT
 fi
 
 echo "[deploy-config] ENV=$ENV  project=$GCP_PROJECT  host=$PUBLIC_HOST  api=$API_PUBLIC_HOST"

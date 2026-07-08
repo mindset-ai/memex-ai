@@ -27,7 +27,8 @@ describe('spec-141 ac-4: integrations consolidation respects the .ee line', () =
     // code — so no EE logic lives in this open-core file.
     expect(consolidatedPageSource).toMatch(/components\/\.ee\/SlackIntegrationSection/);
     expect(consolidatedPageSource).toMatch(/McpTokensSection/);
-    expect(consolidatedPageSource).toMatch(/CliInstallSection/);
+    // spec-452: the CLI-install + genesis-prompt sections merged into AgentSetupSection.
+    expect(consolidatedPageSource).toMatch(/AgentSetupSection/);
   });
 
   it('retires /settings/tokens and /installation by redirecting to the consolidated route', () => {

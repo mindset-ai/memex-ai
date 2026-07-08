@@ -276,7 +276,10 @@ export async function createStandard(
         handle,
         title,
         docType: STANDARD_DOC_TYPE,
-        status: "draft",
+        // spec-449 dec-1: Standards are in force the moment they exist — born
+        // 'approved' (the single canonical in-force value), never 'draft'. Same
+        // rule as the agent create_standard path (agent/handlers/standards.ts).
+        status: "approved",
         createdByUserId: createdByUserId ?? null,
       })
       .returning();
@@ -687,6 +690,8 @@ export async function findStandardsAffectedByDecision(
           handle: row.docHandle,
           title: row.docTitle,
           docType: row.docDocType,
+          description: null,
+          skillCapabilities: null,
           status: row.docStatus,
           parentDocId: row.docParentDocId,
           createdByUserId: null,
@@ -702,6 +707,9 @@ export async function findStandardsAffectedByDecision(
           checkedOutBy: null,
           checkedOutAt: null,
           checkedOutThread: null,
+          // spec-448 t-1: not selected above (this reconstructs a partial Doc,
+          // like the other stub fields in this literal) — placeholder default.
+          version: 1,
         },
         matchingSections: [],
       };
@@ -726,6 +734,8 @@ export async function findStandardsAffectedByDecision(
       actorUserId: null,
       actorName: null,
       channel: null,
+      // spec-448 t-1 — likewise not selected above.
+      retiredAtVersion: null,
     });
   }
   return Array.from(byDoc.values());

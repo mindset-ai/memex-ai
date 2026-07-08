@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from 'react';
 import { Routes, Route, useLocation, useParams, useNavigate, Navigate, Outlet } from 'react-router-dom';
+import { emailPreviewEnabled } from './utils/devTools';
 // spec-351: route-level code-splitting. Every top-level routed page is loaded
 // as its own lazy chunk so the entry bundle no longer eagerly pulls all ~35
 // page surfaces (and their heavy transitive deps — nivo charts, pixi, the
@@ -19,6 +20,10 @@ import { Routes, Route, useLocation, useParams, useNavigate, Navigate, Outlet } 
 // stay eagerly imported below — splitting them would only add Suspense
 // boundaries on the critical path with no payload win.
 const Pulse = lazy(() => import('./pages/Pulse').then((m) => ({ default: m.Pulse })));
+// spec-458 (PROTOTYPE) — the public live proof-of-life page. Fully public
+// (rendered outside AuthProvider below, the /share pattern) and lazy so its
+// world-map asset never rides the authenticated bundles.
+const LivePage = lazy(() => import('./pages/live/LivePage').then((m) => ({ default: m.LivePage })));
 const Insights = lazy(() => import('./pages/Insights').then((m) => ({ default: m.Insights })));
 const QaReports = lazy(() => import('./pages/QaReports').then((m) => ({ default: m.QaReports })));
 const Decisions = lazy(() => import('./pages/Decisions').then((m) => ({ default: m.Decisions })));
@@ -32,6 +37,13 @@ const StandardList = lazy(() =>
   import('./pages/StandardList').then((m) => ({ default: m.StandardList })),
 );
 const Standard = lazy(() => import('./pages/Standard').then((m) => ({ default: m.Standard })));
+// spec-300 t-6 — the in-app Skills surface (list + detail).
+const SkillList = lazy(() => import('./pages/SkillList').then((m) => ({ default: m.SkillList })));
+const Skill = lazy(() => import('./pages/Skill').then((m) => ({ default: m.Skill })));
+// spec-226 t-6 — internal email-preview gallery (gated off prod, see emailPreviewEnabled).
+const EmailPreview = lazy(() =>
+  import('./pages/EmailPreview').then((m) => ({ default: m.EmailPreview })),
+);
 const DriftInbox = lazy(() => import('./pages/DriftInbox').then((m) => ({ default: m.DriftInbox })));
 const DocumentList = lazy(() =>
   import('./pages/DocumentList').then((m) => ({ default: m.DocumentList })),
@@ -49,6 +61,9 @@ const SettingsIntegrations = lazy(() =>
   import('./pages/SettingsIntegrations').then((m) => ({ default: m.SettingsIntegrations })),
 );
 const Onboarding = lazy(() => import('./pages/Onboarding').then((m) => ({ default: m.Onboarding })));
+const WelcomePage = lazy(() =>
+  import('./pages/WelcomePage').then((m) => ({ default: m.WelcomePage })),
+);
 const InviteAccept = lazy(() =>
   import('./pages/InviteAccept').then((m) => ({ default: m.InviteAccept })),
 );
@@ -62,6 +77,10 @@ const MemexSettings = lazy(() =>
   import('./pages/MemexSettings').then((m) => ({ default: m.MemexSettings })),
 );
 const MemexKeys = lazy(() => import('./pages/MemexKeys').then((m) => ({ default: m.MemexKeys })));
+// spec-418 t-5 — the Manage-tags surface (tag catalogue admin). Renders in the
+// normal AppShell sidebar layout (NOT the doc-page chrome) — see the AppShell
+// guard that excludes the literal `tags` segment from the specs/:id doc match.
+const ManageTags = lazy(() => import('./pages/ManageTags').then((m) => ({ default: m.ManageTags })));
 const UpgradePlanSelect = lazy(() =>
   import('./pages/upgrade/UpgradePlanSelect').then((m) => ({ default: m.UpgradePlanSelect })),
 );
@@ -113,6 +132,7 @@ import { createReactRouterNavigationAdapter } from './voice/reactRouterNavigatio
 import { HandholdRevealProvider, useHandholdRevealValue } from './hooks/HandholdRevealContext';
 import { useTrackRouteChange, useTelemetry, trackAnonymous } from './hooks/useTelemetry';
 import { useShouldLandOnHome } from './journeys/landing';
+import { getCachedJourneyState } from './journeys/journeyStateCache';
 import { tenantBase, BASE_URL, fetchWithRetry } from './api/http';
 import { SearchProvider } from './components/SearchContext';
 import { WhatsNewRibbonConnected } from './components/whats-new/WhatsNewRibbonConnected';
@@ -234,6 +254,24 @@ function TenantLayout() {
   // /home as a recede-able layer, not a wall).
   if (!session.user.emailVerified) {
     return <VerifyEmailGate />;
+  }
+  if (!session.user.name) return <Navigate to="/onboarding" replace />; // spec-441
+  // spec-444: welcome-video gate — after name capture, before the app.
+  // Extended scope (ac-17): also re-shows for returning users who haven't created
+  // a spec yet. Uses the cached journey state (populated by RootRedirect's one-shot
+  // read) so direct-URL navigation into a tenant doesn't skip the gate — if the
+  // cache is empty (first direct load, no prior / visit), fall back to the
+  // videoWelcomedAt check only so we never block with an uncached stale read.
+  {
+    const cached = getCachedJourneyState();
+    const noSpec = !!cached && !cached.milestones?.hasSpec;
+    if (
+      (!session.user.videoWelcomedAt || noSpec) &&
+      !sessionStorage.getItem('welcomeVideoDismissed') &&
+      !location.pathname.startsWith('/welcome')
+    ) {
+      return <Navigate to="/welcome" replace />;
+    }
   }
 
   // Membership check: redirect to the user's default tenant when they aren't
@@ -405,7 +443,7 @@ function RootRedirect() {
   const homeHidden = !!session && isFeatureHidden(session, 'home');
   // Only consult journey-state when we genuinely face the Home-vs-Specs choice
   // (authenticated, verified, and 'home' visible). Otherwise skip the read.
-  const needDecision = !!session && emailVerified && !homeHidden;
+  const needDecision = !!session && emailVerified && !!session.user.name && !homeHidden;
   const landOnHome = useShouldLandOnHome(needDecision);
 
   // Engagement telemetry (advisory, fires once): record which way the router sent the
@@ -415,7 +453,9 @@ function RootRedirect() {
   useEffect(() => {
     if (!needDecision || landOnHome === null || firedRef.current) return;
     firedRef.current = true;
-    const props = { destination: landOnHome ? 'home' : 'specs', graduated: !landOnHome };
+    // spec-461: the landing destination is now always the Specs board (Home is never
+    // an automatic target). `graduated` (= hasSpec) is kept as the engagement signal.
+    const props = { destination: 'specs', graduated: !landOnHome };
     // RootRedirect renders at the flat `/` (or `/login`), where `track()` resolves the
     // tenant from the cached session. In the rare case there's no resolvable tenant (e.g.
     // a session with no current Memex yet), fall back to the anonymous ingress so the
@@ -426,13 +466,30 @@ function RootRedirect() {
 
   if (!session) return null; // session bootstrap still pending
   if (!emailVerified) return <VerifyEmailGate />;
+  if (!session.user.name) return <Navigate to="/onboarding" replace />; // spec-441
+  // spec-444: welcome-video gate — / and /login always redirect here.
+  // Fast path: first-timers (no videoWelcomedAt) redirect immediately.
+  if (
+    !session.user.videoWelcomedAt &&
+    !sessionStorage.getItem('welcomeVideoDismissed')
+  ) {
+    return <Navigate to="/welcome" replace />;
+  }
   if (homeHidden) {
     // Loop-avoidance: 'home' hidden ⇒ land on the default tenant, no journey read.
     const fallback = computeDefaultLanding(session);
     return fallback ? <Navigate to={fallback} replace /> : null;
   }
   if (landOnHome === null) return null; // assessing onboarding state — draw nothing yet
-  const target = landOnHome ? '/home' : computeDefaultLanding(session);
+  // spec-444 extended scope (ac-17): returning users who have not yet created a
+  // spec re-see the video on each new session until they do. landOnHome = !hasSpec.
+  if (landOnHome && !sessionStorage.getItem('welcomeVideoDismissed')) {
+    return <Navigate to="/welcome" replace />;
+  }
+  // spec-461: never auto-land on /home. Every authenticated user past the gates
+  // lands on their Specs board; Home is reachable only by explicit navigation.
+  // `landOnHome` (= !hasSpec) still drives the spec-444 welcome re-show gate above.
+  const target = computeDefaultLanding(session);
   if (target) return <Navigate to={target} replace />;
   return null;
 }
@@ -470,6 +527,8 @@ export function PostLoginRouter() {
           doesn't get caught by `/:namespace` below and resolved as a "login" namespace. */}
       <Route path="/login" element={<RootRedirect />} />
       <Route path="/onboarding" element={<Onboarding />} />
+      {/* spec-444: full-page welcome video. Standalone (no AppShell) — no FlatShell wrapper. */}
+      <Route path="/welcome" element={<WelcomePage />} />
       <Route path="/invite/:token" element={<InviteAccept />} />
       {/* spec-141 dec-3: install instructions + MCP tokens folded into the one
           Integrations page. Old routes redirect (the /account→/org pattern).
@@ -480,6 +539,12 @@ export function PostLoginRouter() {
       <Route path="/oauth/authorize" element={<OauthAuthorize />} />
       <Route path="/settings/tokens" element={<Navigate to="/settings/integrations" replace />} />
       <Route path="/settings/integrations" element={<FlatShell><SettingsIntegrations /></FlatShell>} />
+      {/* spec-226 t-6: internal email-preview gallery. Gated off prod — the
+          conditional Route is inert when emailPreviewEnabled() is false (falls
+          through to RootRedirect), mirroring the server's prod-unmounted API. */}
+      {emailPreviewEnabled() && (
+        <Route path="/email-preview" element={<FlatShell><EmailPreview /></FlatShell>} />
+      )}
       <Route path="/invites" element={<Navigate to="/org?tab=invites" replace />} />
       <Route path="/org" element={<FlatShell><OrgConfiguration /></FlatShell>} />
       {/* spec-171: in-app upgrade flow. Flat routes so website CTAs land here
@@ -510,6 +575,13 @@ export function PostLoginRouter() {
       />
 
 
+      {/* Bare /specs is a flat, single-segment path with no tenant prefix, so it
+          would otherwise be claimed by /:namespace below and resolved as a bogus
+          "specs" namespace. The specs board is tenant-scoped (/<ns>/<mx>/specs);
+          send the user to their default landing (their personal memex's Specs board;
+          spec-461: never /home). Same RootRedirect pattern as /login and hidden /home. */}
+      <Route path="/specs" element={<RootRedirect />} />
+
       {/* doc-19 t-10: namespace home — /<namespace>/ renders the kind-aware
           OrgHome / Personal Home. More specific /:namespace/:memex routes below
           take precedence (React Router 7 specificity). */}
@@ -539,12 +611,20 @@ export function PostLoginRouter() {
         )}
         <Route path="decisions" element={<Decisions />} />
         <Route path="specs" element={<SpecList />} />
+        {/* spec-418 t-5: the Manage-tags surface. A literal `specs/tags` segment —
+            registered before `specs/:id` so it's never resolved as a Spec handle.
+            It renders inside TenantLayout → AppShell's sidebar layout (the AppShell
+            doc-page match excludes the literal `tags` segment). */}
+        <Route path="specs/tags" element={<ManageTags />} />
         {/* spec-158 t-4: the Memex-level Issues page — the cross-Spec roll-up of
             every open issue, grouped under its parent Spec. A plain member
             surface (no feature gate), mounted in the standard AppShell. */}
         <Route path="issues" element={<IssuesList />} />
         <Route path="standards" element={<StandardList />} />
         <Route path="standards/:id" element={<Standard />} />
+        {/* spec-300 t-6: Skills — the reusable-SKILL.md surface (list + detail). */}
+        <Route path="skills" element={<SkillList />} />
+        <Route path="skills/:id" element={<Skill />} />
         {/* spec-143 t-3: the Drift Inbox mounts in the same two-pane shell as
             the Spec page (`specs/:id`) — the agent ChatPanel beside the drift
             list — so the click-to-focus drift_item chip (handleFocus in
@@ -634,10 +714,21 @@ export function PostLoginRouter() {
 // routes; flat routes that want chrome get them here.
 function FlatShell({ children }: { children: React.ReactNode }) {
   const { session } = useAuth();
+  const location = useLocation();
   if (session && !session.user.emailVerified) return <VerifyEmailGate />;
-  // spec-312 dec-3: the needsOnboarding bounce-back that used to live here is gone —
-  // flat routes render for everyone past the email gate. Onboarding is a layer on
-  // /home, never a wall that ejects you from other surfaces.
+  if (session && !session.user.name) return <Navigate to="/onboarding" replace />; // spec-441
+  // spec-444: welcome-video gate — deep-link users on flat routes also see the video.
+  // Extended scope (ac-17): also fires when the cached journey state shows !hasSpec.
+  if (session && !location.pathname.startsWith('/welcome')) {
+    const cached = getCachedJourneyState();
+    const noSpec = !!cached && !cached.milestones?.hasSpec;
+    if (
+      (!session.user.videoWelcomedAt || noSpec) &&
+      !sessionStorage.getItem('welcomeVideoDismissed')
+    ) {
+      return <Navigate to="/welcome" replace />;
+    }
+  }
   return (
     <ChatProvider>
       <OrgConsentDialog />
@@ -663,6 +754,7 @@ export function App() {
   if (
     location.pathname.startsWith('/verify-domain/') ||
     location.pathname.startsWith('/share/') ||
+    location.pathname === '/live' ||
     location.pathname === '/backstage' ||
     location.pathname.startsWith('/backstage/')
   ) {
@@ -672,6 +764,8 @@ export function App() {
           <Routes>
             <Route path="/verify-domain/:token" element={<VerifyDomain />} />
             <Route path="/share/:token" element={<SharedDocument />} />
+            {/* spec-458 (PROTOTYPE): public proof-of-life page — no auth, no tenant. */}
+            <Route path="/live" element={<LivePage />} />
             <Route path="/backstage" element={<Backstage />} />
             <Route path="/backstage/experiments" element={<BackstageExperiments />} />
           </Routes>

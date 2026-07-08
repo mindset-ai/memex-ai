@@ -100,6 +100,13 @@ startCommsLogPrune().unref();
 // spec-426 dec-1: experiment verdict sweep — 3-hourly, .unref()'d (mirrors the sweep).
 startExperimentSweep().unref();
 
+// spec-453 t-6 (dec-11): the daily activation drip + the "Connect with people" Day-12
+// pass are NO LONGER driven by an in-process setInterval — that was unreliable on
+// scale-to-zero Cloud Run (counter reset on cold start/deploy, multi-instance duplicate
+// race; spec-427 issue-4). Their sole trigger is now the deterministic Cloud Scheduler →
+// POST /api/internal/lifecycle-tick endpoint (routes/internal-lifecycle.ts). Nothing to
+// boot here.
+
 // spec-426 dec-5 / s-5: ensure the canonical provisioning A/B experiment + its A/B
 // variants exist as data before the provisioning branch resolves assignments against
 // them. Idempotent on every boot; best-effort so a seed fault degrades to "experiment

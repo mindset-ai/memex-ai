@@ -16,10 +16,16 @@ export interface WhatsNewEntry {
   publishedAt: string;
 }
 
-export async function fetchWhatsNew(): Promise<WhatsNewEntry[]> {
-  const { entries } = await fetchJsonRaw<{ entries: WhatsNewEntry[] }>(
+export interface WhatsNewResponse {
+  entries: WhatsNewEntry[];
+  /** spec-439: the requesting user's createdAt — absent on old server versions. */
+  suppressBefore: string | undefined;
+}
+
+export async function fetchWhatsNew(): Promise<WhatsNewResponse> {
+  const data = await fetchJsonRaw<{ entries: WhatsNewEntry[]; suppressBefore?: string }>(
     fetchWithRetry,
     `${BASE_URL}/whats-new`,
   );
-  return entries;
+  return { entries: data.entries, suppressBefore: data.suppressBefore };
 }

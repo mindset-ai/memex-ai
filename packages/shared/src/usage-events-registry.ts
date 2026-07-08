@@ -204,6 +204,79 @@ export const USAGE_EVENT_REGISTRY = [
       "The app router (RootRedirect) decided a user's first-load landing from a read-only onboarding-state check (spec-421 dec-5). props.destination is where they were sent (home | specs); props.graduated (bool) is whether the onboarding journey was graduated. Lets us measure whether routing graduated users straight to their Specs board lifts engagement. Advisory (never throws into routing).",
     source: "frontend",
   },
+  // ── Onboarding welcome video (spec-444) ─────────────────────────────────────
+  // The first-run welcome video (WelcomePage). Front-end lifecycle signals fired
+  // via useTelemetry().track() from the tenant-scoped /telemetry ingress, so they
+  // carry the real actor_user_id and join the activation funnel. Each fires AT
+  // MOST ONCE per view (ref-guarded — replay/seek/pause never re-fire). Props are
+  // IDs + counts only (std-35 cl-5): a stable video_id plus playback position /
+  // duration / percent (all NaN-guarded numbers, never content).
+  {
+    name: "onboarding.video_started",
+    description:
+      "The first-run welcome video began playing (WelcomePage, spec-444). Fires at most once per view on the first play/playing event. props.video_id (stable video slug), props.position_seconds, props.duration_seconds, props.percent_watched (0–100, NaN-guarded) — counts only.",
+    source: "frontend",
+  },
+  {
+    name: "onboarding.video_completed",
+    description:
+      "The first-run welcome video reached its end (WelcomePage 'ended', spec-444). Fires at most once per view. props.video_id, props.position_seconds, props.duration_seconds, props.percent_watched (0–100, NaN-guarded) — counts only. The activation-funnel success signal for the video step.",
+    source: "frontend",
+  },
+  {
+    name: "onboarding.video_skipped",
+    description:
+      "The user dismissed/skipped the first-run welcome video BEFORE completion (WelcomePage Get-started / Skip / × close, spec-444). Fires at most once per view and only when the video has not already completed. props.video_id, props.position_seconds, props.duration_seconds, props.percent_watched (0–100, NaN-guarded) — counts only.",
+    source: "frontend",
+  },
+  {
+    name: "onboarding.video_call_cta_shown",
+    description:
+      "The 'book a call' line on the welcome video revealed once the viewer crossed ~85% of the v4 video, or it ended (WelcomePage, spec-460). Fires at most once per view. props.video_id, props.position_seconds, props.duration_seconds, props.percent_watched — counts only.",
+    source: "frontend",
+  },
+  {
+    name: "onboarding.video_call_cta_clicked",
+    description:
+      "The viewer clicked the revealed 'book a 30-minute call' link on the welcome video (WelcomePage, spec-460), opening the /book-a-call alias in a new tab. props.video_id + playback counts only.",
+    source: "frontend",
+  },
+  {
+    name: "getting_started.card_shown",
+    description:
+      "The Getting Started sidebar card became visible for the first time this session (AppShell, spec-460). Fires at most once per session. No content props — counts only.",
+    source: "frontend",
+  },
+  {
+    name: "getting_started.app_row_clicked",
+    description:
+      "The user clicked the 'Get the desktop app' row in the Getting Started card (spec-460), opening the /download page. Counts only.",
+    source: "frontend",
+  },
+  {
+    name: "getting_started.call_row_clicked",
+    description:
+      "The user clicked the 'Book a 30-min call' row in the Getting Started card (spec-460), opening the /book-a-call alias. Counts only.",
+    source: "frontend",
+  },
+  {
+    name: "getting_started.call_row_dismissed",
+    description:
+      "The user dismissed the 'Book a 30-min call' row (× ) in the Getting Started card (spec-460). Counts only.",
+    source: "frontend",
+  },
+  {
+    name: "getting_started.card_dismissed",
+    description:
+      "The user dismissed the whole Getting Started card (card-level ×) (spec-460). Counts only.",
+    source: "frontend",
+  },
+  {
+    name: "getting_started.app_row_retired",
+    description:
+      "The desktop-app row retired itself because the user's MCP is connected (spec-434 milestone observed, spec-460). Fires at most once per session. Counts only.",
+    source: "frontend",
+  },
   // ── Back-end outcomes (whitelisted mutate() events, dec-8) ───────────────────
   // Name is EXACTLY `${entity}.${action}` so the t-3 whitelist maps 1:1.
   {
@@ -271,6 +344,13 @@ export const USAGE_EVENT_REGISTRY = [
     name: "identity.merged",
     description:
       "The anonymous→identified stitch (spec-324 — the spec-244 retrofit). Emitted at the identify moment (applyVisitorMerge) when a consented visitor_id first BINDS to a user, carrying BOTH the visitor_id and the user id so Mixpanel merges the visitor's pre-identity events into the user (Simplified ID Merge: $device_id + $user_id). memex_id NULL; keyed on the user UUID.",
+    source: "backend",
+    delivery: "direct",
+  },
+  {
+    name: "skill.used",
+    description:
+      "A Skill's SKILL.md BODY was fetched via getSkill (spec-300 dec-21) — the intent-to-use signal (a list_skills appearance is NOT a use). Direct emission from the Skills service, not the bus (a read is not a mutate() outcome). memex_id is the resolved Memex. props.skill_id (doc UUID), props.skill_handle (skill-N), props.skill_ref (canonical ref), props.working_spec_ref (the Spec pulled against, when supplied — the inverse-view key), props.channel (mcp | rest_ui | in_app_agent). Powers the hot/cold-skill report and the per-Spec inverse view.",
     source: "backend",
     delivery: "direct",
   },

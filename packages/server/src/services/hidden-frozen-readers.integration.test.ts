@@ -54,8 +54,8 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (createdAcUids.length) {
-    await db.delete(testEvents).where(inArray(testEvents.acUid, createdAcUids)).catch(() => {});
-    await db.delete(testEventLatest).where(inArray(testEventLatest.acUid, createdAcUids)).catch(() => {});
+    await db.delete(testEvents).where(inArray(testEvents.subjectRef, createdAcUids)).catch(() => {});
+    await db.delete(testEventLatest).where(inArray(testEventLatest.subjectRef, createdAcUids)).catch(() => {});
   }
   for (const id of createdDocIds) {
     await db.delete(documents).where(eq(documents.id, id)).catch(() => {});
@@ -88,7 +88,7 @@ describe("spec-358: the hidden column is retained, write-frozen, and its readers
 
     // A frozen historical hidden=true emission. applyEmissionToSummary skips
     // hidden, so no summary row lands and the verdict never sees it.
-    await seedTestEvent({ acUid: ac.ref, status: "fail", testIdentifier: tid, hidden: true });
+    await seedTestEvent({ subjectRef: ac.ref, status: "fail", testIdentifier: tid, hidden: true });
     expect(await stateOf(ac.briefId, ac.id)).toBe("untested");
   });
 
@@ -100,8 +100,8 @@ describe("spec-358: the hidden column is retained, write-frozen, and its readers
     const visibleTid = "tests/live.test.ts::counts";
     const hiddenTid = "tests/legacy.test.ts::hidden";
 
-    await seedTestEvent({ acUid: ac.ref, status: "pass", testIdentifier: visibleTid });
-    await seedTestEvent({ acUid: ac.ref, status: "fail", testIdentifier: hiddenTid, hidden: true });
+    await seedTestEvent({ subjectRef: ac.ref, status: "pass", testIdentifier: visibleTid });
+    await seedTestEvent({ subjectRef: ac.ref, status: "fail", testIdentifier: hiddenTid, hidden: true });
 
     const matrix = await listTestMatrixForAc(memexId, ac.id);
     const ids = matrix.map((r) => r.testIdentifier);
@@ -113,7 +113,7 @@ describe("spec-358: the hidden column is retained, write-frozen, and its readers
     tagAc(`${SPEC}/acs/ac-9`);
     const ac = await seedAc("counting row counts");
     const tid = "tests/live.test.ts::passes";
-    await seedTestEvent({ acUid: ac.ref, status: "pass", testIdentifier: tid });
+    await seedTestEvent({ subjectRef: ac.ref, status: "pass", testIdentifier: tid });
     expect(await stateOf(ac.briefId, ac.id)).toBe("verified");
   });
 

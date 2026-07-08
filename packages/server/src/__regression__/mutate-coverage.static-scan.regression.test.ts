@@ -30,7 +30,7 @@
 // in mutate({silent: true}) instead.
 
 import { describe, it, expect } from "vitest";
-import { tagAc } from "@memex-ai-ac/vitest";
+import { tagAc, tagClause } from "@memex-ai-ac/vitest";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 
@@ -68,6 +68,16 @@ const ALLOWLIST: Record<string, string> = {
   // the clause + section events the callers already emit ARE its change signal.
   "services/clause-refs.ts":
     "tx-helper indirection (spec-179) — syncClauseRefsTx writes clause_refs only inside the clause writers' mutate() callbacks (clauses.ts); clause_refs is a derived projection whose change signal is the callers' clause/section events.",
+  // spec-448 document versioning — buildSnapshot/materialiseGraph (+ its
+  // nested `reconcile` helper) are tx-helpers invoked ONLY from inside
+  // cutVersion's and restoreVersion's mutate() callbacks (same indirection
+  // as clauses.ts/clause-refs.ts above): both public writers return
+  // Mutated<DocumentVersion> and emit the "document_version" bus entity
+  // (verified by mutate-coverage.service). The callback-scoped heuristic
+  // (ac-24) can't follow the helper-function indirection into these two
+  // functions' many per-artifact-class db writes.
+  "services/versioning.ts":
+    "tx-helper indirection (spec-448) — buildSnapshot/materialiseGraph write sections/decisions/acs/tasks/issues/comments only inside cutVersion's/restoreVersion's mutate() callbacks; both public writers return Mutated<DocumentVersion> with a document_version emission.",
   // spec-162 test_event_latest summary maintenance — applyEmissionToSummary /
   // removeSummaryForPair take a `conn: Db` and write the derived summary ONLY
   // inside the mutate() callbacks of their two callers (routes/test-events.ts
@@ -107,6 +117,8 @@ const ALLOWLIST: Record<string, string> = {
     "spec-340 phase 1 — seeds the per-owner default facet vocabulary (facets, owner-config like org_scaffold_additions). No bus entity, no SSE subscriber in phase 1 (the inert foundation); mutate() wrap deferred to phase 2 when a live editing/pill surface lands.",
   "services/facet-classifier.ts":
     "spec-340 phase 1 — tagClause writes auto-assigned clause→facet tags (standard_clause_facets) from the agent-driven/local-backfill classifier only (dec-8). No bus entity, no SSE subscriber in phase 1 (nothing reads the tags until phase 2); mutate() wrap deferred to phase 2.",
+  "services/testability-classifier.ts":
+    "spec-151 dec-6 — the bulk backfill writes is_obligation/testable/archetype columns on standard_clauses from the agent-driven/local-backfill classifier only (the same category as services/facet-classifier.ts). Emitting a per-clause SSE event for a one-off backfill over the whole corpus would be noise; the INTERACTIVE authoring writes (add_clause/edit_clause → persistClauseTestability in services/testability.ts) DO go through mutate(). This file is the backfill engine only.",
   "services/facet-routing-log.ts":
     "spec-423 phase 2 (dec-4) — append-only routing telemetry (facet_routing_log): one row per create_task / resolve_decision routing call (query, candidates, scores, surfaced/cut, K, ranker). No bus entity, no SSE subscriber by design — a routing decision is not user-observable content. Same telemetry-log posture as services/mcp-telemetry.ts; routing it through mutate() would emit a meaningless UI refetch. Silent-allowed per std-8 §6.",
   "routes/backstage.ts":
@@ -171,6 +183,9 @@ const ALLOWLIST: Record<string, string> = {
   // ── Comms-log store (spec-6, memex-backstage) ─────────────────────────────
   "services/comms-log.ts":
     "Unified comms-log store (spec-6). recordComm() advisorily appends one comms_log row per outbound communication (email/in-app/badge/OS), written FROM send paths that often run with no request ALS / tenant GUC (a background Activation send, a delivery webhook). comms_log is user-keyed + RLS-excluded with NO bus entity — same category as services/usage-events.ts / services/visitors.ts: nothing subscribes over the memexId-keyed SSE bus, and the write must be fire-and-forget so a logging fault never blocks a real send (ac-6/ac-9). Backstage READS it; core writes it (dec-5). Telemetry/comms — must not emit.",
+  // ── spec-453 "See it verified" milestone gate (global users sentinel) ─────
+  "services/email/verified-milestone-send.ts":
+    "spec-453 (dec-9/dec-10). fireVerifiedMilestoneForUser stamps users.first_ac_verified_at (NULL→now()) as the ATOMIC once-ever activation-email gate — the sole writer of that transition — then sends via the lifecycle chokepoint. The write is on the GLOBAL users table (no memex_id, no bus entity), a per-user gate SENTINEL, not Memex-scoped tenant content; it runs ADVISORILY (every failure swallowed) from the test-event ingest hook, off the request path with no ALS / tenant GUC. Same category as services/users.ts — a raw users identity/gate write that must not emit; nothing subscribes over the memexId-keyed SSE bus. Silent-allowed per std-8 §6.",
   // ── spec-426 A/B experiment plane (platform-global, RLS-excluded) ─────────
   "services/experiments.ts":
     "spec-426 A/B experiment construct (experiments / experiment_variants / experiment_assignments). resolveOrCreateAssignment INSERTs assignment rows and SUPERSEDEs prior ones; these are PLATFORM-GLOBAL, user-keyed, RLS-EXCLUDED rows with NO memex_id and NO bus entity — the same cross-tenant category as services/comms-log.ts / services/usage-events.ts. The bus is keyed on memexId for tenant SSE fan-out; an experiment assignment has no tenancy and no SSE subscriber (Backstage READS it cross-tenant via memex_admin; the verdict sweep WRITES it). mutate() needs a memexId this row doesn't have, and an emit would wake no one. Silent-allowed per std-8 §6.",
@@ -454,6 +469,24 @@ describe("doc-21 t-4 / spec-156 W3: static scan — every mutation goes through 
       ).toEqual([]);
     });
   }
+
+  // spec-151 t-9 (ac-4): the PoC thread — this existing UNIVERSAL static scan attests
+  // std-8 cl-69 ("every mutation goes through mutate()") across the WHOLE §s-3 surface.
+  // tagClause emits a clause attestation on every suite run; a pass reads the clause
+  // green in std-8's clause-coverage view. This is a REAL universal test wired to the
+  // clause rail, not a synthetic one.
+  it("std-8 cl-69 holds across the whole §s-3 surface (clause attestation)", () => {
+    tagClause("mindset-prod/memex-building-itself/standards/std-8/clauses/cl-69");
+    const offenders = files
+      .filter((f) => !ALLOWLIST[relKey(f)])
+      .flatMap((f) =>
+        scanForBypasses(readFileSync(f, "utf8")).map((b) => `${relKey(f)}:${b.line}`),
+      );
+    expect(
+      offenders,
+      `std-8 cl-69 violated — raw db/tx mutation(s) outside mutate():\n${offenders.join("\n")}`,
+    ).toEqual([]);
+  });
 });
 
 // ───────────────────────────────────────────────────────────────────────────
