@@ -104,14 +104,14 @@ describe("spec-418 t-4 — curation tools present in the manifest AND registered
     }
   });
 
-  it("all three are mutating (readOnlyHint:false) with null trafficClass; delete_tag is destructive", () => {
+  it("all three are mutating (readOnlyHint:false) with null homePhase; delete_tag is destructive", () => {
     tagAc(AC_20);
     const byName = new Map(toolManifest.map((e) => [e.name, e]));
     for (const name of CURATION_TOOLS) {
       const entry = byName.get(name);
       expect(entry, `${name} missing from manifest`).toBeDefined();
       expect(entry!.readOnlyHint, `${name} must be mutating`).toBe(false);
-      expect(entry!.trafficClass, `${name} must not drive a phase`).toBeNull();
+      expect(entry!.homePhase, `${name} must not drive a phase`).toBeNull();
     }
     expect(specByName("delete_tag").annotations.destructiveHint).toBe(true);
     expect(specByName("create_tag").annotations.destructiveHint).toBe(false);

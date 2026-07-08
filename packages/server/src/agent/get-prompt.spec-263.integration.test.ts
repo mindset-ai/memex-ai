@@ -251,7 +251,7 @@ describe("get_prompt — manifest + catalogue registration (ac-10, ac-5, ac-1)",
     expect(entry).toBeDefined();
     expect(entry?.group).toBe("read");
     expect(entry?.readOnlyHint).toBe(true);
-    expect(entry?.trafficClass).toBeNull();
+    expect(entry?.homePhase).toBeNull();
   });
 
   it("a matching ToolSpec is registered (read-only annotations) and callable end-to-end", async () => {

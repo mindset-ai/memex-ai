@@ -622,18 +622,18 @@ const CREATION_READ_TOOLS = new Set<string>(["search_memex", "get_doc"]);
  *  exposes, derived from the @memex/shared manifest (std-16) so it can never
  *  drift back to a hand-maintained list. Parity with the MCP coding agent's
  *  spec-authoring surface = every tool whose manifest `group` is 'planning'
- *  (sections / decisions / doc lifecycle) OR whose `trafficClass` is 'specify'
+ *  (sections / decisions / doc lifecycle) OR whose `homePhase` is 'specify'
  *  (decision + AC authoring — this pulls create_ac / update_ac / delete_ac /
  *  link_ac_to_decision out of the 'build' group), plus the read tools above.
  *  Build-phase task verbs (create_task / update_task / delete_task — group
- *  'build', trafficClass 'build') are correctly excluded: the creation agent
+ *  'build', homePhase 'build') are correctly excluded: the creation agent
  *  authors a Spec's plan, it does not run the build. */
 function creationServerToolNames(): Set<string> {
   const names = new Set<string>();
   for (const entry of toolManifest) {
     if (
       entry.group === "planning" ||
-      entry.trafficClass === "specify" ||
+      entry.homePhase === "specify" ||
       CREATION_READ_TOOLS.has(entry.name)
     ) {
       names.add(entry.name);

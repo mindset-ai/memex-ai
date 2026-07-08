@@ -63,7 +63,7 @@ describe('WelcomePage — onboarding.video_* telemetry', () => {
     const started = track.mock.calls.filter((c) => c[0] === 'onboarding.video_started');
     expect(started).toHaveLength(1);
     expect(started[0][1]).toEqual({
-      video_id: 'welcome-to-memex-v4',
+      video_id: 'welcome-to-memex-v5',
       position_seconds: 3,
       duration_seconds: 120,
       percent_watched: 3, // 3/120 = 2.5 → rounded
@@ -80,7 +80,7 @@ describe('WelcomePage — onboarding.video_* telemetry', () => {
 
     const completed = track.mock.calls.filter((c) => c[0] === 'onboarding.video_completed');
     expect(completed).toHaveLength(1);
-    expect(completed[0][1]).toMatchObject({ video_id: 'welcome-to-memex-v4', percent_watched: 100 });
+    expect(completed[0][1]).toMatchObject({ video_id: 'welcome-to-memex-v5', percent_watched: 100 });
   });
 
   // spec-462: before completion the primary button is "▶ Play now" / "Playing…",
@@ -97,7 +97,7 @@ describe('WelcomePage — onboarding.video_* telemetry', () => {
 
     const skipped = track.mock.calls.filter((c) => c[0] === 'onboarding.video_skipped');
     expect(skipped).toHaveLength(1);
-    expect(skipped[0][1]).toMatchObject({ video_id: 'welcome-to-memex-v4', position_seconds: 10 });
+    expect(skipped[0][1]).toMatchObject({ video_id: 'welcome-to-memex-v5', position_seconds: 10 });
     await waitFor(() => expect(dismissWelcomeVideoApi).toHaveBeenCalled());
   });
 
@@ -227,7 +227,7 @@ describe('WelcomePage — spec-460 book-a-call reveal', () => {
     renderPage();
     const src = screen.getByTestId('welcome-video-player').getAttribute('src');
     expect(src).toBe(
-      'https://storage.googleapis.com/memex-ai-prod-app-static/media/welcome-to-memex-v4.mp4',
+      'https://storage.googleapis.com/memex-ai-prod-app-static/media/welcome-to-memex-v5.mp4',
     );
   });
 

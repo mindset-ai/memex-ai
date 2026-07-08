@@ -196,22 +196,6 @@ describe("Workflow: Spec lifecycle (draft → specify → build → verify → d
     });
     expect(allResolved.every((d) => d.status === "resolved")).toBe(true);
 
-    // 4b. spec-391: author an implementation AC for each resolved decision.
-    // A resolved decision with no implementation AC is "naked" — the spec-391
-    // build→verify gate (and the umbrella spec-388 dec-5) now BLOCKS the
-    // build→verify advancement on naked decisions. A realistic full-lifecycle
-    // walk closes that gate the way a real caller does: one implementation AC
-    // per resolved decision, linked via parent_decision_ref.
-    for (const d of allResolved) {
-      const acRes = await callTool(actor.user.id, "create_ac", {
-        ref: specRef,
-        kind: "implementation",
-        statement: `Implementation AC proving ${d.title}`,
-        parent_decision_ref: refForDecision(actor, spec!, d.seq),
-      });
-      expect(acRes.isError).toBeFalsy();
-    }
-
     // 5. update_doc({status:'specify'}) — bump out of draft
     const planRes = await callTool(actor.user.id, "update_doc", {
       ref: specRef,
@@ -233,6 +217,20 @@ describe("Workflow: Spec lifecycle (draft → specify → build → verify → d
       status: "build",
     });
     expect(buildRes.isError).toBeFalsy();
+
+    // 7b. spec-464: implementation ACs are build-home — the phase gate refuses
+    // create_ac(kind:'implementation') ahead of build. Author them now (in build),
+    // one per resolved decision, to close the spec-391 build→verify naked-decision
+    // gate the way a real caller does.
+    for (const d of allResolved) {
+      const acRes = await callTool(actor.user.id, "create_ac", {
+        ref: specRef,
+        kind: "implementation",
+        statement: `Implementation AC proving ${d.title}`,
+        parent_decision_ref: refForDecision(actor, spec!, d.seq),
+      });
+      expect(acRes.isError).toBeFalsy();
+    }
 
     // 8. create_task with acceptance criteria
     const createTaskRes = await callTool(actor.user.id, "create_task", {
