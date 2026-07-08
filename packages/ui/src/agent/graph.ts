@@ -312,6 +312,38 @@ function shouldContinueCreate(state: AgentStateType): 'createDocTools' | '__end_
   return 'createDocTools';
 }
 
+// spec-473: run one server tool block and produce its tool_result. Extracted so
+// createDocToolsNode can dispatch a batched authoring turn concurrently — the
+// server allocates per-doc seqs under `withSeqRetry` (services/shared/sequence.ts),
+// which already tolerates N racing creates on the UNIQUE(doc_id, seq) constraint,
+// so parallel create_ac / create_decision writes are safe by construction.
+async function runServerToolBlock(
+  block: ToolUseBlock,
+  callbacks: AgentCallbacks | undefined,
+  signal: AbortSignal | undefined
+): Promise<ContentBlock> {
+  callbacks?.onToolStart?.(block.name, block.id);
+  try {
+    const result = await executeToolRemote(block.name, block.input, signal);
+    callbacks?.onToolResult?.(block.id, result);
+    // Announce created doc (with handle + title) so the modal can surface a link.
+    if (block.name === 'create_doc') {
+      const info = extractDocInfo(result);
+      if (info) callbacks?.onDocCreated?.(info);
+    }
+    return { type: 'tool_result', tool_use_id: block.id, content: result };
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    callbacks?.onToolResult?.(block.id, `Error: ${errMsg}`);
+    return {
+      type: 'tool_result',
+      tool_use_id: block.id,
+      content: `Error: ${errMsg}`,
+      is_error: true,
+    };
+  }
+}
+
 async function createDocToolsNode(
   state: AgentStateType,
   config: RunnableConfig
@@ -322,35 +354,33 @@ async function createDocToolsNode(
   const serverBlocks = getServerToolBlocks(toolBlocks);
   const displayUiBlocks = getDisplayUiToolBlocks(toolBlocks);
 
-  const results: ContentBlock[] = [];
+  // spec-473: the authoring step batches many blocks into one turn (see
+  // creation/system.md step 4). Execute them concurrently to collapse the DB
+  // round-trips — EXCEPT add_section, whose seq becomes the section's display
+  // number. Section seq is allocated MAX+1 at write time, so concurrent inserts
+  // would number sections by whichever write wins the race, scrambling reading
+  // order. Run add_section blocks serially in emit order to keep numbering =
+  // narrative order; everything else (create_ac, create_decision, search_memex…)
+  // races freely. Results are reassembled in the original block order — a
+  // tool_result is required for every tool_use, and order keeps history tidy.
+  const sectionBlocks = serverBlocks.filter((b) => b.name === 'add_section');
+  const parallelBlocks = serverBlocks.filter((b) => b.name !== 'add_section');
 
-  for (const block of serverBlocks) {
-    callbacks?.onToolStart?.(block.name, block.id);
-    try {
-      const result = await executeToolRemote(block.name, block.input, signal);
-      callbacks?.onToolResult?.(block.id, result);
-      results.push({
-        type: 'tool_result',
-        tool_use_id: block.id,
-        content: result,
-      });
-
-      // Announce created doc (with handle + title) so the modal can surface a link.
-      if (block.name === 'create_doc') {
-        const info = extractDocInfo(result);
-        if (info) callbacks?.onDocCreated?.(info);
-      }
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      callbacks?.onToolResult?.(block.id, `Error: ${errMsg}`);
-      results.push({
-        type: 'tool_result',
-        tool_use_id: block.id,
-        content: `Error: ${errMsg}`,
-        is_error: true,
-      });
-    }
+  const byId = new Map<string, ContentBlock>();
+  // Order-sensitive: sections, one at a time, in the order the model emitted them.
+  for (const block of sectionBlocks) {
+    byId.set(block.id, await runServerToolBlock(block, callbacks, signal));
   }
+  // Order-insensitive: fan out the rest concurrently.
+  await Promise.all(
+    parallelBlocks.map(async (block) => {
+      byId.set(block.id, await runServerToolBlock(block, callbacks, signal));
+    })
+  );
+
+  // Reassemble in original emit order so the tool_result blocks line up 1:1 with
+  // the assistant turn's tool_use blocks.
+  const results: ContentBlock[] = serverBlocks.map((b) => byId.get(b.id)!);
 
   // Display-only UI tools (render_callout / render_steps / render_progress) get a
   // synthesised tool_result so Anthropic's tool-use round-trip is valid. The block

@@ -18,7 +18,18 @@ import { canWriteMemex, READ_ONLY_PUBLIC_MESSAGE } from "../mcp/auth.js";
 import { resolveRole } from "../services/doc-members.js";
 import { resolveIntegrationState } from "../agent/integration-state.js";
 
-const MODEL = "claude-sonnet-4-5-20250929";
+// spec-473: the creation + in-Spec agent runs on Sonnet 5 (was Sonnet 4.5). For
+// agentic/tool-calling work it's both faster and more capable than 4.5, so the
+// document→structured-Spec conversion gets quicker without trading structuring
+// quality. Routed through getAnthropicClient() (the metering wrapper, std-30) —
+// this const is the only model knob; never construct `new Anthropic()`.
+//
+// ⚠️ Thinking is set to { type: 'disabled' } at every call site below. Sonnet 5
+// turns adaptive thinking ON when the `thinking` field is omitted (4.5 ran it
+// off) — leaving it default would add latency and eat into max_tokens, the exact
+// slowness we're removing. Disabled preserves 4.5's no-thinking latency profile.
+// (Sonnet 5 also rejects non-default temperature/top_p/top_k — we set none.)
+const MODEL = "claude-sonnet-5";
 
 type Env = MemexResolverEnv & SessionEnv;
 
@@ -204,6 +215,8 @@ llmRouter.post("/chat", async (c) => {
       const anthropicStream = anthropic.messages.stream({
         model: MODEL,
         max_tokens: 4096,
+        // Keep Sonnet 5's latency predictable — see the MODEL note.
+        thinking: { type: "disabled" },
         system: systemBlocks,
         tools: tools as Anthropic.Tool[],
         messages: sanitisedMessages,
@@ -296,7 +309,12 @@ llmRouter.post("/chat/create", async (c) => {
     try {
       const anthropicStream = anthropic.messages.stream({
         model: MODEL,
-        max_tokens: 4096,
+        // spec-473: raised from 4096 so the batched authoring turn (many
+        // add_section / create_decision / create_ac blocks emitted at once —
+        // see creation/system.md step 4) has room to fan out without truncating.
+        max_tokens: 8192,
+        // Keep Sonnet 5's latency predictable — see the MODEL note.
+        thinking: { type: "disabled" },
         system: systemBlocks,
         tools: tools as Anthropic.Tool[],
         messages: sanitisedMessages,
