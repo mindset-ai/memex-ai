@@ -168,7 +168,7 @@ test("Issue resolution: progress bar, Resolve + won't-fix menu, resolved vocabul
   );
   await page.locator('[data-tab="verify"]').click();
   // spec-282: Issues live under the unified "Agent Tasks & Issues" sub-tab.
-  await page.getByRole("button", { name: /Agent Tasks.* Issues/ }).click();
+  await page.getByRole("button", { name: /Agent Tasks?( \(\d+\))? & Issues?/ }).click();
   const panel = page.getByTestId("issue-panel");
   await expect(panel).toBeVisible({ timeout: 15_000 });
 
@@ -249,7 +249,7 @@ test("Task completion: Build-tab metric and Verify-tab echo", async ({
   // ── Build tab: the full Metric tile (ac-14) ────────────────────────────────
   await page.locator('[data-tab="build"]').click();
   // spec-282: Tasks live under the unified "Agent Tasks & Issues" sub-tab.
-  await page.getByRole("button", { name: /Agent Tasks.* Issues/ }).click();
+  await page.getByRole("button", { name: /Agent Tasks?( \(\d+\))? & Issues?/ }).click();
   const metric = page.getByTestId("task-completion-header");
   await expect(metric).toBeVisible({ timeout: 15_000 });
   await expect(metric.getByText("67%")).toBeVisible();
@@ -259,7 +259,7 @@ test("Task completion: Build-tab metric and Verify-tab echo", async ({
   // ── Verify tab: the amber exception echo (ac-15) ───────────────────────────
   await page.locator('[data-tab="verify"]').click();
   // spec-282: the verify task echo rides the "Agent Tasks & Issues" sub-tab.
-  await page.getByRole("button", { name: /Agent Tasks.* Issues/ }).click();
+  await page.getByRole("button", { name: /Agent Tasks?( \(\d+\))? & Issues?/ }).click();
   const echo = page.getByTestId("verify-task-echo");
   await expect(echo).toBeVisible();
   await expect(echo).toContainText("1 of 3 tasks incomplete");
@@ -277,7 +277,7 @@ test("Task completion: Build-tab metric and Verify-tab echo", async ({
     tenantPath(tenant.namespaceSlug, tenant.memexSlug, `/specs/${done.handle}`)
   );
   await page.locator('[data-tab="verify"]').click();
-  await page.getByRole("button", { name: /Agent Tasks.* Issues/ }).click();
+  await page.getByRole("button", { name: /Agent Tasks?( \(\d+\))? & Issues?/ }).click();
   const calmEcho = page.getByTestId("verify-task-echo");
   await expect(calmEcho).toBeVisible({ timeout: 15_000 });
   await expect(calmEcho).toContainText("2/2 tasks complete");

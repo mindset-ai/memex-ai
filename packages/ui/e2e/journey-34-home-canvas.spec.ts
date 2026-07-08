@@ -47,15 +47,19 @@ test(TITLE, async ({ page }) => {
   await setUserName(DEV_EMAIL, DEV_NAME);
   await setIdentityConfirmed(DEV_EMAIL, false); // un-confirm → roleCoords=null → server returns 'identity'
 
-  await page.goto(bareUrl("/home"));
+  // hero-first (spec-470/473): a spec-less user's live /home is now the import hero, not
+  // the onboarding tracker. The tracker's step-display (spec-433 identity-hidden clamp +
+  // rail-hidden-on-FIRST_STEP) is still real UI logic — exercised here via the operator
+  // preview (?preview=create-spec), which renders that step regardless of the hero. The
+  // server-side identity→create-spec clamp itself is unit-covered (HomeCanvas/App tests).
+  await page.goto(bareUrl("/home?preview=create-spec"));
 
   // Home is the top, user-level nav destination (ac-1 spec-336).
   await expect(page.getByRole("link", { name: "Home" })).toBeVisible({ timeout: 15_000 });
 
-  // spec-433: the identity step is removed. The server returns currentStepId='identity'
-  // (roleCoords=null → identityConfirmed=false), but clampToVisible maps it forward
-  // to 'create-spec' because identity (index 0) precedes the first visible step (index 1).
-  // The user lands full-width on create-spec — no identity form, no role triangle.
+  // spec-433: the identity step is removed — it is absent from the rail and content, and
+  // create-spec (FIRST_STEP_ID) renders full-width with no rail. Previewing create-spec
+  // asserts that rendered result (no identity form, no role triangle, no rail).
   await expect(page.getByTestId("getting-started-title")).toBeVisible({ timeout: 15_000 });
   await expect(page.getByTestId("journey-step-create-spec")).toBeVisible({ timeout: 10_000 });
   await expect(page.getByTestId("journey-step-identity")).not.toBeVisible();

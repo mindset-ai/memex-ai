@@ -90,8 +90,8 @@ test(TITLE, async ({ page, resources }) => {
   await page.getByRole("button", { name: /^Continue$/ }).click();
   // spec-444: dismiss welcome video gate that fires for new users after name capture.
   await dismissWelcomeVideo(page);
-  // spec-461: a fresh user now lands on their Specs board (the auto-/home landing was retired).
-  await expect(page).toHaveURL(/\/specs/, { timeout: 15_000 });
+  // spec-470/473 dec-9: a fresh CONFIRMED spec-less user auto-lands on their /home import hero.
+  await expect(page).toHaveURL(/\/home(\?|#|$)/, { timeout: 15_000 });
 
   // ── Pin the CONTROL arm + seed the handhold demo deterministically ───────────
   // The experiment-arm test hook (POST /api/__test__/seed-experiment-arm) is now
@@ -135,10 +135,11 @@ test(TITLE, async ({ page, resources }) => {
   // spec-461 retired the automatic /home landing (which spec-421 ac-15 previously locked
   // for demo-only users): every authenticated user now lands on their Specs board — exactly
   // where the demo walkthrough already lives (asserted above). The control arm still gives a
-  // fresh user spec-178's known-good demo; only the landing target changed. (The demo does
-  // not light hasSpec — journey-state excludes is_demo — proven at the unit/journey-state
-  // level; post-461 the landing no longer signals hasSpec.)
+  // fresh user spec-178's known-good demo. The demo does NOT light hasSpec (journey-state
+  // excludes is_demo), so under hero-first (spec-470/473 dec-9) the user is still confirmed
+  // spec-less and the "/" landing resolves to their /home import hero — proof the demo did
+  // not graduate them (the landing IS the hasSpec signal now).
   await page.goto(bareUrl("/"));
-  await expect(page).toHaveURL(/\/specs(\?|#|$)/, { timeout: 15_000 });
-  await expect(page).not.toHaveURL(/\/home(\?|#|$)/);
+  await expect(page).toHaveURL(/\/home(\?|#|$)/, { timeout: 15_000 });
+  await expect(page).not.toHaveURL(/\/specs(\?|#|$)/);
 });

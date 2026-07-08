@@ -184,7 +184,7 @@ test.describe("spec-448 — document versioning", () => {
 
     // dec-2/ac-17/ac-19: the unchecked Tasks class was retired at the cut —
     // absent from the LIVE "Agent Tasks & Issues" sub-tab...
-    await page.getByRole("button", { name: /^Agent Tasks & Issues\b/ }).click();
+    await page.getByRole("button", { name: /^Agent Tasks?( \(\d+\))? & Issues?/ }).click();
     await expect(page.getByTestId("task-card")).toHaveCount(0);
 
     // ...but still present in V1's own frozen snapshot. The view-as-of

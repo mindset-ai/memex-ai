@@ -81,7 +81,7 @@ test.describe("spec-260 — Build QA Report", () => {
 
     // spec-282 dec-2: the work view is now "Agent Tasks & Issues"; the QA Report
     // tab is present alongside it (build lands on Decisions & ACs by default).
-    await expect(page.getByText(/Agent Tasks.* Issues/)).toBeVisible();
+    await expect(page.getByText(/Agent Tasks?( \(\d+\))? & Issues?/)).toBeVisible();
     await page.getByText("QA Report", { exact: true }).click();
     await expect(page.getByTestId("qa-report-empty")).toContainText(
       "No QA report yet — generated when build hands off to verify",
