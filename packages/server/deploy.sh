@@ -130,6 +130,53 @@ else
   echo "  ⚠ Stripe secrets not found — hosted purchase flow disabled (spec-171)"
   HAS_STRIPE=0
 fi
+# Conversion API credentials (spec-21 issue-3). One optional block per ad platform —
+# wired only if ALL secrets for that platform exist, so a partial or missing setup
+# never breaks the deploy. When any secret is absent the corresponding conversion
+# function in conversion-apis.ts silently skips. Same two-step provisioning as
+# MIXPANEL above (create secret + grant runtime SA secretAccessor). Provisioning
+# commands (substitute the correct project, SA, and credential values):
+#   printf %s "<id>"     | gcloud secrets create google-ads-client-id           --data-file=- --project "${GCP_PROJECT}" --replication-policy=user-managed --locations=us-east4
+#   printf %s "<secret>" | gcloud secrets create google-ads-client-secret       --data-file=- --project "${GCP_PROJECT}" --replication-policy=user-managed --locations=us-east4
+#   printf %s "<token>"  | gcloud secrets create google-ads-refresh-token       --data-file=- --project "${GCP_PROJECT}" --replication-policy=user-managed --locations=us-east4
+#   printf %s "<token>"  | gcloud secrets create google-ads-developer-token     --data-file=- --project "${GCP_PROJECT}" --replication-policy=user-managed --locations=us-east4
+#   printf %s "<id>"     | gcloud secrets create google-ads-customer-id         --data-file=- --project "${GCP_PROJECT}" --replication-policy=user-managed --locations=us-east4
+#   printf %s "<id>"     | gcloud secrets create google-ads-conversion-action-id --data-file=- --project "${GCP_PROJECT}" --replication-policy=user-managed --locations=us-east4
+#   printf %s "<token>"  | gcloud secrets create linkedin-access-token        --data-file=- --project "${GCP_PROJECT}" --replication-policy=user-managed --locations=us-east4
+#   printf %s "<id>"     | gcloud secrets create linkedin-ad-account-id       --data-file=- --project "${GCP_PROJECT}" --replication-policy=user-managed --locations=us-east4
+#   printf %s "<id>"     | gcloud secrets create linkedin-conversion-id       --data-file=- --project "${GCP_PROJECT}" --replication-policy=user-managed --locations=us-east4
+#   printf %s "<id>"     | gcloud secrets create openai-pixel-id              --data-file=- --project "${GCP_PROJECT}" --replication-policy=user-managed --locations=us-east4
+#   printf %s "<key>"    | gcloud secrets create openai-pixel-api-key         --data-file=- --project "${GCP_PROJECT}" --replication-policy=user-managed --locations=us-east4
+#   # then for each: gcloud secrets add-iam-policy-binding <secret> --project "${GCP_PROJECT}" --member="serviceAccount:<runtime-SA>" --role="roles/secretmanager.secretAccessor"
+if gcloud secrets describe google-ads-client-id --project "${GCP_PROJECT}" >/dev/null 2>&1 \
+   && gcloud secrets describe google-ads-client-secret --project "${GCP_PROJECT}" >/dev/null 2>&1 \
+   && gcloud secrets describe google-ads-refresh-token --project "${GCP_PROJECT}" >/dev/null 2>&1 \
+   && gcloud secrets describe google-ads-developer-token --project "${GCP_PROJECT}" >/dev/null 2>&1 \
+   && gcloud secrets describe google-ads-customer-id --project "${GCP_PROJECT}" >/dev/null 2>&1 \
+   && gcloud secrets describe google-ads-conversion-action-id --project "${GCP_PROJECT}" >/dev/null 2>&1; then
+  echo "  ✓ Google Ads conversion secrets present — Enhanced Conversions enabled (spec-21)"
+  HAS_GOOGLE_ADS_CONVERSIONS=1
+else
+  echo "  ⚠ Google Ads conversion secrets not found — Enhanced Conversions disabled (spec-21 issue-3)"
+  HAS_GOOGLE_ADS_CONVERSIONS=0
+fi
+if gcloud secrets describe linkedin-access-token --project "${GCP_PROJECT}" >/dev/null 2>&1 \
+   && gcloud secrets describe linkedin-ad-account-id --project "${GCP_PROJECT}" >/dev/null 2>&1 \
+   && gcloud secrets describe linkedin-conversion-id --project "${GCP_PROJECT}" >/dev/null 2>&1; then
+  echo "  ✓ LinkedIn Conversions API secrets present — server-side conversions enabled (spec-21)"
+  HAS_LINKEDIN_CONVERSIONS=1
+else
+  echo "  ⚠ LinkedIn Conversions API secrets not found — LinkedIn server-side conversions disabled (spec-21 issue-3)"
+  HAS_LINKEDIN_CONVERSIONS=0
+fi
+if gcloud secrets describe openai-pixel-id --project "${GCP_PROJECT}" >/dev/null 2>&1 \
+   && gcloud secrets describe openai-pixel-api-key --project "${GCP_PROJECT}" >/dev/null 2>&1; then
+  echo "  ✓ OpenAI pixel secrets present — server-side conversions enabled (spec-21)"
+  HAS_OPENAI_PIXEL_CONVERSIONS=1
+else
+  echo "  ⚠ OpenAI pixel secrets not found — OpenAI server-side conversions disabled (spec-21 issue-3)"
+  HAS_OPENAI_PIXEL_CONVERSIONS=0
+fi
 
 # ── KMS prerequisite ─────────────────────────────────────────
 # The Slack token encryption path (services/slack/crypto.ts) requires a
@@ -309,6 +356,15 @@ if [ "$HAS_MIXPANEL" = "1" ]; then
 fi
 if [ "$HAS_STRIPE" = "1" ]; then
   SECRETS_WIRING+=",STRIPE_SECRET_KEY=memex-stripe-secret-key:latest,STRIPE_WEBHOOK_SECRET=memex-stripe-webhook-secret:latest"
+fi
+if [ "$HAS_GOOGLE_ADS_CONVERSIONS" = "1" ]; then
+  SECRETS_WIRING+=",GOOGLE_ADS_CLIENT_ID=google-ads-client-id:latest,GOOGLE_ADS_CLIENT_SECRET=google-ads-client-secret:latest,GOOGLE_ADS_REFRESH_TOKEN=google-ads-refresh-token:latest,GOOGLE_ADS_DEVELOPER_TOKEN=google-ads-developer-token:latest,GOOGLE_ADS_CUSTOMER_ID=google-ads-customer-id:latest,GOOGLE_ADS_CONVERSION_ACTION_ID=google-ads-conversion-action-id:latest"
+fi
+if [ "$HAS_LINKEDIN_CONVERSIONS" = "1" ]; then
+  SECRETS_WIRING+=",LINKEDIN_ACCESS_TOKEN=linkedin-access-token:latest,LINKEDIN_AD_ACCOUNT_ID=linkedin-ad-account-id:latest,LINKEDIN_CONVERSION_ID=linkedin-conversion-id:latest"
+fi
+if [ "$HAS_OPENAI_PIXEL_CONVERSIONS" = "1" ]; then
+  SECRETS_WIRING+=",OPENAI_PIXEL_ID=openai-pixel-id:latest,OPENAI_PIXEL_API_KEY=openai-pixel-api-key:latest"
 fi
 
 # HIDDEN_FEATURES is appended to --update-env-vars ONLY when it is set (see
