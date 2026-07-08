@@ -428,7 +428,7 @@ export const toolManifest: ToolManifestEntry[] = [
   {
     name: 'facets',
     summary:
-      "Read your Memex's facet vocabulary — the closed, per-owner set of cross-cutting practice areas a standard's clauses are tagged with. Verb-dispatched so the surface stays one tool as it grows; v0 supports verb:'list'.",
+      "Check which parts of your Standards apply to a piece of work. Lists the topics your Standards are tagged by (security, db-migrations, e2e-testing, and so on). Internally these are your Memex's facets: you cast them as the facetBallot argument on create_task / create_decision, and Memex surfaces the governing standard sections.",
     args: 'facets(verb, memex?)',
     group: 'read',
     readOnlyHint: true,
