@@ -615,8 +615,6 @@ export function DocDocument() {
 
   const sectionCommentCount = Object.values(commentsBySection)
     .reduce((n, cs) => n + cs.filter((c) => !c.resolvedAt).length, 0);
-  const decisionCommentCount = Object.values(commentsByDecision)
-    .reduce((n, cs) => n + cs.filter((c) => !c.resolvedAt).length, 0);
 
   // ── spec-159 t-6: phase view + the transition-sentence counts ──────────────
   // The Spec's live phase. `done` is handled separately (DoneSummary takes over
@@ -916,20 +914,39 @@ export function DocDocument() {
   // Tasks & Issues · QA Report. (Supersedes the disjoint spec-260 per-phase sets:
   // the old `planSubTabs` Narrative/Decisions/Comments AND the Build
   // Tasks&Issues/QA-Report tabs collapse into this single bar.)
+  // spec-473 UI: an inline content count in a sub-tab label — number-first per
+  // the owner's format ("3 Decisions", "1 AC"). Falls back to the bare noun when
+  // the count is zero so empty tabs read cleanly ("Decisions & ACs", or a mixed
+  // "Decisions & 5 ACs"). This replaces the old comment-count badges on these
+  // tabs, which were misleading — a number on "Decisions & ACs" meant *comments*,
+  // so a tab full of decisions with no comments looked empty.
+  const countLabel = (n: number, singular: string, plural: string): string =>
+    n > 0 ? `${n} ${n === 1 ? singular : plural}` : plural;
+
   const subTabs = [
     /* spec-233 dec-1 (supersedes spec-196 dec-1): the label reads "Narrative".
        Calling this single tab "Spec" misread as if it WERE the whole spec — the
        whole object is the Spec; this tab is the prose lens within it. The id
        stays 'narrative' — internal vocabulary, deep links and comment routing
-       are deliberately unchanged (display-label-only). */
+       are deliberately unchanged (display-label-only). Narrative is prose, so it
+       has no content count — it keeps the unresolved-comment badge (comments live
+       inline in the narrative gutter, and that's the only meaningful signal here). */
     { id: 'narrative', label: 'Narrative', count: sectionCommentCount, countVariant: 'warning' as const },
     /* spec-282 dec-2: Comments placed second (after Narrative) as a persistent
-       companion view, not an end-of-line afterthought. */
-    { id: 'comments', label: 'Comments', count: totalCommentCount, countVariant: 'warning' as const },
-    { id: 'decisions', label: 'Decisions & ACs', count: decisionCommentCount, countVariant: 'warning' as const },
+       companion view, not an end-of-line afterthought. spec-473: count inline. */
+    { id: 'comments', label: countLabel(totalCommentCount, 'Comment', 'Comments') },
+    /* spec-473: content counts inline — decisions + active ACs. */
+    {
+      id: 'decisions',
+      label: `${countLabel(decs.length, 'Decision', 'Decisions')} & ${countLabel(activeAcs.length, 'AC', 'ACs')}`,
+    },
     /* spec-282 dec-2: "Agent Tasks & Issues" preserves the spec-260 Tasks │
-       Issues two-column and names the agent's execution layer explicitly. */
-    { id: 'work', label: 'Agent Tasks & Issues' },
+       Issues two-column and names the agent's execution layer explicitly.
+       spec-473: content counts inline — tasks + issues. */
+    {
+      id: 'work',
+      label: `${countLabel(ts.length, 'Agent Task', 'Agent Tasks')} & ${countLabel(issues.length, 'Issue', 'Issues')}`,
+    },
     /* spec-282 dec-1: QA Report is present in every phase; before a report
        exists it renders an honest empty-state placeholder (ac-3). */
     { id: 'qa-report', label: 'QA Report', count: qaReports.length || undefined },
