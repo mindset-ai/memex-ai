@@ -111,7 +111,7 @@ function composeSeedInstruction(sentence: string): string {
 // (handleSend) uses, which the server creation prompt is already tuned for (spec-230).
 // The server path is unchanged; this is a pure client framing seam.
 function composeDocumentInstruction(document: string): string {
-  return `I have an existing document — a spec, brief, or PRD written in markdown. Convert it into a well-structured Spec: capture its sections, decisions, and acceptance criteria as first-class rows (and tasks where the source implies them), not a thin overview.\n\n--- Document to convert ---\n${document}`;
+  return `I have an existing document — a spec or PRD written in markdown. Convert it into a well-structured Spec: capture its sections, decisions, and acceptance criteria as first-class rows (and tasks where the source implies them), not a thin overview.\n\n--- Document to convert ---\n${document}`;
 }
 
 let messageIdCounter = 0;

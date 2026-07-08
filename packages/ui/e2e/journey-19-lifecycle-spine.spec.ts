@@ -185,7 +185,7 @@ test("lifecycle spine: org → memex → Spec → resolve decision → phase mov
   });
 
   // Open the Decisions & ACs sub-tab (sub-tabs render as <button> with the label).
-  await page.getByRole("button", { name: /Decisions & ACs/ }).click();
+  await page.getByRole("button", { name: /Decisions.* ACs/ }).click();
   // DecisionPanel defaults to the Open tab when no candidates exist; the seeded
   // decision arrives over SSE. spec-247 dec-1/dec-5: picking an option IS the
   // answer — the click persists immediately (no Resolve button, no rationale).

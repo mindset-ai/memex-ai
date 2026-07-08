@@ -206,7 +206,7 @@ test.describe("doc-16 Wave 1 reactivity journeys", () => {
     // Decisions & ACs sub-tab, so open the unified "Agent Tasks & Issues" sub-tab
     // to mount the TaskPanel.
     await tab.getByRole("tab", { name: "Build" }).click();
-    await tab.getByRole("button", { name: /Agent Tasks & Issues/ }).click();
+    await tab.getByRole("button", { name: /Agent Tasks.* Issues/ }).click();
 
     // Create a task via the REST surface (the agent's `create_task` tool calls
     // the same `services/tasks.ts::createTask` function — the bus emission is identical).

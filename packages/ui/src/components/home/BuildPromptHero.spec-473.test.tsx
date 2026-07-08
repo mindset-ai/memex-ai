@@ -60,7 +60,7 @@ function renderHero(specsPath: string | null = '/alice/personal/specs') {
   );
 }
 
-function mdFile(content: string, name = 'brief.md', type = 'text/markdown') {
+function mdFile(content: string, name = 'doc.md', type = 'text/markdown') {
   return new File([content], name, { type });
 }
 

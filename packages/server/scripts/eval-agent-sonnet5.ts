@@ -176,7 +176,7 @@ async function runScenario(cfg: {
   return { name, toolTotals, truncated, refused, thinkingSeen };
 }
 
-const PRD = `Product brief: Saved Views for the reports list
+const PRD = `Product spec: Saved Views for the reports list
 
 Today users re-apply the same filters (date range, status, owner, tag) every time
 they open the reports list. Power users have asked to save a filter combination as

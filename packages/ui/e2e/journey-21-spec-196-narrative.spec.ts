@@ -110,7 +110,7 @@ test("specify→build gate: stale narrative blocks the offer; consolidation rest
   const narrativeTab = subTabs.getByRole("button", { name: "Narrative", exact: true });
   await expect(narrativeTab).toBeVisible({ timeout: 15_000 });
   await expect(subTabs.getByRole("button", { name: "Spec", exact: true })).toHaveCount(0);
-  await page.getByRole("button", { name: /Decisions & ACs/ }).click();
+  await page.getByRole("button", { name: /Decisions.* ACs/ }).click();
   await expect(page.getByTestId("decision-panel")).toBeVisible({ timeout: 15_000 });
   await narrativeTab.click();
   await expect(page.getByText("Exercise the spec-narrative staleness gate.")).toBeVisible({
@@ -119,7 +119,7 @@ test("specify→build gate: stale narrative blocks the offer; consolidation rest
 
   // Resolve the decision through the real UI (editor posture required).
   await switchToEditing(page);
-  await page.getByRole("button", { name: /Decisions & ACs/ }).click();
+  await page.getByRole("button", { name: /Decisions.* ACs/ }).click();
   const panel = page.getByTestId("decision-panel");
   await expect(panel).toContainText(/Pick the gate's colour/, { timeout: 15_000 });
   // spec-247 dec-1/dec-5: picking an option IS the answer — the click persists

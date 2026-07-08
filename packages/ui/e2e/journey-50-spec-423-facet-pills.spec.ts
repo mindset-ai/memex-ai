@@ -33,7 +33,7 @@ test("a balloted task and decision render their facet pills", async ({ page, res
   await switchToEditing(page);
 
   // ── Decision card shows the facet pill ──
-  await page.getByRole("button", { name: /Decisions & ACs/ }).click();
+  await page.getByRole("button", { name: /Decisions.* ACs/ }).click();
   const decisionPanel = page.getByTestId("decision-panel");
   await expect(decisionPanel.getByTestId("decision-card").first()).toBeVisible({ timeout: 15_000 });
   const decisionPill = decisionPanel.getByTestId("facet-pill").filter({ hasText: facetKey });
@@ -41,7 +41,7 @@ test("a balloted task and decision render their facet pills", async ({ page, res
 
   // ── Task card shows the facet pill ──
   await page.getByRole("tab", { name: "Build" }).click();
-  await page.getByRole("button", { name: /Agent Tasks & Issues/ }).click();
+  await page.getByRole("button", { name: /Agent Tasks.* Issues/ }).click();
   const taskPanel = page.getByTestId("task-panel");
   await expect(taskPanel.getByTestId("task-card").first()).toBeVisible({ timeout: 15_000 });
   const taskPill = taskPanel.getByTestId("facet-pill").filter({ hasText: facetKey });

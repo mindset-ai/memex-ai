@@ -84,7 +84,7 @@ test("answer-by-click persists across reload, re-select updates, discussion is t
   await switchToEditing(page);
 
   // ── The decision card: options only, no CTA, no inline comment box ──
-  await page.getByRole("button", { name: /Decisions & ACs/ }).click();
+  await page.getByRole("button", { name: /Decisions.* ACs/ }).click();
   const panel = page.getByTestId("decision-panel");
   await expect(panel).toContainText(/Pick the cache layer/, { timeout: 15_000 });
 
@@ -111,7 +111,7 @@ test("answer-by-click persists across reload, re-select updates, discussion is t
 
   // ── The answer survives a full reload (the agent-craft prod scenario) ──
   await page.reload();
-  await page.getByRole("button", { name: /Decisions & ACs/ }).click();
+  await page.getByRole("button", { name: /Decisions.* ACs/ }).click();
   const panelAfter = page.getByTestId("decision-panel");
   await expect(
     panelAfter.locator('[data-decision-status="resolved"]').first(),
