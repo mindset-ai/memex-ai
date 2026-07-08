@@ -15,12 +15,12 @@ import { dismissWelcomeVideoApi } from '../api/auth';
 import { useTelemetry } from '../hooks/useTelemetry';
 
 const VIDEO_URL =
-  'https://storage.googleapis.com/memex-ai-prod-app-static/media/welcome-to-memex-v4.mp4';
+  'https://storage.googleapis.com/memex-ai-prod-app-static/media/welcome-to-memex-v5.mp4';
 
 // Stable, low-cardinality identifier for this video — the filename stem of
 // VIDEO_URL. Kept as its own const so a src bump is a one-line, deliberate change
 // (props carry ids/counts only — std-35 cl-5).
-const VIDEO_ID = 'welcome-to-memex-v4';
+const VIDEO_ID = 'welcome-to-memex-v5';
 
 // spec-460: the "book a call" CTA revealed near the end of the video points at the
 // neutral booking alias on the marketing site (never the raw HubSpot URL — std-31,

@@ -1,6 +1,32 @@
 <!doctype html>
 <html lang="en" class="dark">
   <head>
+    <!-- Google Consent Mode v2 — must run before GTM. Defaults to denied; restores
+         prior consent from the memex_consent cookie written by the marketing site's
+         consent banner (shared across memex.ai). (spec-21 issue-2) -->
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('consent', 'default', {
+        'ad_storage': 'denied',
+        'ad_user_data': 'denied',
+        'ad_personalization': 'denied',
+        'analytics_storage': 'denied',
+        'functionality_storage': 'granted',
+        'personalization_storage': 'denied',
+        'security_storage': 'granted',
+        'wait_for_update': 500
+      });
+      (function(){try{var m=document.cookie.match(/(?:^|; )memex_consent=([^;]*)/);if(m){var c=JSON.parse(decodeURIComponent(m[1]));gtag('consent','update',{'ad_storage':c.marketing?'granted':'denied','ad_user_data':c.marketing?'granted':'denied','ad_personalization':c.marketing?'granted':'denied','analytics_storage':c.analytics?'granted':'denied','functionality_storage':'granted','personalization_storage':'denied','security_storage':'granted'});}}catch(e){}})();
+    </script>
+    <!-- Google Tag Manager — container GTM-MMCZ5GSX listens for sign_up_completed
+         and other dataLayer events from the app and forwards to GA4 / Google Ads /
+         LinkedIn / OpenAI. (spec-21 issue-2) -->
+    <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+    new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+    j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+    'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+    })(window,document,'script','dataLayer','GTM-MMCZ5GSX');</script>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
@@ -12,6 +38,9 @@
        to win over the theme rules (utilities layer beats base) and leaked a near-white
        default text colour app-wide — invisible on light surfaces (spec-290). -->
   <body class="bg-page text-primary">
+    <!-- Google Tag Manager (noscript) -->
+    <noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-MMCZ5GSX"
+    height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

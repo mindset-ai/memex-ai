@@ -629,7 +629,7 @@ describe("audit: field names referenced in descriptions exist in the schema", ()
 // sections, decisions, AND acceptance criteria — so a substantial input fleshes
 // out into a rich, multi-section Spec instead of a thin Overview. The set is
 // single-sourced from the @memex/shared manifest (std-16): manifest
-// `group: 'planning'` OR `trafficClass: 'specify'`, plus the read tools
+// `group: 'planning'` OR `homePhase: 'specify'`, plus the read tools
 // (search_memex, get_doc) and the render_* UI tools.
 //
 // The one hard exclusion that must NOT drift back in: build-phase task verbs
