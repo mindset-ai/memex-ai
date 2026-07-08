@@ -246,6 +246,8 @@ describe("resolveWorkspace", () => {
 describe("resolveWorkspaceForRead — no-arg default (spec-471)", () => {
   it("multi-workspace no-arg read resolves to the most-recently-used memex", async () => {
     tagAc(`${AC}/ac-2`);
+    tagAc(`${AC}/ac-6`); // scope outcome: kills the #1 auth error on the read path
+
     const u = await makeUser("s471-read-recent");
     const a = await makeAccount("s471-a");
     const b = await makeAccount("s471-b");
@@ -291,6 +293,8 @@ describe("resolveWorkspaceForRead — no-arg default (spec-471)", () => {
 
   it("WRITE path still hard-errors even when read history exists (std-5 guard)", async () => {
     tagAc(`${AC}/ac-1`);
+    tagAc(`${AC}/ac-7`); // scope outcome: no write ever silently defaulted
+
     const u = await makeUser("s471-write-guard");
     const a = await makeAccount("s471-w-a");
     const b = await makeAccount("s471-w-b");
