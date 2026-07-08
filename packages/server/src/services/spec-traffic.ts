@@ -1,15 +1,20 @@
-// spec-189: traffic-driven phase advancement + auto-assignment.
+// spec-464: the agent tool seam — auto-assignment + presence (NO phase advancement).
+//
+// spec-464 dec-1 REMOVED traffic-driven phase advancement. A Spec's phase now
+// changes ONLY via an explicit publish_spec/update_doc call or a human web-UI
+// move — no tool call moves a Spec as a side effect. The former spec-189
+// mechanism (the tool's `trafficClass` feeding `nextPhaseForTraffic`) is gone;
+// instead, ahead-of-phase agent calls are REFUSED at the tool seam
+// (runToolWithSpecTraffic → enforcePhaseGate, dec-2), driven by `homePhase` on
+// the @memex/shared manifest. See the "Phase advancement: REMOVED" note in the
+// body for the full arc (spec-327/342/295 → spec-464).
 //
 // Agent tool traffic (channels 'mcp' and 'in_app_agent' — dec-5; never
 // 'rest_ui', where the human is present with full phase controls) is observed
-// AFTER each successful tool call and drives two automatic behaviours:
+// AFTER each successful tool call and still drives two automatic behaviours:
 //
-//   1. Phase advancement — the tool's `trafficClass` from the @memex/shared
-//      manifest (dec-4, the single classification source) feeds the pure
-//      transition function `nextPhaseForTraffic` (spec-readiness.ts, the
-//      single place the matrix lives — ac-3). A resulting change applies
-//      through `updateDocStatus()` → mutate() → bus, so the Kanban board
-//      updates live (std-8).
+//   1. Presence heartbeat — every agent call touching a Spec marks the actor
+//      present (spec-255), so Pulse's "active now" reflects in-app agents too.
 //   2. Auto-assignment + editor role — any mutating, non-exempt call assigns
 //      the calling user to the Spec AND idempotently promotes them to editor
 //      (dec-6: someone actively mutating a Spec through an agent is
@@ -20,11 +25,16 @@
 //      manifest precisely so auto-assignment can't fight them —
 //      unassign_spec(self) must not instantly undo itself).
 //
-// spec-342: test emission events NO LONGER drive phase. A Spec's phase is a
-// deliberate human / handoff placement; CI test_events (POST /api/test-events)
+// This module is also the channel-neutral tool seam itself
+// (runToolWithSpecTraffic): both surfaces — the MCP wrap and the in-app agent
+// loop — execute their handlers through it, so the phase gate, checkout gate,
+// guidance envelope, and traffic observation all have exactly one call site.
+//
+// spec-342: test emission events NO LONGER drive phase either. A Spec's phase is
+// a deliberate human / handoff placement; CI test_events (POST /api/test-events)
 // update AC verdicts and the audit trail only. The former build→verify (and
 // done→verify reopen) auto-promote — `observeTestEventTraffic` — was removed
-// here, completing the arc spec-327 began: traffic is not a phase intent.
+// here, part of the same arc: traffic is not a phase intent.
 //
 // Failure posture: observation is best-effort and MUST NEVER fail or delay
 // the user's tool call semantics — every entry point catches everything and
