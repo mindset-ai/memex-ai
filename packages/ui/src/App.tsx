@@ -453,9 +453,14 @@ function RootRedirect() {
   useEffect(() => {
     if (!needDecision || landOnHome === null || firedRef.current) return;
     firedRef.current = true;
-    // spec-461: the landing destination is now always the Specs board (Home is never
-    // an automatic target). `graduated` (= hasSpec) is kept as the engagement signal.
-    const props = { destination: 'specs', graduated: !landOnHome };
+    // spec-470 dec-9: the destination reflects the real target — a CONFIRMED
+    // spec-less user (a successful read with hasSpec=false) now auto-lands on /home
+    // (the build-prompt hero); a has-spec user, and the failed/unknown-read fallback,
+    // land on their Specs board. `graduated` (= hasSpec) stays the raw engagement
+    // signal. This effect only runs when 'home' is visible (needDecision excludes
+    // homeHidden), so a hidden-home fallback never reports 'home' here.
+    const confirmedSpecLess = landOnHome && getCachedJourneyState()?.milestones?.hasSpec === false;
+    const props = { destination: confirmedSpecLess ? 'home' : 'specs', graduated: !landOnHome };
     // RootRedirect renders at the flat `/` (or `/login`), where `track()` resolves the
     // tenant from the cached session. In the rare case there's no resolvable tenant (e.g.
     // a session with no current Memex yet), fall back to the anonymous ingress so the
@@ -486,9 +491,17 @@ function RootRedirect() {
   if (landOnHome && !sessionStorage.getItem('welcomeVideoDismissed')) {
     return <Navigate to="/welcome" replace />;
   }
-  // spec-461: never auto-land on /home. Every authenticated user past the gates
-  // lands on their Specs board; Home is reachable only by explicit navigation.
-  // `landOnHome` (= !hasSpec) still drives the spec-444 welcome re-show gate above.
+  // spec-470 dec-9 (supersedes spec-461 dec-1 for the spec-less cohort): a CONFIRMED
+  // spec-less user auto-lands on /home — the build-prompt hero — so they reach it. A
+  // has-spec user still lands on their Specs board (spec-461 preserved for that
+  // cohort). "Confirmed" = a SUCCESSFUL journey read with hasSpec=false, which
+  // useShouldLandOnHome caches; the failed/unknown-read fallback (landOnHome true by
+  // default, but no confirmed spec-less cache) keeps spec-461's safe board landing so
+  // a transient read blip never drops a possibly-engaged user onto the hero. Reached
+  // only when 'home' is visible (homeHidden fell back above — the clean rollback);
+  // the spec-444 welcome gate above still fires first (→ /welcome), then /home.
+  const confirmedSpecLess = landOnHome && getCachedJourneyState()?.milestones?.hasSpec === false;
+  if (confirmedSpecLess) return <Navigate to="/home" replace />;
   const target = computeDefaultLanding(session);
   if (target) return <Navigate to={target} replace />;
   return null;

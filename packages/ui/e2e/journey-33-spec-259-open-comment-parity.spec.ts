@@ -109,7 +109,7 @@ test("specify Comments surface shows the open-comment summary + WHO/WHEN byline;
   await expect(page.getByRole("button", { name: "Yes" })).toHaveCount(0);
 
   // ── Open the Comments sub-tab ──
-  await page.getByRole("button", { name: /^Comments\b/ }).click();
+  await page.getByRole("button", { name: /^Comments?( \(\d+\))?$/ }).click();
 
   // ── The open-comment summary mirrors the agent's picture ──
   const summary = page.getByTestId("open-comments-summary");

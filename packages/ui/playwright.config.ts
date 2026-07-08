@@ -70,7 +70,12 @@ export default defineConfig({
           // MEMEX_ELEVENLABS_FAKE=1 makes the voice provider the deterministic
           // double so isVoiceConfigured() is true and the voice WS/STT/TTS legs
           // work without a real ElevenLabs key (spec-190 t-9 journey-21).
-          command: `GOOGLE_CLIENT_ID="" MEMEX_ANTHROPIC_FAKE=1 MEMEX_ELEVENLABS_FAKE=1 SLACK_TOKEN_ENCRYPTION="${process.env.SLACK_TOKEN_ENCRYPTION ?? "plaintext"}" DATABASE_URL="${DATABASE_URL}" PORT=${SERVER_PORT} pnpm --filter @memex/server dev`,
+          // JOURNEY_PREVIEW_DOMAINS=memex.ai: the dev user (dev@memex.ai) can drive the
+          // operator journey-preview (?preview=<step>), so the onboarding-tracker journeys
+          // can still render a tracker step deterministically now that spec-470/473's hero
+          // owns the live spec-less /home. Preview only activates on an explicit ?preview=
+          // query, so every other journey is unaffected.
+          command: `GOOGLE_CLIENT_ID="" MEMEX_ANTHROPIC_FAKE=1 MEMEX_ELEVENLABS_FAKE=1 JOURNEY_PREVIEW_DOMAINS="memex.ai" SLACK_TOKEN_ENCRYPTION="${process.env.SLACK_TOKEN_ENCRYPTION ?? "plaintext"}" DATABASE_URL="${DATABASE_URL}" PORT=${SERVER_PORT} pnpm --filter @memex/server dev`,
           url: `http://localhost:${SERVER_PORT}/api/health`,
           reuseExistingServer: !process.env.CI,
           timeout: 60_000,

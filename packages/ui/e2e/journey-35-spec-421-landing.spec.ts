@@ -13,26 +13,25 @@ import {
   DEV_NAME,
 } from "./helpers/index.js";
 
-// Journey 35 — spec-461: the first-load landing is always the Specs board, decided in the
-// app router (RootRedirect). spec-461 retired the automatic /home landing that spec-421
-// dec-5 introduced for not-yet-engaged users; Home is now reachable ONLY by explicit nav.
+// Journey 35 — the first-load landing decided in the app router (RootRedirect), across the
+// spec-461 → spec-470 dec-9 evolution:
 //
-//   • A user who has NOT created their first spec lands on their Specs board (spec-461),
-//     and Home remains reachable by clicking the sidebar Home link.
-//   • A user who HAS created their first spec also lands on the Specs board — unchanged
-//     (spec-421 ac-14 / ac-16's surviving clause: engaged ⇒ board, never /home).
+//   • A CONFIRMED spec-less user AUTO-LANDS on /home — the build-prompt hero (spec-470
+//     dec-9, which re-introduced the auto-Home landing for this cohort, superseding
+//     spec-461 dec-1 for them). The full hero → create → graduate flow lives in
+//     journey-60-spec-470-new-home; here we assert only the landing decision.
+//   • A user who HAS created their first spec lands on their Specs board — unchanged
+//     (spec-421 ac-14 / ac-16 + spec-461's surviving clause: engaged ⇒ board, never /home).
 //
-// (spec-461 supersedes spec-312 ac-2 / spec-421 ac-15 — the old "no spec ⇒ /home" landing.
-// The hasSpec attribution invariant that ac-15 rode on — demo/starter specs don't count —
-// is proven in journey-51-spec-426-variant-b and journey-state.ts units.)
+// (The hasSpec attribution invariant — demo/starter specs don't count — is proven in
+// journey-51-spec-426-variant-b and journey-state.ts units.)
 //
 // Tests run in declaration order in one worker: the no-spec case runs first (clean state),
 // then the has-spec case seeds a spec and the afterEach deletes it — so neither leaks into
 // the other or into sibling journeys (which navigate to the board explicitly via
 // gotoSpecsBoard rather than relying on the `/` landing).
 
-const S461_AC1 = "mindset-prod/memex-building-itself/specs/spec-461/acs/ac-1";
-const S461_AC2 = "mindset-prod/memex-building-itself/specs/spec-461/acs/ac-2";
+const S470_AC13 = "mindset-prod/memex-building-itself/specs/spec-470/acs/ac-13";
 const S421_AC14 = "mindset-prod/memex-building-itself/specs/spec-421/acs/ac-14";
 const S421_AC16 = "mindset-prod/memex-building-itself/specs/spec-421/acs/ac-16";
 
@@ -61,29 +60,28 @@ test.afterEach(async ({}, testInfo) => {
   const status = testInfo.status === "passed" ? "pass" : "fail";
   const acs = testInfo.title.includes("has created their first spec")
     ? [S421_AC14, S421_AC16]
-    : [S461_AC1, S461_AC2];
+    : [S470_AC13];
   await emitAcEvents(acs, status, `${FILE}::${testInfo.title}`, testInfo.duration);
 });
 
-test("a user who hasn't created a spec lands on the Specs board, and Home stays reachable by nav", async ({
+test("a user who hasn't created a spec auto-lands on /home (the build-prompt hero)", async ({
   page,
 }) => {
   await ensureUser(DEV_EMAIL);
   await setUserName(DEV_EMAIL, DEV_NAME);
-  // Identity confirmed but NO spec yet — still getting started.
+  // Identity confirmed but NO spec yet — confirmed spec-less (the fixture baseline
+  // clears specs before each test, so hasSpec is false here).
   await setIdentityConfirmed(DEV_EMAIL, true);
 
   // Land on `/` so RootRedirect makes the decision under test.
   await page.goto(bareUrl("/"));
 
-  // spec-461 ac-1: no spec ⇒ the Specs board (NOT auto-landed on /home).
-  await expect(page).toHaveURL(/\/specs(\?|#|$)/, { timeout: 15_000 });
-  await expect(page).not.toHaveURL(/\/home(\?|#|$)/);
-
-  // spec-461 ac-2: Home is still reachable — clicking the sidebar Home link renders it.
-  await page.getByTestId("primary-nav").getByRole("link", { name: "Home" }).click();
+  // spec-470 dec-9 (ac-13): a confirmed spec-less user auto-lands on /home, the
+  // Lovable-style build-prompt hero — NOT the Specs board (reverses spec-461 dec-1
+  // for this cohort).
   await expect(page).toHaveURL(/\/home(\?|#|$)/, { timeout: 15_000 });
-  await expect(page.getByTestId("home-canvas")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId("build-prompt-hero")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId("getting-started-title")).toHaveCount(0);
 });
 
 test("a user who has created their first spec lands on the Specs board, not Home", async ({

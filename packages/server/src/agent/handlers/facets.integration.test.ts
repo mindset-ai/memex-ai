@@ -63,7 +63,8 @@ describe("the verb-dispatched facets tool (spec-340 t-6)", () => {
 
     const ctx = { resolveMemex: async () => orgMemexId } as unknown as ToolCtx;
     const out = (await facetsTools[0].handler({ verb: "list" }, ctx)) as string;
-    expect(out).toContain("Facet vocabulary");
+    // spec-469: the list header now leads with the outcome, not "Facet vocabulary".
+    expect(out).toContain("Topics your Standards are tagged by");
     expect(out).toContain("security");
     expect(out).toContain("db-migrations");
 
@@ -72,6 +73,6 @@ describe("the verb-dispatched facets tool (spec-340 t-6)", () => {
     expect(personalVocab.length).toBe(16);
     const pctx = { resolveMemex: async () => personalMemexId } as unknown as ToolCtx;
     const pout = (await facetsTools[0].handler({ verb: "list" }, pctx)) as string;
-    expect(pout).toContain("Facet vocabulary");
+    expect(pout).toContain("Topics your Standards are tagged by");
   });
 });

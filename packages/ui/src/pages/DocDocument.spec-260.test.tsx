@@ -171,7 +171,7 @@ describe('spec-260 — QA Report render seats', () => {
     expect(screen.queryByTestId('qa-report-content')).not.toBeInTheDocument();
 
     // The ACs view lives one tab away (Decisions & ACs).
-    fireEvent.click(screen.getByText('Decisions & ACs'));
+    fireEvent.click(screen.getByText(/^Decisions?( \(\d+\))? & ACs?( \(\d+\))?$/));
     expect(screen.getByTestId('ac-panel')).toBeInTheDocument();
   });
 

@@ -73,7 +73,7 @@ test("candidate decisions are view-only on the web; approval happens agent-side 
   // Open the Decisions & ACs sub-tab. spec-247 dec-7: there are no longer
   // Candidates/Open/Resolved tabs — every decision renders in one grouped list,
   // so the candidate card is visible directly.
-  await page.getByRole("button", { name: /^Decisions & ACs$/i }).click();
+  await page.getByRole("button", { name: /^Decisions?( \(\d+\))? & ACs?( \(\d+\))?$/i }).click();
 
   const panel = page.getByTestId("decision-panel");
 

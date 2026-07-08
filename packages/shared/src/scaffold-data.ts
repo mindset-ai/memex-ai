@@ -36,6 +36,7 @@ import type {
   TransitionRubric,
 } from './scaffold-model.js';
 import { toolManifest, type ToolManifestEntry } from './tool-manifest.js';
+import type { SpecPhase } from './spec-readiness.js';
 
 // ──────────────────────────────────────────────────────────────────────────
 // PromptBlockNodes — base cross-phase blocks.
@@ -1045,7 +1046,7 @@ const TOOL_RATIONALES: Record<string, string> = {
   unclaim_spec:
     "Release your checkout on a Spec — the explicit check-in. Clears your presence marker so teammates see it's free and returns the thread to the silent default. Idempotent; a no-op if you weren't holding it.",
   list_skills:
-    "List a Memex's active Skills alphabetically — name, description, capability flags, and ref for each. Metadata only: never the SKILL.md body, auxiliary-file contents, or allowed-tools. The discovery call before get_skill.",
+    "List active Skills alphabetically — name, description, capability flags, and ref for each. Metadata only: never the SKILL.md body, auxiliary-file contents, or allowed-tools. The discovery call before get_skill. When the user names a skill without saying which Memex holds it, pass all_memexes:true to list your skills across every Memex you can access (grouped by Memex) and locate it by ref; if the same name lives in more than one Memex, ask the user which to use rather than guessing.",
   get_skill:
     "Read one Skill: the verbatim SKILL.md body plus a table-of-contents of its auxiliary files (path/type/size/purpose, never inline contents). Pass a path to fetch a single file — binary files return a short-lived signed read URL, text files return their bytes inline.",
   update_skill:
@@ -2422,3 +2423,75 @@ Rules of the split:
 - STRIP THE BULLET MARKER: a clause is the CONTENT of a bullet, not the bullet itself. Drop any leading "-" or "*" marker. From "- \`foo.ts\` — does X" emit "\`foo.ts\` — does X". KEEP numbered-list markers ("1.", "2.") as written: the digit carries sequence.
 
 Return the clauses in order.`;
+
+// ──────────────────────────────────────────────────────────────────────────
+// spec-464 dec-24: the phase-gating teaching catalog.
+//
+// Enforcement metadata (`homePhase`) lives in tool-manifest.ts (the single
+// source, std-16). The TEACHING PROSE lives HERE (std-15 — never inline in
+// server code; the b-68 drift guard enforces that). The phase gate at the tool
+// seam (services/phase-gate.ts → runToolWithSpecTraffic) composes its refusal /
+// nudge from THIS catalog, selected by the offending tool's group + the Spec's
+// current phase — so a manifest change to a tool's home phase changes the
+// refusal it yields with no code edit (ac-24).
+//
+// Every refusal follows the same four beats (Design s-3): name where you are →
+// name the tool's home → redirect the intent to in-phase work → give the
+// one-call escape (publish_spec / update_doc).
+// ──────────────────────────────────────────────────────────────────────────
+
+/** The gate-relevant grouping of a mutating tool. `planning` tools (decisions +
+ *  scope AND implementation ACs) are never hard-refused — one step early (draft)
+ *  they get a nudge. `task` / `qa_report` (home 'build') are refused ahead of
+ *  build. (dec-10/11 revised: implementation ACs are authored in specify like
+ *  decisions — the specify→build readiness gate requires them before build.) */
+export type PhaseGateGroup = 'planning' | 'task' | 'qa_report';
+
+export interface PhaseGatingCatalog {
+  /** Table 1 — the one job of each phase, for teaching context. */
+  phaseSummaries: Record<SpecPhase, string>;
+  /** Hard-refuse strings for ahead-of-phase cells, keyed `${group}:${phase}`.
+   *  Only the (task|impl_ac|qa_report) × (draft|specify) cells are present —
+   *  those are the only ahead-of-build refusals. */
+  refusals: Record<string, string>;
+  /** dec-3 / dec-5: a decision / scope AC authored on a DRAFT Spec is ALLOWED
+   *  (no move); this nudge is appended to the response, not thrown. */
+  draftPlanningNudge: string;
+  /** dec-22: any spec-primitive mutation on a DONE Spec is refused with this
+   *  reopen-first redirect. */
+  doneReopen: string;
+  /** dec-21: a behind-phase call executes normally; at most this advisory line
+   *  is appended (never a refusal). Keyed by the Spec's current phase. */
+  behindAdvisory: Partial<Record<SpecPhase, string>>;
+}
+
+export const PHASE_GATING_CATALOG: PhaseGatingCatalog = {
+  phaseSummaries: {
+    draft: 'Shape what this Spec is about — purpose and narrative. Nothing is committed.',
+    specify:
+      'Surface and resolve the decisions. The output is resolved decisions + scope ACs — not tasks.',
+    build: 'Turn resolved decisions into tasks and implement them; raise and work issues.',
+    verify: 'Prove it works — verify ACs against real tests; write the QA report.',
+    done: 'Closed and verified.',
+  },
+  refusals: {
+    'task:draft':
+      "⛔ Out of phase. This Spec is a **draft** — nothing is decided, so there's nothing to build. Tasks live in **build**, and each one implements a *resolved decision*. The path is draft → specify (resolve the decisions) → build (write the tasks). Publish with `publish_spec(ref)` to begin. If you're just capturing a stray todo, `register_issue` parks it in any phase without pretending it's committed work.",
+    'task:specify':
+      "⛔ You are working out of phase. Tasks exist in the **build** phase — each one implements a resolved decision. The most important thing in the **specify** phase is to surface and resolve decisions, not to plan tasks. Don't record this as a task: capture the *choice* behind it as a decision (`create_decision`) and resolve it. When the decisions are resolved and you're ready to implement, move the Spec with `update_doc({status:'build'})`; tasks come then.",
+    'qa_report:draft':
+      "⛔ Out of phase. A QA report is the **build → verify** hand-off — it records what a finished build changed. This Spec is a draft; nothing has been built yet.",
+    'qa_report:specify':
+      "⛔ Out of phase. A QA report is the **build → verify** hand-off. You're in **specify** and nothing has been built. Resolve the decisions, move to build, implement, *then* verify.",
+  },
+  draftPlanningNudge:
+    "✅ Recorded. Heads-up: decisions and acceptance criteria are the heart of the **specify** phase — this Spec is still a draft. When you're ready to work them properly, publish it with `publish_spec(ref)` so its phase reflects what you're doing. (No move made — recorded here as-is.)",
+  doneReopen:
+    "⛔ This Spec is **done** — closed and verified. If you're working on it again, reopen it explicitly first with `update_doc({status:'build'})` (or the right phase); that keeps the record honest instead of mutating a closed Spec silently.",
+  behindAdvisory: {
+    build:
+      'ℹ️ Recording earlier-phase work during **build** — fine if scope genuinely shifted. If it changes the plan, revisit the affected tasks.',
+    verify:
+      "ℹ️ You're reopening earlier-phase work while in **verify**. If a check failed and you're fixing it, move the Spec back with `update_doc({status:'build'})` so the board reflects reality, then return to verify.",
+  },
+};

@@ -48,6 +48,70 @@ interface NewSpecModalProps {
    * handle/title so the caller can confirm the outcome to the user.
    */
   onCreated?: (info: { docId: string; handle: string; title: string }) => void;
+  /**
+   * spec-470 dec-4: the new-home hero hands its typed sentence off to the
+   * create-spec agent with ZERO extra click. When `autoSend` is set and
+   * `seedMessage` is non-empty, the open effect composes an agent instruction
+   * from the sentence (mirroring handleExplainSpec's composed-instruction
+   * pattern — NOT the raw title/body concat used by `prefill`) and calls
+   * `dispatchMessage` directly, so the agent starts drafting immediately. The
+   * raw sentence shows as the user's first bubble; the composed wrapper stays
+   * agent-facing. Empty/whitespace neither opens nor dispatches. `prefill` takes
+   * precedence — the two paths never both fire.
+   */
+  seedMessage?: string;
+  autoSend?: boolean;
+  /**
+   * spec-473 dec-3: how to FRAME the auto-sent seed to the create-spec agent.
+   * - `'idea'` (default) — the spec-470 path: `seedMessage` is a one-sentence idea,
+   *   wrapped by composeSeedInstruction as "here's my idea… draft it with me".
+   * - `'document'` — the new-home IMPORT hero (spec-473): `seedMessage` is an
+   *   EXISTING document (pasted or read from an uploaded markdown file). It is
+   *   wrapped by composeDocumentInstruction as "convert this existing document into
+   *   a structured Spec — sections, decisions, ACs as rows", carrying the document
+   *   inline (the shape the server creation prompt is tuned for, spec-230) and
+   *   riding as the collapsible attachment. The raw document is NOT shown verbatim
+   *   as the user bubble (a short label is), matching the paste UX. The server
+   *   creation path is UNCHANGED — this is a pure client framing seam.
+   */
+  seedKind?: 'idea' | 'document';
+  /**
+   * spec-470: the tenant-prefixed Specs-board path (e.g. `/alice/personal/specs`) of
+   * the memex the agent creates in. When the modal opens from a FLAT route (the /home
+   * hero) the URL carries no tenant, so the internal `tenantPath()` can't prefix the
+   * created Spec's URL — it would yield an unroutable `/specs/{handle}`. The caller
+   * passes this so post-create navigation lands on `${specsBasePath}/${handle}`.
+   * Omitted → falls back to `tenantPath()`, so the tenant-route callers (e.g. Issue
+   * conversion from the Issues page) are unchanged.
+   */
+  specsBasePath?: string;
+  /**
+   * spec-470: navigate straight to the Spec the instant it's created — no "Open Spec"
+   * click. This delivers the hero's Lovable-style "describe it → land on your Spec"
+   * flow (ac-2), AND it is load-bearing: the hero renders on /home only while
+   * `hasSpec` is false, so creating the Spec flips that milestone and HomeCanvas
+   * unmounts the hero (which owns this modal) the moment the create commits. Leaving
+   * /home on create wins that race — the manual "Open Spec" button would never be
+   * clickable. The board/Issues callers omit this and keep the manual button.
+   */
+  openOnCreate?: boolean;
+}
+
+// spec-470 dec-4: wrap the hero's raw sentence in a short agent-facing
+// instruction (the handleExplainSpec composed-instruction pattern), so the
+// agent drafts a spec from it rather than treating it as a bare title.
+function composeSeedInstruction(sentence: string): string {
+  return `I want to build something new. Here's my idea in one sentence:\n\n"${sentence}"\n\nHelp me turn this into a spec — draft it with me, asking anything you need to.`;
+}
+
+// spec-473 dec-3: the new-home IMPORT hero hands over an EXISTING document (pasted
+// or read from an uploaded markdown file). Frame it as "convert this document into a
+// STRUCTURED Spec" — sections, decisions, and ACs as first-class rows — carrying the
+// document inline under the same "--- ... ---" delimiter shape the paste path
+// (handleSend) uses, which the server creation prompt is already tuned for (spec-230).
+// The server path is unchanged; this is a pure client framing seam.
+function composeDocumentInstruction(document: string): string {
+  return `I have an existing document — a spec or PRD written in markdown. Convert it into a well-structured Spec: capture its sections, decisions, and acceptance criteria as first-class rows (and tasks where the source implies them), not a thin overview.\n\n--- Document to convert ---\n${document}`;
 }
 
 let messageIdCounter = 0;
@@ -137,7 +201,7 @@ type DisplayMessage =
       timestamp: Date;
     };
 
-export function NewSpecModal({ open, onClose, prefill, onCreated }: NewSpecModalProps) {
+export function NewSpecModal({ open, onClose, prefill, onCreated, seedMessage, autoSend, seedKind = 'idea', specsBasePath, openOnCreate }: NewSpecModalProps) {
   const { invoke, resume } = useAgentGraph();
 
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
@@ -161,6 +225,9 @@ export function NewSpecModal({ open, onClose, prefill, onCreated }: NewSpecModal
   // turn. null when no turn is in-flight. Reset on every onAssistantTurnComplete
   // so each turn in a multi-turn graph run gets its own placeholder.
   const streamingAssistantIdRef = useRef<string | null>(null);
+  // spec-470 dec-4: guards the auto-send so a seeded open dispatches exactly once
+  // (dispatchMessage's identity changing must not re-fire it). Reset when closed.
+  const autoSentRef = useRef(false);
 
   const resetState = useCallback(() => {
     abortRef.current?.abort();
@@ -193,6 +260,8 @@ export function NewSpecModal({ open, onClose, prefill, onCreated }: NewSpecModal
     } else {
       abortRef.current?.abort();
       abortRef.current = null;
+      // spec-470 dec-4: re-arm the auto-send guard so the next seeded open fires.
+      autoSentRef.current = false;
     }
   }, [open, resetState, prefill]);
 
@@ -221,10 +290,39 @@ export function NewSpecModal({ open, onClose, prefill, onCreated }: NewSpecModal
   const openSpec = useCallback(
     (handle: string) => {
       handleClose();
-      navigate(tenantPath(`/specs/${handle}`));
+      // spec-470: from the flat /home hero the URL carries no tenant, so
+      // tenantPath() would yield an unroutable /specs/{handle}. When the caller
+      // supplies the created memex's Specs-board base, navigate under it; else fall
+      // back to tenantPath() (tenant-route callers, e.g. Issue conversion).
+      navigate(specsBasePath ? `${specsBasePath}/${handle}` : tenantPath(`/specs/${handle}`));
     },
-    [handleClose, navigate]
+    [handleClose, navigate, specsBasePath]
   );
+
+  // spec-470: openOnCreate callers (the /home hero) land on the Spec the instant it's
+  // created — no "Open Spec" click. Fires once, on the single-created handle, as soon as
+  // the create commits (not gated on stream end), so it delivers the "land on your Spec"
+  // flow (ac-2). MUST live above the modal's early returns — a conditional hook here
+  // crashes the component the moment it opens (spec-470 e2e caught exactly that).
+  const navigatedOnCreateRef = useRef(false);
+  useEffect(() => {
+    if (!openOnCreate || navigatedOnCreateRef.current) return;
+    const created = messages.filter((m) => m.role === 'doc_created');
+    if (created.length !== 1) return;
+    // spec-473: a DOCUMENT import keeps authoring AFTER create_doc — the agent runs
+    // add_section / create_decision / create_ac to restructure the source into a rich
+    // Spec. Navigating on the first create_doc (spec-470's idea-path behaviour) would
+    // unmount this modal and ABORT that authoring stream, leaving a thin Overview-only
+    // Spec (the very failure the import pivot exists to fix). So for seedKind='document'
+    // wait until the whole stream has finished before landing on the now-populated Spec.
+    // The hero-vs-tracker FREEZE (HomeCanvas) keeps the hero — and this modal — mounted
+    // across the create's hasSpec flip, so there is no graduation-unmount race to beat by
+    // navigating early. The idea path still lands the instant it's created (its stream
+    // ends at create_doc anyway).
+    if (seedKind === 'document' && isStreaming) return;
+    navigatedOnCreateRef.current = true;
+    openSpec(created[0].handle);
+  }, [openOnCreate, messages, isStreaming, seedKind, openSpec]);
 
   useEffect(() => {
     if (!open) return;
@@ -260,18 +358,53 @@ export function NewSpecModal({ open, onClose, prefill, onCreated }: NewSpecModal
           ];
         });
       },
+      // spec-473: the live "Building your Spec…" checklist. Fires as the model
+      // finishes WRITING each tool block during the batched authoring turn (before
+      // execution), so rows tick in during the wait instead of dumping at the end.
+      // UI tools render via onAssistantTurnComplete — skip them here. Upsert by
+      // toolId so the later onToolStart/onToolResult update this same row.
+      onToolProgress: (toolName, toolId, label) => {
+        if (UI_TOOL_NAMES.has(toolName)) return;
+        setMessages((prev) => {
+          if (prev.some((m) => m.role === 'tool_status' && m.toolId === toolId)) {
+            return prev.map((m) =>
+              m.role === 'tool_status' && m.toolId === toolId
+                ? { ...m, content: `✓ ${label}` }
+                : m
+            );
+          }
+          return [
+            ...prev,
+            {
+              id: nextId(),
+              role: 'tool_status',
+              content: `✓ ${label}`,
+              toolName,
+              toolId,
+              timestamp: new Date(),
+            },
+          ];
+        });
+      },
       onToolStart: (toolName, toolId) => {
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: nextId(),
-            role: 'tool_status',
-            content: `Running ${toolName}...`,
-            toolName,
-            toolId,
-            timestamp: new Date(),
-          },
-        ]);
+        setMessages((prev) => {
+          // spec-473: onToolProgress may have already created this row as the block
+          // was written — don't duplicate it at execution time.
+          if (prev.some((m) => m.role === 'tool_status' && m.toolId === toolId)) {
+            return prev;
+          }
+          return [
+            ...prev,
+            {
+              id: nextId(),
+              role: 'tool_status',
+              content: `Running ${toolName}...`,
+              toolName,
+              toolId,
+              timestamp: new Date(),
+            },
+          ];
+        });
       },
       onToolResult: (toolId, result) => {
         setMessages((prev) =>
@@ -279,11 +412,18 @@ export function NewSpecModal({ open, onClose, prefill, onCreated }: NewSpecModal
             m.role === 'tool_status' && m.toolId === toolId
               ? {
                   ...m,
-                  // Raw tool results are agent-facing prose (e.g. create_doc's
-                  // Scope-AC nudge) — collapse success to a compact marker so
-                  // internal tool text never reaches the human; keep errors
-                  // verbatim so failures stay visible. (spec-155 i-1)
-                  content: result.startsWith('Error:') ? result : `Ran ${m.toolName}`,
+                  // Errors stay visible verbatim (raw results are agent-facing
+                  // prose, spec-155 i-1). On success: if onToolProgress already
+                  // wrote a "✓ …" checklist label (the spec-473 batched-authoring
+                  // path), keep it — execution is near-instant so re-labelling
+                  // would just churn. Otherwise the row is still the onToolStart
+                  // "Running …" placeholder, so collapse it to a "Ran …" done
+                  // marker (spec-155 i-1 — never leave it reading as in-flight).
+                  content: result.startsWith('Error:')
+                    ? result
+                    : m.content.startsWith('Running ')
+                      ? `Ran ${m.toolName}`
+                      : m.content,
                 }
               : m
           )
@@ -400,6 +540,33 @@ export function NewSpecModal({ open, onClose, prefill, onCreated }: NewSpecModal
     },
     [invoke, makeCallbacks]
   );
+
+  // spec-470 dec-4: auto-send the hero's seeded sentence on open. Runs AFTER the
+  // reset effect above (later effect = later in the commit), so state is already
+  // cleared; guarded to fire exactly once per open. `prefill` wins — the two
+  // seeding paths never both fire. Placed below dispatchMessage so it's in scope.
+  useEffect(() => {
+    if (!open || prefill || !autoSend) return;
+    const seed = seedMessage?.trim();
+    if (!seed) return; // empty/whitespace neither opens nor dispatches
+    if (autoSentRef.current) return;
+    autoSentRef.current = true;
+    if (seedKind === 'document') {
+      // spec-473: an imported document — frame it as "convert this into a Spec"
+      // and show a short label (not the whole document) as the user bubble, with
+      // the document riding as the collapsible attachment (mirrors the paste UX).
+      void dispatchMessage({
+        composed: composeDocumentInstruction(seed),
+        displayText: 'Turn this document into a Spec.',
+        attachment: seed,
+      });
+    } else {
+      void dispatchMessage({
+        composed: composeSeedInstruction(seed),
+        displayText: seed,
+      });
+    }
+  }, [open, prefill, autoSend, seedKind, seedMessage, dispatchMessage]);
 
   const handleSend = useCallback(async () => {
     if (isStreaming) return;

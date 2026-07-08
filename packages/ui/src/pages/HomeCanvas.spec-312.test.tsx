@@ -58,7 +58,7 @@ function stateFor(currentStepId: string, steps: Step[], over: Record<string, unk
       identityConfirmed: false,
       mcpConnected: false,
       mcpToolCalled: false,
-      hasSpec: false,
+      hasSpec: true,
       hasResolvedDecision: false,
       hasAc: false,
       acVerified: false,

@@ -182,7 +182,7 @@ describe('spec-233 t-1 — prose sub-tab reads "Narrative", id stays narrative',
     await screen.findByText('Narrative');
 
     // Away: Decisions & ACs renders its two-column panels.
-    await user.click(screen.getByText('Decisions & ACs'));
+    await user.click(screen.getByText(/^Decisions?( \(\d+\))? & ACs?( \(\d+\))?$/));
     expect(screen.getByTestId('decision-panel')).toBeInTheDocument();
     expect(screen.queryByTestId('section-card')).not.toBeInTheDocument();
 
@@ -214,7 +214,7 @@ describe('spec-233 t-1 — prose sub-tab reads "Narrative", id stays narrative',
 
     // The in-situ phase directive on Decisions & ACs mirrors the Rubicon copy.
     const user = userEvent.setup();
-    await user.click(screen.getByText('Decisions & ACs'));
+    await user.click(screen.getByText(/^Decisions?( \(\d+\))? & ACs?( \(\d+\))?$/));
     expect(screen.getByTestId('phase-directive').textContent).toContain(
       'The spec narrative must be updated to reflect the resolved decisions before this spec can move to Build — use the refresh action to generate the update prompt.',
     );

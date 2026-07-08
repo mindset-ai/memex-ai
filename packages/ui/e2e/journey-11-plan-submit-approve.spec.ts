@@ -47,7 +47,7 @@ test("user opens plan from task panel, approves, plan status flips to approved",
   // Decisions & ACs sub-tab, so after the Build phase tab click open the unified
   // "Agent Tasks & Issues" sub-tab to surface the TaskPanel.
   await page.getByRole("tab", { name: "Build" }).click();
-  await page.getByRole("button", { name: /Agent Tasks & Issues/ }).click();
+  await page.getByRole("button", { name: /Agent Tasks?( \(\d+\))? & Issues?/ }).click();
 
   // The plan trigger is rendered by TaskPanel for any task with an
   // executionPlanDocId. With a 'READY — all green' readiness comment its label

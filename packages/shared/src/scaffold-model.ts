@@ -447,7 +447,7 @@ export function toInitPromptRef(tool: ToolNode): InitPromptRefEntry {
     group: tool.group,
     readOnlyHint: tool.readOnlyHint,
     // spec-189 dec-4: the classification travels with the manifest shape.
-    trafficClass: tool.trafficClass,
+    homePhase: tool.homePhase,
     ...(tool.autoAssignExempt !== undefined
       ? { autoAssignExempt: tool.autoAssignExempt }
       : {}),

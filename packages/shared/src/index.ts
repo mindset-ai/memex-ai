@@ -7,9 +7,6 @@ export {
   isForwardTransition,
   isBackwardTransition,
   shouldBlockForwardTransition,
-  // spec-189: the traffic-driven phase-advancement matrix (the single place
-  // the gated transition rules live — ac-3).
-  nextPhaseForTraffic,
   // spec-355 dry-1/dry-2: the canonical ordered phase array — single source of
   // `['draft','specify','build','verify','done']` for server + UI.
   PHASE_ORDER,
@@ -22,7 +19,7 @@ export type {
   ReadinessInput,
   OutstandingItem,
   SpecReadiness,
-  TrafficClass,
+  HomePhase,
 } from './spec-readiness.js';
 export { toolManifest } from './tool-manifest.js';
 export type { ToolManifestEntry } from './tool-manifest.js';
@@ -81,7 +78,10 @@ export {
   SPEC_SHAPE_MISSING_LENS_WARNING,
   BUILD_AC_NAG_PROSE,
   GET_PROMPT_PROSE,
+  // spec-464 dec-24: the phase-gating teaching catalog (prose home, std-15).
+  PHASE_GATING_CATALOG,
 } from './scaffold-data.js';
+export type { PhaseGatingCatalog, PhaseGateGroup } from './scaffold-data.js';
 // spec-111 t-9 — read-only agent block, injected by buildSystemBlocks when the
 // per-request readOnly flag is set. Lives in the scaffold model (b-68 dec-6),
 // not as a phases/*.md file.

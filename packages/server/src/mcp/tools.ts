@@ -52,7 +52,7 @@ Memex hosts **Specs** (living docs of purpose, decisions, tasks), scoped to a **
 
 ## Where the depth lives
 
-This orientation is intentionally tiny. Operating depth (phase mechanics, AC emission, decisions-vs-tasks, stuck/escalation, rule-overrides) lives in **\`get_information\`** — call with no args for the topic index, or with \`topic='<slug>'\` for one topic's body. Fetch the relevant topic before acting on a concept this orientation doesn't spell out.
+This orientation is intentionally tiny. Operating depth — the five phases, phase mechanics, AC emission, decisions-vs-tasks, stuck/escalation, rule-overrides — lives in **\`get_information\`**: no args for the topic index, or \`topic='<slug>'\` for one body (\`topic='phases'\` for the pipeline). Fetch the topic before acting on a concept this orientation doesn't spell out.
 
 ## First moves
 
@@ -66,9 +66,9 @@ This orientation is intentionally tiny. Operating depth (phase mechanics, AC emi
 1. **Tasks only in \`build\`.** A task in draft/specify is a guess pretending to be a commitment. Resolve decisions first.
 2. **\`complete\` only when verification actually runs** — tests + type checks + exercising the path, not vibes. Closing a Spec (\`done\`) is the user's call, never the agent's.
 
-## Pipeline
+## Skills
 
-Five phases: \`draft → specify → build → verify → done\`, plus orthogonal \`paused\`/\`archived\` flags. Tool responses are terse by default; pass \`verbose: true\` for full markdown. Call \`get_information(topic='phases')\` for the full phase mechanics including \`assess_spec\` modes.`;
+Memex also hosts reusable **Skills**. If the user names a skill you don't have locally, \`list_skills({all_memexes:true})\` to find it across your Memexes, then \`get_skill(ref)\` and follow it — ask only if the name collides.`;
 
 function errorResult(message: string) {
   return {
@@ -242,6 +242,10 @@ export function createMcpServer(
     // "one site per channel" amendment. Omitted for MCP-only tools with no spec
     // (list_memexes), which carry no catalogue activity mapping.
     activitySpec?: ToolSpec,
+    // spec-471 dec-3: getter for the auto-pick disclosure line the ctx resolver
+    // set (loop-scoped, same pattern as getMemexId). Undefined for MCP-only tools
+    // that never resolve a memex, so they never emit a notice.
+    getAutoPickNotice?: () => string | undefined,
   ): WrappedFn<I> => {
     return async (input: I) => {
       const started = Date.now();
@@ -260,7 +264,11 @@ export function createMcpServer(
             input as Record<string, unknown>,
           );
         }
-        return textResult(text);
+        // spec-471 dec-3: if the read path auto-picked a workspace, prepend the
+        // disclosure line so the default is transparent. Set by ctx.resolveMemex;
+        // absent for explicit-`memex=` calls and non-resolving tools.
+        const notice = getAutoPickNotice?.();
+        return textResult(notice ? `${notice}\n\n${text}` : text);
       } catch (err) {
         // Capture the FULL error for telemetry BEFORE handleError redacts.
         errorMessage = formatErrorForTelemetry(err);
@@ -351,6 +359,11 @@ export function createMcpServer(
     // concurrency because createMcpServer is constructed per-request — the
     // closure scope belongs to one tool invocation.
     let resolvedMemexId: string | undefined;
+    // spec-471 dec-3: when the read path auto-picks a memex (no `memex=` arg on a
+    // multi-workspace caller), the resolver sets this to a one-line disclosure the
+    // telemetry wrap prepends to the tool result — a TRANSPARENT default, never
+    // silent. Same per-request closure safety as resolvedMemexId above.
+    let autoPickNotice: string | undefined;
     // spec-111 t-4: every read entrypoint reports whether the caller has write
     // access to the resolved memex. Once any resolver fires we know the gate;
     // `enforceWriteGate` rejects a write tool (readOnlyHint === false) the
@@ -393,15 +406,31 @@ export function createMcpServer(
           // Pulse attributes MCP-driven activity to the `mcp` channel.
           channel: "mcp",
           resolveMemex: async (memex) => {
-            const { memexId, readOnly } = await resolveWorkspaceForRead(
-              userId,
-              memex,
-              orgFilter,
-            );
+            const { memexId, readOnly, autoPicked, autoPickedRef } =
+              await resolveWorkspaceForRead(userId, memex, orgFilter);
             resolvedMemexId = memexId;
+            // spec-471 dec-3: disclose an auto-picked workspace on the result.
+            if (autoPicked && autoPickedRef) {
+              autoPickNotice = `Defaulted to memex ${autoPickedRef} (your most recently used). Pass memex=<namespace>/<memex> to choose another.`;
+            }
             enforceWriteGate(readOnly);
             rlsStore.memexId = memexId;
             return memexId;
+          },
+          // spec-300 dec-25: the cross-Memex skills union enumerates exactly the
+          // Memexes this caller may read — the org-scoped membership list (std-4
+          // + the OAuth Org filter), the same set list_memexes surfaces. No single
+          // tenant is resolved here (the union spans several), so it never touches
+          // resolvedMemexId / rlsStore — the service scopes each Memex's read under
+          // its own runWithMemexId (std-36).
+          listAccessibleMemexes: async () => {
+            const memberships = await listMemberships(userId);
+            const filtered = filterMembershipsForOrgScope(memberships, orgFilter);
+            return filtered.map((m) => ({
+              memexId: m.memexId,
+              ref: `${m.slug}/${m.memexSlug}`,
+              memexName: m.memexName,
+            }));
           },
           resolveMemexFromEntity: async (kind, id) => {
             const { memexId, readOnly } = await resolveMemexFromEntityForRead(
@@ -474,6 +503,8 @@ export function createMcpServer(
       // spec-156 ac-15: pass the spec so the wrap emits a 'mcp'-channel
       // read/advisory bus event for non-mutating tools on success.
       spec,
+      // spec-471 dec-3: the auto-pick disclosure line, if the read path set one.
+      () => autoPickNotice,
     );
     server.tool(spec.name, spec.description, spec.schema, spec.annotations, handler);
   }

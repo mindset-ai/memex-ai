@@ -1,11 +1,20 @@
 #!/usr/bin/env node
-// spec-430 dec-4 — the SessionStart self-heal guide. When the checkout key isn't set
-// up on this machine (no `hook_key` in ~/.memex/checkout.json and no env override),
-// emit a short additionalContext steer so Claude Code can OFFER to finish setup. Once
-// set up, it is fully silent. Non-blocking; never errors the session; exits 0.
+// The SessionStart guide — two independent, non-blocking steers folded into one
+// additionalContext:
 //
-// This is the pre-MCP priming layer: the MCP's own instructions can't guide a user
-// before the MCP is connected, so the bundled hook closes that gap.
+//   1. spec-430 dec-4 — self-heal. When the checkout key isn't set up on this
+//      machine (no `hook_key` in ~/.memex/checkout.json and no env override), OFFER
+//      to finish setup. Emitted ONLY when not set up; silent once set up.
+//   2. spec-300 dec-26 — skills attunement (ac-69). Prime Claude Code to reach for
+//      Memex Skills across the user's Memexes when a named skill isn't one of its own
+//      local skills. Emitted EVERY session — it is gated on nothing (the Memex MCP
+//      connection is independent of the checkout key), and mirrors the MCP server's
+//      own `## Skills` instruction (std-40: the plugin ENHANCES that baseline, never
+//      replaces it; std-41: the hook adds a capability, it doesn't own correctness).
+//
+// Non-blocking; never errors the session; exits 0. This is also the pre-MCP priming
+// layer: the MCP's own instructions can't guide a user before the MCP is connected,
+// so the bundled hook closes that gap.
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -36,7 +45,7 @@ function isSetUp() {
   return false;
 }
 
-const STEER = [
+const SETUP_STEER = [
   "Memex spec-checkout is installed but not fully set up on this machine: no checkout",
   "key is present, so in-flow edits to a claimed Spec won't be recorded yet. If the",
   "user wants Memex spec-checkout working, OFFER (don't nag) to finish setup by running",
@@ -44,12 +53,28 @@ const STEER = [
   "the user checkout key. If they decline, stay silent for the rest of the session.",
 ].join(" ");
 
+// spec-300 dec-26 (ac-69) — mirrors the MCP server's `## Skills` instruction so the
+// guidance is present from the very first turn, before any tool call.
+const SKILLS_STEER = [
+  "Memex hosts reusable Skills across the user's Memexes. If the user asks you to use a",
+  "skill by name and it isn't one of your own local skills, don't stop there: call the",
+  "Memex MCP tool list_skills with all_memexes:true to find it across every Memex they",
+  "can access, then get_skill(ref) and follow it. If the same name lives in more than one",
+  "Memex, ask which one — never guess.",
+].join(" ");
+
 async function main() {
   await readStdin(); // drain the SessionStart payload; we only need local state
-  if (isSetUp()) return; // set up → silent
+  // Self-heal steer only when not set up; the skills attunement every session.
+  const parts = [];
+  if (!isSetUp()) parts.push(SETUP_STEER);
+  parts.push(SKILLS_STEER);
   process.stdout.write(
     JSON.stringify({
-      hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: STEER },
+      hookSpecificOutput: {
+        hookEventName: "SessionStart",
+        additionalContext: parts.join("\n\n"),
+      },
     }),
   );
 }

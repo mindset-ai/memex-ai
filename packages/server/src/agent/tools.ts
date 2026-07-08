@@ -38,6 +38,7 @@ import {
 } from "./tool-specs.js";
 import { toolManifest } from "@memex/shared";
 import { parseRef } from "../services/refs.js";
+import { listMemberships } from "../services/users.js";
 import { resolveRef as resolveCanonicalRef } from "../services/resolver.js";
 import { emitInAppAgentActivity } from "../services/conversations.js";
 import { runToolWithSpecTraffic } from "../services/spec-traffic.js";
@@ -621,18 +622,18 @@ const CREATION_READ_TOOLS = new Set<string>(["search_memex", "get_doc"]);
  *  exposes, derived from the @memex/shared manifest (std-16) so it can never
  *  drift back to a hand-maintained list. Parity with the MCP coding agent's
  *  spec-authoring surface = every tool whose manifest `group` is 'planning'
- *  (sections / decisions / doc lifecycle) OR whose `trafficClass` is 'specify'
+ *  (sections / decisions / doc lifecycle) OR whose `homePhase` is 'specify'
  *  (decision + AC authoring — this pulls create_ac / update_ac / delete_ac /
  *  link_ac_to_decision out of the 'build' group), plus the read tools above.
  *  Build-phase task verbs (create_task / update_task / delete_task — group
- *  'build', trafficClass 'build') are correctly excluded: the creation agent
+ *  'build', homePhase 'build') are correctly excluded: the creation agent
  *  authors a Spec's plan, it does not run the build. */
 function creationServerToolNames(): Set<string> {
   const names = new Set<string>();
   for (const entry of toolManifest) {
     if (
       entry.group === "planning" ||
-      entry.trafficClass === "specify" ||
+      entry.homePhase === "specify" ||
       CREATION_READ_TOOLS.has(entry.name)
     ) {
       names.add(entry.name);
@@ -763,6 +764,18 @@ function buildAgentCtx(
     // The agent loop is already memex-scoped via the route — ignore any
     // `memex` arg the LLM happens to pass and use the bound memex.
     resolveMemex: async () => memexId,
+    // spec-300 dec-25: the in-app agent is single-tenant, so its cross-Memex
+    // skills union is degenerate — exactly the one Memex the chat is scoped to.
+    // Filtering the caller's memberships to the bound memex resolves its ns/mx
+    // ref + display name from the same authoritative source the MCP surface uses.
+    listAccessibleMemexes: async () =>
+      (await listMemberships(userId))
+        .filter((m) => m.memexId === memexId)
+        .map((m) => ({
+          memexId: m.memexId,
+          ref: `${m.slug}/${m.memexSlug}`,
+          memexName: m.memexName,
+        })),
     // b-36 T-6: resolve a canonical ref and verify it lives inside the
     // bound memex. The agent loop has already authenticated the user; this
     // check is defence-in-depth against the LLM passing a ref to another

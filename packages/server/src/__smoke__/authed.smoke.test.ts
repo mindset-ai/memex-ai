@@ -430,81 +430,70 @@ describe.skipIf(!SMOKE_MCP_TOKEN)(
       expect(docText).not.toContain(marker);
     });
 
-    // ── spec-189: traffic-driven phase advancement on the LIVE /mcp surface.
+    // ── spec-464: the phase GATE on the LIVE /mcp surface (supersedes spec-189).
     //
-    //    Specify-class traffic (create_decision) at a freshly-created draft
-    //    Spec must auto-advance it draft → specify; build-class traffic
-    //    (update_issue, post spec-327 — create_task no longer advances) must
-    //    then advance it specify → build. This is the
-    //    deployed-contract probe for the runToolWithSpecTraffic seam — the
-    //    exact class of /mcp wiring that std-17's first live run proved local
-    //    suites can miss. The full matrix is locked by unit + integration
-    //    tests; the smoke probe asserts the seam is ALIVE on the deployed
-    //    image, not the matrix itself.
-    it("spec-189: agent traffic auto-advances a draft Spec (draft → specify → build)", async () => {
+    //    spec-464 dec-1 REMOVED traffic-driven auto-advance: an agent tool call
+    //    no longer moves a Spec's phase as a side effect. Instead the
+    //    runToolWithSpecTraffic seam REFUSES an ahead-of-phase agent call (the
+    //    tool's homePhase later than the Spec's phase). This is the
+    //    deployed-contract probe for that seam — the exact class of /mcp wiring
+    //    std-17's first live run proved local suites can miss. The full matrix is
+    //    locked by unit + integration tests; the smoke probe asserts the seam is
+    //    ALIVE on the deployed image (no phantom advance; ahead-of-phase
+    //    refused), not the matrix itself.
+    it("spec-464: agent traffic never advances a Spec, and an ahead-of-phase call is refused (the live gate)", async () => {
       const created = await callMcpTool("create_doc", {
         memex: SMOKE_NAMESPACE,
-        title: `[smoke] spec-189 traffic probe ${new Date().toISOString()}`,
-        purpose: "Throwaway probe — traffic-driven phase advancement.",
+        title: `[smoke] spec-464 phase-gate probe ${new Date().toISOString()}`,
+        purpose: "Throwaway probe — the phase gate (no traffic-driven advance).",
       });
       expect(created.status).toBe(200);
       expect(created.body.result?.isError).toBeFalsy();
       const specRef = parseRef(mcpTextPayload(created.body));
       expect(specRef, "create_doc should return a spec ref").toBeTruthy();
 
-      // Specify-class traffic: decision authoring. Like create_task above, the ballot is
-      // required where the Memex has a facet vocabulary (spec-423 ac-2/ac-13); cast the
+      // Decision authoring (a specify-home tool) on a fresh DRAFT Spec: the
+      // decision is recorded, but the phase does NOT move — spec-464 dec-1
+      // removed the old draft → specify auto-advance. The ballot is required
+      // where the Memex has a facet vocabulary (spec-423 ac-2/ac-13); cast the
       // honest no-facet ballot (none:true) since this isn't a routing test.
       const dec = await callMcpTool("create_decision", {
         ref: specRef!,
-        title: "[smoke] spec-189 probe decision",
+        title: "[smoke] spec-464 probe decision",
         facetBallot: { none: true, verdict: {} },
       });
       expect(dec.status).toBe(200);
       expect(dec.body.result?.isError).toBeFalsy();
 
-      // Terse get_doc renders `ref: <ref> "<title>" [spec, <phase>].` —
-      // verified against the live int surface (first probe run guessed
-      // `[SPECIFY]` and failed while the feature itself worked).
+      // Terse get_doc renders `ref: <ref> "<title>" [spec, <phase>].` — the Spec
+      // must still be DRAFT: no phantom advance off the tool call (dec-1).
       let docText = mcpTextPayload(
         (await callMcpTool("get_doc", { ref: specRef! })).body,
       );
-      expect(docText).toMatch(/\[spec,\s*specify\]|status:\s*specify|phase:\s*specify/i);
+      expect(docText).toMatch(/\[spec,\s*draft\]|status:\s*draft|phase:\s*draft/i);
 
-      // Build-class traffic: an Issue edit. spec-327 gated create_task to
-      // build/verify (it no longer advances), so the build-class advance
-      // exemplar is register_issue (the non-advancing parking lot, spec-295
-      // dec-2) followed by update_issue (still build-class) — the seam advances
-      // specify → build.
-      const issue = await callMcpTool("register_issue", {
-        spec_ref: specRef!,
-        title: "[smoke] spec-189 probe issue",
-        body: "Throwaway — seeded to drive specify → build via update_issue.",
-        type: "todo",
+      // The GATE is alive on the deployed image: a build-home tool (create_task)
+      // ahead of build is REFUSED on the live /mcp seam — no task, no phase move.
+      // A VALID ballot is supplied so the ONLY thing that can fail is the gate,
+      // not input validation; the refusal names `build` as the task's home.
+      const task = await callMcpTool("create_task", {
+        ref: specRef!,
+        title: "[smoke] spec-464 ahead-of-phase task",
+        description: "Should be refused on a draft Spec by the phase gate.",
+        facetBallot: { none: true, verdict: {} },
       });
-      expect(issue.status).toBe(200);
-      expect(issue.body.result?.isError).toBeFalsy();
-      const issueRef = parseRef(mcpTextPayload(issue.body));
-      expect(issueRef, "register_issue should return a canonical ref").toBeTruthy();
+      expect(task.status).toBe(200);
+      expect(
+        task.body.result?.isError,
+        "create_task ahead of build must be refused by the live phase gate",
+      ).toBe(true);
+      expect(mcpTextPayload(task.body).toLowerCase()).toContain("build");
 
-      // register_issue is non-advancing — still specify.
+      // Phase is unchanged by the refused call — still DRAFT.
       docText = mcpTextPayload(
         (await callMcpTool("get_doc", { ref: specRef! })).body,
       );
-      expect(docText).toMatch(/\[spec,\s*specify\]|status:\s*specify|phase:\s*specify/i);
-
-      // update_issue is build-class — advances specify → build.
-      const upd = await callMcpTool("update_issue", {
-        ref: issueRef!,
-        body: "Edited — build-class traffic drives specify → build.",
-      });
-      expect(upd.status).toBe(200);
-      expect(upd.body.result?.isError).toBeFalsy();
-
-      docText = mcpTextPayload(
-        (await callMcpTool("get_doc", { ref: specRef! })).body,
-      );
-      expect(docText).toMatch(/\[spec,\s*build\]|status:\s*build|phase:\s*build/i);
+      expect(docText).toMatch(/\[spec,\s*draft\]|status:\s*draft|phase:\s*draft/i);
     });
 
     // ── spec-300 t-9 (std-17, ac-4): the Skills MCP surface on the LIVE /mcp

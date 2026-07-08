@@ -159,7 +159,7 @@ test.describe("doc-16 Wave 1 reactivity journeys", () => {
     // The decisions panel only mounts when the Decisions & ACs sub-tab is active
     // (post spec-164/159 redesign — was a bare "Decisions" tab). Click it before
     // asserting on the decision text.
-    await tab.getByRole("button", { name: /^Decisions & ACs/ }).click();
+    await tab.getByRole("button", { name: /^Decisions?( \(\d+\))? & ACs?/ }).click();
 
     // Wait until the decision panel renders the seeded decision in its open state.
     await expect(tab.getByText("Which DB?").first()).toBeVisible({ timeout: 15_000 });
@@ -206,7 +206,7 @@ test.describe("doc-16 Wave 1 reactivity journeys", () => {
     // Decisions & ACs sub-tab, so open the unified "Agent Tasks & Issues" sub-tab
     // to mount the TaskPanel.
     await tab.getByRole("tab", { name: "Build" }).click();
-    await tab.getByRole("button", { name: /Agent Tasks & Issues/ }).click();
+    await tab.getByRole("button", { name: /Agent Tasks?( \(\d+\))? & Issues?/ }).click();
 
     // Create a task via the REST surface (the agent's `create_task` tool calls
     // the same `services/tasks.ts::createTask` function — the bus emission is identical).

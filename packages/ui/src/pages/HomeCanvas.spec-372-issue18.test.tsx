@@ -38,7 +38,7 @@ function stateFor(currentStepId: string, steps: Step[]) {
     milestones: {
       identityConfirmed: false,
       mcpConnected: false,
-      hasSpec: false,
+      hasSpec: true,
       hasResolvedDecision: false,
       hasAc: false,
       planGrounded: false,

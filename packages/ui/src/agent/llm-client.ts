@@ -55,6 +55,13 @@ async function* parseLlmSSE(res: Response): AsyncGenerator<LlmProxyEvent> {
 
         if (eventType === 'text_delta') {
           yield { type: 'text_delta', text: parsed.text };
+        } else if (eventType === 'tool_progress') {
+          yield {
+            type: 'tool_progress',
+            name: parsed.name,
+            toolId: parsed.id,
+            label: parsed.label,
+          };
         } else if (eventType === 'message_complete') {
           yield {
             type: 'message_complete',

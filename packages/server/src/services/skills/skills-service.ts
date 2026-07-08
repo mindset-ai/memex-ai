@@ -17,7 +17,7 @@
 // lookups 404 via NotFoundError (std-7).
 
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
-import { db } from "../../db/connection.js";
+import { db, runWithMemexId } from "../../db/connection.js";
 import { documents, docSections, skillFiles, memexes, namespaces } from "../../db/schema.js";
 import type { Doc, SkillFile } from "../../db/schema.js";
 import { NotFoundError, ValidationError } from "../../types/errors.js";
@@ -118,6 +118,26 @@ export interface SkillView {
   /** The Skill's meaningful last-edit time — max section updatedAt, so the UI can
    *  show a "last-updated" stamp on the detail view (spec-300 t-5). */
   readonly lastUpdatedAt: Date;
+}
+
+/** One Memex the caller may read, as resolved + authorized by the ctx layer
+ *  (std-4). The cross-Memex skills union (spec-300 dec-25) consumes exactly this
+ *  set — the service never decides WHICH Memexes are visible, only fetches skills
+ *  for the ones it is handed. */
+export interface AccessibleMemex {
+  readonly memexId: string;
+  /** `<namespace>/<memex>` — the display + grouping label. */
+  readonly ref: string;
+  /** The Memex's display name (memexes.name). */
+  readonly memexName: string;
+}
+
+/** One Memex's slice of the cross-Memex union: its identity + its active skills. */
+export interface MemexSkillGroup {
+  readonly memexId: string;
+  readonly memexRef: string;
+  readonly memexName: string;
+  readonly skills: readonly SkillListItem[];
 }
 
 /** The list shape: metadata only — no body, no allowed-tools. */
@@ -900,4 +920,32 @@ export async function listSkills(memexId: string): Promise<SkillListItem[]> {
     capabilities: r.skillCapabilities ?? DEFAULT_SKILL_CAPABILITIES,
     lastUpdatedAt: r.lastUpdatedAt ?? r.statusChangedAt,
   }));
+}
+
+/**
+ * List ACTIVE skills across several Memexes at once — the cross-Memex union
+ * behind `list_skills({ all_memexes: true })` (spec-300 dec-25). The caller (the
+ * ctx layer) has already resolved + AUTHORIZED the set of visible Memexes (std-4);
+ * this only fetches skills for exactly those, grouped one bucket per Memex in the
+ * given order.
+ *
+ * RLS (std-36): the restricted runtime role sees a tenant table's rows only when
+ * `app.memex_id` matches — there is no single tenant that spans several Memexes, so
+ * each Memex is queried under its OWN `runWithMemexId` scope rather than one union
+ * query. Sequential (not Promise.all) to stay well inside the small connection pool.
+ */
+export async function listSkillsForMemexes(
+  memexes: readonly AccessibleMemex[],
+): Promise<MemexSkillGroup[]> {
+  const groups: MemexSkillGroup[] = [];
+  for (const m of memexes) {
+    const skills = await runWithMemexId(m.memexId, () => listSkills(m.memexId));
+    groups.push({
+      memexId: m.memexId,
+      memexRef: m.ref,
+      memexName: m.memexName,
+      skills,
+    });
+  }
+  return groups;
 }

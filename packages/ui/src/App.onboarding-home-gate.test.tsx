@@ -5,12 +5,14 @@ import type { ReactNode } from 'react';
 import { tagAc } from '@memex-ai-ac/vitest';
 import type { SessionPayload } from './api/client';
 import type { JourneyStateResponse } from './api/journey';
+import { resetCachedJourneyState } from './journeys/journeyStateCache';
 
 // spec-421 dec-5 / issue-1 — RootRedirect decides the first-load landing from a
-// READ-ONLY onboarding-state check. spec-461 dec-1 then RETIRED the auto-Home landing,
-// so the current truth is:
-//   - not-yet-graduated, 'home' visible  → the default-tenant Specs board (spec-461)
-//   - graduated, 'home' visible          → the default-tenant Specs board
+// READ-ONLY onboarding-state check. spec-461 dec-1 RETIRED the auto-Home landing;
+// spec-470 dec-9 then re-introduced it for the CONFIRMED spec-less cohort, so the
+// current truth is:
+//   - not-yet-graduated (confirmed spec-less), 'home' visible → /home (spec-470 dec-9)
+//   - graduated, 'home' visible          → the default-tenant Specs board (spec-461)
 //   - 'home' hidden per-env              → default-tenant Specs (loop-avoidance, NO journey read)
 // (Home is now reachable only by explicit nav; the welcome-video re-show gate for spec-less
 // users survives — see App.spec-461.test.tsx.) The decision is made in the app router before
@@ -151,6 +153,7 @@ describe('RootRedirect lands users by a read-only onboarding-state check (spec-4
   beforeEach(() => {
     vi.stubEnv('VITE_GOOGLE_CLIENT_ID', 'test-client-id');
     sessionStorage.setItem('welcomeVideoDismissed', '1'); // spec-444: suppress gate so tests isolate routing
+    resetCachedJourneyState(); // spec-470: isolate the confirmedSpecLess cache read between tests
     fetchJourneyStateApi.mockClear();
     trackMock.mockClear();
     trackAnonymousMock.mockClear();
@@ -161,19 +164,16 @@ describe('RootRedirect lands users by a read-only onboarding-state check (spec-4
     sessionStorage.removeItem('welcomeVideoDismissed');
   });
 
-  // spec-461 dec-1 RETIRED spec-421 ac-16's "no spec yet → /home" clause: a not-graduated
-  // user is no longer auto-landed on Home — they land on the Specs board like everyone else
-  // (Home stays reachable only by explicit nav). Retagged to spec-461, which owns this truth.
-  it('home VISIBLE + NOT graduated: lands on the Specs board, NOT the Home journey (spec-461)', async () => {
-    tagAc('mindset-prod/memex-building-itself/specs/spec-461/acs/ac-1');
-    tagAc('mindset-prod/memex-building-itself/specs/spec-461/acs/ac-4');
+  // spec-470 dec-9 re-introduced the auto-Home landing for the CONFIRMED spec-less
+  // cohort (superseding spec-461 dec-1 for them): a not-graduated user now auto-lands
+  // on /home — the build-prompt hero. Retagged to spec-470 ac-13, which owns this truth.
+  it('home VISIBLE + NOT graduated: auto-lands on /home (the build-prompt hero, spec-470)', async () => {
+    tagAc('mindset-prod/memex-building-itself/specs/spec-470/acs/ac-13');
     mockSession = makeSession({ hiddenFeatures: [] });
     journeyFetch = () => Promise.resolve(journeyState(false));
     renderAt('/');
-    await waitFor(() => {
-      expect(screen.getByTestId('probe').getAttribute('data-path')).toBe('/alice/personal/specs');
-    });
-    expect(screen.queryByTestId('home-canvas-page')).not.toBeInTheDocument();
+    expect(await screen.findByTestId('home-canvas-page')).toBeInTheDocument();
+    expect(screen.queryByTestId('probe')).not.toBeInTheDocument();
   });
 
   it('home VISIBLE + graduated: goes straight to the default-tenant Specs board, not Home', async () => {

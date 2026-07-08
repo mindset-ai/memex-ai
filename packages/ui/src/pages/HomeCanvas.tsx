@@ -21,7 +21,7 @@
 // Collapse is an in-place chevron toggle of the tracker content (spec-336, revised
 // 2026-06-23 to match the prototype — NOT the spec-312 collapse-to-pearls seam). The
 // header (title + progress + chevron) stays; the rail + panel hide/show beneath it.
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../components/AuthContext';
 import { useUserChangeStream } from '../hooks/useUserChangeStream';
@@ -40,6 +40,7 @@ import { BUILDER_ONLY_STEP_IDS, HIDDEN_STEP_IDS } from '../journeys/onboarding/s
 import { getCachedJourneyState, setCachedJourneyState } from '../journeys/journeyStateCache';
 import { YourJourneys, type PearlJourney } from '../components/home/YourJourneys';
 import { HomeValue } from '../components/home/HomeValue';
+import { BuildPromptHero } from '../components/home/BuildPromptHero';
 import { SHOW_GRADUATED_HOME } from './homeCanvasFlags';
 import { JourneyStepShell } from '../components/home/JourneyStepShell';
 import { IdentityStep } from '../components/home/IdentityStep';
@@ -139,13 +140,31 @@ export function HomeCanvas() {
   // tracker is always expanded, so there is no `contentCollapsed` state any more.
   const [forceShow, setForceShow] = useState(false);
 
+  // spec-470: the build-prompt hero (shown to spec-less users) OWNS the create-spec
+  // modal. Creating the first Spec flips `hasSpec`, and the `document` SSE event
+  // (useUserChangeStream below) refetches journey state — which would unmount the hero
+  // (and its in-flight modal) mid-create, before the agent's create result lands. So we
+  // FREEZE the hero-vs-tracker decision at the first resolved state: the user always
+  // LEAVES /home on create (openOnCreate navigates to the new Spec) or skip; a later
+  // fresh visit re-evaluates `hasSpec` and shows the tracker (implicit graduation, ac-3).
+  const heroDecisionRef = useRef<boolean | null>(null);
+
   const load = useCallback(() => {
     fetchJourneyStateApi(previewParam)
       .then((s) => {
         setState(s);
         // Refresh the shared assessment so the next surface paints from the latest read.
         // Never cache a preview-pinned read (it isn't the user's real state).
-        if (!previewParam) setCachedJourneyState(s);
+        if (!previewParam) {
+          setCachedJourneyState(s);
+          // spec-470: freeze the hero-vs-tracker decision on the FIRST authoritative
+          // (fresh) read — never the cached seed, which can be stale (a graduated user's
+          // cache still says hasSpec=false). Later SSE-triggered reads (e.g. the hero's
+          // own create) then can't unmount the hero mid-flow.
+          if (heroDecisionRef.current === null) {
+            heroDecisionRef.current = !s.milestones.hasSpec;
+          }
+        }
       })
       .catch(() => {
         /* keep last good state — the canvas never hard-crashes on a fetch blip */
@@ -341,6 +360,28 @@ export function HomeCanvas() {
   // advanced yet (spec-433 regression fix: returning users were stuck full-width at 100%).
   const firstStepAttained = visibleSteps[0]?.attained ?? false;
   const showRail = !!displayStepId && (displayStepId !== FIRST_STEP_ID || firstStepAttained) && visibleSteps.length > 0;
+
+  // spec-470 (dec-5): spec-less users get the Lovable-style build-prompt hero in
+  // place of the onboarding tracker. `hasSpec` comes from the journey state
+  // already fetched above (milestones.hasSpec). Operator preview always sees the
+  // real tracker. While `state` is still null (cold load) we leave the decision
+  // unfrozen and render the tracker region's momentary blank rather than flashing
+  // the hero then swapping it out.
+  //
+  // Once the first fresh read has FROZEN the decision (load(), above), honour it — an
+  // in-session SSE refetch after the hero's own create must not unmount the hero
+  // mid-flow (see heroDecisionRef's declaration). Before that first read resolves we
+  // fall back to the current (possibly cached) state so a returning spec-less user sees
+  // the hero without a blank flash. Graduation happens on the NEXT fresh visit, when
+  // hasSpec is re-read true and this resolves to the tracker (ac-3).
+  const showHero =
+    !preview &&
+    (heroDecisionRef.current !== null
+      ? heroDecisionRef.current === true
+      : !!state && !state.milestones.hasSpec);
+  if (showHero) {
+    return <BuildPromptHero firstName={firstName(user?.name)} specsPath={specsPath} />;
+  }
 
   return (
     <div className="font-onboarding min-h-full" data-testid="home-canvas">
