@@ -1,27 +1,23 @@
-// Journey 20 — spec-189: automatic phase advancement + assignment from MCP
-// traffic, observed live on the Kanban board [per std-28].
+// Journey 20 — spec-464: MCP traffic NEVER moves a Spec's phase as a side
+// effect, and an ahead-of-phase agent call is refused, observed live on the
+// Kanban board [per std-28].
 //
-// The user-facing promise (ac-1): someone working a Spec exclusively through
-// the MCP server — never touching the web UI — still sees that Spec
-// represented truthfully on the board: traffic moves the card between phase
-// columns and the caller appears as an assignee, live over SSE.
+// This journey inverts the old spec-189 promise (traffic auto-advanced the
+// card across columns). spec-464 dec-1 removed traffic-driven advancement:
 //
-// The journey drives REAL MCP-channel traffic at `/mcp` (Bearer
+//   ac-1 — a Spec worked exclusively through MCP is represented truthfully: its
+//          phase does NOT change as a side effect of tool calls. The card stays
+//          in the column the human placed it in. (Auto-assign still fires — the
+//          caller appears as an assignee — that behaviour was never the bug.)
+//   ac-2 — an ahead-of-phase agent call (a build-home tool on a draft Spec) is
+//          refused: the tool returns isError, and the card does not move.
+//
+// Drives REAL MCP-channel traffic at `/mcp` (Bearer
 // mxt_DEV_LOCAL_ONLY_NEVER_PRODUCTION — the dev-only PAT the e2e webServer
 // accepts because GOOGLE_CLIENT_ID="" puts it in dev mode, resolving to
-// dev@memex.ai). REST traffic deliberately can't stand in here: spec-189
-// dec-5 makes rest_ui inert by design — only the agent channels move Specs.
+// dev@memex.ai). rest_ui is inert by design; only agent channels hit the seam.
 //
-//   1. Seed an org tenant (owner dev@memex.ai) + a draft Spec; open the board.
-//   2. Card sits in Draft, unassigned.
-//   3. MCP create_decision (specify-class) → card moves to Specify AND grows
-//      the dev user's assignee avatar — no page interaction at all.
-//   4. MCP update_task (build-class) on a pre-seeded task → card moves to Build.
-//      (spec-327 gates create_task to build/verify, so update_task is the
-//      build-class exemplar here; the task is seeded guard-exempt via the test
-//      surface, which carries no agent channel.)
-//
-// Emits ac-1 + ac-4 per the ac-emission discipline (pass AND fail).
+// Emits ac-1 + ac-2 per the ac-emission discipline (pass AND fail).
 
 import { test, expect, bareUrl, seedTask } from "./helpers/index.js";
 import {
@@ -32,8 +28,8 @@ import {
 import { emitAcEvents } from "./helpers/emit-ac.js";
 
 const ACS = [
-  "mindset-prod/memex-building-itself/specs/spec-189/acs/ac-1",
-  "mindset-prod/memex-building-itself/specs/spec-189/acs/ac-4",
+  "mindset-prod/memex-building-itself/specs/spec-464/acs/ac-1",
+  "mindset-prod/memex-building-itself/specs/spec-464/acs/ac-2",
 ];
 
 const DEV_MCP_BEARER = "mxt_DEV_LOCAL_ONLY_NEVER_PRODUCTION";
@@ -54,12 +50,13 @@ test.afterEach(async ({}, testInfo) => {
   );
 });
 
-/** Call a real MCP tool over the wire, exactly as a coding agent would. */
+/** Call a real MCP tool over the wire, exactly as a coding agent would. Returns
+ *  the parsed tool result so the caller can assert on isError / text. */
 async function mcpToolCall(
   request: import("@playwright/test").APIRequestContext,
   name: string,
   args: Record<string, unknown>
-): Promise<void> {
+): Promise<{ isError: boolean; text: string }> {
   const res = await request.post(MCP_URL, {
     headers: {
       Authorization: `Bearer ${DEV_MCP_BEARER}`,
@@ -73,36 +70,33 @@ async function mcpToolCall(
       params: { name, arguments: args },
     },
   });
-  expect(res.ok(), `MCP ${name} should succeed (got ${res.status()})`).toBeTruthy();
+  expect(res.ok(), `MCP ${name} HTTP transport should respond (got ${res.status()})`).toBeTruthy();
   const text = await res.text();
-  // The streamable transport answers as SSE; the tool result rides the first
-  // data: line. A tool-level error carries isError — surface it loudly.
   const dataLine = text.split("\n").find((l) => l.startsWith("data: "));
   expect(dataLine, `MCP ${name} returned no SSE data: ${text}`).toBeTruthy();
   const payload = JSON.parse(dataLine!.slice(6));
-  expect(
-    payload.result?.isError,
-    `MCP ${name} tool error: ${payload.result?.content?.[0]?.text}`
-  ).toBeFalsy();
+  return {
+    isError: Boolean(payload.result?.isError),
+    text: String(payload.result?.content?.[0]?.text ?? ""),
+  };
 }
 
-test("MCP traffic moves the Spec card across the board and assigns the caller, live", async ({
+test("MCP traffic never moves the Spec card, and an ahead-of-phase call is refused, live", async ({
   page,
   resources,
 }) => {
-  // ── 1. Seed tenant + draft Spec, open the Specs board ────────────────────
+  // ── 1. Seed tenant + draft Spec (with a pre-seeded task), open the board ──
   const slug = resources.slug("traffic");
   const tenant: SeededOrgTenant = await seedOrgTenant({ slug });
   const spec = await seedSpec({
     memexId: tenant.memexId,
     title: "Worked entirely over MCP",
-    purpose: "spec-189 journey subject.",
+    purpose: "spec-464 journey subject.",
   });
   const specRef = `${tenant.namespaceSlug}/${tenant.memexSlug}/specs/${spec.handle}`;
 
-  // spec-327: create_task is gated to build/verify, so step 4's build-class
-  // exemplar is update_task on a pre-seeded task. Seed it guard-exempt via the
-  // test surface (no agent channel); it does not move the phase (still draft).
+  // Seed a task guard-exempt via the test surface (no agent channel), so we can
+  // drive an ahead-of-phase update_task at it. It does not move the phase (draft).
   const seededTask = await seedTask({
     memexId: tenant.memexId,
     docId: spec.docId,
@@ -115,43 +109,45 @@ test("MCP traffic moves the Spec card across the board and assigns the caller, l
   const board = page.getByTestId("kanban-board");
   await expect(board).toBeVisible({ timeout: 15_000 });
 
-  // Column locator: the column root carries its phase heading; scope card
-  // lookups inside it so "which column is the card in" is unambiguous.
   const column = (label: string) =>
     board
       .locator("div.flex.flex-col", {
         has: page.getByRole("heading", { name: label, exact: true }),
       })
       .first();
-  // Card titles render with a board-sequence prefix ("1.Worked entirely…"),
-  // so match on substring, scoped to the column.
   const card = (col: ReturnType<typeof column>) =>
     col.getByText("Worked entirely over MCP");
 
   // ── 2. The seeded Spec sits in Draft ─────────────────────────────────────
   await expect(card(column("Draft"))).toBeVisible({ timeout: 15_000 });
 
-  // ── 3. Specify-class MCP traffic: decision authoring ─────────────────────
-  // No UI interaction from here on — the board must follow the traffic.
-  await mcpToolCall(page.request, "create_decision", {
+  // ── 3. Specify-class MCP traffic does NOT move the card (ac-1) ────────────
+  // create_decision on a draft Spec is allowed (with a publish nudge) but must
+  // NOT advance the phase — spec-464 dec-1. The caller is still auto-assigned.
+  const decRes = await mcpToolCall(page.request, "create_decision", {
     ref: specRef,
     title: "Which queue do we use?",
   });
+  expect(decRes.isError, `create_decision should succeed: ${decRes.text}`).toBeFalsy();
 
-  // The card moves Draft → Specify over SSE (status_changed on the bus)…
-  await expect(card(column("Specify"))).toBeVisible({ timeout: 15_000 });
-  await expect(card(column("Draft"))).not.toBeVisible();
-  // …and the calling user (dev) is now an assignee on the card (dec-6 also
-  // makes them an editor server-side; the card surfaces the avatar).
-  const specifyCard = column("Specify").locator('[data-testid="spec-assignees"]');
-  await expect(specifyCard).toBeVisible({ timeout: 15_000 });
+  // The auto-assign avatar appears on the (still-Draft) card, proving the tool
+  // ran — yet the card has NOT left Draft.
+  const draftAssignees = column("Draft").locator('[data-testid="spec-assignees"]');
+  await expect(draftAssignees).toBeVisible({ timeout: 15_000 });
+  await expect(card(column("Draft"))).toBeVisible();
+  await expect(card(column("Specify"))).not.toBeVisible();
 
-  // ── 4. Build-class MCP traffic: task update ──────────────────────────────
-  await mcpToolCall(page.request, "update_task", {
+  // ── 4. Build-home MCP traffic ahead of phase is REFUSED (ac-2) ────────────
+  // update_task is home 'build'; on a draft Spec it is refused with no write and
+  // no phase move.
+  const refused = await mcpToolCall(page.request, "update_task", {
     ref: taskRef,
     title: "Wire the queue — implementation begins",
   });
+  expect(refused.isError, "update_task ahead of build must be refused").toBeTruthy();
 
-  await expect(card(column("Build"))).toBeVisible({ timeout: 15_000 });
+  // The card is still in Draft — the refusal moved nothing.
+  await expect(card(column("Draft"))).toBeVisible({ timeout: 15_000 });
+  await expect(card(column("Build"))).not.toBeVisible();
   await expect(card(column("Specify"))).not.toBeVisible();
 });

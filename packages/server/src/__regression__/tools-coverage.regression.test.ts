@@ -306,30 +306,39 @@ describe("regression: tool manifest ↔ MCP catalogue parity (b-67 t-4)", () => 
 // reclassifying a tool is a deliberate, reviewed edit — not drift.
 // ──────────────────────────────────────────────────────────────────────────
 
-describe("regression: manifest traffic-class classification (spec-189 dec-4)", () => {
+describe("regression: manifest homePhase classification (spec-464 dec-24 / Table 2)", () => {
+  const SPEC_464 = "mindset-prod/memex-building-itself/specs/spec-464";
+  // Auto-assignment (spec-189 dec-6) is a separate, still-live behaviour that
+  // spec-464 did not touch — its exemption test below still emits to spec-189.
   const SPEC_189 = "mindset-prod/memex-building-itself/specs/spec-189";
 
-  it("every entry carries a valid trafficClass and read-only tools are never classified", () => {
-    tagAc(`${SPEC_189}/acs/ac-9`);
+  it("every entry carries a valid homePhase and read-only tools are never gated", () => {
+    tagAc(`${SPEC_464}/acs/ac-9`);
     const valid = new Set(["specify", "build", "verify", null]);
     for (const e of toolManifest) {
-      expect(valid.has(e.trafficClass), `${e.name} has invalid trafficClass ${String(e.trafficClass)}`).toBe(true);
+      expect(valid.has(e.homePhase), `${e.name} has invalid homePhase ${String(e.homePhase)}`).toBe(true);
       if (e.readOnlyHint) {
-        // Query-class traffic never moves a Spec — a read-only tool with a
-        // traffic class would contradict the matrix's query column.
-        expect(e.trafficClass, `${e.name} is read-only but classified '${String(e.trafficClass)}'`).toBeNull();
+        // A read-only tool is never phase-gated — a non-null home would put it
+        // in the ahead-refuse path, which contradicts "reads run in any phase".
+        expect(e.homePhase, `${e.name} is read-only but has homePhase '${String(e.homePhase)}'`).toBeNull();
         expect(e.autoAssignExempt, `${e.name} is read-only — autoAssignExempt is meaningless on it`).toBeUndefined();
       }
     }
   });
 
-  it("the specify-class and build-class memberships match dec-1 exactly", () => {
-    tagAc(`${SPEC_189}/acs/ac-9`);
-    const byClass = (cls: string) =>
-      toolManifest.filter((e) => e.trafficClass === cls).map((e) => e.name).sort();
+  it("the specify-home and build-home memberships match Table 2 exactly", () => {
+    // Tasks/impl-AC/qa home to build (ac-9, ac-16); issue lifecycle is
+    // gate-neutral (ac-19); decisions + scope ACs home to specify.
+    tagAc(`${SPEC_464}/acs/ac-9`);
+    tagAc(`${SPEC_464}/acs/ac-16`);
+    tagAc(`${SPEC_464}/acs/ac-19`);
+    const byHome = (phase: string) =>
+      toolManifest.filter((e) => e.homePhase === phase).map((e) => e.name).sort();
 
-    // dec-1: decision authoring/resolution + AC authoring = specify-class.
-    expect(byClass("specify")).toEqual([
+    // dec-4/dec-6: decision authoring/resolution + scope-AC authoring = specify.
+    // (create_ac is 'specify' here — the gate elevates it to build only for
+    // kind:'implementation'; the manifest value is the scope-AC home.)
+    expect(byHome("specify")).toEqual([
       "approve_candidate",
       "create_ac",
       "create_decision",
@@ -342,41 +351,30 @@ describe("regression: manifest traffic-class classification (spec-189 dec-4)", (
       "update_decision",
     ]);
 
-    // dec-1: task lifecycle + issue lifecycle = build-class. spec-295 dec-2
-    // carved register_issue OUT — raising an Issue is the gate-neutral parking
-    // lot and must not auto-advance phase, so it is now non-advancing (null),
-    // not build-class. spec-327 dec-3 carved create_task OUT too: the service
-    // guard rejects it outside build, so it can never drive a transition — it is
-    // now non-advancing (null), asserted just below. The remaining task/issue
-    // lifecycle edits (on already-existing work) stay build-class.
-    expect(byClass("build")).toEqual([
+    // dec-7/8/9 + dec-14..17: the task/bridge tools, create_task, and
+    // write_qa_report home to build. spec-464 dec-19 moved update_issue /
+    // resolve_issue OUT (gate-neutral, null) — an Issue's whole lifecycle is the
+    // parking lot; only the TASK-minting bridges (convert/kick) stay build-home.
+    expect(byHome("build")).toEqual([
       "convert_issue_to_task",
+      "create_task",
       "delete_task",
       "kick_task_to_issue",
-      "resolve_issue",
-      "update_issue",
       "update_task",
+      "write_qa_report",
     ]);
 
-    // spec-327 (ac-6, ac-12): create_task is non-advancing (null trafficClass),
-    // pinned here so the classification can't silently drift back to 'build'
-    // (ac-6's manifest-pin clause; the boundary-test clause is the spec-327
-    // describe block in spec-traffic.integration.test.ts).
-    tagAc("mindset-prod/memex-building-itself/specs/spec-327/acs/ac-6");
-    tagAc("mindset-prod/memex-building-itself/specs/spec-327/acs/ac-12");
-    expect(
-      toolManifest.find((e) => e.name === "create_task")?.trafficClass,
-    ).toBeNull();
+    // dec-19: register/update/resolve_issue are gate-neutral (null home).
+    for (const name of ["register_issue", "update_issue", "resolve_issue"]) {
+      expect(
+        toolManifest.find((e) => e.name === name)?.homePhase,
+        `${name} must be gate-neutral (null home) per spec-464 dec-19`,
+      ).toBeNull();
+    }
 
-    // spec-295 dec-2 (ac-9): register_issue is non-advancing (null trafficClass).
-    tagAc("mindset-prod/memex-building-itself/specs/spec-295/acs/ac-9");
-    expect(
-      toolManifest.find((e) => e.name === "register_issue")?.trafficClass,
-    ).toBeNull();
-
-    // No MCP tool is verify-class today: AC verification arrives via
-    // POST /api/test-events, which the server wires to verify-class directly.
-    expect(byClass("verify")).toEqual([]);
+    // No MCP tool homes to verify today: AC verification arrives via
+    // POST /api/test-events, which the server wires server-side.
+    expect(byHome("verify")).toEqual([]);
   });
 
   it("auto-assignment exemptions are exactly the assignment/role managers + notify-only tools", () => {
