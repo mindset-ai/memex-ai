@@ -18,8 +18,12 @@ export const facetsTools: ToolSpec[] = [
   {
     name: "facets",
     annotations: { title: "Facets", readOnlyHint: true, destructiveHint: false },
+    // spec-469 (dec-2): lead with the OUTCOME ("which parts of your Standards
+    // apply"), not the internal noun. Keep an explicit `facets` + `facetBallot`
+    // anchor so the copy stays connected to the retained param and tables
+    // (dec-1 keeps both) — without it the agent meets an undefined `facetBallot`.
     description:
-      "Read your Memex's FACET vocabulary — the closed, per-owner set of cross-cutting practice areas (security, db-migrations, e2e-testing, api-design, …) that a standard's clauses are tagged with. Verb-dispatched so the whole facet surface stays one tool as it grows; v0 supports the verb 'list'.",
+      "Check which parts of your Standards apply to a piece of work. Lists the topics your Standards are tagged by (security, db-migrations, e2e-testing, and so on). Internally these are your Memex's facets: you cast them as the facetBallot argument on create_task / create_decision, and Memex surfaces the governing standard sections.",
     schema: {
       verb: z
         .enum(["list"])
@@ -33,16 +37,32 @@ export const facetsTools: ToolSpec[] = [
 
       if (verb === "list") {
         const vocab = await listFacetsForMemex(memexId);
-        if (vocab.length === 0) {
-          return "No facets defined for this Memex yet.";
-        }
-        const lines = vocab.map(
-          (f) => `- ${f.key}${f.name ? ` (${f.name})` : ""}: ${f.description}`,
-        );
-        return `Facet vocabulary for this Memex (${vocab.length}):\n${lines.join("\n")}`;
+        return formatFacetList(vocab);
       }
 
       throw new ValidationError(`Unknown facets verb '${verb as string}'.`);
     },
   },
 ];
+
+/**
+ * spec-469 (dec-3): format the `list` verb's output. Leads with the outcome and
+ * carries an assistant breadcrumb so the agent narrates the ACTION to the user
+ * ("which parts of your Standards apply"), never the internal noun. Pure and
+ * exported so it is unit-testable without a database.
+ */
+export function formatFacetList(
+  vocab: { key: string; name?: string | null; description: string }[],
+): string {
+  if (vocab.length === 0) {
+    return "No topics defined for this Memex yet (its Standards carry no facet tags).";
+  }
+  const lines = vocab.map(
+    (f) => `- ${f.key}${f.name ? ` (${f.name})` : ""}: ${f.description}`,
+  );
+  return (
+    `Topics your Standards are tagged by (${vocab.length}). Mark the ones a piece of work touches and Memex surfaces the applicable parts of your Standards:\n` +
+    lines.join("\n") +
+    `\n\n(Note to the assistant: when you tell the user what you're doing here, describe it as checking which parts of their Standards apply to the work, not as "reading facets".)`
+  );
+}

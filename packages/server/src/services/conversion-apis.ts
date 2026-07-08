@@ -12,22 +12,53 @@ export interface ConversionParams {
   conversionDateTime: string; // ISO 8601, e.g. "2026-06-27T12:00:00+00:00"
 }
 
+// Exchanges a Google OAuth2 refresh token for a short-lived access token.
+async function getGoogleAccessToken(clientId: string, clientSecret: string, refreshToken: string): Promise<string> {
+  const res = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: clientId,
+      client_secret: clientSecret,
+      refresh_token: refreshToken,
+      grant_type: "refresh_token",
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`Google token refresh failed (${res.status}): ${body.slice(0, 200)}`);
+  }
+  const data = await res.json() as { access_token: string };
+  return data.access_token;
+}
+
 // Google Ads Enhanced Conversions (offline click conversion upload).
-// Required env vars: GOOGLE_ADS_ACCESS_TOKEN, GOOGLE_ADS_DEVELOPER_TOKEN,
+// Required env vars: GOOGLE_ADS_CLIENT_ID, GOOGLE_ADS_CLIENT_SECRET,
+//   GOOGLE_ADS_REFRESH_TOKEN, GOOGLE_ADS_DEVELOPER_TOKEN,
 //   GOOGLE_ADS_CUSTOMER_ID, GOOGLE_ADS_CONVERSION_ACTION_ID
 export async function fireGoogleAdsConversion(params: ConversionParams): Promise<void> {
-  const token = process.env.GOOGLE_ADS_ACCESS_TOKEN;
+  const clientId = process.env.GOOGLE_ADS_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_ADS_CLIENT_SECRET;
+  const refreshToken = process.env.GOOGLE_ADS_REFRESH_TOKEN;
   const devToken = process.env.GOOGLE_ADS_DEVELOPER_TOKEN;
   const customerId = process.env.GOOGLE_ADS_CUSTOMER_ID;
   const actionId = process.env.GOOGLE_ADS_CONVERSION_ACTION_ID;
-  if (!token || !devToken || !customerId || !actionId) return;
+  if (!clientId || !clientSecret || !refreshToken || !devToken || !customerId || !actionId) return;
   if (!params.attribution.gclid) return;
+
+  let accessToken: string;
+  try {
+    accessToken = await getGoogleAccessToken(clientId, clientSecret, refreshToken);
+  } catch (err) {
+    console.error("[spec-21] Google Ads token refresh error:", err instanceof Error ? err.message : String(err));
+    return;
+  }
 
   const url = `https://googleads.googleapis.com/v17/customers/${customerId}:uploadClickConversions`;
   await fetch(url, {
     method: "POST",
     headers: {
-      "Authorization": `Bearer ${token}`,
+      "Authorization": `Bearer ${accessToken}`,
       "developer-token": devToken,
       "Content-Type": "application/json",
     },

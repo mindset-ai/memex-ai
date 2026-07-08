@@ -5,7 +5,7 @@
 // that echoes the props it received, so we can assert the document seed + seedKind
 // handoff without dragging in the agent graph (the modal seam is covered by
 // NewSpecModal.spec-473.test.tsx).
-import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { tagAc } from '@memex-ai-ac/vitest';

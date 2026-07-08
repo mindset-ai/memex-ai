@@ -93,9 +93,13 @@ describe("spec-295 dec-3: web-agent creation lands in specify; phase stays human
     expect(doc.status).toBe("specify");
   });
 
-  it("the in-app agent never advances phase as a side effect: a build-class call leaves specify put (ac-2, ac-4)", async () => {
-    tagAc(AC(2));
-    tagAc(AC(4));
+  it("the in-app agent never advances phase as a side effect; spec-464 refuses a build-home tool ahead of build, leaving specify put (ac-4; spec-464 ac-8/ac-23)", async () => {
+    tagAc(AC(4)); // spec-295: phase is never advanced as a side effect — still true
+    // spec-464 supersedes the old "build-class call is accepted but doesn't
+    // advance" contract: a build-home tool (update_task) is now REFUSED ahead of
+    // build, on the in_app_agent channel identically to mcp.
+    tagAc("mindset-prod/memex-building-itself/specs/spec-464/acs/ac-8");
+    tagAc("mindset-prod/memex-building-itself/specs/spec-464/acs/ac-23");
     const actor = await setupActor("inapp-no-advance");
     // Create on the web surface → specify.
     const out = await executeServerTool(
@@ -106,23 +110,21 @@ describe("spec-295 dec-3: web-agent creation lands in specify; phase stays human
     );
     const doc = await docFor(out, actor.memexId);
     expect(doc.status).toBe("specify");
-    const ref = `${actor.nsSlug}/main/${doc.handle}`;
 
-    // A build-class tool call on the SAME web channel must NOT push the Spec to
-    // build — phase is the human's call on this surface (spec-295 dec-3).
-    // spec-327: create_task is now gated to build, so seed a task (service, no
-    // ctx → guard-exempt) and drive build-class traffic via update_task.
-    const seeded = await createTask(actor.memexId, doc.id, "Seeded", "Pre-existing, guard-exempt.");
-    const res = await executeServerTool(
-      actor.memexId,
-      "update_task",
-      { ref: `${actor.nsSlug}/main/specs/${doc.handle}/tasks/t-${seeded.seq}`, title: "Edited via the in-app agent" },
-      actor.user.id,
-    );
-    expect(res).toBeTruthy();
+    // Seed a task via the ctx-less service (seam-exempt), then drive update_task
+    // through the in-app agent: the phase gate refuses it (tasks are build-home),
+    // the handler never runs, and the phase stays specify — no side-effect move.
+    const seeded = await createTask(actor.memexId, doc.id, "Seeded", "Pre-existing, seam-exempt.");
+    await expect(
+      executeServerTool(
+        actor.memexId,
+        "update_task",
+        { ref: `${actor.nsSlug}/main/specs/${doc.handle}/tasks/t-${seeded.seq}`, title: "Edited via the in-app agent" },
+        actor.user.id,
+      ),
+    ).rejects.toThrow();
     const after = await db.query.documents.findFirst({ where: eq(documents.id, doc.id) });
     expect(after!.status).toBe("specify");
-    void ref;
   });
 
   it("the mcp channel is unchanged — create_doc still lands in draft (ac-12 asymmetry)", async () => {
