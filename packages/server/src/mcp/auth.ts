@@ -14,7 +14,7 @@
 // single-memex-org case). A token with no matching namespace or with multiple memexes
 // behind it errors with the available list.
 
-import { eq } from "drizzle-orm";
+import { eq, and, desc, isNotNull, inArray } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import {
   namespaces,
@@ -26,6 +26,7 @@ import {
   docSections,
   docComments,
   orgMemberships,
+  mcpToolCalls,
 } from "../db/schema.js";
 import { listMemberships } from "../services/users.js";
 
@@ -86,7 +87,12 @@ export async function resolveWorkspaceForRead(
   userId: string | null,
   memexArg: string | undefined,
   orgFilter?: string | null,
-): Promise<{ memexId: string; readOnly: boolean }> {
+): Promise<{
+  memexId: string;
+  readOnly: boolean;
+  autoPicked?: boolean;
+  autoPickedRef?: string;
+}> {
   // The no-arg auto-pick path only makes sense for an authenticated caller —
   // it lists the user's memberships. Anonymous callers must name the memex.
   if (userId === null && !memexArg) {
@@ -94,8 +100,16 @@ export async function resolveWorkspaceForRead(
       "You have no Memexes. Sign up or get invited to one first.",
     );
   }
-  const { memexId, slug } = await resolveWorkspaceId(userId ?? "", memexArg);
-  return assertReadAccessAndWriteFlag(userId, memexId, slug, orgFilter);
+  // spec-471 dec-2 (Option A): the sticky most-recent default is carved out for
+  // the READ path only. `resolveWorkspace` (writes) deliberately omits this flag
+  // and keeps the hard "Multiple Memexes" error — std-5's write-centric rationale.
+  const { memexId, slug, autoPicked, autoPickedRef } = await resolveWorkspaceId(
+    userId ?? "",
+    memexArg,
+    { defaultToRecentOnAmbiguous: true },
+  );
+  const gate = await assertReadAccessAndWriteFlag(userId, memexId, slug, orgFilter);
+  return { ...gate, autoPicked, autoPickedRef };
 }
 
 // Internal: the slug / UUID / no-arg parsing half of resolveWorkspace, WITHOUT
@@ -106,7 +120,8 @@ export async function resolveWorkspaceForRead(
 async function resolveWorkspaceId(
   userId: string,
   memexArg: string | undefined,
-): Promise<{ memexId: string; slug?: string }> {
+  opts?: { defaultToRecentOnAmbiguous?: boolean },
+): Promise<{ memexId: string; slug?: string; autoPicked?: boolean; autoPickedRef?: string }> {
   if (!memexArg) {
     const memberships = await listMemberships(userId);
     if (memberships.length === 0) {
@@ -115,6 +130,27 @@ async function resolveWorkspaceId(
       );
     }
     if (memberships.length === 1) return { memexId: memberships[0].memexId };
+    // spec-471 dec-1 #3 / dec-2 Option A: on the READ path (opt-in flag), an
+    // ambiguous no-arg call defaults to the caller's most-recently-active memex
+    // instead of erroring — a DISCLOSED default (the caller is told; see
+    // dec-3), never a SILENT one. The write path never sets the flag, so it
+    // still hits the hard error below [per std-5].
+    if (opts?.defaultToRecentOnAmbiguous) {
+      const recent = await mostRecentMemexForUser(
+        userId,
+        memberships.map((m) => m.memexId),
+      );
+      if (recent) {
+        const chosen = memberships.find((m) => m.memexId === recent);
+        // `autoPickedRef` is the disclosed `<namespace>/<memex>` the read path
+        // names back to the caller (spec-471 dec-3) — built here where we still
+        // hold the membership row, so the consumer needs no extra lookup.
+        const autoPickedRef =
+          chosen ? `${chosen.slug}/${chosen.memexSlug}` : undefined;
+        return { memexId: recent, slug: chosen?.slug, autoPicked: true, autoPickedRef };
+      }
+      // No prior activity to default to → fall through to the hard error; never guess.
+    }
     // dec-5 of doc-15: multi-namespace + no arg → error with list of available
     // identifiers in `<namespace>/<memex>` form (per F.5). Don't auto-pick
     // personal; the agent should confirm with the user.
@@ -180,6 +216,36 @@ async function resolveWorkspaceId(
   }
 
   return { memexId: memex.id, slug };
+}
+
+// spec-471 dec-1 #3: the caller's most-recently-active memex, restricted to the
+// set they still belong to (`allowed`) so stale history for a left workspace is
+// never picked. Source is the mcp_tool_calls telemetry (spec-205) — the memory
+// already lives there; mcp_tokens has no memex column.
+//
+// std-36 note: this is a deliberate cross-tenant-for-self read, run OUTSIDE any
+// runWithMemexId scope (like listMemberships / list_memexes). mcp_tool_calls has
+// no RLS policy today (drizzle/0081 deferred it); if one is later added it MUST be
+// user-scoped, not memex-isolation only, or this lookup returns nothing and every
+// multi-workspace read reverts to the hard error (see spec-471 t-1 comment c-3).
+async function mostRecentMemexForUser(
+  userId: string,
+  allowed: string[],
+): Promise<string | null> {
+  if (allowed.length === 0) return null;
+  const [row] = await db
+    .select({ memexId: mcpToolCalls.memexId })
+    .from(mcpToolCalls)
+    .where(
+      and(
+        eq(mcpToolCalls.userId, userId),
+        isNotNull(mcpToolCalls.memexId),
+        inArray(mcpToolCalls.memexId, allowed),
+      ),
+    )
+    .orderBy(desc(mcpToolCalls.createdAt))
+    .limit(1);
+  return row?.memexId ?? null;
 }
 
 // spec-111 t-4: shared read-gate + write-flag resolver. Used by every read
