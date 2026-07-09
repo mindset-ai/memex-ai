@@ -50,10 +50,17 @@ function hasAcceptedExtension(name: string): boolean {
 export function BuildPromptHero({
   firstName,
   specsPath,
+  creationTenantBasePath,
 }: {
   firstName: string | null;
   /** The user's Specs board path for the escape link; falls back to /specs. */
   specsPath: string | null;
+  /**
+   * spec-473 hotfix: the tenant API base (`/api/<ns>/<mx>`) of the user's personal
+   * memex — pins the creation agent to it so authoring off the flat /home URL
+   * doesn't resolve a stale ambient tenant the server 404s (std-7).
+   */
+  creationTenantBasePath?: string | null;
 }) {
   const navigate = useNavigate();
   const { track } = useTelemetry(true);
@@ -301,6 +308,10 @@ export function BuildPromptHero({
         // The hero opens from the flat /home route, so hand the modal the user's
         // Specs-board path so post-create navigation resolves the tenant.
         specsBasePath={specsPath ?? undefined}
+        // spec-473 hotfix: pin the CREATION agent (LLM + tool calls) to the same
+        // personal memex — off /home the ambient tenant would resolve to a stale
+        // localStorage currentMemexId the server 404s (std-7).
+        creationTenantBasePath={creationTenantBasePath ?? undefined}
         // Land on the new Spec the instant it's created (beats the graduation unmount).
         openOnCreate
       />

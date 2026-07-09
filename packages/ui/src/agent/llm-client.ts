@@ -7,8 +7,14 @@ import type { MessageParam, LlmProxyEvent } from './types';
 // the rest of the tenancy-scoped routers carry for the std-5 single-
 // membership case). Use tenantBase() to build the URL from the current
 // browsing context.
-function llmBase(): string {
-  return tenantBase() ?? BASE_URL;
+// spec-473 hotfix: `override` pins the tenant API base (`/api/<ns>/<mx>`) for
+// the /home import-hero creation flow. That flow runs off a FLAT `/home` URL, so
+// tenantBase() would fall back to the ambient `currentMemexId` from localStorage —
+// possibly a stale/foreign memex the server rejects with a 404 (std-7). The hero
+// passes the personal-memex base so creation targets the same memex it navigates
+// to. In-tenant callers omit it and resolve from the URL exactly as before.
+function llmBase(override?: string): string {
+  return override ?? tenantBase() ?? BASE_URL;
 }
 
 let authToken: string | null = null;
@@ -142,8 +148,9 @@ export async function* callLlmProxy(
  */
 export async function* callLlmCreateProxy(
   params: { messages: MessageParam[] },
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  tenantBasePath?: string
 ): AsyncGenerator<LlmProxyEvent> {
-  const res = await postLlm(`${llmBase()}/llm/chat/create`, params, signal);
+  const res = await postLlm(`${llmBase(tenantBasePath)}/llm/chat/create`, params, signal);
   yield* parseLlmSSE(res);
 }

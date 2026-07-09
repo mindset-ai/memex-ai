@@ -16,6 +16,7 @@ import type { MemexResolverEnv } from "../middleware/memex-resolver.js";
 import { requireMemexId } from "./shared.js";
 import { canWriteMemex, READ_ONLY_PUBLIC_MESSAGE } from "../mcp/auth.js";
 import { resolveRole } from "../services/doc-members.js";
+import { vocabForMemex } from "../services/facet-vocab.js";
 import { resolveIntegrationState } from "../agent/integration-state.js";
 
 // spec-473: the creation + in-Spec agent runs on Sonnet 5 (was Sonnet 4.5). For
@@ -319,7 +320,20 @@ llmRouter.post("/chat/create", async (c) => {
     throw err;
   }
 
-  const systemBlocks = buildCreationSystemBlocks();
+  // spec-473: inject this Memex's facet vocabulary so the creation agent can cast the
+  // complete facet ballot that `create_decision` hard-requires (spec-423 dec-5). The
+  // creation surface omits the `facets` tool (to keep step-4 authoring one batched
+  // turn), so without this the agent can't comply and every decision is rejected.
+  // Best-effort: on any resolution/load hiccup, fall back to no facet block (the prior
+  // behaviour) rather than blocking creation — the empty-vocab path is a no-op anyway.
+  let facetVocab: Awaited<ReturnType<typeof vocabForMemex>> = [];
+  try {
+    facetVocab = await vocabForMemex(requireMemexId(c));
+  } catch (err) {
+    logError("chat/create", err);
+  }
+
+  const systemBlocks = buildCreationSystemBlocks(facetVocab);
   const tools = getCreationToolDefinitions();
 
   // The creation flow has no LangGraph resume path — if the prior assistant
