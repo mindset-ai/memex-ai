@@ -86,6 +86,16 @@ interface NewSpecModalProps {
    */
   specsBasePath?: string;
   /**
+   * spec-473 hotfix: the tenant API base (`/api/<ns>/<mx>`) of the memex the agent
+   * should create in. The /home hero opens this modal from a FLAT `/home` URL, so
+   * the agent clients' ambient tenantBase() would resolve to `currentMemexId` from
+   * localStorage — possibly a stale/foreign memex the server 404s (std-7). Passing
+   * the personal-memex base pins creation (the /chat/create call AND its create_doc /
+   * add_section tool executions) to the same memex `specsBasePath` navigates to.
+   * Omitted → the agent resolves the tenant from the URL, unchanged for board callers.
+   */
+  creationTenantBasePath?: string;
+  /**
    * spec-470: navigate straight to the Spec the instant it's created — no "Open Spec"
    * click. This delivers the hero's Lovable-style "describe it → land on your Spec"
    * flow (ac-2), AND it is load-bearing: the hero renders on /home only while
@@ -201,7 +211,7 @@ type DisplayMessage =
       timestamp: Date;
     };
 
-export function NewSpecModal({ open, onClose, prefill, onCreated, seedMessage, autoSend, seedKind = 'idea', specsBasePath, openOnCreate }: NewSpecModalProps) {
+export function NewSpecModal({ open, onClose, prefill, onCreated, seedMessage, autoSend, seedKind = 'idea', specsBasePath, creationTenantBasePath, openOnCreate }: NewSpecModalProps) {
   const { invoke, resume } = useAgentGraph();
 
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
@@ -527,6 +537,7 @@ export function NewSpecModal({ open, onClose, prefill, onCreated, seedMessage, a
           existingMessages: anthropicMessagesRef.current,
           callbacks: makeCallbacks(),
           signal: controller.signal,
+          tenantBasePath: creationTenantBasePath,
         });
         anthropicMessagesRef.current = result.messages;
       } catch (err) {
@@ -538,7 +549,7 @@ export function NewSpecModal({ open, onClose, prefill, onCreated, seedMessage, a
         abortRef.current = null;
       }
     },
-    [invoke, makeCallbacks]
+    [invoke, makeCallbacks, creationTenantBasePath]
   );
 
   // spec-470 dec-4: auto-send the hero's seeded sentence on open. Runs AFTER the
@@ -687,6 +698,7 @@ export function NewSpecModal({ open, onClose, prefill, onCreated, seedMessage, a
           messages: messagesWithResult,
           callbacks: makeCallbacks(),
           signal: controller.signal,
+          tenantBasePath: creationTenantBasePath,
         });
         anthropicMessagesRef.current = result.messages;
       } catch (err) {
@@ -698,7 +710,7 @@ export function NewSpecModal({ open, onClose, prefill, onCreated, seedMessage, a
         abortRef.current = null;
       }
     },
-    [respondedToolIds, resume, makeCallbacks]
+    [respondedToolIds, resume, makeCallbacks, creationTenantBasePath]
   );
 
   const handlePaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {

@@ -457,8 +457,17 @@ describe('LangGraph agent graph', () => {
       { configurable: { thread_id: 'create-2', callbacks } }
     );
 
-    // create_doc was executed
-    expect(executeToolRemote).toHaveBeenCalledWith('create_doc', { title: 'My Spec', purpose: 'Define API', docType: 'spec' }, undefined);
+    // create_doc was executed. Trailing args: signal, docId, mode, tenantBasePath —
+    // all undefined here (no AbortSignal, and this in-tenant invoke passes no
+    // tenantBasePath override, so the client resolves the tenant from the URL).
+    expect(executeToolRemote).toHaveBeenCalledWith(
+      'create_doc',
+      { title: 'My Spec', purpose: 'Define API', docType: 'spec' },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+    );
 
     // onDocCreated callback fired with the extracted doc info. In the ref-only
     // shape there's no UUID to surface, so docId carries the canonical ref and

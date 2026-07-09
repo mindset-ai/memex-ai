@@ -34,6 +34,7 @@ import {
   type RoleCoords,
 } from '../api/journey';
 import { fetchDocs } from '../api/docs';
+import { BASE_URL } from '../api/http';
 import { resolveSpecToken, SPEC_TOKEN_PLACEHOLDER } from '../components/home/specToken';
 import { resolveStepView, activeJourney } from '../journeys/registry';
 import { BUILDER_ONLY_STEP_IDS, HIDDEN_STEP_IDS } from '../journeys/onboarding/steps';
@@ -64,12 +65,34 @@ function firstName(name: string | null | undefined): string | null {
   return f || null;
 }
 
-function personalSpecsPath(memberships?: ReadonlyArray<NavMembership>): string | null {
+// Resolve the user's personal (or first) memex to its ns/mx slug pair. Both the
+// Specs-board path and the creation tenant API base derive from this ONE resolver
+// so they can never disagree — the spec-473 404 came from two call sites resolving
+// the tenant differently (personal membership here vs. ambient currentMemexId in
+// the agent clients).
+function personalTenant(
+  memberships?: ReadonlyArray<NavMembership>,
+): { ns: string; mx: string } | null {
   if (!memberships || memberships.length === 0) return null;
   const personal = memberships.find((m) => m.kind === 'personal') ?? memberships[0];
   const ns = personal.slug;
   const mx = personal.memexSlug ?? (personal.kind === 'personal' ? 'personal' : 'main');
-  return `/${ns}/${mx}/specs`;
+  return { ns, mx };
+}
+
+function personalSpecsPath(memberships?: ReadonlyArray<NavMembership>): string | null {
+  const t = personalTenant(memberships);
+  return t ? `/${t.ns}/${t.mx}/specs` : null;
+}
+
+// spec-473 hotfix: the tenant API base (`/api/<ns>/<mx>`) of the personal memex,
+// handed to the /home import hero so the creation agent pins its LLM + tool calls
+// to it instead of the ambient (possibly stale) currentMemexId (std-7 404).
+function personalTenantApiBase(
+  memberships?: ReadonlyArray<NavMembership>,
+): string | null {
+  const t = personalTenant(memberships);
+  return t ? `${BASE_URL}/${t.ns}/${t.mx}` : null;
 }
 
 // spec-336 dec-3: builder-ness derived from the captured role placement via the SHARED
@@ -273,6 +296,12 @@ export function HomeCanvas() {
     () => personalSpecsPath(session?.memberships as ReadonlyArray<NavMembership> | undefined),
     [session],
   );
+  // spec-473 hotfix: the personal-memex API base, pinned onto the import hero's
+  // creation agent so authoring off /home targets the same memex specsPath does.
+  const creationTenantBasePath = useMemo(
+    () => personalTenantApiBase(session?.memberships as ReadonlyArray<NavMembership> | undefined),
+    [session],
+  );
 
   const selectStep = useCallback(
     (id: string) => {
@@ -380,7 +409,13 @@ export function HomeCanvas() {
       ? heroDecisionRef.current === true
       : !!state && !state.milestones.hasSpec);
   if (showHero) {
-    return <BuildPromptHero firstName={firstName(user?.name)} specsPath={specsPath} />;
+    return (
+      <BuildPromptHero
+        firstName={firstName(user?.name)}
+        specsPath={specsPath}
+        creationTenantBasePath={creationTenantBasePath}
+      />
+    );
   }
 
   return (
