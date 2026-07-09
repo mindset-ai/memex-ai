@@ -375,6 +375,27 @@ if [ "$HAS_OPENAI_PIXEL_CONVERSIONS" = "1" ]; then
   SECRETS_WIRING+=",OPENAI_PIXEL_ID=openai-pixel-id:latest,OPENAI_PIXEL_API_KEY=openai-pixel-api-key:latest"
 fi
 
+# spec-21: --update-secrets is a MERGE, not a replace — so a conversion group's
+# secret env-refs LINGER on the live service after the group is disabled (e.g. a
+# secret loses its accessible `latest` version). The next deploy then FAILS creating
+# the revision, because Cloud Run re-validates the stale `:latest` ref that
+# --update-secrets never removed — the linkedin-ad-account-id / linkedin-conversion-id
+# prod incident: the guard above correctly stopped ADDING them, but the old refs
+# stayed wired on memex-api. So for every DISABLED group, explicitly REMOVE its keys.
+# gcloud applies --remove-secrets BEFORE --update-secrets, and an enabled group is
+# never in this list, so the two never fight; removing an absent key is a no-op.
+REMOVE_CONVERSION_SECRETS=""
+if [ "$HAS_GOOGLE_ADS_CONVERSIONS" != "1" ]; then
+  REMOVE_CONVERSION_SECRETS+=",GOOGLE_ADS_CLIENT_ID,GOOGLE_ADS_CLIENT_SECRET,GOOGLE_ADS_REFRESH_TOKEN,GOOGLE_ADS_DEVELOPER_TOKEN,GOOGLE_ADS_CUSTOMER_ID,GOOGLE_ADS_CONVERSION_ACTION_ID"
+fi
+if [ "$HAS_LINKEDIN_CONVERSIONS" != "1" ]; then
+  REMOVE_CONVERSION_SECRETS+=",LINKEDIN_ACCESS_TOKEN,LINKEDIN_AD_ACCOUNT_ID,LINKEDIN_CONVERSION_ID"
+fi
+if [ "$HAS_OPENAI_PIXEL_CONVERSIONS" != "1" ]; then
+  REMOVE_CONVERSION_SECRETS+=",OPENAI_PIXEL_ID,OPENAI_PIXEL_API_KEY"
+fi
+REMOVE_CONVERSION_SECRETS="${REMOVE_CONVERSION_SECRETS#,}"  # strip leading comma
+
 # HIDDEN_FEATURES is appended to --update-env-vars ONLY when it is set (see
 # deploy-config.sh): ${HIDDEN_FEATURES+...} expands to the entry when set
 # (including an explicit empty value — a deliberate un-hide) and to nothing when
@@ -395,7 +416,8 @@ gcloud run deploy "${SERVICE}" \
   --max-instances 3 \
   --add-cloudsql-instances "${CLOUD_SQL_INSTANCE_CONN}" \
   --update-env-vars "^|^NODE_ENV=production|DATABASE_URL=postgresql://${RUNTIME_DB_USER}:${RUNTIME_DB_PASS_ENC}@localhost:${DB_PORT}/${DB_NAME}|CLOUD_SQL_SOCKET=/cloudsql/${CLOUD_SQL_INSTANCE_CONN}|GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}|EMAIL_FROM=${EMAIL_FROM}|APP_BASE_URL=${APP_BASE_URL}|OAUTH_ENABLED=1|MEMEX_RLS_GUARD_THROW=1|SLACK_CLIENT_ID=${SLACK_CLIENT_ID}|SLACK_OAUTH_REDIRECT_URI=${API_BASE_URL}/api/auth/slack/callback|KMS_KEY_NAME=projects/${GCP_PROJECT}/locations/${REGION}/keyRings/memex/cryptoKeys/slack-tokens${HIDDEN_FEATURES+|HIDDEN_FEATURES=${HIDDEN_FEATURES}}${SIGNUP_DOMAIN_ALLOWLIST+|SIGNUP_DOMAIN_ALLOWLIST=${SIGNUP_DOMAIN_ALLOWLIST}}${STRIPE_PREMIUM_MONTHLY_PRICE_ID+|STRIPE_PREMIUM_MONTHLY_PRICE_ID=${STRIPE_PREMIUM_MONTHLY_PRICE_ID}}${STRIPE_PREMIUM_ANNUAL_PRICE_ID+|STRIPE_PREMIUM_ANNUAL_PRICE_ID=${STRIPE_PREMIUM_ANNUAL_PRICE_ID}}${STRIPE_ENTERPRISE_MONTHLY_PRICE_ID+|STRIPE_ENTERPRISE_MONTHLY_PRICE_ID=${STRIPE_ENTERPRISE_MONTHLY_PRICE_ID}}${STRIPE_ENTERPRISE_ANNUAL_PRICE_ID+|STRIPE_ENTERPRISE_ANNUAL_PRICE_ID=${STRIPE_ENTERPRISE_ANNUAL_PRICE_ID}}${OTEL_EXPORTER_OTLP_ENDPOINT+|OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT}}${MEMEX_OTEL_EXPORT_INTERVAL_MS+|MEMEX_OTEL_EXPORT_INTERVAL_MS=${MEMEX_OTEL_EXPORT_INTERVAL_MS}}${EMAIL_ACTIVATION_FROM+|EMAIL_ACTIVATION_FROM=${EMAIL_ACTIVATION_FROM}}${EMAIL_ACTIVATION_REPLY_TO+|EMAIL_ACTIVATION_REPLY_TO=${EMAIL_ACTIVATION_REPLY_TO}}${EMAIL_SENDER_NAME+|EMAIL_SENDER_NAME=${EMAIL_SENDER_NAME}}${ACTIVATION_EMAILS_ENABLED+|ACTIVATION_EMAILS_ENABLED=${ACTIVATION_EMAILS_ENABLED}}${ACTIVATION_CONNECT_GO_LIVE+|ACTIVATION_CONNECT_GO_LIVE=${ACTIVATION_CONNECT_GO_LIVE}}${STORAGE_PROVIDER+|STORAGE_PROVIDER=${STORAGE_PROVIDER}}${STORAGE_GCS_BUCKET+|STORAGE_GCS_BUCKET=${STORAGE_GCS_BUCKET}}" \
-  --update-secrets "${SECRETS_WIRING}"
+  --update-secrets "${SECRETS_WIRING}" \
+  ${REMOVE_CONVERSION_SECRETS:+--remove-secrets="${REMOVE_CONVERSION_SECRETS}"}
 
 # ── Step 5: Post-cutover data backfills (spec-417 dec-6) ──────
 # The new revision is now serving 100% of traffic. These DATA backfills/generation
