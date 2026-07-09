@@ -148,29 +148,37 @@ fi
 #   printf %s "<id>"     | gcloud secrets create openai-pixel-id              --data-file=- --project "${GCP_PROJECT}" --replication-policy=user-managed --locations=us-east4
 #   printf %s "<key>"    | gcloud secrets create openai-pixel-api-key         --data-file=- --project "${GCP_PROJECT}" --replication-policy=user-managed --locations=us-east4
 #   # then for each: gcloud secrets add-iam-policy-binding <secret> --project "${GCP_PROJECT}" --member="serviceAccount:<runtime-SA>" --role="roles/secretmanager.secretAccessor"
-if gcloud secrets describe google-ads-client-id --project "${GCP_PROJECT}" >/dev/null 2>&1 \
-   && gcloud secrets describe google-ads-client-secret --project "${GCP_PROJECT}" >/dev/null 2>&1 \
-   && gcloud secrets describe google-ads-refresh-token --project "${GCP_PROJECT}" >/dev/null 2>&1 \
-   && gcloud secrets describe google-ads-developer-token --project "${GCP_PROJECT}" >/dev/null 2>&1 \
-   && gcloud secrets describe google-ads-customer-id --project "${GCP_PROJECT}" >/dev/null 2>&1 \
-   && gcloud secrets describe google-ads-conversion-action-id --project "${GCP_PROJECT}" >/dev/null 2>&1; then
+# spec-21: a conversion secret is only USABLE if it has an accessible `latest` VERSION.
+# `gcloud secrets describe` passes on an empty (versionless) container, which would flip a
+# guard ON and then fail the Cloud Run deploy resolving `:latest` (the linkedin-ad-account-id
+# half-provisioned incident). Check the version instead so a half-provisioned secret cleanly
+# DISABLES its conversion group rather than breaking the deploy.
+secret_has_version() {
+  gcloud secrets versions access latest --secret="$1" --project "${GCP_PROJECT}" >/dev/null 2>&1
+}
+if secret_has_version google-ads-client-id \
+   && secret_has_version google-ads-client-secret \
+   && secret_has_version google-ads-refresh-token \
+   && secret_has_version google-ads-developer-token \
+   && secret_has_version google-ads-customer-id \
+   && secret_has_version google-ads-conversion-action-id; then
   echo "  ✓ Google Ads conversion secrets present — Enhanced Conversions enabled (spec-21)"
   HAS_GOOGLE_ADS_CONVERSIONS=1
 else
   echo "  ⚠ Google Ads conversion secrets not found — Enhanced Conversions disabled (spec-21 issue-3)"
   HAS_GOOGLE_ADS_CONVERSIONS=0
 fi
-if gcloud secrets describe linkedin-access-token --project "${GCP_PROJECT}" >/dev/null 2>&1 \
-   && gcloud secrets describe linkedin-ad-account-id --project "${GCP_PROJECT}" >/dev/null 2>&1 \
-   && gcloud secrets describe linkedin-conversion-id --project "${GCP_PROJECT}" >/dev/null 2>&1; then
+if secret_has_version linkedin-access-token \
+   && secret_has_version linkedin-ad-account-id \
+   && secret_has_version linkedin-conversion-id; then
   echo "  ✓ LinkedIn Conversions API secrets present — server-side conversions enabled (spec-21)"
   HAS_LINKEDIN_CONVERSIONS=1
 else
   echo "  ⚠ LinkedIn Conversions API secrets not found — LinkedIn server-side conversions disabled (spec-21 issue-3)"
   HAS_LINKEDIN_CONVERSIONS=0
 fi
-if gcloud secrets describe openai-pixel-id --project "${GCP_PROJECT}" >/dev/null 2>&1 \
-   && gcloud secrets describe openai-pixel-api-key --project "${GCP_PROJECT}" >/dev/null 2>&1; then
+if secret_has_version openai-pixel-id \
+   && secret_has_version openai-pixel-api-key; then
   echo "  ✓ OpenAI pixel secrets present — server-side conversions enabled (spec-21)"
   HAS_OPENAI_PIXEL_CONVERSIONS=1
 else
