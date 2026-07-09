@@ -507,4 +507,41 @@ describe("buildCreationSystemBlocks (spec-230 — input-driven parity, supersede
     // text should be different from the role text.
     expect(blocks[1].text).not.toBe(blocks[0].text);
   });
+
+  // spec-473: the creation surface omits the `facets` tool (to keep step-4 authoring
+  // one batched turn), so where the Memex has a facet vocabulary we inject it into the
+  // prompt with a ballot instruction — otherwise create_decision (which hard-requires a
+  // complete ballot, spec-423 dec-5) is rejected and no decision is created.
+  describe("facet-ballot injection", () => {
+    const VOCAB = [
+      { id: "f1", key: "security", description: "auth, secrets, data exposure" },
+      { id: "f2", key: "api-design", description: "public surface shape" },
+    ];
+
+    it("appends a facet-ballot block listing the vocabulary when the Memex has facets", () => {
+      const blocks = buildCreationSystemBlocks(VOCAB);
+      expect(blocks).toHaveLength(3);
+      const facet = blocks[2].text;
+      expect(facet).toMatch(/facet ballot/i);
+      expect(facet).toMatch(/REQUIRED on every create_decision/i);
+      expect(facet).toContain("facetBallot");
+      // Every vocabulary key + description is rendered so the agent can cast a
+      // COMPLETE verdict without a separate `facets` round-trip.
+      expect(facet).toContain("security");
+      expect(facet).toContain("auth, secrets, data exposure");
+      expect(facet).toContain("api-design");
+      expect(facet).toMatch(/"none"/);
+    });
+
+    it("does NOT append a facet block for an empty vocabulary (unchanged 2 blocks)", () => {
+      expect(buildCreationSystemBlocks([])).toHaveLength(2);
+      expect(buildCreationSystemBlocks()).toHaveLength(2);
+    });
+
+    it("keeps the facet block AFTER the cached role+skill prefix (per-Memex, not cached)", () => {
+      const blocks = buildCreationSystemBlocks(VOCAB);
+      expect(blocks[1].cache_control).toEqual({ type: "ephemeral" });
+      expect(blocks[2].cache_control).toBeUndefined();
+    });
+  });
 });

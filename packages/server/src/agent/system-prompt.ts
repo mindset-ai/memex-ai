@@ -18,6 +18,7 @@ import {
 } from "@memex/shared";
 import type { SystemBlock } from "./types.js";
 import type { IntegrationState } from "./integration-state.js";
+import type { VocabFacet } from "../services/facet-vocab.js";
 import { loadSkill } from "./skills.js";
 
 // ──────────────────────────────────────────────
@@ -322,7 +323,7 @@ export function buildSystemBlocks(
  * Creation is out of scope for b-68: it keeps reading from disk via the
  * existing `phases/creation/system.md` + skill-loader path.
  */
-export function buildCreationSystemBlocks(): SystemBlock[] {
+export function buildCreationSystemBlocks(vocab: VocabFacet[] = []): SystemBlock[] {
   const role: SystemBlock = {
     type: "text",
     text: CREATION_SYSTEM,
@@ -334,5 +335,51 @@ export function buildCreationSystemBlocks(): SystemBlock[] {
     cache_control: { type: "ephemeral" },
   };
 
-  return [role, skill];
+  const blocks = [role, skill];
+
+  // spec-473: when this Memex has a facet vocabulary, `create_decision` HARD-REQUIRES
+  // a complete facet ballot (spec-423 dec-5, enforced in handlers/decisions.ts via
+  // requireBallotForMemex) — an absent/incomplete ballot is rejected and the decision
+  // is NOT created. The creation surface deliberately omits the `facets` tool to keep
+  // step-4 authoring a single batched turn, so we inject the live vocabulary here and
+  // instruct the agent to cast the ballot inline. Appended AFTER the cached prefix
+  // (role + skill) since the vocabulary is per-Memex. Empty vocab → no block, unchanged.
+  if (vocab.length > 0) {
+    blocks.push({ type: "text", text: renderFacetBallotBlock(vocab) });
+  }
+
+  return blocks;
+}
+
+// Render the per-Memex facet-ballot instruction injected into the creation prompt.
+// Mirrors the create_decision schema's `facetBallot` contract + the `facets` list
+// verb's vocabulary readout, so the agent can cast a COMPLETE ballot without a
+// separate round-trip.
+function renderFacetBallotBlock(vocab: VocabFacet[]): string {
+  const keys = vocab.map((f) => f.key);
+  const lines = vocab.map((f) => `- \`${f.key}\` — ${f.description}`).join("\n");
+  return [
+    "## Facet ballot — REQUIRED on every create_decision (this Memex has a facet vocabulary)",
+    "",
+    "Each decision you create MUST carry a complete `facetBallot` naming which governance",
+    "facets the decision touches. A create_decision with an absent, incomplete, or",
+    "contradictory ballot is REJECTED and the decision is NOT created — so cast the ballot",
+    "inline, in the SAME batched step-4 turn, on every `create_decision` block.",
+    "",
+    "Ballot shape (pass as the `facetBallot` argument):",
+    "```json",
+    '{ "verdict": { ' + keys.map((k) => `"${k}": <true|false>`).join(", ") + ' }, "none": false }',
+    "```",
+    "",
+    "Rules:",
+    "- `verdict` must include an explicit true/false for EVERY facet key below — no omissions.",
+    "- Set a facet `true` only when the decision genuinely governs that concern; otherwise `false`.",
+    "- For a decision that legitimately touches NO facet, set every verdict `false` AND `none: true`.",
+    "- `none` must be `false` whenever any facet is `true` (never both).",
+    "- These facets are a work-side routing hook (they surface the governing Standards), not",
+    "  binding precedent (spec-423 dec-6) — classify the decision's own scope, honestly.",
+    "",
+    "Facet vocabulary for this Memex:",
+    lines,
+  ].join("\n");
 }
