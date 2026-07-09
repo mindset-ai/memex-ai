@@ -154,6 +154,20 @@ describe('LLM SSE client', () => {
     expect(calledUrl).toContain('/llm/chat/create');
   });
 
+  it('callLlmCreateProxy pins the tenant when tenantBasePath is passed (spec-473 hotfix)', async () => {
+    // The /home import hero passes an explicit personal-memex API base so creation
+    // targets that memex instead of the ambient (possibly stale) currentMemexId.
+    const stream = sseChunk([{ event: 'text_delta', data: { text: 'hi' } }]);
+    vi.mocked(fetchWithRetry).mockResolvedValueOnce(fakeResponse(stream));
+
+    await collectEvents(
+      callLlmCreateProxy({ messages: [] }, undefined, '/api/alice/personal'),
+    );
+
+    const calledUrl = vi.mocked(fetchWithRetry).mock.calls[0][0] as string;
+    expect(calledUrl).toBe('/api/alice/personal/llm/chat/create');
+  });
+
   it('includes Authorization header when token is set', async () => {
     const stream = sseChunk([
       { event: 'text_delta', data: { text: 'ok' } },

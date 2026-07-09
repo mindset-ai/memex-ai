@@ -24,6 +24,13 @@ export interface InvokeParams {
   agentMode?: 'spec' | 'drift' | 'scaffold' | 'standards' | 'issues' | 'skills';
   callbacks: AgentCallbacks;
   signal?: AbortSignal;
+  /**
+   * spec-473 hotfix: explicit tenant API base (`/api/<ns>/<mx>`) to pin the
+   * creation LLM + tool calls to a specific memex. Set by the /home import-hero
+   * (which runs off a flat URL where the ambient tenant would resolve to a stale
+   * `currentMemexId` → std-7 404). Omitted by in-tenant callers.
+   */
+  tenantBasePath?: string;
 }
 
 export interface ResumeParams {
@@ -36,6 +43,8 @@ export interface ResumeParams {
   messages: MessageParam[];
   callbacks: AgentCallbacks;
   signal?: AbortSignal;
+  /** spec-473 hotfix: pin creation to a specific memex — see `InvokeParams`. */
+  tenantBasePath?: string;
 }
 
 export interface InvokeResult {
@@ -86,6 +95,7 @@ export function useAgentGraph() {
       agentMode = 'spec',
       callbacks,
       signal,
+      tenantBasePath,
     }: InvokeParams): Promise<InvokeResult> => {
       const threadId = `thread-${++threadCounterRef.current}`;
 
@@ -118,6 +128,7 @@ export function useAgentGraph() {
             thread_id: threadId,
             callbacks,
             signal,
+            tenantBasePath,
           },
           signal,
         }
@@ -136,6 +147,7 @@ export function useAgentGraph() {
       messages,
       callbacks,
       signal,
+      tenantBasePath,
     }: ResumeParams): Promise<InvokeResult> => {
       const threadId = `thread-${++threadCounterRef.current}`;
 
@@ -147,6 +159,7 @@ export function useAgentGraph() {
             thread_id: threadId,
             callbacks,
             signal,
+            tenantBasePath,
           },
           signal,
         }

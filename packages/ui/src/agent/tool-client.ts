@@ -4,8 +4,13 @@ import { tenantBase, BASE_URL } from '../api/http';
 // t-18 of doc-15 (F.3): /api/llm/* is tenancy-scoped. Use tenantBase() so the
 // browser's current Memex context maps to /api/<ns>/<mx>/llm/tools/execute;
 // fall back to the flat surface for std-5 single-membership inference.
-function llmBase(): string {
-  return tenantBase() ?? BASE_URL;
+// spec-473 hotfix: `override` pins the tenant API base (`/api/<ns>/<mx>`) so the
+// /home import-hero creation flow executes its tools (create_doc, add_section…)
+// against the SAME personal memex its /chat/create call targets — not the ambient
+// `currentMemexId`, which off a flat `/home` URL can be a stale/foreign memex the
+// server 404s (std-7). In-tenant callers omit it and resolve from the URL.
+function llmBase(override?: string): string {
+  return override ?? tenantBase() ?? BASE_URL;
 }
 
 let authToken: string | null = null;
@@ -27,7 +32,8 @@ export async function executeToolRemote(
   input: Record<string, unknown>,
   signal?: AbortSignal,
   docId?: string,
-  mode?: 'drift' | 'scaffold' | 'standards' | 'issues' | 'skills'
+  mode?: 'drift' | 'scaffold' | 'standards' | 'issues' | 'skills',
+  tenantBasePath?: string
 ): Promise<string> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (authToken) {
@@ -42,7 +48,7 @@ export async function executeToolRemote(
   if (docId) reqBody.docId = docId;
   if (mode) reqBody.mode = mode;
 
-  const res = await fetchWithRetry(`${llmBase()}/llm/tools/execute`, {
+  const res = await fetchWithRetry(`${llmBase(tenantBasePath)}/llm/tools/execute`, {
     method: 'POST',
     headers,
     body: JSON.stringify(reqBody),

@@ -87,6 +87,15 @@ export interface AgentCallbacks {
 export interface AgentConfig {
   callbacks?: AgentCallbacks;
   signal?: AbortSignal;
+  /**
+   * spec-473 hotfix: explicit tenant API base (`/api/<ns>/<mx>`) for the /home
+   * import-hero creation flow. That flow runs off a flat `/home` URL, so the
+   * clients' tenantBase() would fall back to the ambient `currentMemexId` (from
+   * localStorage) — possibly a stale/foreign memex the server rejects with a 404
+   * (std-7). Pins the creation LLM + tool calls to the personal memex the hero
+   * targets. Undefined for in-tenant callers, who resolve from the URL as before.
+   */
+  tenantBasePath?: string;
 }
 
 // ──────────────────────────────────────────────
@@ -268,7 +277,7 @@ async function createDocNode(
   state: AgentStateType,
   config: RunnableConfig
 ): Promise<Partial<AgentStateType>> {
-  const { callbacks, signal } = (config.configurable ?? {}) as AgentConfig;
+  const { callbacks, signal, tenantBasePath } = (config.configurable ?? {}) as AgentConfig;
 
   console.log('[LANGGRAPH] createDoc node invoked — messages:', state.messages.length);
 
@@ -276,7 +285,8 @@ async function createDocNode(
 
   for await (const event of callLlmCreateProxy(
     { messages: state.messages },
-    signal
+    signal,
+    tenantBasePath
   )) {
     switch (event.type) {
       case 'text_delta':
@@ -334,11 +344,19 @@ function shouldContinueCreate(state: AgentStateType): 'createDocTools' | '__end_
 async function runServerToolBlock(
   block: ToolUseBlock,
   callbacks: AgentCallbacks | undefined,
-  signal: AbortSignal | undefined
+  signal: AbortSignal | undefined,
+  tenantBasePath?: string
 ): Promise<ContentBlock> {
   callbacks?.onToolStart?.(block.name, block.id);
   try {
-    const result = await executeToolRemote(block.name, block.input, signal);
+    const result = await executeToolRemote(
+      block.name,
+      block.input,
+      signal,
+      undefined,
+      undefined,
+      tenantBasePath
+    );
     callbacks?.onToolResult?.(block.id, result);
     // Announce created doc (with handle + title) so the modal can surface a link.
     if (block.name === 'create_doc') {
@@ -362,7 +380,7 @@ async function createDocToolsNode(
   state: AgentStateType,
   config: RunnableConfig
 ): Promise<Partial<AgentStateType>> {
-  const { callbacks, signal } = (config.configurable ?? {}) as AgentConfig;
+  const { callbacks, signal, tenantBasePath } = (config.configurable ?? {}) as AgentConfig;
   const lastMsg = state.messages[state.messages.length - 1];
   const toolBlocks = getToolUseBlocks(lastMsg);
   const serverBlocks = getServerToolBlocks(toolBlocks);
@@ -383,12 +401,12 @@ async function createDocToolsNode(
   const byId = new Map<string, ContentBlock>();
   // Order-sensitive: sections, one at a time, in the order the model emitted them.
   for (const block of sectionBlocks) {
-    byId.set(block.id, await runServerToolBlock(block, callbacks, signal));
+    byId.set(block.id, await runServerToolBlock(block, callbacks, signal, tenantBasePath));
   }
   // Order-insensitive: fan out the rest concurrently.
   await Promise.all(
     parallelBlocks.map(async (block) => {
-      byId.set(block.id, await runServerToolBlock(block, callbacks, signal));
+      byId.set(block.id, await runServerToolBlock(block, callbacks, signal, tenantBasePath));
     })
   );
 
