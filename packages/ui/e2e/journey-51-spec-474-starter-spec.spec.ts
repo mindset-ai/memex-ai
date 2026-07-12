@@ -118,12 +118,22 @@ test(TITLE, async ({ page, resources }) => {
   await expect(page).toHaveURL(/\/home(\?|#|$)/, { timeout: 15_000 });
 
   // ── 3. The "Understanding Memex" starter spec is on the board, in Specify, no demo ─
+  // The board itself is the deterministic readiness barrier — and, being a real authenticated
+  // browser navigation, it carries the s474 session (unlike page.request, which bypasses the
+  // SPA's Bearer interceptor and would hit the dev fallback user). The SPA drives POST
+  // /api/me/provision from MemexReadyGate; on this full-reload board load the gate re-checks
+  // GET /api/me and, if the seed is still in flight, holds the "Getting your Memex ready…"
+  // blocker until it completes — so the starter Spec assertion below (generous timeout) is the
+  // positive proof (ac-8/ac-22) that first-load provisioning ran to completion.
   await gotoSpecsBoard(page, email);
 
   // The starter spec is seeded at status 'specify' (starter-spec.fixture.ts), so it sits
-  // in the open Specify column.
+  // in the open Specify column. Timeout accommodates a still-in-flight first-load seed.
   const starterHeading = page.getByRole("heading", { name: STARTER_SPEC_TITLE });
-  await expect(starterHeading).toBeVisible({ timeout: 15_000 });
+  await expect(starterHeading.first()).toBeVisible({ timeout: 30_000 });
+  // ac-1 / ac-12: EXACTLY ONE starter spec — guards the provisioning-concurrency regression
+  // (a StrictMode/multi-call double-POST used to seed two "Understanding Memex" specs).
+  await expect(starterHeading).toHaveCount(1);
 
   // Column-scoped: the card (an <h3>) lives under the Specify KanbanColumn, whose header
   // is an <h2> "Specify" (KanbanColumn.tsx: h2 → header div → column root = ancestor div[2]).

@@ -20,8 +20,24 @@ export async function fetchPersonalMemexProvisioned(): Promise<boolean> {
   return data.personalMemexProvisioned !== false;
 }
 
-/** Idempotently seed the caller's own personal Memex. Safe to call repeatedly. */
+// A single in-flight provision request, shared by all concurrent callers. The server's
+// per-seed existence checks are not concurrency-safe (two POSTs that both read "no starter
+// yet" before either inserts would each seed one — a double "Understanding Memex"), and the
+// gate's own StrictMode mount→cleanup→mount cycle fires the effect twice. Collapsing
+// concurrent calls to ONE POST makes the seed exactly-once from a single browser.
+let inFlightProvision: Promise<void> | null = null;
+
+/** Idempotently seed the caller's own personal Memex. Safe to call repeatedly and
+ *  concurrently — concurrent calls share a single POST. */
 export async function provisionPersonalMemex(): Promise<void> {
-  const res = await fetchOnce(`${BASE_URL}/me/provision`, { method: 'POST' });
-  if (!res.ok) throw new Error(`POST /me/provision failed: ${res.status}`);
+  if (inFlightProvision) return inFlightProvision;
+  inFlightProvision = (async () => {
+    try {
+      const res = await fetchOnce(`${BASE_URL}/me/provision`, { method: 'POST' });
+      if (!res.ok) throw new Error(`POST /me/provision failed: ${res.status}`);
+    } finally {
+      inFlightProvision = null;
+    }
+  })();
+  return inFlightProvision;
 }

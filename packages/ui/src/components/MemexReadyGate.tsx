@@ -7,7 +7,7 @@
 // check is a single fast GET, and once known-ready we short-circuit for the rest of
 // the session so navigation never re-checks.
 
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { fetchPersonalMemexProvisioned, provisionPersonalMemex } from '../api/provision';
 
 // Session-lived latch: once we know this session's Memex is ready, every later mount
@@ -34,36 +34,43 @@ function GettingReadyBlocker() {
 
 export function MemexReadyGate({ children }: { children: ReactNode }) {
   const [state, setState] = useState<State>(knownReady ? 'ready' : 'checking');
-  const started = useRef(false);
 
   useEffect(() => {
-    if (knownReady || started.current) return;
-    started.current = true;
-    let cancelled = false;
+    if (knownReady) {
+      setState('ready');
+      return;
+    }
+    // Guards STATE writes only — never the network calls. Under React StrictMode the
+    // mount→cleanup→mount cycle would otherwise cancel the in-flight request before the
+    // POST fired (and a `started` ref would make the second mount skip it), so a brand-new
+    // user was never provisioned in dev/e2e. Both the GET and the idempotent POST must run
+    // to completion; only the resulting setState is suppressed once this instance unmounts.
+    let active = true;
 
     void (async () => {
       try {
         const provisioned = await fetchPersonalMemexProvisioned();
-        if (cancelled) return;
         if (provisioned) {
           knownReady = true;
-          setState('ready');
+          if (active) setState('ready');
           return;
         }
-        setState('provisioning');
+        if (active) setState('provisioning');
+        // Idempotent (the server gates on provisioned_at), so it is safe to run even if a
+        // StrictMode twin effect or a racing mount also calls it — the second call seeds
+        // nothing.
         await provisionPersonalMemex();
-        if (cancelled) return;
         knownReady = true;
-        setState('ready');
+        if (active) setState('ready');
       } catch {
         // Never wedge the app on a readiness hiccup — fall through to the app. The
         // seed endpoint is idempotent, so a later load simply retries the check.
-        if (!cancelled) setState('ready');
+        if (active) setState('ready');
       }
     })();
 
     return () => {
-      cancelled = true;
+      active = false;
     };
   }, []);
 
