@@ -2,7 +2,7 @@
 //
 // Wraps the authenticated app. On first authenticated load it reads readiness from
 // GET /api/me; a brand-new user whose personal Memex has not yet been content-seeded
-// is shown a brief blocker while the SPA drives POST /api/me/provision, then the app
+// is shown a short blocker while the SPA drives POST /api/me/provision, then the app
 // renders. Provisioned users (the overwhelming majority) never see the blocker — the
 // check is a single fast GET, and once known-ready we short-circuit for the rest of
 // the session so navigation never re-checks.
@@ -68,7 +68,7 @@ export function MemexReadyGate({ children }: { children: ReactNode }) {
   }, []);
 
   // Only a genuinely-unprovisioned new user (state==='provisioning') sees the blocker.
-  // During the brief 'checking' GET we render the app, so provisioned users never flash
+  // During the quick 'checking' GET we render the app, so provisioned users never flash
   // a loading screen on navigation.
   if (state === 'provisioning') return <GettingReadyBlocker />;
   return <>{children}</>;

@@ -10,7 +10,7 @@ import { db } from "../db/connection.js";
 import { facets, users, namespaces, memexes } from "../db/schema.js";
 import { DEFAULT_FACETS } from "../db/default-facets.fixture.js";
 import { createOrgForUser } from "./orgs.js";
-import { ensureUserNamespace } from "./user-namespaces.js";
+import { ensureUserNamespace, provisionUserMemex } from "./user-namespaces.js";
 
 const SPEC = "mindset-prod/memex-building-itself/specs/spec-340";
 const AC = (n: number) => `${SPEC}/acs/ac-${n}`;
@@ -72,6 +72,10 @@ describe("auto-seed the 16 facets on creation (spec-340 t-3, dec-7)", () => {
 
     const { memex } = await ensureUserNamespace(user.id);
     createdMemexIds.push(memex.id);
+
+    // spec-474 dec-6: personal-Memex content provisioning (incl. facet seeding) moved off
+    // the create path onto the readiness step, so drive it explicitly.
+    await provisionUserMemex(user.id);
 
     // The namespace is personal (kind='user'), so the owner is the memex itself.
     const [ns] = await db
