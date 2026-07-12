@@ -1,4 +1,4 @@
-import { eq, and } from "drizzle-orm";
+import { eq, and, isNull } from "drizzle-orm";
 import { db, runWithMemexId } from "../db/connection.js";
 import { namespaces, memexes, users } from "../db/schema.js";
 import type { Memex, Namespace } from "../db/schema.js";
@@ -161,14 +161,11 @@ export async function ensureUserNamespace(
           return { namespace, memex };
         }),
     );
-    // spec-178 t-4 — seed the handhold onboarding demo when the personal memex
-    // was just created (it didn't pre-exist our mutate; a race-twin may have won
-    // the actual insert, but the seed is idempotent — ac-8 — so a duplicate fire
-    // is harmless). The needsLink-only repair path has a pre-existing memex and
-    // does NOT seed.
-    if (!existingMemex) {
-      await seedNewPersonalMemex(created.memex.id);
-    }
+    // spec-474 dec-6: content seeding no longer runs on this request path. The Memex
+    // is created with provisioned_at NULL; the SPA drives the content seed via the
+    // first-load readiness endpoint (POST /api/me/provision) behind a "Getting your
+    // Memex ready…" blocker, so nothing seed-heavy sits on the signup response or ahead
+    // of the verification email. The needsLink-only repair path never created a memex.
     return created;
   }
 
@@ -227,45 +224,39 @@ export async function ensureUserNamespace(
       return { namespace, memex };
     }),
   );
-  // spec-178 t-4 — seed the handhold onboarding demo into the brand-new personal
-  // Memex. AFTER the mutate() commits, on the create path only (the fast-path
-  // returns earlier and never reaches here). This funnels every signup flow
-  // (password / magic-link / SSO) — they all create the namespace through here.
-  await seedNewPersonalMemex(created.memex.id);
+  // spec-474 dec-6: content seeding no longer runs here. The namespace + Memex are
+  // created (fast, one tx) and returned; the Memex comes up provisioned_at NULL and is
+  // content-seeded later by the first-load readiness endpoint (POST /api/me/provision),
+  // NOT on this request. This funnels every signup flow (password / magic-link / SSO),
+  // so none of them wait on the seed.
   return created;
 }
 
-// Seed a freshly-created personal Memex with the onboarding content (spec-178
-// handhold demo + spec-184 default Standards) and AWAIT it before ensureUserNamespace
-// returns. The two seeds run concurrently; allSettled guarantees this never rejects.
+// Seed a personal Memex's onboarding content: the default facets, the default
+// Standards, and the "Understanding Memex" starter Spec. The two doc-seeds run
+// concurrently; allSettled guarantees this never rejects.
 //
-// Why AWAIT and not fire-and-forget: these seeds were originally detached (`void seed…()`)
-// so a slow/failed seed couldn't block or roll back signup. But on Cloud Run, CPU is
-// throttled to ~0 the instant the HTTP response flushes, so the detached post-response
-// multi-insert was getting starved/killed before its rows committed — new users landed in
-// an EMPTY Memex (no demo spec, no Standards), intermittently (it only completed when the
-// instance happened to stay warm). Awaiting keeps the inserts on the request path, where
-// CPU is allocated for the lifetime of the request, so they actually finish. The seeds are
-// bounded local-DB writes (the section embeddings they trigger are themselves fire-and-forget
-// inside the doc/section/clause primitives, so they do NOT lengthen this await). Cost is a
-// one-time latency bump on the single request that first creates a user's namespace.
+// spec-474 dec-6: this NO LONGER runs on the signup request. It used to be awaited
+// inside ensureUserNamespace's create path, which delayed the signup response and the
+// verification email; and it couldn't simply be detached, because on Cloud Run CPU is
+// throttled to ~0 the instant the HTTP response flushes, so a detached post-response
+// multi-insert got starved/killed and new users landed in an EMPTY Memex. The fix is
+// to run it on a DIFFERENT request — the first-load readiness endpoint
+// (POST /api/me/provision, via provisionUserMemex below) — which has its own CPU
+// allocation for its lifetime, so the inserts finish reliably with no empty-Memex
+// regression, and nothing seed-heavy sits on signup.
 //
-// Best-effort is preserved by the per-seed try/catch below: a seed failure is logged and
-// swallowed, so signup still succeeds (the namespace + memex are already committed by the
-// time we get here). The seeds are individually idempotent (handhold: NO-OP if a demo doc
-// exists — ac-8; standards: NO-OP once the Memex holds any standard), so a duplicate fire
-// (e.g. a signup race twin) is harmless.
+// Best-effort is preserved by the per-seed try/catch: a seed failure is logged and
+// swallowed. The seeds are individually idempotent (starter: NO-OP once the system
+// starter exists; standards: NO-OP once the Memex holds any standard), so a duplicate
+// fire (a race twin, a re-provision) is harmless.
 //
 // spec-436: run the seeders inside runWithMemexId(memexId) so the rlsClient proxy emits
 // `set_config('app.memex_id', …)` for every INSERT they issue. The runtime connects as the
 // non-owner `memex_app` role, which is SUBJECT to RLS (std-36: ENABLE, never FORCE), and the
-// `documents` WITH CHECK policy keys on app.memex_id. Unlike a normal API request — which the
-// session middleware already wraps in runWithMemexId(currentMemexId) — provisioning runs
-// OUTSIDE any tenant context for the just-created memex (the signup request isn't scoped to
-// it), so without this wrapper every seed INSERT was rejected ("new row violates row-level
-// security policy for table \"documents\"") and the new workspace came up empty. One wrapper
-// over the shared allSettled covers all current and future seeders.
-async function seedNewPersonalMemex(memexId: string): Promise<void> {
+// `documents` WITH CHECK policy keys on app.memex_id. One wrapper over the shared allSettled
+// covers all the seeders.
+export async function provisionPersonalMemexContent(memexId: string): Promise<void> {
   await runWithMemexId(memexId, async () => {
     // spec-437 dec-1: the facet vocabulary must exist BEFORE the default Standards are
     // seeded, so each default clause's facet verdict persists against a live vocabulary
@@ -337,4 +328,53 @@ async function seedDefaultStandardsBestEffort(memexId: string): Promise<void> {
 export async function ensureUserMemex(userId: string): Promise<Memex> {
   const result = await ensureUserNamespace(userId);
   return result.memex;
+}
+
+// spec-474 dec-6: the first-load readiness step. Idempotently content-seeds the
+// caller's personal Memex (default facets + Standards + the "Understanding Memex"
+// starter Spec) and stamps memexes.provisioned_at. Called by POST /api/me/provision
+// on first load behind the "Getting your Memex ready…" blocker — NOT on signup.
+//
+// Owner-scoped by construction: the route passes the SESSION user's own id, so a
+// caller can only provision their own personal Memex. Idempotent + race-safe: if
+// provisioned_at is already set we return without re-seeding; the seeds themselves are
+// idempotent, and the stamp is guarded on `provisioned_at IS NULL` so a concurrent
+// twin never double-stamps. Returns whether this call performed the seed.
+export async function provisionUserMemex(
+  userId: string,
+): Promise<{ memexId: string; seeded: boolean }> {
+  const memex = await ensureUserMemex(userId);
+
+  const [row] = await db
+    .select({ provisionedAt: memexes.provisionedAt })
+    .from(memexes)
+    .where(eq(memexes.id, memex.id))
+    .limit(1);
+  if (row?.provisionedAt) return { memexId: memex.id, seeded: false };
+
+  await provisionPersonalMemexContent(memex.id);
+  await db
+    .update(memexes)
+    .set({ provisionedAt: new Date() })
+    .where(and(eq(memexes.id, memex.id), isNull(memexes.provisionedAt)));
+  return { memexId: memex.id, seeded: true };
+}
+
+// spec-474 dec-6: the readiness signal the SPA reads on first load (via GET /api/me)
+// to decide whether to show the blocker. Reads the caller's personal Memex WITHOUT
+// creating it. `provisioned` is true when the content seed has run (provisioned_at set)
+// — or when there is no personal Memex yet (nothing to block on; session middleware
+// creates it on the same request), so the blocker is only shown for a real, unseeded
+// personal Memex.
+export async function getPersonalMemexProvisionState(
+  userId: string,
+): Promise<{ memexId: string | null; provisioned: boolean }> {
+  const [row] = await db
+    .select({ id: memexes.id, provisionedAt: memexes.provisionedAt })
+    .from(memexes)
+    .innerJoin(namespaces, eq(memexes.namespaceId, namespaces.id))
+    .where(and(eq(namespaces.ownerUserId, userId), eq(namespaces.kind, "user")))
+    .limit(1);
+  if (!row) return { memexId: null, provisioned: true };
+  return { memexId: row.id, provisioned: row.provisionedAt != null };
 }

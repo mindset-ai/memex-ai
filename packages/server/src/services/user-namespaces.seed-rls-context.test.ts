@@ -37,7 +37,7 @@ vi.mock("./default-facets.js", () => ({
 
 import { db } from "../db/connection.js";
 import { namespaces, users } from "../db/schema.js";
-import { ensureUserNamespace } from "./user-namespaces.js";
+import { ensureUserNamespace, provisionUserMemex } from "./user-namespaces.js";
 import { upsertUserByEmail } from "./users.js";
 
 const createdNamespaceIds: string[] = [];
@@ -64,7 +64,7 @@ afterAll(async () => {
 });
 
 describe("spec-436 — provisioning seeds run under the new memex's tenant GUC", () => {
-  it("seedNewPersonalMemex runs its seeders inside runWithMemexId(memexId) so app.memex_id is set", async () => {
+  it("provisionPersonalMemexContent runs its seeders inside runWithMemexId(memexId) so app.memex_id is set", async () => {
     tagAc(`${AC}/ac-5`); // implementation: seeders run inside runWithMemexId(memexId)
     tagAc(`${AC}/ac-3`); // scope: tenant context via runWithMemexId, not a bypass role
     tagAc(`${AC}/ac-4`); // scope: regression guard — removing the wrapper fails CI
@@ -74,6 +74,9 @@ describe("spec-436 — provisioning seeds run under the new memex's tenant GUC",
     );
     createdUserIds.push(user.id);
 
+    // spec-474 dec-6: the content seed moved off signup onto the readiness step. Creating
+    // the namespace no longer seeds; provisionUserMemex is what runs the seeders (under
+    // runWithMemexId), so drive it here to exercise the tenant-context mechanism.
     const created = await ensureUserNamespace(user.id);
     const memexId = created.memex.id;
 
@@ -84,8 +87,10 @@ describe("spec-436 — provisioning seeds run under the new memex's tenant GUC",
       .limit(1);
     if (ns) createdNamespaceIds.push(ns.id);
 
-    // The probe seeder ran, and it ran with the freshly-created memex's tenant context active —
-    // i.e. every seed INSERT issued under this scope carries app.memex_id and satisfies RLS.
+    await provisionUserMemex(user.id);
+
+    // The probe seeder ran, and it ran with the memex's tenant context active — i.e. every
+    // seed INSERT issued under this scope carries app.memex_id and satisfies RLS.
     expect(cap.calls).toBeGreaterThan(0);
     expect(cap.store?.memexId).toBe(memexId);
   });
