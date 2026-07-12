@@ -35,10 +35,10 @@ export class ExperimentHookUnavailableError extends Error {
   }
 }
 
-/** The two arms of the first provisioning experiment (spec-426 dec-4 registry ids):
- *  control = handhold_demo (the spec-178 walkthrough), treatment = starter_spec (the
- *  "Understanding Memex" real, system-attributed spec). */
-export type ExperimentBehaviour = "handhold_demo" | "starter_spec";
+/** The provisioning-experiment arm this helper can seed (spec-426 dec-4 registry id):
+ *  starter_spec = the "Understanding Memex" real, system-attributed spec. spec-474
+ *  ended the experiment and removed the former handhold_demo (control) arm. */
+export type ExperimentBehaviour = "starter_spec";
 
 export interface SeededExperimentArm {
   /** The user the arm was pinned onto (resolved/ensured from `email`). */
@@ -52,7 +52,7 @@ export interface SeededExperimentArm {
   /** The new active assignment row's id. */
   assignmentId: string;
   /** For the starter_spec arm: the seeded "Understanding Memex" spec's handle, so a
-   *  journey can navigate straight to its canonical path. Absent for handhold_demo. */
+   *  journey can navigate straight to its canonical path. */
   starterSpecHandle?: string;
 }
 

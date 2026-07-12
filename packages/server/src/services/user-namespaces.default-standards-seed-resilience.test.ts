@@ -8,8 +8,8 @@
 // called, the seed error would never be logged, and this test would fail.
 //
 // Runs against REAL Postgres (the namespace + memex are really created); only the
-// seeders are mocked. The handhold seed shares the same best-effort hook, so it's
-// stubbed to a no-op to isolate the failure to the default-Standards path.
+// seeders are mocked. The starter-spec provisioning seed shares the same best-effort
+// hook, so it's stubbed to a no-op to isolate the failure to the default-Standards path.
 
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { and, eq, inArray } from "drizzle-orm";
@@ -17,8 +17,8 @@ import { and, eq, inArray } from "drizzle-orm";
 const { seedError } = vi.hoisted(() => ({
   seedError: new Error("default-standards seed boom (spec-184 ac-9 resilience test)"),
 }));
-vi.mock("./handhold-demo.js", () => ({
-  seedHandholdDemo: vi.fn().mockResolvedValue(undefined),
+vi.mock("./starter-spec.js", () => ({
+  seedStarterSpec: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock("./default-standards.js", () => ({
   seedDefaultStandards: vi.fn().mockRejectedValue(seedError),

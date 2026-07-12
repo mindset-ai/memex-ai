@@ -23,7 +23,7 @@ const cap = vi.hoisted(() => ({
   calls: 0,
 }));
 
-// Mock the LAST seeder in seedNewPersonalMemex's allSettled. It always runs (the handhold +
+// Mock the LAST seeder in seedNewPersonalMemex's allSettled. It always runs (the starter-spec +
 // default-Standards seeders are gated OFF suite-wide by the vitest config), so it is a clean
 // probe: whatever ALS context it observes is exactly the context the real seeders' INSERTs run
 // under. The mock does no DB work, so the test stays isolated to the namespace/memex rows.

@@ -20,10 +20,6 @@ export const VALUE_INTRO_ITEMS: ReadonlyArray<{ title: string; body: string }> =
     body: 'If you write code, do this first. Connect your agent via MCP to create and work on specs directly from your coding environment. Find the setup in your profile under Integrations.',
   },
   {
-    title: 'Walk through the demo spec',
-    body: "We've set up a demo spec in your personal Memex, ready and waiting for you to try in the draft column.",
-  },
-  {
     title: 'Work with your team',
     body: 'Set up your own org, or ask your Memex admin to invite you to theirs.',
   },

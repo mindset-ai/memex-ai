@@ -46,7 +46,6 @@ import { oauth, isOAuthEnabled } from "./routes/oauth/index.js";
 import { wellKnown, publicBaseUrl } from "./routes/well-known.js";
 import driftRouter from "./routes/drift.js";
 import { search } from "./routes/search.js";
-import { handhold } from "./routes/handhold.js";
 import { internalLifecycleRouter } from "./routes/internal-lifecycle.js";
 import { onboarding } from "./routes/onboarding.js";
 import { welcomeVideo } from "./routes/welcome-video.js";
@@ -292,11 +291,6 @@ app.route("/api/:namespace/:memex/analytics", analytics);
 // event is inherently per-Memex.
 app.use("/api/:namespace/:memex/telemetry/*", publicSessionMiddleware);
 app.route("/api/:namespace/:memex/telemetry", telemetryRouter);
-// spec-178 t-6 — handhold onboarding demo reset. Path-prefixed only: the reset
-// is gated to the owner of a PERSONAL Memex (std-7 404 otherwise), so the memex
-// must come from the resolved /<ns>/<mx>/ path — there's no flat entity-keyed
-// mount. STRICT sessionMiddleware + the owner gate live inside the router.
-app.route("/api/:namespace/:memex/handhold", handhold);
 // spec-360 follow-up — scaffold guidance has TWO owner surfaces that share the
 // trailing `/scaffold` segment, so registration ORDER matters: the org route
 // (/api/orgs/:orgId/scaffold) is a literal-`orgs` path that the personal route's

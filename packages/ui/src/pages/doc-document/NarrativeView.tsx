@@ -163,8 +163,6 @@ export function NarrativeView({
             canEdit={canEdit}
             commentsCollapsed={commentsCollapsed}
             onExpandComments={onExpandComments}
-            /* spec-178 ac-24: a frozen demo spec suppresses handle auto-linking. */
-            isDemo={doc.isDemo ?? false}
             /* spec-325 (dec-1): hand the comment deep-link's seq to every section;
                the owning one pins it in situ on load (emulating a card click). */
             deepLinkCommentSeq={deepLinkCommentSeq}

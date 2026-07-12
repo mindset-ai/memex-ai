@@ -18,24 +18,18 @@ function spec(over: Partial<DocSummary>): DocSummary {
     statusChangedAt: '',
     sectionCount: 0,
     archivedAt: over.archivedAt ?? null,
-    isDemo: over.isDemo,
   } as DocSummary;
 }
 
 describe('resolveSpecToken (spec-372 issues 13–16)', () => {
-  it('uses the handle when exactly one real (non-demo) spec exists', () => {
+  it('uses the handle when exactly one spec exists', () => {
     tagAc(AC372(45));
-    const docs = [spec({ handle: 'spec-376' }), spec({ id: 'demo', handle: 'spec-1', isDemo: true })];
+    const docs = [spec({ handle: 'spec-376' })];
     expect(resolveSpecToken(docs)).toBe('spec-376');
   });
 
-  it('falls back to the placeholder when more than one real spec exists', () => {
+  it('falls back to the placeholder when more than one spec exists', () => {
     const docs = [spec({ handle: 'spec-376' }), spec({ id: 'd2', handle: 'spec-377' })];
-    expect(resolveSpecToken(docs)).toBe(SPEC_TOKEN_PLACEHOLDER);
-  });
-
-  it('falls back to the placeholder when only demo specs exist', () => {
-    const docs = [spec({ isDemo: true }), spec({ id: 'd2', isDemo: true })];
     expect(resolveSpecToken(docs)).toBe(SPEC_TOKEN_PLACEHOLDER);
   });
 

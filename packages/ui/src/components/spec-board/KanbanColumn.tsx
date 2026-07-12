@@ -2,15 +2,12 @@ import { type DragEvent, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { type DocSummary } from '../../api/types';
 import { statusTextClass } from '../../utils/statusStyles';
-import { phaseDisplayName } from '../../utils/phaseDisplay';
 import { formatDate, docSeq } from '../../utils/format';
-import { Badge } from '../ui';
 import { CodeGroundedBadge } from '../CodeGroundedBadge';
 import { SpecMenu, type SpecMenuItem } from '../SpecMenu';
 import { TagChip } from '../TagChip';
 import { tenantPath } from '../../utils/tenantUrl';
 import { useTelemetry } from '../../hooks/useTelemetry';
-import { type RevealPhase } from '../../hooks/useHandholdReveal';
 import {
   borderClassForHealth,
   SpecHealthChip,
@@ -41,14 +38,6 @@ export interface KanbanColumnProps {
   // Renders the "+ Add spec" pinned card at the top of the column when set.
   // Click invokes the same NewSpecModal as the page-header button.
   onAddSpec?: () => void;
-  // spec-178 t-10 (dec-10): progressive-reveal advance control. Rendered ONLY on
-  // is_demo cards. `revealNextPhase` is the phase that follows the revealed one
-  // (null at 'done' — the terminal phase, where the control becomes Reset).
-  // `onAdvanceDemo` bumps the reveal pointer; `onResetDemo` is the done-phase
-  // terminal action (re-seed + pointer reset). Absent on non-demo boards.
-  revealNextPhase?: RevealPhase | null;
-  onAdvanceDemo?: () => void;
-  onResetDemo?: () => void;
 }
 
 export function KanbanColumn(props: KanbanColumnProps) {
@@ -70,9 +59,6 @@ export function KanbanColumn(props: KanbanColumnProps) {
     className = '',
     headerExtra,
     onAddSpec,
-    revealNextPhase,
-    onAdvanceDemo,
-    onResetDemo,
   } = props;
   return (
     <div
@@ -145,21 +131,7 @@ export function KanbanColumn(props: KanbanColumnProps) {
                     )}
                     {d.title}
                   </h3>
-                  {/* spec-178 ac-3/ac-12: the DEMO badge marks each frozen
-                      Handhold demo spec on the board. Real specs carry no
-                      `isDemo`, so they never render it (ac-11/ac-12). */}
-                  {d.isDemo && (
-                    <Badge status="demo" label="DEMO" className="flex-none" />
-                  )}
                 </div>
-                {d.isDemo && (
-                  // Hidden DOM hook for the test — the visible Badge above is
-                  // the user-facing surface, this lets a test assert the DEMO
-                  // pill without coupling to Badge classes.
-                  <span data-testid="spec-demo-pill" className="sr-only">
-                    DEMO
-                  </span>
-                )}
                 {d.parentDocId && (
                   <div
                     className="text-xs text-muted italic mb-1"
@@ -213,36 +185,6 @@ export function KanbanColumn(props: KanbanColumnProps) {
                 )}
                 <SpecHealthStrip health={d.acHealth} />
               </Link>
-              {/* spec-178 ac-33/ac-34 (dec-10): the progressive-reveal advance
-                  control. Renders ONLY on is_demo cards (never on real specs),
-                  and only when the demo-management callbacks are wired (i.e. the
-                  board owns a reveal pointer). Clicking it walks the demo one
-                  phase along — the current card disappears and the next phase's
-                  demo card appears, giving the impression of one spec moving
-                  across the board. At the terminal 'done' phase there is no
-                  next: the control becomes "Reset demo", wired to the same
-                  re-seed + pointer-reset as the board header's Reset button. */}
-              {d.isDemo && onAdvanceDemo && onResetDemo && (
-                revealNextPhase ? (
-                  <button
-                    type="button"
-                    data-testid="demo-advance-control"
-                    onClick={onAdvanceDemo}
-                    className="mt-2 w-full text-xs font-medium text-accent hover:text-accent-hover inline-flex items-center justify-center gap-1 px-2 py-1.5 rounded-md border border-accent/40 bg-accent/10 hover:bg-accent/20 transition-colors"
-                  >
-                    See it in {phaseDisplayName(revealNextPhase)} →
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    data-testid="demo-reset-control"
-                    onClick={onResetDemo}
-                    className="mt-2 w-full text-xs font-medium text-secondary hover:text-primary inline-flex items-center justify-center gap-1 px-2 py-1.5 rounded-md border border-edge hover:bg-overlay transition-colors"
-                  >
-                    Reset demo
-                  </button>
-                )
-              )}
               {canWrite && (
                 <div className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
                   <SpecMenu

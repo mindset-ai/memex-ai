@@ -13,7 +13,7 @@
 // 0116, the comms_log posture), so this uses the default `db` connection directly —
 // no runWithMemexId — exactly as services/experiments.ts does.
 
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { db } from "./connection.js";
 import { experiments, experimentVariants } from "./schema.js";
 
