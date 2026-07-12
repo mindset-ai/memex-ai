@@ -20,6 +20,10 @@ import { createDocDraft } from "./documents.js";
 import { seedStarterSpec } from "./starter-spec.js";
 import { STARTER_SPEC_TITLE } from "../db/starter-spec.fixture.js";
 import { sweepDemoToStarter } from "./demo-to-starter-sweep.js";
+import {
+  getUnattributedMutationCount,
+  _resetUnattributedMutationCount,
+} from "./activity-log.js";
 
 const SPEC = "mindset-prod/memex-building-itself/specs/spec-474";
 const AC = (n: number) => `${SPEC}/acs/ac-${n}`;
@@ -107,13 +111,19 @@ describe("demo→starter sweep (spec-474 dec-3)", () => {
   it("demo docs + owner has no own spec → deletes demos and seeds exactly one starter (ac-15 / ac-16)", async () => {
     tagAc(AC(15));
     tagAc(AC(16));
+    tagAc(AC(3)); // scope: the sweep deletes every is_demo demo spec, via mutate() so boards refresh
+    tagAc(AC(19)); // impl: clearDemoDocs threads a non-null channel — no attribution-defect while deleting
     const { memexId } = await makePersonalMemex("swa");
     await seedDemoSpec(memexId);
     await seedDemoSpec(memexId);
     expect(await countDemoDocs(memexId)).toBe(2);
     expect(await countSystemStarters(memexId)).toBe(0);
 
+    // ac-19: the demo deletes go through mutate() with a threaded RequestCtx channel, so no
+    // mutation reaches the activity sink unattributed. Count from just before the sweep.
+    _resetUnattributedMutationCount();
     const res = await sweepDemoToStarter({ dryRun: false, onlyMemexIds: [memexId] });
+    expect(getUnattributedMutationCount()).toBe(0);
 
     // Totals for this scoped run.
     expect(res.demoDocsDeleted).toBe(2);
@@ -127,6 +137,8 @@ describe("demo→starter sweep (spec-474 dec-3)", () => {
 
   it("owner authored their own real spec → clears demos but seeds NO starter (ac-16)", async () => {
     tagAc(AC(16));
+    tagAc(AC(4)); // scope: a Memex whose owner authored their own spec receives no new starter
+    tagAc(AC(3)); // scope: demos are still deleted even when no starter is seeded
     const { memexId, ownerUserId } = await makePersonalMemex("swb");
     await seedDemoSpec(memexId);
     // The owner's own real (is_demo=false) spec — the skip signal.
@@ -160,6 +172,7 @@ describe("demo→starter sweep (spec-474 dec-3)", () => {
 
   it("already has a system starter → unchanged, no duplicate (ac-16)", async () => {
     tagAc(AC(16));
+    tagAc(AC(4)); // scope: a Memex already carrying a starter spec receives no new spec
     const { memexId } = await makePersonalMemex("swc");
     await seedStarterSpec(memexId, { channel: "server" });
     expect(await countSystemStarters(memexId)).toBe(1);
@@ -174,6 +187,8 @@ describe("demo→starter sweep (spec-474 dec-3)", () => {
 
   it("--dry-run writes nothing; its counts equal the live run that follows; a second live run is a no-op (ac-17)", async () => {
     tagAc(AC(17));
+    tagAc(AC(9)); // scope: dry-run reports exactly what it would delete/seed without mutating (safety rehearsal tooling)
+    tagAc(AC(4)); // scope: the speckless Memex is backfilled with exactly one starter after the live run
     const { memexId } = await makePersonalMemex("swd");
     await seedDemoSpec(memexId);
     await seedDemoSpec(memexId);

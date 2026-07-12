@@ -46,6 +46,12 @@ import {
 import { seedStarterSpec } from "./starter-spec.js";
 
 const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-426/acs/ac-${n}`;
+// spec-474 co-tags: this suite is the living proof that the reusable experiment framework
+// (deterministic bucketing, the verdict sweep, behaviour dispatch) survives the demo-arm
+// retirement intact (ac-6), that the behaviour registry now dispatches to the starter-spec
+// control with no handhold_demo entry (ac-11), and that the variant CHECK still permits the
+// historical 'handhold_demo' A-arm row (ac-14).
+const AC474 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-474/acs/ac-${n}`;
 
 const rand = () => Math.random().toString(36).slice(2, 8);
 const unique = (p: string) => `${p}-${Date.now().toString(36)}-${rand()}`;
@@ -166,6 +172,8 @@ describe("resolveOrCreateAssignment", () => {
   it("splits many synthetic users roughly 50/50 across the two arms (each arm > 30%)", async () => {
     tagAc(AC(1));
     tagAc(AC(14));
+    tagAc(AC474(6)); // spec-474: deterministic bucketing across both arms remains intact
+    tagAc(AC474(14)); // spec-474: the A-arm 'handhold_demo' variant row still inserts (CHECK permits it)
     const exp = await makeExperiment();
     const N = 200;
 
@@ -324,6 +332,7 @@ describe("runVariantBehaviour", () => {
 
   it("dispatches 'starter_spec' to seedStarterSpec", async () => {
     tagAc(AC(12));
+    tagAc(AC474(11)); // spec-474: the registry dispatches the control behaviour to seedStarterSpec
     await runVariantBehaviour("starter_spec", "memex-2", { channel: "server" });
     expect(seedStarterSpec).toHaveBeenCalledWith("memex-2", { channel: "server" });
   });
@@ -332,6 +341,7 @@ describe("runVariantBehaviour", () => {
   // `handhold_demo`) behaviour id falls back to the control — the seeded starter Spec.
   it("falls back to the control behaviour for an UNKNOWN / legacy behaviour id", async () => {
     tagAc(AC(12));
+    tagAc(AC474(11)); // spec-474: CONTROL_BEHAVIOUR==='starter_spec' and a legacy id never runs a deleted seeder
     expect(CONTROL_BEHAVIOUR).toBe("starter_spec");
     await runVariantBehaviour("handhold_demo", "memex-3");
     expect(seedStarterSpec).toHaveBeenCalledWith("memex-3", expect.anything());

@@ -26,9 +26,10 @@ import { upsertUserByEmail } from "./users.js";
 import { DEFAULT_STANDARDS_COUNT } from "../db/default-standards.fixture.js";
 import { STARTER_SPEC_TITLE } from "../db/starter-spec.fixture.js";
 
-const AC_SIGNUP_NONBLOCK = "mindset-prod/memex-building-itself/specs/spec-474/acs/ac-20";
-const AC_READINESS_ENDPOINT = "mindset-prod/memex-building-itself/specs/spec-474/acs/ac-21";
-const AC_READINESS_SIGNAL = "mindset-prod/memex-building-itself/specs/spec-474/acs/ac-22";
+const AC474 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-474/acs/ac-${n}`;
+const AC_SIGNUP_NONBLOCK = AC474(20);
+const AC_READINESS_ENDPOINT = AC474(21);
+const AC_READINESS_SIGNAL = AC474(22);
 
 const createdNamespaceIds: string[] = [];
 const createdUserIds: string[] = [];
@@ -69,18 +70,28 @@ async function trackNamespace(userId: string): Promise<void> {
   if (ns) createdNamespaceIds.push(ns.id);
 }
 
-function starterDocs(docs: Array<{ docType: string; title: string; createdByUserId: string | null }>) {
+type DocRow = {
+  docType: string;
+  title: string;
+  createdByUserId: string | null;
+  isDemo: boolean;
+  status: string;
+};
+
+function starterDocs(docs: DocRow[]) {
   return docs.filter(
     (d) => d.docType === "spec" && d.title === STARTER_SPEC_TITLE && d.createdByUserId === null,
   );
 }
 
-async function docsIn(memexId: string) {
+async function docsIn(memexId: string): Promise<DocRow[]> {
   return db
     .select({
       docType: documents.docType,
       title: documents.title,
       createdByUserId: documents.createdByUserId,
+      isDemo: documents.isDemo,
+      status: documents.status,
     })
     .from(documents)
     .where(eq(documents.memexId, memexId));
@@ -89,6 +100,7 @@ async function docsIn(memexId: string) {
 describe("spec-474 dec-6 — provisioning is off the signup path, on the readiness endpoint", () => {
   it("ensureUserNamespace creates the Memex but seeds NO content — signup never waits on the seed (ac-20)", async () => {
     tagAc(AC_SIGNUP_NONBLOCK);
+    tagAc(AC474(8)); // scope: signup returns without blocking on content provisioning
     const user = await newUser();
     const created = await ensureUserNamespace(user.id);
     await trackNamespace(user.id);
@@ -104,6 +116,9 @@ describe("spec-474 dec-6 — provisioning is off the signup path, on the readine
 
   it("provisionUserMemex seeds the starter Spec + all Standards and stamps provisioned_at, idempotently (ac-21)", async () => {
     tagAc(AC_READINESS_ENDPOINT);
+    tagAc(AC474(1)); // scope: exactly one system-attributed starter spec, no demo, seeded directly
+    tagAc(AC474(10)); // impl: provisioning seeds via a direct seedStarterSpec call (no experiment path)
+    tagAc(AC474(12)); // impl: exactly one spec doc — title/attribution/is_demo/status shape
     const user = await newUser();
     const created = await ensureUserNamespace(user.id);
     await trackNamespace(user.id);
@@ -114,7 +129,14 @@ describe("spec-474 dec-6 — provisioning is off the signup path, on the readine
     expect(first.memexId).toBe(memexId);
 
     const docs = await docsIn(memexId);
-    expect(starterDocs(docs)).toHaveLength(1);
+    const starters = starterDocs(docs);
+    expect(starters).toHaveLength(1);
+    // ac-12: the one starter spec is system-attributed, non-demo, and lands in 'specify'.
+    expect(starters[0].createdByUserId).toBeNull();
+    expect(starters[0].isDemo).toBe(false);
+    expect(starters[0].status).toBe("specify");
+    // ac-1 / ac-12: no demo walkthrough content is ever seeded.
+    expect(docs.filter((d) => d.isDemo === true)).toHaveLength(0);
     expect(docs.filter((d) => d.docType === "standard")).toHaveLength(DEFAULT_STANDARDS_COUNT);
 
     const [m] = await db
