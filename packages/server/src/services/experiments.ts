@@ -25,15 +25,10 @@ import {
   type ExperimentAssignment,
 } from "../db/schema.js";
 import type { RequestCtx } from "./mutate.js";
-// dec-4 control behaviour — the fixed five-Spec onboarding demo (spec-178).
-import { seedHandholdDemo } from "./handhold-demo.js";
-// dec-4 treatment behaviour — the seeded "Understanding Memex" starter Spec.
-// AUTHORED BY A SIBLING TASK: services/starter-spec.ts does not yet exist in this
-// worktree. The import is written to the EXPECTED contract `seedStarterSpec(memexId,
-// ctx)`; tsc will report the missing module until the sibling lands — the Verify
-// phase reconciles. The registry below still resolves safely at runtime: an unknown
-// behaviour falls back to control, and the only call site (provisioning) seeds the
-// control arm unless an experiment explicitly maps a variant to 'starter_spec'.
+// spec-474 dec-1: the seeded "Understanding Memex" starter Spec is now the SOLE
+// provisioning behaviour and the control. The demo-walkthrough arm (handhold_demo /
+// seedHandholdDemo) was retired and its code deleted when the demo-vs-starter
+// experiment concluded with B (starter_spec) as the winner.
 import { seedStarterSpec } from "./starter-spec.js";
 
 function log(...args: unknown[]): void {
@@ -43,14 +38,17 @@ function log(...args: unknown[]): void {
 
 // ── Variant behaviour registry (dec-4) ───────────────────────────────────────
 
-/** The known variant behaviours — must match the experiment_variants.behaviour
- * CHECK (`'handhold_demo' | 'starter_spec'`). The CONTROL is handhold_demo. */
-export type VariantBehaviour = "handhold_demo" | "starter_spec";
+/** The known variant behaviours the registry can dispatch. spec-474 dec-1 retired
+ * `handhold_demo`; `starter_spec` is the only live behaviour. The DB CHECK on
+ * experiment_variants.behaviour is deliberately left permissive (it still lists the
+ * legacy `handhold_demo`) so the concluded experiment's historical A variant row
+ * stays valid — but no seeder is dispatched for it (see runVariantBehaviour). */
+export type VariantBehaviour = "starter_spec";
 
-/** The control arm. dec-4: an UNKNOWN or missing behaviour id falls back to this
- * rather than failing signup — a bad seed degrades to the safe default, it never
- * throws on the provisioning path. */
-export const CONTROL_BEHAVIOUR: VariantBehaviour = "handhold_demo";
+/** The control / default behaviour. spec-474 dec-1: an UNKNOWN, missing, or legacy
+ * behaviour id (e.g. the retired `handhold_demo` on a historical row) falls back to
+ * this — the seeded starter spec — rather than a deleted seeder or a failed signup. */
+export const CONTROL_BEHAVIOUR: VariantBehaviour = "starter_spec";
 
 /** A behaviour seeds the freshly-provisioned personal memex. Same shape as the
  * existing seeders (`seedHandholdDemo`): (memexId, ctx) → Promise<void>. */
@@ -60,7 +58,6 @@ type SeedFn = (memexId: string, ctx: RequestCtx) => Promise<void>;
  * truth for what each variant DOES at provisioning. Append-only as new arms are
  * added; the schema CHECK guards the persisted id, this guards the dispatch. */
 const BEHAVIOUR_REGISTRY: Record<VariantBehaviour, SeedFn> = {
-  handhold_demo: (memexId, ctx) => seedHandholdDemo(memexId, ctx),
   starter_spec: (memexId, ctx) => seedStarterSpec(memexId, ctx),
 };
 
