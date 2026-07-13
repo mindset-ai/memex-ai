@@ -25,6 +25,7 @@
 import { sql } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import { parseRef } from "./refs.js";
+import { validateSlugFormat } from "./shared/slug.js";
 
 export type RedirectReason =
   | "brief_move"
@@ -197,22 +198,61 @@ export function rewriteBriefPathToSpec(path: string): BriefToSpecRedirect | null
   return null;
 }
 
-// Record a redirect. Both paths must parse as canonical refs — see
-// services/refs.ts for the grammar. UPSERT on the primary key so re-running
-// the same move (e.g. retried migration step) is a no-op rather than an
-// error; `reason` + `created_at` are refreshed to reflect the latest event.
+// spec-479 D-1 — a namespace/memex rename records ONE redirect row keyed on a
+// PATH PREFIX, not a full entity ref: `namespace_rename` on the 1-segment
+// namespace slug (`old-ns`), `memex_rename` on the 2-segment `<ns>/<mx>`
+// (`old-ns/old-mx`). The resolver's prefix-match (`lookupOneStep`) rewrites
+// every descendant path from it (std-10 §7, cl-84/85). Such a prefix is
+// deliberately NOT a valid canonical ref (parseRef demands 4 or 6 segments),
+// so it gets its own validator. Segments are checked against the slug-creation
+// authority (`validateSlugFormat`) — NOT refs.ts's letter-first SLUG_RE —
+// so a legitimate digit-leading slug (e.g. `2024-recap`) is accepted; and
+// case-strictly, since old_path is stored lowercase and matched literally by
+// the resolver's `LIKE old_path || '/%'`.
+function assertRenamePrefix(
+  path: string,
+  segments: 1 | 2,
+  argName: string,
+  reason: RedirectReason
+): void {
+  const parts = path.split("/");
+  if (parts.length !== segments) {
+    throw new Error(
+      `insertRedirect: ${reason} ${argName} "${path}" must have exactly ${segments} slug segment(s), got ${parts.length}`
+    );
+  }
+  for (const seg of parts) {
+    if (seg !== seg.toLowerCase() || !validateSlugFormat(seg).valid) {
+      throw new Error(
+        `insertRedirect: ${reason} ${argName} "${path}" has an invalid slug segment "${seg}"`
+      );
+    }
+  }
+}
+
+// Record a redirect. UPSERT on the primary key so re-running the same move
+// (e.g. a retried migration step) is a no-op rather than an error; `reason` +
+// `created_at` are refreshed to reflect the latest event. Path validation is
+// reason-gated: rename reasons store a prefix (see `assertRenamePrefix`);
+// every other reason (a per-entity move) must be a full canonical ref.
 export async function insertRedirect(
   oldPath: string,
   newPath: string,
   reason: RedirectReason
 ): Promise<void> {
-  const oldParse = parseRef(oldPath);
-  if (!oldParse.ok) {
-    throw new Error(`insertRedirect: invalid oldPath "${oldPath}": ${oldParse.reason}`);
-  }
-  const newParse = parseRef(newPath);
-  if (!newParse.ok) {
-    throw new Error(`insertRedirect: invalid newPath "${newPath}": ${newParse.reason}`);
+  if (reason === "namespace_rename" || reason === "memex_rename") {
+    const segments = reason === "namespace_rename" ? 1 : 2;
+    assertRenamePrefix(oldPath, segments, "oldPath", reason);
+    assertRenamePrefix(newPath, segments, "newPath", reason);
+  } else {
+    const oldParse = parseRef(oldPath);
+    if (!oldParse.ok) {
+      throw new Error(`insertRedirect: invalid oldPath "${oldPath}": ${oldParse.reason}`);
+    }
+    const newParse = parseRef(newPath);
+    if (!newParse.ok) {
+      throw new Error(`insertRedirect: invalid newPath "${newPath}": ${newParse.reason}`);
+    }
   }
 
   await db.execute(sql`
