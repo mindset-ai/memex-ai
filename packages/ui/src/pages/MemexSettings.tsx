@@ -14,6 +14,7 @@ import { useLocation } from 'react-router-dom';
 import { useAuth } from '../components/AuthContext';
 import { parseTenantFromPathname } from '../utils/tenantUrl';
 import { MemexVisibilitySettings } from '../components/MemexVisibilitySettings';
+import { RenameMemexSection } from '../components/RenameMemexSection';
 import { PageHeader } from '../components/PageHeader';
 
 export function MemexSettings() {
@@ -48,8 +49,14 @@ export function MemexSettings() {
       <PageHeader title="Settings" />
       {memexId ? (
         // Emission keys moved to their own member-visible page (spec-129 dec-8,
-        // Option B): /<ns>/<mx>/keys. This admin-only page keeps Memex visibility.
-        <MemexVisibilitySettings memexId={memexId} />
+        // Option B): /<ns>/<mx>/keys. This admin-only page keeps Memex visibility
+        // and (spec-479) the rename controls.
+        <>
+          {tenant?.namespace && (
+            <RenameMemexSection memexId={memexId} namespaceSlug={tenant.namespace} />
+          )}
+          <MemexVisibilitySettings memexId={memexId} />
+        </>
       ) : (
         <div className="text-sm text-muted">No Memex selected.</div>
       )}

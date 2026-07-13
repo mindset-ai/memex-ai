@@ -56,6 +56,50 @@ export async function updateMemexVisibilityApi(
   return (body as { memex: MemexVisibilityDto }).memex;
 }
 
+/**
+ * Rename a Memex's display name (spec-479). Owner/admin-gated server-side; the
+ * URL/slug is untouched. Returns the updated row.
+ */
+export async function updateMemexNameApi(
+  memexId: string,
+  name: string,
+  token: string | null,
+): Promise<MemexVisibilityDto> {
+  const res = await fetchWithRetry(`${tBase()}/memexes/${memexId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...authHeaders(token) },
+    body: JSON.stringify({ name }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(body.error ?? body.message ?? `Rename failed: ${res.status}`);
+  }
+  return (body as { memex: MemexVisibilityDto }).memex;
+}
+
+/**
+ * Rename a Memex's URL slug (spec-479). Owner/admin-gated. The server writes a
+ * memex_rename redirect so old links keep working; a slug that is taken or
+ * reserved by a prior rename returns 409 (surfaced as the thrown message). The
+ * returned row carries the new slug — the caller navigates to the new URL.
+ */
+export async function renameMemexSlugApi(
+  memexId: string,
+  slug: string,
+  token: string | null,
+): Promise<MemexVisibilityDto> {
+  const res = await fetchWithRetry(`${tBase()}/memexes/${memexId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...authHeaders(token) },
+    body: JSON.stringify({ slug }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(body.error ?? body.message ?? `Rename failed: ${res.status}`);
+  }
+  return (body as { memex: MemexVisibilityDto }).memex;
+}
+
 /** The public-facing Memex shape returned by the slug-based readability probe. */
 export interface PublicMemexProbe {
   id: string;
