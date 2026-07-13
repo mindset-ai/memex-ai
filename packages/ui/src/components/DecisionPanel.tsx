@@ -59,14 +59,6 @@ interface DecisionPanelProps {
    */
   specPhase?: string;
   /**
-   * spec-178 ac-24: when true (a frozen Handhold demo spec) the decision context /
-   * resolution markdown does NOT run rehypeRefLinkifier — handle refs render as plain
-   * text instead of navigable `<a>` links, mirroring SectionCard. The demo replicates
-   * spec-64; its refs belong to the original spec's world, not the user's, so linking
-   * them would dead-end. Defaults to false (real specs keep auto-linking).
-   */
-  isDemo?: boolean;
-  /**
    * spec-247 dec-4: interpolation context ({namespace}/{memex}/{handle}/…) for
    * the boundary-handoff PromptButtons (candidate review). Absent (e.g. in
    * isolated tests) the marker lines are omitted.
@@ -76,11 +68,9 @@ interface DecisionPanelProps {
   orgBlocks?: readonly GuidanceBlock[];
 }
 
-export function DecisionPanel({ docId, decisions, commentsByDecision = {}, forceShowComments: _forceShowComments, onCommentsChange, onUpdate, highlightDecisionHandle, onJumpToAc, canWrite = true, canEdit = true, specPhase, isDemo = false, promptContext, orgBlocks }: DecisionPanelProps) {
+export function DecisionPanel({ docId, decisions, commentsByDecision = {}, forceShowComments: _forceShowComments, onCommentsChange, onUpdate, highlightDecisionHandle, onJumpToAc, canWrite = true, canEdit = true, specPhase, promptContext, orgBlocks }: DecisionPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null);
-  // spec-178 ac-24: suppress handle auto-linking inside a frozen demo spec's
-  // decision prose. Mirrors SectionCard's rehypePlugins switch.
-  const decisionRehypePlugins = isDemo ? [] : [rehypeRefLinkifier];
+  const decisionRehypePlugins = [rehypeRefLinkifier];
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const chat = useChat();
   const { user } = useAuth();

@@ -1500,6 +1500,13 @@ export const memexes = pgTable(
     visibility: text("visibility").notNull().default("private"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    // spec-474 dec-6: content-provisioning marker. NULL = the onboarding content seed
+    // (default facets + Standards + the "Understanding Memex" starter Spec) has not yet
+    // run. The seed moved OFF the signup request onto a first-load readiness endpoint
+    // (POST /api/me/provision) the SPA drives behind a "Getting your Memex ready…"
+    // blocker; this column is how the SPA knows whether to show it. Existing rows were
+    // backfilled to now() by migration 0127 (they already carry their content).
+    provisionedAt: timestamp("provisioned_at", { withTimezone: true }),
   },
   (table) => [
     unique("memexes_namespace_id_slug_unique").on(table.namespaceId, table.slug),

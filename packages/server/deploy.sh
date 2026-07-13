@@ -434,24 +434,12 @@ gcloud run deploy "${SERVICE}" \
 echo ""
 echo "Running post-cutover data backfills (ENV=${ENV})..."
 
-# 1c. spec-178 t-5 / ac-28 — backfill the Handhold onboarding demo into EXISTING
-# personal Memexes (namespaces.kind='user') that predate the feature. New signups
-# already get it via the post-commit hook in ensureUserNamespace; this is the
-# one-time catch-up. seedHandholdDemo is per-Memex idempotent (no-ops once a Memex
-# holds an is_demo spec), so it does zero work after the first successful pass and
-# is safe to run on every deploy. Lives in the shared deploy.sh so it covers BOTH
-# environments: INT on each develop deploy, PROD on the daily develop→main promotion.
-#
-# Bounded + non-gating (learned the hard way — an earlier unbounded version hung the
-# deploy to the 30-min job timeout): `timeout` caps the run, and `|| echo` swallows
-# BOTH a timeout (exit 124) and any error so `set -e` can never abort a live deploy.
-# If the cap is hit mid-backfill the deploy still proceeds and the next deploy resumes
-# (idempotent), so partial progress is safe. demo seeding is also off the embedding +
-# drift-scan paths now (dec-11 / ac-42), so this is pure fast inserts. `timeout` is
-# GNU coreutils — present on the CI ubuntu runner that actually runs this deploy.
-echo "  1c. handhold demo backfill (spec-178 t-5 / ac-28)..."
-DATABASE_URL="${DB_URL}" timeout 600 pnpm db:backfill-handhold \
-  || echo "  ⚠ handhold backfill timed out or failed (non-gating, exit $?) — deploy continues; next deploy resumes (idempotent)."
+# 1c. REMOVED by spec-474 — the Handhold onboarding demo is deleted. The old auto-backfill
+# (spec-178 t-5 / ac-28) seeded the demo into existing Memexes on every deploy; that
+# capability, its `db:backfill-handhold` script, and the fixture are all gone. Existing
+# demo docs are reconciled once by the operator-run demo→starter sweep
+# (`pnpm --filter @memex/server db:sweep-demo-to-starter`), which is deliberately NOT
+# wired here — it must be dry-run-rehearsed against a restored snapshot first (spec-474 ac-9).
 
 # 1d. spec-184 t-4 / ac-15 — backfill the default Standards into EXISTING personal
 # Memexes (namespaces.kind='user') whose Standards list is still empty. New signups

@@ -62,15 +62,6 @@ interface SectionCardProps {
    */
   canEdit?: boolean;
   /**
-   * spec-178 ac-24: when true (a frozen Handhold demo spec) the section body
-   * does NOT run rehypeRefLinkifier — `[per dec-N]` / canonical-path handle refs
-   * render as plain text instead of becoming navigable `<a>` links. The demo is a
-   * self-contained replica of spec-64; its handle refs point at the original spec's
-   * world, not the user's, so auto-linking them would send the user down a dead end.
-   * Defaults to false (real specs keep auto-linking).
-   */
-  isDemo?: boolean;
-  /**
    * spec-325 (dec-1): a comment deep-link (`?comment=c-N`) emulates a click on
    * that comment's gutter card. When this section OWNS the target comment, it
    * pins it on load — reproducing exactly what a manual click produces (span →
@@ -92,7 +83,6 @@ export const SectionCard = memo(function SectionCard({
   onSelect,
   canWrite = true,
   commentsCollapsed = false,
-  isDemo = false,
   deepLinkCommentSeq,
 }: SectionCardProps) {
   const [revealed, setRevealed] = useState(!isNew);
@@ -516,7 +506,7 @@ export const SectionCard = memo(function SectionCard({
             data-testid="section-body"
             className="min-w-0 pr-8"
           >
-            <MemoizedMarkdown content={withRenderedMarkers(section.content, visibleSeqs)} isDemo={isDemo} />
+            <MemoizedMarkdown content={withRenderedMarkers(section.content, visibleSeqs)} />
           </div>
 
           {/* right-edge comment indicators, one per open comment: a span comment
@@ -633,11 +623,7 @@ export const SectionCard = memo(function SectionCard({
 });
 
 const remarkPlugins = [remarkGfm];
-// spec-178 ac-24: the demo variant drops rehypeRefLinkifier so handle refs in a
-// frozen demo spec render as plain text (no auto-linking). Pre-built once per
-// variant so the markdown renderer still gets a stable array reference.
-const rehypePluginsDefault = [rehypeHighlight, rehypeRefLinkifier];
-const rehypePluginsDemo = [rehypeHighlight];
+const rehypePlugins = [rehypeHighlight, rehypeRefLinkifier];
 
 // spec-100: a `📍c-N` inline-code span (produced by withRenderedMarkers) renders
 // as an interactive marker badge — clickable + locatable from the gutter via its
@@ -683,12 +669,9 @@ const markdownComponents = {
 // duplicating remark/rehype plugin wiring.
 export const MemoizedMarkdown = memo(function MemoizedMarkdown({
   content,
-  isDemo = false,
 }: {
   content: string;
-  isDemo?: boolean;
 }) {
-  const rehypePlugins = isDemo ? rehypePluginsDemo : rehypePluginsDefault;
   return (
     <div className="prose-dark overflow-hidden">
       <ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} components={markdownComponents}>

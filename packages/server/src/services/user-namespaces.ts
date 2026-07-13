@@ -1,31 +1,26 @@
-import { eq, and } from "drizzle-orm";
+import { eq, and, isNull } from "drizzle-orm";
 import { db, runWithMemexId } from "../db/connection.js";
-import { namespaces, memexes, users, experiments, experimentVariants } from "../db/schema.js";
+import { namespaces, memexes, users } from "../db/schema.js";
 import type { Memex, Namespace } from "../db/schema.js";
 import { ValidationError } from "../types/errors.js";
 import { mutate, type Mutated } from "./mutate.js";
 import { seedDefaultStandards } from "./default-standards.js";
 import { seedDefaultFacetsForMemexBestEffort } from "./default-facets.js";
-// spec-426: provisioning is experiment-aware. The new user is bucketed into the
-// running provisioning experiment and the assigned variant's behaviour seeds the
-// memex (control = spec-178's handhold demo, treatment = the starter Spec). The
-// experiment service is the only sanctioned path; an unavailable/non-running
-// experiment degrades to control (the safe default — kill-switch).
-import {
-  resolveOrCreateAssignment,
-  runVariantBehaviour,
-  CONTROL_BEHAVIOUR,
-} from "./experiments.js";
+// spec-474 dec-1: the demo-vs-starter provisioning experiment concluded with the
+// seeded starter Spec as the winner, so provisioning now seeds the starter Spec
+// DIRECTLY — no experiment bucketing, no variant registry. The experiment framework
+// tables/service remain (Backstage still reads the concluded experiment's history),
+// but the signup seed no longer routes through them.
+import { seedStarterSpec } from "./starter-spec.js";
 import { DEFAULT_EXPERIMENT_KEY } from "../db/seed-experiments.js";
 
-// spec-426: the well-known key for the new-user provisioning A/B (handhold demo vs
-// starter Spec). The experiment row + its A/B variants are created at boot
-// (db/seed-experiments.ensureDefaultExperiment) and managed in Backstage; this is
-// the stable lookup both ends share. RE-EXPORTED from DEFAULT_EXPERIMENT_KEY so the
-// boot seed's key and this resolver's lookup are the SAME string by construction —
-// they cannot drift (Verify: they HAD drifted, silently parking every user on
-// control). Until a RUNNING experiment exists under this key, provisioning degrades
-// to control (handhold demo) by design (kill-switch, ac-13).
+// spec-426/spec-474: the well-known key for the (now concluded) new-user provisioning
+// A/B. The experiment row + its variants are created at boot
+// (db/seed-experiments.ensureDefaultExperiment) and managed in Backstage; this is the
+// stable lookup both ends share. RE-EXPORTED from DEFAULT_EXPERIMENT_KEY so the boot
+// seed's key and any reader's lookup are the SAME string by construction — they cannot
+// drift. The provisioning seed no longer consults it (spec-474 dec-1), but the
+// test-only arm-pin surface still keys off it.
 export const PROVISIONING_EXPERIMENT_KEY = DEFAULT_EXPERIMENT_KEY;
 
 // Canonical display name for personal memexes. Per product decision, personal memexes
@@ -166,14 +161,11 @@ export async function ensureUserNamespace(
           return { namespace, memex };
         }),
     );
-    // spec-178 t-4 — seed the handhold onboarding demo when the personal memex
-    // was just created (it didn't pre-exist our mutate; a race-twin may have won
-    // the actual insert, but the seed is idempotent — ac-8 — so a duplicate fire
-    // is harmless). The needsLink-only repair path has a pre-existing memex and
-    // does NOT seed.
-    if (!existingMemex) {
-      await seedNewPersonalMemex(created.memex.id, userId);
-    }
+    // spec-474 dec-6: content seeding no longer runs on this request path. The Memex
+    // is created with provisioned_at NULL; the SPA drives the content seed via the
+    // first-load readiness endpoint (POST /api/me/provision) behind a "Getting your
+    // Memex ready…" blocker, so nothing seed-heavy sits on the signup response or ahead
+    // of the verification email. The needsLink-only repair path never created a memex.
     return created;
   }
 
@@ -232,46 +224,39 @@ export async function ensureUserNamespace(
       return { namespace, memex };
     }),
   );
-  // spec-178 t-4 — seed the handhold onboarding demo into the brand-new personal
-  // Memex. AFTER the mutate() commits, on the create path only (the fast-path
-  // returns earlier and never reaches here). This funnels every signup flow
-  // (password / magic-link / SSO) — they all create the namespace through here.
-  await seedNewPersonalMemex(created.memex.id, userId);
+  // spec-474 dec-6: content seeding no longer runs here. The namespace + Memex are
+  // created (fast, one tx) and returned; the Memex comes up provisioned_at NULL and is
+  // content-seeded later by the first-load readiness endpoint (POST /api/me/provision),
+  // NOT on this request. This funnels every signup flow (password / magic-link / SSO),
+  // so none of them wait on the seed.
   return created;
 }
 
-// Seed a freshly-created personal Memex with the onboarding content (spec-178
-// handhold demo + spec-184 default Standards) and AWAIT it before ensureUserNamespace
-// returns. The two seeds run concurrently; allSettled guarantees this never rejects.
+// Seed a personal Memex's onboarding content: the default facets, the default
+// Standards, and the "Understanding Memex" starter Spec. The two doc-seeds run
+// concurrently; allSettled guarantees this never rejects.
 //
-// Why AWAIT and not fire-and-forget: these seeds were originally detached (`void seed…()`)
-// so a slow/failed seed couldn't block or roll back signup. But on Cloud Run, CPU is
-// throttled to ~0 the instant the HTTP response flushes, so the detached post-response
-// multi-insert was getting starved/killed before its rows committed — new users landed in
-// an EMPTY Memex (no demo spec, no Standards), intermittently (it only completed when the
-// instance happened to stay warm). Awaiting keeps the inserts on the request path, where
-// CPU is allocated for the lifetime of the request, so they actually finish. The seeds are
-// bounded local-DB writes (the section embeddings they trigger are themselves fire-and-forget
-// inside the doc/section/clause primitives, so they do NOT lengthen this await). Cost is a
-// one-time latency bump on the single request that first creates a user's namespace.
+// spec-474 dec-6: this NO LONGER runs on the signup request. It used to be awaited
+// inside ensureUserNamespace's create path, which delayed the signup response and the
+// verification email; and it couldn't simply be detached, because on Cloud Run CPU is
+// throttled to ~0 the instant the HTTP response flushes, so a detached post-response
+// multi-insert got starved/killed and new users landed in an EMPTY Memex. The fix is
+// to run it on a DIFFERENT request — the first-load readiness endpoint
+// (POST /api/me/provision, via provisionUserMemex below) — which has its own CPU
+// allocation for its lifetime, so the inserts finish reliably with no empty-Memex
+// regression, and nothing seed-heavy sits on signup.
 //
-// Best-effort is preserved by the per-seed try/catch below: a seed failure is logged and
-// swallowed, so signup still succeeds (the namespace + memex are already committed by the
-// time we get here). The seeds are individually idempotent (handhold: NO-OP if a demo doc
-// exists — ac-8; standards: NO-OP once the Memex holds any standard), so a duplicate fire
-// (e.g. a signup race twin) is harmless.
+// Best-effort is preserved by the per-seed try/catch: a seed failure is logged and
+// swallowed. The seeds are individually idempotent (starter: NO-OP once the system
+// starter exists; standards: NO-OP once the Memex holds any standard), so a duplicate
+// fire (a race twin, a re-provision) is harmless.
 //
 // spec-436: run the seeders inside runWithMemexId(memexId) so the rlsClient proxy emits
 // `set_config('app.memex_id', …)` for every INSERT they issue. The runtime connects as the
 // non-owner `memex_app` role, which is SUBJECT to RLS (std-36: ENABLE, never FORCE), and the
-// `documents` WITH CHECK policy keys on app.memex_id. Unlike a normal API request — which the
-// session middleware already wraps in runWithMemexId(currentMemexId) — provisioning runs
-// OUTSIDE any tenant context for the just-created memex (the signup request isn't scoped to
-// it), so without this wrapper every seed INSERT was rejected ("new row violates row-level
-// security policy for table \"documents\"") and the new workspace came up empty. One wrapper
-// over the shared allSettled covers all current and future seeders; the experiment lookup the
-// provisioning seed performs reads RLS-EXCLUDED tables, so the GUC is a harmless no-op there.
-async function seedNewPersonalMemex(memexId: string, ownerUserId: string): Promise<void> {
+// `documents` WITH CHECK policy keys on app.memex_id. One wrapper over the shared allSettled
+// covers all the seeders.
+export async function provisionPersonalMemexContent(memexId: string): Promise<void> {
   await runWithMemexId(memexId, async () => {
     // spec-437 dec-1: the facet vocabulary must exist BEFORE the default Standards are
     // seeded, so each default clause's facet verdict persists against a live vocabulary
@@ -281,97 +266,42 @@ async function seedNewPersonalMemex(memexId: string, ownerUserId: string): Promi
     // blocking signup.
     await seedDefaultFacetsForMemexBestEffort(memexId);
     await Promise.allSettled([
-      seedProvisioningBehaviourBestEffort(memexId, ownerUserId),
+      seedProvisioningBehaviourBestEffort(memexId),
       seedDefaultStandardsBestEffort(memexId),
     ]);
   });
 }
 
-// spec-426: seed the new personal Memex with the EXPERIMENT-ASSIGNED onboarding
-// behaviour, awaited + isolated — see seedNewPersonalMemex. A rejection is caught and
-// logged so it never propagates out of ensureUserNamespace (ac-7 / ac-14: a seed
-// failure must never block signup). This is the only seeding path; spec-178's handhold
-// demo is now the CONTROL arm, dispatched through the experiment registry.
+// spec-474 dec-1: seed the new personal Memex with the "Understanding Memex" starter
+// Spec, awaited + isolated — see seedNewPersonalMemex. A rejection is caught and logged
+// so it never propagates out of ensureUserNamespace (a seed failure must never block
+// signup). This is the only seeding path; the demo-vs-starter experiment concluded with
+// the starter Spec as the winner, so provisioning now seeds it DIRECTLY rather than
+// dispatching through the experiment registry.
 //
-// NET-NEW only (dec-5 / ac-13): this hook fires solely on the personal-namespace CREATE
-// path, so by construction it only ever sees users created after the experiment starts —
-// there is no backfill and none is needed.
+// NET-NEW only: this hook fires solely on the personal-namespace CREATE path, so by
+// construction it only ever seeds users created after the cutover — there is no backfill
+// and none is needed.
 //
-// KILL-SWITCH / degrade-to-control (ac-13): the experiment system is best-effort, never
-// load-bearing for signup. If the experiment is unavailable, not yet 'running', concluded,
-// or anything throws, we fall back to the CONTROL behaviour (the handhold demo) — control
-// is the safe default, so a misconfigured/paused experiment degrades signup to spec-178's
-// known-good onboarding rather than failing or stranding the user with no content.
+// System-attributed by design (spec-426 dec-3 / ac-3): the starter Spec and its children
+// MUST NOT advance the new user's onboarding milestones, so we pass a bare server ctx with
+// NO actorUserId. seedStarterSpec strips any actor defensively, but we don't thread one to
+// begin with — the rows land system-owned (created_by_user_id / actor_user_id NULL).
 //
-// spec-186: MEMEX_HANDHOLD_SIGNUP_SEED=off disables ALL provisioning seeding (control AND
-// treatment — the control arm IS the handhold demo). The vitest config sets it suite-wide:
-// under vitest every test that creates a user would otherwise run a multi-insert seed it
-// then has to clean up (FK violations, rotating deadlocks). The hook's OWN suites stub the
-// var back on — the env is read at CALL time, never cached, precisely so they can.
-// Prod/dev/e2e behaviour is unchanged (var unset ⇒ hook fires).
-async function seedProvisioningBehaviourBestEffort(
-  memexId: string,
-  ownerUserId: string,
-): Promise<void> {
+// spec-186 kill-switch: MEMEX_HANDHOLD_SIGNUP_SEED=off disables provisioning seeding. The
+// vitest config sets it suite-wide: under vitest every test that creates a user would
+// otherwise run a multi-insert seed it then has to clean up (FK violations, rotating
+// deadlocks). The hook's OWN suites stub the var back on — the env is read at CALL time,
+// never cached, precisely so they can. Prod/dev/e2e behaviour is unchanged (var unset ⇒
+// hook fires).
+async function seedProvisioningBehaviourBestEffort(memexId: string): Promise<void> {
   if (process.env.MEMEX_HANDHOLD_SIGNUP_SEED === "off") return;
 
-  // Resolve the variant behaviour first, degrading to control on ANY problem (ac-13).
-  // Declared without an initializer: both the try (success) and catch assign it, so it
-  // is definitely set before use — and a redundant initial value trips the static scan.
-  let behaviour: string;
   try {
-    behaviour = await resolveProvisioningBehaviour(ownerUserId);
-  } catch (err) {
-    // Experiment lookup / assignment failed — degrade to control, never block signup.
-    console.error("[experiment assign]", err);
-    behaviour = CONTROL_BEHAVIOUR;
-  }
-
-  try {
-    // Attribution diverges by arm: the CONTROL (handhold demo) is attributed to the new
-    // user over the server channel (spec-406 ac-26 / std-32) so its demo Specs/ACs/tasks
-    // carry a WHO + HOW; the TREATMENT (starter_spec, dec-3) MUST be system-attributed, so
-    // we pass NO actorUserId (seedStarterSpec strips it defensively, but we don't rely on
-    // that as the mechanism). runVariantBehaviour itself degrades an unknown behaviour id
-    // to control, so a stale/typo'd variant is also safe.
-    const ctx =
-      behaviour === CONTROL_BEHAVIOUR
-        ? ({ channel: "server", actorUserId: ownerUserId } as const)
-        : ({ channel: "server" } as const);
-    await runVariantBehaviour(behaviour, memexId, ctx);
+    await seedStarterSpec(memexId, { channel: "server" });
   } catch (err) {
     console.error("[provisioning seed]", err);
   }
-}
-
-// spec-426: resolve which onboarding behaviour to seed for this new user.
-//
-// ac-13 kill-switch: ONLY a RUNNING experiment drives a variant. A missing experiment, or
-// one still in 'draft' (not yet started) or 'concluded' (done), returns the control
-// behaviour WITHOUT creating an assignment — assignments are minted only while the
-// experiment is running (net-new, no pre-start buckets). When the experiment IS running we
-// deterministically bucket the user (dec-6: hash(user_id) → stable 50/50) via
-// resolveOrCreateAssignment — idempotent, so a signup race-twin / re-provision never
-// re-rolls — and look up the assigned variant's behaviour id.
-async function resolveProvisioningBehaviour(ownerUserId: string): Promise<string> {
-  const [experiment] = await db
-    .select({ id: experiments.id, status: experiments.status })
-    .from(experiments)
-    .where(eq(experiments.key, PROVISIONING_EXPERIMENT_KEY))
-    .limit(1);
-  if (!experiment || experiment.status !== "running") {
-    return CONTROL_BEHAVIOUR;
-  }
-
-  const assignment = await resolveOrCreateAssignment(ownerUserId, PROVISIONING_EXPERIMENT_KEY, {
-    channel: "server",
-  });
-  const [variant] = await db
-    .select({ behaviour: experimentVariants.behaviour })
-    .from(experimentVariants)
-    .where(eq(experimentVariants.id, assignment.variantId))
-    .limit(1);
-  return variant?.behaviour ?? CONTROL_BEHAVIOUR;
 }
 
 // Seed the six default Standards (spec-184 t-3 / dec-2), awaited + isolated — see
@@ -398,4 +328,53 @@ async function seedDefaultStandardsBestEffort(memexId: string): Promise<void> {
 export async function ensureUserMemex(userId: string): Promise<Memex> {
   const result = await ensureUserNamespace(userId);
   return result.memex;
+}
+
+// spec-474 dec-6: the first-load readiness step. Idempotently content-seeds the
+// caller's personal Memex (default facets + Standards + the "Understanding Memex"
+// starter Spec) and stamps memexes.provisioned_at. Called by POST /api/me/provision
+// on first load behind the "Getting your Memex ready…" blocker — NOT on signup.
+//
+// Owner-scoped by construction: the route passes the SESSION user's own id, so a
+// caller can only provision their own personal Memex. Idempotent + race-safe: if
+// provisioned_at is already set we return without re-seeding; the seeds themselves are
+// idempotent, and the stamp is guarded on `provisioned_at IS NULL` so a concurrent
+// twin never double-stamps. Returns whether this call performed the seed.
+export async function provisionUserMemex(
+  userId: string,
+): Promise<{ memexId: string; seeded: boolean }> {
+  const memex = await ensureUserMemex(userId);
+
+  const [row] = await db
+    .select({ provisionedAt: memexes.provisionedAt })
+    .from(memexes)
+    .where(eq(memexes.id, memex.id))
+    .limit(1);
+  if (row?.provisionedAt) return { memexId: memex.id, seeded: false };
+
+  await provisionPersonalMemexContent(memex.id);
+  await db
+    .update(memexes)
+    .set({ provisionedAt: new Date() })
+    .where(and(eq(memexes.id, memex.id), isNull(memexes.provisionedAt)));
+  return { memexId: memex.id, seeded: true };
+}
+
+// spec-474 dec-6: the readiness signal the SPA reads on first load (via GET /api/me)
+// to decide whether to show the blocker. Reads the caller's personal Memex WITHOUT
+// creating it. `provisioned` is true when the content seed has run (provisioned_at set)
+// — or when there is no personal Memex yet (nothing to block on; session middleware
+// creates it on the same request), so the blocker is only shown for a real, unseeded
+// personal Memex.
+export async function getPersonalMemexProvisionState(
+  userId: string,
+): Promise<{ memexId: string | null; provisioned: boolean }> {
+  const [row] = await db
+    .select({ id: memexes.id, provisionedAt: memexes.provisionedAt })
+    .from(memexes)
+    .innerJoin(namespaces, eq(memexes.namespaceId, namespaces.id))
+    .where(and(eq(namespaces.ownerUserId, userId), eq(namespaces.kind, "user")))
+    .limit(1);
+  if (!row) return { memexId: null, provisioned: true };
+  return { memexId: row.id, provisioned: row.provisionedAt != null };
 }

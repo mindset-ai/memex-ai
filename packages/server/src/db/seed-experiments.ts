@@ -13,7 +13,7 @@
 // 0116, the comms_log posture), so this uses the default `db` connection directly —
 // no runWithMemexId — exactly as services/experiments.ts does.
 
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { db } from "./connection.js";
 import { experiments, experimentVariants } from "./schema.js";
 
@@ -39,9 +39,13 @@ export const DEFAULT_EXPERIMENT_KEY = "provisioning_demo_vs_starter";
  * (experiment_id, key) unique index, and a conflict is a no-op. Returns silently
  * whether it created the rows or found them already present.
  *
- * Variants (dec-4 / dec-6 — a deterministic 50/50 split across these two arms):
- *   A — control, behaviour 'handhold_demo'  (spec-178's fixed demo walkthrough)
- *   B — treatment, behaviour 'starter_spec' (the seeded "Understanding Memex" spec)
+ * Variants (the historical A/B split, retained for the Backstage scoreboard):
+ *   A — control, behaviour 'handhold_demo'  (spec-178's demo walkthrough, now deleted)
+ *   B — treatment, behaviour 'starter_spec' (the seeded "Understanding Memex" spec) — WINNER
+ *
+ * spec-474 dec-2: this experiment is now CONCLUDED and seeded as such. The rows exist
+ * purely as the historical record; nothing dispatches either behaviour any more
+ * (provisioning seeds the starter spec directly — user-namespaces.ts).
  */
 export async function ensureDefaultExperiment(): Promise<void> {
   // 1. The experiment. ON CONFLICT (key) DO NOTHING — present-on-reboot is a no-op.
@@ -51,16 +55,18 @@ export async function ensureDefaultExperiment(): Promise<void> {
       key: DEFAULT_EXPERIMENT_KEY,
       statement:
         "We think a seeded, system-attributed starter spec (B) drives more net-new users to author their own first real spec than the fixed demo walkthrough (A), because a concrete worked example is easier to extend than a read-only tour.",
-      // Seeded INACTIVE (draft) — provisioning degrades to control (the handhold demo)
-      // for everyone until an operator deliberately flips this to 'running' in Backstage
-      // (resolveProvisioningBehaviour gates on status==='running', ac-13). This keeps the
-      // experiment from silently splitting 50% of all signups onto the treatment arm at
-      // deploy time; activation is a conscious operator action, not a side effect of boot.
-      status: "draft",
+      // spec-474 dec-2: this experiment is CONCLUDED. Variant B (starter_spec) won
+      // (42.3% vs 19.4% conversion, a 2.2× lift) and is now the unconditional seed for
+      // every new user (provisioning seeds the starter spec directly — it no longer
+      // routes through this experiment). A concluded experiment mints no assignments and
+      // drives no seeding; the row + its variants + historical assignments are retained
+      // only so the Backstage scoreboard keeps showing the A/B result (spec-109).
+      status: "concluded",
       // dec-2: the success window N in DAYS — first-class column, default 7.
       windowDays: 7,
-      // Decorative predicate (the load-bearing window lives in window_days above).
-      outcomeRule: { milestone: "hasSpec", window_days: 7 },
+      // Decorative predicate (the load-bearing window lives in window_days above). winner
+      // records the concluded verdict for the Backstage read.
+      outcomeRule: { milestone: "hasSpec", window_days: 7, winner: "B" },
     })
     .onConflictDoNothing();
 
@@ -75,6 +81,18 @@ export async function ensureDefaultExperiment(): Promise<void> {
     // on the boot path — the best-effort caller logs and continues.
     return;
   }
+
+  // spec-474 dec-2: CONCLUDE the experiment idempotently on every boot. The insert above
+  // is ON CONFLICT DO NOTHING, so it will NOT flip an existing prod row that is still
+  // 'running'/'draft' from when the experiment ran — this update does. Scoped to the one
+  // canonical key and guarded on status so it self-heals regardless of deploy order and
+  // is a cheap no-op once concluded. This is the mechanism that stops all bucketing/
+  // seeding forks in production (resolveProvisioningBehaviour, if ever re-wired, gates on
+  // status==='running'). Also stamps the winner for the scoreboard.
+  await db
+    .update(experiments)
+    .set({ status: "concluded", outcomeRule: { milestone: "hasSpec", window_days: 7, winner: "B" } })
+    .where(and(eq(experiments.key, DEFAULT_EXPERIMENT_KEY), sql`${experiments.status} <> 'concluded'`));
 
   // 2. The two arms. One source of truth for the seed so the insert and the
   //    description backfill below can't drift.

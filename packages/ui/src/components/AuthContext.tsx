@@ -18,6 +18,7 @@ import {
 } from '../api/client';
 import { readAttributionCookie, pushDataLayer } from '../lib/attribution';
 import { LoginScreen } from './LoginScreen';
+import { MemexReadyGate } from './MemexReadyGate';
 import { isFeatureHidden } from '../utils/featureFlags';
 import { buildBareDomainUrl } from '../utils/tenantUrl';
 import { useUserChangeStreamWithToken } from '../hooks/useUserChangeStream';
@@ -393,7 +394,10 @@ export function RequireAuth({ children }: { children: ReactNode }) {
     [wrap, acceptSession],
   );
 
-  if (isAuthenticated) return <>{children}</>;
+  // spec-474 dec-6: gate authenticated content on first-load Memex readiness. The gate
+  // is invisible for provisioned users; a brand-new user briefly sees "Getting your
+  // Memex ready…" while the onboarding content seed runs (off the signup path).
+  if (isAuthenticated) return <MemexReadyGate>{children}</MemexReadyGate>;
 
   return (
     <LoginScreen

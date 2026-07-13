@@ -27,8 +27,8 @@ import { MicGlyph } from './MicGlyph';
  * The seed context handed to the guide for its proactive opening turn. The guide
  * LLM produces the actual spoken greeting from this seed once the mic is granted
  * (the "Turn on Mic" press calls session.start with it). Carries a warm first-name
- * greeting (or a nameless fallback), the value prop, on-screen orientation, the
- * open invitation, and the demo-walkthrough offer — all "under a minute".
+ * greeting (or a nameless fallback), the value prop, on-screen orientation, and the
+ * open invitation — all "under a minute".
  */
 export function buildOnboardingOpeningContext(firstName: string | null): string {
   const greeting = firstName
@@ -41,7 +41,6 @@ export function buildOnboardingOpeningContext(firstName: string | null): string 
     `1. Explains what Memex is — a living spec and shared graph that humans and AI coding agents both read and write, so the plan stays live and what's done is proven by CI.`,
     `2. Orients them to what is on screen right now — the Specs board and its phase columns (draft, specify, build, verify, done).`,
     `3. Invites them to ask you about anything they can see on the screen.`,
-    `4. Offers to walk them through the demo specs — ask "would you like me to walk you through the demo specs?".`,
     `Keep it warm, concise, and conversational — this is a spoken greeting, not a script reading.`,
   ].join('\n');
 }
