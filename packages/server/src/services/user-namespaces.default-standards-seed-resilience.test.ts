@@ -8,8 +8,8 @@
 // called, the seed error would never be logged, and this test would fail.
 //
 // Runs against REAL Postgres (the namespace + memex are really created); only the
-// seeders are mocked. The handhold seed shares the same best-effort hook, so it's
-// stubbed to a no-op to isolate the failure to the default-Standards path.
+// seeders are mocked. The starter-spec provisioning seed shares the same best-effort
+// hook, so it's stubbed to a no-op to isolate the failure to the default-Standards path.
 
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { and, eq, inArray } from "drizzle-orm";
@@ -17,8 +17,8 @@ import { and, eq, inArray } from "drizzle-orm";
 const { seedError } = vi.hoisted(() => ({
   seedError: new Error("default-standards seed boom (spec-184 ac-9 resilience test)"),
 }));
-vi.mock("./handhold-demo.js", () => ({
-  seedHandholdDemo: vi.fn().mockResolvedValue(undefined),
+vi.mock("./starter-spec.js", () => ({
+  seedStarterSpec: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock("./default-standards.js", () => ({
   seedDefaultStandards: vi.fn().mockRejectedValue(seedError),
@@ -26,7 +26,7 @@ vi.mock("./default-standards.js", () => ({
 
 import { db } from "../db/connection.js";
 import { namespaces, memexes, users } from "../db/schema.js";
-import { ensureUserNamespace } from "./user-namespaces.js";
+import { ensureUserNamespace, provisionUserMemex } from "./user-namespaces.js";
 import { upsertUserByEmail } from "./users.js";
 import { tagAc } from "@memex-ai-ac/vitest";
 
@@ -54,8 +54,8 @@ afterAll(async () => {
   }
 });
 
-describe("ensureUserNamespace — a default-Standards seed failure never blocks signup (ac-9)", () => {
-  it("still creates the user's namespace + personal memex, resolves, and logs the seed error", async () => {
+describe("provisioning — a default-Standards seed failure never blocks the flow (ac-9)", () => {
+  it("creates the namespace + memex on signup, and provisionUserMemex resolves + logs the seed error", async () => {
     tagAc(AC(9));
 
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -64,8 +64,8 @@ describe("ensureUserNamespace — a default-Standards seed failure never blocks 
     );
     createdUserIds.push(user.id);
 
-    // The seed is mocked to reject; ensureUserNamespace must still RESOLVE (the seed is
-    // post-commit + best-effort, so a seed failure can never block signup).
+    // spec-474 dec-6: signup only creates the namespace + memex (no content seed), so
+    // ensureUserNamespace resolves regardless of any seeder health.
     await expect(ensureUserNamespace(user.id)).resolves.toBeDefined();
 
     // The account artifacts exist: a personal (kind='user') namespace + its memex.
@@ -83,9 +83,11 @@ describe("ensureUserNamespace — a default-Standards seed failure never blocks 
       .limit(1);
     expect(mx).toBeDefined();
 
-    // The seed is awaited inside ensureUserNamespace, so by the time it resolves the
-    // rejection has already been caught + logged (no tick needed) — which also proves the
-    // hook actually fired.
+    // The content seed runs on the readiness step. The Standards seed is mocked to reject;
+    // provisionUserMemex must still RESOLVE (best-effort per-seed try/catch) and log the
+    // error — which also proves the seeder hook actually fired.
+    await expect(provisionUserMemex(user.id)).resolves.toBeDefined();
+
     expect(errSpy).toHaveBeenCalled();
     const loggedTheSeedError = errSpy.mock.calls.some((args) =>
       args.some((arg) => arg === seedError),

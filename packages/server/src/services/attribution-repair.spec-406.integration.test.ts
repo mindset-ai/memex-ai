@@ -6,9 +6,9 @@
 //   ac-25  the transition helpers approveDecision / rejectDecision / reopenDecision
 //          (decisions.ts) and setAcAcceptance / clearAcAcceptance (acs.ts) thread a
 //          RequestCtx, stamping actor + channel on the updated row.
-//   ac-26  seedHandholdDemo threads a server ctx (channel='server' + the seeded
-//          user as actor) so its seeded specs/ACs/tasks/decisions carry attribution
-//          rather than landing fully unattributed.
+//   ac-26  [removed spec-474] seedHandholdDemo's server-ctx attribution — the handhold
+//          demo seeder was deleted when the demo-vs-starter experiment concluded; the
+//          starter Spec seed is system-attributed by design (no seed-attribution case).
 //   ac-27  REGRESSION: every repaired path lands a non-null channel on its row — a
 //          revert to mutate({}) (silent 'server', NULL source-row channel) fails this.
 //
@@ -38,7 +38,6 @@ import { createAc } from "./acs.js";
 import { setAcAcceptance, clearAcAcceptance } from "./acs.js";
 import { createDecision, approveDecision, rejectDecision, reopenDecision } from "./decisions.js";
 import { createIssue, convertIssueToTask } from "./issues.js";
-import { seedHandholdDemo } from "./handhold-demo.js";
 import type { RequestCtx } from "./mutate.js";
 
 const AC = "mindset-prod/memex-building-itself/specs/spec-406/acs";
@@ -186,41 +185,11 @@ describe("spec-406 t-8: attribution threaded through the repaired transition pat
   });
 
   // ── ac-26 ─────────────────────────────────────────────────────────────────
-  it("ac-26: seedHandholdDemo stamps the seeded user + channel='server' on its rows", async () => {
-    tagAc(`${AC}/ac-26`);
-    // A pristine personal-style memex to seed into (the seed no-ops if any demo
-    // doc already exists).
-    const demo = await setupActor("seed");
-    await seedHandholdDemo(demo.memexId, { channel: "server", actorUserId: demo.user.id });
-
-    const demoDocs = await db
-      .select({ id: documents.id })
-      .from(documents)
-      .where(eq(documents.memexId, demo.memexId));
-    const demoDocIds = demoDocs.map((d) => d.id);
-    expect(demoDocIds.length).toBeGreaterThan(0);
-
-    // Every seeded AC / task / decision carries the server channel + the seeded user.
-    const seededAcs = await db.select().from(acs).where(inArray(acs.briefId, demoDocIds));
-    expect(seededAcs.length).toBeGreaterThan(0);
-    for (const row of seededAcs) {
-      expect(row.channel).toBe("server");
-      expect(row.actorUserId).toBe(demo.user.id);
-      expect(row.actorName).toBe("Dakota");
-    }
-    const seededTasks = await db.select().from(tasks).where(inArray(tasks.docId, demoDocIds));
-    expect(seededTasks.length).toBeGreaterThan(0);
-    for (const row of seededTasks) {
-      expect(row.channel).toBe("server");
-      expect(row.actorUserId).toBe(demo.user.id);
-    }
-    const seededDecs = await db.select().from(decisions).where(inArray(decisions.docId, demoDocIds));
-    expect(seededDecs.length).toBeGreaterThan(0);
-    for (const row of seededDecs) {
-      expect(row.channel).toBe("server");
-      expect(row.actorUserId).toBe(demo.user.id);
-    }
-  });
+  // spec-474: the ac-26 case (seedHandholdDemo threads a server ctx onto its rows) was
+  // removed when the handhold demo seeder was deleted (the demo-vs-starter experiment
+  // concluded with the starter Spec as the winner). The starter Spec seed is
+  // system-attributed by design (starter-spec.ts strips any actor), so there is no
+  // seed-attribution case to assert here any more.
 
   // ── ac-27 (regression) ──────────────────────────────────────────────────────
   it("ac-27: NO repaired-path row reaches the activity sink with a null channel", async () => {

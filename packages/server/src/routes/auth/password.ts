@@ -72,15 +72,15 @@ password.post("/signup", async (c) => {
     throw err;
   }
 
-  // Dispatch the verification email FIRST — before the awaited provisioning below.
-  // `ensureUserMemex` synchronously seeds the personal memex (demo spec + standards +
-  // facets, ~seconds of work deliberately kept on the request path for Cloud Run CPU
-  // reasons). Issuing the token + sending the mail after that seed left the send queued
-  // ~12s behind provisioning, so the confirmation arrived late and impatient users hit
-  // "Resend" — the duplicate-verification-email bug. The send is still fire-and-forget
-  // (the user is admitted immediately, emailVerified=false, gated by a banner), but now
-  // it leaves for Postmark before we block on seeding; the awaited seed below keeps the
-  // request (and its CPU) alive so the detached send completes.
+  // Dispatch the verification email (fire-and-forget; the user is admitted immediately,
+  // emailVerified=false, gated by a banner).
+  //
+  // spec-474 dec-6: `ensureUserMemex` below now only creates the namespace + Memex row
+  // (one fast tx) — the heavy onboarding content seed (starter Spec + Standards + facets)
+  // moved OFF this request onto the first-load readiness endpoint (POST /api/me/provision),
+  // so the signup response is no longer delayed by seconds of seeding and the email is
+  // never queued behind it. (Previously the seed was awaited here for Cloud Run CPU
+  // reasons, which is exactly what caused the ~12s email delay + "Resend" duplicates.)
   //
   // Skipped when the email is already verified (e.g. the user was previously created via
   // Google SSO and is now adding a password).
@@ -96,8 +96,9 @@ password.post("/signup", async (c) => {
       .catch((err) => console.error("Failed to send verification email:", err));
   }
 
-  // Provision the personal memex. Idempotent — safe even if createUserWithPassword was
-  // called for a pre-existing SSO user (returning the same row).
+  // Ensure the personal namespace + Memex row exist (fast, one tx). Idempotent — safe
+  // even if createUserWithPassword returned a pre-existing SSO user. spec-474 dec-6: the
+  // onboarding CONTENT seed is not here any more; the SPA drives it on first load.
   await ensureUserMemex(user.id);
 
   // spec-297 dec-7: set the user's Mixpanel profile (email_domain + org links) so

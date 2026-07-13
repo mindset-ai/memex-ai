@@ -23,8 +23,8 @@ import {
 //   • A user who HAS created their first spec lands on their Specs board — unchanged
 //     (spec-421 ac-14 / ac-16 + spec-461's surviving clause: engaged ⇒ board, never /home).
 //
-// (The hasSpec attribution invariant — demo/starter specs don't count — is proven in
-// journey-51-spec-426-variant-b and journey-state.ts units.)
+// (The hasSpec attribution invariant — the system-attributed starter spec doesn't count —
+// is proven in journey-51-spec-474-starter-spec and journey-state.ts units.)
 //
 // Tests run in declaration order in one worker: the no-spec case runs first (clean state),
 // then the has-spec case seeds a spec and the afterEach deletes it — so neither leaks into

@@ -129,7 +129,6 @@ import {
 } from '@memex/guide-sdk';
 import { VoiceLayer } from './voice/session/VoiceLayer';
 import { createReactRouterNavigationAdapter } from './voice/reactRouterNavigationAdapter';
-import { HandholdRevealProvider, useHandholdRevealValue } from './hooks/HandholdRevealContext';
 import { useTrackRouteChange, useTelemetry, trackAnonymous } from './hooks/useTelemetry';
 import { useShouldLandOnHome } from './journeys/landing';
 import { getCachedJourneyState } from './journeys/journeyStateCache';
@@ -137,7 +136,6 @@ import { tenantBase, BASE_URL, fetchWithRetry } from './api/http';
 import { SearchProvider } from './components/SearchContext';
 import { WhatsNewRibbonConnected } from './components/whats-new/WhatsNewRibbonConnected';
 import { WhatsNewProvider } from './components/whats-new/WhatsNewContext';
-import { DemoWalkthroughController } from './voice/walkthrough/DemoWalkthroughController';
 
 declare const __BUILD_TIME__: string;
 
@@ -295,41 +293,30 @@ function TenantLayout() {
   // callback; useDocChangeStream captures tenantBase() once on connect).
   return (
     <ChatProvider>
-      {/* spec-206 t-2: one shared Handhold reveal pointer per tenant, wrapping
-          BOTH the voice layer (VoiceGuideMount threads `advance` into the
-          orchestrator's `advance_demo` tool) and the board pages (Outlet), so
-          Specky's synced walkthrough and the visible board advance together.
-          Keyed by tenant so it re-reads the per-tenant localStorage pointer. */}
-      <HandholdRevealProvider
-        key={`${namespace}/${memex}`}
-        namespace={namespace ?? null}
-        memex={memex ?? null}
-      >
-        {/* spec-190 t-8/t-3: the voice guide is available on authed tenant routes
-            (the guide-chat SSE leg needs a session). VoiceGuideMount supplies the
-            real mic→STT→graph→TTS orchestrator factory + renders VoiceLayer beside
-            AppShell, so the shell needs no edit and the public branch — which never
-            mounts VoiceGuideMount — has no voice surface. */}
-        <VoiceGuideMount namespace={namespace ?? ''} memex={memex ?? ''}>
-          {/* spec-200: WhatsNewProvider lets the sidebar user menu re-open the
-              popup and gives the ribbon the menu anchor to animate "into" on
-              dismiss — so it wraps BOTH the ribbon and AppShell. */}
-          <WhatsNewProvider>
-            <OrgConsentDialog />
-            {/* spec-200: global What's New ribbon — authed shell only (inside
-                VoiceGuideMount so t-7's ear can reach the voice session). */}
-            <WhatsNewRibbonConnected />
-            {/* spec-305 dec-2: the Specky first-run greeting (FirstRunGreeting,
-                spec-206/242) is retired — onboarding is now the Home Canvas journey.
-                spec-312: it's a recede-able layer on /home, no longer a routing wall. */}
-            <AppShell>
-              <Fragment key={`${namespace}/${memex}`}>
-                <Outlet />
-              </Fragment>
-            </AppShell>
-          </WhatsNewProvider>
-        </VoiceGuideMount>
-      </HandholdRevealProvider>
+      {/* spec-190 t-8/t-3: the voice guide is available on authed tenant routes
+          (the guide-chat SSE leg needs a session). VoiceGuideMount supplies the
+          real mic→STT→graph→TTS orchestrator factory + renders VoiceLayer beside
+          AppShell, so the shell needs no edit and the public branch — which never
+          mounts VoiceGuideMount — has no voice surface. */}
+      <VoiceGuideMount namespace={namespace ?? ''} memex={memex ?? ''}>
+        {/* spec-200: WhatsNewProvider lets the sidebar user menu re-open the
+            popup and gives the ribbon the menu anchor to animate "into" on
+            dismiss — so it wraps BOTH the ribbon and AppShell. */}
+        <WhatsNewProvider>
+          <OrgConsentDialog />
+          {/* spec-200: global What's New ribbon — authed shell only (inside
+              VoiceGuideMount so t-7's ear can reach the voice session). */}
+          <WhatsNewRibbonConnected />
+          {/* spec-305 dec-2: the Specky first-run greeting (FirstRunGreeting,
+              spec-206/242) is retired — onboarding is now the Home Canvas journey.
+              spec-312: it's a recede-able layer on /home, no longer a routing wall. */}
+          <AppShell>
+            <Fragment key={`${namespace}/${memex}`}>
+              <Outlet />
+            </Fragment>
+          </AppShell>
+        </WhatsNewProvider>
+      </VoiceGuideMount>
     </ChatProvider>
   );
 }
@@ -352,20 +339,13 @@ function VoiceGuideMount({
 }) {
   const { token } = useAuth();
   const navigate = useNavigate();
-  // spec-206 t-2: the shared reveal pointer's advance — threaded into the
-  // orchestrator so the guide's `advance_demo` tool walks the board during the
-  // synced walkthrough (dec-1). Read via the provider that wraps this component.
-  const { advance: advanceDemo } = useHandholdRevealValue(namespace || null, memex || null);
-  // spec-211 t-3: the demo-walkthrough sequencer registers its start() here; the
-  // guide's start_walkthrough tool invokes it through the orchestrator dep below.
-  const walkthroughStartRef = useRef<() => void>(() => {});
   // All live values flow through this ref so the factory can be created ONCE and
   // never change identity. `navigate` in particular gets a new identity on router
   // re-renders; if the factory depended on it, the provider's memoized orchestrator
   // would be recreated mid-turn — and its cleanup effect would stop() the in-flight
   // orchestrator, dropping the spoken reply (the turn finished with stopped=true).
-  const liveRef = useRef({ token, namespace, memex, navigate, advanceDemo });
-  liveRef.current = { token, namespace, memex, navigate, advanceDemo };
+  const liveRef = useRef({ token, namespace, memex, navigate });
+  liveRef.current = { token, namespace, memex, navigate };
 
   const factory = useMemo(
     () => {
@@ -383,12 +363,12 @@ function VoiceGuideMount({
       });
       return createVoiceOrchestratorFactory({
         adapter,
-        // spec-222 t-6: the Memex app enables the demo-walkthrough capability so
-        // advance_demo / start_walkthrough are live (spec-206/211). The public
-        // website omits this, so those tools stay inert there (ac-6, ac-18).
-        capabilities: { walkthrough: true },
-        advanceDemo: () => liveRef.current.advanceDemo(),
-        startWalkthrough: () => walkthroughStartRef.current(),
+        // spec-474: the demo-walkthrough surface is gone. The guide-sdk orchestrator
+        // still types `advanceDemo`/`startWalkthrough` as required deps, so we pass
+        // inert no-ops — with the `walkthrough` capability no longer enabled, the
+        // advance_demo / start_walkthrough tools never reach these anyway.
+        advanceDemo: () => {},
+        startWalkthrough: () => {},
         authToken: () => liveRef.current.token,
         tenantBase: () => tenantBase(),
         origin: typeof window !== 'undefined' ? window.location.origin : '',
@@ -410,14 +390,6 @@ function VoiceGuideMount({
   return (
     <VoiceSessionProvider orchestratorFactory={factory}>
       {children}
-      {/* spec-211 t-3: the demo-walkthrough sequencer (renders nothing). Inside the
-          provider so it can drive narratePhase; registers start() into the ref the
-          start_walkthrough tool calls. */}
-      <DemoWalkthroughController
-        namespace={namespace || null}
-        memex={memex || null}
-        startRef={walkthroughStartRef}
-      />
       <VoiceLayer />
     </VoiceSessionProvider>
   );

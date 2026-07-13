@@ -15,7 +15,6 @@ import { maybeAutoResolveIssuesForPromotedDoc } from "./issues.js";
 import { seedCreatorAsEditor } from "./doc-members.js";
 import { listAssigneesForDocs } from "./doc-assignees.js";
 import type { ParsedTag } from "./tags.js";
-import { HANDHOLD_PHASES } from "../db/handhold-demo.fixture.js";
 
 // Per-account handle sequence: doc-1, doc-2, ... within an account. Avoids cross-tenant
 // collisions on the (account_id, handle) unique constraint. Accepts a db OR tx client so
@@ -742,10 +741,6 @@ export async function getDoc(
     // when the spec is free or the holder was wiped (FK ON DELETE SET NULL). The
     // formatter renders "Checked out by X (N minutes ago)" from this + checked_out_at.
     checkoutHolder: { name: string | null; email: string | null } | null;
-    // spec-178 dec-8 / ac-28: for is_demo docs, the per-phase value-banner copy
-    // (a fixture CONSTANT keyed by the doc's phase) the UI renders atop the demo
-    // spec. Unset for non-demo docs and for any demo phase with no callout.
-    demoValueCallout?: string;
     // spec-409 (dec-4): read-time staleness for the code-grounded badge — true
     // when the Spec is grounded but a decision/AC changed since groundedAt. The
     // persisted flag (groundedInCode) rides along on `...doc`; this is the derived
@@ -816,16 +811,8 @@ export async function getDoc(
     doc.groundedAt,
   );
 
-  // spec-178 dec-8 / ac-28: a demo Spec carries its phase's value-banner copy from
-  // the fixture (a per-phase CONSTANT, never stored on the row). Non-demo docs are
-  // untouched — no field is attached, so the wire shape is identical for them.
-  if (doc.isDemo) {
-    const callout = HANDHOLD_PHASES.find((p) => p.phase === doc.status)?.valueCallout;
-    if (callout !== undefined) {
-      return { ...doc, sections, creator, checkoutHolder, demoValueCallout: callout, groundedStale };
-    }
-  }
-
+  // spec-474: the spec-178 demo value-banner (demoValueCallout) was removed with the
+  // demo walkthrough — no demo Specs are seeded any more and the UI banner is gone.
   return { ...doc, sections, creator, checkoutHolder, groundedStale };
 }
 

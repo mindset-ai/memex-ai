@@ -16,7 +16,7 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { tagAc } from "@memex-ai-ac/vitest";
 import { db, runWithMemexId } from "../db/connection.js";
 import { documents, namespaces, standardClauses, users } from "../db/schema.js";
-import { ensureUserNamespace } from "./user-namespaces.js";
+import { ensureUserNamespace, provisionUserMemex } from "./user-namespaces.js";
 import { upsertUserByEmail } from "./users.js";
 import { backfillDefaultStandards } from "./default-standards.js";
 
@@ -126,24 +126,30 @@ describe("spec-440 — provisioning seed under the restricted memex_app role", (
     }
   });
 
-  it("ac-7: seedNewPersonalMemex seeds gated rows under memex_app (removing the wrapper would fail this)", async () => {
+  it("ac-7: provisionUserMemex seeds gated rows under memex_app (removing the wrapper would fail this)", async () => {
     tagAc(`${AC}/ac-7`);
 
-    // Turn the default-Standards seeder ON just for this creation (it writes
+    // spec-474 dec-6: the default-Standards seed moved OFF signup (ensureUserNamespace)
+    // ONTO the first-load readiness step — provisionUserMemex → provisionPersonalMemexContent,
+    // which is what POST /api/me/provision drives. ensureUserNamespace no longer seeds, so
+    // the RLS wrapper this test guards now lives on the provision path; drive that path here.
+    //
+    // Turn the default-Standards seeder ON just for this provision (it writes
     // `documents` + `standard_clauses` — both RLS-gated). The gate reads env at
     // call time, so scope it tightly and restore after.
     const prev = process.env.MEMEX_DEFAULT_STANDARDS_SIGNUP_SEED;
     process.env.MEMEX_DEFAULT_STANDARDS_SIGNUP_SEED = "on";
     let memexId: string;
     try {
-      ({ memexId } = await makeUserWithMemex("seed"));
+      const { userId } = await makeUserWithMemex("seed");
+      ({ memexId } = await provisionUserMemex(userId));
     } finally {
       process.env.MEMEX_DEFAULT_STANDARDS_SIGNUP_SEED = prev;
     }
 
     // Read WITH the tenant GUC (memex_app sees a gated table's rows only under
     // the matching app.memex_id). Non-zero ⇒ the seed INSERTs satisfied RLS,
-    // which they can ONLY do because seedNewPersonalMemex wraps them in
+    // which they can ONLY do because provisionPersonalMemexContent wraps them in
     // runWithMemexId(memexId). Remove that wrapper and this drops to 0 → red.
     const { docCount, clauseCount } = await runWithMemexId(memexId, async () => {
       const docs = await db

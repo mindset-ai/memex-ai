@@ -2,9 +2,10 @@
 // and the system prompt is NEVER taken from client input.
 //
 // ac-19: buildGuideSystemBlocks({surface:"memex-website"}) returns the website
-//   persona and NO demo-walkthrough beats; {surface:"memex-app"} returns the app
-//   persona (guide-system.md) and DOES include the beats. The website persona file
-//   exists beside guide-system.md.
+//   persona; {surface:"memex-app"} returns the app persona (guide-system.md). Each
+//   surface's persona file exists beside guide-system.md. (spec-474: the demo-
+//   walkthrough beats block was removed with the demo specs — every surface now
+//   emits just its persona block.)
 // ac-20 (prompt-injection guard): buildGuideSystemBlocks derives the prompt SOLELY
 //   from the server-supplied surface — a bogus client-supplied system/persona/prompt
 //   field has no effect; the assembled blocks are byte-identical with or without it.
@@ -15,7 +16,6 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tagAc } from "@memex-ai-ac/vitest";
 import { buildGuideSystemBlocks } from "./guide-prompt.js";
-import { HANDHOLD_PHASES } from "../../db/handhold-demo.fixture.js";
 
 const AC19 = "mindset-prod/memex-building-itself/specs/spec-222/acs/ac-19";
 const AC20 = "mindset-prod/memex-building-itself/specs/spec-222/acs/ac-20";
@@ -41,7 +41,7 @@ describe("guide persona is surface-keyed (spec-222 t-9 → ac-19)", () => {
     expect(existsSync(resolve(__dirname, "guide-system.website.md"))).toBe(true);
   });
 
-  it("surface=memex-website returns the website persona and NO walkthrough beats", () => {
+  it("surface=memex-website returns the website persona as a single block", () => {
     tagAc(AC19);
     const blocks = buildGuideSystemBlocks({ ...baseInput, surface: "memex-website" });
     const text = blocks.map((b) => b.text).join("\n");
@@ -53,30 +53,22 @@ describe("guide persona is surface-keyed (spec-222 t-9 → ac-19)", () => {
     expect(text).toContain("sign up to try it");
     expect(text.toLowerCase()).toContain("marketing website");
 
-    // ...and the demo-walkthrough beats are ABSENT — no beats block, no beat text.
-    expect(blocks.some((b) => b.text.startsWith("## Demo walkthrough beats"))).toBe(false);
-    expect(text).not.toContain("## Demo walkthrough beats");
+    // spec-474: no demo-walkthrough beats block on any surface any more.
+    expect(blocks).toHaveLength(1);
     expect(text).not.toContain("start_walkthrough");
-    for (const p of HANDHOLD_PHASES) {
-      expect(text).not.toContain(p.valueCallout);
-    }
   });
 
-  it("surface=memex-app returns the app persona (guide-system.md) and DOES include the beats", () => {
+  it("surface=memex-app returns the app persona (guide-system.md) as a single block", () => {
     tagAc(AC19);
     const blocks = buildGuideSystemBlocks({ ...baseInput, surface: "memex-app" });
     const text = blocks.map((b) => b.text).join("\n");
 
     const appMd = readFileSync(resolve(__dirname, "guide-system.md"), "utf8");
+    // spec-474: the demo-walkthrough beats block was removed with the demo specs —
+    // the app surface now emits only its persona block.
+    expect(blocks).toHaveLength(1);
     expect(blocks[0].text).toBe(appMd);
-
-    // The beats block is present and single-sourced from the spec-178 fixture.
-    const beatsBlock = blocks.find((b) => b.text.startsWith("## Demo walkthrough beats"));
-    expect(beatsBlock).toBeDefined();
-    for (const p of HANDHOLD_PHASES) {
-      expect(text).toContain(p.valueCallout);
-    }
-    expect(text).toContain("start_walkthrough");
+    expect(text).not.toContain("start_walkthrough");
   });
 
   it("the two surfaces produce DIFFERENT persona text (no crossover)", () => {
@@ -163,13 +155,9 @@ describe("mindset-website persona is surface-keyed (spec-251 t-1 → ac-3)", () 
     expect(text.toLowerCase()).toContain("highlight");
     expect(text.toLowerCase()).toContain("navigate");
 
-    // No demo-walkthrough beats — capabilities are {} for this surface.
-    expect(blocks.some((b) => b.text.startsWith("## Demo walkthrough beats"))).toBe(false);
-    expect(text).not.toContain("## Demo walkthrough beats");
+    // spec-474: no demo-walkthrough beats block on any surface any more.
+    expect(blocks).toHaveLength(1);
     expect(text).not.toContain("start_walkthrough");
-    for (const p of HANDHOLD_PHASES) {
-      expect(text).not.toContain(p.valueCallout);
-    }
   });
 
   it("all three surfaces produce pairwise-DIFFERENT persona text", () => {

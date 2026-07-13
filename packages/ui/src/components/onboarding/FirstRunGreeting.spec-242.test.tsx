@@ -180,16 +180,17 @@ describe('FirstRunGreeting — first-run sequence (spec-242 dec-2/dec-5/dec-6)',
 });
 
 describe('ValueIntroPanel (spec-242 dec-4)', () => {
-  it('renders exactly three numbered info cards with the design copy, and nothing interactive (ac-13 / ac-3)', () => {
+  it('renders exactly two numbered info cards with the design copy, and nothing interactive (ac-13 / ac-3)', () => {
     render(<ValueIntroPanel />);
     const panel = screen.getByTestId('value-intro-panel');
 
+    // spec-474: the "Walk through the demo spec" card is gone (the demo is deleted),
+    // leaving the two evergreen cards renumbered 1–2.
     const headings = within(panel).getAllByRole('heading');
-    expect(headings).toHaveLength(3);
+    expect(headings).toHaveLength(2);
     expect(headings[0]).toHaveTextContent('1. Connect your coding agent');
-    expect(headings[1]).toHaveTextContent('2. Walk through the demo spec');
-    expect(headings[2]).toHaveTextContent('3. Work with your team');
-    expect(panel).toHaveTextContent('ready and waiting for you to try in the draft column');
+    expect(headings[1]).toHaveTextContent('2. Work with your team');
+    expect(panel).not.toHaveTextContent('demo');
     expect(panel.querySelectorAll('a, button, input')).toHaveLength(0);
 
     tagAc(AC(13));

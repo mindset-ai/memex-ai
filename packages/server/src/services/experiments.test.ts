@@ -18,11 +18,12 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vites
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { tagAc } from "@memex-ai-ac/vitest";
 
-// dec-4: the behaviour registry dispatches to these two seeders. Mock both modules so
-// runVariantBehaviour's dispatch is observable without a real DB seed. experiments.ts
-// imports `seedHandholdDemo`/`seedStarterSpec` from these exact paths, so the mocks
-// land on its imports. The assignment + verdict tests below don't touch the seeds.
-vi.mock("./handhold-demo.js", () => ({ seedHandholdDemo: vi.fn().mockResolvedValue(undefined) }));
+// spec-474 dec-1: the behaviour registry now dispatches to a SINGLE seeder
+// (seedStarterSpec) — the demo-vs-starter experiment concluded with the starter Spec as
+// the winner and seedHandholdDemo was deleted. Mock the seeder so runVariantBehaviour's
+// dispatch is observable without a real DB seed. experiments.ts imports `seedStarterSpec`
+// from this exact path, so the mock lands on its import. The assignment + verdict tests
+// below don't touch the seed.
 vi.mock("./starter-spec.js", () => ({ seedStarterSpec: vi.fn().mockResolvedValue(undefined) }));
 
 import { db } from "../db/connection.js";
@@ -42,10 +43,15 @@ import {
   computeVerdict,
   CONTROL_BEHAVIOUR,
 } from "./experiments.js";
-import { seedHandholdDemo } from "./handhold-demo.js";
 import { seedStarterSpec } from "./starter-spec.js";
 
 const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-426/acs/ac-${n}`;
+// spec-474 co-tags: this suite is the living proof that the reusable experiment framework
+// (deterministic bucketing, the verdict sweep, behaviour dispatch) survives the demo-arm
+// retirement intact (ac-6), that the behaviour registry now dispatches to the starter-spec
+// control with no handhold_demo entry (ac-11), and that the variant CHECK still permits the
+// historical 'handhold_demo' A-arm row (ac-14).
+const AC474 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-474/acs/ac-${n}`;
 
 const rand = () => Math.random().toString(36).slice(2, 8);
 const unique = (p: string) => `${p}-${Date.now().toString(36)}-${rand()}`;
@@ -166,6 +172,8 @@ describe("resolveOrCreateAssignment", () => {
   it("splits many synthetic users roughly 50/50 across the two arms (each arm > 30%)", async () => {
     tagAc(AC(1));
     tagAc(AC(14));
+    tagAc(AC474(6)); // spec-474: deterministic bucketing across both arms remains intact
+    tagAc(AC474(14)); // spec-474: the A-arm 'handhold_demo' variant row still inserts (CHECK permits it)
     const exp = await makeExperiment();
     const N = 200;
 
@@ -319,37 +327,30 @@ describe("pinAssignmentByBehaviour", () => {
 
 describe("runVariantBehaviour", () => {
   beforeEach(() => {
-    vi.mocked(seedHandholdDemo).mockClear();
     vi.mocked(seedStarterSpec).mockClear();
-  });
-
-  it("dispatches 'handhold_demo' to seedHandholdDemo", async () => {
-    tagAc(AC(12));
-    await runVariantBehaviour("handhold_demo", "memex-1", { channel: "server" });
-    expect(seedHandholdDemo).toHaveBeenCalledWith("memex-1", { channel: "server" });
-    expect(seedStarterSpec).not.toHaveBeenCalled();
   });
 
   it("dispatches 'starter_spec' to seedStarterSpec", async () => {
     tagAc(AC(12));
+    tagAc(AC474(11)); // spec-474: the registry dispatches the control behaviour to seedStarterSpec
     await runVariantBehaviour("starter_spec", "memex-2", { channel: "server" });
     expect(seedStarterSpec).toHaveBeenCalledWith("memex-2", { channel: "server" });
-    expect(seedHandholdDemo).not.toHaveBeenCalled();
   });
 
-  it("falls back to the control behaviour for an UNKNOWN behaviour id", async () => {
+  // spec-474 dec-1: with a single behaviour left, an UNKNOWN / legacy (e.g. the retired
+  // `handhold_demo`) behaviour id falls back to the control — the seeded starter Spec.
+  it("falls back to the control behaviour for an UNKNOWN / legacy behaviour id", async () => {
     tagAc(AC(12));
-    expect(CONTROL_BEHAVIOUR).toBe("handhold_demo");
-    await runVariantBehaviour("typo_not_a_real_behaviour", "memex-3");
-    expect(seedHandholdDemo).toHaveBeenCalledWith("memex-3", expect.anything());
-    expect(seedStarterSpec).not.toHaveBeenCalled();
+    tagAc(AC474(11)); // spec-474: CONTROL_BEHAVIOUR==='starter_spec' and a legacy id never runs a deleted seeder
+    expect(CONTROL_BEHAVIOUR).toBe("starter_spec");
+    await runVariantBehaviour("handhold_demo", "memex-3");
+    expect(seedStarterSpec).toHaveBeenCalledWith("memex-3", expect.anything());
   });
 
   it("falls back to the control behaviour for a MISSING (empty) behaviour id", async () => {
     tagAc(AC(12));
     await runVariantBehaviour("", "memex-4");
-    expect(seedHandholdDemo).toHaveBeenCalledWith("memex-4", expect.anything());
-    expect(seedStarterSpec).not.toHaveBeenCalled();
+    expect(seedStarterSpec).toHaveBeenCalledWith("memex-4", expect.anything());
   });
 });
 

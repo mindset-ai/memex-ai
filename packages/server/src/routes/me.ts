@@ -2,6 +2,10 @@ import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { sessionMiddleware, type SessionEnv } from "../middleware/session.js";
 import { listAccessibleNamespaces } from "../services/users.js";
+import {
+  provisionUserMemex,
+  getPersonalMemexProvisionState,
+} from "../services/user-namespaces.js";
 import { bus, type ChangeEvent } from "../services/bus.js";
 
 // /api/me/* — caller-scoped endpoints that don't require a resolved memex. The
@@ -101,13 +105,34 @@ meRouter.get("/events", (c) => {
 
 // GET /api/me — minimal session shape. Useful for the SPA to hydrate its auth
 // state without pulling the full membership list.
+//
+// spec-474 dec-6: also carries `personalMemexProvisioned` — false when the caller's
+// personal Memex has not yet had its onboarding content seeded (the seed moved off
+// signup onto POST /api/me/provision). The SPA reads this on first load to decide
+// whether to show the "Getting your Memex ready…" blocker.
 meRouter.get("/", async (c) => {
   const user = c.get("user");
   const currentMemexId = c.get("currentMemexId");
   const currentRole = c.get("currentRole");
+  const provision = await getPersonalMemexProvisionState(user.id);
   return c.json({
     user: { id: user.id, email: user.email, name: user.name, namespaceId: user.namespaceId },
     currentMemexId,
     currentRole,
+    personalMemexProvisioned: provision.provisioned,
   });
+});
+
+// POST /api/me/provision — spec-474 dec-6: the first-load readiness step. Idempotently
+// content-seeds the CALLER's own personal Memex (default facets + Standards + the
+// "Understanding Memex" starter Spec) and stamps provisioned_at. Owner-scoped by
+// construction (uses the session user's id — a caller can only provision their own
+// Memex), and safe to call repeatedly (a second call seeds nothing). The SPA calls
+// this once on first load, behind the "Getting your Memex ready…" blocker; running it
+// on THIS request (not signup) keeps the seed off the signup response and gives it its
+// own Cloud Run CPU allocation so it completes reliably.
+meRouter.post("/provision", async (c) => {
+  const user = c.get("user");
+  const result = await provisionUserMemex(user.id);
+  return c.json({ provisioned: true, memexId: result.memexId, seeded: result.seeded });
 });
