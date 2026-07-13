@@ -20,13 +20,15 @@ import { buildOnboardingOpeningContext } from './FirstRunGreeting';
 const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-206/acs/ac-${n}`;
 
 describe('buildOnboardingOpeningContext (spec-206 ac-2/3/10/11)', () => {
-  it('greets by first name and carries the value prop, orientation, invite, and offer', () => {
+  it('greets by first name and carries the value prop, orientation, and invite', () => {
     const ctx = buildOnboardingOpeningContext('Ryan');
     expect(ctx).toContain('Ryan'); // ac-10: greet by first name
     expect(ctx.toLowerCase()).toContain('living spec'); // ac-2: value prop
     expect(ctx.toLowerCase()).toContain('phase columns'); // ac-2: on-screen orientation
     expect(ctx.toLowerCase()).toContain('ask'); // ac-3: invite questions
-    expect(ctx.toLowerCase()).toContain('walk you through the demo specs'); // ac-3: offer
+    // spec-474: the demo-walkthrough offer is gone (the demo is deleted) — the opening
+    // no longer offers to "walk through the demo specs".
+    expect(ctx.toLowerCase()).not.toContain('demo');
     expect(ctx.toLowerCase()).toContain('under a minute'); // ac-2: brevity
     tagAc(AC(2));
     tagAc(AC(3));

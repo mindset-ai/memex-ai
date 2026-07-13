@@ -1,7 +1,8 @@
 // spec-242 t-3 (dec-4) — "Here's how you get the most out of Memex AI".
 //
-// The final page of the first-run Specky dialogue: three numbered, tinted info
-// cards, copy verbatim from the design (Figma 590-1855, one typo fixed — "for
+// The final page of the first-run Specky dialogue: two numbered, tinted info
+// cards (spec-474 removed the third, "Walk through the demo spec", with the demo),
+// copy verbatim from the design (Figma 590-1855, one typo fixed — "for
 // you to try"). Explicitly NOT a checklist (ac-3/ac-13): static text only — no
 // links, buttons, checkboxes, state detection, or completion ticks. The
 // builder-vs-reviewer call rides the MCP card's opening line ("If you write
