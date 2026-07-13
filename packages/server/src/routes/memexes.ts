@@ -37,9 +37,11 @@ import {
   getMemexById,
   isMemexVisibility,
   updateMemexVisibility,
+  updateMemexName,
+  renameMemexSlug,
 } from "../services/memexes.js";
 import { recordPublicMemexVisit } from "../services/users.js";
-import { ValidationError } from "../types/errors.js";
+import { ConflictError, NotFoundError, ValidationError } from "../types/errors.js";
 
 type Env = MemexResolverEnv & SessionEnv;
 
@@ -151,7 +153,10 @@ memexesRouter.get("/:id", async (c, next) => {
   });
 });
 
-// PATCH /:id { visibility: 'public' | 'private' } — flip Memex visibility.
+// PATCH /:id — mutate exactly one Memex setting per request: { visibility } |
+// { name } | { slug } (spec-479 D-2). visibility flips public/private, name is
+// a cosmetic display rename, slug is the URL rename (writes a memex_rename
+// redirect so old links forward, std-10 §7).
 //
 // The `:id` MUST be the memex resolved from the URL path (the one adminGate
 // authorized via currentMemexId). Editing a DIFFERENT memex through this route
@@ -172,17 +177,49 @@ memexesRouter.patch("/:id", async (c, next) => {
   }
 
   const body = await c.req.json().catch(() => null);
-  if (!body || !isMemexVisibility(body.visibility)) {
+  if (!body || typeof body !== "object") {
+    return c.json({ error: "invalid body", code: "validation_error" }, 400);
+  }
+
+  // Exactly one field per request. The settings UI (spec-479 D-2) saves
+  // visibility, display name, and URL slug as independent actions, so the route
+  // does one thing per call — none or several is a 400.
+  const fields = (["visibility", "name", "slug"] as const).filter(
+    (k) => body[k] !== undefined,
+  );
+  if (fields.length !== 1) {
     return c.json(
-      { error: "visibility must be 'public' or 'private'", code: "validation_error" },
+      {
+        error: "provide exactly one of visibility, name, slug",
+        code: "validation_error",
+      },
       400,
     );
   }
+  const field = fields[0];
 
   try {
-    const updated = await updateMemexVisibility(id, body.visibility, {
-      channel: "rest_ui",
-    });
+    const ctx = { channel: "rest_ui" as const };
+    let updated: Awaited<ReturnType<typeof updateMemexVisibility>>;
+    if (field === "visibility") {
+      if (!isMemexVisibility(body.visibility)) {
+        return c.json(
+          { error: "visibility must be 'public' or 'private'", code: "validation_error" },
+          400,
+        );
+      }
+      updated = await updateMemexVisibility(id, body.visibility, ctx);
+    } else if (field === "name") {
+      if (typeof body.name !== "string") {
+        return c.json({ error: "name must be a string", code: "validation_error" }, 400);
+      }
+      updated = await updateMemexName(id, body.name, ctx);
+    } else {
+      if (typeof body.slug !== "string") {
+        return c.json({ error: "slug must be a string", code: "validation_error" }, 400);
+      }
+      updated = await renameMemexSlug(id, body.slug, ctx);
+    }
     return c.json({
       memex: {
         id: updated.id,
@@ -193,9 +230,20 @@ memexesRouter.patch("/:id", async (c, next) => {
       },
     });
   } catch (err) {
-    if (err instanceof ValidationError) {
-      // Memex disappeared between gate and write — surface as 404 (std-7).
+    // Slug already taken, or reserved by a prior rename's redirect (D-4).
+    if (err instanceof ConflictError) {
+      return c.json({ error: err.message, code: "conflict" }, 409);
+    }
+    // Memex/namespace vanished between the admin gate and the write (std-7).
+    if (err instanceof NotFoundError) {
       return c.json({ error: "Not found" }, 404);
+    }
+    if (err instanceof ValidationError) {
+      // Bad input reaching the service (empty name, invalid slug format, same
+      // slug). updateMemexVisibility only ever throws ValidationError for a
+      // vanished memex, so keep that branch's prior 404 behaviour.
+      if (field === "visibility") return c.json({ error: "Not found" }, 404);
+      return c.json({ error: err.message, code: "validation_error" }, 400);
     }
     throw err;
   }

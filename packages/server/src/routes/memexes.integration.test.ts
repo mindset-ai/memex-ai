@@ -13,7 +13,7 @@
 // → canReadMemex end-to-end.
 
 import { describe, it, expect, beforeEach, afterAll, vi } from "vitest";
-import { inArray } from "drizzle-orm";
+import { inArray, sql } from "drizzle-orm";
 
 vi.hoisted(() => {
   // Force auth-mode session middleware so per-user Bearer tokens are honored.
@@ -39,6 +39,8 @@ const AC_6 = "mindset-prod/memex-building-itself/specs/spec-111/acs/ac-6";
 // spec-111 t-6 wiring (ac-9): the GET read path pins a public Memex onto a
 // signed-in non-member's account via recordPublicMemexVisit.
 const AC_9 = "mindset-prod/memex-building-itself/specs/spec-111/acs/ac-9";
+// spec-479 t-3: the PATCH route accepts name + slug rename, not just visibility.
+const AC_479_ROUTE = "mindset-prod/memex-building-itself/specs/spec-479/acs/ac-10";
 
 async function pinRowCount(userId: string, memexId: string): Promise<number> {
   const rows = await db
@@ -207,6 +209,108 @@ describe("PATCH /api/:ns/:mx/memexes/:id — visibility flip (ac-4)", () => {
       where: (m, { eq }) => eq(m.id, memexId),
     });
     expect(row?.visibility).toBe("private");
+  });
+});
+
+describe("PATCH /api/:ns/:mx/memexes/:id — name + slug rename (spec-479 t-3)", () => {
+  // Redirect rows created by slug renames aren't FK'd to namespaces, so the
+  // afterAll cascade won't remove them — sweep them by namespace slug here.
+  const renameNsSlugs: string[] = [];
+  afterAll(async () => {
+    for (const s of renameNsSlugs) {
+      await db
+        .execute(
+          sql`DELETE FROM redirects WHERE old_path LIKE ${s + "/%"} OR new_path LIKE ${s + "/%"}`,
+        )
+        .catch(() => {});
+    }
+  });
+
+  it("owner renames the display name (slug unchanged)", async () => {
+    tagAc(AC_479_ROUTE);
+    const { ownerBearer, nsSlug, memexSlug, memexId } = await seedOrgWithMemex();
+    renameNsSlugs.push(nsSlug);
+    const res = await req(`/api/${nsSlug}/${memexSlug}/memexes/${memexId}`, {
+      method: "PATCH",
+      bearer: ownerBearer,
+      body: JSON.stringify({ name: "Renamed Display" }),
+    });
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.memex.name).toBe("Renamed Display");
+    expect(json.memex.slug).toBe(memexSlug); // slug untouched
+  });
+
+  it("owner renames the slug", async () => {
+    tagAc(AC_479_ROUTE);
+    const { ownerBearer, nsSlug, memexSlug, memexId } = await seedOrgWithMemex();
+    renameNsSlugs.push(nsSlug);
+    const res = await req(`/api/${nsSlug}/${memexSlug}/memexes/${memexId}`, {
+      method: "PATCH",
+      bearer: ownerBearer,
+      body: JSON.stringify({ slug: "renamed-slug" }),
+    });
+    expect(res.status).toBe(200);
+    expect((await res.json()).memex.slug).toBe("renamed-slug");
+    const row = await db.query.memexes.findFirst({
+      where: (m, { eq }) => eq(m.id, memexId),
+    });
+    expect(row?.slug).toBe("renamed-slug");
+  });
+
+  it("returns 409 when renaming to a slug reserved by a prior rename", async () => {
+    tagAc(AC_479_ROUTE);
+    const { ownerBearer, nsSlug, memexSlug, memexId } = await seedOrgWithMemex();
+    renameNsSlugs.push(nsSlug);
+    // First rename moves the slug away; the old slug becomes a redirect source.
+    const first = await req(`/api/${nsSlug}/${memexSlug}/memexes/${memexId}`, {
+      method: "PATCH",
+      bearer: ownerBearer,
+      body: JSON.stringify({ slug: "moved-away" }),
+    });
+    expect(first.status).toBe(200);
+    // Renaming back onto the original slug is blocked (D-4 reuse-guard → 409).
+    // The path must use the NEW slug now that the memex lives there.
+    const back = await req(`/api/${nsSlug}/moved-away/memexes/${memexId}`, {
+      method: "PATCH",
+      bearer: ownerBearer,
+      body: JSON.stringify({ slug: memexSlug }),
+    });
+    expect(back.status).toBe(409);
+  });
+
+  it("returns 400 for an empty name", async () => {
+    tagAc(AC_479_ROUTE);
+    const { ownerBearer, nsSlug, memexSlug, memexId } = await seedOrgWithMemex();
+    const res = await req(`/api/${nsSlug}/${memexSlug}/memexes/${memexId}`, {
+      method: "PATCH",
+      bearer: ownerBearer,
+      body: JSON.stringify({ name: "   " }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 when more than one field is supplied", async () => {
+    tagAc(AC_479_ROUTE);
+    const { ownerBearer, nsSlug, memexSlug, memexId } = await seedOrgWithMemex();
+    const res = await req(`/api/${nsSlug}/${memexSlug}/memexes/${memexId}`, {
+      method: "PATCH",
+      bearer: ownerBearer,
+      body: JSON.stringify({ name: "X", slug: "y" }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("does not let a non-admin rename", async () => {
+    tagAc(AC_479_ROUTE);
+    const { nsSlug, memexSlug, memexId } = await seedOrgWithMemex();
+    const stranger = await seedUser();
+    const res = await req(`/api/${nsSlug}/${memexSlug}/memexes/${memexId}`, {
+      method: "PATCH",
+      bearer: stranger.bearer,
+      body: JSON.stringify({ name: "Hijack" }),
+    });
+    expect(res.status).not.toBe(200);
   });
 });
 

@@ -10,7 +10,7 @@ import { memexes, namespaces } from "../db/schema.js";
 import type { Memex } from "../db/schema.js";
 import { validateSlugFormat, type SlugFormatError } from "./shared/slug.js";
 import { pgError } from "./shared/pg-error.js";
-import { ConflictError, ValidationError } from "../types/errors.js";
+import { ConflictError, NotFoundError, ValidationError } from "../types/errors.js";
 import { mutate, type Mutated, type RequestCtx } from "./mutate.js";
 import { insertRedirect, isRedirectSource } from "./redirects.js";
 
@@ -138,7 +138,7 @@ export async function updateMemexName(
         .where(eq(memexes.id, memexId))
         .returning();
       if (!updated) {
-        throw new ValidationError(`Memex ${memexId} not found`);
+        throw new NotFoundError(`Memex ${memexId} not found`);
       }
       return updated;
     },
@@ -165,7 +165,7 @@ export async function renameMemexSlug(
   const normalized = newSlug.trim().toLowerCase();
 
   const memex = await getMemexById(memexId);
-  if (!memex) throw new ValidationError(`Memex ${memexId} not found`);
+  if (!memex) throw new NotFoundError(`Memex ${memexId} not found`);
   if (normalized === memex.slug) {
     throw new ValidationError(
       "New slug matches the current slug — nothing to rename",
@@ -176,7 +176,7 @@ export async function renameMemexSlug(
     where: eq(namespaces.id, memex.namespaceId),
     columns: { slug: true },
   });
-  if (!ns) throw new ValidationError("Namespace not found");
+  if (!ns) throw new NotFoundError("Namespace not found");
 
   const avail = await isMemexSlugAvailable(memex.namespaceId, normalized);
   if (!avail.available) {
@@ -207,7 +207,7 @@ export async function renameMemexSlug(
           .where(eq(memexes.id, memexId))
           .returning();
         if (!updated) {
-          throw new ValidationError(`Memex ${memexId} not found`);
+          throw new NotFoundError(`Memex ${memexId} not found`);
         }
         // Same transaction as the slug write → the rename and its redirect
         // commit atomically; a failure here rolls back the slug change too.
