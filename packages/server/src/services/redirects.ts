@@ -22,10 +22,16 @@
 // the DB lookup — every old Brief URL becomes a permanent 301 to its Spec
 // equivalent without inserting one redirect row per Brief.
 
-import { sql } from "drizzle-orm";
+import { sql, type SQL } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import { parseRef } from "./refs.js";
 import { validateSlugFormat } from "./shared/slug.js";
+
+// db and a transaction handle both satisfy this. It lets a caller record a
+// redirect inside its own transaction (e.g. renameMemexSlug) so the rename and
+// its redirect row commit atomically — a half-applied rename would recreate the
+// std-10 §7 "old links 404" bug this layer exists to prevent.
+type SqlExecutor = { execute: (query: SQL) => Promise<unknown> };
 
 export type RedirectReason =
   | "brief_move"
@@ -238,7 +244,8 @@ function assertRenamePrefix(
 export async function insertRedirect(
   oldPath: string,
   newPath: string,
-  reason: RedirectReason
+  reason: RedirectReason,
+  executor: SqlExecutor = db
 ): Promise<void> {
   if (reason === "namespace_rename" || reason === "memex_rename") {
     const segments = reason === "namespace_rename" ? 1 : 2;
@@ -255,7 +262,7 @@ export async function insertRedirect(
     }
   }
 
-  await db.execute(sql`
+  await executor.execute(sql`
     INSERT INTO redirects (old_path, new_path, reason)
     VALUES (${oldPath}, ${newPath}, ${reason})
     ON CONFLICT (old_path) DO UPDATE
@@ -263,4 +270,17 @@ export async function insertRedirect(
            reason     = excluded.reason,
            created_at = now()
   `);
+}
+
+// spec-479 D-4 reuse-guard — is `path` the SOURCE (old_path) of a live
+// redirect? Because redirects never expire (std-10 cl-97), a slug a rename
+// points away from must not be handed to a new/renamed entity: direct-first
+// resolution (std-10 cl-91) would let the new entity shadow the redirect and
+// silently mis-route every old link to the wrong place. Callers consult this
+// before (re)registering a slug. old_path is the PK, so this is an index hit.
+export async function isRedirectSource(path: string): Promise<boolean> {
+  const rows = (await db.execute(sql`
+    SELECT 1 FROM redirects WHERE old_path = ${path} LIMIT 1
+  `)) as unknown as unknown[];
+  return rows.length > 0;
 }
