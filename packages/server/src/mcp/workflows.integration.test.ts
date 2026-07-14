@@ -31,6 +31,7 @@ import {
   users,
 } from "../db/schema.js";
 import { createMcpServer } from "./tools.js";
+import { tagAc } from "@memex-ai-ac/vitest";
 import { COMPLETION_NUDGE } from "../agent/tool-specs.js";
 import { setAcReviewedVerification } from "../services/acs.js";
 
@@ -557,13 +558,17 @@ describe("update_task completion nudge", () => {
   });
 
   beforeEach(async () => {
-    // spec-327: completing the last task auto-promotes the Spec build→verify
-    // (maybeAutoPromoteToVerify), and create_task is now gated to build — so
-    // reset to build before each case creates its tasks.
+    // create_task is gated to build (spec-327), so keep the Spec in build before
+    // each case creates its tasks. (spec-485: completing the last task no longer
+    // auto-promotes build→verify — the former maybeAutoPromoteToVerify is removed —
+    // so this reset is now defensive rather than load-bearing.)
     await db.update(documents).set({ status: "build" }).where(eq(documents.id, spec.id));
   });
 
   it("emits the canonical nudge on status=complete with no dependents", async () => {
+    // spec-485 ac-9: this file no longer asserts the removed build→verify
+    // auto-promote; the completion nudge (separate path) is the sole signal.
+    tagAc("mindset-prod/memex-building-itself/specs/spec-485/acs/ac-9");
     await callTool(actor.user.id, "create_task", {
       ref: specRef,
       title: "Standalone nudge task",
