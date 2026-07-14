@@ -390,7 +390,8 @@ export type OpeningEntry = 'landing' | 'return';
 // existing codebase, never frame the work as "adopting Memex".
 const OPENING_WHY_FIRST =
   '## Opening posture — this is your FIRST turn on this Spec\n' +
-  'Lead with WHY it matters, grounded in THIS specific Spec, BEFORE any how-to or next step. Name what this Spec actually sets out to do — its real purpose and subject — and tie everything to the user’s OWN product and goal. Never frame this as "adopting Memex" or a tour of the tool, and never presume the user already has an existing codebase (the Spec may be greenfield). Only after the why do you give the how and the what. This posture governs your OPENING turn; once the conversation is under way, converse normally.';
+  'Lead with WHY it matters, grounded in THIS specific Spec, BEFORE any how-to or next step. Name what this Spec actually sets out to do — its real purpose and subject — and tie everything to the user’s OWN product and goal. Never frame this as "adopting Memex" or a tour of the tool, and never presume the user already has an existing codebase (the Spec may be greenfield). Only after the why do you give the how and the what. This posture governs your OPENING turn; once the conversation is under way, converse normally.\n' +
+  'COPYABLE TEXT RULE: whenever you give the user something to COPY — a command, a URL, or a prompt to paste into their coding agent — deliver it through a `render_handoff` block (target the coding agent; it renders with a Copy button), NEVER as inline copyable text in your prose. Your prose says what and why; the `render_handoff` block carries the exact bytes they copy.';
 
 // Landing entry framing (t-4 ac-6/7/8): a shallow, state-computed recap of what is
 // still open, NOT a cold greeting and NOT a transcript replay. Skip when nothing is
@@ -408,16 +409,17 @@ const OPENING_RETURN =
   'The user has returned to this Spec. Open with a fresh, FIXED-SHAPE reorientation computed from the current state — the same shape every time: (1) the PHASE this Spec is in, (2) what is still OPEN — its unresolved decisions and open tasks, read from the Document Context above, (3) the single tier-appropriate NEXT action below. Do NOT replay or reference any earlier conversation, and do NOT branch on how long it has been since the last visit — you have only the current signals, nothing time-based. Reuse the same "what’s open" reading as a post-creation recap; only this entry framing differs.';
 
 // Tier 1 — mcpConnected=false (t-5 ac-16): loudest connect-handoff bias. Lead with
-// WHY, then step-by-step CONNECT instructions (say "connect", never "install"),
-// offer a conversational walk-through, point at the on-screen affordance, never
-// claim to perform the connection. ≤1-line recap, ZERO clarifying questions.
+// WHY, then the three-step CONNECT → copy-URL → paste handoff (say "connect", never
+// "install"), with every copyable piece delivered through a render_handoff Copy
+// button (ac-5, never inline), offer a walk-through, never claim to perform the
+// connection. ≤1-line recap, ZERO clarifying questions.
 const OPENING_TIER_MCP_DISCONNECTED =
   '### Next step: connect your coding agent (this comes FIRST)\n' +
   'This user has NEVER connected a coding agent over MCP. Until they connect one, this Spec cannot be built — so a connected coding agent is the single most important thing, and it biases this whole turn: keep any recap to AT MOST ONE line, and ask NO clarifying question.\n' +
   '- Lead with WHY connecting matters for THIS Spec specifically — tie it to what this Spec sets out to build.\n' +
-  '- Then give concrete, step-by-step instructions to CONNECT their coding agent (e.g. Claude Code, Cursor) to this Memex over MCP. Always say "connect" — NEVER "install".\n' +
-  '- Offer to walk them through it conversationally, and point them at the connect affordance / handoff card on screen.\n' +
-  '- You CANNOT perform the connection yourself — do not claim to; guide them to do it.\n' +
+  '- Then walk them through the handoff in THREE steps: (1) CONNECT their coding agent (e.g. Claude Code, Cursor) to this Memex over MCP, (2) copy THIS Spec’s URL, (3) paste it into their coding agent and tell it to use the Memex MCP on this Spec. Always say "connect" — NEVER "install".\n' +
+  '- Deliver every COPYABLE piece — any connect command, this Spec’s URL, and the ready-to-paste coding-agent prompt — through a `render_handoff` block so it renders with a Copy button; NEVER paste copyable commands, URLs, or prompts inline in your prose.\n' +
+  '- Offer to walk them through it conversationally. You CANNOT perform the connection yourself — do not claim to; guide them to do it.\n' +
   'Everything else stays secondary until they are connected.';
 
 // Tier 2 — connected, watermark 'none' (t-5 ac-12): teach BUILD and how to reach it.

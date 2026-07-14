@@ -55,6 +55,11 @@ const WHATS_OPEN = "unresolved decisions"; // the shared "what's open" reading
 const TIER_MCP_ONE_LINE = "AT MOST ONE line";
 const TIER_MCP_NO_QUESTION = "ask NO clarifying question";
 const TIER_MCP_CONNECT_NOT_INSTALL = 'Always say "connect" — NEVER "install"';
+// t-12 (dec-7 revised): the handoff is delivered as prose + a render_handoff Copy
+// block — never a persistent card, never inline copyable text.
+const COPY_BUTTON_RULE = 'renders with a Copy button';
+const COPY_NO_INLINE = 'NEVER as inline copyable text';
+const HANDOFF_PASTE_STEP = 'use the Memex MCP on this Spec';
 const TIER_BUILD = "Explain what BUILD means";
 const TIER_VERIFY = "Teach ONLY verify";
 const TIER_DONE = "Teach ONLY the step to done";
@@ -168,6 +173,34 @@ describe("spec-482 t-5 — tiers gated by mcpConnected then phaseWatermark", () 
     // The connect tier pre-empts every teaching tier.
     expect(p).not.toContain(TIER_BUILD);
     expect(p).not.toContain(TIER_EXPERIENCED);
+  });
+
+  it("ac-5 / ac-25: the connect tier delivers the 3-step handoff, with copyable text via a render_handoff Copy button (never a card, never inline)", () => {
+    tagAc(AC(5));
+    // ac-25 (dec-8): the connect tier reuses the existing connect path via render_handoff,
+    // says "connect" not "install", and hand-rolls no per-tool instruction matrix.
+    tagAc(AC(25));
+    const p = specPrompt(posture("landing", false, "none"));
+    // The three-step sequence: connect → copy URL → paste + tell it to use MCP.
+    expect(p).toContain("copy THIS Spec");
+    expect(p).toContain(HANDOFF_PASTE_STEP);
+    expect(p).toContain(TIER_MCP_CONNECT_NOT_INSTALL);
+    // Every copyable piece rides a render_handoff Copy button — not inline prose,
+    // and (post-t-12) not a persistent on-screen card.
+    expect(p).toContain("render_handoff");
+    expect(p).toContain(COPY_BUTTON_RULE);
+    expect(p).toContain(COPY_NO_INLINE);
+  });
+
+  it("ac-5: the copyable-text-via-render_handoff rule is cross-tier (present even once connected)", () => {
+    tagAc(AC(5));
+    // The COPYABLE TEXT RULE lives in the shared why-first preamble, so it governs
+    // every tier — a connected user copying a build-handoff prompt gets a Copy button too.
+    for (const wm of ["none", "specify_build", "verify_done"] as PhaseWatermark[]) {
+      const p = specPrompt(posture("landing", true, wm));
+      expect(p).toContain("render_handoff");
+      expect(p).toContain(COPY_BUTTON_RULE);
+    }
   });
 
   it("ac-19: why-before-how leads EVERY tier", () => {
