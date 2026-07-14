@@ -131,3 +131,12 @@ Full statement lives in `README.md` ("Where enterprise code lives") and `CONTRIB
 2. Read the relevant Standard before reading code.
 3. Read code before asking the user.
 4. If your conclusion conflicts with a Standard, surface that — don't paper over it.
+
+## Using Memex
+
+Memex hosts our Specs — living plans that capture a piece of work's purpose, its decisions, and its tasks. Whenever you do spec work:
+
+- Call `list_memexes` and pick the right workspace — never assume the default.
+- Orient with `list_docs` / `get_doc` before mutating anything.
+- Resolve decisions before creating tasks; tasks exist only in the `build` phase.
+- Reference items by handle: spec-N, dec-N, t-N, ac-N.
