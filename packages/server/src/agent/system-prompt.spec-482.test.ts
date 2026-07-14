@@ -38,16 +38,20 @@ function posture(
   entry: "landing" | "return",
   mcpConnected: boolean,
   phaseWatermark: PhaseWatermark,
-  connectMcp?: { installCommand: string; mcpUrl: string },
+  connectMcp?: { installCommand: string; mcpUrl: string; specUrl: string },
 ): OpeningPosture {
   return { entry, mcpConnected, phaseWatermark, connectMcp };
 }
 
-// The route-injected real connect command (deriveConnectMcp) for the disconnected tier.
+// The route-injected real connect values (deriveConnectMcp) for the disconnected tier:
+// the working install command, the MCP endpoint, and THIS Spec's canonical URL.
 const CONNECT = {
   installCommand: "npx -y memex-ai install --api-base https://int.memex.ai",
   mcpUrl: "https://int.memex.ai/mcp",
+  specUrl: "https://int.memex.ai/mindset-prod/memex-building-itself/specs/spec-2",
 };
+// The ready-to-paste step-3 prompt the tier composes from the injected Spec URL.
+const PASTE_PROMPT = `Use the Memex MCP on this Spec: ${CONNECT.specUrl}`;
 
 // Distinctive, stable phrases from each prose block (single-sourced in scaffold-data.ts).
 const WHY_FIRST = "Lead with WHY it matters, grounded in THIS specific Spec";
@@ -62,10 +66,13 @@ const WHATS_OPEN = "unresolved decisions"; // the shared "what's open" reading
 const TIER_MCP_ONE_LINE = "AT MOST ONE line";
 const TIER_MCP_NO_QUESTION = "ask NO clarifying question";
 const TIER_MCP_CONNECT_NOT_INSTALL = 'Always say "connect" — NEVER "install"';
-// t-12 (dec-7 revised): the handoff is delivered as prose + a render_handoff Copy
-// block — never a persistent card, never inline copyable text.
-const COPY_BUTTON_RULE = 'renders with a Copy button';
+// dec-10: copyable text is delivered through a Copy-button affordance, each copying
+// EXACTLY one value — never inline, never a persistent card. The connect handoff is
+// ONE render_steps card of three atomic copy steps (not a render_handoff blob).
+const COPY_ATOMIC_RULE = 'Each Copy button copies EXACTLY ONE value';
 const COPY_NO_INLINE = 'NEVER as inline copyable text';
+const CONNECT_ONE_CARD = 'ONE `render_steps` card of THREE copyable steps';
+const CONNECT_NO_HANDOFF = 'Do NOT also emit a `render_handoff`';
 const HANDOFF_PASTE_STEP = 'use the Memex MCP on this Spec';
 const TIER_BUILD = "Explain what BUILD means";
 const TIER_VERIFY = "Teach ONLY verify";
@@ -182,58 +189,69 @@ describe("spec-482 t-5 — tiers gated by mcpConnected then phaseWatermark", () 
     expect(p).not.toContain(TIER_EXPERIENCED);
   });
 
-  it("ac-5 / ac-25: the connect tier delivers the 3-step handoff, with copyable text via a render_handoff Copy button (never a card, never inline)", () => {
+  it("ac-5 / ac-27: the connect tier delivers the 3-step handoff as ONE copyable-steps card — no render_handoff blob, no duplicate list", () => {
     tagAc(AC(5));
-    // ac-25 (dec-8): the connect tier reuses the existing connect path via render_handoff,
-    // says "connect" not "install", and hand-rolls no per-tool instruction matrix.
-    tagAc(AC(25));
+    // ac-27 (dec-10): one render_steps card of three atomic copy steps; the tier
+    // explicitly forbids also emitting a render_handoff and forbids a second list.
+    tagAc(AC(27));
     const p = specPrompt(posture("landing", false, "none"));
-    // The three-step sequence: connect → copy URL → paste + tell it to use MCP.
-    expect(p).toContain("copy THIS Spec");
+    // The three-step sequence: connect → give it the Spec (URL) → tell it to build.
+    expect(p).toContain(CONNECT_ONE_CARD);
+    expect(p).toContain("this Spec’s URL");
     expect(p).toContain(HANDOFF_PASTE_STEP);
     expect(p).toContain(TIER_MCP_CONNECT_NOT_INSTALL);
-    // Every copyable piece rides a render_handoff Copy button — not inline prose,
-    // and (post-t-12) not a persistent on-screen card.
-    expect(p).toContain("render_handoff");
-    expect(p).toContain(COPY_BUTTON_RULE);
+    // Delivered via the copyable-steps card — not a render_handoff blob, not inline.
+    expect(p).toContain(CONNECT_NO_HANDOFF);
+    expect(p).toContain("do NOT emit a second numbered list");
     expect(p).toContain(COPY_NO_INLINE);
   });
 
-  it("ac-5: the copyable-text-via-render_handoff rule is cross-tier (present even once connected)", () => {
+  it("ac-5: the copyable-text-via-Copy-button rule is cross-tier (present even once connected)", () => {
     tagAc(AC(5));
     // The COPYABLE TEXT RULE lives in the shared why-first preamble, so it governs
-    // every tier — a connected user copying a build-handoff prompt gets a Copy button too.
+    // every tier — a connected user copying a build-handoff prompt gets an atomic Copy too.
     for (const wm of ["none", "specify_build", "verify_done"] as PhaseWatermark[]) {
       const p = specPrompt(posture("landing", true, wm));
+      expect(p).toContain(COPY_ATOMIC_RULE);
+      // Both copy affordances are named as the sanctioned homes for copyable bytes.
       expect(p).toContain("render_handoff");
-      expect(p).toContain(COPY_BUTTON_RULE);
+      expect(p).toContain("render_steps");
     }
   });
 
-  it("ac-5 / ac-25: the disconnected tier carries the route-injected REAL install command verbatim, for the render_handoff", () => {
-    tagAc(AC(5));
+  it("ac-25 / ac-27 / ac-28: the disconnected tier carries the route-injected REAL command + Spec URL verbatim, placed into the step copies", () => {
+    // ac-25 (dec-8): still reuses the existing connect path — the route derives the
+    // real host-aware command (no per-tool matrix); now placed into the card's steps.
     tagAc(AC(25));
+    tagAc(AC(27));
+    // ac-28 (dec-10): the route injects the real command, MCP URL, and Spec URL; the
+    // prose tells the agent to place each VERBATIM into a render_steps step `copy`.
+    tagAc(AC(28));
     const p = specPrompt(posture("landing", false, "none", CONNECT));
-    // The exact installer command + MCP URL appear verbatim (not paraphrased).
+    // The exact installer command, MCP endpoint, Spec URL, and ready-to-paste prompt
+    // all appear verbatim (not paraphrased, not invented).
     expect(p).toContain(CONNECT.installCommand);
     expect(p).toContain(CONNECT.mcpUrl);
-    // With the explicit instruction to place it in the render_handoff unaltered.
-    expect(p).toContain("put it in your render_handoff VERBATIM");
-    expect(p).toContain("render_handoff");
+    expect(p).toContain(CONNECT.specUrl);
+    expect(p).toContain(PASTE_PROMPT);
+    // With the explicit instruction to place each into a step copy, unaltered.
+    expect(p).toContain("place each into a step `copy` VERBATIM");
+    expect(p).toContain(CONNECT_ONE_CARD);
   });
 
-  it("ac-25: the injected connect command rides ONLY the disconnected tier — never a connected one", () => {
-    tagAc(AC(25));
-    // Connected tiers must not leak the install command even if one is (defensively) passed.
+  it("ac-28: the injected connect values ride ONLY the disconnected tier — never a connected one", () => {
+    tagAc(AC(28));
+    // Connected tiers must not leak the install command / Spec URL even if (defensively) passed.
     for (const wm of ["none", "specify_build", "verify_done"] as PhaseWatermark[]) {
       const p = specPrompt(posture("landing", true, wm, CONNECT));
       expect(p).not.toContain(CONNECT.installCommand);
-      expect(p).not.toContain("put it in your render_handoff VERBATIM");
+      expect(p).not.toContain(CONNECT.specUrl);
+      expect(p).not.toContain("place each into a step `copy` VERBATIM");
     }
-    // And the disconnected tier without an injected command still composes (no crash,
-    // no command block) — the route only injects it in real requests.
+    // And the disconnected tier without injected values still composes (no crash,
+    // no values block) — the route only injects them in real requests.
     const bare = specPrompt(posture("landing", false, "none"));
-    expect(bare).not.toContain("put it in your render_handoff VERBATIM");
+    expect(bare).not.toContain("place each into a step `copy` VERBATIM");
     expect(bare).toContain(TIER_MCP_CONNECT_NOT_INSTALL);
   });
 

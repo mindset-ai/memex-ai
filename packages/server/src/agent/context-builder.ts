@@ -20,6 +20,13 @@ import { NotFoundError } from "../types/errors.js";
 export type DocumentContext = {
   context: string;
   phase: SpecPhase;
+  // spec-482 dec-10: the doc's canonical ref (`namespace/memex/specs/spec-N`). The
+  // landing route turns it into the Spec's public URL (`${APP_BASE_URL}/${docRef}`)
+  // to inject as the copyable Spec URL in the disconnected connect-handoff card, so
+  // the agent copies a REAL URL, never one it invented. Optional: only the real
+  // per-doc context (buildDocumentContext) sets it; the doc-less contexts (drift,
+  // scaffold, standards, issues, skills) omit it.
+  docRef?: string;
 };
 
 /**
@@ -177,6 +184,7 @@ export async function buildDocumentContext(
   return {
     context: lines.join("\n"),
     phase: statusToPhase(doc.status),
+    docRef,
   };
 }
 

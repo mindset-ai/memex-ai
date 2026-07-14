@@ -235,7 +235,8 @@ const uiTools: Tool[] = [
   },
   {
     name: "render_steps",
-    description: "Display a clean numbered-steps visual for a short process or plan (3-6 steps). Display-only.",
+    description:
+      "Display a clean numbered-steps visual for a short process or plan (3-6 steps). A step may carry an ATOMIC copyable via `copy` — a single value (one command, one URL, one ready-to-paste prompt) that renders its own Copy button copying EXACTLY that value. Use copyable steps to sequence a handoff (e.g. connect command → Spec URL → paste-prompt) in ONE card, one copy per step — never bundle several things into a single copyable, and never put human-facing prose (a why/next explanation) behind a Copy. Display-only.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -247,6 +248,16 @@ const uiTools: Tool[] = [
             properties: {
               label: { type: "string", description: "Short step label." },
               detail: { type: "string", description: "Optional one-line detail." },
+              copy: {
+                type: "string",
+                description:
+                  "Optional: a SINGLE value the user copies from this step (a command, a URL, or a ready-to-paste prompt). Renders a Copy button that copies EXACTLY this value — nothing else. Keep it atomic: one thing per step, no bundled instructions, no reason/why prose.",
+              },
+              copyLabel: {
+                type: "string",
+                description:
+                  "Optional label for this step's Copy button (default 'Copy'), e.g. 'Copy command', 'Copy URL', 'Copy prompt'. Only meaningful when `copy` is set.",
+              },
             },
             required: ["label"],
           },

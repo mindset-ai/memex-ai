@@ -59,7 +59,7 @@ export function UiToolRenderer({ toolName, toolId, input, disabled, onRespond }:
     case 'render_steps':
       return (
         <Steps
-          input={input as { title?: string; steps: { label: string; detail?: string }[] }}
+          input={input as { title?: string; steps: { label: string; detail?: string; copy?: string; copyLabel?: string }[] }}
         />
       );
     case 'render_quote':

@@ -198,7 +198,7 @@ export interface OpeningPosture {
   // spec-482 follow-up: the REAL, env-specific connect command for the MCP-disconnected
   // tier's render_handoff. The route derives it (host-aware) and sets it only when
   // mcpConnected is false; toOpeningPosture appends it verbatim to that one tier.
-  connectMcp?: { installCommand: string; mcpUrl: string };
+  connectMcp?: { installCommand: string; mcpUrl: string; specUrl: string };
 }
 
 // spec-482 (t-5) — the signal→tier mapping (pure LOGIC; the tier PROSE lives in the
