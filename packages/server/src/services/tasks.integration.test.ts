@@ -1,4 +1,4 @@
-import { describe, it, expect, afterAll, beforeAll } from "vitest";
+import { describe, it, expect, afterAll, beforeAll, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import { documents, decisions, tasks, decisionDeps, taskDeps } from "../db/schema.js";
@@ -15,6 +15,10 @@ import {
 import { addDecisionDep, addTaskDep } from "./dependencies.js";
 import { NotFoundError, ValidationError } from "../types/errors.js";
 import { makeTestMemex } from "./test-helpers.js";
+import { tagAc } from "@memex-ai-ac/vitest";
+
+const AC = (n: number) =>
+  `mindset-prod/memex-building-itself/specs/spec-485/acs/ac-${n}`;
 
 const createdDocIds: string[] = [];
 
@@ -143,11 +147,21 @@ describe("updateTaskStatus", () => {
     ).rejects.toThrow(NotFoundError);
   });
 
-  // Per dec-4 of doc-10: when the last open task on a Spec flips to complete,
-  // the Spec auto-promotes from `build` to `verify`. Service-layer placement
-  // means this fires regardless of which client wrote the task status.
-  it("auto-promotes a Spec from build → verify when the last task completes", async () => {
-    const spec = await createDocDraft(memexId, "AutoPromote Spec", "Purpose", "spec");
+  // spec-485 (ac-5, ac-8): completing a task NEVER advances a Spec's phase.
+  // This is the regression guard for the removed `maybeAutoPromoteToVerify` — the
+  // last surviving limb of the "phase is a deliberate placement" arc
+  // (spec-189→295/327/342→464). Real specs under a real memex, so a reintroduced
+  // auto-promote WOULD flip the doc here — a genuine guard, not a tautology.
+  it("does NOT advance a Spec build → verify when the last task completes", async () => {
+    tagAc(AC(8));
+    tagAc(AC(5));
+    tagAc(AC(7));
+    tagAc(AC(9));
+    // Scope ACs proven by the same behaviour:
+    tagAc(AC(1)); // last-task completion no longer changes phase
+    tagAc(AC(2)); // no task-state change advances phase (service layer → any caller)
+    tagAc(AC(4)); // this IS the regression guard against reintroduction
+    const spec = await createDocDraft(memexId, "No-AutoPromote Spec", "Purpose", "spec");
     createdDocIds.push(spec.id);
     const { updateDocStatus } = await import("./documents.js");
     await updateDocStatus(memexId, spec.id, "build");
@@ -157,15 +171,44 @@ describe("updateTaskStatus", () => {
 
     await updateTaskStatus(memexId, t1.id, "complete");
     let row = await db.query.documents.findFirst({ where: eq(documents.id, spec.id) });
-    expect(row?.status).toBe("build"); // still build — t2 is open
+    expect(row?.status).toBe("build"); // one task still open
 
+    // Completing the LAST open task must still leave the Spec in build —
+    // the phase move is the human's deliberate call, never an auto side-effect.
     await updateTaskStatus(memexId, t2.id, "complete");
     row = await db.query.documents.findFirst({ where: eq(documents.id, spec.id) });
-    expect(row?.status).toBe("verify");
+    expect(row?.status).toBe("build");
   });
 
-  it("does not auto-promote non-Spec docs", async () => {
-    const doc = await createDocDraft(memexId, "AutoPromote Doc", "Purpose", "document");
+  // spec-485 (ac-6): the removal is surgical — the sibling issue auto-resolution
+  // call (spec-112 ac-22) on task completion is preserved. Spy the module binding
+  // and assert `updateTaskStatus(..., 'complete')` still invokes it.
+  it("still runs issue auto-resolution when a task completes (ac-6 — sibling preserved)", async () => {
+    tagAc(AC(6));
+    tagAc(AC(3)); // task completion still succeeds + issue auto-resolution unaffected
+    const issues = await import("./issues.js");
+    const spy = vi
+      .spyOn(issues, "maybeAutoResolveIssuesForTask")
+      .mockResolvedValue([]);
+    try {
+      const spec = await createDocDraft(memexId, "IssueResolve Spec", "Purpose", "spec");
+      createdDocIds.push(spec.id);
+      const { updateDocStatus } = await import("./documents.js");
+      await updateDocStatus(memexId, spec.id, "build");
+
+      const t1 = await createTask(memexId, spec.id, "Task", "Desc");
+      await updateTaskStatus(memexId, t1.id, "complete");
+
+      expect(spy).toHaveBeenCalledWith(memexId, t1.id);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("does not move non-Spec docs on task completion", async () => {
+    tagAc(AC(5));
+    tagAc(AC(2));
+    const doc = await createDocDraft(memexId, "No-AutoPromote Doc", "Purpose", "document");
     createdDocIds.push(doc.id);
     const { updateDocStatus } = await import("./documents.js");
     await updateDocStatus(memexId, doc.id, "build");
@@ -177,7 +220,9 @@ describe("updateTaskStatus", () => {
     expect(row?.status).toBe("build"); // unchanged
   });
 
-  it("does not auto-promote if Spec is not currently in build", async () => {
+  it("does not move a Spec that is not in build on task completion", async () => {
+    tagAc(AC(5));
+    tagAc(AC(2));
     const spec = await createDocDraft(memexId, "Specify Spec", "Purpose", "spec");
     createdDocIds.push(spec.id);
     const { updateDocStatus } = await import("./documents.js");
