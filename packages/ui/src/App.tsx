@@ -131,6 +131,7 @@ import { VoiceLayer } from './voice/session/VoiceLayer';
 import { createReactRouterNavigationAdapter } from './voice/reactRouterNavigationAdapter';
 import { HandholdRevealProvider, useHandholdRevealValue } from './hooks/HandholdRevealContext';
 import { useTrackRouteChange, useTelemetry, trackAnonymous } from './hooks/useTelemetry';
+import { useStaleTenantForward } from './hooks/useStaleTenantForward';
 import { useShouldLandOnHome } from './journeys/landing';
 import { getCachedJourneyState } from './journeys/journeyStateCache';
 import { tenantBase, BASE_URL, fetchWithRetry } from './api/http';
@@ -219,9 +220,31 @@ function TenantLayout() {
   //   - private/unknown → bounce to /login (returnTo brings them back)
   // The probe stays inert for authenticated users (enabled === false).
   const probe = usePublicMemexProbe(namespace, memex, anonymous);
+
+  // spec-479 dec-5: membership match for the URL's tenant (pure — safe while
+  // session is still null). Reused below for the authed bounce.
+  const isMember =
+    !!session &&
+    session.memberships.some(
+      (m) => m.slug === namespace && (m.memexSlug === memex || (!m.memexSlug && memex === 'main')),
+    );
+  // A stale tenant URL (a memex whose slug was renamed) would otherwise bounce
+  // to /login (anonymous) or the default landing (authed non-member). Before
+  // bouncing, ask the server whether the path forwards. Fires ONLY on the miss.
+  const staleForward =
+    (anonymous && probe.state === 'no') ||
+    (!anonymous &&
+      !!session &&
+      session.user.emailVerified &&
+      !!session.user.name &&
+      !isMember);
+  const forward = useStaleTenantForward(location.pathname, staleForward);
+
   if (anonymous) {
     if (probe.state === 'loading') return null; // transient — avoid flashing the wrong UI
     if (probe.state === 'no') {
+      if (forward.state === 'loading') return null;
+      if (forward.to) return <Navigate to={`${forward.to}${location.search}`} replace />;
       const returnTo = encodeURIComponent(location.pathname + location.search);
       return <Navigate to={`/login?returnTo=${returnTo}`} replace />;
     }
@@ -278,11 +301,10 @@ function TenantLayout() {
   // a member of the URL's namespace/memex. This replaces the host-based
   // PostLoginRouter redirect (which used to bounce non-members back to the
   // bare base domain).
-  const ok = session.memberships.some(
-    (m) => m.slug === namespace && (m.memexSlug === memex || (!m.memexSlug && memex === 'main')),
-  );
-
-  if (!ok) {
+  if (!isMember) {
+    // spec-479 dec-5: a renamed memex's old URL forwards here before bouncing.
+    if (forward.state === 'loading') return null;
+    if (forward.to) return <Navigate to={`${forward.to}${location.search}`} replace />;
     const fallback = computeDefaultLanding(session);
     if (fallback) return <Navigate to={fallback} replace />;
     return <Navigate to="/" replace />;

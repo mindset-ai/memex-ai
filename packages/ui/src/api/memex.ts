@@ -100,6 +100,28 @@ export async function renameMemexSlugApi(
   return (body as { memex: MemexVisibilityDto }).memex;
 }
 
+/**
+ * spec-479 dec-5 — resolve a stale tenant PAGE path to its current path after a
+ * rename. The SPA is served statically, so a bookmarked `/<ns>/<old-mx>/…` never
+ * hits the server redirect layer; TenantLayout calls this on a resolution miss
+ * and forwards on a hit. Returns the new absolute path, or null (no redirect /
+ * error) so the caller falls through to its normal bounce. Sends no auth header
+ * — it only resolves a path; the destination gates access on navigation.
+ */
+export async function resolveTenantRedirectApi(pathname: string): Promise<string | null> {
+  try {
+    const res = await fetch(
+      `${BASE_URL}/redirects/resolve?path=${encodeURIComponent(pathname)}`,
+      { headers: { Accept: 'application/json' } },
+    );
+    if (!res.ok) return null;
+    const body = (await res.json()) as { redirected?: string };
+    return body.redirected ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /** The public-facing Memex shape returned by the slug-based readability probe. */
 export interface PublicMemexProbe {
   id: string;

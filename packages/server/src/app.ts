@@ -35,6 +35,7 @@ import { telemetryRouter } from "./routes/telemetry.js";
 import { anonTelemetryRouter } from "./routes/anon-telemetry.js";
 import { waitlist } from "./routes/waitlist.js";
 import { live } from "./routes/live.js";
+import { redirectsRouter } from "./routes/redirects.js";
 import { auth } from "./routes/auth.js";
 import { invitesAcceptRouter, invitesAdminRouter } from "./routes/invites.js";
 import { teamRouter } from "./routes/team.js";
@@ -376,6 +377,9 @@ app.route("/guide/v1", createGuidePublicRouter(upgradeWebSocket));
 
 // Caller-scoped + public surfaces — stay flat (no path prefix). These have no
 // per-memex semantics, so prefixing them would be noise.
+// spec-479 dec-5 — public page-path redirect resolution for the CDN-served SPA.
+app.route("/api/redirects", redirectsRouter);
+
 app.route("/api/waitlist", waitlist);
 // spec-458 (PROTOTYPE) — PUBLIC global live-stats aggregate behind memex.ai/live.
 // Flat + tenant-less + NO session middleware (the /api/health pattern): the

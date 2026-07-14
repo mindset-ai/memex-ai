@@ -15,19 +15,15 @@ import {
 //   ac-1 — an admin renames the display name AND the URL slug from the settings page
 //   ac-4 — the slug rename states its consequences before commit; the name change does not
 //   ac-7 — the settings page renders the rename section; a slug change navigates to the new URL
-//
-// OUT of scope here (deliberately): browser-level forwarding of a STALE tenant
-// PAGE url (part of ac-2). The memex_rename redirect resolves at the
-// canonical-ref / API layer — proven by the server service + redirect
-// integration tests (renameMemexSlug → lookupRedirect forwards the old path).
-// Page-route forwarding for a renamed tenant path is NOT wired in app.ts (only
-// the b-N→spec-N regex is), so asserting a browser redirect here would be
-// false. Tracked as a follow-up issue.
+//   ac-11 — a bookmarked OLD tenant page URL forwards to the new one in the browser
+//           (dec-5: TenantLayout consults GET /api/redirects/resolve on a miss)
 
 const AC = [
   "mindset-prod/memex-building-itself/specs/spec-479/acs/ac-1",
   "mindset-prod/memex-building-itself/specs/spec-479/acs/ac-4",
   "mindset-prod/memex-building-itself/specs/spec-479/acs/ac-7",
+  // ac-11 (dec-5): the stale-tenant page URL forwards in the browser.
+  "mindset-prod/memex-building-itself/specs/spec-479/acs/ac-11",
 ];
 
 test.afterEach(async ({}, testInfo) => {
@@ -85,4 +81,10 @@ test("admin renames the Memex display name and URL slug from Settings (ac-1, ac-
     tenantPath(org.namespaceSlug, "workspace-renamed", "/settings"),
   );
   await expect(page.getByTestId("memex-rename")).toBeVisible();
+
+  // ac-11 (dec-5): a bookmarked OLD url forwards to the new one in the browser.
+  await page.goto(tenantPath(org.namespaceSlug, org.memexSlug, "/settings"));
+  await expect(page).toHaveURL(
+    tenantPath(org.namespaceSlug, "workspace-renamed", "/settings"),
+  );
 });

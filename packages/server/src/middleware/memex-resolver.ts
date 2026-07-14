@@ -47,6 +47,8 @@ const NON_TENANT_API_PREFIXES = [
   "/api/auth/",
   "/api/auth", // exact
   "/api/waitlist",
+  "/api/redirects/",
+  "/api/redirects", // spec-479 dec-5 — public page-path redirect resolution
   "/api/cli/auth/",
   "/api/cli/auth",
   "/api/mcp/tokens",
@@ -99,6 +101,7 @@ const RESERVED_API_ROOTS = new Set([
   "onboarding",
   "orgs",
   "namespaces",
+  "redirects",
   "consent",
   "invites",
   "team",
