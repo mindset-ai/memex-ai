@@ -18,6 +18,11 @@ import { canWriteMemex, READ_ONLY_PUBLIC_MESSAGE } from "../mcp/auth.js";
 import { resolveRole } from "../services/doc-members.js";
 import { vocabForMemex } from "../services/facet-vocab.js";
 import { resolveIntegrationState } from "../agent/integration-state.js";
+// spec-482 (t-4 / t-5 / t-8): the per-user opening-posture signals — both DERIVED,
+// monotonic facts (no client input, no sticky flag). hasEverUsedMcp gates the
+// connect-handoff tier; getPhaseHighWaterMark gates which single phase the agent teaches.
+import { hasEverUsedMcp } from "../services/mcp-connection.js";
+import { getPhaseHighWaterMark } from "../services/phase-watermark.js";
 
 // spec-473: the creation + in-Spec agent runs on Sonnet 5 (was Sonnet 4.5). For
 // agentic/tool-calling work it's both faster and more capable than 4.5, so the
@@ -74,6 +79,13 @@ const chatSchema = z.object({
    *  agent that lives on the Skills page — memex-scoped, grounded in the skill
    *  catalogue, tool set pinned to SKILLS_SERVER_TOOLS. The Skills surface sends it. */
   mode: z.enum(["drift", "scaffold", "standards", "issues", "skills"]).optional(),
+  /** spec-482 (t-4 / t-8): the entry framing for the in-Spec agent's opening turn.
+   *  `true` when the user has just landed here after creating the Spec — the agent
+   *  opens with a shallow, state-computed recap of what's still open (t-4). Absent /
+   *  `false` is a normal return visit — a fixed-shape reorientation from the same
+   *  signals (t-8). The tier signals (mcpConnected, phaseWatermark) are computed
+   *  SERVER-side from the authenticated user; the client sends only this flag. */
+  creationLanding: z.boolean().optional(),
 });
 
 llmRouter.post("/chat", async (c) => {
@@ -84,7 +96,7 @@ llmRouter.post("/chat", async (c) => {
     return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
   }
 
-  const { docId, messages, mode } = parsed.data;
+  const { docId, messages, mode, creationLanding } = parsed.data;
   const driftMode = mode === "drift";
   const scaffoldMode = mode === "scaffold";
   const standardsMode = mode === "standards";
@@ -147,7 +159,13 @@ llmRouter.post("/chat", async (c) => {
   // spec-180: all three pre-LLM lookups (write-access, role, integration state)
   // are independent — run them in parallel to eliminate sequential DB round trips.
   const currentUserId = c.get("currentUserId");
-  const [readOnly, reviewer, integrationState] = await Promise.all([
+  // spec-482 (t-4 / t-5 / t-8): the opening posture is ONLY for the primary Spec
+  // agent chatting on a bound doc — never a scoped/scaffold/drift mode, and never the
+  // doc-less creation fallback. When it applies we derive the two per-user tier
+  // signals server-side (the client sends only `creationLanding`); otherwise we skip
+  // the queries entirely. Both signals fail-open to their least-experienced default.
+  const wantOpeningPosture = !mode && !!docId && !!currentUserId;
+  const [readOnly, reviewer, integrationState, mcpConnected, phaseWatermark] = await Promise.all([
     // spec-111 t-9 (dec-2): a signed-in NON-member chatting on a public Memex
     // gets the read-only agent posture — it can answer/search but must explain it
     // cannot mutate. Members → false (default). Server-side enforcement still lives
@@ -171,7 +189,28 @@ llmRouter.post("/chat", async (c) => {
       discordAmbiguous: false,
       discordChannelName: null,
     })),
+    // spec-482 t-5 (dec-5): the MCP-connection tier gate. Fail-open to `false` (the
+    // loudest connect-handoff tier) so a lookup hiccup never suppresses the handoff.
+    wantOpeningPosture
+      ? hasEverUsedMcp(currentUserId as string).catch(() => false)
+      : Promise.resolve(false),
+    // spec-482 t-5 (dec-6): the phase high-water mark. Fail-open to `'none'` (teach
+    // build) — the safe least-experienced default if the derived query errors.
+    wantOpeningPosture
+      ? getPhaseHighWaterMark(currentUserId as string).catch(() => "none" as const)
+      : Promise.resolve("none" as const),
   ]);
+
+  // spec-482 (t-4 / t-8): assemble the opening posture only where it applies. The
+  // entry framing comes from the client's `creationLanding` flag (landing recap vs
+  // return-visit reorientation); the tier signals were derived above.
+  const openingPosture = wantOpeningPosture
+    ? {
+        entry: (creationLanding ? "landing" : "return") as "landing" | "return",
+        mcpConnected,
+        phaseWatermark,
+      }
+    : undefined;
 
   const systemBlocks = buildSystemBlocks(
     documentContext.context,
@@ -188,6 +227,9 @@ llmRouter.post("/chat", async (c) => {
       : skillsMode
       ? "skills"
       : undefined,
+    // spec-482 (t-4 / t-5 / t-8): the primary Spec agent's opening posture (undefined
+    // for scoped/scaffold/drift modes and the doc-less creation fallback).
+    openingPosture,
   );
   // dec-3 definition filter: a reviewer's model never sees the blocked mutations.
   // spec-143 t-4 (dec-6): in drift mode the model sees only the focused drift

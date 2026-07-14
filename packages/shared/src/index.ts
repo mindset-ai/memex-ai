@@ -104,6 +104,13 @@ export { DRIFT_AGENT_GUIDANCE } from './scaffold-data.js';
 // (the React UI's Scaffold Inspect surface sets mode "scaffold"). Lives in the
 // scaffold model (one home, std-15/std-16). Portable per std-22.
 export { SCAFFOLD_AGENT_GUIDANCE, SCAFFOLD_OPENING_TURN_SEED, scaffoldReviewEditSeed } from './scaffold-data.js';
+// spec-482 (t-4 / t-5 / t-8) — the in-Spec agent's opening-posture composer. The
+// PROSE (entry framing + five experience tiers) lives in scaffold-data.ts (std-15);
+// buildSystemBlocks appends the composed block for the primary Spec agent, driven by
+// the per-request creationLanding flag + the per-user mcpConnected / phaseWatermark
+// signals. The signal→tier mapping is logic in system-prompt.ts.
+export { toOpeningPosture } from './scaffold-data.js';
+export type { OpeningTier, OpeningEntry } from './scaffold-data.js';
 // spec-389 t-4 (dec-3): the shared cross-agent handoff contract (canonical map),
 // injected into every scoped in-app agent so it hands off rather than overreach.
 export { SHARED_HANDOFF_GUIDANCE } from './scaffold-data.js';

@@ -1,6 +1,8 @@
 // spec-305 / spec-336 — step 1 "Connect to the Memex MCP".
-// spec-421: Stage 2 (create the spec) moved to CreateFirstSpecStep. This step now
-// completes on mcpConnected (was hasSpec). The tests below cover the MCP-connect flow only.
+// spec-421: Stage 2 (create the spec) moved to CreateFirstSpecStep. This step completes
+// on the MCP-connect milestone. spec-482 dec-5: that milestone is now observed MCP TRAFFIC
+// (mcpToolCalled — an mcp.tool_called usage_event), not the mcp.connected handshake; the
+// mocks below supply mcpToolCalled accordingly. The tests cover the MCP-connect flow only.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { tagAc } from '@memex-ai-ac/vitest';
@@ -18,7 +20,7 @@ const AC430 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-430/
 
 beforeEach(() => {
   fetchJourneyStateApi.mockReset();
-  fetchJourneyStateApi.mockResolvedValue({ milestones: { mcpConnected: false } });
+  fetchJourneyStateApi.mockResolvedValue({ milestones: { mcpToolCalled: false } });
   resetCachedJourneyState();
 });
 afterEach(() => {
@@ -29,10 +31,10 @@ afterEach(() => {
 // already connected MCP must see the "Connected" card on first paint, not the connect card
 // flipping to connected after an after-mount fetch.
 describe('CreateSpecStep — assess connected before draw (spec-421 issue-2)', () => {
-  it('a revisiting user (mcpConnected, cached assessment) sees the Connected card on the FIRST render (ac-21, ac-22)', () => {
+  it('a revisiting user (mcpToolCalled, cached assessment) sees the Connected card on the FIRST render (ac-21, ac-22)', () => {
     tagAc(AC421(21));
     tagAc(AC421(22));
-    setCachedJourneyState({ milestones: { mcpConnected: true } } as never);
+    setCachedJourneyState({ milestones: { mcpToolCalled: true } } as never);
 
     render(<CreateSpecStep onComplete={vi.fn()} />);
 
@@ -43,7 +45,7 @@ describe('CreateSpecStep — assess connected before draw (spec-421 issue-2)', (
   });
 });
 
-describe('CreateSpecStep — spec-421: MCP connect only, completes on mcpConnected', () => {
+describe('CreateSpecStep — spec-421: MCP connect only, completes on mcpToolCalled', () => {
   it('renders the MCP connect card with no Stage-2 prompt or source selectors', () => {
     tagAc(AC421(4)); // step 2 shows MCP connect card only, no "Create Your First Spec" section
     tagAc(AC421(11)); // no method selector / starting-point selector
@@ -56,12 +58,12 @@ describe('CreateSpecStep — spec-421: MCP connect only, completes on mcpConnect
     expect(screen.queryByTestId('source-prd')).toBeNull();
   });
 
-  it('advances the moment MCP is connected while the step is open (mcpConnected transition)', async () => {
-    tagAc(AC421(5)); // step 2 completes on mcpConnected
+  it('advances the moment MCP is connected while the step is open (mcpToolCalled transition)', async () => {
+    tagAc(AC421(5)); // step 2 completes on mcpToolCalled
     vi.useFakeTimers();
     fetchJourneyStateApi
-      .mockResolvedValueOnce({ milestones: { mcpConnected: false } }) // on arrival: not yet connected
-      .mockResolvedValue({ milestones: { mcpConnected: true } }); // a later poll: MCP connected
+      .mockResolvedValueOnce({ milestones: { mcpToolCalled: false } }) // on arrival: not yet connected
+      .mockResolvedValue({ milestones: { mcpToolCalled: true } }); // a later poll: MCP connected
     const onComplete = vi.fn();
     render(<CreateSpecStep onComplete={onComplete} />);
     await vi.advanceTimersByTimeAsync(0); // first read — not met, no advance
@@ -76,7 +78,7 @@ describe('CreateSpecStep — spec-421: MCP connect only, completes on mcpConnect
     // never bump you forward. spec-421: connected badge replaces the old "Created" badge.
     tagAc(AC421(5));
     vi.useFakeTimers();
-    fetchJourneyStateApi.mockResolvedValue({ milestones: { mcpConnected: true } });
+    fetchJourneyStateApi.mockResolvedValue({ milestones: { mcpToolCalled: true } });
     const onComplete = vi.fn();
     render(<CreateSpecStep onComplete={onComplete} />);
     await vi.advanceTimersByTimeAsync(0); // first read — already met: show connected, suppress advance
@@ -140,7 +142,7 @@ describe('CreateSpecStep — spec-372 issue-19 connected-card state', () => {
   // connected=true. Wall-clock findBy* is flaky under CI's coverage-instrumented load.
   const renderConnected = async () => {
     vi.useFakeTimers();
-    fetchJourneyStateApi.mockResolvedValue({ milestones: { mcpConnected: true } });
+    fetchJourneyStateApi.mockResolvedValue({ milestones: { mcpToolCalled: true } });
     render(<CreateSpecStep />);
     await vi.advanceTimersByTimeAsync(0); // first read — init branch sets connected
     await vi.advanceTimersByTimeAsync(4000); // a later poll — settle the re-render
@@ -181,7 +183,7 @@ describe('CreateSpecStep — spec-421 issue-4: clarify when the step ticks', () 
   it('hides the tick hint once connected', async () => {
     tagAc(AC421(27));
     vi.useFakeTimers();
-    fetchJourneyStateApi.mockResolvedValue({ milestones: { mcpConnected: true } });
+    fetchJourneyStateApi.mockResolvedValue({ milestones: { mcpToolCalled: true } });
     render(<CreateSpecStep />);
     await vi.advanceTimersByTimeAsync(0); // first read — init branch sets connected
     await vi.advanceTimersByTimeAsync(4000); // settle the re-render

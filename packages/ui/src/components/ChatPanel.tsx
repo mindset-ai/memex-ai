@@ -1,9 +1,13 @@
 import { useState, useRef, useEffect, type KeyboardEvent } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { Alert } from './ui/Alert';
 import { toButtonPrompt, BASE_SCAFFOLD } from '@memex/shared';
 import { useChat } from './ChatContext';
 import { useOrgScaffoldBlocks } from '../hooks/useOrgScaffoldBlocks';
+import { useMcpToolCalled } from '../hooks/useMcpToolCalled';
+import { useTelemetry } from '../hooks/useTelemetry';
+import { getCurrentTenant } from '../utils/tenantUrl';
+import { PostCreationHandoffCard } from './home/PostCreationHandoffCard';
 import { ChatMarkdown } from './chat/ChatMarkdown';
 import { ContextChipBar } from './chat/ContextChipBar';
 import { UiToolRenderer } from './chat/ui-tools';
@@ -19,6 +23,13 @@ import { PublicAuthButtons } from './PublicAccessControls';
 // scaffold-data.ts), so the agent fires them with `context: {}` and no doc
 // context beyond the Org appends, mirroring DocDocument's `sendReviewPrompt`
 // direct-injection path. Labels/ids match the page's old REVIEW_ACTIONS.
+// spec-482 (t-7): the agent-facing seed for the post-creation landing opening
+// turn. It never shows as a user bubble (startCreationLandingTurn streams only
+// the assistant recap); the server keys the landing recap off the request's
+// `creationLanding: true` flag, so this is just the trigger text.
+const CREATION_LANDING_SEED =
+  "I've just created this Spec. Give me a short recap of what we captured and what the best next step is.";
+
 const REVIEW_ACTIONS: { label: string; buttonId: string }[] = [
   { label: 'Summarise Spec', buttonId: 'opening-review-summarise' },
   { label: 'Security review', buttonId: 'opening-review-security' },
@@ -137,7 +148,7 @@ export function makesCodeShapedClaims(content: string): boolean {
 }
 
 export function ChatPanel({ isAuthenticated = true, readOnly = false }: ChatPanelProps = {}) {
-  const { messages, isStreaming, error, sendMessage, stopStreaming, clearChat, respondedToolIds, respondToUiTool, docId, doc, contextChips, isDriftMode, isScaffoldMode, isStandardsMode, isIssuesMode, isSkillsMode } = useChat();
+  const { messages, isStreaming, error, sendMessage, stopStreaming, clearChat, respondedToolIds, respondToUiTool, docId, doc, contextChips, isDriftMode, isScaffoldMode, isStandardsMode, isIssuesMode, isSkillsMode, startCreationLandingTurn } = useChat();
   // spec-389: the docking shell (ResizableChatRail / DocumentShell) injects a
   // collapse handler when the panel can close to its strip; absent → no control.
   const { onCollapse } = useChatCollapse();
@@ -189,6 +200,51 @@ export function ChatPanel({ isAuthenticated = true, readOnly = false }: ChatPane
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const shouldAutoScroll = useRef(true);
+
+  // spec-482 (t-7): the observed-traffic MCP-connected signal (dec-5,
+  // milestones.mcpToolCalled). Gates the grounding line (ac-22 / ac-20) and morphs
+  // the post-creation handoff card past its connect step. Defaults false until the
+  // journey read resolves — so the not-connected surface shows first, unchanged.
+  const mcpToolCalled = useMcpToolCalled(isAuthenticated);
+  const { track } = useTelemetry(true);
+
+  // spec-482 (t-7): the post-creation landing seam. NewSpecModal's create-and-open
+  // path tags the navigation with `state.creationLanding` (React Router). We latch
+  // it against the docId it arrives with — so a normal in-app open (no flag) never
+  // shows the landing, and navigating to a DIFFERENT freshly-created Spec re-latches
+  // — then fire the recap opening turn + the landing telemetry ONCE per landed Spec.
+  const location = useLocation();
+  const landingFlag =
+    (location.state as { creationLanding?: boolean } | null)?.creationLanding === true;
+  const [landingDocId, setLandingDocId] = useState<string | null>(null);
+  useEffect(() => {
+    if (landingFlag && docId && landingDocId !== docId) setLandingDocId(docId);
+  }, [landingFlag, docId, landingDocId]);
+  // The landing surface only makes sense on the doc/spec agent (never a scoped
+  // memex agent) and only while the bound doc is the one we landed on.
+  const isCreationLanding = !!docId && docId === landingDocId && !scopedMode;
+
+  const landingHandledRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!isCreationLanding || !docId) return;
+    if (landingHandledRef.current === docId) return;
+    landingHandledRef.current = docId;
+    // One flagged opening turn → the server's landing recap (no user bubble).
+    startCreationLandingTurn?.(CREATION_LANDING_SEED);
+    // ac-4: the landing telemetry — low-cardinality props only (phase enum + the
+    // connected bool at landing), never content.
+    track('spec.landing_shown', {
+      phase: doc?.status,
+      mcpConnected: mcpToolCalled,
+    });
+  }, [isCreationLanding, docId, startCreationLandingTurn, track, doc?.status, mcpToolCalled]);
+
+  // spec-482 (t-7): this Spec's canonical URL for the handoff card's copy step —
+  // same shape DocDocument builds for its handoff context.
+  const landingTenant = getCurrentTenant();
+  const landingSpecUrl = doc?.handle
+    ? `${window.location.origin}/${landingTenant?.namespace ?? ''}/${landingTenant?.memex ?? ''}/specs/${doc.handle}`
+    : '';
 
   useEffect(() => {
     if (shouldAutoScroll.current) {
@@ -242,7 +298,9 @@ export function ChatPanel({ isAuthenticated = true, readOnly = false }: ChatPane
         <div className="flex-none px-4 py-3 border-b border-edge flex items-center justify-between">
           <AssistantHeading />
         </div>
-        <GroundingLine />
+        {/* spec-482 (t-7 / ac-22): the grounding line disappears once the user
+            reads as MCP-connected (observed traffic). */}
+        {!mcpToolCalled && <GroundingLine />}
         <div className="flex-1 flex flex-col items-center justify-center px-6 text-center gap-3">
           <p className="text-sm font-medium text-primary">Sign in to chat</p>
           <p className="text-sm text-muted">
@@ -273,7 +331,9 @@ export function ChatPanel({ isAuthenticated = true, readOnly = false }: ChatPane
             <AssistantHeading />
             <HeaderControls showClear={messages.length > 0} onClear={clearChat} onCollapse={onCollapse} />
           </div>
-          <GroundingLine />
+          {/* spec-482 (t-7 / ac-22, ac-20): hide the "connect a coding agent"
+              grounding line once observed MCP traffic says the user is connected. */}
+          {!mcpToolCalled && <GroundingLine />}
         </>
       )}
 
@@ -290,6 +350,22 @@ export function ChatPanel({ isAuthenticated = true, readOnly = false }: ChatPane
           >
             Read-only — the agent can answer questions and search, but can't
             make changes.
+          </div>
+        )}
+
+        {/* spec-482 (t-7 / ac-5, ac-20, ac-21): the post-creation handoff card —
+            shown only on the creation→landing hop. It hands the user off to their
+            coding agent; once observed MCP traffic says they're connected
+            (mcpConnected) it morphs past the connect step, and neither it nor the
+            grounding line then prompts to connect (ac-20). `thisSpecConnected` has
+            no per-Spec traffic signal yet, so it's false — FOLLOW-UP for a later task. */}
+        {isCreationLanding && (
+          <div data-testid="creation-landing">
+            <PostCreationHandoffCard
+              specUrl={landingSpecUrl}
+              mcpConnected={mcpToolCalled}
+              thisSpecConnected={false}
+            />
           </div>
         )}
 

@@ -31,6 +31,13 @@ export interface InvokeParams {
    * `currentMemexId` → std-7 404). Omitted by in-tenant callers.
    */
   tenantBasePath?: string;
+  /**
+   * spec-482 (t-7): flag the creation→landing opening turn. `true` ONLY for the
+   * single auto-sent turn fired when the user lands on a freshly-created Spec, so
+   * the server produces a landing recap. Forwarded to the doc-phase agentNode via
+   * config.configurable; undefined for every normal turn.
+   */
+  creationLanding?: boolean;
 }
 
 export interface ResumeParams {
@@ -96,6 +103,7 @@ export function useAgentGraph() {
       callbacks,
       signal,
       tenantBasePath,
+      creationLanding,
     }: InvokeParams): Promise<InvokeResult> => {
       const threadId = `thread-${++threadCounterRef.current}`;
 
@@ -129,6 +137,7 @@ export function useAgentGraph() {
             callbacks,
             signal,
             tenantBasePath,
+            creationLanding,
           },
           signal,
         }

@@ -13,6 +13,11 @@ const mockSendMessage = vi.fn();
 const mockStopStreaming = vi.fn();
 const mockClearChat = vi.fn();
 const mockRespondToUiTool = vi.fn();
+// spec-482 (t-7): the landing opening-turn dispatcher + the telemetry track spy,
+// plus the observed-traffic MCP signal the grounding/handoff gate reads.
+const mockStartCreationLandingTurn = vi.fn();
+const mockTrack = vi.fn();
+let mockMcpToolCalled = false;
 
 let mockChatState: {
   messages: ChatMessage[];
@@ -39,7 +44,17 @@ vi.mock('./ChatContext', () => ({
     stopStreaming: mockStopStreaming,
     clearChat: mockClearChat,
     respondToUiTool: mockRespondToUiTool,
+    startCreationLandingTurn: mockStartCreationLandingTurn,
   }),
+}));
+
+// spec-482 (t-7): stub the journey read (the grounding/handoff MCP gate) and the
+// telemetry hook so the panel's tests stay offline + deterministic.
+vi.mock('../hooks/useMcpToolCalled', () => ({
+  useMcpToolCalled: () => mockMcpToolCalled,
+}));
+vi.mock('../hooks/useTelemetry', () => ({
+  useTelemetry: () => ({ track: mockTrack, optedOut: false, setOptOut: vi.fn() }),
 }));
 
 // spec-283: the idle review block composes its prompts through the real
@@ -502,5 +517,100 @@ describe('ChatPanel — static scaffold intro (spec-360 issue-12, ac-11)', () =>
       await user.click(btn);
       expect(onCollapse).toHaveBeenCalledTimes(1);
     });
+  });
+});
+
+// ── spec-482 (t-7 / t-9): post-creation landing — grounding gate, handoff card,
+// landing telemetry. The grounding line hides once observed MCP traffic reads
+// connected (ac-22); on the landing hop neither the card nor the line then
+// prompts to connect (ac-20); the landing telemetry fires on landing (ac-4).
+describe('ChatPanel — post-creation landing (spec-482)', () => {
+  const AC482 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-482/acs/ac-${n}`;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockMcpToolCalled = false;
+    mockChatState = {
+      messages: [],
+      isStreaming: false,
+      error: null,
+      docId: 'doc-1',
+      doc: { status: 'specify' },
+      openCommentCount: 0,
+      contextChips: [],
+      respondedToolIds: new Set(),
+      isDriftMode: false,
+    };
+  });
+
+  // Render with the creation→landing nav state NewSpecModal sets on the hop.
+  function renderLanding() {
+    return rtlRender(
+      <MemoryRouter
+        initialEntries={[{ pathname: '/ns/mx/specs/spec-1', state: { creationLanding: true } }]}
+      >
+        <ChatPanel />
+      </MemoryRouter>,
+    );
+  }
+
+  it('the grounding line shows when mcpToolCalled=false and hides when true (ac-22)', () => {
+    tagAc(AC482(22));
+    const { unmount } = render(<ChatPanel />);
+    expect(screen.getByTestId('chat-grounding-line')).toBeInTheDocument();
+    unmount();
+
+    mockMcpToolCalled = true;
+    render(<ChatPanel />);
+    expect(screen.queryByTestId('chat-grounding-line')).not.toBeInTheDocument();
+  });
+
+  it('on landing while connected, neither the handoff card nor the grounding line prompts to connect (ac-20)', () => {
+    tagAc(AC482(20));
+    mockMcpToolCalled = true;
+    renderLanding();
+
+    // The landing card is present, but morphed to its CONNECTED form — the
+    // "Connect the Memex MCP server" step is gone.
+    expect(screen.getByTestId('creation-landing')).toBeInTheDocument();
+    expect(screen.getByTestId('handoff-connected')).toBeInTheDocument();
+    expect(screen.queryByTestId('post-creation-handoff-card')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('handoff-step-connect')).not.toBeInTheDocument();
+    // And the header grounding line is gone too.
+    expect(screen.queryByTestId('chat-grounding-line')).not.toBeInTheDocument();
+  });
+
+  it('on landing while NOT connected, the full handoff card renders with its connect step (ac-5)', () => {
+    tagAc(AC482(5));
+    mockMcpToolCalled = false;
+    renderLanding();
+
+    expect(screen.getByTestId('creation-landing')).toBeInTheDocument();
+    expect(screen.getByTestId('post-creation-handoff-card')).toBeInTheDocument();
+    expect(screen.getByTestId('handoff-step-connect')).toBeInTheDocument();
+    // The grounding line also still shows (not connected).
+    expect(screen.getByTestId('chat-grounding-line')).toBeInTheDocument();
+  });
+
+  it('fires the landing recap opening turn and spec.landing_shown telemetry once, on landing (ac-4, ac-2)', () => {
+    tagAc(AC482(4));
+    // ac-2: the landing recap turn firing IS the agent continuing the conversation
+    // from creation (Option B seeded summary) rather than a cold restart.
+    tagAc(AC482(2));
+    renderLanding();
+
+    expect(mockStartCreationLandingTurn).toHaveBeenCalledTimes(1);
+    expect(mockTrack).toHaveBeenCalledTimes(1);
+    expect(mockTrack).toHaveBeenCalledWith(
+      'spec.landing_shown',
+      expect.objectContaining({ phase: 'specify', mcpConnected: false }),
+    );
+  });
+
+  it('a normal open (no creationLanding state) shows no landing card and fires no landing telemetry', () => {
+    render(<ChatPanel />);
+    expect(screen.queryByTestId('creation-landing')).not.toBeInTheDocument();
+    expect(mockStartCreationLandingTurn).not.toHaveBeenCalled();
+    expect(mockTrack).not.toHaveBeenCalled();
   });
 });

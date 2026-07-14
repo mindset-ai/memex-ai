@@ -29,9 +29,16 @@ vi.mock('../api/client', () => ({
 }));
 
 // NewSpecModal pulls in heavy chat plumbing — stub so the test stays focused
-// on the list rendering behavior.
+// on the list rendering behavior. The stub records the props SpecList passes so
+// spec-482 can assert the board opts into land-on-Spec (openOnCreate).
+const { newSpecModalProps } = vi.hoisted(() => ({
+  newSpecModalProps: { value: null as Record<string, unknown> | null },
+}));
 vi.mock('../components/NewSpecModal', () => ({
-  NewSpecModal: () => null,
+  NewSpecModal: (props: Record<string, unknown>) => {
+    newSpecModalProps.value = props;
+    return null;
+  },
 }));
 
 vi.mock('../components/ShareModal', () => ({
@@ -576,5 +583,51 @@ describe('SpecList — phase display names (spec-164)', () => {
     expect(await screen.findByText('Auth migration')).toBeInTheDocument();
     expect(screen.getByText('Specify')).toBeInTheDocument();
     expect(screen.queryByText('Plan')).not.toBeInTheDocument();
+  });
+});
+
+// spec-482 (dec-4, ac-24): the board modal — shared by the ?new=1 onboarding
+// deep-link and the "+ New Spec" button — must opt into land-on-Spec so a new
+// user lands directly on the created Spec instead of the manual "Open Spec /
+// Close" completion footer. The navigation itself lives in NewSpecModal (covered
+// by spec-470's hero-path tests); here we assert SpecList wires openOnCreate.
+describe('SpecList — land on created Spec (spec-482)', () => {
+  const AC_LANDING = 'mindset-prod/memex-building-itself/specs/spec-482/acs/ac-24';
+
+  it('the ?new=1 onboarding entry passes openOnCreate so creation lands on the Spec', async () => {
+    tagAc(AC_LANDING);
+    // ac-3 (scope): landing directly on the created Spec — openOnCreate is the
+    // mechanism; the e2e journey (t-10) is the end-to-end proof.
+    tagAc('mindset-prod/memex-building-itself/specs/spec-482/acs/ac-3');
+    newSpecModalProps.value = null;
+    fetchDocsMock.mockResolvedValue([]);
+
+    render(
+      <MemoryRouter initialEntries={['/ns/mx/specs?new=1']}>
+        <SpecList />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(newSpecModalProps.value?.openOnCreate).toBe(true);
+    });
+  });
+
+  it('the board "+ New Spec" entry does NOT auto-land (spec-230 flow preserved)', async () => {
+    tagAc(AC_LANDING);
+    newSpecModalProps.value = null;
+    fetchDocsMock.mockResolvedValue([]);
+
+    render(
+      <MemoryRouter initialEntries={['/ns/mx/specs']}>
+        <SpecList />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(newSpecModalProps.value).not.toBeNull();
+    });
+    // No ?new=1 → landOnCreate stays false → the manual "Open Spec" footer path.
+    expect(newSpecModalProps.value?.openOnCreate).toBeFalsy();
   });
 });

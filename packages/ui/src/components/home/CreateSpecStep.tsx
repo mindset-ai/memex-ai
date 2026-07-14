@@ -1,6 +1,12 @@
 // spec-336 — step 1 "Connect to the Memex MCP" (v2 originally had two stages; spec-421
-// splits it: this component shows Stage 1 (MCP install) only, completing on mcpConnected.
+// splits it: this component shows Stage 1 (MCP install) only.
 // Stage 2 (create the spec) moved to CreateFirstSpecStep / step "create-first-spec".
+//
+// spec-482 dec-5 (ac-15): this step is verified via observed MCP TRAFFIC — the
+// `mcpToolCalled` milestone (an `mcp.tool_called` usage_event ever recorded), NOT the
+// `mcp.connected` handshake (`mcpConnected`). A handshake with no tool call isn't a
+// meaningful connection. This mirrors the journey def (journeys/onboarding.ts) so the
+// card's done-state and the rail orb tick on the same observed-traffic signal.
 import { useEffect, useRef, useState } from 'react';
 import { fetchJourneyStateApi } from '../../api/journey';
 import { getCachedJourneyState } from '../../journeys/journeyStateCache';
@@ -30,7 +36,7 @@ export function CreateSpecStep({
   // MCP sees the "Connected to the Memex MCP" card on the FIRST paint instead of the connect
   // card flipping to connected after an after-mount fetch (the in-Home flicker). Seeded refs
   // make the effect treat it as "already known, do not advance". Cold → false (today's path).
-  const seededConnected = !preview && !!getCachedJourneyState()?.milestones?.mcpConnected;
+  const seededConnected = !preview && !!getCachedJourneyState()?.milestones?.mcpToolCalled;
   const [connected, setConnected] = useState(seededConnected);
   const [exploreCopied, setExploreCopied] = useState(false);
   const connectedRef = useRef(seededConnected);
@@ -48,7 +54,9 @@ export function CreateSpecStep({
     setTimeout(() => setExploreCopied(false), 1600);
   };
 
-  // spec-421: step completes on mcpConnected (was hasSpec in spec-336).
+  // spec-421: step completes on the connect milestone (was hasSpec in spec-336).
+  // spec-482 dec-5: that milestone is observed MCP traffic (mcpToolCalled), not the
+  // mcp.connected handshake.
   useEffect(() => {
     if (preview) return;
     let alive = true;
@@ -56,7 +64,7 @@ export function CreateSpecStep({
       try {
         const s = await fetchJourneyStateApi();
         if (!alive) return;
-        const isConnected = !!s.milestones?.mcpConnected;
+        const isConnected = !!s.milestones?.mcpToolCalled;
         if (!initRef.current) {
           initRef.current = true;
           if (isConnected) {

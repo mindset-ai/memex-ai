@@ -139,6 +139,12 @@ export const USAGE_EVENT_REGISTRY = [
     source: "frontend",
   },
   {
+    name: "spec.landing_shown",
+    description:
+      "The post-creation Spec landing screen was shown — the user arrived on a newly-created Spec via the creation flow's land-on-your-Spec hop (spec-482). Fires at most once per Spec landing. props.phase is the Spec phase enum (draft | specify | build | verify | done); props.mcpConnected (bool) is whether the user reads as MCP-connected (the dec-5 observed-traffic milestone, milestones.mcpToolCalled) at landing. Counts / enums / bools only — never content.",
+    source: "frontend",
+  },
+  {
     name: "board.phase_drag",
     description:
       "A spec card was dragged to a different phase column on the board (the interaction). props.from / props.to are phase enums. The OUTCOME stays document.status_changed (back-end); this captures the drag intent (std-35 cl-1).",
