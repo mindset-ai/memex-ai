@@ -195,6 +195,10 @@ export interface OpeningPosture {
   entry: OpeningEntry;
   mcpConnected: boolean;
   phaseWatermark: PhaseWatermark;
+  // spec-482 follow-up: the REAL, env-specific connect command for the MCP-disconnected
+  // tier's render_handoff. The route derives it (host-aware) and sets it only when
+  // mcpConnected is false; toOpeningPosture appends it verbatim to that one tier.
+  connectMcp?: { installCommand: string; mcpUrl: string };
 }
 
 // spec-482 (t-5) — the signal→tier mapping (pure LOGIC; the tier PROSE lives in the
@@ -311,6 +315,7 @@ export function buildSystemBlocks(
       ? `${withSkills}\n\n${toOpeningPosture({
           entry: openingPosture.entry,
           tier: selectOpeningTier(openingPosture.mcpConnected, openingPosture.phaseWatermark),
+          connectMcp: openingPosture.connectMcp,
         })}`
       : withSkills;
   // spec-360 t-1 (dec-1/dec-6): the scaffold identity now LEADS the instruction

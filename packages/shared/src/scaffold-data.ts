@@ -418,7 +418,7 @@ const OPENING_TIER_MCP_DISCONNECTED =
   'This user has NEVER connected a coding agent over MCP. Until they connect one, this Spec cannot be built — so a connected coding agent is the single most important thing, and it biases this whole turn: keep any recap to AT MOST ONE line, and ask NO clarifying question.\n' +
   '- Lead with WHY connecting matters for THIS Spec specifically — tie it to what this Spec sets out to build.\n' +
   '- Then walk them through the handoff in THREE steps: (1) CONNECT their coding agent (e.g. Claude Code, Cursor) to this Memex over MCP, (2) copy THIS Spec’s URL, (3) paste it into their coding agent and tell it to use the Memex MCP on this Spec. Always say "connect" — NEVER "install".\n' +
-  '- Deliver every COPYABLE piece — any connect command, this Spec’s URL, and the ready-to-paste coding-agent prompt — through a `render_handoff` block so it renders with a Copy button; NEVER paste copyable commands, URLs, or prompts inline in your prose.\n' +
+  '- The FIRST copyable piece is the REAL connect command — use the EXACT install command provided below (verbatim), NOT an invented paraphrase. Deliver that command, plus this Spec’s URL, through a `render_handoff` block so it renders with a Copy button; NEVER paste copyable commands, URLs, or prompts inline in your prose. A handoff that omits the real install command — or that only tells the coding agent to "use the Memex MCP on this Spec" — is NOT connect instructions and is wrong here.\n' +
   '- Offer to walk them through it conversationally. You CANNOT perform the connection yourself — do not claim to; guide them to do it.\n' +
   'Everything else stays secondary until they are connected.';
 
@@ -469,9 +469,35 @@ const OPENING_TIER_TEXT: Record<OpeningTier, string> = {
  * tier block (t-5). Pure prose selection — the signal→tier mapping is LOGIC in
  * system-prompt.ts. Single home for the prose per std-15/std-16; portable per std-22.
  */
-export function toOpeningPosture(input: { entry: OpeningEntry; tier: OpeningTier }): string {
+export function toOpeningPosture(input: {
+  entry: OpeningEntry;
+  tier: OpeningTier;
+  // spec-482 follow-up: the MCP-disconnected tier's render_handoff must carry the REAL,
+  // working connect command — which is env-specific (prod vs int host). The route
+  // derives it per-request and passes it here; it is appended VERBATIM so the portable
+  // prose (std-22) never hardcodes a host/command. Ignored for every connected tier.
+  connectMcp?: { installCommand: string; mcpUrl: string };
+}): string {
   const framing = input.entry === 'landing' ? OPENING_LANDING : OPENING_RETURN;
-  return [OPENING_WHY_FIRST, framing, OPENING_TIER_TEXT[input.tier]].join('\n\n');
+  const parts = [OPENING_WHY_FIRST, framing, OPENING_TIER_TEXT[input.tier]];
+  if (input.tier === 'mcp_disconnected' && input.connectMcp) {
+    parts.push(toConnectMcpBlock(input.connectMcp));
+  }
+  return parts.join('\n\n');
+}
+
+// The exact, env-specific connect command the disconnected-tier agent must place —
+// verbatim — inside its render_handoff, so the copyable payload is the REAL installer
+// (not an LLM paraphrase that assumes MCP is already connected). Composed from
+// route-injected values, never hardcoded here (std-22 portability).
+function toConnectMcpBlock(connect: { installCommand: string; mcpUrl: string }): string {
+  return (
+    '### The exact connect command — put it in your render_handoff VERBATIM\n' +
+    'This is the real, working way for the user to connect the Memex MCP server. Claude Code / Claude Desktop users run this in a terminal (one browser sign-in plants the token — nothing to paste by hand):\n' +
+    '`' + connect.installCommand + '`\n' +
+    'For coding agents configured by URL/config instead (Cursor, VS Code, claude.ai), the Memex MCP endpoint is `' + connect.mcpUrl + '`.\n' +
+    'Put the install command above into your `render_handoff` EXACTLY — do NOT invent, paraphrase, shorten, or alter it. That copyable command IS the payload of the handoff; a prompt that only says "use the Memex MCP on this Spec" is NOT connect instructions and is wrong. After the command you may add this Spec’s URL and a one-line "once connected, point your coding agent at this Spec" note.'
+  );
 }
 
 const BASE_MDX_COMPONENTS: PromptBlockNode = {

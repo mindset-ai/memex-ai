@@ -109,6 +109,13 @@ test(TITLE, async ({ page, resources }) => {
   // The ?new=1 deep-link already auto-opened the modal — describe the Spec.
   const modalInput = page.getByPlaceholder(/Describe the spec/i);
   await expect(modalInput).toBeVisible({ timeout: 15_000 });
+
+  // spec-482 follow-up: the ?new=1 onboarding entry must NOT flash the specs board
+  // behind the create modal — SpecList renders the modal over a plain page (no
+  // spinner + Kanban) so the create→land hop goes straight to the Spec, matching the
+  // hero path. Assert the Kanban board is not rendered while the auto-opened modal is up.
+  await expect(page.getByTestId("kanban-board")).toHaveCount(0);
+
   await modalInput.fill("A live presence indicator showing who is viewing a doc.");
   await modalInput.press("Enter");
 
