@@ -41,18 +41,21 @@ import { getPhaseHighWaterMark } from "../services/phase-watermark.js";
 // we set none.)
 const MODEL = "claude-sonnet-5";
 
-// spec-482 follow-up — the REAL connect-MCP command for the disconnected opening tier,
-// derived host-aware (mirrors packages/ui/src/utils/mcpUrl.ts + ConnectAgentStep's
-// unified installer, spec-430). `APP_BASE_URL` is the public host Cloud Run injects per
-// env (same var app.ts uses for install.sh). The bare `npx -y memex-ai install` command
-// is prod; any other host passes `--api-base`. The agent copies this VERBATIM into its
-// render_handoff so the user copies a working installer, not an LLM paraphrase.
-function deriveConnectMcp(): { installCommand: string; mcpUrl: string } {
+// spec-482 (dec-10) — the REAL, env-specific values for the disconnected opening tier's
+// connect-handoff card, derived host-aware (mirrors packages/ui/src/utils/mcpUrl.ts +
+// ConnectAgentStep's unified installer, spec-430). `APP_BASE_URL` is the public host
+// Cloud Run injects per env (same var app.ts uses for install.sh). The bare
+// `npx -y memex-ai install` command is prod; any other host passes `--api-base`. The
+// Spec URL is `${base}/${docRef}` (docRef is the canonical `namespace/memex/specs/spec-N`,
+// which IS the URL path — std-2/std-10). The agent copies each VERBATIM into a step
+// `copy` so the user copies a working installer + a real URL, not an LLM paraphrase.
+function deriveConnectMcp(docRef: string): { installCommand: string; mcpUrl: string; specUrl: string } {
   const base = process.env.APP_BASE_URL ?? "https://int.memex.ai";
   const apiBaseFlag = base === "https://memex.ai" ? "" : ` --api-base ${base}`;
   return {
     installCommand: `npx -y memex-ai install${apiBaseFlag}`,
     mcpUrl: `${base}/mcp`,
+    specUrl: `${base}/${docRef}`,
   };
 }
 
@@ -224,10 +227,15 @@ llmRouter.post("/chat", async (c) => {
         entry: (creationLanding ? "landing" : "return") as "landing" | "return",
         mcpConnected,
         phaseWatermark,
-        // spec-482 follow-up: only the MCP-disconnected tier needs the real connect
-        // command; deriving it host-aware here (mirrors the client's mcpUrl.ts) means
-        // the agent's render_handoff copies a WORKING installer, not a paraphrase.
-        connectMcp: mcpConnected ? undefined : deriveConnectMcp(),
+        // spec-482 dec-10: only the MCP-disconnected tier needs the real connect
+        // command + Spec URL; deriving them host-aware here (mirrors the client's
+        // mcpUrl.ts) means the agent's copyable-steps card copies a WORKING installer
+        // and a REAL URL, not paraphrases. docRef is always set when docId is present
+        // (wantOpeningPosture requires docId); the guard keeps it type-safe.
+        connectMcp:
+          mcpConnected || !documentContext.docRef
+            ? undefined
+            : deriveConnectMcp(documentContext.docRef),
       }
     : undefined;
 

@@ -391,7 +391,7 @@ export type OpeningEntry = 'landing' | 'return';
 const OPENING_WHY_FIRST =
   '## Opening posture — this is your FIRST turn on this Spec\n' +
   'Lead with WHY it matters, grounded in THIS specific Spec, BEFORE any how-to or next step. Name what this Spec actually sets out to do — its real purpose and subject — and tie everything to the user’s OWN product and goal. Never frame this as "adopting Memex" or a tour of the tool, and never presume the user already has an existing codebase (the Spec may be greenfield). Only after the why do you give the how and the what. This posture governs your OPENING turn; once the conversation is under way, converse normally.\n' +
-  'COPYABLE TEXT RULE: whenever you give the user something to COPY — a command, a URL, or a prompt to paste into their coding agent — deliver it through a `render_handoff` block (target the coding agent; it renders with a Copy button), NEVER as inline copyable text in your prose. Your prose says what and why; the `render_handoff` block carries the exact bytes they copy.';
+  'COPYABLE TEXT RULE: whenever you give the user something to COPY — a command, a URL, or a prompt to paste into their coding agent — deliver it through a Copy-button affordance, NEVER as inline copyable text in your prose. Each Copy button copies EXACTLY ONE value (one command, OR one URL, OR one prompt) — never bundle several things, and never put your reason/why or a human-facing instruction behind a Copy. Two affordances carry copyables: a `render_handoff` block (for a single ready-to-paste prompt when handing work to another agent on refusal), and a `render_steps` card whose steps each carry their own atomic `copy` (for a sequenced handoff — one copy per step). Your prose says what and why; the Copy button carries the exact bytes they copy.';
 
 // Landing entry framing (t-4 ac-6/7/8): a shallow, state-computed recap of what is
 // still open, NOT a cold greeting and NOT a transcript replay. Skip when nothing is
@@ -417,8 +417,8 @@ const OPENING_TIER_MCP_DISCONNECTED =
   '### Next step: connect your coding agent (this comes FIRST)\n' +
   'This user has NEVER connected a coding agent over MCP. Until they connect one, this Spec cannot be built — so a connected coding agent is the single most important thing, and it biases this whole turn: keep any recap to AT MOST ONE line, and ask NO clarifying question.\n' +
   '- Lead with WHY connecting matters for THIS Spec specifically — tie it to what this Spec sets out to build.\n' +
-  '- Then walk them through the handoff in THREE steps: (1) CONNECT their coding agent (e.g. Claude Code, Cursor) to this Memex over MCP, (2) copy THIS Spec’s URL, (3) paste it into their coding agent and tell it to use the Memex MCP on this Spec. Always say "connect" — NEVER "install".\n' +
-  '- The FIRST copyable piece is the REAL connect command — use the EXACT install command provided below (verbatim), NOT an invented paraphrase. Deliver that command, plus this Spec’s URL, through a `render_handoff` block so it renders with a Copy button; NEVER paste copyable commands, URLs, or prompts inline in your prose. A handoff that omits the real install command — or that only tells the coding agent to "use the Memex MCP on this Spec" — is NOT connect instructions and is wrong here.\n' +
+  '- Deliver the handoff as ONE `render_steps` card of THREE copyable steps — the whole connect flow in a single card, one atomic Copy per step. Do NOT also emit a `render_handoff` for this, and do NOT emit a second numbered list restating the steps — one card, no duplication. Always say "connect" — NEVER "install". The three steps are: (1) CONNECT their coding agent (e.g. Claude Code, Cursor) to this Memex over MCP — its `copy` is the REAL connect command; (2) give their coding agent THIS Spec — its `copy` is this Spec’s URL; (3) tell it to build from the Spec — its `copy` is the ready-to-paste prompt. The exact values to place come from the block below.\n' +
+  '- Each step’s `copy` holds EXACTLY one value (a command, a URL, or a prompt) — nothing bundled, and never your reason/why prose. NEVER paste copyable commands, URLs, or prompts inline in your prose. A card whose connect step omits the real install command — or that only tells the coding agent to "use the Memex MCP on this Spec" without the real command — is NOT connect instructions and is wrong here.\n' +
   '- Offer to walk them through it conversationally. You CANNOT perform the connection yourself — do not claim to; guide them to do it.\n' +
   'Everything else stays secondary until they are connected.';
 
@@ -472,11 +472,12 @@ const OPENING_TIER_TEXT: Record<OpeningTier, string> = {
 export function toOpeningPosture(input: {
   entry: OpeningEntry;
   tier: OpeningTier;
-  // spec-482 follow-up: the MCP-disconnected tier's render_handoff must carry the REAL,
-  // working connect command — which is env-specific (prod vs int host). The route
-  // derives it per-request and passes it here; it is appended VERBATIM so the portable
-  // prose (std-22) never hardcodes a host/command. Ignored for every connected tier.
-  connectMcp?: { installCommand: string; mcpUrl: string };
+  // spec-482 (dec-10): the MCP-disconnected tier's copyable-steps card must carry the
+  // REAL, working connect command + this Spec's canonical URL — both env-specific (prod
+  // vs int host). The route derives them per-request and passes them here; they are
+  // appended VERBATIM so the portable prose (std-22) never hardcodes a host/command/URL.
+  // Ignored for every connected tier.
+  connectMcp?: { installCommand: string; mcpUrl: string; specUrl: string };
 }): string {
   const framing = input.entry === 'landing' ? OPENING_LANDING : OPENING_RETURN;
   const parts = [OPENING_WHY_FIRST, framing, OPENING_TIER_TEXT[input.tier]];
@@ -486,17 +487,19 @@ export function toOpeningPosture(input: {
   return parts.join('\n\n');
 }
 
-// The exact, env-specific connect command the disconnected-tier agent must place —
-// verbatim — inside its render_handoff, so the copyable payload is the REAL installer
-// (not an LLM paraphrase that assumes MCP is already connected). Composed from
-// route-injected values, never hardcoded here (std-22 portability).
-function toConnectMcpBlock(connect: { installCommand: string; mcpUrl: string }): string {
+// The exact, env-specific values the disconnected-tier agent must place — verbatim —
+// into the THREE copy steps of its `render_steps` card, so each copyable payload is the
+// REAL thing (not an LLM paraphrase that assumes MCP is already connected, nor a made-up
+// URL). Composed from route-injected values, never hardcoded here (std-22 portability).
+function toConnectMcpBlock(connect: { installCommand: string; mcpUrl: string; specUrl: string }): string {
   return (
-    '### The exact connect command — put it in your render_handoff VERBATIM\n' +
-    'This is the real, working way for the user to connect the Memex MCP server. Claude Code / Claude Desktop users run this in a terminal (one browser sign-in plants the token — nothing to paste by hand):\n' +
-    '`' + connect.installCommand + '`\n' +
-    'For coding agents configured by URL/config instead (Cursor, VS Code, claude.ai), the Memex MCP endpoint is `' + connect.mcpUrl + '`.\n' +
-    'Put the install command above into your `render_handoff` EXACTLY — do NOT invent, paraphrase, shorten, or alter it. That copyable command IS the payload of the handoff; a prompt that only says "use the Memex MCP on this Spec" is NOT connect instructions and is wrong. After the command you may add this Spec’s URL and a one-line "once connected, point your coding agent at this Spec" note.'
+    '### The exact values for your render_steps card — place each into a step `copy` VERBATIM\n' +
+    'These are the real, working values. Emit ONE `render_steps` card of three steps, each carrying its own atomic `copy` (do NOT invent, paraphrase, shorten, or alter any of them):\n' +
+    '- Step 1 — connect (copyLabel "Copy command"): `copy` = `' + connect.installCommand + '`\n' +
+    '  This is how the user connects the Memex MCP server. Claude Code / Claude Desktop users run it in a terminal (one browser sign-in plants the token — nothing to paste by hand). For coding agents configured by URL/config instead (Cursor, VS Code, claude.ai), the MCP endpoint is `' + connect.mcpUrl + '` — mention it in the step `detail` if useful, but the `copy` is the command above.\n' +
+    '- Step 2 — give it this Spec (copyLabel "Copy URL"): `copy` = `' + connect.specUrl + '`\n' +
+    '- Step 3 — tell it to build (copyLabel "Copy prompt"): `copy` = `Use the Memex MCP on this Spec: ' + connect.specUrl + '`\n' +
+    'A card whose connect step omits the real command above — or that only says "use the Memex MCP on this Spec" without it — is NOT connect instructions and is wrong. Do NOT also emit a `render_handoff` for this connect flow.'
   );
 }
 
