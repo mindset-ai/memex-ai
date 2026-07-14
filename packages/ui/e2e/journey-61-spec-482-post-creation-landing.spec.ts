@@ -5,17 +5,29 @@ import {
   queueAnthropicResponse,
 } from "./helpers/anthropic-fake.js";
 
-// Journey 61 (spec-482): the post-creation landing + agent handoff (std-28 gate).
+// Journey 61 (spec-482): the post-creation landing (std-28 gate).
 //
 // After a user creates a Spec through the in-app creation flow they land DIRECTLY
 // on the newly-created Spec's document view — not the Kanban board, not a closed
-// dialogue — with the agent panel (ChatPanel) open. The agent then delivers the
-// MCP handoff conversationally: there is NO persistent handoff card (dec-7 revised,
-// t-12 — it duplicated the agent's own recap and was ditched); instead the agent
-// emits the copyable connect/paste text through a `render_handoff` block with a
-// Copy button (the shared cross-agent handoff affordance, std-34/std-38).
+// dialogue — with the agent panel (ChatPanel) open. Post-t-12 there is NO persistent
+// handoff card (dec-7 revised — it duplicated the agent's own recap and was ditched);
+// the agent instead delivers the MCP handoff conversationally, emitting any copyable
+// text through a `render_handoff` Copy-button block (std-34/std-38).
 //
-// The seam under test (built this session):
+// This journey asserts the DETERMINISTIC user-facing outcome: the land-on-the-Spec
+// hop with the agent panel present (ac-3). It deliberately does NOT assert the agent's
+// render_handoff output here: the create flow (NewSpecModal, /chat/create) and the
+// landing chat (/llm/chat) share ONE FIFO fake-Anthropic queue, and both agent loops
+// drain it until a text turn — with navigation aborting the create loop at a
+// non-deterministic point. There is no fixed queue layout that guarantees exactly one
+// handoff on the landing turn (the abort point shifts which queued response the landing
+// consumes). ac-5 (the handoff is delivered via a render_handoff Copy button, never
+// inline) is instead covered DETERMINISTICALLY by unit tests: the connect-tier opening
+// posture in system-prompt.spec-482.test.ts (the agent is instructed to use
+// render_handoff) and the render_handoff renderer itself in Handoff.test.tsx (the Copy
+// button copies the prompt).
+//
+// The seam under test:
 //   • The ONBOARDING entry — a `/specs?new=1` deep-link (spec-482 dec-4, ac-24) —
 //     auto-opens the NewSpecModal with `openOnCreate` set (SpecList strips the param).
 //     The board's own "+ New Spec" button deliberately does NOT auto-land: it keeps
@@ -24,32 +36,26 @@ import {
 //   • With openOnCreate set, a confirmed create navigates to `/specs/<handle>` with
 //     React-Router `state:{creationLanding:true}` (NewSpecModal.openSpec) — no
 //     "Open Spec" click, no dead-end dialogue.
-//   • ChatPanel reads that nav state (isCreationLanding) and fires the landing
-//     opening turn — a real /llm/chat call. Under the fake Anthropic seam we script
-//     that turn to emit a `render_handoff` block, so its Copy-button affordance
-//     (testid `agent-handoff` / `handoff-copy`) renders inside the messages area.
 //
 // The Anthropic SDK is the ONLY faked seam (MEMEX_ANTHROPIC_FAKE=1): create_doc runs
 // for real against a freshly seeded, isolated memex, so the first Spec is
 // deterministically `spec-1` (nextSpecHandle is per-memex).
 //
 // Emits spec-482 ac-3 (land directly on the created Spec's doc view with the agent
-// panel present) and ac-5 (the handoff delivered as a render_handoff Copy affordance,
-// carrying the paste-into-your-coding-agent prompt — never inline, never a card).
+// panel present).
 
 const SPEC482 = "mindset-prod/memex-building-itself/specs/spec-482";
 const AC_LAND = `${SPEC482}/acs/ac-3`; // land on the Spec doc view, agent panel open
-const AC_CARD = `${SPEC482}/acs/ac-5`; // the agent handoff (render_handoff Copy affordance)
 
 const FILE = "packages/ui/e2e/journey-61-spec-482-post-creation-landing.spec.ts";
 
 const TITLE =
-  "creating a Spec lands the user directly on its doc view with the agent panel open and the agent's render_handoff Copy affordance (ac-3, ac-5)";
+  "creating a Spec via the onboarding entry lands the user directly on its doc view with the agent panel open (ac-3)";
 
 test.afterEach(async ({}, testInfo) => {
   if (testInfo.status === "skipped") return;
   await emitAcEvents(
-    [AC_LAND, AC_CARD],
+    [AC_LAND],
     testInfo.status === "passed" ? "pass" : "fail",
     `${FILE}::${testInfo.title}`,
     testInfo.duration,
@@ -57,8 +63,6 @@ test.afterEach(async ({}, testInfo) => {
 });
 
 test(TITLE, async ({ page, resources }) => {
-  await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
-
   // A fresh org memex — its first created Spec is deterministically spec-1.
   const tenant = await seedOrgTenant({ slug: resources.slug("j61") });
 
@@ -71,23 +75,11 @@ test(TITLE, async ({ page, resources }) => {
     { waitUntil: "commit" },
   );
 
-  // The Spec URL the agent hands off — the exact path its render_handoff prompt must
-  // carry so the user can paste it into their coding agent.
-  const specPath = tenantPath(
-    tenant.namespaceSlug,
-    tenant.memexSlug,
-    "/specs/spec-1",
-  );
-  const handoffPrompt =
-    `Use the Memex MCP on this Spec: ${specPath} — read it, then take it forward.`;
-
-  // Queue the agent turns in order. The create flow consumes exactly ONE response
-  // (the create_doc tool call): openOnCreate navigates onto the new Spec the instant
-  // create_doc commits, aborting any create-side follow-up. The very next model call
-  // is the landing opening turn ChatPanel fires (startCreationLandingTurn) — so the
-  // SECOND queued response is what the landing renders. We script it as a
-  // render_handoff, so its Copy-button affordance shows (post-t-12 the handoff is
-  // agent-delivered, not a card).
+  // Queue the agent turns. Turn 1 is create_doc, which mints spec-1. The create flow
+  // and the landing opening turn then drain the shared queue until a text turn; we
+  // append a couple of harmless text end_turns so whichever turn runs completes
+  // cleanly. This journey asserts only the nav-driven landing (ac-3), so the exact
+  // agent output on the landing turn is immaterial (see the header note on ac-5).
   await clearAnthropicQueue();
   await queueAnthropicResponse({
     textDeltas: [],
@@ -106,23 +98,13 @@ test(TITLE, async ({ page, resources }) => {
     ],
     stopReason: "tool_use",
   });
-  await queueAnthropicResponse({
-    textDeltas: [],
-    content: [
-      {
-        type: "tool_use",
-        id: "c482_handoff",
-        name: "render_handoff",
-        input: {
-          target: "your coding agent",
-          reason:
-            "Connect your coding agent over MCP, then paste this to take the Spec forward.",
-          prompt: handoffPrompt,
-        },
-      },
-    ],
-    stopReason: "tool_use",
-  });
+  for (let i = 0; i < 2; i++) {
+    await queueAnthropicResponse({
+      textDeltas: ["Your Spec is ready."],
+      content: [{ type: "text", text: "Your Spec is ready." }],
+      stopReason: "end_turn",
+    });
+  }
 
   // The ?new=1 deep-link already auto-opened the modal — describe the Spec.
   const modalInput = page.getByPlaceholder(/Describe the spec/i);
@@ -139,21 +121,4 @@ test(TITLE, async ({ page, resources }) => {
   // …with the agent panel (ChatPanel) present and open — its "Spec assistant"
   // heading is the reliable panel-mounted anchor (journey-31 pattern).
   await expect(page.getByText("Spec assistant")).toBeVisible({ timeout: 15_000 });
-
-  // ── ac-5: the agent delivers the handoff as a render_handoff Copy affordance ───
-  // No persistent card (dec-7 revised). On the creation→landing hop the landing turn
-  // emits render_handoff, which renders as the shared handoff block (testid
-  // `agent-handoff`) carrying the ready-to-paste "use the Memex MCP on this Spec"
-  // prompt — with a Copy button, never inline copyable text.
-  const handoff = page.getByTestId("agent-handoff");
-  await expect(handoff).toBeVisible({ timeout: 15_000 });
-  await expect(handoff).toContainText(/use the Memex MCP on this Spec/i);
-
-  // The Copy button writes the ready-to-paste prompt — carrying THIS Spec's canonical
-  // path — to the real clipboard, proving the copy path (not just markup).
-  await handoff.getByTestId("handoff-copy").click();
-  await expect(handoff.getByRole("button", { name: "Copied" })).toBeVisible();
-
-  const clip = (await page.evaluate(() => navigator.clipboard.readText())).trim();
-  expect(clip).toContain(`/${tenant.namespaceSlug}/${tenant.memexSlug}/specs/spec-1`);
 });
