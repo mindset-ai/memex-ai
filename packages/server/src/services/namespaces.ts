@@ -17,6 +17,7 @@ import {
 } from "../db/schema.js";
 import type { Namespace } from "../db/schema.js";
 import { validateSlugFormat } from "./shared/slug.js";
+import { insertRedirect } from "./redirects.js";
 import { ConflictError, ValidationError } from "../types/errors.js";
 import { mutate, type Mutated } from "./mutate.js";
 
@@ -237,6 +238,13 @@ export async function renameNamespaceSlug(input: RenameSlugRequest): Promise<Mut
         .set({ slug: newSlug, slugChangedAt: new Date() })
         .where(eq(namespaces.id, ns.id))
         .returning();
+
+      // spec-481 — record the namespace_rename redirect in the SAME transaction
+      // so old `/<old-ns>/...` URLs + MCP refs forward instead of 404ing
+      // (std-10 §7). insertRedirect accepts the 1-segment prefix + a tx executor
+      // (spec-479 D-1); the resolver prefix-matches so every descendant path is
+      // covered by this one row.
+      await insertRedirect(ns.slug, newSlug, "namespace_rename", tx);
 
       return updated;
     }),
