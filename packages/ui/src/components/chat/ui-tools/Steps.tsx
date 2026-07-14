@@ -70,7 +70,7 @@ export function Steps({ input }: StepsProps) {
                     data-testid="step-copy-button"
                     aria-label={`${step.copyLabel ?? 'Copy'}: ${step.copy}`}
                     onClick={() => copyStep(i, step.copy as string)}
-                    className="flex-none rounded border border-edge bg-accent/10 px-2 py-0.5 text-[11px] font-medium text-accent transition-colors hover:bg-accent/20 hover:text-accent-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
+                    className="flex-none rounded-sm border border-edge bg-accent/10 px-2 py-0.5 text-[11px] font-medium text-accent transition-colors hover:bg-accent/20 hover:text-accent-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
                   >
                     {copiedIndex === i ? 'Copied' : (step.copyLabel ?? 'Copy')}
                   </button>
