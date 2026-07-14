@@ -19,7 +19,7 @@ import type { Namespace } from "../db/schema.js";
 import { validateSlugFormat } from "./shared/slug.js";
 import { insertRedirect, isRedirectSource } from "./redirects.js";
 import { ConflictError, ValidationError } from "../types/errors.js";
-import { mutate, type Mutated } from "./mutate.js";
+import { mutate, type Mutated, type RequestCtx } from "./mutate.js";
 
 export async function getNamespaceBySlug(slug: string): Promise<Namespace | undefined> {
   return db.query.namespaces.findFirst({
@@ -144,7 +144,10 @@ export interface RenameSlugRequest {
 const SLUG_COOLDOWN_DAYS = 30;
 const SLUG_RESERVATION_DAYS = 30;
 
-export async function renameNamespaceSlug(input: RenameSlugRequest): Promise<Mutated<Namespace>> {
+export async function renameNamespaceSlug(
+  input: RenameSlugRequest,
+  ctx: RequestCtx = {},
+): Promise<Mutated<Namespace>> {
   const newSlug = input.newSlug.trim().toLowerCase();
 
   const format = validateSlugFormat(newSlug);
@@ -165,7 +168,10 @@ export async function renameNamespaceSlug(input: RenameSlugRequest): Promise<Mut
   const memexId = memexRow?.id ?? "";
 
   return mutate(
-    {},
+    // Thread the caller's channel/identity so the mutation isn't a channel-less
+    // "attribution defect" on the activity bus (std-32). The route passes
+    // channel:'rest_ui', mirroring the memex-rename sibling (spec-479).
+    ctx,
     { memexId, entity: "user_namespace", action: "updated" },
     () => db.transaction(async (tx) => {
       const ns = await tx.query.namespaces.findFirst({

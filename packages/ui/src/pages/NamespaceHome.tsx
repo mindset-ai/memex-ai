@@ -131,7 +131,16 @@ export function NamespaceHome() {
   if (kind === 'personal' && personalHome && namespaceSlug) {
     return (
       <div className="max-w-2xl mx-auto px-6 py-10">
-        <h1 className="text-2xl font-semibold text-heading mb-2">Your personal Memex</h1>
+        <div className="flex items-start justify-between gap-4 mb-2">
+          <h1 className="text-2xl font-semibold text-heading">Your personal Memex</h1>
+          {/* spec-481 t-2 — entry point to the namespace-slug rename surface. */}
+          <Link
+            to={`/${namespaceSlug}/settings`}
+            className="text-sm text-secondary hover:text-link whitespace-nowrap mt-1"
+          >
+            Namespace settings →
+          </Link>
+        </div>
         <p className="text-secondary mb-6">
           Yours forever. Use it for personal notes, drafts, and your own Specs.
         </p>
@@ -274,6 +283,15 @@ function OrgCard({
             <Button variant="secondary" onClick={onInviteMembers}>
               Invite members
             </Button>
+          )}
+          {isAdmin && (
+            // spec-481 t-2 — entry point to the namespace-slug rename surface.
+            <Link
+              to={`/${namespaceSlug}/settings`}
+              className="text-sm px-3 py-1.5 rounded-md border border-edge text-secondary hover:bg-card-hover transition-colors"
+            >
+              Settings
+            </Link>
           )}
           <Button variant="secondary" onClick={onAddMemex}>+ Add Memex</Button>
         </div>

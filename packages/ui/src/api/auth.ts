@@ -333,7 +333,13 @@ export interface OrgCreateResponse {
   namespace: { id: string; slug: string; kind: 'user' | 'org' };
 }
 
-export type OrgSlugCheckReason = 'too_short' | 'too_long' | 'invalid_chars' | 'reserved' | 'taken';
+export type OrgSlugCheckReason =
+  | 'too_short'
+  | 'too_long'
+  | 'invalid_chars'
+  | 'reserved'
+  | 'taken'
+  | 'redirected';
 
 export interface OrgSlugCheckResult {
   available: boolean;
