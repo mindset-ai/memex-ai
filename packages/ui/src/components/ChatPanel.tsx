@@ -6,8 +6,6 @@ import { useChat } from './ChatContext';
 import { useOrgScaffoldBlocks } from '../hooks/useOrgScaffoldBlocks';
 import { useMcpToolCalled } from '../hooks/useMcpToolCalled';
 import { useTelemetry } from '../hooks/useTelemetry';
-import { getCurrentTenant } from '../utils/tenantUrl';
-import { PostCreationHandoffCard } from './home/PostCreationHandoffCard';
 import { ChatMarkdown } from './chat/ChatMarkdown';
 import { ContextChipBar } from './chat/ContextChipBar';
 import { UiToolRenderer } from './chat/ui-tools';
@@ -202,9 +200,9 @@ export function ChatPanel({ isAuthenticated = true, readOnly = false }: ChatPane
   const shouldAutoScroll = useRef(true);
 
   // spec-482 (t-7): the observed-traffic MCP-connected signal (dec-5,
-  // milestones.mcpToolCalled). Gates the grounding line (ac-22 / ac-20) and morphs
-  // the post-creation handoff card past its connect step. Defaults false until the
-  // journey read resolves — so the not-connected surface shows first, unchanged.
+  // milestones.mcpToolCalled). Gates the grounding line (ac-22 / ac-20) — once the
+  // user reads as connected, the "connect a coding agent" line is hidden. Defaults
+  // false until the journey read resolves — so the not-connected surface shows first.
   const mcpToolCalled = useMcpToolCalled(isAuthenticated);
   const { track } = useTelemetry(true);
 
@@ -238,13 +236,6 @@ export function ChatPanel({ isAuthenticated = true, readOnly = false }: ChatPane
       mcpConnected: mcpToolCalled,
     });
   }, [isCreationLanding, docId, startCreationLandingTurn, track, doc?.status, mcpToolCalled]);
-
-  // spec-482 (t-7): this Spec's canonical URL for the handoff card's copy step —
-  // same shape DocDocument builds for its handoff context.
-  const landingTenant = getCurrentTenant();
-  const landingSpecUrl = doc?.handle
-    ? `${window.location.origin}/${landingTenant?.namespace ?? ''}/${landingTenant?.memex ?? ''}/specs/${doc.handle}`
-    : '';
 
   useEffect(() => {
     if (shouldAutoScroll.current) {
@@ -353,21 +344,14 @@ export function ChatPanel({ isAuthenticated = true, readOnly = false }: ChatPane
           </div>
         )}
 
-        {/* spec-482 (t-7 / ac-5, ac-20, ac-21): the post-creation handoff card —
-            shown only on the creation→landing hop. It hands the user off to their
-            coding agent; once observed MCP traffic says they're connected
-            (mcpConnected) it morphs past the connect step, and neither it nor the
-            grounding line then prompts to connect (ac-20). `thisSpecConnected` has
-            no per-Spec traffic signal yet, so it's false — FOLLOW-UP for a later task. */}
-        {isCreationLanding && (
-          <div data-testid="creation-landing">
-            <PostCreationHandoffCard
-              specUrl={landingSpecUrl}
-              mcpConnected={mcpToolCalled}
-              thisSpecConnected={false}
-            />
-          </div>
-        )}
+        {/* spec-482 (dec-7, revised): there is no persistent handoff card. It
+            duplicated the agent's own landing recap and was oversized, so it was
+            removed. The handoff is delivered conversationally by the landing agent
+            (startCreationLandingTurn fires above), with every copyable piece — the
+            connect command, this Spec's URL, the coding-agent paste prompt — carried
+            in a render_handoff Copy-button block, never inline (ac-5, scaffold-data
+            OPENING_TIER_MCP_DISCONNECTED). The grounding-line half of dec-7 still
+            gates on mcpToolCalled above (ac-22 / ac-20). */}
 
         {/* spec-389 t-1 (dec-1): the shared STATIC intro — shown on an empty
             thread instead of a money-costing opening LLM turn. Single-sourced

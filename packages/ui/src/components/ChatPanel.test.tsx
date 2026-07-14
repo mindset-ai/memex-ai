@@ -520,10 +520,12 @@ describe('ChatPanel — static scaffold intro (spec-360 issue-12, ac-11)', () =>
   });
 });
 
-// ── spec-482 (t-7 / t-9): post-creation landing — grounding gate, handoff card,
-// landing telemetry. The grounding line hides once observed MCP traffic reads
-// connected (ac-22); on the landing hop neither the card nor the line then
-// prompts to connect (ac-20); the landing telemetry fires on landing (ac-4).
+// ── spec-482 (t-7 / t-9 / t-12): post-creation landing — grounding gate + landing
+// telemetry. The grounding line hides once observed MCP traffic reads connected
+// (ac-22); there is NO persistent handoff card (dec-7 revised, t-12 — it duplicated
+// the agent recap and was ditched), so on the landing hop the only connect-prompting
+// surface is the grounding line, which hides once connected (ac-20); the landing
+// recap turn + telemetry still fire on landing (ac-4, ac-2).
 describe('ChatPanel — post-creation landing (spec-482)', () => {
   const AC482 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-482/acs/ac-${n}`;
 
@@ -565,31 +567,36 @@ describe('ChatPanel — post-creation landing (spec-482)', () => {
     expect(screen.queryByTestId('chat-grounding-line')).not.toBeInTheDocument();
   });
 
-  it('on landing while connected, neither the handoff card nor the grounding line prompts to connect (ac-20)', () => {
-    tagAc(AC482(20));
+  it('renders NO persistent handoff card on landing — connected or not (dec-7 revised, t-12)', () => {
+    // The card was ditched (it duplicated the agent's own recap). Neither the
+    // connected nor the not-connected landing renders any card surface; the handoff
+    // is delivered conversationally by the landing turn + a render_handoff Copy block.
+    mockMcpToolCalled = false;
+    const { unmount } = renderLanding();
+    expect(screen.queryByTestId('creation-landing')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('post-creation-handoff-card')).not.toBeInTheDocument();
+    unmount();
+
     mockMcpToolCalled = true;
     renderLanding();
-
-    // The landing card is present, but morphed to its CONNECTED form — the
-    // "Connect the Memex MCP server" step is gone.
-    expect(screen.getByTestId('creation-landing')).toBeInTheDocument();
-    expect(screen.getByTestId('handoff-connected')).toBeInTheDocument();
+    expect(screen.queryByTestId('creation-landing')).not.toBeInTheDocument();
     expect(screen.queryByTestId('post-creation-handoff-card')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('handoff-step-connect')).not.toBeInTheDocument();
-    // And the header grounding line is gone too.
-    expect(screen.queryByTestId('chat-grounding-line')).not.toBeInTheDocument();
   });
 
-  it('on landing while NOT connected, the full handoff card renders with its connect step (ac-5)', () => {
-    tagAc(AC482(5));
+  it('on landing, the grounding line is the only connect-prompt and it hides once connected (ac-20)', () => {
+    tagAc(AC482(20));
+    // Not connected: the grounding line ("connect a coding agent") shows.
     mockMcpToolCalled = false;
-    renderLanding();
-
-    expect(screen.getByTestId('creation-landing')).toBeInTheDocument();
-    expect(screen.getByTestId('post-creation-handoff-card')).toBeInTheDocument();
-    expect(screen.getByTestId('handoff-step-connect')).toBeInTheDocument();
-    // The grounding line also still shows (not connected).
+    const { unmount } = renderLanding();
     expect(screen.getByTestId('chat-grounding-line')).toBeInTheDocument();
+    unmount();
+
+    // Connected: no permanent connect-prompting remains — the grounding line is gone
+    // and there is no card to prompt either.
+    mockMcpToolCalled = true;
+    renderLanding();
+    expect(screen.queryByTestId('chat-grounding-line')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('post-creation-handoff-card')).not.toBeInTheDocument();
   });
 
   it('fires the landing recap opening turn and spec.landing_shown telemetry once, on landing (ac-4, ac-2)', () => {
