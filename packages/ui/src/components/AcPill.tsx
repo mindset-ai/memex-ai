@@ -12,6 +12,7 @@
 // palette or hover affordance changes, change it once here.
 
 import { useRef, useState } from 'react';
+import { MarkdownText } from './chat/MarkdownText';
 import type {
   AcWithVerification,
   AcVerificationState,
@@ -109,9 +110,9 @@ export function AcPill({ row, onClick, clickHint }: AcPillProps) {
             <span className="opacity-60">·</span>
             <span>{STATE_LABEL[row.verificationState]}</span>
           </div>
-          <div className="font-medium leading-snug mb-2">
+          <MarkdownText inline className="font-medium leading-snug mb-2 block">
             {row.ac.statement}
-          </div>
+          </MarkdownText>
           {row.tests.length === 0 ? (
             <div className="opacity-70 italic">
               No test in the codebase asserts this yet.

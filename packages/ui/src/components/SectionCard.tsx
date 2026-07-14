@@ -6,6 +6,7 @@ import type { DocSection, Comment } from '../api/types';
 import { useChat } from './ChatContext';
 import { useAuth } from './AuthContext';
 import { CommentSourceAvatar } from './CommentSourceAvatar';
+import { CommentMarkdown } from './CommentTray';
 import { rehypeRefLinkifier } from './chat/refLinkifier';
 import { createComment, resolveComment, deleteComment, addCommentMentions } from '../api/client';
 import { buildCommentLink } from '../utils/commentDeepLink';
@@ -566,7 +567,10 @@ export const SectionCard = memo(function SectionCard({
                   {c.createdAt && <div className="text-[10px] text-muted">{formatCommentTime(c.createdAt)}</div>}
                 </div>
               </div>
-              <p className="text-sm text-secondary whitespace-pre-wrap wrap-break-word">{bodyText}</p>
+              {/* spec-484 dec-2 (ac-6): the popover body renders as markdown
+                  (both ref syntaxes stay linkified), matching CommentTray. The
+                  truncation-aware `bodyText` is fed straight through. */}
+              <CommentMarkdown content={bodyText} parentDocId={c.docId} className="text-secondary wrap-break-word" />
               {long && (
                 <button type="button" data-testid={`card-showmore-${c.seq}`} onClick={(e) => { e.stopPropagation(); toggleExpand(c.id); }} className="text-[11px] text-accent hover:underline">
                   {expanded ? 'Show less' : 'Show more'}

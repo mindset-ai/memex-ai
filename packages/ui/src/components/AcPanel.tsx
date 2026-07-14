@@ -41,6 +41,7 @@ import { useChat } from './ChatContext';
 import { AcSparkline } from './AcSparkline';
 import { AcAboutDialog } from './AcAboutDialog';
 import { AcMatrixCollapsible } from './AcMatrixCollapsible';
+import { MarkdownText } from './chat/MarkdownText';
 import { PromptButton } from './PromptButton';
 import { phaseDisplayName } from '../utils/phaseDisplay';
 import { Metric, type BarSegment } from './MetricBar';
@@ -444,7 +445,7 @@ function UnifiedAcList({
                 <span className="text-sm font-mono text-muted">ac-{r.ac.seq}</span>
                 <KindBadge kind={r.ac.kind} />
               </div>
-              <div className="text-base text-body">{r.ac.statement}</div>
+              <MarkdownText inline className="text-base text-body">{r.ac.statement}</MarkdownText>
               <AcRowMeta row={r} onInvestigate={onInvestigate} />
               {/* spec-188 (ac-1): the accept action sits alongside the
                   test-history toggle. The collapsible keeps the full row

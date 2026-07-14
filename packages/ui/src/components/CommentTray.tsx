@@ -1,4 +1,8 @@
 import { useState, useEffect } from 'react';
+import ReactMarkdown, { type Components } from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import { rehypeRefLinkifier } from './chat/refLinkifier';
+import { rehypePerRefLinkifier } from './chat/perRefLinkifier';
 import type { Comment, CommentTargetType } from '../api/types';
 import { useAuth } from './AuthContext';
 import {
@@ -16,7 +20,7 @@ import {
 import { MentionComposer, type MentionSubmit } from './MentionComposer';
 import { CommentTypePill } from './CommentTypePill';
 import { CommentSourceAvatar } from './CommentSourceAvatar';
-import { DecisionLink, TaskLink, parseEntityRefs } from './DecisionLink';
+import { DecisionLink, TaskLink } from './DecisionLink';
 import { commentTypeAccentBorder } from '../utils/commentStyles';
 // spec-259 ac-5: render WHEN as the SAME relative phrase the MCP/agent surface
 // uses ("3d ago") so the web Specify readiness picture matches the agent's.
@@ -209,6 +213,75 @@ function mentionLabel(m: CommentMentionView): string {
   return m.name?.trim() || m.email?.trim() || 'Unknown';
 }
 
+/**
+ * spec-484 dec-2 (ac-6 / ac-9): comment bodies are human- OR LLM-authored and
+ * legitimately contain markdown, so they render as real markdown instead of
+ * literal `**bold**` / `- list` / `[link](url)` text.
+ *
+ * Both ref syntaxes stay linkified in one render pass by running BOTH rehype
+ * plugins: `rehypeRefLinkifier` (full canonical paths) + `rehypePerRefLinkifier`
+ * (the `[per dec-N]` / `[per t-N]` shorthand). The shorthand plugin stamps
+ * `data-per-ref` / `data-per-handle` on its anchors; the `a` component mapping
+ * below upgrades those into interactive `<DecisionLink>` / `<TaskLink>` so the
+ * exact resolve-on-click + navigate affordance survives the move onto the
+ * markdown path (the crux of spec-484 t-2). Plain markdown links render as
+ * external anchors, matching MarkdownText's block mode.
+ *
+ * Exported so SectionCard's comment popover renders comment bodies identically.
+ */
+export function CommentMarkdown({
+  content,
+  parentDocId,
+  className = 'text-primary',
+}: {
+  content: string;
+  /** b-42 t-2: scope bare-handle resolution to the comment's parent doc. */
+  parentDocId?: string;
+  className?: string;
+}) {
+  const components: Components = {
+    a: ({ children, href, node }) => {
+      const props = (node?.properties ?? {}) as Record<string, unknown>;
+      const perRef = (props['data-per-ref'] ?? props['dataPerRef']) as
+        | string
+        | undefined;
+      if (perRef) {
+        const handle = String(
+          props['data-per-handle'] ?? props['dataPerHandle'] ?? '',
+        );
+        return perRef === 'task' ? (
+          <TaskLink handle={handle} parentDocId={parentDocId} />
+        ) : (
+          <DecisionLink handle={handle} parentDocId={parentDocId} />
+        );
+      }
+      return (
+        <a
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="underline text-accent hover:text-accent/80"
+        >
+          {children}
+        </a>
+      );
+    },
+  };
+  return (
+    <div
+      className={`text-sm ${className} [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 [&_p]:my-2 [&_ul]:my-2 [&_ol]:my-2 [&_li]:my-0.5 [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded-sm [&_code]:bg-overlay [&_code]:text-xs`}
+    >
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        rehypePlugins={[rehypeRefLinkifier, rehypePerRefLinkifier]}
+        components={components}
+      >
+        {content}
+      </ReactMarkdown>
+    </div>
+  );
+}
+
 export function CommentBubble({
   comment,
   sectionTitle,
@@ -280,19 +353,11 @@ export function CommentBubble({
           {relative}
         </span>
       </div>
-      <p className="text-sm text-primary whitespace-pre-wrap">
-        {parseEntityRefs(comment.content).map((seg, i) =>
-          seg.kind === 'text' ? (
-            <span key={i}>{seg.value}</span>
-          ) : seg.kind === 'dec' ? (
-            // b-42 t-2: scope bare-handle resolution to the comment's parent
-            // doc so memexes with dec-1 / t-1 in multiple Specs don't 409.
-            <DecisionLink key={i} handle={seg.value} parentDocId={comment.docId} />
-          ) : (
-            <TaskLink key={i} handle={seg.value} parentDocId={comment.docId} />
-          ),
-        )}
-      </p>
+      {/* spec-484 dec-2 (ac-6 / ac-9): the body renders as markdown; both ref
+          syntaxes stay linkified via CommentMarkdown's dual rehype plugins.
+          b-42 t-2: bare-handle resolution is scoped to the comment's parent doc
+          so memexes with dec-1 / t-1 in multiple Specs don't 409. */}
+      <CommentMarkdown content={comment.content} parentDocId={comment.docId} />
       {(mentions.length > 0 || assignee) && (
         <div className="mt-1 flex flex-wrap items-center gap-1" data-testid="comment-mentions">
           {assignee && (

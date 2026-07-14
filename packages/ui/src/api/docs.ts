@@ -65,7 +65,10 @@ export async function fetchDocs(
   }
   const qs = params.toString();
   const url = qs ? `${tBase()}/docs?${qs}` : `${tBase()}/docs`;
-  return fetchJsonRaw<DocSummary[]>(fetchWithRetry, url);
+  const docs = await fetchJsonRaw<DocSummary[]>(fetchWithRetry, url);
+  // spec-484 t-1: decode-on-read for every title-bearing field a summary carries —
+  // its own title plus the promoted-from `parent` projection ("Promoted from <title>").
+  return docs.map(decodeDocSummary);
 }
 
 // ── Tags (spec-136 t-4 REST surface) ─────────────────────────────────────────
@@ -321,6 +324,15 @@ function decodeTitle<T extends { title?: string | null }>(x: T): T {
   return x.title ? { ...x, title: decodeHtmlEntities(x.title) } : x;
 }
 
+// spec-484 t-1: the shared decode-on-read normalizer for a board summary. Decodes the
+// summary's own title AND its promoted-from `parent` projection (both title-bearing),
+// reusing the same `decodeTitle` primitive as fetchDoc/splitSection so there is one
+// decode path, not per-call-site copies. Content/body fields are never touched.
+function decodeDocSummary(doc: DocSummary): DocSummary {
+  const decoded = decodeTitle(doc);
+  return doc.parent ? { ...decoded, parent: decodeTitle(doc.parent) } : decoded;
+}
+
 function normalizeDocTitles(doc: DocWithGraph): DocWithGraph {
   return {
     ...doc,
@@ -440,7 +452,9 @@ export async function splitSection(sectionId: string): Promise<DocSection[]> {
   if (!res.ok) {
     throw new Error(`Failed to split section: ${res.status}`);
   }
-  return res.json();
+  // spec-484 t-1: decode-on-read the returned section titles, same as fetchDoc's graph.
+  const sections = (await res.json()) as DocSection[];
+  return sections.map(decodeTitle);
 }
 
 // ── Document versioning (spec-448 t-6 REST surface) ─────────────────────────

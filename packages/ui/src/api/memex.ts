@@ -4,6 +4,7 @@
 import { NotFoundError, ShareAccessError } from './errors';
 import { BASE_URL, fetchWithRetry, authHeaders } from './http';
 import { tBase } from './internal';
+import { decodeHtmlEntities } from '../utils/decodeHtmlEntities';
 
 export type MemexVisibility = 'public' | 'private';
 
@@ -184,6 +185,20 @@ export interface SharedDocumentDto {
   comments: SharedCommentDto[];
 }
 
+// spec-484 t-1: decode-on-read the title-bearing fields of a shared document — the
+// doc title and each section's title — mirroring how the authenticated fetchDoc path
+// normalizes its graph. Body `content` is markdown (ReactMarkdown decodes it) and is
+// deliberately left untouched, so only titles pass through the shared decoder.
+function normalizeSharedDocument(dto: SharedDocumentDto): SharedDocumentDto {
+  return {
+    ...dto,
+    doc: { ...dto.doc, title: decodeHtmlEntities(dto.doc.title) },
+    sections: dto.sections.map((s) =>
+      s.title ? { ...s, title: decodeHtmlEntities(s.title) } : s,
+    ),
+  };
+}
+
 // PUBLIC endpoint — no Authorization header sent.
 export async function getSharedDocumentApi(shareToken: string): Promise<SharedDocumentDto> {
   const res = await fetchWithRetry(`${BASE_URL}/share/${shareToken}`);
@@ -192,7 +207,7 @@ export async function getSharedDocumentApi(shareToken: string): Promise<SharedDo
     const reason: 'unknown' | 'revoked' = body.reason === 'revoked' ? 'revoked' : 'unknown';
     throw new ShareAccessError(reason, body.error ?? `Share access failed: ${res.status}`);
   }
-  return body;
+  return normalizeSharedDocument(body as SharedDocumentDto);
 }
 
 // External comment POST (t-11). Bearer token required — the commenter must be a Memex user
