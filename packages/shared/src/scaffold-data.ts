@@ -353,6 +353,125 @@ export function scaffoldReviewEditSeed(input: {
   ].join('\n');
 }
 
+// ──────────────────────────────────────────────
+// spec-482 (t-4 / t-5 / t-8) — the in-Spec agent's OPENING POSTURE.
+//
+// The primary Spec agent's first-turn stance is driven by three signals the
+// server computes per request: an ENTRY framing (landing after creation vs a
+// normal return visit — the request's `creationLanding` flag) and an experience
+// TIER (`mcpConnected` then `phaseWatermark`, both derived per-user from real
+// telemetry — spec-482 dec-5 / dec-6). `buildSystemBlocks` appends the composed
+// posture (via `toOpeningPosture`) to the Spec agent's prompt; the tier→text
+// mapping is pure LOGIC in system-prompt.ts, the PROSE lives here (std-15/std-16).
+//
+// Portable per std-22 — the prose names no language, framework, repo layout, file
+// paths, or tooling. It speaks only in terms of THIS Spec, the phases, the coding
+// agent over MCP, and the on-screen affordances. It centres the user's own
+// product, never "adopting Memex", and never presumes an existing codebase.
+// ──────────────────────────────────────────────
+
+/** The five experience tiers, gated by mcpConnected then phaseWatermark
+ *  (spec-482 t-5). `system-prompt.ts` maps the signals to one tier; each teaches
+ *  at most ONE phase past the user's high-water mark and never re-teaches an
+ *  exited phase. */
+export type OpeningTier =
+  | 'mcp_disconnected' // mcpConnected=false — loudest connect-handoff bias
+  | 'teach_build' // connected, watermark 'none' — teach build
+  | 'teach_verify' // watermark 'specify_build' — teach verify, never re-teach build
+  | 'teach_done' // watermark 'build_verify' — teach the final step to done
+  | 'experienced'; // watermark 'verify_done' — no workflow teaching at all
+
+/** The entry framing: the post-creation landing (t-4) or a normal return visit
+ *  (t-8). Both reuse the SAME "what's open" computation; only the framing differs. */
+export type OpeningEntry = 'landing' | 'return';
+
+// Cross-tier preamble (t-5 ac-19): always lead with WHY-this-matters grounded in
+// THIS Spec, before any how/what. Centre the user's own product; never presume an
+// existing codebase, never frame the work as "adopting Memex".
+const OPENING_WHY_FIRST =
+  '## Opening posture — this is your FIRST turn on this Spec\n' +
+  'Lead with WHY it matters, grounded in THIS specific Spec, BEFORE any how-to or next step. Name what this Spec actually sets out to do — its real purpose and subject — and tie everything to the user’s OWN product and goal. Never frame this as "adopting Memex" or a tour of the tool, and never presume the user already has an existing codebase (the Spec may be greenfield). Only after the why do you give the how and the what. This posture governs your OPENING turn; once the conversation is under way, converse normally.';
+
+// Landing entry framing (t-4 ac-6/7/8): a shallow, state-computed recap of what is
+// still open, NOT a cold greeting and NOT a transcript replay. Skip when nothing is
+// open. At most one clarifying question (zero when MCP is not connected — the tier
+// block below enforces that). Runs under normal Spec-authoring scope (std-38).
+const OPENING_LANDING =
+  '### Entry: the post-creation landing\n' +
+  'The user just created this Spec and landed here. Open with a SHALLOW, state-computed RECAP of what is still OPEN on this Spec right now — its unresolved decisions and its open tasks, read from the Document Context above. This is a recap of the CURRENT state, not a cold greeting and not a replay of any earlier conversation. If NOTHING is open, SKIP the recap entirely and go straight to the tier-appropriate next step. Ask AT MOST ONE clarifying question this turn (and none at all when your coding agent is not yet connected). Stay within your normal Spec-authoring scope — you are the same Spec agent, just opening.';
+
+// Return-visit entry framing (t-8 ac-17/18): a fresh, FIXED-SHAPE reorientation
+// computed from the SAME signals — no new persisted state, no chat replay, no
+// elapsed-time branching. Reuses the same "what's open" computation as the landing.
+const OPENING_RETURN =
+  '### Entry: returning to this Spec\n' +
+  'The user has returned to this Spec. Open with a fresh, FIXED-SHAPE reorientation computed from the current state — the same shape every time: (1) the PHASE this Spec is in, (2) what is still OPEN — its unresolved decisions and open tasks, read from the Document Context above, (3) the single tier-appropriate NEXT action below. Do NOT replay or reference any earlier conversation, and do NOT branch on how long it has been since the last visit — you have only the current signals, nothing time-based. Reuse the same "what’s open" reading as a post-creation recap; only this entry framing differs.';
+
+// Tier 1 — mcpConnected=false (t-5 ac-16): loudest connect-handoff bias. Lead with
+// WHY, then step-by-step CONNECT instructions (say "connect", never "install"),
+// offer a conversational walk-through, point at the on-screen affordance, never
+// claim to perform the connection. ≤1-line recap, ZERO clarifying questions.
+const OPENING_TIER_MCP_DISCONNECTED =
+  '### Next step: connect your coding agent (this comes FIRST)\n' +
+  'This user has NEVER connected a coding agent over MCP. Until they connect one, this Spec cannot be built — so a connected coding agent is the single most important thing, and it biases this whole turn: keep any recap to AT MOST ONE line, and ask NO clarifying question.\n' +
+  '- Lead with WHY connecting matters for THIS Spec specifically — tie it to what this Spec sets out to build.\n' +
+  '- Then give concrete, step-by-step instructions to CONNECT their coding agent (e.g. Claude Code, Cursor) to this Memex over MCP. Always say "connect" — NEVER "install".\n' +
+  '- Offer to walk them through it conversationally, and point them at the connect affordance / handoff card on screen.\n' +
+  '- You CANNOT perform the connection yourself — do not claim to; guide them to do it.\n' +
+  'Everything else stays secondary until they are connected.';
+
+// Tier 2 — connected, watermark 'none' (t-5 ac-12): teach BUILD and how to reach it.
+const OPENING_TIER_TEACH_BUILD =
+  '### Next step: take this Spec into build\n' +
+  'Their coding agent is connected, but they have not yet driven any Spec from specify through into build. Teach the build step:\n' +
+  '- Lead with WHY building THIS Spec matters — grounded in its purpose and the user’s own product. If the product is new, this is scaffolding a fresh build, not "adopting Memex"; if code already exists, it is grounded against that code. Do not presume either.\n' +
+  '- Explain what BUILD means: handing the settled Spec to their connected coding agent to implement end-to-end — grounded against existing code where there is some, or scaffolded where the product is new.\n' +
+  '- Show them concretely HOW to reach build (the build-handoff affordance / prompt), and offer to help get the Spec ready for it.';
+
+// Tier 3 — watermark 'specify_build' (t-5 ac-12): STOP explaining specify→build;
+// teach VERIFY and how to reach it. Never re-teach the phase they have exited.
+const OPENING_TIER_TEACH_VERIFY =
+  '### Next step: verify\n' +
+  'This user has ALREADY driven a Spec from specify into build via their coding agent — so do NOT re-explain what build is or how to reach it; they know. Teach only verify:\n' +
+  '- Lead with WHY verifying THIS Spec matters for the user’s product.\n' +
+  '- Explain what VERIFY means: confirming the built work actually satisfies the Spec’s acceptance criteria — tests, type checks, and exercising the real path, not vibes — and how to reach verify from here.\n' +
+  'Teach ONLY verify; never re-teach the specify→build step they have already lived.';
+
+// Tier 4 — watermark 'build_verify' (t-5 ac-12 pattern): teach only the final step
+// out to done. Never re-teach specify→build or build→verify.
+const OPENING_TIER_TEACH_DONE =
+  '### Next step: done\n' +
+  'This user has ALREADY taken a Spec through build into verify — so do NOT re-explain build or verify; they know both. Teach only the final step:\n' +
+  '- Lead with WHY closing THIS Spec out matters.\n' +
+  '- Explain the FINAL step: moving a verified Spec to done — the closing-out that records the work as complete — and how to reach it. Closing a Spec is the user’s call, never yours.\n' +
+  'Teach ONLY the step to done; never re-teach specify→build or build→verify.';
+
+// Tier 5 — watermark 'verify_done' (t-5 ac-13): fully experienced — emit NO
+// workflow-teaching content at all; Spec-specific discourse only.
+const OPENING_TIER_EXPERIENCED =
+  '### Experienced user — no workflow teaching\n' +
+  'This user has ALREADY taken a Spec all the way through to done. Emit NO workflow-teaching content: do not explain what specify, build, verify, or done mean, or how to reach any phase — they know the entire workflow. Speak ONLY to THIS specific Spec: its open decisions, its readiness for the next phase, and any concrete blockers. Everything you say is about this Spec’s substance, never about the mechanics of the workflow.';
+
+const OPENING_TIER_TEXT: Record<OpeningTier, string> = {
+  mcp_disconnected: OPENING_TIER_MCP_DISCONNECTED,
+  teach_build: OPENING_TIER_TEACH_BUILD,
+  teach_verify: OPENING_TIER_TEACH_VERIFY,
+  teach_done: OPENING_TIER_TEACH_DONE,
+  experienced: OPENING_TIER_EXPERIENCED,
+};
+
+/**
+ * Compose the in-Spec agent's opening-posture block from the entry framing and the
+ * experience tier (spec-482). Order: the cross-tier why-first preamble (ac-19), the
+ * entry framing (landing recap t-4 / return-visit reorientation t-8), then the one
+ * tier block (t-5). Pure prose selection — the signal→tier mapping is LOGIC in
+ * system-prompt.ts. Single home for the prose per std-15/std-16; portable per std-22.
+ */
+export function toOpeningPosture(input: { entry: OpeningEntry; tier: OpeningTier }): string {
+  const framing = input.entry === 'landing' ? OPENING_LANDING : OPENING_RETURN;
+  return [OPENING_WHY_FIRST, framing, OPENING_TIER_TEXT[input.tier]].join('\n\n');
+}
+
 const BASE_MDX_COMPONENTS: PromptBlockNode = {
   kind: 'prompt_block',
   id: 'mdx-components',

@@ -205,6 +205,11 @@ export function SpecList() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
+  // spec-482 (dec-4, ac-24): only the ?new=1 ONBOARDING entry lands the user
+  // directly on the created Spec. The board's own "+ New Spec" button keeps
+  // spec-230's manual "Open Spec" completion footer — this flag scopes the
+  // land-on-create behaviour to onboarding and leaves spec-230's flow untouched.
+  const [landOnCreate, setLandOnCreate] = useState(false);
   const [shareDocId, setShareDocId] = useState<string | null>(null);
   const [renameDoc, setRenameDoc] = useState<DocSummary | null>(null);
   const [moveDoc_, setMoveDoc] = useState<DocSummary | null>(null);
@@ -215,6 +220,7 @@ export function SpecList() {
   useEffect(() => {
     if (searchParams.get('new') === '1') {
       setModalOpen(true);
+      setLandOnCreate(true); // spec-482: onboarding entry lands on the Spec
       const next = new URLSearchParams(searchParams);
       next.delete('new');
       setSearchParams(next, { replace: true });
@@ -567,7 +573,20 @@ export function SpecList() {
         )}
       </div>
 
-      <NewSpecModal open={modalOpen} onClose={() => setModalOpen(false)} />
+      {/* spec-482 (dec-4, ac-24): the board modal is shared by the ?new=1 onboarding
+          deep-link and the "+ New Spec" button. ONLY the onboarding entry sets
+          landOnCreate, so it auto-lands the user on the created Spec (matching the
+          hero path); the "+ New Spec" button keeps spec-230's manual "Open Spec"
+          footer. SpecList renders under a tenant route, so openSpec's
+          tenantPath('/specs/<handle>') fallback resolves. */}
+      <NewSpecModal
+        open={modalOpen}
+        onClose={() => {
+          setModalOpen(false);
+          setLandOnCreate(false);
+        }}
+        openOnCreate={landOnCreate}
+      />
       {shareDocId && <ShareModal docId={shareDocId} onClose={() => setShareDocId(null)} />}
       {renameDoc && (
         <RenameSpecDialog

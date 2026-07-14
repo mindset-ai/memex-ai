@@ -14,11 +14,15 @@ import {
   SKILLS_AGENT_MODE_GUIDANCE,
   toPromptBlocks,
   toPhaseGuidance,
+  toOpeningPosture,
+  type OpeningTier,
+  type OpeningEntry,
   type SpecPhase,
 } from "@memex/shared";
 import type { SystemBlock } from "./types.js";
 import type { IntegrationState } from "./integration-state.js";
 import type { VocabFacet } from "../services/facet-vocab.js";
+import type { PhaseWatermark } from "../services/phase-watermark.js";
 import { loadSkill } from "./skills.js";
 
 // ──────────────────────────────────────────────
@@ -182,6 +186,35 @@ const DOC_BOUND_REACT_BLOCK_IDS: ReadonlySet<string> = new Set([
   "create-from-doc",
 ]);
 
+// spec-482 (t-5) — the per-request opening-posture signals the ROUTE computes for
+// the primary Spec agent: the entry framing (the request's `creationLanding` flag —
+// t-4 landing recap vs t-8 return-visit reorientation) plus the two per-user tier
+// signals (mcpConnected, phaseWatermark — dec-5 / dec-6). buildSystemBlocks maps
+// these to one `OpeningTier` and appends the composed posture (toOpeningPosture).
+export interface OpeningPosture {
+  entry: OpeningEntry;
+  mcpConnected: boolean;
+  phaseWatermark: PhaseWatermark;
+}
+
+// spec-482 (t-5) — the signal→tier mapping (pure LOGIC; the tier PROSE lives in the
+// scaffold model, std-15). Gated by mcpConnected FIRST, then the phaseWatermark
+// ordinal. Each tier teaches at most ONE phase past the user's high-water mark, so a
+// phase already exited is never re-taught.
+function selectOpeningTier(mcpConnected: boolean, watermark: PhaseWatermark): OpeningTier {
+  if (!mcpConnected) return "mcp_disconnected";
+  switch (watermark) {
+    case "none":
+      return "teach_build";
+    case "specify_build":
+      return "teach_verify";
+    case "build_verify":
+      return "teach_done";
+    case "verify_done":
+      return "experienced";
+  }
+}
+
 export function buildSystemBlocks(
   documentContext: string,
   phase: SpecPhase,
@@ -196,6 +229,11 @@ export function buildSystemBlocks(
   // spec-300 t-15 (dec-23): 'skills' is the fifth scoped mode — the dedicated
   // skills authoring / curation agent on the Skills page.
   scopedMode?: "standards" | "issues" | "skills",
+  // spec-482 (t-4 / t-5 / t-8): the primary Spec agent's opening posture. The route
+  // supplies it ONLY for the doc-bound spec agent (no scoped/scaffold/drift mode);
+  // it is composed from the entry framing + the tier the two per-user signals select
+  // and appended after the skills block, so it is the freshest first-turn instruction.
+  openingPosture?: OpeningPosture,
 ): SystemBlock[] {
   const projectedPhase: SpecPhase = phase === "draft" ? "specify" : phase;
   // spec-360: scaffold mode leads with its OWN identity — the doc-bound base
@@ -262,6 +300,19 @@ export function buildSystemBlocks(
   const withSkills = isPrimaryAgent
     ? `${withScoped}\n\n${SKILLS_BLOCK}`
     : withScoped;
+  // spec-482 (t-4 / t-5 / t-8): the primary Spec agent's opening posture — the entry
+  // framing (landing recap vs return-visit reorientation) composed with the tier the
+  // two per-user signals select. Appended LAST so it is the freshest first-turn
+  // instruction over the phase-composed base. Only the primary Spec agent carries it
+  // (the route passes it only there); scoped / scaffold / drift agents never do. The
+  // prose is single-sourced from the scaffold model (std-15) via toOpeningPosture.
+  const withOpening =
+    isPrimaryAgent && openingPosture
+      ? `${withSkills}\n\n${toOpeningPosture({
+          entry: openingPosture.entry,
+          tier: selectOpeningTier(openingPosture.mcpConnected, openingPosture.phaseWatermark),
+        })}`
+      : withSkills;
   // spec-360 t-1 (dec-1/dec-6): the scaffold identity now LEADS the instruction
   // block (prepended into baseContent above) instead of trailing it — appending
   // it after the doc-bound "document assistant" role let that role dominate a
@@ -270,7 +321,7 @@ export function buildSystemBlocks(
   // factual grounding rides the cached context block (buildScaffoldContext).
   const instructions: SystemBlock = {
     type: "text",
-    text: readOnly ? `${withSkills}\n\n${READ_ONLY_BLOCK}` : withSkills,
+    text: readOnly ? `${withOpening}\n\n${READ_ONLY_BLOCK}` : withOpening,
   };
 
   const context: SystemBlock = {

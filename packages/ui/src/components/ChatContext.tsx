@@ -119,6 +119,15 @@ interface ChatState {
    * outside scaffold mode and after the first fire.
    */
   startScaffoldOpeningTurn: (seed: string) => void;
+  /**
+   * spec-482 (t-7): fire the post-creation LANDING opening turn ONCE per Spec —
+   * the single auto-sent turn when the user lands on a freshly-created Spec via
+   * the creation flow. Streams the agent's landing recap (no visible user bubble,
+   * like the scaffold opening turn) and flags the request with `creationLanding:
+   * true` so the server produces a recap. No-ops outside spec mode, without a
+   * bound docId, or after the first fire for that docId.
+   */
+  startCreationLandingTurn: (seed: string) => void;
   sendMessage: (text: string) => void;
   stopStreaming: () => void;
   respondToUiTool: (toolId: string, result: string) => void;
@@ -186,6 +195,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   // greeting that also used this ref was removed — opening a Spec no longer
   // auto-activates the agent; only the Drift Inbox uses this now.)
   const openingTurnStartedForRef = useRef<string | null>(null);
+  // spec-482 (t-7): guards the post-creation landing opening turn so it fires at
+  // most ONCE per landed-on Spec. Keyed by the bound docId so navigating to a
+  // DIFFERENT freshly-created Spec re-arms it, but a re-render / re-mount on the
+  // same Spec never re-fires the recap. Reset alongside the thread on setDocId.
+  const creationLandingStartedForRef = useRef<string | null>(null);
 
   const setDocId = useCallback((id: string | null) => {
     if (id === docIdRef.current) return;
@@ -198,6 +212,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     setRespondedToolIds(new Set());
     anthropicMessagesRef.current = [];
     openingTurnStartedForRef.current = null;
+    creationLandingStartedForRef.current = null;
   }, []);
 
   // spec-143 t-4 (dec-6): enter / leave drift mode. Entering wipes any prior
@@ -575,6 +590,57 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   // no startScopedOpeningTurn. Their controllers only enter/leave the scoped mode;
   // the first LLM call happens when the user types.
 
+  // spec-482 (t-7): the post-creation LANDING opening turn. When the user lands on
+  // a freshly-created Spec via the creation flow, the in-Spec chat auto-sends ONE
+  // turn flagged `creationLanding: true` so the server produces a landing recap.
+  // Mirrors startScaffoldOpeningTurn: it streams the assistant recap WITHOUT a
+  // visible user bubble (the seed is agent-facing only). Fires at most once per
+  // bound docId (guarded by creationLandingStartedForRef); no-ops outside spec
+  // mode, without a docId, or while a turn is already streaming.
+  const startCreationLandingTurn = useCallback(
+    async (seed: string) => {
+      if (agentModeRef.current !== 'spec') return;
+      const currentDocId = docIdRef.current;
+      if (!currentDocId) return;
+      if (creationLandingStartedForRef.current === currentDocId) return;
+      if (isStreaming) return;
+      creationLandingStartedForRef.current = currentDocId;
+
+      setError(null);
+      setIsStreaming(true);
+      streamingAssistantIdRef.current = null;
+      const controller = new AbortController();
+      abortRef.current = controller;
+
+      try {
+        const result = await invoke({
+          userMessage: seed,
+          docId: currentDocId,
+          existingMessages: anthropicMessagesRef.current,
+          agentMode: 'spec',
+          creationLanding: true,
+          callbacks: makeCallbacks(),
+          signal: controller.signal,
+        });
+        anthropicMessagesRef.current = result.messages;
+        const saveDocId = result.docId ?? currentDocId;
+        if (saveDocId) {
+          saveConversation(saveDocId, result.messages).catch(console.error);
+        }
+      } catch (err) {
+        if ((err as Error).name !== 'AbortError') {
+          setError(err instanceof Error ? err.message : String(err));
+        }
+      } finally {
+        if (abortRef.current === controller) {
+          setIsStreaming(false);
+          abortRef.current = null;
+        }
+      }
+    },
+    [isStreaming, invoke, makeCallbacks],
+  );
+
   const respondToUiTool = useCallback(
     async (toolId: string, result: string) => {
       const currentDocId = docIdRef.current;
@@ -739,6 +805,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         clearScaffoldProposal,
         scaffoldNav,
         startScaffoldOpeningTurn,
+        startCreationLandingTurn,
         sendMessage,
         stopStreaming,
         respondToUiTool,

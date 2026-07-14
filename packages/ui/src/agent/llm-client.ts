@@ -135,6 +135,13 @@ export async function* callLlmProxy(
      *  spec-300 t-15 (dec-23): 'skills' runs the dedicated skills authoring /
      *  curation agent (skill-catalogue context + SKILLS_SERVER_TOOLS subset). */
     mode?: 'drift' | 'scaffold' | 'standards' | 'issues' | 'skills';
+    /**
+     * spec-482 (t-7): the creation→landing hop. `true` ONLY for the single
+     * auto-sent opening turn fired when the user lands on a freshly-created Spec,
+     * so the server produces a landing recap instead of a normal reply. Normal
+     * turns omit it. Rides the same POST /llm/chat body as `mode`.
+     */
+    creationLanding?: boolean;
   },
   signal?: AbortSignal
 ): AsyncGenerator<LlmProxyEvent> {
