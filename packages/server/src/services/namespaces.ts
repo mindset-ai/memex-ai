@@ -17,7 +17,7 @@ import {
 } from "../db/schema.js";
 import type { Namespace } from "../db/schema.js";
 import { validateSlugFormat } from "./shared/slug.js";
-import { insertRedirect } from "./redirects.js";
+import { insertRedirect, isRedirectSource } from "./redirects.js";
 import { ConflictError, ValidationError } from "../types/errors.js";
 import { mutate, type Mutated } from "./mutate.js";
 
@@ -216,6 +216,19 @@ export async function renameNamespaceSlug(input: RenameSlugRequest): Promise<Mut
       const taken = await tx.query.namespaces.findFirst({ where: eq(namespaces.slug, newSlug) });
       if (taken) {
         throw new ConflictError(`Slug '${newSlug}' is already taken`);
+      }
+
+      // spec-481 D-2 / issue-1: reject a slug that is the SOURCE of a live
+      // redirect, even once its 30-day reservation has lapsed. Redirects never
+      // expire (std-10 cl-97), so a reborn namespace on this slug would shadow
+      // the permanent redirect under direct-first resolution (std-10 cl-91) and
+      // silently mis-route every old link. The isolated isSlugAvailable guard
+      // isn't on this mutation path (raw PATCH bypasses it), so enforce it here
+      // inside the tx alongside the reservation/taken checks.
+      if (await isRedirectSource(newSlug, tx)) {
+        throw new ConflictError(
+          `Slug '${newSlug}' was used before and is reserved by a redirect`,
+        );
       }
 
       // Reserve the OLD slug for 30 days post-rename.

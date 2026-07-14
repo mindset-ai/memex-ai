@@ -93,4 +93,33 @@ describe("renameNamespaceSlug redirect + reuse-guard (spec-481 t-1)", () => {
     // Now unavailable purely because it is a redirect source (no reservation).
     expect(await isSlugAvailable(orphan)).toBe(false);
   });
+
+  // issue-1 — the guard above must ALSO fire on the mutation path, not just the
+  // isolated helper. A raw PATCH /api/namespaces/:id/slug that targets a live
+  // redirect source (once its 30-day reservation lapses) would let a reborn
+  // namespace shadow the permanent redirect (std-10 cl-91/97) and mis-route
+  // every old link. `orphan` is a redirect source that was NEVER a namespace
+  // and holds NO reservation, so it isolates the redirect-source guard from the
+  // reservation/taken checks — exactly the D-2 hole.
+  it("renameNamespaceSlug refuses to rename TO a live redirect source", async () => {
+    tagAc(AC_481_GUARD);
+    const base = stem();
+    const cSlug = `${base}c`;
+    const orphan = `${base}src`; // redirect source, never a namespace or reservation
+    slugsToClean.push(base);
+    const { userId, namespaceId } = await seedUserNamespace(cSlug);
+
+    await insertRedirect(orphan, `${base}dst`, "namespace_rename");
+
+    await expect(
+      renameNamespaceSlug({ namespaceId, newSlug: orphan, userId }),
+    ).rejects.toThrow(/redirect/i);
+
+    // And the namespace slug is unchanged — the tx rolled back.
+    const ns = await db.query.namespaces.findFirst({
+      where: (n, { eq }) => eq(n.id, namespaceId),
+      columns: { slug: true },
+    });
+    expect(ns?.slug).toBe(cSlug);
+  });
 });

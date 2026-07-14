@@ -278,8 +278,14 @@ export async function insertRedirect(
 // resolution (std-10 cl-91) would let the new entity shadow the redirect and
 // silently mis-route every old link to the wrong place. Callers consult this
 // before (re)registering a slug. old_path is the PK, so this is an index hit.
-export async function isRedirectSource(path: string): Promise<boolean> {
-  const rows = (await db.execute(sql`
+// Accepts an optional `executor` (mirrors insertRedirect) so a rename can run
+// the guard inside its own transaction, consistent with the reservation/taken
+// checks it sits beside.
+export async function isRedirectSource(
+  path: string,
+  executor: SqlExecutor = db
+): Promise<boolean> {
+  const rows = (await executor.execute(sql`
     SELECT 1 FROM redirects WHERE old_path = ${path} LIMIT 1
   `)) as unknown as unknown[];
   return rows.length > 0;
