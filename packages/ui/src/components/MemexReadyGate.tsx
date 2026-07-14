@@ -29,10 +29,10 @@ function GettingReadyBlocker() {
     <div
       role="status"
       aria-live="polite"
-      className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-white text-neutral-800 dark:bg-neutral-950 dark:text-neutral-100"
+      className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-page text-primary"
     >
       <div
-        className="h-8 w-8 animate-spin rounded-full border-2 border-neutral-300 border-t-neutral-700 dark:border-neutral-700 dark:border-t-neutral-200"
+        className="h-8 w-8 animate-spin rounded-full border-2 border-edge border-t-primary"
         aria-hidden="true"
       />
       <p className="text-sm font-medium">Getting your Memex ready…</p>
