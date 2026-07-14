@@ -10,8 +10,9 @@ import { memexes, namespaces } from "../db/schema.js";
 import type { Memex } from "../db/schema.js";
 import { validateSlugFormat, type SlugFormatError } from "./shared/slug.js";
 import { pgError } from "./shared/pg-error.js";
-import { ConflictError, ValidationError } from "../types/errors.js";
+import { ConflictError, NotFoundError, ValidationError } from "../types/errors.js";
 import { mutate, type Mutated, type RequestCtx } from "./mutate.js";
+import { insertRedirect, isRedirectSource } from "./redirects.js";
 
 export async function getMemexById(id: string): Promise<Memex | undefined> {
   return db.query.memexes.findFirst({ where: eq(memexes.id, id) });
@@ -36,7 +37,9 @@ export async function getOrgIdForMemex(memexId: string): Promise<string | null> 
 // memex slugs are unique per namespace, not globally.
 export interface MemexSlugCheckResult {
   available: boolean;
-  reason?: SlugFormatError | "taken";
+  // "redirected" (spec-479 D-4): the slug is the source of a live rename
+  // redirect and must not be re-registered — see the guard below.
+  reason?: SlugFormatError | "taken" | "redirected";
 }
 
 export async function isMemexSlugAvailable(
@@ -53,6 +56,19 @@ export async function isMemexSlugAvailable(
       and(eq(m.namespaceId, namespaceId), eq(m.slug, normalized)),
   });
   if (existing) return { available: false, reason: "taken" };
+
+  // spec-479 D-4 reuse-guard: a slug that a prior rename points AWAY from (the
+  // old_path of a live memex_rename redirect, `<ns-slug>/<slug>`) must stay
+  // unavailable, or a fresh/renamed Memex here would shadow that redirect
+  // (direct-first resolution, std-10 cl-91) and mis-route old links.
+  const ns = await db.query.namespaces.findFirst({
+    where: eq(namespaces.id, namespaceId),
+    columns: { slug: true },
+  });
+  if (ns && (await isRedirectSource(`${ns.slug}/${normalized}`))) {
+    return { available: false, reason: "redirected" };
+  }
+
   return { available: true };
 }
 
@@ -96,6 +112,108 @@ export async function updateMemexVisibility(
       }
       return updated;
     },
+  );
+}
+
+/**
+ * Rename a Memex's display name (`memexes.name`). Cosmetic — no URL/slug
+ * impact, so no redirect and no cooldown. Caller authorization (owner/admin)
+ * is enforced UPSTREAM by the route's adminGate. Per std-8 the write goes
+ * through `mutate()` and emits `memex`/`updated` on the unified bus.
+ */
+export async function updateMemexName(
+  memexId: string,
+  name: string,
+  ctx: RequestCtx = {},
+): Promise<Mutated<Memex>> {
+  const trimmed = name.trim();
+  if (!trimmed) throw new ValidationError("Memex name cannot be empty");
+  return mutate(
+    ctx,
+    { memexId, entity: "memex", action: "updated" },
+    async () => {
+      const [updated] = await db
+        .update(memexes)
+        .set({ name: trimmed, updatedAt: new Date() })
+        .where(eq(memexes.id, memexId))
+        .returning();
+      if (!updated) {
+        throw new NotFoundError(`Memex ${memexId} not found`);
+      }
+      return updated;
+    },
+  );
+}
+
+/**
+ * Rename a Memex's URL slug (`memexes.slug`), preserving its namespace. The
+ * slug update and the `memex_rename` redirect (`<ns>/<old>` → `<ns>/<new>`,
+ * std-10 §7) commit in ONE transaction so a half-applied rename can never
+ * leave old links 404ing. Availability (format + per-namespace uniqueness +
+ * the D-4 reuse-guard) is checked first. No cooldown / reservation — memex
+ * slugs are per-namespace, not the global pool std-3 governs (spec-479 D-4).
+ *
+ * Caller authorization (owner/admin) is enforced UPSTREAM by the route's
+ * adminGate. Per std-8 the write goes through `mutate()` and emits
+ * `memex`/`updated` on the unified bus.
+ */
+export async function renameMemexSlug(
+  memexId: string,
+  newSlug: string,
+  ctx: RequestCtx = {},
+): Promise<Mutated<Memex>> {
+  const normalized = newSlug.trim().toLowerCase();
+
+  const memex = await getMemexById(memexId);
+  if (!memex) throw new NotFoundError(`Memex ${memexId} not found`);
+  if (normalized === memex.slug) {
+    throw new ValidationError(
+      "New slug matches the current slug — nothing to rename",
+    );
+  }
+
+  const ns = await db.query.namespaces.findFirst({
+    where: eq(namespaces.id, memex.namespaceId),
+    columns: { slug: true },
+  });
+  if (!ns) throw new NotFoundError("Namespace not found");
+
+  const avail = await isMemexSlugAvailable(memex.namespaceId, normalized);
+  if (!avail.available) {
+    if (avail.reason === "taken") {
+      throw new ConflictError(
+        `Slug '${normalized}' is already taken in this namespace`,
+      );
+    }
+    if (avail.reason === "redirected") {
+      throw new ConflictError(
+        `Slug '${normalized}' is reserved by a redirect from a prior rename`,
+      );
+    }
+    throw new ValidationError(`Invalid slug: ${avail.reason}`);
+  }
+
+  const oldPath = `${ns.slug}/${memex.slug}`;
+  const newPath = `${ns.slug}/${normalized}`;
+
+  return mutate(
+    ctx,
+    { memexId, entity: "memex", action: "updated" },
+    async () =>
+      db.transaction(async (tx) => {
+        const [updated] = await tx
+          .update(memexes)
+          .set({ slug: normalized, updatedAt: new Date() })
+          .where(eq(memexes.id, memexId))
+          .returning();
+        if (!updated) {
+          throw new NotFoundError(`Memex ${memexId} not found`);
+        }
+        // Same transaction as the slug write → the rename and its redirect
+        // commit atomically; a failure here rolls back the slug change too.
+        await insertRedirect(oldPath, newPath, "memex_rename", tx);
+        return updated;
+      }),
   );
 }
 

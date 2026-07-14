@@ -22,9 +22,16 @@
 // the DB lookup — every old Brief URL becomes a permanent 301 to its Spec
 // equivalent without inserting one redirect row per Brief.
 
-import { sql } from "drizzle-orm";
+import { sql, type SQL } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import { parseRef } from "./refs.js";
+import { validateSlugFormat } from "./shared/slug.js";
+
+// db and a transaction handle both satisfy this. It lets a caller record a
+// redirect inside its own transaction (e.g. renameMemexSlug) so the rename and
+// its redirect row commit atomically — a half-applied rename would recreate the
+// std-10 §7 "old links 404" bug this layer exists to prevent.
+type SqlExecutor = { execute: (query: SQL) => Promise<unknown> };
 
 export type RedirectReason =
   | "brief_move"
@@ -197,25 +204,65 @@ export function rewriteBriefPathToSpec(path: string): BriefToSpecRedirect | null
   return null;
 }
 
-// Record a redirect. Both paths must parse as canonical refs — see
-// services/refs.ts for the grammar. UPSERT on the primary key so re-running
-// the same move (e.g. retried migration step) is a no-op rather than an
-// error; `reason` + `created_at` are refreshed to reflect the latest event.
+// spec-479 D-1 — a namespace/memex rename records ONE redirect row keyed on a
+// PATH PREFIX, not a full entity ref: `namespace_rename` on the 1-segment
+// namespace slug (`old-ns`), `memex_rename` on the 2-segment `<ns>/<mx>`
+// (`old-ns/old-mx`). The resolver's prefix-match (`lookupOneStep`) rewrites
+// every descendant path from it (std-10 §7, cl-84/85). Such a prefix is
+// deliberately NOT a valid canonical ref (parseRef demands 4 or 6 segments),
+// so it gets its own validator. Segments are checked against the slug-creation
+// authority (`validateSlugFormat`) — NOT refs.ts's letter-first SLUG_RE —
+// so a legitimate digit-leading slug (e.g. `2024-recap`) is accepted; and
+// case-strictly, since old_path is stored lowercase and matched literally by
+// the resolver's `LIKE old_path || '/%'`.
+function assertRenamePrefix(
+  path: string,
+  segments: 1 | 2,
+  argName: string,
+  reason: RedirectReason
+): void {
+  const parts = path.split("/");
+  if (parts.length !== segments) {
+    throw new Error(
+      `insertRedirect: ${reason} ${argName} "${path}" must have exactly ${segments} slug segment(s), got ${parts.length}`
+    );
+  }
+  for (const seg of parts) {
+    if (seg !== seg.toLowerCase() || !validateSlugFormat(seg).valid) {
+      throw new Error(
+        `insertRedirect: ${reason} ${argName} "${path}" has an invalid slug segment "${seg}"`
+      );
+    }
+  }
+}
+
+// Record a redirect. UPSERT on the primary key so re-running the same move
+// (e.g. a retried migration step) is a no-op rather than an error; `reason` +
+// `created_at` are refreshed to reflect the latest event. Path validation is
+// reason-gated: rename reasons store a prefix (see `assertRenamePrefix`);
+// every other reason (a per-entity move) must be a full canonical ref.
 export async function insertRedirect(
   oldPath: string,
   newPath: string,
-  reason: RedirectReason
+  reason: RedirectReason,
+  executor: SqlExecutor = db
 ): Promise<void> {
-  const oldParse = parseRef(oldPath);
-  if (!oldParse.ok) {
-    throw new Error(`insertRedirect: invalid oldPath "${oldPath}": ${oldParse.reason}`);
-  }
-  const newParse = parseRef(newPath);
-  if (!newParse.ok) {
-    throw new Error(`insertRedirect: invalid newPath "${newPath}": ${newParse.reason}`);
+  if (reason === "namespace_rename" || reason === "memex_rename") {
+    const segments = reason === "namespace_rename" ? 1 : 2;
+    assertRenamePrefix(oldPath, segments, "oldPath", reason);
+    assertRenamePrefix(newPath, segments, "newPath", reason);
+  } else {
+    const oldParse = parseRef(oldPath);
+    if (!oldParse.ok) {
+      throw new Error(`insertRedirect: invalid oldPath "${oldPath}": ${oldParse.reason}`);
+    }
+    const newParse = parseRef(newPath);
+    if (!newParse.ok) {
+      throw new Error(`insertRedirect: invalid newPath "${newPath}": ${newParse.reason}`);
+    }
   }
 
-  await db.execute(sql`
+  await executor.execute(sql`
     INSERT INTO redirects (old_path, new_path, reason)
     VALUES (${oldPath}, ${newPath}, ${reason})
     ON CONFLICT (old_path) DO UPDATE
@@ -223,4 +270,17 @@ export async function insertRedirect(
            reason     = excluded.reason,
            created_at = now()
   `);
+}
+
+// spec-479 D-4 reuse-guard — is `path` the SOURCE (old_path) of a live
+// redirect? Because redirects never expire (std-10 cl-97), a slug a rename
+// points away from must not be handed to a new/renamed entity: direct-first
+// resolution (std-10 cl-91) would let the new entity shadow the redirect and
+// silently mis-route every old link to the wrong place. Callers consult this
+// before (re)registering a slug. old_path is the PK, so this is an index hit.
+export async function isRedirectSource(path: string): Promise<boolean> {
+  const rows = (await db.execute(sql`
+    SELECT 1 FROM redirects WHERE old_path = ${path} LIMIT 1
+  `)) as unknown as unknown[];
+  return rows.length > 0;
 }

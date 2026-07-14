@@ -57,6 +57,72 @@ export async function updateMemexVisibilityApi(
   return (body as { memex: MemexVisibilityDto }).memex;
 }
 
+/**
+ * Rename a Memex's display name (spec-479). Owner/admin-gated server-side; the
+ * URL/slug is untouched. Returns the updated row.
+ */
+export async function updateMemexNameApi(
+  memexId: string,
+  name: string,
+  token: string | null,
+): Promise<MemexVisibilityDto> {
+  const res = await fetchWithRetry(`${tBase()}/memexes/${memexId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...authHeaders(token) },
+    body: JSON.stringify({ name }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(body.error ?? body.message ?? `Rename failed: ${res.status}`);
+  }
+  return (body as { memex: MemexVisibilityDto }).memex;
+}
+
+/**
+ * Rename a Memex's URL slug (spec-479). Owner/admin-gated. The server writes a
+ * memex_rename redirect so old links keep working; a slug that is taken or
+ * reserved by a prior rename returns 409 (surfaced as the thrown message). The
+ * returned row carries the new slug — the caller navigates to the new URL.
+ */
+export async function renameMemexSlugApi(
+  memexId: string,
+  slug: string,
+  token: string | null,
+): Promise<MemexVisibilityDto> {
+  const res = await fetchWithRetry(`${tBase()}/memexes/${memexId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...authHeaders(token) },
+    body: JSON.stringify({ slug }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(body.error ?? body.message ?? `Rename failed: ${res.status}`);
+  }
+  return (body as { memex: MemexVisibilityDto }).memex;
+}
+
+/**
+ * spec-479 dec-5 — resolve a stale tenant PAGE path to its current path after a
+ * rename. The SPA is served statically, so a bookmarked `/<ns>/<old-mx>/…` never
+ * hits the server redirect layer; TenantLayout calls this on a resolution miss
+ * and forwards on a hit. Returns the new absolute path, or null (no redirect /
+ * error) so the caller falls through to its normal bounce. Sends no auth header
+ * — it only resolves a path; the destination gates access on navigation.
+ */
+export async function resolveTenantRedirectApi(pathname: string): Promise<string | null> {
+  try {
+    const res = await fetch(
+      `${BASE_URL}/redirects/resolve?path=${encodeURIComponent(pathname)}`,
+      { headers: { Accept: 'application/json' } },
+    );
+    if (!res.ok) return null;
+    const body = (await res.json()) as { redirected?: string };
+    return body.redirected ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /** The public-facing Memex shape returned by the slug-based readability probe. */
 export interface PublicMemexProbe {
   id: string;
