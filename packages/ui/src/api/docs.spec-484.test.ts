@@ -61,7 +61,7 @@ describe('spec-484: docs.ts decode-on-read', () => {
         docType: 'spec',
         status: 'draft',
         parentDocId: 'p1',
-        parent: { id: 'p1', handle: 'doc-9', title: 'Parent &amp;amp; Root', docType: 'brief' },
+        parent: { id: 'p1', handle: 'doc-9', title: 'Parent &amp;amp; Root', docType: 'document' },
         createdAt: '2026-01-01',
         statusChangedAt: '2026-01-01',
         sectionCount: 0,
