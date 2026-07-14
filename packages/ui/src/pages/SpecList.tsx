@@ -344,6 +344,32 @@ export function SpecList() {
     [handleArchive],
   );
 
+  // spec-482 (dec-4, ac-24): the create modal — shared by the ?new=1 onboarding
+  // deep-link and the board's "+ New Spec" button. Only the onboarding entry sets
+  // landOnCreate, so it auto-lands the user on the created Spec (matching the hero
+  // path); the "+ New Spec" button keeps spec-230's manual "Open Spec" footer.
+  const newSpecModal = (
+    <NewSpecModal
+      open={modalOpen}
+      onClose={() => {
+        setModalOpen(false);
+        setLandOnCreate(false);
+      }}
+      openOnCreate={landOnCreate}
+    />
+  );
+
+  // spec-482 follow-up: the ?new=1 onboarding entry auto-opens the create modal to LAND
+  // the user directly on the new Spec. Render it over a PLAIN page — never the board
+  // (spinner + Kanban) behind it — so the create→land hop doesn't flash the specs board
+  // on the way to the Spec. The board's own "+ New Spec" button never sets landOnCreate,
+  // so it's unaffected (its modal still opens over the already-rendered board). On create,
+  // the modal navigates straight to /specs/<handle>; on cancel, landOnCreate clears and the
+  // board renders below as usual.
+  if (landOnCreate && modalOpen) {
+    return <div className="min-h-screen bg-page">{newSpecModal}</div>;
+  }
+
   if (loading) {
     return (
       <div className="flex justify-center items-center min-h-[50vh]">
@@ -573,20 +599,11 @@ export function SpecList() {
         )}
       </div>
 
-      {/* spec-482 (dec-4, ac-24): the board modal is shared by the ?new=1 onboarding
-          deep-link and the "+ New Spec" button. ONLY the onboarding entry sets
-          landOnCreate, so it auto-lands the user on the created Spec (matching the
-          hero path); the "+ New Spec" button keeps spec-230's manual "Open Spec"
-          footer. SpecList renders under a tenant route, so openSpec's
-          tenantPath('/specs/<handle>') fallback resolves. */}
-      <NewSpecModal
-        open={modalOpen}
-        onClose={() => {
-          setModalOpen(false);
-          setLandOnCreate(false);
-        }}
-        openOnCreate={landOnCreate}
-      />
+      {/* The create modal (defined above). Rendered here over the board for the
+          "+ New Spec" flow; the ?new=1 onboarding entry short-circuits above and
+          renders it over a plain page instead (no board flash). SpecList renders under
+          a tenant route, so openSpec's tenantPath('/specs/<handle>') fallback resolves. */}
+      {newSpecModal}
       {shareDocId && <ShareModal docId={shareDocId} onClose={() => setShareDocId(null)} />}
       {renameDoc && (
         <RenameSpecDialog

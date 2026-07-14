@@ -41,6 +41,21 @@ import { getPhaseHighWaterMark } from "../services/phase-watermark.js";
 // we set none.)
 const MODEL = "claude-sonnet-5";
 
+// spec-482 follow-up — the REAL connect-MCP command for the disconnected opening tier,
+// derived host-aware (mirrors packages/ui/src/utils/mcpUrl.ts + ConnectAgentStep's
+// unified installer, spec-430). `APP_BASE_URL` is the public host Cloud Run injects per
+// env (same var app.ts uses for install.sh). The bare `npx -y memex-ai install` command
+// is prod; any other host passes `--api-base`. The agent copies this VERBATIM into its
+// render_handoff so the user copies a working installer, not an LLM paraphrase.
+function deriveConnectMcp(): { installCommand: string; mcpUrl: string } {
+  const base = process.env.APP_BASE_URL ?? "https://int.memex.ai";
+  const apiBaseFlag = base === "https://memex.ai" ? "" : ` --api-base ${base}`;
+  return {
+    installCommand: `npx -y memex-ai install${apiBaseFlag}`,
+    mcpUrl: `${base}/mcp`,
+  };
+}
+
 type Env = MemexResolverEnv & SessionEnv;
 
 // std-5 exemption: this router mounts under both /api/<ns>/<mx>/llm (path-prefixed,
@@ -209,6 +224,10 @@ llmRouter.post("/chat", async (c) => {
         entry: (creationLanding ? "landing" : "return") as "landing" | "return",
         mcpConnected,
         phaseWatermark,
+        // spec-482 follow-up: only the MCP-disconnected tier needs the real connect
+        // command; deriving it host-aware here (mirrors the client's mcpUrl.ts) means
+        // the agent's render_handoff copies a WORKING installer, not a paraphrase.
+        connectMcp: mcpConnected ? undefined : deriveConnectMcp(),
       }
     : undefined;
 

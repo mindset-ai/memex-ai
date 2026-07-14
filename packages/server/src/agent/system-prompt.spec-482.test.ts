@@ -38,9 +38,16 @@ function posture(
   entry: "landing" | "return",
   mcpConnected: boolean,
   phaseWatermark: PhaseWatermark,
+  connectMcp?: { installCommand: string; mcpUrl: string },
 ): OpeningPosture {
-  return { entry, mcpConnected, phaseWatermark };
+  return { entry, mcpConnected, phaseWatermark, connectMcp };
 }
+
+// The route-injected real connect command (deriveConnectMcp) for the disconnected tier.
+const CONNECT = {
+  installCommand: "npx -y memex-ai install --api-base https://int.memex.ai",
+  mcpUrl: "https://int.memex.ai/mcp",
+};
 
 // Distinctive, stable phrases from each prose block (single-sourced in scaffold-data.ts).
 const WHY_FIRST = "Lead with WHY it matters, grounded in THIS specific Spec";
@@ -201,6 +208,33 @@ describe("spec-482 t-5 — tiers gated by mcpConnected then phaseWatermark", () 
       expect(p).toContain("render_handoff");
       expect(p).toContain(COPY_BUTTON_RULE);
     }
+  });
+
+  it("ac-5 / ac-25: the disconnected tier carries the route-injected REAL install command verbatim, for the render_handoff", () => {
+    tagAc(AC(5));
+    tagAc(AC(25));
+    const p = specPrompt(posture("landing", false, "none", CONNECT));
+    // The exact installer command + MCP URL appear verbatim (not paraphrased).
+    expect(p).toContain(CONNECT.installCommand);
+    expect(p).toContain(CONNECT.mcpUrl);
+    // With the explicit instruction to place it in the render_handoff unaltered.
+    expect(p).toContain("put it in your render_handoff VERBATIM");
+    expect(p).toContain("render_handoff");
+  });
+
+  it("ac-25: the injected connect command rides ONLY the disconnected tier — never a connected one", () => {
+    tagAc(AC(25));
+    // Connected tiers must not leak the install command even if one is (defensively) passed.
+    for (const wm of ["none", "specify_build", "verify_done"] as PhaseWatermark[]) {
+      const p = specPrompt(posture("landing", true, wm, CONNECT));
+      expect(p).not.toContain(CONNECT.installCommand);
+      expect(p).not.toContain("put it in your render_handoff VERBATIM");
+    }
+    // And the disconnected tier without an injected command still composes (no crash,
+    // no command block) — the route only injects it in real requests.
+    const bare = specPrompt(posture("landing", false, "none"));
+    expect(bare).not.toContain("put it in your render_handoff VERBATIM");
+    expect(bare).toContain(TIER_MCP_CONNECT_NOT_INSTALL);
   });
 
   it("ac-19: why-before-how leads EVERY tier", () => {
