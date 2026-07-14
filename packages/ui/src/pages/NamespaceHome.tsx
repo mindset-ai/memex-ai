@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, useNavigate, useLocation, Link } from 'react-router-dom';
 import { useAuth } from '../components/AuthContext';
 import {
   getNamespaceHomeApi,
   listMyNamespacesApi,
   type NamespaceHomeResponse,
 } from '../api/client';
+import { useStaleTenantForward } from '../hooks/useStaleTenantForward';
 import { tenantPathFor } from '../utils/tenantUrl';
 import { AddMemexDialog } from '../components/AddMemexDialog';
 import { CreateOrgDialog } from '../components/CreateOrgDialog';
@@ -31,6 +32,8 @@ interface OrgEntry {
 export function NamespaceHome() {
   const { namespace: namespaceSlug } = useParams<{ namespace: string }>();
   const { token, refreshSession } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
   const [kind, setKind] = useState<'personal' | 'org' | null>(null);
   const [personalHome, setPersonalHome] = useState<
     Extract<NamespaceHomeResponse, { kind: 'personal' }> | null
@@ -38,6 +41,12 @@ export function NamespaceHome() {
   const [orgs, setOrgs] = useState<OrgEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // spec-481 ac-2 — a bare `/<old-ns>` home is a resolution miss after a
+  // namespace rename. Unlike deep tenant paths (TenantLayout forwards those),
+  // this page has to consult the redirect layer itself so the bare home URL
+  // forwards to `/<new-ns>` too, instead of dead-ending on "Namespace not
+  // found". `notFound` gates the same stale-forward hook TenantLayout uses.
+  const [notFound, setNotFound] = useState(false);
   const [addMemexForOrg, setAddMemexForOrg] = useState<OrgEntry | null>(null);
   const [inviteForOrg, setInviteForOrg] = useState<OrgEntry | null>(null);
   const [createOrgOpen, setCreateOrgOpen] = useState(false);
@@ -50,6 +59,7 @@ export function NamespaceHome() {
     if (!namespaceSlug) return;
     setLoading(true);
     setError(null);
+    setNotFound(false);
     let cancelled = false;
     (async () => {
       try {
@@ -57,7 +67,9 @@ export function NamespaceHome() {
         const match = groups.find((g) => g.namespaceSlug === namespaceSlug);
         if (!match?.namespaceId) {
           if (!cancelled) {
-            setError('Namespace not found');
+            // Don't dead-end: flag a miss and let the stale-forward hook below
+            // consult the redirect layer (a renamed namespace forwards).
+            setNotFound(true);
             setLoading(false);
           }
           return;
@@ -110,10 +122,41 @@ export function NamespaceHome() {
     };
   }, [namespaceSlug, token, reloadTick]);
 
+  // On a resolution miss, ask the server whether this bare namespace path
+  // forwards (a renamed slug). Fires only while `notFound` (mirrors
+  // TenantLayout's use of the same hook for deep tenant paths).
+  const staleForward = useStaleTenantForward(location.pathname, notFound);
+  useEffect(() => {
+    if (staleForward.state === 'done' && staleForward.to) {
+      navigate(staleForward.to, { replace: true });
+    }
+  }, [staleForward, navigate]);
+
   if (loading) {
     return (
       <div className="flex justify-center items-center min-h-[50vh]">
         <Spinner />
+      </div>
+    );
+  }
+
+  // A miss: keep rendering the spinner while the redirect lookup is in flight or
+  // a forward is about to navigate; only show "not found" once the lookup
+  // resolves to no redirect.
+  if (notFound) {
+    const settled = staleForward.state === 'done' && !staleForward.to;
+    if (!settled) {
+      return (
+        <div className="flex justify-center items-center min-h-[50vh]">
+          <Spinner />
+        </div>
+      );
+    }
+    return (
+      <div className="px-6 py-8">
+        <div className="bg-status-danger-bg border border-status-danger-border rounded-lg p-4 text-status-danger-text">
+          Namespace not found
+        </div>
       </div>
     );
   }

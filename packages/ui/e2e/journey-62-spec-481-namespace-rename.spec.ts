@@ -73,4 +73,11 @@ test("admin renames the namespace slug from Settings; old deep links forward (ac
   // resolver rewrites every descendant path from it.
   await page.goto(tenantPath(oldNs, "workspace", "/specs"));
   await expect(page).toHaveURL(tenantPath(newNs, "workspace", "/specs"));
+
+  // ac-2 (bare home): the OLD bare namespace home forwards too. NamespaceHome
+  // consults the redirect layer on a miss rather than dead-ending on
+  // "Namespace not found" — so EVERY previously-valid URL under the old slug
+  // forwards, not just deep tenant paths.
+  await page.goto(bareUrl(`/${oldNs}`));
+  await expect(page).toHaveURL(bareUrl(`/${newNs}`));
 });
