@@ -19,8 +19,9 @@ vi.mock('react-router-dom', async () => {
   return { ...actual, useNavigate: () => navigate };
 });
 
+const refreshSession = vi.fn();
 vi.mock('./AuthContext', () => ({
-  useAuth: () => ({ token: 'test-token' }),
+  useAuth: () => ({ token: 'test-token', refreshSession }),
 }));
 
 const fetchMemexApi = vi.fn();
@@ -47,6 +48,7 @@ const MEMEX = {
 beforeEach(() => {
   vi.clearAllMocks();
   fetchMemexApi.mockResolvedValue({ ...MEMEX });
+  refreshSession.mockResolvedValue(undefined);
 });
 
 function renderSection() {
@@ -100,6 +102,14 @@ describe('RenameMemexSection (spec-479 t-4)', () => {
     await user.click(screen.getByTestId('memex-slug-confirm-btn'));
     await waitFor(() =>
       expect(renameMemexSlugApi).toHaveBeenCalledWith('m1', 'renamed', 'test-token'),
+    );
+    await waitFor(() => expect(navigate).toHaveBeenCalled());
+    // The session MUST refresh before navigating — otherwise TenantLayout gates
+    // the new URL on stale membership (old slug) and bounces to the default
+    // landing. This is the exact regression CI's journey-61 caught.
+    expect(refreshSession).toHaveBeenCalled();
+    expect(refreshSession.mock.invocationCallOrder[0]).toBeLessThan(
+      navigate.mock.invocationCallOrder[0],
     );
     // ac-7: navigates to the new /<ns>/<new-slug>/settings URL.
     expect(navigate).toHaveBeenCalledWith('/ns/renamed/settings', { replace: true });

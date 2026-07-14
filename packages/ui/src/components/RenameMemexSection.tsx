@@ -28,7 +28,7 @@ export function RenameMemexSection({
   memexId: string;
   namespaceSlug: string;
 }) {
-  const { token } = useAuth();
+  const { token, refreshSession } = useAuth();
   const navigate = useNavigate();
   const [memex, setMemex] = useState<MemexVisibilityDto | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -101,12 +101,14 @@ export function RenameMemexSection({
       setMemex(updated);
       setName(updated.name);
       setNameSaved(true);
+      // Keep the session's membership label (sidebar switcher) in sync.
+      await refreshSession();
     } catch (err) {
       setError((err as Error).message);
     } finally {
       setSavingName(false);
     }
-  }, [memex, name, memexId, token]);
+  }, [memex, name, memexId, token, refreshSession]);
 
   const onConfirmRename = useCallback(async () => {
     if (!memex) return;
@@ -115,15 +117,18 @@ export function RenameMemexSection({
     setError(null);
     try {
       const updated = await renameMemexSlugApi(memexId, trimmed, token);
-      // The page's own URL is now stale — navigate to the new address. The slug
-      // is server-validated ([a-z0-9-]) so the path is safe/same-origin.
+      // Refresh the session FIRST: its membership rows still carry the old slug,
+      // and TenantLayout gates the new URL on membership — navigating before the
+      // refresh bounces the user to their default landing. Only then navigate to
+      // the new address (server-validated slug → safe/same-origin path).
+      await refreshSession();
       navigate(`/${namespaceSlug}/${updated.slug}/settings`, { replace: true });
     } catch (err) {
       setError((err as Error).message);
       setRenaming(false);
       setConfirming(false);
     }
-  }, [memex, slug, memexId, token, namespaceSlug, navigate]);
+  }, [memex, slug, memexId, token, namespaceSlug, navigate, refreshSession]);
 
   if (!memex) {
     return error ? (
