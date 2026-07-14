@@ -11,6 +11,7 @@ import {
 import { Badge } from './ui';
 import { FacetPills } from './FacetPills';
 import { Metric } from './MetricBar';
+import { MarkdownText } from './chat/MarkdownText';
 
 interface TaskPanelProps {
   /** Retained for call-site compatibility — was only consumed by the removed
@@ -173,7 +174,7 @@ export function TaskPanel({ docId: _docId, doc: _doc, tasks, onUpdate, canWrite:
                     <Badge status={display} label={display === 'blocked' ? 'blocked' : statusLabel[t.status]} />
                     <span className="text-sm truncate text-primary">{t.title}</span>
                   </div>
-                  <p className="text-xs text-muted mt-1 line-clamp-2">{t.description}</p>
+                  <p className="text-xs text-muted mt-1 line-clamp-2"><MarkdownText inline>{t.description}</MarkdownText></p>
                   {t.sectionRef && (
                     <Badge status="archived" label={t.sectionRef} className="mt-1" />
                   )}
@@ -183,7 +184,7 @@ export function TaskPanel({ docId: _docId, doc: _doc, tasks, onUpdate, canWrite:
                       {t.acceptanceCriteria.map((ac, i) => (
                         <div key={i} className="flex items-center gap-1.5 text-[11px]">
                           <span className={ac.done ? 'text-status-success-text' : 'text-muted'}>{ac.done ? '[x]' : '[ ]'}</span>
-                          <span className={ac.done ? 'text-muted line-through' : 'text-secondary'}>{ac.description}</span>
+                          <MarkdownText inline className={ac.done ? 'text-muted line-through' : 'text-secondary'}>{ac.description}</MarkdownText>
                         </div>
                       ))}
                     </div>

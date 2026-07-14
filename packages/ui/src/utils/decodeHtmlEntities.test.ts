@@ -38,8 +38,9 @@ describe('decodeHtmlEntities', () => {
     expect(decodeHtmlEntities('no entities here')).toBe('no entities here');
   });
 
-  it('only decodes a single layer (titles were never double-encoded)', () => {
-    // &amp;amp; -> &amp; (one pass); proves we are not aggressively re-decoding.
-    expect(decodeHtmlEntities('A &amp;amp; B')).toBe('A &amp; B');
+  it('fully decodes multi-encoded values to a fixpoint (spec-484 t-1)', () => {
+    // Some legacy rows were double-encoded. A single pass left a literal "&amp;" on
+    // screen; the fixpoint loop resolves every layer: &amp;amp; -> &amp; -> &.
+    expect(decodeHtmlEntities('A &amp;amp; B')).toBe('A & B');
   });
 });

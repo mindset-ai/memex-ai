@@ -13,6 +13,7 @@ import {
   type SharedCommentDto,
 } from '../api/client';
 import { buildBareDomainUrl } from '../utils/tenantUrl';
+import { decodeHtmlEntities } from '../utils/decodeHtmlEntities';
 // t-23 of doc-15: buildBareDomainUrl now returns ${origin}/ — no subdomain
 // stripping. Used here to build the "sign in to comment" return-to link.
 
@@ -100,7 +101,9 @@ export function SharedDocument() {
       <main className="flex-1">
         <article className="max-w-3xl mx-auto px-6 py-10 space-y-8">
           <header>
-            <h1 className="text-3xl font-semibold text-heading">{data.doc.title}</h1>
+            <h1 className="text-3xl font-semibold text-heading">
+              {decodeHtmlEntities(data.doc.title)}
+            </h1>
             <div className="text-xs text-muted mt-2">
               {data.doc.handle} · {data.doc.docType}
             </div>
@@ -195,7 +198,9 @@ function SectionBlock({
 
   return (
     <section className="space-y-3">
-      {section.title && <h2 className="text-xl font-semibold text-heading">{section.title}</h2>}
+      {section.title && (
+        <h2 className="text-xl font-semibold text-heading">{decodeHtmlEntities(section.title)}</h2>
+      )}
       <div className="prose prose-sm max-w-none text-primary">
         <ReactMarkdown rehypePlugins={[rehypeRefLinkifier]}>{section.content}</ReactMarkdown>
       </div>
@@ -244,7 +249,9 @@ function SectionBlock({
   );
 }
 
-function CommentRow({
+// Exported for spec-484 ac-6 — the comment body renders markdown (**bold** / lists /
+// links), not literal source. Kept a named export so the unit test can mount it directly.
+export function CommentRow({
   comment,
   hostMemexId,
 }: {
@@ -267,7 +274,13 @@ function CommentRow({
           {new Date(comment.createdAt).toLocaleDateString()}
         </span>
       </div>
-      <div className="text-primary whitespace-pre-wrap">{comment.content}</div>
+      {/* spec-484 t-1 (ac-6): render the comment body as markdown so **bold** / lists /
+          links render, mirroring the section-body wiring above (same ReactMarkdown +
+          rehypeRefLinkifier). Comment CONTENT is markdown and is NOT entity-decoded —
+          ReactMarkdown handles entities, and re-decoding could corrupt code spans. */}
+      <div className="prose prose-sm max-w-none text-primary">
+        <ReactMarkdown rehypePlugins={[rehypeRefLinkifier]}>{comment.content}</ReactMarkdown>
+      </div>
     </div>
   );
 }

@@ -11,7 +11,9 @@
 //
 // Pure + dependency-free (no DOM), so it runs the same in the browser, jsdom tests,
 // and any SSR path. Decodes the named entities a title realistically carries plus
-// decimal/hex numeric refs. Single-pass (we never produced double-encoded titles).
+// decimal/hex numeric refs. Loops to a fixpoint so MULTI-encoded legacy values are
+// fully decoded ("&amp;amp;" -> "&amp;" -> "&"): some legacy rows were double-encoded,
+// and a single pass would only half-decode them, leaving a literal "&amp;" on screen.
 
 const NAMED: Record<string, string> = {
   amp: '&',
@@ -25,9 +27,9 @@ const NAMED: Record<string, string> = {
 // Matches a well-formed entity: &name; | &#123; | &#x1F600;
 const ENTITY = /&(#x[0-9a-fA-F]+|#[0-9]+|[a-zA-Z][a-zA-Z0-9]*);/g;
 
-export function decodeHtmlEntities(input: string): string {
-  // Fast path: nothing that could be an entity.
-  if (!input || input.indexOf('&') === -1) return input;
+// A single decode pass: resolves every well-formed entity once. A bare "&" with no
+// trailing entity, and any unknown entity, are left verbatim.
+function decodeOnce(input: string): string {
   return input.replace(ENTITY, (match, body: string) => {
     if (body[0] === '#') {
       const code =
@@ -42,6 +44,21 @@ export function decodeHtmlEntities(input: string): string {
       }
     }
     const decoded = NAMED[body.toLowerCase()];
-    return decoded ?? match; // unknown entity → leave verbatim
+    return decoded ?? match; // unknown entity -> leave verbatim
   });
+}
+
+export function decodeHtmlEntities(input: string): string {
+  // Fast path: nothing that could be an entity.
+  if (!input || input.indexOf('&') === -1) return input;
+  // Decode repeatedly until the string stops changing (fixpoint). A pass that changes
+  // anything strictly shortens the string (an entity -> a single char), so this
+  // terminates; the cap is a defensive guard against pathological input.
+  let current = input;
+  for (let i = 0; i < 16; i++) {
+    const next = decodeOnce(current);
+    if (next === current) break;
+    current = next;
+  }
+  return current;
 }
