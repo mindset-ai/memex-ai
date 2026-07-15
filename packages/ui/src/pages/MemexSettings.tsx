@@ -50,12 +50,13 @@ export function MemexSettings() {
       {memexId ? (
         // Emission keys moved to their own member-visible page (spec-129 dec-8,
         // Option B): /<ns>/<mx>/keys. This admin-only page keeps Memex visibility
-        // and (spec-479) the rename controls.
+        // and (spec-479) the rename controls. Order: identity + visibility first
+        // (the Memex name heading + Private/Public), rename controls last.
         <>
+          <MemexVisibilitySettings memexId={memexId} />
           {tenant?.namespace && (
             <RenameMemexSection memexId={memexId} namespaceSlug={tenant.namespace} />
           )}
-          <MemexVisibilitySettings memexId={memexId} />
         </>
       ) : (
         <div className="text-sm text-muted">No Memex selected.</div>
