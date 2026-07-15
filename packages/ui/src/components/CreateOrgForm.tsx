@@ -22,6 +22,7 @@ const SLUG_REASON_MESSAGES: Record<OrgSlugCheckReason, string> = {
   invalid_chars: 'Use only letters, numbers, and hyphens (no leading or trailing hyphen)',
   reserved: 'That namespace is reserved — pick another',
   taken: 'That namespace is already taken',
+  redirected: 'That namespace was used before and is reserved by a redirect',
 };
 
 // Server-side error codes we render targeted copy for. Anything else falls through

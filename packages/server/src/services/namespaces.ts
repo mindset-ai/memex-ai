@@ -17,8 +17,9 @@ import {
 } from "../db/schema.js";
 import type { Namespace } from "../db/schema.js";
 import { validateSlugFormat } from "./shared/slug.js";
+import { insertRedirect, isRedirectSource } from "./redirects.js";
 import { ConflictError, ValidationError } from "../types/errors.js";
-import { mutate, type Mutated } from "./mutate.js";
+import { mutate, type Mutated, type RequestCtx } from "./mutate.js";
 
 export async function getNamespaceBySlug(slug: string): Promise<Namespace | undefined> {
   return db.query.namespaces.findFirst({
@@ -143,7 +144,10 @@ export interface RenameSlugRequest {
 const SLUG_COOLDOWN_DAYS = 30;
 const SLUG_RESERVATION_DAYS = 30;
 
-export async function renameNamespaceSlug(input: RenameSlugRequest): Promise<Mutated<Namespace>> {
+export async function renameNamespaceSlug(
+  input: RenameSlugRequest,
+  ctx: RequestCtx = {},
+): Promise<Mutated<Namespace>> {
   const newSlug = input.newSlug.trim().toLowerCase();
 
   const format = validateSlugFormat(newSlug);
@@ -164,7 +168,10 @@ export async function renameNamespaceSlug(input: RenameSlugRequest): Promise<Mut
   const memexId = memexRow?.id ?? "";
 
   return mutate(
-    {},
+    // Thread the caller's channel/identity so the mutation isn't a channel-less
+    // "attribution defect" on the activity bus (std-32). The route passes
+    // channel:'rest_ui', mirroring the memex-rename sibling (spec-479).
+    ctx,
     { memexId, entity: "user_namespace", action: "updated" },
     () => db.transaction(async (tx) => {
       const ns = await tx.query.namespaces.findFirst({
@@ -217,6 +224,19 @@ export async function renameNamespaceSlug(input: RenameSlugRequest): Promise<Mut
         throw new ConflictError(`Slug '${newSlug}' is already taken`);
       }
 
+      // spec-481 D-2 / issue-1: reject a slug that is the SOURCE of a live
+      // redirect, even once its 30-day reservation has lapsed. Redirects never
+      // expire (std-10 cl-97), so a reborn namespace on this slug would shadow
+      // the permanent redirect under direct-first resolution (std-10 cl-91) and
+      // silently mis-route every old link. The isolated isSlugAvailable guard
+      // isn't on this mutation path (raw PATCH bypasses it), so enforce it here
+      // inside the tx alongside the reservation/taken checks.
+      if (await isRedirectSource(newSlug, tx)) {
+        throw new ConflictError(
+          `Slug '${newSlug}' was used before and is reserved by a redirect`,
+        );
+      }
+
       // Reserve the OLD slug for 30 days post-rename.
       const reservedUntil = new Date(Date.now() + SLUG_RESERVATION_DAYS * 24 * 60 * 60 * 1000);
       await tx
@@ -237,6 +257,13 @@ export async function renameNamespaceSlug(input: RenameSlugRequest): Promise<Mut
         .set({ slug: newSlug, slugChangedAt: new Date() })
         .where(eq(namespaces.id, ns.id))
         .returning();
+
+      // spec-481 — record the namespace_rename redirect in the SAME transaction
+      // so old `/<old-ns>/...` URLs + MCP refs forward instead of 404ing
+      // (std-10 §7). insertRedirect accepts the 1-segment prefix + a tx executor
+      // (spec-479 D-1); the resolver prefix-matches so every descendant path is
+      // covered by this one row.
+      await insertRedirect(ns.slug, newSlug, "namespace_rename", tx);
 
       return updated;
     }),

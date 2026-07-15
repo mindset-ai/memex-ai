@@ -3,7 +3,7 @@
 // per-namespace slug-availability check.
 
 import { describe, it, expect, beforeEach, afterAll, vi } from "vitest";
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 
 vi.hoisted(() => {
   // Force auth-mode session middleware so per-user Bearer tokens are honored.
@@ -25,6 +25,7 @@ import {
 import { signSessionToken } from "../services/auth-jwt.js";
 import { ensureUserNamespace } from "../services/user-namespaces.js";
 import { createOrgForUser } from "../services/orgs.js";
+import { insertRedirect } from "../services/redirects.js";
 
 const createdUserIds: string[] = [];
 const createdNamespaceIds: string[] = [];
@@ -334,6 +335,54 @@ describe("GET /api/namespaces/:namespaceId/memexes/check", () => {
     expect(res.status).toBe(404);
     const body = await res.json();
     expect(body.error).toBe("Namespace not found");
+  });
+});
+
+// spec-481 t-2 — the namespace slug-availability check distinguishes a slug
+// freed by a rename (held by a live redirect) from one actively taken, so the
+// rename UI can explain WHY the freed slug is blocked (parity with the memex
+// check). Availability itself already came from the shared isSlugAvailable.
+describe("GET /api/namespaces/check", () => {
+  const redirectSources: string[] = [];
+  afterAll(async () => {
+    for (const s of redirectSources) {
+      await db.execute(sql`DELETE FROM redirects WHERE old_path = ${s}`).catch(() => {});
+    }
+  });
+
+  it("returns { available: false, reason: 'redirected' } for a live redirect source", async () => {
+    const caller = await seedUser();
+    const source = `ns481r${caller.userId.slice(0, 6)}`;
+    redirectSources.push(source);
+    // A namespace_rename redirect whose old_path is this bare 1-segment slug.
+    await insertRedirect(source, `${source}new`, "namespace_rename");
+    redirectSources.push(`${source}new`);
+
+    const res = await authedRequest(
+      `/api/namespaces/check?slug=${source}`,
+      { method: "GET" },
+      caller.bearer,
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ available: false, reason: "redirected" });
+  });
+
+  it("returns { available: false, reason: 'taken' } for an active namespace slug", async () => {
+    const owner = await seedUser();
+    const created = await createOrgForUser({
+      slug: `ns481t${owner.userId.slice(0, 6)}`,
+      name: "Taken Co",
+      userId: owner.userId,
+    });
+    createdNamespaceIds.push(created.namespace.id);
+
+    const res = await authedRequest(
+      `/api/namespaces/check?slug=${created.namespace.slug}`,
+      { method: "GET" },
+      owner.bearer,
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ available: false, reason: "taken" });
   });
 });
 
