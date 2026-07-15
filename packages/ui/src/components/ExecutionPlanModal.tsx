@@ -241,8 +241,8 @@ export function ExecutionPlanModal({
                   </div>
                   {/* spec-389: theme-aware prose (see ChatMarkdown) — `prose-invert`
                       was a dead no-op that washed out in light mode. */}
-                  <div className="prose-dark max-w-none whitespace-pre-wrap wrap-break-word text-sm">
-                    {readiness.content}
+                  <div className="prose-dark max-w-none wrap-break-word text-sm [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRefLinkifier]}>{readiness.content}</ReactMarkdown>
                   </div>
                 </div>
               )}

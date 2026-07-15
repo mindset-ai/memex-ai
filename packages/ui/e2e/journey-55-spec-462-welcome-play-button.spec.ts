@@ -5,10 +5,12 @@
 // users read the loudest element as "play" and got silently skipped past the
 // explainer. Now, exercised against the running app:
 //   idle    → "▶ Play now"    (does NOT navigate)                         (ac-6)
-//   playing → "Playing…"      (inert status)                             (ac-7)
+//   playing → "Playing…"      (inert status, survives pause)             (ac-7)
 //   ended   → "Get started →" (permanent dismiss → /specs)               (ac-8)
-//   the "Skip" link is present in every state and dismisses               (ac-9)
-//   rewatch=1 is unchanged ("Back to Memex")                              (ac-10)
+//   the "Skip" link is present in every state — idle, playing, ended —
+//     and dismisses from each                                            (ac-9)
+//   "Get started" never appears mid-playback, only after ended           (ac-8)
+//   rewatch=1 is unchanged ("Back to Memex")                             (ac-10)
 //
 // Headless Chromium can't decode the CDN video, so playback state is driven by
 // dispatching the media events the component listens on (same approach as
@@ -74,7 +76,7 @@ test(
 );
 
 test(
-  "the Skip link dismisses without watching, in the idle state (ac-9)",
+  "the Skip link dismisses without watching, in the IDLE state (ac-9)",
   async ({ page }) => {
     await setVideoWelcomed(DEV_EMAIL, false);
     await page.goto(bareUrl("/"), { waitUntil: "commit" });
@@ -88,9 +90,95 @@ test(
 );
 
 test(
+  "the Skip link dismisses from the PLAYING state — a mid-watch escape hatch (ac-9)",
+  async ({ page }) => {
+    await setVideoWelcomed(DEV_EMAIL, false);
+    await page.goto(bareUrl("/"), { waitUntil: "commit" });
+    await expect(page).toHaveURL(/\/welcome/, { timeout: 15_000 });
+
+    const cta = page.getByTestId("welcome-video-cta");
+    const player = page.getByTestId("welcome-video-player");
+
+    // Drive into the playing state, then confirm Skip is still offered and dismisses.
+    await player.evaluate((el) => (el as HTMLVideoElement).dispatchEvent(new Event("play")));
+    await expect(cta).toHaveText(/Playing…/);
+    await page.getByTestId("welcome-video-skip").click();
+    await expect(page).toHaveURL(/\/specs/, { timeout: 15_000 });
+  },
+);
+
+test(
+  "the Skip link dismisses from the ENDED state, beside Get started (ac-9)",
+  async ({ page }) => {
+    await setVideoWelcomed(DEV_EMAIL, false);
+    await page.goto(bareUrl("/"), { waitUntil: "commit" });
+    await expect(page).toHaveURL(/\/welcome/, { timeout: 15_000 });
+
+    const cta = page.getByTestId("welcome-video-cta");
+    const player = page.getByTestId("welcome-video-player");
+
+    await player.evaluate((el) => (el as HTMLVideoElement).dispatchEvent(new Event("play")));
+    await player.evaluate((el) => (el as HTMLVideoElement).dispatchEvent(new Event("ended")));
+    // ac-8: the ended state offers "Get started →" …
+    await expect(cta).toHaveText(/Get started/);
+    // ac-9: … and the Skip link is STILL present in the ended state and dismisses.
+    await page.getByTestId("welcome-video-skip").click();
+    await expect(page).toHaveURL(/\/specs/, { timeout: 15_000 });
+  },
+);
+
+test(
+  "'Playing…' survives a pause — it never flips back to a Play/Resume target (ac-7)",
+  async ({ page }) => {
+    await setVideoWelcomed(DEV_EMAIL, false);
+    await page.goto(bareUrl("/"), { waitUntil: "commit" });
+    await expect(page).toHaveURL(/\/welcome/, { timeout: 15_000 });
+
+    const cta = page.getByTestId("welcome-video-cta");
+    const player = page.getByTestId("welcome-video-player");
+
+    await player.evaluate((el) => (el as HTMLVideoElement).dispatchEvent(new Event("play")));
+    await expect(cta).toHaveText(/Playing…/);
+
+    // ac-7: a pause must NOT flip the status back to "Play now" / "Resume" — the
+    // three-state machine only advances on `ended`, never rewinds on `pause`.
+    await player.evaluate((el) => (el as HTMLVideoElement).dispatchEvent(new Event("pause")));
+    await expect(cta).toHaveText(/Playing…/);
+    await expect(page.getByText(/Resume/)).toHaveCount(0);
+    await expect(cta).not.toHaveText(/Play now/);
+    await expect(page).toHaveURL(/\/welcome/); // still on /welcome, not dismissed
+  },
+);
+
+test(
+  "'Get started' never appears mid-playback — only after the video ends (ac-8)",
+  async ({ page }) => {
+    await setVideoWelcomed(DEV_EMAIL, false);
+    await page.goto(bareUrl("/"), { waitUntil: "commit" });
+    await expect(page).toHaveURL(/\/welcome/, { timeout: 15_000 });
+
+    const cta = page.getByTestId("welcome-video-cta");
+    const player = page.getByTestId("welcome-video-player");
+
+    // While playing, the forward "Get started →" move must not be offered yet …
+    await player.evaluate((el) => (el as HTMLVideoElement).dispatchEvent(new Event("play")));
+    await expect(cta).toHaveText(/Playing…/);
+    await expect(page.getByText("Get started →")).toHaveCount(0);
+
+    // … it appears only once the video has ended.
+    await player.evaluate((el) => (el as HTMLVideoElement).dispatchEvent(new Event("ended")));
+    await expect(cta).toHaveText(/Get started/);
+  },
+);
+
+test(
   "rewatch mode is unchanged — Back to Memex, no Play-now machine (ac-10)",
   async ({ page }) => {
-    // Pre-stamped (already welcomed); open the rewatch entry directly.
+    // Stamp the dev user as already-welcomed so this test owns its precondition
+    // and does not depend on a sibling test having dismissed the video first
+    // (a prior test that leaves the user un-welcomed would otherwise route the
+    // specs-board navigation back into /welcome). [per std-37 — test isolation]
+    await setVideoWelcomed(DEV_EMAIL, true);
     await gotoSpecsBoard(page);
     await page.goto(bareUrl("/welcome?rewatch=1"), { waitUntil: "commit" });
     await expect(page.getByText("Let's dive in.")).toBeVisible({ timeout: 10_000 });

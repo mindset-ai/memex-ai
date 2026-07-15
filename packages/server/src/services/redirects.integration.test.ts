@@ -16,6 +16,7 @@
 // deletes their own rows.
 
 import { describe, it, expect, afterEach } from "vitest";
+import { tagAc } from "@memex-ai-ac/vitest";
 import { sql } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import { lookupRedirect, insertRedirect, rewriteBriefPathToSpec } from "./redirects.js";
@@ -143,8 +144,11 @@ describe("redirects service (b-36 T-4)", () => {
     const target2 = pathFor(prefix, "other");
 
     await insertRedirect(oldPath, target1, "brief_move");
-    // Second call uses a different reason + new target — should UPSERT.
-    await insertRedirect(oldPath, target2, "memex_rename");
+    // Second call: same old_path, new target — should UPSERT (one row, latest
+    // wins). Both are per-entity moves so they use full canonical refs
+    // (brief_move); UPSERT of a rename-reason PREFIX row is covered in the
+    // spec-479 D-1 block below.
+    await insertRedirect(oldPath, target2, "brief_move");
 
     const result = await lookupRedirect(oldPath);
     expect(result).toEqual({ redirected: target2 });
@@ -155,7 +159,108 @@ describe("redirects service (b-36 T-4)", () => {
     `)) as unknown as Array<{ old_path: string; new_path: string; reason: string }>;
     expect(rows).toHaveLength(1);
     expect(rows[0].new_path).toBe(target2);
-    expect(rows[0].reason).toBe("memex_rename");
+    expect(rows[0].reason).toBe("brief_move");
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────────
+// spec-479 D-1 — insertRedirect accepts namespace/memex-level PREFIX rows so a
+// single row per rename event forwards every descendant path (std-10 §7,
+// cl-84/85). Before this, insertRedirect validated BOTH paths as full 4/6-
+// segment canonical refs (parseRef), making namespace_rename / memex_rename
+// un-insertable — the drift flagged as std-10 c-3.
+// ──────────────────────────────────────────────────────────────────────────
+const AC_479_PREFIX_ACCEPT =
+  "mindset-prod/memex-building-itself/specs/spec-479/acs/ac-5";
+const AC_479_PREFIX_REWRITE =
+  "mindset-prod/memex-building-itself/specs/spec-479/acs/ac-6";
+
+// Short, per-worker-unique, lowercase slug stem (std-37). Kept well under the
+// 39-char slug cap so it round-trips through validateSlugFormat.
+function renameStem(): string {
+  return `s479${Math.random().toString(36).slice(2, 8)}`;
+}
+
+describe("insertRedirect rename-prefix rows (spec-479 D-1)", () => {
+  it("namespace_rename: a 1-segment prefix row rewrites every descendant path", async () => {
+    tagAc(AC_479_PREFIX_ACCEPT);
+    tagAc(AC_479_PREFIX_REWRITE);
+    const s = renameStem();
+    cleanupPrefixes.push(s);
+    const oldNs = `${s}o`;
+    const newNs = `${s}n`;
+
+    await insertRedirect(oldNs, newNs, "namespace_rename");
+
+    // A deep descendant under a memex inside the renamed namespace inherits
+    // the rewrite via the resolver's prefix-match — suffix preserved.
+    const result = await lookupRedirect(`${oldNs}/team/specs/spec-1/tasks/t-1`);
+    expect(result).toEqual({
+      redirected: `${newNs}/team/specs/spec-1/tasks/t-1`,
+    });
+  });
+
+  it("memex_rename: a 2-segment ns/mx prefix row rewrites descendants (namespace preserved)", async () => {
+    tagAc(AC_479_PREFIX_ACCEPT);
+    tagAc(AC_479_PREFIX_REWRITE);
+    const s = renameStem();
+    cleanupPrefixes.push(s);
+    const ns = `${s}x`;
+
+    await insertRedirect(`${ns}/oldmx`, `${ns}/newmx`, "memex_rename");
+
+    const result = await lookupRedirect(`${ns}/oldmx/specs/spec-1`);
+    expect(result).toEqual({ redirected: `${ns}/newmx/specs/spec-1` });
+  });
+
+  it("prefix rows UPSERT idempotently on the old_path PK", async () => {
+    tagAc(AC_479_PREFIX_ACCEPT);
+    const s = renameStem();
+    cleanupPrefixes.push(s);
+    const oldNs = `${s}o`;
+
+    await insertRedirect(oldNs, `${s}n1`, "namespace_rename");
+    // Re-record the same rename to a new target — one row, latest wins.
+    await insertRedirect(oldNs, `${s}n2`, "namespace_rename");
+
+    const rows = (await db.execute(sql`
+      SELECT old_path, new_path, reason FROM redirects WHERE old_path = ${oldNs}
+    `)) as unknown as Array<{ old_path: string; new_path: string; reason: string }>;
+    expect(rows).toHaveLength(1);
+    expect(rows[0].new_path).toBe(`${s}n2`);
+    expect(rows[0].reason).toBe("namespace_rename");
+  });
+
+  it("accepts digit-leading slugs (slug authority, not refs.ts letter-first regex)", async () => {
+    tagAc(AC_479_PREFIX_ACCEPT);
+    // A legitimate digit-leading slug (e.g. `2024-recap`) must NOT be rejected.
+    const s = `9${Math.random().toString(36).slice(2, 7)}`;
+    cleanupPrefixes.push(s);
+    await expect(
+      insertRedirect(`${s}o`, `${s}n`, "namespace_rename"),
+    ).resolves.toBeUndefined();
+  });
+
+  it("rejects a rename row whose prefix has the wrong segment count", async () => {
+    tagAc(AC_479_PREFIX_ACCEPT);
+    const s = renameStem();
+    // namespace_rename must be exactly 1 segment.
+    await expect(
+      insertRedirect(`${s}o/mx`, `${s}n/mx`, "namespace_rename"),
+    ).rejects.toThrow();
+    // memex_rename must be exactly 2 segments.
+    await expect(
+      insertRedirect(`${s}o`, `${s}n`, "memex_rename"),
+    ).rejects.toThrow();
+  });
+
+  it("non-rename reasons still require a full 4/6-segment canonical ref", async () => {
+    tagAc(AC_479_PREFIX_REWRITE);
+    const s = renameStem();
+    // A bare namespace prefix is not a valid brief_move ref — parseRef rejects.
+    await expect(
+      insertRedirect(`${s}o`, `${s}n`, "brief_move"),
+    ).rejects.toThrow();
   });
 });
 

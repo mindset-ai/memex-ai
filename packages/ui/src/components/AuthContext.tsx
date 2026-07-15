@@ -332,7 +332,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 // magic-link, reset-password) can render under the provider without being blocked. App.tsx
 // composes RequireAuth around authenticated routes.
 export function RequireAuth({ children }: { children: ReactNode }) {
-  const { isAuthenticated, acceptSession } = useAuth();
+  const { isAuthenticated, session, acceptSession } = useAuth();
   const [error, setError] = useState<string | null>(null);
 
   const wrap = useCallback(
@@ -396,8 +396,13 @@ export function RequireAuth({ children }: { children: ReactNode }) {
 
   // spec-474 dec-6: gate authenticated content on first-load Memex readiness. The gate
   // is invisible for provisioned users; a brand-new user briefly sees "Getting your
-  // Memex ready…" while the onboarding content seed runs (off the signup path).
-  if (isAuthenticated) return <MemexReadyGate>{children}</MemexReadyGate>;
+  // Memex ready…" while the onboarding content seed runs (off the signup path). It
+  // defers to email verification: an unverified just-signed-up user sees VerifyEmailGate
+  // (rendered by the routes in `children`), and provisioning only runs once verified.
+  if (isAuthenticated)
+    return (
+      <MemexReadyGate emailVerified={!!session?.user.emailVerified}>{children}</MemexReadyGate>
+    );
 
   return (
     <LoginScreen

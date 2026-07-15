@@ -1,4 +1,4 @@
-import { and, eq, asc, ne, sql, isNull } from "drizzle-orm";
+import { and, eq, asc, isNull } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import { tasks, documents } from "../db/schema.js";
 import type { Task, Decision } from "../db/schema.js";
@@ -11,7 +11,6 @@ import type { Blockers } from "./dependencies.js";
 import { nextSeq, withSeqRetry } from "./shared/sequence.js";
 import { isUuid, parseHandle } from "./shared/identifiers.js";
 import { docAttribution } from "./shared/doc-attribution.js";
-import { updateDocStatus } from "./documents.js";
 import { maybeAutoResolveIssuesForTask } from "./issues.js";
 
 // Per doc-37: bare `T-N` handles can collide within a memex because `tasks.seq` is
@@ -310,13 +309,14 @@ export async function updateTaskStatus(
     },
   );
 
-  // Per dec-4 of doc-10: when the last open task on a Spec flips to `complete`,
-  // auto-promote the Spec's status from `build`→`verify`. Service-layer
-  // placement so it fires for any caller (kanban DnD, MCP, agent). Other transitions
-  // (draft→specify, specify→build, verify→done) stay manual. updateDocStatus emits its
-  // own document.updated event — independent invariant per dec-2 of doc-16.
+  // spec-485 (dec-1): completing a task NEVER moves a Spec's phase. Phase is a
+  // deliberate human/handoff placement, not inferred from code-work. Completing the
+  // last open task used to auto-promote build→verify (the former
+  // `maybeAutoPromoteToVerify`) — the last surviving limb of the arc
+  // spec-189→295/327/342→464, now removed. The explicit "that was the last task →
+  // move to verify" prompt lives in a SEPARATE path (the `task_completed` footer
+  // signal in agent/handlers/tasks.ts) and remains the deliberate signal.
   if (status === "complete") {
-    await maybeAutoPromoteToVerify(memexId, item.docId, ctx);
     // spec-112 ac-22: a `converted` Issue whose satisfying Task just completed
     // transitions → `resolved` IFF the verifying AC's latest test_event is a pass.
     // Best-effort: a failure here must not fail the task-status write (the Issue
@@ -324,49 +324,6 @@ export async function updateTaskStatus(
     await maybeAutoResolveIssuesForTask(memexId, item.id).catch(() => {});
   }
   return updated;
-}
-
-async function maybeAutoPromoteToVerify(
-  memexId: string,
-  docId: string,
-  ctx: RequestCtx = {},
-): Promise<void> {
-  const doc = await db.query.documents.findFirst({
-    where: and(eq(documents.id, docId), eq(documents.memexId, memexId)),
-  });
-  if (
-    !doc ||
-    doc.docType !== "spec" ||
-    doc.status !== "build"
-  )
-    return;
-
-  const [{ openCount }] = await db
-    .select({ openCount: sql<number>`count(*)::int` })
-    .from(tasks)
-    .where(and(eq(tasks.docId, docId), ne(tasks.status, "complete")));
-
-  if (Number(openCount) === 0) {
-    // spec-122 dec-3 — carry the actor/channel onto the auto-promotion's
-    // status_changed journal row (t-4).
-    //
-    // spec-391: the build→verify naked-decision gate (and any future
-    // advancement gate) now lives in updateDocStatus and can THROW. This is an
-    // AUTOMATIC side-effect of completing the last task — i.e. developer
-    // code-work — and spec-388 dec-2 is explicit that the gate blocks the
-    // spec ADVANCEMENT only, NEVER the developer's code-work. So a blocked
-    // auto-promote must not fail the task-completion: swallow the gate's
-    // ValidationError (best-effort, mirroring the maybeAutoResolveIssuesForTask
-    // sibling above). The task still completes; the Spec simply stays in `build`
-    // and the human gets the gate's guidance when they advance explicitly via
-    // update_doc({status:'verify'}).
-    await updateDocStatus(memexId, docId, "verify", { ctx }).catch((err) => {
-      console.warn(
-        `[tasks] auto-promote build→verify blocked for ${docId} (Spec stays in build):`,
-        err instanceof Error ? err.message : err,
-      );
-    });
-  }
 }
 
 export async function updateTask(

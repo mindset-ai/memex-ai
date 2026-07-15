@@ -304,7 +304,13 @@ export function NewSpecModal({ open, onClose, prefill, onCreated, seedMessage, a
       // tenantPath() would yield an unroutable /specs/{handle}. When the caller
       // supplies the created memex's Specs-board base, navigate under it; else fall
       // back to tenantPath() (tenant-route callers, e.g. Issue conversion).
-      navigate(specsBasePath ? `${specsBasePath}/${handle}` : tenantPath(`/specs/${handle}`));
+      // spec-482 (t-7): tag this navigation as the creation→landing hop via React
+      // Router `state`, so the destination Spec view auto-sends the landing recap
+      // opening turn and shows the post-creation handoff card. Only THIS create-and-
+      // open path carries the flag — a normal in-app open of an existing Spec omits it.
+      navigate(specsBasePath ? `${specsBasePath}/${handle}` : tenantPath(`/specs/${handle}`), {
+        state: { creationLanding: true },
+      });
     },
     [handleClose, navigate, specsBasePath]
   );

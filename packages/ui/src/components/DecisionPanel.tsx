@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { rehypeRefLinkifier } from './chat/refLinkifier';
+import { MarkdownText } from './chat/MarkdownText';
 import { phaseDisplayName } from '../utils/phaseDisplay';
 import type { Decision, Comment } from '../api/types';
 import {
@@ -437,7 +438,7 @@ export function DecisionPanel({ docId, decisions, commentsByDecision = {}, force
                       >
                         <div className="text-sm font-medium text-primary">{opt.label}</div>
                         {opt.trade_offs && (
-                          <div className="text-xs text-muted mt-0.5 whitespace-pre-wrap">{opt.trade_offs}</div>
+                          <MarkdownText inline={false} className="text-xs text-muted mt-0.5">{opt.trade_offs}</MarkdownText>
                         )}
                       </div>
                     ))}
@@ -593,7 +594,7 @@ export function DecisionPanel({ docId, decisions, commentsByDecision = {}, force
                             <div className="flex-1 min-w-0">
                               <div className="text-sm font-medium text-primary">{opt.label}</div>
                               {opt.trade_offs && (
-                                <div className="text-xs text-muted mt-0.5 whitespace-pre-wrap">{opt.trade_offs}</div>
+                                <MarkdownText inline={false} className="text-xs text-muted mt-0.5">{opt.trade_offs}</MarkdownText>
                               )}
                             </div>
                           </label>
@@ -764,7 +765,7 @@ export function DecisionPanel({ docId, decisions, commentsByDecision = {}, force
                               <div className="flex-1 min-w-0">
                                 <div className="text-sm font-medium text-primary">{opt.label}</div>
                                 {opt.trade_offs && (
-                                  <div className="text-xs text-muted mt-0.5 whitespace-pre-wrap">{opt.trade_offs}</div>
+                                  <MarkdownText inline={false} className="text-xs text-muted mt-0.5">{opt.trade_offs}</MarkdownText>
                                 )}
                               </div>
                             </label>

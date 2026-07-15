@@ -96,6 +96,13 @@ export interface AgentConfig {
    * targets. Undefined for in-tenant callers, who resolve from the URL as before.
    */
   tenantBasePath?: string;
+  /**
+   * spec-482 (t-7): the creation→landing hop flag. When `true`, the doc-phase
+   * agentNode forwards `creationLanding: true` in the POST /llm/chat body so the
+   * server produces a landing recap for the single auto-sent opening turn. Set
+   * only by ChatContext's landing opening turn; undefined for every normal turn.
+   */
+  creationLanding?: boolean;
 }
 
 // ──────────────────────────────────────────────
@@ -440,7 +447,7 @@ async function agentNode(
   config: RunnableConfig,
   phaseLabel: string
 ): Promise<Partial<AgentStateType>> {
-  const { callbacks, signal } = (config.configurable ?? {}) as AgentConfig;
+  const { callbacks, signal, creationLanding } = (config.configurable ?? {}) as AgentConfig;
 
   console.log(
     `[LANGGRAPH] ${phaseLabel} node invoked — messages:`,
@@ -461,6 +468,9 @@ async function agentNode(
       // server runs the right agent (drift: open-drift context + tools; scaffold:
       // scaffold grounding + propose-then-confirm tool subset).
       mode: wireMode(state.agentMode),
+      // spec-482 (t-7): flag the creation→landing opening turn so the server
+      // produces a landing recap. Only set on that single turn; undefined else.
+      creationLanding,
     },
     signal
   )) {

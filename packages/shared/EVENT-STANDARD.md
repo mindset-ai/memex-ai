@@ -41,6 +41,7 @@ versa.
 - `auth.login_started` — A sign-in attempt was initiated. props.method is the auth method enum (google | password | magic_link). Pre-auth → trackAnonymous().
 - `spec.card_opened` — A spec card on the board was opened. props.specSeq (the spec's handle ordinal — the "spec#"), props.phase, props.assigned (bool), props.assignedUserId (opaque user UUID — never a name/email).
 - `spec.tab_viewed` — A content sub-tab in the spec detail view was selected (which parts people read). props.tab (narrative | comments | decisions | work | qa-report), props.phase (the phase view it was selected under).
+- `spec.landing_shown` — The post-creation Spec landing screen was shown — the user arrived on a newly-created Spec via the creation flow's land-on-your-Spec hop (spec-482). Fires at most once per Spec landing. props.phase (draft | specify | build | verify | done), props.mcpConnected (bool — whether the user reads as MCP-connected, milestones.mcpToolCalled, at landing). Counts / enums / bools only — never content.
 - `board.phase_drag` — A spec card was dragged to a different phase column (the interaction; the outcome stays document.status_changed). props.from / props.to are phase enums.
 - `board.tag_filter_applied` — The board tag filter changed. props.filterCount is the number of active tag filters (count only).
 - `search.opened` — The ⌘K command palette was opened. props.trigger (hotkey | button).

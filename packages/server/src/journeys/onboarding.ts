@@ -31,9 +31,13 @@
 
 export type JourneyMilestone =
   | "identityConfirmed" // captured: the user placed themselves on the role triangle (name + role)
-  | "mcpConnected" // derived: the user's agent connected over MCP (shown inside the create-spec card's Stage 1)
-  | "mcpToolCalled" // derived, NON-GATING: the user's first MCP tool call — drives the
-  //                  connect reward's auto-dismiss inside the create-spec card (no step gates on it)
+  | "mcpConnected" // derived: the user's agent completed the MCP handshake (mcp.connected).
+  //                  Kept for cohorting/greeting gates; the create-spec rail step no longer
+  //                  gates on it (spec-482 dec-5 — a handshake with no tool call isn't a
+  //                  meaningful connection).
+  | "mcpToolCalled" // derived: the user's first MCP tool call (observed MCP traffic). GATES
+  //                  the create-spec "Connect MCP" rail step (spec-482 dec-5/ac-15) and drives
+  //                  the connect reward's auto-dismiss.
   | "hasSpec" // derived: the user created a (non-demo) spec
   | "hasResolvedDecision" // derived: the user resolved a decision
   | "hasAc" // derived: the user added an acceptance criterion
@@ -67,11 +71,19 @@ export interface JourneyDef {
 // spec-421: the old two-stage create-spec card is split into two discrete steps.
 // create-spec completes on mcpConnected; create-first-spec completes on hasSpec.
 // Steps 3–6 are hidden from the rail (code kept for future reintroduction).
+//
+// spec-482 dec-5 (ac-15): the "Connect MCP" rail step is verified INDEPENDENTLY,
+// via observed MCP TRAFFIC — an `mcp.tool_called` usage_event ever recorded
+// (the `mcpToolCalled` milestone) — NOT the `mcp.connected` handshake. A handshake
+// with no tool call isn't a meaningful connection; the same observed-traffic
+// definition the mcp-connection signal (services/mcp-connection.ts, t-2) uses.
+// This is a stricter signal than the old mcpConnected gate and never keys off the
+// create-first-spec landing event (hasSpec), so the two steps stay independent.
 export const onboardingJourney: JourneyDef = {
   id: "onboarding",
   steps: [
     { id: "identity", completedBy: "identityConfirmed" },
-    { id: "create-spec", completedBy: "mcpConnected" },
+    { id: "create-spec", completedBy: "mcpToolCalled" },
     { id: "create-first-spec", completedBy: "hasSpec" },
     { id: "resolve-decision", completedBy: "hasResolvedDecision" },
     { id: "add-ac", completedBy: "hasAc" },

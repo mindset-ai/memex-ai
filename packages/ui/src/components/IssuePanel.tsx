@@ -33,6 +33,7 @@ import { Badge, Button } from './ui';
 import { Input } from './ui/Input';
 import { TextArea } from './ui/TextArea';
 import { Metric } from './MetricBar';
+import { MarkdownText } from './chat/MarkdownText';
 
 interface IssuePanelProps {
   docId: string;
@@ -400,7 +401,7 @@ export function IssuePanel({
                   // card again to collapse.
                   <div data-testid="issue-expanded" className="mt-2 space-y-2">
                     {issue.body && (
-                      <p className="text-xs text-body whitespace-pre-wrap">{issue.body}</p>
+                      <MarkdownText inline={false} className="text-xs text-body">{issue.body}</MarkdownText>
                     )}
                     <p className="text-[11px] text-muted">
                       issue-{issue.seq} · {TYPE_LABEL[issue.type]} ·{' '}

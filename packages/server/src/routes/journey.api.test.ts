@@ -97,6 +97,11 @@ async function confirmIdentity(userId: string) {
 async function connectMcp(userId: string) {
   await recordUsageEvent({ memexId: null, actorUserId: userId, name: "mcp.connected", source: "backend" });
 }
+// spec-482 dec-5: the create-spec "Connect MCP" step is gated on OBSERVED MCP TRAFFIC —
+// an mcp.tool_called usage_event — not the mcp.connected handshake.
+async function callMcpTool(userId: string) {
+  await recordUsageEvent({ memexId: null, actorUserId: userId, name: "mcp.tool_called", source: "backend" });
+}
 async function seedSpec(userId: string) {
   return createDocDraft(memexId, "Seed spec", "Purpose", "spec", undefined, undefined, userId, {
     actorUserId: userId,
@@ -191,13 +196,13 @@ describe("Home Canvas journey-state (ac-3 derived position)", () => {
 
 describe("Home Canvas journey-state (ac-5 self-advance through the v2 arc)", () => {
   it("advances one step at a time through the full arc", async () => {
-    // spec-421: arc is now identity → create-spec (mcpConnected) → create-first-spec (hasSpec)
-    // → resolve-decision → add-ac → specs-match-reality → agents-build (terminal).
+    // spec-482 dec-5: arc is identity → create-spec (mcpToolCalled) → create-first-spec
+    // (hasSpec) → resolve-decision → add-ac → specs-match-reality → agents-build (terminal).
     tagAc(AC336(5));
     tagAc(AC336(8));
     const AC421 = (n: number) =>
       `mindset-prod/memex-building-itself/specs/spec-421/acs/ac-${n}`;
-    tagAc(AC421(5)); // create-spec completes on mcpConnected
+    tagAc(AC421(5)); // create-spec completes on the MCP-connect milestone
     tagAc(AC421(10)); // create-first-spec completes on hasSpec
     const user = await newUser();
     expect((await state(user.id)).body.currentStepId).toBe("identity");
@@ -205,8 +210,12 @@ describe("Home Canvas journey-state (ac-5 self-advance through the v2 arc)", () 
     await confirmIdentity(user.id);
     expect((await state(user.id)).body.currentStepId).toBe("create-spec");
 
+    // spec-482 dec-5: the mcp.connected handshake ALONE no longer advances create-spec —
+    // it needs observed traffic (mcp.tool_called).
     await connectMcp(user.id);
-    // spec-421: create-spec now completes on mcpConnected → advances to create-first-spec.
+    expect((await state(user.id)).body.currentStepId).toBe("create-spec");
+    await callMcpTool(user.id);
+    // Observed MCP traffic completes create-spec → advances to create-first-spec.
     expect((await state(user.id)).body.currentStepId).toBe("create-first-spec");
 
     const doc = await seedSpec(user.id);
@@ -242,9 +251,9 @@ describe("Home Canvas journey-state (ac-5 self-advance through the v2 arc)", () 
     const me = await newUser();
     const colleague = await newUser();
     await confirmIdentity(me.id);
-    await connectMcp(me.id);
-    // spec-421: after mcpConnected, I'm now on create-first-spec (create-spec completed).
-    // Colleague's spec does NOT satisfy MY hasSpec → I stay on create-first-spec.
+    await callMcpTool(me.id);
+    // spec-482 dec-5: after observed MCP traffic, I'm now on create-first-spec (create-spec
+    // completed). Colleague's spec does NOT satisfy MY hasSpec → I stay on create-first-spec.
     await seedSpec(colleague.id); // the colleague's spec, not mine
     expect((await state(me.id)).body.currentStepId).toBe("create-first-spec");
   });

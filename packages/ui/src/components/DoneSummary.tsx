@@ -30,6 +30,7 @@ import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
+import { MarkdownText } from './chat/MarkdownText';
 import { isQaReportSectionType } from '@memex/shared';
 import type { Decision, Task, Issue, DocWithGraph } from '../api/types';
 import type { AcWithVerification, DocAssigneeView } from '../api/client';
@@ -355,7 +356,7 @@ export function DoneSummary({
                       <span className="font-medium text-primary">{d.title}</span>{' '}
                       <span className="text-muted">({d.status})</span>
                       {d.resolution && (
-                        <div className="text-secondary mt-1 whitespace-pre-wrap">{d.resolution}</div>
+                        <MarkdownText inline={false} className="text-secondary mt-1">{d.resolution}</MarkdownText>
                       )}
                     </li>
                   ))}
@@ -382,7 +383,7 @@ export function DoneSummary({
                 <ul className="space-y-1.5">
                   {acs.map((a) => (
                     <li key={a.ac.id} className="text-sm text-primary" data-testid="done-read-ac">
-                      {a.ac.statement}{' '}
+                      <MarkdownText inline>{a.ac.statement}</MarkdownText>{' '}
                       <span className="text-muted">
                         ({a.ac.kind}
                         {a.verificationState === 'verified' ? ' · verified' : ''})
