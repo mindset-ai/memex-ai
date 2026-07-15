@@ -22,6 +22,7 @@ const SLUG_REASON_MESSAGES: Record<OrgSlugCheckReason, string> = {
   invalid_chars: 'Use only letters, numbers, and hyphens (no leading or trailing hyphen)',
   reserved: 'That slug is reserved — pick another',
   taken: 'That slug is already taken in this Org',
+  redirected: 'That slug was used before and is reserved by a redirect',
 };
 
 const ERROR_CODE_MESSAGES: Record<string, string> = {
