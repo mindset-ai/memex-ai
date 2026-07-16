@@ -31,6 +31,12 @@ describe("welcome trigger via markEmailVerified", () => {
     tagAc(AC(6)); // fires on the email-verified transition
     tagAc(AC(7)); // upsertUserByEmail is the SSO/magic-link path — no account.created
     tagAc(AC(1)); // the user receives the welcome
+    // spec-488 ac-6 — the spec-428 welcome infra (markEmailVerified →
+    // sendWelcomeEmail, the `welcome` comms key, once-only) is wired and live;
+    // this exercises that path end-to-end so the "infra is live" invariant is not
+    // merely asserted in prose. (The "merged on main" half is a git fact confirmed
+    // at code-grounding, not runtime-testable.)
+    tagAc("mindset-prod/memex-building-itself/specs/spec-488/acs/ac-6");
     const email = `welcome-trigger-${Date.now()}@example.test`;
     const user = await upsertUserByEmail(email);
 

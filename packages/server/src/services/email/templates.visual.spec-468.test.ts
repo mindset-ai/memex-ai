@@ -34,8 +34,9 @@ const all: Array<[string, { html?: string }]> = [
   ["verified-milestone", verified],
   ["connect-people", connect],
 ];
+// spec-488: the welcome v2 dropped the "Resources to get started" block, so it
+// no longer carries resource-link accents — only the two activation emails do.
 const withResources: Array<[string, { html?: string }]> = [
-  ["welcome", welcome],
   ["connected-inactive", connected],
   ["signed-in-dormant", signedIn],
 ];
@@ -54,9 +55,10 @@ describe("spec-468 — CTA button is #0482DC with white text (ac-1, ac-3)", () =
 });
 
 describe("spec-468 — step labels + resource links are #0482DC (ac-1)", () => {
-  it("the \"// Step N\" labels render in #0482DC (welcome + signed-in-dormant)", () => {
+  it("the \"// Step N\" labels render in #0482DC (signed-in-dormant)", () => {
     tagAc(AC(1));
-    expect(welcome.html ?? "").toContain(`color:${ACCENT};">// Step 1`);
+    // spec-488: the welcome v2 dropped the "// Step N" blocks; only the
+    // signed-in-dormant email still carries them.
     expect(signedIn.html ?? "").toContain(`color:${ACCENT};">// Step 1`);
   });
   for (const [name, msg] of withResources) {

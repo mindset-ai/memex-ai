@@ -38,7 +38,10 @@ export interface EmailResource {
 
 interface RenderInput {
   preheader: string;
-  heading: string;
+  // Optional headline. Omit or pass "" → the email leads straight into
+  // bodyParagraphs with no <h1> (spec-488: the welcome v2 carries no repeated
+  // headline). Every other email passes a non-empty heading and is unchanged.
+  heading?: string;
   // Interpreted as HTML — caller must escape any dynamic values it interpolates.
   bodyParagraphs: string[];
   ctaLabel: string;
@@ -166,6 +169,12 @@ function renderEmailHtml(input: RenderInput): string {
     .join("");
 
   const safeUrl = escapeHtml(input.ctaUrl);
+  // spec-488 — suppress the <h1> when no heading is given (welcome v2 leads with
+  // the greeting). Title falls back to the preheader so it is never empty.
+  const headingHtml = input.heading
+    ? `<h1 style="margin:0 0 16px;color:${BRAND_INK};font-size:22px;line-height:1.3;font-weight:600;letter-spacing:-0.01em;">${escapeHtml(input.heading)}</h1>`
+    : "";
+  const titleText = input.heading || input.preheader;
   const stepsHtml = renderSteps(input.steps);
   const resourcesHtml = renderResources(input.resources);
   const pasteLink = (input.showPasteLink ?? true)
@@ -182,7 +191,7 @@ function renderEmailHtml(input: RenderInput): string {
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>${escapeHtml(input.heading)}</title>
+    <title>${escapeHtml(titleText)}</title>
   </head>
   <body style="margin:0;padding:0;background-color:#F7F7F8;font-family:${FONT_STACK};-webkit-font-smoothing:antialiased;">
     <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">
@@ -195,7 +204,7 @@ function renderEmailHtml(input: RenderInput): string {
             <tr>
               <td style="padding:32px 40px;">
                 <div style="margin:0 0 20px;font-size:20px;font-weight:700;letter-spacing:-0.01em;color:${BRAND_INK};">Memex AI</div>
-                <h1 style="margin:0 0 16px;color:${BRAND_INK};font-size:22px;line-height:1.3;font-weight:600;letter-spacing:-0.01em;">${escapeHtml(input.heading)}</h1>
+                ${headingHtml}
                 ${paragraphs}
                 ${stepsHtml}
                 <div style="margin:24px 0 8px;">
@@ -310,10 +319,20 @@ export interface WelcomeEmailInput {
   senderName?: string;
 }
 
-// spec-428 — the day-one welcome (Option 3). Renders through the shared renderer
-// using the step + resources primitives (spec-226 dec-2). Transactional stream,
-// always sends; logged under the stable `welcome` key (dec-7). The CTA + resource
-// blocks are table/inline-CSS constructs (no imagery) per the Postmark constraints.
+// spec-480 dec-6 / spec-488 t-2 — the welcome links the SAME hosted explainer cut
+// as the win-back email (spec-480), tagged utm_campaign=welcome so a welcome-video
+// click is attributable separately from the win-back's (WINBACK_VIDEO_URL). The UTM
+// on a raw GCS mp4 is only meaningful once Postmark rewrites the link, so the send
+// carries trackLinks. (utm_source/medium mirror the win-back for one grouping.)
+const WELCOME_VIDEO_URL = `${EMAIL_EXPLAINER_VIDEO_URL}?utm_source=lifecycle&utm_medium=email&utm_campaign=welcome`;
+
+// spec-488 t-1 — the day-one welcome, v2 copy (supersedes spec-428's Option 3;
+// source of truth is spec-488 s-2). Renders through the shared renderer and LEADS
+// WITH THE GREETING — no repeated H1 headline (heading: ""). Transactional stream,
+// always sends; logged under the stable `welcome` key (spec-428 dec-7, inherited).
+// The clickable explainer-video thumbnail (spec-480 mechanism) is wired at the
+// spec-488 t-2 seam marked below; until then the email carries copy only and the
+// video degrades to nothing (t-2 adds the thumbnail + image-blocked fallback).
 export function buildWelcomeEmail(input: WelcomeEmailInput): EmailMessage {
   const firstName = input.firstName?.trim();
   const greeting = firstName ? `Hi ${firstName},` : "Hi there,";
@@ -323,81 +342,81 @@ export function buildWelcomeEmail(input: WelcomeEmailInput): EmailMessage {
   const signOffText = `Best,\n${senderName}`;
   const signOffHtml = `Best,<br>${escapeHtml(senderName)}`;
 
-  const value =
-    "Your agents are about to start building from what you actually decided, not what they guessed. Every decision is captured as you go, so nothing important gets buried in a chat thread or quietly chosen for you mid-build. And done means verified, not just claimed. No more vibe coding.";
-  const afterCtaText =
-    "We'll send you a few short emails over the next couple of weeks, and there are some resources below to get you started. If you get stuck, just reply here or find us in #help on Discord.";
-
-  const steps: EmailStep[] = [
-    {
-      label: "// Step 1",
-      title: "Connect to the Memex MCP",
-      body: "The app shows you exactly how to connect, whatever coding agent you're using.",
-    },
-    {
-      label: "// Step 2",
-      title: "Create your first Spec",
-      body: "Bring an idea and we'll help you shape it, start to finish.",
-    },
-  ];
-
-  const resources: EmailResource[] = [
-    {
-      title: "Understanding Memex AI",
-      description: "The 10-minute read on why it exists and how it works.",
-      url: "https://www.memex.ai/understanding-memex.pdf",
-    },
-    {
-      title: "Documentation",
-      description: "The complete reference, from getting started to the deep technical detail.",
-      url: "https://www.memex.ai/docs",
-    },
-    {
-      title: "Community",
-      description: "Say hello on Discord, whether you're weighing Memex up or already building.",
-      url: "https://discord.com/invite/WJfBYG9eV",
-    },
-  ];
+  const intro = "Glad you're on board. Here's why frontier teams build on Memex:";
+  const para1 =
+    "We all went all in on MD docs for building with AI: first for specifying features, then for passing context between humans and agents at scale. Exciting at first (we did it too!).";
+  // spec-488 s-2 — the "sh*t" spelling is a deliberate voice choice; the asterisk
+  // softens spam-filter risk. Accepted for the day-one transactional send.
+  const para2 =
+    "The problem? They're sh*t because they're only documents. They don't force agents to build specific things, so agents interpret, skip parts, and make executive decisions without your say-so. That's why AI coding gets so frustrating. And as the way you pass context, they go stale, need versions, and turn chaotic fast: a burst of productivity, then a ceiling.";
+  const fix1 =
+    "Your docs become living specs. Each decision becomes a perfectly scoped agent task with an acceptance criterion that forces the agent to build exactly what you want. Right the first time (yes, it's as good as it sounds).";
+  const fix2 =
+    "Each spec then speeds up the next. Memex surfaces what teammates are deciding in real time and tells you how it impacts your build, compounding into a knowledge layer that makes every new spec faster. No docs, no folders, no upkeep (finally!).";
+  const bullet1 = "Connect your agent over MCP (Claude Code, Cursor, Codex, Copilot)";
+  const bullet2 = "Create your first spec";
 
   const text = renderEmailText({
     intro: [
       greeting,
-      "Welcome to Memex AI.",
-      value,
-      "Two steps to get there.",
-      "// Step 1 — Connect to the Memex MCP: The app shows you exactly how to connect, whatever coding agent you're using.",
-      "// Step 2 — Create your first Spec: Bring an idea and we'll help you shape it, start to finish.",
-      afterCtaText,
-      "Resources: Understanding Memex AI (https://www.memex.ai/understanding-memex.pdf), Documentation (https://www.memex.ai/docs), Community (Discord).",
+      intro,
+      para1,
+      para2,
+      "Memex fixes both:",
+      `1. ${fix1}`,
+      `2. ${fix2}`,
+      "Here's a short animated walkthrough:",
+      `Watch the video: ${WELCOME_VIDEO_URL}`,
+      "To start:",
+      `- ${bullet1}`,
+      `- ${bullet2}`,
     ],
     url: input.appUrl,
     closing: signOffText,
   });
 
   const html = renderEmailHtml({
-    preheader: "Welcome to Memex AI — two steps to your first Spec.",
-    heading: "Build what you decided. Not what your agent guessed.",
+    preheader: "Why frontier teams build on Memex — right the first time.",
+    // No heading — v2 leads with the greeting (spec-488 s-2, headline dropped).
+    heading: "",
     bodyParagraphs: [
       escapeHtml(greeting),
-      "Welcome to Memex AI.",
-      escapeHtml(value),
-      "<strong>Two steps to get there.</strong>",
+      escapeHtml(intro),
+      escapeHtml(para1),
+      escapeHtml(para2),
+      "<strong>Memex fixes both:</strong>",
+      `<strong>1.</strong> ${escapeHtml(fix1)}`,
+      `<strong>2.</strong> ${escapeHtml(fix2)}`,
+      escapeHtml("Here's a short animated walkthrough:"),
+      // spec-488 t-2 — the clickable video thumbnail + image-blocked fallback,
+      // reusing spec-480's shared hosted-video + `email-*` thumbnail assets.
+      renderVideoThumbnail({
+        videoUrl: WELCOME_VIDEO_URL,
+        thumb1xUrl: EMAIL_VIDEO_THUMB_1X_URL,
+        thumb2xUrl: EMAIL_VIDEO_THUMB_2X_URL,
+        alt: `Watch: ${EMAIL_VIDEO_TITLE}`,
+      }),
+      renderVideoFallbackLine(WELCOME_VIDEO_URL),
+      `<strong>To start:</strong><br>&bull; ${escapeHtml(bullet1)}<br>&bull; ${escapeHtml(bullet2)}`,
     ],
-    steps,
     ctaLabel: "Open Memex AI",
     ctaUrl: input.appUrl,
     showPasteLink: false,
-    afterCtaParagraphs: [escapeHtml(afterCtaText), signOffHtml],
-    resources,
+    afterCtaParagraphs: [signOffHtml],
     footerNote: "You're getting this because you signed up for Memex AI, built by Mindset AI.",
   });
 
   return {
     to: input.to,
-    subject: "Build what you decided. Not what your agent guessed.",
+    subject:
+      "Agents that build it right first time, and every spec speeds up the next",
     text,
     html,
     commsType: "welcome",
+    // spec-488 t-2 / spec-480 dec-6 — enable Postmark click tracking so a click on
+    // the video thumbnail / fallback link (the raw GCS mp4) is recorded and the
+    // utm_campaign=welcome attribution is real. Click tracking only, no open pixel.
+    trackLinks: true,
   };
 }
 
