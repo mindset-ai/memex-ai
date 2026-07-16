@@ -65,20 +65,32 @@ describe("spec-451 — eyebrow removed everywhere (ac-1, ac-6)", () => {
     tagAc(AC(6));
     for (const [, msg] of activation) {
       expect(msg.html!).not.toContain(EYEBROW_MARKER);
-      expect(msg.html!).toMatch(/>Memex AI<\/div>\s*<h1/);
     }
+    // connected + signed-in-dormant lead with an <h1> directly under the wordmark.
+    expect(connected.html!).toMatch(/>Memex AI<\/div>\s*<h1/);
+    expect(signedIn.html!).toMatch(/>Memex AI<\/div>\s*<h1/);
+    // spec-488: the welcome v2 carries no headline, so the wordmark is followed
+    // straight by the first body paragraph (the greeting), not an <h1>.
+    expect(welcome.html!).toMatch(/>Memex AI<\/div>\s*<p[^>]*>Hi Ada,/);
   });
 });
 
 describe("spec-451 — single-colour dark wordmark (ac-2)", () => {
   it("the .AI wordmark renders in dark ink, not coral, as live text (no img/svg)", () => {
     tagAc(AC(2));
-    for (const [, msg] of [...eyebrowed, ...activation]) {
+    for (const [name, msg] of [...eyebrowed, ...activation]) {
       const html = msg.html!;
+      // the wordmark is live text in dark ink, never coral, never an image
       expect(html).toContain(`color:${INK};">Memex AI</div>`);
       expect(html).not.toContain(`color:${CORAL};">Memex AI</div>`);
-      expect(html).not.toContain("<img");
-      expect(html).not.toContain("<svg");
+      // spec-488: the welcome v2 carries the video thumbnail <img> (like the
+      // win-back); the wordmark itself is still text. Only the wordmark's
+      // image-freeness is asserted for welcome — the "no imagery anywhere" check
+      // holds for the emails that remain image-free.
+      if (name !== "welcome") {
+        expect(html).not.toContain("<img");
+        expect(html).not.toContain("<svg");
+      }
     }
   });
 });
