@@ -13,6 +13,9 @@ import { setEmailSender, type EmailMessage } from "./sender.js";
 import { runActivationDrip, selectActivationCandidates, type CandidateUser } from "./activation-drip.js";
 
 const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-427/acs/ac-${n}`;
+// spec-480 amended the win-back orchestration (dec-9/dec-10): signed_in_dormant → the
+// video win-back keyed activation.signed_in_dormant; connected_inactive deferred (not sent in v1).
+const AC480 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-480/acs/ac-${n}`;
 const NOW = new Date("2026-06-20T00:00:00Z");
 const daysAgo = (d: number) => new Date(NOW.getTime() - d * 24 * 60 * 60 * 1000);
 
@@ -69,41 +72,45 @@ afterEach(async () => {
 });
 
 describe("runActivationDrip (real DB)", () => {
-  it("connected-inactive past 2d dwell → exactly one Email 1, recorded under its stable key; team From/Reply-To; no re-send (ac-1, ac-7, ac-14)", async () => {
-    tagAc(AC(1));
-    tagAc(AC(7));
-    tagAc(AC(14));
+  it("connected-inactive is deferred in v1 — nothing sent, nothing logged (spec-480 ac-14, dec-9)", async () => {
+    tagAc(AC480(14));
     const u = await seedUser("t7-e1@example.test", { name: "Ada Lovelace" });
     await seedMcpConnected(u.id, daysAgo(3)); // connected 3d ago, no tool call, no spec
 
     const s1 = await drip([u]);
-    expect(s1.sent).toBe(1);
-    expect(sent).toHaveLength(1);
+    // spec-480 dec-9/dec-10: connected_inactive is deferred to a separate later email —
+    // it never sends in v1, so the flag-flip's first blast is the win-back alone.
+    expect(s1.sent).toBe(0);
+    expect(sent).toHaveLength(0);
+    const rows = await db.select().from(commsLog).where(eq(commsLog.userId, u.id));
+    expect(rows).toHaveLength(0);
+  });
+
+  it("signed-in-dormant past 3d dwell → one win-back, keyed activation.signed_in_dormant, team From/Reply-To, no re-send (ac-2, ac-7, spec-480 ac-13/ac-14)", async () => {
+    tagAc(AC(2));
+    tagAc(AC(7));
+    tagAc(AC480(13));
+    tagAc(AC480(14));
+    tagAc(AC480(5)); // scope: ships inside the existing send path, recorded in comms_log, no render break
+    const u = await seedUser("t7-e2@example.test", { verifiedAt: daysAgo(4) }); // no mcp.connected
+    const s = await drip([u]);
+    expect(s.sent).toBe(1);
     const m = sent[0]!;
-    expect(m.commsType).toBe("activation.connected_inactive");
-    expect(m.to).toBe(u.email);
+    // spec-480 dec-8: the single stable win-back key; single "Connect your agent" CTA.
+    expect(m.commsType).toBe("activation.signed_in_dormant");
+    expect(m.html).toContain(">Connect your agent</a>");
     // ac-7: team identity, never a no-reply sender.
     expect(m.from).toBe("The Memex AI team <support@memex.ai>");
     expect(m.replyTo).toBe("support@memex.ai");
     expect(m.from?.toLowerCase()).not.toContain("no-reply");
     expect(m.from?.toLowerCase()).not.toContain("noreply");
 
-    // Recorded in comms_log under the stable key (ac-1 / ac-14).
-    const rows = await db.select().from(commsLog).where(and(eq(commsLog.userId, u.id), eq(commsLog.type, "activation.connected_inactive")));
+    // Recorded under the stable key; a second run dedups → exactly once.
+    const rows = await db.select().from(commsLog).where(and(eq(commsLog.userId, u.id), eq(commsLog.type, "activation.signed_in_dormant")));
     expect(rows).toHaveLength(1);
-
-    // Second run: dedup reads that row → exactly once (ac-1).
     const s2 = await drip([u]);
     expect(s2.sent).toBe(0);
     expect(sent).toHaveLength(1);
-  });
-
-  it("signed-in-dormant past 3d dwell → exactly one Email 2 (ac-2)", async () => {
-    tagAc(AC(2));
-    const u = await seedUser("t7-e2@example.test", { verifiedAt: daysAgo(4) }); // no mcp.connected
-    const s = await drip([u]);
-    expect(s.sent).toBe(1);
-    expect(sent[0]!.commsType).toBe("activation.signed_in_dormant");
   });
 
   it("dwell not yet elapsed → nothing sent", async () => {
@@ -113,32 +120,34 @@ describe("runActivationDrip (real DB)", () => {
     expect(sent).toHaveLength(0);
   });
 
-  it("a connected-inactive user gets Email 1 only — never both in a run (ac-3)", async () => {
+  it("at most one email per run — connected-inactive contributes zero (deferred) (ac-3, spec-480 ac-14)", async () => {
     tagAc(AC(3));
+    tagAc(AC480(14));
     const u = await seedUser("t7-excl@example.test");
     await seedMcpConnected(u.id, daysAgo(3));
     await drip([u]);
-    expect(sent.map((m) => m.commsType)).toEqual(["activation.connected_inactive"]);
+    // ac-3 exclusivity still holds; for connected_inactive in v1 the count is zero (deferred).
+    expect(sent.map((m) => m.commsType)).toEqual([]);
   });
 
-  it("state re-evaluated live: carries the E2 key from before, now connected → sends E1, not a repeat (ac-4)", async () => {
+  it("state re-evaluated live: a user who has since connected is deferred, not sent (ac-4, spec-480 ac-14)", async () => {
     tagAc(AC(4));
+    tagAc(AC480(14));
     const u = await seedUser("t7-progress@example.test");
     await seedMcpConnected(u.id, daysAgo(3)); // live cohort = connected_inactive
-    // They were emailed as signed-in-dormant earlier — seed that comms_log key.
-    await recordComm({ userId: u.id, channel: "email", type: "activation.signed_in_dormant", subject: "old" });
-
+    // spec-480 dec-9: the live re-eval still runs, but connected_inactive is deferred —
+    // v1 sends nothing (its "Connect your agent" CTA would be nonsensical here).
     const s = await drip([u]);
-    expect(s.sent).toBe(1);
-    expect(sent[0]!.commsType).toBe("activation.connected_inactive"); // next-state email, not a repeat
+    expect(s.sent).toBe(0);
+    expect(sent).toHaveLength(0);
   });
 
-  it("dedup keys on the stable comms key, NOT the subject line (ac-14)", async () => {
+  it("dedup keys on the stable comms key, NOT the subject line (ac-14, spec-480 ac-13)", async () => {
     tagAc(AC(14));
-    const u = await seedUser("t7-keydedup@example.test");
-    await seedMcpConnected(u.id, daysAgo(3));
-    // A prior row under the SAME key but a DIFFERENT subject must still suppress.
-    await recordComm({ userId: u.id, channel: "email", type: "activation.connected_inactive", subject: "a completely different subject" });
+    tagAc(AC480(13));
+    const u = await seedUser("t7-keydedup@example.test", { verifiedAt: daysAgo(4) }); // signed_in_dormant
+    // A prior row under the SAME win-back key but a DIFFERENT subject must still suppress.
+    await recordComm({ userId: u.id, channel: "email", type: "activation.signed_in_dormant", subject: "a completely different subject" });
 
     const s = await drip([u]);
     expect(s.sent).toBe(0); // deduped by key despite the mismatched subject
