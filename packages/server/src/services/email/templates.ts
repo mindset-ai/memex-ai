@@ -103,6 +103,60 @@ export function renderResources(resources?: EmailResource[]): string {
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:24px 0 0;">${rows}</table>`;
 }
 
+// spec-480 — hosted email video + clickable thumbnail assets (dec-1/dec-2).
+// Public objects on the prod static bucket (same bucket + media/ path as the
+// /welcome video). Stable, non-expiring, immutable-cached. SHARED with the
+// welcome email (spec-488) — hence neutral `email-*` object names, not `winback-*`.
+// The base video URL is shared; each builder appends its OWN utm_campaign so a
+// click is attributable to the right email (dec-6). A swap must mint a NEW
+// versioned object (…-v2) — never a same-name overwrite (immutable cache).
+export const EMAIL_EXPLAINER_VIDEO_URL =
+  "https://storage.googleapis.com/memex-ai-prod-app-static/media/email-explainer-60s.mp4";
+export const EMAIL_VIDEO_THUMB_1X_URL =
+  "https://storage.googleapis.com/memex-ai-prod-app-static/media/email-video-thumb-480.png";
+export const EMAIL_VIDEO_THUMB_2X_URL =
+  "https://storage.googleapis.com/memex-ai-prod-app-static/media/email-video-thumb-960.png";
+// The still Christine chose (spec-480 s-5) — used as the thumbnail alt (dec-4).
+export const EMAIL_VIDEO_TITLE =
+  "The spec-driven development system for AI coding agents";
+
+// spec-480 dec-2/dec-3/dec-4 — the clickable video-thumbnail block: a single
+// static poster image (play button baked in, dec-3) hyperlinked to the hosted
+// mp4. Returned as an HTML string injected into `bodyParagraphs` (mid-body, so
+// the video sits above the fold) — `<a>`/`<img>` are phrasing content, valid in
+// the renderer's <p> wrapper, so this needs no change to renderEmailHtml and
+// touches none of the other (image-free) emails. Bulletproof/table-safe:
+// `border:0`+`outline:none` kill Outlook's blue link border; explicit
+// width/height + `display:block`; `srcset` serves retina where supported
+// (Gmail/Outlook fall back to the 1x `src`). 480px = the email's content width
+// (560 − 2×40 padding). The image-blocked fallback (dec-4) is a SEPARATE visible
+// body line built by the caller — see `renderVideoFallbackLine`.
+export function renderVideoThumbnail(opts: {
+  videoUrl: string;
+  thumb1xUrl: string;
+  thumb2xUrl: string;
+  alt: string;
+}): string {
+  const href = escapeHtml(opts.videoUrl);
+  return (
+    `<a href="${href}" style="display:block;border:0;outline:none;text-decoration:none;">` +
+    `<img src="${escapeHtml(opts.thumb1xUrl)}" srcset="${escapeHtml(opts.thumb2xUrl)} 2x" ` +
+    `width="480" height="269" alt="${escapeHtml(opts.alt)}" ` +
+    `style="display:block;width:100%;max-width:480px;height:auto;border:0;outline:none;text-decoration:none;border-radius:8px;">` +
+    `</a>`
+  );
+}
+
+// spec-480 dec-4 — the image-blocked fallback: a visible text line so the video
+// is never unreachable when a client blocks images. "Watch it here" is the brand
+// accent (#0482DC, spec-468) and links the same video URL.
+export function renderVideoFallbackLine(videoUrl: string): string {
+  return (
+    `Can't see the video above? ` +
+    `<a href="${escapeHtml(videoUrl)}" style="color:${BRAND_ACCENT};text-decoration:none;">Watch it here</a>`
+  );
+}
+
 function renderEmailHtml(input: RenderInput): string {
   const paragraphs = input.bodyParagraphs
     .map(
@@ -539,6 +593,142 @@ export function buildSignedInDormantEmail(
     html,
     // spec-427 ac-14 / dec-7: stable comms key (see Email 1).
     commsType: "activation.signed_in_dormant",
+  };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// spec-480 — win-back email (single video-centric re-intro)
+// ──────────────────────────────────────────────────────────────────────────
+// One warm re-intro built around the clickable explainer-video thumbnail, sent
+// to the SINGLE `signed_in_dormant` cohort — verified, never connected an MCP,
+// no Spec (dec-9). The `connected_inactive` cohort is deliberately NOT a
+// recipient (its members have already connected, so this email's one CTA —
+// "Connect your agent" — would be nonsensical); it is deferred to a later email.
+// So there is ONE segment: one fixed stall-line, one CTA, no per-segment branch.
+//
+// PURE RENDER like the spec-427 builders: no cohort/timing/send/env logic. The
+// team-identity From + monitored Reply-To + broadcast stream + suppression are
+// applied at the send site by sendLifecycleEmail; commsType IS stamped here.
+//
+// The one intentional image in the lifecycle program: the video thumbnail
+// (dec-2 overturned spec-427's self-imposed "no imagery" rule for this image
+// only). It renders via the shared renderVideoThumbnail primitive injected into
+// bodyParagraphs, so the rest of the email stays the same table/inline-CSS,
+// image-free construct as the others.
+
+// spec-480 dec-6 — UTM on the video link so a click is attributable to THIS
+// email (vs the welcome email, spec-488, which links the same asset with
+// utm_campaign=welcome). Postmark link-tracking (t-4) records the click server-side.
+const WINBACK_VIDEO_URL = `${EMAIL_EXPLAINER_VIDEO_URL}?utm_source=lifecycle&utm_medium=email&utm_campaign=winback`;
+
+export interface WinbackEmailInput {
+  to: string;
+  /** Recipient's first name; absent/empty → a graceful "Hi there,". */
+  firstName?: string;
+  /**
+   * CTA "Connect your agent" target — the one-click desktop connect flow (dec-9).
+   * Derived at the send site (dec-8 / std-2 via buildAppBaseUrl), never a hardcoded
+   * host here. t-3 resolves what this concretely is (the desktop-app download at
+   * www.memex.ai/download is the current one-click MCP-setup path, spec-460).
+   */
+  connectUrl: string;
+}
+
+export function buildWinbackEmail(input: WinbackEmailInput): EmailMessage {
+  const name = input.firstName?.trim();
+  // s-2 opens "Hey [FirstName],"; graceful nameless fallback (never a placeholder).
+  const greeting = name ? `Hey ${name},` : "Hi there,";
+
+  // Copy verbatim from s-2 (the code is the canonical authoring source; s-2 mirrors
+  // it). NOTE: s-2 says "60-second" but the hosted cut is 1:22 — left as-is per the
+  // copy owner; the discrepancy is flagged in s-5. s-2/s-3 is an OPEN copy fork
+  // (Ryan owns it); these strings are the s-2 option and swap 1:1 to s-3 if chosen.
+  const intro1 = "You signed up to Memex, then disappeared a while back.";
+  const intro2 =
+    "We thought about emailing you a reminder of what to do next, but it felt cold and a bit weird after not having much contact with you recently.";
+  const intro3 =
+    "So instead, we made a 60-second animated video with a voiceover, explaining what Memex is and why it exists (just in case you forgot or had questions!).";
+  const shortVersion =
+    "The short version, though you should still watch it: MD docs are sh*t. They're a temporary fix for coding agents that gets worse over time. Agents aren't forced to follow an MD doc spec, so they skip parts, produce slop, ignore your rules, and the whole thing becomes unmanageable and out of date.";
+  const fixes = "That's what Memex fixes.";
+  const listIntro =
+    "Every user who's come back to us every day for the past six weeks has three things in common:";
+  const item1 = "1. They connected their coding agent over MCP.";
+  const item2 = "2. They took one spec from draft → specify → build → verify.";
+  const item3 =
+    "3. They turned their CLAUDE.md / AGENTS.md rules into standards, so Memex checks a half-formed idea against what's already decided and shapes it into a near-complete spec.";
+  // dec-9 — the fixed [X] stall-line for the sole (signed_in_dormant) segment.
+  const stall =
+    "You signed up and had a look, but never connected your agent or created a spec.";
+  const closer = "Watch the video, then have another go:";
+  const signoff = "The Memex AI team";
+
+  const text = renderEmailText({
+    intro: [
+      greeting,
+      intro1,
+      intro2,
+      intro3,
+      `Watch the video: ${WINBACK_VIDEO_URL}`,
+      shortVersion,
+      fixes,
+      listIntro,
+      item1,
+      item2,
+      item3,
+      stall,
+      closer,
+    ],
+    url: input.connectUrl,
+    closing: signoff,
+  });
+
+  const html = renderEmailHtml({
+    // H1 hook — s-2's body has no headline; the shared renderer always renders one.
+    preheader:
+      "A 60-second video on what Memex actually is — then reconnect when you're ready.",
+    heading: "We made you a video",
+    bodyParagraphs: [
+      escapeHtml(greeting),
+      escapeHtml(intro1),
+      escapeHtml(intro2),
+      escapeHtml(intro3),
+      renderVideoThumbnail({
+        videoUrl: WINBACK_VIDEO_URL,
+        thumb1xUrl: EMAIL_VIDEO_THUMB_1X_URL,
+        thumb2xUrl: EMAIL_VIDEO_THUMB_2X_URL,
+        alt: `Watch: ${EMAIL_VIDEO_TITLE}`,
+      }),
+      renderVideoFallbackLine(WINBACK_VIDEO_URL),
+      escapeHtml(shortVersion),
+      escapeHtml(fixes),
+      `${escapeHtml(listIntro)}<br><br>${escapeHtml(item1)}<br>${escapeHtml(item2)}<br>${escapeHtml(item3)}`,
+      escapeHtml(stall),
+      escapeHtml(closer),
+    ],
+    ctaLabel: "Connect your agent",
+    ctaUrl: input.connectUrl,
+    showPasteLink: false,
+    afterCtaParagraphs: [escapeHtml(signoff)],
+    footerNote: ACTIVATION_FOOTER,
+  });
+
+  return {
+    to: input.to,
+    subject: "You signed up, then vanished",
+    text,
+    html,
+    // spec-480 dec-8 (re-resolved): the win-back REUSES the existing signed_in_dormant
+    // comms key — it IS that cohort's email now. Minting a new "activation.winback" key
+    // would have split the cross-repo comms-conversion contract (the metric is mirrored
+    // byte-for-byte in memex-backstage via comms-conversion.fixture.ts); reusing the key
+    // keeps that contract intact. Dedup (hasComm) + the activation-metrics join count THIS
+    // key. (Win-back vs welcome-video click attribution still separates via the UTM above.)
+    commsType: "activation.signed_in_dormant",
+    // spec-480 dec-6 (ac-11): enable Postmark click tracking so a thumbnail/fallback
+    // click on the raw-mp4 link is recorded (a GCS mp4 can't run JS; the UTM above only
+    // labels the tracked URL). Click tracking only — no open pixel.
+    trackLinks: true,
   };
 }
 

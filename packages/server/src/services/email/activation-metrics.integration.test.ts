@@ -15,6 +15,9 @@ import { recordComm } from "../comms-log.js";
 import { measureActivationConversion } from "./activation-metrics.js";
 
 const AC6 = "mindset-prod/memex-building-itself/specs/spec-427/acs/ac-6";
+// spec-480 dec-8: the signed_in_dormant send is now the win-back, keyed activation.signed_in_dormant,
+// so the conversion join for that cohort counts THAT key.
+const AC480_13 = "mindset-prod/memex-building-itself/specs/spec-480/acs/ac-13";
 const SENT = new Date("2026-06-10T00:00:00Z");
 const hoursAfter = (h: number) => new Date(SENT.getTime() + h * 60 * 60 * 1000);
 
@@ -88,8 +91,9 @@ describe("measureActivationConversion (ac-6)", () => {
     expect(e1.rate).toBeCloseTo(1 / 3);
   });
 
-  it("Email 2: converts ONLY when BOTH mcp.connected AND a spec are created within 48h", async () => {
+  it("win-back (signed-in-dormant): converts ONLY when BOTH mcp.connected AND a spec within 48h — counted on activation.signed_in_dormant (ac-6, spec-480 ac-13)", async () => {
     tagAc(AC6);
+    tagAc(AC480_13);
     // both in-window → converted
     const both = await seedUser("t9-e2-both@example.test");
     await seedSend(both, "activation.signed_in_dormant");

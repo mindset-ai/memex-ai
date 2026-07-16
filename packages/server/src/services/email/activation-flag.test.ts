@@ -5,6 +5,10 @@ import { tagAc } from "@memex-ai-ac/vitest";
 import { activationEmailsEnabled } from "./activation-flag.js";
 
 const AC16 = "mindset-prod/memex-building-itself/specs/spec-427/acs/ac-16";
+// spec-480 ac-16 — the win-back go-live gate reuses this same master flag: default-OFF +
+// kill-switch is its automated core (the "flipped only at go-live, after int→prod smoke"
+// clause is operational, verified at deploy per std-26/std-17).
+const AC480_16 = "mindset-prod/memex-building-itself/specs/spec-480/acs/ac-16";
 const saved = process.env.ACTIVATION_EMAILS_ENABLED;
 afterEach(() => {
   if (saved === undefined) delete process.env.ACTIVATION_EMAILS_ENABLED;
@@ -14,6 +18,7 @@ afterEach(() => {
 describe("activationEmailsEnabled", () => {
   it("defaults OFF when unset (the safe default — the backlog never fires by accident)", () => {
     tagAc(AC16);
+    tagAc(AC480_16); // win-back stays dark until the flag is deliberately flipped
     delete process.env.ACTIVATION_EMAILS_ENABLED;
     expect(activationEmailsEnabled()).toBe(false);
   });
@@ -36,6 +41,7 @@ describe("activationEmailsEnabled", () => {
 
   it("reads live — a flip to off takes effect on the next call (kill switch)", () => {
     tagAc(AC16);
+    tagAc(AC480_16); // the same kill switch guards the win-back send
     process.env.ACTIVATION_EMAILS_ENABLED = "1";
     expect(activationEmailsEnabled()).toBe(true);
     process.env.ACTIVATION_EMAILS_ENABLED = "0";

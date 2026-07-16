@@ -17,6 +17,9 @@ import { runActivationDrip, type CandidateUser } from "./activation-drip.js";
 import { selectBacklogCandidates } from "./activation-backlog.js";
 
 const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-427/acs/ac-${n}`;
+// spec-480 dec-9/dec-10: the backlog blast now sends the win-back (activation.signed_in_dormant) to
+// signed_in_dormant only; connected_inactive is deferred (not sent in v1).
+const AC480 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-480/acs/ac-${n}`;
 const NOW = new Date("2026-06-20T00:00:00Z");
 const daysAgo = (d: number) => new Date(NOW.getTime() - d * 24 * 60 * 60 * 1000);
 
@@ -86,15 +89,16 @@ describe("selectBacklogCandidates — the go-live cutoff (ac-9)", () => {
 });
 
 describe("backlog send over the candidate set (ac-5, ac-9)", () => {
-  it("sends the correct single email per still-stalled user; skips already-keyed + activated; no re-fire on the evergreen hand-off", async () => {
+  it("sends the win-back only to signed-in-dormant; defers connected-inactive; skips activated; no re-fire on the evergreen hand-off (ac-5, ac-9, spec-480 ac-14)", async () => {
     tagAc(AC(5));
     tagAc(AC(9));
-    // A — connected-inactive, stalled long ago → Email 1.
+    tagAc(AC480(14));
+    // A — connected-inactive, stalled long ago → DEFERRED in v1 (spec-480 dec-9), no send.
     const a = await seedUser("t8-a@example.test", { createdAt: daysAgo(60) });
     await seedMcpConnected(a.id, daysAgo(50));
-    // B — signed-in-dormant (verified long ago, never connected) → Email 2.
+    // B — signed-in-dormant (verified long ago, never connected) → the win-back.
     const b = await seedUser("t8-b@example.test", { createdAt: daysAgo(60), verifiedAt: daysAgo(60) });
-    // D — connected-inactive but ALREADY emailed (carries the key) → skipped.
+    // D — connected-inactive (deferred regardless of any prior key) → no send.
     const d = await seedUser("t8-d@example.test", { createdAt: daysAgo(60) });
     await seedMcpConnected(d.id, daysAgo(50));
     await recordComm({ userId: d.id, channel: "email", type: "activation.connected_inactive", subject: "sent earlier" });
@@ -104,15 +108,16 @@ describe("backlog send over the candidate set (ac-5, ac-9)", () => {
 
     const backlog = [a, b, d, e];
     const s1 = await runActivationDrip(NOW, undefined, backlog);
-    expect(s1.sent).toBe(2);
+    // Only B (signed_in_dormant) sends in v1; A + D are deferred connected_inactive.
+    expect(s1.sent).toBe(1);
     const byUser = new Map(sent.map((m) => [m.to, m.commsType]));
-    expect(byUser.get(a.email!)).toBe("activation.connected_inactive");
     expect(byUser.get(b.email!)).toBe("activation.signed_in_dormant");
-    expect(byUser.has(d.email!)).toBe(false); // already emailed
+    expect(byUser.has(a.email!)).toBe(false); // connected_inactive → deferred
+    expect(byUser.has(d.email!)).toBe(false); // connected_inactive → deferred
     expect(byUser.has(e.email!)).toBe(false); // activated
 
-    // Evergreen hand-off: switching the daily drip on afterwards must NOT re-send to
-    // anyone the backlog already emailed (they now all carry their key).
+    // Evergreen hand-off: switching the daily drip on afterwards must NOT re-send to B
+    // (now carries activation.signed_in_dormant), and still never sends the deferred cohort.
     sent = [];
     const s2 = await runActivationDrip(NOW, undefined, backlog);
     expect(s2.sent).toBe(0);

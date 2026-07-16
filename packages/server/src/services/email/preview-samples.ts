@@ -22,6 +22,7 @@ import {
   buildAssignmentEmail,
   buildConnectedInactiveEmail,
   buildSignedInDormantEmail,
+  buildWinbackEmail,
   buildVerifiedMilestoneEmail,
   buildConnectPeopleEmail,
 } from "./templates.js";
@@ -80,6 +81,13 @@ export const EMAIL_PREVIEW_SAMPLES: Record<string, (to: string) => EmailMessage>
     }),
   "activation-signed-in-dormant": (to) =>
     buildSignedInDormantEmail({ to, firstName: "Sample", appUrl: BASE }),
+  // spec-480 — the win-back email (video thumbnail + "Connect your agent"). This is what
+  // the signed_in_dormant cohort actually receives in v1 (activation.winback); the
+  // signed-in-dormant sample above is retained as the superseded spec-427 template.
+  // Registered here so the win-back render (its one intentional image) is previewable +
+  // send-testable on int for visual QA (ac-1).
+  "activation-winback": (to) =>
+    buildWinbackEmail({ to, firstName: "Sample", connectUrl: "https://www.memex.ai/download?src=winback-email" }),
   // spec-453 — "See it verified" (verified-milestone) + "Connect with people".
   // Same hyphenated preview-key convention as the spec-427 pair above; the
   // comms_log keys stay the dotted `activation.verified_milestone` /

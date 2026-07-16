@@ -5,6 +5,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { tagAc } from "@memex-ai-ac/vitest";
 
 const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-427/acs/ac-${n}`;
+// spec-480 amended the win-back orchestration (dec-9/dec-10): signed_in_dormant → the
+// video win-back keyed activation.signed_in_dormant; connected_inactive deferred (not sent in v1).
+const AC480 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-480/acs/ac-${n}`;
 
 // ── mock the DB-touching collaborators ──────────────────────────────────────
 const evaluateActivationState = vi.fn();
@@ -62,39 +65,44 @@ describe("dwellElapsed", () => {
     expect(dwellElapsed("connected_inactive", daysAgo(1), NOW)).toBe(false);
     expect(dwellElapsed("connected_inactive", daysAgo(2), NOW)).toBe(true);
   });
-  it("Email 2 fires at ~3 days in signed-in-dormant, not before", () => {
+  it("the win-back fires at ~3 days in signed-in-dormant, not before (spec-480 ac-12)", () => {
     tagAc(AC(2));
+    // spec-480 dec-7: 3 days (anchored to email_verified_at) is now the SOLE win-back dwell.
+    tagAc(AC480(12));
     expect(dwellElapsed("signed_in_dormant", daysAgo(2), NOW)).toBe(false);
     expect(dwellElapsed("signed_in_dormant", daysAgo(3), NOW)).toBe(true);
   });
 });
 
 describe("sendActivationEmailForUser — ladder + dwell + dedup", () => {
-  it("connected-inactive past dwell → sends Email 1 with the create-spec modal deep-link (ac-1)", async () => {
-    tagAc(AC(1));
+  it("connected-inactive is DEFERRED in v1 — evaluated but not sent (spec-480 ac-14, dec-9)", async () => {
+    tagAc(AC480(14));
     evaluateActivationState.mockResolvedValue({ cohort: "connected_inactive", enteredAt: daysAgo(3) });
     const out = await sendActivationEmailForUser(USER, NOW, fakeConn);
-    expect(out).toMatchObject({ cohort: "connected_inactive", sent: true, reason: "sent" });
-    expect(sendLifecycleEmail).toHaveBeenCalledTimes(1);
-    const [, msg] = sendLifecycleEmail.mock.calls[0]!;
-    expect(msg.commsType).toBe(ACTIVATION_COMMS_KEY.connected_inactive);
-    // Q1: the "Create a spec" CTA deep-links to the new-spec modal (?new=1).
-    expect(msg.html).toContain("?new=1");
-    expect(msg.text).toContain("Hi Ada,"); // first-name greeting
+    // spec-480 dec-9/dec-10: the win-back targets signed_in_dormant only; connected_inactive
+    // is deferred to a separate later email, so it never sends in v1.
+    expect(out).toMatchObject({ cohort: "connected_inactive", sent: false, reason: "deferred" });
+    expect(sendLifecycleEmail).not.toHaveBeenCalled();
   });
 
-  it("signed-in-dormant past dwell → sends Email 2 (ac-2)", async () => {
+  it("signed-in-dormant past dwell → sends the win-back, keyed activation.signed_in_dormant (ac-2, spec-480 ac-13/ac-14)", async () => {
     tagAc(AC(2));
+    tagAc(AC480(13));
+    tagAc(AC480(14));
     evaluateActivationState.mockResolvedValue({ cohort: "signed_in_dormant", enteredAt: daysAgo(4) });
     const out = await sendActivationEmailForUser(USER, NOW);
     expect(out).toMatchObject({ cohort: "signed_in_dormant", sent: true, reason: "sent" });
     const [, msg] = sendLifecycleEmail.mock.calls[0]!;
+    // spec-480 dec-8: the win-back template, keyed activation.signed_in_dormant; single "Connect your agent" CTA.
+    expect(msg.commsType).toBe("activation.signed_in_dormant");
     expect(msg.commsType).toBe(ACTIVATION_COMMS_KEY.signed_in_dormant);
+    expect(msg.html).toContain(">Connect your agent</a>");
   });
 
-  it("dwell not yet elapsed → no send (ac-1)", async () => {
-    tagAc(AC(1));
-    evaluateActivationState.mockResolvedValue({ cohort: "connected_inactive", enteredAt: daysAgo(1) });
+  it("dwell not yet elapsed → no send (spec-480 ac-12: single 3-day win-back dwell)", async () => {
+    tagAc(AC480(12));
+    // signed_in_dormant is the sole v1 cohort; its dwell is 3 days (email_verified_at).
+    evaluateActivationState.mockResolvedValue({ cohort: "signed_in_dormant", enteredAt: daysAgo(2) });
     const out = await sendActivationEmailForUser(USER, NOW);
     expect(out.reason).toBe("dwell_pending");
     expect(sendLifecycleEmail).not.toHaveBeenCalled();
@@ -107,36 +115,39 @@ describe("sendActivationEmailForUser — ladder + dwell + dedup", () => {
     expect(sendLifecycleEmail).not.toHaveBeenCalled();
   });
 
-  it("already sent this cohort's email → deduped, no re-send (ac-3)", async () => {
+  it("already sent the win-back → deduped, no re-send (ac-3, spec-480 ac-13)", async () => {
     tagAc(AC(3));
-    evaluateActivationState.mockResolvedValue({ cohort: "connected_inactive", enteredAt: daysAgo(3) });
+    tagAc(AC480(13));
+    evaluateActivationState.mockResolvedValue({ cohort: "signed_in_dormant", enteredAt: daysAgo(4) });
     hasComm.mockResolvedValue(true);
     const out = await sendActivationEmailForUser(USER, NOW);
     expect(out.reason).toBe("already_sent");
     expect(sendLifecycleEmail).not.toHaveBeenCalled();
   });
 
-  it("dedup counts the stable comms KEY, never the subject line (ac-14)", async () => {
+  it("dedup counts the stable comms KEY (activation.signed_in_dormant), never the subject line (ac-14, spec-480 ac-13)", async () => {
     tagAc(AC(14));
-    evaluateActivationState.mockResolvedValue({ cohort: "connected_inactive", enteredAt: daysAgo(3) });
-    await sendActivationEmailForUser(USER, NOW, fakeConn);
-    // The dedup read is keyed on the stable template key for the cohort — the machine
-    // key `activation.connected_inactive`, NOT the human subject line "Memex is
-    // connected. Here's what to do next." (which the dedup never sees).
-    expect(hasComm).toHaveBeenCalledWith(USER.id, "activation.connected_inactive", expect.anything());
+    tagAc(AC480(13));
+    evaluateActivationState.mockResolvedValue({ cohort: "signed_in_dormant", enteredAt: daysAgo(4) });
+    await sendActivationEmailForUser(USER, NOW);
+    // The dedup read is keyed on the stable win-back key `activation.signed_in_dormant` (dec-8),
+    // NOT the human subject line "You signed up, then vanished" (which dedup never sees).
+    expect(hasComm).toHaveBeenCalledWith(USER.id, "activation.signed_in_dormant", expect.anything());
     const dedupKeys = hasComm.mock.calls.map((c) => c[1] as string);
-    expect(dedupKeys).not.toContain("Memex is connected. Here's what to do next.");
+    expect(dedupKeys).not.toContain("You signed up, then vanished");
   });
 
-  it("state is re-evaluated live: a user who already got Email 2 then connects rolls into Email 1 (ac-4)", async () => {
+  it("connected-inactive stays deferred even when live re-eval rolls a user into it (ac-4, spec-480 ac-14)", async () => {
     tagAc(AC(4));
-    // Live cohort is now connected-inactive; they carry the signed_in_dormant key from
-    // an earlier send, but NOT the connected_inactive key → Email 1 must still send.
+    tagAc(AC480(14));
+    // Live re-eval still happens (ac-4), but spec-480 dec-9 defers connected_inactive:
+    // a user who has since connected is NOT sent the win-back (its CTA would be nonsensical)
+    // and gets no v1 email — regardless of which keys they already carry.
     evaluateActivationState.mockResolvedValue({ cohort: "connected_inactive", enteredAt: daysAgo(3) });
-    hasComm.mockImplementation(async (_id: string, key: string) => key === ACTIVATION_COMMS_KEY.signed_in_dormant);
+    hasComm.mockResolvedValue(false);
     const out = await sendActivationEmailForUser(USER, NOW, fakeConn);
-    expect(out).toMatchObject({ cohort: "connected_inactive", sent: true });
-    expect(hasComm).toHaveBeenCalledWith(USER.id, ACTIVATION_COMMS_KEY.connected_inactive, expect.anything());
+    expect(out).toMatchObject({ cohort: "connected_inactive", sent: false, reason: "deferred" });
+    expect(sendLifecycleEmail).not.toHaveBeenCalled();
   });
 
   it("a user with no email is skipped", async () => {
