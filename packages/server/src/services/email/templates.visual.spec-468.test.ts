@@ -70,9 +70,10 @@ describe("spec-468 — step labels + resource links are #0482DC (ac-1)", () => {
 });
 
 describe("spec-468 — per-template accent links are #0482DC (ac-1)", () => {
-  it("connected-inactive \"your Memex\" link is #0482DC", () => {
+  it("connected-inactive \"#help\" is a #0482DC Discord link", () => {
     tagAc(AC(1));
-    expect(connected.html ?? "").toContain(`style="color:${ACCENT};">your Memex</a>`);
+    // spec-487: the v2 copy dropped the "your Memex" link; the accent link is now #help.
+    expect(connected.html ?? "").toContain(`<a href="${DISCORD}" style="color:${ACCENT};text-decoration:none;">#help</a>`);
   });
   it("signed-in-dormant \"#help\" is a #0482DC Discord link", () => {
     tagAc(AC(1));

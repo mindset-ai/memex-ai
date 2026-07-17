@@ -123,6 +123,30 @@ export const EMAIL_VIDEO_THUMB_2X_URL =
 export const EMAIL_VIDEO_TITLE =
   "The spec-driven development system for AI coding agents";
 
+// spec-487 dec-3 (t-1) — the three per-email HOW-TO videos (Day-2 / Day-3 / Day-12),
+// hosted on the SAME static bucket + media/ path as the explainer (spec-480 pattern):
+// stable, public, non-expiring, immutable-cached. Uploaded + verified public 2026-07-17.
+// Distinct from EMAIL_EXPLAINER_VIDEO_URL ("what is Memex") — these each show HOW to do
+// that email's action. Each builder appends its OWN utm_campaign (dec-6); a swap mints a
+// NEW versioned object (…-v2), never a same-name overwrite (immutable cache).
+const EMAIL_MEDIA_BASE =
+  "https://storage.googleapis.com/memex-ai-prod-app-static/media";
+export interface HowToVideoAsset {
+  videoUrl: string;
+  thumb1xUrl: string;
+  thumb2xUrl: string;
+}
+function howToAsset(slug: string): HowToVideoAsset {
+  return {
+    videoUrl: `${EMAIL_MEDIA_BASE}/${slug}.mp4`,
+    thumb1xUrl: `${EMAIL_MEDIA_BASE}/${slug}-thumb-480.png`,
+    thumb2xUrl: `${EMAIL_MEDIA_BASE}/${slug}-thumb-960.png`,
+  };
+}
+export const EMAIL_HOWTO_CREATE_SPEC = howToAsset("email-howto-create-spec"); // Day-2 "create a spec"
+export const EMAIL_HOWTO_CONNECT_MCP = howToAsset("email-howto-connect-mcp"); // Day-3 "connect MCP + spec"
+export const EMAIL_HOWTO_CONNECT_PEOPLE = howToAsset("email-howto-connect-people"); // Day-12 "connect with people"
+
 // spec-480 dec-2/dec-3/dec-4 — the clickable video-thumbnail block: a single
 // static poster image (play button baked in, dec-3) hyperlinked to the hosted
 // mp4. Returned as an HTML string injected into `bodyParagraphs` (mid-body, so
@@ -481,23 +505,46 @@ export interface ConnectedInactiveEmailInput {
 
 // Email 1 — connected-but-inactive (MCP connected, no tool call, no Spec).
 // Subject "Memex is connected. Here's what to do next." · CTA "Create a spec".
+// spec-487 dec-6 — the Day-2 how-to video ("create a spec"), attributable via its
+// own utm_campaign (distinct from the win-back + welcome, which use the explainer).
+const CONNECTED_INACTIVE_VIDEO_URL = `${EMAIL_HOWTO_CREATE_SPEC.videoUrl}?utm_source=lifecycle&utm_medium=email&utm_campaign=connected_inactive`;
+
+// spec-487 (t-2) — the Day-2 "Connected but no Spec" email, v2 copy (s-2) + how-to
+// video. Leads with the greeting (no headline, like the welcome v2). The video is a
+// clickable poster + image-blocked fallback line (spec-480 pattern, dec-4) — NO
+// separate "Watch the 3-min guide" button (dec-4: one video, one link). commsType /
+// dedup key unchanged (activation.connected_inactive).
 export function buildConnectedInactiveEmail(
   input: ConnectedInactiveEmailInput,
 ): EmailMessage {
   const greeting = activationGreeting(input.firstName);
-  const afterCta1 =
-    "Memex will work with your agent to structure the work, and comes back with a Spec and the decisions it needs you to resolve. That's the moment it clicks.";
-  const afterCta2 = "Memex does not touch your code.";
-  const stuck = "If you get stuck, just reply here or find us in #help on Discord.";
+  const p1 =
+    "Memex is connected, but the change you signed up for does not show until there is a Spec. Without one, your agent is still working off a document: it reads what it likes, skips the rest, and fills the gaps with its own assumptions, so you are back to re-prompting and re-reviewing.";
+  const p2 =
+    "A Memex spec fixes that. You create it right from your coding agent: it reads your repo, and together you work through the major decisions and the why behind what you are building. Each one becomes a task with an acceptance criterion your agent has to build to, not prose it can pass over. The more you settle upfront, the more it gets right first time.";
+  const videoIntro = "See it done in 3 minutes: a quick guide to creating your first spec.";
+  const thenBring = "Then bring one small piece of work and paste this into your coding agent:";
+  const prompt1 =
+    "I want to create a new spec in Memex for [your idea]. Look at my codebase, and let's work through the major decisions and why we're building it.";
+  const rollingIntro = "Once you are rolling, these help too:";
+  const rollingPrompts = [
+    "Let's work through the decisions",
+    "What's our standard for this?",
+    "What's outstanding before we build?",
+    "Move to build and implement this in a worktree",
+  ];
+  const stuck = "Stuck? Reply here, or find us in #help on Discord.";
 
   const text = renderEmailText({
     intro: [
       greeting,
-      "Your Memex MCP is connected. The hard part is done.",
-      "The next step is to create your first Spec. Bring an idea and we'll help you shape it, start to finish. Not sure where to start? Click the button below and we'll guide you through step by step.",
-      afterCta1,
-      afterCta2,
-      `Watch your Spec come to life in your Memex: ${input.memexUrl}`,
+      p1,
+      p2,
+      `${videoIntro} Watch it here: ${CONNECTED_INACTIVE_VIDEO_URL}`,
+      thenBring,
+      `"${prompt1}"`,
+      rollingIntro,
+      ...rollingPrompts.map((p) => `"${p}"`),
       stuck,
     ],
     url: input.createSpecUrl,
@@ -505,20 +552,34 @@ export function buildConnectedInactiveEmail(
   });
 
   const html = renderEmailHtml({
-    preheader: "Your Memex MCP is connected — create your first Spec.",
-    heading: "Your Memex MCP is connected. The hard part is done.",
+    preheader: "Memex is connected — one Spec turns it into output.",
+    // No headline — v2 leads with the greeting (spec-488 renderer supports this).
+    heading: "",
     bodyParagraphs: [
       escapeHtml(greeting),
-      "The next step is to create your first Spec. Bring an idea and we'll help you shape it, start to finish. Not sure where to start? Click the button below and we'll guide you through step by step.",
+      escapeHtml(p1),
+      escapeHtml(p2),
+      escapeHtml(videoIntro),
+      renderVideoThumbnail({
+        videoUrl: CONNECTED_INACTIVE_VIDEO_URL,
+        thumb1xUrl: EMAIL_HOWTO_CREATE_SPEC.thumb1xUrl,
+        thumb2xUrl: EMAIL_HOWTO_CREATE_SPEC.thumb2xUrl,
+        alt: "Watch: how to create your first spec",
+      }),
+      renderVideoFallbackLine(CONNECTED_INACTIVE_VIDEO_URL),
+      escapeHtml(thenBring),
+      `<em>&ldquo;${escapeHtml(prompt1)}&rdquo;</em>`,
     ],
     ctaLabel: "Create a spec",
     ctaUrl: input.createSpecUrl,
     showPasteLink: false,
     afterCtaParagraphs: [
-      escapeHtml(afterCta1),
-      escapeHtml(afterCta2),
-      `Watch your Spec come to life in <a href="${escapeHtml(input.memexUrl)}" style="color:${BRAND_ACCENT};">your Memex</a>.`,
-      escapeHtml(stuck),
+      escapeHtml(rollingIntro),
+      rollingPrompts.map((p) => `&ldquo;${escapeHtml(p)}&rdquo;`).join("<br>"),
+      escapeHtml(stuck).replace(
+        "#help",
+        `<a href="${DISCORD_INVITE_URL}" style="color:${BRAND_ACCENT};text-decoration:none;">#help</a>`,
+      ),
       ACTIVATION_SIGNOFF_HTML,
     ],
     resources: ACTIVATION_RESOURCES,
@@ -527,12 +588,15 @@ export function buildConnectedInactiveEmail(
 
   return {
     to: input.to,
-    subject: "Memex is connected. Here's what to do next.",
+    subject: "Connected, but the output has not changed yet",
     text,
     html,
-    // spec-427 ac-14 / dec-7: stable comms key — Slice B's dedup + two-per-cohort
-    // cap count this key in comms_log, never the subject line.
+    // spec-427 ac-14 / dec-7: stable comms key — dedup counts this key in comms_log,
+    // never the subject line. Unchanged from v1 (spec-487 keeps the key).
     commsType: "activation.connected_inactive",
+    // spec-487 dec-6 — the video link is a raw GCS mp4; Postmark click-tracking makes
+    // the utm_campaign attributable (same as the win-back).
+    trackLinks: true,
   };
 }
 
@@ -622,7 +686,7 @@ export function buildSignedInDormantEmail(
 // to the SINGLE `signed_in_dormant` cohort — verified, never connected an MCP,
 // no Spec (dec-9). The `connected_inactive` cohort is deliberately NOT a
 // recipient (its members have already connected, so this email's one CTA —
-// "Connect your agent" — would be nonsensical); it is deferred to a later email.
+// "Connect your agent" — would be nonsensical); it has its own Day-2 email (spec-487).
 // So there is ONE segment: one fixed stall-line, one CTA, no per-segment branch.
 //
 // PURE RENDER like the spec-427 builders: no cohort/timing/send/env logic. The
@@ -638,7 +702,10 @@ export function buildSignedInDormantEmail(
 // spec-480 dec-6 — UTM on the video link so a click is attributable to THIS
 // email (vs the welcome email, spec-488, which links the same asset with
 // utm_campaign=welcome). Postmark link-tracking (t-4) records the click server-side.
-const WINBACK_VIDEO_URL = `${EMAIL_EXPLAINER_VIDEO_URL}?utm_source=lifecycle&utm_medium=email&utm_campaign=winback`;
+// spec-487 (t-3) — the win-back now carries the "connect the MCP + create a spec"
+// how-to video (replacing the "what is Memex" explainer, which stays on the welcome).
+// utm_campaign=winback keeps the click attributable to this email.
+const WINBACK_VIDEO_URL = `${EMAIL_HOWTO_CONNECT_MCP.videoUrl}?utm_source=lifecycle&utm_medium=email&utm_campaign=winback`;
 
 export interface WinbackEmailInput {
   to: string;
@@ -655,86 +722,89 @@ export interface WinbackEmailInput {
 
 export function buildWinbackEmail(input: WinbackEmailInput): EmailMessage {
   const name = input.firstName?.trim();
-  // s-2 opens "Hey [FirstName],"; graceful nameless fallback (never a placeholder).
-  const greeting = name ? `Hey ${name},` : "Hi there,";
+  const greeting = name ? `Hi ${name},` : "Hi there,";
 
-  // Copy verbatim from s-2 (the code is the canonical authoring source; s-2 mirrors
-  // it). NOTE: s-2 says "60-second" but the hosted cut is 1:22 — left as-is per the
-  // copy owner; the discrepancy is flagged in s-5. s-2/s-3 is an OPEN copy fork
-  // (Ryan owns it); these strings are the s-2 option and swap 1:1 to s-3 if chosen.
-  const intro1 = "You signed up to Memex, then disappeared a while back.";
-  const intro2 =
-    "We thought about emailing you a reminder of what to do next, but it felt cold and a bit weird after not having much contact with you recently.";
-  const intro3 =
-    "So instead, we made a 60-second animated video with a voiceover, explaining what Memex is and why it exists (just in case you forgot or had questions!).";
-  const shortVersion =
-    "The short version, though you should still watch it: MD docs are sh*t. They're a temporary fix for coding agents that gets worse over time. Agents aren't forced to follow an MD doc spec, so they skip parts, produce slop, ignore your rules, and the whole thing becomes unmanageable and out of date.";
-  const fixes = "That's what Memex fixes.";
-  const listIntro =
-    "Every user who's come back to us every day for the past six weeks has three things in common:";
-  const item1 = "1. They connected their coding agent over MCP.";
-  const item2 = "2. They took one spec from draft → specify → build → verify.";
-  const item3 =
-    "3. They turned their CLAUDE.md / AGENTS.md rules into standards, so Memex checks a half-formed idea against what's already decided and shapes it into a near-complete spec.";
-  // dec-9 — the fixed [X] stall-line for the sole (signed_in_dormant) segment.
-  const stall =
-    "You signed up and had a look, but never connected your agent or created a spec.";
-  const closer = "Watch the video, then have another go:";
-  const signoff = "The Memex AI team";
+  // spec-487 s-3 copy (the code is the canonical authoring source; s-3 mirrors it).
+  const p1 =
+    "Right now your agent works from markdown: files it interprets, skips, and fills in with its own assumptions. That is what drives the re-prompting and re-reviewing, and it only gets worse on brownfield code.";
+  const p2 = "Memex never touches your repo, but your coding agent does.";
+  const p3 =
+    "So connecting the MCP makes your agent the bridge: it reads your real codebase, and everything you decide gets grounded in it, in one place instead of scattered across threads and MD files. Once connected, you start speccing against your actual code, not a blank page, and the more decisions you settle upfront, the more your agent gets right first time.";
+  const videoIntro =
+    "See it done in 3 minutes: a quick guide to connecting the MCP and creating your first spec.";
+  const connectIntro = "Connect your MCP & create a spec:";
+  const connectStep =
+    "To connect the MCP, open Settings then Integrations in Memex and copy the MCP connection prompt. Paste that into your coding agent and it wires up the MCP for you.";
+  const thenSpec = "Then create your first spec. Paste this in:";
+  const prompt1 =
+    "I want to create a new spec in Memex for [your idea or MD doc name]. Look at my codebase, and let's work through the major decisions and why we're building it.";
+  const rollingIntro = "Once you have a few specs, these are worth trying:";
+  const rollingPrompts = [
+    "What have we decided before that's similar to this?",
+    "Which decisions conflict with this spec?",
+    "Which existing specs make this one stronger?",
+    "What's outstanding before we build?",
+  ];
+  const needHand = "Need a hand? Reply here, or find us in #help on Discord.";
 
   const text = renderEmailText({
     intro: [
       greeting,
-      intro1,
-      intro2,
-      intro3,
-      `Watch the video: ${WINBACK_VIDEO_URL}`,
-      shortVersion,
-      fixes,
-      listIntro,
-      item1,
-      item2,
-      item3,
-      stall,
-      closer,
+      p1,
+      p2,
+      p3,
+      `${videoIntro} Watch it here: ${WINBACK_VIDEO_URL}`,
+      connectIntro,
+      connectStep,
+      `${thenSpec} "${prompt1}"`,
+      rollingIntro,
+      ...rollingPrompts.map((p) => `"${p}"`),
+      needHand,
     ],
     url: input.connectUrl,
-    closing: signoff,
+    closing: ACTIVATION_SIGNOFF_TEXT,
   });
 
   const html = renderEmailHtml({
-    // H1 hook — s-2's body has no headline; the shared renderer always renders one.
-    preheader:
-      "A 60-second video on what Memex actually is — then reconnect when you're ready.",
-    heading: "We made you a video",
+    preheader: "Connect the MCP and your agent works from your real codebase, not markdown.",
+    // No headline — v2 leads with the greeting (spec-488 renderer supports this).
+    heading: "",
     bodyParagraphs: [
       escapeHtml(greeting),
-      escapeHtml(intro1),
-      escapeHtml(intro2),
-      escapeHtml(intro3),
+      escapeHtml(p1),
+      escapeHtml(p2),
+      escapeHtml(p3),
+      escapeHtml(videoIntro),
       renderVideoThumbnail({
         videoUrl: WINBACK_VIDEO_URL,
-        thumb1xUrl: EMAIL_VIDEO_THUMB_1X_URL,
-        thumb2xUrl: EMAIL_VIDEO_THUMB_2X_URL,
-        alt: `Watch: ${EMAIL_VIDEO_TITLE}`,
+        thumb1xUrl: EMAIL_HOWTO_CONNECT_MCP.thumb1xUrl,
+        thumb2xUrl: EMAIL_HOWTO_CONNECT_MCP.thumb2xUrl,
+        alt: "Watch: how to connect the MCP and create a spec",
       }),
       renderVideoFallbackLine(WINBACK_VIDEO_URL),
-      escapeHtml(shortVersion),
-      escapeHtml(fixes),
-      `${escapeHtml(listIntro)}<br><br>${escapeHtml(item1)}<br>${escapeHtml(item2)}<br>${escapeHtml(item3)}`,
-      escapeHtml(stall),
-      escapeHtml(closer),
+      `<strong>${escapeHtml(connectIntro)}</strong>`,
+      escapeHtml(connectStep),
+      `${escapeHtml(thenSpec)}<br><em>&ldquo;${escapeHtml(prompt1)}&rdquo;</em>`,
     ],
     ctaLabel: "Connect your agent",
     ctaUrl: input.connectUrl,
     showPasteLink: false,
-    afterCtaParagraphs: [escapeHtml(signoff)],
+    afterCtaParagraphs: [
+      escapeHtml(rollingIntro),
+      rollingPrompts.map((p) => `&ldquo;${escapeHtml(p)}&rdquo;`).join("<br>"),
+      escapeHtml(needHand).replace(
+        "#help",
+        `<a href="${DISCORD_INVITE_URL}" style="color:${BRAND_ACCENT};text-decoration:none;">#help</a>`,
+      ),
+      ACTIVATION_SIGNOFF_HTML,
+    ],
+    resources: ACTIVATION_RESOURCES,
     footerNote: ACTIVATION_FOOTER,
   });
 
   return {
     to: input.to,
-    subject: "You signed up, then vanished",
+    subject: "Ground your specs in your actual codebase",
     text,
     html,
     // spec-480 dec-8 (re-resolved): the win-back REUSES the existing signed_in_dormant
@@ -782,42 +852,60 @@ export function buildVerifiedMilestoneEmail(
   input: VerifiedMilestoneEmailInput,
 ): EmailMessage {
   const greeting = activationGreeting(input.firstName);
-  const prove = "Your agent says it's done. Now you can prove it.";
-  const para1 =
-    'Every decision you resolved turned into tasks with acceptance criteria attached, the specific, testable conditions that define "done" for that piece of work. Your agent doesn\'t just write the code, it runs the checks against those criteria and reports back.';
-  const para2 =
-    'When they go green in CI, you\'re not taking its word for it. You\'re watching the proof. No re-reading a diff hoping it\'s right, no "looks fine to me." Green means what you decided actually got built, and it\'s been verified, not assumed.';
-  const loop =
-    "That's the loop, closed: spec, decision, build, proof. However far you've got, that's the moment it starts paying for itself.";
+  // spec-487 s-4 copy (copy-only rewrite, no video). Owned by spec-453 — coordinated.
+  const p1 =
+    "Congratulations. You just did something a markdown spec can never do: an acceptance criterion, verified in CI. It went green on its own, without you re-reading a diff and hoping the agent caught what mattered. That is proof that what you decided got built.";
+  const p2 = "Two ways to make that compound.";
+  const p3 =
+    "First, run another Spec. Every one you finish makes the next faster, because your agents inherit what you have already decided.";
+  const p4 =
+    "Second, set up your standards. You already have rules written down in CLAUDE.md, AGENTS.md or your Cursor rules. Point your agent at them and paste this:";
+  const prompt =
+    "Read my CLAUDE.md and AGENTS.md, create Memex standards from the rules in them, then rewrite the MD file as a contents page that tells my agents which Memex standard applies to what.";
+  const p5 =
+    "An agent skims an MD file once and forgets it. Memex makes it check the relevant standard on every task it claims, so your rules get followed instead of just written down.";
+  const needHand = "Questions? Reply here, or find us in #help on Discord.";
 
   const text = renderEmailText({
-    intro: [greeting, prove, para1, para2, loop],
+    intro: [greeting, p1, p2, p3, p4, `"${prompt}"`, p5, needHand],
     url: input.appUrl,
     closing: ACTIVATION_SIGNOFF_TEXT,
   });
 
   const html = renderEmailHtml({
-    preheader: "Every acceptance criterion, checked in CI, before anyone calls it finished.",
-    heading: "Green means it's actually done",
+    preheader: "A green check a markdown spec could never give you — here's how to compound it.",
+    // No headline — v2 leads with the greeting (spec-488 renderer supports this).
+    heading: "",
     bodyParagraphs: [
       escapeHtml(greeting),
-      `<strong>${escapeHtml(prove)}</strong>`,
-      escapeHtml(para1),
-      escapeHtml(para2),
+      escapeHtml(p1),
+      `<strong>${escapeHtml(p2)}</strong>`,
+      escapeHtml(p3),
+      escapeHtml(p4),
+      `<em>&ldquo;${escapeHtml(prompt)}&rdquo;</em>`,
+      escapeHtml(p5),
     ],
     ctaLabel: "Go to Memex AI",
     ctaUrl: input.appUrl,
     showPasteLink: false,
-    afterCtaParagraphs: [escapeHtml(loop), ACTIVATION_SIGNOFF_HTML],
+    afterCtaParagraphs: [
+      escapeHtml(needHand).replace(
+        "#help",
+        `<a href="${DISCORD_INVITE_URL}" style="color:${BRAND_ACCENT};text-decoration:none;">#help</a>`,
+      ),
+      ACTIVATION_SIGNOFF_HTML,
+    ],
+    resources: ACTIVATION_RESOURCES,
     footerNote: ACTIVATION_FOOTER,
   });
 
   return {
     to: input.to,
-    subject: "Green means it's actually done",
+    subject: "Nice. A markdown spec could never give you that green check",
     text,
     html,
     // spec-453 dec-6: stable comms key — the trigger (t-2) dedups on THIS, never the subject.
+    // Unchanged by spec-487 (copy-only rewrite).
     commsType: "activation.verified_milestone",
   };
 }
@@ -832,6 +920,11 @@ export interface ConnectPeopleEmailInput {
 // pressure, point to the community. Pure render; the Day-12 select/dedup/send is
 // t-5, invoked by the shared scheduled endpoint (t-6). The only CTA is the confirmed
 // permanent Discord invite (dec-8). Copy mirrors s-3.
+// spec-487 (t-5) — the Day-12 how-to video, attributable via its own utm_campaign.
+const CONNECT_PEOPLE_VIDEO_URL = `${EMAIL_HOWTO_CONNECT_PEOPLE.videoUrl}?utm_source=lifecycle&utm_medium=email&utm_campaign=connect_people`;
+
+// spec-453 email; spec-487 t-5 adds the how-to video (clickable poster + fallback)
+// immediately before the "Join the Discord" CTA. Copy + subject are UNCHANGED.
 export function buildConnectPeopleEmail(
   input: ConnectPeopleEmailInput,
 ): EmailMessage {
@@ -845,7 +938,7 @@ export function buildConnectPeopleEmail(
     "This is the last of your onboarding emails, so I'll leave you to it. The door's always open whenever you want to pick things up.";
 
   const text = renderEmailText({
-    intro: [greeting, opener, para1, para2, last],
+    intro: [greeting, opener, para1, para2, `Watch it here: ${CONNECT_PEOPLE_VIDEO_URL}`, last],
     url: DISCORD_INVITE_URL,
     closing: ACTIVATION_SIGNOFF_TEXT,
   });
@@ -858,6 +951,14 @@ export function buildConnectPeopleEmail(
       `<strong>${escapeHtml(opener)}</strong>`,
       escapeHtml(para1),
       escapeHtml(para2),
+      // spec-487 t-5 — how-to video (poster + fallback), sits right before the CTA.
+      renderVideoThumbnail({
+        videoUrl: CONNECT_PEOPLE_VIDEO_URL,
+        thumb1xUrl: EMAIL_HOWTO_CONNECT_PEOPLE.thumb1xUrl,
+        thumb2xUrl: EMAIL_HOWTO_CONNECT_PEOPLE.thumb2xUrl,
+        alt: "Watch: how to connect with people",
+      }),
+      renderVideoFallbackLine(CONNECT_PEOPLE_VIDEO_URL),
     ],
     ctaLabel: "Join the Discord",
     ctaUrl: DISCORD_INVITE_URL,
@@ -871,8 +972,10 @@ export function buildConnectPeopleEmail(
     subject: "You've run the loop. Don't run it alone.",
     text,
     html,
-    // spec-453 dec-6: stable comms key — the Day-12 pass (t-5) dedups on THIS.
+    // spec-453 dec-6: stable comms key — the Day-12 pass dedups on THIS. Unchanged.
     commsType: "activation.connect_people",
+    // spec-487 t-5 — Postmark click tracking for the video link's utm attribution.
+    trackLinks: true,
   };
 }
 

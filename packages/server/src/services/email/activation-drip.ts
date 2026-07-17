@@ -14,15 +14,15 @@
 // two-per-cohort ceiling are therefore keyed on the stable template key, never the
 // mutable subject line (ac-14).
 //
-// spec-480 amendment (dec-9 / dec-10 / s-4): the win-back program now sends ONE email —
-// the video-centric buildWinbackEmail — to the signed_in_dormant cohort ONLY.
-// connected_inactive is DEFERRED to a separate later email (its "Connect your agent" CTA
-// is nonsensical for already-connected users): the drip evaluates it but skips the send
-// in v1 (reason "deferred"), keeping the flag-flip's first blast the win-back alone. The
-// signed_in_dormant send keys on the EXISTING signed_in_dormant comms key (dec-8
-// re-resolved — reused, not a new key, to keep the cross-repo comms-conversion contract
-// intact) at its existing 3-day dwell anchored to email_verified_at (dec-7 — now the sole
-// win-back timer). connected_inactive's builder + branch are retained for its revival.
+// spec-480 amendment (dec-8 / s-4): the signed_in_dormant cohort sends the video-centric
+// buildWinbackEmail, keyed on the EXISTING signed_in_dormant comms key (dec-8 re-resolved
+// — reused, not a new key, to keep the cross-repo comms-conversion contract intact) at its
+// 3-day dwell anchored to email_verified_at (dec-7).
+//
+// spec-487 amendment (t-2 / dec-1): connected_inactive is REVIVED — it sends its own Day-2
+// "create a spec" email (buildConnectedInactiveEmail) again, at its 2-day dwell anchored to
+// first mcp.connected. This reverses spec-480 dec-9 (CTA-mismatch deferral) and dec-10 (the
+// launch blast now includes connected_inactive, since the backlog shares this send path).
 
 import { and, eq, isNotNull } from "drizzle-orm";
 import { type Db, db } from "../../db/connection.js";
@@ -50,7 +50,7 @@ export const ACTIVATION_DWELL_DAYS: Record<ActivationCohort, number> = {
 // comms-conversion contract (the metric is mirrored in memex-backstage; the pinned
 // comms-conversion.fixture.ts). buildWinbackEmail stamps this same key, so dedup below +
 // the activation-metrics join stay correct and the pinned fixture is untouched.
-// connected_inactive keeps its key for the deferred email's revival (not sent in v1).
+// connected_inactive uses its own stable key for the Day-2 "create a spec" email (spec-487).
 export const ACTIVATION_COMMS_KEY: Record<ActivationCohort, string> = {
   connected_inactive: "activation.connected_inactive",
   signed_in_dormant: "activation.signed_in_dormant",
@@ -97,7 +97,6 @@ export interface CandidateUser {
 export type DripReason =
   | "sent"
   | "no_cohort"
-  | "deferred" // spec-480 dec-9: cohort evaluated but not sent in v1 (connected_inactive)
   | "dwell_pending"
   | "already_sent"
   | "no_email"
@@ -170,15 +169,13 @@ export async function sendActivationEmailForUser(
   const { cohort, enteredAt } = await evaluateActivationState(user.id, conn);
   if (!cohort || !enteredAt) return { ...base, cohort: null, sent: false, reason: "no_cohort" };
 
-  // spec-480 dec-9 / dec-10: v1 sends the win-back to signed_in_dormant ONLY.
-  // connected_inactive is deferred to a separate later email (its "Connect your agent"
-  // CTA is nonsensical for already-connected users), so we evaluate it but do not send
-  // it in v1 — this is what keeps the flag-flip's first blast the single video win-back,
-  // not spec-427's two-email version. The buildActivationMessage branch + builder are
-  // retained for that email's revival.
-  if (cohort === "connected_inactive") {
-    return { ...base, cohort, sent: false, reason: "deferred" };
-  }
+  // spec-487 (t-2, dec-1) — connected_inactive is REVIVED: it now sends its own Day-2
+  // "create a spec" email (buildConnectedInactiveEmail), reversing spec-480 dec-9 (the
+  // CTA-mismatch deferral, moot now the email has its own "Create a spec" CTA) AND
+  // dec-10 (Fred 2026-07-17: the launch blast now includes connected_inactive — the
+  // backlog delegates to this same path, so the ~4 connected-inactive stalled users get
+  // the Day-2 in the first wave alongside the ~133 win-back). Both cohorts now route
+  // through dwell → dedup → send below.
 
   if (!dwellElapsed(cohort, enteredAt, now)) {
     return { ...base, cohort, sent: false, reason: "dwell_pending" };
