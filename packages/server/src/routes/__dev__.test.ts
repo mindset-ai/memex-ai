@@ -10,8 +10,10 @@ import {
   EMAIL_PREVIEW_SAMPLES,
   EMAIL_TEMPLATE_NAMES,
 } from "../services/email/preview-samples.js";
+import { ACTIVATION_DWELL_DAYS } from "../services/email/activation-drip.js";
 
 const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-226/acs/ac-${n}`;
+const AC493 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-493/acs/ac-${n}`;
 
 describe("email preview samples registry", () => {
   it("builds every registered template without throwing", () => {
@@ -50,6 +52,76 @@ describe("GET /email-preview", () => {
     expect(res.status).toBe(404);
     const json = (await res.json()) as { templates: string[] };
     expect(json.templates).toEqual(EMAIL_TEMPLATE_NAMES);
+  });
+});
+
+// spec-493 t-1 (dec-2) — /templates carries per-email send-condition metadata so the
+// React gallery can lay out the onboarding timeline; the payload is objects, not string[].
+describe("GET /email-preview/templates returns per-email metadata (spec-493)", () => {
+  const onboarding = [
+    "activation-connect-people",
+    "activation-connected-inactive",
+    "activation-verified-milestone",
+    "activation-winback",
+    "welcome",
+  ].sort();
+
+  it("returns metadata objects (name + sequence) for every template, not a flat string[] (ac-9)", async () => {
+    tagAc(AC493(9));
+    const res = await devToolsRouter.request("/email-preview/templates");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      templates: Array<{ name: string; sequence: boolean }>;
+      perCohortCap: number;
+    };
+    expect(Array.isArray(body.templates)).toBe(true);
+    for (const t of body.templates) {
+      expect(typeof t.name).toBe("string");
+      expect(typeof t.sequence).toBe("boolean");
+    }
+    // every registered template is present
+    expect(body.templates.map((t) => t.name).sort()).toEqual([...EMAIL_TEMPLATE_NAMES].sort());
+    // exactly the 5 onboarding emails are flagged sequence:true (ac-11)
+    expect(
+      body.templates.filter((t) => t.sequence).map((t) => t.name).sort(),
+    ).toEqual(onboarding);
+    expect(body.perCohortCap).toBeGreaterThan(0);
+  });
+
+  it("onboarding entries carry send-path-imported day/branch/flag facts (ac-9)", async () => {
+    tagAc(AC493(9));
+    const res = await devToolsRouter.request("/email-preview/templates");
+    const body = (await res.json()) as {
+      templates: Array<{ name: string; dayOffset: number | null; branch: string; flagGated: boolean }>;
+    };
+    const winback = body.templates.find((t) => t.name === "activation-winback");
+    expect(winback?.dayOffset).toBe(ACTIVATION_DWELL_DAYS.signed_in_dormant);
+    expect(winback?.branch).toBe("win-back");
+    expect(winback?.flagGated).toBe(true);
+  });
+});
+
+// spec-493 t-1 (dec-2) — the timeline lives ONLY in the React gallery; the server HTML
+// index is untouched (still a flat link list).
+describe("server HTML index is unchanged by the timeline work (spec-493)", () => {
+  it("no ?template still returns the flat link index, not a timeline (ac-10)", async () => {
+    tagAc(AC493(10));
+    const res = await devToolsRouter.request("/email-preview");
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    for (const name of EMAIL_TEMPLATE_NAMES) {
+      expect(body).toContain(`template=${name}`);
+    }
+    expect(body).toContain("<h1>Email templates</h1>"); // the plain index, not the gallery
+  });
+});
+
+// spec-493 t-1 (ac-6) — the timeline adds no new prod-reachable surface: the whole dev
+// tools router still never mounts on prod.
+describe("timeline adds no prod-reachable surface (spec-493)", () => {
+  it("dev tools still never mount on prod (ac-6)", () => {
+    tagAc(AC493(6));
+    expect(shouldMountDevTools("prod")).toBe(false);
   });
 });
 

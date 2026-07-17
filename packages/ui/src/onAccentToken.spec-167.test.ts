@@ -97,12 +97,15 @@ describe('spec-167: on-accent foreground token', () => {
     // "Create spec in Memex" button was removed, so it exits the set.
     // spec-304 t-55: DesktopMcpSection.tsx added — its Install/Reinstall/Repair
     // primary button renders text on a bg-accent fill (the token's intended case).
+    // spec-493 t-2: EmailPreview.tsx added — the email-preview timeline's SELECTED
+    // email chip is a bg-accent fill (the token's intended contrast case).
     expect(consumers).toEqual(
       [
         'components/DesktopMcpSection.tsx',
         'components/home/CreateFirstSpecStep.tsx',
         'components/home/IdentityStep.tsx',
         'components/upgrade/PricingCard.tsx',
+        'pages/EmailPreview.tsx',
         'pages/OauthAuthorize.tsx',
       ].sort(),
     );
