@@ -1,4 +1,13 @@
-import { test, expect, ensureUser, tenantPath, DEV_EMAIL, type TestResources } from "./helpers/index.js";
+import {
+  test,
+  expect,
+  ensureUser,
+  tenantPath,
+  seedAssignee,
+  emitAcEvents,
+  DEV_EMAIL,
+  type TestResources,
+} from "./helpers/index.js";
 import {
   seedOrgTenant,
   seedSpec,
@@ -122,5 +131,55 @@ test2.describe("Spec posture + assignment (spec-159)", () => {
     await expect
       .poll(() => getAssigneeCount(seed.tenant.memexId, seed.docId), { timeout: 10_000 })
       .toBe(1);
+  });
+});
+
+const SPEC118 = "mindset-prod/memex-building-itself/specs/spec-118";
+
+// ac-21: an assignment change propagates to open board views in REAL TIME via the
+// spec-16 reactivity stream — no reload. The Specs board mounts
+// useDocChangeStream(null, loadDocs) — a memex-wide /docs/events subscription — so
+// a doc_assignee mutation made on ANOTHER channel refetches the board live. The
+// sibling tests above cover the reload-persisted path (ac-15) and the assign
+// gesture (ac-12); this closes the live-push half of ac-21 (previously untested).
+// Emits ac-21 on pass AND fail per the ac-emission discipline.
+test.describe("spec-118 ac-21 — assignment propagates to the board live", () => {
+  test.afterEach(async ({}, testInfo) => {
+    if (!testInfo.title.includes("ac-21")) return;
+    await emitAcEvents(
+      [`${SPEC118}/acs/ac-21`],
+      testInfo.status === "passed" ? "pass" : "fail",
+      `packages/ui/e2e/journey-17-spec-role-controls.spec.ts::${testInfo.title}`,
+      testInfo.duration,
+    );
+  });
+
+  test("an assignment made on another channel updates the open board live, no reload (ac-21)", async ({
+    page,
+    resources,
+  }) => {
+    const slug = resources.slug("j17-ac21");
+    const tenant = await seedOrgTenant({ slug });
+    const devUserId = await ensureUser(DEV_EMAIL);
+    const spec = await seedSpec({
+      memexId: tenant.memexId,
+      title: "Live assignment spec",
+      purpose: "Board should react to an assignment with no reload.",
+    });
+
+    // Board open — the card starts in the explicit "Unassigned" state.
+    await page.goto(tenantPath(tenant.namespaceSlug, tenant.memexSlug, "/specs"));
+    await expect(page.getByText("Live assignment spec")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("spec-unassigned").first()).toBeVisible();
+
+    // Assign dev on a SEPARATE channel (test surface → real service → mutate() →
+    // unified bus [per std-8]). The board's own React state is untouched, so any
+    // update can ONLY arrive via SSE → useDocChangeStream → loadDocs.
+    await seedAssignee({ memexId: tenant.memexId, docId: spec.docId, userId: devUserId });
+
+    // The card flips to the assigned state live — the assignee cluster appears and
+    // the "Unassigned" pill is gone — with NO page.reload().
+    await expect(page.getByTestId("spec-assignees").first()).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("spec-unassigned")).toHaveCount(0);
   });
 });
