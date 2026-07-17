@@ -16,6 +16,8 @@ const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-427/acs
 // spec-480 amended the win-back orchestration (dec-9/dec-10): signed_in_dormant → the
 // video win-back keyed activation.signed_in_dormant; connected_inactive deferred (not sent in v1).
 const AC480 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-480/acs/ac-${n}`;
+// spec-487 revived connected_inactive (dec-1): it now sends its own Day-2 "create a spec" email.
+const AC487 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-487/acs/ac-${n}`;
 const NOW = new Date("2026-06-20T00:00:00Z");
 const daysAgo = (d: number) => new Date(NOW.getTime() - d * 24 * 60 * 60 * 1000);
 
@@ -72,18 +74,18 @@ afterEach(async () => {
 });
 
 describe("runActivationDrip (real DB)", () => {
-  it("connected-inactive is deferred in v1 — nothing sent, nothing logged (spec-480 ac-14, dec-9)", async () => {
-    tagAc(AC480(14));
+  it("connected-inactive past 2d dwell → one Day-2 email, keyed activation.connected_inactive (spec-487 ac-5)", async () => {
+    tagAc(AC487(5));
     const u = await seedUser("t7-e1@example.test", { name: "Ada Lovelace" });
-    await seedMcpConnected(u.id, daysAgo(3)); // connected 3d ago, no tool call, no spec
+    await seedMcpConnected(u.id, daysAgo(3)); // connected 3d ago (> 2d dwell), no tool call, no spec
 
     const s1 = await drip([u]);
-    // spec-480 dec-9/dec-10: connected_inactive is deferred to a separate later email —
-    // it never sends in v1, so the flag-flip's first blast is the win-back alone.
-    expect(s1.sent).toBe(0);
-    expect(sent).toHaveLength(0);
+    // spec-487 dec-1: connected_inactive is REVIVED — it sends its own "create a spec" email.
+    expect(s1.sent).toBe(1);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.commsType).toBe("activation.connected_inactive");
     const rows = await db.select().from(commsLog).where(eq(commsLog.userId, u.id));
-    expect(rows).toHaveLength(0);
+    expect(rows).toHaveLength(1);
   });
 
   it("signed-in-dormant past 3d dwell → one win-back, keyed activation.signed_in_dormant, team From/Reply-To, no re-send (ac-2, ac-7, spec-480 ac-13/ac-14)", async () => {
@@ -120,26 +122,26 @@ describe("runActivationDrip (real DB)", () => {
     expect(sent).toHaveLength(0);
   });
 
-  it("at most one email per run — connected-inactive contributes zero (deferred) (ac-3, spec-480 ac-14)", async () => {
+  it("at most one email per run — connected-inactive now contributes exactly one (ac-3, spec-487 ac-5)", async () => {
     tagAc(AC(3));
-    tagAc(AC480(14));
+    tagAc(AC487(5));
     const u = await seedUser("t7-excl@example.test");
     await seedMcpConnected(u.id, daysAgo(3));
     await drip([u]);
-    // ac-3 exclusivity still holds; for connected_inactive in v1 the count is zero (deferred).
-    expect(sent.map((m) => m.commsType)).toEqual([]);
+    // ac-3 exclusivity: at most one email per user per run; connected_inactive sends its one.
+    expect(sent.map((m) => m.commsType)).toEqual(["activation.connected_inactive"]);
   });
 
-  it("state re-evaluated live: a user who has since connected is deferred, not sent (ac-4, spec-480 ac-14)", async () => {
+  it("state re-evaluated live: a user who has since connected gets the Day-2 email (ac-4, spec-487 ac-5)", async () => {
     tagAc(AC(4));
-    tagAc(AC480(14));
+    tagAc(AC487(5));
     const u = await seedUser("t7-progress@example.test");
     await seedMcpConnected(u.id, daysAgo(3)); // live cohort = connected_inactive
-    // spec-480 dec-9: the live re-eval still runs, but connected_inactive is deferred —
-    // v1 sends nothing (its "Connect your agent" CTA would be nonsensical here).
+    // spec-487: the live re-eval runs and connected_inactive now sends its "create a spec" email.
     const s = await drip([u]);
-    expect(s.sent).toBe(0);
-    expect(sent).toHaveLength(0);
+    expect(s.sent).toBe(1);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.commsType).toBe("activation.connected_inactive");
   });
 
   it("dedup keys on the stable comms key, NOT the subject line (ac-14, spec-480 ac-13)", async () => {

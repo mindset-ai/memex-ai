@@ -1,53 +1,40 @@
-// spec-480 t-2 — the single-segment win-back email builder. PURE RENDER: no
-// cohort/timing/send/env logic (that's t-3). Asserts the clickable video
-// thumbnail + fallback + single "Connect your agent" CTA on the rendered output.
-//   ac-8  — hosted, table-safe <img> referenced by public https URL (dec-2)
-//   ac-9  — 480 default src + 960 srcset 2x, single baked poster image (dec-3)
-//   ac-10 — alt "Watch: {title}" + whole thumbnail clickable + visible fallback (dec-4)
-//   ac-14 — one segment: fixed stall-line, one "Connect your agent" CTA (dec-9)
-//   ac-15 — links the raw mp4 directly (no wrapper page / app route) (dec-5)
-//   ac-1  — the block reads as a playable video thumbnail (scope)
+// spec-480 t-2 + spec-487 t-3 — the single-segment win-back email builder. PURE RENDER.
+// spec-480 owns the clickable-thumbnail MECHANISM + the signed_in_dormant send-path
+// keying (still holds); spec-487 swapped the VIDEO (explainer → the "connect the MCP +
+// create a spec" how-to) and the COPY (s-3), coordinated with spec-480 (dec-5).
+//   spec-480 ac-8/9/10/15/2/3/11/14 — the thumbnail mechanism + send-path keying
+//   spec-487 ac-10 — the s-3 copy · ac-8 — one poster + fallback, no Watch button
+//   spec-487 ac-9  — send path unchanged (commsType, CTA) · ac-7 — hosted how-to mp4
 import { describe, it, expect } from "vitest";
 import { tagAc } from "@memex-ai-ac/vitest";
-import {
-  buildWinbackEmail,
-  EMAIL_EXPLAINER_VIDEO_URL,
-  EMAIL_VIDEO_THUMB_1X_URL,
-  EMAIL_VIDEO_THUMB_2X_URL,
-  EMAIL_VIDEO_TITLE,
-} from "./templates.js";
+import { buildWinbackEmail, EMAIL_HOWTO_CONNECT_MCP } from "./templates.js";
 
 const AC = (n: number) => `mindset-prod/memex-building-itself/specs/spec-480/acs/ac-${n}`;
+const AC487 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-487/acs/ac-${n}`;
 
 const CONNECT_URL = "https://www.memex.ai/download?src=winback-email";
 
-const msg = buildWinbackEmail({
-  to: "user@example.com",
-  firstName: "Ada",
-  connectUrl: CONNECT_URL,
-});
+const msg = buildWinbackEmail({ to: "user@example.com", firstName: "Ada", connectUrl: CONNECT_URL });
 const html = msg.html ?? "";
 const text = msg.text ?? "";
 
-// The video href the template emits (base asset URL + this email's UTM, dec-6).
-const videoHref = `${EMAIL_EXPLAINER_VIDEO_URL}?utm_source=lifecycle&utm_medium=email&utm_campaign=winback`;
-// In HTML attributes the ampersands are correctly escaped to &amp; (the plain-text
-// body keeps the raw URL).
+// The video href the template emits: the how-to asset (spec-487) + this email's UTM.
+const videoHref = `${EMAIL_HOWTO_CONNECT_MCP.videoUrl}?utm_source=lifecycle&utm_medium=email&utm_campaign=winback`;
+// In HTML attributes the ampersands are escaped to &amp; (plain-text keeps the raw URL).
 const videoHrefHtml = videoHref.replace(/&/g, "&amp;");
 
-describe("buildWinbackEmail — the clickable video thumbnail (ac-1/ac-8/ac-9)", () => {
-  it("renders exactly ONE image — the thumbnail — the rest stays image-free", () => {
+describe("buildWinbackEmail — the clickable video thumbnail (spec-480 mechanism, spec-487 ac-8)", () => {
+  it("renders exactly ONE image — the how-to thumbnail — no separate Watch button", () => {
     tagAc(AC(1));
-    const imgCount = (html.match(/<img/g) ?? []).length;
-    expect(imgCount).toBe(1);
+    tagAc(AC487(8));
+    expect((html.match(/<img/g) ?? []).length).toBe(1);
+    expect(html).not.toContain("Watch the 3-min guide");
   });
 
   it("references the thumbnail via a hosted, table-safe https <img> (ac-8)", () => {
     tagAc(AC(8));
-    // hosted public URL, not a cid: attachment
-    expect(html).toContain(`src="${EMAIL_VIDEO_THUMB_1X_URL}"`);
+    expect(html).toContain(`src="${EMAIL_HOWTO_CONNECT_MCP.thumb1xUrl}"`);
     expect(html).not.toContain("cid:");
-    // bulletproof: explicit dimensions, display:block, border:0 (kills Outlook's link border)
     expect(html).toContain('width="480"');
     expect(html).toContain('height="269"');
     expect(html).toContain("display:block");
@@ -56,15 +43,16 @@ describe("buildWinbackEmail — the clickable video thumbnail (ac-1/ac-8/ac-9)",
 
   it("serves 480 as the default src and 960 as the 2x srcset candidate (ac-9)", () => {
     tagAc(AC(9));
-    expect(html).toContain(`src="${EMAIL_VIDEO_THUMB_1X_URL}"`);
-    expect(html).toContain(`srcset="${EMAIL_VIDEO_THUMB_2X_URL} 2x"`);
+    expect(html).toContain(`src="${EMAIL_HOWTO_CONNECT_MCP.thumb1xUrl}"`);
+    expect(html).toContain(`srcset="${EMAIL_HOWTO_CONNECT_MCP.thumb2xUrl} 2x"`);
   });
 });
 
 describe("buildWinbackEmail — alt text, clickable block, image-blocked fallback (ac-10)", () => {
-  it("gives the thumbnail meaningful alt text of the form 'Watch: {title}'", () => {
+  it("gives the thumbnail meaningful alt text describing the how-to video", () => {
     tagAc(AC(10));
-    expect(html).toContain(`alt="Watch: ${EMAIL_VIDEO_TITLE}"`);
+    tagAc(AC487(8));
+    expect(html).toContain(`alt="Watch: how to connect the MCP and create a spec"`);
   });
 
   it("wraps the whole thumbnail in an anchor to the video (clickable even before load)", () => {
@@ -77,23 +65,25 @@ describe("buildWinbackEmail — alt text, clickable block, image-blocked fallbac
     tagAc(AC(4)); // scope: the video is never unreachable when images are blocked
     expect(html).toContain("Can't see the video above?");
     expect(html).toContain(`>Watch it here</a>`);
-    // the fallback link targets the same video URL
     expect(html).toContain(`<a href="${videoHrefHtml}" style="color:#0482DC`);
-    // plain-text body also carries the video URL so it's reachable there too
     expect(text).toContain(videoHref);
   });
 });
 
-describe("buildWinbackEmail — single segment, single CTA (ac-14)", () => {
-  it("uses the one fixed stall-line for the signed_in_dormant segment", () => {
-    tagAc(AC(14));
-    // apostrophe-free substring (html escapes apostrophes)
-    expect(html).toContain("never connected your agent or created a spec");
+describe("buildWinbackEmail — s-3 copy, single CTA, send path (spec-487 ac-9/ac-10)", () => {
+  it("renders the s-3 copy — subject + a key body line; old s-2 win-back copy gone", () => {
+    tagAc(AC487(10));
+    expect(msg.subject).toBe("Ground your specs in your actual codebase");
+    // key s-3 line (no apostrophes → literal in both html and text)
+    expect(html).toContain("Memex never touches your repo, but your coding agent does");
+    expect(text).toContain("Memex never touches your repo, but your coding agent does");
+    // old s-2 win-back copy is gone
+    expect(html).not.toContain("You signed up to Memex, then disappeared");
   });
 
-  it("has exactly one CTA button — 'Connect your agent' — never 'Create a spec'", () => {
+  it("keeps the send path: exactly one 'Connect your agent' CTA, never 'Create a spec' (ac-14, spec-487 ac-9)", () => {
     tagAc(AC(14));
-    // one coral CTA button
+    tagAc(AC487(9));
     const ctaCount = (html.match(/background:#0482DC;color:#FFFFFF/g) ?? []).length;
     expect(ctaCount).toBe(1);
     expect(html).toContain(">Connect your agent</a>");
@@ -103,23 +93,23 @@ describe("buildWinbackEmail — single segment, single CTA (ac-14)", () => {
     expect(text).toContain(CONNECT_URL);
   });
 
-  it("stamps the single stable comms key (dec-8) and the s-2 subject", () => {
-    tagAc(AC(14));
+  it("stamps the stable signed_in_dormant comms key + trackLinks, unchanged (spec-487 ac-9)", () => {
+    tagAc(AC487(9));
     expect(msg.commsType).toBe("activation.signed_in_dormant");
-    expect(msg.subject).toBe("You signed up, then vanished");
+    expect(msg.trackLinks).toBe(true);
   });
 });
 
-describe("buildWinbackEmail — links the raw mp4 directly, no wrapper (ac-15)", () => {
-  it("the thumbnail + fallback target the raw public mp4, not an app/wrapper route", () => {
+describe("buildWinbackEmail — links the raw how-to mp4 directly, no wrapper (ac-15, spec-487 ac-7)", () => {
+  it("the thumbnail + fallback target the raw public how-to mp4, not an app/wrapper route", () => {
     tagAc(AC(15));
-    // raw GCS mp4 object (Superhuman-style), no intermediary memex.ai app path
+    tagAc(AC487(7));
     expect(videoHref).toContain(
-      "storage.googleapis.com/memex-ai-prod-app-static/media/email-explainer-60s.mp4",
+      "storage.googleapis.com/memex-ai-prod-app-static/media/email-howto-connect-mcp.mp4",
     );
     expect(html).toContain(`href="${videoHrefHtml}"`);
-    // the video link is NOT a tenant/app route
     expect(videoHref).not.toContain("/specs");
+    expect(videoHref).not.toContain("drive.google.com");
   });
 });
 
@@ -127,30 +117,24 @@ describe("buildWinbackEmail — click attribution (ac-11)", () => {
   it("enables Postmark click tracking and carries win-back UTM on the video link", () => {
     tagAc(AC(11));
     tagAc(AC(6)); // scope: a thumbnail click is attributable
-    // Postmark rewrites the link → a click fires a webhook event (comms_log). The UTM
-    // labels the tracked URL as the winback campaign (vs the welcome reuse of the asset).
     expect(msg.trackLinks).toBe(true);
     expect(html).toContain("utm_source=lifecycle");
     expect(html).toContain("utm_campaign=winback");
   });
 });
 
-describe("buildWinbackEmail — stable public video asset (ac-2/ac-3/ac-7)", () => {
+describe("buildWinbackEmail — stable public video asset (spec-480 ac-2/ac-3/ac-7)", () => {
   it("links a raw public GCS bucket mp4 — stable, permanent, no login, not a Drive share", () => {
-    tagAc(AC(7)); // served from the stable public bucket URL, never a Drive link
-    tagAc(AC(3)); // stable/permanent: no signed-URL token, no expiry, query-free base
-    tagAc(AC(2)); // click target is the public asset (no login/app route) — verified 200 + streamable in t-1
-    expect(EMAIL_EXPLAINER_VIDEO_URL).toContain(
-      "storage.googleapis.com/memex-ai-prod-app-static/media/",
-    );
-    expect(EMAIL_EXPLAINER_VIDEO_URL).toMatch(/\.mp4$/);
-    expect(EMAIL_EXPLAINER_VIDEO_URL).not.toContain("drive.google.com");
-    // permanent: no signed-URL / expiry markers, and the base asset URL is query-free
-    // (the per-send UTM is appended downstream, not baked into the stored object URL).
-    expect(EMAIL_EXPLAINER_VIDEO_URL).not.toContain("X-Goog-Signature");
-    expect(EMAIL_EXPLAINER_VIDEO_URL).not.toContain("Expires=");
-    expect(EMAIL_EXPLAINER_VIDEO_URL).not.toContain("?");
-    // no login/app gate between the click and the file
+    tagAc(AC(7));
+    tagAc(AC(3));
+    tagAc(AC(2));
+    const base = EMAIL_HOWTO_CONNECT_MCP.videoUrl;
+    expect(base).toContain("storage.googleapis.com/memex-ai-prod-app-static/media/");
+    expect(base).toMatch(/\.mp4$/);
+    expect(base).not.toContain("drive.google.com");
+    expect(base).not.toContain("X-Goog-Signature");
+    expect(base).not.toContain("Expires=");
+    expect(base).not.toContain("?");
     expect(videoHref).not.toContain("/login");
     expect(videoHref).not.toContain("/auth");
     expect(videoHref).not.toContain("/specs");
@@ -160,11 +144,10 @@ describe("buildWinbackEmail — stable public video asset (ac-2/ac-3/ac-7)", () 
 describe("buildWinbackEmail — greeting personalisation (ac-1)", () => {
   it("interpolates the first name, degrades to 'Hi there,' with no name", () => {
     tagAc(AC(1));
-    expect(html).toContain("Hey Ada,");
-    const nameless =
-      buildWinbackEmail({ to: "a@b.test", connectUrl: CONNECT_URL }).html ?? "";
+    expect(html).toContain("Hi Ada,");
+    const nameless = buildWinbackEmail({ to: "a@b.test", connectUrl: CONNECT_URL }).html ?? "";
     expect(nameless).toContain("Hi there,");
     expect(nameless).not.toContain("[FirstName]");
-    expect(nameless).not.toContain("Hey ,");
+    expect(nameless).not.toContain("Hi ,");
   });
 });

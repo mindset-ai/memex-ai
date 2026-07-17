@@ -26,39 +26,49 @@ describe("buildConnectedInactiveEmail (Email 1 — connected-but-inactive)", () 
   const html = msg.html ?? "";
   const text = msg.text ?? "";
 
-  it("uses the verbatim subject + headline + Create-a-spec CTA, rendered from code", () => {
-    tagAc(AC(13)); // copy sourced from the code builder, not an external doc
-    expect(msg.subject).toBe("Memex is connected. Here's what to do next.");
-    // headline (apostrophe-free substring — html escapes it)
-    expect(html).toContain("Your Memex MCP is connected. The hard part is done.");
-    expect(text).toContain("Your Memex MCP is connected. The hard part is done.");
+  const AC487 = (n: number) => `mindset-prod/memex-building-itself/specs/spec-487/acs/ac-${n}`;
+
+  it("uses the v2 subject + s-2 copy + Create-a-spec CTA, rendered from code (spec-487 ac-10)", () => {
+    tagAc(AC(13)); // spec-427: copy sourced from the code builder, not an external doc
+    tagAc(AC487(10)); // spec-487: the s-2 rewrite
+    expect(msg.subject).toBe("Connected, but the output has not changed yet");
+    // v2 leads with the greeting — no repeated headline
+    expect(html).not.toContain("<h1");
+    // key s-2 body lines (apostrophe-free substrings — html escapes apostrophes)
+    expect(html).toContain("the change you signed up for does not show until there is a Spec");
+    expect(html).toContain("A Memex spec fixes that");
+    expect(text).toContain("the change you signed up for does not show until there is a Spec");
     expect(html).toContain("Create a spec");
-    // the "moment it clicks" prose (apostrophe-free)
-    expect(html).toContain("the decisions it needs you to resolve");
-    expect(html).toContain("Memex does not touch your code.");
+    // old Option-3 copy gone
+    expect(html).not.toContain("The hard part is done");
   });
 
-  it("renders solely through the shared renderer with a solid CTA and no imagery (ac-10)", () => {
+  it("renders through the shared renderer; the only image is the how-to video poster, no Watch button (ac-10, spec-487 ac-8)", () => {
     tagAc(AC(10));
+    tagAc(AC487(8));
+    tagAc(AC487(7)); // video links the hosted .mp4, never a Drive link
     expect(html).toContain("<!doctype html>");
-    // shared-renderer brand mark + solid coral CTA button (never a gradient).
-    // Wordmark is single-colour dark-ink "Memex AI" live text (spec-465: no dot, uniform weight).
     expect(html).toContain('color:#0E1128;">Memex AI</div>');
     expect(html).toContain("background:#0482DC;color:#FFFFFF");
     expect(html).not.toContain("linear-gradient");
-    expect(html).not.toContain("<img");
-    // resources render as a presentation table (a table construct, not image buttons)
+    // spec-487: exactly ONE image — the video poster — and NO "Watch the 3-min guide" button
+    expect((html.match(/<img/g) ?? []).length).toBe(1);
+    expect(html).toContain("email-howto-create-spec-thumb-480.png");
+    expect(html).not.toContain("Watch the 3-min guide");
+    // ac-7: the thumbnail links the hosted .mp4 on the shared bucket, never a Drive link
+    expect(html).toContain("storage.googleapis.com/memex-ai-prod-app-static/media/email-howto-create-spec.mp4");
+    expect(html).not.toContain("drive.google.com");
+    // image-blocked fallback line present (raw apostrophe — not escaped)
+    expect(html).toContain("Can't see the video above?");
+    // resources still render as a presentation table
     expect(html).toContain('<table role="presentation" width="100%"');
     expect(html).toContain("Understanding Memex AI");
-    expect(html).toContain("Documentation");
-    expect(html).toContain("Community");
   });
 
-  it("deep-links the CTA + 'your Memex' from the passed URLs, not a hardcoded host (dec-8)", () => {
+  it("deep-links the Create-a-spec CTA from the passed URL, not a hardcoded host (dec-8)", () => {
     tagAc(AC(10));
     expect(html).toContain('href="https://int.memex.ai/mindset-prod/sample/specs/new"');
-    expect(html).toContain('href="https://int.memex.ai/mindset-prod/sample"');
-    // no prod host baked in when an int URL was supplied
+    // v2 dropped the "your Memex" link; the CTA is the only app deep-link
     expect(html).not.toContain('href="https://memex.ai/');
   });
 
