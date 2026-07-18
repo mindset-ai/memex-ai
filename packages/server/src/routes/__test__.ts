@@ -81,6 +81,7 @@ import { addTaskComment, addComment, addDecisionComment, addAnchoredComment } fr
 import { addMentions, assignComment } from "../services/comment-mentions.js";
 import { createShareToken, listShareTokensForDoc } from "../services/share-tokens.js";
 import { addSection } from "../services/sections.js";
+import { addClausesToSection } from "../services/clauses.js";
 import { applyTagStrings } from "../services/tags.js";
 import { resolveRole } from "../services/doc-members.js";
 import { listAssignees, assign } from "../services/doc-assignees.js";
@@ -1483,4 +1484,33 @@ testOnlyRouter.post("/seed-version-cut", async (c) => {
     ctx,
   );
   return c.json({ versionId: result.id, versionNumber: result.versionNumber });
+});
+
+// spec-496 (t-5): seed clauses onto a standard's section through the REAL
+// addClausesToSection service — syncClauseRefsTx materializes any `std-N`
+// handle mentions in the clause bodies, giving the standards-map journey its
+// mention edges without raw SQL [per std-28]. Env-gated like everything here;
+// no product contract is touched (spec-496 ac-8 carve-out).
+const seedClausesSchema = z.object({
+  memexId: z.string().uuid(),
+  sectionId: z.string().uuid(),
+  clauses: z.array(z.string().min(1)).min(1),
+});
+testOnlyRouter.post("/seed-clauses", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = seedClausesSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
+  }
+  const { memexId, sectionId, clauses } = parsed.data;
+  // Facets: [] = the explicit governs-nothing verdict (valid where a facet
+  // vocabulary exists; ignored where none does).
+  const created = await addClausesToSection(
+    memexId,
+    sectionId,
+    clauses.map((clauseBody) => ({ body: clauseBody, facets: [] })),
+    // std-32: thread a channel — a seeded write is still an attributed write.
+    { channel: "server", actorName: "e2e-seed" },
+  );
+  return c.json({ clauseIds: created.map((r) => r.id) });
 });

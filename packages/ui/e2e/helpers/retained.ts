@@ -237,3 +237,14 @@ export async function seedExecutionPlan(opts: {
 }): Promise<{ taskId: string; planDocId: string }> {
   return call("POST", "/seed-execution-plan", opts);
 }
+
+/** spec-496: seed clauses onto a standard's section through the real clause
+ *  service — `std-N` mentions in bodies materialize as clause_refs mention
+ *  edges (the standards map's backbone). */
+export async function seedClauses(opts: {
+  memexId: string;
+  sectionId: string;
+  clauses: string[];
+}): Promise<{ clauseIds: string[] }> {
+  return call("POST", "/seed-clauses", opts);
+}
