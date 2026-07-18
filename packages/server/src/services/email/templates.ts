@@ -184,6 +184,23 @@ export function renderVideoFallbackLine(videoUrl: string): string {
   );
 }
 
+// spec-487 formatting — hanging-indent bullet / numbered lists, email-safe (<ul>/<ol>
+// with inline styles). Injected as a bodyParagraph string; items are escaped here.
+function renderBulletList(items: string[]): string {
+  return (
+    `<ul style="margin:0;padding-left:22px;color:${BRAND_INK};font-size:16px;line-height:1.6;">` +
+    items.map((i) => `<li style="margin:0 0 6px;">${escapeHtml(i)}</li>`).join("") +
+    `</ul>`
+  );
+}
+function renderNumberList(items: string[]): string {
+  return (
+    `<ol style="margin:0;padding-left:22px;color:${BRAND_INK};font-size:16px;line-height:1.6;">` +
+    items.map((i) => `<li style="margin:0 0 6px;">${escapeHtml(i)}</li>`).join("") +
+    `</ol>`
+  );
+}
+
 function renderEmailHtml(input: RenderInput): string {
   const paragraphs = input.bodyParagraphs
     .map(
@@ -549,7 +566,7 @@ export function buildConnectedInactiveEmail(
       greeting,
       p1,
       p2,
-      ...p2lines,
+      ...p2lines.map((l) => `- ${l}`),
       `${videoIntro} Watch it here: ${CONNECTED_INACTIVE_VIDEO_URL}`,
       thenBring,
       `"${prompt1}"`,
@@ -569,7 +586,7 @@ export function buildConnectedInactiveEmail(
       escapeHtml(greeting),
       escapeHtml(p1),
       escapeHtml(p2),
-      p2lines.map((l) => escapeHtml(l)).join("<br>"),
+      renderBulletList(p2lines),
       escapeHtml(videoIntro),
       renderVideoThumbnail({
         videoUrl: CONNECTED_INACTIVE_VIDEO_URL,
@@ -744,7 +761,7 @@ export function buildWinbackEmail(input: WinbackEmailInput): EmailMessage {
     "Memex never touches your repo, but your coding agent does. So connecting the MCP makes your agent the bridge:";
   const bridgeLines = [
     "It reads your real codebase, and everything you decide gets grounded in it, in one place instead of scattered across threads and MD files.",
-    "Once connected, you start speccing against your actual code, not a blank page.",
+    "Once connected, you start speccing against your actual code, not a blank page",
     "The more decisions you settle upfront, the more your agent gets right first time.",
   ];
   const videoIntro =
@@ -769,7 +786,7 @@ export function buildWinbackEmail(input: WinbackEmailInput): EmailMessage {
       greeting,
       p1,
       bridge,
-      ...bridgeLines,
+      ...bridgeLines.map((l) => `- ${l}`),
       `${videoIntro} Watch it here: ${WINBACK_VIDEO_URL}`,
       connectIntro,
       connectStep,
@@ -790,7 +807,7 @@ export function buildWinbackEmail(input: WinbackEmailInput): EmailMessage {
       escapeHtml(greeting),
       escapeHtml(p1),
       escapeHtml(bridge),
-      bridgeLines.map((l) => escapeHtml(l)).join("<br>"),
+      renderBulletList(bridgeLines),
       escapeHtml(videoIntro),
       renderVideoThumbnail({
         videoUrl: WINBACK_VIDEO_URL,
@@ -885,7 +902,7 @@ export function buildVerifiedMilestoneEmail(
   const needHand = "Questions? Reply here, or find us in #help on Discord.";
 
   const text = renderEmailText({
-    intro: [greeting, p1, p2, ...compoundLines, `"${prompt}"`, p5, needHand],
+    intro: [greeting, p1, p2, ...compoundLines.map((l, i) => `${i + 1}. ${l}`), `"${prompt}"`, p5, needHand],
     url: input.appUrl,
     closing: ACTIVATION_SIGNOFF_TEXT,
   });
@@ -898,7 +915,7 @@ export function buildVerifiedMilestoneEmail(
       escapeHtml(greeting),
       escapeHtml(p1),
       `<strong>${escapeHtml(p2)}</strong>`,
-      compoundLines.map((l) => escapeHtml(l)).join("<br>"),
+      renderNumberList(compoundLines),
       `<em>&ldquo;${escapeHtml(prompt)}&rdquo;</em>`,
       escapeHtml(p5),
     ],
