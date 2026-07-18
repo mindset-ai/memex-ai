@@ -92,6 +92,10 @@ export function buildBrainGraph(data: KnowledgeGraphData, palette: BrainPalette)
       kind: 'facet',
       handle: f.key,
       title: f.name ?? f.key,
+      // A facet's handle IS its name (key ≈ slugified name), so the engine's
+      // default `handle · title` label would read duplicated
+      // ("performance · Performance") — label with the display name alone.
+      label: f.name ?? f.key,
       clauseCount: 0,
       degree: 0,
       radius: 0,

@@ -137,11 +137,17 @@ describe('buildBrainGraph (dec-1)', () => {
     expect(facet.kind).toBe('facet');
     expect(facet.handle).toBe('security');
     expect(facet.title).toBe('Security');
+    // A facet's key IS its name, so the engine's default `handle · title`
+    // label would duplicate ("security · Security") — facets carry a label
+    // override of the display name alone; other kinds keep the default.
+    expect(facet.label).toBe('Security');
+    expect(byId.get('s-clean')!.label).toBeUndefined();
     expect(facet.href).toBeNull(); // no facet page — no dead deep link (std-34)
     expect(facet.detail).toContain('1 standard');
     expect(facet.detail).toContain('1 decision');
     // A null facet name degrades to the key.
     expect(byId.get('f-perf')!.title).toBe('performance');
+    expect(byId.get('f-perf')!.label).toBe('performance');
 
     expect(byId.get('s-clean')!.href).toBe('/standards/std-1');
     expect(byId.get('sp-1')!.href).toBe('/specs/spec-9');

@@ -458,7 +458,7 @@ export class StandardsMapRenderer {
     const labelGroup = new Container();
     labelGroup.eventMode = 'none'; // the node's circular hitArea owns interaction
     const text = new Text({
-      text: `${node.handle} · ${node.title}`,
+      text: node.label ?? `${node.handle} · ${node.title}`,
       style: {
         fontSize: 11,
         fill: this.palette.label,

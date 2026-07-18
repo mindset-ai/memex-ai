@@ -37,6 +37,12 @@ export interface SimNode {
    * emphasis (glow + label carry the emphasis instead).
    */
   color?: number;
+  /**
+   * Explicit label override (spec-498) — the renderer's default is
+   * `handle · title`, which duplicates for nodes whose handle IS their name
+   * (Brain facets: `performance · Performance`). Absent = the default.
+   */
+  label?: string;
   // d3-force mutates these in place during the simulation.
   x?: number;
   y?: number;
