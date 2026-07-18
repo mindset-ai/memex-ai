@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { act, cleanup, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { tagAc } from '@memex-ai-ac/vitest';
 import { brainPalette, buildBrainGraph, type BrainNode } from '../components/brain/model';
@@ -30,6 +30,7 @@ const AC_EDGESET_FILTER = `${SPEC}/acs/ac-10`;
 const AC_NO_EE = `${SPEC}/acs/ac-13`;
 const AC_DISCIPLINE_LABEL = `${SPEC}/acs/ac-14`;
 const AC_DRIFT_INBOX = `${SPEC}/acs/ac-15`;
+const AC_DISCIPLINE_SELECT = `${SPEC}/acs/ac-16`;
 
 // A small vault: two facets, two standards (one drifted), one spec owning two
 // decisions (one drifted), a mention edge, a semantic edge (must be dropped),
@@ -271,6 +272,7 @@ const rendererInstances = vi.hoisted(
       options: RendererOptions;
       setGraph: ReturnType<typeof vi.fn>;
       setFocus: ReturnType<typeof vi.fn>;
+      centerOn: ReturnType<typeof vi.fn>;
     }>,
 );
 
@@ -282,6 +284,7 @@ vi.mock('../components/standards-map/renderer', () => ({
     setGraph = vi.fn();
     setSearch = vi.fn();
     setPalette = vi.fn();
+    centerOn = vi.fn();
     nodeScreenPosition = vi.fn().mockReturnValue(null);
     nodeFill = vi.fn().mockReturnValue(null);
     constructor(
@@ -395,19 +398,36 @@ describe('Brain page shell', () => {
     expect(legend.textContent).not.toContain('Facet');
   });
 
-  it('decision filter mirrors the API filter, chip shows shown-of-total, positions survive', async () => {
+  it('the discipline selector focuses like a click and glides the node into view (dec-7)', async () => {
+    tagAc(AC_DISCIPLINE_SELECT);
     tagAc(AC_EDGESET_FILTER);
     tagAc(AC_SCOPE_FILTER_REUSE);
     const renderer = await renderBrain();
-    expect(fetchKnowledgeGraph).toHaveBeenCalledWith({ decisions: 'resolved' });
-    // 2 decisions shown of 7 in the memex — nothing hidden silently.
+    // The decisions filter is pinned to the API's resolved default — no
+    // filter control exists; the shown-of-total chip keeps it honest.
+    expect(fetchKnowledgeGraph).toHaveBeenCalledWith();
+    expect(screen.queryByTestId('brain-decision-filter')).toBeNull();
     expect(screen.getByTestId('brain-decision-count').textContent).toContain('2 of 7 decisions');
 
-    fireEvent.change(screen.getByTestId('brain-decision-filter'), { target: { value: 'all' } });
-    await waitFor(() => expect(fetchKnowledgeGraph).toHaveBeenCalledWith({ decisions: 'all' }));
-    // The SAME renderer receives the new graph — no remount, positions kept.
-    await waitFor(() => expect(renderer.setGraph).toHaveBeenCalled());
-    expect(rendererInstances).toHaveLength(1);
+    // The one dropdown lists every discipline by display name.
+    const select = screen.getByTestId('brain-discipline-select') as HTMLSelectElement;
+    const labels = [...select.options].map((o) => o.textContent);
+    expect(labels).toContain('Security');
+    expect(labels).toContain('performance'); // null name degrades to the key
+
+    // Selecting runs the click path: focus card + renderer projection + glide.
+    fireEvent.change(select, { target: { value: 'security' } });
+    const card = screen.getByTestId('brain-focus-card');
+    expect(card.textContent).toContain('Discipline');
+    expect(card.textContent).toContain('Security');
+    await waitFor(() => expect(renderer.setFocus).toHaveBeenCalledWith('f-sec', 1));
+    expect(renderer.centerOn).toHaveBeenCalledWith('f-sec');
+    expect(select.value).toBe('security');
+
+    // Escape clears focus AND returns the selector to its placeholder.
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByTestId('brain-focus-card')).toBeNull();
+    expect(select.value).toBe('');
   });
 
   it('single click focuses: type-labelled card, detail line, depth chip; Open deep-links per type', async () => {
@@ -486,19 +506,26 @@ describe('Brain page shell', () => {
     await renderBrain();
     const empty = await screen.findByTestId('brain-empty');
     expect(empty.textContent).toContain('Nothing to map yet');
-    // With decisions that merely fail the filter, the copy points at the control.
+    // No graph → nothing for the discipline selector to list, just the placeholder.
+    const select = screen.getByTestId('brain-discipline-select') as HTMLSelectElement;
+    expect(select.options).toHaveLength(1);
+    cleanup();
+
+    // With unresolved-only decisions, the copy says so (resolved ones join).
+    rendererInstances.length = 0;
     vi.mocked(fetchKnowledgeGraph).mockImplementation(async () => ({
       ...EMPTY,
       meta: { ...EMPTY.meta, counts: { ...EMPTY.meta.counts, decisions: 3 } },
     }));
-    fireEvent.change(screen.getByTestId('brain-decision-filter'), { target: { value: 'none' } });
-    await waitFor(() =>
-      expect(screen.getByTestId('brain-empty').textContent).toContain('none pass the current filter'),
-    );
+    await renderBrain();
+    expect(screen.getByTestId('brain-empty').textContent).toContain('none are resolved yet');
+    cleanup();
+
     // A populated graph shows no empty-state veil.
+    rendererInstances.length = 0;
     vi.mocked(fetchKnowledgeGraph).mockImplementation(async () => ({ ...KG }));
-    fireEvent.change(screen.getByTestId('brain-decision-filter'), { target: { value: 'all' } });
-    await waitFor(() => expect(screen.queryByTestId('brain-empty')).toBeNull());
+    await renderBrain();
+    expect(screen.queryByTestId('brain-empty')).toBeNull();
   });
 
   it('double-click navigates directly; Escape and background click restore', async () => {

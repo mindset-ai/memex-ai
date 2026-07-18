@@ -174,6 +174,8 @@ export async function seedOpenDecision(opts: {
  *  a memex, returning the spec handle + the facet key the pills should show. */
 export async function seedFacetScenario(opts: {
   memexId: string;
+  /** spec-498 (dec-7): resolve the balloted decision through the real service. */
+  resolve?: boolean;
 }): Promise<{ specHandle: string; facetKey: string; decisionId: string; decisionSeq: number }> {
   return call("POST", "/seed-facet-scenario", opts);
 }

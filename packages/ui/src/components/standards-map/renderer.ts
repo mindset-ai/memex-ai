@@ -278,6 +278,25 @@ export class StandardsMapRenderer {
     this.applyHighlight();
   }
 
+  /**
+   * Glide the camera so a node sits at the viewport centre (spec-498 dec-7 —
+   * the discipline selector). Rides the existing eased camera targets, so the
+   * motion is the same glide as wheel zoom; instant under reduced motion.
+   * Never zooms OUT: reading zoom (1×) is the floor destination.
+   */
+  centerOn(nodeId: string): void {
+    if (!this.app) return;
+    const node = this.nodes.find((n) => n.id === nodeId);
+    if (!node) return;
+    const { width, height } = this.app.screen;
+    const cam = this.camera;
+    const scale = Math.max(cam.scaleTarget, 1);
+    cam.scaleTarget = scale;
+    cam.xTarget = width / 2 - (node.x ?? 0) * scale;
+    cam.yTarget = height / 2 - (node.y ?? 0) * scale;
+    this.wake();
+  }
+
   setPalette(palette: MapPalette): void {
     this.palette = palette;
     // Labels bake the palette into their fills — rebuild the scene

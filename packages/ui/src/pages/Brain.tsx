@@ -13,11 +13,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import {
-  fetchKnowledgeGraph,
-  type KnowledgeGraphData,
-  type KnowledgeGraphDecisionFilter,
-} from '../api/insights';
+import { fetchKnowledgeGraph, type KnowledgeGraphData } from '../api/insights';
 import { tenantPath } from '../utils/tenantUrl';
 import { PageHeader } from '../components/PageHeader';
 import { useThemeName } from '../components/ThemeContext';
@@ -63,7 +59,6 @@ export function Brain() {
   const theme = useThemeName();
   const [graph, setGraph] = useState<KnowledgeGraphData | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [decisionFilter, setDecisionFilter] = useState<KnowledgeGraphDecisionFilter>('resolved');
   const [focus, setFocus] = useState<FocusState | null>(null);
   const [focusDepth, setFocusDepth] = useState<1 | 2>(1);
   const [selectedEdge, setSelectedEdge] = useState<{
@@ -74,14 +69,19 @@ export function Brain() {
 
   const hostRef = useRef<HTMLDivElement | null>(null);
   const rendererRef = useRef<StandardsMapRenderer | null>(null);
+  // The last-built sim nodes — the discipline selector (dec-7) looks its
+  // target node up here to run the same focus path a canvas click would.
+  const brainNodesRef = useRef<BrainNode[]>([]);
   const navigateRef = useRef(navigate);
   navigateRef.current = navigate;
 
   const palette = useMemo(() => brainPalette(theme), [theme]);
 
+  // The decisions filter stays at the API's resolved default (dec-7) — the
+  // one toolbar control is the discipline selector below.
   useEffect(() => {
     let cancelled = false;
-    fetchKnowledgeGraph({ decisions: decisionFilter })
+    fetchKnowledgeGraph()
       .then((g) => {
         if (!cancelled) setGraph(g);
       })
@@ -91,7 +91,7 @@ export function Brain() {
     return () => {
       cancelled = true;
     };
-  }, [decisionFilter]);
+  }, []);
 
   const handleById = useMemo(() => {
     const m = new Map<string, string>();
@@ -108,6 +108,7 @@ export function Brain() {
   useEffect(() => {
     if (!graph || !hostRef.current) return;
     const sim = buildBrainGraph(graph, palette);
+    brainNodesRef.current = sim.nodes;
     if (rendererRef.current) {
       rendererRef.current.setPalette(MAP_PALETTES[theme]);
       rendererRef.current.setGraph(sim);
@@ -189,6 +190,26 @@ export function Brain() {
     return () => window.removeEventListener('keydown', onKey);
   }, [focus, focusDepth]);
 
+  // dec-7: selecting a discipline runs the exact single-click focus path —
+  // same FocusState, same renderer projection — plus a camera glide to it.
+  const focusDiscipline = (key: string) => {
+    if (!key) {
+      setFocus(null);
+      return;
+    }
+    const node = brainNodesRef.current.find((n) => n.kind === 'facet' && n.handle === key);
+    if (!node) return;
+    setFocus({
+      id: node.id,
+      kind: node.kind,
+      handle: node.handle,
+      title: node.title,
+      detail: node.detail,
+      href: node.href,
+    });
+    rendererRef.current?.centerOn(node.id);
+  };
+
   const shownDecisions = graph?.nodes.decisions.length ?? 0;
   const totalDecisions = graph?.meta.counts.decisions ?? 0;
   // An empty vault must explain itself, not render a silent blank canvas: no
@@ -199,9 +220,9 @@ export function Brain() {
     graph.nodes.standards.length === 0 &&
     graph.nodes.specs.length === 0 &&
     graph.nodes.decisions.length === 0;
-  // Special case: the vault HAS decisions, they just fail the current filter —
-  // point at the control instead of claiming the memex is empty.
-  const emptyButFilterHides = isEmpty && totalDecisions > 0 && decisionFilter !== 'all';
+  // Special case: the vault HAS decisions, none of them resolved (the graph
+  // shows resolved decisions) — say so instead of claiming the memex is empty.
+  const emptyButUnresolved = isEmpty && totalDecisions > 0;
 
   return (
     <div className="h-full flex flex-col px-6 py-6">
@@ -214,18 +235,18 @@ export function Brain() {
               {graph?.meta.truncated ? ' (truncated)' : ''}
             </span>
             <select
-              value={decisionFilter}
-              onChange={(e) => {
-                setFocus(null);
-                setDecisionFilter(e.target.value as KnowledgeGraphDecisionFilter);
-              }}
-              aria-label="Decisions shown"
+              value={focus?.kind === 'facet' ? focus.handle : ''}
+              onChange={(e) => focusDiscipline(e.target.value)}
+              aria-label="Focus a discipline"
               className="text-xs px-2 py-1.5 rounded-sm border border-edge bg-transparent text-secondary focus:outline-hidden focus:border-edge-strong"
-              data-testid="brain-decision-filter"
+              data-testid="brain-discipline-select"
             >
-              <option value="resolved">resolved decisions</option>
-              <option value="all">all decisions</option>
-              <option value="none">no decisions</option>
+              <option value="">Focus a discipline…</option>
+              {(graph?.nodes.facets ?? []).map((f) => (
+                <option key={f.id} value={f.key}>
+                  {f.name ?? f.key}
+                </option>
+              ))}
             </select>
           </div>
         }
@@ -247,11 +268,11 @@ export function Brain() {
               <div className="max-w-md text-center border border-edge-subtle rounded-lg p-8 bg-surface/40 pointer-events-auto">
                 <p className="text-sm text-secondary mb-1">Nothing to map yet.</p>
                 <p className="text-xs text-muted">
-                  {emptyButFilterHides ? (
+                  {emptyButUnresolved ? (
                     <>
                       This memex has {totalDecisions} decision
-                      {totalDecisions === 1 ? '' : 's'}, but none pass the current filter — try
-                      switching it to <span className="font-medium">all decisions</span> above.
+                      {totalDecisions === 1 ? '' : 's'}, but none are resolved yet — resolved
+                      decisions join the map.
                     </>
                   ) : (
                     <>

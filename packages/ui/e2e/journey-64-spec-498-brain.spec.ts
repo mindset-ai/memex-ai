@@ -7,8 +7,8 @@
 // then drives /brain for real:
 //   • type colours (dec-2): facet / standard / spec / decision each wear their
 //     std-27 hue, and the drifted standard + drifting decision are ROSE,
-//   • the decision filter (dec-3): 'resolved' (default) hides the open
-//     decision; flipping to 'all' brings it and its owning spec in,
+//   • the discipline selector (dec-7): selecting a discipline focuses it
+//     like a click and glides it into view,
 //   • click-to-focus + the focus card's Open action landing on the decision's
 //     canonical deep link (/specs/:spec/decisions/:dec).
 //
@@ -73,15 +73,16 @@ async function clickNode(page: Page, handle: string): Promise<void> {
   await page.mouse.click(box.x + pos.x, box.y + pos.y);
 }
 
-test("type colours, rose drift, decision filter, and focus-card deep link", async ({
+test("type colours, rose drift, discipline selector, and focus-card deep link", async ({
   page,
   resources,
 }) => {
   const slug = resources.slug("j64");
   const tenant = await seedOrgTenant({ slug });
 
-  // The facet vocabulary + a spec owning a balloted (open) decision.
-  const scenario = await seedFacetScenario({ memexId: tenant.memexId });
+  // The facet vocabulary + a spec owning a balloted, RESOLVED decision — it
+  // must pass the graph's resolved default filter (dec-7: no filter UI).
+  const scenario = await seedFacetScenario({ memexId: tenant.memexId, resolve: true });
   const decisionHandle = `dec-${scenario.decisionSeq}`;
 
   // Two standards; Clean cites Drifty so a mention edge materializes through
@@ -126,7 +127,7 @@ test("type colours, rose drift, decision filter, and focus-card deep link", asyn
     { timeout: 20_000 },
   );
 
-  // ── colour encoding on the default (resolved) filter ─────────────────────
+  // ── colour encoding (the resolved decision is present from first paint) ──
   const cleanFill = await nodeFill(page, clean.handle);
   const driftyFill = await nodeFill(page, drifty.handle);
   const facetFill = await nodeFill(page, scenario.facetKey);
@@ -139,28 +140,22 @@ test("type colours, rose drift, decision filter, and focus-card deep link", asyn
   expect(facetFill).not.toBe(cleanFill);
   expect(ROSE).not.toContain(cleanFill);
   expect(ROSE).not.toContain(facetFill);
-
-  // The seeded decision is OPEN → hidden under the default 'resolved' filter.
-  expect(
-    await page.evaluate(
-      (h) => (window as BrainHookWindow).__brainMapE2E?.nodePosition(h) ?? null,
-      decisionHandle,
-    ),
-  ).toBeNull();
-
-  // ── the decision filter (dec-3): flip to 'all' ───────────────────────────
-  await page.getByTestId("brain-decision-filter").selectOption("all");
-  await page.waitForFunction(
-    (h) => Boolean((window as BrainHookWindow).__brainMapE2E?.nodePosition(h)),
-    decisionHandle,
-    { timeout: 20_000 },
-  );
-  // The drifting decision joined the graph — and it is rose too (ac-3).
+  // The drifting (resolved) decision is on the map and rose too (ac-3)…
   expect(ROSE).toContain(await nodeFill(page, decisionHandle));
-  // Its owning spec rides in with it, in its own (non-rose) hue.
+  // …with its owning spec beside it in its own (non-rose) hue.
   const specFill = await nodeFill(page, scenario.specHandle);
   expect(specFill).not.toBeNull();
   expect(ROSE).not.toContain(specFill);
+
+  // ── the discipline selector (dec-7): select ≙ click + glide into view ────
+  await page.getByTestId("brain-discipline-select").selectOption(scenario.facetKey);
+  const disciplineCard = page.getByTestId("brain-focus-card");
+  await expect(disciplineCard).toBeVisible({ timeout: 5_000 });
+  await expect(page.getByTestId("brain-focus-title")).toContainText("Discipline");
+  // Escape restores, and the selector returns to its placeholder.
+  await page.keyboard.press("Escape");
+  await expect(disciplineCard).not.toBeVisible();
+  await expect(page.getByTestId("brain-discipline-select")).toHaveValue("");
 
   // ── click-to-focus + the deep link (ac-4 via the card's Open action) ─────
   await clickNode(page, decisionHandle);
