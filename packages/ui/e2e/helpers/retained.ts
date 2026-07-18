@@ -141,6 +141,9 @@ export async function seedComment(opts: {
    *  END char offset into the section source; START is optional. */
   anchorEndOffset?: number;
   anchorStartOffset?: number;
+  /** spec-498 (dec-4): link a drift comment to its source decision, so a
+   *  journey can materialize a Brain drift edge via the real write path. */
+  driftDecisionId?: string;
 }): Promise<{ commentId: string; seq: number }> {
   return call("POST", "/seed-comment", opts);
 }
@@ -171,7 +174,7 @@ export async function seedOpenDecision(opts: {
  *  a memex, returning the spec handle + the facet key the pills should show. */
 export async function seedFacetScenario(opts: {
   memexId: string;
-}): Promise<{ specHandle: string; facetKey: string }> {
+}): Promise<{ specHandle: string; facetKey: string; decisionId: string; decisionSeq: number }> {
   return call("POST", "/seed-facet-scenario", opts);
 }
 

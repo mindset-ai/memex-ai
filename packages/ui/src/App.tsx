@@ -40,6 +40,8 @@ const StandardList = lazy(() =>
   import('./pages/StandardList').then((m) => ({ default: m.StandardList })),
 );
 const Standard = lazy(() => import('./pages/Standard').then((m) => ({ default: m.Standard })));
+// spec-498 — Brain: the whole-vault knowledge graph (facets/standards/specs/decisions).
+const Brain = lazy(() => import('./pages/Brain').then((m) => ({ default: m.Brain })));
 // spec-300 t-6 — the in-app Skills surface (list + detail).
 const SkillList = lazy(() => import('./pages/SkillList').then((m) => ({ default: m.SkillList })));
 const Skill = lazy(() => import('./pages/Skill').then((m) => ({ default: m.Skill })));
@@ -639,6 +641,8 @@ export function PostLoginRouter() {
         <Route path="issues" element={<IssuesList />} />
         <Route path="standards" element={<StandardList />} />
         <Route path="standards/:id" element={<Standard />} />
+        {/* spec-498: Brain — the whole-vault knowledge graph view. */}
+        <Route path="brain" element={<Brain />} />
         {/* spec-300 t-6: Skills — the reusable-SKILL.md surface (list + detail). */}
         <Route path="skills" element={<SkillList />} />
         <Route path="skills/:id" element={<Skill />} />

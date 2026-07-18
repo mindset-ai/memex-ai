@@ -109,6 +109,22 @@ const PRINCIPLES_NAV_LINKS: ReadonlyArray<NavLinkDef> = [
       </svg>
     ),
   },
+  // spec-498: Brain — the whole-vault knowledge graph (facets, standards,
+  // specs, decisions + drift). Sits right after Standards: it is the map of
+  // the same reference material.
+  {
+    to: '/brain',
+    label: 'Brain',
+    icon: (
+      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+        <circle cx="12" cy="5" r="2" />
+        <circle cx="5" cy="12" r="2" />
+        <circle cx="19" cy="12" r="2" />
+        <circle cx="12" cy="19" r="2" />
+        <path strokeLinecap="round" d="M10.6 6.4L6.4 10.6M13.4 6.4l4.2 4.2M6.4 13.4l4.2 4.2M17.6 13.4l-4.2 4.2" />
+      </svg>
+    ),
+  },
   // spec-300 t-6: Skills — reusable SKILL.md docs the agent can pick up. Sits
   // beside Standards as a Principles surface (both are living reference docs).
   {

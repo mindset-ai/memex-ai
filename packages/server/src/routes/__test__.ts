@@ -571,7 +571,9 @@ testOnlyRouter.post("/seed-facet-scenario", async (c) => {
   const decision = await createDecision(memexId, spec.id, "A balloted decision", undefined, "human");
   await castDecisionBallot(memexId, spec.id, decision.id, ballot, {});
 
-  return c.json({ specHandle: spec.handle, facetKey: chosen });
+  // spec-498 (dec-4): the Brain journey links a drift comment to this decision
+  // and asserts its node/deep-link, so the ids it already owns are returned.
+  return c.json({ specHandle: spec.handle, facetKey: chosen, decisionId: decision.id, decisionSeq: decision.seq });
 });
 
 // Real native-auth signup [per std-13] that ALSO returns the raw email-
@@ -1007,6 +1009,10 @@ const seedCommentSchema = z.object({
   // source; anchorStartOffset, when supplied, is the START. Section target only.
   anchorEndOffset: z.number().int().nonnegative().optional(),
   anchorStartOffset: z.number().int().nonnegative().optional(),
+  // spec-498 (dec-4): link a seeded drift comment to its source decision via
+  // the comments service's existing extras.driftDecisionId (spec-497), so the
+  // Brain journey can materialize a drift edge through the real write path.
+  driftDecisionId: z.string().uuid().optional(),
 });
 testOnlyRouter.post("/seed-comment", async (c) => {
   const body = await c.req.json().catch(() => null);
@@ -1014,10 +1020,11 @@ testOnlyRouter.post("/seed-comment", async (c) => {
   if (!parsed.success) {
     return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
   }
-  const { memexId, target, targetId, authorName, content, commentType, anchorEndOffset, anchorStartOffset } = parsed.data;
-  const extras = commentType
-    ? ({ type: commentType } as Parameters<typeof addComment>[4])
-    : undefined;
+  const { memexId, target, targetId, authorName, content, commentType, anchorEndOffset, anchorStartOffset, driftDecisionId } = parsed.data;
+  const extras =
+    commentType || driftDecisionId
+      ? ({ type: commentType, driftDecisionId } as Parameters<typeof addComment>[4])
+      : undefined;
   const comment =
     target === "section"
       ? anchorEndOffset != null

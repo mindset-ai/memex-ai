@@ -494,7 +494,9 @@ export class StandardsMapRenderer {
       if (!view) continue;
       const lit = node.id === this.hovered || this.searchHits?.has(node.id);
       const base = nodeColor(node, this.palette);
-      const color = lit ? this.palette.nodeHover : base;
+      // Colour-overridden nodes (spec-498 dec-1) keep their own hue when lit —
+      // the hue IS the information; glow + label carry the emphasis.
+      const color = lit && node.color === undefined ? this.palette.nodeHover : base;
       view.circle.clear().circle(0, 0, node.radius).fill(color);
       // The glow (ac-2): two soft rings in the node's own cluster colour;
       // overall strength rides the eased glow level via the Graphics alpha.
@@ -561,7 +563,12 @@ export class StandardsMapRenderer {
 
     // Mention edge: stroke eases from the calm palette toward the accent
     // with emphasis (ac-2); inside the emphasis it carries direction (dec-4).
-    const color = mixColor(this.palette.mention, this.palette.nodeHover, emphasis);
+    // Colour-overridden edges (spec-498 dec-1) keep their own hue throughout —
+    // emphasis still lifts their alpha below.
+    const color =
+      link.color !== undefined
+        ? link.color
+        : mixColor(this.palette.mention, this.palette.nodeHover, emphasis);
     const flowing = this.flowing.has(link.id) && emphasis > 0.05;
 
     if (flowing && !this.options.reducedMotion) {

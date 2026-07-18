@@ -30,6 +30,13 @@ export interface SimNode {
    * neutral slate).
    */
   cluster?: number;
+  /**
+   * Explicit fill override (spec-498 dec-1) — set by graphs that encode
+   * meaning in colour (the Brain view's type hues). Wins over cluster/neutral
+   * in nodeColor(), and such nodes keep their own hue under hover/search
+   * emphasis (glow + label carry the emphasis instead).
+   */
+  color?: number;
   // d3-force mutates these in place during the simulation.
   x?: number;
   y?: number;
@@ -47,6 +54,12 @@ export interface SimLink {
   kind: 'mention' | 'semantic';
   /** Stroke width — mention edges scale with citing-clause count. */
   width: number;
+  /**
+   * Explicit calm-stroke override (spec-498 dec-1) — e.g. the Brain view's
+   * rose drift edges. An overridden edge keeps its own colour under emphasis
+   * (alpha still rises); absent, the palette mention/semantic strokes apply.
+   */
+  color?: number;
   count?: number;
   evidence?: EvidenceItem[];
   similarity?: number;
@@ -130,11 +143,13 @@ export function clusterAssignments(
 }
 
 /**
- * The fill colour for a node: its cluster's hue (cycling when clusters
- * outnumber hues), or the neutral node colour when unclustered. The accent
- * stays reserved for hover/search/semantic emphasis (std-27 cl-3).
+ * The fill colour for a node: an explicit override first (spec-498 dec-1 —
+ * graphs that encode meaning in colour), then its cluster's hue (cycling when
+ * clusters outnumber hues), then the neutral node colour. The accent stays
+ * reserved for hover/search/semantic emphasis (std-27 cl-3).
  */
-export function nodeColor(node: Pick<SimNode, 'cluster'>, palette: MapPalette): number {
+export function nodeColor(node: Pick<SimNode, 'cluster' | 'color'>, palette: MapPalette): number {
+  if (node.color !== undefined) return node.color;
   if (node.cluster === undefined || palette.clusterHues.length === 0) return palette.node;
   return palette.clusterHues[node.cluster % palette.clusterHues.length];
 }
