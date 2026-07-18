@@ -29,6 +29,7 @@ import {
   formatState,
   reqCtx,
   resolveStandardSectionRef,
+  resolveDecisionRefArg,
   type ToolSpec,
 } from "./shared.js";
 
@@ -97,7 +98,7 @@ export const standardsTools: ToolSpec[] = [
     name: "flag_drift",
     annotations: { title: "Flag Standard drift", readOnlyHint: false, destructiveHint: false },
     description:
-      "Flag drift on a standard section — post a typed `drift` comment (sourced 'agent') describing the gap between the rule and observed reality. Drift often surfaces *mid-change*, not at the start of a task: stay watchful as you implement and flag the moment you see the gap. If the rule itself is wrong (not just out-of-sync with code), use `propose_standard_change` instead.",
+      "Flag drift on a standard section — post a typed `drift` comment (sourced 'agent') describing the gap between the rule and observed reality. Drift often surfaces *mid-change*, not at the start of a task: stay watchful as you implement and flag the moment you see the gap. If a resolved decision prompted this observation, pass its `decisionRef` so the drift links back to that decision (it appears as a decision→standard edge on the knowledge graph). If the rule itself is wrong (not just out-of-sync with code), use `propose_standard_change` instead.",
     schema: {
       ref: z
         .string()
@@ -107,20 +108,32 @@ export const standardsTools: ToolSpec[] = [
       observation: z
         .string()
         .describe("What the agent observed that diverges from the standard rule"),
+      decisionRef: z
+        .string()
+        .optional()
+        .describe(
+          "Optional canonical ref to the decision that triggered this drift, e.g. `<ns>/<mx>/specs/spec-N/decisions/dec-M` — pass it when a resolved decision prompted the observation so the drift links back to that decision. Omit for drift with no single triggering decision. NOT a UUID.",
+        ),
       verbose: VERBOSE_FIELD,
     },
     async handler(input, ctx) {
       const ref = input.ref as string;
       const observation = input.observation as string;
+      const decisionRef = input.decisionRef as string | undefined;
 
       // spec-143 ac-14: address the section by canonical ref, not a raw UUID
       // (see resolveStandardSectionRef).
       const { memexId, sectionId } = await resolveStandardSectionRef(ctx, ref);
+      // spec-497 dec-3: resolve the optional triggering-decision ref (same-memex
+      // enforced) to stamp drift_decision_id for the knowledge-graph edge.
+      const driftDecisionId = decisionRef
+        ? (await resolveDecisionRefArg(ctx, decisionRef, memexId)).decisionId
+        : null;
       // spec-156 W2 (FINDING 3): thread the invoking surface so the
       // standard_drift event is attributed to the actor (mcp vs in_app_agent)
       // instead of falling back to channel 'server' / actorKind 'system'.
       // Same idiom as the update_doc tag path above (tagCtx).
-      const comment = await flagDrift(memexId, sectionId, observation, {}, {
+      const comment = await flagDrift(memexId, sectionId, observation, { driftDecisionId }, {
         channel: ctx.channel ?? "mcp",
       });
       // b-36 D-8: emit the affected entity as a canonical `ref:` (the drift
