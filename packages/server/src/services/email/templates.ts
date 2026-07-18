@@ -371,8 +371,10 @@ export function buildWelcomeEmail(input: WelcomeEmailInput): EmailMessage {
     "We all went all in on MD docs for building with AI: first for specifying features, then for passing context between humans and agents at scale. Exciting at first (we did it too!).";
   // spec-488 s-2 — the "sh*t" spelling is a deliberate voice choice; the asterisk
   // softens spam-filter risk. Accepted for the day-one transactional send.
+  // spec-487 formatting fix — "The problem?" on its own line, then the paragraph.
+  const problem = "The problem?";
   const para2 =
-    "The problem? They're sh*t because they're only documents. They don't force agents to build specific things, so agents interpret, skip parts, and make executive decisions without your say-so. That's why AI coding gets so frustrating. And as the way you pass context, they go stale, need versions, and turn chaotic fast: a burst of productivity, then a ceiling.";
+    "They're sh*t because they're only documents. They don't force agents to build specific things, so agents interpret, skip parts, and make executive decisions without your say-so. That's why AI coding gets so frustrating. And as the way you pass context, they go stale, need versions, and turn chaotic fast: a burst of productivity, then a ceiling.";
   const fix1 =
     "Your docs become living specs. Each decision becomes a perfectly scoped agent task with an acceptance criterion that forces the agent to build exactly what you want. Right the first time (yes, it's as good as it sounds).";
   const fix2 =
@@ -385,6 +387,7 @@ export function buildWelcomeEmail(input: WelcomeEmailInput): EmailMessage {
       greeting,
       intro,
       para1,
+      problem,
       para2,
       "Memex fixes both:",
       `1. ${fix1}`,
@@ -407,6 +410,7 @@ export function buildWelcomeEmail(input: WelcomeEmailInput): EmailMessage {
       escapeHtml(greeting),
       escapeHtml(intro),
       escapeHtml(para1),
+      escapeHtml(problem),
       escapeHtml(para2),
       "<strong>Memex fixes both:</strong>",
       `<strong>1.</strong> ${escapeHtml(fix1)}`,
@@ -520,8 +524,13 @@ export function buildConnectedInactiveEmail(
   const greeting = activationGreeting(input.firstName);
   const p1 =
     "Memex is connected, but the change you signed up for does not show until there is a Spec. Without one, your agent is still working off a document: it reads what it likes, skips the rest, and fills the gaps with its own assumptions, so you are back to re-prompting and re-reviewing.";
-  const p2 =
-    "A Memex spec fixes that. You create it right from your coding agent: it reads your repo, and together you work through the major decisions and the why behind what you are building. Each one becomes a task with an acceptance criterion your agent has to build to, not prose it can pass over. The more you settle upfront, the more it gets right first time.";
+  const p2 = "A Memex spec fixes that. You create it right from your coding agent:";
+  // spec-487 formatting fix — the three clauses each on their own line.
+  const p2lines = [
+    "It reads your repo, and together you work through the major decisions and the why behind what you are building.",
+    "Each one becomes a task with an acceptance criterion your agent has to build to, not prose it can pass over.",
+    "The more you settle upfront, the more it gets right first time.",
+  ];
   const videoIntro = "See it done in 3 minutes: a quick guide to creating your first spec.";
   const thenBring = "Then bring one small piece of work and paste this into your coding agent:";
   const prompt1 =
@@ -540,6 +549,7 @@ export function buildConnectedInactiveEmail(
       greeting,
       p1,
       p2,
+      ...p2lines,
       `${videoIntro} Watch it here: ${CONNECTED_INACTIVE_VIDEO_URL}`,
       thenBring,
       `"${prompt1}"`,
@@ -559,6 +569,7 @@ export function buildConnectedInactiveEmail(
       escapeHtml(greeting),
       escapeHtml(p1),
       escapeHtml(p2),
+      p2lines.map((l) => escapeHtml(l)).join("<br>"),
       escapeHtml(videoIntro),
       renderVideoThumbnail({
         videoUrl: CONNECTED_INACTIVE_VIDEO_URL,
@@ -726,10 +737,16 @@ export function buildWinbackEmail(input: WinbackEmailInput): EmailMessage {
 
   // spec-487 s-3 copy (the code is the canonical authoring source; s-3 mirrors it).
   const p1 =
-    "Right now your agent works from markdown: files it interprets, skips, and fills in with its own assumptions. That is what drives the re-prompting and re-reviewing, and it only gets worse on brownfield code.";
-  const p2 = "Memex never touches your repo, but your coding agent does.";
-  const p3 =
-    "So connecting the MCP makes your agent the bridge: it reads your real codebase, and everything you decide gets grounded in it, in one place instead of scattered across threads and MD files. Once connected, you start speccing against your actual code, not a blank page, and the more decisions you settle upfront, the more your agent gets right first time.";
+    "Right now, your agent works from markdown files it interprets, skips, and fills in with its own assumptions. That is what drives the re-prompting and re-reviewing, and it only gets worse on brownfield code.";
+  // spec-487 formatting fix — merge the bridge intro into one line, then the three
+  // clauses each on their own line.
+  const bridge =
+    "Memex never touches your repo, but your coding agent does. So connecting the MCP makes your agent the bridge:";
+  const bridgeLines = [
+    "It reads your real codebase, and everything you decide gets grounded in it, in one place instead of scattered across threads and MD files.",
+    "Once connected, you start speccing against your actual code, not a blank page.",
+    "The more decisions you settle upfront, the more your agent gets right first time.",
+  ];
   const videoIntro =
     "See it done in 3 minutes: a quick guide to connecting the MCP and creating your first spec.";
   const connectIntro = "Connect your MCP & create a spec:";
@@ -751,8 +768,8 @@ export function buildWinbackEmail(input: WinbackEmailInput): EmailMessage {
     intro: [
       greeting,
       p1,
-      p2,
-      p3,
+      bridge,
+      ...bridgeLines,
       `${videoIntro} Watch it here: ${WINBACK_VIDEO_URL}`,
       connectIntro,
       connectStep,
@@ -772,8 +789,8 @@ export function buildWinbackEmail(input: WinbackEmailInput): EmailMessage {
     bodyParagraphs: [
       escapeHtml(greeting),
       escapeHtml(p1),
-      escapeHtml(p2),
-      escapeHtml(p3),
+      escapeHtml(bridge),
+      bridgeLines.map((l) => escapeHtml(l)).join("<br>"),
       escapeHtml(videoIntro),
       renderVideoThumbnail({
         videoUrl: WINBACK_VIDEO_URL,
@@ -855,11 +872,12 @@ export function buildVerifiedMilestoneEmail(
   // spec-487 s-4 copy (copy-only rewrite, no video). Owned by spec-453 — coordinated.
   const p1 =
     "Congratulations. You just did something a markdown spec can never do: an acceptance criterion, verified in CI. It went green on its own, without you re-reading a diff and hoping the agent caught what mattered. That is proof that what you decided got built.";
-  const p2 = "Two ways to make that compound.";
-  const p3 =
-    "First, run another Spec. Every one you finish makes the next faster, because your agents inherit what you have already decided.";
-  const p4 =
-    "Second, set up your standards. You already have rules written down in CLAUDE.md, AGENTS.md or your Cursor rules. Point your agent at them and paste this:";
+  const p2 = "Two ways to make that compound:";
+  // spec-487 formatting fix — the two moves each on their own line (dropped First/Second).
+  const compoundLines = [
+    "Run another Spec. Every one you finish makes the next faster, because your agents inherit what you have already decided.",
+    "Set up your standards. You already have rules written down in CLAUDE.md, AGENTS.md or your Cursor rules. Point your agent at them and paste this:",
+  ];
   const prompt =
     "Read my CLAUDE.md and AGENTS.md, create Memex standards from the rules in them, then rewrite the MD file as a contents page that tells my agents which Memex standard applies to what.";
   const p5 =
@@ -867,7 +885,7 @@ export function buildVerifiedMilestoneEmail(
   const needHand = "Questions? Reply here, or find us in #help on Discord.";
 
   const text = renderEmailText({
-    intro: [greeting, p1, p2, p3, p4, `"${prompt}"`, p5, needHand],
+    intro: [greeting, p1, p2, ...compoundLines, `"${prompt}"`, p5, needHand],
     url: input.appUrl,
     closing: ACTIVATION_SIGNOFF_TEXT,
   });
@@ -880,8 +898,7 @@ export function buildVerifiedMilestoneEmail(
       escapeHtml(greeting),
       escapeHtml(p1),
       `<strong>${escapeHtml(p2)}</strong>`,
-      escapeHtml(p3),
-      escapeHtml(p4),
+      compoundLines.map((l) => escapeHtml(l)).join("<br>"),
       `<em>&ldquo;${escapeHtml(prompt)}&rdquo;</em>`,
       escapeHtml(p5),
     ],
