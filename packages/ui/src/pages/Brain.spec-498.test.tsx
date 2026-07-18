@@ -427,6 +427,32 @@ describe('Brain page shell', () => {
     expect(screen.queryByTestId('brain-focus-open')).toBeNull();
   });
 
+  it('an empty vault explains itself instead of rendering a blank canvas', async () => {
+    tagAc(AC_SCOPE_SURFACE);
+    const EMPTY: KnowledgeGraphData = {
+      nodes: { facets: [], standards: [], specs: [], decisions: [] },
+      edges: { specDecision: [], standardFacet: [], decisionFacet: [], mentions: [], semantic: [], drift: [] },
+      meta: { decisionFilter: 'resolved', truncated: false, counts: { facets: 0, standards: 0, specs: 0, decisions: 0 } },
+    };
+    vi.mocked(fetchKnowledgeGraph).mockImplementation(async () => ({ ...EMPTY }));
+    await renderBrain();
+    const empty = await screen.findByTestId('brain-empty');
+    expect(empty.textContent).toContain('Nothing to map yet');
+    // With decisions that merely fail the filter, the copy points at the control.
+    vi.mocked(fetchKnowledgeGraph).mockImplementation(async () => ({
+      ...EMPTY,
+      meta: { ...EMPTY.meta, counts: { ...EMPTY.meta.counts, decisions: 3 } },
+    }));
+    fireEvent.change(screen.getByTestId('brain-decision-filter'), { target: { value: 'none' } });
+    await waitFor(() =>
+      expect(screen.getByTestId('brain-empty').textContent).toContain('none pass the current filter'),
+    );
+    // A populated graph shows no empty-state veil.
+    vi.mocked(fetchKnowledgeGraph).mockImplementation(async () => ({ ...KG }));
+    fireEvent.change(screen.getByTestId('brain-decision-filter'), { target: { value: 'all' } });
+    await waitFor(() => expect(screen.queryByTestId('brain-empty')).toBeNull());
+  });
+
   it('double-click navigates directly; Escape and background click restore', async () => {
     tagAc(AC_SCOPE_CLICK_THROUGH);
     const renderer = await renderBrain();

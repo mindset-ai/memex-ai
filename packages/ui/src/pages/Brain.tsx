@@ -184,6 +184,17 @@ export function Brain() {
 
   const shownDecisions = graph?.nodes.decisions.length ?? 0;
   const totalDecisions = graph?.meta.counts.decisions ?? 0;
+  // An empty vault must explain itself, not render a silent blank canvas: no
+  // facets, no standards, and no decisions passing the filter = nothing to map.
+  const isEmpty =
+    graph !== null &&
+    graph.nodes.facets.length === 0 &&
+    graph.nodes.standards.length === 0 &&
+    graph.nodes.specs.length === 0 &&
+    graph.nodes.decisions.length === 0;
+  // Special case: the vault HAS decisions, they just fail the current filter —
+  // point at the control instead of claiming the memex is empty.
+  const emptyButFilterHides = isEmpty && totalDecisions > 0 && decisionFilter !== 'all';
 
   return (
     <div className="h-full flex flex-col px-6 py-6">
@@ -220,6 +231,32 @@ export function Brain() {
       ) : (
         <div className="relative flex-1 min-h-[480px]" data-testid="brain-map">
           <div ref={hostRef} className="absolute inset-0 overflow-hidden" data-testid="brain-map-canvas" />
+
+          {isEmpty && (
+            <div
+              className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none"
+              data-testid="brain-empty"
+            >
+              <div className="max-w-md text-center border border-edge-subtle rounded-lg p-8 bg-surface/40 pointer-events-auto">
+                <p className="text-sm text-secondary mb-1">Nothing to map yet.</p>
+                <p className="text-xs text-muted">
+                  {emptyButFilterHides ? (
+                    <>
+                      This memex has {totalDecisions} decision
+                      {totalDecisions === 1 ? '' : 's'}, but none pass the current filter — try
+                      switching it to <span className="font-medium">all decisions</span> above.
+                    </>
+                  ) : (
+                    <>
+                      The Brain draws how everything in a memex connects — specs own decisions,
+                      decisions touch facets, facets govern standards, and open drift shows up
+                      red. It lights up once this memex has standards, facets, or decisions.
+                    </>
+                  )}
+                </p>
+              </div>
+            </div>
+          )}
 
           {/* The colour legend (dec-2) — always visible, the encoding is
               self-describing. Rose is the one alarm colour: open drift. */}
